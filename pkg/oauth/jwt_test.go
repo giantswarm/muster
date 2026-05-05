@@ -24,34 +24,45 @@ func jwtFromPayload(t *testing.T, payload string) string {
 
 func TestSubject(t *testing.T) {
 	t.Run("returns sub claim", func(t *testing.T) {
-		assert.Equal(t, "alice", Subject(jwtFromPayload(t, `{"sub":"alice"}`)))
+		sub, err := Subject(jwtFromPayload(t, `{"sub":"alice"}`))
+		require.NoError(t, err)
+		assert.Equal(t, "alice", sub)
 	})
 
-	t.Run("returns empty for malformed token", func(t *testing.T) {
-		assert.Equal(t, "", Subject("not-a-jwt"))
+	t.Run("returns error for malformed token", func(t *testing.T) {
+		sub, err := Subject("not-a-jwt")
+		require.Error(t, err)
+		assert.Equal(t, "", sub)
 	})
 
-	t.Run("returns empty when sub absent", func(t *testing.T) {
-		assert.Equal(t, "", Subject(jwtFromPayload(t, `{"email":"a@b"}`)))
+	t.Run("returns empty without error when sub absent", func(t *testing.T) {
+		sub, err := Subject(jwtFromPayload(t, `{"email":"a@b"}`))
+		require.NoError(t, err)
+		assert.Equal(t, "", sub)
 	})
 
-	t.Run("returns empty for empty token", func(t *testing.T) {
-		assert.Equal(t, "", Subject(""))
+	t.Run("returns error for empty token", func(t *testing.T) {
+		_, err := Subject("")
+		require.Error(t, err)
 	})
 }
 
 func TestEmail(t *testing.T) {
 	t.Run("returns email claim", func(t *testing.T) {
-		assert.Equal(t, "alice@example.com",
-			Email(jwtFromPayload(t, `{"sub":"alice","email":"alice@example.com"}`)))
+		email, err := Email(jwtFromPayload(t, `{"sub":"alice","email":"alice@example.com"}`))
+		require.NoError(t, err)
+		assert.Equal(t, "alice@example.com", email)
 	})
 
-	t.Run("returns empty for malformed token", func(t *testing.T) {
-		assert.Equal(t, "", Email("not-a-jwt"))
+	t.Run("returns error for malformed token", func(t *testing.T) {
+		_, err := Email("not-a-jwt")
+		require.Error(t, err)
 	})
 
-	t.Run("returns empty when email absent", func(t *testing.T) {
-		assert.Equal(t, "", Email(jwtFromPayload(t, `{"sub":"alice"}`)))
+	t.Run("returns empty without error when email absent", func(t *testing.T) {
+		email, err := Email(jwtFromPayload(t, `{"sub":"alice"}`))
+		require.NoError(t, err)
+		assert.Equal(t, "", email)
 	})
 }
 
@@ -116,7 +127,9 @@ func TestPaddedBase64(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			token := jwtTestHeaderRawURL + "." +
 				tc.enc.EncodeToString([]byte(payload)) + "." + jwtTestSig
-			assert.Equal(t, "alice", Subject(token))
+			sub, err := Subject(token)
+			require.NoError(t, err)
+			assert.Equal(t, "alice", sub)
 			exp, err := Expiry(token)
 			require.NoError(t, err)
 			assert.Equal(t, int64(9999999999), exp.Unix())
@@ -129,9 +142,37 @@ func TestPaddedBase64(t *testing.T) {
 // flow, not for diagnostic inspection of partial inputs.
 func TestRejectsNon3PartTokens(t *testing.T) {
 	twoPart := jwtTestHeaderRawURL + "." + base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"alice"}`))
-	assert.Equal(t, "", Subject(twoPart))
-	_, err := Expiry(twoPart)
+	_, err := Subject(twoPart)
+	require.Error(t, err)
+	_, err = Expiry(twoPart)
 	require.Error(t, err)
 	_, err = Issuer(twoPart)
 	require.Error(t, err)
+}
+
+func TestIsExpired(t *testing.T) {
+	t.Run("returns false for token with future exp", func(t *testing.T) {
+		expired, err := IsExpired(jwtFromPayload(t, `{"exp":9999999999}`))
+		require.NoError(t, err)
+		assert.False(t, expired)
+	})
+
+	t.Run("returns true with no error for past exp", func(t *testing.T) {
+		expired, err := IsExpired(jwtFromPayload(t, `{"exp":1}`))
+		require.NoError(t, err)
+		assert.True(t, expired)
+	})
+
+	t.Run("returns true with ErrTokenExpMissing when exp absent", func(t *testing.T) {
+		expired, err := IsExpired(jwtFromPayload(t, `{"sub":"alice"}`))
+		assert.True(t, expired)
+		assert.True(t, errors.Is(err, ErrTokenExpMissing))
+	})
+
+	t.Run("returns true with decode error for malformed token", func(t *testing.T) {
+		expired, err := IsExpired("not-a-jwt")
+		assert.True(t, expired)
+		require.Error(t, err)
+		assert.False(t, errors.Is(err, ErrTokenExpMissing))
+	})
 }

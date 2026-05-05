@@ -285,7 +285,11 @@ func (a *AuthAdapter) trySilentReAuth(ctx context.Context, mgr *oauth.AuthManage
 	var loginHint string
 	var idTokenHint string
 	if storedToken.IDToken != "" {
-		loginHint = pkgoauth.Email(storedToken.IDToken)
+		var err error
+		loginHint, err = pkgoauth.Email(storedToken.IDToken)
+		if err != nil {
+			logging.Debug("AuthAdapter", "Failed to extract email for login hint: %v", err)
+		}
 		idTokenHint = storedToken.IDToken
 	}
 
@@ -614,8 +618,15 @@ func (a *AuthAdapter) getStatusFromManager(endpoint string, mgr *oauth.AuthManag
 			}
 			// Extract identity from ID token if available
 			if storedToken.IDToken != "" {
-				status.Subject = pkgoauth.Subject(storedToken.IDToken)
-				status.Email = pkgoauth.Email(storedToken.IDToken)
+				var err error
+				status.Subject, err = pkgoauth.Subject(storedToken.IDToken)
+				if err != nil {
+					logging.Debug("AuthAdapter", "Failed to extract subject from ID token: %v", err)
+				}
+				status.Email, err = pkgoauth.Email(storedToken.IDToken)
+				if err != nil {
+					logging.Debug("AuthAdapter", "Failed to extract email from ID token: %v", err)
+				}
 			}
 		} else if challenge := mgr.GetAuthChallenge(); challenge != nil {
 			// Fallback to auth challenge for issuer

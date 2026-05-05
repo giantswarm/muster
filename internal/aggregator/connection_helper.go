@@ -312,9 +312,9 @@ func EstablishConnectionWithTokenForwarding(
 
 	// Validate ID token is not expired before forwarding
 	// This avoids unnecessary network round-trips with expired tokens
-	if pkgoauth.IsExpired(idToken) {
-		logging.Warn("Connection", "ID token expired for user %s, cannot forward to %s",
-			logging.TruncateIdentifier(sub), serverInfo.Name)
+	if expired, expErr := pkgoauth.IsExpired(idToken); expired {
+		logging.Warn("Connection", "ID token expired for user %s, cannot forward to %s: %v",
+			logging.TruncateIdentifier(sub), serverInfo.Name, expErr)
 		return nil, fmt.Errorf("ID token has expired, needs refresh before forwarding")
 	}
 
@@ -546,18 +546,18 @@ func EstablishConnectionWithTokenExchange(
 	}
 
 	// Validate ID token is not expired before exchanging
-	if pkgoauth.IsExpired(idToken) {
-		logging.Warn("Connection", "ID token expired for user %s, cannot exchange for %s",
-			logging.TruncateIdentifier(sub), serverInfo.Name)
+	if expired, expErr := pkgoauth.IsExpired(idToken); expired {
+		logging.Warn("Connection", "ID token expired for user %s, cannot exchange for %s: %v",
+			logging.TruncateIdentifier(sub), serverInfo.Name, expErr)
 		return nil, fmt.Errorf("ID token has expired, needs refresh before exchange")
 	}
 
 	// Extract user ID from the token for cache key generation
-	userID := pkgoauth.Subject(idToken)
-	if userID == "" {
-		logging.Warn("Connection", "Failed to extract user ID from token for user %s",
-			logging.TruncateIdentifier(sub))
-		return nil, fmt.Errorf("failed to extract user ID from token")
+	userID, err := pkgoauth.Subject(idToken)
+	if err != nil || userID == "" {
+		logging.Warn("Connection", "Failed to extract user ID from token for user %s: %v",
+			logging.TruncateIdentifier(sub), err)
+		return nil, fmt.Errorf("failed to extract user ID from token: %w", err)
 	}
 
 	logging.Info("Connection", "Attempting token exchange for user %s to server %s",

@@ -75,7 +75,11 @@ func (a *AggregatorServer) adminListSessions(ctx context.Context) ([]admin.Sessi
 		oauthHandler := api.GetOAuthHandler()
 		if oauthHandler != nil && oauthHandler.IsEnabled() {
 			if tok := oauthHandler.FindTokenWithIDToken(sid); tok != nil && tok.IDToken != "" {
-				summary.Email = pkgoauth.Email(tok.IDToken)
+				var err error
+				summary.Email, err = pkgoauth.Email(tok.IDToken)
+				if err != nil {
+					logging.Debug("AdminAdapter", "Failed to extract email for session %s: %v", logging.TruncateIdentifier(sid), err)
+				}
 			}
 		}
 
@@ -153,7 +157,11 @@ func (a *AggregatorServer) adminGetSessionDetail(ctx context.Context, sessionID 
 	var email string
 	if oauthEnabled {
 		if tok := oauthHandler.FindTokenWithIDToken(sessionID); tok != nil && tok.IDToken != "" {
-			email = pkgoauth.Email(tok.IDToken)
+			var err error
+			email, err = pkgoauth.Email(tok.IDToken)
+			if err != nil {
+				logging.Debug("AdminAdapter", "Failed to extract email for session %s: %v", logging.TruncateIdentifier(sessionID), err)
+			}
 		}
 	}
 

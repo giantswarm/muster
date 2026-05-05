@@ -2525,13 +2525,13 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 	if idToken == "" {
 		return nil, time.Time{}, "", fmt.Errorf("no ID token available for token exchange to %s", serverName)
 	}
-	if pkgoauth.IsExpired(idToken) {
-		return nil, time.Time{}, "", fmt.Errorf("ID token has expired for %s, re-authenticate to refresh", serverName)
+	if expired, err := pkgoauth.IsExpired(idToken); expired {
+		return nil, time.Time{}, "", fmt.Errorf("ID token has expired for %s, re-authenticate to refresh: %w", serverName, err)
 	}
 
-	userID := pkgoauth.Subject(idToken)
-	if userID == "" {
-		return nil, time.Time{}, "", fmt.Errorf("failed to extract user ID from token for %s", serverName)
+	userID, err := pkgoauth.Subject(idToken)
+	if err != nil || userID == "" {
+		return nil, time.Time{}, "", fmt.Errorf("failed to extract user ID from token for %s: %w", serverName, err)
 	}
 
 	exchangeConfig := *serverInfo.AuthConfig.TokenExchange
@@ -2565,7 +2565,6 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 	}
 
 	var exchangedToken string
-	var err error
 	if teleportResult.Client != nil {
 		exchangedToken, err = oauthHandler.ExchangeTokenForRemoteClusterWithClient(
 			ctx, idToken, userID, &exchangeConfig, teleportResult.Client,
@@ -2687,8 +2686,8 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 			return nil, nil, fmt.Errorf("no ID token available for forwarding to %s", serverName)
 		}
 
-		if pkgoauth.IsExpired(idToken) {
-			return nil, nil, fmt.Errorf("ID token has expired for %s, re-authenticate to refresh", serverName)
+		if expired, err := pkgoauth.IsExpired(idToken); expired {
+			return nil, nil, fmt.Errorf("ID token has expired for %s, re-authenticate to refresh: %w", serverName, err)
 		}
 
 		headerFunc := func(_ context.Context) map[string]string {

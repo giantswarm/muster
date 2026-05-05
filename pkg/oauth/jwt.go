@@ -39,19 +39,27 @@ func parseUnverified(token string) (tokenClaims, error) {
 	return c, err
 }
 
-// Subject returns the sub claim of a trusted JWT. Returns "" on any parse
-// failure or when the claim is absent.
-func Subject(token string) string {
-	c, _ := parseUnverified(token)
-	return c.Subject
+// Subject returns the sub claim of a trusted JWT. Returns "" with a wrapped
+// error on decode failure; returns ("", nil) when the token parses but has
+// no sub claim.
+func Subject(token string) (string, error) {
+	c, err := parseUnverified(token)
+	if err != nil {
+		return "", fmt.Errorf("decode token: %w", err)
+	}
+	return c.Subject, nil
 }
 
-// Email returns the email claim of a trusted ID token. Returns "" on any
-// parse failure or when the claim is absent. Intended for OIDC ID tokens;
-// access tokens typically don't carry an email claim.
-func Email(token string) string {
-	c, _ := parseUnverified(token)
-	return c.Email
+// Email returns the email claim of a trusted ID token. Returns "" with a
+// wrapped error on decode failure; returns ("", nil) when the token parses
+// but has no email claim. Intended for OIDC ID tokens; access tokens
+// typically don't carry an email claim.
+func Email(token string) (string, error) {
+	c, err := parseUnverified(token)
+	if err != nil {
+		return "", fmt.Errorf("decode token: %w", err)
+	}
+	return c.Email, nil
 }
 
 // Expiry returns the exp claim of a trusted JWT. Returns ErrTokenExpMissing
@@ -79,13 +87,15 @@ func Issuer(token string) (string, error) {
 }
 
 // IsExpired reports whether a trusted JWT's exp claim is in the past or
-// within DefaultExpiryMargin of now. Returns true on parse failure or when
-// exp is missing — callers should treat unparseable tokens as unusable.
-// Mirrors Token.IsExpired for raw-string JWTs.
-func IsExpired(token string) bool {
+// within DefaultExpiryMargin of now. Returns (true, nil) when the token
+// parses and is actually past expiry; returns (true, err) when the token
+// is unparseable or has no exp — callers should treat both as unusable but
+// can use the error to distinguish them. Mirrors Token.IsExpired for
+// raw-string JWTs.
+func IsExpired(token string) (bool, error) {
 	exp, err := Expiry(token)
 	if err != nil {
-		return true
+		return true, err
 	}
-	return time.Now().Add(DefaultExpiryMargin).After(exp)
+	return time.Now().Add(DefaultExpiryMargin).After(exp), nil
 }
