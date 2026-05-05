@@ -25,32 +25,27 @@ func configFor(secret, namespace, appName string) api.TeleportClientConfig {
 	}
 }
 
-// TB-7 — CR-driven transport dispatcher.
+// CR-driven transport dispatcher.
 //
 // The dispatcher takes a reconciling *v1alpha1.MCPServer and returns the HTTP
-// clients to use for outbound traffic. It implements the contract documented
-// in PLAN §6 TB-7 and §9 ("How to expose 2nd Teleport app/identity ...",
-// revised 2026-04-29 to explicit fields):
+// client to use for outbound traffic. After the May-2026 reshape the two
+// transports (MCP endpoint and token-exchange endpoint) are independent and
+// looked up via two separate methods; the per-method semantics are:
 //
-//   - spec.transport unset                                    → direct-HTTPS,
-//     no Dex client.
-//   - spec.transport.type == "teleport", mcp only             → one mTLS
-//     client; dexClient is nil (token exchange disabled, or forwarded over
-//     direct-HTTPS).
-//   - spec.transport.type == "teleport", mcp + dex            → two mTLS
-//     clients keyed off the explicit (appName, identitySecretRef.Name)
-//     pairs in the CR. No naming-convention derivation.
+//   - transport unset / type=="http"        → direct-HTTPS client.
+//   - transport.type=="teleport"            → mTLS client built from the
+//     explicit (appName, identitySecretRef.Name) pair in the CR. No
+//     naming-convention derivation.
 //
-// The dispatcher returns a typed error on failure so the aggregator (TB-8) can
+// The dispatcher returns a typed error on failure so the aggregator can
 // surface a structured MCPServer.status.conditions[type=TransportReady]
 // without re-parsing error strings.
 
 // DefaultSecretNamespace is the default namespace for tbot-output identity
 // secrets when the dispatcher is constructed without an explicit override.
-// Used because MCPServer.spec.transport.teleport.{mcp,dex}.identitySecretRef
-// is a corev1.LocalObjectReference and carries no namespace; the dispatcher
+// Used because MCPServer transport.teleport.identitySecretRef is a
+// corev1.LocalObjectReference and carries no namespace; the dispatcher
 // constrains where secrets can be loaded from via security.AllowedNamespaces.
-// Matches PLAN §6 TB-4.
 const DefaultSecretNamespace = "muster"
 
 // Sentinel errors. The aggregator (TB-8) uses errors.Is to map these to the
@@ -153,18 +148,32 @@ func MapErrorToCondition(err error) (reason, message string) {
 
 // TransportDispatcher resolves the HTTP clients to use for a reconciling
 // MCPServer. See package-level docs for the contract.
+//
+// The two transport lookups are split because the two endpoints (MCP and
+// token-exchange) are independent and may use different transports — e.g.
+// MCP via direct-HTTPS while the token endpoint goes through Teleport.
 type TransportDispatcher interface {
-	// ClientsFor returns the HTTP clients to use for the MCP endpoint and
-	// (when token-exchange-over-Teleport is enabled) the Dex token endpoint.
+	// MCPClientFor returns the HTTP client to use for the MCP endpoint.
+	// Reads mcp.Spec.Transport.
 	//
-	// When mcp.spec.transport is nil the returned mcpClient is a default
-	// http.Client (direct HTTPS) and dexClient is nil; err is nil. Token
-	// exchange in that case still goes through the default client.
+	// When the transport is unset or type=="http", returns a default
+	// http.Client (direct HTTPS) and err is nil.
 	//
-	// When mcp.spec.transport.type == "teleport" the mcpClient is configured
-	// with mTLS for spec.transport.teleport.mcp; dexClient is non-nil only
-	// when spec.transport.teleport.dex is also set.
-	ClientsFor(ctx context.Context, mcp *v1alpha1.MCPServer) (mcpClient, dexClient *http.Client, err error)
+	// When type=="teleport", returns a per-secret mTLS client configured
+	// for the explicit (appName, identitySecretRef.Name) pair.
+	MCPClientFor(ctx context.Context, mcp *v1alpha1.MCPServer) (*http.Client, error)
+
+	// TokenExchangeClientFor returns the HTTP client to use for the token
+	// exchange endpoint. Reads
+	// mcp.Spec.Auth.TokenExchange.Transport.
+	//
+	// When that transport is unset / type=="http" / token exchange is not
+	// enabled, returns a default http.Client (direct HTTPS).
+	//
+	// When type=="teleport", returns a per-secret mTLS client configured
+	// for the explicit (appName, identitySecretRef.Name) pair on the
+	// per-tokenExchange transport.
+	TokenExchangeClientFor(ctx context.Context, mcp *v1alpha1.MCPServer) (*http.Client, error)
 }
 
 // dispatcher is the default TransportDispatcher implementation backed by the
@@ -196,99 +205,79 @@ func NewTransportDispatcher(k8s client.Client, secretNamespace string) (Transpor
 	}, nil
 }
 
-// ClientsFor implements TransportDispatcher.
-func (d *dispatcher) ClientsFor(ctx context.Context, mcp *v1alpha1.MCPServer) (*http.Client, *http.Client, error) {
-	// Direct-HTTPS path: spec.transport unset.
-	if mcp == nil || mcp.Spec.Transport == nil {
+// MCPClientFor implements TransportDispatcher.
+func (d *dispatcher) MCPClientFor(ctx context.Context, mcp *v1alpha1.MCPServer) (*http.Client, error) {
+	if mcp == nil {
+		return d.directClient(), nil
+	}
+	return d.resolveTransport(ctx, mcp.Spec.Transport)
+}
+
+// TokenExchangeClientFor implements TransportDispatcher.
+func (d *dispatcher) TokenExchangeClientFor(ctx context.Context, mcp *v1alpha1.MCPServer) (*http.Client, error) {
+	if mcp == nil || mcp.Spec.Auth == nil || mcp.Spec.Auth.TokenExchange == nil {
+		return d.directClient(), nil
+	}
+	return d.resolveTransport(ctx, mcp.Spec.Auth.TokenExchange.Transport)
+}
+
+// directClient returns a freshly constructed http.Client (rather than
+// http.DefaultClient) so callers cannot accidentally mutate a process-global.
+func (d *dispatcher) directClient() *http.Client { return &http.Client{} }
+
+// resolveTransport encapsulates the per-transport lookup shared by
+// MCPClientFor and TokenExchangeClientFor. nil/http transports return a
+// direct-HTTPS client; teleport transports return a per-secret mTLS client.
+func (d *dispatcher) resolveTransport(ctx context.Context, t *v1alpha1.MCPServerTransport) (*http.Client, error) {
+	if t == nil || t.Type == "" || t.Type == "http" {
 		incLookup(resultNone)
-		// A freshly constructed http.Client (rather than http.DefaultClient)
-		// keeps the dispatcher's caller from accidentally mutating a
-		// process-global. Zero-value Client uses http.DefaultTransport.
-		return &http.Client{}, nil, nil
+		return d.directClient(), nil
 	}
 
-	// Today the only transport type is "teleport"; CEL on the CRD already
-	// enforces type=="teleport" ↔ teleport != nil. Defend in depth here.
-	t := mcp.Spec.Transport
+	// Today the only non-http transport is "teleport"; CEL on the CRD
+	// already enforces type=="teleport" ↔ teleport != nil. Defend in depth.
 	if t.Type != "teleport" || t.Teleport == nil {
 		incLookup(resultNone)
-		return &http.Client{}, nil, nil
+		return d.directClient(), nil
 	}
 
-	mcpTarget := t.Teleport.MCP
-	if mcpTarget.AppName == "" || mcpTarget.IdentitySecretRef.Name == "" {
+	target := t.Teleport
+	if target.AppName == "" || target.IdentitySecretRef.Name == "" {
 		incLookup(resultConfigInvalid)
-		return nil, nil, &TransportError{
+		return nil, &TransportError{
 			Sentinel: ErrTransportInvalid,
-			Detail:   fmt.Errorf("transport.teleport.mcp must declare appName and identitySecretRef"),
+			Detail:   fmt.Errorf("transport.teleport must declare appName and identitySecretRef"),
 		}
 	}
 
-	// Pre-flight existence check on the MCP secret so callers either get a
-	// configured client or a typed error. The dex secret is checked below
-	// only when the dex target is set.
-	if err := d.checkSecretExists(ctx, mcpTarget.IdentitySecretRef.Name); err != nil {
+	// Pre-flight existence check so callers either get a configured client
+	// or a typed error.
+	if err := d.checkSecretExists(ctx, target.IdentitySecretRef.Name); err != nil {
 		incLookup(resultSecretMissing)
-		return nil, nil, &TransportError{
+		return nil, &TransportError{
 			Sentinel: ErrSecretMissing,
-			AppName:  mcpTarget.AppName,
-			Secret:   mcpTarget.IdentitySecretRef.Name,
+			AppName:  target.AppName,
+			Secret:   target.IdentitySecretRef.Name,
 			Detail:   err,
 		}
 	}
 
-	mcpClient, err := d.buildClient(ctx, mcpTarget.IdentitySecretRef.Name, mcpTarget.AppName)
+	cli, err := d.buildClient(ctx, target.IdentitySecretRef.Name, target.AppName)
 	if err != nil {
 		// buildClient already incremented muster_transport_secret_load_total.
 		// Map any low-level error to ErrSecretInvalid since existence was
 		// proven above; PEM/CA parse failures land here.
 		incLookup(resultSecretInvalid)
-		return nil, nil, &TransportError{
+		return nil, &TransportError{
 			Sentinel: ErrSecretInvalid,
-			AppName:  mcpTarget.AppName,
-			Secret:   mcpTarget.IdentitySecretRef.Name,
-			Detail:   err,
-		}
-	}
-
-	// Dex target is optional; CEL guards that it is set when
-	// auth.tokenExchange.enabled=true. The dispatcher returns dexClient=nil
-	// when the CR omits the dex target.
-	if t.Teleport.Dex == nil {
-		incLookup(resultResolved)
-		return mcpClient, nil, nil
-	}
-
-	dexTarget := *t.Teleport.Dex
-	if dexTarget.AppName == "" || dexTarget.IdentitySecretRef.Name == "" {
-		incLookup(resultConfigInvalid)
-		return nil, nil, &TransportError{
-			Sentinel: ErrTransportInvalid,
-			Detail:   fmt.Errorf("transport.teleport.dex must declare appName and identitySecretRef"),
-		}
-	}
-	if err := d.checkSecretExists(ctx, dexTarget.IdentitySecretRef.Name); err != nil {
-		incLookup(resultSecretMissing)
-		return nil, nil, &TransportError{
-			Sentinel: ErrSecretMissing,
-			AppName:  dexTarget.AppName,
-			Secret:   dexTarget.IdentitySecretRef.Name,
-			Detail:   err,
-		}
-	}
-	dexClient, err := d.buildClient(ctx, dexTarget.IdentitySecretRef.Name, dexTarget.AppName)
-	if err != nil {
-		incLookup(resultSecretInvalid)
-		return nil, nil, &TransportError{
-			Sentinel: ErrSecretInvalid,
-			AppName:  dexTarget.AppName,
-			Secret:   dexTarget.IdentitySecretRef.Name,
+			AppName:  target.AppName,
+			Secret:   target.IdentitySecretRef.Name,
 			Detail:   err,
 		}
 	}
 
 	incLookup(resultResolved)
-	return mcpClient, dexClient, nil
+	return cli, nil
 }
 
 // checkSecretExists returns ErrSecretMissing-grade details when the secret is

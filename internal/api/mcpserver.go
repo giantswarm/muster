@@ -72,38 +72,27 @@ type MCPServer struct {
 	Description string `json:"description,omitempty" yaml:"-"`
 }
 
-// MCPServerTransport selects how muster reaches the MCP endpoint and any
-// transport-private endpoints referenced from spec.auth. Mirrors the CRD-level
-// type (PLAN §6 TB-0). Customer Muster (in-VPN) omits this field; muster then
-// uses direct HTTPS to spec.url.
+// MCPServerTransport selects how muster reaches a single HTTP endpoint.
+// Mirrors the CRD-level type. Used both for the MCP endpoint
+// (spec.transport) and for the token-exchange endpoint
+// (spec.auth.tokenExchange.transport) — the two are independent.
+//
+// Customer Muster (in-VPN) either omits this field or sets type=http; both
+// mean direct HTTPS.
 type MCPServerTransport struct {
-	// Type is the transport discriminator. Today only "teleport" is supported.
+	// Type is the transport discriminator. "http" means direct HTTPS;
+	// "teleport" routes via tbot-provisioned mTLS.
 	Type string `yaml:"type" json:"type"`
 
-	// Teleport configures routing through per-cluster tbot-provisioned mTLS
-	// clients. Required when Type is "teleport".
+	// Teleport configures routing through a tbot-provisioned mTLS client.
+	// Required when Type is "teleport".
 	Teleport *TeleportTransport `yaml:"teleport,omitempty" json:"teleport,omitempty"`
 }
 
-// TeleportTransport names the explicit Teleport application(s) and identity
-// secret(s) for the MCP and (optionally) Dex transports. Mirrors the
-// CRD-level type (PLAN §6 TB-0, revised 2026-04-29 to explicit fields).
-// Both targets carry their app name and Secret reference verbatim — no
-// derivation, no naming-convention assumed.
+// TeleportTransport names the Teleport application and identity secret for
+// a single endpoint. Mirrors the CRD-level type. Stated explicitly per CR
+// — no derivation, no naming-convention assumed.
 type TeleportTransport struct {
-	// MCP names the Teleport application + identity Secret used for the
-	// MCP HTTP endpoint. Required when transport.type=="teleport".
-	MCP TeleportTarget `yaml:"mcp" json:"mcp"`
-
-	// Dex names the Teleport application + identity Secret used for the
-	// Dex token-exchange endpoint. Required when
-	// auth.tokenExchange.enabled==true; nil otherwise.
-	Dex *TeleportTarget `yaml:"dex,omitempty" json:"dex,omitempty"`
-}
-
-// TeleportTarget is the explicit (Teleport app name, identity secret name)
-// pair for a single Teleport-routed endpoint. Mirrors the CRD-level type.
-type TeleportTarget struct {
 	// AppName is the Teleport application name (leftmost label of
 	// public_addr). Lowercase DNS label syntax.
 	AppName string `yaml:"appName" json:"appName"`
@@ -196,33 +185,38 @@ type TokenExchangeConfig struct {
 	// Default: false
 	Enabled bool `yaml:"enabled,omitempty" json:"enabled,omitempty"`
 
-	// DexTokenEndpoint is the URL used to connect to the remote cluster's Dex token endpoint.
-	// This may differ from the issuer URL when access goes through a proxy (e.g., Teleport).
-	// Required when Enabled is true.
+	// TokenEndpoint is the URL used to connect to the remote IdP's RFC 8693
+	// token endpoint. Provider-neutral name. Required when Enabled is true.
 	// Example: https://dex.cluster-b.example.com/token (direct)
 	// Example: https://dex-cluster.proxy.example.com/token (via proxy)
-	DexTokenEndpoint string `yaml:"dexTokenEndpoint,omitempty" json:"dexTokenEndpoint,omitempty"`
+	TokenEndpoint string `yaml:"tokenEndpoint,omitempty" json:"tokenEndpoint,omitempty"`
 
 	// ExpectedIssuer is the expected issuer URL in the exchanged token's "iss" claim.
-	// This should match the remote Dex's configured issuer URL.
-	// When access goes through a proxy, this differs from DexTokenEndpoint.
-	// If not specified, the issuer is derived from DexTokenEndpoint (backward compatible).
+	// This should match the remote IdP's configured issuer URL.
+	// When access goes through a proxy, this differs from TokenEndpoint.
+	// If not specified, the issuer is derived from TokenEndpoint (backward compatible).
 	// Example: https://dex.cluster-b.example.com
 	ExpectedIssuer string `yaml:"expectedIssuer,omitempty" json:"expectedIssuer,omitempty"`
-
-	// ConnectorID is the ID of the OIDC connector on the remote Dex that
-	// trusts the local cluster's Dex.
-	// Required when Enabled is true.
-	// Example: "cluster-a-dex"
-	ConnectorID string `yaml:"connectorId,omitempty" json:"connectorId,omitempty"`
 
 	// Scopes are the scopes to request for the exchanged token.
 	// Default: "openid profile email groups"
 	Scopes string `yaml:"scopes,omitempty" json:"scopes,omitempty"`
 
+	// Provider selects the token-exchange provider. Today only "dex" is
+	// valid; defaults to "dex" when empty.
+	Provider string `yaml:"provider,omitempty" json:"provider,omitempty"`
+
+	// Dex carries Dex-specific token-exchange settings. Required when
+	// Provider is "dex" and Enabled is true.
+	Dex *DexTokenExchangeConfig `yaml:"dex,omitempty" json:"dex,omitempty"`
+
+	// Transport selects how muster reaches TokenEndpoint. Independent of
+	// the top-level MCPServer.Transport — there is no inheritance.
+	Transport *MCPServerTransport `yaml:"transport,omitempty" json:"transport,omitempty"`
+
 	// ClientCredentialsSecretRef references a Kubernetes Secret containing
-	// client credentials for authenticating with the remote Dex's token endpoint.
-	// This is required when the remote Dex requires client authentication for
+	// client credentials for authenticating with the remote IdP's token endpoint.
+	// This is required when the remote IdP requires client authentication for
 	// token exchange (RFC 8693).
 	ClientCredentialsSecretRef *ClientCredentialsSecretRef `yaml:"clientCredentialsSecretRef,omitempty" json:"clientCredentialsSecretRef,omitempty"`
 
@@ -233,6 +227,25 @@ type TokenExchangeConfig struct {
 	// ClientSecret is the resolved client secret from the secret (populated at runtime).
 	// This field is not persisted and is populated when loading credentials.
 	ClientSecret string `yaml:"-" json:"-"`
+}
+
+// DexTokenExchangeConfig carries Dex-specific token-exchange settings.
+// Mirrors the CRD-level type.
+type DexTokenExchangeConfig struct {
+	// ConnectorID is the ID of the OIDC connector on the remote Dex that
+	// trusts the local cluster's Dex.
+	// Example: "cluster-a-dex"
+	ConnectorID string `yaml:"connectorId" json:"connectorId"`
+}
+
+// ConnectorID returns the configured Dex connector ID, or "" when no Dex
+// block is set. Convenience for call sites that need to read the connector
+// without nil-checking the discriminator.
+func (c *TokenExchangeConfig) ConnectorIDValue() string {
+	if c == nil || c.Dex == nil {
+		return ""
+	}
+	return c.Dex.ConnectorID
 }
 
 // ClientCredentialsSecretRef references a Kubernetes Secret containing

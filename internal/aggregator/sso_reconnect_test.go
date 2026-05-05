@@ -393,10 +393,11 @@ func TestHandleUpstreamRefreshFailure_Integration(t *testing.T) {
 		"sso-exch", "https://sso-exch.example.com", "ssoexch",
 		&AuthInfo{Issuer: "https://dex.example.com"},
 		&api.MCPServerAuth{TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
-			Enabled:          true,
-			DexTokenEndpoint: "https://remote-dex.example.com/token",
-			ConnectorID:      "cluster-a-dex",
-			ClientID:         "test-client",
+			Enabled:       true,
+			TokenEndpoint: "https://remote-dex.example.com/token",
+			Provider:      "dex",
+			Dex:           &api.DexTokenExchangeConfig{ConnectorID: "cluster-a-dex"},
+			ClientID:      "test-client",
 		}},
 	)
 	require.NoError(t, err)

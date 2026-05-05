@@ -141,15 +141,15 @@ func validateExchangeRequest(req *ExchangeRequest) error {
 	if req.SubjectToken == "" {
 		return fmt.Errorf("subject token is required")
 	}
-	if req.Config.DexTokenEndpoint == "" {
-		return fmt.Errorf("dex token endpoint is required")
+	if req.Config.TokenEndpoint == "" {
+		return fmt.Errorf("token endpoint is required")
 	}
 	// Security: Enforce HTTPS for token endpoints
 	// This prevents token leakage over insecure connections and MITM attacks.
 	// Note: The underlying mcp-oauth library also enforces HTTPS, so this is
 	// a defense-in-depth check that provides a clearer error message.
-	if !strings.HasPrefix(req.Config.DexTokenEndpoint, "https://") {
-		return fmt.Errorf("dex token endpoint must use HTTPS (got: %s)", req.Config.DexTokenEndpoint)
+	if !strings.HasPrefix(req.Config.TokenEndpoint, "https://") {
+		return fmt.Errorf("token endpoint must use HTTPS (got: %s)", req.Config.TokenEndpoint)
 	}
 	// Security: Enforce HTTPS for expectedIssuer when explicitly set.
 	// This is defense-in-depth: the CRD has schema validation, but we also
@@ -158,7 +158,7 @@ func validateExchangeRequest(req *ExchangeRequest) error {
 	if req.Config.ExpectedIssuer != "" && !strings.HasPrefix(req.Config.ExpectedIssuer, "https://") {
 		return fmt.Errorf("expected issuer must use HTTPS (got: %s)", req.Config.ExpectedIssuer)
 	}
-	if req.Config.ConnectorID == "" {
+	if req.Config.Dex == nil || req.Config.Dex.ConnectorID == "" {
 		return fmt.Errorf("connector ID is required")
 	}
 	if req.UserID == "" {
@@ -203,10 +203,10 @@ func (e *TokenExchanger) Exchange(ctx context.Context, req *ExchangeRequest) (*E
 	tokenType, scopes := getExchangeDefaults(req)
 
 	// Check cache first
-	cacheKey := oidc.GenerateCacheKey(req.Config.DexTokenEndpoint, req.Config.ConnectorID, req.UserID)
+	cacheKey := oidc.GenerateCacheKey(req.Config.TokenEndpoint, req.Config.ConnectorIDValue(), req.UserID)
 	if cached := e.cache.Get(cacheKey); cached != nil {
 		logging.Debug("TokenExchange", "Cache hit for user=%s endpoint=%s",
-			logging.TruncateIdentifier(req.UserID), req.Config.DexTokenEndpoint)
+			logging.TruncateIdentifier(req.UserID), req.Config.TokenEndpoint)
 		incTokenExchange(resultCacheHit)
 		return &ExchangeResult{
 			AccessToken:     cached.AccessToken,
@@ -217,14 +217,14 @@ func (e *TokenExchanger) Exchange(ctx context.Context, req *ExchangeRequest) (*E
 
 	// Perform the exchange
 	logging.Debug("TokenExchange", "Exchanging token for user=%s endpoint=%s connector=%s",
-		logging.TruncateIdentifier(req.UserID), req.Config.DexTokenEndpoint, req.Config.ConnectorID)
+		logging.TruncateIdentifier(req.UserID), req.Config.TokenEndpoint, req.Config.ConnectorIDValue())
 
 	// Build the token exchange request with client credentials if available
 	exchangeReq := oidc.TokenExchangeRequest{
-		TokenEndpoint:      req.Config.DexTokenEndpoint,
+		TokenEndpoint:      req.Config.TokenEndpoint,
 		SubjectToken:       req.SubjectToken,
 		SubjectTokenType:   tokenType,
-		ConnectorID:        req.Config.ConnectorID,
+		ConnectorID:        req.Config.ConnectorIDValue(),
 		Scope:              scopes,
 		RequestedTokenType: oidc.TokenTypeAccessToken,
 		ClientID:           req.Config.ClientID,
@@ -240,7 +240,7 @@ func (e *TokenExchanger) Exchange(ctx context.Context, req *ExchangeRequest) (*E
 	resp, err := e.client.Exchange(ctx, exchangeReq)
 	if err != nil {
 		logging.Warn("TokenExchange", "Token exchange failed for user=%s endpoint=%s: %v",
-			logging.TruncateIdentifier(req.UserID), req.Config.DexTokenEndpoint, err)
+			logging.TruncateIdentifier(req.UserID), req.Config.TokenEndpoint, err)
 		incTokenExchange(resultError)
 		return nil, fmt.Errorf("token exchange failed: %w", err)
 	}
@@ -250,7 +250,7 @@ func (e *TokenExchanger) Exchange(ctx context.Context, req *ExchangeRequest) (*E
 	if expectedIssuer != "" {
 		if err := validateTokenIssuer(resp.AccessToken, expectedIssuer); err != nil {
 			logging.Warn("TokenExchange", "Issuer validation failed for user=%s endpoint=%s: %v",
-				logging.TruncateIdentifier(req.UserID), req.Config.DexTokenEndpoint, err)
+				logging.TruncateIdentifier(req.UserID), req.Config.TokenEndpoint, err)
 			incTokenExchange(resultError)
 			return nil, fmt.Errorf("issuer validation failed: %w", err)
 		}
@@ -266,7 +266,7 @@ func (e *TokenExchanger) Exchange(ctx context.Context, req *ExchangeRequest) (*E
 	}
 
 	logging.Info("TokenExchange", "Successfully exchanged token for user=%s endpoint=%s",
-		logging.TruncateIdentifier(req.UserID), req.Config.DexTokenEndpoint)
+		logging.TruncateIdentifier(req.UserID), req.Config.TokenEndpoint)
 	incTokenExchange(resultSuccess)
 
 	return &ExchangeResult{
@@ -311,10 +311,10 @@ func (e *TokenExchanger) ExchangeWithClient(ctx context.Context, req *ExchangeRe
 	tokenType, scopes := getExchangeDefaults(req)
 
 	// Check cache first (same cache key as normal exchange)
-	cacheKey := oidc.GenerateCacheKey(req.Config.DexTokenEndpoint, req.Config.ConnectorID, req.UserID)
+	cacheKey := oidc.GenerateCacheKey(req.Config.TokenEndpoint, req.Config.ConnectorIDValue(), req.UserID)
 	if cached := e.cache.Get(cacheKey); cached != nil {
 		logging.Debug("TokenExchange", "Cache hit for user=%s endpoint=%s (with custom client)",
-			logging.TruncateIdentifier(req.UserID), req.Config.DexTokenEndpoint)
+			logging.TruncateIdentifier(req.UserID), req.Config.TokenEndpoint)
 		incTokenExchange(resultCacheHit)
 		return &ExchangeResult{
 			AccessToken:     cached.AccessToken,
@@ -334,14 +334,14 @@ func (e *TokenExchanger) ExchangeWithClient(ctx context.Context, req *ExchangeRe
 	})
 
 	logging.Debug("TokenExchange", "Exchanging token for user=%s endpoint=%s connector=%s (with custom client)",
-		logging.TruncateIdentifier(req.UserID), req.Config.DexTokenEndpoint, req.Config.ConnectorID)
+		logging.TruncateIdentifier(req.UserID), req.Config.TokenEndpoint, req.Config.ConnectorIDValue())
 
 	// Build the token exchange request with client credentials if available
 	exchangeReq := oidc.TokenExchangeRequest{
-		TokenEndpoint:      req.Config.DexTokenEndpoint,
+		TokenEndpoint:      req.Config.TokenEndpoint,
 		SubjectToken:       req.SubjectToken,
 		SubjectTokenType:   tokenType,
-		ConnectorID:        req.Config.ConnectorID,
+		ConnectorID:        req.Config.ConnectorIDValue(),
 		Scope:              scopes,
 		RequestedTokenType: oidc.TokenTypeAccessToken,
 		ClientID:           req.Config.ClientID,
@@ -358,7 +358,7 @@ func (e *TokenExchanger) ExchangeWithClient(ctx context.Context, req *ExchangeRe
 	resp, err := tempClient.Exchange(ctx, exchangeReq)
 	if err != nil {
 		logging.Warn("TokenExchange", "Token exchange failed for user=%s endpoint=%s (with custom client): %v",
-			logging.TruncateIdentifier(req.UserID), req.Config.DexTokenEndpoint, err)
+			logging.TruncateIdentifier(req.UserID), req.Config.TokenEndpoint, err)
 		incTokenExchange(resultError)
 		return nil, fmt.Errorf("token exchange failed: %w", err)
 	}
@@ -368,7 +368,7 @@ func (e *TokenExchanger) ExchangeWithClient(ctx context.Context, req *ExchangeRe
 	if expectedIssuer != "" {
 		if err := validateTokenIssuer(resp.AccessToken, expectedIssuer); err != nil {
 			logging.Warn("TokenExchange", "Issuer validation failed for user=%s endpoint=%s (with custom client): %v",
-				logging.TruncateIdentifier(req.UserID), req.Config.DexTokenEndpoint, err)
+				logging.TruncateIdentifier(req.UserID), req.Config.TokenEndpoint, err)
 			incTokenExchange(resultError)
 			return nil, fmt.Errorf("issuer validation failed: %w", err)
 		}
@@ -384,7 +384,7 @@ func (e *TokenExchanger) ExchangeWithClient(ctx context.Context, req *ExchangeRe
 	}
 
 	logging.Info("TokenExchange", "Successfully exchanged token for user=%s endpoint=%s (with custom client)",
-		logging.TruncateIdentifier(req.UserID), req.Config.DexTokenEndpoint)
+		logging.TruncateIdentifier(req.UserID), req.Config.TokenEndpoint)
 	incTokenExchange(resultSuccess)
 
 	return &ExchangeResult{
@@ -426,11 +426,11 @@ func (e *TokenExchanger) Cleanup() int {
 
 // GetExpectedIssuer returns the expected issuer URL for token validation.
 // If ExpectedIssuer is explicitly set in the config, it is used directly.
-// Otherwise, the issuer is derived from DexTokenEndpoint (backward compatible).
+// Otherwise, the issuer is derived from TokenEndpoint (backward compatible).
 //
 // This separation is important for proxied access scenarios:
-//   - DexTokenEndpoint may go through a proxy (e.g., https://dex-cluster.proxy.example.com/token)
-//   - ExpectedIssuer is the actual Dex issuer (e.g., https://dex.cluster-b.example.com)
+//   - TokenEndpoint may go through a proxy (e.g., https://dex-cluster.proxy.example.com/token)
+//   - ExpectedIssuer is the actual IdP issuer (e.g., https://dex.cluster-b.example.com)
 func GetExpectedIssuer(config *api.TokenExchangeConfig) string {
 	if config == nil {
 		return ""
@@ -439,8 +439,8 @@ func GetExpectedIssuer(config *api.TokenExchangeConfig) string {
 	if config.ExpectedIssuer != "" {
 		return config.ExpectedIssuer
 	}
-	// Fall back to deriving from DexTokenEndpoint (backward compatible)
-	return deriveIssuerFromTokenEndpoint(config.DexTokenEndpoint)
+	// Fall back to deriving from TokenEndpoint (backward compatible)
+	return deriveIssuerFromTokenEndpoint(config.TokenEndpoint)
 }
 
 // deriveIssuerFromTokenEndpoint derives an issuer URL from a token endpoint URL.

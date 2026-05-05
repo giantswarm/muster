@@ -57,17 +57,19 @@ func mcpServerSpecSchema(t *testing.T, crd *apiextensionsv1.CustomResourceDefini
 	return nil
 }
 
-// TestMCPServerCRD_TransportSchema asserts TB-0 (revised 2026-04-29 — explicit
-// fields): the generated CRD YAML declares spec.transport with the
-// discriminator type and the explicit mcp/dex sub-objects, each carrying
-// `appName` (regex-validated) and `identitySecretRef`.
+// TestMCPServerCRD_TransportSchema asserts the reshape (May 2026): the
+// generated CRD declares spec.transport with the discriminator type
+// (default=http, enum=[http,teleport]) and a single teleport block carrying
+// `appName` (regex-validated) + `identitySecretRef`. The previous mcp/dex
+// split is gone — the token-exchange path now declares its own transport
+// independently (asserted in TestMCPServerCRD_TokenExchangeTransportSchema).
 //
 // Spec coverage:
 //   - schema declares: transport unset (top-level field is optional)
-//   - schema declares: transport.type=teleport with mcp+dex targets
-//   - schema declares: kubebuilder enum on transport.type
-//   - schema declares: appName regex-pattern on both mcp and dex
-//   - schema declares: identitySecretRef as required on both targets
+//   - schema declares: transport.type enum=[http,teleport] with default=http
+//   - schema declares: transport.teleport flat with appName+identitySecretRef
+//   - schema declares: appName regex-pattern (DNS label)
+//   - schema declares: identitySecretRef as required
 func TestMCPServerCRD_TransportSchema(t *testing.T) {
 	crd := loadGeneratedMCPServerCRD(t)
 	specSchema := mcpServerSpecSchema(t, crd)
@@ -90,8 +92,14 @@ func TestMCPServerCRD_TransportSchema(t *testing.T) {
 	if !ok {
 		t.Fatalf("transport.type missing from schema")
 	}
-	if got := enumValues(transportType.Enum); !equalSets(got, []string{"teleport"}) {
-		t.Errorf("transport.type enum = %v, want [teleport]", got)
+	if got := enumValues(transportType.Enum); !equalSets(got, []string{"http", "teleport"}) {
+		t.Errorf("transport.type enum = %v, want [http teleport]", got)
+	}
+	// Default must be http (so omitted == direct HTTPS).
+	if transportType.Default == nil {
+		t.Errorf("transport.type missing default; want default=http")
+	} else if got := strings.Trim(string(transportType.Default.Raw), `"`); got != "http" {
+		t.Errorf("transport.type default = %q, want %q", got, "http")
 	}
 
 	teleport, ok := transport.Properties["teleport"]
@@ -102,43 +110,35 @@ func TestMCPServerCRD_TransportSchema(t *testing.T) {
 	for _, f := range teleport.Required {
 		teleportRequired[f] = true
 	}
-	// mcp is required; dex is optional (CEL guards the tokenExchange case).
-	if !teleportRequired["mcp"] {
-		t.Errorf("transport.teleport.mcp should be required; required=%v", teleport.Required)
+	// Single flat target now: appName + identitySecretRef both required.
+	if !teleportRequired["appName"] {
+		t.Errorf("transport.teleport.appName should be required; required=%v", teleport.Required)
 	}
-	if teleportRequired["dex"] {
-		t.Errorf("transport.teleport.dex must remain optional (only required via CEL when tokenExchange.enabled=true); required=%v", teleport.Required)
+	if !teleportRequired["identitySecretRef"] {
+		t.Errorf("transport.teleport.identitySecretRef should be required; required=%v", teleport.Required)
 	}
 
-	// Both mcp and dex must declare the same shape: appName + identitySecretRef.
-	for _, name := range []string{"mcp", "dex"} {
-		target, ok := teleport.Properties[name]
-		if !ok {
-			t.Fatalf("transport.teleport.%s missing from schema", name)
-		}
-		req := map[string]bool{}
-		for _, f := range target.Required {
-			req[f] = true
-		}
-		if !req["appName"] {
-			t.Errorf("transport.teleport.%s.appName must be required; required=%v", name, target.Required)
-		}
-		if !req["identitySecretRef"] {
-			t.Errorf("transport.teleport.%s.identitySecretRef must be required; required=%v", name, target.Required)
-		}
-		appName, ok := target.Properties["appName"]
-		if !ok {
-			t.Fatalf("transport.teleport.%s.appName missing from schema", name)
-		}
-		if appName.Pattern == "" {
-			t.Errorf("transport.teleport.%s.appName missing pattern", name)
-		}
-		if !strings.Contains(appName.Pattern, "[a-z") {
-			t.Errorf("transport.teleport.%s.appName pattern = %q, want lowercase DNS label", name, appName.Pattern)
-		}
-		if _, ok := target.Properties["identitySecretRef"]; !ok {
-			t.Errorf("transport.teleport.%s.identitySecretRef missing from schema", name)
-		}
+	appName, ok := teleport.Properties["appName"]
+	if !ok {
+		t.Fatalf("transport.teleport.appName missing from schema")
+	}
+	if appName.Pattern == "" {
+		t.Errorf("transport.teleport.appName missing pattern")
+	}
+	if !strings.Contains(appName.Pattern, "[a-z") {
+		t.Errorf("transport.teleport.appName pattern = %q, want lowercase DNS label", appName.Pattern)
+	}
+	if _, ok := teleport.Properties["identitySecretRef"]; !ok {
+		t.Errorf("transport.teleport.identitySecretRef missing from schema")
+	}
+
+	// The previous {mcp, dex} split must be gone — the token-exchange
+	// transport is now under spec.auth.tokenExchange.transport.
+	if _, present := teleport.Properties["mcp"]; present {
+		t.Errorf("transport.teleport.mcp must be removed (collapsed to single target)")
+	}
+	if _, present := teleport.Properties["dex"]; present {
+		t.Errorf("transport.teleport.dex must be removed (replaced by auth.tokenExchange.transport)")
 	}
 
 	// transport itself must NOT be in the spec.required list — preserves
@@ -148,24 +148,87 @@ func TestMCPServerCRD_TransportSchema(t *testing.T) {
 			t.Errorf("spec.transport must remain optional (preserves direct-HTTPS default for customer Muster)")
 		}
 	}
+}
 
-	// Explicit-fields shape check: the legacy `cluster` field must NOT be
-	// present anywhere on transport.teleport.
-	if _, present := teleport.Properties["cluster"]; present {
-		t.Errorf("transport.teleport.cluster must be removed (replaced by mcp/dex explicit fields)")
+// TestMCPServerCRD_TokenExchangeSchema asserts the reshape: the generated
+// CRD declares spec.auth.tokenExchange with the new provider-neutral
+// shape — `tokenEndpoint`, `provider` discriminator (default=dex), nested
+// `dex.connectorId`, and a per-tokenExchange `transport` block.
+func TestMCPServerCRD_TokenExchangeSchema(t *testing.T) {
+	crd := loadGeneratedMCPServerCRD(t)
+	specSchema := mcpServerSpecSchema(t, crd)
+
+	auth, ok := specSchema.Properties["auth"]
+	if !ok {
+		t.Fatalf("spec.auth missing from schema")
+	}
+	tx, ok := auth.Properties["tokenExchange"]
+	if !ok {
+		t.Fatalf("spec.auth.tokenExchange missing from schema")
+	}
+
+	// Renamed: dexTokenEndpoint → tokenEndpoint.
+	if _, present := tx.Properties["dexTokenEndpoint"]; present {
+		t.Errorf("auth.tokenExchange.dexTokenEndpoint must be removed (renamed to tokenEndpoint)")
+	}
+	if _, present := tx.Properties["tokenEndpoint"]; !present {
+		t.Errorf("auth.tokenExchange.tokenEndpoint missing from schema")
+	}
+
+	// connectorId is no longer flat — moved into nested dex.connectorId.
+	if _, present := tx.Properties["connectorId"]; present {
+		t.Errorf("auth.tokenExchange.connectorId must be removed (moved under dex)")
+	}
+	dex, ok := tx.Properties["dex"]
+	if !ok {
+		t.Fatalf("auth.tokenExchange.dex missing from schema")
+	}
+	dexRequired := map[string]bool{}
+	for _, f := range dex.Required {
+		dexRequired[f] = true
+	}
+	if !dexRequired["connectorId"] {
+		t.Errorf("auth.tokenExchange.dex.connectorId should be required; required=%v", dex.Required)
+	}
+
+	// Provider discriminator: enum=[dex], default=dex.
+	provider, ok := tx.Properties["provider"]
+	if !ok {
+		t.Fatalf("auth.tokenExchange.provider missing from schema")
+	}
+	if got := enumValues(provider.Enum); !equalSets(got, []string{"dex"}) {
+		t.Errorf("auth.tokenExchange.provider enum = %v, want [dex]", got)
+	}
+	if provider.Default == nil {
+		t.Errorf("auth.tokenExchange.provider missing default; want default=dex")
+	} else if got := strings.Trim(string(provider.Default.Raw), `"`); got != "dex" {
+		t.Errorf("auth.tokenExchange.provider default = %q, want %q", got, "dex")
+	}
+
+	// Per-tokenExchange transport block, mirroring spec.transport.
+	transport, ok := tx.Properties["transport"]
+	if !ok {
+		t.Fatalf("auth.tokenExchange.transport missing from schema")
+	}
+	transportType, ok := transport.Properties["type"]
+	if !ok {
+		t.Fatalf("auth.tokenExchange.transport.type missing from schema")
+	}
+	if got := enumValues(transportType.Enum); !equalSets(got, []string{"http", "teleport"}) {
+		t.Errorf("auth.tokenExchange.transport.type enum = %v, want [http teleport]", got)
 	}
 }
 
-// TestMCPServerCRD_TransportCELRules asserts TB-0: all four CEL rules are
-// declared on the schema. (Compiling and evaluating CEL would require a full
-// apiextensions-apiserver harness; this is verified end-to-end at envtest in
-// downstream consumers and at apply time in K8s. The reshape PR live-validates
-// 8 fixtures against a kind cluster out-of-band.)
+// TestMCPServerCRD_TransportCELRules asserts the CEL rules declared on the
+// schema after the reshape. Compiling and evaluating CEL would require a
+// full apiextensions-apiserver harness; this is verified end-to-end at
+// envtest in downstream consumers and at apply time in K8s.
 //
 // Spec coverage (CEL rules present):
 //   - transport.type == teleport ↔ transport.teleport != nil
 //   - transport forbidden when spec.type == stdio
-//   - transport.teleport.dex required when auth.tokenExchange.enabled=true (NEW)
+//   - same shape applied to auth.tokenExchange.transport
+//   - auth.tokenExchange.dex.connectorId required when enabled with provider=dex
 func TestMCPServerCRD_TransportCELRules(t *testing.T) {
 	crd := loadGeneratedMCPServerCRD(t)
 	for _, v := range crd.Spec.Versions {
@@ -178,7 +241,9 @@ func TestMCPServerCRD_TransportCELRules(t *testing.T) {
 		mustContain(t, rules, "transport.teleport is required when transport.type is teleport")
 		mustContain(t, rules, "transport.teleport may only be set when transport.type is teleport")
 		mustContain(t, rules, "transport is not allowed when type is stdio")
-		mustContain(t, rules, "transport.teleport.dex is required when auth.tokenExchange is enabled")
+		mustContain(t, rules, "auth.tokenExchange.transport.teleport is required when auth.tokenExchange.transport.type is teleport")
+		mustContain(t, rules, "auth.tokenExchange.transport.teleport may only be set when auth.tokenExchange.transport.type is teleport")
+		mustContain(t, rules, "auth.tokenExchange.dex.connectorId is required when auth.tokenExchange.enabled and provider is dex")
 	}
 }
 
@@ -232,41 +297,29 @@ func TestMCPServerCRD_NoTeleportAuthDefinition(t *testing.T) {
 }
 
 // TestMCPServerSpec_TransportRoundTrip asserts the Go struct round-trips via
-// YAML across the 8 cases listed in PLAN §6 TB-0 (revised 2026-04-29). For the
-// four positive cases we assert presence and correctness of the field. For the
-// four reject cases the struct remains buildable (the rejection is enforced by
-// CRD validation at apply-time, asserted by TestMCPServerCRD_TransportCELRules
-// and verified live against a kind cluster out-of-band).
-//
-// Cases:
-//  1. transport unset                                  → accept (round-trips empty)
-//  2. mcp + dex set, tokenExchange enabled             → accept
-//  3. mcp-only, dex omitted, tokenExchange disabled    → accept
-//  4. transport.type=teleport, no teleport block       → CEL reject (struct compiles)
-//  5. transport.type=wireguard (wrong enum)            → reject (kubebuilder enum)
-//  6. transport set on spec.type=stdio                 → CEL reject (struct compiles)
-//  7. dex omitted while tokenExchange.enabled=true     → CEL reject (NEW rule)
-//  8. mcp.appName violates regex (e.g. "MCP_Glean")    → reject (kubebuilder pattern)
+// YAML for the new (post-reshape) shape. The two transports are independent:
+// spec.transport is for the MCP endpoint only; the token-exchange path
+// declares its own transport under spec.auth.tokenExchange.transport.
 func TestMCPServerSpec_TransportRoundTrip(t *testing.T) {
 	cases := []struct {
-		name     string
-		spec     MCPServerSpec
-		wantHas  bool
-		wantMCP  string
-		wantDex  string
-		wantSec  string
-		wantDexS string
+		name        string
+		spec        MCPServerSpec
+		wantTeleS   bool
+		wantMCP     string
+		wantSec     string
+		wantTxTeleS bool
+		wantTxApp   string
+		wantTxSec   string
 	}{
 		{
-			name: "1) transport unset (customer Muster default) → accept",
+			name: "transport unset (customer Muster default) → accept",
 			spec: MCPServerSpec{
 				Type: "streamable-http",
 				URL:  "https://mcp.example.com",
 			},
-			wantHas: false,
 		},
 		{
-			name: "2) mcp + dex set, tokenExchange enabled → accept",
+			name: "two independent teleport transports — MCP + tokenExchange",
 			spec: MCPServerSpec{
 				Type: "streamable-http",
 				URL:  "https://mcp-kubernetes-glean.teleport.giantswarm.io/mcp",
@@ -274,37 +327,42 @@ func TestMCPServerSpec_TransportRoundTrip(t *testing.T) {
 					Type: "oauth",
 					// #nosec G101 -- test fixture; not a credential.
 					TokenExchange: &TokenExchangeConfig{
-						Enabled:          true,
-						DexTokenEndpoint: "https://dex-glean.teleport.giantswarm.io/token",
-						ConnectorID:      "giantswarm",
+						Enabled:       true,
+						TokenEndpoint: "https://dex-glean.teleport.giantswarm.io/token",
+						Provider:      "dex",
+						Dex: &DexTokenExchangeConfig{
+							ConnectorID: "giantswarm",
+						},
+						Transport: &MCPServerTransport{
+							Type: "teleport",
+							Teleport: &TeleportTransport{
+								AppName: "dex-glean",
+								IdentitySecretRef: corev1.LocalObjectReference{
+									Name: "tbot-identity-tx-glean",
+								},
+							},
+						},
 					},
 				},
 				Transport: &MCPServerTransport{
 					Type: "teleport",
 					Teleport: &TeleportTransport{
-						MCP: TeleportTarget{
-							AppName: "mcp-kubernetes-glean",
-							IdentitySecretRef: corev1.LocalObjectReference{
-								Name: "tbot-identity-mcp-glean",
-							},
-						},
-						Dex: &TeleportTarget{
-							AppName: "dex-glean",
-							IdentitySecretRef: corev1.LocalObjectReference{
-								Name: "tbot-identity-tx-glean",
-							},
+						AppName: "mcp-kubernetes-glean",
+						IdentitySecretRef: corev1.LocalObjectReference{
+							Name: "tbot-identity-mcp-glean",
 						},
 					},
 				},
 			},
-			wantHas:  true,
-			wantMCP:  "mcp-kubernetes-glean",
-			wantSec:  "tbot-identity-mcp-glean",
-			wantDex:  "dex-glean",
-			wantDexS: "tbot-identity-tx-glean",
+			wantTeleS:   true,
+			wantMCP:     "mcp-kubernetes-glean",
+			wantSec:     "tbot-identity-mcp-glean",
+			wantTxTeleS: true,
+			wantTxApp:   "dex-glean",
+			wantTxSec:   "tbot-identity-tx-glean",
 		},
 		{
-			name: "3) mcp-only, dex omitted, tokenExchange disabled → accept",
+			name: "MCP-only teleport, tokenExchange disabled (forwardToken path)",
 			spec: MCPServerSpec{
 				Type: "streamable-http",
 				URL:  "https://mcp-kubernetes-glean.teleport.giantswarm.io/mcp",
@@ -315,18 +373,16 @@ func TestMCPServerSpec_TransportRoundTrip(t *testing.T) {
 				Transport: &MCPServerTransport{
 					Type: "teleport",
 					Teleport: &TeleportTransport{
-						MCP: TeleportTarget{
-							AppName: "mcp-kubernetes-glean",
-							IdentitySecretRef: corev1.LocalObjectReference{
-								Name: "tbot-identity-mcp-glean",
-							},
+						AppName: "mcp-kubernetes-glean",
+						IdentitySecretRef: corev1.LocalObjectReference{
+							Name: "tbot-identity-mcp-glean",
 						},
 					},
 				},
 			},
-			wantHas: true,
-			wantMCP: "mcp-kubernetes-glean",
-			wantSec: "tbot-identity-mcp-glean",
+			wantTeleS: true,
+			wantMCP:   "mcp-kubernetes-glean",
+			wantSec:   "tbot-identity-mcp-glean",
 		},
 	}
 
@@ -340,38 +396,47 @@ func TestMCPServerSpec_TransportRoundTrip(t *testing.T) {
 			if err := yaml.Unmarshal(raw, &got); err != nil {
 				t.Fatalf("unmarshal: %v", err)
 			}
-			if (got.Transport != nil) != tc.wantHas {
-				t.Fatalf("transport presence = %v, want %v\nyaml:\n%s", got.Transport != nil, tc.wantHas, raw)
+
+			// spec.transport assertions
+			if (got.Transport != nil && got.Transport.Teleport != nil) != tc.wantTeleS {
+				t.Fatalf("spec.transport.teleport presence = %v, want %v\nyaml:\n%s",
+					got.Transport != nil && got.Transport.Teleport != nil, tc.wantTeleS, raw)
 			}
-			if !tc.wantHas {
-				return
-			}
-			if got.Transport.Type != "teleport" {
-				t.Errorf("transport.type = %q, want teleport", got.Transport.Type)
-			}
-			if got.Transport.Teleport == nil {
-				t.Fatalf("transport.teleport is nil after round-trip\nyaml:\n%s", raw)
-			}
-			if got.Transport.Teleport.MCP.AppName != tc.wantMCP {
-				t.Errorf("transport.teleport.mcp.appName = %q, want %q", got.Transport.Teleport.MCP.AppName, tc.wantMCP)
-			}
-			if got.Transport.Teleport.MCP.IdentitySecretRef.Name != tc.wantSec {
-				t.Errorf("transport.teleport.mcp.identitySecretRef.name = %q, want %q", got.Transport.Teleport.MCP.IdentitySecretRef.Name, tc.wantSec)
-			}
-			if tc.wantDex == "" {
-				if got.Transport.Teleport.Dex != nil {
-					t.Errorf("transport.teleport.dex should be nil for mcp-only case, got %+v", got.Transport.Teleport.Dex)
+			if tc.wantTeleS {
+				if got.Transport.Type != "teleport" {
+					t.Errorf("spec.transport.type = %q, want teleport", got.Transport.Type)
 				}
-				return
+				if got.Transport.Teleport.AppName != tc.wantMCP {
+					t.Errorf("spec.transport.teleport.appName = %q, want %q", got.Transport.Teleport.AppName, tc.wantMCP)
+				}
+				if got.Transport.Teleport.IdentitySecretRef.Name != tc.wantSec {
+					t.Errorf("spec.transport.teleport.identitySecretRef.name = %q, want %q", got.Transport.Teleport.IdentitySecretRef.Name, tc.wantSec)
+				}
 			}
-			if got.Transport.Teleport.Dex == nil {
-				t.Fatalf("transport.teleport.dex is nil after round-trip\nyaml:\n%s", raw)
+
+			// spec.auth.tokenExchange.transport assertions
+			haveTxTele := got.Auth != nil &&
+				got.Auth.TokenExchange != nil &&
+				got.Auth.TokenExchange.Transport != nil &&
+				got.Auth.TokenExchange.Transport.Teleport != nil
+			if haveTxTele != tc.wantTxTeleS {
+				t.Fatalf("auth.tokenExchange.transport.teleport presence = %v, want %v\nyaml:\n%s",
+					haveTxTele, tc.wantTxTeleS, raw)
 			}
-			if got.Transport.Teleport.Dex.AppName != tc.wantDex {
-				t.Errorf("transport.teleport.dex.appName = %q, want %q", got.Transport.Teleport.Dex.AppName, tc.wantDex)
-			}
-			if got.Transport.Teleport.Dex.IdentitySecretRef.Name != tc.wantDexS {
-				t.Errorf("transport.teleport.dex.identitySecretRef.name = %q, want %q", got.Transport.Teleport.Dex.IdentitySecretRef.Name, tc.wantDexS)
+			if tc.wantTxTeleS {
+				txTele := got.Auth.TokenExchange.Transport.Teleport
+				if txTele.AppName != tc.wantTxApp {
+					t.Errorf("tokenExchange.transport.teleport.appName = %q, want %q", txTele.AppName, tc.wantTxApp)
+				}
+				if txTele.IdentitySecretRef.Name != tc.wantTxSec {
+					t.Errorf("tokenExchange.transport.teleport.identitySecretRef.name = %q, want %q", txTele.IdentitySecretRef.Name, tc.wantTxSec)
+				}
+				if got.Auth.TokenExchange.Provider != "dex" {
+					t.Errorf("tokenExchange.provider = %q, want %q", got.Auth.TokenExchange.Provider, "dex")
+				}
+				if got.Auth.TokenExchange.Dex == nil || got.Auth.TokenExchange.Dex.ConnectorID == "" {
+					t.Errorf("tokenExchange.dex.connectorId is empty after round-trip")
+				}
 			}
 		})
 	}

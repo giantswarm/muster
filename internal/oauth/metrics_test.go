@@ -76,9 +76,10 @@ func TestTokenExchangeMetrics_SuccessAndCacheHit(t *testing.T) {
 
 	req := &ExchangeRequest{
 		Config: &api.TokenExchangeConfig{
-			Enabled:          true,
-			DexTokenEndpoint: dex.URL + "/token",
-			ConnectorID:      "giantswarm",
+			Enabled:       true,
+			TokenEndpoint: dex.URL + "/token",
+			Provider:      "dex",
+			Dex:           &api.DexTokenExchangeConfig{ConnectorID: "giantswarm"},
 		},
 		SubjectToken: "subject-token", // #nosec G101 -- test fixture; not a credential.
 		UserID:       "user-1",

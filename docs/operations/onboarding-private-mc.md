@@ -261,10 +261,12 @@ gateway and DNS-resolvable via `*.gigantic.io`). No Teleport hop.
        forwardToken: false
        tokenExchange:
          enabled: true
-         dexTokenEndpoint: https://dex.<NEW_MC>.<base-domain>/token
-         # Federation connector id that the dex-operator wrote on
-         # <NEW_MC>'s Dex in step 1. The CR must reference it verbatim.
-         connectorId: <HOST_MC>-federation-simple-oidc
+         tokenEndpoint: https://dex.<NEW_MC>.<base-domain>/token
+         provider: dex
+         dex:
+           # Federation connector id that the dex-operator wrote on
+           # <NEW_MC>'s Dex in step 1. The CR must reference it verbatim.
+           connectorId: <HOST_MC>-federation-simple-oidc
          scopes: openid profile email groups
          clientCredentialsSecretRef:
            name: <NEW_MC>-token-exchange-credentials
@@ -274,6 +276,8 @@ gateway and DNS-resolvable via `*.gigantic.io`). No Teleport hop.
        requiredAudiences:
          - dex-k8s-authenticator
      # No spec.transport — direct-HTTPS path is the chart default.
+     # No spec.auth.tokenExchange.transport either: the token endpoint is
+     # publicly reachable on this MC, so direct HTTPS suffices.
    ```
    Add the new file to `mcpservers/kustomization.yaml`.
 
@@ -426,34 +430,46 @@ host MC). Steps 4–7 below replace A1 step 4 onward.
        tokenExchange:
          enabled: true
          # Teleport-routed Dex token endpoint.
-         dexTokenEndpoint: https://dex-<NEW_MC>.teleport.giantswarm.io/token
+         tokenEndpoint: https://dex-<NEW_MC>.teleport.giantswarm.io/token
          # iss claim is decoupled from the routing URL — token-exchange
          # responses still carry <NEW_MC>'s original Dex issuer.
          expectedIssuer: https://dex.<NEW_MC>.<base-domain>
-         connectorId: <HOST_MC>-federation-simple-oidc
+         provider: dex
+         dex:
+           connectorId: <HOST_MC>-federation-simple-oidc
          scopes: openid profile email groups
          clientCredentialsSecretRef:
            name: <NEW_MC>-token-exchange-credentials
            namespace: muster
            clientIdKey: client-id
            clientSecretKey: client-secret
+         # Independent transport for the token endpoint. Declared here
+         # rather than under spec.transport because the two transports
+         # are decoupled — even when both route through the same Teleport
+         # cluster, the CR states each one explicitly.
+         transport:
+           type: teleport
+           teleport:
+             appName: dex-<NEW_MC>
+             identitySecretRef:
+               name: tbot-identity-tx-<NEW_MC>
        requiredAudiences:
          - dex-k8s-authenticator
+     # spec.transport is for the MCP endpoint only — the token-exchange
+     # transport is set under spec.auth.tokenExchange.transport above.
      transport:
        type: teleport
        teleport:
-         mcp:
-           appName: mcp-kubernetes-<NEW_MC>
-           identitySecretRef:
-             name: tbot-identity-mcp-<NEW_MC>
-         dex:
-           appName: dex-<NEW_MC>
-           identitySecretRef:
-             name: tbot-identity-tx-<NEW_MC>
+         appName: mcp-kubernetes-<NEW_MC>
+         identitySecretRef:
+           name: tbot-identity-mcp-<NEW_MC>
    ```
-   CRD admission rejects the CR if `auth.tokenExchange.enabled=true` but
-   `transport.teleport.dex` is absent (CEL guard). Add the new file to
-   `mcpservers/kustomization.yaml`.
+   CRD admission enforces (via CEL) that `transport.teleport` is set when
+   `transport.type == teleport`, both at `spec.transport` and at
+   `spec.auth.tokenExchange.transport`. It also enforces that
+   `auth.tokenExchange.dex.connectorId` is non-empty when
+   `auth.tokenExchange.enabled=true` and `provider=dex`. Add the new file
+   to `mcpservers/kustomization.yaml`.
 
 8. **Verify on reconcile.** Order matters: `tbot` writes the identity
    Secrets first, then muster's autoStart probe consumes them.

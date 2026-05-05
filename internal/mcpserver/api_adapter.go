@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -15,6 +16,40 @@ import (
 	"github.com/giantswarm/muster/internal/events"
 	"github.com/giantswarm/muster/pkg/logging"
 )
+
+// convertCRDTransportToAPI converts a CRD MCPServerTransport into the api
+// mirror. Returns nil when src is nil.
+func convertCRDTransportToAPI(src *musterv1alpha1.MCPServerTransport) *api.MCPServerTransport {
+	if src == nil {
+		return nil
+	}
+	out := &api.MCPServerTransport{Type: src.Type}
+	if src.Teleport != nil {
+		out.Teleport = &api.TeleportTransport{
+			AppName:            src.Teleport.AppName,
+			IdentitySecretName: src.Teleport.IdentitySecretRef.Name,
+		}
+	}
+	return out
+}
+
+// convertAPITransportToCRD converts an api MCPServerTransport into the CRD
+// shape. Returns nil when src is nil.
+func convertAPITransportToCRD(src *api.MCPServerTransport) *musterv1alpha1.MCPServerTransport {
+	if src == nil {
+		return nil
+	}
+	out := &musterv1alpha1.MCPServerTransport{Type: src.Type}
+	if src.Teleport != nil {
+		out.Teleport = &musterv1alpha1.TeleportTransport{
+			AppName: src.Teleport.AppName,
+			IdentitySecretRef: corev1.LocalObjectReference{
+				Name: src.Teleport.IdentitySecretName,
+			},
+		}
+	}
+	return out
+}
 
 // convertCRDSecretRefToAPI converts a CRD ClientCredentialsSecretRef to an API ClientCredentialsSecretRef.
 // Returns nil if the input is nil.
@@ -138,28 +173,12 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 		info.NextRetryAfter = &t
 	}
 
-	// Convert transport configuration if present (TB-0, revised 2026-04-29
-	// to explicit fields). Both targets carry their app name and identity
-	// secret name verbatim — no derivation.
+	// Convert transport configuration if present. The teleport target is
+	// flat (single appName + identitySecretRef) — the previous {mcp, dex}
+	// split is gone; the token-exchange transport is declared separately
+	// on TokenExchangeConfig.Transport.
 	if server.Spec.Transport != nil {
-		info.Transport = &api.MCPServerTransport{
-			Type: server.Spec.Transport.Type,
-		}
-		if server.Spec.Transport.Teleport != nil {
-			tt := server.Spec.Transport.Teleport
-			info.Transport.Teleport = &api.TeleportTransport{
-				MCP: api.TeleportTarget{
-					AppName:            tt.MCP.AppName,
-					IdentitySecretName: tt.MCP.IdentitySecretRef.Name,
-				},
-			}
-			if tt.Dex != nil {
-				info.Transport.Teleport.Dex = &api.TeleportTarget{
-					AppName:            tt.Dex.AppName,
-					IdentitySecretName: tt.Dex.IdentitySecretRef.Name,
-				}
-			}
-		}
+		info.Transport = convertCRDTransportToAPI(server.Spec.Transport)
 	}
 
 	// Convert auth configuration if present
@@ -171,15 +190,24 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 		}
 		// Convert TokenExchange config if present
 		if server.Spec.Auth.TokenExchange != nil {
+			tx := server.Spec.Auth.TokenExchange
 			info.Auth.TokenExchange = &api.TokenExchangeConfig{
-				Enabled:          server.Spec.Auth.TokenExchange.Enabled,
-				DexTokenEndpoint: server.Spec.Auth.TokenExchange.DexTokenEndpoint,
-				ExpectedIssuer:   server.Spec.Auth.TokenExchange.ExpectedIssuer,
-				ConnectorID:      server.Spec.Auth.TokenExchange.ConnectorID,
-				Scopes:           server.Spec.Auth.TokenExchange.Scopes,
+				Enabled:        tx.Enabled,
+				TokenEndpoint:  tx.TokenEndpoint,
+				ExpectedIssuer: tx.ExpectedIssuer,
+				Scopes:         tx.Scopes,
+				Provider:       tx.Provider,
+			}
+			if tx.Dex != nil {
+				info.Auth.TokenExchange.Dex = &api.DexTokenExchangeConfig{
+					ConnectorID: tx.Dex.ConnectorID,
+				}
+			}
+			if tx.Transport != nil {
+				info.Auth.TokenExchange.Transport = convertCRDTransportToAPI(tx.Transport)
 			}
 			info.Auth.TokenExchange.ClientCredentialsSecretRef = convertCRDSecretRefToAPI(
-				server.Spec.Auth.TokenExchange.ClientCredentialsSecretRef,
+				tx.ClientCredentialsSecretRef,
 			)
 		}
 	}
@@ -281,13 +309,20 @@ func (a *Adapter) convertRequestToCRD(req *api.MCPServerCreateRequest) *musterv1
 
 		// Convert TokenExchange if present
 		if req.Auth.TokenExchange != nil {
+			tx := req.Auth.TokenExchange
 			crd.Spec.Auth.TokenExchange = &musterv1alpha1.TokenExchangeConfig{
-				Enabled:                    req.Auth.TokenExchange.Enabled,
-				DexTokenEndpoint:           req.Auth.TokenExchange.DexTokenEndpoint,
-				ExpectedIssuer:             req.Auth.TokenExchange.ExpectedIssuer,
-				ConnectorID:                req.Auth.TokenExchange.ConnectorID,
-				Scopes:                     req.Auth.TokenExchange.Scopes,
-				ClientCredentialsSecretRef: convertAPISecretRefToCRD(req.Auth.TokenExchange.ClientCredentialsSecretRef),
+				Enabled:                    tx.Enabled,
+				TokenEndpoint:              tx.TokenEndpoint,
+				ExpectedIssuer:             tx.ExpectedIssuer,
+				Scopes:                     tx.Scopes,
+				Provider:                   tx.Provider,
+				Transport:                  convertAPITransportToCRD(tx.Transport),
+				ClientCredentialsSecretRef: convertAPISecretRefToCRD(tx.ClientCredentialsSecretRef),
+			}
+			if tx.Dex != nil {
+				crd.Spec.Auth.TokenExchange.Dex = &musterv1alpha1.DexTokenExchangeConfig{
+					ConnectorID: tx.Dex.ConnectorID,
+				}
 			}
 		}
 
@@ -653,13 +688,20 @@ func (a *Adapter) handleMCPServerUpdate(args map[string]interface{}) (*api.CallT
 			RequiredAudiences: req.Auth.RequiredAudiences,
 		}
 		if req.Auth.TokenExchange != nil {
+			tx := req.Auth.TokenExchange
 			existing.Spec.Auth.TokenExchange = &musterv1alpha1.TokenExchangeConfig{
-				Enabled:                    req.Auth.TokenExchange.Enabled,
-				DexTokenEndpoint:           req.Auth.TokenExchange.DexTokenEndpoint,
-				ExpectedIssuer:             req.Auth.TokenExchange.ExpectedIssuer,
-				ConnectorID:                req.Auth.TokenExchange.ConnectorID,
-				Scopes:                     req.Auth.TokenExchange.Scopes,
-				ClientCredentialsSecretRef: convertAPISecretRefToCRD(req.Auth.TokenExchange.ClientCredentialsSecretRef),
+				Enabled:                    tx.Enabled,
+				TokenEndpoint:              tx.TokenEndpoint,
+				ExpectedIssuer:             tx.ExpectedIssuer,
+				Scopes:                     tx.Scopes,
+				Provider:                   tx.Provider,
+				Transport:                  convertAPITransportToCRD(tx.Transport),
+				ClientCredentialsSecretRef: convertAPISecretRefToCRD(tx.ClientCredentialsSecretRef),
+			}
+			if tx.Dex != nil {
+				existing.Spec.Auth.TokenExchange.Dex = &musterv1alpha1.DexTokenExchangeConfig{
+					ConnectorID: tx.Dex.ConnectorID,
+				}
 			}
 		}
 	}

@@ -476,7 +476,7 @@ func ShouldUseTokenForwarding(serverInfo *ServerInfo) bool {
 // Token exchange is enabled when:
 //   - AuthConfig.TokenExchange is not nil
 //   - AuthConfig.TokenExchange.Enabled is true
-//   - Required fields (DexTokenEndpoint, ConnectorID) are set
+//   - Required fields are set: TokenEndpoint and (for provider=dex) Dex.ConnectorID
 //
 // Token exchange takes precedence over token forwarding if both are configured.
 func ShouldUseTokenExchange(serverInfo *ServerInfo) bool {
@@ -484,7 +484,7 @@ func ShouldUseTokenExchange(serverInfo *ServerInfo) bool {
 		return false
 	}
 	config := serverInfo.AuthConfig.TokenExchange
-	return config.Enabled && config.DexTokenEndpoint != "" && config.ConnectorID != ""
+	return config.Enabled && config.TokenEndpoint != "" && config.Dex != nil && config.Dex.ConnectorID != ""
 }
 
 // EstablishConnectionWithTokenExchange attempts to establish a connection
@@ -643,7 +643,7 @@ func EstablishConnectionWithTokenExchange(
 			Subject: logging.TruncateIdentifier(sub),
 			UserID:  logging.TruncateIdentifier(userID),
 			Target:  serverInfo.Name,
-			Details: fmt.Sprintf("endpoint=%s connector=%s", serverInfo.AuthConfig.TokenExchange.DexTokenEndpoint, serverInfo.AuthConfig.TokenExchange.ConnectorID),
+			Details: fmt.Sprintf("endpoint=%s connector=%s", serverInfo.AuthConfig.TokenExchange.TokenEndpoint, serverInfo.AuthConfig.TokenExchange.ConnectorIDValue()),
 			Error:   err.Error(),
 		})
 
@@ -662,7 +662,7 @@ func EstablishConnectionWithTokenExchange(
 		Subject: logging.TruncateIdentifier(sub),
 		UserID:  logging.TruncateIdentifier(userID),
 		Target:  serverInfo.Name,
-		Details: fmt.Sprintf("endpoint=%s connector=%s", serverInfo.AuthConfig.TokenExchange.DexTokenEndpoint, serverInfo.AuthConfig.TokenExchange.ConnectorID),
+		Details: fmt.Sprintf("endpoint=%s connector=%s", serverInfo.AuthConfig.TokenExchange.TokenEndpoint, serverInfo.AuthConfig.TokenExchange.ConnectorIDValue()),
 	})
 
 	// Extract the exchanged token's expiry for proactive pool refresh.

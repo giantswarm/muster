@@ -59,9 +59,10 @@ func TestListServersRequiringAuth(t *testing.T) {
 			&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
 			&api.MCPServerAuth{
 				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
-					Enabled:          true,
-					DexTokenEndpoint: "https://dex.remote.example.com/token",
-					ConnectorID:      "local-oidc",
+					Enabled:       true,
+					TokenEndpoint: "https://dex.remote.example.com/token",
+					Provider:      "dex",
+					Dex:           &api.DexTokenExchangeConfig{ConnectorID: "local-oidc"},
 				},
 			},
 		)
@@ -175,9 +176,10 @@ func TestListServersRequiringAuth(t *testing.T) {
 			&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
 			&api.MCPServerAuth{
 				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
-					Enabled:          true,
-					DexTokenEndpoint: "https://dex.remote.example.com/token",
-					ConnectorID:      "local-oidc",
+					Enabled:       true,
+					TokenEndpoint: "https://dex.remote.example.com/token",
+					Provider:      "dex",
+					Dex:           &api.DexTokenExchangeConfig{ConnectorID: "local-oidc"},
 				},
 			},
 		))
@@ -220,9 +222,10 @@ func TestListServersRequiringAuth(t *testing.T) {
 			&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
 			&api.MCPServerAuth{
 				TokenExchange: &api.TokenExchangeConfig{
-					Enabled:          true,
-					DexTokenEndpoint: "",
-					ConnectorID:      "",
+					Enabled:       true,
+					TokenEndpoint: "",
+					Provider:      "dex",
+					Dex:           &api.DexTokenExchangeConfig{ConnectorID: ""},
 				},
 			},
 		)
@@ -245,9 +248,10 @@ func TestListServersRequiringAuth(t *testing.T) {
 			&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
 			&api.MCPServerAuth{
 				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
-					Enabled:          false,
-					DexTokenEndpoint: "https://dex.remote.example.com/token",
-					ConnectorID:      "local-oidc",
+					Enabled:       false,
+					TokenEndpoint: "https://dex.remote.example.com/token",
+					Provider:      "dex",
+					Dex:           &api.DexTokenExchangeConfig{ConnectorID: "local-oidc"},
 				},
 			},
 		)

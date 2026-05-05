@@ -552,9 +552,9 @@ func (s *Service) createAndInitializeClient(ctx context.Context) error {
 		if handler == nil {
 			return fmt.Errorf("MCPServer %s declares spec.transport.type=teleport but no TeleportClientHandler is registered (running in filesystem mode?)", s.GetName())
 		}
-		mcpTarget := s.definition.Transport.Teleport.MCP
+		mcpTarget := s.definition.Transport.Teleport
 		if mcpTarget.AppName == "" || mcpTarget.IdentitySecretName == "" {
-			return fmt.Errorf("MCPServer %s spec.transport.teleport.mcp must declare appName and identitySecretRef.name", s.GetName())
+			return fmt.Errorf("MCPServer %s spec.transport.teleport must declare appName and identitySecretRef.name", s.GetName())
 		}
 		// Identity Secrets are tbot outputs that live in the muster pod's
 		// own namespace (the chart writes them via the kubernetes_secret

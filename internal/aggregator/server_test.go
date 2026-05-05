@@ -629,9 +629,10 @@ func TestCallToolWithTokenExchangeRetry_SuccessNoRetry(t *testing.T) {
 
 	tokenExchangeAuth := &api.MCPServerAuth{
 		TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
-			Enabled:          true,
-			DexTokenEndpoint: "https://dex.example.com/token",
-			ConnectorID:      "ldap",
+			Enabled:       true,
+			TokenEndpoint: "https://dex.example.com/token",
+			Provider:      "dex",
+			Dex:           &api.DexTokenExchangeConfig{ConnectorID: "ldap"},
 		},
 	}
 	err := a.registry.RegisterPendingAuthWithConfig(serverName, "https://server.example.com", "", nil, tokenExchangeAuth)
@@ -664,9 +665,10 @@ func TestCallToolWithTokenExchangeRetry_EvictsPoolOn401ForTokenExchange(t *testi
 
 	tokenExchangeAuth := &api.MCPServerAuth{
 		TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
-			Enabled:          true,
-			DexTokenEndpoint: "https://dex.example.com/token",
-			ConnectorID:      "ldap",
+			Enabled:       true,
+			TokenEndpoint: "https://dex.example.com/token",
+			Provider:      "dex",
+			Dex:           &api.DexTokenExchangeConfig{ConnectorID: "ldap"},
 		},
 	}
 	err := a.registry.RegisterPendingAuthWithConfig(serverName, "https://server.example.com", "", nil, tokenExchangeAuth)
@@ -727,9 +729,10 @@ func TestCallToolWithTokenExchangeRetry_NoRetryForNon401Error(t *testing.T) {
 
 	tokenExchangeAuth := &api.MCPServerAuth{
 		TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
-			Enabled:          true,
-			DexTokenEndpoint: "https://dex.example.com/token",
-			ConnectorID:      "ldap",
+			Enabled:       true,
+			TokenEndpoint: "https://dex.example.com/token",
+			Provider:      "dex",
+			Dex:           &api.DexTokenExchangeConfig{ConnectorID: "ldap"},
 		},
 	}
 	err := a.registry.RegisterPendingAuthWithConfig(serverName, "https://server.example.com", "", nil, tokenExchangeAuth)
@@ -759,9 +762,10 @@ func TestGetOrCreateClientForToolCall_ExpiringSoonReturnsClientAndTriggersBackgr
 
 	tokenExchangeAuth := &api.MCPServerAuth{
 		TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
-			Enabled:          true,
-			DexTokenEndpoint: "https://dex.example.com/token",
-			ConnectorID:      "ldap",
+			Enabled:       true,
+			TokenEndpoint: "https://dex.example.com/token",
+			Provider:      "dex",
+			Dex:           &api.DexTokenExchangeConfig{ConnectorID: "ldap"},
 		},
 	}
 	err := a.registry.RegisterPendingAuthWithConfig(serverName, "https://server.example.com", "", nil, tokenExchangeAuth)
@@ -798,9 +802,10 @@ func TestGetOrCreateClientForToolCall_ExpiredTokenEvictsSynchronously(t *testing
 
 	tokenExchangeAuth := &api.MCPServerAuth{
 		TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
-			Enabled:          true,
-			DexTokenEndpoint: "https://dex.example.com/token",
-			ConnectorID:      "ldap",
+			Enabled:       true,
+			TokenEndpoint: "https://dex.example.com/token",
+			Provider:      "dex",
+			Dex:           &api.DexTokenExchangeConfig{ConnectorID: "ldap"},
 		},
 	}
 	err := a.registry.RegisterPendingAuthWithConfig(serverName, "https://server.example.com", "", nil, tokenExchangeAuth)
@@ -831,9 +836,10 @@ func TestGetOrCreateClientForToolCall_NoEvictionWhenTokenFresh(t *testing.T) {
 
 	tokenExchangeAuth := &api.MCPServerAuth{
 		TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
-			Enabled:          true,
-			DexTokenEndpoint: "https://dex.example.com/token",
-			ConnectorID:      "ldap",
+			Enabled:       true,
+			TokenEndpoint: "https://dex.example.com/token",
+			Provider:      "dex",
+			Dex:           &api.DexTokenExchangeConfig{ConnectorID: "ldap"},
 		},
 	}
 	err := a.registry.RegisterPendingAuthWithConfig(serverName, "https://server.example.com", "", nil, tokenExchangeAuth)

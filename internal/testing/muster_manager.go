@@ -1272,9 +1272,13 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 								"enabled": true,
 							}
 
-							// Handle dex_token_endpoint - can be explicit URL or reference to OAuth server
+							// Handle dex_token_endpoint - can be explicit URL or reference to OAuth server.
+							// We honour the legacy dex_token_endpoint key from BDD scenarios but
+							// emit the post-reshape CRD field name (tokenEndpoint). Today only the
+							// dex provider is supported, so we always set provider=dex.
+							tokenExchangeConfig["provider"] = "dex"
 							if dexEndpoint, ok := tokenExchange["dex_token_endpoint"].(string); ok {
-								tokenExchangeConfig["dexTokenEndpoint"] = dexEndpoint
+								tokenExchangeConfig["tokenEndpoint"] = dexEndpoint
 							} else if oauthServerRef, ok := tokenExchange["oauth_server_ref"].(string); ok {
 								// Resolve token endpoint from referenced OAuth server
 								m.mu.RLock()
@@ -1282,7 +1286,7 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 								m.mu.RUnlock()
 								if oauthServers != nil {
 									if oauthServer, ok := oauthServers[oauthServerRef]; ok {
-										tokenExchangeConfig["dexTokenEndpoint"] = oauthServer.GetIssuerURL() + "/token"
+										tokenExchangeConfig["tokenEndpoint"] = oauthServer.GetIssuerURL() + "/token"
 										if m.debug {
 											logger.Debug("🔐 Resolved token exchange endpoint from %s: %s/token\n",
 												oauthServerRef, oauthServer.GetIssuerURL())
@@ -1292,7 +1296,9 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 							}
 
 							if connectorID, ok := tokenExchange["connector_id"].(string); ok {
-								tokenExchangeConfig["connectorId"] = connectorID
+								tokenExchangeConfig["dex"] = map[string]interface{}{
+									"connectorId": connectorID,
+								}
 							}
 							if scopes, ok := tokenExchange["scopes"].(string); ok {
 								tokenExchangeConfig["scopes"] = scopes

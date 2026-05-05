@@ -424,10 +424,13 @@ spec:
     # RFC 8693 Token Exchange for cross-cluster SSO
     tokenExchange:
       enabled: true
-      # Remote cluster's Dex token endpoint
-      dexTokenEndpoint: https://dex.cluster-b.example.com/token
-      # The connector ID on remote Dex that trusts this cluster's Dex
-      connectorId: cluster-a-dex
+      # Remote IdP's token endpoint
+      tokenEndpoint: https://dex.cluster-b.example.com/token
+      # Provider discriminator (today only "dex" is supported; defaults to "dex")
+      provider: dex
+      dex:
+        # The connector ID on remote Dex that trusts this cluster's Dex
+        connectorId: cluster-a-dex
       # Optional: scopes to request (defaults to "openid profile email groups")
       scopes: "openid profile email groups"
 ```

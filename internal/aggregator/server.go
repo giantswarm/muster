@@ -527,62 +527,89 @@ func (a *AggregatorServer) SetTransportDispatcher(d teleport.TransportDispatcher
 }
 
 // resolveTransportClients invokes the configured TransportDispatcher with a
-// synthesized v1alpha1.MCPServer carrying the CR's transport selection. When
-// no dispatcher is configured (e.g. filesystem mode), returns a default
-// http.Client and nil dexClient — the same shape as the dispatcher's
-// "transport unset" branch (TB-7).
+// synthesized v1alpha1.MCPServer carrying the CR's transport selections.
+// Returns one client for the MCP endpoint and one for the token-exchange
+// endpoint; the two are looked up independently after the May-2026 reshape
+// (no inheritance from spec.transport).
+//
+// When no dispatcher is configured (e.g. filesystem mode), returns a
+// default http.Client for the MCP path and nil for the token-exchange path
+// — the same shape as the dispatcher's direct-HTTPS branches.
 //
 // On dispatcher error, this method patches
 // MCPServer.status.conditions[type=TransportReady, status=False] with the
 // reason from teleport.MapErrorToCondition. The patch is best-effort: a
-// failure to write the condition is logged but never propagated to the
-// caller (per PLAN: "the condition write should NOT block the request").
-func (a *AggregatorServer) resolveTransportClients(ctx context.Context, info *ServerInfo) (mcpClient, dexClient *http.Client, err error) {
+// failure to write the condition is logged but never propagated.
+func (a *AggregatorServer) resolveTransportClients(ctx context.Context, info *ServerInfo) (mcpClient, tokenExchangeClient *http.Client, err error) {
 	if a.transportDispatcher == nil {
 		return &http.Client{}, nil, nil
 	}
 
-	// Synthesize a v1alpha1.MCPServer. The dispatcher only consults
-	// Spec.Transport; metadata is included so logs and errors carry the CR
-	// identity for status writes.
+	syn := synthesizeMCPServer(info)
+
+	mcpClient, err = a.transportDispatcher.MCPClientFor(ctx, syn)
+	if err != nil {
+		a.writeTransportReadyCondition(ctx, syn, err)
+		return nil, nil, err
+	}
+
+	// The token-exchange transport is optional; if nothing is configured,
+	// MCPClientFor's caller may still want to perform direct-HTTPS token
+	// exchange — leave the returned client as nil so the OAuth handler
+	// falls back to its internal default.
+	if syn.Spec.Auth != nil && syn.Spec.Auth.TokenExchange != nil &&
+		syn.Spec.Auth.TokenExchange.Transport != nil {
+		tokenExchangeClient, err = a.transportDispatcher.TokenExchangeClientFor(ctx, syn)
+		if err != nil {
+			a.writeTransportReadyCondition(ctx, syn, err)
+			return nil, nil, err
+		}
+	}
+
+	a.writeTransportReadyCondition(ctx, syn, nil)
+	return mcpClient, tokenExchangeClient, nil
+}
+
+// synthesizeMCPServer reconstructs a minimal *v1alpha1.MCPServer from the
+// per-server info recorded at registration. The dispatcher only consults
+// the synthesized Spec.Transport and Spec.Auth.TokenExchange.Transport;
+// metadata is included so logs and errors carry the CR identity for
+// status writes.
+func synthesizeMCPServer(info *ServerInfo) *v1alpha1.MCPServer {
 	syn := &v1alpha1.MCPServer{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      info.Name,
 			Namespace: info.GetNamespace(),
 		},
 	}
-	if info.TransportConfig != nil {
-		syn.Spec.Transport = &v1alpha1.MCPServerTransport{
-			Type: info.TransportConfig.Type,
-		}
-		if info.TransportConfig.Teleport != nil {
-			tt := info.TransportConfig.Teleport
-			syn.Spec.Transport.Teleport = &v1alpha1.TeleportTransport{
-				MCP: v1alpha1.TeleportTarget{
-					AppName: tt.MCP.AppName,
-					IdentitySecretRef: corev1.LocalObjectReference{
-						Name: tt.MCP.IdentitySecretName,
-					},
-				},
-			}
-			if tt.Dex != nil {
-				syn.Spec.Transport.Teleport.Dex = &v1alpha1.TeleportTarget{
-					AppName: tt.Dex.AppName,
-					IdentitySecretRef: corev1.LocalObjectReference{
-						Name: tt.Dex.IdentitySecretName,
-					},
-				}
-			}
+	syn.Spec.Transport = apiTransportToCRD(info.TransportConfig)
+	if info.AuthConfig != nil && info.AuthConfig.TokenExchange != nil {
+		syn.Spec.Auth = &v1alpha1.MCPServerAuth{
+			TokenExchange: &v1alpha1.TokenExchangeConfig{
+				Enabled:   info.AuthConfig.TokenExchange.Enabled,
+				Transport: apiTransportToCRD(info.AuthConfig.TokenExchange.Transport),
+			},
 		}
 	}
+	return syn
+}
 
-	mcpClient, dexClient, err = a.transportDispatcher.ClientsFor(ctx, syn)
-	if err != nil {
-		a.writeTransportReadyCondition(ctx, syn, err)
-		return nil, nil, err
+// apiTransportToCRD lifts an api.MCPServerTransport into the corresponding
+// CRD shape for dispatcher consumption. Returns nil when src is nil.
+func apiTransportToCRD(src *api.MCPServerTransport) *v1alpha1.MCPServerTransport {
+	if src == nil {
+		return nil
 	}
-	a.writeTransportReadyCondition(ctx, syn, nil)
-	return mcpClient, dexClient, nil
+	out := &v1alpha1.MCPServerTransport{Type: src.Type}
+	if src.Teleport != nil {
+		out.Teleport = &v1alpha1.TeleportTransport{
+			AppName: src.Teleport.AppName,
+			IdentitySecretRef: corev1.LocalObjectReference{
+				Name: src.Teleport.IdentitySecretName,
+			},
+		}
+	}
+	return out
 }
 
 // writeTransportReadyCondition patches the TransportReady status condition on

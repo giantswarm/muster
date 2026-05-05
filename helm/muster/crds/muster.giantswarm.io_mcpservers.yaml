@@ -109,11 +109,11 @@ spec:
                       clientCredentialsSecretRef:
                         description: "ClientCredentialsSecretRef references a Kubernetes
                           Secret containing\nclient credentials for authenticating
-                          with the remote Dex's token endpoint.\nThis is required
-                          when the remote Dex requires client authentication for\ntoken
+                          with the remote IdP's token endpoint.\nThis is required
+                          when the remote IdP requires client authentication for\ntoken
                           exchange (RFC 8693).\n\nThe secret should contain:\n  -
                           client-id: The OAuth client ID registered on the remote
-                          Dex\n  - client-secret: The OAuth client secret for authentication\n\nExample
+                          IdP\n  - client-secret: The OAuth client secret for authentication\n\nExample
                           secret:\n\n\tapiVersion: v1\n\tkind: Secret\n\tmetadata:\n\t
                           \ name: grizzly-token-exchange-credentials\n\t  namespace:
                           muster\n\ttype: Opaque\n\tstringData:\n\t  client-id: muster-token-exchange\n\t
@@ -144,23 +144,21 @@ spec:
                         required:
                         - name
                         type: object
-                      connectorId:
+                      dex:
                         description: |-
-                          ConnectorID is the ID of the OIDC connector on the remote Dex that
-                          trusts the local cluster's Dex.
-                          Required when Enabled is true.
-                          Example: "cluster-a-dex"
-                        pattern: ^[a-zA-Z][a-zA-Z0-9_-]*$
-                        type: string
-                      dexTokenEndpoint:
-                        description: |-
-                          DexTokenEndpoint is the URL used to connect to the remote cluster's Dex token endpoint.
-                          This may differ from the issuer URL when access goes through a proxy (e.g., Teleport).
-                          Required when Enabled is true.
-                          Example: https://dex.cluster-b.example.com/token (direct)
-                          Example: https://dex-cluster.proxy.example.com/token (via proxy)
-                        pattern: ^https://[^\s/$.?#].[^\s]*$
-                        type: string
+                          Dex carries Dex-specific token-exchange settings. Required when
+                          Provider is "dex" and Enabled is true.
+                        properties:
+                          connectorId:
+                            description: |-
+                              ConnectorID is the ID of the OIDC connector on the remote Dex that
+                              trusts the local cluster's Dex.
+                              Example: "cluster-a-dex"
+                            pattern: ^[a-zA-Z][a-zA-Z0-9_-]*$
+                            type: string
+                        required:
+                        - connectorId
+                        type: object
                       enabled:
                         default: false
                         description: Enabled determines whether token exchange should
@@ -169,17 +167,85 @@ spec:
                       expectedIssuer:
                         description: |-
                           ExpectedIssuer is the expected issuer URL in the exchanged token's "iss" claim.
-                          This should match the remote Dex's configured issuer URL.
-                          When access goes through a proxy, this differs from DexTokenEndpoint.
-                          If not specified, the issuer is derived from DexTokenEndpoint (backward compatible).
+                          This should match the remote IdP's configured issuer URL.
+                          When access goes through a proxy, this differs from TokenEndpoint.
+                          If not specified, the issuer is derived from TokenEndpoint (backward compatible).
                           Example: https://dex.cluster-b.example.com
                         pattern: ^https://[^\s/$.?#].[^\s]*$
+                        type: string
+                      provider:
+                        default: dex
+                        description: |-
+                          Provider selects the token-exchange provider. Today only "dex" is
+                          valid; the discriminator keeps the schema extensible.
+                        enum:
+                        - dex
                         type: string
                       scopes:
                         default: openid profile email groups
                         description: Scopes are the scopes to request for the exchanged
                           token.
                         type: string
+                      tokenEndpoint:
+                        description: |-
+                          TokenEndpoint is the URL used to connect to the remote IdP's RFC 8693
+                          token endpoint. Provider-neutral name (today only Dex is supported,
+                          see Provider). Required when Enabled is true.
+
+                          Example: https://dex.cluster-b.example.com/token (direct)
+                          Example: https://dex-cluster.proxy.example.com/token (via proxy)
+                        pattern: ^https://[^\s/$.?#].[^\s]*$
+                        type: string
+                      transport:
+                        description: |-
+                          Transport selects how muster reaches TokenEndpoint. Independent of
+                          spec.transport — there is no inheritance. When nil, the token
+                          endpoint is reached via direct HTTPS (equivalent to {type: http}).
+                        properties:
+                          teleport:
+                            description: |-
+                              Teleport configures routing through a tbot-provisioned mTLS client.
+                              Required when Type is "teleport"; must be unset otherwise.
+                            properties:
+                              appName:
+                                description: |-
+                                  AppName is the Teleport application name (the leftmost label of the
+                                  Teleport app's public_addr). Lowercase DNS label syntax.
+                                pattern: ^[a-z][a-z0-9-]*$
+                                type: string
+                              identitySecretRef:
+                                description: |-
+                                  IdentitySecretRef references the in-cluster Secret carrying the
+                                  tbot-output identity material for AppName. The Secret is expected
+                                  to live in muster's own namespace (the tbot Deployment writes it).
+                                properties:
+                                  name:
+                                    default: ""
+                                    description: |-
+                                      Name of the referent.
+                                      This field is effectively required, but due to backwards compatibility is
+                                      allowed to be empty. Instances of this type with an empty value here are
+                                      almost certainly wrong.
+                                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                    type: string
+                                type: object
+                                x-kubernetes-map-type: atomic
+                            required:
+                            - appName
+                            - identitySecretRef
+                            type: object
+                          type:
+                            default: http
+                            description: |-
+                              Type is the transport discriminator. "http" means direct HTTPS (the
+                              default); "teleport" routes through tbot-provisioned mTLS clients.
+                            enum:
+                            - http
+                            - teleport
+                            type: string
+                        required:
+                        - type
+                        type: object
                     type: object
                   type:
                     default: none
@@ -240,90 +306,53 @@ spec:
                 type: string
               transport:
                 description: |-
-                  Transport selects how muster reaches the MCP endpoint and any
-                  transport-private endpoints referenced from spec.auth (e.g. Dex /token).
-                  Carries no identity. Customer Muster (in-VPN) omits this field, which
-                  preserves direct-HTTPS behavior to spec.url.
+                  Transport selects how muster reaches the MCP endpoint. Carries no
+                  identity. Customer Muster (in-VPN) omits this field (or sets type=http);
+                  both preserve direct-HTTPS behavior to spec.url.
+
+                  This transport is for the MCP endpoint only — it is independent from
+                  spec.auth.tokenExchange.transport (which configures access to the token
+                  exchange endpoint and is declared separately, with no inheritance).
                 properties:
                   teleport:
                     description: |-
-                      Teleport configures routing through per-cluster tbot-provisioned mTLS
-                      clients. Required when Type is "teleport".
+                      Teleport configures routing through a tbot-provisioned mTLS client.
+                      Required when Type is "teleport"; must be unset otherwise.
                     properties:
-                      dex:
+                      appName:
                         description: |-
-                          Dex configures the token-exchange path. Required when
-                          spec.auth.type == "oauth" AND spec.auth.tokenExchange.enabled == true
-                          (the token-exchange path needs a routable Dex transport). Optional
-                          otherwise.
-                        properties:
-                          appName:
-                            description: |-
-                              AppName is the Teleport application name (the leftmost label of the
-                              Teleport app's public_addr). Lowercase DNS label syntax.
-                            pattern: ^[a-z][a-z0-9-]*$
-                            type: string
-                          identitySecretRef:
-                            description: |-
-                              IdentitySecretRef references the in-cluster Secret carrying the
-                              tbot-output identity material for AppName. The Secret is expected
-                              to live in muster's own namespace (the tbot Deployment writes it).
-                            properties:
-                              name:
-                                default: ""
-                                description: |-
-                                  Name of the referent.
-                                  This field is effectively required, but due to backwards compatibility is
-                                  allowed to be empty. Instances of this type with an empty value here are
-                                  almost certainly wrong.
-                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                                type: string
-                            type: object
-                            x-kubernetes-map-type: atomic
-                        required:
-                        - appName
-                        - identitySecretRef
-                        type: object
-                      mcp:
+                          AppName is the Teleport application name (the leftmost label of the
+                          Teleport app's public_addr). Lowercase DNS label syntax.
+                        pattern: ^[a-z][a-z0-9-]*$
+                        type: string
+                      identitySecretRef:
                         description: |-
-                          MCP names the Teleport application (and identity Secret) used to
-                          reach the MCP server's HTTP endpoint.
+                          IdentitySecretRef references the in-cluster Secret carrying the
+                          tbot-output identity material for AppName. The Secret is expected
+                          to live in muster's own namespace (the tbot Deployment writes it).
                         properties:
-                          appName:
+                          name:
+                            default: ""
                             description: |-
-                              AppName is the Teleport application name (the leftmost label of the
-                              Teleport app's public_addr). Lowercase DNS label syntax.
-                            pattern: ^[a-z][a-z0-9-]*$
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
                             type: string
-                          identitySecretRef:
-                            description: |-
-                              IdentitySecretRef references the in-cluster Secret carrying the
-                              tbot-output identity material for AppName. The Secret is expected
-                              to live in muster's own namespace (the tbot Deployment writes it).
-                            properties:
-                              name:
-                                default: ""
-                                description: |-
-                                  Name of the referent.
-                                  This field is effectively required, but due to backwards compatibility is
-                                  allowed to be empty. Instances of this type with an empty value here are
-                                  almost certainly wrong.
-                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                                type: string
-                            type: object
-                            x-kubernetes-map-type: atomic
-                        required:
-                        - appName
-                        - identitySecretRef
                         type: object
+                        x-kubernetes-map-type: atomic
                     required:
-                    - mcp
+                    - appName
+                    - identitySecretRef
                     type: object
                   type:
+                    default: http
                     description: |-
-                      Type is the transport discriminator. Today only "teleport" is supported;
-                      future transports extend this enum additively.
+                      Type is the transport discriminator. "http" means direct HTTPS (the
+                      default); "teleport" routes through tbot-provisioned mTLS clients.
                     enum:
+                    - http
                     - teleport
                     type: string
                 required:
@@ -496,11 +525,19 @@ spec:
             || !has(self.spec.transport.teleport)'
         - message: transport is not allowed when type is stdio
           rule: self.spec.type != 'stdio' || !has(self.spec.transport)
-        - message: transport.teleport.dex is required when auth.tokenExchange is enabled
-          rule: '!has(self.spec.transport) || self.spec.transport.type != ''teleport''
-            || !has(self.spec.auth) || self.spec.auth.type != ''oauth'' || !has(self.spec.auth.tokenExchange)
-            || !self.spec.auth.tokenExchange.enabled || (has(self.spec.transport.teleport)
-            && has(self.spec.transport.teleport.dex))'
+        - message: auth.tokenExchange.transport.teleport is required when auth.tokenExchange.transport.type
+            is teleport
+          rule: '!has(self.spec.auth) || !has(self.spec.auth.tokenExchange) || !has(self.spec.auth.tokenExchange.transport)
+            || self.spec.auth.tokenExchange.transport.type != ''teleport'' || has(self.spec.auth.tokenExchange.transport.teleport)'
+        - message: auth.tokenExchange.transport.teleport may only be set when auth.tokenExchange.transport.type
+            is teleport
+          rule: '!has(self.spec.auth) || !has(self.spec.auth.tokenExchange) || !has(self.spec.auth.tokenExchange.transport)
+            || self.spec.auth.tokenExchange.transport.type == ''teleport'' || !has(self.spec.auth.tokenExchange.transport.teleport)'
+        - message: auth.tokenExchange.dex.connectorId is required when auth.tokenExchange.enabled
+            and provider is dex
+          rule: '!has(self.spec.auth) || !has(self.spec.auth.tokenExchange) || !self.spec.auth.tokenExchange.enabled
+            || (self.spec.auth.tokenExchange.provider != ''dex'' || (has(self.spec.auth.tokenExchange.dex)
+            && self.spec.auth.tokenExchange.dex.connectorId != ''''))'
     served: true
     storage: true
     subresources:

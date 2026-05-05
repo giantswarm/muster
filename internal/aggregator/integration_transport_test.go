@@ -287,22 +287,24 @@ func TestTB10_TeleportTransportRoutesPerCluster(t *testing.T) {
 		AuthConfig: &api.MCPServerAuth{
 			Type: "oauth",
 			TokenExchange: &api.TokenExchangeConfig{
-				Enabled:          true,
-				DexTokenEndpoint: dexSrv.URL + "/token",
-				ConnectorID:      "giantswarm",
+				Enabled:       true,
+				TokenEndpoint: dexSrv.URL + "/token",
+				Provider:      "dex",
+				Dex:           &api.DexTokenExchangeConfig{ConnectorID: "giantswarm"},
+				Transport: &api.MCPServerTransport{
+					Type: "teleport",
+					Teleport: &api.TeleportTransport{
+						AppName:            dexAppName,
+						IdentitySecretName: dexSecretName,
+					},
+				},
 			},
 		},
 		TransportConfig: &api.MCPServerTransport{
 			Type: "teleport",
 			Teleport: &api.TeleportTransport{
-				MCP: api.TeleportTarget{
-					AppName:            mcpAppName,
-					IdentitySecretName: mcpSecretName,
-				},
-				Dex: &api.TeleportTarget{
-					AppName:            dexAppName,
-					IdentitySecretName: dexSecretName,
-				},
+				AppName:            mcpAppName,
+				IdentitySecretName: mcpSecretName,
 			},
 		},
 	}
@@ -312,7 +314,7 @@ func TestTB10_TeleportTransportRoutesPerCluster(t *testing.T) {
 		t.Fatalf("resolveTransportClients: %v", err)
 	}
 	if dexClient == nil {
-		t.Fatal("expected non-nil dex client when teleport transport is set")
+		t.Fatal("expected non-nil dex client when token-exchange teleport transport is set")
 	}
 
 	// (b) MCP request — Authorization Bearer must survive through

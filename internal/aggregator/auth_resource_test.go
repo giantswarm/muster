@@ -216,10 +216,11 @@ func TestHandleAuthStatusResource_SSOServerNoAuthTool(t *testing.T) {
 			&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
 			&api.MCPServerAuth{
 				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
-					Enabled:          true,
-					DexTokenEndpoint: "https://remote-dex.example.com/token",
-					ConnectorID:      "cluster-a-dex",
-					ClientID:         "test-client",
+					Enabled:       true,
+					TokenEndpoint: "https://remote-dex.example.com/token",
+					Provider:      "dex",
+					Dex:           &api.DexTokenExchangeConfig{ConnectorID: "cluster-a-dex"},
+					ClientID:      "test-client",
 				},
 			},
 		)
@@ -341,10 +342,11 @@ func TestDetermineSessionAuthStatus_SSOServers(t *testing.T) {
 			&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
 			&api.MCPServerAuth{
 				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
-					Enabled:          true,
-					DexTokenEndpoint: "https://remote-dex.example.com/token",
-					ConnectorID:      "cluster-a-dex",
-					ClientID:         "test-client",
+					Enabled:       true,
+					TokenEndpoint: "https://remote-dex.example.com/token",
+					Provider:      "dex",
+					Dex:           &api.DexTokenExchangeConfig{ConnectorID: "cluster-a-dex"},
+					ClientID:      "test-client",
 				},
 			},
 		)
@@ -556,10 +558,11 @@ func TestDetermineSessionAuthStatus_ReauthRequired_TokenExchangeServer(t *testin
 		"exchange",
 		&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
 		&api.MCPServerAuth{TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
-			Enabled:          true,
-			DexTokenEndpoint: "https://remote-dex.example.com/token",
-			ConnectorID:      "cluster-a-dex",
-			ClientID:         "test-client",
+			Enabled:       true,
+			TokenEndpoint: "https://remote-dex.example.com/token",
+			Provider:      "dex",
+			Dex:           &api.DexTokenExchangeConfig{ConnectorID: "cluster-a-dex"},
+			ClientID:      "test-client",
 		}},
 	)
 	if err != nil {

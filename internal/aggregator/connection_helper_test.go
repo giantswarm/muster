@@ -265,9 +265,10 @@ func TestShouldUseTokenExchange(t *testing.T) {
 			AuthConfig: &api.MCPServerAuth{
 				Type: "oauth",
 				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
-					Enabled:          false,
-					DexTokenEndpoint: "https://dex.example.com/token",
-					ConnectorID:      "local-dex",
+					Enabled:       false,
+					TokenEndpoint: "https://dex.example.com/token",
+					Provider:      "dex",
+					Dex:           &api.DexTokenExchangeConfig{ConnectorID: "local-dex"},
 				},
 			},
 		}
@@ -281,21 +282,22 @@ func TestShouldUseTokenExchange(t *testing.T) {
 				Type: "oauth",
 				TokenExchange: &api.TokenExchangeConfig{
 					Enabled: true,
-					// Missing DexTokenEndpoint and ConnectorID
+					// Missing TokenEndpoint and Dex.ConnectorID
 				},
 			},
 		}
 		assert.False(t, ShouldUseTokenExchange(info))
 	})
 
-	t.Run("returns false when DexTokenEndpoint is missing", func(t *testing.T) {
+	t.Run("returns false when TokenEndpoint is missing", func(t *testing.T) {
 		info := &ServerInfo{
 			Name: "test-server",
 			AuthConfig: &api.MCPServerAuth{
 				Type: "oauth",
 				TokenExchange: &api.TokenExchangeConfig{
-					Enabled:     true,
-					ConnectorID: "local-dex",
+					Enabled:  true,
+					Provider: "dex",
+					Dex:      &api.DexTokenExchangeConfig{ConnectorID: "local-dex"},
 				},
 			},
 		}
@@ -308,8 +310,8 @@ func TestShouldUseTokenExchange(t *testing.T) {
 			AuthConfig: &api.MCPServerAuth{
 				Type: "oauth",
 				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
-					Enabled:          true,
-					DexTokenEndpoint: "https://dex.example.com/token",
+					Enabled:       true,
+					TokenEndpoint: "https://dex.example.com/token",
 				},
 			},
 		}
@@ -322,10 +324,11 @@ func TestShouldUseTokenExchange(t *testing.T) {
 			AuthConfig: &api.MCPServerAuth{
 				Type: "oauth",
 				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
-					Enabled:          true,
-					DexTokenEndpoint: "https://dex.example.com/token",
-					ConnectorID:      "local-dex",
-					Scopes:           "openid profile email groups",
+					Enabled:       true,
+					TokenEndpoint: "https://dex.example.com/token",
+					Provider:      "dex",
+					Dex:           &api.DexTokenExchangeConfig{ConnectorID: "local-dex"},
+					Scopes:        "openid profile email groups",
 				},
 			},
 		}
@@ -445,8 +448,9 @@ func TestLoadTokenExchangeCredentials(t *testing.T) {
 				Type: "oauth",
 				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
 					Enabled:                    true,
-					DexTokenEndpoint:           "https://dex.example.com/token",
-					ConnectorID:                "local-dex",
+					TokenEndpoint:              "https://dex.example.com/token",
+					Provider:                   "dex",
+					Dex:                        &api.DexTokenExchangeConfig{ConnectorID: "local-dex"},
 					ClientCredentialsSecretRef: nil,
 				},
 			},
@@ -465,9 +469,10 @@ func TestLoadTokenExchangeCredentials(t *testing.T) {
 			AuthConfig: &api.MCPServerAuth{
 				Type: "oauth",
 				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
-					Enabled:          true,
-					DexTokenEndpoint: "https://dex.example.com/token",
-					ConnectorID:      "local-dex",
+					Enabled:       true,
+					TokenEndpoint: "https://dex.example.com/token",
+					Provider:      "dex",
+					Dex:           &api.DexTokenExchangeConfig{ConnectorID: "local-dex"},
 					ClientCredentialsSecretRef: &api.ClientCredentialsSecretRef{
 						Name: "test-credentials",
 					},
@@ -496,9 +501,10 @@ func TestLoadTokenExchangeCredentials(t *testing.T) {
 			AuthConfig: &api.MCPServerAuth{
 				Type: "oauth",
 				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
-					Enabled:          true,
-					DexTokenEndpoint: "https://dex.example.com/token",
-					ConnectorID:      "local-dex",
+					Enabled:       true,
+					TokenEndpoint: "https://dex.example.com/token",
+					Provider:      "dex",
+					Dex:           &api.DexTokenExchangeConfig{ConnectorID: "local-dex"},
 					ClientCredentialsSecretRef: &api.ClientCredentialsSecretRef{
 						Name:      "test-credentials",
 						Namespace: "secrets-ns",
@@ -533,9 +539,10 @@ func TestLoadTokenExchangeCredentials(t *testing.T) {
 			AuthConfig: &api.MCPServerAuth{
 				Type: "oauth",
 				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
-					Enabled:          true,
-					DexTokenEndpoint: "https://dex.example.com/token",
-					ConnectorID:      "local-dex",
+					Enabled:       true,
+					TokenEndpoint: "https://dex.example.com/token",
+					Provider:      "dex",
+					Dex:           &api.DexTokenExchangeConfig{ConnectorID: "local-dex"},
 					ClientCredentialsSecretRef: &api.ClientCredentialsSecretRef{
 						Name: "test-credentials",
 						// No namespace specified - should use server's namespace
@@ -565,9 +572,10 @@ func TestLoadTokenExchangeCredentials(t *testing.T) {
 			AuthConfig: &api.MCPServerAuth{
 				Type: "oauth",
 				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
-					Enabled:          true,
-					DexTokenEndpoint: "https://dex.example.com/token",
-					ConnectorID:      "local-dex",
+					Enabled:       true,
+					TokenEndpoint: "https://dex.example.com/token",
+					Provider:      "dex",
+					Dex:           &api.DexTokenExchangeConfig{ConnectorID: "local-dex"},
 					ClientCredentialsSecretRef: &api.ClientCredentialsSecretRef{
 						Name: "test-credentials",
 					},
@@ -592,9 +600,10 @@ func TestLoadTokenExchangeCredentials(t *testing.T) {
 			AuthConfig: &api.MCPServerAuth{
 				Type: "oauth",
 				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
-					Enabled:          true,
-					DexTokenEndpoint: "https://dex.example.com/token",
-					ConnectorID:      "local-dex",
+					Enabled:       true,
+					TokenEndpoint: "https://dex.example.com/token",
+					Provider:      "dex",
+					Dex:           &api.DexTokenExchangeConfig{ConnectorID: "local-dex"},
 					ClientCredentialsSecretRef: &api.ClientCredentialsSecretRef{
 						Name: "nonexistent-secret",
 					},

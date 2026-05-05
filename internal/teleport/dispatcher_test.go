@@ -50,43 +50,45 @@ func makeIdentitySecret(t *testing.T, name, namespace string) (*corev1.Secret, [
 	}, certPEM
 }
 
-// makeMCPServer builds a minimal MCPServer with the requested transport.
-func makeMCPServer(transport *v1alpha1.MCPServerTransport) *v1alpha1.MCPServer {
-	return &v1alpha1.MCPServer{
+// makeMCPServer builds a minimal MCPServer carrying the requested
+// MCP-endpoint transport and (optionally) a token-exchange transport.
+// txTransport=nil omits the token-exchange block entirely.
+func makeMCPServer(mcpTransport, txTransport *v1alpha1.MCPServerTransport) *v1alpha1.MCPServer {
+	mcp := &v1alpha1.MCPServer{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
 		Spec: v1alpha1.MCPServerSpec{
 			Type:      "streamable-http",
 			URL:       "https://example.test/mcp",
-			Transport: transport,
+			Transport: mcpTransport,
 		},
 	}
-}
-
-// teleportTransport is a constructor shortcut for cleaner test cases. The
-// CR carries explicit (appName, identitySecretRef.Name) pairs per the
-// reshape (PLAN §6 TB-0 revised 2026-04-29). dexAppName="" omits the dex
-// target entirely.
-func teleportTransport(mcpAppName, mcpSecret, dexAppName, dexSecret string) *v1alpha1.MCPServerTransport {
-	tt := &v1alpha1.MCPServerTransport{
-		Type: "teleport",
-		Teleport: &v1alpha1.TeleportTransport{
-			MCP: v1alpha1.TeleportTarget{
-				AppName: mcpAppName,
-				IdentitySecretRef: corev1.LocalObjectReference{
-					Name: mcpSecret,
-				},
-			},
-		},
-	}
-	if dexAppName != "" {
-		tt.Teleport.Dex = &v1alpha1.TeleportTarget{
-			AppName: dexAppName,
-			IdentitySecretRef: corev1.LocalObjectReference{
-				Name: dexSecret,
+	if txTransport != nil {
+		mcp.Spec.Auth = &v1alpha1.MCPServerAuth{
+			Type: "oauth",
+			TokenExchange: &v1alpha1.TokenExchangeConfig{
+				Enabled:   true,
+				Transport: txTransport,
 			},
 		}
 	}
-	return tt
+	return mcp
+}
+
+// teleportTransport builds a single-target teleport transport. appName=""
+// returns nil so callers can express "transport unset" inline.
+func teleportTransport(appName, secret string) *v1alpha1.MCPServerTransport {
+	if appName == "" {
+		return nil
+	}
+	return &v1alpha1.MCPServerTransport{
+		Type: "teleport",
+		Teleport: &v1alpha1.TeleportTransport{
+			AppName: appName,
+			IdentitySecretRef: corev1.LocalObjectReference{
+				Name: secret,
+			},
+		},
+	}
 }
 
 // appNameFromTransport unwraps an http.Client's transport stack and returns
@@ -146,7 +148,9 @@ var _ = tls.VersionTLS12
 
 // ----- tests -----
 
-// (a) — transport unset → plain client; result="none".
+// (a) — transport unset → plain client; result="none". The token-exchange
+// lookup also returns a direct-HTTPS client when the CR omits the
+// per-tokenExchange transport.
 func TestDispatcher_TransportUnset(t *testing.T) {
 	resetMetricsForTest()
 	t.Cleanup(resetMetricsForTest)
@@ -157,17 +161,26 @@ func TestDispatcher_TransportUnset(t *testing.T) {
 		t.Fatalf("ctor: %v", err)
 	}
 
-	mcp, dex, err := d.ClientsFor(context.Background(), makeMCPServer(nil))
+	mcp, err := d.MCPClientFor(context.Background(), makeMCPServer(nil, nil))
 	if err != nil {
-		t.Fatalf("ClientsFor: %v", err)
+		t.Fatalf("MCPClientFor: %v", err)
 	}
 	if mcp == nil {
 		t.Fatal("expected non-nil mcp client for direct-HTTPS path")
 	}
-	if dex != nil {
-		t.Fatal("expected nil dex client when transport is unset")
+
+	tx, err := d.TokenExchangeClientFor(context.Background(), makeMCPServer(nil, nil))
+	if err != nil {
+		t.Fatalf("TokenExchangeClientFor: %v", err)
+	}
+	if tx == nil {
+		t.Fatal("expected non-nil token-exchange client for direct-HTTPS path")
 	}
 
+	// Only the MCP-side path increments lookup metrics; the
+	// TokenExchangeClientFor early-returns when Auth.TokenExchange is nil
+	// without entering the resolver, so it stays at one bump for the MCP
+	// path alone.
 	expected := `
 # HELP muster_transport_lookup_total Number of CR-driven transport-dispatcher lookups, by outcome.
 # TYPE muster_transport_lookup_total counter
@@ -178,9 +191,10 @@ muster_transport_lookup_total{result="none"} 1
 	}
 }
 
-// (b) — both targets set + both secrets present → two configured clients.
-// This is the canonical "Teleport-routed CR with token exchange" path.
-func TestDispatcher_ResolvedBothTargets(t *testing.T) {
+// (b) — both transports set + both secrets present → two distinct
+// configured clients. This is the canonical "Teleport-routed CR with
+// token exchange" path, now with the two transports declared independently.
+func TestDispatcher_ResolvedBothTransports(t *testing.T) {
 	resetMetricsForTest()
 	t.Cleanup(resetMetricsForTest)
 
@@ -201,40 +215,46 @@ func TestDispatcher_ResolvedBothTargets(t *testing.T) {
 		t.Fatalf("ctor: %v", err)
 	}
 
-	mcp, dex, err := d.ClientsFor(context.Background(), makeMCPServer(teleportTransport(mcpApp, mcpSecretName, dexApp, dexSecretName)))
+	cr := makeMCPServer(
+		teleportTransport(mcpApp, mcpSecretName),
+		teleportTransport(dexApp, dexSecretName),
+	)
+
+	mcp, err := d.MCPClientFor(context.Background(), cr)
 	if err != nil {
-		t.Fatalf("ClientsFor: %v", err)
+		t.Fatalf("MCPClientFor: %v", err)
 	}
-	if mcp == nil || dex == nil {
-		t.Fatalf("expected both clients, got mcp=%v dex=%v", mcp, dex)
+	tx, err := d.TokenExchangeClientFor(context.Background(), cr)
+	if err != nil {
+		t.Fatalf("TokenExchangeClientFor: %v", err)
 	}
-	if mcp == dex {
-		t.Fatal("expected distinct clients (per Q4: 2 secrets per remote MC)")
+	if mcp == nil || tx == nil {
+		t.Fatalf("expected both clients, got mcp=%v tx=%v", mcp, tx)
+	}
+	if mcp == tx {
+		t.Fatal("expected distinct clients (one per transport)")
 	}
 
-	// Each client is wrapped with appNameTransport; verify the Host header
-	// was set to the explicit app name on each.
 	if got := appNameFromTransport(t, mcp); got != mcpApp {
 		t.Errorf("mcp client Host=%q, want %q", got, mcpApp)
 	}
-	if got := appNameFromTransport(t, dex); got != dexApp {
-		t.Errorf("dex client Host=%q, want %q", got, dexApp)
+	if got := appNameFromTransport(t, tx); got != dexApp {
+		t.Errorf("token-exchange client Host=%q, want %q", got, dexApp)
 	}
 
-	// Distinctness via cert serial (regenerated per call).
 	mcpSerial := tlsLeafSerial(t, mcp)
-	dexSerial := tlsLeafSerial(t, dex)
-	if mcpSerial == "" || dexSerial == "" {
+	txSerial := tlsLeafSerial(t, tx)
+	if mcpSerial == "" || txSerial == "" {
 		t.Fatal("expected non-empty leaf serials on both clients")
 	}
-	if mcpSerial == dexSerial {
-		t.Errorf("mcp and dex clients carry the same cert serial %q — secrets not distinct", mcpSerial)
+	if mcpSerial == txSerial {
+		t.Errorf("mcp and token-exchange clients carry the same cert serial %q — secrets not distinct", mcpSerial)
 	}
 
 	expectedLookup := `
 # HELP muster_transport_lookup_total Number of CR-driven transport-dispatcher lookups, by outcome.
 # TYPE muster_transport_lookup_total counter
-muster_transport_lookup_total{result="resolved"} 1
+muster_transport_lookup_total{result="resolved"} 2
 `
 	if err := testutil.CollectAndCompare(transportLookupTotal, strings.NewReader(expectedLookup)); err != nil {
 		t.Fatalf("lookup metric mismatch: %v", err)
@@ -250,8 +270,9 @@ muster_transport_secret_load_total{result="ok",secret="tbot-identity-tx-glean"} 
 	}
 }
 
-// (c) — Dex target nil (token exchange disabled or forwarded) → mcp client
-// only; dexClient is nil; result="resolved".
+// (c) — token-exchange transport omitted (token exchange disabled or
+// forwarded) → MCPClientFor returns the configured teleport client;
+// TokenExchangeClientFor returns a direct-HTTPS client.
 func TestDispatcher_ResolvedMCPOnly(t *testing.T) {
 	resetMetricsForTest()
 	t.Cleanup(resetMetricsForTest)
@@ -267,18 +288,24 @@ func TestDispatcher_ResolvedMCPOnly(t *testing.T) {
 		t.Fatalf("ctor: %v", err)
 	}
 
-	mcp, dex, err := d.ClientsFor(context.Background(), makeMCPServer(teleportTransport(mcpApp, mcpSecretName, "", "")))
+	cr := makeMCPServer(teleportTransport(mcpApp, mcpSecretName), nil)
+	mcp, err := d.MCPClientFor(context.Background(), cr)
 	if err != nil {
-		t.Fatalf("ClientsFor: %v", err)
+		t.Fatalf("MCPClientFor: %v", err)
 	}
 	if mcp == nil {
 		t.Fatal("expected non-nil mcp client")
 	}
-	if dex != nil {
-		t.Fatal("expected nil dex client when dex target is omitted")
-	}
 	if got := appNameFromTransport(t, mcp); got != mcpApp {
 		t.Errorf("mcp client Host=%q, want %q", got, mcpApp)
+	}
+
+	tx, err := d.TokenExchangeClientFor(context.Background(), cr)
+	if err != nil {
+		t.Fatalf("TokenExchangeClientFor: %v", err)
+	}
+	if tx == nil || tx.Transport != nil {
+		t.Errorf("expected default direct-HTTPS token-exchange client, got %+v", tx)
 	}
 }
 
@@ -290,19 +317,16 @@ func TestDispatcher_MCPSecretMissing(t *testing.T) {
 
 	const ns = "muster"
 	const mcpApp = "mcp-kubernetes-glean"
-	const dexApp = "dex-glean"
 	const mcpSecretName = "tbot-identity-mcp-glean" // #nosec G101 -- test fixture; not a credential.
-	const dexSecretName = "tbot-identity-tx-glean"  // #nosec G101 -- test fixture; not a credential.
-	// Only the dex secret exists; mcp secret is missing.
-	dexSecret, _ := makeIdentitySecret(t, dexSecretName, ns)
 
-	k8s := newFakeK8s(t, dexSecret).Build()
+	k8s := newFakeK8s(t).Build()
 	d, err := NewTransportDispatcher(k8s, ns)
 	if err != nil {
 		t.Fatalf("ctor: %v", err)
 	}
 
-	_, _, err = d.ClientsFor(context.Background(), makeMCPServer(teleportTransport(mcpApp, mcpSecretName, dexApp, dexSecretName)))
+	cr := makeMCPServer(teleportTransport(mcpApp, mcpSecretName), nil)
+	_, err = d.MCPClientFor(context.Background(), cr)
 	if err == nil {
 		t.Fatal("expected error for missing secret")
 	}
@@ -343,10 +367,10 @@ muster_transport_secret_load_total{result="error",secret="tbot-identity-mcp-glea
 	}
 }
 
-// (e) — Dex secret invalid (exists but has malformed PEM data) →
-// ErrSecretInvalid + result="secret_invalid". MCP secret is present and
-// valid, so the failure point is specifically the dex secret.
-func TestDispatcher_DexSecretInvalid(t *testing.T) {
+// (e) — token-exchange secret invalid (exists but has malformed PEM) →
+// ErrSecretInvalid + result="secret_invalid" surfacing on the
+// TokenExchangeClientFor call. MCPClientFor remains successful.
+func TestDispatcher_TokenExchangeSecretInvalid(t *testing.T) {
 	resetMetricsForTest()
 	t.Cleanup(resetMetricsForTest)
 
@@ -372,9 +396,18 @@ func TestDispatcher_DexSecretInvalid(t *testing.T) {
 		t.Fatalf("ctor: %v", err)
 	}
 
-	_, _, err = d.ClientsFor(context.Background(), makeMCPServer(teleportTransport(mcpApp, mcpSecretName, dexApp, dexSecretName)))
+	cr := makeMCPServer(
+		teleportTransport(mcpApp, mcpSecretName),
+		teleportTransport(dexApp, dexSecretName),
+	)
+
+	if _, err := d.MCPClientFor(context.Background(), cr); err != nil {
+		t.Fatalf("MCPClientFor unexpected error: %v", err)
+	}
+
+	_, err = d.TokenExchangeClientFor(context.Background(), cr)
 	if err == nil {
-		t.Fatal("expected error for invalid dex secret")
+		t.Fatal("expected error for invalid token-exchange secret")
 	}
 	if !errors.Is(err, ErrSecretInvalid) {
 		t.Fatalf("expected ErrSecretInvalid, got %v", err)

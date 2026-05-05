@@ -115,13 +115,23 @@ Example: `requiredAudiences: ["dex-k8s-authenticator"]`.
 | Field | Type | Required | Description | Constraints |
 |-------|------|----------|-------------|-------------|
 | `enabled` | `boolean` | No | Enable token exchange | Default: `false` |
-| `dexTokenEndpoint` | `string` | Yes* | URL to access Dex's token endpoint (may be via proxy) | Must be HTTPS, required when enabled |
-| `expectedIssuer` | `string` | No | Expected issuer URL in exchanged token's `iss` claim | Must be HTTPS if specified. Default: derived from `dexTokenEndpoint` by removing `/token` suffix |
-| `connectorId` | `string` | Yes* | ID of OIDC connector on remote Dex | Required when enabled |
+| `tokenEndpoint` | `string` | Yes* | URL to access the IdP's RFC 8693 token endpoint (may be via proxy) | Must be HTTPS, required when enabled |
+| `expectedIssuer` | `string` | No | Expected issuer URL in exchanged token's `iss` claim | Must be HTTPS if specified. Default: derived from `tokenEndpoint` by removing `/token` suffix |
+| `provider` | `string` | No | Provider discriminator (today only `dex` is supported) | Enum: `dex`. Default: `dex` |
+| `dex` | `DexTokenExchangeConfig` | Yes* | Dex-specific settings (carries `connectorId`) | Required when `provider=dex` and `enabled=true` |
+| `transport` | `MCPServerTransport` | No | Transport selection for `tokenEndpoint`. Independent of `spec.transport` — no inheritance. | Same shape as `spec.transport` |
 | `scopes` | `string` | No | Scopes to request for exchanged token | Default: `openid profile email groups` |
 | `clientCredentialsSecretRef` | `ClientCredentialsSecretRef` | No | Reference to secret containing OAuth client credentials | See below |
 
-**Security Note**: Muster validates that the exchanged token's `iss` claim matches `expectedIssuer` using constant-time comparison. This prevents token substitution attacks in proxied access scenarios. When `expectedIssuer` is not specified, the issuer is derived from `dexTokenEndpoint` by removing the `/token` suffix (backward compatible). Set `expectedIssuer` explicitly when accessing Dex through a proxy where the access URL differs from Dex's configured issuer.
+#### DexTokenExchangeConfig Fields
+
+| Field | Type | Required | Description | Constraints |
+|-------|------|----------|-------------|-------------|
+| `connectorId` | `string` | Yes | ID of the OIDC connector on the remote Dex | Required when `provider=dex` |
+
+**Security Note**: Muster validates that the exchanged token's `iss` claim matches `expectedIssuer` using constant-time comparison. This prevents token substitution attacks in proxied access scenarios. When `expectedIssuer` is not specified, the issuer is derived from `tokenEndpoint` by removing the `/token` suffix (backward compatible). Set `expectedIssuer` explicitly when accessing Dex through a proxy where the access URL differs from Dex's configured issuer.
+
+**Independent transports**: `spec.transport` configures access to the MCP endpoint; `spec.auth.tokenExchange.transport` configures access to `tokenEndpoint`. They are declared separately and there is no inheritance — when both endpoints route through the same Teleport cluster you specify two transport blocks in the CR.
 
 #### ClientCredentialsSecretRef Fields
 
@@ -350,8 +360,10 @@ spec:
     type: oauth
     tokenExchange:
       enabled: true
-      dexTokenEndpoint: "https://dex.remote-cluster.example.com/token"
-      connectorId: "local-cluster-dex"
+      tokenEndpoint: "https://dex.remote-cluster.example.com/token"
+      provider: dex
+      dex:
+        connectorId: "local-cluster-dex"
       scopes: "openid profile email groups"
 ```
 
@@ -394,8 +406,10 @@ spec:
     type: oauth
     tokenExchange:
       enabled: true
-      dexTokenEndpoint: "https://dex.remote-cluster.example.com/token"
-      connectorId: "local-cluster-dex"
+      tokenEndpoint: "https://dex.remote-cluster.example.com/token"
+      provider: dex
+      dex:
+        connectorId: "local-cluster-dex"
       scopes: "openid profile email groups"
       # Reference to secret containing OAuth client credentials
       clientCredentialsSecretRef:
@@ -448,19 +462,21 @@ spec:
     tokenExchange:
       enabled: true
       # Access URL goes through proxy
-      dexTokenEndpoint: "https://dex.private-cluster.proxy.example.com/token"
+      tokenEndpoint: "https://dex.private-cluster.proxy.example.com/token"
       # Expected issuer is the actual Dex issuer (not the proxy URL)
       expectedIssuer: "https://dex.private-cluster.internal.example.com"
-      connectorId: "management-cluster-dex"
+      provider: dex
+      dex:
+        connectorId: "management-cluster-dex"
 ```
 
 When accessing Dex through a proxy (e.g., VPN, HTTP proxy):
-- `dexTokenEndpoint`: The proxy URL used to reach Dex's token endpoint
-- `expectedIssuer`: The actual issuer URL configured in Dex (used for token validation)
+- `tokenEndpoint`: The proxy URL used to reach the IdP's token endpoint
+- `expectedIssuer`: The actual issuer URL configured in the IdP (used for token validation)
 
 This is necessary because Dex's tokens contain the configured issuer URL in the `iss` claim, not the proxy URL used to access it. Muster validates that the exchanged token's issuer matches `expectedIssuer` for security.
 
-> **Warning**: When accessing Dex through a proxy, you **MUST** set `expectedIssuer` explicitly. If omitted, muster derives the expected issuer from `dexTokenEndpoint` (the proxy URL), which will cause token validation to fail because the token's `iss` claim contains the actual Dex issuer URL, not the proxy URL. This validation failure is intentional - it ensures you explicitly configure the expected issuer for proxied scenarios.
+> **Warning**: When accessing Dex through a proxy, you **MUST** set `expectedIssuer` explicitly. If omitted, muster derives the expected issuer from `tokenEndpoint` (the proxy URL), which will cause token validation to fail because the token's `iss` claim contains the actual Dex issuer URL, not the proxy URL. This validation failure is intentional - it ensures you explicitly configure the expected issuer for proxied scenarios.
 
 #### Troubleshooting Token Exchange
 
@@ -469,7 +485,7 @@ This is necessary because Dex's tokens contain the configured issuer URL in the 
 | Symptom | Likely Cause | Solution |
 |---------|--------------|----------|
 | `issuer mismatch: expected "proxy-url", got "actual-issuer"` | Missing `expectedIssuer` for proxied access | Set `expectedIssuer` to the actual Dex issuer URL shown in the error |
-| `token exchange failed: connection refused` | Wrong `dexTokenEndpoint` URL | Verify the endpoint is reachable from muster's network |
+| `token exchange failed: connection refused` | Wrong `tokenEndpoint` URL | Verify the endpoint is reachable from muster's network |
 | `token exchange failed: 401 Unauthorized` | Remote Dex doesn't trust local Dex | Configure OIDC connector on remote Dex (see example above) |
 | `token exchange failed: invalid_grant` | Token expired or connector misconfigured | Check token lifetime and connector ID matches |
 
