@@ -9,9 +9,8 @@ import (
 )
 
 // jwtSegmentDecoder base64url-decodes JWT segments for the operator-debug
-// UI. Configuration intentionally mirrors pkg/oauth/jwt.go's parser; the two
-// adapters are kept independent because their use cases (typed claim
-// extraction vs. raw segment display for diagnostics) differ.
+// UI. Padded base64url is accepted because operators paste tokens from
+// arbitrary sources.
 var jwtSegmentDecoder = jwt.NewParser(jwt.WithPaddingAllowed())
 
 // DecodeJWT renders a JWT's header and payload as pretty-printed JSON for

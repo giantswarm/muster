@@ -18,11 +18,6 @@ var ErrTokenExpMissing = errors.New("token missing exp claim")
 // file extract claims from tokens the caller already trusts (an authenticated
 // session or a token-exchange response). Verification belongs to the OAuth
 // library and downstream resource servers.
-//
-// A separate parser with the same configuration lives in
-// internal/admin/jwt.go for the operator-debug UI; the two adapters are
-// kept independent because their use cases (typed claim extraction vs. raw
-// segment display) differ.
 var jwtParser = jwt.NewParser(jwt.WithPaddingAllowed())
 
 // tokenClaims is the parsing target shared by every accessor in this file.
