@@ -504,10 +504,11 @@ func isJWTToken(token string) bool {
 	return len(parts) == 3
 }
 
-// extractIssuerFromToken extracts the issuer (iss claim) from a JWT token
-// without cryptographic verification. Safe only for tokens already validated
-// by a trusted exchange endpoint upstream — see pkgoauth.DecodeJWTPayload's
-// trust model.
+// extractIssuerFromToken extracts the issuer (iss claim) from a JWT token.
+// No signature verification — only safe for tokens received from a trusted
+// upstream token-exchange endpoint. Used here for defense-in-depth issuer
+// matching when access traverses a proxy; downstream servers are responsible
+// for full signature verification.
 func extractIssuerFromToken(token string) (string, error) {
 	decoded, err := pkgoauth.DecodeJWTPayload(token)
 	if err != nil {
