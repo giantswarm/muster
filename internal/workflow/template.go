@@ -153,4 +153,3 @@ func (we *WorkflowExecutor) getOriginalValue(templateStr string, ctx *executionC
 
 	return nil
 }
-
