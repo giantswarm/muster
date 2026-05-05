@@ -118,28 +118,50 @@ func (c *Client) DiscoverMetadata(ctx context.Context, issuer string) (*Metadata
 }
 
 // doDiscoverMetadata performs the actual HTTP fetch for OAuth metadata.
+//
+// For issuers without a path component the spec orders are RFC 8414 first
+// (.well-known/oauth-authorization-server), then OIDC Discovery 1.0
+// (.well-known/openid-configuration). For issuers with a path component
+// (e.g. https://login.microsoftonline.com/<tenant>/v2.0), MCP 2025-11-25
+// §"Authorization Server Metadata Discovery" mandates three URL forms in
+// order: RFC 8414 path-insertion, OIDC path-insertion, OIDC append.
 func (c *Client) doDiscoverMetadata(ctx context.Context, issuer string) (*Metadata, error) {
-	// Try RFC 8414 first
-	wellKnownURL := issuer + "/.well-known/oauth-authorization-server"
-	metadata, err := c.fetchMetadata(ctx, wellKnownURL)
-	if err == nil {
-		c.cacheMetadata(issuer, metadata)
-		return metadata, nil
+	parsed, err := url.Parse(issuer)
+	if err != nil {
+		return nil, fmt.Errorf("invalid issuer %q: %w", issuer, err)
+	}
+	host := parsed.Scheme + "://" + parsed.Host
+	path := strings.TrimRight(parsed.Path, "/")
+
+	var candidates []string
+	if path == "" {
+		candidates = []string{
+			issuer + WellKnownAuthorizationServer,
+			issuer + WellKnownOpenIDConfiguration,
+		}
+	} else {
+		// Path-bearing issuer — three spec-mandated forms.
+		candidates = []string{
+			host + WellKnownAuthorizationServer + path,
+			host + WellKnownOpenIDConfiguration + path,
+			host + path + WellKnownOpenIDConfiguration,
+		}
 	}
 
-	c.logger.Debug("RFC 8414 metadata fetch failed, trying OIDC",
-		"issuer", issuer,
-		"error", err)
-
-	// Fall back to OpenID Connect discovery
-	wellKnownURL = issuer + "/.well-known/openid-configuration"
-	metadata, err = c.fetchMetadata(ctx, wellKnownURL)
-	if err == nil {
-		c.cacheMetadata(issuer, metadata)
-		return metadata, nil
+	var lastErr error
+	for _, wellKnownURL := range candidates {
+		metadata, err := c.fetchMetadata(ctx, wellKnownURL)
+		if err == nil {
+			c.cacheMetadata(issuer, metadata)
+			return metadata, nil
+		}
+		c.logger.Debug("AS metadata fetch failed, trying next form",
+			"issuer", issuer,
+			"url", wellKnownURL,
+			"error", err)
+		lastErr = err
 	}
-
-	return nil, fmt.Errorf("failed to discover OAuth metadata for %s: %w", issuer, err)
+	return nil, fmt.Errorf("failed to discover OAuth metadata for %s: %w", issuer, lastErr)
 }
 
 // fetchMetadata fetches metadata from a specific URL.
