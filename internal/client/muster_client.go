@@ -69,6 +69,8 @@ type MusterClient interface {
 	Close() error
 }
 
+var _ MusterClient = (*filesystem.Client)(nil)
+
 // NewMusterClient creates a new unified muster client with automatic environment detection.
 //
 // The client will attempt to use Kubernetes configuration (from kubeconfig, in-cluster config,

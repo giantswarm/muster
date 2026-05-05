@@ -44,6 +44,12 @@ func New(basePath string) *Client {
 	return &Client{basePath: basePath}
 }
 
+var (
+	_ client.Client            = (*Client)(nil)
+	_ client.StatusWriter      = (*statusWriter)(nil)
+	_ client.SubResourceClient = (*subResourceClient)(nil)
+)
+
 // Get retrieves a resource by name and namespace (implements client.Client interface).
 func (f *Client) Get(ctx context.Context, key types.NamespacedName, obj client.Object, opts ...client.GetOption) error {
 	switch v := obj.(type) {
