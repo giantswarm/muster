@@ -195,9 +195,16 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		authInfo = &AuthInfo{}
 	}
 
-	// If issuer or scope is empty, try to discover it from the server's resource metadata
+	// If issuer or scope is empty, try to discover it from the server's resource metadata.
+	// When spec.auth.authorizationServer is set on the MCPServer CR, the override
+	// branch in discoverProtectedResourceMetadata bypasses PRM probing and uses
+	// the operator-pinned issuer directly (with RFC 8414 §3.3 self-verification).
 	if (authInfo.Issuer == "" || authInfo.Scope == "") && serverInfo.URL != "" {
-		metadata, err := discoverProtectedResourceMetadata(ctx, serverInfo.URL)
+		var override *api.MCPServerAuthAuthorizationServer
+		if serverInfo.AuthConfig != nil {
+			override = serverInfo.AuthConfig.AuthorizationServer
+		}
+		metadata, err := discoverProtectedResourceMetadata(ctx, serverInfo.URL, override)
 		if err != nil {
 			logging.Warn("AuthTools", "Failed to discover protected resource metadata for %s: %v", serverName, err)
 		} else {
@@ -219,8 +226,10 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		}
 		return &api.CallToolResult{
 			Content: []interface{}{fmt.Sprintf(
-				"Cannot authenticate to '%s': unable to discover OAuth authorization server. "+
-					"The server's /.well-known/oauth-protected-resource endpoint may not be available.",
+				"Cannot authenticate to '%s': RFC 9728 protected resource metadata not found. "+
+					"Set spec.auth.authorizationServer.issuer on the MCPServer to pin the OAuth issuer URL "+
+					"(e.g. https://cf.mcp.atlassian.com for Atlassian's hosted MCP). "+
+					"See docs/how-to/connecting-non-rfc9728-mcp-servers.md.",
 				serverName,
 			)},
 			IsError: true,

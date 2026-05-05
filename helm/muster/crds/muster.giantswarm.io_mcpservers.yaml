@@ -69,6 +69,42 @@ spec:
                   Auth configures authentication behavior for this MCP server.
                   This is only relevant for remote servers (streamable-http or sse).
                 properties:
+                  authorizationServer:
+                    description: |-
+                      AuthorizationServer is an opt-out for backends that don't publish RFC 9728
+                      Protected Resource Metadata. When set, muster's per-server OAuth login flow
+                      (core_auth_login) skips PRM probing and uses these values directly. muster
+                      logs each override use at INFO so non-compliance is observable.
+
+                      This override does NOT bypass mcp-go's connect-time PRM probe; backends
+                      without RFC 9728 metadata still reconcile to "Auth Required" on first
+                      connect, then transition to "Connected" after `muster auth login`.
+
+                      Setting AuthorizationServer does NOT change the RFC 8707 `resource`
+                      parameter — that remains driven by the MCP server URL.
+
+                      AuthorizationServer is mutually exclusive with ForwardToken: true and
+                      TokenExchange.Enabled: true. The CRD admission rules above reject any
+                      CR that combines them. Only valid when Type is "oauth".
+
+                      Use case: Atlassian Remote MCP and similar backends that publish RFC 8414
+                      metadata at their resource origin instead of via RFC 9728.
+                    properties:
+                      issuer:
+                        description: |-
+                          Issuer is the OAuth 2.0 / OIDC issuer URL.
+                          muster fetches AS metadata via the existing OAuth client, which performs
+                          RFC 8414 / OIDC discovery against this issuer.
+                        pattern: ^https://[^/?#]+(/[^?#]*[^/?#])?$
+                        type: string
+                      scopes:
+                        description: |-
+                          Scopes is the OAuth scope parameter value (RFC 6749 §3.3 wire format:
+                          space-separated scope tokens). Matches existing TokenExchangeConfig.Scopes.
+                        type: string
+                    required:
+                    - issuer
+                    type: object
                   forwardToken:
                     default: false
                     description: |-
@@ -229,6 +265,17 @@ spec:
                     - none
                     type: string
                 type: object
+                x-kubernetes-validations:
+                - message: authorizationServer is only valid when type is oauth
+                  rule: '!has(self.authorizationServer) || self.type == ''oauth'''
+                - message: forwardToken bypasses per-backend OAuth; set one or the
+                    other, not both
+                  rule: '!(has(self.forwardToken) && self.forwardToken == true &&
+                    has(self.authorizationServer))'
+                - message: tokenExchange has its own issuer/endpoint config; set one
+                    or the other, not both
+                  rule: '!(has(self.tokenExchange) && has(self.tokenExchange.enabled)
+                    && self.tokenExchange.enabled == true && has(self.authorizationServer))'
               autoStart:
                 default: false
                 description: |-
