@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 
 	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/config"
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -662,4 +664,72 @@ func TestAuthStatusResponse_MarshalJSON(t *testing.T) {
 	if len(parsed.Servers) != 2 {
 		t.Errorf("expected 2 servers, got %d", len(parsed.Servers))
 	}
+}
+
+// TestStoreIDTokenForSSO_SetsExpiresAtFromJWT covers the fix for issue #549:
+// the stored proxy-side token must carry an ExpiresAt derived from the JWT
+// `exp` claim so IsExpiredWithMargin can evict it after idle. Without this
+// the entry has zero ExpiresAt and is treated as never-expiring.
+func TestStoreIDTokenForSSO_SetsExpiresAtFromJWT(t *testing.T) {
+	mock := newMockOAuthHandler(true)
+	api.RegisterOAuthHandler(mock)
+	t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
+
+	a := &AggregatorServer{
+		config: AggregatorConfig{
+			OAuthServer: OAuthServerConfig{
+				Enabled: true,
+				Config: config.OAuthServerConfig{
+					Provider: "generic",
+					BaseURL:  "https://muster.example",
+				},
+			},
+		},
+	}
+
+	t.Run("populates ExpiresAt when JWT carries an exp claim", func(t *testing.T) {
+		// JWT payload: {"sub":"alice","exp":9999999999} (year 2286).
+		idToken := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhbGljZSIsImV4cCI6OTk5OTk5OTk5OX0.sig" //nolint:gosec
+		a.storeIDTokenForSSO("family-1", "alice", idToken)
+
+		stored := mock.GetFullTokenByIssuer("family-1", "https://muster.example")
+		if stored == nil {
+			t.Fatal("token was not stored")
+		}
+		if stored.ExpiresAt.IsZero() {
+			t.Fatal("ExpiresAt should be populated from JWT exp claim")
+		}
+		want := time.Unix(9999999999, 0)
+		if !stored.ExpiresAt.Equal(want) {
+			t.Errorf("ExpiresAt = %v, want %v", stored.ExpiresAt, want)
+		}
+	})
+
+	t.Run("leaves ExpiresAt zero on unparseable token", func(t *testing.T) {
+		mock.tokens = map[string]*api.OAuthToken{}
+		a.storeIDTokenForSSO("family-2", "bob", "not-a-jwt")
+
+		stored := mock.GetFullTokenByIssuer("family-2", "https://muster.example")
+		if stored == nil {
+			t.Fatal("token should still be stored even if exp parsing fails")
+		}
+		if !stored.ExpiresAt.IsZero() {
+			t.Errorf("expected zero ExpiresAt for unparseable token, got %v", stored.ExpiresAt)
+		}
+	})
+
+	t.Run("leaves ExpiresAt zero when JWT has no exp claim", func(t *testing.T) {
+		mock.tokens = map[string]*api.OAuthToken{}
+		// Payload: {"sub":"carol"} — no exp.
+		idToken := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJjYXJvbCJ9.sig" //nolint:gosec
+		a.storeIDTokenForSSO("family-3", "carol", idToken)
+
+		stored := mock.GetFullTokenByIssuer("family-3", "https://muster.example")
+		if stored == nil {
+			t.Fatal("token was not stored")
+		}
+		if !stored.ExpiresAt.IsZero() {
+			t.Errorf("expected zero ExpiresAt when JWT has no exp, got %v", stored.ExpiresAt)
+		}
+	})
 }

@@ -221,8 +221,13 @@ func (a *AggregatorServer) getMusterIssuer() string {
 }
 
 // storeIDTokenForSSO persists the muster-level ID token in the OAuth proxy
-// token store so that background headerFunc closures can resolve it for SSO
-// token forwarding. No-op when idToken or familyID is empty.
+// token store so background headerFunc closures can resolve it for SSO token
+// forwarding.
+//
+// The stored entry's ExpiresAt is set from the JWT `exp` claim so
+// IsExpiredWithMargin can evict it once the embedded token is past its
+// lifetime. Tokens with no parseable `exp` are stored with zero ExpiresAt to
+// keep behavior unchanged for opaque tokens. Issue #549.
 func (a *AggregatorServer) storeIDTokenForSSO(familyID, userID, idToken string) {
 	if idToken == "" || familyID == "" {
 		return
@@ -232,7 +237,11 @@ func (a *AggregatorServer) storeIDTokenForSSO(familyID, userID, idToken string) 
 		return
 	}
 	if oh := api.GetOAuthHandler(); oh != nil && oh.IsEnabled() {
-		oh.StoreToken(familyID, userID, musterIssuer, &api.OAuthToken{IDToken: idToken})
+		token := &api.OAuthToken{IDToken: idToken}
+		if exp, err := pkgoauth.Expiry(idToken); err == nil && !exp.IsZero() {
+			token.ExpiresAt = exp
+		}
+		oh.StoreToken(familyID, userID, musterIssuer, token)
 	}
 }
 
