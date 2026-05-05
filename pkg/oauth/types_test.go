@@ -160,7 +160,7 @@ func TestToken_Scopes(t *testing.T) {
 	}
 }
 
-func TestMetadata_SupportsPKCE(t *testing.T) {
+func TestMetadata_SupportsS256PKCE(t *testing.T) {
 	tests := []struct {
 		name     string
 		metadata *Metadata
@@ -181,23 +181,25 @@ func TestMetadata_SupportsPKCE(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "empty list assumes S256",
+			// MCP 2025-11-25 mandates refusing when the field is empty,
+			// overriding the OAuth 2.1 default-true convention.
+			name: "empty list refuses",
 			metadata: &Metadata{
 				CodeChallengeMethodsSupported: []string{},
 			},
-			want: true,
+			want: false,
 		},
 		{
-			name:     "nil list assumes S256",
+			name:     "nil list refuses",
 			metadata: &Metadata{},
-			want:     true,
+			want:     false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.metadata.SupportsPKCE(); got != tt.want {
-				t.Errorf("SupportsPKCE() = %v, want %v", got, tt.want)
+			if got := tt.metadata.SupportsS256PKCE(); got != tt.want {
+				t.Errorf("SupportsS256PKCE() = %v, want %v", got, tt.want)
 			}
 		})
 	}
