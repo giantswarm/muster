@@ -2236,12 +2236,13 @@ type ProtectedResourceMetadata struct {
 	Resource string
 }
 
+// discoverProtectedResourceMetadata resolves the authorization server for an
 // MCP server per the MCP 2025-11-25 spec.
 //
 // Discovery order (each step falls through to the next on failure):
-//  0. authorizationServer override (operator opt-out for non-RFC-9728 backends,
-//     issue #599). Performs an RFC 8414 §3.3 self-verification fetch against the
-//     pinned issuer to fail closed on a wrong pin.
+//  0. authorizationServer override (operator opt-out for backends that don't
+//     publish RFC 9728 metadata). Performs an RFC 8414 §3.3 self-verification
+//     fetch against the pinned issuer to fail closed on a wrong pin.
 //  1. Probe the MCP URL → parse WWW-Authenticate on 401 → follow
 //     resource_metadata=<url> if present (MCP §"PRM Discovery Requirements").
 //  2. Path-based well-known: <base>/.well-known/oauth-protected-resource<path>
@@ -2251,7 +2252,6 @@ type ProtectedResourceMetadata struct {
 func discoverProtectedResourceMetadata(ctx context.Context, serverURL string, override *api.MCPServerAuthAuthorizationServer) (*ProtectedResourceMetadata, error) {
 	httpClient := &http.Client{Timeout: 10 * time.Second}
 
-	// Step 0: operator-pinned issuer (issue #599).
 	if override != nil {
 		issuer := strings.TrimSuffix(override.Issuer, "/")
 		// RFC 8414 §3.3 self-verification: fetch AS metadata at the pinned
@@ -2281,9 +2281,10 @@ func discoverProtectedResourceMetadata(ctx context.Context, serverURL string, ov
 		return nil, fmt.Errorf("parse server URL: %w", err)
 	}
 	host := parsed.Scheme + "://" + parsed.Host
+	path := strings.TrimRight(parsed.Path, "/")
 	wellKnown := []string{}
-	if parsed.Path != "" && parsed.Path != "/" {
-		wellKnown = append(wellKnown, host+pkgoauth.WellKnownProtectedResource+parsed.Path)
+	if path != "" {
+		wellKnown = append(wellKnown, host+pkgoauth.WellKnownProtectedResource+path)
 	}
 	wellKnown = append(wellKnown, host+pkgoauth.WellKnownProtectedResource)
 
