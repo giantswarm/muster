@@ -2,19 +2,24 @@ package admin
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 
-	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+	"github.com/golang-jwt/jwt/v5"
 )
 
-var errMalformedJWT = errors.New("malformed JWT: expected 3 segments")
+// jwtSegmentDecoder base64url-decodes JWT segments for the operator-debug
+// UI. Configuration intentionally mirrors pkg/oauth/jwt.go's parser; the two
+// adapters are kept independent because their use cases (typed claim
+// extraction vs. raw segment display for diagnostics) differ.
+var jwtSegmentDecoder = jwt.NewParser(jwt.WithPaddingAllowed())
 
-// DecodeJWT parses a compact JWT into header + payload JSON, deliberately
-// discarding the signature segment so the admin UI never has to touch the
-// bearer credential. On decode failure, Error is set and the caller still
-// gets the label so the user can see *which* token failed.
+// DecodeJWT renders a JWT's header and payload as pretty-printed JSON for
+// display. The signature segment is dropped — this is a diagnostic helper
+// for trusted contexts (operators inspecting stored tokens), never a
+// verification path. Accepts 2- and 3-part tokens; the admin UI is
+// deliberately lenient because operators routinely paste truncated tokens
+// from logs.
 func DecodeJWT(label, raw string) *DecodedJWT {
 	out := &DecodedJWT{Label: label}
 	if raw == "" {
@@ -23,42 +28,31 @@ func DecodeJWT(label, raw string) *DecodedJWT {
 	}
 
 	parts := strings.Split(raw, ".")
-	if len(parts) != 3 {
-		out.Error = errMalformedJWT.Error()
+	if len(parts) < 2 {
+		out.Error = "malformed JWT: need at least header.payload"
 		return out
 	}
 
-	header, err := decodeSegment(parts[0])
+	header, err := decodeAndPretty(parts[0])
 	if err != nil {
 		out.Error = fmt.Sprintf("header: %v", err)
 		return out
 	}
-	payload, err := decodeSegment(parts[1])
+	payload, err := decodeAndPretty(parts[1])
 	if err != nil {
 		out.Error = fmt.Sprintf("payload: %v", err)
 		return out
 	}
-	// parts[2] (signature) is deliberately dropped.
-
 	out.Header = header
 	out.Payload = payload
 	return out
 }
 
-// ExtractEmailFromIDToken extracts the email claim from a JWT ID token.
-// Returns empty string if the token is invalid or doesn't contain an email claim.
-func ExtractEmailFromIDToken(idToken string) string {
-	return pkgoauth.ParseIDTokenClaims(idToken).Email
-}
-
-// decodeSegment decodes a JWT segment (header or payload) and re-indents the
-// JSON for display in the admin UI.
-func decodeSegment(seg string) (json.RawMessage, error) {
-	b, err := pkgoauth.DecodeJWTSegment(seg)
+func decodeAndPretty(seg string) (json.RawMessage, error) {
+	b, err := jwtSegmentDecoder.DecodeSegment(seg)
 	if err != nil {
 		return nil, fmt.Errorf("base64 decode: %w", err)
 	}
-
 	var v any
 	if err := json.Unmarshal(b, &v); err != nil {
 		return nil, fmt.Errorf("json parse: %w", err)

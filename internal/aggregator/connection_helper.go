@@ -2,7 +2,6 @@ package aggregator
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
@@ -313,7 +312,7 @@ func EstablishConnectionWithTokenForwarding(
 
 	// Validate ID token is not expired before forwarding
 	// This avoids unnecessary network round-trips with expired tokens
-	if isIDTokenExpired(idToken) {
+	if pkgoauth.IsExpired(idToken) {
 		logging.Warn("Connection", "ID token expired for user %s, cannot forward to %s",
 			logging.TruncateIdentifier(sub), serverInfo.Name)
 		return nil, fmt.Errorf("ID token has expired, needs refresh before forwarding")
@@ -547,14 +546,14 @@ func EstablishConnectionWithTokenExchange(
 	}
 
 	// Validate ID token is not expired before exchanging
-	if isIDTokenExpired(idToken) {
+	if pkgoauth.IsExpired(idToken) {
 		logging.Warn("Connection", "ID token expired for user %s, cannot exchange for %s",
 			logging.TruncateIdentifier(sub), serverInfo.Name)
 		return nil, fmt.Errorf("ID token has expired, needs refresh before exchange")
 	}
 
 	// Extract user ID from the token for cache key generation
-	userID := extractUserIDFromToken(idToken)
+	userID := pkgoauth.Subject(idToken)
 	if userID == "" {
 		logging.Warn("Connection", "Failed to extract user ID from token for user %s",
 			logging.TruncateIdentifier(sub))
@@ -676,7 +675,10 @@ func EstablishConnectionWithTokenExchange(
 	// If the token is near expiry, getOrCreateClientForToolCall will
 	// proactively evict the pooled client and re-exchange before the
 	// downstream server returns 401.
-	tokenExpiry := getTokenExpiryTime(exchangedToken)
+	tokenExpiry, err := pkgoauth.Expiry(exchangedToken)
+	if err != nil {
+		logging.Debug("TokenExchange", "Could not extract expiry from exchanged token, proactive refresh disabled: %v", err)
+	}
 
 	// Create a header function using the exchanged token. The token has a fixed
 	// lifetime; if it expires while the client is pooled, the downstream server
@@ -796,36 +798,6 @@ func emitTokenExchangeEvent(serverName, namespace string, success bool, errorMsg
 	_ = eventManager.CreateEvent(context.Background(), objRef, string(reason), message, eventType)
 }
 
-// extractUserIDFromToken extracts the user ID (sub claim) from a JWT ID token.
-// This is used to generate cache keys for token exchange.
-//
-// SECURITY NOTE:
-//   - This extracts from the token payload WITHOUT cryptographic verification.
-//   - This is safe because the caller MUST ensure the token comes from a trusted source
-//     (e.g., muster's OAuth session or request context, not user input).
-//   - The actual token validation happens on the remote Dex server during exchange.
-//   - The extracted user ID is only used for cache key generation, not authorization.
-func extractUserIDFromToken(idToken string) string {
-	decoded, err := pkgoauth.DecodeJWTPayload(idToken)
-	if err != nil {
-		return ""
-	}
-
-	// Parse the claims
-	var claims struct {
-		Sub string `json:"sub"`
-	}
-	if err := json.Unmarshal(decoded, &claims); err != nil {
-		return ""
-	}
-
-	return claims.Sub
-}
-
-// idTokenExpiryMargin is the minimum time before expiry that we consider a token valid.
-// This accounts for clock skew and network latency during forwarding.
-const idTokenExpiryMargin = 30 * time.Second
-
 // tokenExchangeRefreshMargin is the time before expiry at which a pooled
 // token-exchange client triggers a background re-exchange. Dex access tokens
 // typically live for 30 minutes, so a 5-minute margin gives ample time for
@@ -940,69 +912,6 @@ func notifyMCPServerConnected(serverName, authMethod string) {
 		logging.Warn("Connection", "Failed to update MCPServer %s state after %s: %v",
 			serverName, authMethod, err)
 	}
-}
-
-// isIDTokenExpired checks if a JWT ID token is expired or about to expire.
-// This provides basic validation before forwarding tokens to downstream servers,
-// avoiding unnecessary network round-trips with expired tokens.
-//
-// The function parses the JWT payload (without verifying the signature) to extract
-// the 'exp' claim. Signature verification is the responsibility of the downstream server.
-//
-// Returns true if:
-//   - The token is malformed and cannot be parsed
-//   - The 'exp' claim is missing
-//   - The token has expired or will expire within the margin
-func isIDTokenExpired(idToken string) bool {
-	decoded, err := pkgoauth.DecodeJWTPayload(idToken)
-	if err != nil {
-		logging.Debug("TokenValidation", "Failed to decode ID token: %v", err)
-		return true
-	}
-
-	// Parse the claims
-	var claims struct {
-		Exp int64 `json:"exp"`
-	}
-	if err := json.Unmarshal(decoded, &claims); err != nil {
-		logging.Debug("TokenValidation", "Failed to parse ID token claims: %v", err)
-		return true
-	}
-
-	// Check if exp claim exists
-	if claims.Exp == 0 {
-		logging.Debug("TokenValidation", "ID token missing 'exp' claim")
-		return true
-	}
-
-	// Check if token is expired or about to expire
-	expiresAt := time.Unix(claims.Exp, 0)
-	now := time.Now()
-	if now.Add(idTokenExpiryMargin).After(expiresAt) {
-		logging.Debug("TokenValidation", "ID token expired or expiring soon (expires at %v, now %v)",
-			expiresAt, now)
-		return true
-	}
-
-	return false
-}
-
-// getTokenExpiryTime extracts the expiry time from a JWT token.
-// Returns zero time if the token is malformed or missing the exp claim.
-func getTokenExpiryTime(token string) time.Time {
-	decoded, err := pkgoauth.DecodeJWTPayload(token)
-	if err != nil {
-		return time.Time{}
-	}
-
-	var claims struct {
-		Exp int64 `json:"exp"`
-	}
-	if err := json.Unmarshal(decoded, &claims); err != nil || claims.Exp == 0 {
-		return time.Time{}
-	}
-
-	return time.Unix(claims.Exp, 0)
 }
 
 // TeleportClientResult contains the result of getting a Teleport HTTP client.

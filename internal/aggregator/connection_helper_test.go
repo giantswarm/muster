@@ -247,34 +247,6 @@ func TestShouldUseTokenForwarding(t *testing.T) {
 // The local function was replaced with dex.AppendAudienceScopes() which has
 // comprehensive tests in the mcp-oauth providers/dex package.
 
-func TestIsIDTokenExpired(t *testing.T) {
-	t.Run("empty token is expired", func(t *testing.T) {
-		assert.True(t, isIDTokenExpired(""))
-	})
-
-	t.Run("invalid JWT format is expired", func(t *testing.T) {
-		assert.True(t, isIDTokenExpired("not-a-jwt"))
-	})
-
-	t.Run("valid future exp is not expired", func(t *testing.T) {
-		// Token with exp = 9999999999 (year 2286)
-		token := "eyJhbGciOiJSUzI1NiJ9.eyJleHAiOjk5OTk5OTk5OTl9.sig" //nolint:goconst,gosec
-		assert.False(t, isIDTokenExpired(token))
-	})
-
-	t.Run("past exp is expired", func(t *testing.T) {
-		// Token with exp = 0 (1970)
-		token := "eyJhbGciOiJSUzI1NiJ9.eyJleHAiOjB9.sig" //nolint:gosec
-		assert.True(t, isIDTokenExpired(token))
-	})
-
-	t.Run("missing exp claim is expired", func(t *testing.T) {
-		// Token with no exp claim
-		token := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.sig" //nolint:gosec
-		assert.True(t, isIDTokenExpired(token))
-	})
-}
-
 func TestShouldUseTokenExchange(t *testing.T) {
 	t.Run("returns false for nil server info", func(t *testing.T) {
 		assert.False(t, ShouldUseTokenExchange(nil))
@@ -370,30 +342,6 @@ func TestShouldUseTokenExchange(t *testing.T) {
 			},
 		}
 		assert.True(t, ShouldUseTokenExchange(info))
-	})
-}
-
-func TestExtractUserIDFromToken(t *testing.T) {
-	t.Run("returns empty for empty token", func(t *testing.T) {
-		assert.Equal(t, "", extractUserIDFromToken(""))
-	})
-
-	t.Run("returns empty for invalid JWT format", func(t *testing.T) {
-		assert.Equal(t, "", extractUserIDFromToken("not-a-jwt"))
-	})
-
-	t.Run("extracts sub claim from valid JWT", func(t *testing.T) {
-		// Token with sub = "user123"
-		// Payload: {"sub":"user123","exp":9999999999}
-		// base64url encoded: eyJzdWIiOiJ1c2VyMTIzIiwiZXhwIjo5OTk5OTk5OTk5fQ
-		token := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ1c2VyMTIzIiwiZXhwIjo5OTk5OTk5OTk5fQ.sig" //nolint:gosec
-		assert.Equal(t, "user123", extractUserIDFromToken(token))
-	})
-
-	t.Run("returns empty when sub claim is missing", func(t *testing.T) {
-		// Token with only exp claim
-		token := "eyJhbGciOiJSUzI1NiJ9.eyJleHAiOjk5OTk5OTk5OTl9.sig" //nolint:gosec
-		assert.Equal(t, "", extractUserIDFromToken(token))
 	})
 }
 
@@ -1058,31 +1006,4 @@ func TestHeaderFunc_NilCallback(t *testing.T) {
 		headers := headerFunc(context.Background())
 		assert.Equal(t, "Bearer tok", headers["Authorization"])
 	}
-}
-
-func TestGetTokenExpiryTime(t *testing.T) {
-	t.Run("returns zero for empty token", func(t *testing.T) {
-		result := getTokenExpiryTime("")
-		assert.True(t, result.IsZero())
-	})
-
-	t.Run("returns zero for invalid JWT", func(t *testing.T) {
-		result := getTokenExpiryTime("not-a-jwt")
-		assert.True(t, result.IsZero())
-	})
-
-	t.Run("returns zero for missing exp claim", func(t *testing.T) {
-		// Token with only sub claim: {"sub":"test"}
-		token := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.sig" //nolint:gosec
-		result := getTokenExpiryTime(token)
-		assert.True(t, result.IsZero())
-	})
-
-	t.Run("returns correct time for valid exp", func(t *testing.T) {
-		// Token with exp = 9999999999
-		token := "eyJhbGciOiJSUzI1NiJ9.eyJleHAiOjk5OTk5OTk5OTl9.sig" //nolint:gosec
-		result := getTokenExpiryTime(token)
-		assert.False(t, result.IsZero())
-		assert.Equal(t, int64(9999999999), result.Unix())
-	})
 }

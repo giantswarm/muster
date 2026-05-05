@@ -1,66 +1,91 @@
 package oauth
 
 import (
+	"errors"
 	"fmt"
-	"log/slog"
-	"strings"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// jwtParser is the shared parser. Padding is allowed because some IdPs emit
-// padded base64 segments. Signature verification is never enabled here — the
-// helpers in this file extract claims from tokens the caller already trusts
-// (an authenticated session, never untrusted user input). Verification
-// happens elsewhere via the OAuth library.
+// ErrTokenExpMissing is returned by Expiry when a token parses successfully
+// but carries no exp claim. Callers can errors.Is against it to distinguish
+// "couldn't decode" from "decoded fine, no exp" without parsing error text.
+var ErrTokenExpMissing = errors.New("token missing exp claim")
+
+// jwtParser allows padded base64url segments because some IdPs emit them.
+// Signature verification is intentionally not configured: helpers in this
+// file extract claims from tokens the caller already trusts (an authenticated
+// session or a token-exchange response). Verification belongs to the OAuth
+// library and downstream resource servers.
+//
+// A separate parser with the same configuration lives in
+// internal/admin/jwt.go for the operator-debug UI; the two adapters are
+// kept independent because their use cases (typed claim extraction vs. raw
+// segment display) differ.
 var jwtParser = jwt.NewParser(jwt.WithPaddingAllowed())
 
-// DecodeJWTPayload returns the raw payload bytes of a JWT.
-//
-// Trust model: callers must guarantee the token originates from a trusted
-// source. This helper exists for read-only claim extraction (cache keys,
-// expiry probes, identity extraction for tracing) — never for security
-// decisions.
-func DecodeJWTPayload(token string) ([]byte, error) {
-	if token == "" {
-		return nil, fmt.Errorf("token is empty")
-	}
-	parts := strings.Split(token, ".")
-	if len(parts) < 2 {
-		return nil, fmt.Errorf("invalid JWT format: expected at least 2 parts")
-	}
-	return DecodeJWTSegment(parts[1])
-}
-
-// DecodeJWTSegment base64url-decodes a single JWT segment (header, payload,
-// or signature). Padded and unpadded variants are both accepted. Use this
-// when the caller is iterating segments — DecodeJWTPayload covers the common
-// "give me the payload of this token" path.
-func DecodeJWTSegment(seg string) ([]byte, error) {
-	return jwtParser.DecodeSegment(seg)
-}
-
-// idTokenClaimsImpl mirrors IDTokenClaims but embeds jwt.RegisteredClaims so
-// it satisfies jwt.Claims for parsing.
-type idTokenClaimsImpl struct {
+// tokenClaims is the parsing target shared by every accessor in this file.
+// It embeds RegisteredClaims for sub/exp/iss and adds Email for OIDC ID
+// tokens. Using one struct keeps the accessors symmetrical.
+type tokenClaims struct {
 	jwt.RegisteredClaims
 	Email string `json:"email,omitempty"`
 }
 
-// ParseIDTokenClaims extracts identity claims from a JWT ID token. Returns
-// a zero-value struct on parse failure so callers don't have to branch on
-// errors for read-only inspection. Failures are logged at debug level so
-// observability is preserved when "why is the email empty?" comes up.
-//
-// Same trust model as DecodeJWTPayload.
-func ParseIDTokenClaims(idToken string) IDTokenClaims {
-	var impl idTokenClaimsImpl
-	if _, _, err := jwtParser.ParseUnverified(idToken, &impl); err != nil {
-		slog.Debug("ParseIDTokenClaims: parse failed, returning zero claims", "err", err)
-		return IDTokenClaims{}
+func parseUnverified(token string) (tokenClaims, error) {
+	var c tokenClaims
+	_, _, err := jwtParser.ParseUnverified(token, &c)
+	return c, err
+}
+
+// Subject returns the sub claim of a trusted JWT. Returns "" on any parse
+// failure or when the claim is absent.
+func Subject(token string) string {
+	c, _ := parseUnverified(token)
+	return c.Subject
+}
+
+// Email returns the email claim of a trusted ID token. Returns "" on any
+// parse failure or when the claim is absent. Intended for OIDC ID tokens;
+// access tokens typically don't carry an email claim.
+func Email(token string) string {
+	c, _ := parseUnverified(token)
+	return c.Email
+}
+
+// Expiry returns the exp claim of a trusted JWT. Returns ErrTokenExpMissing
+// when the token parses but has no exp; wraps the underlying decode error
+// otherwise.
+func Expiry(token string) (time.Time, error) {
+	c, err := parseUnverified(token)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("decode token: %w", err)
 	}
-	return IDTokenClaims{
-		Subject: impl.Subject,
-		Email:   impl.Email,
+	if c.ExpiresAt == nil {
+		return time.Time{}, ErrTokenExpMissing
 	}
+	return c.ExpiresAt.Time, nil
+}
+
+// Issuer returns the iss claim of a trusted JWT. Returns ("", nil) when the
+// token parses but carries no iss; returns a wrapped error on decode failure.
+func Issuer(token string) (string, error) {
+	c, err := parseUnverified(token)
+	if err != nil {
+		return "", fmt.Errorf("decode token: %w", err)
+	}
+	return c.Issuer, nil
+}
+
+// IsExpired reports whether a trusted JWT's exp claim is in the past or
+// within DefaultExpiryMargin of now. Returns true on parse failure or when
+// exp is missing — callers should treat unparseable tokens as unusable.
+// Mirrors Token.IsExpired for raw-string JWTs.
+func IsExpired(token string) bool {
+	exp, err := Expiry(token)
+	if err != nil {
+		return true
+	}
+	return time.Now().Add(DefaultExpiryMargin).After(exp)
 }

@@ -2525,11 +2525,11 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 	if idToken == "" {
 		return nil, time.Time{}, "", fmt.Errorf("no ID token available for token exchange to %s", serverName)
 	}
-	if isIDTokenExpired(idToken) {
+	if pkgoauth.IsExpired(idToken) {
 		return nil, time.Time{}, "", fmt.Errorf("ID token has expired for %s, re-authenticate to refresh", serverName)
 	}
 
-	userID := extractUserIDFromToken(idToken)
+	userID := pkgoauth.Subject(idToken)
 	if userID == "" {
 		return nil, time.Time{}, "", fmt.Errorf("failed to extract user ID from token for %s", serverName)
 	}
@@ -2579,7 +2579,10 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 		return nil, time.Time{}, "", fmt.Errorf("token exchange failed for %s: %w", serverName, err)
 	}
 
-	tokenExpiry := getTokenExpiryTime(exchangedToken)
+	tokenExpiry, err := pkgoauth.Expiry(exchangedToken)
+	if err != nil {
+		logging.Debug("TokenExchange", "Could not extract expiry from exchanged token, proactive refresh disabled: %v", err)
+	}
 
 	headerFunc := func(_ context.Context) map[string]string {
 		return map[string]string{"Authorization": "Bearer " + exchangedToken}
@@ -2684,7 +2687,7 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 			return nil, nil, fmt.Errorf("no ID token available for forwarding to %s", serverName)
 		}
 
-		if isIDTokenExpired(idToken) {
+		if pkgoauth.IsExpired(idToken) {
 			return nil, nil, fmt.Errorf("ID token has expired for %s, re-authenticate to refresh", serverName)
 		}
 

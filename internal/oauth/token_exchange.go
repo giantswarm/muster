@@ -3,7 +3,6 @@ package oauth
 import (
 	"context"
 	"crypto/subtle"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -470,12 +469,9 @@ func validateTokenIssuer(token, expectedIssuer string) error {
 		return nil
 	}
 
-	// Extract the issuer claim from the token
-	actualIssuer, err := extractIssuerFromToken(token)
-	if err != nil {
-		// If we can't extract the issuer, log and skip validation
-		// This handles edge cases where the token looks like a JWT but isn't
-		logging.Debug("TokenExchange", "Could not extract issuer from token: %v, skipping validation", err)
+	actualIssuer, err := pkgoauth.Issuer(token)
+	if err != nil || actualIssuer == "" {
+		logging.Debug("TokenExchange", "Could not extract issuer from token (err=%v), skipping validation", err)
 		return nil
 	}
 
@@ -502,29 +498,4 @@ func validateTokenIssuer(token, expectedIssuer string) error {
 func isJWTToken(token string) bool {
 	parts := strings.Split(token, ".")
 	return len(parts) == 3
-}
-
-// extractIssuerFromToken extracts the issuer (iss claim) from a JWT token.
-// No signature verification — only safe for tokens received from a trusted
-// upstream token-exchange endpoint. Used here for defense-in-depth issuer
-// matching when access traverses a proxy; downstream servers are responsible
-// for full signature verification.
-func extractIssuerFromToken(token string) (string, error) {
-	decoded, err := pkgoauth.DecodeJWTPayload(token)
-	if err != nil {
-		return "", err
-	}
-
-	var claims struct {
-		Iss string `json:"iss"`
-	}
-	if err := json.Unmarshal(decoded, &claims); err != nil {
-		return "", fmt.Errorf("failed to parse claims: %w", err)
-	}
-
-	if claims.Iss == "" {
-		return "", fmt.Errorf("iss claim not found in token")
-	}
-
-	return claims.Iss, nil
 }

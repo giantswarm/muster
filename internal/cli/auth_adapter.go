@@ -285,8 +285,7 @@ func (a *AuthAdapter) trySilentReAuth(ctx context.Context, mgr *oauth.AuthManage
 	var loginHint string
 	var idTokenHint string
 	if storedToken.IDToken != "" {
-		claims := pkgoauth.ParseIDTokenClaims(storedToken.IDToken)
-		loginHint = claims.Email
+		loginHint = pkgoauth.Email(storedToken.IDToken)
 		idTokenHint = storedToken.IDToken
 	}
 
@@ -615,9 +614,8 @@ func (a *AuthAdapter) getStatusFromManager(endpoint string, mgr *oauth.AuthManag
 			}
 			// Extract identity from ID token if available
 			if storedToken.IDToken != "" {
-				claims := pkgoauth.ParseIDTokenClaims(storedToken.IDToken)
-				status.Subject = claims.Subject
-				status.Email = claims.Email
+				status.Subject = pkgoauth.Subject(storedToken.IDToken)
+				status.Email = pkgoauth.Email(storedToken.IDToken)
 			}
 		} else if challenge := mgr.GetAuthChallenge(); challenge != nil {
 			// Fallback to auth challenge for issuer

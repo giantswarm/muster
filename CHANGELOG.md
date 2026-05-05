@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
-- Consolidated four scattered JWT-payload decoders (`decodeJWTPayload` in `internal/aggregator/connection_helper.go`, `parseIDTokenClaims` in `internal/cli/auth_adapter.go`, `extractIssuerFromToken` in `internal/oauth/token_exchange.go`, and the admin-side helpers in `internal/admin/jwt.go`) into a single `pkg/oauth.DecodeJWTPayload` / `pkg/oauth.ParseIDTokenClaims` pair. The consolidated decoder accepts the union of base64 variants the four sites previously each handled differently (`RawURLEncoding`, `URLEncoding`, `RawStdEncoding`, `StdEncoding`). Parity tests cover every combination of part-count and encoding the originals accepted.
+- Consolidated scattered JWT-claim decoders into typed accessors in `pkg/oauth/jwt.go`: `Subject`, `Email`, `Expiry`, `Issuer`, `IsExpired`, plus `ErrTokenExpMissing` for callers that need to distinguish "missing exp" from "decode failed". The accessors share a single `golang-jwt/jwt/v5` parser; consumers in `internal/aggregator`, `internal/cli`, and `internal/oauth` no longer touch `encoding/base64`, `encoding/json`, or the JWT library directly. The admin diagnostic UI keeps its own segment decoder (different concern: lenient display of operator-pasted tokens, including 2-part inputs missing the signature segment). The previous defensive `RawStdEncoding` fallback for non-spec base64 is intentionally dropped — every IdP muster integrates with emits RFC 7515-compliant `RawURLEncoding`.
 
 ### Added
 

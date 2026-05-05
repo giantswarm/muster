@@ -11,6 +11,7 @@ import (
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/server"
 	"github.com/giantswarm/muster/pkg/logging"
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 )
 
 // adminDeps builds the callbacks that admin.Server needs from the
@@ -74,7 +75,7 @@ func (a *AggregatorServer) adminListSessions(ctx context.Context) ([]admin.Sessi
 		oauthHandler := api.GetOAuthHandler()
 		if oauthHandler != nil && oauthHandler.IsEnabled() {
 			if tok := oauthHandler.FindTokenWithIDToken(sid); tok != nil && tok.IDToken != "" {
-				summary.Email = admin.ExtractEmailFromIDToken(tok.IDToken)
+				summary.Email = pkgoauth.Email(tok.IDToken)
 			}
 		}
 
@@ -152,7 +153,7 @@ func (a *AggregatorServer) adminGetSessionDetail(ctx context.Context, sessionID 
 	var email string
 	if oauthEnabled {
 		if tok := oauthHandler.FindTokenWithIDToken(sessionID); tok != nil && tok.IDToken != "" {
-			email = admin.ExtractEmailFromIDToken(tok.IDToken)
+			email = pkgoauth.Email(tok.IDToken)
 		}
 	}
 
