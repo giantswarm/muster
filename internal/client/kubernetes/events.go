@@ -41,7 +41,7 @@ func (k *Client) CreateEvent(ctx context.Context, obj client.Object, reason, mes
 		Reason:         reason,
 		Message:        message,
 		Type:           eventType,
-		Source:         corev1.EventSource{Component: "muster"},
+		Source:         corev1.EventSource{Component: sourceComponent},
 		FirstTimestamp: metav1.NewTime(time.Now()),
 		LastTimestamp:  metav1.NewTime(time.Now()),
 		Count:          1,
@@ -100,7 +100,7 @@ func (k *Client) CreateEventForCRD(ctx context.Context, crdType, name, namespace
 		Reason:         reason,
 		Message:        message,
 		Type:           eventType,
-		Source:         corev1.EventSource{Component: "muster"},
+		Source:         corev1.EventSource{Component: sourceComponent},
 		FirstTimestamp: metav1.NewTime(time.Now()),
 		LastTimestamp:  metav1.NewTime(time.Now()),
 		Count:          1,
@@ -144,7 +144,7 @@ func (k *Client) QueryEvents(ctx context.Context, options api.EventQueryOptions)
 
 	var results []api.EventResult
 	for _, event := range eventList.Items {
-		if event.Source.Component != "muster" {
+		if event.Source.Component != sourceComponent {
 			continue
 		}
 

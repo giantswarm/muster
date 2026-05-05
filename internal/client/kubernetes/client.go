@@ -22,6 +22,10 @@ const (
 	kindWorkflow     = "Workflow"
 )
 
+// sourceComponent is the value muster sets on Event.Source.Component and the
+// only value QueryEvents accepts when filtering events.
+const sourceComponent = "muster"
+
 // Client is a Kubernetes-API-backed implementation of the muster client
 // interface. Per-domain CRUD methods live in sibling files (mcpserver.go,
 // serviceclass.go, workflow.go, events.go); this file keeps the type,
