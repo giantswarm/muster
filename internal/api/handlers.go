@@ -16,12 +16,12 @@ var (
 	registryHandler         ServiceRegistryHandler
 	serviceManagerHandler   ServiceManagerHandler
 	mcpServerManagerHandler MCPServerManagerHandler
-	aggregatorHandler          AggregatorHandler
-	configHandler              ConfigHandler
-	workflowHandler            WorkflowHandler
-	eventManagerHandler        EventManagerHandler
-	reconcileManagerHandler    ReconcileManagerHandler
-	teleportClientHandler      TeleportClientHandler
+	aggregatorHandler       AggregatorHandler
+	configHandler           ConfigHandler
+	workflowHandler         WorkflowHandler
+	eventManagerHandler     EventManagerHandler
+	reconcileManagerHandler ReconcileManagerHandler
+	teleportClientHandler   TeleportClientHandler
 
 	// toolUpdateSubscribers stores the list of components subscribed to tool update events.
 	// Access is protected by toolUpdateMutex.

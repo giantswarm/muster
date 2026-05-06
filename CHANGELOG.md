@@ -17,6 +17,10 @@ All notable changes to this project will be documented in this file.
 - Restore `groups` scope in `DefaultOAuthCIMDScopes` -- required for group-based RBAC in downstream services. Provider-level scope filtering in mcp-oauth (e.g., `filterGoogleScopes`, `filterDexScopes`) handles provider differences.
 - Bump `mcp-oauth` to v0.2.117. Adopts `oauth.NewServerWithCombined` and `Handler.RegisterOAuthRoutes` to simplify server wiring; the authorization callback now includes the RFC 9207 `iss` parameter automatically. **Operational note:** mcp-oauth now rejects low-entropy AES-256 token-encryption keys (fewer than 16 distinct byte values). Real keys generated with `openssl rand -base64 32` or `openssl rand -hex 32` are unaffected; placeholder keys (all zeros, repeated bytes) will fail at startup with a clear error — rotate before upgrading.
 
+### Removed
+
+- ServiceClass feature removed entirely. The `ServiceClass` CRD, `serviceclasses/` config-path subdirectory, `core_serviceclass_*` and `core_service_create` / `core_service_delete` / `core_service_validate` MCP tools, and the matching CLI subcommands (`muster create service`, `muster create serviceclass`, `muster check serviceclass`, `muster get serviceclass`, `muster list serviceclass`, `muster events --resource-type=serviceclass|service`) are gone. Helm RBAC drops the `serviceclasses` and `serviceclasses/status` resources. **Operational note:** delete any `ServiceClass` custom resources before upgrading the chart, otherwise they will be orphaned when the CRD is removed (`kubectl delete serviceclasses.muster.giantswarm.io --all -A`). MCPServer and Workflow remain unchanged.
+
 ### Fixed
 
 - Bump `mcp-oauth` to v0.2.86 with Dex scope filtering: non-standard client scopes like `claudeai` (sent by Claude) are now stripped before forwarding to Dex, preventing `invalid_scope` errors. Also includes Google scope filtering and `openid` force-merge from v0.2.84.

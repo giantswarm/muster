@@ -117,11 +117,9 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	toolChecker := api.NewToolChecker()
 	toolCaller := api.NewToolCaller()
 
-	// Create orchestrator without ToolCaller initially
 	orchConfig := orchestrator.Config{
 		Aggregator: cfg.MusterConfig.Aggregator,
 		Yolo:       cfg.Yolo,
-		ToolCaller: toolCaller,
 	}
 
 	orch := orchestrator.New(orchConfig)

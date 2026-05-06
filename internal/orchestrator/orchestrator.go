@@ -24,13 +24,6 @@ const (
 	StopReasonDependency
 )
 
-// ToolCaller represents the interface for calling aggregator tools.
-// Kept here so that future service kinds may use it; the orchestrator itself
-// only uses it to seed services with the aggregator at startup.
-type ToolCaller interface {
-	CallTool(ctx context.Context, toolName string, args map[string]interface{}) (map[string]interface{}, error)
-}
-
 // RetryInterval is the interval at which the orchestrator checks for failed servers to retry.
 const RetryInterval = 30 * time.Second
 
@@ -47,7 +40,6 @@ type Orchestrator struct {
 	// Configuration
 	aggregator config.AggregatorConfig
 	yolo       bool
-	toolCaller ToolCaller
 
 	// Service tracking
 	stopReasons map[string]StopReason
@@ -69,7 +61,6 @@ type Orchestrator struct {
 type Config struct {
 	Aggregator config.AggregatorConfig
 	Yolo       bool
-	ToolCaller ToolCaller
 }
 
 // New creates a new orchestrator.
@@ -80,7 +71,6 @@ func New(cfg Config) *Orchestrator {
 		registry:               registry,
 		aggregator:             cfg.Aggregator,
 		yolo:                   cfg.Yolo,
-		toolCaller:             cfg.ToolCaller,
 		stopReasons:            make(map[string]StopReason),
 		stateChangeSubscribers: make([]chan<- ServiceStateChangedEvent, 0),
 	}
@@ -527,19 +517,4 @@ type ServiceStatus struct {
 	State  string
 	Health string
 	Error  error
-}
-
-// SetToolCaller sets the ToolCaller used by services that need to call aggregator tools.
-// This is called after the aggregator becomes available.
-func (o *Orchestrator) SetToolCaller(toolCaller ToolCaller) {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	o.toolCaller = toolCaller
-}
-
-// GetToolCaller returns the current ToolCaller.
-func (o *Orchestrator) GetToolCaller() ToolCaller {
-	o.mu.RLock()
-	defer o.mu.RUnlock()
-	return o.toolCaller
 }
