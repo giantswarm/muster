@@ -17,6 +17,15 @@ All notable changes to this project will be documented in this file.
 - Restore `groups` scope in `DefaultOAuthCIMDScopes` -- required for group-based RBAC in downstream services. Provider-level scope filtering in mcp-oauth (e.g., `filterGoogleScopes`, `filterDexScopes`) handles provider differences.
 - Bump `mcp-oauth` to v0.2.117. Adopts `oauth.NewServerWithCombined` and `Handler.RegisterOAuthRoutes` to simplify server wiring; the authorization callback now includes the RFC 9207 `iss` parameter automatically. **Operational note:** mcp-oauth now rejects low-entropy AES-256 token-encryption keys (fewer than 16 distinct byte values). Real keys generated with `openssl rand -base64 32` or `openssl rand -hex 32` are unaffected; placeholder keys (all zeros, repeated bytes) will fail at startup with a clear error — rotate before upgrading.
 
+### Removed
+
+- ServiceClass-related MCP tools and CLI surface (first PR of the ServiceClass removal — see #632 for the rest).
+  - MCP tools: `core_serviceclass_*`, `core_service_create`, `core_service_delete`, `core_service_get`, `core_service_validate`. Service inspection still works via `core_service_status`.
+  - CLI subcommands: `muster create service`, `muster create serviceclass`, `muster check serviceclass`, `muster get serviceclass`, `muster list serviceclass`. The `service` and `serviceclass` values for `muster events --resource-type` and `muster test --concept` are also gone.
+  - BDD scenarios: 20 `serviceclass-*` scenarios, 20 `service-*` scenarios that exercised user-creatable service instances (`service-create-*`, `service-delete*`, `service-get*`, `service-validate`, `service-lifecycle`, `service-persistence`, `service-restart`, `service-state-transitions`, `service-{start,stop}*`), and 6 cross-cutting end-to-end scenarios that depended on ServiceClass (`behavior-developer-onboarding-journey`, `example_with_mock`, `reconciler-status-sync`, `user-journey-platform-setup`, `workflow-conditional-service-check`, `workflow-run-with-serviceclass`). `service-get-non-existent` is renamed to `service-status-non-existent` and now exercises `core_service_status`.
+
+  Note: the `ServiceClass` runtime, CRD, and Helm RBAC are still in place after this PR; they are removed in subsequent PRs tracked in #632.
+
 ### Fixed
 
 - Bump `mcp-oauth` to v0.2.86 with Dex scope filtering: non-standard client scopes like `claudeai` (sent by Claude) are now stripped before forwarding to Dex, preventing `invalid_scope` errors. Also includes Google scope filtering and `openid` force-merge from v0.2.84.
