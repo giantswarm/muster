@@ -24,13 +24,12 @@ const defaultNamespace = "default"
 //
 // Files live directly under per-resource-type folders (no namespace
 // subdirectories):
-//   - MCPServers:     {basePath}/mcpservers/{name}.yaml
-//   - ServiceClasses: {basePath}/serviceclasses/{name}.yaml
-//   - Workflows:      {basePath}/workflows/{name}.yaml
+//   - MCPServers: {basePath}/mcpservers/{name}.yaml
+//   - Workflows:  {basePath}/workflows/{name}.yaml
 //
-// Per-domain CRUD methods live in sibling files (mcpserver.go, serviceclass.go,
-// workflow.go, events.go). This file keeps the type, the controller-runtime
-// Client interface methods, shared helpers, and the sub-resource writer types.
+// Per-domain CRUD methods live in sibling files (mcpserver.go, workflow.go,
+// events.go). This file keeps the type, the controller-runtime Client
+// interface methods, shared helpers, and the sub-resource writer types.
 type Client struct {
 	basePath string
 }
@@ -59,13 +58,6 @@ func (f *Client) Get(ctx context.Context, key types.NamespacedName, obj client.O
 			return err
 		}
 		*v = *server
-		return nil
-	case *musterv1alpha1.ServiceClass:
-		serviceClass, err := f.GetServiceClass(ctx, key.Name, key.Namespace)
-		if err != nil {
-			return err
-		}
-		*v = *serviceClass
 		return nil
 	case *musterv1alpha1.Workflow:
 		workflow, err := f.GetWorkflow(ctx, key.Name, key.Namespace)
@@ -96,13 +88,6 @@ func (f *Client) List(ctx context.Context, list client.ObjectList, opts ...clien
 		}
 		v.Items = servers
 		return nil
-	case *musterv1alpha1.ServiceClassList:
-		serviceClasses, err := f.ListServiceClasses(ctx, namespace)
-		if err != nil {
-			return err
-		}
-		v.Items = serviceClasses
-		return nil
 	case *musterv1alpha1.WorkflowList:
 		workflows, err := f.ListWorkflows(ctx, namespace)
 		if err != nil {
@@ -120,8 +105,6 @@ func (f *Client) Create(ctx context.Context, obj client.Object, opts ...client.C
 	switch v := obj.(type) {
 	case *musterv1alpha1.MCPServer:
 		return f.CreateMCPServer(ctx, v)
-	case *musterv1alpha1.ServiceClass:
-		return f.CreateServiceClass(ctx, v)
 	case *musterv1alpha1.Workflow:
 		return f.CreateWorkflow(ctx, v)
 	default:
@@ -134,8 +117,6 @@ func (f *Client) Update(ctx context.Context, obj client.Object, opts ...client.U
 	switch v := obj.(type) {
 	case *musterv1alpha1.MCPServer:
 		return f.UpdateMCPServer(ctx, v)
-	case *musterv1alpha1.ServiceClass:
-		return f.UpdateServiceClass(ctx, v)
 	case *musterv1alpha1.Workflow:
 		return f.UpdateWorkflow(ctx, v)
 	default:
@@ -148,8 +129,6 @@ func (f *Client) Delete(ctx context.Context, obj client.Object, opts ...client.D
 	switch v := obj.(type) {
 	case *musterv1alpha1.MCPServer:
 		return f.DeleteMCPServer(ctx, v.Name, v.Namespace)
-	case *musterv1alpha1.ServiceClass:
-		return f.DeleteServiceClass(ctx, v.Name, v.Namespace)
 	case *musterv1alpha1.Workflow:
 		return f.DeleteWorkflow(ctx, v.Name, v.Namespace)
 	default:
@@ -199,8 +178,6 @@ func (f *Client) GroupVersionKindFor(obj runtime.Object) (schema.GroupVersionKin
 	switch obj.(type) {
 	case *musterv1alpha1.MCPServer:
 		return musterv1alpha1.GroupVersion.WithKind("MCPServer"), nil
-	case *musterv1alpha1.ServiceClass:
-		return musterv1alpha1.GroupVersion.WithKind("ServiceClass"), nil
 	case *musterv1alpha1.Workflow:
 		return musterv1alpha1.GroupVersion.WithKind("Workflow"), nil
 	default:

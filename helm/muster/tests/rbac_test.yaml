@@ -2,7 +2,7 @@
 #
 # These tests verify the RBAC resources created by the Helm chart.
 # Muster requires access to:
-#   - Muster CRDs (MCPServer, ServiceClass, Workflow)
+#   - Muster CRDs (MCPServer, Workflow)
 #   - CRD discovery
 #   - Events (for core_events tool)
 #   - Secrets (for reading credentials)
@@ -59,7 +59,7 @@ tests:
           path: rules
           content:
             apiGroups: ["muster.giantswarm.io"]
-            resources: ["mcpservers", "serviceclasses", "workflows"]
+            resources: ["mcpservers", "workflows"]
             verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
         documentIndex: 0
 
@@ -72,7 +72,7 @@ tests:
           path: rules
           content:
             apiGroups: ["muster.giantswarm.io"]
-            resources: ["mcpservers/status", "serviceclasses/status", "workflows/status"]
+            resources: ["mcpservers/status", "workflows/status"]
             verbs: ["get", "update", "patch"]
         documentIndex: 0
 

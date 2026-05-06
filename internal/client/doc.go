@@ -79,11 +79,7 @@
 //
 //	// Current (v1alpha1)
 //	client.GetMCPServer(ctx, name, namespace)
-//
-//	// Future (as CRDs are implemented)
-//	client.GetServiceClass(ctx, name, namespace)
-//	client.ListWorkflows(ctx, namespace)
-//	client.CreateService(ctx, service)
+//	client.GetWorkflow(ctx, name, namespace)
 //
 // # Error Handling
 //
