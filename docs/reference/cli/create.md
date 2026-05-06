@@ -1,254 +1,92 @@
 # muster create
 
-Create resources in the Muster environment.
+Create a new resource in the muster environment.
 
 ## Synopsis
 
 ```
-muster create [RESOURCE_TYPE] [NAME] [OPTIONS]
+muster create <resource-type> <name> [flags]
 ```
 
 ## Description
 
-The `create` command creates new resources in Muster. It supports creating service classes, workflows, and service instances with flexible argument passing and configuration options.
-
-**Prerequisites**: The aggregator server must be running (`muster serve`) before using this command.
+The `create` command persists a new resource definition. The aggregator
+server (`muster serve`) must be running.
 
 ## Resource Types
 
 | Resource Type | Description | Example |
 |---------------|-------------|---------|
-| `serviceclass` | Service template definition | `muster create serviceclass web-app` |
 | `workflow` | Workflow definition | `muster create workflow deploy-flow` |
-| `service` | Service instance from a ServiceClass | `muster create service my-app web-app` |
+| `mcpserver` | MCP server definition (stdio, streamable-http, or sse) | `muster create mcpserver my-server --type=stdio --command=mcp-foo` |
 
 ## Options
 
 ### Output Control
-- `--output`, `-o` (string): Output format (table\|json\|yaml)
-  - Default: `table`
-- `--quiet`, `-q`: Suppress non-essential output
-  - Default: `false`
+- `--output`, `-o` (string): Output format (`table`, `json`, `yaml`). Default: `table`.
+- `--quiet`, `-q`: Suppress non-essential output.
 
 ### Configuration
-- `--config-path` (string): Custom configuration directory path
-  - Default: `~/.config/muster`
+- `--config-path` (string): Custom configuration directory path. Default: `~/.config/muster`.
 
-### Service-Specific Parameters
-When creating services, additional parameters can be passed as arguments:
-- `--param=value`: Set service parameters
-- Any unknown flags are treated as service parameters
+### MCPServer Flags
+- `--type` (string, required for `mcpserver`): One of `stdio`, `streamable-http`, `sse`.
+- `--command` (string, stdio only): Executable to run.
+- `--args` (string, stdio only): Command-line arguments.
+- `--url` (string, streamable-http / sse only): Endpoint URL.
+- `--timeout` (integer): Connection timeout in seconds.
+- `--autoStart` (boolean): Auto-start at server boot.
+
+Any unknown flags are forwarded as MCPServer parameters.
 
 ## Examples
 
-### Creating ServiceClasses
+### Workflows
+
 ```bash
-# Create a basic service class
-muster create serviceclass web-app
-
-# With structured output
-muster create serviceclass web-app --output yaml
-```
-
-### Creating Workflows
-```bash
-# Create a basic workflow
-muster create workflow deploy-app
-
-# Create workflow with JSON output
+muster create workflow deploy-flow
 muster create workflow backup-db --output json
 ```
 
-### Creating Services
-```bash
-# Create service from service class
-muster create service my-app web-service
-
-# Create service with parameters
-muster create service my-portal mimir-port-forward \
-  --managementCluster=gazelle \
-  --localPort=18009
-
-# Complex service with multiple parameters
-muster create service monitoring-stack prometheus-stack \
-  --namespace=monitoring \
-  --retention=30d \
-  --replicas=3 \
-  --storage=100Gi
-```
-
-## Service Creation Patterns
-
-### Basic Service Creation
-```bash
-# Pattern: muster create service [service-name] [serviceclass-name]
-muster create service my-web-app web-application
-
-# The service inherits configuration from the serviceclass
-muster get service my-web-app
-```
-
-### Parameterized Service Creation
-```bash
-# Pass parameters to customize the service
-muster create service custom-app web-application \
-  --image=nginx:1.21 \
-  --replicas=5 \
-  --environment=production
-```
-
-### Port-Forward Services
-```bash
-# Create port-forward service for development
-muster create service local-prometheus prometheus-port-forward \
-  --cluster=management \
-  --namespace=monitoring \
-  --localPort=9090 \
-  --remotePort=9090
-```
-
-## Output Formats
-
-### Table Format (Default)
-```bash
-muster create service my-app web-service
-# NAME     TYPE           STATUS    SERVICECLASS
-# my-app   service        Created   web-service
-```
-
-### JSON Format
-```bash
-muster create service my-app web-service --output json
-# {
-#   "name": "my-app",
-#   "type": "service",
-#   "status": "Created",
-#   "serviceClass": "web-service",
-#   "created": "2024-01-07T10:00:00Z"
-# }
-```
-
-### YAML Format
-```bash
-muster create serviceclass web-app --output yaml
-# apiVersion: muster.giantswarm.io/v1alpha1
-# kind: ServiceClass
-# metadata:
-#   name: web-app
-#   created: "2024-01-07T10:00:00Z"
-# spec:
-#   description: "Web application service class"
-```
-
-## Resource Creation Workflow
-
-### 1. ServiceClass Creation
-ServiceClasses define reusable service templates:
+### MCP Servers
 
 ```bash
-# Create the template
-muster create serviceclass database-service
+# stdio server
+muster create mcpserver my-stdio-server \
+  --type=stdio \
+  --command=npx \
+  --args="@modelcontextprotocol/server-git" \
+  --autoStart=true
 
-# Verify creation
-muster get serviceclass database-service
+# streamable-http server
+muster create mcpserver my-http-server \
+  --type=streamable-http \
+  --url=https://api.example.com/mcp \
+  --timeout=30
 
-# List all service classes
-muster list serviceclass
-```
-
-### 2. Service Instance Creation
-Create concrete service instances from ServiceClasses:
-
-```bash
-# Create instance from template
-muster create service prod-db database-service \
-  --size=large \
-  --backup=enabled
-
-# Check service status
-muster get service prod-db
-```
-
-### 3. Workflow Creation
-Create workflow definitions for automation:
-
-```bash
-# Create deployment workflow
-muster create workflow app-deployment
-
-# Verify workflow
-muster get workflow app-deployment
-
-# Execute the workflow
-muster start workflow app-deployment --app=my-app
-```
-
-## Parameter Passing
-
-### Service Parameters
-When creating services, parameters are passed to the underlying ServiceClass:
-
-```bash
-# All unknown flags become service parameters
-muster create service my-service web-app \
-  --image=myapp:v1.0 \
-  --replicas=3 \
-  --memory=512Mi \
-  --custom-config=value
-
-# These parameters are available to the ServiceClass template
-```
-
-### Parameter Validation
-Parameters are validated against the ServiceClass definition:
-
-```bash
-# If ServiceClass requires 'image' parameter
-muster create service test-app web-app
-# Error: required parameter 'image' not provided
-
-# Correct usage
-muster create service test-app web-app --image=nginx:latest
+# sse server
+muster create mcpserver my-sse-server \
+  --type=sse \
+  --url=https://sse.example.com/mcp \
+  --timeout=60
 ```
 
 ## Error Handling
 
 ### Resource Already Exists
-```bash
-muster create service my-app web-service
-# Error: service 'my-app' already exists
 
-# Solution: Use different name or delete existing
-muster get service my-app  # Check if it exists
-muster delete service my-app  # Delete if needed
+```bash
+muster create workflow deploy-flow
+# Error: workflow 'deploy-flow' already exists
 ```
 
-### ServiceClass Not Found
+### Connection Error
+
 ```bash
-muster create service my-app non-existent
-# Error: serviceclass 'non-existent' not found
-
-# Solution: List available service classes
-muster list serviceclass
-muster create service my-app existing-serviceclass
-```
-
-### Missing Required Parameters
-```bash
-muster create service my-app complex-service
-# Error: required parameter 'cluster' not provided
-
-# Solution: Provide required parameters
-muster create service my-app complex-service --cluster=production
-```
-
-### Configuration Issues
-```bash
-muster create serviceclass my-class
+muster create workflow deploy-flow
 # Error: failed to connect to aggregator
-
-# Solution: Ensure server is running
-muster serve  # In another terminal
+#
+# Solution: ensure `muster serve` is running.
 ```
 
 ## Exit Codes
@@ -258,79 +96,11 @@ muster serve  # In another terminal
 | 0 | Resource created successfully |
 | 1 | General error or invalid arguments |
 | 2 | Resource already exists |
-| 3 | Required parameter missing |
 | 4 | Connection error (server not running) |
-
-## Auto-Completion
-
-The create command supports tab completion for:
-
-```bash
-# Resource types
-muster create [TAB]
-# Suggestions: service, serviceclass, workflow
-
-# ServiceClass names (when creating services)
-muster create service my-app [TAB]
-# Suggestions: web-app, database, monitoring, ...
-```
-
-## Integration with Other Commands
-
-### Typical Workflow
-```bash
-# 1. Create service class template
-muster create serviceclass web-app
-
-# 2. Create service instance
-muster create service my-app web-app --image=nginx
-
-# 3. Start the service
-muster start service my-app
-
-# 4. Check status
-muster get service my-app
-
-# 5. Create workflow for automation
-muster create workflow deploy-my-app
-```
 
 ## Related Commands
 
 - **[get](get.md)** - Retrieve created resource details
 - **[list](list.md)** - List all resources of a type
-- **[start](start.md)** - Start created services/workflows
+- **[start](start.md)** - Start services or execute workflows
 - **[check](check.md)** - Check resource availability
-- **[delete](#)** - Delete created resources
-
-## Advanced Usage
-
-### Batch Creation
-```bash
-# Create multiple services with different parameters
-for env in dev staging prod; do
-  muster create service "app-$env" web-service \
-    --environment="$env" \
-    --replicas=$([ "$env" = "prod" ] && echo 5 || echo 2)
-done
-```
-
-### Template-Based Creation
-```bash
-# Create service with complex configuration
-muster create service complex-app enterprise-service \
-  --database-url="postgres://localhost:5432/myapp" \
-  --redis-url="redis://localhost:6379" \
-  --feature-flags="feature1,feature2,feature3" \
-  --monitoring=enabled \
-  --backup-schedule="0 2 * * *"
-```
-
-### Development Patterns
-```bash
-# Quick development setup
-muster create service dev-env development-stack \
-  --debug=true \
-  --hot-reload=enabled \
-  --local-storage=./data
-```

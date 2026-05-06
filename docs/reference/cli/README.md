@@ -10,12 +10,12 @@ Complete reference for all Muster command-line interface commands.
 | [`muster agent`](agent.md) | Interactive tool interface | `muster agent --repl` |
 | [`muster standalone`](standalone.md) | MCP server mode | `muster standalone` |
 | [`muster auth`](auth.md) | Manage authentication | `muster auth login --endpoint <url>` |
-| [`muster create`](create.md) | Create resources | `muster create service my-app web-service` |
-| [`muster get`](get.md) | Retrieve resources | `muster get service my-app` |
+| [`muster create`](create.md) | Create resources | `muster create workflow deploy-flow` |
+| [`muster get`](get.md) | Retrieve resources | `muster get workflow deploy-flow` |
 | [`muster list`](list.md) | List resources | `muster list services` |
 | [`muster start`](start.md) | Start resources | `muster start service my-app` |
 | [`muster stop`](stop.md) | Stop resources | `muster stop service my-app` |
-| [`muster check`](check.md) | Check availability | `muster check serviceclass web-service` |
+| [`muster check`](check.md) | Check availability | `muster check workflow deploy-flow` |
 | [`muster events`](events.md) | List resource events | `muster events --resource-type mcpserver` |
 | [`muster test`](test.md) | Run tests | `muster test --scenario basic-crud` |
 | [`muster version`](version.md) | Show version info | `muster version` |
@@ -76,16 +76,15 @@ Commands for creating, retrieving, and managing Muster resources.
 
 - **[create](create.md)** - Create new resources
   ```bash
-  muster create serviceclass web-app
-  muster create service my-app web-app --image=nginx:latest
   muster create workflow deploy-flow
+  muster create mcpserver my-server --type=stdio --command=mcp-foo
   ```
 
 - **[get](get.md)** - Retrieve resource details
   ```bash
   muster get service my-app
   muster get workflow deploy-flow
-  muster get serviceclass web-app --output yaml
+  muster get mcpserver kubernetes --output yaml
   ```
 
 - **[list](list.md)** - List multiple resources
@@ -111,7 +110,6 @@ Commands for starting, stopping, and checking resources.
 
 - **[check](check.md)** - Check resource availability
   ```bash
-  muster check serviceclass web-app
   muster check mcpserver kubernetes
   muster check workflow deploy-flow
   ```
@@ -156,9 +154,7 @@ Muster uses configuration files located in `~/.config/muster/` by default:
 ~/.config/muster/
 ├── config.yaml           # Main configuration
 ├── mcpservers/           # MCP server definitions
-├── workflows/            # Workflow definitions
-├── serviceclasses/       # Service class templates
-└── services/             # Service instances
+└── workflows/            # Workflow definitions
 ```
 
 ### Custom Configuration Directory
@@ -177,8 +173,7 @@ Muster manages these resource types:
 | Resource Type | Description | Examples |
 |---------------|-------------|----------|
 | **mcpserver** | MCP server configurations | `kubernetes`, `prometheus`, `github` |
-| **serviceclass** | Service templates | `web-app`, `database`, `monitoring` |
-| **service** | Service instances | `my-web-app`, `prod-db`, `grafana-instance` |
+| **service** | Static services (aggregator and per-MCPServer wrappers) | `mcp-aggregator`, `kubernetes` |
 | **workflow** | Workflow definitions | `deploy-app`, `backup-db`, `scale-service` |
 | **workflow-execution** | Workflow run history | Execution results and logs |
 
@@ -189,27 +184,23 @@ Muster manages these resource types:
 # 1. Start Muster
 muster serve
 
-# 2. Check what's available
+# 2. Check what's running
 muster list mcpserver
-muster list serviceclass
+muster list service
 
-# 3. Create a service
-muster create service my-app web-service --replicas=3
-
-# 4. Check service status
-muster get service my-app
+# 3. Inspect a specific service
+muster get service mcp-aggregator
 ```
 
 ### Resource Management
 ```bash
-# Create resources from templates
-muster create serviceclass my-template
-muster create service instance-1 my-template
+# Create resources
+muster create mcpserver my-server --type=stdio --command=mcp-foo
 
 # Monitor and control
 muster list service
-muster start service instance-1
-muster stop service instance-1
+muster start service kubernetes
+muster stop service kubernetes
 ```
 
 ### Workflow Execution
@@ -238,7 +229,7 @@ muster test --verbose --debug
 muster test --scenario service-lifecycle
 
 # Check resource availability
-muster check serviceclass web-app
+muster check mcpserver kubernetes
 muster check workflow deploy-app
 ```
 

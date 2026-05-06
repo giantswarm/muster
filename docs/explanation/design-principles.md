@@ -185,41 +185,27 @@ All system configuration should be declarative, version-controlled, and validate
 **Kubernetes-Native Configuration (Production)**
 ```yaml
 apiVersion: muster.giantswarm.io/v1alpha1
-kind: ServiceClass
+kind: MCPServer
 metadata:
   name: prometheus-monitoring
 spec:
-  description: "Prometheus monitoring service"
-  startTool: "prometheus_start"
-  parameters:
-    - name: "port"
-      type: "number"
-      default: 9090
-    - name: "retention"
-      type: "string"
-      default: "15d"
+  type: stdio
+  command: "mcp-prometheus"
+  autoStart: true
 ```
 
 **Filesystem Configuration (Development)**
 ```yaml
-# ~/.config/muster/serviceclass-prometheus.yaml
+# ~/.config/muster/mcpservers/prometheus.yaml
 apiVersion: muster.giantswarm.io/v1alpha1
-kind: ServiceClass
+kind: MCPServer
 metadata:
   name: prometheus-monitoring
   namespace: default
 spec:
-  description: "Prometheus monitoring service"
-  args:
-    port:
-      type: integer
-      default: 9090
-  serviceConfig:
-    lifecycleTools:
-      start:
-        tool: "prometheus_start"
-        args:
-          port: "{{.port}}"
+  type: stdio
+  command: "mcp-prometheus"
+  autoStart: true
 ```
 
 #### Benefits
@@ -415,41 +401,26 @@ func (s *Service) startService(name string) error {
 #### Interface Documentation
 Every exported interface must have comprehensive documentation:
 ```go
-// ServiceHandler manages the lifecycle of service instances.
-//
-// Services are long-running processes that provide tools to the MCP aggregator.
-// The handler is responsible for creating, starting, stopping, and monitoring
-// service instances based on ServiceClass templates.
-//
-// All methods are safe for concurrent use.
+// ServiceHandler exposes lifecycle operations for the static services
+// registered in the orchestrator's registry (the aggregator and per-MCPServer
+// wrappers). All methods are safe for concurrent use.
 type ServiceHandler interface {
-    // CreateService creates a new service instance from a ServiceClass template.
-    // Returns an error if the ServiceClass doesn't exist or if creation fails.
-    CreateService(ctx context.Context, req CreateServiceRequest) (*Service, error)
+    // ListServices returns the current state of all registered services.
+    ListServices(ctx context.Context) []*Service
 
-    // GetService retrieves an existing service by name.
-    // Returns nil if the service doesn't exist.
-    GetService(ctx context.Context, name string) (*Service, error)
+    // GetServiceStatus returns the status of a service by name. Returns nil
+    // if the service does not exist.
+    GetServiceStatus(ctx context.Context, name string) (*ServiceStatus, error)
 }
 ```
 
 #### Package Documentation
 Every package must have a `doc.go` file explaining its purpose:
 ```go
-// Package services provides service instance lifecycle management for Muster.
-//
-// This package implements the service management capabilities that allow Muster
-// to create, monitor, and manage long-running service processes. Services are
-// created from ServiceClass templates and can be started, stopped, and queried
-// through the ServiceHandler interface.
-//
-// Key concepts:
-//   - ServiceClass: Template defining service capabilities and parameters
-//   - Service: Running instance of a ServiceClass
-//   - Registry: Central repository for service instances and their state
-//
-// The package integrates with the central API through the adapter pattern,
-// implementing the ServiceHandler interface defined in internal/api.
+// Package services provides the registry and base interfaces for the static
+// services that the orchestrator manages: the aggregator and the per-MCPServer
+// wrappers. Concrete implementations live in subpackages (services/aggregator,
+// services/mcpserver).
 package services
 ```
 

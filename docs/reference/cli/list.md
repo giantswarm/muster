@@ -18,8 +18,7 @@ The `list` command displays resources managed by Muster, providing an overview o
 
 | Resource Type | Description | Example |
 |---------------|-------------|---------|
-| `service` | List all services with their status | `muster list service` |
-| `serviceclass` | List all ServiceClass definitions | `muster list serviceclass` |
+| `service` | List static services with their status | `muster list service` |
 | `mcpserver` | List all MCP server definitions | `muster list mcpserver` |
 | `workflow` | List all workflow definitions | `muster list workflow` |
 | `workflow-execution` | List all workflow execution history | `muster list workflow-execution` |
@@ -40,26 +39,14 @@ The `list` command displays resources managed by Muster, providing an overview o
 
 ### Listing Services
 ```bash
-# List all services
+# List static services (the aggregator and per-MCPServer wrappers)
 muster list service
 
 # Example output:
-# NAME          STATUS    SERVICECLASS      CREATED
-# web-app-1     Running   web-application   2h ago
-# database      Stopped   postgres-db       1d ago
-# monitoring    Running   prometheus        3h ago
-```
-
-### Listing ServiceClasses
-```bash
-# List all service class templates
-muster list serviceclass
-
-# Example output:
-# NAME              DESCRIPTION                   TOOLS_REQUIRED
-# web-application   Web app with load balancing   2
-# postgres-db       PostgreSQL database           1
-# prometheus        Monitoring stack              3
+# NAME             TYPE        STATE     HEALTH
+# mcp-aggregator   Aggregator  Running   Healthy
+# kubernetes       MCPServer   Running   Healthy
+# prometheus       MCPServer   Stopped   Unknown
 ```
 
 ### Listing MCP Servers
@@ -121,9 +108,9 @@ Clean, human-readable tabular output:
 
 ```bash
 muster list service
-# NAME        STATUS    SERVICECLASS    CREATED
-# my-app      Running   web-service     2m ago
-# my-db       Stopped   database        1h ago
+# NAME             TYPE        STATE     HEALTH
+# mcp-aggregator   Aggregator  Running   Healthy
+# kubernetes       MCPServer   Running   Healthy
 ```
 
 ### JSON Format
@@ -151,14 +138,12 @@ muster list service --output json
 YAML output for configuration management:
 
 ```bash
-muster list serviceclass --output yaml
-# serviceClasses:
-# - name: web-application
-#   description: Web application service class
-#   toolsRequired:
-#   - x_kubernetes_apply
-#   - x_kubernetes_get_status
-#   created: "2024-01-07T09:00:00Z"
+muster list mcpserver --output yaml
+# mcpServers:
+# - name: kubernetes
+#   type: stdio
+#   command: mcp-kubernetes
+#   autoStart: true
 ```
 
 ## Filtering and Information
@@ -168,31 +153,18 @@ Services are displayed with comprehensive status information:
 
 ```bash
 muster list service
-# NAME          STATUS      SERVICECLASS      CREATED    UPTIME
-# frontend      Running     web-application   2h ago     1h 45m
-# backend       Starting    api-service       5m ago     -
-# database      Stopped     postgres-db       1d ago     -
-# cache         Error       redis             1h ago     -
+# NAME             TYPE        STATE       HEALTH
+# mcp-aggregator   Aggregator  Running     Healthy
+# kubernetes       MCPServer   Running     Healthy
+# prometheus       MCPServer   Stopped     Unknown
 ```
 
-**Status Values:**
+**State Values:**
 - `Running`: Service is active and healthy
 - `Starting`: Service is in startup phase
 - `Stopped`: Service is intentionally stopped
-- `Error`: Service encountered an error
-- `Unknown`: Service status cannot be determined
-
-### ServiceClass Information
-ServiceClasses show template information and usage:
-
-```bash
-muster list serviceclass
-# NAME              DESCRIPTION                   TOOLS   INSTANCES
-# web-application   Scalable web application      3       2
-# postgres-db       PostgreSQL database           2       1
-# redis-cache       Redis caching service         1       0
-# monitoring        Prometheus monitoring         4       1
-```
+- `Failed`: Service encountered an error
+- `Unknown`: Service state cannot be determined
 
 ### MCP Server Information
 MCP servers display connection and tool information:
@@ -219,21 +191,14 @@ muster list workflow
 
 ## Resource Relationships
 
-### Service Dependencies
-Understanding relationships between resources:
+### Resource Relationships
 
 ```bash
-# List services to see ServiceClass usage
+# List services to see runtime state of the aggregator and MCPServer wrappers
 muster list service
-# Shows which ServiceClass each service uses
 
-# List ServiceClasses to see instance counts
-muster list serviceclass
-# Shows how many services use each template
-
-# List MCP servers to see tool availability
+# List MCPServer definitions to see what's configured to be loaded
 muster list mcpserver
-# Shows which tools are available for ServiceClasses
 ```
 
 ## Common Use Cases
@@ -242,7 +207,6 @@ muster list mcpserver
 ```bash
 # Get complete system overview
 muster list service
-muster list serviceclass
 muster list mcpserver
 muster list workflow
 ```
@@ -257,7 +221,6 @@ muster list mcpserver | grep -v Running  # Find failed MCP servers
 ### Resource Planning
 ```bash
 # Understand resource usage
-muster list serviceclass --output json | jq '.serviceClasses[] | {name, instances}'
 muster list workflow --output json | jq '.workflows[] | {name, executions, successRate}'
 ```
 
@@ -325,7 +288,7 @@ The list command supports tab completion:
 ```bash
 # Resource types
 muster list [TAB]
-# Suggestions: service, serviceclass, mcpserver, workflow, workflow-execution
+# Suggestions: service, mcpserver, workflow, workflow-execution
 ```
 
 ## Performance Considerations
@@ -357,13 +320,6 @@ if [ -n "$FAILED_SERVICES" ]; then
 fi
 ```
 
-### Resource Discovery
-```bash
-# Discover available ServiceClasses for deployment
-AVAILABLE_CLASSES=$(muster list serviceclass --output json | jq -r '.serviceClasses[].name')
-echo "Available service classes: $AVAILABLE_CLASSES"
-```
-
 ### Workflow Monitoring
 ```bash
 # Check recent workflow executions
@@ -383,11 +339,8 @@ muster list workflow-execution --output json | \
 
 ### Custom Queries
 ```bash
-# Find services using specific ServiceClass
-muster list service --output json | jq '.services[] | select(.serviceClass=="web-application")'
-
-# Count services by status
-muster list service --output json | jq 'group_by(.status) | map({status: .[0].status, count: length})'
+# Count services by state
+muster list service --output json | jq 'group_by(.state) | map({state: .[0].state, count: length})'
 
 # List workflows by success rate
 muster list workflow --output json | jq '.workflows | sort_by(.successRate) | reverse'

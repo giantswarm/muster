@@ -19,7 +19,7 @@ The aggregator server provides a unified MCP interface that other muster command
 ### Server Configuration
 - `--config-path` (string): Custom configuration directory path
   - Default: `~/.config/muster`
-  - Directory should contain `config.yaml` and subdirectories: `mcpservers/`, `workflows/`, `serviceclasses/`, `services/`
+  - Directory should contain `config.yaml` and subdirectories: `mcpservers/`, `workflows/`
 
 ### Logging and Debugging
 - `--debug`: Enable debug-level logging and verbose output
@@ -62,8 +62,6 @@ storage:
 directories:
   mcpservers: "mcpservers/"
   workflows: "workflows/"
-  serviceclasses: "serviceclasses/"
-  services: "services/"
 ```
 
 ## Startup Sequence
@@ -83,13 +81,10 @@ When you run `muster serve`, the following initialization occurs:
 3. **Component Loading**
    - Loads MCP server definitions from `mcpservers/`
    - Loads workflow definitions from `workflows/`
-   - Loads service class templates from `serviceclasses/`
-   - Loads service instances from `services/`
 
 4. **Auto-Start Services**
    - Starts all configured MCP servers with `autoStart: true`
    - Initializes the aggregator service for tool access
-   - Starts any service instances marked for auto-start
 
 5. **Server Ready**
    - Begins accepting connections on the configured port
@@ -158,15 +153,9 @@ The configuration directory should be organized as follows:
 │   ├── kubernetes.yaml
 │   ├── prometheus.yaml
 │   └── github.yaml
-├── workflows/               # Workflow definitions
-│   ├── deploy-app.yaml
-│   └── backup-db.yaml
-├── serviceclasses/          # Service templates
-│   ├── web-app.yaml
-│   └── database.yaml
-└── services/                # Service instances
-    ├── my-web-app.yaml
-    └── prod-database.yaml
+└── workflows/               # Workflow definitions
+    ├── deploy-app.yaml
+    └── backup-db.yaml
 ```
 
 ## Environment Variables
@@ -215,7 +204,7 @@ muster serve --debug  # Shows detailed error information
 ```bash
 # Verify configuration directory structure
 ls -la ~/.config/muster/
-mkdir -p ~/.config/muster/{mcpservers,workflows,serviceclasses,services}
+mkdir -p ~/.config/muster/{mcpservers,workflows}
 ```
 
 ### MCP Server Issues

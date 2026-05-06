@@ -23,8 +23,7 @@ graph TB
 
     subgraph "Service Tier"
         SM[Service Manager]
-        SC[ServiceClass Registry]
-        SI[Service Instances]
+        SI[Static Services]
         SL[Service Lifecycle]
     end
 
@@ -37,7 +36,6 @@ graph TB
     WE --> SM
     WE --> MCPAgg
     SM --> SI
-    SM --> SC
     WS --> WE
     WD --> WT
 
@@ -54,125 +52,21 @@ graph TB
 - **Event-Driven**: React to system events and triggers
 
 **Service Tier Benefits:**
-- **Lifecycle Management**: Handle start, stop, restart, and health monitoring
-- **Resource Management**: Manage compute, storage, and network resources
-- **Dependency Resolution**: Automatically handle service dependencies
-- **State Persistence**: Maintain service state across restarts
+- **Lifecycle Management**: Handle start, stop, restart, and health monitoring of static services (the aggregator and per-MCPServer wrappers)
+- **State Tracking**: Track service state and emit state-change events
 
 ## Service Orchestration
 
-### ServiceClass Templates
+### Service Manager
 
-ServiceClasses define reusable service templates that encapsulate deployment patterns:
+The Service Manager owns the registry of static services and drives lifecycle
+operations through it. The two service kinds it manages are:
 
-```yaml
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: ServiceClass
-metadata:
-  name: microservice-pattern
-  annotations:
-    description: "Standard microservice deployment pattern"
-spec:
-  name: microservice-pattern
-  description: "Standardized microservice with monitoring, logging, and health checks"
-
-  # Service lifecycle configuration
-  lifecycle:
-    startTool: x_kubernetes_deploy_service
-    stopTool: x_kubernetes_delete_service
-    healthCheckTool: x_kubernetes_check_health
-
-  # Parameter template
-  args:
-    service_name:
-      type: string
-      required: true
-      description: "Name of the microservice"
-
-    image:
-      type: string
-      required: true
-      description: "Container image to deploy"
-      validation:
-        pattern: "^[a-zA-Z0-9./:-]+$"
-
-    replicas:
-      type: integer
-      default: 3
-      description: "Number of service replicas"
-      validation:
-        min: 1
-        max: 10
-
-    environment:
-      type: string
-      default: "staging"
-      enum: ["development", "staging", "production"]
-
-    resources:
-      type: object
-      default:
-        cpu: "500m"
-        memory: "512Mi"
-      description: "Resource requirements"
-
-  # Service dependencies
-  dependencies:
-    - name: monitoring
-      type: external
-      healthCheck:
-        url: "http://prometheus:9090/-/healthy"
-
-    - name: logging
-      type: external
-      healthCheck:
-        url: "http://elasticsearch:9200/_cluster/health"
-
-  # Health check configuration
-  healthCheck:
-    enabled: true
-    httpGet:
-      path: "/health"
-      port: 8080
-    initialDelaySeconds: 30
-    periodSeconds: 10
-    timeoutSeconds: 5
-    failureThreshold: 3
-
-  # Resource management
-  resources:
-    requests:
-      cpu: "{{.resources.cpu}}"
-      memory: "{{.resources.memory}}"
-    limits:
-      cpu: "{{.resources.cpu}}"
-      memory: "{{.resources.memory}}"
-```
-
-### Service Instance Management
-
-Service instances are created from ServiceClass templates with specific parameters:
-
-```mermaid
-sequenceDiagram
-    participant U as User/Workflow
-    participant SM as Service Manager
-    participant SC as ServiceClass Registry
-    participant MCPAgg as MCP Aggregator
-    participant K8s as Kubernetes MCP
-
-    U->>SM: Create Service Instance
-    SM->>SC: Resolve ServiceClass
-    SC->>SM: ServiceClass Definition
-    SM->>SM: Validate Parameters
-    SM->>SM: Resolve Dependencies
-    SM->>MCPAgg: Execute Start Tool
-    MCPAgg->>K8s: Deploy to Kubernetes
-    K8s->>MCPAgg: Deployment Status
-    MCPAgg->>SM: Tool Result
-    SM->>SM: Update Service State
-    SM->>U: Service Instance Created
-```
+- **Aggregator**: muster's own MCP HTTP server, started in-process at boot.
+- **MCPServer wrappers**: One service per `MCPServer` definition with
+  `autoStart: true`. The wrapper owns the connection (stdio child process
+  or HTTP client) to the backend MCP server and exposes its tools to the
+  aggregator.
 
 ### Dependency Resolution
 

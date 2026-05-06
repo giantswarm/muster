@@ -179,63 +179,15 @@ spec:
 
 #### Diagnostic Steps
 ```bash
-# Check service status and events
+# Check service status
 muster get service <service-name>
-muster describe service <service-name>
 
-# Check ServiceClass configuration
-muster get serviceclass <class-name>
-muster describe serviceclass <class-name>
+# Check the underlying MCP server
+muster get mcpserver <mcpserver-name>
+muster check mcpserver <mcpserver-name>
 
-# Check underlying tool execution
-muster logs service <service-name> --step start
-
-# Verify dependencies
-muster get service <service-name> -o json | jq '.status.dependencies'
-```
-
-#### Common Service Issues
-
-**1. ServiceClass Configuration Errors**
-```yaml
-# Check for common configuration mistakes
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: ServiceClass
-metadata:
-  name: fixed-serviceclass
-  namespace: default
-spec:
-  args:
-    # Ensure required args are marked correctly
-    required_param:
-      type: string
-      required: true  # Don't forget this
-      description: "This parameter is required"
-  serviceConfig:
-    lifecycleTools:
-      start:
-        tool: "valid_tool_name"  # Ensure tool exists
-        args:
-          param: "{{.required_param}}"  # Correct template syntax
-        # Add timeout for long-running operations
-        timeout: "10m"
-      # Always provide a stop tool
-      stop:
-        tool: "cleanup_tool"
-        args:
-          service_id: "{{.service_id}}"
-```
-
-**2. Dependency Issues**
-```bash
-# Check if dependencies are healthy
-muster list services --dependencies-of <service-name>
-
-# Verify dependency order
-muster get serviceclass <class-name> -o json | jq '.spec.serviceConfig.dependencies'
-
-# Check for circular dependencies
-muster validate serviceclass <class-file> --check-dependencies
+# Recent service events
+muster events --resource-type mcpserver --resource-name <mcpserver-name>
 ```
 
 **3. Resource Constraints**

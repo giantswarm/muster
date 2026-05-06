@@ -25,9 +25,6 @@ Use `muster check` to verify the health of any resource:
 # Check a specific MCP server
 muster check mcpserver kubernetes
 
-# Check a ServiceClass (validates tool availability and schema)
-muster check serviceclass web-app
-
 # Check a workflow (validates steps, tools, and parameters)
 muster check workflow deploy-app
 ```
@@ -92,35 +89,6 @@ Health check status values:
 | `starting` | In startup phase |
 | `unknown` | Status cannot be determined |
 
-## Configure Service Health Checks
-
-ServiceClasses can define health check tools that run periodically against service instances:
-
-```yaml
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: ServiceClass
-metadata:
-  name: service-k8s-connection
-spec:
-  description: "Kubernetes cluster connection service"
-  serviceConfig:
-    lifecycleTools:
-      healthCheck:
-        tool: "api_kubernetes_connection_status"
-        args:
-          connectionId: "{{ .service_id }}"
-        expect:
-          success: true
-          jsonPath:
-            health: true
-    healthCheck:
-      enabled: true
-      interval: "60s"
-      failureThreshold: 3
-      successThreshold: 2
-    timeout:
-      healthCheck: "30s"
-```
 
 Key configuration options:
 
@@ -239,14 +207,12 @@ which <server-command>
 
 ### Service Stuck in Unhealthy State
 
-- Check if the health check tool exists: `muster check serviceclass <name>`
-- Verify health check thresholds aren't too aggressive (low `failureThreshold` with short `interval`)
-- Review service events: `muster events --resource-type service --resource-name <name>`
+- Verify the upstream MCP server is running: `muster check mcpserver <name>`
+- Review service events: `muster events --resource-type mcpserver --resource-name <name>`
 
 ## Related Documentation
 
 - [MCP Server Management](mcp-server-management.md) - Server configuration and health monitoring
-- [Service Configuration](service-configuration.md) - ServiceClass health check setup
 - [Troubleshooting](troubleshooting.md) - General troubleshooting guide
 - [Events Reference](../reference/events.md) - Complete event reference
 - [CLI Check Reference](../reference/cli/check.md) - Detailed `muster check` documentation
