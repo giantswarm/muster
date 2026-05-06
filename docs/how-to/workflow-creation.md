@@ -10,7 +10,6 @@ Create workflows that automate complex deployment processes with proper error ha
 ### Prerequisites
 - Understanding of your deployment process
 - Required tools available via MCP servers
-- ServiceClasses defined for your services
 
 ### Basic Workflow Structure
 
@@ -561,5 +560,4 @@ spec:
 - Version control workflow definitions
 
 ## Related Documentation
-- [ServiceClass Patterns](serviceclass-patterns.md)
 - [Workflow Reference](../reference/mcp-tools.md#workflow-tools)

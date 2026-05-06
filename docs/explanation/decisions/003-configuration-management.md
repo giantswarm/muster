@@ -7,7 +7,7 @@ Accepted
 
 Muster needs a flexible configuration system that can:
 - Load configuration from a predictable location
-- Support different entity types (mcpservers, workflows, serviceclasses, services)
+- Support different entity types (mcpservers, workflows)
 - Be easily editable by users
 - Support both API-driven and file-based configuration management
 
@@ -19,8 +19,6 @@ Use direct YAML file loading with a standardized directory structure at `~/.conf
 - **Entity directories**: Separate subdirectories for each entity type
   - `mcpservers/` - MCP server definitions
   - `workflows/` - Workflow definitions
-  - `serviceclasses/` - ServiceClass definitions
-  - `services/` - Service instance definitions
 
 Implementation uses `gopkg.in/yaml.v3` for direct YAML parsing without additional configuration libraries.
 

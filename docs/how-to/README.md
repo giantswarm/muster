@@ -5,10 +5,8 @@ Task-oriented guides for accomplishing specific goals with Muster.
 ## Quick Navigation
 
 ### Core Topics
-- [Service Configuration](service-configuration.md) - Configure service lifecycle
 - [Workflow Creation](workflow-creation.md) - Build automated task sequences
 - [MCP Server Management](mcp-server-management.md) - Manage external tool providers
-- [ServiceClass Patterns](serviceclass-patterns.md) - Create reusable service templates
 - [Troubleshooting](troubleshooting.md) - Fix common problems
 - [Quick Reference](quick-reference.md) - Command patterns and shortcuts
 

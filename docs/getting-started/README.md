@@ -27,7 +27,6 @@ Choose your adventure based on your primary goal:
 **You'll learn:**
 - Install Muster and understand the two-layer architecture
 - Configure MCP servers for external tool integration
-- Create ServiceClass templates and service instances
 - Build and execute multi-step workflows using meta-tools
 
 ## 🚀 I want to explore Muster locally
@@ -109,11 +108,10 @@ core_service_list()                             # Doesn't exist at agent layer
 - **Unified Access Pattern** - Consistent interface regardless of tool source
 
 **Key Tool Categories in the Aggregator:**
-- **Configuration** (5 tools) - System and aggregator management
-- **Services** (9 tools) - Service instance lifecycle
-- **ServiceClasses** (7 tools) - Reusable service templates
-- **MCP Servers** (6 tools) - External tool provider management
-- **Workflows** (9 tools) - Multi-step process orchestration
+- **Configuration** - System and aggregator management
+- **Services** - Service lifecycle (aggregator and MCP server processes)
+- **MCP Servers** - External tool provider management
+- **Workflows** - Multi-step process orchestration
 
 **Plus Dynamic Capabilities**:
 - Auto-generated `workflow_<name>` tools for each workflow you define

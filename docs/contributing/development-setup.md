@@ -110,11 +110,11 @@ scenario: feature-test
 description: "Test new feature functionality"
 steps:
   - description: "Setup initial state"
-    command: "muster create serviceclass test-class"
+    command: "muster create workflow test-workflow"
     expect_success: true
 
   - description: "Test the feature"
-    command: "muster start service test-service test-class"
+    command: "muster call workflow_test-workflow"
     expect_success: true
     expect_output_contains: "Service started successfully"
 ```
@@ -173,7 +173,7 @@ func useService(ctx context.Context) {
 
 ### Anti-Patterns to Avoid
 
-- **NEVER import workflow, mcpserver, serviceclass, service packages directly**
+- **NEVER import workflow, mcpserver, or service packages directly**
 - **NEVER use time.Sleep or timers to fix race conditions**
 - **NEVER change schema.json manually** (generated via `muster test --generate-schema`)
 

@@ -104,17 +104,14 @@ steps:
   # Conditional execution
   - id: "health-check"
     tool: "core_service_status"
-    condition:
-      tool: "core_serviceclass_available"
-      args:
-        name: "monitoring-service"
+    args:
+      name: "monitoring-service"
 ```
 
 ## Integration with Muster Ecosystem
 
 ### **Service Management Integration**
-Workflows leverage ServiceClasses for complex service orchestration:
-- Create service instances with `core_service_create`
+Workflows can monitor and operate static services:
 - Monitor health with `core_service_status`
 - Manage lifecycle with start/stop/restart operations
 
