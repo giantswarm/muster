@@ -42,11 +42,10 @@ muster check mcpserver <name>
 
 ### Service Operations
 ```bash
-# List services
+# List static services (aggregator and MCPServer wrappers)
 muster list service
 
 # Service lifecycle
-muster create service <name> <serviceclass> [--args]
 muster start service <name>
 muster stop service <name>
 
@@ -68,18 +67,6 @@ muster check workflow <name>
 # Execute workflow via agent
 muster agent --repl
 # then: workflow_<name>(arg1="value1")
-```
-
-### ServiceClass Operations
-```bash
-# List serviceclasses
-muster list serviceclass
-
-# Get serviceclass details
-muster get serviceclass <name>
-
-# Check serviceclass availability
-muster check serviceclass <name>
 ```
 
 ### Agent Operations
@@ -128,12 +115,8 @@ aggregator:
 ├── config.yaml              # Main configuration
 ├── mcpservers/              # MCP server definitions
 │   └── example.yaml
-├── workflows/               # Workflow definitions
-│   └── deploy.yaml
-├── serviceclasses/          # ServiceClass definitions
-│   └── web-app.yaml
-└── services/                # Service instances
-    └── my-service.yaml
+└── workflows/               # Workflow definitions
+    └── deploy.yaml
 ```
 
 ## Common Configuration Examples
@@ -156,33 +139,6 @@ spec:
   description: "Git tools MCP server"
 ```
 
-### Basic ServiceClass
-```yaml
-# ~/.config/muster/serviceclasses/web-app.yaml
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: ServiceClass
-metadata:
-  name: web-application
-  namespace: default
-spec:
-  description: "Web application service"
-  args:
-    port:
-      type: integer
-      default: 8080
-      description: "Application port"
-  serviceConfig:
-    lifecycleTools:
-      start:
-        tool: "start_web_service"
-        args:
-          port: "{{.port}}"
-      stop:
-        tool: "stop_web_service"
-        args:
-          name: "{{.name}}"
-```
-
 ### Basic Workflow
 ```yaml
 # ~/.config/muster/workflows/deploy.yaml
@@ -199,15 +155,14 @@ spec:
       type: string
       required: true
   steps:
-    - id: create_service
-      tool: core_service_create
+    - id: deploy
+      tool: x_kubernetes_apply
       args:
-        name: "{{.app_name}}"
-        serviceClassName: "web-application"
+        manifest: "{{.manifest}}"
     - id: check_status
-      tool: core_service_status
+      tool: x_kubernetes_get_pods
       args:
-        name: "{{.app_name}}"
+        labelSelector: "app={{.app_name}}"
 ```
 
 ## Agent/REPL Commands
@@ -239,10 +194,9 @@ call_tool(name="core_workflow_list", arguments={})
 call_tool(name="core_workflow_create", arguments={"name": "my-workflow", "steps": [...]})
 call_tool(name="workflow_my-workflow", arguments={"app_name": "test-app"})
 
-# ServiceClass management
-call_tool(name="core_serviceclass_list", arguments={})
-call_tool(name="core_serviceclass_get", arguments={"name": "web-app"})
-call_tool(name="core_serviceclass_check", arguments={"name": "web-app"})
+# MCPServer management
+call_tool(name="core_mcpserver_list", arguments={})
+call_tool(name="core_mcpserver_get", arguments={"name": "kubernetes"})
 ```
 
 ## Output Formats

@@ -22,7 +22,7 @@ go install
 
 ```bash
 # Create basic configuration directory
-mkdir -p .muster/{mcpservers,serviceclasses,workflows}
+mkdir -p .muster/{mcpservers,workflows}
 
 # Initialize basic config (optional - will be created automatically)
 cat > .muster/config.yaml << EOF
@@ -50,7 +50,7 @@ list core_tools                          # List core Muster tools
 # Test core functionality (aggregator layer via meta-tools)
 call core_config_get {}          # Check system config
 call core_mcpserver_list {}      # List MCP servers
-call core_serviceclass_list {}   # List ServiceClasses
+call core_workflow_list {}       # List Workflows
 ```
 
 ## Step 2: Configure Infrastructure Tools (5 minutes)
@@ -106,70 +106,6 @@ muster agent --repl
 # In REPL:
 call core_mcpserver_list {}
 call core_mcpserver_get {"name": "example-tools"}
-```
-
-## Step 3: Create Your First ServiceClass (3 minutes)
-
-### Define a Kubernetes Connection Service
-
-Based on the current `.muster` configuration pattern:
-
-```yaml
-# .muster/serviceclasses/web-app.yaml
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: ServiceClass
-metadata:
-  name: web-application
-  namespace: default
-spec:
-  description: "Deploys a web application with Kubernetes"
-  args:
-    image:
-      type: string
-      required: true
-      description: "Container image to deploy"
-    replicas:
-      type: integer
-      default: 3
-      description: "Number of replicas"
-    namespace:
-      type: string
-      default: "default"
-      description: "Kubernetes namespace"
-  serviceConfig:
-    lifecycleTools:
-      start:
-        tool: "api_kubernetes_create_deployment"
-        args:
-          image: "{{ .image }}"
-          replicas: "{{ .replicas }}"
-          namespace: "{{ .namespace }}"
-          name: "{{ .name }}"
-        outputs:
-          deploymentName: "name"
-          status: "status"
-      stop:
-        tool: "api_kubernetes_delete_deployment"
-        args:
-          name: "{{ .deploymentName }}"
-          namespace: "{{ .namespace }}"
-      status:
-        tool: "api_kubernetes_get_deployment_status"
-        args:
-          name: "{{ .deploymentName }}"
-          namespace: "{{ .namespace }}"
-    healthCheck:
-      enabled: true
-      interval: "30s"
-      failureThreshold: 3
-```
-
-### Test ServiceClass Availability
-
-```bash
-# Using meta-tools in REPL
-call core_serviceclass_available {"name": "web-application"}
-call core_serviceclass_list {}
 ```
 
 ## Step 4: Create and Execute a Workflow (2 minutes)
@@ -298,20 +234,13 @@ The aggregator provides **36+ core tools** plus dynamic capabilities:
 - `core_config_save` - Save configuration changes
 - `core_config_update_aggregator` - Modify aggregator settings
 
-**Service Management (9 tools):**
+**Service Management:**
 
-- `core_service_list` - List all services
-- `core_service_create` - Create service instances from ServiceClasses
+- `core_service_list` - List all static services
 - `core_service_start/stop/restart` - Control service lifecycle
-- `core_service_status` - Monitor service health
+- `core_service_status` - Inspect service state and health
 
-**ServiceClass Management (7 tools):**
-
-- `core_serviceclass_list` - List available service templates
-- `core_serviceclass_create` - Define new service types
-- `core_serviceclass_available` - Check template dependencies
-
-**Workflow Orchestration (9 tools):**
+**Workflow Orchestration:**
 
 - `core_workflow_list` - List available workflows
 - `core_workflow_create` - Define multi-step processes
@@ -333,28 +262,25 @@ Your AI assistant will use this pattern:
 list_tools()
 
 # AI executes aggregator tools via meta-tool
-call_tool(name="core_service_create", arguments={
-  "serviceClassName": "web-application",
-  "name": "my-service",
+call_tool(name="core_workflow_run", arguments={
+  "name": "deploy-web-app",
   "args": {"image": "nginx:latest"}
 })
 
-# AI checks results
-call_tool(name="core_service_status", arguments={"name": "my-service"})
+# AI checks the workflow execution
+call_tool(name="core_workflow_execution_list", arguments={})
 ```
 
 ## Next Steps
 
 1. **Add Real MCP Servers**: Configure actual infrastructure tools (Kubernetes, Prometheus, etc.)
-2. **Create More ServiceClasses**: Define templates for databases, monitoring, networking
-3. **Build Complex Workflows**: Chain multiple operations with conditional logic
-4. **Explore Testing**: Use `muster test` to validate configurations
+2. **Build Complex Workflows**: Chain multiple operations with conditional logic
+3. **Explore Testing**: Use `muster test` to validate configurations
 
 ### Real-World Examples
 
 Based on the current `.muster` configuration, you already have examples for:
 
-- **ServiceClasses**: `service-k8s-connection`, `mimir-port-forward`
 - **Workflows**: `auth-workflow`, `login-workload-cluster`, `connect-monitoring`
 - **MCP Servers**: `kubernetes`, `prometheus`, `grafana`, `teleport`
 

@@ -13,7 +13,7 @@
 ### Updated Tool Naming Conventions
 - **Workflows**: Now use `workflow_<workflow-name>` prefix (old `action_<workflow-name>` is deprecated)
 - **Mock Tools**: Use `x_<mockserver-name>_<tool-name>` pattern for mock MCP server tools
-- **Core Tools**: Continue to use direct names like `core_serviceclass_create`
+- **Core Tools**: Continue to use direct names like `core_workflow_create`
 
 ### Meta-Tools Wrapping (Architecture Change)
 The test framework transparently wraps all tool calls through the `call_tool` meta-tool:
@@ -24,7 +24,7 @@ The test framework transparently wraps all tool calls through the `call_tool` me
 
 ### Essential Mock Integration
 - **Tests Core Functionality**: Mock MCP servers are essential for testing muster's core MCP server management and tool aggregation capabilities
-- **Enables Concept Testing**: Other muster concepts (workflows, serviceclasses, capabilities, services) depend on MCP server tools being available
+- **Enables Concept Testing**: Other muster concepts (workflows, services) depend on MCP server tools being available
 - **Automatic Configuration**: Mock MCP server config files and server definitions are generated from scenario definitions
 - **Full Integration Testing**: Mock servers run as separate processes managed by muster serve, so the test framework can test the complete mcpserver management workflow
 - **Tool Aggregation Testing**: Validates that mock tools are properly exposed through muster's aggregated MCP interface
@@ -50,7 +50,7 @@ The test framework transparently wraps all tool calls through the `call_tool` me
 The muster test framework provides a comprehensive testing solution for validating all muster functionality through automated test scenarios. As an muster developer, you can use this framework to:
 
 - **Test Core MCP Integration**: Validate muster's ability to manage MCP servers and aggregate their tools
-- **Test Concept Dependencies**: Verify that workflows, serviceclasses, capabilities, and services work correctly with MCP server tools
+- **Test Concept Dependencies**: Verify that workflows and services work correctly with MCP server tools
 - **Catch Regressions**: Automatically detect when changes break existing functionality
 - **Validate New Features**: Ensure new implementations work correctly across different scenarios
 - **Debug Issues**: Systematically reproduce and diagnose problems with comprehensive logging
@@ -80,10 +80,9 @@ For each test scenario, the framework generates the necessary files before start
 1. **Mock MCP Server Configs**: Individual configuration files for each mock MCP server defined in the scenario
 2. **MCP Server Definitions**: MCP Server definition files that tell muster serve how to manage the mock MCP servers
 3. **muster Configuration**: Main muster config file that references defines the aggregated MCP server port
-4. **ServiceClass Definitions**: Generated from the scenario's `pre_configuration.service_classes`
-5. **Workflow Definitions**: Generated from the scenario's `pre_configuration.workflows`
+4. **Workflow Definitions**: Generated from the scenario's `pre_configuration.workflows`
 
-**Why Mock Servers Are Essential**: Since workflows, serviceclasses, capabilities, and services all depend on MCP server tools being available through muster's aggregated MCP interface, mock mcpservers are required to test these concepts properly. Without them, you can only test the core CRUD operations but not the actual functionality that depends on external tools.
+**Why Mock Servers Are Essential**: Since workflows and services all depend on MCP server tools being available through muster's aggregated MCP interface, mock mcpservers are required to test these concepts properly. Without them, you can only test the core CRUD operations but not the actual functionality that depends on external tools.
 
 ### Mock MCP Server Tool Naming
 
@@ -162,7 +161,7 @@ Unlike previous versions, you **do not need** to start an external muster aggreg
 
 ```bash
 # Run a simple test to verify everything works
-./muster test --scenario=serviceclass-basic-operations --verbose
+./muster test --scenario=workflow-basic-operations --verbose
 
 # The framework will automatically:
 # 1. Create a temporary muster instance on an available port
@@ -179,7 +178,7 @@ Unlike previous versions, you **do not need** to start an external muster aggreg
 
 ```bash
 # Test specific functionality you're working on
-./muster test --concept=serviceclass          # Test all ServiceClass functionality
+./muster test --concept=workflow          # Test all Workflow functionality
 ./muster test --concept=workflow              # Test all Workflow functionality
 ./muster test --concept=mcpserver             # Test all MCP Server functionality
 
@@ -216,7 +215,7 @@ Unlike previous versions, you **do not need** to start an external muster aggreg
 
 ```bash
 # Instance logs are captured automatically and shown in debug mode
-./muster test --scenario=serviceclass-basic-operations --debug
+./muster test --scenario=workflow-basic-operations --debug
 
 # Example debug output:
 # 📋 Captured instance logs: stdout=7977 chars, stderr=0 chars
@@ -237,7 +236,7 @@ The primary way to run tests is through the CLI:
 ./muster test
 
 # With filters and options
-./muster test --category=behavioral --concept=serviceclass --verbose
+./muster test --category=behavioral --concept=workflow --verbose
 ```
 
 ### MCP Server Mode
@@ -269,14 +268,14 @@ The framework organizes tests by **category** and **concept** to help you run ex
 ./muster test --category=integration     # Component interaction tests
 
 # By Concept - What you're testing
-./muster test --concept=serviceclass     # All ServiceClass tests
+./muster test --concept=workflow     # All Workflow tests
 ./muster test --concept=workflow         # All Workflow tests
 ./muster test --concept=mcpserver        # All MCP Server tests
 
 ./muster test --concept=service          # All Service tests
 
 # Specific scenario
-./muster test --scenario=serviceclass-basic-crud-operations
+./muster test --scenario=workflow-basic-crud-operations
 ```
 
 ### Execution Control
@@ -322,7 +321,7 @@ The framework organizes tests by **category** and **concept** to help you run ex
 Test categories organize tests by **testing approach**:
 
 - **`behavioral`** - Tests that verify muster works as users expect it to work
-  - Example: "When I create a ServiceClass, I can instantiate a Service from it"
+  - Example: "When I create a Workflow, I can execute it with arguments"
   - Focus: API contracts, user workflows, expected behavior
 
 - **`integration`** - Tests that verify components work together correctly
@@ -333,20 +332,18 @@ Test categories organize tests by **testing approach**:
 
 Test concepts organize tests by **what functionality** is being tested:
 
-- **`serviceclass`** - Tests ServiceClass creation, validation, and Service instantiation
 - **`workflow`** - Tests Workflow execution, arg templating, and step dependencies
 - **`mcpserver`** - Tests MCP server registration, tool aggregation, and connection management
-
 - **`service`** - Tests Service lifecycle, dependency management, and state transitions
 
 ### Practical Examples
 
 ```bash
-# Test if ServiceClass feature works for users
-./muster test --concept=serviceclass --category=behavioral
+# Test if Workflow feature works for users
+./muster test --concept=workflow --category=behavioral
 
-# Test if ServiceClasses integrate properly with other components
-./muster test --concept=serviceclass --category=integration
+# Test if Workflows integrate properly with other components
+./muster test --concept=workflow --category=integration
 
 # Test all user-facing functionality across all concepts
 ./muster test --category=behavioral
@@ -366,7 +363,7 @@ When a test fails, follow this systematic approach to diagnose and fix the issue
 ./muster test --scenario=failing-scenario-name --verbose --debug
 
 # Or run with fail-fast to focus on the first failure
-./muster test --concept=serviceclass --fail-fast --verbose
+./muster test --concept=workflow --fail-fast --verbose
 ```
 
 This will show you:
@@ -404,7 +401,7 @@ This helps identify:
 go build -o muster .
 
 # Test with a simple scenario first
-./muster test --scenario=serviceclass-basic-operations --debug
+./muster test --scenario=workflow-basic-operations --debug
 
 # Check available port range if you see port conflicts
 ./muster test --base-port=19000 --scenario=failing-scenario
@@ -416,7 +413,7 @@ go build -o muster .
 # Run just the problematic step manually by examining the scenario YAML
 # Look at the test scenario to see what MCP tool and args are being used
 
-# Example: If "core_serviceclass_create" is failing, check:
+# Example: If "core_workflow_create" is failing, check:
 # - Is the YAML in the scenario valid?
 # - Are there any resource conflicts (names already exist)?
 # - Are all required args provided?
@@ -487,11 +484,11 @@ You can examine what each test step is doing by looking at the scenario YAML fil
 
 ```yaml
 # Example failing step
-- name: "create-test-serviceclass"
-  tool: "core_serviceclass_create"     # This is the MCP tool being called
+- name: "create-test-workflow"
+  tool: "core_workflow_create"     # This is the MCP tool being called
   args:                          # These are the args sent
     yaml: |
-      name: test-serviceclass
+      name: test-workflow
       # ... rest of YAML
   expected:                           # This is what the test expects
     success: true
@@ -499,7 +496,7 @@ You can examine what each test step is doing by looking at the scenario YAML fil
 ```
 
 To debug this step:
-1. Check if `core_serviceclass_create` tool should be available
+1. Check if `core_workflow_create` tool should be available
 2. Verify the YAML args are valid
 3. Look at the instance logs for detailed error messages
 4. Check if the response format has changed
@@ -508,7 +505,7 @@ To debug this step:
 
 ```bash
 # If parallel tests are failing, run them sequentially for easier debugging
-./muster test --parallel=1 --concept=serviceclass --debug
+./muster test --parallel=1 --concept=workflow --debug
 
 # If port conflicts occur in parallel execution
 ./muster test --parallel=2 --base-port=20000
@@ -625,17 +622,17 @@ Industry-standard format for:
 #### Detailed Scenario Results
 ```json
 {
-  "name": "serviceclass-basic-operations",
+  "name": "workflow-basic-operations",
   "category": "behavioral",
-  "concept": "serviceclass",
+  "concept": "workflow",
   "status": "passed",
   "execution_time": "45s",
   "steps": [
     {
-      "name": "create-test-serviceclass",
+      "name": "create-test-workflow",
       "status": "passed",
       "execution_time": "12s",
-      "tool": "core_serviceclass_create",
+      "tool": "core_workflow_create",
       "response": {...}
     }
   ]
@@ -722,11 +719,11 @@ Test execution logs include:
 
 Example log entry:
 ```
-2024-01-15T10:30:45Z INFO  [serviceclass-basic] Step 'create-test-serviceclass' started
-2024-01-15T10:30:45Z DEBUG [serviceclass-basic] Calling tool: core_serviceclass_create
-2024-01-15T10:30:45Z DEBUG [serviceclass-basic] Args: {"yaml": "name: test-serviceclass..."}
-2024-01-15T10:30:47Z DEBUG [serviceclass-basic] Response: {"success": true, "message": "created successfully"}
-2024-01-15T10:30:47Z INFO  [serviceclass-basic] Step 'create-test-serviceclass' passed (2.1s)
+2024-01-15T10:30:45Z INFO  [workflow-basic] Step 'create-test-workflow' started
+2024-01-15T10:30:45Z DEBUG [workflow-basic] Calling tool: core_workflow_create
+2024-01-15T10:30:45Z DEBUG [workflow-basic] Args: {"yaml": "name: test-workflow..."}
+2024-01-15T10:30:47Z DEBUG [workflow-basic] Response: {"success": true, "message": "created successfully"}
+2024-01-15T10:30:47Z INFO  [workflow-basic] Step 'create-test-workflow' passed (2.1s)
 ```
 
 ## CI/CD Integration
@@ -852,7 +849,7 @@ The test framework provides standard exit codes for automation:
 ./muster test --exclude-tags=slow,external
 
 # Run tests matching name pattern
-./muster test --name-pattern="serviceclass-*"
+./muster test --name-pattern="workflow-*"
 ```
 
 ### Environment-Specific Configuration
@@ -918,7 +915,7 @@ Writing test scenarios helps you verify that muster functionality works correctl
 Before writing YAML, think through:
 
 1. **What are you testing?**
-   - Which muster concept (ServiceClass, Workflow, MCP Server, etc.)
+   - Which muster concept (Workflow, MCPServer, Service)
    - What specific functionality or behavior
 
 2. **What's the user workflow?**
@@ -934,7 +931,7 @@ Before writing YAML, think through:
 ```yaml
 name: "my-new-test-scenario"
 category: "behavioral"           # or "integration"
-concept: "serviceclass"          # serviceclass, workflow, mcpserver, service
+concept: "workflow"          # workflow, mcpserver, service
 description: "Clear description of what this test verifies"
 ```
 
@@ -954,7 +951,7 @@ Each step should test one specific operation:
 steps:
   - name: "descriptive-step-name"
     description: "What this step accomplishes"
-    tool: "core_serviceclass_create"     # MCP tool to call
+    tool: "core_workflow_create"     # MCP tool to call
     args:                          #  Args or the tool
       yaml: |
         name: test-resource
@@ -988,7 +985,7 @@ Always clean up resources your test creates:
 cleanup:
   - name: "cleanup-test-resource"
     description: "Remove test resource"
-    tool: "core_serviceclass_delete"
+    tool: "core_workflow_delete"
     args:
       name: "test-resource"
     expected:
@@ -997,7 +994,7 @@ cleanup:
 
   - name: "verify-cleanup"
     description: "Verify resource was removed"
-    tool: "core_serviceclass_get"
+    tool: "core_workflow_get"
     args:
       name: "test-resource"
     expected:
@@ -1021,118 +1018,51 @@ Before committing, validate your scenario works:
 ./muster test --scenario=my-new-test-scenario --debug
 ```
 
-### Example: Complete ServiceClass Test Scenario
+### Example: Complete Workflow Test Scenario
 
 ```yaml
-name: "serviceclass-arg-validation"
+name: "workflow-arg-validation"
 category: "behavioral"
-concept: "serviceclass"
-description: "Verify ServiceClass arg validation works correctly"
-tags: ["serviceclass", "validation", "args"]
+concept: "workflow"
+description: "Verify Workflow arg validation works correctly"
+tags: ["workflow", "validation", "args"]
 timeout: "5m"
 
 steps:
-  - name: "create-serviceclass-with-valid-args"
-    description: "Create ServiceClass with all valid args"
-    tool: "core_serviceclass_create"
+  - name: "create-workflow"
+    description: "Create a workflow that takes a required arg"
+    tool: "core_workflow_create"
     args:
-      yaml: |
-        name: test-validation-serviceclass
-        description: "Test ServiceClass for arg validation"
-        args:
-          app_name:
-            type: string
-            required: true
-            pattern: "^[a-z][a-z0-9-]*$"
-          replicas:
-            type: integer
-            default: 1
-            minimum: 1
-            maximum: 10
-        tools:
-          - name: "core_service_create"
-    expected:
-      success: true
-      contains: ["created successfully", "test-validation-serviceclass"]
-    timeout: "1m"
-
-  - name: "verify-serviceclass-available"
-    description: "Verify ServiceClass is available for use"
-    tool: "core_serviceclass_available"
-    args:
-      name: "test-validation-serviceclass"
-    expected:
-      success: true
-      json_path:
-        available: true
-        name: "test-validation-serviceclass"
-
-  - name: "test-valid-service-creation"
-    description: "Create service with valid args"
-    tool: "core_service_create"
-    args:
-      serviceClassName: "test-validation-serviceclass"
-      label: "test-valid-service"
+      name: test-validation-workflow
       args:
-        app_name: "my-app"
-        replicas: 3
+        app_name:
+          type: string
+          required: true
+      steps:
+        - id: echo
+          tool: "x_echo_say"
+          args:
+            text: "deploying {{ .input.app_name }}"
     expected:
       success: true
-      contains: ["created successfully", "test-valid-service"]
+      contains: ["created successfully", "test-validation-workflow"]
 
-  - name: "test-invalid-app-name"
-    description: "Verify invalid app_name is rejected"
-    tool: "core_service_create"
-    args:
-      serviceClassName: "test-validation-serviceclass"
-      label: "test-invalid-name"
-      args:
-        app_name: "My-App"  # Invalid: contains uppercase
-        replicas: 2
+  - name: "run-workflow-missing-arg"
+    description: "Verify missing required arg is rejected"
+    tool: "workflow_test-validation-workflow"
+    args: {}
     expected:
       success: false
-      error_contains: ["invalid arg", "app_name", "pattern"]
-
-  - name: "test-invalid-replicas"
-    description: "Verify replicas outside valid range are rejected"
-    tool: "core_service_create"
-    args:
-      serviceClassName: "test-validation-serviceclass"
-      label: "test-invalid-replicas"
-      args:
-        app_name: "test-app"
-        replicas: 15  # Invalid: exceeds maximum of 10
-    expected:
-      success: false
-      error_contains: ["invalid arg", "replicas", "maximum"]
+      error_contains: ["required", "app_name"]
 
 cleanup:
-  - name: "delete-test-service"
-    description: "Clean up valid test service"
-    tool: "core_service_delete"
+  - name: "delete-test-workflow"
+    description: "Clean up the test workflow"
+    tool: "core_workflow_delete"
     args:
-      label: "test-valid-service"
+      name: "test-validation-workflow"
     expected:
       success: true
-    continue_on_failure: true
-
-  - name: "delete-test-serviceclass"
-    description: "Clean up test ServiceClass"
-    tool: "core_serviceclass_delete"
-    args:
-      name: "test-validation-serviceclass"
-    expected:
-      success: true
-    continue_on_failure: true
-
-  - name: "verify-serviceclass-deleted"
-    description: "Verify ServiceClass was completely removed"
-    tool: "core_serviceclass_get"
-    args:
-      name: "test-validation-serviceclass"
-    expected:
-      success: false
-      error_contains: ["not found"]
     continue_on_failure: true
 ```
 
@@ -1141,20 +1071,20 @@ cleanup:
 #### Use Descriptive Names
 ```yaml
 # ✅ Good - describes what the test does
-name: "serviceclass-arg-validation-with-constraints"
+name: "workflow-arg-validation-with-constraints"
 
 # ❌ Bad - generic and unclear
-name: "test-serviceclass-1"
+name: "test-workflow-1"
 ```
 
 #### Test Both Success and Failure Cases
 ```yaml
 # Test successful operation
-- name: "create-valid-serviceclass"
+- name: "create-valid-workflow"
   # ... test valid creation
 
 # Test error conditions
-- name: "reject-duplicate-serviceclass-creation"
+- name: "reject-duplicate-workflow-creation"
   # ... test duplicate name rejection
 ```
 
@@ -1162,13 +1092,11 @@ name: "test-serviceclass-1"
 ```yaml
 # ✅ Good - unique names prevent conflicts
 args:
-  yaml: |
-    name: "test-scenario-unique-serviceclass"
+  name: "test-scenario-unique-workflow"
 
 # ❌ Bad - generic names cause conflicts
 args:
-  yaml: |
-    name: "test-serviceclass"
+  name: "test-workflow"
 ```
 
 #### Always Include Cleanup
@@ -1183,10 +1111,10 @@ cleanup:
 #### Test Realistic Scenarios
 ```yaml
 # ✅ Good - tests realistic user workflow
-description: "User can create ServiceClass, instantiate Service, and scale it"
+description: "User can create a Workflow, run it, and verify it completed"
 
 # ❌ Bad - tests internal implementation details
-description: "Verify ServiceClass internal validation logic"
+description: "Verify Workflow internal validation logic"
 ```
 
 ### Where to Put Your Test Scenarios
@@ -1196,13 +1124,10 @@ Organize scenarios by category and concept:
 ```
 internal/testing/scenarios/
 ├── behavioral/
-│   ├── serviceclass/
+│   ├── workflow/
 │   │   ├── basic-crud.yaml
 │   │   ├── arg-validation.yaml          # ← Your new test here
-│   │   └── tool-integration.yaml
-│   ├── workflow/
-│   │   ├── execution-flow.yaml
-│   │   └── arg-templating.yaml
+│   │   └── execution-flow.yaml
 │   └── ...
 └── integration/
     ├── end-to-end/
@@ -1213,13 +1138,13 @@ internal/testing/scenarios/
 
 ```bash
 # Run your specific test
-./muster test --scenario=serviceclass-arg-validation
+./muster test --scenario=workflow-arg-validation
 
 # Run all tests in your concept area
-./muster test --concept=serviceclass
+./muster test --concept=workflow
 
 # Run with your changes included
-./muster test --category=behavioral --concept=serviceclass
+./muster test --category=behavioral --concept=workflow
 ```
 
 ## Where to Find More Information

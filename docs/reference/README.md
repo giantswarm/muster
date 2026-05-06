@@ -9,7 +9,7 @@ Technical reference for commands, APIs, and configurations. Find exact syntax, p
   - [CLI Overview](cli/README.md) - All commands with quick reference
   - [serve](cli/serve.md) - Start the Muster control plane
   - [agent](cli/agent.md) - Interactive MCP client and REPL
-  - [create](cli/create.md) - Create resources (services, workflows, serviceclasses)
+  - [create](cli/create.md) - Create resources (workflows, MCPServers)
   - [get](cli/get.md) - Get detailed resource information
   - [list](cli/list.md) - List multiple resources
   - [start](cli/start.md) - Start services and execute workflows
@@ -22,7 +22,7 @@ Technical reference for commands, APIs, and configurations. Find exact syntax, p
 
 ### Events and Observability
 - **[Event Reference](events.md)** - Complete guide to Kubernetes events and troubleshooting
-  - Event Types - All MCPServer, ServiceClass, Workflow, and Service Instance events
+  - Event Types - All MCPServer and Workflow events
   - Troubleshooting Guide - Common scenarios and resolution steps
   - Event Querying - Using `muster events` and `kubectl get events`
   - Best Practices - Monitoring, alerting, and operational guidelines
@@ -37,7 +37,6 @@ Technical reference for commands, APIs, and configurations. Find exact syntax, p
 ### Kubernetes Resources
 - **[Custom Resource Definitions (CRDs)](crds.md)** - Complete reference for muster's Kubernetes resources
   - [MCPServer](crds.md#mcpserver) - MCP server management and configuration
-  - [ServiceClass](crds.md#serviceclass) - Service templates with lifecycle management
   - [Workflow](crds.md#workflow) - Multi-step process definitions
   - [Templating](crds.md#templating) - Dynamic value templating in resources
   - [Best Practices](crds.md#best-practices) - Resource design patterns and guidelines
@@ -46,8 +45,7 @@ Technical reference for commands, APIs, and configurations. Find exact syntax, p
 - **[Core MCP Tools](mcp-tools.md)** - Complete reference for AI agents and MCP clients
   - [Configuration Tools](mcp-tools.md#configuration-tools) - System configuration management
   - [MCP Server Tools](mcp-tools.md#mcp-server-tools) - MCP server lifecycle management
-  - [Service Tools](mcp-tools.md#service-tools) - Service instance management
-  - [ServiceClass Tools](mcp-tools.md#serviceclass-tools) - ServiceClass definition management
+  - [Service Tools](mcp-tools.md#service-tools) - Static service lifecycle (aggregator and MCPServer wrappers)
   - [Workflow Tools](mcp-tools.md#workflow-tools) - Workflow definition and execution management
   - [Dynamic Workflow Execution](mcp-tools.md#dynamic-workflow-execution-tools) - `workflow_<name>` tools
   - [External Tools](mcp-tools.md#external-tools) - Tools from connected MCP servers
@@ -55,7 +53,7 @@ Technical reference for commands, APIs, and configurations. Find exact syntax, p
 ### Configuration
 - **[Configuration Reference](configuration.md)** - Complete system configuration documentation
   - [Main Configuration](configuration.md#main-configuration-file) - Core system settings (aggregator, ports, transport)
-  - [Resource Configuration](configuration.md#resource-configuration-files) - MCPServer, ServiceClass, Workflow, and Service definitions
+  - [Resource Configuration](configuration.md#resource-configuration-files) - MCPServer and Workflow definitions
   - [Directory Structure](configuration.md#configuration-directory-structure) - File organization and locations
   - [Configuration Loading](configuration.md#configuration-loading) - Loading order, custom paths, environment-specific setup
   - [Templating](configuration.md#templating) - Dynamic value templating in configurations
@@ -69,7 +67,6 @@ Technical reference for commands, APIs, and configurations. Find exact syntax, p
 | Resource | Purpose | Example Usage |
 |----------|---------|---------------|
 | **MCPServer** | Manage MCP tool providers | `kubectl apply -f git-tools-mcpserver.yaml` |
-| **ServiceClass** | Service templates | `kubectl get serviceclass postgres-database` |
 | **Workflow** | Multi-step processes | `kubectl get workflow deploy-application` |
 
 > **→ See [CRD Reference](crds.md) for complete resource documentation**
@@ -80,7 +77,7 @@ Technical reference for commands, APIs, and configurations. Find exact syntax, p
 | `muster serve` | Start control plane | `muster serve --port 8080` |
 | `muster agent --repl` | Interactive exploration | `muster agent --repl` |
 | `muster list service` | List services | `muster list service` |
-| `muster create service` | Create service | `muster create service my-app web-service` |
+| `muster create workflow` | Create workflow | `muster create workflow deploy-flow` |
 | `muster start workflow` | Execute workflow | `muster start workflow deploy-app --env=prod` |
 | `muster test` | Run tests | `muster test --parallel 4` |
 
@@ -90,7 +87,6 @@ Technical reference for commands, APIs, and configurations. Find exact syntax, p
 | **Configuration** | `core_config_get`, `core_config_save` | System configuration |
 | **MCP Servers** | `core_mcpserver_list`, `core_mcpserver_create` | MCP server management |
 | **Services** | `core_service_list`, `core_service_start`, `core_service_status` | Service lifecycle |
-| **ServiceClasses** | `core_serviceclass_list`, `core_serviceclass_create` | Service templates |
 | **Workflows** | `core_workflow_list`, `core_workflow_create`, `workflow_<name>` | Workflow management |
 
 > **→ See [Core MCP Tools Reference](mcp-tools.md) for complete tool documentation**
@@ -122,17 +118,16 @@ muster serve
 muster agent --repl
 
 # 3. List available resources
-muster list serviceclass
+muster list mcpserver
 muster list workflow
 ```
 
 ### Resource Management
 ```bash
-# Create and manage services
-muster create service my-app web-service --image=nginx
-muster start service my-app
-muster get service my-app
-muster stop service my-app
+# Create and manage workflows
+muster create workflow deploy-flow
+muster start workflow deploy-flow --env=prod
+muster get workflow deploy-flow
 ```
 
 ### Workflow Execution
@@ -147,8 +142,8 @@ muster start workflow deploy-app \
 ### System Monitoring
 ```bash
 # Check system health
-muster check serviceclass web-service
 muster check mcpserver kubernetes
+muster check workflow deploy-flow
 muster list service --output json
 ```
 
@@ -167,10 +162,9 @@ call core_service_list        # Execute tools directly
 
 | Type | Description | CLI Commands | API Endpoints | Kubernetes CRD |
 |------|-------------|--------------|---------------|----------------|
-| **Service** | Service instances | `create`, `start`, `stop`, `get`, `list` | `/api/v1/services` | - |
-| **ServiceClass** | Service templates | `create`, `get`, `list`, `check` | `/api/v1/serviceclasses` | [ServiceClass](crds.md#serviceclass) |
+| **Service** | Static services (aggregator, MCPServer wrappers) | `start`, `stop`, `get`, `list` | `/api/v1/services` | - |
 | **Workflow** | Multi-step procedures | `create`, `start`, `get`, `list`, `check` | `/api/v1/workflows` | [Workflow](crds.md#workflow) |
-| **MCPServer** | Tool providers | `get`, `list`, `check` | `/api/v1/mcpservers` | [MCPServer](crds.md#mcpserver) |
+| **MCPServer** | Tool providers | `create`, `get`, `list`, `check` | `/api/v1/mcpservers` | [MCPServer](crds.md#mcpserver) |
 
 ## Output Formats
 
@@ -187,7 +181,7 @@ Structured data for scripts and programmatic use.
 
 ### YAML Format
 ```bash
-muster get serviceclass web-app --output yaml
+muster get workflow deploy-flow --output yaml
 ```
 Configuration-friendly format for infrastructure as code.
 
@@ -218,7 +212,7 @@ Standard exit codes across all commands:
 ### CI/CD Integration
 ```bash
 # Health check before deployment
-muster check serviceclass web-app || exit 1
+muster check workflow deploy-app || exit 1
 
 # Deploy application
 muster start workflow deploy-app --env=production
@@ -229,10 +223,10 @@ muster get service production-app --output json | jq '.status'
 
 ### Monitoring Scripts
 ```bash
-# Check critical services
-for service in web-app database cache; do
-  if ! muster check serviceclass "$service" --quiet; then
-    echo "WARNING: $service is not available"
+# Check critical workflows
+for wf in deploy-app backup-db scale-service; do
+  if ! muster check workflow "$wf" --quiet; then
+    echo "WARNING: workflow $wf is not available"
   fi
 done
 ```
@@ -243,7 +237,7 @@ done
 muster start workflow setup-dev-env --local-storage=./data
 
 # Run tests
-muster test --concept serviceclass --parallel 4
+muster test --concept workflow --parallel 4
 ```
 
 ## Architecture Integration

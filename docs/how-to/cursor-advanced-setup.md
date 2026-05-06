@@ -81,7 +81,7 @@ Create a development configuration directory:
 
 ```bash
 # Development config at ~/dev-muster/
-mkdir -p ~/dev-muster/{mcpservers,workflows,serviceclasses,services}
+mkdir -p ~/dev-muster/{mcpservers,workflows}
 ```
 
 ```yaml
@@ -110,7 +110,7 @@ spec:
 
 ```bash
 # Staging config at ~/staging-muster/
-mkdir -p ~/staging-muster/{mcpservers,workflows,serviceclasses,services}
+mkdir -p ~/staging-muster/{mcpservers,workflows}
 ```
 
 ```yaml
@@ -125,7 +125,7 @@ aggregator:
 
 ```bash
 # Production config at ~/prod-muster/
-mkdir -p ~/prod-muster/{mcpservers,workflows,serviceclasses,services}
+mkdir -p ~/prod-muster/{mcpservers,workflows}
 ```
 
 ```yaml
@@ -171,47 +171,11 @@ spec:
         name: "{{.app_name}}-{{.environment}}"
 ```
 
-### ServiceClass Templates
-
-Define reusable service templates:
-
-```yaml
-# serviceclasses/microservice.yaml
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: ServiceClass
-metadata:
-  name: microservice
-  namespace: default
-spec:
-  description: "Standard microservice deployment"
-  args:
-    service_name:
-      type: string
-      required: true
-    port:
-      type: integer
-      default: 8080
-  serviceConfig:
-    lifecycleTools:
-      start:
-        tool: "deploy_microservice"
-        args:
-          name: "{{.service_name}}"
-          port: "{{.port}}"
-      stop:
-        tool: "undeploy_microservice"
-        args:
-          name: "{{.service_name}}"
-```
-
 ## Cursor Integration Tips
 
 ### Effective AI Prompts
 
 Structure prompts to leverage muster's capabilities:
-
-**Good**: "Create a web service called 'user-api' using the web-application serviceclass"
-- AI will use: `core_service_create(name="user-api", serviceClassName="web-application")`
 
 **Good**: "List all running services"
 - AI will use: `core_service_list()`
@@ -230,9 +194,7 @@ project/
 ├── muster-config/             # Project-specific muster config
 │   ├── config.yaml
 │   ├── mcpservers/
-│   ├── workflows/
-│   ├── serviceclasses/
-│   └── services/
+│   └── workflows/
 └── src/                       # Your application code
 ```
 
@@ -250,16 +212,6 @@ muster agent --repl
 list_tools()
 core_service_list()
 core_workflow_list()
-```
-
-### Validate ServiceClasses
-
-```bash
-# Check serviceclass availability
-muster check serviceclass web-application
-
-# List all serviceclasses
-muster list serviceclass
 ```
 
 ### Test Workflows
@@ -327,7 +279,6 @@ For better performance:
 
 1. **Create project-specific configs** for different codebases
 2. **Build custom workflows** for your infrastructure patterns
-3. **Set up ServiceClasses** for your common deployment patterns
-4. **Test with your team** to establish conventions
+3. **Test with your team** to establish conventions
 
 For more examples, see the test scenarios in `internal/testing/scenarios/`.

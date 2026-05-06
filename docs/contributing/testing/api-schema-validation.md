@@ -38,13 +38,11 @@ The generated schema contains:
   "properties": {
     "tools": {
       "properties": {
-        "core_serviceclass_create": {
+        "core_workflow_create": {
           "type": "object",
           "properties": {
-            "name": { "type": "string", "description": "Name of the resource to create" },
-            "type": { "type": "string", "description": "ServiceClass type" },
-            "version": { "type": "string", "description": "ServiceClass version" },
-            "serviceConfig": { "type": "object", "description": "ServiceClass configuration" }
+            "name": { "type": "string", "description": "Name of the workflow to create" },
+            "steps": { "type": "array", "description": "Workflow steps" }
           }
         }
       }
@@ -81,7 +79,7 @@ muster test --mcp-server
 # - scenario_path: "/path/to/scenarios" (required)
 # - schema_path: "schema.json" (optional, enables API validation)
 # - category: "behavioral" (optional)
-# - concept: "serviceclass" (optional)
+# - concept: "workflow" (optional)
 ```
 
 **Note**: Both methods provide identical validation results and error reporting.
@@ -104,8 +102,8 @@ Error Summary:
 
 Detailed Results:
 
-❌ serviceclass-create
-   unexpected_argument: Step create-test-serviceclass: Argument 'description' not expected for tool 'core_serviceclass_create'
+❌ workflow-create
+   unexpected_argument: Step create-test-workflow: Argument 'description' not expected for tool 'core_workflow_create'
 
 
       💡 Check available tools in the schema
@@ -126,7 +124,7 @@ The validation system handles different tool prefixes according to their purpose
 1. **`core_*` tools** - Core muster API tools
    - ✅ **Validated against API schema**:  Args nd tool existence are checked
    - ❌ **Fails if**: Tool doesn't exist in current API or has invalid args
-   - 📝 **Example**: `core_serviceclass_create`, `core_service_start`
+   - 📝 **Example**: `core_workflow_create`, `core_service_start`
 
 2. **`x_*` tools** - Mock MCP server tools
    - ✅ **Always valid**: Part of test scenario setup (mock servers)
@@ -147,11 +145,11 @@ The validation system handles different tool prefixes according to their purpose
 ```yaml
 steps:
   # ✅ VALID: Core tool - will be validated against API schema
-  - id: "create-serviceclass"
-    tool: "core_serviceclass_create"
+  - id: "create-workflow"
+    tool: "core_workflow_create"
     args:
-      name: "my-service"
-      type: "web"
+      name: "my-workflow"
+      steps: []
 
   # ✅ VALID: Mock tool - accepted but not arg-validated
   - id: "setup-mock"
@@ -287,7 +285,7 @@ muster test --validate-scenarios --verbose
 muster test --validate-scenarios
 
 # 5. Generate tests for specific concept
-muster test --concept=serviceclass --verbose
+muster test --concept=workflow --verbose
 
 # 6. Update schema after API changes
 muster test --generate-schema --schema-output=schema-v$(date +%Y%m%d).json
