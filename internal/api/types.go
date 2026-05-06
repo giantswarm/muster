@@ -118,8 +118,8 @@ type ArgMetadata struct {
 }
 
 // ToolProvider interface defines the contract for components that can provide tools
-// to the MCP ecosystem. This interface is implemented by workflow, serviceclass, and
-// other tool-providing packages.
+// to the MCP ecosystem. This interface is implemented by workflow and other
+// tool-providing packages.
 //
 // Components implementing this interface can expose their functionality as MCP tools
 // that can be discovered and executed through the aggregator, making them available
@@ -575,7 +575,7 @@ type ReconcileManagerHandler interface {
 // ReconcileStatusInfo represents the reconciliation status for a resource.
 // This is exposed via the API for observability.
 type ReconcileStatusInfo struct {
-	// ResourceType is the type of the resource (MCPServer, ServiceClass, Workflow).
+	// ResourceType is the type of the resource (MCPServer, Workflow).
 	ResourceType string `json:"resource_type"`
 
 	// Name is the name of the resource.

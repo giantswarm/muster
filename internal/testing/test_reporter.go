@@ -114,14 +114,6 @@ func (r *testReporter) ReportScenarioStart(scenario TestScenario) {
 				}
 			}
 
-			if len(scenario.PreConfiguration.ServiceClasses) > 0 {
-				fmt.Printf("      🏗️  Service Classes (%d):\n", len(scenario.PreConfiguration.ServiceClasses))
-				for _, sc := range scenario.PreConfiguration.ServiceClasses {
-					fmt.Printf("         • %s", sc["name"])
-					fmt.Printf("\n")
-				}
-			}
-
 			if len(scenario.PreConfiguration.Workflows) > 0 {
 				fmt.Printf("      🔄 Workflows (%d):\n", len(scenario.PreConfiguration.Workflows))
 				for _, wf := range scenario.PreConfiguration.Workflows {

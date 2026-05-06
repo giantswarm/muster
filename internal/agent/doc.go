@@ -199,7 +199,7 @@
 //	}
 //
 //	// Execute multiple tools
-//	tools := []string{"core_service_list", "core_serviceclass_list"}
+//	tools := []string{"core_service_list", "core_workflow_list"}
 //	for _, tool := range tools {
 //	    result, err := client.CallToolSimple(ctx, tool, nil)
 //	    if err != nil {
@@ -462,10 +462,9 @@
 // ## CI/CD Pipeline Integration
 //
 //	#!/bin/bash
-//	# Deploy services using muster agent
+//	# Trigger a workflow using muster agent
 //	muster agent --endpoint http://muster:8090/streamable-http --execute <<EOF
-//	call core_service_create '{"name": "web-app", "serviceclass": "webapp", "args": {"replicas": 3}}'
-//	call core_service_start '{"name": "web-app"}'
+//	call core_workflow_run '{"name": "deploy-web-app", "args": {"replicas": 3}}'
 //	EOF
 //
 // ## Monitoring Script

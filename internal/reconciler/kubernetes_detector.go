@@ -22,7 +22,7 @@ import (
 
 // KubernetesDetector implements ChangeDetector using controller-runtime informers.
 //
-// It watches muster CRDs (MCPServer, ServiceClass, Workflow) via Kubernetes informers
+// It watches muster CRDs (MCPServer, Workflow) via Kubernetes informers
 // and generates change events when resources are created, updated, or deleted.
 //
 // This detector provides native Kubernetes integration with proper event handling,

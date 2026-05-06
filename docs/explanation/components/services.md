@@ -1,21 +1,16 @@
 # Service Management Component
 
 ## Purpose
-Handles lifecycle management of service instances based on ServiceClass templates.
+Handles lifecycle management of static service instances (the aggregator and the per-MCPServer service wrappers).
 
 ## Key Responsibilities
 - Service registry and instance tracking
-- ServiceClass template management
 - State management (start/stop/restart)
-- Dependency resolution and ordering
-- Response processing and status monitoring
+- Status and health monitoring
 
 ## Key Files
 - `registry.go`: Service registration
-- `instance.go`: Service instance logic
-- `response_processor.go`: Handle service outputs
-- `base.go`: Base service implementation
 - `interfaces.go`: Service interfaces
 
 ## Integration
-Uses API adapters to integrate with orchestrator and aggregator. Defines ServiceClasses for reusable service patterns.
+Uses API adapters to integrate with the orchestrator and aggregator.

@@ -84,7 +84,7 @@ type Services struct {
 //  3. **Orchestrator**: Initializes the core service orchestrator
 //  4. **Service Registry**: Sets up the service registry for dependency injection
 //  5. **API Adapters**: Creates and registers all service adapters with the API layer
-//  6. **Manager Initialization**: Creates managers for ServiceClass, Workflow, MCPServer
+//  6. **Manager Initialization**: Creates managers for Workflow, MCPServer
 //  7. **Definition Loading**: Loads component definitions from configuration directories
 //  8. **Service Creation**: Creates concrete service instances based on definitions
 //  9. **Aggregator Setup**: Initializes MCP aggregator service (when enabled)

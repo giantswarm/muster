@@ -13,7 +13,7 @@ import (
 // supports custom error messages for specific use cases.
 type NotFoundError struct {
 	// ResourceType categorizes the type of resource that was not found
-	// (e.g., "workflow", "serviceclass", "service")
+	// (e.g., "workflow", "service")
 	ResourceType string
 
 	// ResourceName is the specific identifier of the resource that was not found

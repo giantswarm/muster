@@ -176,15 +176,12 @@ func convertToMCPSchema(params []api.ArgMetadata) mcp.ToolInputSchema {
 //   - core_workflow_* tools (workflow management and execution)
 //   - core_service_* tools (service lifecycle management)
 //   - core_config_* tools (configuration management)
-//   - core_serviceclass_* tools (service class management)
 //   - core_mcpserver_* tools (MCP server management)
 //   - core_events tool (event management)
 //   - core_auth_* tools (authentication operations)
 //
 // Each tool is prefixed with "core_" to distinguish it from MCP server tools
 // which are prefixed with "x_<server>_".
-//
-// Returns a slice of MCP tools representing all available core tools.
 func (a *AggregatorServer) getAllCoreToolsAsMCPTools() []mcp.Tool {
 	var tools []mcp.Tool
 	const corePrefix = "core_"

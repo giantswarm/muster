@@ -276,11 +276,10 @@ type WorkflowValidateRequest struct {
 //
 // Example:
 //
-//	var req ServiceClassCreateRequest
+//	var req WorkflowCreateRequest
 //	args := map[string]interface{}{
-//	    "name": "auth",
-//	    "type": "authentication",
-//	    "operations": map[string]interface{}{...},
+//	    "name": "deploy",
+//	    "steps": []interface{}{...},
 //	}
 //	err := ParseRequest(args, &req)
 //	if err != nil {

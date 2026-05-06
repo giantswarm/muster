@@ -1206,28 +1206,19 @@ func (a *AggregatorServer) runSSOTrackerCleanup() {
 	}
 }
 
-// publishToolUpdateEvent publishes a tool update event to notify dependent managers.
-//
-// This method creates and publishes an event containing the current set of available
-// tools, which notifies other muster components (like ServiceClass
-// managers) that the tool landscape has changed. This ensures system-wide consistency
-// when tools become available or unavailable.
-//
-// The event uses "aggregator" as the server name since it represents the aggregated
-// view of all tools from multiple sources.
+// publishToolUpdateEvent broadcasts the current set of available tools to
+// subscribers via api.PublishToolUpdateEvent so dependent components can
+// react when the tool landscape changes.
 func (a *AggregatorServer) publishToolUpdateEvent() {
-	// Get current tool inventory from all sources
 	tools := a.GetAvailableTools()
 
-	// Create and publish the tool update event
 	event := api.ToolUpdateEvent{
 		Type:       "tools_updated",
-		ServerName: "aggregator", // Use aggregator as the source since it aggregates all tools
+		ServerName: "aggregator",
 		Tools:      tools,
 		Timestamp:  time.Now(),
 	}
 
-	// Publish the event - this will notify ServiceClass managers
 	api.PublishToolUpdateEvent(event)
 
 	logging.DebugWithAttrs("Aggregator", "Published tool update event",
@@ -1272,8 +1263,6 @@ func (a *AggregatorServer) updateCapabilities() {
 	servers := a.registry.GetAllServers()
 	a.logCapabilitiesSummary(servers)
 
-	// Publish tool update event to notify dependent managers (like ServiceClass manager)
-	// This ensures subscribers are notified when core tools become available during startup
 	a.publishToolUpdateEvent()
 }
 
@@ -1897,7 +1886,6 @@ func (a *AggregatorServer) isCoreToolByName(toolName string) bool {
 //   - workflow_*: Routed to the workflow manager for workflow operations
 //   - service_*: Routed to the service manager for service lifecycle operations
 //   - config_*: Routed to the config manager for configuration operations
-//   - serviceclass_*: Routed to the service class manager for service class operations
 //   - mcpserver_*: Routed to the MCP server manager for MCP server operations
 //
 // The method removes the "core_" prefix from tool names before routing to ensure
@@ -2845,8 +2833,8 @@ func (a *AggregatorServer) backgroundTokenRefresh(sessionID, serverName, sub str
 //   - MCP server tools (prefixed with x_<server>_)
 //   - Core muster tools (prefixed with core_) from internal providers
 //
-// The core tools are collected from workflow, service, config, serviceclass,
-// mcpserver, events, and auth providers.
+// The core tools are collected from workflow, service, config, mcpserver,
+// events, and auth providers.
 func (a *AggregatorServer) ListToolsForContext(ctx context.Context) []mcp.Tool {
 	sessionID := getSessionIDFromContext(ctx)
 	if sessionID == "" {

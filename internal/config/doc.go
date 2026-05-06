@@ -8,7 +8,7 @@
 //
 // Configuration is loaded from a single directory containing:
 //   - config.yaml (main configuration file)
-//   - subdirectories for entity definitions (workflows/, capabilities/, serviceclasses/, mcpservers/)
+//   - subdirectories for entity definitions (workflows/, mcpservers/)
 //
 // Default location: ~/.config/muster
 // Custom location: Specified via --config-path flag
@@ -16,9 +16,9 @@
 // # Entity Storage System
 //
 // The Storage system provides generic YAML-based persistence for entity definitions
-// including workflows, capabilities, serviceclasses, and mcpservers. This unified
-// storage system allows users to create, modify, and manage entities through both
-// API operations and direct file manipulation.
+// including workflows and mcpservers. This unified storage system allows users to
+// create, modify, and manage entities through both API operations and direct file
+// manipulation.
 //
 // ## Storage Locations
 //
@@ -27,7 +27,7 @@
 //   - Default: ~/.config/muster/{entityType}/
 //   - Custom: {customConfigPath}/{entityType}/
 //
-// Where {entityType} is one of: workflows, capabilities, serviceclasses, mcpservers
+// Where {entityType} is one of: workflows, mcpservers
 //
 // ## Supported Operations
 //

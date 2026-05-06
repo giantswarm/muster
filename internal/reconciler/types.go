@@ -128,8 +128,8 @@ type ReconcileRequest struct {
 
 // Reconciler is the interface that resource-specific reconcilers must implement.
 //
-// Each resource type (MCPServer, ServiceClass, Workflow) has its own reconciler
-// that knows how to reconcile that specific type of resource.
+// Each resource type (MCPServer, Workflow) has its own reconciler that knows
+// how to reconcile that specific type of resource.
 type Reconciler interface {
 	// Reconcile processes a single reconciliation request.
 	// It should be idempotent - calling it multiple times with the same
@@ -358,8 +358,8 @@ const DefaultNamespace = "default"
 //  2. Set RequeueAfter explicitly in your Reconcile() method
 //
 // Note: This constant is used by MCPServerReconciler for periodic status sync.
-// ServiceClass and Workflow reconcilers don't currently use periodic requeue
-// as they primarily manage static definitions.
+// The Workflow reconciler doesn't currently use periodic requeue as it manages
+// static definitions.
 const DefaultStatusSyncInterval = 30 * time.Second
 
 // FailureLogBackoffTimeout is the maximum time between log entries for persistent
@@ -543,7 +543,7 @@ type StatusSyncResult struct {
 }
 
 // StatusSyncHelper encapsulates the common retry-on-conflict pattern for status sync.
-// This helper reduces duplication across MCPServer, ServiceClass, and Workflow reconcilers.
+// This helper reduces duplication across MCPServer and Workflow reconcilers.
 type StatusSyncHelper struct {
 	ResourceType   ResourceType
 	ResourceName   string

@@ -33,9 +33,7 @@ var (
 )
 
 // RegisterServiceRegistry registers the service registry handler implementation.
-// This handler provides access to all registered services in the system,
-// including both static services (defined in configuration) and dynamic
-// ServiceClass-based service instances.
+// This handler provides access to all registered services in the system.
 //
 // The registration is thread-safe and should be called during system initialization.
 // Only one service registry handler can be registered at a time; subsequent
@@ -57,8 +55,7 @@ func RegisterServiceRegistry(h ServiceRegistryHandler) {
 }
 
 // RegisterServiceManager registers the service manager handler implementation.
-// This handler provides unified service lifecycle management for both static services
-// and ServiceClass-based service instances.
+// This handler provides service lifecycle management.
 //
 // The registration is thread-safe and should be called during system initialization.
 // Only one service manager handler can be registered at a time; subsequent
@@ -164,8 +161,7 @@ func GetServiceRegistry() ServiceRegistryHandler {
 }
 
 // GetServiceManager returns the registered service manager handler.
-// This provides access to unified service lifecycle management for both
-// static services and ServiceClass-based service instances.
+// This provides access to service lifecycle management.
 //
 // Returns nil if no handler has been registered yet. Callers should always
 // check for nil before using the returned handler.
