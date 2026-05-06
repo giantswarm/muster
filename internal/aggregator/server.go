@@ -2237,18 +2237,10 @@ type ProtectedResourceMetadata struct {
 }
 
 // discoverProtectedResourceMetadata resolves the authorization server for an
-// MCP server per the MCP 2025-11-25 spec.
-//
-// Discovery order (each step falls through to the next on failure):
-//  0. authorizationServer override (operator opt-out for backends that don't
-//     publish RFC 9728 metadata). Performs an RFC 8414 §3.3 self-verification
-//     fetch against the pinned issuer to fail closed on a wrong pin.
-//  1. Probe the MCP URL → parse WWW-Authenticate on 401 → follow
-//     resource_metadata=<url> if present (MCP §"PRM Discovery Requirements").
-//  2. Path-based well-known: <base>/.well-known/oauth-protected-resource<path>
-//     where <path> is the MCP URL's path (RFC 9728 §3.1; uses raw path so
-//     /v1/mcp is preserved — NormalizeServerURL strips it).
-//  3. Root well-known: <base>/.well-known/oauth-protected-resource.
+// MCP server. When override is non-nil it skips PRM probing and uses the
+// operator-pinned values, performing an RFC 8414 §3.3 self-verification fetch
+// against the override issuer to fail closed on a wrong pin. Otherwise it
+// follows the MCP OAuth specification for resource metadata discovery (RFC 9728).
 func discoverProtectedResourceMetadata(ctx context.Context, serverURL string, override *api.MCPServerAuthAuthorizationServer) (*ProtectedResourceMetadata, error) {
 	httpClient := &http.Client{Timeout: 10 * time.Second}
 
