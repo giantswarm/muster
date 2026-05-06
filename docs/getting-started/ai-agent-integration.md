@@ -73,7 +73,7 @@ Muster uses a configuration directory at `.muster/` by default:
 
 ```bash
 # Create the config directory (optional - created automatically)
-mkdir -p .muster/{mcpservers,serviceclasses,workflows}
+mkdir -p .muster/{mcpservers,workflows}
 
 # Start Muster server (keep this running)
 muster serve
@@ -205,25 +205,11 @@ When your AI agent uses `call_tool`, it can execute any of the **36+ aggregator 
 - `core_config_save` - Persist configuration changes
 - `core_config_reload` - Reload from configuration files
 
-**Service Management (9 tools):**
+**Service Management:**
 
-- `core_service_list` - List all services (static and ServiceClass-based)
-- `core_service_create` - Create service instances from ServiceClasses
-- `core_service_get` - Get detailed service information
+- `core_service_list` - List all services
 - `core_service_start/stop/restart` - Control service lifecycle
 - `core_service_status` - Monitor service health
-- `core_service_delete` - Remove ServiceClass instances
-- `core_service_validate` - Validate service configurations
-
-**ServiceClass Management (7 tools):**
-
-- `core_serviceclass_list` - List available service templates
-- `core_serviceclass_create` - Define new service types
-- `core_serviceclass_get` - Get ServiceClass details
-- `core_serviceclass_available` - Check template dependencies
-- `core_serviceclass_update` - Modify existing templates
-- `core_serviceclass_delete` - Remove templates
-- `core_serviceclass_validate` - Validate template configurations
 
 **Workflow Orchestration (9 tools):**
 
@@ -257,16 +243,6 @@ Your AI agent can now help you with infrastructure tasks using the correct two-l
 
 ```bash
 AI executes: call core_config_get {}
-```
-
-**"Create a Kubernetes connection service"**
-
-```bash
-AI executes: call core_service_create {
-  "serviceClassName": "service-k8s-connection",
-  "name": "my-k8s-conn",
-  "args": {"cluster_name": "prod", "role": "management"}
-}
 ```
 
 **"List all running services"**
@@ -428,15 +404,13 @@ For self-hosted Muster deployments, ensure your IdP trusts this client ID.
 ## Next steps
 
 1. **Explore meta-tools**: Use `muster agent --repl` to try all 11 server meta-tools
-2. **Create ServiceClasses**: Define templates in `.muster/serviceclasses/`
-3. **Build workflows**: Automate processes in `.muster/workflows/`
-4. **Add MCP servers**: Integrate external tools in `.muster/mcpservers/`
+2. **Build workflows**: Automate processes in `.muster/workflows/`
+3. **Add MCP servers**: Integrate external tools in `.muster/mcpservers/`
 
 ### Real Examples from Current Configuration
 
 Based on your `.muster` setup, you can try:
 
-- **ServiceClasses**: `service-k8s-connection`, `mimir-port-forward`
 - **Workflows**: `auth-workflow`, `login-workload-cluster`, `connect-monitoring`
 - **MCP Servers**: `kubernetes`, `prometheus`, `grafana`, `teleport`
 

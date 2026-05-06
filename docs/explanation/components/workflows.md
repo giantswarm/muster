@@ -28,52 +28,6 @@ Each workflow definition automatically generates a corresponding execution tool:
 .muster/workflows/login-management-cluster.yaml → workflow_login-management-cluster
 ```
 
-## Real-World Example: Monitoring Connection Workflow
-
-**Definition** (`.muster/workflows/connect-monitoring.yaml`):
-```yaml
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: Workflow
-metadata:
-  name: connect-monitoring
-spec:
-  description: "Connect to monitoring in a Giant Swarm installation"
-  args:
-    cluster:
-      type: "string"
-      description: "Cluster domain (e.g., 'my-k8s.my-domain.com')"
-      required: true
-    localPort:
-      type: "string"
-      default: "18000"
-      description: "Local port for forwarding"
-  steps:
-    - id: "login-cluster"
-      tool: "x_teleport_kube_login"
-      args:
-        kubeCluster: "{{.input.cluster}}"
-    - id: "setup-prometheus-access"
-      tool: "core_service_create"
-      args:
-        serviceClassName: "prometheus-port-forward"
-        name: "prometheus-port-forward-{{.input.cluster}}"
-        args:
-          cluster: "{{.input.cluster}}"
-          localPort: "{{.input.localPort}}"
-```
-
-**Generated Tool Usage**:
-```bash
-# Single command execution
-workflow_connect-monitoring(cluster="my-cluster")
-
-# Automatically handles:
-# 1. Teleport authentication to management cluster
-# 2. Creates and starts Mimir port-forwarding service
-# 3. Teleport authentication to workload cluster
-# 4. Tracks execution state throughout
-```
-
 ## Advanced Features
 
 ### **Template Processing**
@@ -93,10 +47,6 @@ Workflows seamlessly orchestrate across tool types:
 
 ```yaml
 steps:
-  # Core tool usage
-  - id: "create-service"
-    tool: "core_service_create"
-
   # External MCP tool usage
   - id: "kubernetes-action"
     tool: "x_kubernetes_port_forward"
@@ -104,17 +54,14 @@ steps:
   # Conditional execution
   - id: "health-check"
     tool: "core_service_status"
-    condition:
-      tool: "core_serviceclass_available"
-      args:
-        name: "monitoring-service"
+    args:
+      name: "monitoring-service"
 ```
 
 ## Integration with Muster Ecosystem
 
 ### **Service Management Integration**
-Workflows leverage ServiceClasses for complex service orchestration:
-- Create service instances with `core_service_create`
+Workflows orchestrate services:
 - Monitor health with `core_service_status`
 - Manage lifecycle with start/stop/restart operations
 

@@ -176,7 +176,6 @@ graph LR
         Config[Configuration Tools<br/>5 tools<br/>core_config_*]
         MCPServ[MCP Server Tools<br/>6 tools<br/>core_mcpserver_*]
         Service[Service Tools<br/>9 tools<br/>core_service_*]
-        SvcClass[ServiceClass Tools<br/>7 tools<br/>core_serviceclass_*]
         WorkFlow[Workflow Tools<br/>9 tools<br/>core_workflow_*]
         Dynamic[Dynamic Workflow Tools<br/>Variable<br/>workflow_*]
         External[External MCP Tools<br/>Variable<br/>x_kubernetes_*, etc.]
@@ -185,7 +184,6 @@ graph LR
     CallTool[call_tool<br/>Server Meta-Tool] --> Config
     CallTool --> MCPServ
     CallTool --> Service
-    CallTool --> SvcClass
     CallTool --> WorkFlow
     CallTool --> Dynamic
     CallTool --> External
@@ -211,10 +209,10 @@ When an MCP client wants to discover tools:
 # Use meta-tools for discovery:
 list_tools()                                    # Returns all available tools
 filter_tools(pattern="core_service_*")          # Filter for service tools
-describe_tool(name="core_service_create")       # Get tool details
+describe_tool(name="core_service_list")         # Get tool details
 
 # Then execute with call_tool:
-call_tool(name="core_service_create", arguments={...})
+call_tool(name="core_service_list", arguments={})
 ```
 
 ### **Tool Integration Pattern**
@@ -236,7 +234,6 @@ sequenceDiagram
 
     Client->>Server: call_tool("workflow_connect-monitoring", {...})
     Server->>WF: Execute workflow
-    WF->>Core: call core_service_create
     WF->>Ext: call x_teleport_kube_login
     WF->>Server: Workflow result
     Server->>Client: Wrapped result as JSON
@@ -251,10 +248,6 @@ Tools are backed by persistent configuration in `.muster/`:
 ├── mcpservers/              # External MCP server definitions (8 servers)
 │   ├── kubernetes.yaml      # → Provides x_kubernetes_* tools
 │   ├── teleport.yaml        # → Provides x_teleport_* tools
-│   └── ...
-├── serviceclasses/          # Service templates (4 templates)
-│   ├── k8s-connection.yaml  # → Used by core_service_create
-│   ├── mimir-port-forward.yaml
 │   └── ...
 ├── workflows/               # Workflow definitions (8 workflows)
 │   ├── connect-monitoring.yaml  # → Creates workflow_connect-monitoring
@@ -396,11 +389,10 @@ Muster follows a philosophy of progressive enhancement:
 - `response_processor.go`: Service response handling
 
 **Service Lifecycle:**
-1. **Definition**: ServiceClass templates define service capabilities
-2. **Instantiation**: Create service instances from templates
-3. **Dependency Resolution**: Resolve and start dependent services
-4. **Monitoring**: Track service health and status
-5. **Cleanup**: Graceful shutdown and resource cleanup
+1. **Instantiation**: Create service instances
+2. **Dependency Resolution**: Resolve and start dependent services
+3. **Monitoring**: Track service health and status
+4. **Cleanup**: Graceful shutdown and resource cleanup
 
 ### Workflow Orchestration (`internal/workflow`)
 
@@ -518,10 +510,9 @@ type EventHandler interface {
 
 ### Custom Service Types
 
-1. **Define ServiceClass**: Create template defining service capabilities
-2. **Implement Service Logic**: Create service implementation
-3. **Register with API**: Implement adapter pattern for API integration
-4. **Configure Dependencies**: Define service dependencies and startup order
+1. **Implement Service Logic**: Create service implementation
+2. **Register with API**: Implement adapter pattern for API integration
+3. **Configure Dependencies**: Define service dependencies and startup order
 
 ### Workflow Extensions
 

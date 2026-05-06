@@ -86,15 +86,14 @@ muster get service my-app
 
 ### Service Dependencies
 When starting a service, Muster automatically:
-1. Checks if the ServiceClass is available
-2. Verifies all required MCP tools are accessible
-3. Validates service configuration
-4. Starts the service process
+1. Verifies all required MCP tools are accessible
+2. Validates service configuration
+3. Starts the service process
 
 ```bash
 # If dependencies are missing:
 muster start service my-app
-# Error: ServiceClass 'web-app' requires tool 'x_kubernetes_apply' which is not available
+# Error: required tool 'x_kubernetes_apply' is not available
 
 # Solution: Check MCP server status
 muster list mcpserver
@@ -331,16 +330,6 @@ muster start workflow deploy-app --app-name=test
 # Solution: Check MCP server status
 muster list mcpserver
 muster get mcpserver kubernetes
-```
-
-### ServiceClass Dependencies
-```bash
-muster start service my-app
-# Error: ServiceClass 'web-app' is not available
-
-# Solution: Check ServiceClass status
-muster get serviceclass web-app
-muster check serviceclass web-app
 ```
 
 ## Exit Codes

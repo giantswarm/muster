@@ -7,7 +7,7 @@ This guide provides comprehensive documentation for authoring YAML-based test sc
 **Key Architecture Points:**
 - Each test scenario runs against its own isolated muster serve instance
 - Mock MCP servers are essential for testing muster's core MCP server management and tool aggregation features
-- Mock servers enable testing muster concepts (workflows, serviceclasses, capabilities, services) that depend on MCP server tools
+- Mock servers enable testing muster concepts (workflows, capabilities, services) that depend on MCP server tools
 - Mock servers are managed as separate processes by muster serve, so we can test the complete functionality of muster serve through the scenarios
 - Tools follow specific naming conventions based on their source (core vs. mock)
 
@@ -19,7 +19,7 @@ This guide provides comprehensive documentation for authoring YAML-based test sc
 # Required fields
 name: "scenario-unique-name"           # Unique identifier for the scenario
 category: "behavioral"                 # "behavioral" or "integration"
-concept: "serviceclass"                # Core muster concept being tested
+concept: "workflow"                    # Core muster concept being tested
 description: "Human-readable description of what this scenario tests"
 
 # Optional metadata
@@ -44,11 +44,6 @@ pre_configuration:
               - response:
                   status: "success"
 
-  service_classes:                     # ServiceClasses to pre-create
-    - name: "test-serviceclass"
-      config:
-        # ServiceClass definition
-
   workflows:                           # Workflows to pre-create
     - name: "test-workflow"
       config:
@@ -58,7 +53,7 @@ pre_configuration:
 steps:
   - id: "step-unique-name"             # Unique step identifier
     description: "What this step does" # Human-readable step description
-    tool: "core_serviceclass_create"   # MCP tool name to invoke
+    tool: "core_workflow_create"       # MCP tool name to invoke
     args:                              # Tool args (renamed from 'args')
       yaml: |                          # YAML content (for tools that accept YAML)
         name: test-resource
@@ -75,7 +70,7 @@ steps:
 cleanup:
   - id: "cleanup-resources"            # Changed from 'name' to 'id'
     description: "Remove test resources"
-    tool: "core_serviceclass_delete"
+    tool: "core_workflow_delete"
     args:                              # Changed from 'args' to 'args'
       name: "test-resource"
     expected:
@@ -95,8 +90,8 @@ cleanup:
 **Core muster Tools**: Use standard names
 ```yaml
 steps:
-  - id: "create-serviceclass"
-    tool: "core_serviceclass_create"   # Standard core tool
+  - id: "create-workflow"
+    tool: "core_workflow_create"       # Standard core tool
 ```
 
 **Mock MCP Server Tools**: Use `x_<server-name>_<tool-name>` pattern
@@ -136,7 +131,7 @@ steps:
 
 - **name**: Must be unique across all scenarios, use kebab-case
 - **category**: Must be either "behavioral" or "integration"
-- **concept**: Must be one of the supported concepts (serviceclass, workflow, mcpserver, service)
+- **concept**: Must be one of the supported concepts (workflow, mcpserver, service)
 - **description**: Human-readable description of the test purpose
 - **steps**: At least one test step must be defined
 
@@ -163,13 +158,13 @@ Use descriptive, kebab-case names:
 
 ```yaml
 # ✅ Good examples
-name: "serviceclass-basic-crud-operations"
+name: "workflow-basic-crud-operations"
 name: "workflow-arg-templating-validation"
 name: "mcpserver-connection-recovery-handling"
 
 # ❌ Bad examples
 name: "test1"
-name: "ServiceClass_Test"
+name: "Workflow_Test"
 ```
 
 #### Step Names
@@ -177,9 +172,9 @@ Use action-oriented names with `id` field:
 
 ```yaml
 # ✅ Good examples
-  - id: "create-test-serviceclass"
-  - id: "verify-serviceclass-availability"
-  - id: "instantiate-service-from-class"
+  - id: "create-test-workflow"
+  - id: "verify-workflow-availability"
+  - id: "execute-workflow"
 
 # ❌ Bad examples
   - id: "step1"
@@ -191,8 +186,8 @@ Use action-oriented names with `id` field:
 #### Core Tools
 ```yaml
 steps:
-  - id: "list-serviceclasses"
-    tool: "core_serviceclass_list"    # Direct core tool usage
+  - id: "list-workflows"
+    tool: "core_workflow_list"        # Direct core tool usage
 ```
 
 #### Mock Server Tools
@@ -234,8 +229,8 @@ For tools that accept YAML configurations:
 ```yaml
 args:
   yaml: |
-    name: test-serviceclass
-    description: "Test ServiceClass for scenario"
+    name: test-workflow
+    description: "Test Workflow for scenario"
     args:
       replicas:
         type: integer
@@ -243,9 +238,11 @@ args:
       image:
         type: string
         required: true
-    tools:
-      - name: "core_service_create"
+    steps:
+      - id: "list-services"
+        tool: "core_service_list"
 ```
+
 
 #### Key-Value Args
 For simple arg passing:
@@ -273,7 +270,7 @@ Verify response contains expected content:
 ```yaml
 expected:
   success: true
-  contains: ["created successfully", "test-serviceclass"]
+  contains: ["created successfully", "test-workflow"]
 ```
 
 #### JSON Path Validation
@@ -285,7 +282,7 @@ expected:
   json_path:
     status: "running"
     available: true
-    metadata.name: "test-serviceclass"
+    metadata.name: "test-workflow"
 ```
 
 #### Error Validation
@@ -352,7 +349,7 @@ Always use unique names to avoid conflicts:
 ```yaml
 args:
   yaml: |
-    name: "test-serviceclass-{{ scenario.name }}"  # Use scenario name for uniqueness
+    name: "test-workflow-{{ scenario.name }}"  # Use scenario name for uniqueness
 ```
 
 #### Comprehensive Cleanup
@@ -360,10 +357,10 @@ Always clean up resources:
 
 ```yaml
 cleanup:
-  - id: "delete-test-serviceclass"
-    tool: "core_serviceclass_delete"
+  - id: "delete-test-workflow"
+    tool: "core_workflow_delete"
     args:
-      name: "test-serviceclass"
+      name: "test-workflow"
     expected:
       success: true
     continue_on_failure: true
@@ -526,7 +523,7 @@ Test scenarios automatically run against isolated muster instances:
 ./muster test --scenario=my-scenario --debug
 
 # Test all scenarios in a concept category
-./muster test --concept=serviceclass --verbose
+./muster test --concept=workflow --verbose
 ```
 
 **Benefits of Managed Instances:**

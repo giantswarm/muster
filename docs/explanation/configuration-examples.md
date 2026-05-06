@@ -1,6 +1,6 @@
 # Configuration Examples from Real Muster Instance
 
-This document showcases real configuration examples from a working muster instance, demonstrating practical implementation patterns for MCP servers, ServiceClasses, and workflows.
+This document showcases real configuration examples from a working muster instance, demonstrating practical implementation patterns for MCP servers and workflows.
 
 ## System Configuration
 
@@ -72,195 +72,9 @@ spec:
 - **Environment Variables**: Used for runtime configuration (URLs, tokens)
 - **Descriptive Metadata**: Clear descriptions for tool discovery
 
-## ServiceClass Templates
-
-ServiceClasses define reusable service patterns. This instance provides 4 production-ready templates:
-
-### **Kubernetes Connection Service** (`.muster/serviceclasses/k8s-connection.yaml`)
-```yaml
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: ServiceClass
-metadata:
-  name: service-k8s-connection
-  namespace: default
-spec:
-  description: "Dynamic service capability for managing Kubernetes cluster connections with authentication"
-  args:
-    cluster_name:
-      type: "string"
-      required: true
-      description: "Name of the Kubernetes cluster"
-    role:
-      type: "string"
-      required: true
-      description: "Role for the connection (management, workload, etc.)"
-    region:
-      type: "string"
-      required: false
-      description: "AWS region or cloud region"
-    context:
-      type: "string"
-      required: false
-      description: "Kubernetes context name"
-    auth_provider:
-      type: "string"
-      required: false
-      description: "Authentication provider (teleport, aws, gcp, etc.)"
-      default: "teleport"
-  serviceConfig:
-    lifecycleTools:
-      start:
-        tool: "api_kubernetes_connect"
-        args:
-          clusterName: "{{ .cluster_name }}"
-          role: "{{ .role }}"
-          authProvider: "{{ .auth_provider | default \"teleport\" }}"
-          region: "{{ .region }}"
-          context: "{{ .context }}"
-        outputs:
-          serviceId: "connectionId"
-          status: "status"
-          auth_provider: "authProvider"
-      stop:
-        tool: "api_kubernetes_disconnect"
-        args:
-          connectionId: "{{ .service_id }}"
-        outputs:
-          status: "status"
-      healthCheck:
-        tool: "api_kubernetes_connection_status"
-        args:
-          connectionId: "{{ .service_id }}"
-        expect:
-          success: true
-          jsonPath:
-            health: true
-      status:
-        tool: "api_kubernetes_connection_info"
-        args:
-          connectionId: "{{ .service_id }}"
-    healthCheck:
-      enabled: true
-      interval: "60s"
-      failureThreshold: 3
-      successThreshold: 2
-    timeout:
-      create: "120s"
-      delete: "60s"
-      healthCheck: "30s"
-    outputs:
-      connectionId: "{{ .start.serviceId }}"
-      status: "{{ .start.status }}"
-      authProvider: "{{ .start.auth_provider }}"
-```
-
-**Key Patterns:**
-- **Rich Argument Schema**: Type validation, required/optional fields, defaults
-- **Template Variables**: `{{ .cluster_name }}` syntax for dynamic values
-- **Lifecycle Management**: Start, stop, status, healthCheck tools
-- **Output Mapping**: Capture service outputs for subsequent use
-- **Health Monitoring**: Configurable health checks with thresholds
-- **Timeout Configuration**: Reasonable timeouts for all operations
-
-### **Port Forwarding Service** (`.muster/serviceclasses/mimir-port-forward.yaml`)
-```yaml
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: ServiceClass
-metadata:
-  name: mimir-port-forward
-  namespace: default
-spec:
-  description: "Port forwarding service for Mimir monitoring access"
-  args:
-    cluster:
-      type: "string"
-      required: true
-      description: "Monitoring cluster name"
-    localPort:
-      type: "string"
-      default: "18000"
-      description: "Local port for forwarding"
-    namespace:
-      type: "string"
-      default: "mimir"
-      description: "Kubernetes namespace"
-  serviceConfig:
-    lifecycleTools:
-      start:
-        tool: "x_kubernetes_port_forward"
-        args:
-          context: "{{ .cluster }}"
-          namespace: "{{ .namespace }}"
-          service: "mimir-gateway"
-          localPort: "{{ .localPort }}"
-          remotePort: "8080"
-        outputs:
-          sessionId: "sessionId"
-          localEndpoint: "http://localhost:{{ .localPort }}"
-      stop:
-        tool: "x_kubernetes_stop_port_forward"
-        args:
-          sessionId: "{{ .service_session_id }}"
-    healthCheck:
-      enabled: true
-      interval: "30s"
-      failureThreshold: 2
-```
-
-**Usage Example:**
-```bash
-# Create port-forwarding service instance
-core_service_create {
-  "serviceClassName": "mimir-port-forward",
-  "name": "mimir-my-monitoring-cluster",
-  "args": {
-    "managementCluster": "my-monitoring-cluster",
-    "localPort": "18001"
-  }
-}
-
-# Service automatically:
-# 1. Sets up port forwarding to mimir-gateway:8080
-# 2. Maps to localhost:18001
-# 3. Monitors connection health
-# 4. Provides clean stop mechanism
-```
-
 ## Workflow Orchestrations
 
 This instance provides 8 workflows covering common platform operations:
-
-### **Monitoring Connection Workflow** (`.muster/workflows/connect-monitoring.yaml`)
-```yaml
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: Workflow
-metadata:
-  name: connect-monitoring
-spec:
-  description: "Connect to monitoring in a Giant Swarm installation"
-  args:
-    cluster:
-      type: "string"
-      description: "Cluster domain (e.g., 'my-k8s.my-domain.com')"
-      required: true
-    localPort:
-      type: "string"
-      default: "18000"
-      description: "Local port for forwarding"
-  steps:
-    - id: "login-cluster"
-      tool: "x_teleport_kube_login"
-      args:
-        kubeCluster: "{{.input.cluster}}"
-    - id: "setup-prometheus-access"
-      tool: "core_service_create"
-      args:
-        serviceClassName: "prometheus-port-forward"
-        name: "prometheus-port-forward-{{.input.cluster}}"
-        args:
-          cluster: "{{.input.cluster}}"
-          localPort: "{{.input.localPort}}"
-```
 
 ### **Health Check Workflow** (`.muster/workflows/check-cilium-health.yaml`)
 ```yaml
@@ -330,25 +144,6 @@ spec:
 
 ## Common Usage Patterns
 
-### **Service Creation Pattern**
-```bash
-# 1. Check available service templates
-core_serviceclass_list
-
-# 2. Create service instance
-core_service_create {
-  "serviceClassName": "service-k8s-connection",
-  "name": "prod-cluster",
-  "args": {
-    "cluster_name": "production",
-    "role": "admin"
-  }
-}
-
-# 3. Monitor service status
-core_service_status("prod-cluster")
-```
-
 ### **Workflow Execution Pattern**
 ```bash
 # 1. Discover available workflows
@@ -383,7 +178,6 @@ workflow_check-cilium-health {
 
 ### **Naming Conventions**
 - **MCP Servers**: Simple names (kubernetes, teleport, prometheus)
-- **ServiceClasses**: Prefix with purpose (service-k8s-connection, mimir-port-forward)
 - **Workflows**: Action-oriented names (connect-monitoring, check-cilium-health)
 
 ### **Argument Design**

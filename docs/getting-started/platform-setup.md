@@ -22,7 +22,7 @@ go install
 
 ```bash
 # Create basic configuration directory
-mkdir -p .muster/{mcpservers,serviceclasses,workflows}
+mkdir -p .muster/{mcpservers,workflows}
 
 # Initialize basic config (optional - will be created automatically)
 cat > .muster/config.yaml << EOF
@@ -50,7 +50,6 @@ list core_tools                          # List core Muster tools
 # Test core functionality (aggregator layer via meta-tools)
 call core_config_get {}          # Check system config
 call core_mcpserver_list {}      # List MCP servers
-call core_serviceclass_list {}   # List ServiceClasses
 ```
 
 ## Step 2: Configure Infrastructure Tools (5 minutes)
@@ -108,144 +107,7 @@ call core_mcpserver_list {}
 call core_mcpserver_get {"name": "example-tools"}
 ```
 
-## Step 3: Create Your First ServiceClass (3 minutes)
-
-### Define a Kubernetes Connection Service
-
-Based on the current `.muster` configuration pattern:
-
-```yaml
-# .muster/serviceclasses/web-app.yaml
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: ServiceClass
-metadata:
-  name: web-application
-  namespace: default
-spec:
-  description: "Deploys a web application with Kubernetes"
-  args:
-    image:
-      type: string
-      required: true
-      description: "Container image to deploy"
-    replicas:
-      type: integer
-      default: 3
-      description: "Number of replicas"
-    namespace:
-      type: string
-      default: "default"
-      description: "Kubernetes namespace"
-  serviceConfig:
-    lifecycleTools:
-      start:
-        tool: "api_kubernetes_create_deployment"
-        args:
-          image: "{{ .image }}"
-          replicas: "{{ .replicas }}"
-          namespace: "{{ .namespace }}"
-          name: "{{ .name }}"
-        outputs:
-          deploymentName: "name"
-          status: "status"
-      stop:
-        tool: "api_kubernetes_delete_deployment"
-        args:
-          name: "{{ .deploymentName }}"
-          namespace: "{{ .namespace }}"
-      status:
-        tool: "api_kubernetes_get_deployment_status"
-        args:
-          name: "{{ .deploymentName }}"
-          namespace: "{{ .namespace }}"
-    healthCheck:
-      enabled: true
-      interval: "30s"
-      failureThreshold: 3
-```
-
-### Test ServiceClass Availability
-
-```bash
-# Using meta-tools in REPL
-call core_serviceclass_available {"name": "web-application"}
-call core_serviceclass_list {}
-```
-
-## Step 4: Create and Execute a Workflow (2 minutes)
-
-### Define a Deployment Workflow
-
-Following the pattern from current `.muster/workflows/`:
-
-```yaml
-# .muster/workflows/deploy.yaml
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: Workflow
-metadata:
-  name: deploy-app
-  namespace: default
-spec:
-  name: deploy-app
-  description: "Deploy application with health checks"
-  args:
-    app_name:
-      type: string
-      required: true
-      description: "Name of the application to deploy"
-    image:
-      type: string
-      required: true
-      description: "Container image to deploy"
-    namespace:
-      type: string
-      default: "default"
-      description: "Kubernetes namespace"
-  steps:
-    - id: create_service
-      tool: core_service_create
-      description: "Create the application service instance"
-      args:
-        name: "{{ .app_name }}"
-        serviceClassName: "web-application"
-        args:
-          image: "{{ .image }}"
-          namespace: "{{ .namespace }}"
-        persist: true
-        autoStart: true
-      outputs:
-        serviceName: "{{ .app_name }}"
-    - id: start_service
-      tool: core_service_start
-      description: "Start the application service"
-      args:
-        name: "{{ create_service.serviceName }}"
-    - id: verify_deployment
-      tool: core_service_status
-      description: "Verify service is healthy"
-      args:
-        name: "{{ create_service.serviceName }}"
-      store: true
-```
-
-### Execute the Workflow
-
-```bash
-# Start interactive agent
-muster agent --repl
-
-# In the REPL, execute using the meta-tool pattern:
-call workflow_deploy-app {
-  "app_name": "my-app",
-  "image": "nginx:latest",
-  "namespace": "default"
-}
-
-# Check workflow execution status
-call core_workflow_execution_list {"workflow_name": "deploy-app"}
-```
-
-## Step 5: Connect Your IDE
+## Step 3: Connect Your IDE
 
 ### Configure Cursor/VSCode
 
@@ -298,18 +160,11 @@ The aggregator provides **36+ core tools** plus dynamic capabilities:
 - `core_config_save` - Save configuration changes
 - `core_config_update_aggregator` - Modify aggregator settings
 
-**Service Management (9 tools):**
+**Service Management:**
 
 - `core_service_list` - List all services
-- `core_service_create` - Create service instances from ServiceClasses
 - `core_service_start/stop/restart` - Control service lifecycle
 - `core_service_status` - Monitor service health
-
-**ServiceClass Management (7 tools):**
-
-- `core_serviceclass_list` - List available service templates
-- `core_serviceclass_create` - Define new service types
-- `core_serviceclass_available` - Check template dependencies
 
 **Workflow Orchestration (9 tools):**
 
@@ -333,28 +188,19 @@ Your AI assistant will use this pattern:
 list_tools()
 
 # AI executes aggregator tools via meta-tool
-call_tool(name="core_service_create", arguments={
-  "serviceClassName": "web-application",
-  "name": "my-service",
-  "args": {"image": "nginx:latest"}
-})
-
-# AI checks results
 call_tool(name="core_service_status", arguments={"name": "my-service"})
 ```
 
 ## Next Steps
 
 1. **Add Real MCP Servers**: Configure actual infrastructure tools (Kubernetes, Prometheus, etc.)
-2. **Create More ServiceClasses**: Define templates for databases, monitoring, networking
-3. **Build Complex Workflows**: Chain multiple operations with conditional logic
-4. **Explore Testing**: Use `muster test` to validate configurations
+2. **Build Complex Workflows**: Chain multiple operations with conditional logic
+3. **Explore Testing**: Use `muster test` to validate configurations
 
 ### Real-World Examples
 
 Based on the current `.muster` configuration, you already have examples for:
 
-- **ServiceClasses**: `service-k8s-connection`, `mimir-port-forward`
 - **Workflows**: `auth-workflow`, `login-workload-cluster`, `connect-monitoring`
 - **MCP Servers**: `kubernetes`, `prometheus`, `grafana`, `teleport`
 
