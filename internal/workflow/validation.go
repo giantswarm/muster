@@ -12,8 +12,7 @@ import (
 )
 
 // validateInputs validates the input arguments against the args definition,
-// applying defaults for missing optional fields. Extra args are allowed for
-// flexibility — same convention as ServiceClass.ValidateServiceArgs.
+// applying defaults for missing optional fields. Extra args are tolerated.
 func (we *WorkflowExecutor) validateInputs(argsDefinition map[string]api.ArgDefinition, args map[string]interface{}) error {
 	logging.Debug("WorkflowExecutor", "validateInputs called with args: %+v", args)
 	logging.Debug("WorkflowExecutor", "validateInputs args definition: %+v", argsDefinition)

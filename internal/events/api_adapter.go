@@ -106,7 +106,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 					Name:        "resourceType",
 					Type:        "string",
 					Required:    false,
-					Description: "Filter by resource type (MCPServer, ServiceClass, Workflow, ServiceInstance)",
+					Description: "Filter by resource type (MCPServer, Workflow)",
 				},
 				{
 					Name:        "resourceName",

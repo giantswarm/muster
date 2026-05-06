@@ -91,40 +91,6 @@ const (
 	ReasonMCPServerTokenExchangeFailed EventReason = "MCPServerTokenExchangeFailed" //nolint:gosec
 )
 
-// ServiceClass event reasons
-const (
-	// ReasonServiceClassCreated indicates a ServiceClass was successfully created.
-	ReasonServiceClassCreated EventReason = "ServiceClassCreated"
-
-	// ReasonServiceClassUpdated indicates a ServiceClass was successfully updated.
-	ReasonServiceClassUpdated EventReason = "ServiceClassUpdated"
-
-	// ReasonServiceClassDeleted indicates a ServiceClass was successfully deleted.
-	ReasonServiceClassDeleted EventReason = "ServiceClassDeleted"
-
-	// ReasonServiceClassValidated indicates a ServiceClass was successfully validated.
-	ReasonServiceClassValidated EventReason = "ServiceClassValidated"
-
-	// ReasonServiceClassValidationFailed indicates a ServiceClass validation failed.
-	ReasonServiceClassValidationFailed EventReason = "ServiceClassValidationFailed"
-
-	// Tool Availability Events
-	// ReasonServiceClassAvailable indicates all required tools became available (transitions to Available=true).
-	ReasonServiceClassAvailable EventReason = "ServiceClassAvailable"
-
-	// ReasonServiceClassUnavailable indicates required tools became unavailable (transitions to Available=false).
-	ReasonServiceClassUnavailable EventReason = "ServiceClassUnavailable"
-
-	// ReasonServiceClassToolsDiscovered indicates new required tools are discovered and available.
-	ReasonServiceClassToolsDiscovered EventReason = "ServiceClassToolsDiscovered"
-
-	// ReasonServiceClassToolsMissing indicates specific tools became unavailable.
-	ReasonServiceClassToolsMissing EventReason = "ServiceClassToolsMissing"
-
-	// ReasonServiceClassToolsRestored indicates previously missing tools became available again.
-	ReasonServiceClassToolsRestored EventReason = "ServiceClassToolsRestored"
-)
-
 // Workflow event reasons
 const (
 	// Configuration Management Events
@@ -200,60 +166,6 @@ const (
 	ReasonWorkflowExecuted EventReason = "WorkflowExecuted"
 )
 
-// Service Instance event reasons
-const (
-	// ReasonServiceInstanceCreated indicates a service instance was successfully created.
-	ReasonServiceInstanceCreated EventReason = "ServiceInstanceCreated"
-
-	// ReasonServiceInstanceStarting indicates a service instance is beginning to start.
-	ReasonServiceInstanceStarting EventReason = "ServiceInstanceStarting"
-
-	// ReasonServiceInstanceStarted indicates a service instance was successfully started.
-	ReasonServiceInstanceStarted EventReason = "ServiceInstanceStarted"
-
-	// ReasonServiceInstanceStopping indicates a service instance is beginning to stop.
-	ReasonServiceInstanceStopping EventReason = "ServiceInstanceStopping"
-
-	// ReasonServiceInstanceStopped indicates a service instance was successfully stopped.
-	ReasonServiceInstanceStopped EventReason = "ServiceInstanceStopped"
-
-	// ReasonServiceInstanceRestarting indicates a service instance restart is initiated.
-	ReasonServiceInstanceRestarting EventReason = "ServiceInstanceRestarting"
-
-	// ReasonServiceInstanceRestarted indicates a service instance restart completed successfully.
-	ReasonServiceInstanceRestarted EventReason = "ServiceInstanceRestarted"
-
-	// ReasonServiceInstanceDeleted indicates a service instance was successfully deleted.
-	ReasonServiceInstanceDeleted EventReason = "ServiceInstanceDeleted"
-
-	// ReasonServiceInstanceFailed indicates a service instance operation failed.
-	ReasonServiceInstanceFailed EventReason = "ServiceInstanceFailed"
-
-	// ReasonServiceInstanceHealthy indicates a service instance health checks are passing.
-	ReasonServiceInstanceHealthy EventReason = "ServiceInstanceHealthy"
-
-	// ReasonServiceInstanceUnhealthy indicates a service instance health checks are failing.
-	ReasonServiceInstanceUnhealthy EventReason = "ServiceInstanceUnhealthy"
-
-	// ReasonServiceInstanceHealthCheckFailed indicates an individual health check failed.
-	ReasonServiceInstanceHealthCheckFailed EventReason = "ServiceInstanceHealthCheckFailed"
-
-	// ReasonServiceInstanceHealthCheckRecovered indicates health check recovered after failures.
-	ReasonServiceInstanceHealthCheckRecovered EventReason = "ServiceInstanceHealthCheckRecovered"
-
-	// ReasonServiceInstanceStateChanged indicates detailed state transitions.
-	ReasonServiceInstanceStateChanged EventReason = "ServiceInstanceStateChanged"
-
-	// ReasonServiceInstanceToolExecutionStarted indicates ServiceClass lifecycle tool execution began.
-	ReasonServiceInstanceToolExecutionStarted EventReason = "ServiceInstanceToolExecutionStarted"
-
-	// ReasonServiceInstanceToolExecutionCompleted indicates ServiceClass lifecycle tool execution succeeded.
-	ReasonServiceInstanceToolExecutionCompleted EventReason = "ServiceInstanceToolExecutionCompleted"
-
-	// ReasonServiceInstanceToolExecutionFailed indicates ServiceClass lifecycle tool execution failed.
-	ReasonServiceInstanceToolExecutionFailed EventReason = "ServiceInstanceToolExecutionFailed"
-)
-
 // EventData holds contextual information for event message templating.
 type EventData struct {
 	// Name is the name of the object involved in the event.
@@ -264,9 +176,6 @@ type EventData struct {
 
 	// Operation is the operation that triggered the event (e.g., "create", "update", "delete").
 	Operation string
-
-	// ServiceClass is the ServiceClass name for service instance events.
-	ServiceClass string
 
 	// Arguments contains additional key-value data for the event.
 	Arguments map[string]interface{}
@@ -325,18 +234,11 @@ func getEventType(reason EventReason) EventType {
 		ReasonMCPServerToolsUnavailable,
 		ReasonMCPServerHealthCheckFailed,
 		ReasonMCPServerRecoveryFailed,
-		ReasonServiceClassValidationFailed,
-		ReasonServiceClassUnavailable,
-		ReasonServiceClassToolsMissing,
 		ReasonWorkflowExecutionFailed,
 		ReasonWorkflowValidationFailed,
 		ReasonWorkflowUnavailable,
 		ReasonWorkflowToolsMissing,
-		ReasonWorkflowStepFailed,
-		ReasonServiceInstanceFailed,
-		ReasonServiceInstanceUnhealthy,
-		ReasonServiceInstanceHealthCheckFailed,
-		ReasonServiceInstanceToolExecutionFailed:
+		ReasonWorkflowStepFailed:
 		return EventTypeWarning
 	default:
 		return EventTypeNormal

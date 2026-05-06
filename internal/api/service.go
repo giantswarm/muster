@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"time"
 )
 
@@ -97,120 +96,31 @@ type ServiceRegistryHandler interface {
 	GetByType(serviceType ServiceType) []ServiceInfo
 }
 
-// ServiceManagerHandler provides unified management for both static and ServiceClass-based services.
-// This is the primary interface for service lifecycle operations in the Service Locator Pattern.
-//
-// The handler abstracts the differences between static services (defined in configuration)
-// and dynamic ServiceClass-based services (created at runtime), providing a unified API
-// for service management operations.
+// ServiceManagerHandler provides lifecycle management for static services
+// (the aggregator and per-MCPServer wrappers) registered in the orchestrator's
+// service registry. This is the primary interface for service operations in
+// the Service Locator Pattern.
 type ServiceManagerHandler interface {
-	// Unified service lifecycle management (works for both static and ServiceClass-based services)
-
 	// StartService starts a service by name.
-	// Works for both static services and ServiceClass-based service instances.
-	//
-	// Args:
-	//   - name: The name of the service to start
-	//
-	// Returns:
-	//   - error: Error if the service doesn't exist or fails to start
 	StartService(name string) error
 
 	// StopService stops a running service by name.
-	// Works for both static services and ServiceClass-based service instances.
-	//
-	// Args:
-	//   - name: The name of the service to stop
-	//
-	// Returns:
-	//   - error: Error if the service doesn't exist or fails to stop
 	StopService(name string) error
 
 	// RestartService restarts a service by name (stop followed by start).
-	// Works for both static services and ServiceClass-based service instances.
-	//
-	// Args:
-	//   - name: The name of the service to restart
-	//
-	// Returns:
-	//   - error: Error if the service doesn't exist or fails to restart
 	RestartService(name string) error
 
-	// Service information and status
-
 	// GetServiceStatus returns the current status of a service.
-	//
-	// Args:
-	//   - name: The name of the service to query
-	//
-	// Returns:
-	//   - *ServiceStatus: Current status information including state, health, and metadata
-	//   - error: Error if the service doesn't exist
 	GetServiceStatus(name string) (*ServiceStatus, error)
 
 	// GetAllServices returns the status of all services in the system.
-	//
-	// Returns:
-	//   - []ServiceStatus: List of status information for all services
 	GetAllServices() []ServiceStatus
 
-	// GetService returns detailed information about a specific service.
-	// This provides more comprehensive information than GetServiceStatus.
-	//
-	// Args:
-	//   - name: The name of the service to query
-	//
-	// Returns:
-	//   - *ServiceInstance: Detailed service information including configuration
-	//   - error: Error if the service doesn't exist
-	GetService(name string) (*ServiceInstance, error)
-
-	// ServiceClass instance creation and deletion (only for ServiceClass-based services)
-
-	// CreateService creates a new service instance from a ServiceClass template.
-	// This operation is only applicable to ServiceClass-based services.
-	//
-	// Args:
-	//   - ctx: Context for the operation, including cancellation and timeout
-	//   - req: Request containing ServiceClass name, instance name, and args
-	//
-	// Returns:
-	//   - *ServiceInstance: The created service instance information
-	//   - error: Error if the ServiceClass doesn't exist or creation fails
-	CreateService(ctx context.Context, req CreateServiceInstanceRequest) (*ServiceInstance, error)
-
-	// DeleteService removes a ServiceClass-based service instance.
-	// This operation is only applicable to ServiceClass-based services.
-	//
-	// Args:
-	//   - ctx: Context for the operation, including cancellation and timeout
-	//   - name: The name of the service instance to delete
-	//
-	// Returns:
-	//   - error: Error if the service doesn't exist or deletion fails
-	DeleteService(ctx context.Context, name string) error
-
-	// Event subscriptions
-
 	// SubscribeToStateChanges returns a channel for receiving service state change events.
-	// This allows components to react to service lifecycle events.
-	//
-	// Returns:
-	//   - <-chan ServiceStateChangedEvent: Channel that receives state change notifications
-	//
-	// Note: The returned channel should be consumed to prevent blocking the event system.
+	// The returned channel should be consumed to prevent blocking the event system.
 	SubscribeToStateChanges() <-chan ServiceStateChangedEvent
 
-	// SubscribeToServiceInstanceEvents returns a channel for receiving ServiceClass instance events.
-	// This provides notifications specific to ServiceClass-based service instances.
-	//
-	// Returns:
-	//   - <-chan ServiceInstanceEvent: Channel that receives instance-specific events
-	//
-	// Note: The returned channel should be consumed to prevent blocking the event system.
-	SubscribeToServiceInstanceEvents() <-chan ServiceInstanceEvent
-
-	// ToolProvider integration for exposing service management as MCP tools
+	// ToolProvider integration for exposing service management as MCP tools.
 	ToolProvider
 }
 
