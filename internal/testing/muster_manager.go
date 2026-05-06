@@ -251,7 +251,6 @@ func (m *musterInstanceManager) CreateInstance(ctx context.Context, scenarioName
 
 	// Extract expected resources from configuration
 	expectedTools := m.extractExpectedToolsWithHTTPMocks(config, mockHTTPServerInfo)
-	expectedServiceClasses := m.extractExpectedServiceClasses(config)
 	expectedMCPServers := m.extractExpectedMCPServers(config)
 
 	// Extract muster OAuth access token if any mock OAuth server is used as muster's OAuth server
@@ -272,7 +271,6 @@ func (m *musterInstanceManager) CreateInstance(ctx context.Context, scenarioName
 		StartTime:              time.Now(),
 		Logs:                   nil, // Will be populated when destroying
 		ExpectedTools:          expectedTools,
-		ExpectedServiceClasses: expectedServiceClasses,
 		ExpectedMCPServers:     expectedMCPServers,
 		MockHTTPServers:        mockHTTPServerInfo,
 		MockOAuthServers:       mockOAuthServerInfo,
@@ -497,13 +495,10 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 
 	// Extract expected resources from the pre-configuration
 	expectedTools := m.extractExpectedToolsFromInstance(instance)
-	expectedServiceClasses := m.extractExpectedServiceClassesFromInstance(instance)
-	expectedServices := m.extractExpectedServicesFromInstance(instance)
 	expectedWorkflows := m.extractExpectedWorkflowsFromInstance(instance)
 	expectedMCPServers := m.extractExpectedMCPServersFromInstance(instance)
 
-	if len(expectedTools) == 0 && len(expectedServiceClasses) == 0 && len(expectedServices) == 0 &&
-		len(expectedWorkflows) == 0 && len(expectedMCPServers) == 0 {
+	if len(expectedTools) == 0 && len(expectedWorkflows) == 0 && len(expectedMCPServers) == 0 {
 		if m.debug {
 			logger.Debug("ℹ️  No expected resources specified, waiting for basic service readiness\n")
 		}
@@ -513,12 +508,6 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 	if m.debug {
 		if len(expectedTools) > 0 {
 			logger.Debug("🎯 Waiting for %d expected tools: %v\n", len(expectedTools), expectedTools)
-		}
-		if len(expectedServiceClasses) > 0 {
-			logger.Debug("🎯 Waiting for %d expected ServiceClasses: %v\n", len(expectedServiceClasses), expectedServiceClasses)
-		}
-		if len(expectedServices) > 0 {
-			logger.Debug("🎯 Waiting for %d expected Services: %v\n", len(expectedServices), expectedServices)
 		}
 		if len(expectedWorkflows) > 0 {
 			logger.Debug("🎯 Waiting for %d expected Workflows: %v\n", len(expectedWorkflows), expectedWorkflows)
@@ -577,40 +566,6 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 					if len(missingTools) > 0 {
 						allReady = false
 						notReadyReasons = append(notReadyReasons, fmt.Sprintf("missing tools: %v", missingTools))
-					}
-				}
-			}
-
-			// Check ServiceClass availability
-			if len(expectedServiceClasses) > 0 {
-				for _, serviceClassName := range expectedServiceClasses {
-					available, err := m.checkServiceClassAvailability(mcpClient, resourceCtx, serviceClassName)
-					if err != nil {
-						if m.debug {
-							logger.Debug("🔍 Failed to check ServiceClass %s: %v\n", serviceClassName, err)
-						}
-						allReady = false
-						notReadyReasons = append(notReadyReasons, fmt.Sprintf("ServiceClass %s check failed", serviceClassName))
-					} else if !available {
-						allReady = false
-						notReadyReasons = append(notReadyReasons, fmt.Sprintf("ServiceClass %s not available", serviceClassName))
-					}
-				}
-			}
-
-			// Check Service availability (if any expected)
-			if len(expectedServices) > 0 {
-				for _, serviceName := range expectedServices {
-					available, err := m.checkServiceAvailability(mcpClient, resourceCtx, serviceName)
-					if err != nil {
-						if m.debug {
-							logger.Debug("🔍 Failed to check Service %s: %v\n", serviceName, err)
-						}
-						allReady = false
-						notReadyReasons = append(notReadyReasons, fmt.Sprintf("Service %s check failed", serviceName))
-					} else if !available {
-						allReady = false
-						notReadyReasons = append(notReadyReasons, fmt.Sprintf("Service %s not available", serviceName))
 					}
 				}
 			}
@@ -1438,37 +1393,6 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 			}
 		}
 
-		// Generate service class configs in muster subdirectory (only if service classes exist)
-		if len(config.ServiceClasses) > 0 {
-			// Create directory structure for CRDs: serviceclasses/ (no namespace subdirectory)
-			crdDir := filepath.Join(musterConfigPath, "serviceclasses")
-			if err := os.MkdirAll(crdDir, 0755); err != nil { //nolint:gosec
-				return fmt.Errorf("failed to create ServiceClass CRD directory %s: %w", crdDir, err)
-			}
-
-			for _, serviceClass := range config.ServiceClasses {
-				// Create ServiceClass CRD structure with proper conversion
-				serviceClassCRD := map[string]interface{}{
-					"apiVersion": "muster.giantswarm.io/v1alpha1",
-					"kind":       "ServiceClass",
-					"metadata": map[string]interface{}{
-						"name":      serviceClass["name"],
-						"namespace": "default",
-					},
-					"spec": m.convertServiceClassConfigToCRDSpec(serviceClass),
-				}
-
-				filename := filepath.Join(crdDir, serviceClass["name"].(string)+".yaml")
-				if err := m.writeYAMLFile(filename, serviceClassCRD, logger); err != nil {
-					return fmt.Errorf("failed to write ServiceClass CRD %s: %w", serviceClass["name"], err)
-				}
-
-				if m.debug {
-					logger.Debug("📋 Created ServiceClass CRD %s\n", serviceClass["name"])
-				}
-			}
-		}
-
 		// Generate service configs in muster subdirectory (only if services exist)
 		if len(config.Services) > 0 {
 			// Create services directory only when needed
@@ -1573,149 +1497,11 @@ func (m *musterInstanceManager) extractExpectedMCPServersFromInstance(instance *
 	return instance.ExpectedMCPServers
 }
 
-// extractExpectedServiceClasses extracts expected ServiceClass names from the configuration during instance creation
-func (m *musterInstanceManager) extractExpectedServiceClasses(config *MusterPreConfiguration) []string {
-	if config == nil {
-		return []string{}
-	}
-
-	var expectedServiceClasses []string
-
-	// Extract ServiceClass names from service class configurations
-	for _, serviceClass := range config.ServiceClasses {
-		expectedServiceClasses = append(expectedServiceClasses, serviceClass["name"].(string))
-	}
-
-	if m.debug && len(expectedServiceClasses) > 0 {
-		m.logger.Debug("🎯 Extracted expected ServiceClasses from configuration: %v\n", expectedServiceClasses)
-	}
-
-	return expectedServiceClasses
-}
-
-// extractExpectedServiceClassesFromInstance extracts expected ServiceClass names from instance configuration
-func (m *musterInstanceManager) extractExpectedServiceClassesFromInstance(instance *MusterInstance) []string {
-	// Return the ServiceClasses stored during instance creation
-	return instance.ExpectedServiceClasses
-}
-
-// extractExpectedServicesFromInstance extracts expected Service names from instance configuration.
-// Currently returns empty as pre-configuration isn't stored with running instances.
-// Tests that need to verify specific services should use explicit assertions in steps.
-func (m *musterInstanceManager) extractExpectedServicesFromInstance(_ *MusterInstance) []string {
-	return []string{}
-}
-
 // extractExpectedWorkflowsFromInstance extracts expected Workflow names from instance configuration.
 // Currently returns empty as pre-configuration isn't stored with running instances.
 // Tests that need to verify specific workflows should use explicit assertions in steps.
 func (m *musterInstanceManager) extractExpectedWorkflowsFromInstance(_ *MusterInstance) []string {
 	return []string{}
-}
-
-// checkServiceClassAvailability checks if a ServiceClass is available and ready
-func (m *musterInstanceManager) checkServiceClassAvailability(client MCPTestClient, ctx context.Context, serviceClassName string) (bool, error) {
-	// Use core_serviceclass_available to check availability
-	args := map[string]interface{}{
-		"name": serviceClassName,
-	}
-
-	result, err := client.CallTool(ctx, "core_serviceclass_available", args)
-	if err != nil {
-		return false, fmt.Errorf("failed to call core_serviceclass_available: %w", err)
-	}
-
-	if m.debug {
-		m.logger.Debug("🔍 ServiceClass availability check result for %s: %+v\n", serviceClassName, result)
-	}
-
-	// Try to extract the JSON content from the MCP response
-	// The response structure should have a Content field with text content
-	jsonStr := ""
-
-	// Method 1: Try reflection to access the Content field dynamically
-	resultValue := reflect.ValueOf(result)
-	if resultValue.Kind() == reflect.Ptr {
-		resultValue = resultValue.Elem()
-	}
-
-	if resultValue.Kind() == reflect.Struct {
-		contentField := resultValue.FieldByName("Content")
-		if contentField.IsValid() && contentField.Kind() == reflect.Slice && contentField.Len() > 0 {
-			firstContent := contentField.Index(0)
-			if firstContent.Kind() == reflect.Struct {
-				textField := firstContent.FieldByName("Text")
-				if textField.IsValid() && textField.Kind() == reflect.String {
-					jsonStr = textField.String()
-				}
-			}
-		}
-	}
-
-	// Method 2: If reflection didn't work, try marshaling and parsing the JSON representation
-	if jsonStr == "" {
-		if resultBytes, err := json.Marshal(result); err == nil {
-			var tempMap map[string]interface{}
-			if err := json.Unmarshal(resultBytes, &tempMap); err == nil {
-				if content, exists := tempMap["content"]; exists {
-					if contentArray, ok := content.([]interface{}); ok && len(contentArray) > 0 {
-						if contentItem, ok := contentArray[0].(map[string]interface{}); ok {
-							if textContent, exists := contentItem["text"]; exists {
-								if textStr, ok := textContent.(string); ok {
-									jsonStr = textStr
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-
-	// Parse the extracted JSON string
-	if jsonStr != "" {
-		var serviceClassInfo map[string]interface{}
-		if err := json.Unmarshal([]byte(jsonStr), &serviceClassInfo); err == nil {
-			if available, exists := serviceClassInfo["available"]; exists {
-				if availableBool, ok := available.(bool); ok {
-					if m.debug {
-						m.logger.Debug("✅ ServiceClass %s availability: %v\n", serviceClassName, availableBool)
-					}
-					return availableBool, nil
-				}
-			}
-		} else {
-			if m.debug {
-				m.logger.Debug("🔍 Failed to parse JSON from text field: %v, content: %s\n", err, jsonStr)
-			}
-		}
-	}
-
-	// If we get here, the parsing failed - let's add more debugging
-	if m.debug {
-		m.logger.Debug("🔍 ServiceClass availability check failed to parse response: %+v\n", result)
-		if resultBytes, err := json.MarshalIndent(result, "", "  "); err == nil {
-			m.logger.Debug("🔍 Full response JSON:\n%s\n", string(resultBytes))
-		}
-	}
-
-	return false, fmt.Errorf("unexpected response format from core_serviceclass_available")
-}
-
-// checkServiceAvailability checks if a Service is available
-func (m *musterInstanceManager) checkServiceAvailability(client MCPTestClient, ctx context.Context, serviceName string) (bool, error) {
-	// Use core_service_get to check if service exists
-	args := map[string]interface{}{
-		"name": serviceName,
-	}
-
-	result, err := client.CallTool(ctx, "core_service_get", args)
-	if err != nil {
-		return false, fmt.Errorf("failed to call core_service_get: %w", err)
-	}
-
-	// If the call succeeds, the service exists (result != nil means success)
-	return result != nil, nil
 }
 
 // checkMCPServersAvailability checks if the expected MCP servers are registered.
@@ -1849,363 +1635,6 @@ func (m *musterInstanceManager) checkWorkflowsAvailability(client MCPTestClient,
 	}
 
 	return workflows, nil
-}
-
-// convertServiceClassConfigToCRDSpec converts a raw ServiceClass config to a CRD spec format
-// This handles the conversion of args fields in lifecycle tools to RawExtension format
-func (m *musterInstanceManager) convertServiceClassConfigToCRDSpec(config ServiceClassConfig) map[string]interface{} {
-	spec := make(map[string]interface{})
-
-	if m.debug {
-		m.logger.Debug("📋 Converting ServiceClass config with %d fields: %v\n", len(config), config)
-	}
-
-	// Copy all fields from the config except the name field (which goes in metadata)
-	for key, value := range config {
-		if key != "name" {
-			if m.debug {
-				m.logger.Debug("📋 Processing field %s (type: %T): %v\n", key, value, value)
-			}
-
-			switch key {
-			case "args":
-				if value != nil {
-					converted := m.convertArgsDefinitionsForCRD(value)
-					spec[key] = converted
-					if m.debug {
-						m.logger.Debug("✅ Converted args field: %v\n", converted)
-					}
-				}
-			case "serviceConfig":
-				if value != nil {
-					converted := m.convertServiceConfigForCRD(value)
-					spec[key] = converted
-					if m.debug {
-						m.logger.Debug("✅ Converted serviceConfig field: %v\n", converted)
-					}
-				}
-			default:
-				spec[key] = value
-			}
-		}
-	}
-
-	if m.debug {
-		m.logger.Debug("📋 Final converted spec with %d fields: %v\n", len(spec), spec)
-	}
-
-	return spec
-}
-
-// convertArgsDefinitionsForCRD converts top-level args definitions for CRD format
-// This handles conversion of default values to RawExtension format
-func (m *musterInstanceManager) convertArgsDefinitionsForCRD(args interface{}) map[string]interface{} {
-	converted := make(map[string]interface{})
-
-	if args == nil {
-		return converted
-	}
-
-	// Handle different possible types from YAML parsing
-	var argsMap map[string]interface{}
-	switch v := args.(type) {
-	case map[string]interface{}:
-		argsMap = v
-	case ServiceClassConfig:
-		// Handle testing.ServiceClassConfig type (which is map[string]interface{} underneath)
-		argsMap = map[string]interface{}(v)
-	case map[interface{}]interface{}:
-		// YAML often parses to map[interface{}]interface{}, convert it
-		argsMap = make(map[string]interface{})
-		for k, val := range v {
-			if keyStr, ok := k.(string); ok {
-				argsMap[keyStr] = val
-			} else {
-				if m.debug {
-					m.logger.Debug("⚠️  Non-string key in args: %T = %v\n", k, k)
-				}
-			}
-		}
-	default:
-		if m.debug {
-			m.logger.Debug("⚠️  Args is not a map, type: %T\n", args)
-		}
-		return converted
-	}
-
-	for argName, argDef := range argsMap {
-		var argDefMap map[string]interface{}
-		switch v := argDef.(type) {
-		case map[string]interface{}:
-			argDefMap = v
-		case ServiceClassConfig:
-			// Handle testing.ServiceClassConfig type
-			argDefMap = map[string]interface{}(v)
-		case map[interface{}]interface{}:
-			// Convert map[interface{}]interface{} to map[string]interface{}
-			argDefMap = make(map[string]interface{})
-			for k, val := range v {
-				if keyStr, ok := k.(string); ok {
-					argDefMap[keyStr] = val
-				}
-			}
-		default:
-			// If it's not a map, just copy it as-is
-			if m.debug {
-				m.logger.Debug("⚠️  Arg %s is not a map, type: %T\n", argName, argDef)
-			}
-			converted[argName] = argDef
-			continue
-		}
-
-		convertedArgDef := make(map[string]interface{})
-
-		// Copy all fields from the original arg definition
-		for key, value := range argDefMap {
-			if key == "default" { //nolint:goconst
-				// Convert default value to RawExtension format
-				rawBytes := m.convertValueToRawExtension(value, "argDef", argName)
-				convertedArgDef[key] = map[string]interface{}{
-					"raw": rawBytes,
-				}
-			} else {
-				convertedArgDef[key] = value
-			}
-		}
-
-		converted[argName] = convertedArgDef
-	}
-
-	if m.debug {
-		m.logger.Debug("📋 Converted %d arg definitions for CRD\n", len(converted))
-	}
-
-	return converted
-}
-
-// convertServiceConfigForCRD converts a serviceConfig to CRD format, handling lifecycle tools args
-func (m *musterInstanceManager) convertServiceConfigForCRD(serviceConfig interface{}) map[string]interface{} {
-	// Create a new map to hold the converted service config
-	converted := make(map[string]interface{})
-
-	if serviceConfig == nil {
-		return converted
-	}
-
-	// Handle different possible types from YAML parsing
-	var serviceConfigMap map[string]interface{}
-	switch v := serviceConfig.(type) {
-	case map[string]interface{}:
-		serviceConfigMap = v
-	case ServiceClassConfig:
-		// Handle testing.ServiceClassConfig type (which is map[string]interface{} underneath)
-		serviceConfigMap = map[string]interface{}(v)
-	case map[interface{}]interface{}:
-		// YAML often parses to map[interface{}]interface{}, convert it
-		serviceConfigMap = make(map[string]interface{})
-		for k, val := range v {
-			if keyStr, ok := k.(string); ok {
-				serviceConfigMap[keyStr] = val
-			} else {
-				if m.debug {
-					m.logger.Debug("⚠️  Non-string key in serviceConfig: %T = %v\n", k, k)
-				}
-			}
-		}
-	default:
-		if m.debug {
-			m.logger.Debug("⚠️  ServiceConfig is not a map, type: %T\n", serviceConfig)
-		}
-		return converted
-	}
-
-	// Copy all fields from the original service config, handling special cases
-	for key, value := range serviceConfigMap {
-		switch key {
-		case "lifecycleTools":
-			// Handle lifecycleTools specifically to convert args
-			var lifecycleToolsMap map[string]interface{}
-			switch v := value.(type) {
-			case map[string]interface{}:
-				lifecycleToolsMap = v
-			case ServiceClassConfig:
-				// Handle testing.ServiceClassConfig type
-				lifecycleToolsMap = map[string]interface{}(v)
-			case map[interface{}]interface{}:
-				// Convert map[interface{}]interface{} to map[string]interface{}
-				lifecycleToolsMap = make(map[string]interface{})
-				for k, val := range v {
-					if keyStr, ok := k.(string); ok {
-						lifecycleToolsMap[keyStr] = val
-					}
-				}
-			default:
-				if m.debug {
-					m.logger.Debug("⚠️  LifecycleTools is not a map, type: %T\n", value)
-				}
-				converted[key] = value
-				continue
-			}
-
-			convertedLifecycleTools := m.convertLifecycleToolsForCRD(lifecycleToolsMap)
-			converted[key] = convertedLifecycleTools
-		default:
-			// Copy other fields as-is
-			converted[key] = value
-		}
-	}
-
-	if m.debug {
-		m.logger.Debug("📋 Converted serviceConfig with %d fields\n", len(converted))
-	}
-
-	return converted
-}
-
-// convertLifecycleToolsForCRD converts lifecycle tools to CRD format, handling args as RawExtension
-func (m *musterInstanceManager) convertLifecycleToolsForCRD(lifecycleTools map[string]interface{}) map[string]interface{} {
-	// Create a new map to hold the converted lifecycle tools
-	converted := make(map[string]interface{})
-
-	if m.debug {
-		m.logger.Debug("📋 Converting lifecycle tools: %v\n", lifecycleTools)
-	}
-
-	// Process each lifecycle tool (start, stop, restart, healthCheck, status)
-	for toolType, toolConfig := range lifecycleTools {
-		var toolConfigMap map[string]interface{}
-		switch v := toolConfig.(type) {
-		case map[string]interface{}:
-			toolConfigMap = v
-		case ServiceClassConfig:
-			// Handle testing.ServiceClassConfig type
-			toolConfigMap = map[string]interface{}(v)
-		case map[interface{}]interface{}:
-			// Convert map[interface{}]interface{} to map[string]interface{}
-			toolConfigMap = make(map[string]interface{})
-			for k, val := range v {
-				if keyStr, ok := k.(string); ok {
-					toolConfigMap[keyStr] = val
-				}
-			}
-		default:
-			// If it's not a map, just copy it as-is
-			if m.debug {
-				m.logger.Debug("⚠️  Tool %s is not a map, type: %T, copying as-is\n", toolType, toolConfig)
-			}
-			converted[toolType] = toolConfig
-			continue
-		}
-
-		convertedTool := m.convertToolCallForCRD(toolConfigMap, toolType)
-		converted[toolType] = convertedTool
-		if m.debug {
-			m.logger.Debug("✅ Converted %s tool: %v\n", toolType, convertedTool)
-		}
-	}
-
-	if m.debug {
-		m.logger.Debug("📋 Converted %d lifecycle tools\n", len(converted))
-	}
-
-	return converted
-}
-
-// convertToolCallForCRD converts a tool call to CRD format, handling args as RawExtension
-func (m *musterInstanceManager) convertToolCallForCRD(toolCall map[string]interface{}, toolType string) map[string]interface{} {
-	// Create a new map to hold the converted tool call
-	converted := make(map[string]interface{})
-
-	// Copy all fields from the original tool call
-	for key, value := range toolCall {
-		converted[key] = value
-	}
-
-	// Handle args specifically to convert to RawExtension format
-	// Only convert if args actually exist and are not empty
-	if args, exists := toolCall["args"]; exists && args != nil {
-		// Handle different possible types for args
-		var argsMap map[string]interface{}
-		var hasArgs bool
-
-		switch v := args.(type) {
-		case map[string]interface{}:
-			if len(v) > 0 {
-				argsMap = v
-				hasArgs = true
-			}
-		case ServiceClassConfig:
-			// Handle testing.ServiceClassConfig type
-			tempMap := map[string]interface{}(v)
-			if len(tempMap) > 0 {
-				argsMap = tempMap
-				hasArgs = true
-			}
-		case map[interface{}]interface{}:
-			// Convert map[interface{}]interface{} to map[string]interface{}
-			tempMap := make(map[string]interface{})
-			for k, val := range v {
-				if keyStr, ok := k.(string); ok {
-					tempMap[keyStr] = val
-				}
-			}
-			if len(tempMap) > 0 {
-				argsMap = tempMap
-				hasArgs = true
-			}
-		default:
-			if m.debug {
-				m.logger.Debug("⚠️  Tool %s args is not a map, type: %T, leaving as-is\n", toolType, args)
-			}
-		}
-
-		if hasArgs {
-			convertedArgs := m.convertArgsToRawExtension(argsMap, toolType)
-			converted["args"] = convertedArgs
-			if m.debug {
-				m.logger.Debug("✅ Converted %s tool args to RawExtension: %v\n", toolType, convertedArgs)
-			}
-		}
-	}
-
-	return converted
-}
-
-// convertArgsToRawExtension converts args to RawExtension format
-func (m *musterInstanceManager) convertArgsToRawExtension(args interface{}, toolType string) map[string]interface{} {
-	// Convert args to a map where each value is a RawExtension
-	result := make(map[string]interface{})
-
-	if argsMap, ok := args.(map[string]interface{}); ok {
-		for key, value := range argsMap {
-			// Convert each value to RawExtension format
-			rawBytes := m.convertValueToRawExtension(value, toolType, key)
-			result[key] = map[string]interface{}{
-				"raw": rawBytes,
-			}
-		}
-	}
-
-	return result
-}
-
-// convertValueToRawExtension converts a value to RawExtension format
-func (m *musterInstanceManager) convertValueToRawExtension(value interface{}, toolType, argName string) []byte {
-	// Convert the value to JSON bytes directly
-	jsonData, err := json.Marshal(value)
-	if err != nil {
-		if m.debug {
-			m.logger.Debug("⚠️  Failed to marshal arg %s for tool %s: %v\n", argName, toolType, err)
-		}
-		// Fallback: convert to JSON string manually
-		if str, ok := value.(string); ok {
-			jsonData = []byte(fmt.Sprintf(`"%s"`, str))
-		} else {
-			jsonData = []byte(fmt.Sprintf(`"%v"`, value))
-		}
-	}
-
-	return jsonData
 }
 
 // convertWorkflowConfigToCRDSpec converts a raw Workflow config to a CRD spec format

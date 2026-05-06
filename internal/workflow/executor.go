@@ -641,9 +641,7 @@ func (we *WorkflowExecutor) validateInputs(argsDefinition map[string]api.ArgDefi
 		}
 	}
 
-	// Check for unknown arguments - allow extra properties for flexibility
-	// This follows the same pattern as ServiceClass.ValidateServiceArgs
-
+	// Allow extra properties for flexibility — extra arguments are tolerated.
 	logging.Debug("WorkflowExecutor", "validateInputs final args: %+v", args)
 	return nil
 }
