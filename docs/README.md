@@ -16,7 +16,6 @@ Welcome to Muster's docs! We've organized everything based on what you're trying
 **Need to get something done?** These guides show you how:
 
 - [Create custom workflows](how-to/workflow-creation.md) - Build automated task sequences
-- [Configure services](how-to/service-configuration.md) - Set up service lifecycle management
 - [Troubleshoot issues](how-to/troubleshooting.md) - Fix common problems
 
 ### 📚 Look up reference information

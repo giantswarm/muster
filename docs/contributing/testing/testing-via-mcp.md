@@ -36,7 +36,7 @@ Unlike CLI usage where you might need to manage muster services manually, **the 
   "summary": {...},
   "scenarios": [
     {
-      "name": "serviceclass-basic-operations",
+      "name": "workflow-basic-operations",
       "status": "passed",
       "instance_logs": {
         "stdout": "time=2025-06-19T11:07:19.565+02:00 level=INFO msg=\"Loaded configuration...\"",
@@ -58,7 +58,7 @@ Unlike CLI usage where you might need to manage muster services manually, **the 
 4. **Starts muster serve**: So we have a clean instance to test against for each test scenario
 5. **Tool Aggregation**: mcpserver tools are  aggregated and exposed through muster's aggregated MCP server
 
-**Why This Architecture Matters**: muster's other concepts (workflows, serviceclasses, capabilities, services) depend on MCP server tools being available through the aggregated MCP server. Mock servers enable testing these concepts and the complete integration without requiring actual external services.
+**Why This Architecture Matters**: muster's other concepts (workflows, capabilities, services) depend on MCP server tools being available through the aggregated MCP server. Mock servers enable testing these concepts and the complete integration without requiring actual external services.
 
 **Mock Server Tool Naming**: Mock MCP server tools become available through the muster MCP interface with a specific naming convention:
 
@@ -128,7 +128,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
 
 **Args**:
 - `category` (string, optional): Filter by category ("behavioral", "integration")
-- `concept` (string, optional): Filter by concept ("serviceclass", "workflow", "mcpserver", "service")
+- `concept` (string, optional): Filter by concept ("workflow", "mcpserver", "service")
 - `scenario` (string, optional): Run specific scenario by name
 - `config_path` (string, optional): Path to scenario files (default: `internal/testing/scenarios`)
 - `parallel` (number, optional): Number of parallel workers (default: 1)
@@ -150,7 +150,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
   },
   "scenarios": [
     {
-      "name": "serviceclass-basic-operations",
+      "name": "workflow-basic-operations",
       "status": "passed",
       "execution_time": "45s",
       "instance_logs": {
@@ -160,10 +160,10 @@ The muster testing framework exposes four primary MCP tools through the aggregat
       },
       "steps": [
         {
-          "id": "create-test-serviceclass",
+          "id": "create-test-workflow",
           "status": "passed",
           "execution_time": "12s",
-          "tool": "core_serviceclass_create",
+          "tool": "core_workflow_create",
           "response": {...}
         }
       ]
@@ -185,11 +185,11 @@ The muster testing framework exposes four primary MCP tools through the aggregat
 {
   "scenarios": [
     {
-      "name": "serviceclass-basic-operations",
+      "name": "workflow-basic-operations",
       "category": "behavioral",
-      "concept": "serviceclass",
-      "description": "Basic ServiceClass management operations",
-      "tags": ["basic", "crud", "serviceclass"],
+      "concept": "workflow",
+      "description": "Basic Workflow management operations",
+      "tags": ["basic", "crud", "workflow"],
       "step_count": 6,
       "cleanup_count": 2,
       "estimated_duration": "5m"
@@ -197,7 +197,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
   ],
   "total_count": 15,
   "categories": ["behavioral", "integration"],
-  "concepts": ["serviceclass", "workflow", "mcpserver"]
+  "concepts": ["workflow", "mcpserver"]
 }
 ```
 
@@ -208,7 +208,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
 - `scenario_path` (string, required): Path to scenario file or directory
 - `schema_path` (string, optional): Path to API schema file for API validation
 - `category` (string, optional): Filter by category when using schema validation ("behavioral", "integration")
-- `concept` (string, optional): Filter by concept when using schema validation ("serviceclass", "workflow", "mcpserver", "service")
+- `concept` (string, optional): Filter by concept when using schema validation ("workflow", "mcpserver", "service")
 
 **Response Format (YAML validation)**:
 ```json
@@ -218,7 +218,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
   "scenario_count": 3,
   "scenarios": [
     {
-      "name": "serviceclass-basic-operations",
+      "name": "workflow-basic-operations",
       "valid": true,
       "errors": [],
       "warnings": [
@@ -242,20 +242,20 @@ The muster testing framework exposes four primary MCP tools through the aggregat
   "total_errors": 330,
   "scenario_results": [
     {
-      "scenario_name": "serviceclass-basic-operations",
+      "scenario_name": "workflow-basic-operations",
       "valid": false,
       "errors": [
         {
           "type": "unexpected_argument",
-          "message": "Step create-test-serviceclass: Argument 'description' not expected for tool 'core_serviceclass_create'",
+          "message": "Step create-test-workflow: Argument 'description' not expected for tool 'core_workflow_create'",
           "field": "description",
           "suggestion": "Remove argument or check if arg name changed"
         }
       ],
       "step_results": [
         {
-          "step_id": "create-test-serviceclass",
-          "tool": "core_serviceclass_create",
+          "step_id": "create-test-workflow",
+          "tool": "core_workflow_create",
           "valid": false,
           "errors": [...]
         }
@@ -329,7 +329,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
 {
   "tool": "mcp_muster-test_test_run_scenarios",
   "args": {
-    "concept": "serviceclass",
+    "concept": "workflow",
     "parallel": 2
   }
 }
@@ -340,7 +340,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
 {
   "tool": "mcp_muster-test_test_run_scenarios",
   "args": {
-    "scenario": "serviceclass-basic-operations",
+    "scenario": "workflow-basic-operations",
     "verbose": true
   }
 }
@@ -379,7 +379,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
 {
   "tool": "test_list_scenarios",
   "args": {
-    "concept": "serviceclass"
+    "concept": "workflow"
   }
 }
 ```
@@ -412,7 +412,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
   "args": {
     "scenario_path": "internal/testing/scenarios/",
     "schema_path": "schema.json",
-    "concept": "serviceclass"
+    "concept": "workflow"
   }
 }
 ```
@@ -471,7 +471,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
 {
   "tool": "mcp_muster-test_test_run_scenarios",
   "args": {
-    "scenario": "serviceclass-basic-operations",
+    "scenario": "workflow-basic-operations",
     "verbose": true
   }
 }
@@ -484,12 +484,12 @@ The muster testing framework exposes four primary MCP tools through the aggregat
 # Create: internal/testing/scenarios/my-new-test.yaml
 name: "my-new-feature-test"
 category: "behavioral"
-concept: "serviceclass"
-description: "Test my new ServiceClass feature"
+concept: "workflow"
+description: "Test my new Workflow feature"
 
 steps:
   - id: test-new-feature
-    tool: core_serviceclass_create
+    tool: core_workflow_create
     args:
       yaml: |
         name: test-new-feature
@@ -548,7 +548,7 @@ steps:
 {
   "tool": "mcp_muster-test_test_run_scenarios",
   "args": {
-    "concept": "serviceclass",
+    "concept": "workflow",
     "fail_fast": true,
     "verbose": true
   }
@@ -562,7 +562,7 @@ steps:
   "args": {
     "scenario_path": "internal/testing/scenarios/",
     "schema_path": "schema.json",
-    "concept": "serviceclass"
+    "concept": "workflow"
   }
 }
 ```
@@ -656,7 +656,7 @@ Check the `instance_logs` in the test results for detailed debugging information
 ### Scenario Organization Patterns
 
 #### 1. **Naming Conventions**
-- Use descriptive names: `serviceclass-crud-operations`
+- Use descriptive names: `workflow-crud-operations`
 - Include complexity level: `workflow-basic-arg-templating`
 - Group by functionality: `mcpserver-connection-management`
 
@@ -835,7 +835,7 @@ Reduce parallel execution:
   "tool": "mcp_muster-test_test_run_scenarios",
   "args": {
     "parallel": 1,
-    "concept": "serviceclass"
+    "concept": "workflow"
   }
 }
 ```
@@ -864,7 +864,7 @@ Reduce parallel execution:
 ```typescript
 // Use MCP testing tools directly in Cursor
 const testResult = await mcp.callTool("mcp_muster-test_test_run_scenarios", {
-  concept: "serviceclass",
+  concept: "workflow",
   verbose: true
 });
 ```
@@ -878,7 +878,7 @@ const testResult = await mcp.callTool("mcp_muster-test_test_run_scenarios", {
 name: scenario-name
 description: "Description of what this scenario tests"
 category: behavioral  # or integration
-concept: serviceclass  # serviceclass, workflow, mcpserver, service
+concept: workflow  # workflow, mcpserver, service
 
 # Pre-configuration for isolated muster instance
 pre_configuration:
@@ -925,54 +925,11 @@ Each test step follows the same structure as workflow steps for consistency:
 
 ### Tool Naming Conventions in Scenarios
 
-- **Core Tools**: Use direct names like `core_serviceclass_create`
+- **Core Tools**: Use direct names like `core_workflow_create`
 - **Mock Tools**: Use `x_<server-name>_<tool-name>` pattern
 - **Workflows**: Use `workflow_<workflow-name>` pattern (NOT `action_<name>`)
 
 ### Example Scenarios
-
-#### Basic ServiceClass Operations
-
-```yaml
----
-name: serviceclass-basic-operations
-description: "Tests basic ServiceClass CRUD operations"
-category: behavioral
-concept: serviceclass
-steps:
-  - id: list-initial-serviceclasses
-    description: "List ServiceClasses before creating any"
-    tool: core_serviceclass_list
-    args: {}
-    expected:
-      success: true
-
-  - id: create-serviceclass
-    description: "Create a new ServiceClass"
-    tool: core_serviceclass_create
-    args:
-      name: test-basic-serviceclass
-      definition:
-        description: "Test ServiceClass for basic operations"
-        tools:
-          - core_service_create
-          - core_service_delete
-        lifecycleTools:
-          start: "mock_start"
-          stop: "mock_stop"
-        args: []
-    expected:
-      success: true
-
-cleanup:
-  - id: delete-serviceclass
-    description: "Delete the test ServiceClass"
-    tool: core_serviceclass_delete
-    args:
-      name: test-basic-serviceclass
-    expected:
-      success: true
-```
 
 #### Basic Workflow Operations
 
@@ -990,7 +947,7 @@ pre_configuration:
         description: "Test workflow for basic operations"
         steps:
           - id: step1
-            tool: core_serviceclass_list
+            tool: core_workflow_list
             args: {}
 
 steps:
@@ -1034,8 +991,8 @@ cleanup:
 The test framework transparently wraps all tool calls through the `call_tool` meta-tool. Test scenarios continue to reference tools by their simple names (e.g., `core_service_list`), and the test client handles the wrapping internally.
 
 **What this means for test authors:**
-- Write scenarios using direct tool names: `tool: core_serviceclass_create`
-- The framework automatically wraps this as: `call_tool(name="core_serviceclass_create", arguments={...})`
+- Write scenarios using direct tool names: `tool: core_workflow_create`
+- The framework automatically wraps this as: `call_tool(name="core_workflow_create", arguments={...})`
 - Response unwrapping is also handled automatically
 
 This architecture matches how AI agents interact with Muster in production - they also use meta-tools to access all functionality.

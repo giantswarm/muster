@@ -10,7 +10,7 @@ muster events [OPTIONS]
 
 ## Description
 
-The `events` command provides access to event history for all muster components including MCPServers, ServiceClasses, Workflows, and Service instances. Events are automatically generated during resource lifecycle operations and can be queried with various filters.
+The `events` command provides access to event history for all muster components including MCPServers, Workflows, and Service instances. Events are automatically generated during resource lifecycle operations and can be queried with various filters.
 
 Events provide visibility into:
 - Resource creation, updates, and deletions
@@ -25,7 +25,7 @@ Events provide visibility into:
 
 ### Resource Filtering
 - `--resource-type` (string): Filter by resource type
-  - Options: `mcpserver`, `serviceclass`, `workflow`, `service`
+  - Options: `mcpserver`, `workflow`, `service`
 - `--resource-name` (string): Filter by specific resource name
 - `--namespace` (string): Filter by namespace (default: all namespaces)
 
@@ -67,7 +67,6 @@ muster events
 ```bash
 # Filter by resource type
 muster events --resource-type mcpserver
-muster events --resource-type serviceclass
 muster events --resource-type workflow
 muster events --resource-type service
 
@@ -141,10 +140,6 @@ muster events --resource-type workflow --output yaml --since 1h
 - **Tools**: ToolsDiscovered, ToolsUnavailable, Reconnected
 - **Health**: HealthCheckFailed, RecoveryStarted, RecoverySucceeded, RecoveryFailed
 
-### ServiceClass Events
-- **Configuration**: Created, Updated, Deleted, Validated, ValidationFailed
-- **Availability**: Available, Unavailable, ToolsDiscovered, ToolsMissing, ToolsRestored
-
 ### Workflow Events
 - **Configuration**: Created, Updated, Deleted, ValidationFailed, ValidationSucceeded
 - **Execution**: ExecutionStarted, ExecutionCompleted, ExecutionFailed, ExecutionTracked
@@ -198,7 +193,7 @@ When running with filesystem backend:
 muster list mcpserver
 
 # Verify event generation by performing an action
-muster create service test-service web-app
+muster create service test-service
 muster events --resource-type service --resource-name test-service
 ```
 

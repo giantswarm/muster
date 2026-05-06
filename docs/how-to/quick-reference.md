@@ -46,7 +46,7 @@ muster check mcpserver <name>
 muster list service
 
 # Service lifecycle
-muster create service <name> <serviceclass> [--args]
+muster create service <name> [--args]
 muster start service <name>
 muster stop service <name>
 
@@ -68,18 +68,6 @@ muster check workflow <name>
 # Execute workflow via agent
 muster agent --repl
 # then: workflow_<name>(arg1="value1")
-```
-
-### ServiceClass Operations
-```bash
-# List serviceclasses
-muster list serviceclass
-
-# Get serviceclass details
-muster get serviceclass <name>
-
-# Check serviceclass availability
-muster check serviceclass <name>
 ```
 
 ### Agent Operations
@@ -130,8 +118,6 @@ aggregator:
 │   └── example.yaml
 ├── workflows/               # Workflow definitions
 │   └── deploy.yaml
-├── serviceclasses/          # ServiceClass definitions
-│   └── web-app.yaml
 └── services/                # Service instances
     └── my-service.yaml
 ```
@@ -156,60 +142,6 @@ spec:
   description: "Git tools MCP server"
 ```
 
-### Basic ServiceClass
-```yaml
-# ~/.config/muster/serviceclasses/web-app.yaml
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: ServiceClass
-metadata:
-  name: web-application
-  namespace: default
-spec:
-  description: "Web application service"
-  args:
-    port:
-      type: integer
-      default: 8080
-      description: "Application port"
-  serviceConfig:
-    lifecycleTools:
-      start:
-        tool: "start_web_service"
-        args:
-          port: "{{.port}}"
-      stop:
-        tool: "stop_web_service"
-        args:
-          name: "{{.name}}"
-```
-
-### Basic Workflow
-```yaml
-# ~/.config/muster/workflows/deploy.yaml
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: Workflow
-metadata:
-  name: deploy-app
-  namespace: default
-spec:
-  name: deploy-app
-  description: "Deploy application workflow"
-  args:
-    app_name:
-      type: string
-      required: true
-  steps:
-    - id: create_service
-      tool: core_service_create
-      args:
-        name: "{{.app_name}}"
-        serviceClassName: "web-application"
-    - id: check_status
-      tool: core_service_status
-      args:
-        name: "{{.app_name}}"
-```
-
 ## Agent/REPL Commands
 
 ### Tool Discovery
@@ -222,13 +154,12 @@ filter_tools(pattern="core_")
 filter_tools(pattern="workflow_")
 
 # Get tool information
-describe_tool("core_service_create")
+describe_tool("core_service_list")
 ```
 
 ### Core Tool Usage
 ```bash
 # Service management
-call_tool(name="core_service_create", arguments={"name": "my-app", "serviceClassName": "web-app"})
 call_tool(name="core_service_list", arguments={})
 call_tool(name="core_service_status", arguments={"name": "my-app"})
 call_tool(name="core_service_start", arguments={"name": "my-app"})
@@ -238,11 +169,6 @@ call_tool(name="core_service_stop", arguments={"name": "my-app"})
 call_tool(name="core_workflow_list", arguments={})
 call_tool(name="core_workflow_create", arguments={"name": "my-workflow", "steps": [...]})
 call_tool(name="workflow_my-workflow", arguments={"app_name": "test-app"})
-
-# ServiceClass management
-call_tool(name="core_serviceclass_list", arguments={})
-call_tool(name="core_serviceclass_get", arguments={"name": "web-app"})
-call_tool(name="core_serviceclass_check", arguments={"name": "web-app"})
 ```
 
 ## Output Formats

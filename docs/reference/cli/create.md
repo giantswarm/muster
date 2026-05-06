@@ -10,7 +10,7 @@ muster create [RESOURCE_TYPE] [NAME] [OPTIONS]
 
 ## Description
 
-The `create` command creates new resources in Muster. It supports creating service classes, workflows, and service instances with flexible argument passing and configuration options.
+The `create` command creates new resources in Muster. It supports creating workflows and service instances with flexible argument passing and configuration options.
 
 **Prerequisites**: The aggregator server must be running (`muster serve`) before using this command.
 
@@ -18,9 +18,8 @@ The `create` command creates new resources in Muster. It supports creating servi
 
 | Resource Type | Description | Example |
 |---------------|-------------|---------|
-| `serviceclass` | Service template definition | `muster create serviceclass web-app` |
 | `workflow` | Workflow definition | `muster create workflow deploy-flow` |
-| `service` | Service instance from a ServiceClass | `muster create service my-app web-app` |
+| `service` | Service instance | `muster create service my-app` |
 
 ## Options
 
@@ -41,15 +40,6 @@ When creating services, additional parameters can be passed as arguments:
 
 ## Examples
 
-### Creating ServiceClasses
-```bash
-# Create a basic service class
-muster create serviceclass web-app
-
-# With structured output
-muster create serviceclass web-app --output yaml
-```
-
 ### Creating Workflows
 ```bash
 # Create a basic workflow
@@ -61,115 +51,54 @@ muster create workflow backup-db --output json
 
 ### Creating Services
 ```bash
-# Create service from service class
-muster create service my-app web-service
-
 # Create service with parameters
-muster create service my-portal mimir-port-forward \
+muster create service my-portal \
   --managementCluster=gazelle \
   --localPort=18009
 
 # Complex service with multiple parameters
-muster create service monitoring-stack prometheus-stack \
+muster create service monitoring-stack \
   --namespace=monitoring \
   --retention=30d \
   --replicas=3 \
   --storage=100Gi
 ```
 
-## Service Creation Patterns
-
-### Basic Service Creation
-```bash
-# Pattern: muster create service [service-name] [serviceclass-name]
-muster create service my-web-app web-application
-
-# The service inherits configuration from the serviceclass
-muster get service my-web-app
-```
-
-### Parameterized Service Creation
-```bash
-# Pass parameters to customize the service
-muster create service custom-app web-application \
-  --image=nginx:1.21 \
-  --replicas=5 \
-  --environment=production
-```
-
-### Port-Forward Services
-```bash
-# Create port-forward service for development
-muster create service local-prometheus prometheus-port-forward \
-  --cluster=management \
-  --namespace=monitoring \
-  --localPort=9090 \
-  --remotePort=9090
-```
-
 ## Output Formats
 
 ### Table Format (Default)
 ```bash
-muster create service my-app web-service
-# NAME     TYPE           STATUS    SERVICECLASS
-# my-app   service        Created   web-service
+muster create service my-app
+# NAME     TYPE      STATUS
+# my-app   service   Created
 ```
 
 ### JSON Format
 ```bash
-muster create service my-app web-service --output json
+muster create service my-app --output json
 # {
 #   "name": "my-app",
 #   "type": "service",
 #   "status": "Created",
-#   "serviceClass": "web-service",
 #   "created": "2024-01-07T10:00:00Z"
 # }
 ```
 
 ### YAML Format
 ```bash
-muster create serviceclass web-app --output yaml
+muster create workflow deploy-app --output yaml
 # apiVersion: muster.giantswarm.io/v1alpha1
-# kind: ServiceClass
+# kind: Workflow
 # metadata:
-#   name: web-app
+#   name: deploy-app
 #   created: "2024-01-07T10:00:00Z"
 # spec:
-#   description: "Web application service class"
+#   description: "Application deployment workflow"
 ```
 
 ## Resource Creation Workflow
 
-### 1. ServiceClass Creation
-ServiceClasses define reusable service templates:
-
-```bash
-# Create the template
-muster create serviceclass database-service
-
-# Verify creation
-muster get serviceclass database-service
-
-# List all service classes
-muster list serviceclass
-```
-
-### 2. Service Instance Creation
-Create concrete service instances from ServiceClasses:
-
-```bash
-# Create instance from template
-muster create service prod-db database-service \
-  --size=large \
-  --backup=enabled
-
-# Check service status
-muster get service prod-db
-```
-
-### 3. Workflow Creation
+### Workflow Creation
 Create workflow definitions for automation:
 
 ```bash
@@ -186,36 +115,22 @@ muster start workflow app-deployment --app=my-app
 ## Parameter Passing
 
 ### Service Parameters
-When creating services, parameters are passed to the underlying ServiceClass:
+When creating services, parameters are passed as arguments:
 
 ```bash
 # All unknown flags become service parameters
-muster create service my-service web-app \
+muster create service my-service \
   --image=myapp:v1.0 \
   --replicas=3 \
   --memory=512Mi \
   --custom-config=value
-
-# These parameters are available to the ServiceClass template
-```
-
-### Parameter Validation
-Parameters are validated against the ServiceClass definition:
-
-```bash
-# If ServiceClass requires 'image' parameter
-muster create service test-app web-app
-# Error: required parameter 'image' not provided
-
-# Correct usage
-muster create service test-app web-app --image=nginx:latest
 ```
 
 ## Error Handling
 
 ### Resource Already Exists
 ```bash
-muster create service my-app web-service
+muster create service my-app
 # Error: service 'my-app' already exists
 
 # Solution: Use different name or delete existing
@@ -223,28 +138,18 @@ muster get service my-app  # Check if it exists
 muster delete service my-app  # Delete if needed
 ```
 
-### ServiceClass Not Found
-```bash
-muster create service my-app non-existent
-# Error: serviceclass 'non-existent' not found
-
-# Solution: List available service classes
-muster list serviceclass
-muster create service my-app existing-serviceclass
-```
-
 ### Missing Required Parameters
 ```bash
-muster create service my-app complex-service
+muster create service my-app
 # Error: required parameter 'cluster' not provided
 
 # Solution: Provide required parameters
-muster create service my-app complex-service --cluster=production
+muster create service my-app --cluster=production
 ```
 
 ### Configuration Issues
 ```bash
-muster create serviceclass my-class
+muster create workflow my-workflow
 # Error: failed to connect to aggregator
 
 # Solution: Ensure server is running
@@ -268,30 +173,23 @@ The create command supports tab completion for:
 ```bash
 # Resource types
 muster create [TAB]
-# Suggestions: service, serviceclass, workflow
-
-# ServiceClass names (when creating services)
-muster create service my-app [TAB]
-# Suggestions: web-app, database, monitoring, ...
+# Suggestions: service, workflow
 ```
 
 ## Integration with Other Commands
 
 ### Typical Workflow
 ```bash
-# 1. Create service class template
-muster create serviceclass web-app
+# 1. Create service instance
+muster create service my-app --image=nginx
 
-# 2. Create service instance
-muster create service my-app web-app --image=nginx
-
-# 3. Start the service
+# 2. Start the service
 muster start service my-app
 
-# 4. Check status
+# 3. Check status
 muster get service my-app
 
-# 5. Create workflow for automation
+# 4. Create workflow for automation
 muster create workflow deploy-my-app
 ```
 
@@ -309,7 +207,7 @@ muster create workflow deploy-my-app
 ```bash
 # Create multiple services with different parameters
 for env in dev staging prod; do
-  muster create service "app-$env" web-service \
+  muster create service "app-$env" \
     --environment="$env" \
     --replicas=$([ "$env" = "prod" ] && echo 5 || echo 2)
 done
@@ -318,7 +216,7 @@ done
 ### Template-Based Creation
 ```bash
 # Create service with complex configuration
-muster create service complex-app enterprise-service \
+muster create service complex-app \
   --database-url="postgres://localhost:5432/myapp" \
   --redis-url="redis://localhost:6379" \
   --feature-flags="feature1,feature2,feature3" \
@@ -329,7 +227,7 @@ muster create service complex-app enterprise-service \
 ### Development Patterns
 ```bash
 # Quick development setup
-muster create service dev-env development-stack \
+muster create service dev-env \
   --debug=true \
   --hot-reload=enabled \
   --local-storage=./data
