@@ -173,8 +173,6 @@ func (d *KubernetesDetector) setupInformerForType(resourceType ResourceType) err
 	switch resourceType {
 	case ResourceTypeMCPServer:
 		obj = &musterv1alpha1.MCPServer{}
-	case ResourceTypeServiceClass:
-		obj = &musterv1alpha1.ServiceClass{}
 	case ResourceTypeWorkflow:
 		obj = &musterv1alpha1.Workflow{}
 	default:

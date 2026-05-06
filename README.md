@@ -132,30 +132,6 @@ steps:
 
 > 📖 **Learn More**: [Workflow Creation Guide](docs/how-to/workflow-creation.md) | [Workflow Component Architecture](docs/explanation/components/workflows.md)
 
-#### **ServiceClasses**: Handle Prerequisites Automatically
-
-Many MCP servers need setup (port-forwarding, authentication, etc.). ServiceClasses define these prerequisites:
-
-```yaml
-name: prometheus-access
-startTool: x_kubernetes_port_forward
-args:
-  service: "prometheus-server"
-  namespace: "monitoring"
-  localPort: 9090
-healthCheck:
-  url: "http://localhost:9090/api/v1/status"
-```
-
-**Complete Integration Example**:
-
-1. **ServiceClass** creates port-forwarding to Prometheus
-2. **MCP Server** configuration uses the forwarded port
-3. **Workflow** orchestrates: setup → query → cleanup
-4. **Agent** executes everything seamlessly
-
-> 📖 **Learn More**: [ServiceClass Patterns](docs/how-to/serviceclass-patterns.md) | [Service Configuration](docs/how-to/service-configuration.md) | [Services Component Guide](docs/explanation/components/services.md)
-
 ## Quick Start
 
 ### 🤖 AI Agent Users (5 minutes)
@@ -243,27 +219,10 @@ Your agent now has meta-capabilities:
 
 ## Advanced Platform Engineering Scenarios
 
-### Scenario 1: Multi-Cluster Debugging
-
-ServiceClass for cluster access
+### Scenario 1: Cross-Cluster Investigation
 
 ```yaml
-name: cluster-login
-version: "1.0.0"
-serviceConfig:
-  serviceType: "auth"
-  args:
-    cluster:
-      type: "string"
-      required: true
-  lifecycleTools:
-    start: { tool: "x_teleport_kube_login" }
-```
-
-Workflow to compare pods on two clusters
-
-```yaml
-# Workflow for cross-cluster investigation
+# Workflow to compare pods on two clusters via Teleport
 name: compare-pod-on-staging-prod
 input_schema:
   type: "object"
@@ -272,51 +231,27 @@ input_schema:
     pod: { type: "string" }
   required: ["namespace", "pod"]
 steps:
-  - id: staging-context
-    tool: core_service_create
+  - id: login-staging
+    tool: x_teleport_kube_login
     args:
-      serviceClassName: "cluster-login"
-      name: "staging-context"
-      params:
-        cluster: "staging"
-  - id: prod-context
-    tool: core_service_create
+      cluster: "staging"
+  - id: login-prod
+    tool: x_teleport_kube_login
     args:
-      serviceClassName: "cluster-login"
-      name: "staging-context"
-      params:
-        cluster: "production"
-  - id: wait-for-step
+      cluster: "production"
   - id: compare-resources
     tool: workflow_compare_pods_on_clusters
     args:
-
+      namespace: "{{ .input.namespace }}"
+      pod: "{{ .input.pod }}"
 ```
 
-### Scenario 2: Full Observability Stack
+### Scenario 2: Observability MCP Server Wiring
 ```yaml
-# Prometheus access with port-forwarding
-name: prometheus-tunnel
-startTool: k8s_port_forward
-args:
-  service: "prometheus-server"
-  localPort: 9090
-
----
-# Grafana dashboard access
-name: grafana-tunnel
-startTool: k8s_port_forward
-args:
-  service: "grafana"
-  localPort: 3000
----
-# Complete monitoring workflow
+# Define an MCP server that fronts Prometheus.
+# Run port-forwarding out-of-band (kubectl, k8s operator, etc.).
 name: investigation-setup
 steps:
-  - id: setup-prometheus
-    serviceClass: prometheus-tunnel
-  - id: setup-grafana
-    serviceClass: grafana-tunnel
   - id: configure-prometheus-mcp
     tool: core_mcpserver_create
     args:
@@ -344,7 +279,6 @@ steps:
 ### **Operational Excellence**
 - **Faster incident response**: Pre-built investigation workflows
 - **Reduced context switching**: All tools through one interface
-- **Automated prerequisites**: ServiceClasses handle setup complexity
 
 > 📖 **Learn More**: [Core Benefits](docs/explanation/benefits.md) | [Design Principles](docs/explanation/design-principles.md)
 
@@ -358,7 +292,6 @@ steps:
 
 ### 🛠️ How-To Guides
 - [Workflow Creation](docs/how-to/workflow-creation.md) - Build automation workflows
-- [ServiceClass Patterns](docs/how-to/serviceclass-patterns.md) - Manage service dependencies
 - [MCP Server Management](docs/how-to/mcp-server-management.md) - Configure external tools
 - [Troubleshooting](docs/how-to/troubleshooting.md) - Common issues and solutions
 - [AI Troubleshooting](docs/how-to/ai-troubleshooting.md) - AI-specific debugging

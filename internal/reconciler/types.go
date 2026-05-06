@@ -22,9 +22,6 @@ const (
 	// ResourceTypeMCPServer represents MCPServer CRD/YAML resources.
 	ResourceTypeMCPServer ResourceType = "MCPServer"
 
-	// ResourceTypeServiceClass represents ServiceClass CRD/YAML resources.
-	ResourceTypeServiceClass ResourceType = "ServiceClass"
-
 	// ResourceTypeWorkflow represents Workflow CRD/YAML resources.
 	ResourceTypeWorkflow ResourceType = "Workflow"
 )
@@ -32,9 +29,8 @@ const (
 // ValidResourceTypes is the set of all valid resource types.
 // Used for input validation when accepting resource types from external sources.
 var ValidResourceTypes = map[ResourceType]bool{
-	ResourceTypeMCPServer:    true,
-	ResourceTypeServiceClass: true,
-	ResourceTypeWorkflow:     true,
+	ResourceTypeMCPServer: true,
+	ResourceTypeWorkflow:  true,
 }
 
 // IsValidResourceType checks if a resource type string is valid.
@@ -376,8 +372,6 @@ const FailureLogBackoffTimeout = 5 * time.Minute
 type StatusUpdater interface {
 	GetMCPServer(ctx context.Context, name, namespace string) (*musterv1alpha1.MCPServer, error)
 	UpdateMCPServerStatus(ctx context.Context, server *musterv1alpha1.MCPServer) error
-	GetServiceClass(ctx context.Context, name, namespace string) (*musterv1alpha1.ServiceClass, error)
-	UpdateServiceClassStatus(ctx context.Context, serviceClass *musterv1alpha1.ServiceClass) error
 	GetWorkflow(ctx context.Context, name, namespace string) (*musterv1alpha1.Workflow, error)
 	UpdateWorkflowStatus(ctx context.Context, workflow *musterv1alpha1.Workflow) error
 	IsKubernetesMode() bool

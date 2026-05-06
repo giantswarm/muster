@@ -30,11 +30,11 @@ var eventsCmd = &cobra.Command{
 	Long: `List and filter events for muster resources in both Kubernetes and filesystem modes.
 
 This command provides access to event history for all muster components including
-MCPServers, ServiceClasses, Workflows, and Service instances. Events are automatically
-generated during resource lifecycle operations and can be queried with various filters.
+MCPServers and Workflows. Events are automatically generated during resource
+lifecycle operations and can be queried with various filters.
 
 Filtering Options:
-  --resource-type     Filter by resource type (mcpserver, serviceclass, workflow, service)
+  --resource-type     Filter by resource type (mcpserver, workflow)
   --resource-name     Filter by specific resource name
   --namespace         Filter by namespace (default: all namespaces)
   --type              Filter by event type (Normal, Warning)
@@ -49,7 +49,7 @@ Examples:
 
   # Filter by resource type
   muster events --resource-type mcpserver
-  muster events --resource-type serviceclass
+  muster events --resource-type workflow
 
   # Filter by specific resource
   muster events --resource-type mcpserver --resource-name prometheus
@@ -87,7 +87,7 @@ func init() {
 	cli.RegisterCommonFlags(eventsCmd, &eventsFlags)
 
 	// Filtering flags
-	eventsCmd.PersistentFlags().StringVar(&eventsResourceType, "resource-type", "", "Filter by resource type (mcpserver, serviceclass, workflow, service)")
+	eventsCmd.PersistentFlags().StringVar(&eventsResourceType, "resource-type", "", "Filter by resource type (mcpserver, workflow)")
 	eventsCmd.PersistentFlags().StringVar(&eventsResourceName, "resource-name", "", "Filter by resource name")
 	eventsCmd.PersistentFlags().StringVar(&eventsNamespace, "namespace", "", "Filter by namespace")
 	eventsCmd.PersistentFlags().StringVar(&eventsEventType, "type", "", "Filter by event type (Normal, Warning)")
@@ -103,7 +103,7 @@ func init() {
 func runEvents(cmd *cobra.Command, args []string) error {
 	// Validate resource type if provided
 	if eventsResourceType != "" {
-		validTypes := []string{"mcpserver", "serviceclass", "workflow", "service"}
+		validTypes := []string{"mcpserver", "workflow"}
 		if !contains(validTypes, strings.ToLower(eventsResourceType)) {
 			return fmt.Errorf("invalid resource type '%s'. Valid types: %s", eventsResourceType, strings.Join(validTypes, ", "))
 		}
@@ -113,12 +113,8 @@ func runEvents(cmd *cobra.Command, args []string) error {
 		switch eventsResourceType {
 		case "mcpserver": //nolint:goconst
 			eventsResourceType = "MCPServer"
-		case "serviceclass":
-			eventsResourceType = "ServiceClass"
 		case "workflow": //nolint:goconst
 			eventsResourceType = "Workflow"
-		case "service": //nolint:goconst
-			eventsResourceType = "ServiceInstance"
 		}
 	}
 

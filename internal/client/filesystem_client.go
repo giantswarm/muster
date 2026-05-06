@@ -32,7 +32,6 @@ import (
 //
 // Files are organized directly in resource type folders without namespace subdirectories:
 // - MCPServers: {basePath}/mcpservers/{name}.yaml
-// - ServiceClasses: {basePath}/serviceclasses/{name}.yaml
 // - Workflows: {basePath}/workflows/{name}.yaml
 type filesystemClient struct {
 	basePath string
@@ -74,13 +73,6 @@ func (f *filesystemClient) Get(ctx context.Context, key types.NamespacedName, ob
 		}
 		*v = *server
 		return nil
-	case *musterv1alpha1.ServiceClass:
-		serviceClass, err := f.GetServiceClass(ctx, key.Name, key.Namespace)
-		if err != nil {
-			return err
-		}
-		*v = *serviceClass
-		return nil
 	case *musterv1alpha1.Workflow:
 		workflow, err := f.GetWorkflow(ctx, key.Name, key.Namespace)
 		if err != nil {
@@ -111,13 +103,6 @@ func (f *filesystemClient) List(ctx context.Context, list client.ObjectList, opt
 		}
 		v.Items = servers
 		return nil
-	case *musterv1alpha1.ServiceClassList:
-		serviceClasses, err := f.ListServiceClasses(ctx, namespace)
-		if err != nil {
-			return err
-		}
-		v.Items = serviceClasses
-		return nil
 	case *musterv1alpha1.WorkflowList:
 		workflows, err := f.ListWorkflows(ctx, namespace)
 		if err != nil {
@@ -135,8 +120,6 @@ func (f *filesystemClient) Create(ctx context.Context, obj client.Object, opts .
 	switch v := obj.(type) {
 	case *musterv1alpha1.MCPServer:
 		return f.CreateMCPServer(ctx, v)
-	case *musterv1alpha1.ServiceClass:
-		return f.CreateServiceClass(ctx, v)
 	case *musterv1alpha1.Workflow:
 		return f.CreateWorkflow(ctx, v)
 	default:
@@ -149,8 +132,6 @@ func (f *filesystemClient) Update(ctx context.Context, obj client.Object, opts .
 	switch v := obj.(type) {
 	case *musterv1alpha1.MCPServer:
 		return f.UpdateMCPServer(ctx, v)
-	case *musterv1alpha1.ServiceClass:
-		return f.UpdateServiceClass(ctx, v)
 	case *musterv1alpha1.Workflow:
 		return f.UpdateWorkflow(ctx, v)
 	default:
@@ -163,8 +144,6 @@ func (f *filesystemClient) Delete(ctx context.Context, obj client.Object, opts .
 	switch v := obj.(type) {
 	case *musterv1alpha1.MCPServer:
 		return f.DeleteMCPServer(ctx, v.Name, v.Namespace)
-	case *musterv1alpha1.ServiceClass:
-		return f.DeleteServiceClass(ctx, v.Name, v.Namespace)
 	case *musterv1alpha1.Workflow:
 		return f.DeleteWorkflow(ctx, v.Name, v.Namespace)
 	default:
@@ -217,8 +196,6 @@ func (f *filesystemClient) GroupVersionKindFor(obj runtime.Object) (schema.Group
 	switch obj.(type) {
 	case *musterv1alpha1.MCPServer:
 		return musterv1alpha1.GroupVersion.WithKind("MCPServer"), nil
-	case *musterv1alpha1.ServiceClass:
-		return musterv1alpha1.GroupVersion.WithKind("ServiceClass"), nil
 	case *musterv1alpha1.Workflow:
 		return musterv1alpha1.GroupVersion.WithKind("Workflow"), nil
 	default:
@@ -391,165 +368,6 @@ func (f *filesystemClient) getMCPServerDir() string {
 
 func (f *filesystemClient) getMCPServerPath(name string) string {
 	return filepath.Join(f.getMCPServerDir(), name+".yaml")
-}
-
-// GetServiceClass retrieves a specific ServiceClass from filesystem.
-func (f *filesystemClient) GetServiceClass(ctx context.Context, name, namespace string) (*musterv1alpha1.ServiceClass, error) {
-	filePath := f.getServiceClassPath(name)
-
-	data, err := os.ReadFile(filePath) //nolint:gosec
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, errors.NewNotFound(
-				schema.GroupResource{Group: "muster.giantswarm.io", Resource: "serviceclasses"},
-				name,
-			)
-		}
-		return nil, fmt.Errorf("failed to read ServiceClass file %s: %w", filePath, err)
-	}
-
-	var serviceClass musterv1alpha1.ServiceClass
-	if err := yaml.Unmarshal(data, &serviceClass); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal ServiceClass from %s: %w", filePath, err)
-	}
-
-	// Ensure metadata is properly set
-	if serviceClass.Name == "" {
-		serviceClass.Name = name
-	}
-	// Set namespace to default if not set
-	if serviceClass.Namespace == "" {
-		serviceClass.Namespace = "default"
-	}
-
-	return &serviceClass, nil
-}
-
-// ListServiceClasses lists all ServiceClasses from filesystem.
-func (f *filesystemClient) ListServiceClasses(ctx context.Context, namespace string) ([]musterv1alpha1.ServiceClass, error) {
-	dirPath := f.getServiceClassDir()
-
-	// Check if directory exists, if not return empty list (don't create it)
-	entries, err := os.ReadDir(dirPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			// Directory doesn't exist, return empty list
-			return []musterv1alpha1.ServiceClass{}, nil
-		}
-		return nil, fmt.Errorf("failed to read directory %s: %w", dirPath, err)
-	}
-
-	var serviceClasses []musterv1alpha1.ServiceClass
-	for _, entry := range entries {
-		if entry.IsDir() || !isYAMLFile(entry.Name()) {
-			continue
-		}
-
-		name := getNameFromFileName(entry.Name())
-		serviceClass, err := f.GetServiceClass(ctx, name, namespace)
-		if err != nil {
-			// Log error but continue with other files - this prevents one bad file from breaking everything
-			logging.Error("fs-client", err, "Failed to load ServiceClass %s", entry.Name())
-			continue
-		}
-		serviceClasses = append(serviceClasses, *serviceClass)
-	}
-
-	return serviceClasses, nil
-}
-
-// CreateServiceClass creates a new ServiceClass in filesystem.
-func (f *filesystemClient) CreateServiceClass(ctx context.Context, serviceClass *musterv1alpha1.ServiceClass) error {
-	// Check if serviceClass already exists
-	filePath := f.getServiceClassPath(serviceClass.Name)
-	if _, err := os.Stat(filePath); err == nil {
-		return errors.NewAlreadyExists(
-			schema.GroupResource{Group: "muster.giantswarm.io", Resource: "serviceclasses"},
-			serviceClass.Name,
-		)
-	}
-
-	// Create directory if it doesn't exist
-	dirPath := f.getServiceClassDir()
-	if err := os.MkdirAll(dirPath, 0755); err != nil { //nolint:gosec
-		return fmt.Errorf("failed to create directory %s: %w", dirPath, err)
-	}
-
-	// Set namespace to default if not set
-	if serviceClass.Namespace == "" {
-		serviceClass.Namespace = "default"
-	}
-
-	// Marshal serviceClass to YAML
-	data, err := yaml.Marshal(serviceClass)
-	if err != nil {
-		return fmt.Errorf("failed to marshal ServiceClass %s: %w", serviceClass.Name, err)
-	}
-
-	// Write file atomically to prevent race conditions with filesystem watchers
-	if err := atomicWriteFile(filePath, data, 0644); err != nil {
-		return fmt.Errorf("failed to write ServiceClass file %s: %w", filePath, err)
-	}
-
-	return nil
-}
-
-// UpdateServiceClass updates an existing ServiceClass in filesystem.
-func (f *filesystemClient) UpdateServiceClass(ctx context.Context, serviceClass *musterv1alpha1.ServiceClass) error {
-	// Check if serviceClass exists
-	filePath := f.getServiceClassPath(serviceClass.Name)
-	if _, err := os.Stat(filePath); os.IsNotExist(err) {
-		return errors.NewNotFound(
-			schema.GroupResource{Group: "muster.giantswarm.io", Resource: "serviceclasses"},
-			serviceClass.Name,
-		)
-	}
-
-	// Set namespace to default if not set
-	if serviceClass.Namespace == "" {
-		serviceClass.Namespace = "default"
-	}
-
-	// Marshal serviceClass to YAML
-	data, err := yaml.Marshal(serviceClass)
-	if err != nil {
-		return fmt.Errorf("failed to marshal ServiceClass %s: %w", serviceClass.Name, err)
-	}
-
-	// Write file atomically to prevent race conditions with filesystem watchers
-	if err := atomicWriteFile(filePath, data, 0644); err != nil {
-		return fmt.Errorf("failed to write ServiceClass file %s: %w", filePath, err)
-	}
-
-	return nil
-}
-
-// DeleteServiceClass deletes a ServiceClass from filesystem.
-func (f *filesystemClient) DeleteServiceClass(ctx context.Context, name, namespace string) error {
-	filePath := f.getServiceClassPath(name)
-
-	// Check if file exists
-	if _, err := os.Stat(filePath); os.IsNotExist(err) {
-		return errors.NewNotFound(
-			schema.GroupResource{Group: "muster.giantswarm.io", Resource: "serviceclasses"},
-			name,
-		)
-	}
-
-	// Delete file
-	if err := os.Remove(filePath); err != nil {
-		return fmt.Errorf("failed to delete ServiceClass file %s: %w", filePath, err)
-	}
-
-	return nil
-}
-
-func (f *filesystemClient) getServiceClassDir() string {
-	return filepath.Join(f.basePath, "serviceclasses")
-}
-
-func (f *filesystemClient) getServiceClassPath(name string) string {
-	return filepath.Join(f.getServiceClassDir(), name+".yaml")
 }
 
 // GetWorkflow retrieves a specific Workflow from filesystem.
@@ -788,12 +606,6 @@ func (f *filesystemClient) IsKubernetesMode() bool {
 // In filesystem mode, this updates the entire file (status is embedded in the YAML).
 func (f *filesystemClient) UpdateMCPServerStatus(ctx context.Context, server *musterv1alpha1.MCPServer) error {
 	return f.UpdateMCPServer(ctx, server)
-}
-
-// UpdateServiceClassStatus updates only the status of a ServiceClass.
-// In filesystem mode, this updates the entire file (status is embedded in the YAML).
-func (f *filesystemClient) UpdateServiceClassStatus(ctx context.Context, serviceClass *musterv1alpha1.ServiceClass) error {
-	return f.UpdateServiceClass(ctx, serviceClass)
 }
 
 // UpdateWorkflowStatus updates only the status of a Workflow.

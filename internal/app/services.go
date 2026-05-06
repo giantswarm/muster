@@ -14,7 +14,6 @@ import (
 	"github.com/giantswarm/muster/internal/metatools"
 	"github.com/giantswarm/muster/internal/orchestrator"
 	"github.com/giantswarm/muster/internal/reconciler"
-	"github.com/giantswarm/muster/internal/serviceclass"
 	"github.com/giantswarm/muster/internal/services"
 	"github.com/giantswarm/muster/internal/teleport"
 	"github.com/giantswarm/muster/internal/workflow"
@@ -39,7 +38,7 @@ import (
 // The services are initialized in a specific order to handle dependencies:
 //  1. Storage and tool interfaces (shared dependencies)
 //  2. Service adapters and API registrations
-//  3. Manager instances (ServiceClass, Workflow, MCPServer)
+//  3. Manager instances (Workflow, MCPServer)
 //  4. Concrete service instances
 //  5. Aggregator service (when enabled)
 //  6. Reconciliation manager (for automatic change detection)
@@ -64,7 +63,7 @@ type Services struct {
 	AggregatorPort int
 
 	// ReconcileManager handles automatic detection and reconciliation of
-	// configuration changes for MCPServers, ServiceClasses, and Workflows.
+	// configuration changes for MCPServers and Workflows.
 	// This enables automatic synchronization between desired state (YAML/CRDs)
 	// and actual state (running services).
 	ReconcileManager *reconciler.Manager
@@ -177,17 +176,6 @@ func InitializeServices(cfg *Config) (*Services, error) {
 		teleportAdapter = teleport.NewAdapter()
 	}
 	teleportAdapter.Register()
-
-	// Initialize and register ServiceClass adapter using the muster client
-	serviceClassAdapter := serviceclass.NewAdapterWithClient(musterClient, namespace)
-	serviceClassAdapter.Register()
-
-	// Trigger ServiceClass loading by calling ListServiceClasses
-	// This ensures filesystem-based ServiceClasses are loaded into memory
-	serviceClasses := serviceClassAdapter.ListServiceClasses()
-	if len(serviceClasses) > 0 {
-		logging.Info("Services", "Loaded %d ServiceClass definitions from filesystem", len(serviceClasses))
-	}
 
 	// Create and register Workflow adapter using the muster client
 	workflowAdapter := workflow.NewAdapterWithClient(musterClient, namespace, toolCaller, toolChecker, cfg.ConfigPath)
@@ -338,16 +326,6 @@ func InitializeServices(cfg *Config) (*Services, error) {
 			).WithStatusUpdater(musterClient, namespace)
 			if err := reconcileManager.RegisterReconciler(mcpReconciler); err != nil {
 				logging.Warn("Services", "Failed to register MCPServer reconciler: %v", err)
-			}
-		}
-
-		// Get ServiceClass manager and register ServiceClass reconciler with status updater
-		serviceClassMgr := api.GetServiceClassManager()
-		if serviceClassMgr != nil {
-			serviceClassReconciler := reconciler.NewServiceClassReconciler(serviceClassMgr).
-				WithStatusUpdater(musterClient, namespace)
-			if err := reconcileManager.RegisterReconciler(serviceClassReconciler); err != nil {
-				logging.Warn("Services", "Failed to register ServiceClass reconciler: %v", err)
 			}
 		}
 

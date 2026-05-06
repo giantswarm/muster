@@ -238,57 +238,23 @@ type ToolUpdateSubscriber interface {
 	OnToolsUpdated(event ToolUpdateEvent)
 }
 
-// ToolCall defines how to call an aggregator tool for a lifecycle event.
-// This is used in ServiceClass definitions to specify which tools should be
-// called for service lifecycle operations (start, stop, restart, etc.).
-//
-// ToolCall provides the declarative configuration for how ServiceClass
-// lifecycle operations map to actual tool executions, including argument
-// preparation and response processing.
-type ToolCall struct {
-	// Tool specifies the name of the tool to call.
-	// Must correspond to an available tool in the aggregator.
-	Tool string `yaml:"tool" json:"tool"`
+// ArgDefinition defines validation rules and metadata for a single tool/workflow argument.
+// It specifies the expected type, whether the argument is required, an optional default
+// value, and a human-readable description used for documentation and schema generation.
+type ArgDefinition struct {
+	// Type specifies the expected data type for this arg.
+	// Valid types are "string", "integer", "boolean", and "number".
+	Type string `yaml:"type" json:"type"`
 
-	// Args provides static arguments to pass to the tool.
-	// These can be combined with dynamic arguments from service args.
-	Args map[string]interface{} `yaml:"args" json:"args"`
+	// Required indicates whether this arg must be provided by the caller.
+	Required bool `yaml:"required" json:"required"`
 
-	// Outputs defines how to extract values from tool responses using JSON paths.
-	// These outputs can be referenced in subsequent tool calls via templating.
-	// Format: outputName: "json.path.to.value"
-	Outputs map[string]string `yaml:"outputs,omitempty" json:"outputs,omitempty"`
-}
+	// Default provides a default value to use if the arg is not provided.
+	// The default value must match the specified Type.
+	Default interface{} `yaml:"default,omitempty" json:"default,omitempty"`
 
-// HealthCheckToolCall defines how to call a health check tool with condition evaluation.
-// This extends ToolCall with expectation matching similar to workflow conditions.
-type HealthCheckToolCall struct {
-	// Tool specifies the name of the tool to call.
-	// Must correspond to an available tool in the aggregator.
-	Tool string `yaml:"tool" json:"tool"`
-
-	// Args provides static arguments to pass to the tool.
-	// These can be combined with dynamic arguments from service args.
-	Args map[string]interface{} `yaml:"args" json:"args"`
-
-	// Expect defines conditions that must be met for the service to be considered healthy.
-	// Similar to workflow step conditions, this supports success checks and JSON path matching.
-	Expect *HealthCheckExpectation `yaml:"expect,omitempty" json:"expect,omitempty"`
-
-	// ExpectNot defines conditions that must NOT be met for the service to be considered healthy.
-	// If any of these conditions are met, the service is considered unhealthy.
-	ExpectNot *HealthCheckExpectation `yaml:"expect_not,omitempty" json:"expect_not,omitempty"`
-}
-
-// HealthCheckExpectation defines the expected conditions for health check evaluation.
-// This mirrors the structure used in workflow step conditions.
-type HealthCheckExpectation struct {
-	// Success indicates whether the tool call itself should succeed (default: true)
-	Success *bool `yaml:"success,omitempty" json:"success,omitempty"`
-
-	// JsonPath defines specific field values that should match in the tool response.
-	// Format: fieldPath: expectedValue
-	JsonPath map[string]interface{} `yaml:"json_path,omitempty" json:"json_path,omitempty"`
+	// Description provides human-readable documentation for this arg.
+	Description string `yaml:"description,omitempty" json:"description,omitempty"`
 }
 
 // HealthStatus represents the health status of a service, capability, or other component.
@@ -338,50 +304,6 @@ type SchemaProperty struct {
 	// Default specifies the default value used when the property is not provided.
 	// Must be compatible with the specified Type.
 	Default interface{} `yaml:"default,omitempty" json:"default,omitempty"`
-}
-
-// TimeoutConfig defines timeout behavior for various operations.
-// This ensures operations don't hang indefinitely and provides predictable behavior
-// across different components and operations.
-//
-// Timeouts are essential for maintaining system stability and preventing
-// resource leaks from stuck operations.
-type TimeoutConfig struct {
-	// Create specifies the maximum time to wait for resource creation operations.
-	// Includes service instance creation, capability initialization, etc.
-	Create time.Duration `yaml:"create" json:"create"`
-
-	// Delete specifies the maximum time to wait for resource deletion operations.
-	// Includes service instance cleanup, resource deallocation, etc.
-	Delete time.Duration `yaml:"delete" json:"delete"`
-
-	// HealthCheck specifies the maximum time to wait for health check operations.
-	// Individual health checks should complete within this time limit.
-	HealthCheck time.Duration `yaml:"healthCheck" json:"healthCheck"`
-}
-
-// HealthCheckConfig defines health checking behavior for services and components.
-// This configuration controls how often health checks are performed and when
-// a component is considered unhealthy based on check results.
-//
-// Health check configuration enables automated monitoring and helps maintain
-// system reliability by detecting and responding to component failures.
-type HealthCheckConfig struct {
-	// Enabled determines whether health checks should be performed.
-	// When false, the component health status remains unknown.
-	Enabled bool `yaml:"enabled" json:"enabled"`
-
-	// Interval specifies how often to perform health checks.
-	// Shorter intervals provide faster failure detection but use more resources.
-	Interval time.Duration `yaml:"interval" json:"interval"`
-
-	// FailureThreshold is the number of consecutive failures before marking unhealthy.
-	// Higher values reduce false negatives but increase detection time.
-	FailureThreshold int `yaml:"failureThreshold" json:"failureThreshold"`
-
-	// SuccessThreshold is the number of consecutive successes before marking healthy.
-	// Higher values reduce false positives but increase recovery time.
-	SuccessThreshold int `yaml:"successThreshold" json:"successThreshold"`
 }
 
 // WorkflowExecutionStatus represents the status of a workflow execution

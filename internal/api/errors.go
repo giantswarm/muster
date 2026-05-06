@@ -82,17 +82,6 @@ var (
 		return NewNotFoundError("workflow", name)
 	}
 
-	// NewServiceClassNotFoundError creates a service class not found error.
-	//
-	// Args:
-	//   - name: The name of the service class that was not found
-	//
-	// Returns:
-	//   - *NotFoundError: A NotFoundError for the specified service class
-	NewServiceClassNotFoundError = func(name string) *NotFoundError {
-		return NewNotFoundError("service class", name)
-	}
-
 	// NewServiceNotFoundError creates a service not found error.
 	//
 	// Args:

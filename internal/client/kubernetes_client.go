@@ -201,69 +201,6 @@ func (k *kubernetesClient) DeleteMCPServer(ctx context.Context, name, namespace 
 	return nil
 }
 
-// GetServiceClass retrieves a specific ServiceClass resource.
-func (k *kubernetesClient) GetServiceClass(ctx context.Context, name, namespace string) (*musterv1alpha1.ServiceClass, error) {
-	serviceClass := &musterv1alpha1.ServiceClass{}
-	key := client.ObjectKey{
-		Name:      name,
-		Namespace: namespace,
-	}
-
-	if err := k.Get(ctx, key, serviceClass); err != nil {
-		return nil, fmt.Errorf("failed to get ServiceClass %s/%s: %w", namespace, name, err)
-	}
-
-	return serviceClass, nil
-}
-
-// ListServiceClasses lists all ServiceClass resources in a namespace.
-func (k *kubernetesClient) ListServiceClasses(ctx context.Context, namespace string) ([]musterv1alpha1.ServiceClass, error) {
-	serviceClassList := &musterv1alpha1.ServiceClassList{}
-	opts := []client.ListOption{
-		client.InNamespace(namespace),
-	}
-
-	if err := k.List(ctx, serviceClassList, opts...); err != nil {
-		return nil, fmt.Errorf("failed to list ServiceClasses in namespace %s: %w", namespace, err)
-	}
-
-	return serviceClassList.Items, nil
-}
-
-// CreateServiceClass creates a new ServiceClass resource.
-func (k *kubernetesClient) CreateServiceClass(ctx context.Context, serviceClass *musterv1alpha1.ServiceClass) error {
-	if err := k.Create(ctx, serviceClass); err != nil {
-		return fmt.Errorf("failed to create ServiceClass %s/%s: %w", serviceClass.Namespace, serviceClass.Name, err)
-	}
-
-	return nil
-}
-
-// UpdateServiceClass updates an existing ServiceClass resource.
-func (k *kubernetesClient) UpdateServiceClass(ctx context.Context, serviceClass *musterv1alpha1.ServiceClass) error {
-	if err := k.Update(ctx, serviceClass); err != nil {
-		return fmt.Errorf("failed to update ServiceClass %s/%s: %w", serviceClass.Namespace, serviceClass.Name, err)
-	}
-
-	return nil
-}
-
-// DeleteServiceClass deletes a ServiceClass resource.
-func (k *kubernetesClient) DeleteServiceClass(ctx context.Context, name, namespace string) error {
-	serviceClass := &musterv1alpha1.ServiceClass{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
-		},
-	}
-
-	if err := k.Delete(ctx, serviceClass); err != nil {
-		return fmt.Errorf("failed to delete ServiceClass %s/%s: %w", namespace, name, err)
-	}
-
-	return nil
-}
-
 // IsKubernetesMode returns true since this is the Kubernetes implementation.
 func (k *kubernetesClient) IsKubernetesMode() bool {
 	return true
@@ -274,15 +211,6 @@ func (k *kubernetesClient) UpdateMCPServerStatus(ctx context.Context, server *mu
 	err := k.Client.Status().Update(ctx, server)
 	if err != nil {
 		return fmt.Errorf("failed to update MCPServer status %s/%s: %w", server.Namespace, server.Name, err)
-	}
-	return nil
-}
-
-// UpdateServiceClassStatus updates only the status subresource of a ServiceClass.
-func (k *kubernetesClient) UpdateServiceClassStatus(ctx context.Context, serviceClass *musterv1alpha1.ServiceClass) error {
-	err := k.Client.Status().Update(ctx, serviceClass)
-	if err != nil {
-		return fmt.Errorf("failed to update ServiceClass status %s/%s: %w", serviceClass.Namespace, serviceClass.Name, err)
 	}
 	return nil
 }
@@ -382,8 +310,6 @@ func (k *kubernetesClient) CreateEventForCRD(ctx context.Context, crdType, name,
 	switch crdType {
 	case "MCPServer":
 		gvk = musterv1alpha1.GroupVersion.WithKind("MCPServer")
-	case "ServiceClass":
-		gvk = musterv1alpha1.GroupVersion.WithKind("ServiceClass")
 	case "Workflow":
 		gvk = musterv1alpha1.GroupVersion.WithKind("Workflow")
 	default:
@@ -395,11 +321,6 @@ func (k *kubernetesClient) CreateEventForCRD(ctx context.Context, crdType, name,
 	switch crdType {
 	case "MCPServer":
 		obj, err := k.GetMCPServer(ctx, name, namespace)
-		if err == nil {
-			uid = obj.GetUID()
-		}
-	case "ServiceClass":
-		obj, err := k.GetServiceClass(ctx, name, namespace)
 		if err == nil {
 			uid = obj.GetUID()
 		}

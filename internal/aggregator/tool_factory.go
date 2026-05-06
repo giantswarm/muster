@@ -210,7 +210,6 @@ func (a *AggregatorServer) getAllCoreToolsAsMCPTools() []mcp.Tool {
 		api.GetWorkflow(),
 		api.GetServiceManager(),
 		api.GetConfig(), //nolint:staticcheck
-		api.GetServiceClassManager(),
 		api.GetMCPServerManager(),
 		api.GetEventManager(),
 	}

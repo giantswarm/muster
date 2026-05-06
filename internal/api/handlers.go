@@ -13,10 +13,9 @@ import (
 // Handler registry variables store the registered implementations.
 // These variables are protected by handlerMutex for thread-safe access.
 var (
-	registryHandler            ServiceRegistryHandler
-	serviceManagerHandler      ServiceManagerHandler
-	serviceClassManagerHandler ServiceClassManagerHandler
-	mcpServerManagerHandler    MCPServerManagerHandler
+	registryHandler         ServiceRegistryHandler
+	serviceManagerHandler   ServiceManagerHandler
+	mcpServerManagerHandler MCPServerManagerHandler
 	aggregatorHandler          AggregatorHandler
 	configHandler              ConfigHandler
 	workflowHandler            WorkflowHandler
@@ -296,54 +295,6 @@ func GetWorkflow() WorkflowHandler {
 	handlerMutex.RLock()
 	defer handlerMutex.RUnlock()
 	return workflowHandler
-}
-
-// RegisterServiceClassManager registers the service class manager handler implementation.
-// This handler provides ServiceClass definition management and lifecycle tool access,
-// enabling the creation of service instances from predefined templates.
-//
-// The registration is thread-safe and should be called during system initialization.
-// Only one service class manager handler can be registered at a time; subsequent
-// registrations will replace the previous handler.
-//
-// Args:
-//   - h: ServiceClassManagerHandler implementation that manages ServiceClass operations
-//
-// Thread-safe: Yes, protected by handlerMutex.
-//
-// Example:
-//
-//	adapter := serviceclass.NewAdapter(configPath)
-//	adapter.Register()
-func RegisterServiceClassManager(h ServiceClassManagerHandler) {
-	handlerMutex.Lock()
-	defer handlerMutex.Unlock()
-	logging.Debug("API", "Registering service class manager handler: %v", h != nil)
-	serviceClassManagerHandler = h
-}
-
-// GetServiceClassManager returns the registered service class manager handler.
-// This provides access to ServiceClass definition management and lifecycle tool access.
-//
-// Returns nil if no handler has been registered yet. Callers should always
-// check for nil before using the returned handler.
-//
-// Returns:
-//   - ServiceClassManagerHandler: The registered handler, or nil if not registered
-//
-// Thread-safe: Yes, protected by handlerMutex read lock.
-//
-// Example:
-//
-//	manager := api.GetServiceClassManager()
-//	if manager == nil {
-//	    return fmt.Errorf("service class manager not available")
-//	}
-//	classes := manager.ListServiceClasses()
-func GetServiceClassManager() ServiceClassManagerHandler {
-	handlerMutex.RLock()
-	defer handlerMutex.RUnlock()
-	return serviceClassManagerHandler
 }
 
 // RegisterMCPServerManager registers the MCP server manager handler implementation.
