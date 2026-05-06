@@ -1209,9 +1209,8 @@ func (a *AggregatorServer) runSSOTrackerCleanup() {
 // publishToolUpdateEvent publishes a tool update event to notify dependent managers.
 //
 // This method creates and publishes an event containing the current set of available
-// tools, which notifies other muster components (like ServiceClass
-// managers) that the tool landscape has changed. This ensures system-wide consistency
-// when tools become available or unavailable.
+// tools, notifying subscribers that the tool landscape has changed. This ensures
+// system-wide consistency when tools become available or unavailable.
 //
 // The event uses "aggregator" as the server name since it represents the aggregated
 // view of all tools from multiple sources.
@@ -1227,7 +1226,7 @@ func (a *AggregatorServer) publishToolUpdateEvent() {
 		Timestamp:  time.Now(),
 	}
 
-	// Publish the event - this will notify ServiceClass managers
+	// Publish the event to notify all subscribers of the new tool inventory
 	api.PublishToolUpdateEvent(event)
 
 	logging.DebugWithAttrs("Aggregator", "Published tool update event",
@@ -1272,8 +1271,7 @@ func (a *AggregatorServer) updateCapabilities() {
 	servers := a.registry.GetAllServers()
 	a.logCapabilitiesSummary(servers)
 
-	// Publish tool update event to notify dependent managers (like ServiceClass manager)
-	// This ensures subscribers are notified when core tools become available during startup
+	// Publish tool update event to notify all subscribers when the tool inventory changes
 	a.publishToolUpdateEvent()
 }
 

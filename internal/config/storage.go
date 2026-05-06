@@ -29,7 +29,7 @@ func NewStorageWithPath(configPath string) *Storage {
 }
 
 // Save stores data for the given entity type and name
-// entityType: subdirectory name (workflows, serviceclasses, mcpservers, capabilities)
+// entityType: subdirectory name (workflows, mcpservers)
 // name: filename without extension
 // data: file content to write
 func (ds *Storage) Save(entityType string, name string, data []byte) error {

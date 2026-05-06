@@ -40,21 +40,6 @@ func (g *EventGenerator) MCPServerEvent(server *musterv1alpha1.MCPServer, reason
 	return g.client.CreateEvent(context.Background(), server, string(reason), message, eventType)
 }
 
-// ServiceClassEvent generates an event for a ServiceClass CRD.
-func (g *EventGenerator) ServiceClassEvent(serviceClass *musterv1alpha1.ServiceClass, reason EventReason, data EventData) error {
-	// Populate event data with ServiceClass information
-	data.Name = serviceClass.Name
-	data.Namespace = serviceClass.Namespace
-
-	message := g.templates.Render(reason, data)
-	eventType := string(getEventType(reason))
-
-	logging.Debug("events", "Generating ServiceClass event: reason=%s, message=%s, type=%s",
-		string(reason), message, eventType)
-
-	return g.client.CreateEvent(context.Background(), serviceClass, string(reason), message, eventType)
-}
-
 // WorkflowEvent generates an event for a Workflow CRD.
 func (g *EventGenerator) WorkflowEvent(workflow *musterv1alpha1.Workflow, reason EventReason, data EventData) error {
 	// Populate event data with Workflow information

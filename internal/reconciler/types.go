@@ -22,9 +22,6 @@ const (
 	// ResourceTypeMCPServer represents MCPServer CRD/YAML resources.
 	ResourceTypeMCPServer ResourceType = "MCPServer"
 
-	// ResourceTypeServiceClass represents ServiceClass CRD/YAML resources.
-	ResourceTypeServiceClass ResourceType = "ServiceClass"
-
 	// ResourceTypeWorkflow represents Workflow CRD/YAML resources.
 	ResourceTypeWorkflow ResourceType = "Workflow"
 )
@@ -32,9 +29,8 @@ const (
 // ValidResourceTypes is the set of all valid resource types.
 // Used for input validation when accepting resource types from external sources.
 var ValidResourceTypes = map[ResourceType]bool{
-	ResourceTypeMCPServer:    true,
-	ResourceTypeServiceClass: true,
-	ResourceTypeWorkflow:     true,
+	ResourceTypeMCPServer: true,
+	ResourceTypeWorkflow:  true,
 }
 
 // IsValidResourceType checks if a resource type string is valid.
@@ -132,7 +128,7 @@ type ReconcileRequest struct {
 
 // Reconciler is the interface that resource-specific reconcilers must implement.
 //
-// Each resource type (MCPServer, ServiceClass, Workflow) has its own reconciler
+// Each resource type (MCPServer, Workflow) has its own reconciler
 // that knows how to reconcile that specific type of resource.
 type Reconciler interface {
 	// Reconcile processes a single reconciliation request.
@@ -362,8 +358,8 @@ const DefaultNamespace = "default"
 //  2. Set RequeueAfter explicitly in your Reconcile() method
 //
 // Note: This constant is used by MCPServerReconciler for periodic status sync.
-// ServiceClass and Workflow reconcilers don't currently use periodic requeue
-// as they primarily manage static definitions.
+// The Workflow reconciler doesn't currently use periodic requeue as it
+// primarily manages static definitions.
 const DefaultStatusSyncInterval = 30 * time.Second
 
 // FailureLogBackoffTimeout is the maximum time between log entries for persistent
@@ -376,8 +372,6 @@ const FailureLogBackoffTimeout = 5 * time.Minute
 type StatusUpdater interface {
 	GetMCPServer(ctx context.Context, name, namespace string) (*musterv1alpha1.MCPServer, error)
 	UpdateMCPServerStatus(ctx context.Context, server *musterv1alpha1.MCPServer) error
-	GetServiceClass(ctx context.Context, name, namespace string) (*musterv1alpha1.ServiceClass, error)
-	UpdateServiceClassStatus(ctx context.Context, serviceClass *musterv1alpha1.ServiceClass) error
 	GetWorkflow(ctx context.Context, name, namespace string) (*musterv1alpha1.Workflow, error)
 	UpdateWorkflowStatus(ctx context.Context, workflow *musterv1alpha1.Workflow) error
 	IsKubernetesMode() bool
@@ -549,7 +543,7 @@ type StatusSyncResult struct {
 }
 
 // StatusSyncHelper encapsulates the common retry-on-conflict pattern for status sync.
-// This helper reduces duplication across MCPServer, ServiceClass, and Workflow reconcilers.
+// This helper reduces duplication across MCPServer and Workflow reconcilers.
 type StatusSyncHelper struct {
 	ResourceType   ResourceType
 	ResourceName   string

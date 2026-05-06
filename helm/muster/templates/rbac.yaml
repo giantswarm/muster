@@ -2,7 +2,7 @@
 RBAC Configuration for muster
 
 Muster needs access to:
-  - Its own CRDs (MCPServer, ServiceClass, Workflow)
+  - Its own CRDs (MCPServer, Workflow)
   - CRD discovery
   - Events (for core_events tool)
   - Secrets (for reading credentials: token exchange, teleport identity, OAuth)
@@ -16,14 +16,14 @@ metadata:
   labels:
     {{- include "muster.labels" . | nindent 4 }}
 rules:
-  # Muster CRDs - required for managing MCPServer, ServiceClass, Workflow resources
+  # Muster CRDs - required for managing MCPServer, Workflow resources
   - apiGroups: ["muster.giantswarm.io"]
-    resources: ["mcpservers", "serviceclasses", "workflows"]
+    resources: ["mcpservers", "workflows"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 
   # Muster CRD status subresources - for updating status fields
   - apiGroups: ["muster.giantswarm.io"]
-    resources: ["mcpservers/status", "serviceclasses/status", "workflows/status"]
+    resources: ["mcpservers/status", "workflows/status"]
     verbs: ["get", "update", "patch"]
 
   # CRD discovery - for finding available CRDs

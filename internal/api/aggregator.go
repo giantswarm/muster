@@ -10,7 +10,7 @@ import (
 )
 
 // ToolCaller implements tool calling interfaces using the API layer.
-// It serves as an adapter that allows different subsystems (serviceclasses,workflows)
+// It serves as an adapter that allows different subsystems (e.g. workflows)
 // to call tools through the aggregator without directly coupling to the aggregator implementation.
 // This follows the service locator pattern to maintain architectural boundaries.
 type ToolCaller struct{}
@@ -233,9 +233,7 @@ func (atc *ToolCaller) GetAvailableTools() []string {
 
 // ToolChecker implements config.ToolAvailabilityChecker using the API layer.
 // It provides a way for the configuration system to validate tool availability
-// without direct coupling to the aggregator implementation. This is particularly
-// useful for ServiceClass validation where tools need to be checked before
-// service instances can be created.
+// without direct coupling to the aggregator implementation.
 type ToolChecker struct{}
 
 // NewToolChecker creates a new API-based tool checker instance.

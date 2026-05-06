@@ -51,7 +51,6 @@
 //   - **Config**: Configuration loading and validation
 //   - **Orchestrator**: Service lifecycle management
 //   - **Aggregator**: MCP tool aggregation and management
-//   - **ServiceClass**: ServiceClass definition and instance management
 //   - **Workflow**: Workflow execution and management
 //   - **Agent**: MCP agent and client operations
 //   - **API**: API layer operations and handler management

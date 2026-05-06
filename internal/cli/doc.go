@@ -44,10 +44,8 @@
 //
 // The formatter automatically detects and optimizes display for muster resource types:
 //   - Services: Health status, state, service type, and metadata
-//   - ServiceClasses: Availability, required tools, and descriptions
 //   - MCP Servers: Server state, type, and configuration details
 //   - Workflows: Steps, input args, and execution details
-//   - ServiceClasses: Availability status and service types
 //
 // # Usage Patterns
 //

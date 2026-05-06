@@ -17,9 +17,8 @@ import (
 
 // CRD kinds used in switch statements and event references.
 const (
-	kindMCPServer    = "MCPServer"
-	kindServiceClass = "ServiceClass"
-	kindWorkflow     = "Workflow"
+	kindMCPServer = "MCPServer"
+	kindWorkflow  = "Workflow"
 )
 
 // sourceComponent is the value muster sets on Event.Source.Component and the
@@ -28,8 +27,8 @@ const sourceComponent = "muster"
 
 // Client is a Kubernetes-API-backed implementation of the muster client
 // interface. Per-domain CRUD methods live in sibling files (mcpserver.go,
-// serviceclass.go, workflow.go, events.go); this file keeps the type,
-// constructor, scheme, lifecycle methods, and discovery-based CRD validation.
+// workflow.go, events.go); this file keeps the type, constructor, scheme,
+// lifecycle methods, and discovery-based CRD validation.
 type Client struct {
 	client.Client
 	scheme    *runtime.Scheme

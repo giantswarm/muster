@@ -17,11 +17,6 @@ func TestIsValidResourceType(t *testing.T) {
 			want:         true,
 		},
 		{
-			name:         "valid ServiceClass",
-			resourceType: "ServiceClass",
-			want:         true,
-		},
-		{
 			name:         "valid Workflow",
 			resourceType: "Workflow",
 			want:         true,
@@ -193,7 +188,6 @@ func TestValidResourceTypesCompleteness(t *testing.T) {
 	// Ensure ValidResourceTypes contains all expected types
 	expectedTypes := []ResourceType{
 		ResourceTypeMCPServer,
-		ResourceTypeServiceClass,
 		ResourceTypeWorkflow,
 	}
 
