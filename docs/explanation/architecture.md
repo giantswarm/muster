@@ -389,10 +389,9 @@ Muster follows a philosophy of progressive enhancement:
 - `response_processor.go`: Service response handling
 
 **Service Lifecycle:**
-1. **Instantiation**: Create service instances
-2. **Dependency Resolution**: Resolve and start dependent services
-3. **Monitoring**: Track service health and status
-4. **Cleanup**: Graceful shutdown and resource cleanup
+1. **Dependency Resolution**: Resolve and start dependent services
+2. **Monitoring**: Track service health and status
+3. **Cleanup**: Graceful shutdown and resource cleanup
 
 ### Workflow Orchestration (`internal/workflow`)
 
