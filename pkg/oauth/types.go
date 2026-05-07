@@ -37,6 +37,19 @@ func DefaultTokenDir() (string, error) {
 // Aligned with Dex's absoluteLifetime (720h = 30 days).
 const DefaultSessionDuration = 30 * 24 * time.Hour
 
+// Well-known URI suffixes for OAuth/OIDC metadata discovery.
+const (
+	// WellKnownAuthorizationServer is the RFC 8414 §3 path suffix for
+	// OAuth 2.0 Authorization Server Metadata.
+	WellKnownAuthorizationServer = "/.well-known/oauth-authorization-server"
+	// WellKnownOpenIDConfiguration is the OpenID Connect Discovery 1.0 §4
+	// path suffix for OpenID provider metadata.
+	WellKnownOpenIDConfiguration = "/.well-known/openid-configuration"
+	// WellKnownProtectedResource is the RFC 9728 path suffix for OAuth 2.0
+	// Protected Resource Metadata.
+	WellKnownProtectedResource = "/.well-known/oauth-protected-resource"
+)
+
 // NormalizeServerURL normalizes a server URL by stripping transport-specific
 // path suffixes (/mcp, /sse) and trailing slashes to get the base server URL.
 // This ensures consistent token storage and OAuth metadata discovery regardless
