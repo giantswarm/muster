@@ -18,6 +18,10 @@ All notable changes to this project will be documented in this file.
 - Restore `groups` scope in `DefaultOAuthCIMDScopes` -- required for group-based RBAC in downstream services. Provider-level scope filtering in mcp-oauth (e.g., `filterGoogleScopes`, `filterDexScopes`) handles provider differences.
 - Bump `mcp-oauth` to v0.2.117. Adopts `oauth.NewServerWithCombined` and `Handler.RegisterOAuthRoutes` to simplify server wiring; the authorization callback now includes the RFC 9207 `iss` parameter automatically. **Operational note:** mcp-oauth now rejects low-entropy AES-256 token-encryption keys (fewer than 16 distinct byte values). Real keys generated with `openssl rand -base64 32` or `openssl rand -hex 32` are unaffected; placeholder keys (all zeros, repeated bytes) will fail at startup with a clear error — rotate before upgrading.
 
+### Removed
+
+- `api.RegisterConfig` and `api.GetConfig` deprecated wrappers (use `RegisterConfigHandler` / `GetConfigHandler` directly). All call sites already suppressed with `//nolint:staticcheck`; both are gone now along with the suppressions. ([#140](https://github.com/giantswarm/muster/issues/140))
+
 ### Fixed
 
 - Aggregator-side PRM discovery (used by `core_auth_login`) now follows the MCP 2025-11-25 spec: it parses `WWW-Authenticate: ... resource_metadata=` from a 401, probes the path-based well-known URL (`<host>/.well-known/oauth-protected-resource<path>` — using the raw MCP URL path so `/v1/mcp` is preserved) before the root form, and exposes the RFC 9728 `resource` field on the parsed result. The previous implementation was root-only and silently dropped both signals.
