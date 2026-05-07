@@ -201,6 +201,14 @@ func (c *Client) StartAuthFlowWithOptions(ctx context.Context, serverURL, issuer
 		return "", fmt.Errorf("failed to discover OAuth metadata: %w", err)
 	}
 
+	// MCP 2025-11-25 §"Authorization Code Protection" requires refusing the
+	// flow when the AS doesn't advertise S256 PKCE. Fail fast with a clear
+	// error rather than letting the server silently downgrade or reject at
+	// the token endpoint.
+	if !metadata.SupportsS256PKCE() {
+		return "", fmt.Errorf("authorization server %q does not advertise S256 PKCE in code_challenge_methods_supported (MCP 2025-11-25 requires refusal)", issuerURL)
+	}
+
 	// Generate PKCE challenge
 	pkce, err := pkgoauth.GeneratePKCE()
 	if err != nil {

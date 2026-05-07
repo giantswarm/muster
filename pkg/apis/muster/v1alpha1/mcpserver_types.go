@@ -1,8 +1,36 @@
 package v1alpha1
 
 import (
+	"strings"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+// IssuerURL is a normalized OAuth/OIDC issuer URL.
+// Per RFC 8414 §2: HTTPS, no trailing slash, no fragment, no query string.
+//
+// Accepted: https://issuer.example.com
+//
+//	https://issuer.example.com:8443
+//	https://issuer.example.com/tenant
+//	https://login.microsoftonline.com/<tenant-uuid>/v2.0
+//
+// Rejected: https://issuer.example.com/  (trailing slash)
+//
+//	https://issuer.example.com#frag  (fragment)
+//	https://issuer.example.com?x=1  (query)
+//	http://issuer.example.com  (non-HTTPS)
+//
+// +kubebuilder:validation:Pattern=`^https://[^/?#]+(/[^?#]*[^/?#])?$`
+type IssuerURL string
+
+// Normalize returns the issuer URL with any trailing slash removed.
+// RFC 8414 §2 forbids trailing slashes; mirrors pkg/oauth/client.go's
+// canonical form so allowlist or override comparisons match downstream
+// AS metadata `issuer` values.
+func (u IssuerURL) Normalize() string {
+	return strings.TrimSuffix(string(u), "/")
+}
 
 // MCPServerSpec defines the desired state of MCPServer
 type MCPServerSpec struct {
@@ -65,6 +93,9 @@ type MCPServerSpec struct {
 // This enables Single Sign-On (SSO) via token forwarding between muster and
 // downstream MCP servers that share the same Identity Provider, or Teleport
 // authentication for private installations.
+// +kubebuilder:validation:XValidation:rule="!has(self.authorizationServer) || self.type == 'oauth'",message="authorizationServer is only valid when type is oauth"
+// +kubebuilder:validation:XValidation:rule="!(has(self.forwardToken) && self.forwardToken == true && has(self.authorizationServer))",message="forwardToken bypasses per-backend OAuth; set one or the other, not both"
+// +kubebuilder:validation:XValidation:rule="!(has(self.tokenExchange) && has(self.tokenExchange.enabled) && self.tokenExchange.enabled == true && has(self.authorizationServer))",message="tokenExchange has its own issuer/endpoint config; set one or the other, not both"
 type MCPServerAuth struct {
 	// Type specifies the authentication type.
 	// Supported values:
@@ -113,6 +144,41 @@ type MCPServerAuth struct {
 	// When configured, muster uses Teleport Machine ID certificates to establish
 	// mutual TLS connections to MCP servers accessible via Teleport Application Access.
 	Teleport *TeleportAuthConfig `json:"teleport,omitempty" yaml:"teleport,omitempty"`
+
+	// AuthorizationServer is an opt-out for backends that don't publish RFC 9728
+	// Protected Resource Metadata. When set, muster's per-server OAuth login flow
+	// (core_auth_login) skips PRM probing and uses these values directly. muster
+	// logs each override use at INFO so non-compliance is observable.
+	//
+	// This override does NOT bypass mcp-go's connect-time PRM probe; backends
+	// without RFC 9728 metadata still reconcile to "Auth Required" on first
+	// connect, then transition to "Connected" after `muster auth login`.
+	//
+	// Setting AuthorizationServer does NOT change the RFC 8707 `resource`
+	// parameter — that remains driven by the MCP server URL.
+	//
+	// AuthorizationServer is mutually exclusive with ForwardToken: true and
+	// TokenExchange.Enabled: true. The CRD admission rules above reject any
+	// CR that combines them. Only valid when Type is "oauth".
+	//
+	// Use case: Atlassian Remote MCP and similar backends that publish RFC 8414
+	// metadata at their resource origin instead of via RFC 9728.
+	AuthorizationServer *MCPServerAuthAuthorizationServer `json:"authorizationServer,omitempty" yaml:"authorizationServer,omitempty"`
+}
+
+// MCPServerAuthAuthorizationServer pins the OAuth authorization server for an
+// MCP server when RFC 9728 PRM discovery is unavailable.
+type MCPServerAuthAuthorizationServer struct {
+	// Issuer is the OAuth 2.0 / OIDC issuer URL.
+	// muster fetches AS metadata via the existing OAuth client, which performs
+	// RFC 8414 / OIDC discovery against this issuer.
+	// +kubebuilder:validation:Required
+	Issuer IssuerURL `json:"issuer" yaml:"issuer"`
+
+	// Scopes is the OAuth scope parameter value (RFC 6749 §3.3 wire format:
+	// space-separated scope tokens). Matches existing TokenExchangeConfig.Scopes.
+	// +optional
+	Scopes string `json:"scopes,omitempty" yaml:"scopes,omitempty"`
 }
 
 // TeleportAuthConfig configures Teleport authentication for an MCP server.

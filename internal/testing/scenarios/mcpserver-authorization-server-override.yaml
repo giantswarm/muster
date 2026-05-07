@@ -1,0 +1,46 @@
+name: "mcpserver-authorization-server-override"
+description: "MCPServer accepts spec.auth.authorizationServer override for non-RFC-9728 backends (issue #599)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "create", "oauth", "authentication", "issue-599"]
+timeout: "1m"
+
+steps:
+- id: "create-with-authorization-server-override"
+  description: "Create an MCPServer with the authorizationServer override (Atlassian-style)"
+  tool: "core_mcpserver_create"
+  args:
+    name: "atlassian-style-server"
+    type: "streamable-http"
+    url: "https://mcp.example.com/v1/mcp"
+    timeout: 30
+    auth:
+      type: "oauth"
+      authorizationServer:
+        issuer: "https://cf.mcp.example.com"
+        scopes: "openid offline_access"
+  expected:
+    success: true
+
+- id: "verify-override-roundtrips"
+  description: "Verify the override roundtrips through get"
+  tool: "core_mcpserver_get"
+  args:
+    name: "atlassian-style-server"
+  expected:
+    success: true
+    json_path:
+      name: "atlassian-style-server"
+    contains:
+      - "authorizationServer"
+      - "https://cf.mcp.example.com"
+      - "openid offline_access"
+
+cleanup:
+- id: "cleanup-atlassian-style-server"
+  description: "Delete the override-configured server"
+  tool: "core_mcpserver_delete"
+  args:
+    name: "atlassian-style-server"
+  expected:
+    success: true
