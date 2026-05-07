@@ -63,16 +63,6 @@ func NormalizeServerURL(serverURL string) string {
 	return serverURL
 }
 
-// IDTokenClaims holds the identity claims extracted from JWT ID tokens.
-// This is used to display user identity information (subject, email) from
-// OAuth authentication without requiring full JWT validation.
-type IDTokenClaims struct {
-	// Subject is the unique user identifier (sub claim).
-	Subject string `json:"sub"`
-	// Email is the user's email address (email claim).
-	Email string `json:"email"`
-}
-
 // Token represents an OAuth access token with associated metadata.
 type Token struct {
 	// AccessToken is the bearer token used for authorization.
