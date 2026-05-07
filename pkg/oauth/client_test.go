@@ -56,7 +56,7 @@ func TestDiscoverMetadata(t *testing.T) {
 		}
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == "/.well-known/oauth-authorization-server" { //nolint:goconst
+			if r.URL.Path == WellKnownAuthorizationServer {
 				w.Header().Set("Content-Type", "application/json")
 				_ = json.NewEncoder(w).Encode(metadata)
 				return
@@ -87,7 +87,7 @@ func TestDiscoverMetadata(t *testing.T) {
 		}
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == "/.well-known/openid-configuration" {
+			if r.URL.Path == WellKnownOpenIDConfiguration {
 				w.Header().Set("Content-Type", "application/json")
 				_ = json.NewEncoder(w).Encode(metadata)
 				return
@@ -132,7 +132,7 @@ func TestDiscoverMetadata(t *testing.T) {
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			atomic.AddInt32(&callCount, 1)
-			if r.URL.Path == "/.well-known/oauth-authorization-server" {
+			if r.URL.Path == WellKnownAuthorizationServer {
 				w.Header().Set("Content-Type", "application/json")
 				_ = json.NewEncoder(w).Encode(metadata)
 				return
@@ -172,7 +172,7 @@ func TestDiscoverMetadata(t *testing.T) {
 			// Add a small delay to ensure concurrent requests overlap
 			time.Sleep(50 * time.Millisecond)
 			atomic.AddInt32(&callCount, 1)
-			if r.URL.Path == "/.well-known/oauth-authorization-server" {
+			if r.URL.Path == WellKnownAuthorizationServer {
 				w.Header().Set("Content-Type", "application/json")
 				_ = json.NewEncoder(w).Encode(metadata)
 				return
@@ -208,7 +208,7 @@ func TestDiscoverMetadata(t *testing.T) {
 		}
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == "/.well-known/oauth-authorization-server" {
+			if r.URL.Path == WellKnownAuthorizationServer {
 				w.Header().Set("Content-Type", "application/json")
 				_ = json.NewEncoder(w).Encode(metadata)
 				return
@@ -423,7 +423,7 @@ func TestClearMetadataCache(t *testing.T) {
 	var callCount int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&callCount, 1)
-		if r.URL.Path == "/.well-known/oauth-authorization-server" {
+		if r.URL.Path == WellKnownAuthorizationServer {
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(metadata)
 			return
@@ -474,7 +474,7 @@ func TestMetadataCacheExpiry(t *testing.T) {
 	var callCount int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&callCount, 1)
-		if r.URL.Path == "/.well-known/oauth-authorization-server" {
+		if r.URL.Path == WellKnownAuthorizationServer {
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(metadata)
 			return
@@ -506,5 +506,52 @@ func TestMetadataCacheExpiry(t *testing.T) {
 
 	if atomic.LoadInt32(&callCount) != 2 {
 		t.Errorf("expected 2 calls after cache expiry, got %d", callCount)
+	}
+}
+
+// TestDiscoverMetadata_PathBearingIssuer covers the three URL forms
+// MCP 2025-11-25 mandates for issuers with a path component (e.g. Microsoft
+// Entra v2.0 endpoints). Each test serves metadata at exactly one of the
+// three forms and asserts discovery succeeds independently.
+func TestDiscoverMetadata_PathBearingIssuer(t *testing.T) {
+	const tenant = "/00000000-0000-0000-0000-000000000000/v2.0"
+	cases := []struct {
+		name      string
+		matchPath string
+	}{
+		{"RFC 8414 path-insertion", WellKnownAuthorizationServer + tenant},
+		{"OIDC path-insertion", WellKnownOpenIDConfiguration + tenant},
+		{"OIDC append", tenant + WellKnownOpenIDConfiguration},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var seen []string
+			var serverURL string
+			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				seen = append(seen, r.URL.Path)
+				if r.URL.Path != tc.matchPath {
+					http.NotFound(w, r)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(&Metadata{
+					Issuer:                serverURL + tenant,
+					AuthorizationEndpoint: serverURL + "/authorize",
+					TokenEndpoint:         serverURL + "/token",
+				})
+			})
+			server := httptest.NewServer(handler)
+			defer server.Close()
+			serverURL = server.URL
+
+			c := NewClient()
+			md, err := c.DiscoverMetadata(context.Background(), serverURL+tenant)
+			if err != nil {
+				t.Fatalf("expected discovery to succeed via %s, got %v (probed: %v)", tc.matchPath, err, seen)
+			}
+			if md.Issuer != serverURL+tenant {
+				t.Errorf("issuer mismatch: got %q, want %q", md.Issuer, serverURL+tenant)
+			}
+		})
 	}
 }
