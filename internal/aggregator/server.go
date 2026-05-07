@@ -2232,10 +2232,30 @@ type ProtectedResourceMetadata struct {
 	Scope string
 }
 
-// discoverProtectedResourceMetadata fetches OAuth information from
-// the server's /.well-known/oauth-protected-resource endpoint.
-// This follows the MCP OAuth specification for resource metadata discovery (RFC 9728).
-func discoverProtectedResourceMetadata(ctx context.Context, serverURL string) (*ProtectedResourceMetadata, error) {
+// discoverProtectedResourceMetadata resolves the authorization server for an
+// MCP server. When override is non-nil it skips PRM probing and uses the
+// operator-pinned values, performing an RFC 8414 §3.3 self-verification fetch
+// against the override issuer to fail closed on a wrong pin. Otherwise it
+// follows the MCP OAuth specification for resource metadata discovery (RFC 9728).
+func discoverProtectedResourceMetadata(ctx context.Context, serverURL string, override *api.MCPServerAuthAuthorizationServer) (*ProtectedResourceMetadata, error) {
+	if override != nil {
+		issuer := strings.TrimSuffix(override.Issuer, "/")
+		// RFC 8414 §3.3 self-verification: fetch AS metadata at the operator-
+		// pinned issuer and confirm it advertises the same issuer back. Bounds
+		// the trust granted to the operator's URL — a typo or stale pin fails
+		// here instead of silently driving an OAuth flow against the wrong AS.
+		md, err := pkgoauth.NewClient().DiscoverMetadata(ctx, issuer)
+		if err != nil {
+			return nil, fmt.Errorf("authorizationServer override: %w", err)
+		}
+		if got := strings.TrimSuffix(md.Issuer, "/"); got != issuer {
+			return nil, fmt.Errorf("authorizationServer override: issuer mismatch — spec.auth.authorizationServer.issuer=%q but AS metadata reports issuer=%q", issuer, md.Issuer)
+		}
+		logging.InfoWithAttrs("AuthTools", "oauth_authorization_server_override_used",
+			slog.String("issuer", issuer))
+		return &ProtectedResourceMetadata{Issuer: issuer, Scope: override.Scopes}, nil
+	}
+
 	baseURL := pkgoauth.NormalizeServerURL(serverURL)
 	resourceMetadataURL := baseURL + "/.well-known/oauth-protected-resource"
 

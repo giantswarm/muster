@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -857,4 +859,53 @@ func TestGetOrCreateClientForToolCall_NoEvictionWhenTokenFresh(t *testing.T) {
 
 	assert.Equal(t, mockClient, client, "should return the pooled client without eviction")
 	assert.Equal(t, 1, a.connPool.Len(), "pool entry should remain")
+}
+
+// TestDiscoverProtectedResourceMetadata_Override locks in the contract that
+// the override MUST skip PRM probing and MUST verify the operator-pinned
+// issuer matches the AS metadata's `issuer` field per RFC 8414 §3.3.
+func TestDiscoverProtectedResourceMetadata_Override(t *testing.T) {
+	// Stub authorization server: serves /.well-known/oauth-authorization-server
+	// with a configurable advertised `issuer` value so tests can exercise the
+	// match and mismatch branches independently.
+	var advertisedIssuer string
+	asMux := http.NewServeMux()
+	asMux.HandleFunc("/.well-known/oauth-authorization-server", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"issuer":%q,"authorization_endpoint":%q,"token_endpoint":%q,"code_challenge_methods_supported":["S256"]}`,
+			advertisedIssuer, advertisedIssuer+"/authorize", advertisedIssuer+"/token")
+	})
+	asServer := httptest.NewServer(asMux)
+	defer asServer.Close()
+
+	t.Run("override returns synthetic PRM when issuer matches AS metadata", func(t *testing.T) {
+		advertisedIssuer = asServer.URL
+		override := &api.MCPServerAuthAuthorizationServer{
+			Issuer: asServer.URL,
+			Scopes: "openid offline_access",
+		}
+		md, err := discoverProtectedResourceMetadata(context.Background(), "https://mcp.example.com/v1/mcp", override)
+		require.NoError(t, err)
+		assert.Equal(t, asServer.URL, md.Issuer)
+		assert.Equal(t, "openid offline_access", md.Scope)
+	})
+
+	t.Run("override rejects when AS metadata reports a different issuer", func(t *testing.T) {
+		advertisedIssuer = "https://attacker.example.com"
+		override := &api.MCPServerAuthAuthorizationServer{
+			Issuer: asServer.URL,
+		}
+		_, err := discoverProtectedResourceMetadata(context.Background(), "https://mcp.example.com/v1/mcp", override)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "issuer mismatch")
+	})
+
+	t.Run("override propagates AS metadata fetch errors", func(t *testing.T) {
+		override := &api.MCPServerAuthAuthorizationServer{
+			Issuer: "https://black-hole.invalid",
+		}
+		_, err := discoverProtectedResourceMetadata(context.Background(), "https://mcp.example.com/v1/mcp", override)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "authorizationServer override")
+	})
 }
