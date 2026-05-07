@@ -138,6 +138,24 @@ type MCPServerAuth struct {
 	//   - In Kubernetes: Mounted from a Secret managed by tbot
 	//   - In filesystem mode: Read directly from the tbot output directory
 	Teleport *TeleportAuth `yaml:"teleport,omitempty" json:"teleport,omitempty"`
+
+	// AuthorizationServer pins the OAuth issuer when the MCP server does not
+	// publish RFC 9728 Protected Resource Metadata. See the v1alpha1 CRD field
+	// of the same name for full semantics. When set, muster's per-server OAuth
+	// login flow skips PRM probing and uses these values directly.
+	AuthorizationServer *MCPServerAuthAuthorizationServer `yaml:"authorizationServer,omitempty" json:"authorizationServer,omitempty"`
+}
+
+// MCPServerAuthAuthorizationServer pins the OAuth authorization server for an
+// MCP server when RFC 9728 PRM discovery is unavailable.
+type MCPServerAuthAuthorizationServer struct {
+	// Issuer is the OAuth 2.0 / OIDC issuer URL.
+	// Normalized form: HTTPS, no trailing slash, no fragment, no query.
+	Issuer string `yaml:"issuer" json:"issuer"`
+
+	// Scopes is the OAuth scope parameter value (RFC 6749 §3.3 wire format:
+	// space-separated scope tokens).
+	Scopes string `yaml:"scopes,omitempty" json:"scopes,omitempty"`
 }
 
 // TokenExchangeConfig configures RFC 8693 Token Exchange for cross-cluster SSO.

@@ -11,6 +11,7 @@ All notable changes to this project will be documented in this file.
 - OAuth encryption keys can now be supplied as either base64 (`openssl rand -base64 32`) or hex (`openssl rand -hex 32`); the format is auto-detected.
 - Agent OAuth client now validates the RFC 9207 `iss` parameter on the authorization callback (defense-in-depth against AS mix-up attacks). Servers that omit `iss` are still accepted.
 - Authorization-server discovery now also serves `/.well-known/openid-configuration` and per-path Protected Resource Metadata at `/.well-known/oauth-protected-resource/mcp` (additive — RFC 9728 / OpenID Connect Discovery).
+- `MCPServer.spec.auth.authorizationServer` lets operators pin the OAuth issuer when the backend doesn't publish RFC 9728 metadata (Atlassian's hosted MCP being the prompting case). The override applies to `core_auth_login` only and is verified against the AS metadata's `issuer` field per RFC 8414 §3.3 to fail closed on a wrong pin. Fixes [#599](https://github.com/giantswarm/muster/issues/599).
 
 ### Changed
 
