@@ -35,7 +35,7 @@ func TestConfigReloadIntegration(t *testing.T) {
 
 	// Create adapter
 	adapter := NewConfigAdapter(initialConfig, configPath)
-	api.RegisterConfig(adapter) //nolint:staticcheck
+	api.RegisterConfigHandler(adapter)
 
 	ctx := context.Background()
 
@@ -87,7 +87,7 @@ func TestConfigReloadTool(t *testing.T) {
 
 	// Create adapter
 	adapter := NewConfigAdapter(initialConfig, tmpDir)
-	api.RegisterConfig(adapter) //nolint:staticcheck
+	api.RegisterConfigHandler(adapter)
 
 	// Test that config_reload tool exists
 	tools := adapter.GetTools()

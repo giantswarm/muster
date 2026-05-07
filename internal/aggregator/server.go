@@ -1982,7 +1982,7 @@ func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName st
 
 	case strings.HasPrefix(originalToolName, "config_"):
 		// Configuration management operations
-		handler := api.GetConfig() //nolint:staticcheck
+		handler := api.GetConfigHandler()
 		if handler == nil {
 			return nil, fmt.Errorf("config handler not available")
 		}
