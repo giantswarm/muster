@@ -37,6 +37,19 @@ func DefaultTokenDir() (string, error) {
 // Aligned with Dex's absoluteLifetime (720h = 30 days).
 const DefaultSessionDuration = 30 * 24 * time.Hour
 
+// Well-known URI suffixes for OAuth/OIDC metadata discovery.
+const (
+	// WellKnownAuthorizationServer is the RFC 8414 §3 path suffix for
+	// OAuth 2.0 Authorization Server Metadata.
+	WellKnownAuthorizationServer = "/.well-known/oauth-authorization-server"
+	// WellKnownOpenIDConfiguration is the OpenID Connect Discovery 1.0 §4
+	// path suffix for OpenID provider metadata.
+	WellKnownOpenIDConfiguration = "/.well-known/openid-configuration"
+	// WellKnownProtectedResource is the RFC 9728 path suffix for OAuth 2.0
+	// Protected Resource Metadata.
+	WellKnownProtectedResource = "/.well-known/oauth-protected-resource"
+)
+
 // NormalizeServerURL normalizes a server URL by stripping transport-specific
 // path suffixes (/mcp, /sse) and trailing slashes to get the base server URL.
 // This ensures consistent token storage and OAuth metadata discovery regardless
@@ -161,15 +174,18 @@ type Metadata struct {
 	CodeChallengeMethodsSupported []string `json:"code_challenge_methods_supported,omitempty"`
 }
 
-// SupportsPKCE returns true if the server supports S256 PKCE.
-func (m *Metadata) SupportsPKCE() bool {
+// SupportsS256PKCE reports whether the AS metadata advertises S256 PKCE.
+//
+// MCP 2025-11-25 §"Authorization Code Protection" mandates clients refuse to
+// proceed if `code_challenge_methods_supported` is absent — overriding the
+// OAuth 2.1 default-true convention. An empty / missing list returns false.
+func (m *Metadata) SupportsS256PKCE() bool {
 	for _, method := range m.CodeChallengeMethodsSupported {
 		if method == "S256" {
 			return true
 		}
 	}
-	// If not specified, assume S256 is supported (OAuth 2.1 requirement)
-	return len(m.CodeChallengeMethodsSupported) == 0
+	return false
 }
 
 // AuthChallenge represents parsed information from a WWW-Authenticate header.

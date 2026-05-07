@@ -1982,7 +1982,7 @@ func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName st
 
 	case strings.HasPrefix(originalToolName, "config_"):
 		// Configuration management operations
-		handler := api.GetConfig() //nolint:staticcheck
+		handler := api.GetConfigHandler()
 		if handler == nil {
 			return nil, fmt.Errorf("config handler not available")
 		}
@@ -2230,53 +2230,150 @@ type ProtectedResourceMetadata struct {
 	Issuer string
 	// Scope is the space-separated list of required scopes
 	Scope string
+	// Resource is the canonical resource URI per RFC 9728 §3.2 (REQUIRED in
+	// the spec but omitted by some real backends — log + accept on absence).
+	// Used by RFC 8707 token-binding consumers downstream.
+	Resource string
 }
 
-// discoverProtectedResourceMetadata fetches OAuth information from
-// the server's /.well-known/oauth-protected-resource endpoint.
-// This follows the MCP OAuth specification for resource metadata discovery (RFC 9728).
-func discoverProtectedResourceMetadata(ctx context.Context, serverURL string) (*ProtectedResourceMetadata, error) {
-	baseURL := pkgoauth.NormalizeServerURL(serverURL)
-	resourceMetadataURL := baseURL + "/.well-known/oauth-protected-resource"
+// discoverProtectedResourceMetadata resolves the authorization server for an
+// MCP server. When override is non-nil it skips PRM probing and uses the
+// operator-pinned values, performing an RFC 8414 §3.3 self-verification fetch
+// against the override issuer to fail closed on a wrong pin. Otherwise it
+// follows the MCP OAuth specification for resource metadata discovery (RFC 9728).
+func discoverProtectedResourceMetadata(ctx context.Context, serverURL string, override *api.MCPServerAuthAuthorizationServer) (*ProtectedResourceMetadata, error) {
+	httpClient := &http.Client{Timeout: 10 * time.Second}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", resourceMetadataURL, nil)
+	if override != nil {
+		issuer := strings.TrimSuffix(override.Issuer, "/")
+		// RFC 8414 §3.3 self-verification: fetch AS metadata at the pinned
+		// issuer and confirm it advertises the same issuer back. A typo or
+		// stale pin fails closed instead of driving an OAuth flow against
+		// the wrong AS.
+		md, err := pkgoauth.NewClient().DiscoverMetadata(ctx, issuer)
+		if err != nil {
+			return nil, fmt.Errorf("authorizationServer override: %w", err)
+		}
+		if got := strings.TrimSuffix(md.Issuer, "/"); got != issuer {
+			return nil, fmt.Errorf("authorizationServer override: issuer mismatch — spec.auth.authorizationServer.issuer=%q but AS metadata reports issuer=%q", issuer, md.Issuer)
+		}
+		logging.InfoWithAttrs("AuthTools", "oauth_authorization_server_override_used",
+			slog.String("issuer", issuer))
+		return &ProtectedResourceMetadata{Issuer: issuer, Scope: override.Scopes}, nil
+	}
+
+	// Step 1: WWW-Authenticate on 401.
+	if md := tryWWWAuthenticate(ctx, httpClient, serverURL); md != nil {
+		return md, nil
+	}
+
+	// Step 2 + 3: well-known paths (path-based first per MCP spec, then root).
+	parsed, err := url.Parse(serverURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse server URL: %w", err)
+	}
+	host := parsed.Scheme + "://" + parsed.Host
+	path := strings.TrimRight(parsed.Path, "/")
+	wellKnown := []string{}
+	if path != "" {
+		wellKnown = append(wellKnown, host+pkgoauth.WellKnownProtectedResource+path)
+	}
+	wellKnown = append(wellKnown, host+pkgoauth.WellKnownProtectedResource)
+
+	var lastErr error
+	for _, u := range wellKnown {
+		md, err := fetchProtectedResourceMetadata(ctx, httpClient, u)
+		if err == nil {
+			return md, nil
+		}
+		lastErr = err
+	}
+	return nil, fmt.Errorf("RFC 9728 protected resource metadata not found at any well-known path (last attempt: %w); set spec.auth.authorizationServer.issuer to bypass discovery", lastErr)
+}
+
+// tryWWWAuthenticate makes an unauthenticated GET to the MCP URL and follows
+// the WWW-Authenticate header's resource_metadata= URL when present, per
+// MCP 2025-11-25 §"PRM Discovery Requirements". Returns nil (not an error)
+// when the header is absent or carries no usable pointer — caller falls
+// through to well-known probing. Each abandoned branch logs at debug so
+// failures on this path remain diagnosable.
+func tryWWWAuthenticate(ctx context.Context, httpClient *http.Client, serverURL string) *ProtectedResourceMetadata {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, serverURL, nil)
+	if err != nil {
+		logging.Debug("AuthTools", "WWW-Authenticate probe: build request for %s failed: %v", serverURL, err)
+		return nil
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		logging.Debug("AuthTools", "WWW-Authenticate probe: %s unreachable: %v", serverURL, err)
+		return nil
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusUnauthorized {
+		logging.Debug("AuthTools", "WWW-Authenticate probe: %s returned %d (need 401), falling through", serverURL, resp.StatusCode)
+		return nil
+	}
+	// Header.Get returns the first value; RFC 7235 allows repeated header
+	// instances, but ParseWWWAuthenticate already handles multiple challenges
+	// inside one value, which is the form every real MCP backend emits.
+	header := resp.Header.Get("WWW-Authenticate")
+	if header == "" {
+		logging.Debug("AuthTools", "WWW-Authenticate probe: %s 401 carried no WWW-Authenticate header", serverURL)
+		return nil
+	}
+	challenge, err := pkgoauth.ParseWWWAuthenticate(header)
+	if err != nil || challenge.ResourceMetadataURL == "" {
+		logging.Debug("AuthTools", "WWW-Authenticate probe: %s carried no resource_metadata= pointer (parse err=%v)", serverURL, err)
+		return nil
+	}
+	md, err := fetchProtectedResourceMetadata(ctx, httpClient, challenge.ResourceMetadataURL)
+	if err != nil {
+		logging.Debug("AuthTools", "WWW-Authenticate probe: fetch %s failed: %v", challenge.ResourceMetadataURL, err)
+		return nil
+	}
+	return md
+}
+
+// fetchProtectedResourceMetadata fetches and parses an RFC 9728 PRM document.
+func fetchProtectedResourceMetadata(ctx context.Context, httpClient *http.Client, metadataURL string) (*ProtectedResourceMetadata, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, metadataURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
+	req.Header.Set("Accept", "application/json")
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch resource metadata: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("resource metadata returned status %d", resp.StatusCode)
+		return nil, fmt.Errorf("resource metadata at %s returned status %d", metadataURL, resp.StatusCode)
 	}
 
-	// Parse the response per RFC 9728
 	var metadata struct {
+		Resource             string   `json:"resource"`
 		AuthorizationServers []string `json:"authorization_servers"`
 		ScopesSupported      []string `json:"scopes_supported"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&metadata); err != nil {
 		return nil, fmt.Errorf("failed to parse resource metadata: %w", err)
 	}
-
+	// RFC 9728 §3.2 lists `resource` as REQUIRED but real backends omit it.
+	// Log + accept rather than reject so spec-noncompliant servers still work.
+	if metadata.Resource == "" {
+		logging.Warn("AuthTools", "RFC 9728 PRM at %s omits REQUIRED `resource` field", metadataURL)
+	}
 	if len(metadata.AuthorizationServers) == 0 {
-		return nil, fmt.Errorf("no authorization servers in resource metadata")
+		return nil, fmt.Errorf("no authorization servers in resource metadata at %s", metadataURL)
 	}
 
 	result := &ProtectedResourceMetadata{
-		Issuer: metadata.AuthorizationServers[0],
+		Issuer:   metadata.AuthorizationServers[0],
+		Resource: metadata.Resource,
 	}
-
-	// Join all supported scopes with space separator
 	if len(metadata.ScopesSupported) > 0 {
 		result.Scope = strings.Join(metadata.ScopesSupported, " ")
 	}
-
 	return result, nil
 }
 

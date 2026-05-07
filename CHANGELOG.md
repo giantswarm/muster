@@ -19,17 +19,25 @@ All notable changes to this project will be documented in this file.
 - OAuth encryption keys can now be supplied as either base64 (`openssl rand -base64 32`) or hex (`openssl rand -hex 32`); the format is auto-detected.
 - Agent OAuth client now validates the RFC 9207 `iss` parameter on the authorization callback (defense-in-depth against AS mix-up attacks). Servers that omit `iss` are still accepted.
 - Authorization-server discovery now also serves `/.well-known/openid-configuration` and per-path Protected Resource Metadata at `/.well-known/oauth-protected-resource/mcp` (additive — RFC 9728 / OpenID Connect Discovery).
+- `MCPServer.spec.auth.authorizationServer` lets operators pin the OAuth issuer when the backend doesn't publish RFC 9728 metadata (Atlassian's hosted MCP being the prompting case). The override applies to `core_auth_login` only and is verified against the AS metadata's `issuer` field per RFC 8414 §3.3 to fail closed on a wrong pin. Fixes [#599](https://github.com/giantswarm/muster/issues/599).
 
 ### Changed
 
 - Restore `groups` scope in `DefaultOAuthCIMDScopes` -- required for group-based RBAC in downstream services. Provider-level scope filtering in mcp-oauth (e.g., `filterGoogleScopes`, `filterDexScopes`) handles provider differences.
 - Bump `mcp-oauth` to v0.2.117. Adopts `oauth.NewServerWithCombined` and `Handler.RegisterOAuthRoutes` to simplify server wiring; the authorization callback now includes the RFC 9207 `iss` parameter automatically. **Operational note:** mcp-oauth now rejects low-entropy AES-256 token-encryption keys (fewer than 16 distinct byte values). Real keys generated with `openssl rand -base64 32` or `openssl rand -hex 32` are unaffected; placeholder keys (all zeros, repeated bytes) will fail at startup with a clear error — rotate before upgrading.
 
+### Removed
+
+- `api.RegisterConfig` and `api.GetConfig` deprecated wrappers (use `RegisterConfigHandler` / `GetConfigHandler` directly). All call sites already suppressed with `//nolint:staticcheck`; both are gone now along with the suppressions. ([#140](https://github.com/giantswarm/muster/issues/140))
+
 ### Fixed
 
+- Aggregator-side PRM discovery (used by `core_auth_login`) now follows the MCP 2025-11-25 spec: it parses `WWW-Authenticate: ... resource_metadata=` from a 401, probes the path-based well-known URL (`<host>/.well-known/oauth-protected-resource<path>` — using the raw MCP URL path so `/v1/mcp` is preserved) before the root form, and exposes the RFC 9728 `resource` field on the parsed result. The previous implementation was root-only and silently dropped both signals.
+- `pkg/oauth.Client.DiscoverMetadata` now handles path-bearing issuer URLs (e.g. `https://login.microsoftonline.com/<tenant>/v2.0`, Auth0 / Okta orgs with paths) per MCP 2025-11-25 §"Authorization Server Metadata Discovery": tries RFC 8414 path-insert, OIDC path-insert, then OIDC append. Previously these issuers fell through to a single no-path probe and failed; now they succeed.
 - Bump `mcp-oauth` to v0.2.86 with Dex scope filtering: non-standard client scopes like `claudeai` (sent by Claude) are now stripped before forwarding to Dex, preventing `invalid_scope` errors. Also includes Google scope filtering and `openid` force-merge from v0.2.84.
 - CRD validation now uses the discovery API instead of listing `MCPServer` resources in the `default` namespace. With namespace-scoped RBAC (a `Role` limited to muster's own namespace), the previous probe failed with `Forbidden`, silently fell back to filesystem mode, and left configured `MCPServer` CRs unstarted (visible in logs as `Found 0 MCPServer definitions for auto-start processing` followed by `Deleting MCPServer service: <name>`).
 - `call_tool` meta-tool now forwards the underlying tool's `isError` flag on the outer response. Previously the top-level `isError` was always `false` even when the wrapped tool returned an error, which was misleading for MCP clients that only inspect the top-level flag.
+- Per-server OAuth flow and agent OAuth flow both now refuse to proceed when the authorization server's metadata does not advertise S256 in `code_challenge_methods_supported`, per MCP 2025-11-25 §"Authorization Code Protection". Previously an absent list was treated as "S256 OK" (the OAuth 2.1 default), which let muster start a flow that the AS could silently downgrade or reject at the token endpoint with a confusing error. `Metadata.SupportsPKCE` is renamed to `SupportsS256PKCE` to match the new semantics — only `pkg/oauth`-internal callers existed.
 
 ## [0.1.0] - 2026-02-23
 

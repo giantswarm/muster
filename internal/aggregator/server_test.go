@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -857,4 +860,167 @@ func TestGetOrCreateClientForToolCall_NoEvictionWhenTokenFresh(t *testing.T) {
 
 	assert.Equal(t, mockClient, client, "should return the pooled client without eviction")
 	assert.Equal(t, 1, a.connPool.Len(), "pool entry should remain")
+}
+
+// TestDiscoverProtectedResourceMetadata_Override locks in the contract that
+// the override MUST skip PRM probing and MUST verify the operator-pinned
+// issuer matches the AS metadata's `issuer` field per RFC 8414 §3.3.
+func TestDiscoverProtectedResourceMetadata_Override(t *testing.T) {
+	// Stub authorization server: serves /.well-known/oauth-authorization-server
+	// with a configurable advertised `issuer` value so tests can exercise the
+	// match and mismatch branches independently.
+	var advertisedIssuer string
+	asMux := http.NewServeMux()
+	asMux.HandleFunc("/.well-known/oauth-authorization-server", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"issuer":%q,"authorization_endpoint":%q,"token_endpoint":%q,"code_challenge_methods_supported":["S256"]}`,
+			advertisedIssuer, advertisedIssuer+"/authorize", advertisedIssuer+"/token")
+	})
+	asServer := httptest.NewServer(asMux)
+	defer asServer.Close()
+
+	t.Run("override returns synthetic PRM when issuer matches AS metadata", func(t *testing.T) {
+		advertisedIssuer = asServer.URL
+		override := &api.MCPServerAuthAuthorizationServer{
+			Issuer: asServer.URL,
+			Scopes: "openid offline_access",
+		}
+		md, err := discoverProtectedResourceMetadata(context.Background(), "https://mcp.example.com/v1/mcp", override)
+		require.NoError(t, err)
+		assert.Equal(t, asServer.URL, md.Issuer)
+		assert.Equal(t, "openid offline_access", md.Scope)
+	})
+
+	t.Run("override rejects when AS metadata reports a different issuer", func(t *testing.T) {
+		advertisedIssuer = "https://attacker.example.com"
+		override := &api.MCPServerAuthAuthorizationServer{
+			Issuer: asServer.URL,
+		}
+		_, err := discoverProtectedResourceMetadata(context.Background(), "https://mcp.example.com/v1/mcp", override)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "issuer mismatch")
+	})
+
+	t.Run("override propagates AS metadata fetch errors", func(t *testing.T) {
+		override := &api.MCPServerAuthAuthorizationServer{
+			Issuer: "https://black-hole.invalid",
+		}
+		_, err := discoverProtectedResourceMetadata(context.Background(), "https://mcp.example.com/v1/mcp", override)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "authorizationServer override")
+	})
+}
+
+// TestDiscoverProtectedResourceMetadata exercises the spec-compliance fallback
+// path: WWW-Authenticate resource_metadata= follow, path-based PRM well-known
+// (using the raw URL path including /v1/mcp), and RFC 9728 `resource` field
+// parsing. These run when no override is set (the second argument is nil).
+func TestDiscoverProtectedResourceMetadata(t *testing.T) {
+	prmBody := func(issuer, resource string) string {
+		return fmt.Sprintf(`{"resource":%q,"authorization_servers":[%q],"scopes_supported":["openid","offline_access"]}`,
+			resource, issuer)
+	}
+
+	t.Run("WWW-Authenticate resource_metadata= followed", func(t *testing.T) {
+		prmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprint(w, prmBody("https://issuer.example", "https://mcp.example/v1/mcp"))
+		}))
+		defer prmServer.Close()
+		mcp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer resource_metadata=%q`, prmServer.URL))
+			w.WriteHeader(http.StatusUnauthorized)
+		}))
+		defer mcp.Close()
+
+		md, err := discoverProtectedResourceMetadata(context.Background(), mcp.URL+"/v1/mcp", nil)
+		require.NoError(t, err)
+		assert.Equal(t, "https://issuer.example", md.Issuer)
+		assert.Equal(t, "openid offline_access", md.Scope)
+		assert.Equal(t, "https://mcp.example/v1/mcp", md.Resource)
+	})
+
+	t.Run("path-based PRM well-known retains MCP URL path", func(t *testing.T) {
+		var seenPaths []string
+		mcp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			seenPaths = append(seenPaths, r.URL.Path)
+			if r.URL.Path == "/.well-known/oauth-protected-resource/v1/mcp" {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = fmt.Fprint(w, prmBody("https://issuer.example", "https://mcp.example/v1/mcp"))
+				return
+			}
+			http.NotFound(w, r)
+		}))
+		defer mcp.Close()
+
+		md, err := discoverProtectedResourceMetadata(context.Background(), mcp.URL+"/v1/mcp", nil)
+		require.NoError(t, err)
+		assert.Equal(t, "https://issuer.example", md.Issuer)
+		assert.Contains(t, seenPaths, "/.well-known/oauth-protected-resource/v1/mcp",
+			"path-based well-known must use the raw MCP URL path")
+	})
+
+	t.Run("trailing slash on MCP URL path is stripped before composing well-known", func(t *testing.T) {
+		var seenPaths []string
+		mcp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			seenPaths = append(seenPaths, r.URL.Path)
+			if r.URL.Path == "/.well-known/oauth-protected-resource/v1/mcp" {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = fmt.Fprint(w, prmBody("https://issuer.example", "https://mcp.example/v1/mcp"))
+				return
+			}
+			http.NotFound(w, r)
+		}))
+		defer mcp.Close()
+
+		_, err := discoverProtectedResourceMetadata(context.Background(), mcp.URL+"/v1/mcp/", nil)
+		require.NoError(t, err)
+		for _, p := range seenPaths {
+			assert.NotEqual(t, "/.well-known/oauth-protected-resource/v1/mcp/", p,
+				"trailing slash must be stripped from path before composing well-known")
+		}
+	})
+
+	t.Run("falls back to root well-known when path-based 404s", func(t *testing.T) {
+		mcp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/.well-known/oauth-protected-resource" {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = fmt.Fprint(w, prmBody("https://issuer.example", "https://mcp.example"))
+				return
+			}
+			http.NotFound(w, r)
+		}))
+		defer mcp.Close()
+
+		md, err := discoverProtectedResourceMetadata(context.Background(), mcp.URL+"/v1/mcp", nil)
+		require.NoError(t, err)
+		assert.Equal(t, "https://issuer.example", md.Issuer)
+	})
+
+	t.Run("logs but accepts PRM with empty `resource` field", func(t *testing.T) {
+		mcp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.Contains(r.URL.Path, "/.well-known/oauth-protected-resource") {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = fmt.Fprint(w, `{"authorization_servers":["https://issuer.example"]}`)
+				return
+			}
+			http.NotFound(w, r)
+		}))
+		defer mcp.Close()
+
+		md, err := discoverProtectedResourceMetadata(context.Background(), mcp.URL+"/v1/mcp", nil)
+		require.NoError(t, err)
+		assert.Equal(t, "", md.Resource, "missing resource field accepted")
+	})
+
+	t.Run("returns error when no PRM source resolves", func(t *testing.T) {
+		mcp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.NotFound(w, r)
+		}))
+		defer mcp.Close()
+
+		_, err := discoverProtectedResourceMetadata(context.Background(), mcp.URL+"/v1/mcp", nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "authorizationServer.issuer")
+	})
 }
