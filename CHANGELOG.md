@@ -11,6 +11,7 @@ All notable changes to this project will be documented in this file.
 - OAuth encryption keys can now be supplied as either base64 (`openssl rand -base64 32`) or hex (`openssl rand -hex 32`); the format is auto-detected.
 - Agent OAuth client now validates the RFC 9207 `iss` parameter on the authorization callback (defense-in-depth against AS mix-up attacks). Servers that omit `iss` are still accepted.
 - Authorization-server discovery now also serves `/.well-known/openid-configuration` and per-path Protected Resource Metadata at `/.well-known/oauth-protected-resource/mcp` (additive — RFC 9728 / OpenID Connect Discovery).
+- BDD scenarios `workflow-conditional-static` and `service-state-static` to preserve coverage of workflow conditional features (inline tool conditions, `from_step`, `allow_failure`, `expect_not`, `condition_evaluation`, step skipping) and static-service state-machine semantics (`core_service_restart` happy-path, `core_service_start` on already-running, `core_service_stop` on already-stopped). The deleted ServiceClass-based scenarios bundled this coverage with SC-instance lifecycle; the replacements drive the same workflow-engine and orchestrator code paths against a static MCPServer service.
 
 ### Changed
 
