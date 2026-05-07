@@ -56,7 +56,7 @@ func TestDiscoverMetadata(t *testing.T) {
 		}
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == "/.well-known/oauth-authorization-server" { //nolint:goconst
+			if r.URL.Path == WellKnownAuthorizationServer {
 				w.Header().Set("Content-Type", "application/json")
 				_ = json.NewEncoder(w).Encode(metadata)
 				return
@@ -87,7 +87,7 @@ func TestDiscoverMetadata(t *testing.T) {
 		}
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == "/.well-known/openid-configuration" {
+			if r.URL.Path == WellKnownOpenIDConfiguration {
 				w.Header().Set("Content-Type", "application/json")
 				_ = json.NewEncoder(w).Encode(metadata)
 				return
@@ -132,7 +132,7 @@ func TestDiscoverMetadata(t *testing.T) {
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			atomic.AddInt32(&callCount, 1)
-			if r.URL.Path == "/.well-known/oauth-authorization-server" {
+			if r.URL.Path == WellKnownAuthorizationServer {
 				w.Header().Set("Content-Type", "application/json")
 				_ = json.NewEncoder(w).Encode(metadata)
 				return
@@ -172,7 +172,7 @@ func TestDiscoverMetadata(t *testing.T) {
 			// Add a small delay to ensure concurrent requests overlap
 			time.Sleep(50 * time.Millisecond)
 			atomic.AddInt32(&callCount, 1)
-			if r.URL.Path == "/.well-known/oauth-authorization-server" {
+			if r.URL.Path == WellKnownAuthorizationServer {
 				w.Header().Set("Content-Type", "application/json")
 				_ = json.NewEncoder(w).Encode(metadata)
 				return
@@ -208,7 +208,7 @@ func TestDiscoverMetadata(t *testing.T) {
 		}
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == "/.well-known/oauth-authorization-server" {
+			if r.URL.Path == WellKnownAuthorizationServer {
 				w.Header().Set("Content-Type", "application/json")
 				_ = json.NewEncoder(w).Encode(metadata)
 				return
@@ -423,7 +423,7 @@ func TestClearMetadataCache(t *testing.T) {
 	var callCount int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&callCount, 1)
-		if r.URL.Path == "/.well-known/oauth-authorization-server" {
+		if r.URL.Path == WellKnownAuthorizationServer {
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(metadata)
 			return
@@ -474,7 +474,7 @@ func TestMetadataCacheExpiry(t *testing.T) {
 	var callCount int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&callCount, 1)
-		if r.URL.Path == "/.well-known/oauth-authorization-server" {
+		if r.URL.Path == WellKnownAuthorizationServer {
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(metadata)
 			return
@@ -519,9 +519,9 @@ func TestDiscoverMetadata_PathBearingIssuer(t *testing.T) {
 		name      string
 		matchPath string
 	}{
-		{"RFC 8414 path-insertion", "/.well-known/oauth-authorization-server" + tenant},
-		{"OIDC path-insertion", "/.well-known/openid-configuration" + tenant},
-		{"OIDC append", tenant + "/.well-known/openid-configuration"},
+		{"RFC 8414 path-insertion", WellKnownAuthorizationServer + tenant},
+		{"OIDC path-insertion", WellKnownOpenIDConfiguration + tenant},
+		{"OIDC append", tenant + WellKnownOpenIDConfiguration},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

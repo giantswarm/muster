@@ -184,15 +184,18 @@ type Metadata struct {
 	CodeChallengeMethodsSupported []string `json:"code_challenge_methods_supported,omitempty"`
 }
 
-// SupportsPKCE returns true if the server supports S256 PKCE.
-func (m *Metadata) SupportsPKCE() bool {
+// SupportsS256PKCE reports whether the AS metadata advertises S256 PKCE.
+//
+// MCP 2025-11-25 §"Authorization Code Protection" mandates clients refuse to
+// proceed if `code_challenge_methods_supported` is absent — overriding the
+// OAuth 2.1 default-true convention. An empty / missing list returns false.
+func (m *Metadata) SupportsS256PKCE() bool {
 	for _, method := range m.CodeChallengeMethodsSupported {
 		if method == "S256" {
 			return true
 		}
 	}
-	// If not specified, assume S256 is supported (OAuth 2.1 requirement)
-	return len(m.CodeChallengeMethodsSupported) == 0
+	return false
 }
 
 // AuthChallenge represents parsed information from a WWW-Authenticate header.
