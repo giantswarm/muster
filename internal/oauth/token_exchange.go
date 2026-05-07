@@ -3,8 +3,6 @@ package oauth
 import (
 	"context"
 	"crypto/subtle"
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -13,6 +11,7 @@ import (
 
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/pkg/logging"
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
 	"github.com/giantswarm/mcp-oauth/providers/oidc"
 )
@@ -470,12 +469,9 @@ func validateTokenIssuer(token, expectedIssuer string) error {
 		return nil
 	}
 
-	// Extract the issuer claim from the token
-	actualIssuer, err := extractIssuerFromToken(token)
-	if err != nil {
-		// If we can't extract the issuer, log and skip validation
-		// This handles edge cases where the token looks like a JWT but isn't
-		logging.Debug("TokenExchange", "Could not extract issuer from token: %v, skipping validation", err)
+	actualIssuer, err := pkgoauth.Issuer(token)
+	if err != nil || actualIssuer == "" {
+		logging.Debug("TokenExchange", "Could not extract issuer from token (err=%v), skipping validation", err)
 		return nil
 	}
 
@@ -502,43 +498,4 @@ func validateTokenIssuer(token, expectedIssuer string) error {
 func isJWTToken(token string) bool {
 	parts := strings.Split(token, ".")
 	return len(parts) == 3
-}
-
-// extractIssuerFromToken extracts the issuer (iss claim) from a JWT token.
-// This parses the token payload without cryptographic verification.
-//
-// SECURITY NOTE:
-//   - The token is assumed to come from a trusted token exchange endpoint.
-//   - Full signature verification is the responsibility of the downstream server.
-//   - This is a defense-in-depth check for proxied access scenarios.
-func extractIssuerFromToken(token string) (string, error) {
-	// JWT format: header.payload.signature
-	parts := strings.Split(token, ".")
-	if len(parts) < 2 {
-		return "", fmt.Errorf("invalid JWT format: expected at least 2 parts")
-	}
-
-	// Decode the payload using RawURLEncoding (handles missing padding automatically)
-	decoded, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		// Try standard base64 as fallback for non-standard implementations
-		decoded, err = base64.RawStdEncoding.DecodeString(parts[1])
-		if err != nil {
-			return "", fmt.Errorf("failed to decode payload: %w", err)
-		}
-	}
-
-	// Parse the claims
-	var claims struct {
-		Iss string `json:"iss"`
-	}
-	if err := json.Unmarshal(decoded, &claims); err != nil {
-		return "", fmt.Errorf("failed to parse claims: %w", err)
-	}
-
-	if claims.Iss == "" {
-		return "", fmt.Errorf("iss claim not found in token")
-	}
-
-	return claims.Iss, nil
 }

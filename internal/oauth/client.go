@@ -112,6 +112,14 @@ func (c *Client) GenerateAuthURL(ctx context.Context, sessionID, userID, serverN
 		return "", fmt.Errorf("failed to fetch OAuth metadata: %w", err)
 	}
 
+	// MCP 2025-11-25 §"Authorization Code Protection" requires refusing the
+	// flow if the AS doesn't advertise S256 PKCE. Fail closed: a server that
+	// doesn't list it may silently ignore code_challenge_method=S256 and
+	// produce confusing token-endpoint errors later.
+	if !metadata.SupportsS256PKCE() {
+		return "", fmt.Errorf("authorization server %q does not advertise S256 PKCE in code_challenge_methods_supported (MCP 2025-11-25 requires refusal)", issuer)
+	}
+
 	pkce, err := pkgoauth.GeneratePKCE()
 	if err != nil {
 		return "", fmt.Errorf("failed to generate PKCE: %w", err)

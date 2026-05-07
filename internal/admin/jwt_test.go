@@ -33,7 +33,6 @@ func TestDecodeJWT_happyPath(t *testing.T) {
 		t.Fatalf("label lost: %q", got.Label)
 	}
 
-	// Header
 	var hdr map[string]string
 	if err := json.Unmarshal(got.Header, &hdr); err != nil {
 		t.Fatalf("header not JSON: %v", err)
@@ -42,7 +41,6 @@ func TestDecodeJWT_happyPath(t *testing.T) {
 		t.Fatalf("header claims mismatch: %+v", hdr)
 	}
 
-	// Payload
 	var payload map[string]any
 	if err := json.Unmarshal(got.Payload, &payload); err != nil {
 		t.Fatalf("payload not JSON: %v", err)
@@ -51,7 +49,6 @@ func TestDecodeJWT_happyPath(t *testing.T) {
 		t.Fatalf("sub claim mismatch: %+v", payload)
 	}
 
-	// Signature must not leak into any returned field.
 	combined := string(got.Header) + string(got.Payload) + got.Error + got.Label
 	if strings.Contains(combined, "this-is-the-signature-it-must-not-appear") {
 		t.Fatalf("signature leaked into decoded output")
@@ -71,28 +68,42 @@ func TestDecodeJWT_emptyToken(t *testing.T) {
 	}
 }
 
+func TestDecodeJWT_acceptsTwoPartToken(t *testing.T) {
+	// Operators routinely paste truncated tokens from logs (signature stripped).
+	// The admin UI must render them.
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256"}`))
+	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"x"}`))
+	got := DecodeJWT("t", header+"."+payload)
+	if got.Error != "" {
+		t.Fatalf("2-part token must decode: %s", got.Error)
+	}
+	if len(got.Header) == 0 || len(got.Payload) == 0 {
+		t.Fatal("expected both segments populated")
+	}
+}
+
 func TestDecodeJWT_malformed(t *testing.T) {
 	cases := []string{
 		"one-segment-only",
-		"a.b",
-		"a.b.c.d",
 	}
 	for _, in := range cases {
 		got := DecodeJWT("t", in)
 		if got.Error == "" {
 			t.Fatalf("expected error for malformed token %q", in)
 		}
-		if !strings.Contains(got.Error, "3 segments") {
+		if !strings.Contains(got.Error, "header.payload") {
 			t.Fatalf("unexpected error text for %q: %s", in, got.Error)
 		}
 	}
 }
 
 func TestDecodeJWT_invalidBase64(t *testing.T) {
-	// Header is not valid base64url.
 	got := DecodeJWT("t", "!!!.payload.sig")
 	if got.Error == "" {
 		t.Fatal("expected error for invalid base64 header")
+	}
+	if !strings.Contains(got.Error, "header") {
+		t.Fatalf("error should mention header segment: %s", got.Error)
 	}
 }
 
@@ -110,7 +121,7 @@ func TestDecodeJWT_nonJSONPayload(t *testing.T) {
 	}
 }
 
-func TestDecodeJWT_paddedBase64Fallback(t *testing.T) {
+func TestDecodeJWT_paddedBase64(t *testing.T) {
 	// Producers sometimes include padding; both variants must work.
 	header := base64.URLEncoding.EncodeToString([]byte(`{"alg":"RS256"}`))
 	payload := base64.URLEncoding.EncodeToString([]byte(`{"sub":"x"}`))
@@ -123,59 +134,13 @@ func TestDecodeJWT_paddedBase64Fallback(t *testing.T) {
 	}
 }
 
-func TestExtractEmailFromIDToken(t *testing.T) {
-	tests := []struct {
-		name     string
-		token    string
-		expected string
-	}{
-		{
-			name:     "empty token",
-			token:    "",
-			expected: "",
-		},
-		{
-			name:     "malformed token",
-			token:    "invalid.token",
-			expected: "",
-		},
-		{
-			name:     "valid token with email",
-			token:    createTestJWT(map[string]interface{}{"sub": "user123", "email": "test@example.com"}),
-			expected: "test@example.com",
-		},
-		{
-			name:     "valid token without email",
-			token:    createTestJWT(map[string]interface{}{"sub": "user123", "name": "Test User"}),
-			expected: "",
-		},
+func TestDecodeJWT_dropsSignature(t *testing.T) {
+	// Sanity: a 4-part input should still produce header+payload from the
+	// first two segments. The trailing junk is ignored.
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256"}`))
+	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"x"}`))
+	got := DecodeJWT("t", header+"."+payload+".sig.extra")
+	if got.Error != "" {
+		t.Fatalf("4-segment input should still parse first two: %s", got.Error)
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := ExtractEmailFromIDToken(tt.token)
-			if result != tt.expected {
-				t.Errorf("expected %q, got %q", tt.expected, result)
-			}
-		})
-	}
-}
-
-// createTestJWT creates a simple JWT for testing purposes
-func createTestJWT(payload map[string]interface{}) string {
-	header := map[string]interface{}{
-		"alg": "RS256",
-		"typ": "JWT",
-	}
-
-	headerBytes, _ := json.Marshal(header)
-	payloadBytes, _ := json.Marshal(payload)
-
-	headerB64 := base64.RawURLEncoding.EncodeToString(headerBytes)
-	payloadB64 := base64.RawURLEncoding.EncodeToString(payloadBytes)
-
-	// Create a dummy signature for testing
-	signature := base64.RawURLEncoding.EncodeToString([]byte("dummy-signature"))
-
-	return headerB64 + "." + payloadB64 + "." + signature
 }
