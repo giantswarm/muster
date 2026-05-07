@@ -519,26 +519,7 @@ muster agent --repl
 muster check workflow <workflow>
 ```
 
-### Scenario 3: Service Instance Health Issues
-
-**Symptoms:**
-- `ServiceInstanceUnhealthy` events
-- `ServiceInstanceHealthCheckFailed` events
-- Service appears running but not responding
-
-**Investigation Steps:**
-```bash
-# 1. Check service health events
-muster events --resource-type service --resource-name <service> | grep -i health
-
-# 2. Check service status
-muster get service <service>
-
-# 3. Consider restart
-muster restart service <service>
-```
-
-### Scenario 4: Tools Suddenly Unavailable
+### Scenario 3: Tools Suddenly Unavailable
 
 **Symptoms:**
 - Multiple `ToolsUnavailable` events
