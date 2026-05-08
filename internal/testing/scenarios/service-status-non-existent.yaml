@@ -1,12 +1,12 @@
-name: "service-get-non-existent"
+name: "service-status-non-existent"
 category: "behavioral"
 concept: "service"
-tags: ["service", "get", "error-handling", "core-api"]
+tags: ["service", "status", "error-handling", "core-api"]
 timeout: "1m"
 
 steps:
-- id: "get-non-existent"
-  tool: "core_service_get"
+- id: "status-non-existent"
+  tool: "core_service_status"
   args:
     name: "service-does-not-exist"
   expected:

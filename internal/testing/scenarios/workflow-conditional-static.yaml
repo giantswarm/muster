@@ -1,0 +1,195 @@
+name: "workflow-conditional-static"
+description: "Workflow conditional features (inline tool condition, from_step, allow_failure, expect_not, condition_evaluation, step skipping) using a static MCPServer service as the probe target"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "conditional", "from-step", "allow-failure", "expect-not", "core-api"]
+timeout: "2m"
+
+pre_configuration:
+  mcp_servers:
+  # probe-target is started/stopped during the scenario to drive state changes.
+  - name: "probe-target"
+    config:
+      tools:
+      - name: "noop"
+        responses: [ { response: { ok: true } } ]
+  # echo-provider stays running — workflow steps that fire on a true condition
+  # call its echo tool, so it must not be stopped by the scenario.
+  - name: "echo-provider"
+    config:
+      tools:
+      - name: "echo"
+        responses: [ { response: { said: "{{ .text }}" } } ]
+
+steps:
+- id: "create-conditional-workflow"
+  tool: "core_workflow_create"
+  args:
+    name: "conditional-workflow"
+    args:
+      service_name:
+        type: "string"
+        required: true
+    steps:
+      - id: "check-service-running"
+        condition:
+          tool: "core_service_status"
+          args:
+            name: "{{.input.service_name}}"
+          expect:
+            success: true
+            json_path:
+              name: "{{.input.service_name}}"
+              state: "running"
+        tool: "x_echo-provider_echo"
+        args:
+          text: "Service {{.input.service_name}} is running"
+      - id: "always-execute"
+        tool: "x_echo-provider_echo"
+        args:
+          text: "This step always runs"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args:
+        name: "conditional-workflow"
+
+- id: "create-from-step-workflow"
+  tool: "core_workflow_create"
+  args:
+    name: "from-step-workflow"
+    args:
+      service_name:
+        type: "string"
+        required: true
+    steps:
+      - id: "get-service-status"
+        tool: "core_service_status"
+        args:
+          name: "{{.input.service_name}}"
+        allow_failure: true
+        store: true
+      - id: "react-to-non-running-service"
+        condition:
+          from_step: "get-service-status"
+          expect:
+            success: true
+            json_path:
+              name: "{{.input.service_name}}"
+          expect_not:
+            json_path:
+              state: "running"
+        tool: "x_echo-provider_echo"
+        args:
+          text: "Service {{.input.service_name}} exists but is not running"
+      - id: "react-to-missing-service"
+        condition:
+          from_step: "get-service-status"
+          expect:
+            success: false
+        tool: "x_echo-provider_echo"
+        args:
+          text: "Service {{.input.service_name}} does not exist"
+      - id: "report-final"
+        tool: "x_echo-provider_echo"
+        args:
+          text: "Workflow finished for {{.input.service_name}}"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args:
+        name: "from-step-workflow"
+
+# Inline-condition: probe succeeds → step runs
+- id: "run-conditional-running-service"
+  tool: "workflow_conditional-workflow"
+  args:
+    service_name: "probe-target"
+  expected:
+    success: true
+    json_path:
+      status: "completed"
+      workflow: "conditional-workflow"
+      steps.0.id: "check-service-running"
+      steps.0.status: "completed"
+      steps.0.condition_evaluation: true
+      steps.1.id: "always-execute"
+      steps.1.status: "completed"
+
+# Inline-condition: probe fails → step skipped, workflow continues
+- id: "run-conditional-missing-service"
+  tool: "workflow_conditional-workflow"
+  args:
+    service_name: "non-existent-service"
+  expected:
+    success: true
+    json_path:
+      status: "completed"
+      workflow: "conditional-workflow"
+      steps.0.id: "check-service-running"
+      steps.0.status: "skipped"
+      steps.0.condition_evaluation: false
+      steps.1.id: "always-execute"
+      steps.1.status: "completed"
+
+# Stop probe-target so the next workflow exercises expect_not on the from_step result
+- id: "stop-probe-target"
+  tool: "core_service_stop"
+  args:
+    name: "probe-target"
+  expected:
+    success: true
+
+# from_step + expect_not: probe succeeded but state != "running" → step runs
+- id: "run-from-step-stopped"
+  tool: "workflow_from-step-workflow"
+  args:
+    service_name: "probe-target"
+  expected:
+    success: true
+    json_path:
+      status: "completed"
+      workflow: "from-step-workflow"
+      steps.0.id: "get-service-status"
+      steps.0.status: "completed"
+      steps.1.id: "react-to-non-running-service"
+      steps.1.status: "completed"
+      steps.1.condition_evaluation: true
+      steps.2.id: "react-to-missing-service"
+      steps.2.status: "skipped"
+      steps.2.condition_evaluation: false
+      steps.3.id: "report-final"
+      steps.3.status: "completed"
+
+# from_step + allow_failure: probe failed (service missing) → workflow continues, missing-branch runs
+- id: "run-from-step-missing"
+  tool: "workflow_from-step-workflow"
+  args:
+    service_name: "totally-missing-service"
+  expected:
+    success: true
+    json_path:
+      status: "completed"
+      workflow: "from-step-workflow"
+      steps.0.id: "get-service-status"
+      steps.0.status: "failed"
+      steps.0.allow_failure: true
+      steps.1.id: "react-to-non-running-service"
+      steps.1.status: "skipped"
+      steps.1.condition_evaluation: false
+      steps.2.id: "react-to-missing-service"
+      steps.2.status: "completed"
+      steps.2.condition_evaluation: true
+      steps.3.id: "report-final"
+      steps.3.status: "completed"
+
+cleanup:
+  - id: "restart-probe-target"
+    tool: "core_service_start"
+    args:
+      name: "probe-target"
+    expected:
+      success: true
+    continue_on_failure: true

@@ -1,0 +1,110 @@
+name: "service-state-static"
+description: "Static-service state-machine semantics: restart happy-path, idempotent start on already-running, idempotent stop on already-stopped"
+category: "behavioral"
+concept: "service"
+tags: ["service", "lifecycle", "state", "restart", "idempotency", "core-api"]
+timeout: "2m"
+
+pre_configuration:
+  mcp_servers:
+    - name: "static-svc"
+      config:
+        tools:
+          - name: "ping"
+            input_schema:
+              type: "object"
+              properties: {}
+            responses:
+              - response:
+                  status: "ok"
+
+steps:
+  - id: "verify-initial-running"
+    tool: "core_service_status"
+    args:
+      name: "static-svc"
+    expected:
+      success: true
+      json_path:
+        name: "static-svc"
+        state: "running"
+
+  # Restart happy-path: previously covered by service-restart.yaml
+  - id: "restart-running-service"
+    tool: "core_service_restart"
+    args:
+      name: "static-svc"
+    expected:
+      success: true
+      contains: ["restarted", "static-svc"]
+
+  - id: "verify-running-after-restart"
+    tool: "core_service_status"
+    args:
+      name: "static-svc"
+    expected:
+      success: true
+      json_path:
+        name: "static-svc"
+        state: "running"
+
+  # Start idempotency: previously covered by service-start-already-running.yaml
+  - id: "start-already-running"
+    tool: "core_service_start"
+    args:
+      name: "static-svc"
+    expected:
+      success: true
+      contains: ["already running"]
+
+  - id: "stop-running-service"
+    tool: "core_service_stop"
+    args:
+      name: "static-svc"
+    expected:
+      success: true
+
+  - id: "verify-stopped"
+    tool: "core_service_status"
+    args:
+      name: "static-svc"
+    expected:
+      success: true
+      json_path:
+        name: "static-svc"
+        state: "stopped"
+
+  # Stop idempotency: previously covered by service-stop-already-stopped.yaml
+  - id: "stop-already-stopped"
+    tool: "core_service_stop"
+    args:
+      name: "static-svc"
+    expected:
+      success: true
+      contains: ["already stopped"]
+
+  - id: "start-stopped-service"
+    tool: "core_service_start"
+    args:
+      name: "static-svc"
+    expected:
+      success: true
+
+  - id: "verify-running-after-start"
+    tool: "core_service_status"
+    args:
+      name: "static-svc"
+    expected:
+      success: true
+      json_path:
+        name: "static-svc"
+        state: "running"
+
+cleanup:
+  - id: "ensure-stopped-for-isolation"
+    tool: "core_service_stop"
+    args:
+      name: "static-svc"
+    expected:
+      success: true
+    continue_on_failure: true

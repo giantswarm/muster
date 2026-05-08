@@ -19,6 +19,7 @@ All notable changes to this project will be documented in this file.
 - OAuth encryption keys can now be supplied as either base64 (`openssl rand -base64 32`) or hex (`openssl rand -hex 32`); the format is auto-detected.
 - Agent OAuth client now validates the RFC 9207 `iss` parameter on the authorization callback (defense-in-depth against AS mix-up attacks). Servers that omit `iss` are still accepted.
 - Authorization-server discovery now also serves `/.well-known/openid-configuration` and per-path Protected Resource Metadata at `/.well-known/oauth-protected-resource/mcp` (additive — RFC 9728 / OpenID Connect Discovery).
+- BDD scenarios `workflow-conditional-static` and `service-state-static` to preserve coverage of workflow conditional features (inline tool conditions, `from_step`, `allow_failure`, `expect_not`, `condition_evaluation`, step skipping) and static-service state-machine semantics (`core_service_restart` happy-path, `core_service_start` on already-running, `core_service_stop` on already-stopped). The deleted ServiceClass-based scenarios bundled this coverage with SC-instance lifecycle; the replacements drive the same workflow-engine and orchestrator code paths against a static MCPServer service.
 - `MCPServer.spec.auth.authorizationServer` lets operators pin the OAuth issuer when the backend doesn't publish RFC 9728 metadata (Atlassian's hosted MCP being the prompting case). The override applies to `core_auth_login` only and is verified against the AS metadata's `issuer` field per RFC 8414 §3.3 to fail closed on a wrong pin. Fixes [#599](https://github.com/giantswarm/muster/issues/599).
 
 ### Changed
@@ -30,6 +31,12 @@ All notable changes to this project will be documented in this file.
 
 ### Removed
 
+- ServiceClass-related MCP tools and CLI surface (first PR of the ServiceClass removal — see #632 for the rest).
+  - MCP tools: `core_serviceclass_*`, `core_service_create`, `core_service_delete`, `core_service_get`, `core_service_validate`. Service inspection still works via `core_service_status`.
+  - CLI subcommands: `muster create service`, `muster create serviceclass`, `muster check serviceclass`, `muster get serviceclass`, `muster list serviceclass`. The `service` and `serviceclass` values for `muster events --resource-type` and `muster test --concept` are also gone.
+  - BDD scenarios: 22 `serviceclass-*` / `serviceclass_*` scenarios, 20 `service-*` scenarios that exercised user-creatable service instances (`service-create-*`, `service-delete*`, `service-get*`, `service-validate`, `service-lifecycle`, `service-persistence`, `service-restart`, `service-state-transitions`, `service-{start,stop}*`), and 6 cross-cutting end-to-end scenarios that depended on ServiceClass (`behavior-developer-onboarding-journey`, `example_with_mock`, `reconciler-status-sync`, `user-journey-platform-setup`, `workflow-conditional-service-check`, `workflow-run-with-serviceclass`) — 48 scenarios total. `service-get-non-existent` is renamed to `service-status-non-existent` and now exercises `core_service_status`.
+
+  Note: the `ServiceClass` runtime, CRD, and Helm RBAC are still in place after this PR; they are removed in subsequent PRs tracked in #632.
 - `api.RegisterConfig` and `api.GetConfig` deprecated wrappers (use `RegisterConfigHandler` / `GetConfigHandler` directly). All call sites already suppressed with `//nolint:staticcheck`; both are gone now along with the suppressions. ([#140](https://github.com/giantswarm/muster/issues/140))
 
 ### Fixed

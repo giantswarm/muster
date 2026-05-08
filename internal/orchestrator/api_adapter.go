@@ -294,96 +294,6 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 				},
 			},
 		},
-		{
-			Name:        "service_create",
-			Description: "Create a new ServiceClass-based service instance",
-			Args: []api.ArgMetadata{
-				{
-					Name:        "serviceClassName",
-					Type:        "string",
-					Required:    true,
-					Description: "Name of the ServiceClass to instantiate",
-				},
-				{
-					Name:        "name",
-					Type:        "string",
-					Required:    true,
-					Description: "Unique name for the service instance",
-				},
-				{
-					Name:        "args",
-					Type:        "object",
-					Required:    false,
-					Description: "Arguments for service creation",
-					Schema: map[string]interface{}{
-						"type":        "object",
-						"description": "Service creation arguments as key-value pairs, validated against the ServiceClass argument definitions",
-						"additionalProperties": map[string]interface{}{
-							"description": "Argument value - type depends on ServiceClass argument definition",
-						},
-					},
-				},
-				{
-					Name:        "persist",
-					Type:        "boolean",
-					Required:    false,
-					Description: "Whether to persist this service instance definition to YAML files for automatic recreation on startup",
-				},
-				{
-					Name:        "autoStart",
-					Type:        "boolean",
-					Required:    false,
-					Description: "Whether this instance should be started automatically on system startup (only applies if persist is true)",
-				},
-			},
-		},
-		{
-			Name:        "service_delete",
-			Description: "Delete a ServiceClass-based service instance (static services cannot be deleted)",
-			Args: []api.ArgMetadata{
-				{
-					Name:        "name",
-					Type:        "string",
-					Required:    true,
-					Description: "Name of the ServiceClass instance to delete",
-				},
-			},
-		},
-		{
-			Name:        "service_get",
-			Description: "Get detailed information about any service (MCP servers, aggregator, ServiceClass instances)",
-			Args: []api.ArgMetadata{
-				{
-					Name:        "name",
-					Type:        "string",
-					Required:    true,
-					Description: "Name of the service to get",
-				},
-			},
-		},
-		{
-			Name:        "service_validate",
-			Description: "Validate a service instance definition",
-			Args: []api.ArgMetadata{
-				{Name: "name", Type: "string", Required: true, Description: "Service instance name"},
-				{Name: "serviceClassName", Type: "string", Required: true, Description: "Name of the ServiceClass to instantiate"},
-				{
-					Name:        "args",
-					Type:        "object",
-					Required:    false,
-					Description: "Arguments for service creation",
-					Schema: map[string]interface{}{
-						"type":        "object",
-						"description": "Service creation arguments as key-value pairs, validated against the ServiceClass argument definitions",
-						"additionalProperties": map[string]interface{}{
-							"description": "Argument value - type depends on ServiceClass argument definition",
-						},
-					},
-				},
-				{Name: "autoStart", Type: "boolean", Required: false, Description: "Whether this instance should auto-start"},
-				{Name: "description", Type: "string", Required: false, Description: "Service instance description"},
-			},
-		},
 	}
 }
 
@@ -401,15 +311,6 @@ func (a *Adapter) ExecuteTool(ctx context.Context, toolName string, args map[str
 		return a.handleServiceRestart(args)
 	case "service_status":
 		return a.handleServiceStatus(args)
-	// ServiceClass instance management
-	case "service_create":
-		return a.handleServiceClassInstanceCreate(ctx, args)
-	case "service_delete":
-		return a.handleServiceClassInstanceDelete(ctx, args)
-	case "service_get":
-		return a.handleServiceClassInstanceGet(args)
-	case "service_validate":
-		return a.handleServiceValidate(ctx, args)
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", toolName)
 	}
@@ -561,101 +462,6 @@ func (a *Adapter) handleServiceStatus(args map[string]interface{}) (*api.CallToo
 	}, nil
 }
 
-// ServiceClass instance management handlers
-
-func (a *Adapter) handleServiceClassInstanceCreate(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
-	serviceClassName, ok := args["serviceClassName"].(string)
-	if !ok {
-		return &api.CallToolResult{
-			Content: []interface{}{"serviceClassName is required"},
-			IsError: true,
-		}, nil
-	}
-
-	name, ok := args["name"].(string)
-	if !ok {
-		return &api.CallToolResult{
-			Content: []interface{}{"name is required"},
-			IsError: true,
-		}, nil
-	}
-
-	serviceArgs, _ := args["args"].(map[string]interface{})
-	if serviceArgs == nil {
-		serviceArgs = make(map[string]interface{})
-	}
-
-	// Parse optional boolean args
-	persist, _ := args["persist"].(bool)
-	autoStart, _ := args["autoStart"].(bool)
-
-	req := api.CreateServiceInstanceRequest{
-		ServiceClassName: serviceClassName,
-		Name:             name,
-		Args:             serviceArgs,
-		Persist:          persist,
-		AutoStart:        autoStart,
-	}
-
-	instance, err := a.CreateService(ctx, req)
-	if err != nil {
-		return &api.CallToolResult{
-			Content: []interface{}{fmt.Sprintf("Failed to create ServiceClass instance: %v", err)},
-			IsError: true,
-		}, nil
-	}
-
-	return &api.CallToolResult{
-		Content: []interface{}{instance},
-		IsError: false,
-	}, nil
-}
-
-func (a *Adapter) handleServiceClassInstanceDelete(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
-	name, ok := args["name"].(string)
-	if !ok {
-		return &api.CallToolResult{
-			Content: []interface{}{"name is required"},
-			IsError: true,
-		}, nil
-	}
-
-	if err := a.DeleteService(ctx, name); err != nil {
-		return &api.CallToolResult{
-			Content: []interface{}{fmt.Sprintf("Failed to delete ServiceClass instance: %v", err)},
-			IsError: true,
-		}, nil
-	}
-
-	return &api.CallToolResult{
-		Content: []interface{}{fmt.Sprintf("Successfully deleted ServiceClass instance '%s'", name)},
-		IsError: false,
-	}, nil
-}
-
-func (a *Adapter) handleServiceClassInstanceGet(args map[string]interface{}) (*api.CallToolResult, error) {
-	name, ok := args["name"].(string)
-	if !ok {
-		return &api.CallToolResult{
-			Content: []interface{}{"name is required"},
-			IsError: true,
-		}, nil
-	}
-
-	instance, err := a.GetService(name)
-	if err != nil {
-		return &api.CallToolResult{
-			Content: []interface{}{fmt.Sprintf("Failed to get service: %v", err)},
-			IsError: true,
-		}, nil
-	}
-
-	return &api.CallToolResult{
-		Content: []interface{}{instance},
-		IsError: false,
-	}, nil
-}
-
 // ServiceClass instance creation and deletion (unified methods)
 
 // CreateService creates a new ServiceClass-based service instance (unified method)
@@ -723,42 +529,5 @@ func (a *Adapter) GetService(name string) (*api.ServiceInstance, error) {
 		LastChecked:      nil,         // Default for static services
 		ServiceData:      serviceData, // Include service_type in metadata
 		Args:             nil,         // Not applicable for static services
-	}, nil
-}
-
-// handleServiceValidate handles the 'service_validate' tool.
-func (a *Adapter) handleServiceValidate(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
-	var req api.ServiceValidateRequest
-	if err := api.ParseRequest(args, &req); err != nil {
-		return &api.CallToolResult{
-			Content: []interface{}{err.Error()},
-			IsError: true,
-		}, nil
-	}
-
-	// Validate without persisting - just check if the ServiceClass exists and args are valid
-	// Get ServiceClassManager through API
-	serviceClassManager := api.GetServiceClassManager()
-	if serviceClassManager == nil {
-		return &api.CallToolResult{
-			Content: []interface{}{"Validation failed: ServiceClass manager not available"},
-			IsError: true,
-		}, nil
-	}
-
-	// Check if ServiceClass is available
-	if !serviceClassManager.IsServiceClassAvailable(req.ServiceClassName) {
-		return &api.CallToolResult{
-			Content: []interface{}{fmt.Sprintf("Validation failed: ServiceClass '%s' is not available", req.ServiceClassName)},
-			IsError: true,
-		}, nil
-	}
-
-	// Basic arg validation could be added here
-	// For now, we just validate the basic required fields and ServiceClass availability
-
-	return &api.CallToolResult{
-		Content: []interface{}{fmt.Sprintf("Validation successful for service %s", req.Name)},
-		IsError: false,
 	}, nil
 }

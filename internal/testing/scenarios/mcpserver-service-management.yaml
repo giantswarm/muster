@@ -33,17 +33,7 @@ steps:
       success: true
       contains: ["service-management-test"]
 
-  # Phase 2: Get detailed information about the MCP server service
-  - id: "get-mcpserver-service-details"
-    tool: "core_service_get"
-    args:
-      name: "service-management-test"
-    expected:
-      success: true
-      json_path:
-        name: "service-management-test"
-        state: "running"
-
+  # Phase 2: Inspect the MCP server service status
   - id: "verify-service-status"
     tool: "core_service_status"
     args:
@@ -62,16 +52,6 @@ steps:
     expected:
       success: true
 
-  - id: "verify-service-stopped"
-    tool: "core_service_get"
-    args:
-      name: "service-management-test"
-    expected:
-      success: true
-      json_path:
-        name: "service-management-test"
-        state: "stopped"
-
   - id: "verify-stopped-status"
     tool: "core_service_status"
     args:
@@ -89,16 +69,6 @@ steps:
       name: "service-management-test"
     expected:
       success: true
-
-  - id: "verify-service-restarted"
-    tool: "core_service_get"
-    args:
-      name: "service-management-test"
-    expected:
-      success: true
-      json_path:
-        name: "service-management-test"
-        state: "running"
 
   - id: "verify-running-status-after-restart"
     tool: "core_service_status"

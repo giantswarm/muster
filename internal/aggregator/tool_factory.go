@@ -176,7 +176,6 @@ func convertToMCPSchema(params []api.ArgMetadata) mcp.ToolInputSchema {
 //   - core_workflow_* tools (workflow management and execution)
 //   - core_service_* tools (service lifecycle management)
 //   - core_config_* tools (configuration management)
-//   - core_serviceclass_* tools (service class management)
 //   - core_mcpserver_* tools (MCP server management)
 //   - core_events tool (event management)
 //   - core_auth_* tools (authentication operations)
@@ -210,7 +209,6 @@ func (a *AggregatorServer) getAllCoreToolsAsMCPTools() []mcp.Tool {
 		api.GetWorkflow(),
 		api.GetServiceManager(),
 		api.GetConfigHandler(),
-		api.GetServiceClassManager(),
 		api.GetMCPServerManager(),
 		api.GetEventManager(),
 	}
