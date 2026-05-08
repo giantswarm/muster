@@ -208,7 +208,7 @@ func (a *AggregatorServer) getAllCoreToolsAsMCPTools() []mcp.Tool {
 	providers := []interface{}{
 		api.GetWorkflow(),
 		api.GetServiceManager(),
-		api.GetConfig(), //nolint:staticcheck
+		api.GetConfigHandler(),
 		api.GetMCPServerManager(),
 		api.GetEventManager(),
 	}

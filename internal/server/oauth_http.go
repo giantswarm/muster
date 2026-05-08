@@ -428,7 +428,17 @@ func (s *OAuthHTTPServer) injectExternalIDToken(
 	// muster's own responsibility.
 	if issuer := s.musterIssuer(); issuer != "" {
 		if oh := api.GetOAuthHandler(); oh != nil && oh.IsEnabled() {
-			oh.StoreToken(acceptance.SessionID, acceptance.Subject, issuer, &api.OAuthToken{IDToken: bearerToken})
+			exp, err := pkgoauth.Expiry(bearerToken)
+			if err != nil {
+				logging.Warn("OAuth",
+					"SSO: refusing to mirror forwarded ID token without parseable JWT exp (session=%s, issuer=%s): %v; re-auth required",
+					logging.TruncateIdentifier(acceptance.SessionID), issuer, err)
+			} else {
+				oh.StoreToken(acceptance.SessionID, acceptance.Subject, issuer, &api.OAuthToken{
+					IDToken:   bearerToken,
+					ExpiresAt: exp,
+				})
+			}
 		}
 	}
 
