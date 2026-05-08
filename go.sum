@@ -54,8 +54,8 @@ github.com/fsnotify/fsnotify v1.10.1 h1:b0/UzAf9yR5rhf3RPm9gf3ehBPpf0oZKIjtpKrx5
 github.com/fsnotify/fsnotify v1.10.1/go.mod h1:TLheqan6HD6GBK6PrDWyDPBaEV8LspOxvPSjC+bVfgo=
 github.com/fxamacker/cbor/v2 v2.9.0 h1:NpKPmjDBgUfBms6tr6JZkTHtfFGcMKsw3eGcmD/sapM=
 github.com/fxamacker/cbor/v2 v2.9.0/go.mod h1:vM4b+DJCtHn+zz7h3FFp/hDAI9WNWCsZj23V5ytsSxQ=
-github.com/giantswarm/mcp-oauth v0.2.117 h1:yU8s0NpwIqFbiT5pit5ZA3KVo2hLPUOycFcjVdfsjNE=
-github.com/giantswarm/mcp-oauth v0.2.117/go.mod h1:l3qR16J9TWUggTrb3FpRxegW7bI339LDwA3LQK/jnWI=
+github.com/giantswarm/mcp-oauth v0.2.118 h1:VPtL+NWJSsdsOiTSbq0kpICA/DmT1Tu7AhGZ3st+iyA=
+github.com/giantswarm/mcp-oauth v0.2.118/go.mod h1:Rdb1sti2Kgdo27a3HLIxO9lRZX/sCBY86ZKQMOUVRzw=
 github.com/go-fed/httpsig v1.1.0 h1:9M+hb0jkEICD8/cAiNqEB66R87tTINszBRTjwjQzWcI=
 github.com/go-fed/httpsig v1.1.0/go.mod h1:RCMrTZvN1bJYtofsG4rd5NaO5obxQ5xBkdiS7xsT7bM=
 github.com/go-logr/logr v1.2.2/go.mod h1:jdQByPbusPIv2/zmleS9BjJVeZ6kBagPoEUsqbVz/1A=
