@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	oauth "github.com/giantswarm/mcp-oauth"
 	"github.com/giantswarm/mcp-oauth/providers"
@@ -483,21 +484,27 @@ type capturingOAuthHandler struct {
 		UserID    string
 		Issuer    string
 		IDToken   string
+		ExpiresAt time.Time
 	}
 }
 
 func (c *capturingOAuthHandler) IsEnabled() bool { return c.enabled }
 func (c *capturingOAuthHandler) StoreToken(sessionID, userID, issuer string, token *api.OAuthToken) {
-	var idToken string
+	var (
+		idToken   string
+		expiresAt time.Time
+	)
 	if token != nil {
 		idToken = token.IDToken
+		expiresAt = token.ExpiresAt
 	}
 	c.stored = append(c.stored, struct {
 		SessionID string
 		UserID    string
 		Issuer    string
 		IDToken   string
-	}{sessionID, userID, issuer, idToken})
+		ExpiresAt time.Time
+	}{sessionID, userID, issuer, idToken, expiresAt})
 }
 
 // requestWithBearer builds a request with the given Authorization header.
@@ -672,7 +679,7 @@ func TestInjectExternalIDToken(t *testing.T) {
 	})
 
 	t.Run("mirrors ID token into OAuth handler keyed by Dex issuer when provider=dex", func(t *testing.T) {
-		token := fakeJWT(t, map[string]interface{}{"sub": "u1"})
+		token := fakeJWT(t, map[string]interface{}{"sub": "u1", "exp": int64(9999999999)})
 		defer stubAcceptForwardedIDToken(func(_ context.Context, bearer string) (*oauthserver.ForwardedIDTokenAcceptance, error) {
 			return acceptanceFor(bearer, "u1", "a@b.com"), nil
 		})()
@@ -702,7 +709,7 @@ func TestInjectExternalIDToken(t *testing.T) {
 	})
 
 	t.Run("falls back to BaseURL for non-dex providers", func(t *testing.T) {
-		token := fakeJWT(t, map[string]interface{}{"sub": "u1"})
+		token := fakeJWT(t, map[string]interface{}{"sub": "u1", "exp": int64(9999999999)})
 		defer stubAcceptForwardedIDToken(func(_ context.Context, bearer string) (*oauthserver.ForwardedIDTokenAcceptance, error) {
 			return acceptanceFor(bearer, "u1", ""), nil
 		})()
@@ -722,6 +729,46 @@ func TestInjectExternalIDToken(t *testing.T) {
 
 		require.Len(t, handler.stored, 1)
 		assert.Equal(t, baseURL, handler.stored[0].Issuer)
+	})
+
+	t.Run("populates ExpiresAt from JWT exp claim on the mirrored entry", func(t *testing.T) {
+		token := fakeJWT(t, map[string]interface{}{"sub": "u1", "exp": int64(9999999999)})
+		defer stubAcceptForwardedIDToken(func(_ context.Context, bearer string) (*oauthserver.ForwardedIDTokenAcceptance, error) {
+			return acceptanceFor(bearer, "u1", ""), nil
+		})()
+
+		handler := &capturingOAuthHandler{enabled: true}
+		api.RegisterOAuthHandler(handler)
+		defer api.RegisterOAuthHandler(nil)
+
+		s := &OAuthHTTPServer{config: config.OAuthServerConfig{BaseURL: baseURL}}
+		next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
+
+		r := requestWithBearer(token)
+		require.True(t, s.injectExternalIDToken(httptest.NewRecorder(), r, r.Context(), next))
+
+		require.Len(t, handler.stored, 1)
+		assert.Equal(t, time.Unix(9999999999, 0), handler.stored[0].ExpiresAt,
+			"ExpiresAt must come from the JWT exp claim — without it IsExpiredWithMargin treats the entry as never-expiring")
+	})
+
+	t.Run("refuses to mirror forwarded ID token without parseable JWT exp", func(t *testing.T) {
+		token := fakeJWT(t, map[string]interface{}{"sub": "u1"}) // no exp claim
+		defer stubAcceptForwardedIDToken(func(_ context.Context, bearer string) (*oauthserver.ForwardedIDTokenAcceptance, error) {
+			return acceptanceFor(bearer, "u1", ""), nil
+		})()
+
+		handler := &capturingOAuthHandler{enabled: true}
+		api.RegisterOAuthHandler(handler)
+		defer api.RegisterOAuthHandler(nil)
+
+		s := &OAuthHTTPServer{config: config.OAuthServerConfig{BaseURL: baseURL}}
+		next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
+
+		r := requestWithBearer(token)
+		require.True(t, s.injectExternalIDToken(httptest.NewRecorder(), r, r.Context(), next))
+		assert.Empty(t, handler.stored,
+			"forwarded ID token without parseable exp must not land as a never-expiring entry")
 	})
 
 	t.Run("does not call OAuth handler when disabled", func(t *testing.T) {
