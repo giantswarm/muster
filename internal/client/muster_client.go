@@ -11,6 +11,7 @@ import (
 	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
 
 	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/client/filesystem"
 	"github.com/giantswarm/muster/internal/client/kubernetes"
 	"github.com/giantswarm/muster/pkg/logging"
 )
@@ -69,7 +70,10 @@ type MusterClient interface {
 	Close() error
 }
 
-var _ MusterClient = (*kubernetes.Client)(nil)
+var (
+	_ MusterClient = (*kubernetes.Client)(nil)
+	_ MusterClient = (*filesystem.Client)(nil)
+)
 
 // NewMusterClient creates a new unified muster client with automatic environment detection.
 //
@@ -113,7 +117,7 @@ func NewMusterClientWithConfig(cfg *MusterClientConfig) (MusterClient, error) {
 	}
 
 	// Fall back to filesystem mode
-	return NewFilesystemClient(cfg)
+	return filesystem.New(cfg.FilesystemPath), nil
 }
 
 // MusterClientConfig provides configuration options for client creation.
