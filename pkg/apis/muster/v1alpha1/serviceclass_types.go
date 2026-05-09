@@ -1,8 +1,8 @@
 package v1alpha1
 
 import (
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // ServiceClassSpec defines the desired state of ServiceClass
@@ -31,7 +31,9 @@ type ArgDefinition struct {
 	Required bool `json:"required,omitempty" yaml:"required,omitempty"`
 
 	// Default provides a default value if the argument is not specified.
-	Default *runtime.RawExtension `json:"default,omitempty" yaml:"default,omitempty"`
+	// May be any JSON type (string, integer, boolean, number, object, array)
+	// because the schema uses x-kubernetes-preserve-unknown-fields.
+	Default *apiextensionsv1.JSON `json:"default,omitempty" yaml:"default,omitempty"`
 
 	// Description explains the purpose and usage of this argument.
 	// +kubebuilder:validation:MaxLength=500
@@ -88,7 +90,8 @@ type ToolCall struct {
 	Tool string `json:"tool" yaml:"tool"`
 
 	// Args provides arguments for the tool execution (supports templating).
-	Args map[string]*runtime.RawExtension `json:"args,omitempty" yaml:"args,omitempty"`
+	// Values may be any JSON type.
+	Args map[string]apiextensionsv1.JSON `json:"args,omitempty" yaml:"args,omitempty"`
 
 	// Outputs maps tool result paths to variable names for later use.
 	Outputs map[string]string `json:"outputs,omitempty" yaml:"outputs,omitempty"`
@@ -102,7 +105,8 @@ type HealthCheckToolCall struct {
 	Tool string `json:"tool" yaml:"tool"`
 
 	// Args provides arguments for the tool execution (supports templating).
-	Args map[string]*runtime.RawExtension `json:"args,omitempty" yaml:"args,omitempty"`
+	// Values may be any JSON type.
+	Args map[string]apiextensionsv1.JSON `json:"args,omitempty" yaml:"args,omitempty"`
 
 	// Expect defines positive health check expectations.
 	Expect *HealthCheckExpectation `json:"expect,omitempty" yaml:"expect,omitempty"`
@@ -117,7 +121,8 @@ type HealthCheckExpectation struct {
 	Success *bool `json:"success,omitempty" yaml:"success,omitempty"`
 
 	// JSONPath defines JSON path conditions to check in the result.
-	JSONPath map[string]*runtime.RawExtension `json:"jsonPath,omitempty" yaml:"jsonPath,omitempty"`
+	// Values may be any JSON type (typically scalars compared to a result field).
+	JSONPath map[string]apiextensionsv1.JSON `json:"jsonPath,omitempty" yaml:"jsonPath,omitempty"`
 }
 
 // HealthCheckConfig configures health monitoring behavior
