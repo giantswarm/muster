@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 
 	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
 
@@ -32,7 +32,7 @@ func TestConvertCRDToServiceClass(t *testing.T) {
 						LifecycleTools: musterv1alpha1.LifecycleTools{
 							Start: musterv1alpha1.ToolCall{
 								Tool: "docker_run",
-								Args: map[string]*runtime.RawExtension{
+								Args: map[string]apiextensionsv1.JSON{
 									"image": {Raw: []byte(`"nginx:latest"`)},
 								},
 								Outputs: map[string]string{
@@ -41,7 +41,7 @@ func TestConvertCRDToServiceClass(t *testing.T) {
 							},
 							Stop: musterv1alpha1.ToolCall{
 								Tool: "docker_stop",
-								Args: map[string]*runtime.RawExtension{
+								Args: map[string]apiextensionsv1.JSON{
 									"container_id": {Raw: []byte(`"{{.container_id}}"`)},
 								},
 							},
@@ -98,7 +98,7 @@ func TestConvertCRDToServiceClass(t *testing.T) {
 								Tool: "test_health",
 								Expect: &musterv1alpha1.HealthCheckExpectation{
 									Success: boolPtr(true),
-									JSONPath: map[string]*runtime.RawExtension{
+									JSONPath: map[string]apiextensionsv1.JSON{
 										"status": {Raw: []byte(`"healthy"`)},
 									},
 								},
@@ -192,7 +192,7 @@ func TestConvertCRDToServiceClass(t *testing.T) {
 func TestConvertRawExtensionToInterface(t *testing.T) {
 	tests := []struct {
 		name     string
-		input    *runtime.RawExtension
+		input    *apiextensionsv1.JSON
 		expected interface{}
 	}{
 		{
@@ -202,32 +202,32 @@ func TestConvertRawExtensionToInterface(t *testing.T) {
 		},
 		{
 			name:     "empty raw data",
-			input:    &runtime.RawExtension{Raw: []byte{}},
+			input:    &apiextensionsv1.JSON{Raw: []byte{}},
 			expected: nil,
 		},
 		{
 			name:     "string value",
-			input:    &runtime.RawExtension{Raw: []byte(`"hello world"`)},
+			input:    &apiextensionsv1.JSON{Raw: []byte(`"hello world"`)},
 			expected: "hello world",
 		},
 		{
 			name:     "integer value",
-			input:    &runtime.RawExtension{Raw: []byte(`42`)},
+			input:    &apiextensionsv1.JSON{Raw: []byte(`42`)},
 			expected: float64(42), // JSON unmarshaling returns float64 for numbers
 		},
 		{
 			name:     "boolean value",
-			input:    &runtime.RawExtension{Raw: []byte(`true`)},
+			input:    &apiextensionsv1.JSON{Raw: []byte(`true`)},
 			expected: true,
 		},
 		{
 			name:     "object value",
-			input:    &runtime.RawExtension{Raw: []byte(`{"key": "value"}`)},
+			input:    &apiextensionsv1.JSON{Raw: []byte(`{"key": "value"}`)},
 			expected: map[string]interface{}{"key": "value"},
 		},
 		{
 			name:     "template string",
-			input:    &runtime.RawExtension{Raw: []byte(`"{{.database_name}}"`)},
+			input:    &apiextensionsv1.JSON{Raw: []byte(`"{{.database_name}}"`)},
 			expected: "{{.database_name}}",
 		},
 	}

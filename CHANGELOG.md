@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- `Workflow` and `ServiceClass` CRD validation rejected scalar values in step args (`spec.steps[*].args.<key>: must be of type object`), making the documented YAML form (`namespace: kube-system`, `limit: 30`, `allNamespaces: false`) unusable through `kubectl apply`. Step args, condition args, JSONPath maps, and `ArgDefinition.Default` now use `apiextensionsv1.JSON` instead of `runtime.RawExtension`, which controller-tools emits as `additionalProperties: {x-kubernetes-preserve-unknown-fields: true}` (no `type: object` constraint), so scalars, objects, and arrays all validate. Wire format and stored values are unchanged; existing workflows with object-only args keep working.
+
 ### Removed
 
 - **Breaking (external consumers of `pkg/oauth`):** `pkg/oauth.IDTokenClaims` struct and `ParseIDTokenClaims` function removed. Replaced by typed accessors in `pkg/oauth/jwt.go` — `Subject`, `Email`, `Expiry`, `Issuer`, `IsExpired` — each returning `(value, error)` so callers can distinguish "missing claim" from "decode failed".

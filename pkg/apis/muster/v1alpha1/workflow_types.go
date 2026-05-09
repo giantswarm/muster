@@ -1,8 +1,8 @@
 package v1alpha1
 
 import (
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // WorkflowSpec defines the desired state of Workflow
@@ -34,7 +34,11 @@ type WorkflowStep struct {
 	Tool string `json:"tool" yaml:"tool"`
 
 	// Args provides arguments for the tool execution (supports templating).
-	Args map[string]*runtime.RawExtension `json:"args,omitempty" yaml:"args,omitempty"`
+	// Values may be any JSON type (string, integer, boolean, number, object, array)
+	// because the schema uses x-kubernetes-preserve-unknown-fields. Templated
+	// strings such as "{{.input.namespace}}" are resolved server-side at
+	// execution time.
+	Args map[string]apiextensionsv1.JSON `json:"args,omitempty" yaml:"args,omitempty"`
 
 	// Condition defines an optional condition that determines whether this step should execute.
 	Condition *WorkflowCondition `json:"condition,omitempty" yaml:"condition,omitempty"`
@@ -48,7 +52,8 @@ type WorkflowStep struct {
 	AllowFailure bool `json:"allowFailure,omitempty" yaml:"allowFailure,omitempty"`
 
 	// Outputs defines how step results should be stored and made available to subsequent steps.
-	Outputs map[string]*runtime.RawExtension `json:"outputs,omitempty" yaml:"outputs,omitempty"`
+	// Values may be any JSON type.
+	Outputs map[string]apiextensionsv1.JSON `json:"outputs,omitempty" yaml:"outputs,omitempty"`
 
 	// Description provides human-readable documentation for this step's purpose.
 	// +kubebuilder:validation:MaxLength=500
@@ -62,7 +67,8 @@ type WorkflowCondition struct {
 	Tool string `json:"tool,omitempty" yaml:"tool,omitempty"`
 
 	// Args provides the arguments to pass to the condition tool.
-	Args map[string]*runtime.RawExtension `json:"args,omitempty" yaml:"args,omitempty"`
+	// Values may be any JSON type.
+	Args map[string]apiextensionsv1.JSON `json:"args,omitempty" yaml:"args,omitempty"`
 
 	// FromStep specifies the step ID to reference for condition evaluation.
 	FromStep string `json:"fromStep,omitempty" yaml:"fromStep,omitempty"`
@@ -80,7 +86,8 @@ type WorkflowConditionExpectation struct {
 	Success *bool `json:"success,omitempty" yaml:"success,omitempty"`
 
 	// JsonPath defines JSON path conditions to check in the result.
-	JsonPath map[string]*runtime.RawExtension `json:"jsonPath,omitempty" yaml:"jsonPath,omitempty"`
+	// Values may be any JSON type (typically scalars compared to a result field).
+	JsonPath map[string]apiextensionsv1.JSON `json:"jsonPath,omitempty" yaml:"jsonPath,omitempty"`
 }
 
 // WorkflowStatus defines the observed state of Workflow

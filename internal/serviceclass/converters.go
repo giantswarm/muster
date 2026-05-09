@@ -5,7 +5,7 @@ import (
 	"log"
 	"time"
 
-	"k8s.io/apimachinery/pkg/runtime"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 
 	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
 
@@ -151,20 +151,23 @@ func convertStringMapFromCRD(m map[string]string) map[string]interface{} {
 	return result
 }
 
-// convertRawExtensionMapToInterface converts a map of RawExtension to interface map
-func convertRawExtensionMapToInterface(m map[string]*runtime.RawExtension) map[string]interface{} {
+// convertRawExtensionMapToInterface converts a map of apiextensionsv1.JSON to interface map.
+// Function name retained from when this wrapped runtime.RawExtension; both
+// types just hold a raw JSON []byte and the conversion semantics are identical.
+func convertRawExtensionMapToInterface(m map[string]apiextensionsv1.JSON) map[string]interface{} {
 	if m == nil {
 		return nil
 	}
 	result := make(map[string]interface{})
 	for k, v := range m {
-		result[k] = convertRawExtensionToInterface(v)
+		v := v
+		result[k] = convertRawExtensionToInterface(&v)
 	}
 	return result
 }
 
-// convertRawExtensionToInterface converts a RawExtension to interface{}
-func convertRawExtensionToInterface(raw *runtime.RawExtension) interface{} {
+// convertRawExtensionToInterface converts an apiextensionsv1.JSON to interface{}.
+func convertRawExtensionToInterface(raw *apiextensionsv1.JSON) interface{} {
 	if raw == nil {
 		return nil
 	}
@@ -325,20 +328,22 @@ func convertOutputsRequestToCRD(outputs map[string]interface{}) map[string]strin
 	return result
 }
 
-// convertArgsMapToRawExtension converts interface map to RawExtension map
-func convertArgsMapToRawExtension(args map[string]interface{}) map[string]*runtime.RawExtension {
+// convertArgsMapToRawExtension converts interface map to apiextensionsv1.JSON map.
+func convertArgsMapToRawExtension(args map[string]interface{}) map[string]apiextensionsv1.JSON {
 	if args == nil {
 		return nil
 	}
-	result := make(map[string]*runtime.RawExtension)
+	result := make(map[string]apiextensionsv1.JSON)
 	for k, v := range args {
-		result[k] = convertInterfaceToRawExtension(v)
+		if rawExt := convertInterfaceToRawExtension(v); rawExt != nil {
+			result[k] = *rawExt
+		}
 	}
 	return result
 }
 
-// convertInterfaceToRawExtension converts an interface{} to RawExtension
-func convertInterfaceToRawExtension(v interface{}) *runtime.RawExtension {
+// convertInterfaceToRawExtension converts an interface{} to apiextensionsv1.JSON.
+func convertInterfaceToRawExtension(v interface{}) *apiextensionsv1.JSON {
 	if v == nil {
 		return nil
 	}
@@ -350,12 +355,12 @@ func convertInterfaceToRawExtension(v interface{}) *runtime.RawExtension {
 		if str, ok := v.(string); ok {
 			data = []byte(`"` + str + `"`)
 		} else {
-			log.Printf("Warning: Failed to convert value to RawExtension: %v", err)
+			log.Printf("Warning: Failed to convert value to apiextensionsv1.JSON: %v", err)
 			return nil
 		}
 	}
 
-	return &runtime.RawExtension{
+	return &apiextensionsv1.JSON{
 		Raw: data,
 	}
 }
