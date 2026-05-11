@@ -35,7 +35,7 @@ func Logging() server.ToolHandlerMiddleware {
 			if err != nil {
 				attrs = append(attrs, slog.String("error", err.Error()))
 			}
-			logging.InfoWithAttrs(LogSubsystem, LogMessage, attrs...)
+			logging.InfoWithAttrsCtx(ctx, LogSubsystem, LogMessage, attrs...)
 			return res, err
 		}
 	}
