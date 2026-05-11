@@ -14,7 +14,6 @@ import (
 // that structurally satisfies both this and [aggregator.TokenBroker].
 type TokenBroker interface {
 	GetToken(ctx context.Context, sessionID, audience string) (Token, error)
-	ExchangeToken(ctx context.Context, req ExchangeRequest) (Token, error)
 }
 
 // Token is a bearer credential the workflow attaches to downstream calls.
@@ -27,13 +26,4 @@ type Token struct {
 	Scope        string
 	IDToken      string
 	Issuer       string
-}
-
-// ExchangeRequest carries the inputs for an RFC 8693 token exchange.
-type ExchangeRequest struct {
-	SessionID        string
-	SubjectToken     string
-	SubjectTokenType string
-	Audience         string
-	Scope            string
 }

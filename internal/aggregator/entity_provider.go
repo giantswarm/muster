@@ -35,11 +35,10 @@ type EntityChange[T any] struct {
 }
 
 // MCPServer is the aggregator's port-side view of an MCPServer entity.
-//
-// The alias to the api package is a deliberate, temporary shape: PR 6 swaps
-// it for a port-owned struct as part of the EntityProvider migration. The
-// port-level identity (this type name in this package) is what consumers
-// will keep referencing — the underlying definition is what moves.
+// Aliased to the api package's struct so that introducing the port does
+// not duplicate the ~390-LOC entity shape; consumers reference the port
+// type, which is what matters when the underlying definition later moves
+// into this package.
 type MCPServer = api.MCPServer
 
 // Workflow is the aggregator's port-side view of a Workflow entity.
