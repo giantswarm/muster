@@ -25,6 +25,13 @@ const (
 // only value QueryEvents accepts when filtering events.
 const sourceComponent = "muster"
 
+// crdFactories maps a CRD kind string to a constructor for an empty typed
+// object.
+var crdFactories = map[string]func() client.Object{
+	kindMCPServer: func() client.Object { return &musterv1alpha1.MCPServer{} },
+	kindWorkflow:  func() client.Object { return &musterv1alpha1.Workflow{} },
+}
+
 // Client is a Kubernetes-API-backed implementation of the muster client
 // interface. Per-domain CRUD methods live in sibling files (mcpserver.go,
 // workflow.go, events.go); this file keeps the type, constructor, scheme,
