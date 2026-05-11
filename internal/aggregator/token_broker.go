@@ -21,6 +21,8 @@ type TokenBroker interface {
 	GetToken(ctx context.Context, sessionID, audience string) (Token, error)
 	ExchangeToken(ctx context.Context, req ExchangeRequest) (Token, error)
 	RevokeSession(ctx context.Context, sessionID string) error
+	RevokeUser(ctx context.Context, subject string) error
+	SessionIssuer(ctx context.Context, sessionID string) (string, error)
 	Introspect(ctx context.Context, bearer string) (Claims, error)
 	WatchAuthEvents(ctx context.Context) <-chan AuthEvent
 }
