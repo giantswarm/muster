@@ -661,14 +661,14 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 
 	// Set up hooks for session lifecycle tracking and MCP protocol logging
 	hooks := &mcpserver.Hooks{}
-	hooks.AddOnUnregisterSession(func(_ context.Context, session mcpserver.ClientSession) {
-		logging.InfoWithAttrs("MCP-Protocol", "Session unregistered",
+	hooks.AddOnUnregisterSession(func(ctx context.Context, session mcpserver.ClientSession) {
+		logging.InfoWithAttrsCtx(ctx, "MCP-Protocol", "Session unregistered",
 			logging.TransportSessionID(session.SessionID()))
 		a.subjectSessions.RemoveSession(session.SessionID())
 	})
 
-	hooks.AddOnRegisterSession(func(_ context.Context, session mcpserver.ClientSession) {
-		logging.InfoWithAttrs("MCP-Protocol", "Session registered",
+	hooks.AddOnRegisterSession(func(ctx context.Context, session mcpserver.ClientSession) {
+		logging.InfoWithAttrsCtx(ctx, "MCP-Protocol", "Session registered",
 			logging.TransportSessionID(session.SessionID()))
 	})
 

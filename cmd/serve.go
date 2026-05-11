@@ -107,7 +107,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	defer otelShutdown("logging", shutdownLogging)
 
 	// Create application configuration without cluster arguments
-	cfg := app.NewConfig(serveDebug, serveSilent, serveYolo, serveConfigPath).
+	cfg := app.NewConfig(serveDebug, serveYolo, serveConfigPath).
 		WithVersion(GetVersion()).
 		WithOAuthMCPClient(serveOAuthMCPClientEnabled, serveOAuthMCPClientPublicURL, serveOAuthMCPClientID).
 		WithOAuthServer(serveOAuthServerEnabled, serveOAuthServerBaseURL).

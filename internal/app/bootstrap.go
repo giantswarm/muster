@@ -18,7 +18,7 @@ import (
 //
 // Example usage:
 //
-//	cfg := app.NewConfig(true, false, false, "")  // debug enabled
+//	cfg := app.NewConfig(true, false, "")  // debug enabled
 //	app, err := app.NewApplication(cfg)
 //	if err != nil {
 //	    return fmt.Errorf("failed to create application: %w", err)
@@ -46,7 +46,7 @@ type Application struct {
 //
 // Example:
 //
-//	cfg := app.NewConfig(true, false, false, "/custom/config")  // CLI mode, custom config
+//	cfg := app.NewConfig(true, false, "/custom/config")  // CLI mode, custom config
 //	app, err := app.NewApplication(cfg)
 //	if err != nil {
 //	    log.Fatalf("Bootstrap failed: %v", err)

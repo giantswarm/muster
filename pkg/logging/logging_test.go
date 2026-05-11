@@ -2,6 +2,7 @@ package logging
 
 import (
 	"bytes"
+	"context"
 	"log/slog"
 	"strings"
 	"testing"
@@ -115,3 +116,58 @@ func TestInitControllerRuntimeLoggerNilHandler(t *testing.T) {
 		t.Error("Expected controller-runtime logger to be initialized")
 	}
 }
+
+func TestInit_NoOTLPEnv_NoOpShutdown(t *testing.T) {
+	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "")
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+	t.Setenv("OTEL_LOGS_EXPORTER", "")
+
+	var buf bytes.Buffer
+	shutdown, err := Init(context.Background(), LevelInfo, &buf, "muster-test", "0.0.0-test")
+	if err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	if shutdown == nil {
+		t.Fatal("expected non-nil Shutdown closure")
+	}
+	if shutdownErr := shutdown(context.Background()); shutdownErr != nil {
+		t.Errorf("Shutdown returned error in no-OTLP mode: %v", shutdownErr)
+	}
+	Info("Test", "hello")
+	if buf.Len() == 0 {
+		t.Error("expected log line on the supplied writer in no-OTLP mode")
+	}
+}
+
+func TestInfoCtx_PassesContextThroughToHandler(t *testing.T) {
+	type ctxKey string
+	const probeKey ctxKey = "probe-key"
+
+	var seen string
+	rec := &contextProbeHandler{onHandle: func(ctx context.Context) {
+		if v, ok := ctx.Value(probeKey).(string); ok {
+			seen = v
+		}
+	}}
+	defaultLogger = slog.New(rec)
+	t.Cleanup(func() { defaultLogger = nil })
+
+	ctx := context.WithValue(context.Background(), probeKey, "carried")
+	InfoCtx(ctx, "Test", "hello")
+
+	if seen != "carried" {
+		t.Errorf("ctx.Value not propagated: got %q, want %q", seen, "carried")
+	}
+}
+
+type contextProbeHandler struct {
+	onHandle func(context.Context)
+}
+
+func (h *contextProbeHandler) Enabled(_ context.Context, _ slog.Level) bool { return true }
+func (h *contextProbeHandler) Handle(ctx context.Context, _ slog.Record) error {
+	h.onHandle(ctx)
+	return nil
+}
+func (h *contextProbeHandler) WithAttrs(_ []slog.Attr) slog.Handler { return h }
+func (h *contextProbeHandler) WithGroup(_ string) slog.Handler      { return h }
