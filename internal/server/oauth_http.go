@@ -28,8 +28,8 @@ import (
 	"github.com/giantswarm/mcp-oauth/storage/valkey"
 
 	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/broker"
 	"github.com/giantswarm/muster/internal/config"
-	musteroauth "github.com/giantswarm/muster/internal/oauth"
 	"github.com/giantswarm/muster/pkg/logging"
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 )
@@ -630,7 +630,7 @@ func createOAuthServer(cfg config.OAuthServerConfig, debug bool) (*oauth.Server,
 
 		// Set up encryption if key is provided
 		if cfg.EncryptionKey != "" {
-			keyBytes, err := musteroauth.DecodeEncryptionKey(cfg.EncryptionKey)
+			keyBytes, err := broker.DecodeEncryptionKey(cfg.EncryptionKey)
 			if err != nil {
 				valkeyStore.Close()
 				return nil, nil, fmt.Errorf("failed to decode encryption key: %w", err)
@@ -710,7 +710,7 @@ func createOAuthServer(cfg config.OAuthServerConfig, debug bool) (*oauth.Server,
 	// Set up encryption if key provided (for memory storage; valkey wires the
 	// encryptor onto the store directly above).
 	if cfg.EncryptionKey != "" && cfg.Storage.Type != storage.BackendValkey {
-		keyBytes, err := musteroauth.DecodeEncryptionKey(cfg.EncryptionKey)
+		keyBytes, err := broker.DecodeEncryptionKey(cfg.EncryptionKey)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to decode encryption key: %w", err)
 		}

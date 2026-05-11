@@ -1,4 +1,4 @@
-// Package oauth implements OAuth 2.1 proxy functionality for remote MCP server authentication.
+// Package broker implements OAuth 2.1 proxy functionality for remote MCP server authentication.
 //
 // This package provides the server-side OAuth client and proxy implementation that allows
 // the Muster Server to authenticate with remote MCP servers on behalf of users without
@@ -118,4 +118,4 @@
 // The package supports Single Sign-On (SSO) through Token Forwarding and Token Exchange.
 // When a user authenticates with muster, the token can be forwarded to downstream servers
 // (Token Forwarding) or exchanged for a token valid on a remote IdP (Token Exchange).
-package oauth
+package broker

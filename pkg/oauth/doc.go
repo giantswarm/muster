@@ -3,7 +3,7 @@
 //
 // This package contains the common OAuth functionality that is shared between
 // the agent-side OAuth implementation (internal/agent/oauth) and the server-side
-// OAuth implementation (internal/oauth).
+// OAuth implementation (internal/broker).
 //
 // # Core Components
 //
