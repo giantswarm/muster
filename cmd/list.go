@@ -23,7 +23,6 @@ var (
 // Resource configurations mapping tool names to their aliases
 var listResourceConfigs = map[string][]string{
 	"core_service_list":            {"service", "services"},
-	"core_serviceclass_list":       {"serviceclass", "serviceclasses"},
 	"core_mcpserver_list":          {"mcpserver", "mcpservers"},
 	"core_workflow_list":           {"workflow", "workflows"},
 	"core_workflow_execution_list": {"workflow-execution", "workflow-executions"},
@@ -187,7 +186,6 @@ var listCmd = &cobra.Command{
 
 Available resource types:
   service(s)              - List all services with their status
-  serviceclass(es)        - List all ServiceClass definitions
   mcpserver(s)            - List all MCP server definitions
   workflow(s)             - List all workflow definitions
   workflow-execution(s)   - List all workflow execution history
@@ -207,7 +205,6 @@ Output options:
 The 'wide' format (-o wide) shows additional columns for each resource type:
   services       - endpoint, tools count
   mcpservers     - url/command, timeout
-  serviceclasses - required tools
   workflows      - input arguments
   tools          - server, argument count
   resources      - name
@@ -218,7 +215,6 @@ Examples:
   muster list services -o wide
   muster list workflow
   muster list workflow-execution
-  muster list serviceclass --output json
   muster list mcpservers -o wide
   muster list tool
   muster list tools -o wide

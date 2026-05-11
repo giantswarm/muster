@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -286,8 +285,11 @@ func (a *AuthAdapter) trySilentReAuth(ctx context.Context, mgr *oauth.AuthManage
 	var loginHint string
 	var idTokenHint string
 	if storedToken.IDToken != "" {
-		claims := parseIDTokenClaims(storedToken.IDToken)
-		loginHint = claims.Email
+		var err error
+		loginHint, err = pkgoauth.Email(storedToken.IDToken)
+		if err != nil {
+			logging.Debug("AuthAdapter", "Failed to extract email for login hint: %v", err)
+		}
 		idTokenHint = storedToken.IDToken
 	}
 
@@ -616,9 +618,15 @@ func (a *AuthAdapter) getStatusFromManager(endpoint string, mgr *oauth.AuthManag
 			}
 			// Extract identity from ID token if available
 			if storedToken.IDToken != "" {
-				claims := parseIDTokenClaims(storedToken.IDToken)
-				status.Subject = claims.Subject
-				status.Email = claims.Email
+				var err error
+				status.Subject, err = pkgoauth.Subject(storedToken.IDToken)
+				if err != nil {
+					logging.Debug("AuthAdapter", "Failed to extract subject from ID token: %v", err)
+				}
+				status.Email, err = pkgoauth.Email(storedToken.IDToken)
+				if err != nil {
+					logging.Debug("AuthAdapter", "Failed to extract email from ID token: %v", err)
+				}
 			}
 		} else if challenge := mgr.GetAuthChallenge(); challenge != nil {
 			// Fallback to auth challenge for issuer
@@ -633,28 +641,6 @@ func (a *AuthAdapter) getStatusFromManager(endpoint string, mgr *oauth.AuthManag
 	}
 
 	return status
-}
-
-// parseIDTokenClaims extracts identity claims from a JWT ID token.
-// This performs basic JWT parsing without validation (validation is done at login time).
-func parseIDTokenClaims(idToken string) pkgoauth.IDTokenClaims {
-	var claims pkgoauth.IDTokenClaims
-
-	// JWT has 3 parts: header.payload.signature
-	parts := strings.Split(idToken, ".")
-	if len(parts) != 3 {
-		return claims
-	}
-
-	// Decode the payload (second part)
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return claims
-	}
-
-	// Parse claims
-	_ = json.Unmarshal(payload, &claims)
-	return claims
 }
 
 // InvalidateCache removes the cached auth manager for an endpoint.

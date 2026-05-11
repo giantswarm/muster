@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/metatools"
@@ -168,15 +169,35 @@ func convertToMCPSchema(params []api.ArgMetadata) mcp.ToolInputSchema {
 	}
 }
 
+// mapWorkflowToolName rewrites a workflow provider's internal tool name to the
+// user-facing name advertised to MCP clients.
+//
+// The workflow adapter exposes two kinds of tools:
+//   - Management tools named "workflow_<verb>" (e.g. "workflow_list"). These
+//     are advertised with the standard "core_" prefix → "core_workflow_<verb>".
+//   - Execution tools named "action_<workflow-name>". Per the muster
+//     architecture, these are advertised to clients as
+//     "workflow_<workflow-name>" (no "core_" prefix). The aggregator's
+//     callCoreToolDirectly performs the inverse mapping when routing calls.
+func mapWorkflowToolName(name string) string {
+	const corePrefix = "core_"
+	const workflowActionPrefix = "action_"
+	const workflowExecPrefix = "workflow_"
+
+	if strings.HasPrefix(name, workflowActionPrefix) {
+		return workflowExecPrefix + strings.TrimPrefix(name, workflowActionPrefix)
+	}
+	return corePrefix + name
+}
+
 // getAllCoreToolsAsMCPTools collects all core tools from all internal providers
 // and returns them as MCP tools with the core_ prefix.
 //
 // This function is used by ListToolsForContext to include core tools in the
 // tool listings returned by the list_tools meta-tool. The core tools include:
-//   - core_workflow_* tools (workflow management and execution)
+//   - core_workflow_* tools (workflow management)
 //   - core_service_* tools (service lifecycle management)
 //   - core_config_* tools (configuration management)
-//   - core_serviceclass_* tools (service class management)
 //   - core_mcpserver_* tools (MCP server management)
 //   - core_events tool (event management)
 //   - core_auth_* tools (authentication operations)
@@ -184,20 +205,31 @@ func convertToMCPSchema(params []api.ArgMetadata) mcp.ToolInputSchema {
 // Each tool is prefixed with "core_" to distinguish it from MCP server tools
 // which are prefixed with "x_<server>_".
 //
+// Workflow execution tools are a special case: per the muster architecture,
+// they are exposed to clients as "workflow_<workflow-name>" (without the
+// "core_" prefix). Internally the workflow provider names these tools
+// "action_<workflow-name>"; this function rewrites them so the user-facing
+// surface matches the spec. See callCoreToolDirectly for the inverse mapping
+// that routes execution requests back to the provider.
+//
 // Returns a slice of MCP tools representing all available core tools.
 func (a *AggregatorServer) getAllCoreToolsAsMCPTools() []mcp.Tool {
 	var tools []mcp.Tool
 	const corePrefix = "core_"
 
-	// Helper to add tools from a provider
-	addToolsFromProvider := func(handler interface{}) {
+	// Helper to add tools from a provider, with optional name remapping.
+	addToolsFromProvider := func(handler interface{}, remap func(string) string) {
 		if handler == nil {
 			return
 		}
 		if provider, ok := handler.(api.ToolProvider); ok {
 			for _, toolMeta := range provider.GetTools() {
+				name := corePrefix + toolMeta.Name
+				if remap != nil {
+					name = remap(toolMeta.Name)
+				}
 				tools = append(tools, mcp.Tool{
-					Name:        corePrefix + toolMeta.Name,
+					Name:        name,
 					Description: toolMeta.Description,
 					InputSchema: convertToMCPSchema(toolMeta.Args),
 				})
@@ -205,18 +237,22 @@ func (a *AggregatorServer) getAllCoreToolsAsMCPTools() []mcp.Tool {
 		}
 	}
 
-	// Collect tools from all core providers using table-driven approach
-	providers := []interface{}{
-		api.GetWorkflow(),
+	// Workflow provider needs special handling: workflow execution tools
+	// (named "action_<workflow-name>" internally) must be advertised as
+	// "workflow_<workflow-name>" without the "core_" prefix. Management
+	// tools (e.g. "workflow_list") keep the standard "core_" prefix.
+	addToolsFromProvider(api.GetWorkflow(), mapWorkflowToolName)
+
+	// Other core providers use the default "core_" prefix only.
+	otherProviders := []interface{}{
 		api.GetServiceManager(),
-		api.GetConfig(), //nolint:staticcheck
-		api.GetServiceClassManager(),
+		api.GetConfigHandler(),
 		api.GetMCPServerManager(),
 		api.GetEventManager(),
 	}
 
-	for _, provider := range providers {
-		addToolsFromProvider(provider)
+	for _, provider := range otherProviders {
+		addToolsFromProvider(provider, nil)
 	}
 
 	// Auth tools - these are defined locally in the aggregator package

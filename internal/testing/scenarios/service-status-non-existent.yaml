@@ -1,0 +1,14 @@
+name: "service-status-non-existent"
+category: "behavioral"
+concept: "service"
+tags: ["service", "status", "error-handling", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "status-non-existent"
+  tool: "core_service_status"
+  args:
+    name: "service-does-not-exist"
+  expected:
+    success: false
+    error_contains: ["not found"]

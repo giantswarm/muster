@@ -18,8 +18,8 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"gopkg.in/yaml.v3"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // Adapter provides the API adapter for workflow management
@@ -274,7 +274,7 @@ func (a *Adapter) CreateWorkflowFromStructured(args map[string]interface{}) erro
 			Store:        step.Store,
 			AllowFailure: step.AllowFailure,
 			Description:  step.Description,
-			Args:         make(map[string]*runtime.RawExtension),
+			Args:         make(map[string]apiextensionsv1.JSON),
 		}
 
 		// Convert condition if present
@@ -285,7 +285,7 @@ func (a *Adapter) CreateWorkflowFromStructured(args map[string]interface{}) erro
 		// Convert args safely without causing recursion
 		for key, value := range step.Args {
 			if jsonBytes, err := json.Marshal(value); err == nil {
-				crdStep.Args[key] = &runtime.RawExtension{Raw: jsonBytes}
+				crdStep.Args[key] = apiextensionsv1.JSON{Raw: jsonBytes}
 			}
 		}
 
@@ -655,8 +655,10 @@ func (a *Adapter) convertWorkflowConditionExpectationToCRD(expectation api.Workf
 	return crdExpectation
 }
 
-// convertRawExtension converts RawExtension to interface{}
-func (a *Adapter) convertRawExtension(rawExt *runtime.RawExtension) interface{} {
+// convertRawExtension converts apiextensionsv1.JSON to interface{}.
+// Field name retained from when this wrapped runtime.RawExtension; both types
+// just hold a raw JSON []byte and the conversion semantics are identical.
+func (a *Adapter) convertRawExtension(rawExt *apiextensionsv1.JSON) interface{} {
 	if rawExt == nil {
 		return nil
 	}
@@ -675,48 +677,47 @@ func (a *Adapter) convertRawExtension(rawExt *runtime.RawExtension) interface{} 
 	return string(rawExt.Raw)
 }
 
-// convertToRawExtension converts interface{} to RawExtension
-func (a *Adapter) convertToRawExtension(value interface{}) *runtime.RawExtension {
+// convertToRawExtension converts interface{} to apiextensionsv1.JSON.
+func (a *Adapter) convertToRawExtension(value interface{}) *apiextensionsv1.JSON {
 	if value == nil {
-		return &runtime.RawExtension{Raw: []byte("null")}
+		return &apiextensionsv1.JSON{Raw: []byte("null")}
 	}
 
 	// Use simple JSON marshaling for all types to avoid recursion
 	raw, err := json.Marshal(value)
 	if err != nil {
 		// If marshaling fails, return as null
-		return &runtime.RawExtension{Raw: []byte("null")}
+		return &apiextensionsv1.JSON{Raw: []byte("null")}
 	}
 
-	return &runtime.RawExtension{Raw: raw}
+	return &apiextensionsv1.JSON{Raw: raw}
 }
 
-// convertRawExtensionMap converts map[string]*RawExtension to map[string]interface{}
-func (a *Adapter) convertRawExtensionMap(rawExtMap map[string]*runtime.RawExtension) map[string]interface{} {
+// convertRawExtensionMap converts map[string]apiextensionsv1.JSON to map[string]interface{}.
+func (a *Adapter) convertRawExtensionMap(rawExtMap map[string]apiextensionsv1.JSON) map[string]interface{} {
 	if rawExtMap == nil {
 		return make(map[string]interface{})
 	}
 	result := make(map[string]interface{})
 	for key, rawExt := range rawExtMap {
-		if rawExt != nil {
-			if converted := a.convertRawExtension(rawExt); converted != nil {
-				result[key] = converted
-			}
+		v := rawExt
+		if converted := a.convertRawExtension(&v); converted != nil {
+			result[key] = converted
 		}
 	}
 	return result
 }
 
-// convertToRawExtensionMap converts map[string]interface{} to map[string]*RawExtension
-func (a *Adapter) convertToRawExtensionMap(valueMap map[string]interface{}) map[string]*runtime.RawExtension {
+// convertToRawExtensionMap converts map[string]interface{} to map[string]apiextensionsv1.JSON.
+func (a *Adapter) convertToRawExtensionMap(valueMap map[string]interface{}) map[string]apiextensionsv1.JSON {
 	if valueMap == nil {
-		return make(map[string]*runtime.RawExtension)
+		return make(map[string]apiextensionsv1.JSON)
 	}
-	result := make(map[string]*runtime.RawExtension)
+	result := make(map[string]apiextensionsv1.JSON)
 	for key, value := range valueMap {
 		if value != nil {
 			if rawExt := a.convertToRawExtension(value); rawExt != nil {
-				result[key] = rawExt
+				result[key] = *rawExt
 			}
 		}
 	}
