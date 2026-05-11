@@ -7,9 +7,15 @@ import (
 	"log/slog"
 	"strings"
 
+	mcptoolkitlogging "github.com/giantswarm/mcp-toolkit/logging"
 	"github.com/go-logr/logr"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
+
+// Shutdown drains the underlying OpenTelemetry LoggerProvider on
+// graceful exit. In non-OTLP modes it is a no-op closure. Safe to call
+// more than once and from multiple goroutines.
+type Shutdown func(ctx context.Context) error
 
 // LogLevel defines the severity of the log entry.
 type LogLevel int
@@ -60,30 +66,61 @@ func initControllerRuntimeLogger(handler slog.Handler) {
 	ctrl.SetLogger(logrLogger)
 }
 
-// InitForCLI initializes the logging system for CLI mode.
-// This should be called once at application startup to configure structured logging.
+// InitForCLI initializes the logging system for CLI mode with text
+// output, no OpenTelemetry plumbing. Use Init from the serve
+// composition root for OTLP-aware initialisation.
 //
 // Args:
 //   - filterLevel: minimum log level to output (Debug, Info, Warn, Error)
 //   - output: writer for log output (typically os.Stdout or os.Stderr)
 func InitForCLI(filterLevel LogLevel, output io.Writer) {
-	opts := &slog.HandlerOptions{
-		Level: filterLevel.SlogLevel(),
-	}
-
-	handler := slog.NewTextHandler(output, opts)
-	defaultLogger = slog.New(handler)
-	slog.SetDefault(defaultLogger)
-
-	// Initialize controller-runtime logger to prevent "log.SetLogger(...) was never called" warnings.
-	// This bridges the Go slog logger to the logr interface used by controller-runtime.
-	// See: https://github.com/go-logr/logr for slog integration details.
-	initControllerRuntimeLogger(handler)
+	logger := mcptoolkitlogging.New(mcptoolkitlogging.Options{
+		Format: mcptoolkitlogging.FormatText,
+		Level:  filterLevel.SlogLevel(),
+		Output: output,
+	})
+	defaultLogger = logger
+	slog.SetDefault(logger)
+	initControllerRuntimeLogger(logger.Handler())
 }
 
-func logInternal(level LogLevel, subsystem string, err error, messageFmt string, args ...interface{}) {
+// Init initialises the logging system in OpenTelemetry-aware mode and
+// returns a Shutdown that drains the LoggerProvider on graceful exit.
+//
+// When any of OTEL_EXPORTER_OTLP_LOGS_ENDPOINT,
+// OTEL_EXPORTER_OTLP_ENDPOINT, or OTEL_LOGS_EXPORTER is set, log
+// records flow through OTLP and carry the active span's TraceID and
+// SpanID (the OTel SDK pulls SpanContext from the ctx passed into
+// InfoCtx / InfoWithAttrsCtx / etc.). Otherwise the handler is JSON
+// inside a Kubernetes pod (KUBERNETES_SERVICE_HOST set), text
+// otherwise — and Shutdown is a no-op closure.
+//
+// serviceName and serviceVersion become semconv.ServiceName /
+// semconv.ServiceVersion on the OTel LoggerProvider's Resource;
+// standard env overrides (OTEL_SERVICE_NAME, OTEL_RESOURCE_ATTRIBUTES)
+// take precedence.
+func Init(ctx context.Context, filterLevel LogLevel, output io.Writer, serviceName, serviceVersion string) (Shutdown, error) {
+	handler, shutdown, err := mcptoolkitlogging.Init(ctx, mcptoolkitlogging.InitOptions{
+		Options: mcptoolkitlogging.Options{
+			Level:  filterLevel.SlogLevel(),
+			Output: output,
+		},
+		ServiceName:    serviceName,
+		ServiceVersion: serviceVersion,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("init toolkit logging: %w", err)
+	}
+	logger := slog.New(handler)
+	defaultLogger = logger
+	slog.SetDefault(logger)
+	initControllerRuntimeLogger(handler)
+	return Shutdown(shutdown), nil
+}
+
+func logInternal(ctx context.Context, level LogLevel, subsystem string, err error, messageFmt string, args ...interface{}) {
 	// Check if the level is enabled by the configured handler before proceeding.
-	if defaultLogger == nil || !defaultLogger.Enabled(context.Background(), level.SlogLevel()) {
+	if defaultLogger == nil || !defaultLogger.Enabled(ctx, level.SlogLevel()) {
 		return
 	}
 
@@ -98,52 +135,101 @@ func logInternal(level LogLevel, subsystem string, err error, messageFmt string,
 		slogAttrs = append(slogAttrs, slog.String("error", err.Error()))
 	}
 
-	defaultLogger.LogAttrs(context.Background(), level.SlogLevel(), msg, slogAttrs...)
+	defaultLogger.LogAttrs(ctx, level.SlogLevel(), msg, slogAttrs...)
 }
 
 // Debug logs a debug message.
 func Debug(subsystem string, messageFmt string, args ...interface{}) {
-	logInternal(LevelDebug, subsystem, nil, messageFmt, args...)
+	logInternal(context.Background(), LevelDebug, subsystem, nil, messageFmt, args...)
+}
+
+// DebugCtx is like Debug but threads ctx through the slog Handler so an
+// active span's TraceID and SpanID are attached to the record in OTLP
+// mode.
+func DebugCtx(ctx context.Context, subsystem string, messageFmt string, args ...interface{}) {
+	logInternal(ctx, LevelDebug, subsystem, nil, messageFmt, args...)
 }
 
 // DebugWithAttrs logs a debug message with additional structured attributes.
 func DebugWithAttrs(subsystem string, msg string, attrs ...slog.Attr) {
-	logWithAttrs(slog.LevelDebug, subsystem, msg, attrs...)
+	logWithAttrs(context.Background(), slog.LevelDebug, subsystem, msg, attrs...)
+}
+
+// DebugWithAttrsCtx is like DebugWithAttrs but threads ctx through the
+// slog Handler so an active span's TraceID and SpanID are attached to
+// the record in OTLP mode.
+func DebugWithAttrsCtx(ctx context.Context, subsystem string, msg string, attrs ...slog.Attr) {
+	logWithAttrs(ctx, slog.LevelDebug, subsystem, msg, attrs...)
 }
 
 // Info logs an informational message.
 func Info(subsystem string, messageFmt string, args ...interface{}) {
-	logInternal(LevelInfo, subsystem, nil, messageFmt, args...)
+	logInternal(context.Background(), LevelInfo, subsystem, nil, messageFmt, args...)
+}
+
+// InfoCtx is like Info but threads ctx through the slog Handler so an
+// active span's TraceID and SpanID are attached to the record in OTLP
+// mode.
+func InfoCtx(ctx context.Context, subsystem string, messageFmt string, args ...interface{}) {
+	logInternal(ctx, LevelInfo, subsystem, nil, messageFmt, args...)
 }
 
 // InfoWithAttrs logs an informational message with additional structured attributes.
 func InfoWithAttrs(subsystem string, msg string, attrs ...slog.Attr) {
-	logWithAttrs(slog.LevelInfo, subsystem, msg, attrs...)
+	logWithAttrs(context.Background(), slog.LevelInfo, subsystem, msg, attrs...)
+}
+
+// InfoWithAttrsCtx is like InfoWithAttrs but threads ctx through the
+// slog Handler so an active span's TraceID and SpanID are attached to
+// the record in OTLP mode.
+func InfoWithAttrsCtx(ctx context.Context, subsystem string, msg string, attrs ...slog.Attr) {
+	logWithAttrs(ctx, slog.LevelInfo, subsystem, msg, attrs...)
 }
 
 // Warn logs a warning message.
 func Warn(subsystem string, messageFmt string, args ...interface{}) {
-	logInternal(LevelWarn, subsystem, nil, messageFmt, args...)
+	logInternal(context.Background(), LevelWarn, subsystem, nil, messageFmt, args...)
+}
+
+// WarnCtx is like Warn but threads ctx through the slog Handler so an
+// active span's TraceID and SpanID are attached to the record in OTLP
+// mode.
+func WarnCtx(ctx context.Context, subsystem string, messageFmt string, args ...interface{}) {
+	logInternal(ctx, LevelWarn, subsystem, nil, messageFmt, args...)
 }
 
 // WarnWithAttrs logs a warning message with additional structured attributes.
 func WarnWithAttrs(subsystem string, msg string, attrs ...slog.Attr) {
-	logWithAttrs(slog.LevelWarn, subsystem, msg, attrs...)
+	logWithAttrs(context.Background(), slog.LevelWarn, subsystem, msg, attrs...)
 }
 
-func logWithAttrs(level slog.Level, subsystem string, msg string, attrs ...slog.Attr) {
-	if defaultLogger == nil || !defaultLogger.Enabled(context.Background(), level) {
+// WarnWithAttrsCtx is like WarnWithAttrs but threads ctx through the
+// slog Handler so an active span's TraceID and SpanID are attached to
+// the record in OTLP mode.
+func WarnWithAttrsCtx(ctx context.Context, subsystem string, msg string, attrs ...slog.Attr) {
+	logWithAttrs(ctx, slog.LevelWarn, subsystem, msg, attrs...)
+}
+
+func logWithAttrs(ctx context.Context, level slog.Level, subsystem string, msg string, attrs ...slog.Attr) {
+	if defaultLogger == nil || !defaultLogger.Enabled(ctx, level) {
 		return
 	}
 	allAttrs := make([]slog.Attr, 0, len(attrs)+1)
 	allAttrs = append(allAttrs, slog.String("subsystem", subsystem))
 	allAttrs = append(allAttrs, attrs...)
-	defaultLogger.LogAttrs(context.Background(), level, msg, allAttrs...)
+	defaultLogger.LogAttrs(ctx, level, msg, allAttrs...)
 }
 
 // Error logs an error message.
 func Error(subsystem string, err error, messageFmt string, args ...interface{}) {
-	logInternal(LevelError, subsystem, err, messageFmt, args...)
+	logInternal(context.Background(), LevelError, subsystem, err, messageFmt, args...)
+}
+
+// ErrorCtx is like Error but threads ctx through the slog Handler so an
+// active span's TraceID and SpanID are attached to the record in OTLP
+// mode.
+func ErrorCtx(ctx context.Context, subsystem string, err error, messageFmt string, args ...interface{}) {
+	logInternal(ctx, LevelError, subsystem, err, messageFmt, args...)
 }
 
 // TruncateIdentifier returns a truncated identifier (user subject, session ID, etc.)
@@ -215,5 +301,5 @@ func Audit(event AuditEvent) {
 		parts = append(parts, "error="+event.Error)
 	}
 
-	logInternal(LevelInfo, "AUDIT", nil, "[AUDIT] %s", strings.Join(parts, " "))
+	logInternal(context.Background(), LevelInfo, "AUDIT", nil, "[AUDIT] %s", strings.Join(parts, " "))
 }

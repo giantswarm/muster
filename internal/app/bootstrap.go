@@ -3,8 +3,6 @@ package app
 import (
 	"context"
 	"fmt"
-	"io"
-	"os"
 
 	"github.com/giantswarm/muster/internal/config"
 	"github.com/giantswarm/muster/pkg/logging"
@@ -54,20 +52,6 @@ type Application struct {
 //	    log.Fatalf("Bootstrap failed: %v", err)
 //	}
 func NewApplication(cfg *Config) (*Application, error) {
-	// Configure logging based on debug flag
-	appLogLevel := logging.LevelInfo
-	if cfg.Debug {
-		appLogLevel = logging.LevelDebug
-	}
-
-	// Initialize logging for CLI output
-	var logOutput io.Writer = os.Stderr
-	if cfg.Silent {
-		// If silent mode is enabled, suppress all output
-		logOutput = io.Discard
-	}
-	logging.InitForCLI(appLogLevel, logOutput)
-
 	// Load environment configuration
 	var musterCfg config.MusterConfig
 	var err error
