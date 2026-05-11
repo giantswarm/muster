@@ -56,8 +56,8 @@ github.com/fxamacker/cbor/v2 v2.9.0 h1:NpKPmjDBgUfBms6tr6JZkTHtfFGcMKsw3eGcmD/sa
 github.com/fxamacker/cbor/v2 v2.9.0/go.mod h1:vM4b+DJCtHn+zz7h3FFp/hDAI9WNWCsZj23V5ytsSxQ=
 github.com/giantswarm/mcp-oauth v0.2.119 h1:T12ossPlSbsrhDPzb4OaX7tVEJmZHsUO5Kiz4ATPehA=
 github.com/giantswarm/mcp-oauth v0.2.119/go.mod h1:p44pF2fPKttUTNTeIuNtglDLMyjixdjVKtgksuLMPY0=
-github.com/giantswarm/mcp-toolkit v0.1.1-0.20260511100759-deb11ae72e2b h1:ocrxHJ5lWR8Ank+54hNfhToFDtK4Cc1X3L/ITpG8aHQ=
-github.com/giantswarm/mcp-toolkit v0.1.1-0.20260511100759-deb11ae72e2b/go.mod h1:FiQ6CsVYeWJ/JqUytXe3kJp1QxoAHUR7UYAcUr6ZhZ8=
+github.com/giantswarm/mcp-toolkit v0.1.1-0.20260511102720-beb1c834bad4 h1:w4WXY8z8HpIKD//mk4WjRWza0mLTQ3FKimBNteH1RKw=
+github.com/giantswarm/mcp-toolkit v0.1.1-0.20260511102720-beb1c834bad4/go.mod h1:I0Eh12qTiCdwMtnDaZBxQsmfMs8uhwOGTsBwdQil7KY=
 github.com/go-fed/httpsig v1.1.0 h1:9M+hb0jkEICD8/cAiNqEB66R87tTINszBRTjwjQzWcI=
 github.com/go-fed/httpsig v1.1.0/go.mod h1:RCMrTZvN1bJYtofsG4rd5NaO5obxQ5xBkdiS7xsT7bM=
 github.com/go-logr/logr v1.2.2/go.mod h1:jdQByPbusPIv2/zmleS9BjJVeZ6kBagPoEUsqbVz/1A=

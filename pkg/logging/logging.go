@@ -105,6 +105,7 @@ func Init(ctx context.Context, filterLevel LogLevel, output io.Writer, serviceNa
 			Level:  filterLevel.SlogLevel(),
 			Output: output,
 		},
+		LoggerName:     "github.com/giantswarm/muster",
 		ServiceName:    serviceName,
 		ServiceVersion: serviceVersion,
 	})
