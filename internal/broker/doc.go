@@ -1,6 +1,14 @@
-// Package broker implements OAuth 2.1 proxy functionality for remote MCP server authentication.
+// Package broker is the OAuth/OIDC authorization broker for remote MCP
+// server authentication.
 //
-// This package provides the server-side OAuth client and proxy implementation that allows
+// The package was originally named "oauth" and described as an "OAuth 2.1
+// proxy"; it was renamed to "broker" to reflect its responsibility for
+// coordinating token flows on behalf of the aggregator — issuing,
+// exchanging, refreshing, and revoking credentials for downstream MCP
+// servers. The TokenBroker port in internal/aggregator consumes this
+// package through a hexagonal seam.
+//
+// The package provides the server-side OAuth client and proxy implementation that allows
 // the Muster Server to authenticate with remote MCP servers on behalf of users without
 // exposing sensitive tokens to the Muster Agent.
 //

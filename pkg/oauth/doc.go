@@ -29,6 +29,6 @@
 //
 //	import "github.com/giantswarm/muster/pkg/oauth"
 //
-//	client := oauth.NewClient(httpClient, logger)
+//	client := oauth.NewClient(oauth.WithHTTPClient(httpClient))
 //	metadata, err := client.DiscoverMetadata(ctx, issuer)
 package oauth
