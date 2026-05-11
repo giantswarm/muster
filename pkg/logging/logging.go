@@ -74,11 +74,11 @@ func initControllerRuntimeLogger(handler slog.Handler) {
 //   - filterLevel: minimum log level to output (Debug, Info, Warn, Error)
 //   - output: writer for log output (typically os.Stdout or os.Stderr)
 func InitForCLI(filterLevel LogLevel, output io.Writer) {
-	logger := mcptoolkitlogging.New(mcptoolkitlogging.Options{
-		Format: mcptoolkitlogging.FormatText,
-		Level:  filterLevel.SlogLevel(),
-		Output: output,
-	})
+	logger := mcptoolkitlogging.New(
+		mcptoolkitlogging.WithFormat(mcptoolkitlogging.FormatText),
+		mcptoolkitlogging.WithLevel(filterLevel.SlogLevel()),
+		mcptoolkitlogging.WithOutput(output),
+	)
 	defaultLogger = logger
 	slog.SetDefault(logger)
 	initControllerRuntimeLogger(logger.Handler())
@@ -100,15 +100,13 @@ func InitForCLI(filterLevel LogLevel, output io.Writer) {
 // standard env overrides (OTEL_SERVICE_NAME, OTEL_RESOURCE_ATTRIBUTES)
 // take precedence.
 func Init(ctx context.Context, filterLevel LogLevel, output io.Writer, serviceName, serviceVersion string) (Shutdown, error) {
-	handler, shutdown, err := mcptoolkitlogging.Init(ctx, mcptoolkitlogging.InitOptions{
-		Options: mcptoolkitlogging.Options{
-			Level:  filterLevel.SlogLevel(),
-			Output: output,
-		},
-		LoggerName:     "github.com/giantswarm/muster",
-		ServiceName:    serviceName,
-		ServiceVersion: serviceVersion,
-	})
+	handler, shutdown, err := mcptoolkitlogging.Init(ctx,
+		mcptoolkitlogging.WithLevel(filterLevel.SlogLevel()),
+		mcptoolkitlogging.WithOutput(output),
+		mcptoolkitlogging.WithLoggerName("github.com/giantswarm/muster"),
+		mcptoolkitlogging.WithServiceName(serviceName),
+		mcptoolkitlogging.WithServiceVersion(serviceVersion),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("init toolkit logging: %w", err)
 	}
