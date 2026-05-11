@@ -6,11 +6,7 @@ import (
 )
 
 // TokenBroker is the aggregator's port for the OAuth/OIDC broker.
-//
-// Tokens are stored and looked up by (sessionID, issuer): the IdP that
-// minted them. The RFC 8707 "audience" concept (resource server the
-// token is bound to) only surfaces on RFC 8693 token-exchange requests
-// added by later PRs.
+// Tokens are keyed by (sessionID, issuer) — the IdP that minted them.
 type TokenBroker interface {
 	GetToken(ctx context.Context, sessionID, issuer string) (Token, error)
 	SessionIssuer(ctx context.Context, sessionID string) (string, error)
