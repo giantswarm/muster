@@ -17,6 +17,7 @@ import (
 	"github.com/giantswarm/muster/internal/admin"
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/broker"
+	brokerhttp "github.com/giantswarm/muster/internal/broker/http"
 	"github.com/giantswarm/muster/internal/config"
 	internalmcp "github.com/giantswarm/muster/internal/mcpserver"
 	"github.com/giantswarm/muster/internal/server"
@@ -76,7 +77,7 @@ type AggregatorServer struct {
 	httpServer []*http.Server
 
 	// OAuth HTTP server for protecting MCP endpoints (when OAuth server is enabled)
-	oauthHTTPServer *server.OAuthHTTPServer
+	oauthHTTPServer *brokerhttp.OAuthHTTPServer
 
 	// Lifecycle management for coordinating startup and shutdown
 	ctx        context.Context    // Context for coordinating shutdown
@@ -1439,7 +1440,7 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 		return nil, fmt.Errorf("invalid OAuth server config type: expected OAuthServerConfig")
 	}
 
-	oauthHTTPServer, err := server.NewOAuthHTTPServer(cfg, mcpHandler, a.config.Debug)
+	oauthHTTPServer, err := brokerhttp.NewOAuthHTTPServer(cfg, mcpHandler, a.config.Debug)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OAuth HTTP server: %w", err)
 	}
