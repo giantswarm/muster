@@ -22,7 +22,7 @@ var serveSilent bool
 var serveYolo bool
 
 // configPath specifies the configuration directory.
-// The directory should contain config.yaml and subdirectories: mcpservers/, workflows/, serviceclasses/, services/
+// The directory should contain config.yaml and subdirectories: mcpservers/, workflows/
 var serveConfigPath string
 
 // OAuth MCP Client/Proxy configuration flags (for authenticating TO remote MCP servers - ADR 004)
@@ -69,10 +69,7 @@ Configuration:
   Use --config-path to specify a custom directory containing all configuration files:
   - config.yaml (main configuration)
   - mcpservers/ (MCP server definitions)
-  - workflows/ (workflow definitions)
-
-  - serviceclasses/ (service class definitions)
-  - services/ (service instance definitions)`,
+  - workflows/ (workflow definitions)`,
 	Args: cobra.NoArgs, // No arguments required
 	RunE: runServe,
 }

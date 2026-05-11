@@ -1871,7 +1871,6 @@ func (a *AggregatorServer) isCoreToolByName(toolName string) bool {
 		"core_workflow_",
 		"core_service_",
 		"core_config_",
-		"core_serviceclass_",
 		"core_mcpserver_",
 		"core_events",
 		"core_auth_", // Authentication tools (core_auth_login, core_auth_logout)
@@ -1898,7 +1897,6 @@ func (a *AggregatorServer) isCoreToolByName(toolName string) bool {
 //   - workflow_*: Routed to the workflow manager for workflow operations
 //   - service_*: Routed to the service manager for service lifecycle operations
 //   - config_*: Routed to the config manager for configuration operations
-//   - serviceclass_*: Routed to the service class manager for service class operations
 //   - mcpserver_*: Routed to the MCP server manager for MCP server operations
 //
 // The method removes the "core_" prefix from tool names before routing to ensure
@@ -1994,21 +1992,6 @@ func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName st
 			return convertToMCPResult(result), nil
 		}
 		return nil, fmt.Errorf("config handler does not implement ToolProvider interface")
-
-	case strings.HasPrefix(originalToolName, "serviceclass_"):
-		// Service class management operations
-		handler := api.GetServiceClassManager()
-		if handler == nil {
-			return nil, fmt.Errorf("service class manager handler not available")
-		}
-		if provider, ok := handler.(api.ToolProvider); ok {
-			result, err := provider.ExecuteTool(ctx, originalToolName, args)
-			if err != nil {
-				return nil, err
-			}
-			return convertToMCPResult(result), nil
-		}
-		return nil, fmt.Errorf("service class manager does not implement ToolProvider interface")
 
 	case strings.HasPrefix(originalToolName, "mcpserver_"):
 		// MCP server management operations
@@ -2960,8 +2943,8 @@ func (a *AggregatorServer) backgroundTokenRefresh(sessionID, serverName, sub str
 //   - MCP server tools (prefixed with x_<server>_)
 //   - Core muster tools (prefixed with core_) from internal providers
 //
-// The core tools are collected from workflow, service, config, serviceclass,
-// mcpserver, events, and auth providers.
+// The core tools are collected from workflow, service, config, mcpserver,
+// events, and auth providers.
 func (a *AggregatorServer) ListToolsForContext(ctx context.Context) []mcp.Tool {
 	sessionID := getSessionIDFromContext(ctx)
 	if sessionID == "" {
