@@ -35,12 +35,9 @@ type EntityChange[T any] struct {
 }
 
 // MCPServer is the aggregator's port-side view of an MCPServer entity.
-// Aliased to the api package's struct so that introducing the port does
-// not duplicate the ~390-LOC entity shape; consumers reference the port
-// type, which is what matters when the underlying definition later moves
-// into this package.
+// Aliased to the api package's struct to avoid duplicating the entity
+// shape.
 type MCPServer = api.MCPServer
 
 // Workflow is the aggregator's port-side view of a Workflow entity.
-// See [MCPServer] for the aliasing rationale.
 type Workflow = api.Workflow

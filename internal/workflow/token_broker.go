@@ -5,19 +5,15 @@ import (
 	"time"
 )
 
-// TokenBroker is the workflow engine's view of an OAuth 2.1 / OIDC token
-// broker. It is intentionally narrower than the aggregator's view: workflow
-// steps need to obtain tokens for downstream calls but never initiate or
-// complete authorization flows.
-//
-// The interface is consumer-defined; the broker domain provides an adapter
-// that structurally satisfies both this and [aggregator.TokenBroker].
+// TokenBroker is the workflow engine's view of an OAuth/OIDC broker.
+// Narrower than the aggregator's view: workflow steps obtain tokens for
+// downstream calls but never initiate authorization flows.
 type TokenBroker interface {
 	GetToken(ctx context.Context, sessionID, audience string) (Token, error)
 }
 
-// Token is a bearer credential the workflow attaches to downstream calls.
-// The AccessToken field may be opaque or a JWT; callers treat it as opaque.
+// Token is a bearer credential bound to a downstream audience.
+// AccessToken may be opaque or a JWT; callers do not branch on format.
 type Token struct {
 	AccessToken  string
 	TokenType    string
