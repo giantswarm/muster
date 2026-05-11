@@ -109,3 +109,55 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].args
           content: "--debug"
+
+  - it: always sets K8S_NODE_NAME via downward API
+    template: templates/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: K8S_NODE_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: spec.nodeName
+
+  - it: omits OTEL env vars when observability.otel.endpoint is empty
+    template: templates/deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_EXPORTER_OTLP_ENDPOINT
+            value: ""
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_RESOURCE_ATTRIBUTES
+
+  - it: renders OTEL env vars when observability.otel.endpoint is set
+    template: templates/deployment.yaml
+    set:
+      muster.observability.otel.endpoint: "tempo-distributor.tempo.svc:4317"
+      muster.observability.otel.headers: "X-Scope-OrgID=giantswarm"
+      muster.observability.otel.resourceAttributes: "deployment.environment=glean"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_EXPORTER_OTLP_ENDPOINT
+            value: "tempo-distributor.tempo.svc:4317"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_EXPORTER_OTLP_PROTOCOL
+            value: "grpc"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_EXPORTER_OTLP_HEADERS
+            value: "X-Scope-OrgID=giantswarm"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_RESOURCE_ATTRIBUTES
+            value: "k8s.namespace.name=$(K8S_NAMESPACE),k8s.pod.name=$(K8S_POD_NAME),k8s.node.name=$(K8S_NODE_NAME),deployment.environment=glean"

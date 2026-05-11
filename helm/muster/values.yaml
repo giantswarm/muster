@@ -404,6 +404,28 @@ muster:
       # SECURITY: only list client IDs you fully trust.
       trustedAudiences: []
 
+  # OpenTelemetry observability configuration.
+  #
+  # When endpoint is empty (the default), muster does not export any
+  # telemetry. The W3C TraceContext propagator is still installed, so
+  # inbound traceparent headers from agentgateway propagate to outbound
+  # calls and downstream backends can join the trace chain.
+  observability:
+    otel:
+      # OTLP endpoint, e.g. "tempo-distributor.tempo.svc:4317" for gRPC
+      # or "https://tempo.example.com:4318" for HTTP. Applies to both
+      # traces and metrics (same OTEL_EXPORTER_OTLP_ENDPOINT).
+      endpoint: ""
+      # OTLP protocol: "grpc" (default) or "http/protobuf".
+      protocol: grpc
+      # Extra OTLP headers, e.g. "X-Scope-OrgID=giantswarm" for a
+      # multi-tenant Tempo / Mimir deployment.
+      headers: ""
+      # Additional OTEL_RESOURCE_ATTRIBUTES appended to the
+      # downward-API-derived k8s.pod.name / k8s.namespace.name /
+      # k8s.node.name. Example: "deployment.environment=glean".
+      resourceAttributes: ""
+
 # CRD installation
 crds:
   # Install Custom Resource Definitions

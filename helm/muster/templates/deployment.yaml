@@ -86,6 +86,22 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            - name: K8S_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            {{- with .Values.muster.observability.otel.endpoint }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ . | quote }}
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: {{ $.Values.muster.observability.otel.protocol | default "grpc" | quote }}
+            {{- with $.Values.muster.observability.otel.headers }}
+            - name: OTEL_EXPORTER_OTLP_HEADERS
+              value: {{ . | quote }}
+            {{- end }}
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "k8s.namespace.name=$(K8S_NAMESPACE),k8s.pod.name=$(K8S_POD_NAME),k8s.node.name=$(K8S_NODE_NAME){{- with $.Values.muster.observability.otel.resourceAttributes }},{{ . }}{{- end }}"
+            {{- end }}
             # Note: OAuth secrets are loaded from mounted files (per MCP OAuth security recommendations)
             # See /etc/muster/secrets/ volume mount
           resources:
