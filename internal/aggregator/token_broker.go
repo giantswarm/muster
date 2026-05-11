@@ -12,9 +12,12 @@ import (
 // satisfies it. Workflow defines its own narrower view in
 // internal/workflow/token_broker.go.
 //
-// Introspect accepts any bearer (opaque or JWT) and returns a uniform
-// [Claims] shape: the broker validates either format regardless of which
-// it issues, so callers do not branch on token format.
+// The surface is intent-level: storage mutators (cache writes, deletes by
+// key) are deliberately absent. Storage is implementation detail of the
+// broker bounded context; the litmus test for membership here is "would
+// this method make sense over gRPC when the broker extracts to its own
+// pod?". Introspect and WatchAuthEvents are Phase-4 surface and will be
+// added when the broker grows the underlying capability.
 type TokenBroker interface {
 	BeginOAuthFlow(ctx context.Context, req BeginRequest) (FlowURL, error)
 	CompleteOAuthFlow(ctx context.Context, code, state string) (Session, error)
@@ -23,8 +26,6 @@ type TokenBroker interface {
 	RevokeSession(ctx context.Context, sessionID string) error
 	RevokeUser(ctx context.Context, subject string) error
 	SessionIssuer(ctx context.Context, sessionID string) (string, error)
-	Introspect(ctx context.Context, bearer string) (Claims, error)
-	WatchAuthEvents(ctx context.Context) <-chan AuthEvent
 }
 
 // BeginRequest carries the inputs for starting an OAuth 2.1 authorization
@@ -73,37 +74,4 @@ type ExchangeRequest struct {
 	SubjectTokenType string
 	Audience         string
 	Scope            string
-}
-
-// Claims is the introspection result for a bearer token, populated whether
-// the token is opaque (RFC 7662 introspection) or a JWT (local verification).
-type Claims struct {
-	Active    bool
-	Subject   string
-	Issuer    string
-	Audience  []string
-	Scope     string
-	ExpiresAt time.Time
-	Extra     map[string]any
-}
-
-// AuthEventType discriminates lifecycle transitions emitted on the channel
-// returned by [TokenBroker.WatchAuthEvents].
-type AuthEventType int
-
-const (
-	AuthEventUnknown AuthEventType = iota
-	AuthEventSessionEstablished
-	AuthEventSessionRevoked
-	AuthEventTokenRefreshed
-	AuthEventReauthRequired
-)
-
-// AuthEvent is emitted by the broker when session state changes.
-type AuthEvent struct {
-	Type      AuthEventType
-	SessionID string
-	Subject   string
-	Server    string
-	At        time.Time
 }
