@@ -3,26 +3,16 @@ package server
 import (
 	"context"
 
-	"github.com/giantswarm/mcp-oauth/providers"
 	"golang.org/x/oauth2"
 )
 
-// contextKey is a custom type for context keys to avoid collisions.
 type contextKey string
 
-// idTokenKey is the context key for storing the user's OIDC ID token.
-// This token can be used for downstream API authentication.
-//
 //nolint:gosec // G101 false positive - this is a context key name, not a credential
 const idTokenKey contextKey = "oauth_id_token"
 
-// UserInfo represents user information from an OAuth provider.
-// This is a type alias for the library's providers.UserInfo type.
-type UserInfo = providers.UserInfo
-
-// ContextWithIDToken creates a context with the given OIDC ID token.
-// This is used to pass the user's ID token for downstream
-// authentication (e.g., to remote MCP servers).
+// ContextWithIDToken returns ctx carrying the OIDC ID token for downstream
+// authentication (remote MCP servers, Kubernetes audiences).
 func ContextWithIDToken(ctx context.Context, idToken string) context.Context {
 	return context.WithValue(ctx, idTokenKey, idToken)
 }

@@ -1013,6 +1013,12 @@ func (a *AggregatorServer) Stop(ctx context.Context) error {
 		}
 	}
 
+	if a.oauthHTTPServer != nil {
+		if err := a.oauthHTTPServer.Shutdown(shutdownCtx); err != nil {
+			logging.Error("Aggregator", err, "Error shutting down OAuth HTTP server")
+		}
+	}
+
 	// Note: Stdio server stops automatically on context cancellation, no explicit shutdown needed
 
 	// Wait for all background routines to complete
