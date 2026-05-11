@@ -61,7 +61,7 @@ spec:
             - name: http
               containerPort: {{ .Values.muster.aggregator.port }}
               protocol: TCP
-            {{- if contains "prometheus" (.Values.muster.observability.metrics.exporter | toString) }}
+            {{- if eq (include "muster.prometheusExporterEnabled" .) "true" }}
             - name: metrics
               containerPort: {{ .Values.muster.observability.metrics.prometheus.port }}
               protocol: TCP
@@ -111,7 +111,7 @@ spec:
             - name: OTEL_METRICS_EXPORTER
               value: {{ . | quote }}
             {{- end }}
-            {{- if contains "prometheus" (.Values.muster.observability.metrics.exporter | toString) }}
+            {{- if eq (include "muster.prometheusExporterEnabled" .) "true" }}
             - name: OTEL_EXPORTER_PROMETHEUS_HOST
               value: "0.0.0.0"
             - name: OTEL_EXPORTER_PROMETHEUS_PORT

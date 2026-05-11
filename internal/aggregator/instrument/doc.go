@@ -6,17 +6,16 @@
 // applied in this order at the composition root:
 //
 //	mcpserver.NewMCPServer(name, version,
-//	    mcpserver.WithToolHandlerMiddleware(instrument.Logging()),         // outermost
+//	    mcpserver.WithToolHandlerMiddleware(instrument.Tracing()),  // outermost
+//	    mcpserver.WithToolHandlerMiddleware(instrument.Logging()),
 //	    mcpserver.WithToolHandlerMiddleware(instrument.Metrics()),
-//	    mcpserver.WithToolHandlerMiddleware(instrument.Tracing()),         // innermost wrapper
-//	    mcpserver.WithToolHandlerMiddleware(responsecap.New(...)),
-//	    mcpserver.WithToolHandlerMiddleware(timeout.New(0)),
 //	)
 //
 // mcp-go applies middleware in reverse registration order, so the chain
-// becomes Logging(Metrics(Tracing(responsecap(timeout(handler))))) — the
-// outermost wrappers observe the final post-cap, post-timeout outcome
-// the client sees.
+// becomes Tracing(Logging(Metrics(handler))). Tracing is outermost so
+// the span is active while Logging emits its line and Metrics records
+// its observation — log records carry trace_id / span_id via the slog ↔
+// OTel bridge, and histogram exemplars attach the local trace_id.
 //
 // # Aggregator meta-tool layer vs real tool layer
 //

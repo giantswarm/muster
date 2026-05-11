@@ -114,8 +114,7 @@ On error:
 msg=tool call subsystem=MCP-Tool tool=call_tool outcome=error duration_s=2.118 error="upstream timeout"
 ```
 
-The line is emitted by the outermost middleware, so it carries the
-final post-handler outcome the client sees.
+The line carries the final post-handler outcome the client sees.
 
 ## Query catalog
 

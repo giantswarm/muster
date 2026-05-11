@@ -28,7 +28,7 @@ import (
 	"github.com/giantswarm/mcp-oauth/providers/dex"
 	"github.com/giantswarm/mcp-oauth/security"
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
-	tklog "github.com/giantswarm/mcp-toolkit/logging"
+	mcptoolkitlogging "github.com/giantswarm/mcp-toolkit/logging"
 	"github.com/giantswarm/muster/internal/aggregator/instrument"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -532,7 +532,7 @@ func createStores(cfg AggregatorConfig) storeBundle {
 		enc := createEncryptor(oauthCfg)
 
 		logging.InfoWithAttrs("Aggregator", "Using Valkey-backed session auth and capability stores",
-			slog.String("address", tklog.RedactHost(oauthCfg.Storage.Valkey.URL)))
+			slog.String("address", mcptoolkitlogging.RedactHost(oauthCfg.Storage.Valkey.URL)))
 		return storeBundle{
 			authStore:       NewValkeySessionAuthStore(client, DefaultCapabilityStoreTTL, keyPrefix),
 			capabilityStore: NewValkeyCapabilityStore(client, DefaultCapabilityStoreTTL, keyPrefix),

@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/giantswarm/muster/pkg/logging"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"go.opentelemetry.io/otel"
@@ -38,14 +39,20 @@ const (
 // muster_tool_calls_total and muster_tool_call_duration_seconds.
 func Metrics() server.ToolHandlerMiddleware {
 	m := otel.Meter(MeterName)
-	calls, _ := m.Int64Counter("muster.tool_calls",
+	calls, err := m.Int64Counter("muster.tool_calls",
 		metric.WithDescription("Number of MCP tool calls handled by the muster aggregator."),
 		metric.WithUnit("{call}"),
 	)
-	duration, _ := m.Float64Histogram("muster.tool_call.duration",
+	if err != nil {
+		logging.Warn("Aggregator", "create muster.tool_calls counter: %v", err)
+	}
+	duration, err := m.Float64Histogram("muster.tool_call.duration",
 		metric.WithDescription("Duration of MCP tool calls handled by the muster aggregator."),
 		metric.WithUnit("s"),
 	)
+	if err != nil {
+		logging.Warn("Aggregator", "create muster.tool_call.duration histogram: %v", err)
+	}
 	return func(next server.ToolHandlerFunc) server.ToolHandlerFunc {
 		return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			start := time.Now()

@@ -1,4 +1,4 @@
-{{- if and (contains "prometheus" (.Values.muster.observability.metrics.exporter | toString)) .Values.muster.observability.metrics.prometheus.serviceMonitor.enabled }}
+{{- if and (eq (include "muster.prometheusExporterEnabled" .) "true") .Values.muster.observability.metrics.prometheus.serviceMonitor.enabled }}
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:

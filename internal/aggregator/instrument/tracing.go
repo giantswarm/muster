@@ -1,7 +1,3 @@
-// Tracing here is transitional: when mark3labs/mcp-go ships a native
-// WithTracing option this file (and its registration in server.go) goes
-// away. Metrics and Logging in this package are permanent.
-
 package instrument
 
 import (

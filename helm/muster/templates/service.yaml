@@ -11,7 +11,7 @@ spec:
       targetPort: http
       protocol: TCP
       name: http
-    {{- if contains "prometheus" (.Values.muster.observability.metrics.exporter | toString) }}
+    {{- if eq (include "muster.prometheusExporterEnabled" .) "true" }}
     - port: {{ .Values.muster.observability.metrics.prometheus.port }}
       targetPort: metrics
       protocol: TCP
