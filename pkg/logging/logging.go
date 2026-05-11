@@ -108,6 +108,7 @@ func Init(ctx context.Context, filterLevel LogLevel, output io.Writer, serviceNa
 		mcptoolkitlogging.WithLoggerName("github.com/giantswarm/muster"),
 		mcptoolkitlogging.WithServiceName(serviceName),
 		mcptoolkitlogging.WithServiceVersion(serviceVersion),
+		mcptoolkitlogging.WithStderrMirror(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("init toolkit logging: %w", err)
