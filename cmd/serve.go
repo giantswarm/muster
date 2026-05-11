@@ -8,6 +8,7 @@ import (
 
 	mcptoolkitmetrics "github.com/giantswarm/mcp-toolkit/metrics"
 	"github.com/giantswarm/mcp-toolkit/tracing"
+
 	"github.com/giantswarm/muster/internal/app"
 	"github.com/giantswarm/muster/internal/config"
 

@@ -5,9 +5,10 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/giantswarm/muster/pkg/logging"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // LogSubsystem tags the structured log lines emitted by this middleware,

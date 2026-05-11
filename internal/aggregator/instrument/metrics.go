@@ -4,12 +4,13 @@ import (
 	"context"
 	"time"
 
-	"github.com/giantswarm/muster/pkg/logging"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // MeterName is the instrumentation scope for metrics emitted from this

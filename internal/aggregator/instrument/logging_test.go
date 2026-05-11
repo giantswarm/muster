@@ -8,10 +8,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/giantswarm/muster/pkg/logging"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/stretchr/testify/require"
+
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // captureLog initializes muster's logger to write JSON to a buffer for

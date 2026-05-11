@@ -29,12 +29,13 @@ import (
 	"github.com/giantswarm/mcp-oauth/security"
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
 	mcptoolkitlogging "github.com/giantswarm/mcp-toolkit/logging"
-	"github.com/giantswarm/muster/internal/aggregator/instrument"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/valkey-io/valkey-go"
 	"golang.org/x/oauth2"
 	"golang.org/x/sync/singleflight"
+
+	"github.com/giantswarm/muster/internal/aggregator/instrument"
 )
 
 // AggregatorServer implements a comprehensive MCP server that aggregates multiple backend MCP servers.
