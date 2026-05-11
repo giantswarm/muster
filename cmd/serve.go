@@ -91,7 +91,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 		ctx = context.Background()
 	}
 
-	shutdownTracing, err := tracing.Init(ctx, "muster", GetVersion())
+	shutdownTracing, err := tracing.Init(ctx,
+		tracing.WithServiceName("muster"),
+		tracing.WithServiceVersion(GetVersion()),
+	)
 	if err != nil {
 		return fmt.Errorf("init tracing: %w", err)
 	}
