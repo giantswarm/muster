@@ -32,11 +32,4 @@
 // Tracing is transitional: when mark3labs/mcp-go gains a native
 // WithTracing option, tracing.go is deleted and the corresponding line
 // in the composition root is removed. Metrics and Logging are permanent.
-//
-// # Meter initialization
-//
-// InitMeter installs the global OTEL MeterProvider, mirroring
-// mcp-toolkit/tracing.Init for traces. The toolkit v0.1.0 does not ship
-// a meter helper; once it does, InitMeter is replaced and this file
-// shrinks.
 package instrument

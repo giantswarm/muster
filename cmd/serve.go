@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"time"
 
+	mcptoolkitmetrics "github.com/giantswarm/mcp-toolkit/metrics"
 	"github.com/giantswarm/mcp-toolkit/tracing"
-	"github.com/giantswarm/muster/internal/aggregator/instrument"
 	"github.com/giantswarm/muster/internal/app"
 	"github.com/giantswarm/muster/internal/config"
 
@@ -100,11 +100,14 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 	defer otelShutdown("tracing", shutdownTracing)
 
-	shutdownMeter, err := instrument.InitMeter(ctx, "muster", GetVersion())
+	shutdownMeter, err := mcptoolkitmetrics.Init(ctx,
+		mcptoolkitmetrics.WithServiceName("muster"),
+		mcptoolkitmetrics.WithServiceVersion(GetVersion()),
+	)
 	if err != nil {
 		return fmt.Errorf("init meter: %w", err)
 	}
-	defer otelShutdown("meter", func(c context.Context) error { return shutdownMeter(c) })
+	defer otelShutdown("meter", shutdownMeter)
 
 	// Create application configuration without cluster arguments
 	cfg := app.NewConfig(serveDebug, serveSilent, serveYolo, serveConfigPath).
