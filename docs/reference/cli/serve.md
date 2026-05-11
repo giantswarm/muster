@@ -25,9 +25,10 @@ The aggregator server provides a unified MCP interface that other muster command
 - `--debug`: Enable debug-level logging and verbose output
   - Default: `false`
   - Provides detailed information about service startup and operations
-- `--silent`: Disable all output to the console
+- `--silent`: Disable console log output (writer → `io.Discard`)
   - Default: `false`
-  - Useful for programmatic usage or when output needs to be suppressed
+  - Useful for programmatic usage or when console output needs to be suppressed
+  - Does **not** silence OTLP. When OTLP is configured (via `OTEL_EXPORTER_OTLP_*` or `OTEL_LOGS_EXPORTER`), log records still flow to the collector. To disable OTLP, unset those env vars or set `OTEL_SDK_DISABLED=true`.
 
 ### Security and Safety
 - `--yolo`: Disable denylist for destructive tool calls

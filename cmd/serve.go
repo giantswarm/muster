@@ -25,7 +25,8 @@ const otelShutdownTimeout = 5 * time.Second
 // This helps troubleshoot connection issues and understand service behavior.
 var serveDebug bool
 
-// serveSilent disables all output to the console.
+// serveSilent disables console log output (writer → io.Discard). OTLP, if
+// configured, is unaffected — that's controlled via OTEL_* env vars.
 var serveSilent bool
 
 // yolo disables the denylist for destructive tool calls.
@@ -140,7 +141,7 @@ func init() {
 
 	// Register command flags
 	serveCmd.Flags().BoolVar(&serveDebug, "debug", false, "Enable general debug logging")
-	serveCmd.Flags().BoolVar(&serveSilent, "silent", false, "Disable all output to the console")
+	serveCmd.Flags().BoolVar(&serveSilent, "silent", false, "Disable console log output. Does not silence OTLP — unset OTEL_EXPORTER_OTLP_* or set OTEL_SDK_DISABLED=true for that.")
 	serveCmd.Flags().BoolVar(&serveYolo, "yolo", false, "Disable denylist for destructive tool calls (use with caution)")
 	serveCmd.Flags().StringVar(&serveConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
 
