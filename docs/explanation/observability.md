@@ -55,6 +55,32 @@ Setting only `OTEL_EXPORTER_OTLP_ENDPOINT` enables both traces and
 metrics. To override per signal use `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`
 / `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`.
 
+### Prometheus pull mode
+
+The metric signal supports a self-hosted `/metrics` endpoint as an
+alternative (or addition) to OTLP push. Operators running Mimir or a
+Prometheus scraper opt in via:
+
+```yaml
+muster:
+  observability:
+    metrics:
+      exporter: prometheus           # or "otlp,prometheus" for dual-export
+      prometheus:
+        port: 9464
+        serviceMonitor:
+          enabled: true              # ServiceMonitor for Prometheus Operator clusters
+          interval: 30s
+          labels: {}
+```
+
+When `prometheus` is in `metrics.exporter`, the muster container
+exposes port 9464 with the OTel SDK's self-hosted `/metrics` handler.
+The Service forwards the port; a `ServiceMonitor` is rendered when
+`serviceMonitor.enabled` is true. Histogram exemplars are emitted in
+the Prometheus exposition format (Prometheus 2.26+ / Mimir 2.6+
+ingest natively).
+
 ## Metrics
 
 The aggregator emits two OTel instruments under the scope

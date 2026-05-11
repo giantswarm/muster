@@ -426,6 +426,35 @@ muster:
       # k8s.node.name. Example: "deployment.environment=glean".
       resourceAttributes: ""
 
+    # Metric exporter selection. Empty means muster relies on the
+    # toolkit's default — OTLP when otel.endpoint is set, no-op
+    # otherwise.
+    #
+    # Set to one of (or a comma-separated combination of):
+    #   - "otlp"        push metrics to the OTLP endpoint above
+    #   - "prometheus"  self-host a /metrics endpoint on port 9464,
+    #                   scrapable by Prometheus / Mimir agents
+    #   - "console"     local dev: dump metrics to stdout
+    #   - "none"        explicit no-op
+    metrics:
+      exporter: ""
+      prometheus:
+        # Port the self-hosted /metrics endpoint listens on. Only
+        # exposed when "prometheus" is in metrics.exporter.
+        port: 9464
+        # ServiceMonitor for Prometheus-Operator clusters. When
+        # enabled, a ServiceMonitor selecting muster's Service on the
+        # prometheus port is rendered.
+        serviceMonitor:
+          enabled: false
+          # Scrape interval. Empty falls back to the Prometheus
+          # operator's global default.
+          interval: ""
+          # Extra labels applied to the ServiceMonitor — useful for
+          # selecting the right Prometheus instance in a multi-tenant
+          # cluster.
+          labels: {}
+
 # CRD installation
 crds:
   # Install Custom Resource Definitions

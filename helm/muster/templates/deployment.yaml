@@ -61,6 +61,11 @@ spec:
             - name: http
               containerPort: {{ .Values.muster.aggregator.port }}
               protocol: TCP
+            {{- if contains "prometheus" (.Values.muster.observability.metrics.exporter | toString) }}
+            - name: metrics
+              containerPort: {{ .Values.muster.observability.metrics.prometheus.port }}
+              protocol: TCP
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /health
@@ -101,6 +106,16 @@ spec:
             {{- end }}
             - name: OTEL_RESOURCE_ATTRIBUTES
               value: "k8s.namespace.name=$(K8S_NAMESPACE),k8s.pod.name=$(K8S_POD_NAME),k8s.node.name=$(K8S_NODE_NAME){{- with $.Values.muster.observability.otel.resourceAttributes }},{{ . }}{{- end }}"
+            {{- end }}
+            {{- with .Values.muster.observability.metrics.exporter }}
+            - name: OTEL_METRICS_EXPORTER
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if contains "prometheus" (.Values.muster.observability.metrics.exporter | toString) }}
+            - name: OTEL_EXPORTER_PROMETHEUS_HOST
+              value: "0.0.0.0"
+            - name: OTEL_EXPORTER_PROMETHEUS_PORT
+              value: {{ .Values.muster.observability.metrics.prometheus.port | quote }}
             {{- end }}
             # Note: OAuth secrets are loaded from mounted files (per MCP OAuth security recommendations)
             # See /etc/muster/secrets/ volume mount

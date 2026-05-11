@@ -11,5 +11,11 @@ spec:
       targetPort: http
       protocol: TCP
       name: http
+    {{- if contains "prometheus" (.Values.muster.observability.metrics.exporter | toString) }}
+    - port: {{ .Values.muster.observability.metrics.prometheus.port }}
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+    {{- end }}
   selector:
     {{- include "muster.selectorLabels" . | nindent 4 }}
