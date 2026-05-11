@@ -11,6 +11,13 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
+// Item-type tokens accepted by the describe command.
+const (
+	describeTargetTool     = "tool"
+	describeTargetResource = "resource"
+	describeTargetPrompt   = "prompt"
+)
+
 // DescribeCommand shows detailed information about tools, resources, or prompts
 type DescribeCommand struct {
 	*BaseCommand
@@ -34,14 +41,14 @@ func (d *DescribeCommand) Execute(ctx context.Context, args []string) error {
 	itemName := parsed[1]
 
 	switch itemType {
-	case "tool": //nolint:goconst
+	case describeTargetTool:
 		return d.describeTool(ctx, itemName)
-	case "resource": //nolint:goconst
+	case describeTargetResource:
 		return d.describeResource(itemName)
-	case "prompt": //nolint:goconst
+	case describeTargetPrompt:
 		return d.describePrompt(itemName)
 	default:
-		return d.validateTarget(itemType, []string{"tool", "resource", "prompt"})
+		return d.validateTarget(itemType, []string{describeTargetTool, describeTargetResource, describeTargetPrompt})
 	}
 }
 
@@ -134,15 +141,15 @@ func (d *DescribeCommand) Completions(input string) []string {
 
 	if len(parts) == 1 {
 		// Complete the type
-		return d.getCompletionsForTargets([]string{"tool", "resource", "prompt"})
+		return d.getCompletionsForTargets([]string{describeTargetTool, describeTargetResource, describeTargetPrompt})
 	} else if len(parts) == 2 {
 		// Complete the name based on type
 		switch strings.ToLower(parts[1]) {
-		case "tool":
+		case describeTargetTool:
 			return d.getToolCompletions()
-		case "resource":
+		case describeTargetResource:
 			return d.getResourceCompletions()
-		case "prompt":
+		case describeTargetPrompt:
 			return d.getPromptCompletions()
 		}
 	}
