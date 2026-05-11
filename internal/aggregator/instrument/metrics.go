@@ -45,6 +45,7 @@ func Metrics() server.ToolHandlerMiddleware {
 	)
 	if err != nil {
 		logging.Warn("Aggregator", "create muster.tool_calls counter: %v", err)
+		return passthroughMiddleware()
 	}
 	duration, err := m.Float64Histogram("muster.tool_call.duration",
 		metric.WithDescription("Duration of MCP tool calls handled by the muster aggregator."),
@@ -52,6 +53,7 @@ func Metrics() server.ToolHandlerMiddleware {
 	)
 	if err != nil {
 		logging.Warn("Aggregator", "create muster.tool_call.duration histogram: %v", err)
+		return passthroughMiddleware()
 	}
 	return func(next server.ToolHandlerFunc) server.ToolHandlerFunc {
 		return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -67,6 +69,10 @@ func Metrics() server.ToolHandlerMiddleware {
 			return res, err
 		}
 	}
+}
+
+func passthroughMiddleware() server.ToolHandlerMiddleware {
+	return func(next server.ToolHandlerFunc) server.ToolHandlerFunc { return next }
 }
 
 // classify maps a (result, error) pair to the outcome label used as a

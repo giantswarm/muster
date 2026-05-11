@@ -206,6 +206,11 @@ tests:
             name: metrics
             containerPort: 9464
             protocol: TCP
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_RESOURCE_ATTRIBUTES
+            value: "k8s.namespace.name=$(K8S_NAMESPACE),k8s.pod.name=$(K8S_POD_NAME),k8s.node.name=$(K8S_NODE_NAME)"
 
   - it: dual-export mode still renders Prometheus surface
     template: templates/deployment.yaml
@@ -223,3 +228,15 @@ tests:
             name: metrics
             containerPort: 9464
             protocol: TCP
+
+  - it: prometheus-only mode merges user resourceAttributes with downward-API attrs
+    template: templates/deployment.yaml
+    set:
+      muster.observability.metrics.exporter: "prometheus"
+      muster.observability.otel.resourceAttributes: "deployment.environment=glean"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_RESOURCE_ATTRIBUTES
+            value: "k8s.namespace.name=$(K8S_NAMESPACE),k8s.pod.name=$(K8S_POD_NAME),k8s.node.name=$(K8S_NODE_NAME),deployment.environment=glean"
