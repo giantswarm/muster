@@ -9,6 +9,12 @@ import (
 	"github.com/giantswarm/muster/internal/config"
 )
 
+const (
+	testServerNameMCPKubernetes = "mcp-kubernetes"
+	testIssuerExampleCom        = "https://auth.example.com"
+	testScopeOpenIDProfile      = "openid profile"
+)
+
 func TestNewManager_Disabled(t *testing.T) {
 	cfg := config.OAuthMCPClientConfig{
 		Enabled: false,
@@ -116,9 +122,9 @@ func TestManager_RegisterServer(t *testing.T) {
 	}
 	defer manager.Stop()
 
-	serverName := "mcp-kubernetes"       //nolint:goconst
-	issuer := "https://auth.example.com" //nolint:goconst
-	scope := "openid profile"            //nolint:goconst
+	serverName := testServerNameMCPKubernetes
+	issuer := testIssuerExampleCom
+	scope := testScopeOpenIDProfile
 
 	// Initially no config
 	serverCfg := manager.GetServerConfig(serverName)
@@ -236,9 +242,9 @@ func TestManager_GetToken_WithToken(t *testing.T) {
 	}
 	defer manager.Stop()
 
-	serverName := "mcp-kubernetes"
-	issuer := "https://auth.example.com"
-	scope := "openid profile"
+	serverName := testServerNameMCPKubernetes
+	issuer := testIssuerExampleCom
+	scope := testScopeOpenIDProfile
 	subject := "user-123"
 
 	// Register the server
@@ -279,7 +285,7 @@ func TestManager_GetTokenByIssuer(t *testing.T) {
 	}
 	defer manager.Stop()
 
-	issuer := "https://auth.example.com"
+	issuer := testIssuerExampleCom
 	subject := "user-123"
 
 	// Store a token directly
@@ -317,7 +323,7 @@ func TestManager_ClearTokenByIssuer(t *testing.T) {
 	}
 	defer manager.Stop()
 
-	issuer := "https://auth.example.com"
+	issuer := testIssuerExampleCom
 	subject := "user-123"
 
 	// Store a token directly
@@ -493,7 +499,7 @@ func TestManager_CreateAuthChallenge(t *testing.T) {
 	// CreateAuthChallenge will fail without a valid issuer that returns metadata
 	// but we can test that it registers the server config
 	issuer := "https://invalid-issuer.example.com"
-	scope := "openid profile"
+	scope := testScopeOpenIDProfile
 
 	ctx := context.Background()
 	_, err := manager.CreateAuthChallenge(ctx, "user-123", "test-user", "mcp-server", issuer, scope)

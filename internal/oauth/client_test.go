@@ -72,7 +72,7 @@ func TestClient_GetToken(t *testing.T) {
 
 	subject := "user-123"
 	issuer := "https://auth.example.com"
-	scope := "openid profile"
+	scope := testScopeOpenIDProfile
 
 	// Initially no token
 	token := client.GetToken(subject, issuer, scope)
@@ -107,7 +107,7 @@ func TestClient_GetToken_SSO_FallbackToIssuer(t *testing.T) {
 
 	subject := "user-123"
 	issuer := "https://auth.example.com"
-	scope1 := "openid profile"
+	scope1 := testScopeOpenIDProfile
 	scope2 := "openid email" // Different scope
 
 	// Store a token with scope1
@@ -255,7 +255,7 @@ func TestClient_GenerateAuthURL(t *testing.T) {
 	defer client.Stop()
 
 	ctx := context.Background()
-	authURL, err := client.GenerateAuthURL(ctx, "user-123", "test-user", "mcp-kubernetes", server.URL, "openid profile")
+	authURL, err := client.GenerateAuthURL(ctx, "user-123", "test-user", testServerNameMCPKubernetes, server.URL, testScopeOpenIDProfile)
 	if err != nil {
 		t.Fatalf("Failed to generate auth URL: %v", err)
 	}
@@ -311,7 +311,7 @@ func TestClient_GenerateAuthURL_RefusesWithoutS256PKCE(t *testing.T) {
 	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
 
-	_, err := client.GenerateAuthURL(context.Background(), "user-123", "test-user", "mcp-kubernetes", server.URL, "openid profile")
+	_, err := client.GenerateAuthURL(context.Background(), "user-123", "test-user", testServerNameMCPKubernetes, server.URL, testScopeOpenIDProfile)
 	if err == nil {
 		t.Fatal("expected refusal error when AS does not advertise S256 PKCE")
 	}
@@ -325,7 +325,7 @@ func TestClient_ExchangeCode(t *testing.T) {
 		"access_token": "new-access-token",
 		"token_type":   "Bearer",
 		"expires_in":   3600,
-		"scope":        "openid profile",
+		"scope":        testScopeOpenIDProfile,
 	}
 
 	// Use a mux to handle multiple paths without closure issues

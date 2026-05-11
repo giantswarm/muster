@@ -133,7 +133,7 @@ func TestHandler_RenderSuccessPage(t *testing.T) {
 	handler := NewHandler(client)
 
 	rr := httptest.NewRecorder()
-	handler.renderSuccessPage(rr, "mcp-kubernetes")
+	handler.renderSuccessPage(rr, testServerNameMCPKubernetes)
 
 	if rr.Code != http.StatusOK {
 		t.Errorf("Expected status %d, got %d", http.StatusOK, rr.Code)
@@ -144,7 +144,7 @@ func TestHandler_RenderSuccessPage(t *testing.T) {
 	// Check for expected content
 	checks := []string{
 		"Authentication Successful",
-		"mcp-kubernetes",
+		testServerNameMCPKubernetes,
 		"Muster",
 		"close this window",
 	}
