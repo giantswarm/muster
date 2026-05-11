@@ -13,8 +13,6 @@ import (
 // can answer the same calls without exposing its store.
 type TokenBroker interface {
 	GetToken(ctx context.Context, sessionID, audience string) (Token, error)
-	RevokeSession(ctx context.Context, sessionID string) error
-	RevokeUser(ctx context.Context, subject string) error
 	SessionIssuer(ctx context.Context, sessionID string) (string, error)
 }
 
