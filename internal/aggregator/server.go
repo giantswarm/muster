@@ -715,9 +715,14 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	// (see ADR-006: Session-Scoped Tool Visibility)
 	//
 	// mcp-go applies middleware in reverse registration order, so the
-	// chain below becomes Logging(Metrics(Tracing(handler))). Logging is
-	// outermost so it records the final outcome the client sees; Tracing
-	// is innermost so the span tightly bounds the handler.
+	// chain below becomes Tracing(Logging(Metrics(handler))). Tracing is
+	// outermost so the span is active while Logging emits its line and
+	// Metrics records its observation — log records pick up trace_id /
+	// span_id via the slog ↔ OTel bridge, and histogram exemplars
+	// attach the local trace_id for Grafana's "click latency bucket →
+	// jump to trace" pivot. The Tracing wrapper still observes the
+	// final outcome through its next(...) return values, so codes.Error
+	// on IsError fires after the inner chain completes.
 	mcpSrv := mcpserver.NewMCPServer(
 		"muster-aggregator",
 		serverVersion,
@@ -726,9 +731,9 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		mcpserver.WithPromptCapabilities(true),         // Enable prompt retrieval
 		mcpserver.WithToolFilter(a.sessionToolFilter),  // Return session-specific tools for OAuth servers
 		mcpserver.WithHooks(hooks),                     // Clean up subject-session mappings on disconnect
+		mcpserver.WithToolHandlerMiddleware(instrument.Tracing()),
 		mcpserver.WithToolHandlerMiddleware(instrument.Logging()),
 		mcpserver.WithToolHandlerMiddleware(instrument.Metrics()),
-		mcpserver.WithToolHandlerMiddleware(instrument.Tracing()),
 	)
 
 	a.mcpServer = mcpSrv
