@@ -30,14 +30,11 @@ core_mcpserver_create
 core_mcpserver_validate
 ```
 
-### **Service Tools** (9 tools)
-Manage service instances throughout their lifecycle (aggregator, MCP servers, ServiceClass instances):
+### **Service Tools**
+Manage service instances throughout their lifecycle (aggregator, MCP servers):
 ```bash
 # Discover what's running in your system
 core_service_list
-
-# Create services from ServiceClass templates
-core_service_create
 
 # Start, stop, restart services dynamically
 core_service_start
@@ -46,19 +43,6 @@ core_service_restart
 
 # Monitor service health and status
 core_service_status
-```
-
-### **ServiceClass Tools** (7 tools)
-Manage ServiceClass definitions that serve as reusable service templates:
-```bash
-# List available service templates
-core_serviceclass_list
-
-# Create new service templates for common patterns
-core_serviceclass_create
-
-# Check if templates have all required tools available
-core_serviceclass_available
 ```
 
 ### **Workflow Tools** (9 tools)
@@ -101,109 +85,12 @@ agent: "What configuration tools are available?"
 
 # Find tools by functionality
 agent: "I need to manage Kubernetes connections"
-→ Discovers serviceclass 'service-k8s-connection' and related tools
+→ Discovers workflow 'connect-k8s' and related tools
 
 # Execute complex operations
 agent: "Connect to monitoring in cluster"
 → workflow_connect-monitoring(cluster="foo-bar.k8s.mydomain.com")
 ```
-
-## 🏗️ Advanced Service Management
-
-### **ServiceClass Templates**
-This instance provides reusable service templates:
-
-**Real Example - Kubernetes Connection Service:**
-```yaml
-# From .muster/serviceclasses/k8s-connection.yaml
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: ServiceClass
-metadata:
-  name: service-k8s-connection
-spec:
-  description: "Dynamic Kubernetes cluster connections with authentication"
-  args:
-    cluster_name:
-      type: "string"
-      required: true
-      description: "Name of the Kubernetes cluster"
-    role:
-      type: "string"
-      required: true
-      description: "Role for the connection (management, workload, etc.)"
-    auth_provider:
-      type: "string"
-      default: "teleport"
-      description: "Authentication provider"
-  serviceConfig:
-    lifecycleTools:
-      start:
-        tool: "api_kubernetes_connect"
-        args:
-          clusterName: "{{ .cluster_name }}"
-          role: "{{ .role }}"
-          authProvider: "{{ .auth_provider }}"
-      healthCheck:
-        tool: "api_kubernetes_connection_status"
-        args:
-          connectionId: "{{ .service_id }}"
-```
-
-**Usage:**
-```bash
-# Create a managed Kubernetes connection
-core_service_create {
-  "serviceClassName": "service-k8s-connection",
-  "name": "prod-cluster-connection",
-  "args": {
-    "cluster_name": "production",
-    "role": "admin",
-    "auth_provider": "teleport"
-  }
-}
-```
-
-### **Multi-Step Workflows**
-Orchestrate complex operations with built-in error handling:
-
-**Real Example - Monitoring Connection Workflow:**
-```yaml
-# From .muster/workflows/connect-monitoring.yaml
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: Workflow
-metadata:
-  name: connect-monitoring
-spec:
-  description: "Connect to monitoring in a Giant Swarm installation"
-  args:
-    cluster:
-      type: "string"
-      description: "Cluster domain (e.g., 'my-k8s.my-domain.com')"
-      required: true
-    localPort:
-      type: "string"
-      default: "18000"
-      description: "Local port for forwarding"
-  steps:
-    - id: "login-cluster"
-      tool: "x_teleport_kube_login"
-      args:
-        kubeCluster: "{{.input.cluster}}"
-    - id: "setup-prometheus-access"
-      tool: "core_service_create"
-      args:
-        serviceClassName: "prometheus-port-forward"
-        name: "prometheus-port-forward-{{.input.cluster}}"
-        args:
-          cluster: "{{.input.cluster}}"
-          localPort: "{{.input.localPort}}"
-```
-
-**Benefits:**
-- **Reduce AI costs** - Deterministic execution without re-discovery
-- **Faster results** - No need to figure out prerequisites each time
-- **Consistent operations** - Same reliable process across team members
-- **Error handling** - Built-in failure recovery and cleanup
 
 ## 🛡️ Smart Access Control & Context Optimization
 
@@ -213,7 +100,7 @@ spec:
 - **Project-Based Control**: Different tool sets for different projects
 
 ### **Prerequisites Management**
-ServiceClasses automatically handle complex prerequisites:
+Workflows handle complex prerequisites:
 - **Port Forwarding**: Automatically set up when accessing remote services
 - **Authentication**: Handle cluster logins and token management
 - **Health Checking**: Continuous monitoring of service availability

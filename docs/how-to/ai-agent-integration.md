@@ -141,30 +141,19 @@ spec:
         environment: "{{.environment}}"
       store: true
 
-    - id: deploy_application
-      description: "Deploy the application to Kubernetes"
-      tool: core_service_create
-      args:
-        name: "{{.app_name}}-{{.environment}}"
-        serviceClassName: "web-application"
-        args:
-          image: "{{.app_name}}:{{.image_tag}}"
-          environment: "{{.environment}}"
-          replicas: "{{ if eq .environment \"production\" }}3{{ else }}1{{ end }}"
-      store: true
-
     - id: wait_for_deployment
       description: "Wait for deployment to become ready"
       tool: wait_for_service_ready
       args:
-        service_name: "{{.results.deploy_application.name}}"
+        service_name: "{{.app_name}}-{{.environment}}"
         timeout: "300s"
 
     - id: verify_health
       description: "Verify application health and readiness"
       tool: verify_application_health
       args:
-        endpoint: "{{.results.deploy_application.endpoint}}"
+        app_name: "{{.app_name}}"
+        environment: "{{.environment}}"
         expected_status: 200
 
     - id: notify_completion
@@ -230,7 +219,6 @@ suggestions:
       - file_patterns: ["*.yaml", "*.yml", "Dockerfile"]
     suggested_tools:
       - "workflow_deploy_webapp"
-      - "core_service_create"
       - "x_kubernetes_apply_manifest"
 
   debugging_context:

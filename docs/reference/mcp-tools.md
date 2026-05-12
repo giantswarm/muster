@@ -52,17 +52,16 @@ Reference guide for AI agents and MCP clients working with Muster's tools. This 
 
 ## Core Tools Overview
 
-Muster provides **36 core built-in tools** organized into 5 functional categories. These are accessed via `call_tool`:
+Muster provides core built-in tools organized into functional categories. These are accessed via `call_tool`:
 
-- **[Configuration Tools](#configuration-tools)** (5 tools) - System configuration management
-- **[MCP Server Tools](#mcp-server-tools)** (6 tools) - MCP server lifecycle management
-- **[Service Tools](#service-tools)** (9 tools) - Service instance management
-- **[ServiceClass Tools](#serviceclass-tools)** (7 tools) - ServiceClass definition management
-- **[Workflow Tools](#workflow-tools)** (9 tools) - Workflow definition and execution management
+- **[Configuration Tools](#configuration-tools)** - System configuration management
+- **[MCP Server Tools](#mcp-server-tools)** - MCP server lifecycle management
+- **[Service Tools](#service-tools)** - Service lifecycle (aggregator and MCP servers)
+- **[Workflow Tools](#workflow-tools)** - Workflow definition and execution management
 
 ### Additional Tool Types
 
-Beyond the 36 core tools, Muster also provides access to:
+Beyond the core tools, Muster also provides access to:
 
 - **[Dynamic Workflow Execution Tools](#dynamic-workflow-execution-tools)** - `workflow_<name>` tools generated from your workflow definitions
 - **[External Tools](#external-tools)** - Tools provided by your configured MCP servers (varies by installation)
@@ -79,7 +78,6 @@ filter_tools(pattern="core_*")  # Filter to core tools only
 
 # Execute tools via call_tool
 call_tool(name="core_service_list", arguments={})
-call_tool(name="core_serviceclass_list", arguments={})
 call_tool(name="core_workflow_list", arguments={})
 call_tool(name="workflow_<name>", arguments={...})
 ```
@@ -90,10 +88,9 @@ call_tool(name="workflow_<name>", arguments={...})
 call_tool(name="core_service_list", arguments={})
 call_tool(name="core_mcpserver_list", arguments={})
 
-# Create and manage services
-call_tool(name="core_service_create", arguments={...})
-call_tool(name="core_service_start", arguments={"name": "my-service"})
-call_tool(name="core_service_status", arguments={"name": "my-service"})
+# Manage static services
+call_tool(name="core_service_start", arguments={"name": "kubernetes"})
+call_tool(name="core_service_status", arguments={"name": "kubernetes"})
 
 # Execute workflows
 call_tool(name="workflow_<your-workflow>", arguments={...})
@@ -454,12 +451,12 @@ Validate MCP server configuration without creating or modifying the server.
 
 ## Service Tools
 
-Manage service instances throughout their lifecycle. Services can be static system services (aggregator, MCP servers) or dynamic ServiceClass-based instances.
+Manage the lifecycle of static services. The aggregator and MCPServer
+service wrappers are the only managed types.
 
-> **Service Types**: Muster manages three types of services:
+> **Service Types**: Muster manages two types of services:
 > - **Aggregator**: Core tool aggregation service
 > - **MCPServer**: External MCP server processes
-> - **ServiceClass**: User-defined service instances from templates
 
 ### `core_service_list`
 List all services with their current status and metadata.
@@ -500,99 +497,14 @@ List all services with their current status and metadata.
         "autoStart": true,
         "command": ["mcp-kubernetes"]
       }
-    },
-    {
-      "name": "my-database",
-      "service_type": "ServiceClass",
-      "state": "stopped",
-      "health": "unknown",
-      "metadata": {
-        "serviceClassName": "database-service",
-        "autoStart": false
-      }
     }
   ],
   "total": 3
 }
 ```
 
-### `core_service_create`
-Create a new ServiceClass-based service instance.
-
-**Arguments:**
-- `serviceClassName` (string, required) - Name of ServiceClass template to instantiate
-- `name` (string, required) - Unique name for the service instance
-- `args` (object, optional) - Arguments for service creation (schema depends on ServiceClass)
-- `persist` (boolean, optional) - Whether to persist service definition to YAML files (default: false)
-- `autoStart` (boolean, optional) - Whether to auto-start on system startup (only if persist=true)
-
-**Returns:** Created service instance definition
-
-**Example Request:**
-```json
-{
-  "name": "core_service_create",
-  "arguments": {
-    "serviceClassName": "database-service",
-    "name": "prod-database",
-    "args": {
-      "name": "production",
-      "port": 5432,
-      "replicas": 3
-    },
-    "persist": true,
-    "autoStart": true
-  }
-}
-```
-
-**Use Cases:**
-- Create database connections with port forwarding
-- Set up monitoring service instances
-- Deploy temporary development environments
-- Create persistent production services
-
-**⚠️ Note:** Only ServiceClass-based services can be created via this tool. MCP servers use `core_mcpserver_create`.
-
-### `core_service_get`
-Get detailed information about any service (static or ServiceClass-based).
-
-**Arguments:**
-- `name` (string, required) - Name of the service to retrieve
-
-**Returns:** Complete service definition with status and metadata
-
-**Example Request:**
-```json
-{
-  "name": "core_service_get",
-  "arguments": {
-    "name": "mcp-aggregator"
-  }
-}
-```
-
-**Example Response:**
-```json
-{
-  "name": "mcp-aggregator",
-  "serviceClassName": "",
-  "args": null,
-  "enabled": false,
-  "state": "running",
-  "health": "healthy",
-  "serviceData": {
-    "service_type": "Aggregator",
-    "port": 8090,
-    "tools": 95,
-    "servers_connected": 6,
-    "endpoint": "http://localhost:8090/mcp"
-  }
-}
-```
-
 ### `core_service_start`
-Start a specific service (works for both static and ServiceClass-based services).
+Start a specific service.
 
 **Arguments:**
 - `name` (string, required) - Name of the service to start
@@ -617,7 +529,7 @@ Start a specific service (works for both static and ServiceClass-based services)
 **⚠️ Note:** Static services (aggregator) may not support start operations.
 
 ### `core_service_stop`
-Stop a specific service (works for both static and ServiceClass-based services).
+Stop a specific service.
 
 **Arguments:**
 - `name` (string, required) - Name of the service to stop
@@ -686,357 +598,6 @@ Get current status information for a specific service.
 - Monitor service health and performance
 - Troubleshoot service issues
 - Get real-time status for dashboards
-
-### `core_service_delete`
-Delete a ServiceClass-based service instance (static services cannot be deleted).
-
-**Arguments:**
-- `name` (string, required) - Name of the ServiceClass instance to delete
-
-**Returns:** Deletion confirmation
-
-**Example Request:**
-```json
-{
-  "name": "core_service_delete",
-  "arguments": {
-    "name": "temp-database"
-  }
-}
-```
-
-**Use Cases:**
-- Remove temporary or test services
-- Clean up unused service instances
-- Decommission obsolete services
-
-**⚠️ Warning:** Service must be stopped before deletion. Static services (aggregator, MCP servers) cannot be deleted.
-
-### `core_service_validate`
-Validate a service instance definition without creating the service.
-
-**Arguments:**
-- `name` (string, required) - Service instance name to validate
-- `serviceClassName` (string, required) - ServiceClass to validate against
-- `args` (object, optional) - Arguments to validate (schema depends on ServiceClass)
-- `autoStart` (boolean, optional) - Auto-start setting to validate
-- `description` (string, optional) - Service description to validate
-
-**Returns:** Validation result with errors, warnings, and required tools check
-
-**Example Request:**
-```json
-{
-  "name": "core_service_validate",
-  "arguments": {
-    "name": "test-database",
-    "serviceClassName": "database-service",
-    "args": {
-      "name": "testdb",
-      "port": "invalid-port"
-    }
-  }
-}
-```
-
-**Use Cases:**
-- Test service configurations before creation
-- Validate argument schemas and types
-- Check ServiceClass availability and dependencies
-- Ensure required tools are available
-
----
-
-## ServiceClass Tools
-
-Manage ServiceClass definitions that serve as templates for creating service instances. ServiceClasses define how to start, stop, monitor, and manage services using external tools.
-
-> **ServiceClass Concept**: A ServiceClass is a reusable template that defines how to manage a specific type of service (database, web server, monitoring, etc.) using MCP tools for lifecycle operations.
-
-### `core_serviceclass_list`
-List all ServiceClass definitions with their availability status and configuration details.
-
-**Arguments:** None
-
-**Returns:** Object containing array of ServiceClass definitions with tool availability information
-
-**Example Request:**
-```json
-{
-  "name": "core_serviceclass_list",
-  "arguments": {}
-}
-```
-
-**Example Response:**
-```json
-{
-  "mode": "filesystem",
-  "serviceClasses": [
-    {
-      "name": "database-service",
-      "description": "Database service template with health checks",
-      "available": true,
-      "args": {
-        "port": {
-          "type": "integer",
-          "required": false,
-          "default": 5432,
-          "description": "Database port"
-        },
-        "name": {
-          "type": "string",
-          "required": true,
-          "description": "Database name"
-        }
-      },
-      "requiredTools": ["x_kubernetes_create", "x_kubernetes_delete"],
-      "missingTools": []
-    }
-  ],
-  "total": 1
-}
-```
-
-### `core_serviceclass_create`
-Create a new ServiceClass definition with complete lifecycle tool configuration.
-
-**Arguments:**
-- `name` (string, required) - Unique ServiceClass name
-- `serviceConfig` (object, required) - Core service configuration:
-  - `serviceType` (string, required) - Type identifier for the service
-  - `lifecycleTools` (object, required) - Tool configurations for service management:
-    - `start` (object, required) - Tool configuration for starting services
-    - `stop` (object, required) - Tool configuration for stopping services
-    - `status` (object, optional) - Tool configuration for status checks
-    - `restart` (object, optional) - Tool configuration for restart operations
-    - `healthCheck` (object, optional) - Tool configuration for health verification
-  - `healthCheck` (object, optional) - Health check settings:
-    - `enabled` (boolean) - Whether health checks are active
-    - `interval` (string) - Check interval (e.g., "30s", "1m")
-    - `failureThreshold` (integer) - Failures before marking unhealthy
-    - `successThreshold` (integer) - Successes to mark healthy
-  - `timeout` (object, optional) - Operation timeout configuration
-  - `dependencies` (array, optional) - Required ServiceClass dependencies
-  - `outputs` (object, optional) - Template-based output generation
-- `args` (object, optional) - Argument schema with validation rules
-- `description` (string, optional) - Human-readable description
-
-**Returns:** Created ServiceClass definition
-
-**Example Request:**
-```json
-{
-  "name": "core_serviceclass_create",
-  "arguments": {
-    "name": "port-forward-service",
-    "description": "Kubernetes port forwarding service template",
-    "serviceConfig": {
-      "serviceType": "port-forward",
-      "lifecycleTools": {
-        "start": {
-          "tool": "x_kubernetes_port_forward",
-          "args": {
-            "namespace": "{{.namespace}}",
-            "resourceName": "{{.podName}}",
-            "ports": ["{{.localPort}}:{{.remotePort}}"]
-          },
-          "outputs": {
-            "sessionID": "result.sessionID",
-            "endpoint": "result.endpoint"
-          }
-        },
-        "stop": {
-          "tool": "x_kubernetes_stop_port_forward_session",
-          "args": {
-            "sessionID": "{{.sessionID}}"
-          }
-        },
-        "status": {
-          "tool": "x_kubernetes_list_port_forward_sessions"
-        }
-      },
-      "healthCheck": {
-        "enabled": true,
-        "interval": "30s",
-        "failureThreshold": 3
-      }
-    },
-    "args": {
-      "namespace": {
-        "type": "string",
-        "required": true,
-        "description": "Kubernetes namespace"
-      },
-      "podName": {
-        "type": "string",
-        "required": true,
-        "description": "Pod name to forward to"
-      },
-      "localPort": {
-        "type": "integer",
-        "required": true,
-        "description": "Local port number"
-      },
-      "remotePort": {
-        "type": "integer",
-        "default": 8080,
-        "description": "Remote port number"
-      }
-    }
-  }
-}
-```
-
-**Use Cases:**
-- Define reusable service templates
-- Standardize service management patterns
-- Create complex multi-tool workflows
-- Implement health checking and monitoring
-
-### `core_serviceclass_get`
-Get detailed information about a specific ServiceClass definition.
-
-**Arguments:**
-- `name` (string, required) - Name of the ServiceClass to retrieve
-
-**Returns:** Complete ServiceClass definition with all configuration details
-
-**Example Request:**
-```json
-{
-  "name": "core_serviceclass_get",
-  "arguments": {
-    "name": "port-forward-service"
-  }
-}
-```
-
-**Use Cases:**
-- Inspect ServiceClass configurations
-- Debug service creation issues
-- Understand required arguments and dependencies
-
-### `core_serviceclass_available`
-Check if a ServiceClass is available for use (all required tools are present).
-
-**Arguments:**
-- `name` (string, required) - Name of the ServiceClass to check
-
-**Returns:** Availability status with details about missing tools or dependencies
-
-**Example Request:**
-```json
-{
-  "name": "core_serviceclass_available",
-  "arguments": {
-    "name": "database-service"
-  }
-}
-```
-
-**Use Cases:**
-- Verify ServiceClass dependencies before creating services
-- Troubleshoot unavailable ServiceClasses
-- Check tool availability after MCP server changes
-
-### `core_serviceclass_update`
-Update an existing ServiceClass definition. Only provided fields are updated.
-
-**Arguments:**
-- `name` (string, required) - Name of the ServiceClass to update
-- `serviceConfig` (object, optional) - Updated service configuration
-- `args` (object, optional) - Updated argument schema
-- `description` (string, optional) - Updated description
-
-**Returns:** Updated ServiceClass definition
-
-**Example Request:**
-```json
-{
-  "name": "core_serviceclass_update",
-  "arguments": {
-    "name": "port-forward-service",
-    "description": "Updated: Enhanced port forwarding with health checks",
-    "serviceConfig": {
-      "healthCheck": {
-        "enabled": true,
-        "interval": "15s",
-        "failureThreshold": 2
-      }
-    }
-  }
-}
-```
-
-**Use Cases:**
-- Modify ServiceClass behavior without recreation
-- Update tool configurations or arguments
-- Enhance existing templates with new features
-
-### `core_serviceclass_delete`
-Delete a ServiceClass definition. All service instances must be stopped first.
-
-**Arguments:**
-- `name` (string, required) - Name of the ServiceClass to delete
-
-**Returns:** Deletion confirmation
-
-**Example Request:**
-```json
-{
-  "name": "core_serviceclass_delete",
-  "arguments": {
-    "name": "obsolete-service"
-  }
-}
-```
-
-**Use Cases:**
-- Remove obsolete or deprecated ServiceClasses
-- Clean up test templates
-- Reorganize service architecture
-
-**⚠️ Warning:** Ensure no active service instances exist before deletion.
-
-### `core_serviceclass_validate`
-Validate a ServiceClass definition without creating it.
-
-**Arguments:**
-- `name` (string, required) - ServiceClass name to validate
-- `serviceConfig` (object, required) - Service configuration to validate
-- `args` (object, optional) - Argument schema to validate
-- `description` (string, optional) - Description to validate
-
-**Returns:** Validation result with errors, warnings, and tool availability check
-
-**Example Request:**
-```json
-{
-  "name": "core_serviceclass_validate",
-  "arguments": {
-    "name": "test-service",
-    "serviceConfig": {
-      "serviceType": "test",
-      "lifecycleTools": {
-        "start": {
-          "tool": "nonexistent_tool",
-          "args": {}
-        },
-        "stop": {
-          "tool": "x_kubernetes_delete"
-        }
-      }
-    }
-  }
-}
-```
-
-**Use Cases:**
-- Test ServiceClass configurations before creation
-- Validate tool availability and argument schemas
-- Check for configuration errors and dependencies
-- Ensure ServiceClass compatibility with current environment
 
 ---
 
@@ -1129,51 +690,12 @@ Create a new workflow definition with advanced step configuration.
     },
     "steps": [
       {
-        "id": "create_service",
-        "tool": "core_service_create",
-        "description": "Create the main application service",
+        "id": "deploy",
+        "tool": "x_kubernetes_apply",
+        "description": "Deploy the application",
         "args": {
-          "serviceClassName": "web-application",
-          "name": "{{.app_name}}-{{.environment}}",
-          "args": {
-            "replicas": 3,
-            "environment": "{{.environment}}"
-          }
-        },
-        "outputs": {
-          "service_name": "{{.app_name}}-{{.environment}}",
-          "endpoint": "http://{{.app_name}}-{{.environment}}.local"
+          "manifest": "{{.manifest}}"
         }
-      },
-      {
-        "id": "start_service",
-        "tool": "core_service_start",
-        "description": "Start the application service",
-        "args": {
-          "name": "{{create_service.service_name}}"
-        }
-      },
-      {
-        "id": "setup_monitoring",
-        "tool": "core_service_create",
-        "description": "Setup monitoring service",
-        "condition": {
-          "tool": "core_serviceclass_available",
-          "args": {
-            "name": "monitoring-service"
-          },
-          "expect": {
-            "success": true
-          }
-        },
-        "args": {
-          "serviceClassName": "monitoring-service",
-          "name": "{{.app_name}}-monitoring",
-          "args": {
-            "target": "{{create_service.endpoint}}"
-          }
-        },
-        "allow_failure": true
       },
       {
         "id": "health_check",
@@ -1272,20 +794,11 @@ Update an existing workflow definition. Only provided fields are updated.
     "description": "Updated: Enhanced deployment with advanced monitoring and rollback",
     "steps": [
       {
-        "id": "validate_environment",
-        "tool": "core_serviceclass_available",
-        "description": "Validate deployment environment",
+        "id": "deploy",
+        "tool": "x_kubernetes_apply",
+        "description": "Deploy the application",
         "args": {
-          "name": "web-application"
-        }
-      },
-      {
-        "id": "create_service",
-        "tool": "core_service_create",
-        "description": "Create the main application service",
-        "args": {
-          "serviceClassName": "web-application",
-          "name": "{{.app_name}}-{{.environment}}"
+          "manifest": "{{.manifest}}"
         }
       }
     ]
@@ -1446,11 +959,10 @@ args:
     type: string
     default: "staging"
 steps:
-  - id: create-service
-    tool: core_service_create
+  - id: deploy
+    tool: x_kubernetes_apply
     args:
-      name: "{{.app_name}}-{{.environment}}"
-      serviceClassName: "web-app"
+      manifest: "{{.manifest}}"
 ```
 
 This generates a `workflow_deploy-webapp` tool that you execute via:

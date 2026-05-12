@@ -10,7 +10,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -56,27 +55,17 @@ func (k *Client) CreateEvent(ctx context.Context, obj client.Object, reason, mes
 
 // CreateEventForCRD creates a Kubernetes Event for a CRD by type, name, and namespace.
 func (k *Client) CreateEventForCRD(ctx context.Context, crdType, name, namespace, reason, message, eventType string) error {
-	var gvk schema.GroupVersionKind
-	switch crdType {
-	case kindMCPServer:
-		gvk = musterv1alpha1.GroupVersion.WithKind(kindMCPServer)
-	case kindWorkflow:
-		gvk = musterv1alpha1.GroupVersion.WithKind(kindWorkflow)
-	default:
+	factory, ok := crdFactories[crdType]
+	if !ok {
 		return fmt.Errorf("unsupported CRD type: %s", crdType)
 	}
+	gvk := musterv1alpha1.GroupVersion.WithKind(crdType)
 
 	// Best-effort UID lookup so the Event references the live object.
 	var uid types.UID
-	switch crdType {
-	case kindMCPServer:
-		if obj, err := k.GetMCPServer(ctx, name, namespace); err == nil {
-			uid = obj.GetUID()
-		}
-	case kindWorkflow:
-		if obj, err := k.GetWorkflow(ctx, name, namespace); err == nil {
-			uid = obj.GetUID()
-		}
+	obj := factory()
+	if err := k.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, obj); err == nil {
+		uid = obj.GetUID()
 	}
 
 	event := &corev1.Event{

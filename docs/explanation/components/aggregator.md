@@ -66,7 +66,7 @@ The `list_tools` response includes:
 ### Core Responsibilities
 
 1. **Meta-Tools Interface**: Expose meta-tools (`list_tools`, `call_tool`, etc.) as the only MCP interface
-2. **Core Tool Management**: Provide 36 built-in tools across 5 categories (config, mcpserver, service, serviceclass, workflow)
+2. **Core Tool Management**: Provide built-in tools across 4 categories (config, mcpserver, service, workflow)
 3. **Dynamic Tool Generation**: Generate workflow execution tools (workflow_*) from workflow definitions
 4. **MCP Server Discovery**: Automatically discover and connect to configured external MCP servers
 5. **Tool Aggregation**: Collect and register tools from all sources into a unified registry
