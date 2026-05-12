@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `muster.oauth.server.trustedPublicRegistrationRedirectURIs` — HTTPS redirect-URI allowlist for unauthenticated dynamic client registration, passed through to mcp-oauth (`Config.TrustedPublicRegistrationRedirectURIs`). Strict exact-match after RFC 3986 normalization. Default: `[]` (opt-in per URI).
+- `oauth-secret` `fail` guard accepts a non-empty `trustedPublicRegistrationRedirectURIs` as a third valid escape valve.
+
+### Changed
+
+- mcp-oauth bumped to `v0.2.125`. Internal API migrated to functional options; `server.NewOAuthHTTPServer` now takes `...oauth.ServerOption`. Security-event log emission is rate-limited (1/s, burst 5). No user-facing config change.
+
 ### Fixed
 
 - Workflow execution tools were advertised twice — both as the documented `workflow_<workflow-name>` and as `core_action_<workflow-name>` — through `list_tools` / `list_core_tools` / `filter_tools`. The `core_action_*` variant is not part of the public surface and the aggregator's call routing does not recognize it (calls fail with "no handler found"), so clients that picked it up from discovery hit non-functional tools. The aggregator now rewrites the workflow provider's internal `action_<name>` tools to `workflow_<name>` (no `core_` prefix) when listing, matching the architecture spec; management tools (`workflow_list`, `workflow_get`, …) continue to be advertised as `core_workflow_*`. Pure listing fix — execution routing was already correct.
