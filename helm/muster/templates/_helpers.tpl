@@ -68,3 +68,17 @@ Create the namespace for muster resource discovery
 {{- define "muster.namespace" -}}
 {{- .Values.muster.namespace | default .Release.Namespace }}
 {{- end }}
+
+{{/*
+Render "true" when "prometheus" is an exact comma-separated element of
+muster.observability.metrics.exporter, trimming whitespace per element.
+Distinguishes "prometheus" / "otlp,prometheus" / "otlp, prometheus"
+(enabled) from "fakeprometheus" / "prometheus_dev" (not enabled).
+*/}}
+{{- define "muster.prometheusExporterEnabled" -}}
+{{- $exporters := list -}}
+{{- range (.Values.muster.observability.metrics.exporter | toString | splitList ",") -}}
+{{- $exporters = append $exporters (trim .) -}}
+{{- end -}}
+{{- if has "prometheus" $exporters -}}true{{- end -}}
+{{- end }}

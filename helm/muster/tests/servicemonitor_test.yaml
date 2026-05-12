@@ -1,0 +1,80 @@
+suite: ServiceMonitor template tests
+templates:
+  - templates/servicemonitor.yaml
+tests:
+  - it: renders nothing by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders nothing when metrics.exporter contains prometheus but serviceMonitor.enabled is false
+    set:
+      muster.observability.metrics.exporter: "prometheus"
+      muster.observability.metrics.prometheus.serviceMonitor.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders nothing when serviceMonitor.enabled is true but prometheus is not in exporter
+    set:
+      muster.observability.metrics.exporter: "otlp"
+      muster.observability.metrics.prometheus.serviceMonitor.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders the ServiceMonitor when prometheus is selected and serviceMonitor is enabled
+    set:
+      muster.observability.metrics.exporter: "prometheus"
+      muster.observability.metrics.prometheus.serviceMonitor.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: kind
+          value: ServiceMonitor
+      - equal:
+          path: apiVersion
+          value: monitoring.coreos.com/v1
+      - equal:
+          path: spec.endpoints[0].port
+          value: metrics
+
+  - it: renders for dual-export (otlp,prometheus)
+    set:
+      muster.observability.metrics.exporter: "otlp,prometheus"
+      muster.observability.metrics.prometheus.serviceMonitor.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 1
+
+  - it: renders for dual-export with whitespace (otlp, prometheus)
+    set:
+      muster.observability.metrics.exporter: "otlp, prometheus"
+      muster.observability.metrics.prometheus.serviceMonitor.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 1
+
+  - it: does NOT render for substring-only matches (fakeprometheus)
+    set:
+      muster.observability.metrics.exporter: "fakeprometheus"
+      muster.observability.metrics.prometheus.serviceMonitor.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: propagates interval and extra labels
+    set:
+      muster.observability.metrics.exporter: "prometheus"
+      muster.observability.metrics.prometheus.serviceMonitor.enabled: true
+      muster.observability.metrics.prometheus.serviceMonitor.interval: "30s"
+      muster.observability.metrics.prometheus.serviceMonitor.labels:
+        prometheus: platform
+    asserts:
+      - equal:
+          path: spec.endpoints[0].interval
+          value: 30s
+      - equal:
+          path: metadata.labels.prometheus
+          value: platform
