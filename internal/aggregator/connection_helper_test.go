@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/internal/server"
 	"github.com/giantswarm/muster/pkg/logging"
 
 	"github.com/stretchr/testify/assert"
@@ -56,7 +55,7 @@ func (m *mockTeleportClientHandler) GetHTTPClientForConfig(ctx context.Context, 
 	return m.httpClient, nil
 }
 
-// mockOAuthHandler implements api.OAuthHandler for testing getIDTokenForForwarding.
+// mockOAuthHandler is a test double for api.OAuthHandler.
 type mockOAuthHandler struct {
 	enabled bool
 	tokens  map[string]*api.OAuthToken // key: sessionID+"|"+issuer
@@ -107,69 +106,47 @@ func (m *mockOAuthHandler) GetFullTokenByIssuer(sessionID, issuer string) *api.O
 	return m.tokens[sessionID+"|"+issuer]
 }
 
-func TestGetIDTokenForForwarding(t *testing.T) {
-	// Valid JWT-like token with future expiry (not a real JWT, just the format for parsing).
-	// The exp claim is set to 9999999999 (year 2286) to ensure it never expires during tests.
+func TestLookupIDTokenForSession(t *testing.T) {
 	validToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiZXhwIjo5OTk5OTk5OTk5fQ.signature" //nolint:goconst,gosec
 
-	t.Run("returns token from context when available", func(t *testing.T) {
-		ctx := context.Background()
-		ctx = server.ContextWithIDToken(ctx, validToken)
+	t.Run("returns empty when no OAuth handler is registered", func(t *testing.T) {
+		api.RegisterOAuthHandler(nil)
 
-		token := getIDTokenForForwarding(ctx, "test-user", "https://accounts.google.com")
-
-		assert.Equal(t, validToken, token)
-	})
-
-	t.Run("returns empty when no token in context and no OAuth handler", func(t *testing.T) {
-		ctx := context.Background()
-
-		token := getIDTokenForForwarding(ctx, "test-user", "https://accounts.google.com")
+		token := lookupIDTokenForSession("test-user", "https://accounts.google.com")
 
 		assert.Empty(t, token)
 	})
 
-	t.Run("context token takes priority over empty string", func(t *testing.T) {
-		ctx := context.Background()
-		ctx = server.ContextWithIDToken(ctx, validToken)
+	t.Run("returns empty when OAuth handler is disabled", func(t *testing.T) {
+		mock := newMockOAuthHandler(false)
+		mock.StoreToken("session-abc", "user1", "https://accounts.google.com", &api.OAuthToken{IDToken: validToken})
+		api.RegisterOAuthHandler(mock)
+		defer api.RegisterOAuthHandler(nil)
 
-		token := getIDTokenForForwarding(ctx, "test-user", "")
-
-		assert.Equal(t, validToken, token)
-	})
-
-	t.Run("returns empty for empty context token", func(t *testing.T) {
-		ctx := context.Background()
-		ctx = server.ContextWithIDToken(ctx, "")
-
-		token := getIDTokenForForwarding(ctx, "test-user", "https://accounts.google.com")
+		token := lookupIDTokenForSession("session-abc", "https://accounts.google.com")
 
 		assert.Empty(t, token)
 	})
 
-	t.Run("returns token from OAuth handler when context has none", func(t *testing.T) {
+	t.Run("returns empty when issuer is empty", func(t *testing.T) {
 		mock := newMockOAuthHandler(true)
 		mock.StoreToken("session-abc", "user1", "https://accounts.google.com", &api.OAuthToken{IDToken: validToken})
 		api.RegisterOAuthHandler(mock)
 		defer api.RegisterOAuthHandler(nil)
 
-		ctx := context.Background()
-		token := getIDTokenForForwarding(ctx, "session-abc", "https://accounts.google.com")
+		token := lookupIDTokenForSession("session-abc", "")
 
-		assert.Equal(t, validToken, token)
+		assert.Empty(t, token)
 	})
 
-	t.Run("context token takes priority over OAuth handler token", func(t *testing.T) {
-		storedToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjYWNoZWQiLCJleHAiOjk5OTk5OTk5OTl9.sig" //nolint:gosec
+	t.Run("returns token from OAuth handler when present", func(t *testing.T) {
 		mock := newMockOAuthHandler(true)
-		mock.StoreToken("session-abc", "user1", "https://accounts.google.com", &api.OAuthToken{IDToken: storedToken})
+		mock.StoreToken("session-abc", "user1", "https://accounts.google.com", &api.OAuthToken{IDToken: validToken})
 		api.RegisterOAuthHandler(mock)
 		defer api.RegisterOAuthHandler(nil)
 
-		ctx := context.Background()
-		ctx = server.ContextWithIDToken(ctx, validToken)
+		token := lookupIDTokenForSession("session-abc", "https://accounts.google.com")
 
-		token := getIDTokenForForwarding(ctx, "session-abc", "https://accounts.google.com")
 		assert.Equal(t, validToken, token)
 	})
 
@@ -178,19 +155,18 @@ func TestGetIDTokenForForwarding(t *testing.T) {
 		api.RegisterOAuthHandler(mock)
 		defer api.RegisterOAuthHandler(nil)
 
-		ctx := context.Background()
-		token := getIDTokenForForwarding(ctx, "unknown-session", "https://accounts.google.com")
+		token := lookupIDTokenForSession("unknown-session", "https://accounts.google.com")
 
 		assert.Empty(t, token)
 	})
 
-	t.Run("returns empty when OAuth handler returns nil token", func(t *testing.T) {
+	t.Run("returns empty when store entry has empty IDToken", func(t *testing.T) {
 		mock := newMockOAuthHandler(true)
+		mock.StoreToken("session-abc", "user1", "https://accounts.google.com", &api.OAuthToken{IDToken: ""})
 		api.RegisterOAuthHandler(mock)
 		defer api.RegisterOAuthHandler(nil)
 
-		ctx := context.Background()
-		token := getIDTokenForForwarding(ctx, "session-abc", "https://accounts.google.com")
+		token := lookupIDTokenForSession("session-abc", "https://accounts.google.com")
 
 		assert.Empty(t, token)
 	})
@@ -850,7 +826,7 @@ func TestHeaderFunc_RateLimitsWarning(t *testing.T) {
 	serverName := "test-server"               //nolint:goconst
 	fallbackToken := "original-token"         //nolint:goconst
 
-	// No OAuth handler registered means getIDTokenForForwarding always returns "".
+	// No OAuth handler registered means lookupIDTokenForSession always returns "".
 	api.RegisterOAuthHandler(nil)
 
 	headerFunc := makeTokenForwardingHeaderFunc(sessionID, sub, musterIssuer, serverName, fallbackToken, nil)

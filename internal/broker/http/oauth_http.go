@@ -1,4 +1,4 @@
-package server
+package brokerhttp
 
 import (
 	"context"
@@ -28,8 +28,8 @@ import (
 	"github.com/giantswarm/mcp-oauth/storage/valkey"
 
 	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/broker"
 	"github.com/giantswarm/muster/internal/config"
-	musteroauth "github.com/giantswarm/muster/internal/oauth"
 	"github.com/giantswarm/muster/pkg/logging"
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 )
@@ -136,7 +136,7 @@ type OAuthHTTPServer struct {
 	httpServer      *http.Server
 	mcpHandler      http.Handler
 	debug           bool
-	onAuthenticated func(ctx context.Context, sessionID string)
+	onAuthenticated func(ctx context.Context, sessionID, idToken string)
 }
 
 // NewOAuthHTTPServer creates a new OAuth-enabled HTTP server that wraps
@@ -170,11 +170,10 @@ func NewOAuthHTTPServer(cfg config.OAuthServerConfig, mcpHandler http.Handler, d
 	return server, nil
 }
 
-// SetOnAuthenticated registers a callback that fires on every authenticated
-// MCP request after the session ID has been extracted. The aggregator uses
-// this to trigger on-demand SSO connections from the HTTP middleware rather
-// than from individual MCP operations.
-func (s *OAuthHTTPServer) SetOnAuthenticated(fn func(ctx context.Context, sessionID string)) {
+// SetOnAuthenticated registers a callback fired on every authenticated MCP
+// request once the session ID is known. idToken is the OIDC ID token for
+// the request, or "" when none is available.
+func (s *OAuthHTTPServer) SetOnAuthenticated(fn func(ctx context.Context, sessionID, idToken string)) {
 	s.onAuthenticated = fn
 }
 
@@ -321,24 +320,21 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 			logging.Warn("OAuth", "SSO: No token stored for email=%s (SSO forwarding will not work)",
 				truncateEmail(userInfo.Email))
 			r = r.WithContext(ctx)
-			s.fireOnAuthenticated(ctx)
+			s.fireOnAuthenticated(ctx, "")
 			next.ServeHTTP(w, r)
 			return
 		}
 
 		// Extract the ID token for downstream OIDC authentication.
-		idToken := GetIDToken(token)
+		idToken := broker.GetIDToken(token)
 		if idToken == "" {
 			logging.Warn("OAuth", "SSO: No ID token in stored token for email=%s (has access_token=%v, has refresh_token=%v). SSO forwarding will not work. Check if upstream IdP returns id_token.",
 				truncateEmail(userInfo.Email), token.AccessToken != "", token.RefreshToken != "")
 			r = r.WithContext(ctx)
-			s.fireOnAuthenticated(ctx)
+			s.fireOnAuthenticated(ctx, "")
 			next.ServeHTTP(w, r)
 			return
 		}
-
-		// Inject the ID token into context for downstream SSO use
-		ctx = ContextWithIDToken(ctx, idToken)
 
 		// Extract and inject the authenticated user's subject (sub claim) for user identity.
 		if subject := extractSubjectFromIDToken(idToken); subject != "" {
@@ -346,7 +342,7 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		}
 
 		r = r.WithContext(ctx)
-		s.fireOnAuthenticated(ctx)
+		s.fireOnAuthenticated(ctx, idToken)
 
 		if s.debug {
 			logging.Debug("OAuth", "SSO: ID token available for forwarding (email=%s)", truncateEmail(userInfo.Email))
@@ -417,15 +413,12 @@ func (s *OAuthHTTPServer) injectExternalIDToken(
 
 	ctx = api.WithSessionID(ctx, acceptance.SessionID)
 	ctx = api.WithSubject(ctx, acceptance.Subject)
-	ctx = ContextWithIDToken(ctx, bearerToken)
 
-	// Mirror the ID token into the OAuth proxy store keyed by (sessionID,
-	// musterIssuer). getIDTokenForForwarding (in the aggregator) looks here
-	// for background header-func closures that run without the request
-	// context. The key MUST match the issuer the aggregator computes —
-	// mirror its resolution logic here. mcp-oauth's AcceptForwardedIDToken
-	// intentionally does NOT mirror into TokenStore, so this keying is
-	// muster's own responsibility.
+	// Mirror the ID token into the OAuth proxy store keyed by
+	// (sessionID, musterIssuer). The key MUST match the issuer the
+	// aggregator computes. mcp-oauth's AcceptForwardedIDToken does not
+	// mirror into TokenStore, so this keying is muster's own
+	// responsibility.
 	if issuer := s.musterIssuer(); issuer != "" {
 		if oh := api.GetOAuthHandler(); oh != nil && oh.IsEnabled() {
 			exp, err := pkgoauth.Expiry(bearerToken)
@@ -452,18 +445,17 @@ func (s *OAuthHTTPServer) injectExternalIDToken(
 	}
 
 	r = r.WithContext(ctx)
-	s.fireOnAuthenticated(ctx)
+	s.fireOnAuthenticated(ctx, bearerToken)
 	next.ServeHTTP(w, r)
 	return true
 }
 
-// fireOnAuthenticated calls the onAuthenticated callback if set and a session
-// ID is available in the context. Extracted to avoid duplication across the
-// multiple early-return paths in createAccessTokenInjectorMiddleware.
-func (s *OAuthHTTPServer) fireOnAuthenticated(ctx context.Context) {
+// fireOnAuthenticated invokes the onAuthenticated callback when one is
+// registered and ctx carries a session ID.
+func (s *OAuthHTTPServer) fireOnAuthenticated(ctx context.Context, idToken string) {
 	if s.onAuthenticated != nil {
 		if sessionID := api.GetSessionIDFromContext(ctx); sessionID != "" {
-			s.onAuthenticated(ctx, sessionID)
+			s.onAuthenticated(ctx, sessionID, idToken)
 		}
 	}
 }
@@ -630,7 +622,7 @@ func createOAuthServer(cfg config.OAuthServerConfig, debug bool) (*oauth.Server,
 
 		// Set up encryption if key is provided
 		if cfg.EncryptionKey != "" {
-			keyBytes, err := musteroauth.DecodeEncryptionKey(cfg.EncryptionKey)
+			keyBytes, err := broker.DecodeEncryptionKey(cfg.EncryptionKey)
 			if err != nil {
 				valkeyStore.Close()
 				return nil, nil, fmt.Errorf("failed to decode encryption key: %w", err)
@@ -710,7 +702,7 @@ func createOAuthServer(cfg config.OAuthServerConfig, debug bool) (*oauth.Server,
 	// Set up encryption if key provided (for memory storage; valkey wires the
 	// encryptor onto the store directly above).
 	if cfg.EncryptionKey != "" && cfg.Storage.Type != storage.BackendValkey {
-		keyBytes, err := musteroauth.DecodeEncryptionKey(cfg.EncryptionKey)
+		keyBytes, err := broker.DecodeEncryptionKey(cfg.EncryptionKey)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to decode encryption key: %w", err)
 		}

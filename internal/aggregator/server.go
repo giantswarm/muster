@@ -16,10 +16,10 @@ import (
 
 	"github.com/giantswarm/muster/internal/admin"
 	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/broker"
+	brokerhttp "github.com/giantswarm/muster/internal/broker/http"
 	"github.com/giantswarm/muster/internal/config"
 	internalmcp "github.com/giantswarm/muster/internal/mcpserver"
-	musteroauth "github.com/giantswarm/muster/internal/oauth"
-	"github.com/giantswarm/muster/internal/server"
 	"github.com/giantswarm/muster/pkg/logging"
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
@@ -76,7 +76,7 @@ type AggregatorServer struct {
 	httpServer []*http.Server
 
 	// OAuth HTTP server for protecting MCP endpoints (when OAuth server is enabled)
-	oauthHTTPServer *server.OAuthHTTPServer
+	oauthHTTPServer *brokerhttp.OAuthHTTPServer
 
 	// Lifecycle management for coordinating startup and shutdown
 	ctx        context.Context    // Context for coordinating shutdown
@@ -554,7 +554,7 @@ func createEncryptor(oauthCfg config.OAuthServerConfig) *security.Encryptor {
 	if oauthCfg.EncryptionKey == "" {
 		return nil
 	}
-	keyBytes, err := musteroauth.DecodeEncryptionKey(oauthCfg.EncryptionKey)
+	keyBytes, err := broker.DecodeEncryptionKey(oauthCfg.EncryptionKey)
 	if err != nil {
 		logging.WarnWithAttrs("Aggregator", "Failed to decode encryption key for Valkey stores",
 			slog.String("error", err.Error()))
@@ -1012,6 +1012,12 @@ func (a *AggregatorServer) Stop(ctx context.Context) error {
 		}
 	}
 
+	if a.oauthHTTPServer != nil {
+		if err := a.oauthHTTPServer.Shutdown(shutdownCtx); err != nil {
+			logging.Error("Aggregator", err, "Error shutting down OAuth HTTP server")
+		}
+	}
+
 	// Note: Stdio server stops automatically on context cancellation, no explicit shutdown needed
 
 	// Wait for all background routines to complete
@@ -1439,7 +1445,7 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 		return nil, fmt.Errorf("invalid OAuth server config type: expected OAuthServerConfig")
 	}
 
-	oauthHTTPServer, err := server.NewOAuthHTTPServer(cfg, mcpHandler, a.config.Debug)
+	oauthHTTPServer, err := brokerhttp.NewOAuthHTTPServer(cfg, mcpHandler, a.config.Debug)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OAuth HTTP server: %w", err)
 	}
@@ -1453,7 +1459,7 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 	// Also detects broken upstream refresh chains: when authAlive is true but
 	// the ID token has disappeared, SSO connections are evicted to stop the
 	// mcp-go retry loop from spamming errors with expired tokens.
-	oauthHTTPServer.SetOnAuthenticated(func(ctx context.Context, sessionID string) {
+	oauthHTTPServer.SetOnAuthenticated(func(ctx context.Context, sessionID, idToken string) {
 		if a.capabilityStore == nil {
 			return
 		}
@@ -1464,7 +1470,6 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 		_, _ = a.capabilityStore.Touch(ctx, sessionID)
 
 		userID := getUserSubjectFromContext(ctx)
-		idToken, _ := server.GetIDTokenFromContext(ctx)
 
 		logging.InfoWithAttrs("Aggregator", "SSO: onAuthenticated callback",
 			slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
@@ -2601,7 +2606,7 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 		return nil, time.Time{}, "", fmt.Errorf("OAuth handler not available for token exchange to %s", serverName)
 	}
 
-	idToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer)
+	idToken := lookupIDTokenForSession(sessionID, musterIssuer)
 	if idToken == "" {
 		return nil, time.Time{}, "", fmt.Errorf("no ID token available for token exchange to %s", serverName)
 	}
@@ -2761,7 +2766,7 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 
 	} else if ShouldUseTokenForwarding(serverInfo) {
 		musterIssuer := a.getMusterIssuer()
-		idToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer)
+		idToken := lookupIDTokenForSession(sessionID, musterIssuer)
 		if idToken == "" {
 			return nil, nil, fmt.Errorf("no ID token available for forwarding to %s", serverName)
 		}
@@ -2771,7 +2776,7 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 		}
 
 		headerFunc := func(_ context.Context) map[string]string {
-			latestToken := getIDTokenForForwarding(context.Background(), sessionID, musterIssuer)
+			latestToken := lookupIDTokenForSession(sessionID, musterIssuer)
 			if latestToken == "" {
 				latestToken = idToken
 			}

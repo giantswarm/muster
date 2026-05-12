@@ -10,7 +10,6 @@ import (
 
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/events"
-	"github.com/giantswarm/muster/internal/server"
 	"github.com/giantswarm/muster/pkg/logging"
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
@@ -224,70 +223,37 @@ func (r *ConnectionResult) FormatAsMCPResult() *mcp.CallToolResult {
 	}
 }
 
-// getIDTokenForForwarding retrieves an ID token for SSO token forwarding from available sources.
-//
-// Token sources are checked in priority order:
-//  1. Request context - contains the ID token when called from within an HTTP request handler.
-//     Injected by createAccessTokenInjectorMiddleware from the Valkey token store.
-//  2. OAuth manager's token store - contains the token populated by SetSessionCreationHandler
-//     and SetTokenRefreshHandler, looked up by (sessionID, musterIssuer). This is the primary
-//     source for background closures (headerFunc) that run outside the HTTP request lifecycle
-//     with context.Background().
-//
-// The context token takes priority because it's the freshest, directly from the current request.
-//
-// Args:
-//   - ctx: Request context that may contain an injected ID token
-//   - sessionID: The session ID (token family ID) for token store lookups
-//   - musterIssuer: The issuer URL to look up in the OAuth proxy store
-//
-// Returns the ID token string, or empty string if no token is available.
-func getIDTokenForForwarding(ctx context.Context, sessionID, musterIssuer string) string {
-	if idToken, ok := server.GetIDTokenFromContext(ctx); ok && idToken != "" {
-		logging.Debug("Connection", "Found ID token in request context for session %s",
-			logging.TruncateIdentifier(sessionID))
-		return idToken
-	}
-
+// lookupIDTokenForSession returns the ID token for (sessionID, musterIssuer)
+// from the OAuth proxy store, or "" when no entry is available.
+func lookupIDTokenForSession(sessionID, musterIssuer string) string {
 	oauthHandler := api.GetOAuthHandler()
-	if oauthHandler != nil && oauthHandler.IsEnabled() && musterIssuer != "" {
-		fullToken := oauthHandler.GetFullTokenByIssuer(sessionID, musterIssuer)
-		if fullToken != nil && fullToken.IDToken != "" {
-			logging.Debug("Connection", "Found ID token in OAuth proxy store for session %s, issuer %s",
-				logging.TruncateIdentifier(sessionID), musterIssuer)
-			return fullToken.IDToken
-		}
+	if oauthHandler == nil || !oauthHandler.IsEnabled() || musterIssuer == "" {
+		logging.Debug("Connection", "No ID token lookup possible for session %s (handler unavailable or issuer empty)",
+			logging.TruncateIdentifier(sessionID))
+		return ""
 	}
-
-	logging.Debug("Connection", "No ID token found for session %s",
-		logging.TruncateIdentifier(sessionID))
-	return ""
+	fullToken := oauthHandler.GetFullTokenByIssuer(sessionID, musterIssuer)
+	if fullToken == nil || fullToken.IDToken == "" {
+		logging.Debug("Connection", "No ID token in OAuth proxy store for session %s, issuer %s",
+			logging.TruncateIdentifier(sessionID), musterIssuer)
+		return ""
+	}
+	logging.Debug("Connection", "Found ID token in OAuth proxy store for session %s, issuer %s",
+		logging.TruncateIdentifier(sessionID), musterIssuer)
+	return fullToken.IDToken
 }
 
-// EstablishConnectionWithTokenForwarding attempts to establish a connection
-// using ID token forwarding for SSO. This is used when an MCPServer has forwardToken: true.
+// EstablishConnectionWithTokenForwarding establishes a connection using ID
+// token forwarding for SSO. idToken is the OIDC ID token forwarded to the
+// downstream MCP server; an empty value returns an error.
 //
-// The function:
-//  1. Gets the user's ID token from muster's OAuth session
-//  2. Forwards it to the downstream MCP server
-//  3. If successful, populates the CapabilityStore and registers tools
-//
-// Both sessionID and sub are extracted from ctx (set by OAuth middleware).
-//
-// Args:
-//   - ctx: Context for the operation (must contain sessionID and sub)
-//   - a: The aggregator server instance
-//   - serverInfo: The server info containing URL and auth config
-//   - musterIssuer: The issuer URL of muster's OAuth provider (used to get the ID token)
-//
-// Returns:
-//   - *ConnectionResult: The connection result if successful
-//   - error: The error if connection failed
+// sessionID and sub are extracted from ctx.
 func EstablishConnectionWithTokenForwarding(
 	ctx context.Context,
 	a *AggregatorServer,
 	serverInfo *ServerInfo,
 	musterIssuer string,
+	idToken string,
 ) (*ConnectionResult, error) {
 	sessionID, sub, err := requireSessionContext(ctx, serverInfo.Name)
 	if err != nil {
@@ -303,7 +269,6 @@ func EstablishConnectionWithTokenForwarding(
 		}
 	}
 
-	idToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer)
 	if idToken == "" {
 		logging.Debug("Connection", "No ID token available for user %s",
 			logging.TruncateIdentifier(sub))
@@ -486,32 +451,16 @@ func ShouldUseTokenExchange(serverInfo *ServerInfo) bool {
 	return config.Enabled && config.DexTokenEndpoint != "" && config.ConnectorID != ""
 }
 
-// EstablishConnectionWithTokenExchange attempts to establish a connection
-// using RFC 8693 Token Exchange for cross-cluster SSO. This is used when an MCPServer has
-// tokenExchange configured.
+// EstablishConnectionWithTokenExchange establishes a connection using
+// RFC 8693 Token Exchange. idToken is the OIDC ID token used as the
+// exchange subject; an empty value returns an error.
 //
-// The function:
-//  1. Gets the user's ID token from muster's OAuth session
-//  2. Extracts the user ID (sub claim) from the token
-//  3. Exchanges it for a token valid on the remote cluster's Dex
-//  4. If successful, populates the CapabilityStore and registers tools
-//
-// Both sessionID and sub are extracted from ctx (set by OAuth middleware).
-//
-// Args:
-//   - ctx: Context for the operation (must contain sessionID and sub)
-//   - a: The aggregator server instance
-//   - serverInfo: The server info containing URL and auth config
-//   - musterIssuer: The issuer URL of muster's OAuth provider (used to get the ID token)
-//
-// Returns:
-//   - *ConnectionResult: The connection result if successful
-//   - error: The error if connection failed
+// sessionID and sub are extracted from ctx.
 func EstablishConnectionWithTokenExchange(
 	ctx context.Context,
 	a *AggregatorServer,
 	serverInfo *ServerInfo,
-	musterIssuer string,
+	idToken string,
 ) (*ConnectionResult, error) {
 	if serverInfo == nil || serverInfo.AuthConfig == nil || serverInfo.AuthConfig.TokenExchange == nil {
 		return nil, fmt.Errorf("invalid server configuration for token exchange")
@@ -529,16 +478,11 @@ func EstablishConnectionWithTokenExchange(
 		}
 	}
 
-	// Get the OAuth handler for token exchange
 	oauthHandler := api.GetOAuthHandler()
 	if oauthHandler == nil || !oauthHandler.IsEnabled() {
 		return nil, fmt.Errorf("OAuth handler not available for token exchange")
 	}
 
-	// Get ID token from multiple sources (in priority order):
-	// 1. Request context (for tokens from muster's OAuth server protection)
-	// 2. OAuth proxy token store (for tokens from muster's own OAuth session)
-	idToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer)
 	if idToken == "" {
 		logging.Debug("Connection", "No ID token available for user %s",
 			logging.TruncateIdentifier(sub))
@@ -844,7 +788,7 @@ func makeTokenForwardingHeaderFunc(
 	var staleEvicted bool
 	hadToken := true
 	return func(_ context.Context) map[string]string {
-		latestToken := getIDTokenForForwarding(context.Background(), sessionID, musterIssuer)
+		latestToken := lookupIDTokenForSession(sessionID, musterIssuer)
 		if latestToken == "" {
 			consecutiveFailures++
 
