@@ -10,9 +10,9 @@ import (
 )
 
 const (
-	testServerNameMCPKubernetes = "mcp-kubernetes"
-	testIssuerExampleCom        = "https://auth.example.com"
-	testScopeOpenIDProfile      = "openid profile"
+	testServerName = "mcp-kubernetes"
+	testIssuer     = "https://auth.example.com"
+	testScopes     = "openid profile"
 )
 
 func TestNewManager_Disabled(t *testing.T) {
@@ -122,9 +122,9 @@ func TestManager_RegisterServer(t *testing.T) {
 	}
 	defer manager.Stop()
 
-	serverName := testServerNameMCPKubernetes
-	issuer := testIssuerExampleCom
-	scope := testScopeOpenIDProfile
+	serverName := testServerName
+	issuer := testIssuer
+	scope := testScopes
 
 	// Initially no config
 	serverCfg := manager.GetServerConfig(serverName)
@@ -242,9 +242,9 @@ func TestManager_GetToken_WithToken(t *testing.T) {
 	}
 	defer manager.Stop()
 
-	serverName := testServerNameMCPKubernetes
-	issuer := testIssuerExampleCom
-	scope := testScopeOpenIDProfile
+	serverName := testServerName
+	issuer := testIssuer
+	scope := testScopes
 	subject := "user-123"
 
 	// Register the server
@@ -285,7 +285,7 @@ func TestManager_GetTokenByIssuer(t *testing.T) {
 	}
 	defer manager.Stop()
 
-	issuer := testIssuerExampleCom
+	issuer := testIssuer
 	subject := "user-123"
 
 	// Store a token directly
@@ -323,7 +323,7 @@ func TestManager_ClearTokenByIssuer(t *testing.T) {
 	}
 	defer manager.Stop()
 
-	issuer := testIssuerExampleCom
+	issuer := testIssuer
 	subject := "user-123"
 
 	// Store a token directly
@@ -499,7 +499,7 @@ func TestManager_CreateAuthChallenge(t *testing.T) {
 	// CreateAuthChallenge will fail without a valid issuer that returns metadata
 	// but we can test that it registers the server config
 	issuer := "https://invalid-issuer.example.com"
-	scope := testScopeOpenIDProfile
+	scope := testScopes
 
 	ctx := context.Background()
 	_, err := manager.CreateAuthChallenge(ctx, "user-123", "test-user", "mcp-server", issuer, scope)
