@@ -121,6 +121,19 @@ func InfoWithAttrs(subsystem string, msg string, attrs ...slog.Attr) {
 	logWithAttrs(slog.LevelInfo, subsystem, msg, attrs...)
 }
 
+// InfoWithAttrsCtx is like InfoWithAttrs but threads ctx through the
+// slog Handler so an active span's TraceID and SpanID are attached to
+// the record in OTLP mode.
+func InfoWithAttrsCtx(ctx context.Context, subsystem string, msg string, attrs ...slog.Attr) {
+	if defaultLogger == nil || !defaultLogger.Enabled(ctx, slog.LevelInfo) {
+		return
+	}
+	allAttrs := make([]slog.Attr, 0, len(attrs)+1)
+	allAttrs = append(allAttrs, slog.String("subsystem", subsystem))
+	allAttrs = append(allAttrs, attrs...)
+	defaultLogger.LogAttrs(ctx, slog.LevelInfo, msg, allAttrs...)
+}
+
 // Warn logs a warning message.
 func Warn(subsystem string, messageFmt string, args ...interface{}) {
 	logInternal(LevelWarn, subsystem, nil, messageFmt, args...)

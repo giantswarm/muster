@@ -3,12 +3,23 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"time"
+
+	mcptoolkitmetrics "github.com/giantswarm/mcp-toolkit/metrics"
+	"github.com/giantswarm/mcp-toolkit/tracing"
 
 	"github.com/giantswarm/muster/internal/app"
 	"github.com/giantswarm/muster/internal/config"
 
 	"github.com/spf13/cobra"
 )
+
+// otelShutdownTimeout bounds how long the deferred tracer / meter
+// Shutdown calls may block. Kubelet's terminationGracePeriodSeconds
+// default is 30s; 5s leaves slack for in-flight HTTP requests to
+// complete and SIGKILL fallback.
+const otelShutdownTimeout = 5 * time.Second
 
 // debug enables verbose logging across the application.
 // This helps troubleshoot connection issues and understand service behavior.
@@ -76,6 +87,29 @@ Configuration:
 
 // runServe is the main entry point for the serve command
 func runServe(cmd *cobra.Command, args []string) error {
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	shutdownTracing, err := tracing.Init(ctx,
+		tracing.WithServiceName("muster"),
+		tracing.WithServiceVersion(GetVersion()),
+	)
+	if err != nil {
+		return fmt.Errorf("init tracing: %w", err)
+	}
+	defer otelShutdown("tracing", shutdownTracing)
+
+	shutdownMeter, err := mcptoolkitmetrics.Init(ctx,
+		mcptoolkitmetrics.WithServiceName("muster"),
+		mcptoolkitmetrics.WithServiceVersion(GetVersion()),
+	)
+	if err != nil {
+		return fmt.Errorf("init meter: %w", err)
+	}
+	defer otelShutdown("meter", shutdownMeter)
+
 	// Create application configuration without cluster arguments
 	cfg := app.NewConfig(serveDebug, serveSilent, serveYolo, serveConfigPath).
 		WithVersion(GetVersion()).
@@ -89,12 +123,18 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to initialize application: %w", err)
 	}
 
-	// Run the application
-	ctx := cmd.Context()
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	return application.Run(ctx)
+}
+
+// otelShutdown runs an OTEL Shutdown function with a bounded fresh
+// context so SIGTERM-canceled parent contexts don't prevent in-flight
+// spans / metric batches from draining.
+func otelShutdown(name string, shutdown func(context.Context) error) {
+	sctx, cancel := context.WithTimeout(context.Background(), otelShutdownTimeout)
+	defer cancel()
+	if err := shutdown(sctx); err != nil {
+		slog.Warn("otel shutdown failed", "component", name, "error", err)
+	}
 }
 
 // init registers the serve command and its flags with the root command.
