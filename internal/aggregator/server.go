@@ -1459,7 +1459,7 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 	// Also detects broken upstream refresh chains: when authAlive is true but
 	// the ID token has disappeared, SSO connections are evicted to stop the
 	// mcp-go retry loop from spamming errors with expired tokens.
-	oauthHTTPServer.SetOnAuthenticated(func(ctx context.Context, sessionID string) {
+	oauthHTTPServer.SetOnAuthenticated(func(ctx context.Context, sessionID, idToken string) {
 		if a.capabilityStore == nil {
 			return
 		}
@@ -1470,7 +1470,6 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 		_, _ = a.capabilityStore.Touch(ctx, sessionID)
 
 		userID := getUserSubjectFromContext(ctx)
-		idToken, _ := broker.GetIDTokenFromContext(ctx)
 
 		logging.InfoWithAttrs("Aggregator", "SSO: onAuthenticated callback",
 			slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
@@ -2607,7 +2606,7 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 		return nil, time.Time{}, "", fmt.Errorf("OAuth handler not available for token exchange to %s", serverName)
 	}
 
-	idToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer)
+	idToken := lookupIDTokenForSession(sessionID, musterIssuer)
 	if idToken == "" {
 		return nil, time.Time{}, "", fmt.Errorf("no ID token available for token exchange to %s", serverName)
 	}
@@ -2767,7 +2766,7 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 
 	} else if ShouldUseTokenForwarding(serverInfo) {
 		musterIssuer := a.getMusterIssuer()
-		idToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer)
+		idToken := lookupIDTokenForSession(sessionID, musterIssuer)
 		if idToken == "" {
 			return nil, nil, fmt.Errorf("no ID token available for forwarding to %s", serverName)
 		}
@@ -2777,7 +2776,7 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 		}
 
 		headerFunc := func(_ context.Context) map[string]string {
-			latestToken := getIDTokenForForwarding(context.Background(), sessionID, musterIssuer)
+			latestToken := lookupIDTokenForSession(sessionID, musterIssuer)
 			if latestToken == "" {
 				latestToken = idToken
 			}

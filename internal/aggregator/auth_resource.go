@@ -9,7 +9,6 @@ import (
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
 	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/internal/broker"
 	"github.com/giantswarm/muster/internal/config"
 	"github.com/giantswarm/muster/pkg/logging"
 
@@ -357,9 +356,6 @@ func (a *AggregatorServer) initSSOForSession(ctx context.Context, userID, sessio
 	defer cancel()
 	bgCtx = api.WithSubject(bgCtx, userID)
 	bgCtx = api.WithSessionID(bgCtx, sessionID)
-	if idToken != "" {
-		bgCtx = broker.ContextWithIDToken(bgCtx, idToken)
-	}
 
 	var pending []*ServerInfo
 	servers := a.registry.GetAllServers()
@@ -398,7 +394,7 @@ func (a *AggregatorServer) initSSOForSession(ctx context.Context, userID, sessio
 		wg.Add(1)
 		go func(si *ServerInfo) {
 			defer wg.Done()
-			a.establishSSOConnection(bgCtx, si, musterIssuer)
+			a.establishSSOConnection(bgCtx, si, musterIssuer, idToken)
 		}(info)
 	}
 
@@ -418,16 +414,13 @@ func (a *AggregatorServer) initSSOForSession(ctx context.Context, userID, sessio
 	}
 }
 
-// establishSSOConnection attempts to establish an SSO connection to a single server.
-// This is called on demand when a cache miss is detected for an SSO-enabled server
-// (token forwarding or token exchange). Manual-auth servers use core_auth_login instead.
-//
-// This method is safe against concurrent calls. It checks the AuthStore before
-// attempting connection and skips if the session is already authenticated.
+// establishSSOConnection attempts to establish an SSO connection to a single
+// server using the supplied idToken. Skips when the session is already
+// authenticated.
 func (a *AggregatorServer) establishSSOConnection(
 	ctx context.Context,
 	serverInfo *ServerInfo,
-	musterIssuer string,
+	musterIssuer, idToken string,
 ) {
 	sessionID := getSessionIDFromContext(ctx)
 	sub := getUserSubjectFromContext(ctx)
@@ -437,7 +430,6 @@ func (a *AggregatorServer) establishSSOConnection(
 		return
 	}
 
-	// Guard against concurrent SSO connection attempts for the same session+server.
 	if a.authStore != nil {
 		authenticated, _ := a.authStore.IsAuthenticated(ctx, sessionID, serverInfo.Name)
 		if authenticated {
@@ -451,16 +443,11 @@ func (a *AggregatorServer) establishSSOConnection(
 	var err error
 	var ssoMethod string
 
-	// Token exchange takes precedence over token forwarding
 	if ShouldUseTokenExchange(serverInfo) {
-		result, err = EstablishConnectionWithTokenExchange(
-			ctx, a, serverInfo, musterIssuer,
-		)
+		result, err = EstablishConnectionWithTokenExchange(ctx, a, serverInfo, idToken)
 		ssoMethod = "token exchange (RFC 8693)"
 	} else {
-		result, err = EstablishConnectionWithTokenForwarding(
-			ctx, a, serverInfo, musterIssuer,
-		)
+		result, err = EstablishConnectionWithTokenForwarding(ctx, a, serverInfo, musterIssuer, idToken)
 		ssoMethod = "token forwarding"
 	}
 

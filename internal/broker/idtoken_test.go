@@ -1,37 +1,11 @@
 package broker
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"golang.org/x/oauth2"
 )
-
-func TestContextWithIDToken_RoundTrip(t *testing.T) {
-	tests := []struct {
-		name      string
-		token     string
-		wantToken string
-		wantOK    bool
-	}{
-		{"non-empty token round-trips", "id-token-1", "id-token-1", true},
-		{"empty token is treated as absent", "", "", false},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			ctx := ContextWithIDToken(context.Background(), tc.token)
-			got, ok := GetIDTokenFromContext(ctx)
-			require.Equal(t, tc.wantToken, got)
-			require.Equal(t, tc.wantOK, ok)
-		})
-	}
-}
-
-func TestGetIDTokenFromContext_AbsentReturnsFalse(t *testing.T) {
-	_, ok := GetIDTokenFromContext(context.Background())
-	require.False(t, ok)
-}
 
 func TestGetIDToken(t *testing.T) {
 	tests := []struct {

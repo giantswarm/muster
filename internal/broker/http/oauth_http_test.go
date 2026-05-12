@@ -19,7 +19,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/internal/broker"
 	"github.com/giantswarm/muster/internal/config"
 )
 
@@ -351,44 +350,6 @@ func TestTruncateEmail(t *testing.T) {
 	}
 }
 
-func TestTokenProviderContextFunctions(t *testing.T) {
-	t.Run("ContextWithIDToken and GetIDTokenFromContext", func(t *testing.T) {
-		ctx := httptest.NewRequest("GET", "/", nil).Context()
-		token := "test-token-123"
-
-		// Initially no token
-		_, ok := broker.GetIDTokenFromContext(ctx)
-		assert.False(t, ok)
-
-		// Add token to context
-		ctx = broker.ContextWithIDToken(ctx, token)
-
-		// Retrieve token
-		retrieved, ok := broker.GetIDTokenFromContext(ctx)
-		assert.True(t, ok)
-		assert.Equal(t, token, retrieved)
-	})
-
-	t.Run("GetIDTokenFromContext with empty token returns false", func(t *testing.T) {
-		ctx := httptest.NewRequest("GET", "/", nil).Context()
-		ctx = broker.ContextWithIDToken(ctx, "")
-
-		_, ok := broker.GetIDTokenFromContext(ctx)
-		assert.False(t, ok)
-	})
-
-}
-
-func TestGetIDToken(t *testing.T) {
-	t.Run("Nil token returns empty", func(t *testing.T) {
-		result := broker.GetIDToken(nil)
-		assert.Empty(t, result)
-	})
-
-	// Note: Testing with actual oauth2.Token requires mocking Extra() which
-	// is not straightforward since it reads from internal fields
-}
-
 func TestOAuthHTTPServerCreateMux(t *testing.T) {
 	// Skip this test if we can't create a valid OAuth server
 	// This test verifies that CreateMux returns a valid handler
@@ -427,27 +388,45 @@ func TestCreateAccessTokenInjectorMiddleware(t *testing.T) {
 }
 
 func TestFireOnAuthenticated(t *testing.T) {
-	t.Run("fires callback when session ID is present", func(t *testing.T) {
+	t.Run("fires callback with session ID and ID token", func(t *testing.T) {
 		s := &OAuthHTTPServer{}
-		var capturedSessionID string
-		s.SetOnAuthenticated(func(ctx context.Context, sessionID string) {
+		var capturedSessionID, capturedIDToken string
+		s.SetOnAuthenticated(func(_ context.Context, sessionID, idToken string) {
 			capturedSessionID = sessionID
+			capturedIDToken = idToken
 		})
 
 		ctx := api.WithSessionID(context.Background(), "test-session-123")
-		s.fireOnAuthenticated(ctx)
+		s.fireOnAuthenticated(ctx, "id-token-xyz")
 
 		assert.Equal(t, "test-session-123", capturedSessionID)
+		assert.Equal(t, "id-token-xyz", capturedIDToken)
+	})
+
+	t.Run("forwards empty ID token to the callback", func(t *testing.T) {
+		s := &OAuthHTTPServer{}
+		var capturedIDToken string
+		called := false
+		s.SetOnAuthenticated(func(_ context.Context, _, idToken string) {
+			called = true
+			capturedIDToken = idToken
+		})
+
+		ctx := api.WithSessionID(context.Background(), "test-session-123")
+		s.fireOnAuthenticated(ctx, "")
+
+		assert.True(t, called)
+		assert.Empty(t, capturedIDToken)
 	})
 
 	t.Run("does not fire callback when session ID is missing", func(t *testing.T) {
 		s := &OAuthHTTPServer{}
 		called := false
-		s.SetOnAuthenticated(func(ctx context.Context, sessionID string) {
+		s.SetOnAuthenticated(func(_ context.Context, _, _ string) {
 			called = true
 		})
 
-		s.fireOnAuthenticated(context.Background())
+		s.fireOnAuthenticated(context.Background(), "id-token-xyz")
 
 		assert.False(t, called, "callback should not fire without session ID")
 	})
@@ -457,7 +436,7 @@ func TestFireOnAuthenticated(t *testing.T) {
 		ctx := api.WithSessionID(context.Background(), "test-session-123")
 
 		assert.NotPanics(t, func() {
-			s.fireOnAuthenticated(ctx)
+			s.fireOnAuthenticated(ctx, "id-token-xyz")
 		})
 	})
 }
@@ -597,7 +576,7 @@ func TestInjectExternalIDToken(t *testing.T) {
 		assert.False(t, nextCalled)
 	})
 
-	t.Run("injects session, subject and ID token into context on success", func(t *testing.T) {
+	t.Run("injects session and subject into context on success", func(t *testing.T) {
 		token := fakeJWT(t, map[string]interface{}{"sub": "sub-from-jwt"})
 		defer stubAcceptForwardedIDToken(func(_ context.Context, bearer string) (*oauthserver.ForwardedIDTokenAcceptance, error) {
 			assert.Equal(t, token, bearer, "bearer token must be forwarded to the library unchanged")
@@ -622,10 +601,6 @@ func TestInjectExternalIDToken(t *testing.T) {
 		sessionID := api.GetSessionIDFromContext(capturedCtx)
 		assert.Regexp(t, `^ext-[0-9a-f]{16}$`, sessionID,
 			"session ID must be the library-derived ext-<16 hex> format")
-
-		idToken, ok := broker.GetIDTokenFromContext(capturedCtx)
-		require.True(t, ok)
-		assert.Equal(t, token, idToken, "bearer token should be treated as ID token")
 	})
 
 	t.Run("session ID is deterministic per bearer token", func(t *testing.T) {
@@ -656,16 +631,17 @@ func TestInjectExternalIDToken(t *testing.T) {
 		assert.NotEqual(t, sessions[0], sessions[2], "different tokens must produce different session IDs")
 	})
 
-	t.Run("fires onAuthenticated with the synthetic session ID", func(t *testing.T) {
+	t.Run("fires onAuthenticated with the synthetic session ID and forwarded ID token", func(t *testing.T) {
 		token := fakeJWT(t, map[string]interface{}{"sub": "u1"})
 		defer stubAcceptForwardedIDToken(func(_ context.Context, bearer string) (*oauthserver.ForwardedIDTokenAcceptance, error) {
 			return acceptanceFor(bearer, "u1", ""), nil
 		})()
 
 		s := &OAuthHTTPServer{config: config.OAuthServerConfig{BaseURL: baseURL}}
-		var capturedSession string
-		s.SetOnAuthenticated(func(_ context.Context, sessionID string) {
+		var capturedSession, capturedIDToken string
+		s.SetOnAuthenticated(func(_ context.Context, sessionID, idToken string) {
 			capturedSession = sessionID
+			capturedIDToken = idToken
 		})
 
 		var ctxSession string
@@ -677,6 +653,8 @@ func TestInjectExternalIDToken(t *testing.T) {
 		require.True(t, s.injectExternalIDToken(httptest.NewRecorder(), r, r.Context(), next))
 		assert.Equal(t, ctxSession, capturedSession,
 			"onAuthenticated should fire with the same session ID exposed to the next handler")
+		assert.Equal(t, token, capturedIDToken,
+			"onAuthenticated should receive the forwarded bearer as the ID token parameter")
 	})
 
 	t.Run("mirrors ID token into OAuth handler keyed by Dex issuer when provider=dex", func(t *testing.T) {
