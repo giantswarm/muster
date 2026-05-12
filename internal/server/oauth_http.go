@@ -18,6 +18,7 @@ import (
 	"golang.org/x/oauth2"
 
 	oauth "github.com/giantswarm/mcp-oauth"
+	"github.com/giantswarm/mcp-oauth/instrumentation"
 	"github.com/giantswarm/mcp-oauth/providers"
 	"github.com/giantswarm/mcp-oauth/providers/dex"
 	"github.com/giantswarm/mcp-oauth/providers/google"
@@ -140,18 +141,19 @@ type OAuthHTTPServer struct {
 }
 
 // NewOAuthHTTPServer creates a new OAuth-enabled HTTP server that wraps
-// the provided MCP handler with authentication protection.
-func NewOAuthHTTPServer(cfg config.OAuthServerConfig, mcpHandler http.Handler, debug bool) (*OAuthHTTPServer, error) {
+// the provided MCP handler with authentication protection. Extra mcp-oauth
+// options (e.g. token-family lifecycle handlers) are forwarded to the
+// underlying OAuth server.
+func NewOAuthHTTPServer(cfg config.OAuthServerConfig, mcpHandler http.Handler, debug bool, extraOpts ...oauth.ServerOption) (*OAuthHTTPServer, error) {
 	if !cfg.Enabled {
 		return nil, fmt.Errorf("OAuth server is not enabled")
 	}
 
-	// Validate HTTPS requirement for OAuth 2.1 compliance
 	if err := validateHTTPSRequirement(cfg.BaseURL); err != nil {
 		return nil, err
 	}
 
-	oauthServer, tokenStore, err := createOAuthServer(cfg)
+	oauthServer, tokenStore, err := createOAuthServer(cfg, extraOpts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OAuth server: %w", err)
 	}
@@ -525,7 +527,7 @@ func (s *OAuthHTTPServer) Shutdown(ctx context.Context) error {
 }
 
 // createOAuthServer creates an OAuth server using mcp-oauth library.
-func createOAuthServer(cfg config.OAuthServerConfig) (*oauth.Server, storage.TokenStore, error) {
+func createOAuthServer(cfg config.OAuthServerConfig, extraOpts []oauth.ServerOption) (*oauth.Server, storage.TokenStore, error) {
 	logger := slog.Default()
 
 	redirectURL := cfg.BaseURL + "/oauth/callback"
@@ -660,84 +662,77 @@ func createOAuthServer(cfg config.OAuthServerConfig) (*oauth.Server, storage.Tok
 		logger.Info("Using custom session duration", "duration", parsed)
 	}
 
-	// Create server configuration.
 	serverConfig := &oauthserver.Config{
-		Issuer:                           cfg.BaseURL,
-		AccessTokenTTL:                   int64(DefaultAccessTokenTTL / time.Second),
-		RefreshTokenTTL:                  int64(refreshTokenTTL / time.Second),
-		AllowRefreshTokenRotation:        true,
-		RequirePKCE:                      true,
-		AllowPKCEPlain:                   false,
-		AllowPublicClientRegistration:    cfg.AllowPublicClientRegistration,
-		RegistrationAccessToken:          cfg.RegistrationToken,
-		MaxClientsPerIP:                  maxClientsPerIP,
-		EnableClientIDMetadataDocuments:  cfg.EnableCIMD,
-		EnableIntrospectionEndpoint:      true,
-		TrustedPublicRegistrationSchemes: cfg.TrustedPublicRegistrationSchemes,
-		AllowLocalhostRedirectURIs:       cfg.AllowLocalhostRedirectURIs,
-		TrustedAudiences:                 cfg.TrustedAudiences,
-
-		// Instrumentation
-		Instrumentation: oauthserver.InstrumentationConfig{
-			Enabled:         true,
-			ServiceName:     "muster",
-			ServiceVersion:  "1.0.0",
-			MetricsExporter: "prometheus",
-		},
+		Issuer:                                cfg.BaseURL,
+		AccessTokenTTL:                        int64(DefaultAccessTokenTTL / time.Second),
+		RefreshTokenTTL:                       int64(refreshTokenTTL / time.Second),
+		AllowRefreshTokenRotation:             true,
+		RequirePKCE:                           true,
+		AllowPKCEPlain:                        false,
+		AllowPublicClientRegistration:         cfg.AllowPublicClientRegistration,
+		RegistrationAccessToken:               cfg.RegistrationToken,
+		MaxClientsPerIP:                       maxClientsPerIP,
+		EnableClientIDMetadataDocuments:       cfg.EnableCIMD,
+		EnableIntrospectionEndpoint:           true,
+		TrustedPublicRegistrationSchemes:      cfg.TrustedPublicRegistrationSchemes,
+		TrustedPublicRegistrationRedirectURIs: cfg.TrustedPublicRegistrationRedirectURIs,
+		AllowLocalhostRedirectURIs:            cfg.AllowLocalhostRedirectURIs,
+		TrustedAudiences:                      cfg.TrustedAudiences,
 	}
 
-	// Create OAuth server. Both memory and valkey backends implement
-	// storage.Combined, so we use the single-store constructor instead of
-	// passing the same handle three times.
-	oauthSrv, err := oauth.NewServerWithCombined(
-		provider,
-		combinedStore,
-		serverConfig,
-		logger,
-	)
+	opts, err := buildOAuthServerOptions(cfg, maxClientsPerIP, logger)
+	if err != nil {
+		return nil, nil, err
+	}
+	opts = append(opts, extraOpts...)
+
+	oauthSrv, err := oauth.NewServerWithCombined(provider, combinedStore, serverConfig, logger, opts...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create OAuth server: %w", err)
 	}
 
-	// Set up encryption if key provided (for memory storage; valkey wires the
-	// encryptor onto the store directly above).
+	return oauthSrv, combinedStore, nil
+}
+
+// buildOAuthServerOptions assembles the functional options for the mcp-oauth server.
+func buildOAuthServerOptions(cfg config.OAuthServerConfig, maxClientsPerIP int, logger *slog.Logger) ([]oauth.ServerOption, error) {
+	inst, err := instrumentation.New(instrumentation.Config{
+		Enabled:         true,
+		ServiceName:     "muster",
+		ServiceVersion:  "1.0.0",
+		MetricsExporter: "prometheus",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create instrumentation: %w", err)
+	}
+
+	opts := []oauth.ServerOption{
+		oauth.WithInstrumentation(inst),
+		oauth.WithAuditor(security.NewAuditor(logger, true)),
+		oauth.WithRateLimiter(security.NewRateLimiter(DefaultIPRateLimit, DefaultIPBurst, logger)),
+		oauth.WithUserRateLimiter(security.NewRateLimiter(DefaultUserRateLimit, DefaultUserBurst, logger)),
+		oauth.WithClientRegistrationRateLimiter(security.NewClientRegistrationRateLimiterWithConfig(
+			maxClientsPerIP,
+			security.DefaultRegistrationWindow,
+			security.DefaultMaxRegistrationEntries,
+			logger,
+		)),
+	}
+
+	// Valkey wires its own encryptor on the store; only memory storage needs WithEncryptor here.
 	if cfg.EncryptionKey != "" && cfg.Storage.Type != storage.BackendValkey {
 		keyBytes, err := musteroauth.DecodeEncryptionKey(cfg.EncryptionKey)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to decode encryption key: %w", err)
+			return nil, fmt.Errorf("failed to decode encryption key: %w", err)
 		}
 		encryptor, err := security.NewEncryptor(keyBytes)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to create encryptor: %w", err)
+			return nil, fmt.Errorf("failed to create encryptor: %w", err)
 		}
-		oauthSrv.SetEncryptor(encryptor)
-		logger.Info("Token encryption at rest enabled (AES-256-GCM)")
+		opts = append(opts, oauth.WithEncryptor(encryptor))
 	}
 
-	// Set up audit logging
-	auditor := security.NewAuditor(logger, true)
-	oauthSrv.SetAuditor(auditor)
-	logger.Info("Security audit logging enabled")
-
-	// Set up rate limiting
-	ipRateLimiter := security.NewRateLimiter(DefaultIPRateLimit, DefaultIPBurst, logger)
-	oauthSrv.SetRateLimiter(ipRateLimiter)
-	logger.Info("IP-based rate limiting enabled", "rate", DefaultIPRateLimit, "burst", DefaultIPBurst)
-
-	userRateLimiter := security.NewRateLimiter(DefaultUserRateLimit, DefaultUserBurst, logger)
-	oauthSrv.SetUserRateLimiter(userRateLimiter)
-	logger.Info("User-based rate limiting enabled", "rate", DefaultUserRateLimit, "burst", DefaultUserBurst)
-
-	clientRegRL := security.NewClientRegistrationRateLimiterWithConfig(
-		maxClientsPerIP,
-		security.DefaultRegistrationWindow,
-		security.DefaultMaxRegistrationEntries,
-		logger,
-	)
-	oauthSrv.SetClientRegistrationRateLimiter(clientRegRL)
-	logger.Info("Client registration rate limiting enabled", "maxClientsPerIP", maxClientsPerIP)
-
-	return oauthSrv, combinedStore, nil
+	return opts, nil
 }
 
 // createHTTPClientWithCA creates an HTTP client that trusts certificates signed by

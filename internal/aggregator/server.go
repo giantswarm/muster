@@ -1432,7 +1432,7 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 		return nil, fmt.Errorf("invalid OAuth server config type: expected OAuthServerConfig")
 	}
 
-	oauthHTTPServer, err := server.NewOAuthHTTPServer(cfg, mcpHandler, a.config.Debug)
+	oauthHTTPServer, err := server.NewOAuthHTTPServer(cfg, mcpHandler, a.config.Debug, a.oauthLifecycleOptions()...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OAuth HTTP server: %w", err)
 	}
@@ -1498,48 +1498,6 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 		go a.initSSOForSession(ctx, userID, sessionID, idToken) //nolint:gosec
 	})
 
-	// Establish SSO connections synchronously during login (token issuance).
-	// This fires inside ExchangeAuthorizationCode, so SSO servers are connected
-	// before the client receives its access token.
-	oauthServer := oauthHTTPServer.GetOAuthServer()
-
-	oauthServer.SetSessionCreationHandler(func(ctx context.Context, userID, familyID string, token *oauth2.Token) {
-		idToken := oauthserver.ExtractIDToken(token)
-		logging.InfoWithAttrs("Aggregator", "SSO: SessionCreationHandler fired",
-			slog.String("userID", logging.TruncateIdentifier(userID)),
-			slog.String("familyID", logging.TruncateIdentifier(familyID)),
-			slog.Bool("hasIDToken", idToken != ""),
-			slog.Int("idTokenLen", len(idToken)))
-		a.initSSOForSession(ctx, userID, familyID, idToken)
-		a.storeIDTokenForSSO(familyID, userID, idToken)
-	})
-
-	oauthServer.SetTokenRefreshHandler(func(ctx context.Context, userID, familyID string, newToken *oauth2.Token) {
-		idToken := oauthserver.ExtractIDToken(newToken)
-		if idToken == "" {
-			// The upstream provider refreshed tokens but did not include an
-			// ID token. This signals a degraded refresh chain (e.g. Dex
-			// obtained new access/refresh tokens from GitHub but the OIDC
-			// id_token was dropped). Evict SSO connections so they don't
-			// keep retrying with stale credentials.
-			a.handleUpstreamRefreshFailure(familyID, userID, "TokenRefreshHandler: refreshed token has no ID token")
-			return
-		}
-		a.storeIDTokenForSSO(familyID, userID, idToken)
-		logging.DebugWithAttrs("Aggregator", "Stored refreshed ID token via TokenRefreshHandler",
-			slog.String("familyID", logging.TruncateIdentifier(familyID)))
-	})
-
-	oauthServer.SetSessionRevocationHandler(func(ctx context.Context, userID, familyID string) {
-		a.tearDownSession(ctx, familyID)
-		if oauthHandler := api.GetOAuthHandler(); oauthHandler != nil && oauthHandler.IsEnabled() {
-			oauthHandler.DeleteTokensBySession(familyID)
-		}
-		logging.InfoWithAttrs("Aggregator", "Cleaned up session state for revoked session",
-			slog.String("familyID", logging.TruncateIdentifier(familyID)),
-			slog.String("userID", logging.TruncateIdentifier(userID)))
-	})
-
 	logging.InfoWithAttrs("Aggregator", "OAuth 2.1 server protection enabled",
 		slog.String("baseURL", cfg.BaseURL))
 
@@ -1556,6 +1514,45 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 	outerMux.Handle("/", oauthMux)
 
 	return outerMux, nil
+}
+
+// oauthLifecycleOptions returns the mcp-oauth options that bind the aggregator
+// to the OAuth server's token-family lifecycle events (login, refresh, revoke).
+func (a *AggregatorServer) oauthLifecycleOptions() []oauth.ServerOption {
+	return []oauth.ServerOption{
+		oauth.WithSessionCreationHandler(func(ctx context.Context, userID, familyID string, token *oauth2.Token) {
+			idToken := oauthserver.ExtractIDToken(token)
+			logging.InfoWithAttrs("Aggregator", "SSO: SessionCreationHandler fired",
+				slog.String("userID", logging.TruncateIdentifier(userID)),
+				slog.String("familyID", logging.TruncateIdentifier(familyID)),
+				slog.Bool("hasIDToken", idToken != ""),
+				slog.Int("idTokenLen", len(idToken)))
+			a.initSSOForSession(ctx, userID, familyID, idToken)
+			a.storeIDTokenForSSO(familyID, userID, idToken)
+		}),
+		// An upstream refresh with no ID token signals a broken refresh chain
+		// (Dex obtained new tokens but the id_token was dropped); evict SSO
+		// connections to stop mcp-go retrying with stale credentials.
+		oauth.WithTokenRefreshHandler(func(ctx context.Context, userID, familyID string, newToken *oauth2.Token) {
+			idToken := oauthserver.ExtractIDToken(newToken)
+			if idToken == "" {
+				a.handleUpstreamRefreshFailure(familyID, userID, "TokenRefreshHandler: refreshed token has no ID token")
+				return
+			}
+			a.storeIDTokenForSSO(familyID, userID, idToken)
+			logging.DebugWithAttrs("Aggregator", "Stored refreshed ID token via TokenRefreshHandler",
+				slog.String("familyID", logging.TruncateIdentifier(familyID)))
+		}),
+		oauth.WithSessionRevocationHandler(func(ctx context.Context, userID, familyID string) {
+			a.tearDownSession(ctx, familyID)
+			if oauthHandler := api.GetOAuthHandler(); oauthHandler != nil && oauthHandler.IsEnabled() {
+				oauthHandler.DeleteTokensBySession(familyID)
+			}
+			logging.InfoWithAttrs("Aggregator", "Cleaned up session state for revoked session",
+				slog.String("familyID", logging.TruncateIdentifier(familyID)),
+				slog.String("userID", logging.TruncateIdentifier(userID)))
+		}),
+	}
 }
 
 // GetEndpoint returns the aggregator's primary endpoint URL based on the configured transport.
