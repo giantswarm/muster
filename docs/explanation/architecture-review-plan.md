@@ -244,13 +244,61 @@ Claude Code → Envoy → muster → muster-agw → backend MCPs
 
 **Cross-cluster:** Teleport-tunneled MCPs continue exactly as today. agw doesn't see them. They get muster-side audit only. End-to-end cross-cluster identity is Phase 7's problem.
 
-**Effort:** half a day. **Risk:** low.
+**Effort:** half a day. **Risk:** low. **Status: ✅ DONE on glean.**
+
+---
+
+## Current PR status (snapshot — 2026-05-11)
+
+The phases below are not all sequential; many are in flight in parallel. Real-time state of the in-flight work in `giantswarm/muster`:
+
+| Workstream | Open PRs | Status |
+|---|---|---|
+| **Pre-Phase-1 — ServiceClass removal** | #634, #635, #636 (steps 2/4, 3/4, 4/4) | in review; **merge to unblock everything else** |
+| **Phase 2 — Broker series** | #647 (ports), #648 (broker package rename), #649 (broker/http), #651 (adapter), #654 (auth_tools), #656 (connection_helper), #657 (session lifecycle) | 7 of ~8 PRs drafted; needs review throughput. Still to author: EntityProvider migration, internal/api/ delete, import-boundary CI |
+| **Phase 3 — Tracing + logging via mcp-toolkit** | #652 (tracing + metrics), #653 (logging + ctx-aware variants) | draft; review pending |
+| **ADR-012** | #613 | revised 2026-05-11; review pending |
+| **Architecture docs** | #650 | this document |
+| **Approved / mergeable** | #570 (lean list_tools), #629 (architectbot teams alignment) | merge buttons available |
+| **Stalled or needs review** | #496 (teemow — periodic capability polling, since March), #543 (TheoBrigitte — dedup tools, CHANGES_REQUESTED), #623 (workflow executor split), #627 (client dedup) | review or close-as-obsolete decisions needed |
+
+---
+
+## Reordered critical path — Phase 4 deferred to end
+
+After implementation experience and PR-throughput realities, Phase 4 (Edge auth — agw moves in front of muster) is reordered to the **end** of the critical path. Rationale:
+
+- **Lowest marginal observability value.** Phase 1 already delivers per-backend audit/traces/metrics. Phase 4's win is "identity column in agw audit log" — useful but additive; muster's `security_audit` logs already cover the identity story.
+- **Most public-facing churn.** Changing the Envoy → agw → muster routing (vs Envoy → muster directly) is a real customer-visible event; best done as a coordinated milestone, not interleaved with code refactors.
+- **External dependency on mcp-oauth JWT-mode PR.** That work has its own review cycle in `giantswarm/mcp-oauth`. Deferring Phase 4 gives the JWT PR time to land cleanly; otherwise Phase 4 ships in extAuth-only mode and Phase 4-revisit happens when JWT lands.
+- **Phase 5 (translator) doesn't depend on Phase 4.** Translator emits agw routes regardless of agw position; emitted `AgentgatewayPolicy` shape adjusts per the deployment-time auth choice.
+- **Phase 6 (ADR-006 → policy) doesn't strictly depend on Phase 4.** ADR-006 stays in muster's aggregator (works today). Cluster-mode migration to `traffic.authorization` is opt-in, not mandatory, and lands with Phase 4+8.
+- **Phase 4 + Phase 6 + Phase 8 land together.** Bypass aggregator HTTP (Phase 8) needs agw in front; ADR-006 → policy (Phase 6) needs JWT claims at agw; both follow Phase 4. Three phases, one coordinated milestone.
+
+```
+Pre-Phase-1: ServiceClass removal (#634/635/636)
+Phase 1:     agw behind muster (DONE on glean)
+Phase 2:     TokenBroker interface + broker bounded context (~7 of 8 PRs in flight)
+Phase 3:     OTel tracing + logging via mcp-toolkit (2 PRs in review)
+Phase 5:     Translator MVP (next critical-path work)
+             ─── SHIP TO CUSTOMERS HERE ───
+
+Phase 4 + 6 + 8: Final architectural transition (coordinated milestone, when mcp-oauth JWT
+                 lands AND a customer audit/RBAC requirement triggers it)
+
+Phase 7:     Cross-MC broker federation (trigger-driven per customer; opt-in upgrade
+             to per-MC variant)
+```
+
+**The platform is shippable at the end of Phase 5.** Customers can use the per-customer stack, get per-backend audit, MCPServer self-service, workflow CRDs, OTel tracing, OAuth via muster's broker, Teleport-tunneled cross-MC reach. The Phase 4 + 6 + 8 milestone polishes the architecture (identity at agw, RBAC at the edge, aggregator HTTP server bypassed in cluster mode) but is not required to be useful.
 
 ---
 
 ### Phase 2 — `TokenBroker` interface + broker bounded context (in-process), drop service locator
 
 *Critical path. Establishes the architectural seam. Refactor only — no behavior change.*
+
+**Status: 7 of ~8 PRs drafted, in review** — #647, #648, #649, #651, #654, #656, #657. Three remaining to author: EntityProvider migration for `internal/reconciler/{kubernetes,filesystem}_detector.go`, delete of `internal/api/` + `internal/services/{aggregator,mcpserver}/` + constructor DI in `cmd/`, import-boundary CI rule.
 
 ```go
 // internal/aggregator/token_broker.go
@@ -312,9 +360,9 @@ Cluster mode: behavior unchanged. Filesystem mode: behavior unchanged.
 
 ---
 
-### Phase 3 — OTel SDK in muster + backends
+### Phase 3 — OTel SDK in muster + backends via `mcp-toolkit`
 
-*Parallel-safe.*
+*Parallel-safe. **Status: 2 PRs drafted, in review** — #652 (tracing + metrics), #653 (logging + ctx-aware variants for trace correlation).*
 
 - Wire OTel SDK into muster operator + workflow runtime
 - Honor inbound `traceparent`
@@ -331,7 +379,7 @@ Filesystem mode: optional via `--otel-endpoint=`; default no-op exporter.
 
 ### Phase 4 — Edge auth (deployment-time format choice)
 
-*Critical path. The architectural break: agw becomes the user-facing auth boundary regardless of which token format the broker issues.*
+*Final architectural milestone. Lands together with Phase 6 (ADR-006 → policy) and Phase 8 (aggregator bypass) as a coordinated transition. **Not on the early critical path** — the platform is shippable at end of Phase 5; this milestone is the polish that follows when mcp-oauth JWT-mode is ready AND a customer audit/RBAC requirement triggers it.*
 
 mcp-oauth gains an opt-in JWT issuance mode (separate PR in `giantswarm/mcp-oauth`). Validation in mcp-oauth already accepts both opaque (TokenStore lookup) and JWT (JWKS verify) bearers; the new mode adds a third validation branch for self-issued JWTs. Only issuance toggles per server instance.
 
@@ -366,30 +414,62 @@ Filesystem mode: unchanged when `--no-auth`. Full-stack lab broker subprocess ca
 
 **Effort:** 2–2.5 weeks (excluding mcp-oauth PR review cycle). **Risk:** medium. The dual-mode support adds little risk because mcp-oauth's validator already handles both.
 
-**Depends on Phase 2 (broker boundary) for clean split between agw and muster.**
+**Depends on Phase 2 (broker boundary) for clean split between agw and muster. Lands with Phase 6 + Phase 8 as the final milestone.**
 
 ---
 
 ### Phase 5 — Translator MVP (extend `internal/reconciler/`)
 
-*Self-service inflection point. Single user-facing CRD; agw stack emitted underneath.*
+*Self-service inflection point. Single user-facing CRD; agw stack emitted underneath. **This is the last critical-path phase before the platform is shippable to customers.***
 
 - Extend `internal/reconciler/mcpserver_reconciler.go` to emit, for each `MCPServer` in cluster mode:
   - `AgentgatewayBackend` referencing user's Service from `MCPServer.spec.url`
   - `HTTPRoute` matching `/mcp/<name>` on the platform `Gateway`
-  - `AgentgatewayPolicy` carrying audit configuration plus the matching auth mechanism — `traffic.jwtAuthentication` (broker JWKS) when broker issues JWTs, `traffic.extAuth` (broker `/oauth/introspect`) when broker issues opaque tokens. The translator reads broker config to decide.
+  - `AgentgatewayPolicy` carrying audit configuration plus a placeholder auth posture (Phase-1-compatible: no edge JWT validation, no extAuth). When the Phase 4 + 6 + 8 milestone lands later, the translator is extended to emit the matching `traffic.jwtAuthentication` or `traffic.extAuth` block.
   - Owner references for GC
 - Status sync: translate `AgentgatewayBackend` conditions back into `MCPServer.status`
 - For `MCPServer.spec.auth.type=teleport`, translator emits a passthrough — no agw resources, muster handles it directly
 
-Cluster mode: app teams author one `MCPServer` CRD; routing + auth + audit emitted automatically.
+Cluster mode: app teams author one `MCPServer` CRD; routing + audit emitted automatically. Auth still validated by muster (as in Phase 1); identity not yet at agw.
 Filesystem mode: translator is no-op; reads YAML directly into in-process aggregator.
 
 **`MCPServerClass` for platform-team defaults is deferred to trigger-driven** (when there are >5 MCPServers per cluster and copy-pasted policy YAML becomes painful). Phase 5 hardcodes sensible defaults until then.
 
 **Effort:** 2 weeks. **Risk:** medium.
 
-**Depends on Phase 4 for knowing which auth mechanism to emit.**
+**Depends on Phase 2 (broker boundary) for clean DI.** Does NOT depend on Phase 4; Phase 5 ships before Phase 4 in the new order.
+
+---
+
+## Milestone — platform is shippable to customers
+
+At the end of Phase 5, the platform is fully usable:
+
+| Capability | Available end of Phase 5 |
+|---|---|
+| Per-customer stack deployment (Envoy → muster → muster-agw → backends) | ✓ |
+| Per-backend audit, traces, metrics at agw | ✓ |
+| Identity in muster's `security_audit` logs | ✓ |
+| OTel tracing through muster + backends | ✓ |
+| Self-service via `MCPServer` CRDs (translator emits agw resources) | ✓ |
+| Workflow CRD + execution | ✓ |
+| Cross-MC backends via Teleport tunnel (`auth.teleport`) | ✓ |
+| OAuth 2.1 + CIMD via mcp-oauth (opaque tokens, served by muster) | ✓ |
+| Per-MC stack upgrade option (`auth.tokenExchange`, opt-in per customer) | ✓ via Phase 7 when triggered |
+
+Capabilities deferred to the Phase 4 + 6 + 8 milestone (not required for the platform to be useful):
+
+| Capability | Deferred until Phase 4 + 6 + 8 |
+|---|---|
+| Identity column in agw access log rows | — |
+| Per-tool RBAC enforced at agw via CEL on `jwt.groups` | — |
+| Rate limit per identity at agw | — |
+| Cluster-mode aggregator bypass / muster as operator-only | — |
+
+Customers run on the Phase-5 shape indefinitely. The final-milestone work lands when there is a concrete trigger:
+- mcp-oauth JWT-mode PR merged (external dependency)
+- A customer audit/RBAC requirement that hardens the case
+- A planned coordinated release window
 
 ---
 
@@ -503,22 +583,50 @@ Triggers:
 
 Until then, each `MCPServer` carries its own auth/RBAC fields (or the translator applies hard-coded sensible defaults). Effort when triggered: ~1.5–2 weeks.
 
-## Critical path
+## Critical path (revised — Phase 4 deferred to final milestone)
 
 ```
-Phase 1 ─►─► Phase 5 ─►─► Phase 6 ─►─► Phase 8
-               ↑              ↑
-Phase 2 ──────┘              ┘
-Phase 4 ──────┘              ┘   ← Phase 5 emits Phase 4-aware policies; Phase 6 needs JWT claims
-Phase 3       (parallel anywhere from Phase 1 onward)
+Pre-Phase-1 — ServiceClass removal (PRs #634/635/636 in review)
+     │
+     ▼
+Phase 1 — agw behind muster (DONE on glean)
+     │
+     ▼
+Phase 2 — TokenBroker interface + broker bounded context (#647-#657, ~7 PRs in flight)
+     │
+     ▼
+Phase 3 — OTel tracing + logging via mcp-toolkit (#652, #653) ← parallel with Phase 2
+     │
+     ▼
+Phase 5 — Translator MVP
+     │
+     ▼
+─── SHIP TO CUSTOMERS ───
+The platform is fully usable here. Customers deploy per-customer stack;
+self-service via MCPServer CRDs; per-backend audit; OTel tracing;
+OAuth via muster's broker; Teleport for cross-MC.
+     │
+     ▼
+Final architectural milestone (coordinated; lands when mcp-oauth JWT PR ready
+AND a customer audit/RBAC trigger materializes):
+   - Phase 4: agw moves to user-facing edge, JWT-at-edge auth
+   - Phase 6: ADR-006 → traffic.authorization
+   - Phase 8: aggregator HTTP server bypassed in cluster mode
+     │
+     ▼
+Steady state
 
-Trigger-driven (opt-in per customer):
-  Phase 7 — broker federation (only for customers upgrading to per-MC variant)
-  Broker pod extraction (compliance / scale / multi-tenancy)
-  MCPServerClass (when hub catalogs grow large)
+Trigger-driven (opt-in per customer, no fixed schedule):
+   Phase 7 — broker federation (only for customers upgrading to per-MC variant)
+   Broker pod extraction (compliance / scale / multi-tenancy)
+   MCPServerClass (when hub catalogs grow large)
 ```
 
-Critical-path total: ~10 weeks of focused engineering for one engineer. With Phases 2 and 4 running in parallel where dependencies allow, calendar time can compress to ~7–8 weeks. Phase 7 adds ~2 weeks per customer who upgrades.
+**Effort to ship-to-customers (end of Phase 5)**: ~5-6 weeks once ServiceClass removal merges and Phase 2 reviews progress. Phase 2 dominates because of PR throughput; Phases 3 and 5 are smaller.
+
+**Final-milestone (Phase 4 + 6 + 8) effort**: ~3-4 weeks of focused work plus the external mcp-oauth JWT PR cycle (out of our hands; runs in parallel from now). Not blocked on shipping.
+
+**Per-customer Phase 7 upgrade**: ~2 weeks when triggered, per customer who needs it.
 
 ## Multi-cluster model
 
