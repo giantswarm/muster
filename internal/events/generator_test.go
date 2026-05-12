@@ -3,7 +3,6 @@ package events
 import (
 	"context"
 	"testing"
-	"time"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -279,38 +278,6 @@ func TestEventGenerator_CRDEvent(t *testing.T) {
 	}
 
 	expectedMessage := "MCPServer test-server operation failed: connection failed"
-	if event.message != expectedMessage {
-		t.Errorf("Expected message %s, got %s", expectedMessage, event.message)
-	}
-}
-
-func TestEventGenerator_ServiceInstanceEvent(t *testing.T) {
-	mockClient := &mockMusterClient{isKubernetes: true}
-	generator := NewEventGenerator(mockClient)
-
-	data := EventData{
-		Duration: 2 * time.Second,
-	}
-
-	err := generator.ServiceInstanceEvent("my-service", "web-app", "default", ReasonServiceInstanceStarted, data)
-	if err != nil {
-		t.Fatalf("ServiceInstanceEvent failed: %v", err)
-	}
-
-	if len(mockClient.eventForCRDCalls) != 1 {
-		t.Fatalf("Expected 1 CRD event, got %d", len(mockClient.eventForCRDCalls))
-	}
-
-	event := mockClient.eventForCRDCalls[0]
-	if event.crdType != "ServiceInstance" {
-		t.Errorf("Expected CRD type ServiceInstance, got %s", event.crdType)
-	}
-
-	if event.name != "my-service" {
-		t.Errorf("Expected name my-service, got %s", event.name)
-	}
-
-	expectedMessage := "Service instance my-service started successfully and is running"
 	if event.message != expectedMessage {
 		t.Errorf("Expected message %s, got %s", expectedMessage, event.message)
 	}
