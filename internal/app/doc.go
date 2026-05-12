@@ -120,7 +120,7 @@
 //
 // ## Standard Application Startup
 //
-//	cfg := app.NewConfig(true, false, false, "")  // debug enabled
+//	cfg := app.NewConfig(true, false, "")  // debug enabled
 //	application, err := app.NewApplication(cfg)
 //	if err != nil {
 //	    return fmt.Errorf("bootstrap failed: %w", err)
@@ -129,7 +129,7 @@
 //
 // ## Custom Configuration Path
 //
-//	cfg := app.NewConfig(false, false, false, "/opt/muster/config")
+//	cfg := app.NewConfig(false, false, "/opt/muster/config")
 //	application, err := app.NewApplication(cfg)
 //	if err != nil {
 //	    return fmt.Errorf("bootstrap failed: %w", err)
@@ -138,7 +138,7 @@
 //
 // ## Debug Mode for Development
 //
-//	cfg := app.NewConfig(true, false, true, "")  // debug, yolo mode
+//	cfg := app.NewConfig(true, true, "")  // debug, yolo mode
 //	application, err := app.NewApplication(cfg)
 //	if err != nil {
 //	    return fmt.Errorf("bootstrap failed: %w", err)
