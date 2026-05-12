@@ -6,12 +6,13 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- `muster.oauth.server.trustedPublicRegistrationRedirectURIs` — HTTPS redirect-URI allowlist for unauthenticated dynamic client registration, passed through to mcp-oauth (`Config.TrustedPublicRegistrationRedirectURIs`). Strict exact-match after RFC 3986 normalization. Default Helm value: `["https://claude.ai/api/mcp/auth_callback"]`.
-- `oauth-secret` `fail` guard now accepts a non-empty `trustedPublicRegistrationRedirectURIs` as a third valid escape valve (alongside `registrationToken`, `allowPublicClientRegistration`, `trustedPublicRegistrationSchemes`, and `existingSecret`).
+- `muster.oauth.server.trustedPublicRegistrationRedirectURIs` — HTTPS redirect-URI allowlist for unauthenticated dynamic client registration, passed through to mcp-oauth (`Config.TrustedPublicRegistrationRedirectURIs`). Strict exact-match after RFC 3986 normalization. Default: `[]` (opt-in per URI).
+- `oauth-secret` `fail` guard accepts a non-empty `trustedPublicRegistrationRedirectURIs` as a third valid escape valve.
+- `WithSecurityEventRateLimiter` is now wired with a 1/s rate, burst 5, to bound security-event log emission under attack.
 
 ### Changed
 
-- mcp-oauth dependency bumped from `v0.2.119` to `v0.2.125`. The `Set*` setters on `oauth.Server` (`SetEncryptor`, `SetAuditor`, `SetRateLimiter`, `SetUserRateLimiter`, `SetClientRegistrationRateLimiter`, `SetSessionCreationHandler`, `SetTokenRefreshHandler`, `SetSessionRevocationHandler`) were removed upstream in favor of functional options. `server.NewOAuthHTTPServer` now takes a variadic `...oauth.ServerOption` and forwards it to the constructor; the aggregator passes its lifecycle handlers as options. `Config.Instrumentation` was removed upstream; instrumentation is now built via `instrumentation.New` and wired through `oauth.WithInstrumentation`. Behavior unchanged.
+- mcp-oauth bumped to `v0.2.125`. Internal API migrated to functional options; `server.NewOAuthHTTPServer` now takes `...oauth.ServerOption`. No behavior change.
 
 ### Fixed
 

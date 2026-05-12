@@ -357,7 +357,7 @@ func runTest(cmd *cobra.Command, args []string) error {
 			testConfig.Concept = testing.ConceptWorkflow
 		case "mcpserver": //nolint:goconst
 			testConfig.Concept = testing.ConceptMCPServer
-		case "service":
+		case "service": //nolint:goconst
 			testConfig.Concept = testing.ConceptService
 		default:
 			return fmt.Errorf("invalid concept '%s', must be one of: workflow, mcpserver, service", testConcept)

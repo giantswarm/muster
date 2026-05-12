@@ -90,7 +90,7 @@ A Helm chart for muster - Universal Control Plane for AI Agents built on MCP
 | muster.oauth.server.storage.valkey.tls.enabled | bool | `false` |  |
 | muster.oauth.server.storage.valkey.url | string | `""` |  |
 | muster.oauth.server.trustedAudiences | list | `[]` |  |
-| muster.oauth.server.trustedPublicRegistrationRedirectURIs | list | `["https://claude.ai/api/mcp/auth_callback"]` |  |
+| muster.oauth.server.trustedPublicRegistrationRedirectURIs | list | `[]` |  |
 | muster.oauth.server.trustedPublicRegistrationSchemes | list | `[]` |  |
 | muster.observability.metrics.exporter | string | `""` |  |
 | muster.observability.metrics.prometheus.port | int | `9464` |  |

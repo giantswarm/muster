@@ -71,6 +71,13 @@ const (
 	// DefaultMaxClientsPerIP is the default maximum number of clients per IP address.
 	DefaultMaxClientsPerIP = 10
 
+	// DefaultSecurityEventRate bounds security-event log emission (events/second
+	// per keyed event), keeping a malformed-token attack from flooding the audit
+	// pipeline. Mirrors mcp-oauth's production-example default (1, 5).
+	DefaultSecurityEventRate = 1
+	// DefaultSecurityEventBurst is the burst size for security-event log emission.
+	DefaultSecurityEventBurst = 5
+
 	// DefaultReadHeaderTimeout is the default timeout for reading request headers.
 	DefaultReadHeaderTimeout = 10 * time.Second
 	// DefaultWriteTimeout is the default timeout for writing responses.
@@ -141,10 +148,10 @@ type OAuthHTTPServer struct {
 }
 
 // NewOAuthHTTPServer creates a new OAuth-enabled HTTP server that wraps
-// the provided MCP handler with authentication protection. Extra mcp-oauth
-// options (e.g. token-family lifecycle handlers) are forwarded to the
-// underlying OAuth server.
-func NewOAuthHTTPServer(cfg config.OAuthServerConfig, mcpHandler http.Handler, debug bool, extraOpts ...oauth.ServerOption) (*OAuthHTTPServer, error) {
+// the provided MCP handler with authentication protection. Caller-provided
+// mcp-oauth options (e.g. token-family lifecycle handlers) are forwarded to
+// the underlying OAuth server.
+func NewOAuthHTTPServer(cfg config.OAuthServerConfig, mcpHandler http.Handler, debug bool, opts ...oauth.ServerOption) (*OAuthHTTPServer, error) {
 	if !cfg.Enabled {
 		return nil, fmt.Errorf("OAuth server is not enabled")
 	}
@@ -153,7 +160,7 @@ func NewOAuthHTTPServer(cfg config.OAuthServerConfig, mcpHandler http.Handler, d
 		return nil, err
 	}
 
-	oauthServer, tokenStore, err := createOAuthServer(cfg, extraOpts)
+	oauthServer, tokenStore, err := createOAuthServer(cfg, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OAuth server: %w", err)
 	}
@@ -527,7 +534,7 @@ func (s *OAuthHTTPServer) Shutdown(ctx context.Context) error {
 }
 
 // createOAuthServer creates an OAuth server using mcp-oauth library.
-func createOAuthServer(cfg config.OAuthServerConfig, extraOpts []oauth.ServerOption) (*oauth.Server, storage.TokenStore, error) {
+func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) (*oauth.Server, storage.TokenStore, error) {
 	logger := slog.Default()
 
 	redirectURL := cfg.BaseURL + "/oauth/callback"
@@ -649,9 +656,6 @@ func createOAuthServer(cfg config.OAuthServerConfig, extraOpts []oauth.ServerOpt
 		return nil, nil, fmt.Errorf("unsupported OAuth storage type: %s (supported: %s, %s)", cfg.Storage.Type, storage.BackendMemory, storage.BackendValkey)
 	}
 
-	// Set defaults
-	maxClientsPerIP := DefaultMaxClientsPerIP
-
 	refreshTokenTTL := DefaultRefreshTokenTTL
 	if cfg.SessionDuration != "" {
 		parsed, err := time.ParseDuration(cfg.SessionDuration)
@@ -662,7 +666,26 @@ func createOAuthServer(cfg config.OAuthServerConfig, extraOpts []oauth.ServerOpt
 		logger.Info("Using custom session duration", "duration", parsed)
 	}
 
-	serverConfig := &oauthserver.Config{
+	serverConfig := newOAuthServerConfig(cfg, refreshTokenTTL)
+
+	builtOpts, err := buildOAuthServerOptions(cfg, logger)
+	if err != nil {
+		return nil, nil, err
+	}
+	builtOpts = append(builtOpts, opts...)
+
+	oauthSrv, err := oauth.NewServerWithCombined(provider, combinedStore, serverConfig, logger, builtOpts...)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create OAuth server: %w", err)
+	}
+
+	return oauthSrv, combinedStore, nil
+}
+
+// newOAuthServerConfig maps the muster OAuth config onto the mcp-oauth Config.
+// Pure mapper (no I/O, no goroutines) so the field plumbing can be unit-tested.
+func newOAuthServerConfig(cfg config.OAuthServerConfig, refreshTokenTTL time.Duration) *oauthserver.Config {
+	return &oauthserver.Config{
 		Issuer:                                cfg.BaseURL,
 		AccessTokenTTL:                        int64(DefaultAccessTokenTTL / time.Second),
 		RefreshTokenTTL:                       int64(refreshTokenTTL / time.Second),
@@ -671,7 +694,7 @@ func createOAuthServer(cfg config.OAuthServerConfig, extraOpts []oauth.ServerOpt
 		AllowPKCEPlain:                        false,
 		AllowPublicClientRegistration:         cfg.AllowPublicClientRegistration,
 		RegistrationAccessToken:               cfg.RegistrationToken,
-		MaxClientsPerIP:                       maxClientsPerIP,
+		MaxClientsPerIP:                       DefaultMaxClientsPerIP,
 		EnableClientIDMetadataDocuments:       cfg.EnableCIMD,
 		EnableIntrospectionEndpoint:           true,
 		TrustedPublicRegistrationSchemes:      cfg.TrustedPublicRegistrationSchemes,
@@ -679,23 +702,16 @@ func createOAuthServer(cfg config.OAuthServerConfig, extraOpts []oauth.ServerOpt
 		AllowLocalhostRedirectURIs:            cfg.AllowLocalhostRedirectURIs,
 		TrustedAudiences:                      cfg.TrustedAudiences,
 	}
-
-	opts, err := buildOAuthServerOptions(cfg, maxClientsPerIP, logger)
-	if err != nil {
-		return nil, nil, err
-	}
-	opts = append(opts, extraOpts...)
-
-	oauthSrv, err := oauth.NewServerWithCombined(provider, combinedStore, serverConfig, logger, opts...)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create OAuth server: %w", err)
-	}
-
-	return oauthSrv, combinedStore, nil
 }
 
 // buildOAuthServerOptions assembles the functional options for the mcp-oauth server.
-func buildOAuthServerOptions(cfg config.OAuthServerConfig, maxClientsPerIP int, logger *slog.Logger) ([]oauth.ServerOption, error) {
+//
+// Note: instrumentation.New registers a Prometheus collector on the OTel global
+// provider. Constructing more than one OAuth server in the same process (e.g.
+// in a parallel test) will race or duplicate-register. If that ever happens,
+// inject a custom registerer via instrumentation.Config or move the
+// instrumentation build to a package-level singleton.
+func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger) ([]oauth.ServerOption, error) {
 	inst, err := instrumentation.New(instrumentation.Config{
 		Enabled:         true,
 		ServiceName:     "muster",
@@ -711,13 +727,20 @@ func buildOAuthServerOptions(cfg config.OAuthServerConfig, maxClientsPerIP int, 
 		oauth.WithAuditor(security.NewAuditor(logger, true)),
 		oauth.WithRateLimiter(security.NewRateLimiter(DefaultIPRateLimit, DefaultIPBurst, logger)),
 		oauth.WithUserRateLimiter(security.NewRateLimiter(DefaultUserRateLimit, DefaultUserBurst, logger)),
+		oauth.WithSecurityEventRateLimiter(security.NewRateLimiter(DefaultSecurityEventRate, DefaultSecurityEventBurst, logger)),
 		oauth.WithClientRegistrationRateLimiter(security.NewClientRegistrationRateLimiterWithConfig(
-			maxClientsPerIP,
+			DefaultMaxClientsPerIP,
 			security.DefaultRegistrationWindow,
 			security.DefaultMaxRegistrationEntries,
 			logger,
 		)),
 	}
+
+	logger.Info("Security audit logging enabled")
+	logger.Info("IP-based rate limiting enabled", "rate", DefaultIPRateLimit, "burst", DefaultIPBurst)
+	logger.Info("User-based rate limiting enabled", "rate", DefaultUserRateLimit, "burst", DefaultUserBurst)
+	logger.Info("Security-event rate limiting enabled", "rate", DefaultSecurityEventRate, "burst", DefaultSecurityEventBurst)
+	logger.Info("Client registration rate limiting enabled", "maxClientsPerIP", DefaultMaxClientsPerIP)
 
 	// Valkey wires its own encryptor on the store; only memory storage needs WithEncryptor here.
 	if cfg.EncryptionKey != "" && cfg.Storage.Type != storage.BackendValkey {
@@ -730,6 +753,7 @@ func buildOAuthServerOptions(cfg config.OAuthServerConfig, maxClientsPerIP int, 
 			return nil, fmt.Errorf("failed to create encryptor: %w", err)
 		}
 		opts = append(opts, oauth.WithEncryptor(encryptor))
+		logger.Info("Token encryption at rest enabled (AES-256-GCM)")
 	}
 
 	return opts, nil
