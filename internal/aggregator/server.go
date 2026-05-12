@@ -28,11 +28,14 @@ import (
 	"github.com/giantswarm/mcp-oauth/providers/dex"
 	"github.com/giantswarm/mcp-oauth/security"
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
+	mcptoolkitlogging "github.com/giantswarm/mcp-toolkit/logging"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/valkey-io/valkey-go"
 	"golang.org/x/oauth2"
 	"golang.org/x/sync/singleflight"
+
+	"github.com/giantswarm/muster/internal/aggregator/instrument"
 )
 
 // AggregatorServer implements a comprehensive MCP server that aggregates multiple backend MCP servers.
@@ -530,7 +533,7 @@ func createStores(cfg AggregatorConfig) storeBundle {
 		enc := createEncryptor(oauthCfg)
 
 		logging.InfoWithAttrs("Aggregator", "Using Valkey-backed session auth and capability stores",
-			slog.String("address", redactURL(oauthCfg.Storage.Valkey.URL)))
+			slog.String("address", mcptoolkitlogging.RedactHost(oauthCfg.Storage.Valkey.URL)))
 		return storeBundle{
 			authStore:       NewValkeySessionAuthStore(client, DefaultCapabilityStoreTTL, keyPrefix),
 			capabilityStore: NewValkeyCapabilityStore(client, DefaultCapabilityStoreTTL, keyPrefix),
@@ -598,27 +601,6 @@ func newValkeyClient(cfg config.ValkeyConfig) (valkey.Client, error) {
 		return nil, fmt.Errorf("valkey connect: %w", err)
 	}
 	return client, nil
-}
-
-// redactURL removes any userinfo (user:password@) from a URL or address string
-// before logging. Returns the input unchanged if it is not a parseable URL.
-func redactURL(raw string) string {
-	if !strings.Contains(raw, "@") {
-		return raw
-	}
-	normalized := raw
-	if !strings.Contains(raw, "://") {
-		normalized = "redis://" + raw
-	}
-	u, err := url.Parse(normalized)
-	if err != nil {
-		return raw
-	}
-	u.User = nil
-	if !strings.Contains(raw, "://") {
-		return u.Host + u.Path
-	}
-	return u.String()
 }
 
 // Start initializes and starts the aggregator server with all configured transports.
@@ -732,6 +714,16 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	// Create MCP server with full capabilities enabled
 	// WithToolFilter enables session-specific tool visibility for OAuth-authenticated servers
 	// (see ADR-006: Session-Scoped Tool Visibility)
+	//
+	// mcp-go applies middleware in reverse registration order, so the
+	// chain below becomes Tracing(Logging(Metrics(handler))). Tracing is
+	// outermost so the span is active while Logging emits its line and
+	// Metrics records its observation — log records pick up trace_id /
+	// span_id via the slog ↔ OTel bridge, and histogram exemplars
+	// attach the local trace_id for Grafana's "click latency bucket →
+	// jump to trace" pivot. The Tracing wrapper still observes the
+	// final outcome through its next(...) return values, so codes.Error
+	// on IsError fires after the inner chain completes.
 	mcpSrv := mcpserver.NewMCPServer(
 		"muster-aggregator",
 		serverVersion,
@@ -740,6 +732,9 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		mcpserver.WithPromptCapabilities(true),         // Enable prompt retrieval
 		mcpserver.WithToolFilter(a.sessionToolFilter),  // Return session-specific tools for OAuth servers
 		mcpserver.WithHooks(hooks),                     // Clean up subject-session mappings on disconnect
+		mcpserver.WithToolHandlerMiddleware(instrument.Tracing()),
+		mcpserver.WithToolHandlerMiddleware(instrument.Logging()),
+		mcpserver.WithToolHandlerMiddleware(instrument.Metrics()),
 	)
 
 	a.mcpServer = mcpSrv
@@ -1783,7 +1778,10 @@ func (a *AggregatorServer) IsYoloMode() bool {
 //   - args: Arguments to pass to the tool as key-value pairs
 //
 // Returns the tool execution result or an error if the tool cannot be found or executed.
-func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string, args map[string]interface{}) (*mcp.CallToolResult, error) {
+func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string, args map[string]interface{}) (res *mcp.CallToolResult, err error) {
+	ctx, endSpan := instrument.StartToolSpan(ctx, toolName)
+	defer func() { endSpan(res, err) }()
+
 	logging.DebugWithAttrs("Aggregator", "CallToolInternal called",
 		slog.String("tool", toolName))
 
