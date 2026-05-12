@@ -5,6 +5,27 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// ArgDefinition defines validation rules and metadata for a single workflow argument.
+// It specifies the expected type, whether the argument is required, an optional default,
+// and a human-readable description.
+type ArgDefinition struct {
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Enum=string;integer;boolean;number;object;array
+	Type string `json:"type" yaml:"type"`
+
+	// Required indicates whether this argument must be provided.
+	// +kubebuilder:default=false
+	Required bool `json:"required,omitempty" yaml:"required,omitempty"`
+
+	// Default provides a default value when the argument is omitted.
+	// +kubebuilder:validation:XPreserveUnknownFields
+	Default *apiextensionsv1.JSON `json:"default,omitempty" yaml:"default,omitempty"`
+
+	// Description provides human-readable documentation.
+	// +kubebuilder:validation:MaxLength=500
+	Description string `json:"description,omitempty" yaml:"description,omitempty"`
+}
+
 // WorkflowSpec defines the desired state of Workflow
 type WorkflowSpec struct {
 	// Description provides a human-readable description of the workflow's purpose.

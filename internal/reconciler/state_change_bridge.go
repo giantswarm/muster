@@ -204,7 +204,7 @@ func (b *StateChangeBridge) mapServiceTypeToResourceType(serviceType string) Res
 		return ResourceTypeMCPServer
 	default:
 		// For now, only MCPServer services trigger reconciliation
-		// ServiceClass and Workflow are static definitions that don't have runtime state
+		// Workflows are static definitions that don't have runtime state
 		return ""
 	}
 }

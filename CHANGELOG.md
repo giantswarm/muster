@@ -51,6 +51,16 @@ All notable changes to this project will be documented in this file.
 
 ### Removed
 
+- ServiceClass CRD, API types, and Helm RBAC narrowing (third PR of the ServiceClass removal — see #632).
+  - Deleted: `pkg/apis/muster/v1alpha1/serviceclass_types.go`, `helm/muster/crds/muster.giantswarm.io_serviceclasses.yaml`, `internal/api/{serviceclass,serviceinstance}.go`, `ServiceClassManagerHandler` interface and `Register/GetServiceClassManager`.
+  - Helm RBAC drops `serviceclasses` and `serviceclasses/status` from the ClusterRole's `resources` lists.
+  - **Operational note (REQUIRED before upgrading past this PR):** delete any `ServiceClass` custom resources in your cluster — they will be orphaned when the CRD is removed:
+
+    ```
+    kubectl delete serviceclasses.muster.giantswarm.io --all -A
+    ```
+
+    `MCPServer` and `Workflow` CRs are unaffected.
 - ServiceClass-related MCP tools and CLI surface (first PR of the ServiceClass removal — see #632 for the rest).
   - MCP tools: `core_serviceclass_*`, `core_service_create`, `core_service_delete`, `core_service_get`, `core_service_validate`. Service inspection still works via `core_service_status`.
   - CLI subcommands: `muster create service`, `muster create serviceclass`, `muster check serviceclass`, `muster get serviceclass`, `muster list serviceclass`. The `service` and `serviceclass` values for `muster events --resource-type` and `muster test --concept` are also gone.

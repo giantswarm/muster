@@ -9,99 +9,6 @@ import (
 
 // Request types for all core API operations
 
-// ServiceClass Request Types
-
-// ServiceClassCreateRequest represents a request to create a new ServiceClass definition.
-// ServiceClasses serve as templates for creating service instances with predefined
-// lifecycle tools, arg validation, and configuration.
-//
-// Example:
-//
-//	request := ServiceClassCreateRequest{
-//	    Name: "postgres-database",
-//	    Version: "1.0",
-//	    Description: "PostgreSQL database service",
-//	    ServiceConfig: ServiceConfig{
-//	        ServiceType: "database",
-//	        DefaultName: "postgres",
-//	        LifecycleTools: LifecycleTools{
-//	            Start: ToolCall{
-//	                Tool: "docker_run",
-//	                Arguments: map[string]interface{}{
-//	                    "image": "postgres:13",
-//	                },
-//	            },
-//	        },
-//	    },
-//	}
-type ServiceClassCreateRequest struct {
-	// Name is the unique identifier for the ServiceClass (required).
-	// Must be unique across all ServiceClasses. Should be descriptive
-	// and follow naming conventions.
-	Name string `json:"name" validate:"required"`
-
-	// Version indicates the ServiceClass version for compatibility tracking.
-	// Recommended to use semantic versioning for better change management.
-	Version string `json:"version,omitempty"`
-
-	// Description provides human-readable documentation for the ServiceClass.
-	// Should explain what type of service this class creates and its purpose.
-	Description string `json:"description,omitempty"`
-
-	// Args defines the validation rules and metadata for service creation arguments.
-	// These definitions are used to validate arguments when creating service instances
-	// and to provide documentation for the service creation API.
-	Args map[string]ArgDefinition `json:"args,omitempty"`
-
-	// ServiceConfig defines the service lifecycle management configuration (required).
-	// Specifies how services created from this class should be managed.
-	ServiceConfig ServiceConfig `json:"serviceConfig" validate:"required"`
-}
-
-// ServiceClassUpdateRequest represents a request to update an existing ServiceClass.
-// This allows modification of ServiceClass configuration and lifecycle tools.
-type ServiceClassUpdateRequest struct {
-	// Name is the unique identifier of the ServiceClass to update (required).
-	Name string `json:"name" validate:"required"`
-
-	// Version can be updated to reflect changes in the ServiceClass.
-	Version string `json:"version,omitempty"`
-
-	// Description can be updated to improve documentation.
-	Description string `json:"description,omitempty"`
-
-	// Args defines the validation rules and metadata for service creation arguments.
-	// These definitions are used to validate arguments when creating service instances
-	// and to provide documentation for the service creation API.
-	Args map[string]ArgDefinition `json:"args,omitempty"`
-
-	// ServiceConfig can be updated to modify lifecycle behavior.
-	// Changes may affect existing service instances.
-	ServiceConfig ServiceConfig `json:"serviceConfig,omitempty"`
-}
-
-// ServiceClassValidateRequest represents a request to validate a ServiceClass definition
-// without creating it. Useful for testing configurations before deployment.
-type ServiceClassValidateRequest struct {
-	// Name for validation (required).
-	Name string `json:"name" validate:"required"`
-
-	// Version for validation.
-	Version string `json:"version,omitempty"`
-
-	// Description for validation.
-	Description string `json:"description,omitempty"`
-
-	// Args defines the validation rules and metadata for service creation arguments.
-	// These definitions are used to validate arguments when creating service instances
-	// and to provide documentation for the service creation API.
-	Args map[string]ArgDefinition `json:"args,omitempty"`
-
-	// ServiceConfig to validate (required). All lifecycle tools will be checked
-	// for availability and proper configuration.
-	ServiceConfig ServiceConfig `json:"serviceConfig" validate:"required"`
-}
-
 // MCPServer Request Types
 
 // MCPServerCreateRequest represents a request to create a new MCP server definition.
@@ -353,43 +260,6 @@ type WorkflowValidateRequest struct {
 	Steps []WorkflowStep `json:"steps" validate:"required"`
 }
 
-// Service Request Types
-
-// ServiceValidateRequest represents a request to validate service creation args
-// against a ServiceClass definition. This is useful for validating args
-// before actually creating a service instance.
-//
-// Example:
-//
-//	request := ServiceValidateRequest{
-//	    Name: "my-database",
-//	    ServiceClassName: "postgres-database",
-//	    Args: map[string]interface{}{
-//	        "database_name": "myapp",
-//	        "username":      "dbuser",
-//	        "port":          5432,
-//	    },
-//	}
-type ServiceValidateRequest struct {
-	// Name is the proposed name for the service instance (required).
-	// Must be unique across all services (both static and ServiceClass-based).
-	Name string `json:"name" validate:"required"`
-
-	// ServiceClassName specifies which ServiceClass to use as template (required).
-	// Must reference an existing ServiceClass.
-	ServiceClassName string `json:"serviceClassName" validate:"required"`
-
-	// Args provides the configuration for service creation.
-	// Must match the argument definitions in the ServiceClass.
-	Args map[string]interface{} `json:"args,omitempty"`
-
-	// AutoStart determines if the service should start automatically after creation.
-	AutoStart bool `json:"autoStart,omitempty"`
-
-	// Description provides optional documentation for this service instance.
-	Description string `json:"description,omitempty"`
-}
-
 // ParseRequest converts a map[string]interface{} to a typed request struct.
 // This uses JSON marshaling/unmarshaling for type conversion and validation,
 // providing strict arg checking and type safety.
@@ -406,11 +276,10 @@ type ServiceValidateRequest struct {
 //
 // Example:
 //
-//	var req ServiceClassCreateRequest
+//	var req WorkflowCreateRequest
 //	args := map[string]interface{}{
-//	    "name": "auth",
-//	    "type": "authentication",
-//	    "operations": map[string]interface{}{...},
+//	    "name": "deploy",
+//	    "steps": []interface{}{...},
 //	}
 //	err := ParseRequest(args, &req)
 //	if err != nil {

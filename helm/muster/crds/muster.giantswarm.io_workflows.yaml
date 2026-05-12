@@ -53,18 +53,17 @@ spec:
             properties:
               args:
                 additionalProperties:
-                  description: ArgDefinition defines validation and metadata for service
-                    arguments
+                  description: |-
+                    ArgDefinition defines validation rules and metadata for a single workflow argument.
+                    It specifies the expected type, whether the argument is required, an optional default,
+                    and a human-readable description.
                   properties:
                     default:
-                      description: |-
-                        Default provides a default value if the argument is not specified.
-                        May be any JSON type (string, integer, boolean, number, object, array)
-                        because the schema uses x-kubernetes-preserve-unknown-fields.
+                      description: Default provides a default value when the argument
+                        is omitted.
                       x-kubernetes-preserve-unknown-fields: true
                     description:
-                      description: Description explains the purpose and usage of this
-                        argument.
+                      description: Description provides human-readable documentation.
                       maxLength: 500
                       type: string
                     required:
@@ -73,8 +72,6 @@ spec:
                         provided.
                       type: boolean
                     type:
-                      description: Type specifies the expected data type for this
-                        argument.
                       enum:
                       - string
                       - integer

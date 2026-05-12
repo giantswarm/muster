@@ -7,7 +7,7 @@ import (
 
 // EventQueryOptions represents filtering options for event queries.
 type EventQueryOptions struct {
-	// ResourceType filters events by object kind (MCPServer, ServiceClass, Workflow, ServiceInstance)
+	// ResourceType filters events by object kind (MCPServer, Workflow)
 	ResourceType string `json:"resourceType,omitempty"`
 
 	// ResourceName filters events by object name
@@ -115,7 +115,7 @@ type EventManagerHandler interface {
 	//
 	// Args:
 	//   - ctx: Context for the operation
-	//   - crdType: Type of CRD ("MCPServer", "ServiceClass", "Workflow")
+	//   - crdType: Type of CRD ("MCPServer", "Workflow")
 	//   - name: Name of the CRD instance
 	//   - namespace: Namespace of the CRD instance
 	//   - reason: Short, machine-readable reason for the event
@@ -181,7 +181,7 @@ type ObjectReference struct {
 	// APIVersion is the API version of the object (e.g., "muster.giantswarm.io/v1alpha1")
 	APIVersion string `json:"apiVersion,omitempty"`
 
-	// Kind is the kind of the object (e.g., "MCPServer", "ServiceClass", "Workflow")
+	// Kind is the kind of the object (e.g., "MCPServer", "Workflow")
 	Kind string `json:"kind"`
 
 	// Name is the name of the object

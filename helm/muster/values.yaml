@@ -30,7 +30,7 @@ serviceAccount:
 
 # RBAC Configuration
 # Muster requires access to:
-#   - Muster CRDs (MCPServer, ServiceClass, Workflow)
+#   - Muster CRDs (MCPServer, Workflow)
 #   - CRD discovery
 #   - Events (for core_events tool)
 #   - Secrets (for reading credentials: token exchange, teleport identity, OAuth)
@@ -210,7 +210,7 @@ muster:
     # Options: "streamable-http", "sse"
     transport: "streamable-http"
 
-  # Namespace for MCPServer, ServiceClass and Workflow discovery
+  # Namespace for MCPServer and Workflow discovery
   # Defaults to the release namespace if not set
   namespace: ""
 

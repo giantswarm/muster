@@ -60,8 +60,6 @@ func (k *Client) CreateEventForCRD(ctx context.Context, crdType, name, namespace
 	switch crdType {
 	case kindMCPServer:
 		gvk = musterv1alpha1.GroupVersion.WithKind(kindMCPServer)
-	case kindServiceClass:
-		gvk = musterv1alpha1.GroupVersion.WithKind(kindServiceClass)
 	case kindWorkflow:
 		gvk = musterv1alpha1.GroupVersion.WithKind(kindWorkflow)
 	default:
@@ -73,10 +71,6 @@ func (k *Client) CreateEventForCRD(ctx context.Context, crdType, name, namespace
 	switch crdType {
 	case kindMCPServer:
 		if obj, err := k.GetMCPServer(ctx, name, namespace); err == nil {
-			uid = obj.GetUID()
-		}
-	case kindServiceClass:
-		if obj, err := k.GetServiceClass(ctx, name, namespace); err == nil {
 			uid = obj.GetUID()
 		}
 	case kindWorkflow:

@@ -5,7 +5,7 @@ import "strings"
 // MusterConfig is the top-level configuration structure for muster.
 type MusterConfig struct {
 	Aggregator AggregatorConfig `yaml:"aggregator"`
-	Namespace  string           `yaml:"namespace,omitempty"`  // Namespace for MCPServer, ServiceClass and Workflow discovery
+	Namespace  string           `yaml:"namespace,omitempty"`  // Namespace for MCPServer and Workflow discovery
 	Kubernetes bool             `yaml:"kubernetes,omitempty"` // Enable Kubernetes CRD mode (uses CRDs instead of filesystem)
 	Events     bool             `yaml:"events,omitempty"`     // Enable Kubernetes event emission (alpha, disabled by default)
 }

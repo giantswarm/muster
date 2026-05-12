@@ -155,26 +155,6 @@ func (m *mockMusterClient) DeleteMCPServer(ctx context.Context, name, namespace 
 	return nil
 }
 
-func (m *mockMusterClient) GetServiceClass(ctx context.Context, name, namespace string) (*musterv1alpha1.ServiceClass, error) {
-	return nil, nil
-}
-
-func (m *mockMusterClient) ListServiceClasses(ctx context.Context, namespace string) ([]musterv1alpha1.ServiceClass, error) {
-	return nil, nil
-}
-
-func (m *mockMusterClient) CreateServiceClass(ctx context.Context, serviceClass *musterv1alpha1.ServiceClass) error {
-	return nil
-}
-
-func (m *mockMusterClient) UpdateServiceClass(ctx context.Context, serviceClass *musterv1alpha1.ServiceClass) error {
-	return nil
-}
-
-func (m *mockMusterClient) DeleteServiceClass(ctx context.Context, name, namespace string) error {
-	return nil
-}
-
 func (m *mockMusterClient) GetWorkflow(ctx context.Context, name, namespace string) (*musterv1alpha1.Workflow, error) {
 	return nil, nil
 }
@@ -197,10 +177,6 @@ func (m *mockMusterClient) DeleteWorkflow(ctx context.Context, name, namespace s
 
 // Status update methods - implement as no-ops for testing
 func (m *mockMusterClient) UpdateMCPServerStatus(ctx context.Context, server *musterv1alpha1.MCPServer) error {
-	return nil
-}
-
-func (m *mockMusterClient) UpdateServiceClassStatus(ctx context.Context, serviceClass *musterv1alpha1.ServiceClass) error {
 	return nil
 }
 

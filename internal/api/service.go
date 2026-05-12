@@ -5,8 +5,7 @@ import (
 )
 
 // ServiceInfo provides information about a service instance.
-// This interface defines the contract for accessing service metadata and state
-// regardless of whether the service is static or ServiceClass-based.
+// This interface defines the contract for accessing service metadata and state.
 //
 // All service implementations must provide this interface to be managed
 // by the service registry and orchestrator.
@@ -66,9 +65,6 @@ type ConfigurableService interface {
 // ServiceRegistryHandler provides access to registered services in the system.
 // This handler implements the service discovery aspect of the Service Locator Pattern,
 // allowing components to find and access service information without direct coupling.
-//
-// The registry maintains both static services (defined in configuration) and
-// dynamic ServiceClass-based service instances.
 type ServiceRegistryHandler interface {
 	// Get retrieves a service by name from the registry.
 	//
@@ -253,10 +249,6 @@ type ServiceStatus struct {
 
 	// Metadata contains additional runtime information about the service
 	Metadata map[string]interface{} `json:"metadata,omitempty"`
-
-	// Outputs contains the resolved outputs from the ServiceClass outputs definition.
-	// Only populated for ServiceClass-based services that have outputs configured.
-	Outputs map[string]interface{} `json:"outputs,omitempty"`
 }
 
 // ServiceListResponse represents a list of services in API responses.
