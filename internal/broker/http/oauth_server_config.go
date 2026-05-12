@@ -11,7 +11,6 @@ import (
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
 	"github.com/giantswarm/mcp-oauth/storage"
 
-	"github.com/giantswarm/muster/internal/broker"
 	"github.com/giantswarm/muster/internal/config"
 )
 
@@ -67,7 +66,7 @@ func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger) 
 
 	// Valkey wires its own encryptor on the store; only memory storage needs WithEncryptor here.
 	if cfg.EncryptionKey != "" && cfg.Storage.Type != storage.BackendValkey {
-		keyBytes, err := broker.DecodeEncryptionKey(cfg.EncryptionKey)
+		keyBytes, err := security.DecodeKey(cfg.EncryptionKey)
 		if err != nil {
 			return nil, fmt.Errorf("failed to decode encryption key: %w", err)
 		}

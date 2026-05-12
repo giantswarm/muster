@@ -2,7 +2,13 @@ package aggregator
 
 import (
 	"context"
+	"errors"
 	"time"
+)
+
+var (
+	ErrTokenNotFound  = errors.New("broker: no cached token for session/issuer")
+	ErrBrokerDisabled = errors.New("broker: OAuth proxy is disabled")
 )
 
 // TokenBroker is the aggregator's port for the OAuth/OIDC broker.
@@ -13,8 +19,6 @@ type TokenBroker interface {
 }
 
 // Token is a bearer credential issued by an OIDC IdP.
-// AccessToken may be opaque or a JWT depending on broker deployment;
-// callers do not branch on the format.
 type Token struct {
 	AccessToken  string
 	TokenType    string

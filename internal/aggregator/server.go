@@ -16,7 +16,6 @@ import (
 
 	"github.com/giantswarm/muster/internal/admin"
 	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/internal/broker"
 	brokerhttp "github.com/giantswarm/muster/internal/broker/http"
 	"github.com/giantswarm/muster/internal/config"
 	internalmcp "github.com/giantswarm/muster/internal/mcpserver"
@@ -140,6 +139,15 @@ type AggregatorServer struct {
 
 	// adminServer is the optional admin web UI listener. Nil when disabled.
 	adminServer *admin.Server
+
+	// tokenBroker may be nil in test fixtures; call sites guard accordingly.
+	tokenBroker TokenBroker
+}
+
+func (a *AggregatorServer) SetTokenBroker(tb TokenBroker) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.tokenBroker = tb
 }
 
 // getValkeyClient returns the shared Valkey client if one was configured,
@@ -557,7 +565,7 @@ func createEncryptor(oauthCfg config.OAuthServerConfig) *security.Encryptor {
 	if oauthCfg.EncryptionKey == "" {
 		return nil
 	}
-	keyBytes, err := broker.DecodeEncryptionKey(oauthCfg.EncryptionKey)
+	keyBytes, err := security.DecodeKey(oauthCfg.EncryptionKey)
 	if err != nil {
 		logging.WarnWithAttrs("Aggregator", "Failed to decode encryption key for Valkey stores",
 			slog.String("error", err.Error()))

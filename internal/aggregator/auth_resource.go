@@ -298,34 +298,28 @@ func (a *AggregatorServer) handleUpstreamRefreshFailure(sessionID, userID, reaso
 	}
 }
 
-// getMusterIssuerWithFallback returns the OAuth issuer URL, with a fallback to
-// finding any token in the session that has an ID token.
-//
-// This is useful when we need to determine the issuer for a specific session
-// but the configuration might not be explicitly set. The fallback searches
-// the OAuth proxy token store for any token with an ID token.
-//
-// Args:
-//   - sessionID: The session ID (token family) to search for fallback tokens
-//
-// Returns the issuer URL, or empty string if none can be determined.
-func (a *AggregatorServer) getMusterIssuerWithFallback(sessionID string) string {
+// resolveMusterIssuer returns the configured muster issuer URL, or — when
+// the config does not pin one — the issuer recorded for sessionID by the
+// broker. Returns empty if neither source yields an issuer.
+func (a *AggregatorServer) resolveMusterIssuer(sessionID string) string {
 	if issuer := a.getMusterIssuer(); issuer != "" {
 		return issuer
 	}
 
-	oauthHandler := api.GetOAuthHandler()
-	if oauthHandler == nil || !oauthHandler.IsEnabled() {
+	a.mu.RLock()
+	broker := a.tokenBroker
+	a.mu.RUnlock()
+	if broker == nil {
 		return ""
 	}
 
-	fullToken := oauthHandler.FindTokenWithIDToken(sessionID)
-	if fullToken != nil && fullToken.Issuer != "" {
-		logging.Debug("Aggregator", "Using fallback issuer from session token: %s", fullToken.Issuer)
-		return fullToken.Issuer
+	issuer, err := broker.SessionIssuer(context.Background(), sessionID)
+	if err != nil {
+		logging.Debug("Aggregator", "SessionIssuer unavailable for session %s: %v",
+			logging.TruncateIdentifier(sessionID), err)
+		return ""
 	}
-
-	return ""
+	return issuer
 }
 
 // initSSOTimeout caps how long synchronous SSO connections may block the
