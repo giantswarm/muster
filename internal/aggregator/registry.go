@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/metatools"
 	"github.com/giantswarm/muster/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -18,7 +19,7 @@ import (
 type resolvedName struct {
 	serverName   string
 	originalName string
-	itemType     string // "tool", "prompt", or "resource"
+	itemType     metatools.ItemKind
 }
 
 // ServerRegistry manages the collection of registered MCP servers and their capabilities.
@@ -82,7 +83,7 @@ func (r *ServerRegistry) ExposedToolName(serverName, toolName string) string {
 	r.nameMu.Lock()
 	defer r.nameMu.Unlock()
 	exposed := r.buildExposedNameLocked(serverName, toolName)
-	r.nameMapping[exposed] = resolvedName{serverName: serverName, originalName: toolName, itemType: "tool"}
+	r.nameMapping[exposed] = resolvedName{serverName: serverName, originalName: toolName, itemType: metatools.ItemKindTool}
 	return exposed
 }
 
@@ -92,7 +93,7 @@ func (r *ServerRegistry) ExposedPromptName(serverName, promptName string) string
 	r.nameMu.Lock()
 	defer r.nameMu.Unlock()
 	exposed := r.buildExposedNameLocked(serverName, promptName)
-	r.nameMapping[exposed] = resolvedName{serverName: serverName, originalName: promptName, itemType: "prompt"}
+	r.nameMapping[exposed] = resolvedName{serverName: serverName, originalName: promptName, itemType: metatools.ItemKindPrompt}
 	return exposed
 }
 
@@ -103,11 +104,11 @@ func (r *ServerRegistry) ExposedResourceURI(serverName, resourceURI string) stri
 	r.nameMu.Lock()
 	defer r.nameMu.Unlock()
 	if strings.Contains(resourceURI, "://") {
-		r.nameMapping[resourceURI] = resolvedName{serverName: serverName, originalName: resourceURI, itemType: "resource"}
+		r.nameMapping[resourceURI] = resolvedName{serverName: serverName, originalName: resourceURI, itemType: metatools.ItemKindResource}
 		return resourceURI
 	}
 	exposed := r.buildExposedNameLocked(serverName, resourceURI)
-	r.nameMapping[exposed] = resolvedName{serverName: serverName, originalName: resourceURI, itemType: "resource"}
+	r.nameMapping[exposed] = resolvedName{serverName: serverName, originalName: resourceURI, itemType: metatools.ItemKindResource}
 	return exposed
 }
 
@@ -409,7 +410,7 @@ func (r *ServerRegistry) ResolveToolName(exposedName string) (serverName, origin
 	if !ok {
 		return "", "", fmt.Errorf("unknown name: %s", exposedName)
 	}
-	if m.itemType != "tool" {
+	if m.itemType != metatools.ItemKindTool {
 		return "", "", fmt.Errorf("name %s is a %s, not a tool", exposedName, m.itemType)
 	}
 	return m.serverName, m.originalName, nil
@@ -432,7 +433,7 @@ func (r *ServerRegistry) ResolvePromptName(exposedName string) (serverName, orig
 	if !ok {
 		return "", "", fmt.Errorf("unknown name: %s", exposedName)
 	}
-	if m.itemType != "prompt" {
+	if m.itemType != metatools.ItemKindPrompt {
 		return "", "", fmt.Errorf("name %s is a %s, not a prompt", exposedName, m.itemType)
 	}
 	return m.serverName, m.originalName, nil
@@ -455,7 +456,7 @@ func (r *ServerRegistry) ResolveResourceName(exposedURI string) (serverName, ori
 	if !ok {
 		return "", "", fmt.Errorf("unknown name: %s", exposedURI)
 	}
-	if m.itemType != "resource" {
+	if m.itemType != metatools.ItemKindResource {
 		return "", "", fmt.Errorf("URI %s is a %s, not a resource", exposedURI, m.itemType)
 	}
 	return m.serverName, m.originalName, nil
