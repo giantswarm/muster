@@ -156,9 +156,11 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		}
 	}
 
-	// Check if OAuth handler is available
-	oauthHandler := api.GetOAuthHandler()
-	if oauthHandler == nil || !oauthHandler.IsEnabled() {
+	// Check if the broker is available
+	p.aggregator.mu.RLock()
+	broker := p.aggregator.tokenBroker
+	p.aggregator.mu.RUnlock()
+	if broker == nil || !broker.Enabled() {
 		if p.aggregator.authMetrics != nil {
 			p.aggregator.authMetrics.RecordLoginFailure(serverName, sub, "oauth_not_configured")
 		}
@@ -241,9 +243,9 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 	// with the same OAuth issuer, we can reuse that token.
 	// Tokens with only an ID token (no access token) are muster-level tokens
 	// stored for SSO forwarding and cannot be used for bearer authentication.
-	token := oauthHandler.GetTokenByIssuer(sessionID, authInfo.Issuer)
+	token, _ := broker.GetToken(ctx, sessionID, authInfo.Issuer)
 
-	if token != nil && token.AccessToken != "" {
+	if token.AccessToken != "" {
 		logging.Info("AuthTools", "Found existing token for server %s via SSO (issuer=%s), attempting to connect",
 			serverName, authInfo.Issuer)
 
@@ -263,7 +265,9 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		// Check if the error is a 401 - token is expired/invalid
 		if is401Error(connectErr) {
 			logging.Info("AuthTools", "Token for server %s is expired/invalid, clearing and requesting fresh auth", serverName)
-			oauthHandler.ClearTokenByIssuer(sessionID, authInfo.Issuer)
+			if invalidateErr := broker.InvalidateToken(ctx, sessionID, authInfo.Issuer); invalidateErr != nil {
+				logging.Debug("AuthTools", "broker.InvalidateToken failed for server %s: %v", serverName, invalidateErr)
+			}
 		} else {
 			// Some other error - report it
 			logging.Error("AuthTools", connectErr, "Failed to connect to server %s with existing token", serverName)
@@ -281,7 +285,13 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 	}
 
 	// No token or token was cleared - need to create an auth challenge
-	challenge, err := oauthHandler.CreateAuthChallenge(ctx, sessionID, sub, serverName, authInfo.Issuer, authInfo.Scope)
+	flow, err := broker.BeginOAuthFlow(ctx, BeginRequest{
+		SessionID:  sessionID,
+		Subject:    sub,
+		ServerName: serverName,
+		Issuer:     authInfo.Issuer,
+		Scope:      authInfo.Scope,
+	})
 	if err != nil {
 		logging.Error("AuthTools", err, "Failed to create auth challenge for server %s", serverName)
 		if p.aggregator.authMetrics != nil {
@@ -303,8 +313,8 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 				"%s\n\n"+
 				"After signing in, run this tool again to complete the connection.",
 			serverName,
-			challenge.Message,
-			challenge.AuthURL,
+			flow.Message,
+			flow.URL,
 		)},
 		IsError: false,
 	}, nil
@@ -362,9 +372,13 @@ func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string
 	// would break other servers (or muster itself) that rely on the same token.
 	if serverInfo.AuthInfo != nil && serverInfo.AuthInfo.Issuer != "" {
 		if p.isIssuerExclusiveToServer(ctx, sessionID, serverName, serverInfo.AuthInfo.Issuer) {
-			oauthHandler := api.GetOAuthHandler()
-			if oauthHandler != nil && oauthHandler.IsEnabled() {
-				oauthHandler.ClearTokenByIssuer(sessionID, serverInfo.AuthInfo.Issuer)
+			p.aggregator.mu.RLock()
+			broker := p.aggregator.tokenBroker
+			p.aggregator.mu.RUnlock()
+			if broker != nil && broker.Enabled() {
+				if err := broker.InvalidateToken(ctx, sessionID, serverInfo.AuthInfo.Issuer); err != nil {
+					logging.Debug("AuthTools", "broker.InvalidateToken failed for server %s: %v", serverName, err)
+				}
 			}
 		} else {
 			logging.Debug("AuthTools", "Skipping issuer token clear for server %s: issuer %s is shared with other servers or muster", serverName, serverInfo.AuthInfo.Issuer)
@@ -432,10 +446,12 @@ func (p *AuthToolProvider) tryConnectWithToken(ctx context.Context, serverName, 
 
 // getMusterIssuer determines the OAuth issuer that muster used to
 // authenticate the user, for token forwarding. Returns empty when the
-// OAuth handler is not enabled or no issuer can be determined.
+// broker is not enabled or no issuer can be determined.
 func (p *AuthToolProvider) getMusterIssuer(ctx context.Context, sessionID string) string {
-	oauthHandler := api.GetOAuthHandler()
-	if oauthHandler == nil || !oauthHandler.IsEnabled() {
+	p.aggregator.mu.RLock()
+	broker := p.aggregator.tokenBroker
+	p.aggregator.mu.RUnlock()
+	if broker == nil || !broker.Enabled() {
 		return ""
 	}
 
