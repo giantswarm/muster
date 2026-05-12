@@ -9,8 +9,8 @@ import (
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
 	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/broker"
 	"github.com/giantswarm/muster/internal/config"
-	"github.com/giantswarm/muster/internal/server"
 	"github.com/giantswarm/muster/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -358,7 +358,7 @@ func (a *AggregatorServer) initSSOForSession(ctx context.Context, userID, sessio
 	bgCtx = api.WithSubject(bgCtx, userID)
 	bgCtx = api.WithSessionID(bgCtx, sessionID)
 	if idToken != "" {
-		bgCtx = server.ContextWithIDToken(bgCtx, idToken)
+		bgCtx = broker.ContextWithIDToken(bgCtx, idToken)
 	}
 
 	var pending []*ServerInfo

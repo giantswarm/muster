@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/internal/server"
+	"github.com/giantswarm/muster/internal/broker"
 	"github.com/giantswarm/muster/pkg/logging"
 
 	"github.com/stretchr/testify/assert"
@@ -114,7 +114,7 @@ func TestGetIDTokenForForwarding(t *testing.T) {
 
 	t.Run("returns token from context when available", func(t *testing.T) {
 		ctx := context.Background()
-		ctx = server.ContextWithIDToken(ctx, validToken)
+		ctx = broker.ContextWithIDToken(ctx, validToken)
 
 		token := getIDTokenForForwarding(ctx, "test-user", "https://accounts.google.com")
 
@@ -131,7 +131,7 @@ func TestGetIDTokenForForwarding(t *testing.T) {
 
 	t.Run("context token takes priority over empty string", func(t *testing.T) {
 		ctx := context.Background()
-		ctx = server.ContextWithIDToken(ctx, validToken)
+		ctx = broker.ContextWithIDToken(ctx, validToken)
 
 		token := getIDTokenForForwarding(ctx, "test-user", "")
 
@@ -140,7 +140,7 @@ func TestGetIDTokenForForwarding(t *testing.T) {
 
 	t.Run("returns empty for empty context token", func(t *testing.T) {
 		ctx := context.Background()
-		ctx = server.ContextWithIDToken(ctx, "")
+		ctx = broker.ContextWithIDToken(ctx, "")
 
 		token := getIDTokenForForwarding(ctx, "test-user", "https://accounts.google.com")
 
@@ -167,7 +167,7 @@ func TestGetIDTokenForForwarding(t *testing.T) {
 		defer api.RegisterOAuthHandler(nil)
 
 		ctx := context.Background()
-		ctx = server.ContextWithIDToken(ctx, validToken)
+		ctx = broker.ContextWithIDToken(ctx, validToken)
 
 		token := getIDTokenForForwarding(ctx, "session-abc", "https://accounts.google.com")
 		assert.Equal(t, validToken, token)

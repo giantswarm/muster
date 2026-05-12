@@ -9,8 +9,8 @@ import (
 	internalmcp "github.com/giantswarm/muster/internal/mcpserver"
 
 	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/broker"
 	"github.com/giantswarm/muster/internal/events"
-	"github.com/giantswarm/muster/internal/server"
 	"github.com/giantswarm/muster/pkg/logging"
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
@@ -243,7 +243,7 @@ func (r *ConnectionResult) FormatAsMCPResult() *mcp.CallToolResult {
 //
 // Returns the ID token string, or empty string if no token is available.
 func getIDTokenForForwarding(ctx context.Context, sessionID, musterIssuer string) string {
-	if idToken, ok := server.GetIDTokenFromContext(ctx); ok && idToken != "" {
+	if idToken, ok := broker.GetIDTokenFromContext(ctx); ok && idToken != "" {
 		logging.Debug("Connection", "Found ID token in request context for session %s",
 			logging.TruncateIdentifier(sessionID))
 		return idToken

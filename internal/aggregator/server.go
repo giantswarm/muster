@@ -20,7 +20,6 @@ import (
 	brokerhttp "github.com/giantswarm/muster/internal/broker/http"
 	"github.com/giantswarm/muster/internal/config"
 	internalmcp "github.com/giantswarm/muster/internal/mcpserver"
-	"github.com/giantswarm/muster/internal/server"
 	"github.com/giantswarm/muster/pkg/logging"
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
@@ -1471,7 +1470,7 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 		_, _ = a.capabilityStore.Touch(ctx, sessionID)
 
 		userID := getUserSubjectFromContext(ctx)
-		idToken, _ := server.GetIDTokenFromContext(ctx)
+		idToken, _ := broker.GetIDTokenFromContext(ctx)
 
 		logging.InfoWithAttrs("Aggregator", "SSO: onAuthenticated callback",
 			slog.String("sessionID", logging.TruncateIdentifier(sessionID)),

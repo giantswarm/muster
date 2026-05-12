@@ -9,7 +9,7 @@ import (
 
 	"github.com/giantswarm/muster/internal/admin"
 	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/internal/server"
+	"github.com/giantswarm/muster/internal/broker"
 	"github.com/giantswarm/muster/pkg/logging"
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 )
@@ -352,7 +352,7 @@ func (a *AggregatorServer) adminReconnectServer(ctx context.Context, sessionID, 
 
 	ssoCtx := api.WithSubject(timeoutCtx, subject)
 	ssoCtx = api.WithSessionID(ssoCtx, sessionID)
-	ssoCtx = server.ContextWithIDToken(ssoCtx, tok.IDToken)
+	ssoCtx = broker.ContextWithIDToken(ssoCtx, tok.IDToken)
 
 	a.establishSSOConnection(ssoCtx, info, a.getMusterIssuer())
 

@@ -30,7 +30,6 @@ import (
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/broker"
 	"github.com/giantswarm/muster/internal/config"
-	"github.com/giantswarm/muster/internal/server"
 	"github.com/giantswarm/muster/pkg/logging"
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 )
@@ -328,7 +327,7 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		}
 
 		// Extract the ID token for downstream OIDC authentication.
-		idToken := server.GetIDToken(token)
+		idToken := broker.GetIDToken(token)
 		if idToken == "" {
 			logging.Warn("OAuth", "SSO: No ID token in stored token for email=%s (has access_token=%v, has refresh_token=%v). SSO forwarding will not work. Check if upstream IdP returns id_token.",
 				truncateEmail(userInfo.Email), token.AccessToken != "", token.RefreshToken != "")
@@ -339,7 +338,7 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		}
 
 		// Inject the ID token into context for downstream SSO use
-		ctx = server.ContextWithIDToken(ctx, idToken)
+		ctx = broker.ContextWithIDToken(ctx, idToken)
 
 		// Extract and inject the authenticated user's subject (sub claim) for user identity.
 		if subject := extractSubjectFromIDToken(idToken); subject != "" {
@@ -418,7 +417,7 @@ func (s *OAuthHTTPServer) injectExternalIDToken(
 
 	ctx = api.WithSessionID(ctx, acceptance.SessionID)
 	ctx = api.WithSubject(ctx, acceptance.Subject)
-	ctx = server.ContextWithIDToken(ctx, bearerToken)
+	ctx = broker.ContextWithIDToken(ctx, bearerToken)
 
 	// Mirror the ID token into the OAuth proxy store keyed by (sessionID,
 	// musterIssuer). getIDTokenForForwarding (in the aggregator) looks here

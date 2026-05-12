@@ -19,8 +19,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/broker"
 	"github.com/giantswarm/muster/internal/config"
-	"github.com/giantswarm/muster/internal/server"
 )
 
 // mockMCPServerManager implements api.MCPServerManagerHandler for testing.
@@ -357,23 +357,23 @@ func TestTokenProviderContextFunctions(t *testing.T) {
 		token := "test-token-123"
 
 		// Initially no token
-		_, ok := server.GetIDTokenFromContext(ctx)
+		_, ok := broker.GetIDTokenFromContext(ctx)
 		assert.False(t, ok)
 
 		// Add token to context
-		ctx = server.ContextWithIDToken(ctx, token)
+		ctx = broker.ContextWithIDToken(ctx, token)
 
 		// Retrieve token
-		retrieved, ok := server.GetIDTokenFromContext(ctx)
+		retrieved, ok := broker.GetIDTokenFromContext(ctx)
 		assert.True(t, ok)
 		assert.Equal(t, token, retrieved)
 	})
 
 	t.Run("GetIDTokenFromContext with empty token returns false", func(t *testing.T) {
 		ctx := httptest.NewRequest("GET", "/", nil).Context()
-		ctx = server.ContextWithIDToken(ctx, "")
+		ctx = broker.ContextWithIDToken(ctx, "")
 
-		_, ok := server.GetIDTokenFromContext(ctx)
+		_, ok := broker.GetIDTokenFromContext(ctx)
 		assert.False(t, ok)
 	})
 
@@ -381,7 +381,7 @@ func TestTokenProviderContextFunctions(t *testing.T) {
 
 func TestGetIDToken(t *testing.T) {
 	t.Run("Nil token returns empty", func(t *testing.T) {
-		result := server.GetIDToken(nil)
+		result := broker.GetIDToken(nil)
 		assert.Empty(t, result)
 	})
 
@@ -623,7 +623,7 @@ func TestInjectExternalIDToken(t *testing.T) {
 		assert.Regexp(t, `^ext-[0-9a-f]{16}$`, sessionID,
 			"session ID must be the library-derived ext-<16 hex> format")
 
-		idToken, ok := server.GetIDTokenFromContext(capturedCtx)
+		idToken, ok := broker.GetIDTokenFromContext(capturedCtx)
 		require.True(t, ok)
 		assert.Equal(t, token, idToken, "bearer token should be treated as ID token")
 	})
