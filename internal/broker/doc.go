@@ -2,8 +2,6 @@
 // server authentication. It coordinates token flows on behalf of the
 // aggregator — issuing, exchanging, refreshing, and revoking credentials
 // for downstream MCP servers without exposing them to the Muster Agent.
-// The TokenBroker port in internal/aggregator consumes this package
-// through a hexagonal seam.
 //
 // # Architecture
 //

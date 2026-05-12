@@ -55,7 +55,7 @@ func (m *mockTeleportClientHandler) GetHTTPClientForConfig(ctx context.Context, 
 	return m.httpClient, nil
 }
 
-// mockOAuthHandler implements api.OAuthHandler for testing lookupIDTokenForSession.
+// mockOAuthHandler is a test double for api.OAuthHandler.
 type mockOAuthHandler struct {
 	enabled bool
 	tokens  map[string]*api.OAuthToken // key: sessionID+"|"+issuer
