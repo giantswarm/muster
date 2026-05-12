@@ -8,11 +8,10 @@ All notable changes to this project will be documented in this file.
 
 - `muster.oauth.server.trustedPublicRegistrationRedirectURIs` — HTTPS redirect-URI allowlist for unauthenticated dynamic client registration, passed through to mcp-oauth (`Config.TrustedPublicRegistrationRedirectURIs`). Strict exact-match after RFC 3986 normalization. Default: `[]` (opt-in per URI).
 - `oauth-secret` `fail` guard accepts a non-empty `trustedPublicRegistrationRedirectURIs` as a third valid escape valve.
-- `WithSecurityEventRateLimiter` is now wired with a 1/s rate, burst 5, to bound security-event log emission under attack.
 
 ### Changed
 
-- mcp-oauth bumped to `v0.2.125`. Internal API migrated to functional options; `server.NewOAuthHTTPServer` now takes `...oauth.ServerOption`. No behavior change.
+- mcp-oauth bumped to `v0.2.125`. Internal API migrated to functional options; `server.NewOAuthHTTPServer` now takes `...oauth.ServerOption`. Security-event log emission is rate-limited (1/s, burst 5). No user-facing config change.
 
 ### Fixed
 

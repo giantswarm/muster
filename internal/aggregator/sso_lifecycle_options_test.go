@@ -6,11 +6,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestSSOLifecycleOptions_Count pins the three callbacks the aggregator wires
-// onto mcp-oauth's token-family lifecycle. A future refactor that drops or
-// adds an option will break this test loudly instead of silently disabling
-// the SSO setup path.
-func TestSSOLifecycleOptions_Count(t *testing.T) {
+// TestSSOLifecycleOptions_WiresThreeNonNilCallbacks pins the three callbacks the
+// aggregator wires onto mcp-oauth's token-family lifecycle.
+//
+// This is a count pin, not a kind pin: oauth.ServerOption is opaque, so we
+// cannot introspect which handler each entry installs. A refactor that swaps
+// (e.g.) WithSessionRevocationHandler for a second WithSessionCreationHandler
+// keeps the count at three and would slip past this test. Drop one, add a
+// fourth, or return nil and the test trips.
+func TestSSOLifecycleOptions_WiresThreeNonNilCallbacks(t *testing.T) {
 	t.Parallel()
 
 	a := newTestAggregatorWithPool(t)
