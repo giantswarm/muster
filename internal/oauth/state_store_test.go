@@ -12,7 +12,7 @@ func TestStateStore_GenerateAndValidate(t *testing.T) {
 	defer ss.Stop()
 
 	subject := "user-123"
-	serverName := "mcp-kubernetes" //nolint:goconst
+	serverName := testServerName
 	issuer := "https://auth.example.com"
 	codeVerifier := "test-code-verifier-abc123"
 

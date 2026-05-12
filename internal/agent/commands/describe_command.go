@@ -30,18 +30,22 @@ func (d *DescribeCommand) Execute(ctx context.Context, args []string) error {
 		return err
 	}
 
-	itemType := strings.ToLower(parsed[0])
+	itemType := metatools.ItemKind(strings.ToLower(parsed[0]))
 	itemName := parsed[1]
 
 	switch itemType {
-	case "tool": //nolint:goconst
+	case metatools.ItemKindTool:
 		return d.describeTool(ctx, itemName)
-	case "resource": //nolint:goconst
+	case metatools.ItemKindResource:
 		return d.describeResource(itemName)
-	case "prompt": //nolint:goconst
+	case metatools.ItemKindPrompt:
 		return d.describePrompt(itemName)
 	default:
-		return d.validateTarget(itemType, []string{"tool", "resource", "prompt"})
+		return d.validateTarget(string(itemType), []string{
+			metatools.ItemKindTool.String(),
+			metatools.ItemKindResource.String(),
+			metatools.ItemKindPrompt.String(),
+		})
 	}
 }
 
@@ -134,15 +138,19 @@ func (d *DescribeCommand) Completions(input string) []string {
 
 	if len(parts) == 1 {
 		// Complete the type
-		return d.getCompletionsForTargets([]string{"tool", "resource", "prompt"})
+		return d.getCompletionsForTargets([]string{
+			metatools.ItemKindTool.String(),
+			metatools.ItemKindResource.String(),
+			metatools.ItemKindPrompt.String(),
+		})
 	} else if len(parts) == 2 {
 		// Complete the name based on type
-		switch strings.ToLower(parts[1]) {
-		case "tool":
+		switch metatools.ItemKind(strings.ToLower(parts[1])) {
+		case metatools.ItemKindTool:
 			return d.getToolCompletions()
-		case "resource":
+		case metatools.ItemKindResource:
 			return d.getResourceCompletions()
-		case "prompt":
+		case metatools.ItemKindPrompt:
 			return d.getPromptCompletions()
 		}
 	}
