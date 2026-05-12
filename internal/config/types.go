@@ -255,6 +255,12 @@ type OAuthServerConfig struct {
 	// Example: ["cursor", "vscode"]
 	TrustedPublicRegistrationSchemes []string `yaml:"trustedPublicRegistrationSchemes,omitempty"`
 
+	// TrustedPublicRegistrationRedirectURIs lists fully-qualified HTTPS redirect URIs
+	// allowed to register without a RegistrationAccessToken. Matching is exact after
+	// RFC 3986 normalization. Enables SaaS MCP clients that cannot send a DCR token.
+	// Example: ["https://claude.ai/api/mcp/auth_callback"]
+	TrustedPublicRegistrationRedirectURIs []string `yaml:"trustedPublicRegistrationRedirectURIs,omitempty"`
+
 	// EnableCIMD enables Client ID Metadata Documents per MCP 2025-11-25 spec.
 	// Default: true
 	EnableCIMD bool `yaml:"enableCIMD,omitempty"`

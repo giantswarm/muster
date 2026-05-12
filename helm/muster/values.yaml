@@ -388,6 +388,15 @@ muster:
       # Example: ["cursor", "vscode"]
       trustedPublicRegistrationSchemes: []
 
+      # HTTPS redirect URIs pre-attested by the operator for unauthenticated
+      # client registration. SECURITY: every entry here is a client that can
+      # complete DCR without a registration token. Use only for SaaS MCP
+      # clients whose redirect URI you fully control or operationally trust.
+      # Matching is exact after RFC 3986 normalization.
+      # Example (uncomment to allow the Claude.ai connector):
+      #   - https://claude.ai/api/mcp/auth_callback
+      trustedPublicRegistrationRedirectURIs: []
+
       # Enable Client ID Metadata Documents (CIMD) per MCP 2025-11-25 spec
       enableCIMD: true
 
