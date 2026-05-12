@@ -7,6 +7,8 @@ import (
 	"github.com/giantswarm/muster/internal/api"
 )
 
+const testServiceName = "test-service"
+
 // mockStateUpdaterService is a mock service that implements StateUpdater
 type mockStateUpdaterService struct {
 	name        string
@@ -51,7 +53,7 @@ func TestRegistryAdapter_Get(t *testing.T) {
 
 	// Register a service
 	svc := &mockStateUpdaterService{
-		name:        "test-service",
+		name:        testServiceName,
 		serviceType: TypeMCPServer,
 		state:       StateWaiting,
 		health:      HealthUnknown,
@@ -59,14 +61,14 @@ func TestRegistryAdapter_Get(t *testing.T) {
 	_ = registry.Register(svc)
 
 	// Get the service through the adapter
-	result, exists := adapter.Get("test-service")
+	result, exists := adapter.Get(testServiceName)
 	if !exists {
 		t.Fatal("Expected service to exist")
 	}
 	if result == nil {
 		t.Fatal("Expected non-nil result")
 	}
-	if result.GetName() != "test-service" {
+	if result.GetName() != testServiceName {
 		t.Errorf("Expected name 'test-service', got '%s'", result.GetName())
 	}
 }
