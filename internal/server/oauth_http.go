@@ -151,7 +151,7 @@ func NewOAuthHTTPServer(cfg config.OAuthServerConfig, mcpHandler http.Handler, d
 		return nil, err
 	}
 
-	oauthServer, tokenStore, err := createOAuthServer(cfg, debug)
+	oauthServer, tokenStore, err := createOAuthServer(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OAuth server: %w", err)
 	}
@@ -525,16 +525,8 @@ func (s *OAuthHTTPServer) Shutdown(ctx context.Context) error {
 }
 
 // createOAuthServer creates an OAuth server using mcp-oauth library.
-func createOAuthServer(cfg config.OAuthServerConfig, debug bool) (*oauth.Server, storage.TokenStore, error) {
-	// Create logger with appropriate level
-	var logger *slog.Logger
-	if debug {
-		logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-			Level: slog.LevelDebug,
-		}))
-	} else {
-		logger = slog.Default()
-	}
+func createOAuthServer(cfg config.OAuthServerConfig) (*oauth.Server, storage.TokenStore, error) {
+	logger := slog.Default()
 
 	redirectURL := cfg.BaseURL + "/oauth/callback"
 	var provider providers.Provider
