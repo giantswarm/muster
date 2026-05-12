@@ -56,7 +56,11 @@ func completeCategoryFlag(cmd *cobra.Command, args []string, toComplete string) 
 
 // completeConceptFlag provides shell completion for the concept flag
 func completeConceptFlag(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	return []string{"workflow", "mcpserver", "service"}, cobra.ShellCompDirectiveDefault
+	return []string{
+		string(testing.ConceptWorkflow),
+		string(testing.ConceptMCPServer),
+		string(testing.ConceptService),
+	}, cobra.ShellCompDirectiveDefault
 }
 
 // completeScenarioFlag provides shell completion for the scenario flag by loading available scenarios
@@ -352,15 +356,16 @@ func runTest(cmd *cobra.Command, args []string) error {
 
 	// Parse concept filter
 	if testConcept != "" {
-		switch testConcept {
-		case "workflow": //nolint:goconst
+		switch testing.TestConcept(testConcept) {
+		case testing.ConceptWorkflow:
 			testConfig.Concept = testing.ConceptWorkflow
-		case "mcpserver": //nolint:goconst
+		case testing.ConceptMCPServer:
 			testConfig.Concept = testing.ConceptMCPServer
-		case "service": //nolint:goconst
+		case testing.ConceptService:
 			testConfig.Concept = testing.ConceptService
 		default:
-			return fmt.Errorf("invalid concept '%s', must be one of: workflow, mcpserver, service", testConcept)
+			return fmt.Errorf("invalid concept '%s', must be one of: %s, %s, %s",
+				testConcept, testing.ConceptWorkflow, testing.ConceptMCPServer, testing.ConceptService)
 		}
 	}
 
