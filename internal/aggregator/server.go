@@ -643,19 +643,19 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 
 	// Set up hooks for session lifecycle tracking and MCP protocol logging
 	hooks := &mcpserver.Hooks{}
-	hooks.AddOnUnregisterSession(func(_ context.Context, session mcpserver.ClientSession) {
-		logging.InfoWithAttrs("MCP-Protocol", "Session unregistered",
+	hooks.AddOnUnregisterSession(func(ctx context.Context, session mcpserver.ClientSession) {
+		logging.InfoWithAttrsCtx(ctx, "MCP-Protocol", "Session unregistered",
 			logging.TransportSessionID(session.SessionID()))
 		a.subjectSessions.RemoveSession(session.SessionID())
 	})
 
-	hooks.AddOnRegisterSession(func(_ context.Context, session mcpserver.ClientSession) {
-		logging.InfoWithAttrs("MCP-Protocol", "Session registered",
+	hooks.AddOnRegisterSession(func(ctx context.Context, session mcpserver.ClientSession) {
+		logging.InfoWithAttrsCtx(ctx, "MCP-Protocol", "Session registered",
 			logging.TransportSessionID(session.SessionID()))
 	})
 
 	hooks.AddAfterInitialize(func(ctx context.Context, _ any, msg *mcp.InitializeRequest, result *mcp.InitializeResult) {
-		logging.InfoWithAttrs("MCP-Protocol", "Initialize completed",
+		logging.InfoWithAttrsCtx(ctx, "MCP-Protocol", "Initialize completed",
 			slog.String("client", msg.Params.ClientInfo.Name+"/"+msg.Params.ClientInfo.Version),
 			slog.String("protocol", string(msg.Params.ProtocolVersion)),
 			logging.TransportSessionID(getTransportSessionID(ctx)),
@@ -667,7 +667,7 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		for _, t := range result.Tools {
 			toolNames = append(toolNames, t.Name)
 		}
-		logging.InfoWithAttrs("MCP-Protocol", "tools/list response",
+		logging.InfoWithAttrsCtx(ctx, "MCP-Protocol", "tools/list response",
 			logging.TransportSessionID(getTransportSessionID(ctx)),
 			slog.String("subject", logging.TruncateIdentifier(getUserSubjectFromContext(ctx))),
 			slog.Int("toolCount", len(result.Tools)),
@@ -676,7 +676,7 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 
 	hooks.AddBeforeCallTool(func(ctx context.Context, _ any, msg *mcp.CallToolRequest) {
 		subject := getUserSubjectFromContext(ctx)
-		logging.InfoWithAttrs("MCP-Protocol", "tools/call request",
+		logging.InfoWithAttrsCtx(ctx, "MCP-Protocol", "tools/call request",
 			logging.TransportSessionID(getTransportSessionID(ctx)),
 			slog.String("subject", logging.TruncateIdentifier(subject)),
 			slog.String("tool", msg.Params.Name))
@@ -690,13 +690,13 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 
 	hooks.AddAfterCallTool(func(ctx context.Context, _ any, msg *mcp.CallToolRequest, result any) {
 		if r, ok := result.(*mcp.CallToolResult); ok {
-			logging.InfoWithAttrs("MCP-Protocol", "tools/call response",
+			logging.InfoWithAttrsCtx(ctx, "MCP-Protocol", "tools/call response",
 				logging.TransportSessionID(getTransportSessionID(ctx)),
 				slog.String("tool", msg.Params.Name),
 				slog.Bool("isError", r.IsError),
 				slog.Int("contentItems", len(r.Content)))
 		} else {
-			logging.InfoWithAttrs("MCP-Protocol", "tools/call response",
+			logging.InfoWithAttrsCtx(ctx, "MCP-Protocol", "tools/call response",
 				logging.TransportSessionID(getTransportSessionID(ctx)),
 				slog.String("tool", msg.Params.Name),
 				slog.String("resultType", fmt.Sprintf("%T", result)))
@@ -704,7 +704,7 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	})
 
 	hooks.AddOnError(func(ctx context.Context, id any, method mcp.MCPMethod, _ any, err error) {
-		logging.WarnWithAttrs("MCP-Protocol", "Error",
+		logging.WarnWithAttrsCtx(ctx, "MCP-Protocol", "Error",
 			logging.TransportSessionID(getTransportSessionID(ctx)),
 			slog.String("method", string(method)),
 			slog.Any("id", id),
