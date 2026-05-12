@@ -11,6 +11,7 @@ type mockTokenBroker struct {
 	enabled           bool
 	beginOAuthFlowFn  func(ctx context.Context, req BeginRequest) (FlowURL, error)
 	getTokenFn        func(ctx context.Context, sessionID, audience string) (Token, error)
+	exchangeTokenFn   func(ctx context.Context, req ExchangeRequest) (Token, error)
 	invalidateTokenFn func(ctx context.Context, sessionID, audience string) error
 	sessionIssuerFn   func(ctx context.Context, sessionID string) (string, error)
 }
@@ -29,6 +30,13 @@ func (m *mockTokenBroker) BeginOAuthFlow(ctx context.Context, req BeginRequest) 
 func (m *mockTokenBroker) GetToken(ctx context.Context, sessionID, audience string) (Token, error) {
 	if m.getTokenFn != nil {
 		return m.getTokenFn(ctx, sessionID, audience)
+	}
+	return Token{}, errMockNotConfigured
+}
+
+func (m *mockTokenBroker) ExchangeToken(ctx context.Context, req ExchangeRequest) (Token, error) {
+	if m.exchangeTokenFn != nil {
+		return m.exchangeTokenFn(ctx, req)
 	}
 	return Token{}, errMockNotConfigured
 }

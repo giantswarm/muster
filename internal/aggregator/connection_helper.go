@@ -224,23 +224,16 @@ func (r *ConnectionResult) FormatAsMCPResult() *mcp.CallToolResult {
 }
 
 // lookupIDTokenForSession returns the ID token for (sessionID, musterIssuer)
-// from the OAuth proxy store, or "" when no entry is available.
-func lookupIDTokenForSession(sessionID, musterIssuer string) string {
-	oauthHandler := api.GetOAuthHandler()
-	if oauthHandler == nil || !oauthHandler.IsEnabled() || musterIssuer == "" {
-		logging.Debug("Connection", "No ID token lookup possible for session %s (handler unavailable or issuer empty)",
-			logging.TruncateIdentifier(sessionID))
+// from the broker, or "" when no entry is available.
+func lookupIDTokenForSession(ctx context.Context, tb TokenBroker, sessionID, musterIssuer string) string {
+	if tb == nil || !tb.Enabled() || musterIssuer == "" {
 		return ""
 	}
-	fullToken := oauthHandler.GetFullTokenByIssuer(sessionID, musterIssuer)
-	if fullToken == nil || fullToken.IDToken == "" {
-		logging.Debug("Connection", "No ID token in OAuth proxy store for session %s, issuer %s",
-			logging.TruncateIdentifier(sessionID), musterIssuer)
+	token, err := tb.GetToken(ctx, sessionID, musterIssuer)
+	if err != nil || token.IDToken == "" {
 		return ""
 	}
-	logging.Debug("Connection", "Found ID token in OAuth proxy store for session %s, issuer %s",
-		logging.TruncateIdentifier(sessionID), musterIssuer)
-	return fullToken.IDToken
+	return token.IDToken
 }
 
 // EstablishConnectionWithTokenForwarding establishes a connection using ID
@@ -268,6 +261,10 @@ func EstablishConnectionWithTokenForwarding(
 			return &ConnectionResult{ServerName: serverInfo.Name}, nil
 		}
 	}
+
+	a.mu.RLock()
+	tb := a.tokenBroker
+	a.mu.RUnlock()
 
 	if idToken == "" {
 		logging.Debug("Connection", "No ID token available for user %s",
@@ -311,7 +308,7 @@ func EstablishConnectionWithTokenForwarding(
 			}
 		}
 	}
-	headerFunc := makeTokenForwardingHeaderFunc(sessionID, sub, musterIssuer, serverInfo.Name, idToken, onStaleToken)
+	headerFunc := makeTokenForwardingHeaderFunc(tb, sessionID, sub, musterIssuer, serverInfo.Name, idToken, onStaleToken)
 	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
 
 	// Try to initialize the client with the forwarded token
@@ -478,9 +475,11 @@ func EstablishConnectionWithTokenExchange(
 		}
 	}
 
-	oauthHandler := api.GetOAuthHandler()
-	if oauthHandler == nil || !oauthHandler.IsEnabled() {
-		return nil, fmt.Errorf("OAuth handler not available for token exchange")
+	a.mu.RLock()
+	tb := a.tokenBroker
+	a.mu.RUnlock()
+	if tb == nil || !tb.Enabled() {
+		return nil, fmt.Errorf("broker not available for token exchange")
 	}
 
 	if idToken == "" {
@@ -548,37 +547,31 @@ func EstablishConnectionWithTokenExchange(
 		}
 	}
 
-	// Check if Teleport auth is configured - if so, we need to use Teleport HTTP client
-	// for both the token exchange request and the MCP server connection.
+	// Resolve Teleport HTTP client for the MCP server connection below.
+	// The broker handles transport selection for the exchange call itself
+	// via its TransportResolver; this lookup is only for the downstream MCP
+	// transport, a separate concern.
 	teleportResult := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
-
-	// If Teleport is configured but failed, return an explicit error rather than
-	// falling back silently (which would cause confusing connection failures to private endpoints)
 	if teleportResult.Configured && teleportResult.Error != nil {
 		logging.Error("Connection", teleportResult.Error, "Teleport required for %s but failed",
 			serverInfo.Name)
 		return nil, fmt.Errorf("teleport configuration failed: %w", teleportResult.Error)
 	}
 
-	// Perform the token exchange (using Teleport client if configured)
-	var exchangedToken string
-	if teleportResult.Client != nil {
-		logging.Debug("Connection", "Using Teleport HTTP client for token exchange to %s", serverInfo.Name)
-		exchangedToken, err = oauthHandler.ExchangeTokenForRemoteClusterWithClient(
-			ctx,
-			idToken,
-			userID,
-			serverInfo.AuthConfig.TokenExchange,
-			teleportResult.Client,
-		)
-	} else {
-		exchangedToken, err = oauthHandler.ExchangeTokenForRemoteCluster(
-			ctx,
-			idToken,
-			userID,
-			serverInfo.AuthConfig.TokenExchange,
-		)
-	}
+	exchanged, err := tb.ExchangeToken(ctx, ExchangeRequest{
+		SessionID:    sessionID,
+		Subject:      userID,
+		SubjectToken: idToken,
+		Audience:     serverInfo.Name,
+		Config: ExchangeConfig{
+			TokenEndpoint:  serverInfo.AuthConfig.TokenExchange.DexTokenEndpoint,
+			ExpectedIssuer: serverInfo.AuthConfig.TokenExchange.ExpectedIssuer,
+			ConnectorID:    serverInfo.AuthConfig.TokenExchange.ConnectorID,
+			ClientID:       serverInfo.AuthConfig.TokenExchange.ClientID,
+			ClientSecret:   serverInfo.AuthConfig.TokenExchange.ClientSecret,
+			Scopes:         serverInfo.AuthConfig.TokenExchange.Scopes,
+		},
+	})
 	if err != nil {
 		logging.Warn("Connection", "Token exchange failed for user %s to server %s: %v",
 			logging.TruncateIdentifier(sub), serverInfo.Name, err)
@@ -599,6 +592,7 @@ func EstablishConnectionWithTokenExchange(
 
 		return nil, fmt.Errorf("token exchange failed: %w", err)
 	}
+	exchangedToken := exchanged.AccessToken
 
 	// Token exchange succeeded - emit success event and audit log
 	logging.Info("Connection", "Token exchange succeeded for user %s to server %s",
@@ -780,6 +774,7 @@ const maxConsecutiveTokenFailures = 3
 // The closure is safe to call without a mutex because headerFunc is called
 // sequentially per connection by the MCP client.
 func makeTokenForwardingHeaderFunc(
+	tb TokenBroker,
 	sessionID, sub, musterIssuer, serverName, fallbackToken string,
 	onStaleToken func(),
 ) func(context.Context) map[string]string {
@@ -788,7 +783,7 @@ func makeTokenForwardingHeaderFunc(
 	var staleEvicted bool
 	hadToken := true
 	return func(_ context.Context) map[string]string {
-		latestToken := lookupIDTokenForSession(sessionID, musterIssuer)
+		latestToken := lookupIDTokenForSession(context.Background(), tb, sessionID, musterIssuer)
 		if latestToken == "" {
 			consecutiveFailures++
 
@@ -877,71 +872,24 @@ type TeleportClientResult struct {
 // getTeleportHTTPClientIfConfigured returns a Teleport HTTP client if the server
 // is configured to use Teleport authentication.
 //
-// This is used for both token exchange and MCP server connections when accessing
-// private installations via Teleport Application Access.
-//
-// The function returns a TeleportClientResult that distinguishes between:
+// The TeleportClientResult distinguishes between:
 //   - Not configured: Configured=false, Client=nil, Error=nil (use default HTTP client)
 //   - Configured and successful: Configured=true, Client!=nil, Error=nil
 //   - Configured but failed: Configured=true, Client=nil, Error!=nil (caller should fail, not fallback)
 //
-// This explicit error handling prevents silent fallback when Teleport is required
-// but misconfigured, which would lead to confusing connection errors.
+// Explicit error handling prevents silent fallback when Teleport is
+// required but misconfigured.
 func getTeleportHTTPClientIfConfigured(ctx context.Context, serverInfo *ServerInfo) TeleportClientResult {
-	// Check if server has Teleport auth configured
-	if serverInfo == nil || serverInfo.AuthConfig == nil {
+	client, configured, err := teleportHTTPClient(ctx, serverInfo)
+	if !configured {
 		return TeleportClientResult{Configured: false}
 	}
-	if serverInfo.AuthConfig.Type != api.AuthTypeTeleport {
-		return TeleportClientResult{Configured: false}
-	}
-
-	// From this point on, Teleport IS configured - errors should be explicit
-	if serverInfo.AuthConfig.Teleport == nil {
-		err := fmt.Errorf("teleport auth type configured but teleport settings missing")
-		logging.Error("Connection", err, "Teleport configuration error for %s", serverInfo.Name)
-		return TeleportClientResult{Configured: true, Error: err}
-	}
-
-	// Get the Teleport handler from the API service locator
-	teleportHandler := api.GetTeleportClient()
-	if teleportHandler == nil {
-		err := fmt.Errorf("teleport client handler not registered - ensure teleport package is initialized")
-		logging.Error("Connection", err, "Teleport initialization error for %s", serverInfo.Name)
-		return TeleportClientResult{Configured: true, Error: err}
-	}
-
-	// Build the client configuration from the server auth settings
-	teleportAuth := serverInfo.AuthConfig.Teleport
-	clientConfig := api.TeleportClientConfig{
-		IdentityDir:             teleportAuth.IdentityDir,
-		IdentitySecretName:      teleportAuth.IdentitySecretName,
-		IdentitySecretNamespace: teleportAuth.IdentitySecretNamespace,
-		AppName:                 teleportAuth.AppName,
-	}
-
-	// Validate that exactly one identity source is specified
-	if clientConfig.IdentityDir == "" && clientConfig.IdentitySecretName == "" {
-		err := fmt.Errorf("teleport auth requires either identityDir or identitySecretName")
-		logging.Error("Connection", err, "Teleport configuration error for %s", serverInfo.Name)
-		return TeleportClientResult{Configured: true, Error: err}
-	}
-	if clientConfig.IdentityDir != "" && clientConfig.IdentitySecretName != "" {
-		err := fmt.Errorf("teleport auth: identityDir and identitySecretName are mutually exclusive")
-		logging.Error("Connection", err, "Teleport configuration error for %s", serverInfo.Name)
-		return TeleportClientResult{Configured: true, Error: err}
-	}
-
-	// Get the HTTP client from the Teleport handler
-	httpClient, err := teleportHandler.GetHTTPClientForConfig(ctx, clientConfig)
 	if err != nil {
-		wrappedErr := fmt.Errorf("failed to get Teleport HTTP client: %w", err)
-		logging.Error("Connection", wrappedErr, "Teleport client error for %s", serverInfo.Name)
-		return TeleportClientResult{Configured: true, Error: wrappedErr}
+		logging.Error("Connection", err, "Teleport error for %s", serverInfo.Name)
+		return TeleportClientResult{Configured: true, Error: err}
 	}
-
 	logging.Debug("Connection", "Got Teleport HTTP client for %s", serverInfo.Name)
-	return TeleportClientResult{Configured: true, Client: httpClient}
+	return TeleportClientResult{Configured: true, Client: client}
 }
 
 // loadTokenExchangeCredentials loads OAuth client credentials from a Kubernetes secret

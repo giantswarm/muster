@@ -86,12 +86,12 @@ func (m *issuerMockOAuthHandler) SetAuthCompletionCallback(callback api.AuthComp
 func (m *issuerMockOAuthHandler) Stop() {
 }
 
-func (m *issuerMockOAuthHandler) ExchangeTokenForRemoteCluster(ctx context.Context, localToken, userID string, config *api.TokenExchangeConfig) (string, error) {
-	return "", nil
+func (m *issuerMockOAuthHandler) ExchangeTokenForRemoteCluster(_ context.Context, _, _ string, _ *api.TokenExchangeConfig) (string, string, error) {
+	return "", "", nil
 }
 
-func (m *issuerMockOAuthHandler) ExchangeTokenForRemoteClusterWithClient(ctx context.Context, localToken, userID string, config *api.TokenExchangeConfig, httpClient *http.Client) (string, error) {
-	return "", nil
+func (m *issuerMockOAuthHandler) ExchangeTokenForRemoteClusterWithClient(_ context.Context, _, _ string, _ *api.TokenExchangeConfig, _ *http.Client) (string, string, error) {
+	return "", "", nil
 }
 
 func TestGetMusterIssuer_WithOAuthServerConfig(t *testing.T) {
