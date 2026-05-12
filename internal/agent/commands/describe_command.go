@@ -11,13 +11,6 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-// Item-type tokens accepted by the describe command.
-const (
-	describeTargetTool     = "tool"
-	describeTargetResource = "resource"
-	describeTargetPrompt   = "prompt"
-)
-
 // DescribeCommand shows detailed information about tools, resources, or prompts
 type DescribeCommand struct {
 	*BaseCommand
@@ -37,18 +30,22 @@ func (d *DescribeCommand) Execute(ctx context.Context, args []string) error {
 		return err
 	}
 
-	itemType := strings.ToLower(parsed[0])
+	itemType := metatools.ItemKind(strings.ToLower(parsed[0]))
 	itemName := parsed[1]
 
 	switch itemType {
-	case describeTargetTool:
+	case metatools.ItemKindTool:
 		return d.describeTool(ctx, itemName)
-	case describeTargetResource:
+	case metatools.ItemKindResource:
 		return d.describeResource(itemName)
-	case describeTargetPrompt:
+	case metatools.ItemKindPrompt:
 		return d.describePrompt(itemName)
 	default:
-		return d.validateTarget(itemType, []string{describeTargetTool, describeTargetResource, describeTargetPrompt})
+		return d.validateTarget(string(itemType), []string{
+			metatools.ItemKindTool.String(),
+			metatools.ItemKindResource.String(),
+			metatools.ItemKindPrompt.String(),
+		})
 	}
 }
 
@@ -141,15 +138,19 @@ func (d *DescribeCommand) Completions(input string) []string {
 
 	if len(parts) == 1 {
 		// Complete the type
-		return d.getCompletionsForTargets([]string{describeTargetTool, describeTargetResource, describeTargetPrompt})
+		return d.getCompletionsForTargets([]string{
+			metatools.ItemKindTool.String(),
+			metatools.ItemKindResource.String(),
+			metatools.ItemKindPrompt.String(),
+		})
 	} else if len(parts) == 2 {
 		// Complete the name based on type
-		switch strings.ToLower(parts[1]) {
-		case describeTargetTool:
+		switch metatools.ItemKind(strings.ToLower(parts[1])) {
+		case metatools.ItemKindTool:
 			return d.getToolCompletions()
-		case describeTargetResource:
+		case metatools.ItemKindResource:
 			return d.getResourceCompletions()
-		case describeTargetPrompt:
+		case metatools.ItemKindPrompt:
 			return d.getPromptCompletions()
 		}
 	}
