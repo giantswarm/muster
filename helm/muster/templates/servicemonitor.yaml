@@ -1,0 +1,20 @@
+{{- if and (eq (include "muster.prometheusExporterEnabled" .) "true") .Values.muster.observability.metrics.prometheus.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "muster.fullname" . }}
+  labels:
+    {{- include "muster.labels" . | nindent 4 }}
+    {{- with .Values.muster.observability.metrics.prometheus.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "muster.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: metrics
+      {{- with .Values.muster.observability.metrics.prometheus.serviceMonitor.interval }}
+      interval: {{ . }}
+      {{- end }}
+{{- end }}

@@ -8,6 +8,9 @@ import (
 	"os"
 	"time"
 
+	mcptoolkitmetrics "github.com/giantswarm/mcp-toolkit/metrics"
+	"github.com/giantswarm/mcp-toolkit/tracing"
+
 	"github.com/giantswarm/muster/internal/app"
 	"github.com/giantswarm/muster/internal/config"
 	"github.com/giantswarm/muster/pkg/logging"
@@ -17,8 +20,8 @@ import (
 
 // otelShutdownTimeout bounds how long a deferred OTel Shutdown may
 // block. 5s leaves slack inside kubelet's terminationGracePeriodSeconds
-// default of 30s for in-flight HTTP requests to complete and SIGKILL
-// fallback.
+// default of 30s for in-flight logs, spans and metric batches to
+// drain before SIGKILL.
 const otelShutdownTimeout = 5 * time.Second
 
 // debug enables verbose logging across the application.
@@ -107,6 +110,24 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 	defer otelShutdown("logging", shutdownLogging)
 
+	shutdownTracing, err := tracing.Init(ctx,
+		tracing.WithServiceName("muster"),
+		tracing.WithServiceVersion(GetVersion()),
+	)
+	if err != nil {
+		return fmt.Errorf("init tracing: %w", err)
+	}
+	defer otelShutdown("tracing", shutdownTracing)
+
+	shutdownMeter, err := mcptoolkitmetrics.Init(ctx,
+		mcptoolkitmetrics.WithServiceName("muster"),
+		mcptoolkitmetrics.WithServiceVersion(GetVersion()),
+	)
+	if err != nil {
+		return fmt.Errorf("init meter: %w", err)
+	}
+	defer otelShutdown("meter", shutdownMeter)
+
 	// Create application configuration without cluster arguments
 	cfg := app.NewConfig(serveDebug, serveYolo, serveConfigPath).
 		WithVersion(GetVersion()).
@@ -125,7 +146,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 // otelShutdown runs an OTel Shutdown function with a bounded fresh
 // context so SIGTERM-canceled parent contexts don't prevent in-flight
-// records from draining.
+// logs, spans or metric batches from draining.
 func otelShutdown(name string, shutdown func(context.Context) error) {
 	sctx, cancel := context.WithTimeout(context.Background(), otelShutdownTimeout)
 	defer cancel()
