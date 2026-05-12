@@ -228,12 +228,18 @@ func (r *ConnectionResult) FormatAsMCPResult() *mcp.CallToolResult {
 func lookupIDTokenForSession(sessionID, musterIssuer string) string {
 	oauthHandler := api.GetOAuthHandler()
 	if oauthHandler == nil || !oauthHandler.IsEnabled() || musterIssuer == "" {
+		logging.Debug("Connection", "No ID token lookup possible for session %s (handler unavailable or issuer empty)",
+			logging.TruncateIdentifier(sessionID))
 		return ""
 	}
 	fullToken := oauthHandler.GetFullTokenByIssuer(sessionID, musterIssuer)
 	if fullToken == nil || fullToken.IDToken == "" {
+		logging.Debug("Connection", "No ID token in OAuth proxy store for session %s, issuer %s",
+			logging.TruncateIdentifier(sessionID), musterIssuer)
 		return ""
 	}
+	logging.Debug("Connection", "Found ID token in OAuth proxy store for session %s, issuer %s",
+		logging.TruncateIdentifier(sessionID), musterIssuer)
 	return fullToken.IDToken
 }
 

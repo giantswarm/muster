@@ -416,7 +416,8 @@ func (a *AggregatorServer) initSSOForSession(ctx context.Context, userID, sessio
 
 // establishSSOConnection attempts to establish an SSO connection to a single
 // server using the supplied idToken. Skips when the session is already
-// authenticated.
+// authenticated. Manual-auth servers use core_auth_login instead and do not
+// flow through this path.
 func (a *AggregatorServer) establishSSOConnection(
 	ctx context.Context,
 	serverInfo *ServerInfo,

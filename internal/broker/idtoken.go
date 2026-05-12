@@ -2,9 +2,8 @@ package broker
 
 import "golang.org/x/oauth2"
 
-// GetIDToken extracts the ID token from an OAuth2 token.
-// OIDC providers include an id_token in the Extra data.
-// Kubernetes OIDC authentication requires the ID token, not the access token.
+// GetIDToken returns the OIDC id_token carried in the OAuth2 token's Extra
+// data, or "" when absent or not a string.
 func GetIDToken(token *oauth2.Token) string {
 	if token == nil {
 		return ""
