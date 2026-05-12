@@ -70,6 +70,13 @@ const (
 	// DefaultMaxClientsPerIP is the default maximum number of clients per IP address.
 	DefaultMaxClientsPerIP = 10
 
+	// DefaultSecurityEventRate bounds security-event log emission (events/second
+	// per keyed event), keeping a malformed-token attack from flooding the audit
+	// pipeline. Mirrors mcp-oauth's production-example default (1, 5).
+	DefaultSecurityEventRate = 1
+	// DefaultSecurityEventBurst is the burst size for security-event log emission.
+	DefaultSecurityEventBurst = 5
+
 	// DefaultReadHeaderTimeout is the default timeout for reading request headers.
 	DefaultReadHeaderTimeout = 10 * time.Second
 	// DefaultWriteTimeout is the default timeout for writing responses.
@@ -140,18 +147,19 @@ type OAuthHTTPServer struct {
 }
 
 // NewOAuthHTTPServer creates a new OAuth-enabled HTTP server that wraps
-// the provided MCP handler with authentication protection.
-func NewOAuthHTTPServer(cfg config.OAuthServerConfig, mcpHandler http.Handler, debug bool) (*OAuthHTTPServer, error) {
+// the provided MCP handler with authentication protection. Caller-provided
+// mcp-oauth options (e.g. token-family lifecycle handlers) are forwarded to
+// the underlying OAuth server.
+func NewOAuthHTTPServer(cfg config.OAuthServerConfig, mcpHandler http.Handler, debug bool, opts ...oauth.ServerOption) (*OAuthHTTPServer, error) {
 	if !cfg.Enabled {
 		return nil, fmt.Errorf("OAuth server is not enabled")
 	}
 
-	// Validate HTTPS requirement for OAuth 2.1 compliance
 	if err := validateHTTPSRequirement(cfg.BaseURL); err != nil {
 		return nil, err
 	}
 
-	oauthServer, tokenStore, err := createOAuthServer(cfg, debug)
+	oauthServer, tokenStore, err := createOAuthServer(cfg, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OAuth server: %w", err)
 	}
@@ -517,16 +525,8 @@ func (s *OAuthHTTPServer) Shutdown(ctx context.Context) error {
 }
 
 // createOAuthServer creates an OAuth server using mcp-oauth library.
-func createOAuthServer(cfg config.OAuthServerConfig, debug bool) (*oauth.Server, storage.TokenStore, error) {
-	// Create logger with appropriate level
-	var logger *slog.Logger
-	if debug {
-		logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-			Level: slog.LevelDebug,
-		}))
-	} else {
-		logger = slog.Default()
-	}
+func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) (*oauth.Server, storage.TokenStore, error) {
+	logger := slog.Default()
 
 	redirectURL := cfg.BaseURL + "/oauth/callback"
 	var provider providers.Provider
@@ -647,9 +647,6 @@ func createOAuthServer(cfg config.OAuthServerConfig, debug bool) (*oauth.Server,
 		return nil, nil, fmt.Errorf("unsupported OAuth storage type: %s (supported: %s, %s)", cfg.Storage.Type, storage.BackendMemory, storage.BackendValkey)
 	}
 
-	// Set defaults
-	maxClientsPerIP := DefaultMaxClientsPerIP
-
 	refreshTokenTTL := DefaultRefreshTokenTTL
 	if cfg.SessionDuration != "" {
 		parsed, err := time.ParseDuration(cfg.SessionDuration)
@@ -660,82 +657,20 @@ func createOAuthServer(cfg config.OAuthServerConfig, debug bool) (*oauth.Server,
 		logger.Info("Using custom session duration", "duration", parsed)
 	}
 
-	// Create server configuration.
-	serverConfig := &oauthserver.Config{
-		Issuer:                           cfg.BaseURL,
-		AccessTokenTTL:                   int64(DefaultAccessTokenTTL / time.Second),
-		RefreshTokenTTL:                  int64(refreshTokenTTL / time.Second),
-		AllowRefreshTokenRotation:        true,
-		RequirePKCE:                      true,
-		AllowPKCEPlain:                   false,
-		AllowPublicClientRegistration:    cfg.AllowPublicClientRegistration,
-		RegistrationAccessToken:          cfg.RegistrationToken,
-		MaxClientsPerIP:                  maxClientsPerIP,
-		EnableClientIDMetadataDocuments:  cfg.EnableCIMD,
-		EnableIntrospectionEndpoint:      true,
-		TrustedPublicRegistrationSchemes: cfg.TrustedPublicRegistrationSchemes,
-		AllowLocalhostRedirectURIs:       cfg.AllowLocalhostRedirectURIs,
-		TrustedAudiences:                 cfg.TrustedAudiences,
+	serverConfig := newOAuthServerConfig(cfg, refreshTokenTTL)
 
-		// Instrumentation
-		Instrumentation: oauthserver.InstrumentationConfig{
-			Enabled:         true,
-			ServiceName:     "muster",
-			ServiceVersion:  "1.0.0",
-			MetricsExporter: "prometheus",
-		},
+	builtOpts, err := buildOAuthServerOptions(cfg, logger)
+	if err != nil {
+		return nil, nil, err
 	}
+	builtOpts = append(builtOpts, opts...)
 
-	// Create OAuth server. Both memory and valkey backends implement
-	// storage.Combined, so we use the single-store constructor instead of
-	// passing the same handle three times.
-	oauthSrv, err := oauth.NewServerWithCombined(
-		provider,
-		combinedStore,
-		serverConfig,
-		logger,
-	)
+	oauthSrv, err := oauth.NewServerWithCombined(provider, combinedStore, serverConfig, logger, builtOpts...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create OAuth server: %w", err)
 	}
 
-	// Set up encryption if key provided (for memory storage; valkey wires the
-	// encryptor onto the store directly above).
-	if cfg.EncryptionKey != "" && cfg.Storage.Type != storage.BackendValkey {
-		keyBytes, err := broker.DecodeEncryptionKey(cfg.EncryptionKey)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to decode encryption key: %w", err)
-		}
-		encryptor, err := security.NewEncryptor(keyBytes)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to create encryptor: %w", err)
-		}
-		oauthSrv.SetEncryptor(encryptor)
-		logger.Info("Token encryption at rest enabled (AES-256-GCM)")
-	}
-
-	// Set up audit logging
-	auditor := security.NewAuditor(logger, true)
-	oauthSrv.SetAuditor(auditor)
-	logger.Info("Security audit logging enabled")
-
-	// Set up rate limiting
-	ipRateLimiter := security.NewRateLimiter(DefaultIPRateLimit, DefaultIPBurst, logger)
-	oauthSrv.SetRateLimiter(ipRateLimiter)
-	logger.Info("IP-based rate limiting enabled", "rate", DefaultIPRateLimit, "burst", DefaultIPBurst)
-
-	userRateLimiter := security.NewRateLimiter(DefaultUserRateLimit, DefaultUserBurst, logger)
-	oauthSrv.SetUserRateLimiter(userRateLimiter)
-	logger.Info("User-based rate limiting enabled", "rate", DefaultUserRateLimit, "burst", DefaultUserBurst)
-
-	clientRegRL := security.NewClientRegistrationRateLimiterWithConfig(
-		maxClientsPerIP,
-		security.DefaultRegistrationWindow,
-		security.DefaultMaxRegistrationEntries,
-		logger,
-	)
-	oauthSrv.SetClientRegistrationRateLimiter(clientRegRL)
-	logger.Info("Client registration rate limiting enabled", "maxClientsPerIP", maxClientsPerIP)
+	logEnabledOAuthOptions(cfg, logger)
 
 	return oauthSrv, combinedStore, nil
 }

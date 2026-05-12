@@ -69,7 +69,7 @@ agent: "What tools are available for debugging?"
 # Progressive discovery
 agent: "I need Kubernetes tools"
 → core_service_list (see what's running)
-→ core_serviceclass_list (see available patterns)
+→ core_workflow_list (see available workflows)
 → Only then shows specific x_kubernetes_* tools
 ```
 
@@ -88,26 +88,7 @@ agent: "Connect to monitoring in the staging cluster in the eu-west-1 region"
 # ✓ Cleanup on completion
 ```
 
-### **3. Prerequisites as Code**
-ServiceClasses define prerequisites declaratively:
-
-```yaml
-# From this instance: .muster/serviceclasses/k8s-connection.yaml
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: ServiceClass
-metadata:
-  name: service-k8s-connection
-spec:
-  description: "Kubernetes cluster connections with authentication"
-  serviceConfig:
-    lifecycleTools:
-      start:
-        tool: "api_kubernetes_connect"  # Handles auth + connection
-      healthCheck:
-        tool: "api_kubernetes_connection_status"  # Monitors health
-```
-
-### **4. Smart Context Management**
+### **3. Smart Context Management**
 - **Load tools on demand**: Only activate relevant MCP servers
 - **Category-based organization**: Group tools by function (config, services, workflows)
 - **Progressive disclosure**: Start with high-level operations, drill down as needed
@@ -120,9 +101,6 @@ Instead of managing 140+ individual tools, platform engineers work with high-lev
 ```bash
 # Single command replaces complex manual workflows
 workflow_check-cilium-health(cluster="my-cluster")
-
-# Self-managing service connections
-core_service_create(serviceClassName="service-k8s-connection", name="prod-access")
 
 # Intelligent tool discovery
 "I need to debug networking" → Shows relevant workflow and service options

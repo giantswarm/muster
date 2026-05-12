@@ -18,7 +18,6 @@ The `check` command verifies if resources are available and properly configured 
 
 | Resource Type | Description | Example |
 |---------------|-------------|---------|
-| `serviceclass` | Check if a ServiceClass is available for use | `muster check serviceclass web-app` |
 | `mcpserver` | Check MCP server status and connectivity | `muster check mcpserver kubernetes` |
 | `workflow` | Check if a workflow is available (all required tools present) | `muster check workflow deploy-app` |
 
@@ -35,20 +34,6 @@ The `check` command verifies if resources are available and properly configured 
   - Default: `~/.config/muster`
 
 ## Examples
-
-### Checking ServiceClass Availability
-```bash
-# Check if a ServiceClass is ready to use
-muster check serviceclass web-application
-
-# Example output:
-# NAME              STATUS      TOOLS_AVAILABLE   ISSUES
-# web-application   Available   3/3               None
-
-# If there are issues:
-# NAME              STATUS        TOOLS_AVAILABLE   ISSUES
-# web-application   Unavailable   2/3               x_kubernetes_scale missing
-```
 
 ### Checking MCP Server Status
 ```bash
@@ -79,24 +64,6 @@ muster check workflow deploy-application
 ```
 
 ## Check Results
-
-### ServiceClass Availability
-When checking a ServiceClass, the command verifies:
-
-- **Tool Availability**: All required MCP tools are accessible
-- **MCP Server Health**: Required MCP servers are running and responsive
-- **Parameter Schema**: ServiceClass definition is valid
-- **Dependencies**: All external dependencies are met
-
-```bash
-muster check serviceclass database-service
-# Checks:
-# ✓ MCP server 'kubernetes' is running
-# ✓ Tool 'x_kubernetes_apply' is available
-# ✓ Tool 'x_kubernetes_get_status' is available
-# ✓ ServiceClass definition is valid
-# → Status: Available
-```
 
 ### MCP Server Health
 When checking an MCP server, the command verifies:
@@ -140,24 +107,24 @@ muster check workflow backup-database
 Human-readable status with clear indicators:
 
 ```bash
-muster check serviceclass web-app
-# NAME      STATUS      TOOLS   ISSUES
-# web-app   Available   3/3     None
+muster check workflow deploy-app
+# NAME         STATUS      TOOLS   ISSUES
+# deploy-app   Available   5/5     None
 ```
 
 ### JSON Format
 Detailed status information for programmatic use:
 
 ```bash
-muster check serviceclass web-app --output json
+muster check workflow deploy-app --output json
 # {
-#   "name": "web-app",
-#   "type": "serviceclass",
+#   "name": "deploy-app",
+#   "type": "workflow",
 #   "status": "Available",
 #   "checks": {
 #     "toolsAvailable": {
-#       "required": 3,
-#       "available": 3,
+#       "required": 5,
+#       "available": 5,
 #       "missing": []
 #     },
 #     "mcpServers": [
@@ -222,10 +189,6 @@ MCP servers have specific health indicators:
 # Validate environment before deployment
 echo "Validating deployment environment..."
 
-# Check required ServiceClasses
-muster check serviceclass web-application
-muster check serviceclass database-service
-
 # Check required workflows
 muster check workflow deploy-application
 muster check workflow rollback-deployment
@@ -235,26 +198,6 @@ muster check mcpserver kubernetes
 muster check mcpserver helm
 
 echo "Environment validation complete"
-```
-
-### Troubleshooting Dependencies
-```bash
-# Debug why a service creation failed
-echo "Checking dependencies for web-app service..."
-
-# Check the ServiceClass first
-SC_STATUS=$(muster check serviceclass web-application --output json | jq -r '.status')
-
-if [ "$SC_STATUS" != "Available" ]; then
-  echo "ServiceClass is not available:"
-  muster check serviceclass web-application
-
-  # Check specific MCP servers
-  muster check mcpserver kubernetes
-  muster check mcpserver prometheus
-else
-  echo "ServiceClass is available - issue may be elsewhere"
-fi
 ```
 
 ### Health Monitoring
@@ -291,23 +234,11 @@ done
 #!/bin/bash
 # Pre-deployment environment check for CI/CD
 
-REQUIRED_SERVICECLASSES=("web-app" "database" "cache")
 REQUIRED_WORKFLOWS=("deploy-app" "rollback" "health-check")
 
 echo "Running pre-deployment checks..."
 
 ALL_CHECKS_PASSED=true
-
-# Check ServiceClasses
-for sc in "${REQUIRED_SERVICECLASSES[@]}"; do
-  echo "Checking ServiceClass: $sc"
-  if ! muster check serviceclass "$sc" --quiet; then
-    echo "FAIL: ServiceClass $sc is not available"
-    ALL_CHECKS_PASSED=false
-  else
-    echo "PASS: ServiceClass $sc is available"
-  fi
-done
 
 # Check Workflows
 for wf in "${REQUIRED_WORKFLOWS[@]}"; do
@@ -333,18 +264,18 @@ fi
 
 ### Resource Not Found
 ```bash
-muster check serviceclass non-existent
-# Error: serviceclass 'non-existent' not found
+muster check workflow non-existent
+# Error: workflow 'non-existent' not found
 
 # Solution: List available resources
-muster list serviceclass
+muster list workflow
 ```
 
 ### Missing Dependencies
 ```bash
-muster check serviceclass web-app
-# NAME     STATUS        TOOLS   ISSUES
-# web-app  Unavailable   2/3     x_kubernetes_scale missing
+muster check workflow deploy-app
+# NAME         STATUS        TOOLS   ISSUES
+# deploy-app   Unavailable   4/5     x_kubernetes_scale missing
 
 # Solution: Check MCP server providing missing tool
 muster check mcpserver kubernetes
@@ -389,12 +320,9 @@ The check command supports tab completion:
 ```bash
 # Resource types
 muster check [TAB]
-# Suggestions: serviceclass, mcpserver, workflow
+# Suggestions: mcpserver, workflow
 
 # Resource names (context-aware)
-muster check serviceclass [TAB]
-# Suggestions: web-app, database, monitoring, ...
-
 muster check mcpserver [TAB]
 # Suggestions: kubernetes, prometheus, github, ...
 ```
@@ -404,11 +332,11 @@ muster check mcpserver [TAB]
 ### Batch Checking
 ```bash
 # Check multiple resources efficiently
-RESOURCES=("web-app" "database" "cache")
+RESOURCES=("deploy-app" "rollback" "health-check")
 
-echo "Batch checking ServiceClasses..."
+echo "Batch checking workflows..."
 for resource in "${RESOURCES[@]}"; do
-  muster check serviceclass "$resource" --quiet || echo "ISSUE: $resource"
+  muster check workflow "$resource" --quiet || echo "ISSUE: $resource"
 done
 ```
 
@@ -420,10 +348,10 @@ CHECK_CACHE="/tmp/muster_checks.json"
 # Perform checks and cache results
 {
   echo "{"
-  echo "  \"serviceClasses\": {"
-  for sc in $(muster list serviceclass --output json | jq -r '.serviceClasses[].name'); do
-    STATUS=$(muster check serviceclass "$sc" --output json | jq -r '.status')
-    echo "    \"$sc\": \"$STATUS\","
+  echo "  \"workflows\": {"
+  for wf in $(muster list workflow --output json | jq -r '.workflows[].name'); do
+    STATUS=$(muster check workflow "$wf" --output json | jq -r '.status')
+    echo "    \"$wf\": \"$STATUS\","
   done | sed '$ s/,$//'
   echo "  },"
   echo "  \"timestamp\": \"$(date -Iseconds)\""
@@ -431,7 +359,7 @@ CHECK_CACHE="/tmp/muster_checks.json"
 } > "$CHECK_CACHE"
 
 # Use cached results
-cat "$CHECK_CACHE" | jq '.serviceClasses'
+cat "$CHECK_CACHE" | jq '.workflows'
 ```
 
 ## Related Commands
@@ -456,14 +384,6 @@ muster list mcpserver --output json | jq -r '.mcpServers[].name' | while read se
   echo "Checking $server..."
   muster check mcpserver "$server" --output json | \
     jq -r 'if .status == "Healthy" then "✓ \(.name): OK" else "✗ \(.name): \(.status)" end'
-done
-
-# Check all ServiceClasses
-echo "=== ServiceClass Availability ==="
-muster list serviceclass --output json | jq -r '.serviceClasses[].name' | while read sc; do
-  echo "Checking $sc..."
-  muster check serviceclass "$sc" --output json | \
-    jq -r 'if .status == "Available" then "✓ \(.name): OK" else "✗ \(.name): \(.status)" end'
 done
 
 # Check all workflows

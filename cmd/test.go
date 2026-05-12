@@ -54,9 +54,21 @@ func completeCategoryFlag(cmd *cobra.Command, args []string, toComplete string) 
 	return []string{"behavioral", "integration"}, cobra.ShellCompDirectiveDefault
 }
 
+// validTestConcepts is the canonical set of --concept values; consumed by
+// completion, validation, and the error message.
+var validTestConcepts = []testing.TestConcept{
+	testing.ConceptWorkflow,
+	testing.ConceptMCPServer,
+	testing.ConceptService,
+}
+
 // completeConceptFlag provides shell completion for the concept flag
 func completeConceptFlag(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	return []string{"workflow", "mcpserver", "service"}, cobra.ShellCompDirectiveDefault
+	out := make([]string, len(validTestConcepts))
+	for i, c := range validTestConcepts {
+		out[i] = string(c)
+	}
+	return out, cobra.ShellCompDirectiveDefault
 }
 
 // completeScenarioFlag provides shell completion for the scenario flag by loading available scenarios
@@ -352,15 +364,20 @@ func runTest(cmd *cobra.Command, args []string) error {
 
 	// Parse concept filter
 	if testConcept != "" {
-		switch testConcept {
-		case "workflow": //nolint:goconst
-			testConfig.Concept = testing.ConceptWorkflow
-		case "mcpserver": //nolint:goconst
-			testConfig.Concept = testing.ConceptMCPServer
-		case "service":
-			testConfig.Concept = testing.ConceptService
-		default:
-			return fmt.Errorf("invalid concept '%s', must be one of: workflow, mcpserver, service", testConcept)
+		matched := false
+		for _, c := range validTestConcepts {
+			if testing.TestConcept(testConcept) == c {
+				testConfig.Concept = c
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			names := make([]string, len(validTestConcepts))
+			for i, c := range validTestConcepts {
+				names[i] = string(c)
+			}
+			return fmt.Errorf("invalid concept %q, must be one of: %s", testConcept, strings.Join(names, ", "))
 		}
 	}
 

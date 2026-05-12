@@ -1,5 +1,5 @@
 // Package template implements the variable substitution and templating
-// engine used by workflow steps and ServiceClass tool calls.
+// engine used by workflow steps.
 //
 // The engine resolves Go-style `{{ ... }}` expressions against an execution
 // context that exposes workflow inputs (`{{ .input.* }}`) and prior step

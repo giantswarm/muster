@@ -3,18 +3,33 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
+	"log/slog"
+	"os"
+	"time"
+
+	mcptoolkitmetrics "github.com/giantswarm/mcp-toolkit/metrics"
+	"github.com/giantswarm/mcp-toolkit/tracing"
 
 	"github.com/giantswarm/muster/internal/app"
 	"github.com/giantswarm/muster/internal/config"
+	"github.com/giantswarm/muster/pkg/logging"
 
 	"github.com/spf13/cobra"
 )
+
+// otelShutdownTimeout bounds how long a deferred OTel Shutdown may
+// block. 5s leaves slack inside kubelet's terminationGracePeriodSeconds
+// default of 30s for in-flight logs, spans and metric batches to
+// drain before SIGKILL.
+const otelShutdownTimeout = 5 * time.Second
 
 // debug enables verbose logging across the application.
 // This helps troubleshoot connection issues and understand service behavior.
 var serveDebug bool
 
-// serveSilent disables all output to the console.
+// serveSilent disables console log output (writer → io.Discard). OTLP, if
+// configured, is unaffected — that's controlled via OTEL_* env vars.
 var serveSilent bool
 
 // yolo disables the denylist for destructive tool calls.
@@ -76,8 +91,45 @@ Configuration:
 
 // runServe is the main entry point for the serve command
 func runServe(cmd *cobra.Command, args []string) error {
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	level := logging.LevelInfo
+	if serveDebug {
+		level = logging.LevelDebug
+	}
+	var output io.Writer = os.Stderr
+	if serveSilent {
+		output = io.Discard
+	}
+	shutdownLogging, err := logging.Init(ctx, level, output, "muster", GetVersion())
+	if err != nil {
+		return fmt.Errorf("init logging: %w", err)
+	}
+	defer otelShutdown("logging", shutdownLogging)
+
+	shutdownTracing, err := tracing.Init(ctx,
+		tracing.WithServiceName("muster"),
+		tracing.WithServiceVersion(GetVersion()),
+	)
+	if err != nil {
+		return fmt.Errorf("init tracing: %w", err)
+	}
+	defer otelShutdown("tracing", shutdownTracing)
+
+	shutdownMeter, err := mcptoolkitmetrics.Init(ctx,
+		mcptoolkitmetrics.WithServiceName("muster"),
+		mcptoolkitmetrics.WithServiceVersion(GetVersion()),
+	)
+	if err != nil {
+		return fmt.Errorf("init meter: %w", err)
+	}
+	defer otelShutdown("meter", shutdownMeter)
+
 	// Create application configuration without cluster arguments
-	cfg := app.NewConfig(serveDebug, serveSilent, serveYolo, serveConfigPath).
+	cfg := app.NewConfig(serveDebug, serveYolo, serveConfigPath).
 		WithVersion(GetVersion()).
 		WithOAuthMCPClient(serveOAuthMCPClientEnabled, serveOAuthMCPClientPublicURL, serveOAuthMCPClientID).
 		WithOAuthServer(serveOAuthServerEnabled, serveOAuthServerBaseURL).
@@ -89,12 +141,18 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to initialize application: %w", err)
 	}
 
-	// Run the application
-	ctx := cmd.Context()
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	return application.Run(ctx)
+}
+
+// otelShutdown runs an OTel Shutdown function with a bounded fresh
+// context so SIGTERM-canceled parent contexts don't prevent in-flight
+// logs, spans or metric batches from draining.
+func otelShutdown(name string, shutdown func(context.Context) error) {
+	sctx, cancel := context.WithTimeout(context.Background(), otelShutdownTimeout)
+	defer cancel()
+	if err := shutdown(sctx); err != nil {
+		slog.Warn("otel shutdown failed", "component", name, "error", err)
+	}
 }
 
 // init registers the serve command and its flags with the root command.
@@ -104,7 +162,7 @@ func init() {
 
 	// Register command flags
 	serveCmd.Flags().BoolVar(&serveDebug, "debug", false, "Enable general debug logging")
-	serveCmd.Flags().BoolVar(&serveSilent, "silent", false, "Disable all output to the console")
+	serveCmd.Flags().BoolVar(&serveSilent, "silent", false, "Disable console log output. Does not silence OTLP — unset OTEL_EXPORTER_OTLP_* or set OTEL_SDK_DISABLED=true for that.")
 	serveCmd.Flags().BoolVar(&serveYolo, "yolo", false, "Disable denylist for destructive tool calls (use with caution)")
 	serveCmd.Flags().StringVar(&serveConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
 

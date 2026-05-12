@@ -185,41 +185,45 @@ All system configuration should be declarative, version-controlled, and validate
 **Kubernetes-Native Configuration (Production)**
 ```yaml
 apiVersion: muster.giantswarm.io/v1alpha1
-kind: ServiceClass
+kind: Workflow
 metadata:
-  name: prometheus-monitoring
+  name: deploy-prometheus
 spec:
-  description: "Prometheus monitoring service"
-  startTool: "prometheus_start"
-  parameters:
-    - name: "port"
-      type: "number"
-      default: 9090
-    - name: "retention"
-      type: "string"
-      default: "15d"
-```
-
-**Filesystem Configuration (Development)**
-```yaml
-# ~/.config/muster/serviceclass-prometheus.yaml
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: ServiceClass
-metadata:
-  name: prometheus-monitoring
-  namespace: default
-spec:
-  description: "Prometheus monitoring service"
+  description: "Prometheus deployment workflow"
   args:
     port:
       type: integer
       default: 9090
-  serviceConfig:
-    lifecycleTools:
-      start:
-        tool: "prometheus_start"
-        args:
-          port: "{{.port}}"
+    retention:
+      type: string
+      default: "15d"
+  steps:
+    - id: start
+      tool: prometheus_start
+      args:
+        port: "{{.port}}"
+        retention: "{{.retention}}"
+```
+
+**Filesystem Configuration (Development)**
+```yaml
+# ~/.config/muster/workflows/deploy-prometheus.yaml
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: Workflow
+metadata:
+  name: deploy-prometheus
+  namespace: default
+spec:
+  description: "Prometheus deployment workflow"
+  args:
+    port:
+      type: integer
+      default: 9090
+  steps:
+    - id: start
+      tool: prometheus_start
+      args:
+        port: "{{.port}}"
 ```
 
 #### Benefits
@@ -419,12 +423,12 @@ Every exported interface must have comprehensive documentation:
 //
 // Services are long-running processes that provide tools to the MCP aggregator.
 // The handler is responsible for creating, starting, stopping, and monitoring
-// service instances based on ServiceClass templates.
+// service instances.
 //
 // All methods are safe for concurrent use.
 type ServiceHandler interface {
-    // CreateService creates a new service instance from a ServiceClass template.
-    // Returns an error if the ServiceClass doesn't exist or if creation fails.
+    // CreateService creates a new service instance.
+    // Returns an error if creation fails.
     CreateService(ctx context.Context, req CreateServiceRequest) (*Service, error)
 
     // GetService retrieves an existing service by name.
@@ -439,13 +443,11 @@ Every package must have a `doc.go` file explaining its purpose:
 // Package services provides service instance lifecycle management for Muster.
 //
 // This package implements the service management capabilities that allow Muster
-// to create, monitor, and manage long-running service processes. Services are
-// created from ServiceClass templates and can be started, stopped, and queried
-// through the ServiceHandler interface.
+// to create, monitor, and manage long-running service processes. Services can
+// be started, stopped, and queried through the ServiceHandler interface.
 //
 // Key concepts:
-//   - ServiceClass: Template defining service capabilities and parameters
-//   - Service: Running instance of a ServiceClass
+//   - Service: Running instance managed by Muster
 //   - Registry: Central repository for service instances and their state
 //
 // The package integrates with the central API through the adapter pattern,

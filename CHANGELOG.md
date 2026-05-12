@@ -4,10 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `muster.oauth.server.trustedPublicRegistrationRedirectURIs` — HTTPS redirect-URI allowlist for unauthenticated dynamic client registration, passed through to mcp-oauth (`Config.TrustedPublicRegistrationRedirectURIs`). Strict exact-match after RFC 3986 normalization. Default: `[]` (opt-in per URI).
+- `oauth-secret` `fail` guard accepts a non-empty `trustedPublicRegistrationRedirectURIs` as a third valid escape valve.
+
+### Changed
+
+- mcp-oauth bumped to `v0.2.125`. Internal API migrated to functional options; `server.NewOAuthHTTPServer` now takes `...oauth.ServerOption`. Security-event log emission is rate-limited (1/s, burst 5). No user-facing config change.
+
 ### Fixed
 
 - Workflow execution tools were advertised twice — both as the documented `workflow_<workflow-name>` and as `core_action_<workflow-name>` — through `list_tools` / `list_core_tools` / `filter_tools`. The `core_action_*` variant is not part of the public surface and the aggregator's call routing does not recognize it (calls fail with "no handler found"), so clients that picked it up from discovery hit non-functional tools. The aggregator now rewrites the workflow provider's internal `action_<name>` tools to `workflow_<name>` (no `core_` prefix) when listing, matching the architecture spec; management tools (`workflow_list`, `workflow_get`, …) continue to be advertised as `core_workflow_*`. Pure listing fix — execution routing was already correct.
 - `Workflow` and `ServiceClass` CRD validation rejected scalar values in step args (`spec.steps[*].args.<key>: must be of type object`), making the documented YAML form (`namespace: kube-system`, `limit: 30`, `allNamespaces: false`) unusable through `kubectl apply`. Step args, condition args, JSONPath maps, and `ArgDefinition.Default` now use `apiextensionsv1.JSON` instead of `runtime.RawExtension`, which controller-tools emits as `additionalProperties: {x-kubernetes-preserve-unknown-fields: true}` (no `type: object` constraint), so scalars, objects, and arrays all validate. Wire format and stored values are unchanged; existing workflows with object-only args keep working.
+- OAuth server initialisation built its own text-format `slog.Logger` writing to stdout when `--debug` was set, so in-pod log lines from the `mcp-oauth` library (Valkey storage, redirect-URI security, OIDC discovery, rate limiters, audit, instrumentation) appeared as text on stdout instead of flowing through the project's JSON handler. `createOAuthServer` now uses `slog.Default()` and inherits the level set by `logging.Init`, so all in-pod log lines share one format and one writer.
 
 ### Removed
 
@@ -15,10 +25,23 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Logging bootstrap now lives in `cmd/serve.go`. The serve command calls `logging.Init` once at startup, defers the `Shutdown`, then constructs the application. `NewApplication` no longer touches the logger; non-serve `muster` subcommands rely on the nil-guard in `pkg/logging` (the previous in-bootstrap init was vestigial there too).
+- `app.NewConfig` signature drops the `silent` parameter and the corresponding `Config.Silent` field. Both were set but never read — `--silent` is enforced by swapping the writer to `io.Discard` directly in `cmd/serve.go`. Module-internal change (`internal/app` is not importable from outside the module).
+- In-pod muster logs are now JSON by default (auto-detected via `KUBERNETES_SERVICE_HOST`) instead of text. The text path remains for local `muster` CLI invocations and tests.
+- The aggregator's `Hooks` (`AddAfterInitialize`, `AddAfterListTools`, `AddBeforeCallTool`, `AddAfterCallTool`, `AddOnError`) emit log lines via the new `*WithAttrsCtx` variants so per-request trace correlation lands on the `MCP-Protocol` subsystem.
+- The Valkey storage URL in startup logs is now redacted via `mcp-toolkit/logging.RedactHost`, which strips IPv4/IPv6 addresses and URL userinfo. The local `redactURL` helper, which only stripped userinfo, is removed.
 - Consolidated scattered JWT-claim decoders into typed accessors in `pkg/oauth/jwt.go`: `Subject`, `Email`, `Expiry`, `Issuer`, `IsExpired`, plus `ErrTokenExpMissing` for callers that need to distinguish "missing exp" from "decode failed". The accessors share a single `golang-jwt/jwt/v5` parser; consumers in `internal/aggregator`, `internal/cli`, and `internal/oauth` no longer touch `encoding/base64`, `encoding/json`, or the JWT library directly. The admin diagnostic UI keeps its own segment decoder (different concern: lenient display of operator-pasted tokens, including 2-part inputs missing the signature segment). The previous defensive `RawStdEncoding` fallback for non-spec base64 is intentionally dropped — every IdP muster integrates with emits RFC 7515-compliant `RawURLEncoding`.
 
 ### Added
 
+- `pkg/logging.Init(ctx, level, output, serviceName, serviceVersion) (Shutdown, error)` initialises logging via `mcp-toolkit/logging` and returns a `Shutdown` for the OpenTelemetry `LoggerProvider`. When any of `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`, `OTEL_EXPORTER_OTLP_ENDPOINT`, or `OTEL_LOGS_EXPORTER` is set, log records flow through OTLP and carry the active span's TraceID/SpanID for log ↔ trace correlation in Grafana. Otherwise the handler auto-selects JSON (in a Kubernetes pod) or text (local dev) and the `Shutdown` is a no-op. `InitForCLI` stays as a non-OTLP convenience.
+- `pkg/logging.{Debug,Info,Warn,Error}Ctx` and `{Debug,Info,Warn}WithAttrsCtx` thread a `context.Context` through the slog handler so the OTLP path can pull the active span's TraceID/SpanID off the call's context. Existing ctx-less variants remain.
+- OpenTelemetry tracing for every MCP tool call. The aggregator's mcp-go middleware opens a `tool.<name>` span at the meta-tool layer, and `CallToolInternal` opens an inner span carrying the real workload tool name (`x_kubernetes_*`, `workflow_*`, `service_*`, …) so Tempo trace trees pivot on the actual tool. W3C TraceContext + Baggage propagators are installed unconditionally so inbound `traceparent` headers are honoured even when no exporter is configured. Tracer- and meter-provider lifecycles are handled by `mcp-toolkit/tracing` and `mcp-toolkit/metrics` at the composition root.
+- OpenTelemetry metrics for every MCP tool call: `muster.tool_calls` (counter, exports as `muster_tool_calls_total`) and `muster.tool_call.duration` (histogram, exports as `muster_tool_call_duration_seconds`), each with `tool` and `outcome` attributes (`ok` / `error` / `error_result`).
+- Helm: `muster.observability.metrics.exporter` switches the metric backend (`otlp`, `prometheus`, `console`, `none`, comma-combinations). Selecting `prometheus` exposes `/metrics` on port 9464 and (when `muster.observability.metrics.prometheus.serviceMonitor.enabled`) renders a `ServiceMonitor`.
+- Structured per-tool-call log line on subsystem `MCP-Tool` with `tool`, `outcome`, `duration_s`, and `error` fields, for log/metric/trace correlation in dashboards.
+- `muster.observability.otel.{endpoint,protocol,headers,resourceAttributes}` Helm values configuring the OTLP exporter. Empty `endpoint` (default) leaves muster in propagator-only mode; setting it enables both traces and metrics over the same OTLP endpoint. `K8S_NODE_NAME` is now exposed via the downward API alongside the existing `K8S_NAMESPACE` / `K8S_POD_NAME` so resource attributes carry `k8s.node.name`. `OTEL_RESOURCE_ATTRIBUTES` is set whenever either OTLP or a metrics exporter is configured (previously OTLP-only), so Prometheus-only mode also gets `k8s.namespace.name` / `k8s.pod.name` / `k8s.node.name` resource attribution.
+- `docs/explanation/observability.md` documenting the trace contributions, signal configuration, instrument and log-field shape, and a Tempo/Mimir/Loki query catalog.
 - Add `muster call` command for direct MCP tool invocation from the CLI. Supports `--key=value` arguments and `--json` for complex payloads, with tab completion for tool names.
 - Add `ciliumNetworkPolicy.allowClusterIngress` Helm value to allow egress to in-cluster services on HTTP/HTTPS ports (e.g. Dex OIDC via ingress LoadBalancer IP).
 - OAuth encryption keys can now be supplied as either base64 (`openssl rand -base64 32`) or hex (`openssl rand -hex 32`); the format is auto-detected.
@@ -29,13 +52,25 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Extracted validation and template-resolution helpers from the 930-line `internal/workflow/executor.go` into dedicated `validation.go` and `template.go` files. `executor.go` is now ~600 lines; `ExecuteWorkflow` itself remains 500 lines and a follow-up tracks breaking it into per-concern helpers (`executeStep`, `evaluateCondition`, `processStepResult`) — that's a behavioral refactor with test impact, not a file split. ([#140](https://github.com/giantswarm/muster/issues/140))
 - Move the 547-line `internal/client/kubernetes_client.go` into a new `internal/client/kubernetes/` subpackage, split per domain (`client.go`, `mcpserver.go`, `serviceclass.go`, `workflow.go`, `events.go`). The core file keeps the type, constructor, scheme, lifecycle methods, and discovery-based CRD validation. Pure refactor: the `MusterClient` interface stays in the parent `client` package, the dispatcher calls `kubernetes.New(restConfig)` directly, and external consumers are unaffected. ([#140](https://github.com/giantswarm/muster/issues/140))
 - Move the 1233-line `internal/client/filesystem_client.go` into a new `internal/client/filesystem/` subpackage, split per domain (`client.go`, `mcpserver.go`, `serviceclass.go`, `workflow.go`, `events.go`). Each file is under 400 lines. Pure refactor: the `MusterClient` interface stays in the parent `client` package, the dispatcher calls `filesystem.New(basePath)` directly, and external consumers are unaffected. ([#140](https://github.com/giantswarm/muster/issues/140))
+- Collapse per-CRD duplication in both client adapters into shared `store.go` helpers built on `client.Object` / `client.ObjectList`. Each per-CRD file shrinks from ~165 LOC (filesystem) / ~70 LOC (kubernetes) to ~40 LOC of thin wrappers; error wrapping and namespace handling are now uniform across both surviving CRDs. The kubernetes `CreateEventForCRD` double switch (kind→GVK + kind→Get-method) collapses to a single `crdFactories` map. Pure refactor: no public method signatures change, no behaviour change. ([#140](https://github.com/giantswarm/muster/issues/140))
 - Restore `groups` scope in `DefaultOAuthCIMDScopes` -- required for group-based RBAC in downstream services. Provider-level scope filtering in mcp-oauth (e.g., `filterGoogleScopes`, `filterDexScopes`) handles provider differences.
 - Bump `mcp-oauth` to v0.2.117. Adopts `oauth.NewServerWithCombined` and `Handler.RegisterOAuthRoutes` to simplify server wiring; the authorization callback now includes the RFC 9207 `iss` parameter automatically. **Operational note:** mcp-oauth now rejects low-entropy AES-256 token-encryption keys (fewer than 16 distinct byte values). Real keys generated with `openssl rand -base64 32` or `openssl rand -hex 32` are unaffected; placeholder keys (all zeros, repeated bytes) will fail at startup with a clear error — rotate before upgrading.
 
 ### Removed
 
+- ServiceClass CRD, API types, and Helm RBAC narrowing (third PR of the ServiceClass removal — see #632).
+  - Deleted: `pkg/apis/muster/v1alpha1/serviceclass_types.go`, `helm/muster/crds/muster.giantswarm.io_serviceclasses.yaml`, `internal/api/{serviceclass,serviceinstance}.go`, `ServiceClassManagerHandler` interface and `Register/GetServiceClassManager`.
+  - Helm RBAC drops `serviceclasses` and `serviceclasses/status` from the ClusterRole's `resources` lists.
+  - **Operational note (REQUIRED before upgrading past this PR):** delete any `ServiceClass` custom resources in your cluster — they will be orphaned when the CRD is removed:
+
+    ```
+    kubectl delete serviceclasses.muster.giantswarm.io --all -A
+    ```
+
+    `MCPServer` and `Workflow` CRs are unaffected.
 - ServiceClass-related MCP tools and CLI surface (first PR of the ServiceClass removal — see #632 for the rest).
   - MCP tools: `core_serviceclass_*`, `core_service_create`, `core_service_delete`, `core_service_get`, `core_service_validate`. Service inspection still works via `core_service_status`.
   - CLI subcommands: `muster create service`, `muster create serviceclass`, `muster check serviceclass`, `muster get serviceclass`, `muster list serviceclass`. The `service` and `serviceclass` values for `muster events --resource-type` and `muster test --concept` are also gone.

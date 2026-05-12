@@ -36,13 +36,6 @@ type MusterClient interface {
 	UpdateMCPServer(ctx context.Context, server *musterv1alpha1.MCPServer) error
 	DeleteMCPServer(ctx context.Context, name, namespace string) error
 
-	// ServiceClass operations
-	GetServiceClass(ctx context.Context, name, namespace string) (*musterv1alpha1.ServiceClass, error)
-	ListServiceClasses(ctx context.Context, namespace string) ([]musterv1alpha1.ServiceClass, error)
-	CreateServiceClass(ctx context.Context, serviceClass *musterv1alpha1.ServiceClass) error
-	UpdateServiceClass(ctx context.Context, serviceClass *musterv1alpha1.ServiceClass) error
-	DeleteServiceClass(ctx context.Context, name, namespace string) error
-
 	// Workflow operations
 	GetWorkflow(ctx context.Context, name, namespace string) (*musterv1alpha1.Workflow, error)
 	ListWorkflows(ctx context.Context, namespace string) ([]musterv1alpha1.Workflow, error)
@@ -54,7 +47,6 @@ type MusterClient interface {
 	// These methods update only the Status field of the resource.
 	// See ADR 007 for details on what status fields are synced.
 	UpdateMCPServerStatus(ctx context.Context, server *musterv1alpha1.MCPServer) error
-	UpdateServiceClassStatus(ctx context.Context, serviceClass *musterv1alpha1.ServiceClass) error
 	UpdateWorkflowStatus(ctx context.Context, workflow *musterv1alpha1.Workflow) error
 
 	// Service operations (to be implemented in future)

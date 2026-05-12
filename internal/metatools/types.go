@@ -37,6 +37,18 @@ const (
 	ToolGetPrompt = "get_prompt"
 )
 
+// ItemKind identifies the kind of MCP capability an aggregator entry represents.
+type ItemKind string
+
+const (
+	ItemKindTool     ItemKind = "tool"
+	ItemKindResource ItemKind = "resource"
+	ItemKindPrompt   ItemKind = "prompt"
+)
+
+// String returns the canonical lowercase token for the item kind.
+func (k ItemKind) String() string { return string(k) }
+
 // ToolInfo represents basic tool information returned by list_tools and filter_tools.
 type ToolInfo struct {
 	Name        string      `json:"name"`

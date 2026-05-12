@@ -25,12 +25,6 @@ func TestFilesystemDetector_ParseFilePath(t *testing.T) {
 			expectedName: "kubernetes",
 		},
 		{
-			name:         "ServiceClass YAML",
-			path:         "/tmp/muster/serviceclasses/postgres-db.yaml",
-			expectedType: ResourceTypeServiceClass,
-			expectedName: "postgres-db",
-		},
-		{
 			name:         "Workflow YAML",
 			path:         "/tmp/muster/workflows/deploy-app.yaml",
 			expectedType: ResourceTypeWorkflow,

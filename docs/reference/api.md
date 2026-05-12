@@ -77,7 +77,6 @@ Muster provides a comprehensive set of built-in tools for managing all aspects o
 - **[Configuration Tools](#configuration-tools)** - System configuration management
 - **[MCP Server Tools](#mcp-server-tools)** - MCP server lifecycle management
 - **[Service Tools](#service-tools)** - Service instance management
-- **[ServiceClass Tools](#serviceclass-tools)** - ServiceClass definition management
 - **[Workflow Tools](#workflow-tools)** - Workflow definition and execution management
 
 > **Note**: Workflow execution is available through dynamically generated `workflow_<workflow-name>` tools. For example, if you have a workflow named "deploy-app", you can execute it using the `workflow_deploy-app` tool. Use the agent REPL (`muster agent --repl`) or `list tools` to discover available workflow execution tools.
@@ -341,77 +340,6 @@ Validate MCP server configuration without creating it.
 
 Tools for managing service instances, including lifecycle operations and status monitoring.
 
-#### `core_service_create`
-
-Create a new service instance from a ServiceClass.
-
-**Parameters:**
-- `serviceClassName` (string, required) - Name of the ServiceClass to instantiate
-- `name` (string, required) - Unique name for the service instance
-- `args` (object, optional) - Arguments for service creation (depends on ServiceClass definition)
-- `persist` (boolean, optional) - Whether to persist this service instance definition to YAML files
-- `autoStart` (boolean, optional) - Whether this instance should be started automatically on system startup
-
-**Example:**
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "core_service_create",
-    "arguments": {
-      "serviceClassName": "database",
-      "name": "prod-db",
-      "args": {
-        "port": 5432,
-        "database": "production"
-      },
-      "persist": true,
-      "autoStart": true
-    }
-  }
-}
-```
-
-#### `core_service_delete`
-
-Delete a service instance.
-
-**Parameters:**
-- `name` (string, required) - Name of the ServiceClass instance to delete
-
-**Example:**
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "core_service_delete",
-    "arguments": {
-      "name": "prod-db"
-    }
-  }
-}
-```
-
-#### `core_service_get`
-
-Retrieve details of a specific service instance.
-
-**Parameters:**
-- `name` (string, required) - Name of the service to get
-
-**Example:**
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "core_service_get",
-    "arguments": {
-      "name": "prod-db"
-    }
-  }
-}
-```
-
 #### `core_service_list`
 
 List all service instances.
@@ -509,231 +437,6 @@ Stop a service instance.
 }
 ```
 
-#### `core_service_validate`
-
-Validate service configuration without creating it.
-
-**Parameters:**
-- `name` (string, required) - Service instance name
-- `serviceClassName` (string, required) - Name of the ServiceClass to instantiate
-- `args` (object, optional) - Arguments for service creation
-- `autoStart` (boolean, optional) - Whether this instance should auto-start
-- `description` (string, optional) - Service instance description
-
-**Example:**
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "core_service_validate",
-    "arguments": {
-      "name": "test-db",
-      "serviceClassName": "database",
-      "args": {
-        "port": 5433
-      }
-    }
-  }
-}
-```
-
-### ServiceClass Tools
-
-Tools for managing ServiceClass definitions that serve as templates for service instances.
-
-#### `core_serviceclass_available`
-
-Check if a ServiceClass is available and properly configured.
-
-**Parameters:**
-- `name` (string, required) - Name of the ServiceClass to check
-
-**Example:**
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "core_serviceclass_available",
-    "arguments": {
-      "name": "database"
-    }
-  }
-}
-```
-
-#### `core_serviceclass_create`
-
-Create a new ServiceClass definition.
-
-**Parameters:**
-- `name` (string, required) - ServiceClass name
-- `serviceConfig` (object, required) - ServiceClass service configuration
-  - `serviceType` (string, required) - Type of service this configuration manages
-  - `lifecycleTools` (object, required) - Tools for managing service lifecycle
-    - `start` (object, required) - Tool configuration for start operations
-    - `stop` (object, required) - Tool configuration for stop operations
-    - `restart` (object, optional) - Tool configuration for restart operations
-    - `status` (object, optional) - Tool configuration for status operations
-    - `healthCheck` (object, optional) - Tool configuration for health check operations
-  - `defaultName` (string, optional) - Default name pattern for service instances
-  - `dependencies` (array of strings, optional) - List of ServiceClass names that must be available
-  - `outputs` (object, optional) - Template-based outputs for service instances
-  - `timeout` (object, optional) - Timeout configuration for service operations
-  - `healthCheck` (object, optional) - Health check configuration
-- `args` (object, optional) - ServiceClass arguments schema
-- `description` (string, optional) - ServiceClass description
-
-**Example:**
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "core_serviceclass_create",
-    "arguments": {
-      "name": "web-service",
-      "description": "Generic web service template",
-      "serviceConfig": {
-        "serviceType": "web",
-        "lifecycleTools": {
-          "start": {
-            "tool": "docker_start",
-            "args": {
-              "image": "{{.image}}"
-            }
-          },
-          "stop": {
-            "tool": "docker_stop"
-          }
-        }
-      },
-      "args": {
-        "image": {
-          "type": "string",
-          "required": true,
-          "description": "Docker image to run"
-        },
-        "port": {
-          "type": "integer",
-          "default": 8080,
-          "description": "Port to expose"
-        }
-      }
-    }
-  }
-}
-```
-
-#### `core_serviceclass_delete`
-
-Delete a ServiceClass definition.
-
-**Parameters:**
-- `name` (string, required) - Name of the ServiceClass to delete
-
-**Example:**
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "core_serviceclass_delete",
-    "arguments": {
-      "name": "web-service"
-    }
-  }
-}
-```
-
-#### `core_serviceclass_get`
-
-Retrieve details of a specific ServiceClass.
-
-**Parameters:**
-- `name` (string, required) - Name of the ServiceClass to retrieve
-
-**Example:**
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "core_serviceclass_get",
-    "arguments": {
-      "name": "web-service"
-    }
-  }
-}
-```
-
-#### `core_serviceclass_list`
-
-List all ServiceClass definitions.
-
-**Parameters:** None
-
-**Example:**
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "core_serviceclass_list",
-    "arguments": {}
-  }
-}
-```
-
-#### `core_serviceclass_update`
-
-Update an existing ServiceClass definition.
-
-**Parameters:**
-- `name` (string, required) - ServiceClass name
-- `serviceConfig` (object, optional) - ServiceClass service configuration
-- `args` (object, optional) - ServiceClass arguments schema
-- `description` (string, optional) - ServiceClass description
-
-**Example:**
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "core_serviceclass_update",
-    "arguments": {
-      "name": "web-service",
-      "description": "Updated web service template with monitoring"
-    }
-  }
-}
-```
-
-#### `core_serviceclass_validate`
-
-Validate ServiceClass configuration without creating it.
-
-**Parameters:**
-- `name` (string, required) - ServiceClass name
-- `serviceConfig` (object, required) - ServiceClass service configuration
-- `args` (object, optional) - ServiceClass arguments schema
-- `description` (string, optional) - ServiceClass description
-
-**Example:**
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "core_serviceclass_validate",
-    "arguments": {
-      "name": "test-service",
-      "serviceConfig": {
-        "serviceType": "test",
-        "lifecycleTools": {
-          "start": {"tool": "echo"},
-          "stop": {"tool": "echo"}
-        }
-      }
-    }
-  }
-}
-```
-
 ### Workflow Tools
 
 Tools for managing workflow definitions and execution tracking.
@@ -799,18 +502,6 @@ Create a new workflow definition.
         }
       },
       "steps": [
-        {
-          "id": "create_service",
-          "tool": "core_service_create",
-          "description": "Create the service instance",
-          "args": {
-            "serviceClassName": "web-service",
-            "name": "{{.service_name}}",
-            "args": {
-              "image": "{{.image}}"
-            }
-          }
-        },
         {
           "id": "start_service",
           "tool": "core_service_start",
@@ -951,30 +642,6 @@ Update an existing workflow definition.
 - `args` (object, optional) - Workflow arguments definition
 - `description` (string, optional) - Description of the workflow
 
-**Example:**
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "core_workflow_update",
-    "arguments": {
-      "name": "deploy-web-service",
-      "description": "Updated deployment workflow with rollback support",
-      "steps": [
-        {
-          "id": "create_service",
-          "tool": "core_service_create",
-          "args": {
-            "serviceClassName": "web-service",
-            "name": "{{.service_name}}"
-          }
-        }
-      ]
-    }
-  }
-}
-```
-
 #### `core_workflow_validate`
 
 Validate workflow configuration without creating it.
@@ -1071,14 +738,10 @@ muster agent --repl
 # Discover tools
 list tools                           # List all available tools
 filter tools core_*                  # Filter tools by pattern
-describe core_service_create         # Get detailed tool documentation
+describe core_service_list           # Get detailed tool documentation
 
 # Execute tools
 call core_service_list               # Execute without arguments
-call core_service_create {           # Execute with JSON arguments
-  "serviceClassName": "web-service",
-  "name": "test-app"
-}
 ```
 
 ### Programmatic Discovery
@@ -1091,7 +754,7 @@ curl -X POST http://localhost:8080/mcp \
 # Get tool schema
 curl -X POST http://localhost:8080/mcp \
   -H "Content-Type: application/json" \
-  -d '{"method": "tools/get_schema", "params": {"name": "core_service_create"}}'
+  -d '{"method": "tools/get_schema", "params": {"name": "core_service_list"}}'
 ```
 
 ## Related Documentation
@@ -1104,4 +767,3 @@ curl -X POST http://localhost:8080/mcp \
 - **[Getting Started](../../getting-started/)** - Setup and basic usage
 - **[How-to Guides](../../how-to/)** - Task-oriented implementation guides
 - **[Workflow Creation Guide](../../how-to/workflow-creation.md)** - Step-by-step workflow creation
-- **[ServiceClass Patterns](../../how-to/serviceclass-patterns.md)** - Common ServiceClass patterns

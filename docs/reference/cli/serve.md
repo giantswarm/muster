@@ -19,15 +19,16 @@ The aggregator server provides a unified MCP interface that other muster command
 ### Server Configuration
 - `--config-path` (string): Custom configuration directory path
   - Default: `~/.config/muster`
-  - Directory should contain `config.yaml` and subdirectories: `mcpservers/`, `workflows/`, `serviceclasses/`, `services/`
+  - Directory should contain `config.yaml` and subdirectories: `mcpservers/`, `workflows/`, `services/`
 
 ### Logging and Debugging
 - `--debug`: Enable debug-level logging and verbose output
   - Default: `false`
   - Provides detailed information about service startup and operations
-- `--silent`: Disable all output to the console
+- `--silent`: Disable console log output (writer → `io.Discard`)
   - Default: `false`
-  - Useful for programmatic usage or when output needs to be suppressed
+  - Useful for programmatic usage or when console output needs to be suppressed
+  - Does **not** silence OTLP. When OTLP is configured (via `OTEL_EXPORTER_OTLP_*` or `OTEL_LOGS_EXPORTER`), log records still flow to the collector. To disable OTLP, unset those env vars or set `OTEL_SDK_DISABLED=true`.
 
 ### Security and Safety
 - `--yolo`: Disable denylist for destructive tool calls
@@ -62,7 +63,6 @@ storage:
 directories:
   mcpservers: "mcpservers/"
   workflows: "workflows/"
-  serviceclasses: "serviceclasses/"
   services: "services/"
 ```
 
@@ -83,7 +83,6 @@ When you run `muster serve`, the following initialization occurs:
 3. **Component Loading**
    - Loads MCP server definitions from `mcpservers/`
    - Loads workflow definitions from `workflows/`
-   - Loads service class templates from `serviceclasses/`
    - Loads service instances from `services/`
 
 4. **Auto-Start Services**
@@ -161,9 +160,6 @@ The configuration directory should be organized as follows:
 ├── workflows/               # Workflow definitions
 │   ├── deploy-app.yaml
 │   └── backup-db.yaml
-├── serviceclasses/          # Service templates
-│   ├── web-app.yaml
-│   └── database.yaml
 └── services/                # Service instances
     ├── my-web-app.yaml
     └── prod-database.yaml
@@ -215,7 +211,7 @@ muster serve --debug  # Shows detailed error information
 ```bash
 # Verify configuration directory structure
 ls -la ~/.config/muster/
-mkdir -p ~/.config/muster/{mcpservers,workflows,serviceclasses,services}
+mkdir -p ~/.config/muster/{mcpservers,workflows,services}
 ```
 
 ### MCP Server Issues
@@ -280,7 +276,7 @@ muster serve
 
 # In another terminal
 muster list service           # List all services
-muster create service my-app web-service
+muster create service my-app
 muster agent --repl          # Interactive tool exploration
 muster test --scenario basic-crud  # Run tests
 ```

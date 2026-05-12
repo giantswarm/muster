@@ -34,7 +34,6 @@ Tools are discovered at runtime, not hardcoded:
 **Core Tool Categories in the Aggregator:**
 - **Configuration** (5 tools) - System and aggregator management
 - **Services** (9 tools) - Service instance lifecycle
-- **ServiceClasses** (7 tools) - Reusable service templates
 - **MCP Servers** (6 tools) - External tool provider management
 - **Workflows** (9 tools) - Multi-step process orchestration
 

@@ -47,13 +47,6 @@ func TestStorage_Save(t *testing.T) {
 			wantErr:    false,
 		},
 		{
-			name:       "save valid serviceclass",
-			entityType: "serviceclasses",
-			itemName:   "test-service",
-			data:       []byte("name: test-service\ntype: container"),
-			wantErr:    false,
-		},
-		{
 			name:        "empty entity type",
 			entityType:  "",
 			itemName:    "test",
