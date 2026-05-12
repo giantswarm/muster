@@ -74,7 +74,6 @@ func GenerateScenarioPrefix(scenarioName string) string {
 	// Clean up scenario name - remove common prefixes
 	name := scenarioName
 	name = strings.TrimPrefix(name, "mcpserver-")
-	name = strings.TrimPrefix(name, "serviceclass-")
 	name = strings.TrimPrefix(name, "workflow-")
 	name = strings.TrimPrefix(name, "service-")
 

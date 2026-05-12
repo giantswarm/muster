@@ -51,13 +51,6 @@ func (e *MessageTemplateEngine) loadDefaultTemplates() {
 	e.templates[ReasonMCPServerTokenExchanged] = "MCPServer {{.Name}}: Token successfully exchanged via RFC 8693 for cross-cluster SSO"
 	e.templates[ReasonMCPServerTokenExchangeFailed] = "MCPServer {{.Name}}: RFC 8693 token exchange failed{{if .Error}}: {{.Error}}{{end}}"
 
-	// ServiceClass templates
-	e.templates[ReasonServiceClassCreated] = "ServiceClass {{.Name}} successfully created in namespace {{.Namespace}}"
-	e.templates[ReasonServiceClassUpdated] = "ServiceClass {{.Name}} successfully updated in namespace {{.Namespace}}"
-	e.templates[ReasonServiceClassDeleted] = "ServiceClass {{.Name}} successfully deleted from namespace {{.Namespace}}"
-	e.templates[ReasonServiceClassValidated] = "ServiceClass {{.Name}} validation completed successfully"
-	e.templates[ReasonServiceClassValidationFailed] = "ServiceClass {{.Name}} validation failed{{if .Error}}: {{.Error}}{{end}}"
-
 	// Workflow templates
 	// Configuration Management Events
 	e.templates[ReasonWorkflowCreated] = "Workflow {{.Name}} successfully created{{if .StepCount}} with {{.StepCount}} steps{{end}}"
@@ -93,24 +86,6 @@ func (e *MessageTemplateEngine) loadDefaultTemplates() {
 	// Legacy templates (kept for compatibility)
 	e.templates[ReasonWorkflowExecuted] = "Workflow {{.Name}} executed successfully{{if .StepCount}} ({{.StepCount}} steps){{end}}{{if .Duration}} in {{.Duration}}{{end}}"
 
-	// Service Instance templates
-	e.templates[ReasonServiceInstanceCreated] = "Service instance {{.Name}} created from ServiceClass {{.ServiceClass}}"
-	e.templates[ReasonServiceInstanceStarting] = "Service instance {{.Name}} starting{{if .StepTool}} with tool {{.StepTool}}{{end}}"
-	e.templates[ReasonServiceInstanceStarted] = "Service instance {{.Name}} started successfully and is running"
-	e.templates[ReasonServiceInstanceStopping] = "Service instance {{.Name}} stopping{{if .StepTool}} with tool {{.StepTool}}{{end}}"
-	e.templates[ReasonServiceInstanceStopped] = "Service instance {{.Name}} stopped successfully"
-	e.templates[ReasonServiceInstanceRestarting] = "Service instance {{.Name}} restarting{{if .StepTool}} with tool {{.StepTool}}{{end}}"
-	e.templates[ReasonServiceInstanceRestarted] = "Service instance {{.Name}} restarted successfully{{if .Duration}} after {{.Duration}}{{end}}"
-	e.templates[ReasonServiceInstanceDeleted] = "Service instance {{.Name}} deleted successfully"
-	e.templates[ReasonServiceInstanceFailed] = "Service instance {{.Name}} operation failed{{if .Error}}: {{.Error}}{{end}}"
-	e.templates[ReasonServiceInstanceHealthy] = "Service instance {{.Name}} health checks passing{{if .StepCount}} ({{.StepCount}} consecutive successes){{end}}"
-	e.templates[ReasonServiceInstanceUnhealthy] = "Service instance {{.Name}} health checks failing{{if .StepCount}} ({{.StepCount}} consecutive failures){{end}}"
-	e.templates[ReasonServiceInstanceHealthCheckFailed] = "Service instance {{.Name}} health check failed{{if .Error}}: {{.Error}}{{end}}"
-	e.templates[ReasonServiceInstanceHealthCheckRecovered] = "Service instance {{.Name}} health check recovered after {{.StepCount}} failures"
-	e.templates[ReasonServiceInstanceStateChanged] = "Service instance {{.Name}} state changed: {{.ConditionResult}}"
-	e.templates[ReasonServiceInstanceToolExecutionStarted] = "Service instance {{.Name}} {{.Operation}} tool {{.StepTool}} execution started"
-	e.templates[ReasonServiceInstanceToolExecutionCompleted] = "Service instance {{.Name}} {{.Operation}} tool {{.StepTool}} execution completed successfully"
-	e.templates[ReasonServiceInstanceToolExecutionFailed] = "Service instance {{.Name}} {{.Operation}} tool {{.StepTool}} execution failed{{if .Error}}: {{.Error}}{{end}}"
 }
 
 // Render generates a message for the given event reason and data.
@@ -144,7 +119,6 @@ func (e *MessageTemplateEngine) renderTemplate(template string, data EventData) 
 	result = strings.ReplaceAll(result, "{{.Name}}", data.Name)
 	result = strings.ReplaceAll(result, "{{.Namespace}}", data.Namespace)
 	result = strings.ReplaceAll(result, "{{.Operation}}", data.Operation)
-	result = strings.ReplaceAll(result, "{{.ServiceClass}}", data.ServiceClass)
 	result = strings.ReplaceAll(result, "{{.Error}}", data.Error)
 
 	// Replace workflow-specific variables

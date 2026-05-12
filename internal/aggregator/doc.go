@@ -153,8 +153,7 @@
 // ## Tool Update Events
 //
 // The aggregator publishes ToolUpdateEvent notifications when its capability set changes,
-// ensuring system-wide consistency with dependent components like ServiceClass and
-// Capability managers.
+// ensuring system-wide consistency with dependent components like Capability managers.
 //
 //	Event flow:
 //	Backend server change → Registry update → Capability refresh → Event publication

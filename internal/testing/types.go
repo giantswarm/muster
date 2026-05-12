@@ -22,8 +22,6 @@ const (
 type TestConcept string
 
 const (
-	// ConceptServiceClass represents ServiceClass management tests
-	ConceptServiceClass TestConcept = "serviceclass"
 	// ConceptWorkflow represents Workflow execution tests
 	ConceptWorkflow TestConcept = "workflow"
 	// ConceptMCPServer represents MCPServer management tests
@@ -132,8 +130,6 @@ type MusterPreConfiguration struct {
 	// Workflows defines workflow definitions to load
 	Workflows []WorkflowConfig `yaml:"workflows,omitempty"`
 
-	// ServiceClasses defines service class definitions to load
-	ServiceClasses []ServiceClassConfig `yaml:"service_classes,omitempty"`
 	// Services defines service instance definitions to load
 	Services []ServiceConfig `yaml:"services,omitempty"`
 	// MainConfig defines the main muster configuration
@@ -158,9 +154,6 @@ type WorkflowConfig struct {
 	// Config contains the workflow definition
 	Config map[string]interface{} `yaml:"config"`
 }
-
-// ServiceClassConfig represents a service class configuration
-type ServiceClassConfig map[string]interface{}
 
 // ServiceConfig represents a service instance configuration
 type ServiceConfig struct {
@@ -194,8 +187,6 @@ type MusterInstance struct {
 	Logs *InstanceLogs
 	// ExpectedTools contains the list of tools expected to be available from MCP servers
 	ExpectedTools []string
-	// ExpectedServiceClasses contains the list of ServiceClasses expected to be available
-	ExpectedServiceClasses []string
 	// ExpectedMCPServers contains the list of MCP server names expected to be registered.
 	// This includes OAuth-protected servers which may be in "auth_required" state.
 	// Used by WaitForReady to ensure servers are registered before tests run.

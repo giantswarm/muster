@@ -34,24 +34,24 @@ func formatOAuthAuthenticationError(name string, err error) *api.CallToolResult 
 	return nil
 }
 
-// Adapter adapts the orchestrator to implement api.ServiceManagerHandler
+// Adapter adapts the orchestrator to implement api.ServiceManagerHandler.
 type Adapter struct {
 	orchestrator *Orchestrator
 }
 
-// NewAPIAdapter creates a new orchestrator adapter
+// NewAPIAdapter creates a new orchestrator adapter.
 func NewAPIAdapter(orchestrator *Orchestrator) *Adapter {
 	return &Adapter{
 		orchestrator: orchestrator,
 	}
 }
 
-// Register registers the adapter with the API
+// Register registers the adapter with the API.
 func (a *Adapter) Register() {
 	api.RegisterServiceManager(a)
 }
 
-// Service lifecycle management
+// Service lifecycle management.
 func (a *Adapter) StartService(name string) error {
 	return a.orchestrator.StartService(name)
 }
@@ -65,7 +65,6 @@ func (a *Adapter) RestartService(name string) error {
 }
 
 func (a *Adapter) SubscribeToStateChanges() <-chan api.ServiceStateChangedEvent {
-	// Convert internal events to API events
 	internalChan := a.orchestrator.SubscribeToStateChanges()
 	apiChan := make(chan api.ServiceStateChangedEvent, 100)
 
@@ -87,7 +86,7 @@ func (a *Adapter) SubscribeToStateChanges() <-chan api.ServiceStateChangedEvent 
 	return apiChan
 }
 
-// Service status
+// GetServiceStatus returns the current status of a service.
 func (a *Adapter) GetServiceStatus(name string) (*api.ServiceStatus, error) {
 	service, exists := a.orchestrator.registry.Get(name)
 	if !exists {
@@ -101,28 +100,20 @@ func (a *Adapter) GetServiceStatus(name string) (*api.ServiceStatus, error) {
 		Health:      api.HealthStatus(service.GetHealth()),
 	}
 
-	// Add error if present
 	if err := service.GetLastError(); err != nil {
 		status.Error = err.Error()
 	}
 
-	// Add metadata if available
 	if provider, ok := service.(services.ServiceDataProvider); ok {
 		if data := provider.GetServiceData(); data != nil {
 			status.Metadata = data
 		}
 	}
 
-	// Add outputs if this is a ServiceClass-based service instance
-	if genericInstance, ok := service.(*services.GenericServiceInstance); ok {
-		if outputs := genericInstance.GetOutputs(); len(outputs) > 0 {
-			status.Outputs = outputs
-		}
-	}
-
 	return status, nil
 }
 
+// GetAllServices returns the status of all services.
 func (a *Adapter) GetAllServices() []api.ServiceStatus {
 	allServices := a.orchestrator.registry.GetAll()
 	statuses := make([]api.ServiceStatus, 0, len(allServices))
@@ -135,22 +126,13 @@ func (a *Adapter) GetAllServices() []api.ServiceStatus {
 			Health:      api.HealthStatus(service.GetHealth()),
 		}
 
-		// Add error if present
 		if err := service.GetLastError(); err != nil {
 			status.Error = err.Error()
 		}
 
-		// Add metadata if available
 		if provider, ok := service.(services.ServiceDataProvider); ok {
 			if data := provider.GetServiceData(); data != nil {
 				status.Metadata = data
-			}
-		}
-
-		// Add outputs if this is a ServiceClass-based service instance
-		if genericInstance, ok := service.(*services.GenericServiceInstance); ok {
-			if outputs := genericInstance.GetOutputs(); len(outputs) > 0 {
-				status.Outputs = outputs
 			}
 		}
 
@@ -160,147 +142,47 @@ func (a *Adapter) GetAllServices() []api.ServiceStatus {
 	return statuses
 }
 
-// ServiceClass-based dynamic service instance management
-
-// CreateServiceClassInstance is an alias that delegates to CreateService for backward compatibility
-func (a *Adapter) CreateServiceClassInstance(ctx context.Context, req api.CreateServiceInstanceRequest) (*api.ServiceInstance, error) {
-	return a.CreateService(ctx, req)
-}
-
-// DeleteServiceClassInstance deletes a ServiceClass-based service instance
-func (a *Adapter) DeleteServiceClassInstance(ctx context.Context, name string) error {
-	return a.orchestrator.DeleteServiceClassInstance(ctx, name)
-}
-
-// GetServiceClassInstance returns service instance info by ID
-func (a *Adapter) GetServiceClassInstance(name string) (*api.ServiceInstance, error) {
-	internalInfo, err := a.orchestrator.GetServiceClassInstance(name)
-	if err != nil {
-		return nil, err
-	}
-	return a.convertToAPIServiceInstance(internalInfo), nil
-}
-
-// ListServiceClassInstances returns all service class instances
-func (a *Adapter) ListServiceClassInstances() []api.ServiceInstance {
-	internalInfos := a.orchestrator.ListServiceClassInstances()
-	apiInfos := make([]api.ServiceInstance, len(internalInfos))
-
-	for i, internalInfo := range internalInfos {
-		apiInfos[i] = *a.convertToAPIServiceInstance(&internalInfo)
-	}
-
-	return apiInfos
-}
-
-// SubscribeToServiceInstanceEvents returns a channel for service instance events
-func (a *Adapter) SubscribeToServiceInstanceEvents() <-chan api.ServiceInstanceEvent {
-	internalChan := a.orchestrator.SubscribeToServiceInstanceEvents()
-	apiChan := make(chan api.ServiceInstanceEvent, 100)
-
-	go func() {
-		for internalEvent := range internalChan {
-			apiChan <- api.ServiceInstanceEvent{
-				Name:        internalEvent.Name,
-				ServiceType: internalEvent.ServiceType,
-				OldState:    internalEvent.OldState,
-				NewState:    internalEvent.NewState,
-				OldHealth:   internalEvent.OldHealth,
-				NewHealth:   internalEvent.NewHealth,
-				Error:       internalEvent.Error,
-				Timestamp:   internalEvent.Timestamp,
-				Metadata:    internalEvent.Metadata,
-			}
-		}
-		close(apiChan)
-	}()
-
-	return apiChan
-}
-
-// Conversion helpers
-
-// convertToAPIServiceInstance converts internal ServiceInstanceInfo to API ServiceInstance
-func (a *Adapter) convertToAPIServiceInstance(internalInfo *ServiceInstanceInfo) *api.ServiceInstance {
-	return &api.ServiceInstance{
-		Name:             internalInfo.Name,
-		ServiceClassName: internalInfo.ServiceClassName,
-		ServiceClassType: internalInfo.ServiceClassType,
-		State:            api.ServiceState(internalInfo.State),
-		Health:           api.HealthStatus(internalInfo.Health),
-		LastError:        internalInfo.LastError,
-		CreatedAt:        internalInfo.CreatedAt,
-		UpdatedAt:        internalInfo.UpdatedAt,
-		LastChecked:      internalInfo.LastChecked,
-		ServiceData:      internalInfo.ServiceData,
-		Args:             internalInfo.CreationArgs,
-		Outputs:          internalInfo.Outputs,
-	}
-}
-
-// GetTools returns all tools this provider offers
+// GetTools returns all tools this provider offers.
 func (a *Adapter) GetTools() []api.ToolMetadata {
 	return []api.ToolMetadata{
-		// Unified service management tools
 		{
 			Name:        "service_list",
-			Description: "List all services (both static and ServiceClass-based) with their current status",
+			Description: "List all services with their current status",
 		},
 		{
 			Name:        "service_start",
-			Description: "Start a specific service (works for both static and ServiceClass-based services)",
+			Description: "Start a specific service",
 			Args: []api.ArgMetadata{
-				{
-					Name:        "name",
-					Type:        "string",
-					Required:    true,
-					Description: "Service name to start",
-				},
+				{Name: "name", Type: "string", Required: true, Description: "Service name to start"},
 			},
 		},
 		{
 			Name:        "service_stop",
-			Description: "Stop a specific service (works for both static and ServiceClass-based services)",
+			Description: "Stop a specific service",
 			Args: []api.ArgMetadata{
-				{
-					Name:        "name",
-					Type:        "string",
-					Required:    true,
-					Description: "Service name to stop",
-				},
+				{Name: "name", Type: "string", Required: true, Description: "Service name to stop"},
 			},
 		},
 		{
 			Name:        "service_restart",
-			Description: "Restart a specific service (works for both static and ServiceClass-based services)",
+			Description: "Restart a specific service",
 			Args: []api.ArgMetadata{
-				{
-					Name:        "name",
-					Type:        "string",
-					Required:    true,
-					Description: "Service name to restart",
-				},
+				{Name: "name", Type: "string", Required: true, Description: "Service name to restart"},
 			},
 		},
 		{
 			Name:        "service_status",
-			Description: "Get status of a specific service (works for both static and ServiceClass-based services)",
+			Description: "Get status of a specific service",
 			Args: []api.ArgMetadata{
-				{
-					Name:        "name",
-					Type:        "string",
-					Required:    true,
-					Description: "Service name to get status for",
-				},
+				{Name: "name", Type: "string", Required: true, Description: "Service name to get status for"},
 			},
 		},
 	}
 }
 
-// ExecuteTool executes a tool by name
+// ExecuteTool executes a tool by name.
 func (a *Adapter) ExecuteTool(ctx context.Context, toolName string, args map[string]interface{}) (*api.CallToolResult, error) {
 	switch toolName {
-	// Static service management
 	case "service_list":
 		return a.handleServiceList()
 	case "service_start":
@@ -316,13 +198,12 @@ func (a *Adapter) ExecuteTool(ctx context.Context, toolName string, args map[str
 	}
 }
 
-// Static service management handlers
 func (a *Adapter) handleServiceList() (*api.CallToolResult, error) {
-	services := a.GetAllServices()
+	svcs := a.GetAllServices()
 
 	result := map[string]interface{}{
-		"services": services,
-		"total":    len(services),
+		"services": svcs,
+		"total":    len(svcs),
 	}
 
 	return &api.CallToolResult{
@@ -340,7 +221,6 @@ func (a *Adapter) handleServiceStart(args map[string]interface{}) (*api.CallTool
 		}, nil
 	}
 
-	// Check current state before starting
 	status, err := a.GetServiceStatus(name)
 	if err != nil {
 		return &api.CallToolResult{
@@ -349,7 +229,6 @@ func (a *Adapter) handleServiceStart(args map[string]interface{}) (*api.CallTool
 		}, nil
 	}
 
-	// If already running, return appropriate message
 	if status.State == "running" {
 		return &api.CallToolResult{
 			Content: []interface{}{fmt.Sprintf("Service '%s' is already running", name)},
@@ -358,7 +237,6 @@ func (a *Adapter) handleServiceStart(args map[string]interface{}) (*api.CallTool
 	}
 
 	if err := a.StartService(name); err != nil {
-		// Check if this is an authentication required error
 		if authResult := formatOAuthAuthenticationError(name, err); authResult != nil {
 			return authResult, nil
 		}
@@ -383,7 +261,6 @@ func (a *Adapter) handleServiceStop(args map[string]interface{}) (*api.CallToolR
 		}, nil
 	}
 
-	// Check current state before stopping
 	status, err := a.GetServiceStatus(name)
 	if err != nil {
 		return &api.CallToolResult{
@@ -392,7 +269,6 @@ func (a *Adapter) handleServiceStop(args map[string]interface{}) (*api.CallToolR
 		}, nil
 	}
 
-	// If already stopped, return appropriate message
 	if status.State == "stopped" {
 		return &api.CallToolResult{
 			Content: []interface{}{fmt.Sprintf("Service '%s' is already stopped", name)},
@@ -423,7 +299,6 @@ func (a *Adapter) handleServiceRestart(args map[string]interface{}) (*api.CallTo
 	}
 
 	if err := a.RestartService(name); err != nil {
-		// Check if this is an authentication required error
 		if authResult := formatOAuthAuthenticationError(name, err); authResult != nil {
 			return authResult, nil
 		}
@@ -459,75 +334,5 @@ func (a *Adapter) handleServiceStatus(args map[string]interface{}) (*api.CallToo
 	return &api.CallToolResult{
 		Content: []interface{}{status},
 		IsError: false,
-	}, nil
-}
-
-// ServiceClass instance creation and deletion (unified methods)
-
-// CreateService creates a new ServiceClass-based service instance (unified method)
-func (a *Adapter) CreateService(ctx context.Context, req api.CreateServiceInstanceRequest) (*api.ServiceInstance, error) {
-	// Convert API request to internal request
-	internalReq := CreateServiceRequest{
-		ServiceClassName: req.ServiceClassName,
-		Name:             req.Name,
-		Args:             req.Args,
-		CreateTimeout:    req.CreateTimeout,
-		DeleteTimeout:    req.DeleteTimeout,
-	}
-
-	// Create the instance using the orchestrator
-	internalInfo, err := a.orchestrator.CreateServiceClassInstance(ctx, internalReq)
-	if err != nil {
-		return nil, err
-	}
-
-	// Convert internal response to API response
-	return a.convertToAPIServiceInstance(internalInfo), nil
-}
-
-// DeleteService deletes a service (works for ServiceClass instances by name)
-func (a *Adapter) DeleteService(ctx context.Context, name string) error {
-	if instance, err := a.orchestrator.GetServiceClassInstance(name); err == nil {
-		return a.orchestrator.DeleteServiceClassInstance(ctx, instance.Name)
-	}
-
-	// Not found as ServiceClass instance, cannot delete static services
-	return fmt.Errorf("service '%s' not found or cannot be deleted (static services cannot be deleted)", name)
-}
-
-// GetService returns detailed service information by name
-func (a *Adapter) GetService(name string) (*api.ServiceInstance, error) {
-	// First check if the service exists at all by getting its status
-	status, err := a.GetServiceStatus(name)
-	if err != nil {
-		return nil, fmt.Errorf("service '%s' not found", name)
-	}
-
-	// For ServiceClass instances, return detailed ServiceInstance information
-	if internalInfo, err := a.orchestrator.GetServiceClassInstance(name); err == nil {
-		return a.convertToAPIServiceInstance(internalInfo), nil
-	}
-
-	// For static services (MCP servers, aggregator), return service information
-	// in ServiceInstance format with additional service_type field in ServiceData
-	now := time.Time{}
-	serviceData := status.Metadata
-	if serviceData == nil {
-		serviceData = make(map[string]interface{})
-	}
-	// Add service_type to serviceData for API compatibility
-	serviceData["service_type"] = status.ServiceType
-
-	return &api.ServiceInstance{
-		Name:             status.Name,
-		ServiceClassName: "", // Not applicable for static services
-		ServiceClassType: "", // Not applicable for static services
-		State:            api.ServiceState(status.State),
-		Health:           api.HealthStatus(status.Health),
-		LastError:        status.Error,
-		CreatedAt:        now,         // Default for static services
-		LastChecked:      nil,         // Default for static services
-		ServiceData:      serviceData, // Include service_type in metadata
-		Args:             nil,         // Not applicable for static services
 	}, nil
 }
