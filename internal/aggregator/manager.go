@@ -9,7 +9,7 @@ import (
 	configPkg "github.com/giantswarm/muster/internal/config"
 
 	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/internal/oauth"
+	"github.com/giantswarm/muster/internal/broker"
 	"github.com/giantswarm/muster/pkg/logging"
 )
 
@@ -40,7 +40,7 @@ type AggregatorManager struct {
 	// Internal components
 	aggregatorServer *AggregatorServer // The core MCP server that exposes aggregated capabilities
 	eventHandler     *EventHandler     // Handles service state change events
-	oauthManager     *oauth.Manager    // OAuth proxy for remote MCP server authentication
+	oauthManager     *broker.Manager   // OAuth proxy for remote MCP server authentication
 
 	// Lifecycle management
 	ctx        context.Context    // Context for coordinating shutdown
@@ -79,22 +79,22 @@ func NewAggregatorManager(config AggregatorConfig, orchestratorAPI api.Orchestra
 			CAFile:       config.OAuth.CAFile,
 		}
 
-		var oauthOpts []oauth.ManagerOption
+		var oauthOpts []broker.ManagerOption
 		if vClient := manager.aggregatorServer.getValkeyClient(); vClient != nil {
 			keyPrefix := manager.aggregatorServer.getValkeyKeyPrefix()
 			enc := manager.aggregatorServer.getValkeyEncryptor()
 			logging.Info("Aggregator-Manager", "Using Valkey-backed OAuth token and state stores")
 			oauthOpts = append(oauthOpts,
-				oauth.WithValkeyTokenStore(oauth.NewValkeyTokenStore(vClient, oauth.DefaultTokenStoreTTL, keyPrefix, enc)),
-				oauth.WithValkeyStateStore(oauth.NewValkeyStateStore(vClient, keyPrefix, enc)),
+				broker.WithValkeyTokenStore(broker.NewValkeyTokenStore(vClient, broker.DefaultTokenStoreTTL, keyPrefix, enc)),
+				broker.WithValkeyStateStore(broker.NewValkeyStateStore(vClient, keyPrefix, enc)),
 			)
 		}
 
-		manager.oauthManager = oauth.NewManager(oauthMCPClientConfig, oauthOpts...)
+		manager.oauthManager = broker.NewManager(oauthMCPClientConfig, oauthOpts...)
 
 		if manager.oauthManager != nil {
 			// Register OAuth handler with the API layer
-			oauthAdapter := oauth.NewAdapter(manager.oauthManager)
+			oauthAdapter := broker.NewAdapter(manager.oauthManager)
 			oauthAdapter.Register()
 			logging.Info("Aggregator-Manager", "OAuth proxy enabled with public URL: %s", config.OAuth.PublicURL)
 

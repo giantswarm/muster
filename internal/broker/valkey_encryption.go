@@ -1,4 +1,4 @@
-package oauth
+package broker
 
 import "github.com/giantswarm/mcp-oauth/security"
 
