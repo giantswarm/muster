@@ -117,7 +117,7 @@ func TestGetMusterIssuer_WithOAuthServerConfig(t *testing.T) {
 	provider := NewAuthToolProvider(aggregator)
 
 	// Call getMusterIssuer
-	issuer := provider.getMusterIssuer(context.Background(), "test-user-sub")
+	issuer := provider.getMusterIssuer(t.Context(), "test-user-sub")
 
 	// Should return the BaseURL from the config
 	if issuer != "https://muster.example.com" {
