@@ -55,57 +55,6 @@ func (m *mockTeleportClientHandler) GetHTTPClientForConfig(ctx context.Context, 
 	return m.httpClient, nil
 }
 
-// mockOAuthHandler is a test double for api.OAuthHandler.
-type mockOAuthHandler struct {
-	enabled bool
-	tokens  map[string]*api.OAuthToken // key: sessionID+"|"+issuer
-}
-
-var _ api.OAuthHandler = (*mockOAuthHandler)(nil)
-
-func newMockOAuthHandler(enabled bool) *mockOAuthHandler {
-	return &mockOAuthHandler{
-		enabled: enabled,
-		tokens:  make(map[string]*api.OAuthToken),
-	}
-}
-
-func (m *mockOAuthHandler) IsEnabled() bool                                        { return m.enabled }
-func (m *mockOAuthHandler) GetCallbackPath() string                                { return "" }
-func (m *mockOAuthHandler) GetHTTPHandler() http.Handler                           { return nil }
-func (m *mockOAuthHandler) ShouldServeCIMD() bool                                  { return false }
-func (m *mockOAuthHandler) GetCIMDPath() string                                    { return "" }
-func (m *mockOAuthHandler) GetCIMDHandler() http.HandlerFunc                       { return nil }
-func (m *mockOAuthHandler) GetToken(_, _ string) *api.OAuthToken                   { return nil }
-func (m *mockOAuthHandler) GetTokenByIssuer(_, _ string) *api.OAuthToken           { return nil }
-func (m *mockOAuthHandler) FindTokenWithIDToken(_ string) *api.OAuthToken          { return nil }
-func (m *mockOAuthHandler) ClearTokenByIssuer(_, _ string)                         {}
-func (m *mockOAuthHandler) DeleteTokensByUser(_ string)                            {}
-func (m *mockOAuthHandler) DeleteTokensBySession(_ string)                         {}
-func (m *mockOAuthHandler) RegisterServer(_, _, _ string)                          {}
-func (m *mockOAuthHandler) SetAuthCompletionCallback(_ api.AuthCompletionCallback) {}
-func (m *mockOAuthHandler) Stop()                                                  {}
-
-func (m *mockOAuthHandler) CreateAuthChallenge(_ context.Context, _, _, _, _, _ string) (*api.AuthChallenge, error) {
-	return nil, nil
-}
-
-func (m *mockOAuthHandler) ExchangeTokenForRemoteCluster(_ context.Context, _, _ string, _ *api.TokenExchangeConfig) (string, string, error) {
-	return "", "", nil
-}
-
-func (m *mockOAuthHandler) ExchangeTokenForRemoteClusterWithClient(_ context.Context, _, _ string, _ *api.TokenExchangeConfig, _ *http.Client) (string, string, error) {
-	return "", "", nil
-}
-
-func (m *mockOAuthHandler) StoreToken(sessionID, _, issuer string, token *api.OAuthToken) {
-	m.tokens[sessionID+"|"+issuer] = token
-}
-
-func (m *mockOAuthHandler) GetFullTokenByIssuer(sessionID, issuer string) *api.OAuthToken {
-	return m.tokens[sessionID+"|"+issuer]
-}
-
 func TestLookupIDTokenForSession(t *testing.T) {
 	validToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiZXhwIjo5OTk5OTk5OTk5fQ.signature" //nolint:goconst,gosec
 

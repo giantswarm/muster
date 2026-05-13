@@ -41,6 +41,63 @@ type Manager struct {
 
 	// Callback to establish session connection after authentication
 	authCompletionCallback AuthCompletionCallback
+
+	// musterIssuer is the OAuth issuer URL muster itself authenticates
+	// against. Set via SetMusterIssuer at startup; empty means the broker
+	// silently skips muster-ID-token persistence.
+	musterIssuer string
+}
+
+// SetMusterIssuer records muster's own OAuth issuer URL so the broker can
+// store muster's ID tokens against the correct key. Called once at startup
+// after the OAuth server config is resolved.
+func (m *Manager) SetMusterIssuer(issuer string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.musterIssuer = issuer
+}
+
+// ErrMalformedIDToken is returned by [Manager.PersistMusterIDToken] when
+// the supplied ID token cannot be parsed for an exp claim. Storing such a
+// token would land a never-expiring entry (the token store treats a zero
+// ExpiresAt as immortal), so callers receive a sentinel error and can
+// react — typically by surfacing "re-authenticate" to the user.
+var ErrMalformedIDToken = errors.New("broker: malformed ID token")
+
+// PersistMusterIDToken stores muster's own ID token in the broker's token
+// store at the muster issuer key. Returns [ErrMalformedIDToken] when the
+// token has no parseable JWT exp rather than landing a never-expiring
+// entry.
+func (m *Manager) PersistMusterIDToken(sessionID, userID, idToken string) error {
+	if m == nil || sessionID == "" || idToken == "" {
+		return nil
+	}
+	m.mu.RLock()
+	issuer := m.musterIssuer
+	m.mu.RUnlock()
+	if issuer == "" {
+		return nil
+	}
+	exp, err := pkgoauth.Expiry(idToken)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrMalformedIDToken, err)
+	}
+	m.StoreToken(sessionID, userID, issuer, &pkgoauth.Token{
+		IDToken:   idToken,
+		ExpiresAt: exp,
+	})
+	return nil
+}
+
+// ClearMusterSession clears every cached entry for the session.
+func (m *Manager) ClearMusterSession(sessionID string) {
+	if m == nil || sessionID == "" {
+		return
+	}
+	m.DeleteTokensBySession(sessionID)
 }
 
 // AuthServerConfig holds OAuth configuration for a specific remote MCP server.

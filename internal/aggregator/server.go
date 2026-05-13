@@ -16,6 +16,7 @@ import (
 
 	"github.com/giantswarm/muster/internal/admin"
 	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/broker"
 	brokerhttp "github.com/giantswarm/muster/internal/broker/http"
 	"github.com/giantswarm/muster/internal/config"
 	internalmcp "github.com/giantswarm/muster/internal/mcpserver"
@@ -26,12 +27,10 @@ import (
 	oauth "github.com/giantswarm/mcp-oauth"
 	"github.com/giantswarm/mcp-oauth/providers/dex"
 	"github.com/giantswarm/mcp-oauth/security"
-	oauthserver "github.com/giantswarm/mcp-oauth/server"
 	mcptoolkitlogging "github.com/giantswarm/mcp-toolkit/logging"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/valkey-io/valkey-go"
-	"golang.org/x/oauth2"
 	"golang.org/x/sync/singleflight"
 
 	"github.com/giantswarm/muster/internal/aggregator/instrument"
@@ -143,16 +142,50 @@ type AggregatorServer struct {
 	// tokenBroker is nil until the composition root wires it via
 	// SetTokenBroker. Call sites snapshot it under a.mu and guard nil.
 	tokenBroker TokenBroker
+
+	// brokerManager is the broker's in-process manager used by the OAuth
+	// HTTP server's lifecycle-handler wiring. Nil in filesystem-mode (no
+	// OAuth proxy). Set by the composition root.
+	brokerManager *broker.Manager
 }
 
 // SetTokenBroker installs the [TokenBroker] adapter. The composition root
 // (internal/services/aggregator) calls this once after constructing the
 // manager and before Start. Subsequent calls replace the binding under
 // a.mu; concurrent reads see either the old or the new value.
-func (a *AggregatorServer) SetTokenBroker(tb TokenBroker) {
+func (a *AggregatorServer) SetTokenBroker(broker TokenBroker) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.tokenBroker = tb
+	a.tokenBroker = broker
+}
+
+// SetBrokerManager installs the broker manager used by the OAuth HTTP
+// server's lifecycle-handler wiring. Composition-root-only.
+func (a *AggregatorServer) SetBrokerManager(m *broker.Manager) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.brokerManager = m
+}
+
+// OnSessionCreated implements [broker.LifecycleSink]. The broker invokes
+// this after persisting a newly-issued session's ID token; the aggregator
+// fires SSO setup for the new session.
+func (a *AggregatorServer) OnSessionCreated(ctx context.Context, sessionID, userID, idToken string) {
+	a.initSSOForSession(ctx, userID, sessionID, idToken)
+}
+
+// OnTokenRefreshFailed implements [broker.LifecycleSink]. Fired when the
+// broker rejects an ID token (malformed, missing exp) or when an upstream
+// refresh returns no ID token at all.
+func (a *AggregatorServer) OnTokenRefreshFailed(ctx context.Context, sessionID, userID, reason string) {
+	a.handleUpstreamRefreshFailure(ctx, sessionID, userID, reason)
+}
+
+// OnSessionRevoked implements [broker.LifecycleSink]. The broker invokes
+// this after clearing its own session entries; the aggregator tears down
+// per-session connection-pool, capability-store, and auth-store state.
+func (a *AggregatorServer) OnSessionRevoked(ctx context.Context, sessionID string) {
+	a.tearDownSession(ctx, sessionID)
 }
 
 // tokenBrokerSnapshot returns the currently-installed [TokenBroker], or
@@ -1461,7 +1494,7 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 		return nil, fmt.Errorf("invalid OAuth server config type: expected OAuthServerConfig")
 	}
 
-	oauthHTTPServer, err := brokerhttp.NewOAuthHTTPServer(cfg, mcpHandler, a.config.Debug, a.ssoLifecycleOptions()...)
+	oauthHTTPServer, err := brokerhttp.NewOAuthHTTPServer(cfg, mcpHandler, a.config.Debug, a.brokerManager, a)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OAuth HTTP server: %w", err)
 	}
@@ -1499,7 +1532,7 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 				// refresh chain is broken (e.g. Dex -> GitHub returned 401).
 				// Evict stale SSO connections to stop mcp-go's infinite
 				// 1-second retry loop.
-				a.handleUpstreamRefreshFailure(sessionID, userID, "onAuthenticated: ID token missing for active session")
+				a.handleUpstreamRefreshFailure(ctx, sessionID, userID, "onAuthenticated: ID token missing for active session")
 			}
 			return
 		}
@@ -1542,47 +1575,6 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 	outerMux.Handle("/", oauthMux)
 
 	return outerMux, nil
-}
-
-// ssoLifecycleOptions returns the mcp-oauth options that drive aggregator-side
-// SSO setup from token-family lifecycle events. SessionCreationHandler fires
-// synchronously inside ExchangeAuthorizationCode, so downstream SSO connections
-// are established before the access token reaches the client.
-func (a *AggregatorServer) ssoLifecycleOptions() []oauth.ServerOption {
-	return []oauth.ServerOption{
-		oauth.WithSessionCreationHandler(func(ctx context.Context, userID, familyID string, token *oauth2.Token) {
-			idToken := oauthserver.ExtractIDToken(token)
-			logging.InfoWithAttrs("Aggregator", "SSO: SessionCreationHandler fired",
-				slog.String("userID", logging.TruncateIdentifier(userID)),
-				slog.String("familyID", logging.TruncateIdentifier(familyID)),
-				slog.Bool("hasIDToken", idToken != ""),
-				slog.Int("idTokenLen", len(idToken)))
-			a.initSSOForSession(ctx, userID, familyID, idToken)
-			a.storeIDTokenForSSO(familyID, userID, idToken)
-		}),
-		// An upstream refresh with no ID token signals a broken refresh chain
-		// (Dex obtained new tokens but the id_token was dropped); evict SSO
-		// connections to stop mcp-go retrying with stale credentials.
-		oauth.WithTokenRefreshHandler(func(ctx context.Context, userID, familyID string, newToken *oauth2.Token) {
-			idToken := oauthserver.ExtractIDToken(newToken)
-			if idToken == "" {
-				a.handleUpstreamRefreshFailure(familyID, userID, "TokenRefreshHandler: refreshed token has no ID token")
-				return
-			}
-			a.storeIDTokenForSSO(familyID, userID, idToken)
-			logging.DebugWithAttrs("Aggregator", "Stored refreshed ID token via TokenRefreshHandler",
-				slog.String("familyID", logging.TruncateIdentifier(familyID)))
-		}),
-		oauth.WithSessionRevocationHandler(func(ctx context.Context, userID, familyID string) {
-			a.tearDownSession(ctx, familyID)
-			if oauthHandler := api.GetOAuthHandler(); oauthHandler != nil && oauthHandler.IsEnabled() {
-				oauthHandler.DeleteTokensBySession(familyID)
-			}
-			logging.InfoWithAttrs("Aggregator", "Cleaned up session state for revoked session",
-				slog.String("familyID", logging.TruncateIdentifier(familyID)),
-				slog.String("userID", logging.TruncateIdentifier(userID)))
-		}),
-	}
 }
 
 // GetEndpoint returns the aggregator's primary endpoint URL based on the configured transport.
@@ -2618,7 +2610,7 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 	sessionID string,
 ) (MCPClient, time.Time, string, error) {
 	serverName := serverInfo.Name
-	musterIssuer := a.getMusterIssuer()
+	musterIssuer := a.GetMusterIssuer()
 	tokenBroker := a.tokenBrokerSnapshot()
 	if tokenBroker == nil || !tokenBroker.Enabled() {
 		return nil, time.Time{}, "", fmt.Errorf("broker not available for token exchange to %s", serverName)
@@ -2788,7 +2780,7 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 		}
 
 	} else if ShouldUseTokenForwarding(serverInfo) {
-		musterIssuer := a.getMusterIssuer()
+		musterIssuer := a.GetMusterIssuer()
 		tokenBroker := a.tokenBrokerSnapshot()
 		idToken := lookupIDTokenForSession(ctx, tokenBroker, sessionID, musterIssuer)
 		if idToken == "" {

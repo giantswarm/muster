@@ -33,7 +33,7 @@ func newManagerForTest(t *testing.T) *broker.Manager {
 
 func TestInProcess_NilManager_ReturnsBrokerDisabled(t *testing.T) {
 	a := NewInProcess(nil, nil)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	require.False(t, a.Enabled())
 
@@ -80,7 +80,7 @@ func TestInProcess_BeginOAuthFlow_BuildsAuthURL(t *testing.T) {
 	m := newManagerForTest(t)
 	a := NewInProcess(m, nil)
 
-	flow, err := a.BeginOAuthFlow(context.Background(), aggregator.BeginRequest{
+	flow, err := a.BeginOAuthFlow(t.Context(), aggregator.BeginRequest{
 		SessionID:  "session-flow",
 		Subject:    "alice",
 		ServerName: "mcp-kubernetes",
@@ -105,7 +105,7 @@ func TestInProcess_BeginOAuthFlow_BuildsAuthURL(t *testing.T) {
 func TestInProcess_InvalidateToken_EvictsFromCache(t *testing.T) {
 	m := newManagerForTest(t)
 	a := NewInProcess(m, nil)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	const (
 		sessionID = "session-invalidate"
@@ -132,7 +132,7 @@ func TestInProcess_ExchangeToken_RejectsEmptyConfig(t *testing.T) {
 	m := newManagerForTest(t)
 	a := NewInProcess(m, nil)
 
-	_, err := a.ExchangeToken(context.Background(), aggregator.ExchangeRequest{
+	_, err := a.ExchangeToken(t.Context(), aggregator.ExchangeRequest{
 		SessionID:    "sid",
 		Subject:      "user",
 		SubjectToken: "id-token",
@@ -163,7 +163,7 @@ func TestInProcess_ExchangeToken_ConsultsResolver(t *testing.T) {
 	// Best-effort: ExchangeToken will fail because the synthetic config has
 	// no reachable endpoint. We only assert that the resolver was consulted
 	// with the audience name before the broker tried to talk to the IdP.
-	_, _ = a.ExchangeToken(context.Background(), aggregator.ExchangeRequest{
+	_, _ = a.ExchangeToken(t.Context(), aggregator.ExchangeRequest{
 		SessionID:    "sid",
 		Subject:      "user",
 		SubjectToken: "id-token",
@@ -206,7 +206,7 @@ func TestInProcess_ExchangeToken_RoutesPerAudience(t *testing.T) {
 	}}
 	a := NewInProcess(m, resolver)
 
-	ctx := context.Background()
+	ctx := t.Context()
 	exchange := func(audience string) {
 		_, _ = a.ExchangeToken(ctx, aggregator.ExchangeRequest{
 			SessionID:    "sid",
@@ -232,7 +232,7 @@ func TestInProcess_ExchangeToken_PropagatesResolverError(t *testing.T) {
 	resolverErr := errors.New("teleport cert unavailable")
 	a := NewInProcess(m, &erroringTransportResolver{err: resolverErr})
 
-	_, err := a.ExchangeToken(context.Background(), aggregator.ExchangeRequest{
+	_, err := a.ExchangeToken(t.Context(), aggregator.ExchangeRequest{
 		SessionID:    "sid",
 		Subject:      "user",
 		SubjectToken: "id-token",
@@ -269,7 +269,7 @@ func TestTranslateExchangeConfig_SetsEnabledAndCopiesFields(t *testing.T) {
 func TestInProcess_GetToken_RoundTrip(t *testing.T) {
 	m := newManagerForTest(t)
 	a := NewInProcess(m, nil)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	const (
 		sessionID = "session-1"
@@ -299,7 +299,7 @@ func TestInProcess_GetToken_RoundTrip(t *testing.T) {
 func TestInProcess_SessionIssuer_RoundTrip(t *testing.T) {
 	m := newManagerForTest(t)
 	a := NewInProcess(m, nil)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	const (
 		sessionID = "session-2"

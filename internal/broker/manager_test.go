@@ -1,9 +1,11 @@
 package broker
 
 import (
-	"context"
 	"errors"
 	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
 
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
@@ -446,7 +448,7 @@ func TestManager_GetCIMDHandler_NilManager(t *testing.T) {
 
 func TestManager_CreateAuthChallenge_NilManager(t *testing.T) {
 	var manager *Manager
-	ctx := context.Background()
+	ctx := t.Context()
 	_, err := manager.CreateAuthChallenge(ctx, "user@example.com", "test-user", "server", "", "")
 	if err == nil {
 		t.Error("Expected error for nil manager")
@@ -455,7 +457,7 @@ func TestManager_CreateAuthChallenge_NilManager(t *testing.T) {
 
 func TestManager_HandleCallback_NilManager(t *testing.T) {
 	var manager *Manager
-	ctx := context.Background()
+	ctx := t.Context()
 	err := manager.HandleCallback(ctx, "code", "state")
 	if err == nil {
 		t.Error("Expected error for nil manager")
@@ -476,7 +478,7 @@ func TestManager_HandleCallback_InvalidState(t *testing.T) {
 	}
 	defer manager.Stop()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	err := manager.HandleCallback(ctx, "code", "invalid-state")
 	if err == nil {
 		t.Error("Expected error for invalid state")
@@ -502,7 +504,7 @@ func TestManager_CreateAuthChallenge(t *testing.T) {
 	issuer := "https://invalid-issuer.example.com"
 	scope := testScopes
 
-	ctx := context.Background()
+	ctx := t.Context()
 	_, err := manager.CreateAuthChallenge(ctx, "user-123", "test-user", "mcp-server", issuer, scope)
 	// Expected to fail because the issuer doesn't return valid metadata
 	if err == nil {
@@ -639,7 +641,7 @@ func TestManager_SessionIssuer_DeterministicAcrossMultipleIssuers(t *testing.T) 
 
 	const expected = "https://idp-a.example.com"
 	for range 10 {
-		got, err := manager.SessionIssuer(context.Background(), sessionID)
+		got, err := manager.SessionIssuer(t.Context(), sessionID)
 		if err != nil {
 			t.Fatalf("SessionIssuer returned error: %v", err)
 		}
@@ -663,7 +665,7 @@ func TestManager_SessionIssuer_UnknownSession(t *testing.T) {
 	}
 	defer manager.Stop()
 
-	_, err := manager.SessionIssuer(context.Background(), "no-such-session")
+	_, err := manager.SessionIssuer(t.Context(), "no-such-session")
 	if !errors.Is(err, ErrSessionUnknown) {
 		t.Fatalf("expected ErrSessionUnknown, got %v", err)
 	}
@@ -693,5 +695,113 @@ func TestNewManager_SelfHostedCIMD(t *testing.T) {
 	cimdPath := manager.GetCIMDPath()
 	if cimdPath != "/.well-known/oauth-client.json" {
 		t.Errorf("Expected CIMD path %q, got %q", "/.well-known/oauth-client.json", cimdPath)
+	}
+}
+
+func TestManager_PersistMusterIDToken_SetsExpiresAtFromJWT(t *testing.T) {
+	m := NewManager(config.OAuthMCPClientConfig{
+		Enabled:      true,
+		PublicURL:    "https://muster.test",
+		ClientID:     "muster-test",
+		CallbackPath: "/oauth/proxy/callback",
+	})
+	if m == nil {
+		t.Fatal("NewManager returned nil")
+	}
+	t.Cleanup(m.Stop)
+	m.SetMusterIssuer("https://muster.example")
+
+	t.Run("populates ExpiresAt when JWT carries an exp claim", func(t *testing.T) {
+		idToken := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhbGljZSIsImV4cCI6OTk5OTk5OTk5OX0.sig" //nolint:gosec
+		if err := m.PersistMusterIDToken("family-1", "alice", idToken); err != nil {
+			t.Fatalf("PersistMusterIDToken returned error: %v", err)
+		}
+		stored := m.GetTokenByIssuer("family-1", "https://muster.example")
+		if stored == nil {
+			t.Fatal("token not stored")
+		}
+		if stored.ExpiresAt.IsZero() {
+			t.Fatal("ExpiresAt should be populated from JWT exp claim")
+		}
+		want := time.Unix(9999999999, 0)
+		if !stored.ExpiresAt.Equal(want) {
+			t.Errorf("ExpiresAt = %v, want %v", stored.ExpiresAt, want)
+		}
+	})
+
+	t.Run("refuses to store an unparseable token", func(t *testing.T) {
+		err := m.PersistMusterIDToken("family-2", "bob", "not-a-jwt")
+		if err == nil {
+			t.Fatal("expected error for unparseable token")
+		}
+		if stored := m.GetTokenByIssuer("family-2", "https://muster.example"); stored != nil {
+			t.Fatalf("unparseable token must not be stored (would land as never-expiring), got %+v", stored)
+		}
+	})
+
+	t.Run("refuses to store a JWT without exp", func(t *testing.T) {
+		idToken := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJjYXJvbCJ9.sig" //nolint:gosec
+		err := m.PersistMusterIDToken("family-3", "carol", idToken)
+		if err == nil {
+			t.Fatal("expected error for JWT without exp")
+		}
+		if stored := m.GetTokenByIssuer("family-3", "https://muster.example"); stored != nil {
+			t.Fatalf("JWT without exp must not be stored, got %+v", stored)
+		}
+	})
+
+	t.Run("no-op when muster issuer is unset", func(t *testing.T) {
+		m2 := NewManager(config.OAuthMCPClientConfig{
+			Enabled:      true,
+			PublicURL:    "https://muster.test",
+			ClientID:     "muster-test",
+			CallbackPath: "/oauth/proxy/callback",
+		})
+		t.Cleanup(m2.Stop)
+		idToken := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJlIiwiZXhwIjo5OTk5OTk5OTk5fQ.sig" //nolint:gosec
+		if err := m2.PersistMusterIDToken("family-4", "eve", idToken); err != nil {
+			t.Fatalf("PersistMusterIDToken should silently no-op when issuer unset, got %v", err)
+		}
+	})
+
+	t.Run("JWT with past exp is accepted on write", func(t *testing.T) {
+		// PersistMusterIDToken only rejects unparseable tokens. A
+		// parseable JWT with an exp in the past is accepted (a write-side
+		// invariant); whether subsequent reads filter expired entries is
+		// the read path's concern and orthogonal to this contract.
+		idToken := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJkYXZlIiwiZXhwIjoxfQ.sig" //nolint:gosec
+		require.NoError(t, m.PersistMusterIDToken("family-5", "dave", idToken))
+	})
+
+	t.Run("returns ErrMalformedIDToken sentinel for malformed input", func(t *testing.T) {
+		err := m.PersistMusterIDToken("family-6", "frank", "not-a-jwt")
+		require.ErrorIs(t, err, ErrMalformedIDToken)
+	})
+}
+
+func TestManager_ClearMusterSession_RemovesAllSessionEntries(t *testing.T) {
+	m := NewManager(config.OAuthMCPClientConfig{
+		Enabled:      true,
+		PublicURL:    "https://muster.test",
+		ClientID:     "muster-test",
+		CallbackPath: "/oauth/proxy/callback",
+	})
+	if m == nil {
+		t.Fatal("NewManager returned nil")
+	}
+	t.Cleanup(m.Stop)
+	m.SetMusterIssuer("https://muster.example")
+
+	idToken := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ4IiwiZXhwIjo5OTk5OTk5OTk5fQ.sig" //nolint:gosec
+	if err := m.PersistMusterIDToken("family-1", "x", idToken); err != nil {
+		t.Fatalf("PersistMusterIDToken: %v", err)
+	}
+	if m.GetTokenByIssuer("family-1", "https://muster.example") == nil {
+		t.Fatal("precondition: token should be stored")
+	}
+
+	m.ClearMusterSession("family-1")
+	if stored := m.GetTokenByIssuer("family-1", "https://muster.example"); stored != nil {
+		t.Errorf("expected session cleared, got %+v", stored)
 	}
 }

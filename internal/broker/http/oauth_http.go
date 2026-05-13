@@ -147,10 +147,23 @@ type OAuthHTTPServer struct {
 }
 
 // NewOAuthHTTPServer creates a new OAuth-enabled HTTP server that wraps
-// the provided MCP handler with authentication protection. Caller-provided
-// mcp-oauth options (e.g. token-family lifecycle handlers) are forwarded to
-// the underlying OAuth server.
-func NewOAuthHTTPServer(cfg config.OAuthServerConfig, mcpHandler http.Handler, debug bool, opts ...oauth.ServerOption) (*OAuthHTTPServer, error) {
+// the provided MCP handler with authentication protection.
+//
+// The broker owns token-family lifecycle persistence: callers pass a
+// *broker.Manager for the broker-internal persist/clear plus a
+// [broker.LifecycleSink] for aggregator-side domain reactions (SSO
+// setup, upstream-refresh-failure cleanup, session teardown). Caller-
+// supplied opts are forwarded to mcp-oauth verbatim and may NOT include
+// lifecycle handlers — those are appended by this function so the broker
+// stays the source of truth.
+func NewOAuthHTTPServer(
+	cfg config.OAuthServerConfig,
+	mcpHandler http.Handler,
+	debug bool,
+	manager *broker.Manager,
+	sink broker.LifecycleSink,
+	opts ...oauth.ServerOption,
+) (*OAuthHTTPServer, error) {
 	if !cfg.Enabled {
 		return nil, fmt.Errorf("OAuth server is not enabled")
 	}
@@ -158,6 +171,8 @@ func NewOAuthHTTPServer(cfg config.OAuthServerConfig, mcpHandler http.Handler, d
 	if err := validateHTTPSRequirement(cfg.BaseURL); err != nil {
 		return nil, err
 	}
+
+	opts = append(opts, brokerLifecycleOptions(manager, sink)...)
 
 	oauthServer, tokenStore, err := createOAuthServer(cfg, opts)
 	if err != nil {

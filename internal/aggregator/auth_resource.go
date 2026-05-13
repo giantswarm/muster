@@ -185,7 +185,7 @@ func (a *AggregatorServer) determineSessionAuthStatus(sub, sessionID, serverName
 	return pkgoauth.SessionServerStatusDisconnected
 }
 
-// getMusterIssuer returns the OAuth issuer URL configured for muster's OAuth server.
+// GetMusterIssuer returns the OAuth issuer URL configured for muster's OAuth server.
 // This is used for SSO token forwarding - the issuer identifies the ID token source.
 // When users authenticate to muster via `muster auth login`, this issuer is used to
 // retrieve their ID token for forwarding to SSO-enabled downstream servers.
@@ -195,7 +195,7 @@ func (a *AggregatorServer) determineSessionAuthStatus(sub, sessionID, serverName
 //   - For other providers: returns BaseURL (muster's own URL as issuer)
 //
 // Returns empty string if OAuth is not enabled or not configured.
-func (a *AggregatorServer) getMusterIssuer() string {
+func (a *AggregatorServer) GetMusterIssuer() string {
 	if !a.config.OAuthServer.Enabled || a.config.OAuthServer.Config == nil {
 		return ""
 	}
@@ -219,48 +219,16 @@ func (a *AggregatorServer) getMusterIssuer() string {
 	return cfg.BaseURL
 }
 
-// storeIDTokenForSSO persists the muster-level ID token in the OAuth proxy
-// token store so background headerFunc closures can resolve it for SSO token
-// forwarding.
+// handleUpstreamRefreshFailure runs the aggregator-side cleanup when the
+// upstream token refresh chain is detected as broken (e.g. Dex -> GitHub
+// returns 401, or the refreshed token has no ID token). The broker's own
+// cache is cleared via the broker manager; pooled SSO connections are
+// evicted to stop mcp-go's retry loop; the auth store is revoked so
+// auth://status reports reauth_required.
 //
-// The token is muster's own ID token, always a JWT issued by mcp-oauth and
-// already validated by upstream middleware — it must carry an `exp`. If we
-// can't parse one out, the token is malformed and we refuse to store it
-// rather than land a never-expiring entry (IsExpiredWithMargin treats a zero
-// ExpiresAt as immortal).
-func (a *AggregatorServer) storeIDTokenForSSO(familyID, userID, idToken string) {
-	if idToken == "" || familyID == "" {
-		return
-	}
-	musterIssuer := a.getMusterIssuer()
-	if musterIssuer == "" {
-		return
-	}
-	exp, err := pkgoauth.Expiry(idToken)
-	if err != nil {
-		logging.Warn("OAuth",
-			"storeIDTokenForSSO: refusing to store ID token without parseable JWT exp (familyID=%s, issuer=%s): %v; SSO forwarding will require re-auth",
-			logging.TruncateIdentifier(familyID), musterIssuer, err)
-		return
-	}
-	if oh := api.GetOAuthHandler(); oh != nil && oh.IsEnabled() {
-		oh.StoreToken(familyID, userID, musterIssuer, &api.OAuthToken{
-			IDToken:   idToken,
-			ExpiresAt: exp,
-		})
-	}
-}
-
-// handleUpstreamRefreshFailure is called when the upstream token refresh chain
-// is detected as broken (e.g. Dex -> GitHub returns 401, or the refreshed token
-// has no ID token). It evicts all pooled SSO connections for the session to stop
-// mcp-go's infinite 1-second retry loop, and clears the session's auth store
-// entries so auth://status reports reauth_required instead of connected.
-//
-// This is safe to call multiple times for the same session; all operations are
-// idempotent (evicting an empty pool is a no-op, revoking a revoked session is
-// a no-op).
-func (a *AggregatorServer) handleUpstreamRefreshFailure(sessionID, userID, reason string) {
+// Safe to call multiple times for the same session; every operation is
+// idempotent.
+func (a *AggregatorServer) handleUpstreamRefreshFailure(ctx context.Context, sessionID, userID, reason string) {
 	logging.Warn("Aggregator", "SSO: Upstream refresh failure detected for session %s (user %s): %s",
 		logging.TruncateIdentifier(sessionID), logging.TruncateIdentifier(userID), reason)
 
@@ -271,23 +239,19 @@ func (a *AggregatorServer) handleUpstreamRefreshFailure(sessionID, userID, reaso
 	}
 
 	if a.authStore != nil {
-		if err := a.authStore.RevokeSession(context.Background(), sessionID); err != nil {
+		if err := a.authStore.RevokeSession(ctx, sessionID); err != nil {
 			logging.Warn("Aggregator", "SSO: Failed to revoke auth session %s after refresh failure: %v",
 				logging.TruncateIdentifier(sessionID), err)
 		}
 	}
 
-	// Clear the stored ID token so headerFunc closures don't keep resolving
-	// stale tokens from the OAuth proxy store.
-	musterIssuer := a.getMusterIssuer()
-	if musterIssuer != "" {
-		if oh := api.GetOAuthHandler(); oh != nil && oh.IsEnabled() {
-			oh.ClearTokenByIssuer(sessionID, musterIssuer)
-		}
+	a.mu.RLock()
+	brokerManager := a.brokerManager
+	a.mu.RUnlock()
+	if brokerManager != nil {
+		brokerManager.ClearMusterSession(sessionID)
 	}
 
-	// Mark all SSO servers as failed for this user so initSSOForSession
-	// doesn't immediately retry with expired credentials.
 	if a.ssoTracker != nil && userID != "" {
 		servers := a.registry.GetAllServers()
 		for _, info := range servers {
@@ -302,13 +266,11 @@ func (a *AggregatorServer) handleUpstreamRefreshFailure(sessionID, userID, reaso
 // the config does not pin one — the issuer recorded for sessionID by the
 // broker. Returns empty if neither source yields an issuer.
 func (a *AggregatorServer) resolveMusterIssuer(ctx context.Context, sessionID string) string {
-	if issuer := a.getMusterIssuer(); issuer != "" {
+	if issuer := a.GetMusterIssuer(); issuer != "" {
 		return issuer
 	}
 
-	a.mu.RLock()
-	broker := a.tokenBroker
-	a.mu.RUnlock()
+	broker := a.tokenBrokerSnapshot()
 	if broker == nil {
 		return ""
 	}
@@ -334,7 +296,7 @@ const initSSOTimeout = 15 * time.Second
 // Connections to individual servers run in parallel with a shared timeout
 // so that a single slow server cannot block the entire login flow.
 func (a *AggregatorServer) initSSOForSession(ctx context.Context, userID, sessionID, idToken string) {
-	musterIssuer := a.getMusterIssuer()
+	musterIssuer := a.GetMusterIssuer()
 
 	logging.Info("Aggregator", "SSO: initSSOForSession called (userID=%s, sessionID=%s, idTokenLen=%d, musterIssuer=%s)",
 		logging.TruncateIdentifier(userID), logging.TruncateIdentifier(sessionID), len(idToken), musterIssuer)

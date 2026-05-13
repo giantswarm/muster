@@ -358,7 +358,7 @@ func (a *AggregatorServer) adminReconnectServer(ctx context.Context, sessionID, 
 	ssoCtx := api.WithSubject(timeoutCtx, subject)
 	ssoCtx = api.WithSessionID(ssoCtx, sessionID)
 
-	a.establishSSOConnection(ssoCtx, info, a.getMusterIssuer(), idToken)
+	a.establishSSOConnection(ssoCtx, info, a.GetMusterIssuer(), idToken)
 
 	logging.InfoWithAttrs("Admin", "Server reconnected via admin UI",
 		slog.String("sessionID", logging.TruncateIdentifier(sessionID)),

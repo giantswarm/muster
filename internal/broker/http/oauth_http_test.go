@@ -230,7 +230,7 @@ func TestNewOAuthHTTPServer_DisabledReturnsError(t *testing.T) {
 		Enabled: false,
 	}
 
-	_, err := NewOAuthHTTPServer(cfg, http.DefaultServeMux, false)
+	_, err := NewOAuthHTTPServer(cfg, http.DefaultServeMux, false, nil, nil)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not enabled")
 }
@@ -242,7 +242,7 @@ func TestNewOAuthHTTPServer_InvalidProviderReturnsError(t *testing.T) {
 		Provider: "unsupported",
 	}
 
-	_, err := NewOAuthHTTPServer(cfg, http.DefaultServeMux, false)
+	_, err := NewOAuthHTTPServer(cfg, http.DefaultServeMux, false, nil, nil)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported OAuth provider")
 }
@@ -259,7 +259,7 @@ func TestNewOAuthHTTPServer_MissingDexIssuerReturnsError(t *testing.T) {
 		},
 	}
 
-	_, err := NewOAuthHTTPServer(cfg, http.DefaultServeMux, false)
+	_, err := NewOAuthHTTPServer(cfg, http.DefaultServeMux, false, nil, nil)
 	assert.Error(t, err)
 	// The Dex provider will fail to initialize without issuer URL
 }

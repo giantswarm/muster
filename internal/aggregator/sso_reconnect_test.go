@@ -43,7 +43,7 @@ func TestOnAuthenticated_TriggersSSOReinit_WhenAuthStoreEmpty(t *testing.T) {
 	sessionID := "session-from-before-restart"
 
 	// Touch on an empty store should return false (session not known)
-	authAlive, err := authStore.Touch(context.Background(), sessionID)
+	authAlive, err := authStore.Touch(t.Context(), sessionID)
 	require.NoError(t, err)
 	assert.False(t, authAlive,
 		"Touch on a fresh authStore (simulating pod restart) should return false, triggering SSO re-init")
@@ -55,7 +55,7 @@ func TestOnAuthenticated_NoSSOReinit_WhenAuthAlive(t *testing.T) {
 	authStore := NewInMemorySessionAuthStore(30 * time.Minute)
 	defer authStore.Stop()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	sessionID := "active-session"
 	err := authStore.MarkAuthenticated(ctx, sessionID, "server1")
 	require.NoError(t, err)
@@ -73,7 +73,7 @@ func TestOnAuthenticated_TriggersSSOReinit_WhenSessionExpired(t *testing.T) {
 	authStore := NewInMemorySessionAuthStore(ttl)
 	defer authStore.Stop()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	sessionID := "expiring-session"
 	err := authStore.MarkAuthenticated(ctx, sessionID, "server1")
 	require.NoError(t, err)
@@ -93,7 +93,7 @@ func TestOnAuthenticated_TriggersSSOReinit_WhenNoServers(t *testing.T) {
 	authStore := NewInMemorySessionAuthStore(30 * time.Minute)
 	defer authStore.Stop()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	sessionID := "empty-session"
 
 	// Mark and then revoke the only server
@@ -199,7 +199,7 @@ func TestOnAuthenticated_ClearsFailuresBeforeReinit(t *testing.T) {
 
 	// Simulate the onAuthenticated callback logic:
 	// 1. Touch returns false (session unknown after restart)
-	authAlive, _ := authStore.Touch(context.Background(), sessionID)
+	authAlive, _ := authStore.Touch(t.Context(), sessionID)
 	require.False(t, authAlive)
 
 	// 2. Clear all SSO failures before re-init (this is the new behavior)
@@ -221,7 +221,7 @@ func TestOnAuthenticated_SkipsSSO_WhenNoIDToken(t *testing.T) {
 	authStore := NewInMemorySessionAuthStore(30 * time.Minute)
 	defer authStore.Stop()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	sessionID := "stale-session-no-idtoken"
 
 	// Touch returns false (session unknown after restart)
@@ -251,7 +251,7 @@ func TestOnAuthenticated_EvictsSSO_WhenAuthAliveButNoIDToken(t *testing.T) {
 	authStore := NewInMemorySessionAuthStore(30 * time.Minute)
 	defer authStore.Stop()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	sessionID := "session-with-broken-refresh"
 
 	// Session is alive with authenticated servers
@@ -380,7 +380,7 @@ func TestHandleUpstreamRefreshFailure_Integration(t *testing.T) {
 	tracker := newSSOTracker()
 	registry := NewServerRegistry("x")
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Register SSO and non-SSO servers.
 	err := registry.RegisterPendingAuthWithConfig(
@@ -420,7 +420,7 @@ func TestHandleUpstreamRefreshFailure_Integration(t *testing.T) {
 		ssoTracker: tracker,
 	}
 
-	aggServer.handleUpstreamRefreshFailure(sessionID, userID, "test reason")
+	aggServer.handleUpstreamRefreshFailure(t.Context(), sessionID, userID, "test reason")
 
 	// Pool should be fully evicted for this session.
 	_, ok := pool.Get(sessionID, "sso-fwd")
@@ -471,9 +471,10 @@ func TestHandleUpstreamRefreshFailure_Idempotent(t *testing.T) {
 	}
 
 	// Call three times -- should not panic.
-	aggServer.handleUpstreamRefreshFailure("s1", "u1", "first call")
-	aggServer.handleUpstreamRefreshFailure("s1", "u1", "second call")
-	aggServer.handleUpstreamRefreshFailure("s1", "u1", "third call")
+	ctx := t.Context()
+	aggServer.handleUpstreamRefreshFailure(ctx, "s1", "u1", "first call")
+	aggServer.handleUpstreamRefreshFailure(ctx, "s1", "u1", "second call")
+	aggServer.handleUpstreamRefreshFailure(ctx, "s1", "u1", "third call")
 
 	// Failure count should increase with each call (exponential backoff).
 	fc := tracker.GetFailureCount("u1", "sso-server")
@@ -489,7 +490,7 @@ func TestHandleUpstreamRefreshFailure_NilComponents(t *testing.T) {
 	}
 
 	assert.NotPanics(t, func() {
-		aggServer.handleUpstreamRefreshFailure("session", "user", "nil components test")
+		aggServer.handleUpstreamRefreshFailure(t.Context(), "session", "user", "nil components test")
 	})
 }
 
@@ -503,7 +504,7 @@ func TestOnStaleToken_EvictsAndRevokes(t *testing.T) {
 	authStore := NewInMemorySessionAuthStore(30 * time.Minute)
 	defer authStore.Stop()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	sessionID := "stale-token-session"
 	serverName := "stale-token-server"
 
@@ -523,7 +524,7 @@ func TestOnStaleToken_EvictsAndRevokes(t *testing.T) {
 	}
 	onStaleToken := func() {
 		aggServer.connPool.Evict(sessionID, serverName)
-		if err := aggServer.authStore.Revoke(context.Background(), sessionID, serverName); err != nil {
+		if err := aggServer.authStore.Revoke(t.Context(), sessionID, serverName); err != nil {
 			t.Errorf("unexpected error revoking auth: %v", err)
 		}
 	}
@@ -550,7 +551,7 @@ func TestOnAuthenticated_CallsHandleUpstreamRefreshFailure(t *testing.T) {
 	tracker := newSSOTracker()
 	registry := NewServerRegistry("x")
 
-	ctx := context.Background()
+	ctx := t.Context()
 	sessionID := "callback-session"
 	userID := "callback-user"
 
@@ -579,7 +580,7 @@ func TestOnAuthenticated_CallsHandleUpstreamRefreshFailure(t *testing.T) {
 	// Simulate the onAuthenticated callback code path: authAlive=true, idToken=""
 	idToken := ""
 	if authAlive && idToken == "" {
-		aggServer.handleUpstreamRefreshFailure(sessionID, userID,
+		aggServer.handleUpstreamRefreshFailure(ctx, sessionID, userID,
 			"onAuthenticated: ID token missing for active session")
 	}
 
@@ -614,7 +615,7 @@ func TestTokenRefreshHandler_MissingIDToken_TriggersEviction(t *testing.T) {
 	tracker := newSSOTracker()
 	registry := NewServerRegistry("x")
 
-	ctx := context.Background()
+	ctx := t.Context()
 	familyID := "refresh-family"
 	userID := "refresh-user"
 
@@ -638,7 +639,7 @@ func TestTokenRefreshHandler_MissingIDToken_TriggersEviction(t *testing.T) {
 	// Simulate the TokenRefreshHandler code path: idToken is empty.
 	idToken := ""
 	if idToken == "" {
-		aggServer.handleUpstreamRefreshFailure(familyID, userID,
+		aggServer.handleUpstreamRefreshFailure(ctx, familyID, userID,
 			"TokenRefreshHandler: refreshed token has no ID token")
 	}
 

@@ -60,8 +60,13 @@ func (s *AggregatorService) Start(ctx context.Context) error {
 	s.manager = aggregator.NewAggregatorManager(s.config, s.orchestratorAPI, s.serviceRegistry, s.onManagerErrorCallback)
 
 	aggServer := s.manager.GetAggregatorServer()
+	brokerManager := s.manager.GetBrokerManager()
+	if brokerManager != nil {
+		brokerManager.SetMusterIssuer(aggServer.GetMusterIssuer())
+	}
+	aggServer.SetBrokerManager(brokerManager)
 	resolver := aggregator.NewTeleportTransportResolver(aggServer.GetRegistry())
-	aggServer.SetTokenBroker(tokenbroker.NewInProcess(s.manager.GetBrokerManager(), resolver))
+	aggServer.SetTokenBroker(tokenbroker.NewInProcess(brokerManager, resolver))
 
 	// Start the manager
 	if err := s.manager.Start(ctx); err != nil {

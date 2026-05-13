@@ -9,6 +9,8 @@ import (
 	"golang.org/x/oauth2"
 )
 
+const testJSONExt = ".json"
+
 func TestTokenStore_StoreAndGet(t *testing.T) {
 	// Create a temporary directory for token storage
 	tmpDir := t.TempDir()
@@ -159,7 +161,7 @@ func TestTokenStore_FileMode(t *testing.T) {
 		t.Errorf("Expected 1 token file, got %d", len(files))
 	}
 
-	if len(files) > 0 && filepath.Ext(files[0].Name()) != ".json" { //nolint:goconst
+	if len(files) > 0 && filepath.Ext(files[0].Name()) != testJSONExt { //nolint:goconst
 		t.Errorf("Expected .json file, got %s", files[0].Name())
 	}
 
@@ -323,7 +325,7 @@ func TestTokenStore_Clear(t *testing.T) {
 
 	jsonFiles := 0
 	for _, f := range files {
-		if filepath.Ext(f.Name()) == ".json" {
+		if filepath.Ext(f.Name()) == testJSONExt {
 			jsonFiles++
 		}
 	}
@@ -696,7 +698,7 @@ func TestTokenStore_FileMode_Permissions(t *testing.T) {
 
 	foundTokenFile := false
 	for _, file := range files {
-		if filepath.Ext(file.Name()) == ".json" {
+		if filepath.Ext(file.Name()) == testJSONExt {
 			foundTokenFile = true
 			filePath := filepath.Join(tmpDir, file.Name())
 			fileInfo, err := os.Stat(filePath)

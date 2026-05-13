@@ -29,6 +29,11 @@ type TokenBroker interface {
 	// or [ErrTokenNotFound] if none is cached. Callers distinguish
 	// "not cached" from other errors via [errors.Is].
 	GetToken(ctx context.Context, sessionID, issuer string) (Token, error)
+	// ExchangeToken performs an RFC 8693 token exchange against the
+	// token endpoint pinned by req.Config and returns the resulting
+	// bearer token. The audience and credentials in req are fully
+	// resolved by the caller; the broker does not touch CRDs or
+	// Kubernetes secrets.
 	ExchangeToken(ctx context.Context, req ExchangeRequest) (Token, error)
 	// InvalidateToken is the consumer-side signal "the token last issued
 	// for (sessionID, issuer) was rejected downstream". The broker decides

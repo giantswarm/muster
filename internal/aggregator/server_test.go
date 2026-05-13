@@ -119,7 +119,7 @@ func (m *mockMCPClient) Ping(ctx context.Context) error {
 func (m *mockMCPClient) OnNotification(func(mcp.JSONRPCNotification)) {}
 
 func TestAggregatorServer_HandlerTracking(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	config := AggregatorConfig{
 		Host: "localhost",
 		Port: 0, // Use any available port
@@ -201,7 +201,7 @@ func TestAggregatorServer_HandlerTracking(t *testing.T) {
 }
 
 func TestAggregatorServer_InitialRegistration(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	config := AggregatorConfig{
 		Host: "localhost",
 		Port: 0,
@@ -245,7 +245,7 @@ func TestAggregatorServer_InitialRegistration(t *testing.T) {
 }
 
 func TestAggregatorServer_EmptyStart(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	config := AggregatorConfig{
 		Host: "localhost",
 		Port: 0,
@@ -283,7 +283,7 @@ func TestAggregatorServer_EmptyStart(t *testing.T) {
 }
 
 func TestAggregatorServer_HandlerExecution(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	config := AggregatorConfig{
 		Host: "localhost",
 		Port: 0,
@@ -339,7 +339,7 @@ func TestAggregatorServer_HandlerExecution(t *testing.T) {
 
 func TestAggregatorServer_ToolsRemovedOnServerStop(t *testing.T) {
 	// This test specifically verifies that tools are removed when an MCP server stops
-	ctx := context.Background()
+	ctx := t.Context()
 	config := AggregatorConfig{
 		Host: "localhost",
 		Port: 0,
@@ -412,7 +412,7 @@ func TestAggregatorServer_ToolsRemovedOnServerStop(t *testing.T) {
 
 func TestAggregatorServer_DynamicToolManagement(t *testing.T) {
 	// This test verifies that tools are dynamically added/removed without server restart
-	ctx := context.Background()
+	ctx := t.Context()
 	config := AggregatorConfig{
 		Host: "localhost",
 		Port: 0, // Use any available port
@@ -510,7 +510,7 @@ func TestAggregatorServer_DynamicToolManagement(t *testing.T) {
 
 func TestAggregatorServer_NoStaleHandlersAfterRestart(t *testing.T) {
 	// This test verifies that after restart, old handlers are completely gone
-	ctx := context.Background()
+	ctx := t.Context()
 	config := AggregatorConfig{
 		Host: "localhost",
 		Port: 0,
@@ -626,7 +626,7 @@ func newTestAggregatorWithPool(t *testing.T) *AggregatorServer {
 
 func TestCallToolWithTokenExchangeRetry_SuccessNoRetry(t *testing.T) {
 	a := newTestAggregatorWithPool(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	sessionID := "test-session"     //nolint:goconst
 	serverName := "exchange-server" //nolint:goconst
 
@@ -661,7 +661,7 @@ func TestCallToolWithTokenExchangeRetry_SuccessNoRetry(t *testing.T) {
 
 func TestCallToolWithTokenExchangeRetry_EvictsPoolOn401ForTokenExchange(t *testing.T) {
 	a := newTestAggregatorWithPool(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	sessionID := "test-session"
 	serverName := "exchange-server"
 
@@ -696,7 +696,7 @@ func TestCallToolWithTokenExchangeRetry_EvictsPoolOn401ForTokenExchange(t *testi
 
 func TestCallToolWithTokenExchangeRetry_NoRetryForNonTokenExchange(t *testing.T) {
 	a := newTestAggregatorWithPool(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	sessionID := "test-session"
 	serverName := "forward-server"
 
@@ -724,7 +724,7 @@ func TestCallToolWithTokenExchangeRetry_NoRetryForNonTokenExchange(t *testing.T)
 
 func TestCallToolWithTokenExchangeRetry_NoRetryForNon401Error(t *testing.T) {
 	a := newTestAggregatorWithPool(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	sessionID := "test-session"
 	serverName := "exchange-server"
 
@@ -756,7 +756,7 @@ func TestCallToolWithTokenExchangeRetry_NoRetryForNon401Error(t *testing.T) {
 
 func TestGetOrCreateClientForToolCall_ExpiringSoonReturnsClientAndTriggersBackgroundRefresh(t *testing.T) {
 	a := newTestAggregatorWithPool(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	sessionID := "test-session"
 	serverName := "exchange-server"
 
@@ -795,7 +795,7 @@ func TestGetOrCreateClientForToolCall_ExpiringSoonReturnsClientAndTriggersBackgr
 
 func TestGetOrCreateClientForToolCall_ExpiredTokenEvictsSynchronously(t *testing.T) {
 	a := newTestAggregatorWithPool(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	sessionID := "test-session"
 	serverName := "exchange-server"
 
@@ -828,7 +828,7 @@ func TestGetOrCreateClientForToolCall_ExpiredTokenEvictsSynchronously(t *testing
 
 func TestGetOrCreateClientForToolCall_NoEvictionWhenTokenFresh(t *testing.T) {
 	a := newTestAggregatorWithPool(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	sessionID := "test-session"
 	serverName := "exchange-server"
 
@@ -885,7 +885,7 @@ func TestDiscoverProtectedResourceMetadata_Override(t *testing.T) {
 			Issuer: asServer.URL,
 			Scopes: "openid offline_access",
 		}
-		md, err := discoverProtectedResourceMetadata(context.Background(), "https://mcp.example.com/v1/mcp", override)
+		md, err := discoverProtectedResourceMetadata(t.Context(), "https://mcp.example.com/v1/mcp", override)
 		require.NoError(t, err)
 		assert.Equal(t, asServer.URL, md.Issuer)
 		assert.Equal(t, "openid offline_access", md.Scope)
@@ -896,7 +896,7 @@ func TestDiscoverProtectedResourceMetadata_Override(t *testing.T) {
 		override := &api.MCPServerAuthAuthorizationServer{
 			Issuer: asServer.URL,
 		}
-		_, err := discoverProtectedResourceMetadata(context.Background(), "https://mcp.example.com/v1/mcp", override)
+		_, err := discoverProtectedResourceMetadata(t.Context(), "https://mcp.example.com/v1/mcp", override)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "issuer mismatch")
 	})
@@ -905,7 +905,7 @@ func TestDiscoverProtectedResourceMetadata_Override(t *testing.T) {
 		override := &api.MCPServerAuthAuthorizationServer{
 			Issuer: "https://black-hole.invalid",
 		}
-		_, err := discoverProtectedResourceMetadata(context.Background(), "https://mcp.example.com/v1/mcp", override)
+		_, err := discoverProtectedResourceMetadata(t.Context(), "https://mcp.example.com/v1/mcp", override)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "authorizationServer override")
 	})
@@ -933,7 +933,7 @@ func TestDiscoverProtectedResourceMetadata(t *testing.T) {
 		}))
 		defer mcp.Close()
 
-		md, err := discoverProtectedResourceMetadata(context.Background(), mcp.URL+"/v1/mcp", nil)
+		md, err := discoverProtectedResourceMetadata(t.Context(), mcp.URL+"/v1/mcp", nil)
 		require.NoError(t, err)
 		assert.Equal(t, "https://issuer.example", md.Issuer)
 		assert.Equal(t, "openid offline_access", md.Scope)
@@ -953,7 +953,7 @@ func TestDiscoverProtectedResourceMetadata(t *testing.T) {
 		}))
 		defer mcp.Close()
 
-		md, err := discoverProtectedResourceMetadata(context.Background(), mcp.URL+"/v1/mcp", nil)
+		md, err := discoverProtectedResourceMetadata(t.Context(), mcp.URL+"/v1/mcp", nil)
 		require.NoError(t, err)
 		assert.Equal(t, "https://issuer.example", md.Issuer)
 		assert.Contains(t, seenPaths, "/.well-known/oauth-protected-resource/v1/mcp",
@@ -973,7 +973,7 @@ func TestDiscoverProtectedResourceMetadata(t *testing.T) {
 		}))
 		defer mcp.Close()
 
-		_, err := discoverProtectedResourceMetadata(context.Background(), mcp.URL+"/v1/mcp/", nil)
+		_, err := discoverProtectedResourceMetadata(t.Context(), mcp.URL+"/v1/mcp/", nil)
 		require.NoError(t, err)
 		for _, p := range seenPaths {
 			assert.NotEqual(t, "/.well-known/oauth-protected-resource/v1/mcp/", p,
@@ -992,7 +992,7 @@ func TestDiscoverProtectedResourceMetadata(t *testing.T) {
 		}))
 		defer mcp.Close()
 
-		md, err := discoverProtectedResourceMetadata(context.Background(), mcp.URL+"/v1/mcp", nil)
+		md, err := discoverProtectedResourceMetadata(t.Context(), mcp.URL+"/v1/mcp", nil)
 		require.NoError(t, err)
 		assert.Equal(t, "https://issuer.example", md.Issuer)
 	})
@@ -1008,7 +1008,7 @@ func TestDiscoverProtectedResourceMetadata(t *testing.T) {
 		}))
 		defer mcp.Close()
 
-		md, err := discoverProtectedResourceMetadata(context.Background(), mcp.URL+"/v1/mcp", nil)
+		md, err := discoverProtectedResourceMetadata(t.Context(), mcp.URL+"/v1/mcp", nil)
 		require.NoError(t, err)
 		assert.Equal(t, "", md.Resource, "missing resource field accepted")
 	})
@@ -1019,7 +1019,7 @@ func TestDiscoverProtectedResourceMetadata(t *testing.T) {
 		}))
 		defer mcp.Close()
 
-		_, err := discoverProtectedResourceMetadata(context.Background(), mcp.URL+"/v1/mcp", nil)
+		_, err := discoverProtectedResourceMetadata(t.Context(), mcp.URL+"/v1/mcp", nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "authorizationServer.issuer")
 	})
