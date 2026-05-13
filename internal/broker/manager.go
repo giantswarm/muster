@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"cmp"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -8,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"slices"
 	"sync"
 	"time"
 
@@ -318,12 +320,27 @@ func (m *Manager) StoreToken(sessionID, userID, issuer string, token *pkgoauth.T
 var ErrSessionUnknown = errors.New("broker: session has no stored issuer")
 
 // SessionIssuer returns the IdP issuer URL bound to sessionID, or
-// [ErrSessionUnknown] if no stored token carries an ID token.
+// [ErrSessionUnknown] if no stored token carries an ID token. When the
+// session has tokens for multiple issuers, the lexicographically-smallest
+// (Issuer, Scope) key wins; iteration order is stable so concurrent
+// callers see the same answer.
 func (m *Manager) SessionIssuer(_ context.Context, sessionID string) (string, error) {
 	if m == nil || m.client == nil || m.client.tokenStore == nil {
 		return "", errors.New("broker: not initialized")
 	}
-	for _, token := range m.client.tokenStore.GetAllForSession(sessionID) {
+	tokens := m.client.tokenStore.GetAllForSession(sessionID)
+	keys := make([]TokenKey, 0, len(tokens))
+	for key := range tokens {
+		keys = append(keys, key)
+	}
+	slices.SortFunc(keys, func(a, b TokenKey) int {
+		if c := cmp.Compare(a.Issuer, b.Issuer); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.Scope, b.Scope)
+	})
+	for _, key := range keys {
+		token := tokens[key]
 		if token != nil && token.IDToken != "" && token.Issuer != "" {
 			return token.Issuer, nil
 		}

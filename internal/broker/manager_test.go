@@ -2,6 +2,7 @@ package broker
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
@@ -605,6 +606,67 @@ func TestManager_DeleteTokensByUser(t *testing.T) {
 		// Should not panic
 		manager.DeleteTokensByUser("user@example.com")
 	})
+}
+
+func TestManager_SessionIssuer_DeterministicAcrossMultipleIssuers(t *testing.T) {
+	cfg := config.OAuthMCPClientConfig{
+		Enabled:      true,
+		PublicURL:    "https://muster.example.com",
+		ClientID:     "client-id",
+		CallbackPath: "/oauth/proxy/callback",
+	}
+
+	manager := NewManager(cfg)
+	if manager == nil {
+		t.Fatal("Expected non-nil manager")
+	}
+	defer manager.Stop()
+
+	const sessionID = "session-multi-issuer"
+	// Store tokens for three issuers in non-sorted order; the function
+	// must return the lexicographically-smallest issuer every call.
+	for _, issuer := range []string{
+		"https://idp-c.example.com",
+		"https://idp-a.example.com",
+		"https://idp-b.example.com",
+	} {
+		manager.StoreToken(sessionID, "user", issuer, &pkgoauth.Token{
+			AccessToken: "access-" + issuer,
+			IDToken:     "id-" + issuer,
+			Issuer:      issuer,
+		})
+	}
+
+	const expected = "https://idp-a.example.com"
+	for range 10 {
+		got, err := manager.SessionIssuer(context.Background(), sessionID)
+		if err != nil {
+			t.Fatalf("SessionIssuer returned error: %v", err)
+		}
+		if got != expected {
+			t.Fatalf("SessionIssuer returned %q, expected stable %q (Go map iteration order leaked)", got, expected)
+		}
+	}
+}
+
+func TestManager_SessionIssuer_UnknownSession(t *testing.T) {
+	cfg := config.OAuthMCPClientConfig{
+		Enabled:      true,
+		PublicURL:    "https://muster.example.com",
+		ClientID:     "client-id",
+		CallbackPath: "/oauth/proxy/callback",
+	}
+
+	manager := NewManager(cfg)
+	if manager == nil {
+		t.Fatal("Expected non-nil manager")
+	}
+	defer manager.Stop()
+
+	_, err := manager.SessionIssuer(context.Background(), "no-such-session")
+	if !errors.Is(err, ErrSessionUnknown) {
+		t.Fatalf("expected ErrSessionUnknown, got %v", err)
+	}
 }
 
 func TestNewManager_SelfHostedCIMD(t *testing.T) {
