@@ -30,6 +30,13 @@ spec:
   # Optional: Tool name prefix (applies to all types)
   toolPrefix: "<prefix>"
 
+  # Optional: Family identifier. When set, the aggregator exposes tools as
+  # x_<family>_<toolName> with a required "server" parameter selecting which
+  # instance handles the call. Multiple MCPServer CRs sharing the same family
+  # (for example, several kubernetes MCP servers pointed at different clusters)
+  # appear to clients as a single deduplicated tool surface.
+  family: "<family>"
+
   # Optional: Human-readable description
   description: "<description>"
 
@@ -80,7 +87,8 @@ status:
 | Field | Type | Required | Description | Constraints |
 |-------|------|----------|-------------|-------------|
 | `type` | `string` | Yes | Execution method for the MCP server | Must be `stdio`, `streamable-http`, or `sse` |
-| `toolPrefix` | `string` | No | Prefix for all tool names from this server | Pattern: `^[a-zA-Z][a-zA-Z0-9_-]*$` |
+| `toolPrefix` | `string` | No | Per-server tool prefix used when `family` is unset | Pattern: `^[a-zA-Z][a-zA-Z0-9_-]*$` |
+| `family` | `string` | No | Family identifier for grouping equivalent servers under a shared tool surface | Pattern: `^[a-zA-Z][a-zA-Z0-9_-]*$` |
 | `description` | `string` | No | Human-readable description | Max 500 characters |
 | `autoStart` | `boolean` | No | Auto-start when system initializes | Default: `false`, only for stdio servers |
 | `command` | `string` | Yes* | Executable path for stdio servers | Required when `type` is `stdio` |

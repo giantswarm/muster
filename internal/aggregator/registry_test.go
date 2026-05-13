@@ -1,10 +1,14 @@
 package aggregator
 
 import (
+	"context"
+	"sort"
+	"strings"
 	"testing"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestServerRegistry_AlwaysPrefixing(t *testing.T) {
@@ -183,4 +187,212 @@ func splitKey(key string) []string {
 		}
 	}
 	return []string{key}
+}
+
+func TestServerRegistry_FamilyGrouping(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("single instance with family exposes family-prefixed tool with server enum", func(t *testing.T) {
+		registry := NewServerRegistry("x")
+		client := &mockMCPClient{tools: []mcp.Tool{
+			{Name: "list_pods", Description: "List pods"},
+		}}
+
+		require.NoError(t, registry.Register(ctx, ServerRegistration{
+			Name:       "mcp-kubernetes-graveler",
+			ToolPrefix: "k8s-graveler",
+			Family:     "kubernetes",
+		}, client))
+
+		tools := registry.GetAllTools()
+		require.Len(t, tools, 1)
+
+		exposed := tools[0]
+		assert.Equal(t, "x_kubernetes_list_pods", exposed.Name)
+		assert.Contains(t, exposed.Description, "(available on servers: mcp-kubernetes-graveler)")
+
+		require.NotNil(t, exposed.InputSchema.Properties)
+		serverProp, ok := exposed.InputSchema.Properties["server"].(map[string]any)
+		require.True(t, ok, "server property must be present even for single-instance families")
+		assert.Equal(t, "string", serverProp["type"])
+		assert.Equal(t, []any{"mcp-kubernetes-graveler"}, serverProp["enum"])
+		assert.Contains(t, exposed.InputSchema.Required, "server")
+	})
+
+	t.Run("two instances in the same family deduplicate with server enum listing both", func(t *testing.T) {
+		registry := NewServerRegistry("x")
+		toolA := []mcp.Tool{{Name: "list_pods", Description: "List pods"}}
+		toolB := []mcp.Tool{{Name: "list_pods", Description: "List pods"}}
+
+		require.NoError(t, registry.Register(ctx, ServerRegistration{
+			Name:       "mcp-kubernetes-graveler",
+			ToolPrefix: "k8s-graveler",
+			Family:     "kubernetes",
+		}, &mockMCPClient{tools: toolA}))
+		require.NoError(t, registry.Register(ctx, ServerRegistration{
+			Name:       "mcp-kubernetes-gazelle",
+			ToolPrefix: "k8s-gazelle",
+			Family:     "kubernetes",
+		}, &mockMCPClient{tools: toolB}))
+
+		tools := registry.GetAllTools()
+		require.Len(t, tools, 1, "family-grouped tools must collapse to a single exposed entry")
+		exposed := tools[0]
+		assert.Equal(t, "x_kubernetes_list_pods", exposed.Name)
+
+		serverProp := exposed.InputSchema.Properties["server"].(map[string]any)
+		assert.Equal(t, []any{"mcp-kubernetes-gazelle", "mcp-kubernetes-graveler"}, serverProp["enum"])
+	})
+
+	t.Run("non-family servers retain per-server prefixing", func(t *testing.T) {
+		registry := NewServerRegistry("x")
+		require.NoError(t, registry.Register(ctx, ServerRegistration{
+			Name:       "slack",
+			ToolPrefix: "slack",
+		}, &mockMCPClient{tools: []mcp.Tool{{Name: "send_message"}}}))
+
+		tools := registry.GetAllTools()
+		require.Len(t, tools, 1)
+		assert.Equal(t, "x_slack_send_message", tools[0].Name)
+		// No "server" parameter injected for non-family tools.
+		_, has := tools[0].InputSchema.Properties["server"]
+		assert.False(t, has)
+	})
+
+	t.Run("diverging descriptions within a family fall back to per-server prefixing for that tool", func(t *testing.T) {
+		registry := NewServerRegistry("x")
+		require.NoError(t, registry.Register(ctx, ServerRegistration{
+			Name:       "k8s-graveler",
+			ToolPrefix: "k8s-graveler",
+			Family:     "kubernetes",
+		}, &mockMCPClient{tools: []mcp.Tool{
+			{Name: "list_pods", Description: "v1 API"},
+			{Name: "get_node", Description: "Get node"},
+		}}))
+		require.NoError(t, registry.Register(ctx, ServerRegistration{
+			Name:       "k8s-gazelle",
+			ToolPrefix: "k8s-gazelle",
+			Family:     "kubernetes",
+		}, &mockMCPClient{tools: []mcp.Tool{
+			{Name: "list_pods", Description: "v2 API"},  // diverges
+			{Name: "get_node", Description: "Get node"}, // matches
+		}}))
+
+		tools := registry.GetAllTools()
+		names := make([]string, len(tools))
+		for i, tool := range tools {
+			names[i] = tool.Name
+		}
+		sort.Strings(names)
+		// get_node deduplicates to family, list_pods falls back per-server.
+		assert.Equal(t, []string{
+			"x_k8s-gazelle_list_pods",
+			"x_k8s-graveler_list_pods",
+			"x_kubernetes_get_node",
+		}, names)
+	})
+
+	t.Run("Deregister cleans family mappings and resolves remaining instance via server arg", func(t *testing.T) {
+		registry := NewServerRegistry("x")
+		require.NoError(t, registry.Register(ctx, ServerRegistration{
+			Name:       "k8s-a",
+			ToolPrefix: "k8s-a",
+			Family:     "kubernetes",
+		}, &mockMCPClient{tools: []mcp.Tool{{Name: "list_pods", Description: "L"}}}))
+		require.NoError(t, registry.Register(ctx, ServerRegistration{
+			Name:       "k8s-b",
+			ToolPrefix: "k8s-b",
+			Family:     "kubernetes",
+		}, &mockMCPClient{tools: []mcp.Tool{{Name: "list_pods", Description: "L"}}}))
+
+		// Prime the family routing index by listing tools.
+		_ = registry.GetAllTools()
+
+		require.NoError(t, registry.Deregister("k8s-a"))
+
+		// Re-list to recompute the routing index now that one server is gone.
+		_ = registry.GetAllTools()
+
+		// "k8s-a" must no longer be a routing target — only k8s-b remains.
+		_, err := registry.ResolveToolNameForServer("x_kubernetes_list_pods", "k8s-a")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not available on server")
+
+		// k8s-b still resolves cleanly.
+		originalName, err := registry.ResolveToolNameForServer("x_kubernetes_list_pods", "k8s-b")
+		require.NoError(t, err)
+		assert.Equal(t, "list_pods", originalName)
+
+		providers := registry.GetToolServerNames("x_kubernetes_list_pods")
+		assert.Equal(t, []string{"k8s-b"}, providers)
+	})
+
+	t.Run("ResolveToolName surfaces 'server parameter is required' error for multi-instance families", func(t *testing.T) {
+		registry := NewServerRegistry("x")
+		require.NoError(t, registry.Register(ctx, ServerRegistration{
+			Name:   "a",
+			Family: "kubernetes",
+		}, &mockMCPClient{tools: []mcp.Tool{{Name: "list_pods", Description: "L"}}}))
+		require.NoError(t, registry.Register(ctx, ServerRegistration{
+			Name:   "b",
+			Family: "kubernetes",
+		}, &mockMCPClient{tools: []mcp.Tool{{Name: "list_pods", Description: "L"}}}))
+		_ = registry.GetAllTools()
+
+		_, _, err := registry.ResolveToolName("x_kubernetes_list_pods")
+		require.Error(t, err)
+		assert.True(t, strings.Contains(err.Error(), "'server' parameter is required"),
+			"expected error to mention required server parameter, got: %v", err)
+	})
+
+	t.Run("ResolveToolNameForServer rejects unknown server", func(t *testing.T) {
+		registry := NewServerRegistry("x")
+		require.NoError(t, registry.Register(ctx, ServerRegistration{
+			Name:   "a",
+			Family: "kubernetes",
+		}, &mockMCPClient{tools: []mcp.Tool{{Name: "list_pods", Description: "L"}}}))
+		require.NoError(t, registry.Register(ctx, ServerRegistration{
+			Name:   "b",
+			Family: "kubernetes",
+		}, &mockMCPClient{tools: []mcp.Tool{{Name: "list_pods", Description: "L"}}}))
+		_ = registry.GetAllTools()
+
+		_, err := registry.ResolveToolNameForServer("x_kubernetes_list_pods", "nonexistent")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not available on server")
+	})
+
+	t.Run("family deep-copy does not mutate cached per-server tool schema", func(t *testing.T) {
+		registry := NewServerRegistry("x")
+		tool := mcp.Tool{
+			Name:        "list_pods",
+			Description: "L",
+			InputSchema: mcp.ToolInputSchema{
+				Type:       "object",
+				Properties: map[string]any{"namespace": map[string]any{"type": "string"}},
+				Required:   []string{"namespace"},
+			},
+		}
+		client := &mockMCPClient{tools: []mcp.Tool{tool}}
+		require.NoError(t, registry.Register(ctx, ServerRegistration{
+			Name:   "a",
+			Family: "kubernetes",
+		}, client))
+		require.NoError(t, registry.Register(ctx, ServerRegistration{
+			Name:   "b",
+			Family: "kubernetes",
+		}, &mockMCPClient{tools: []mcp.Tool{tool}}))
+
+		// Repeated GetAllTools calls must not stack-mutate cached schemas.
+		_ = registry.GetAllTools()
+		_ = registry.GetAllTools()
+
+		serverInfo, ok := registry.GetServerInfo("a")
+		require.True(t, ok)
+		cached := serverInfo.Tools[0]
+		_, leakedServer := cached.InputSchema.Properties["server"]
+		assert.False(t, leakedServer, "server enum must not bleed back into the backend's cached tool schema")
+		assert.Equal(t, []string{"namespace"}, cached.InputSchema.Required,
+			"Required slice must not accumulate 'server' across calls")
+	})
 }

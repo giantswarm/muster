@@ -350,10 +350,9 @@ func (am *AggregatorManager) registerSingleServer(ctx context.Context, serverNam
 		return fmt.Errorf("no service data available for %s", serverName)
 	}
 
-	// Extract tool prefix from service configuration
 	toolPrefix, _ := serviceData["toolPrefix"].(string)
+	family, _ := serviceData["family"].(string)
 
-	// Get MCP client from service data - this is the authoritative source
 	clientInterface, exists := serviceData["client"]
 	if !exists || clientInterface == nil {
 		return fmt.Errorf("no MCP client available for %s (service state inconsistent)", serverName)
@@ -364,42 +363,26 @@ func (am *AggregatorManager) registerSingleServer(ctx context.Context, serverNam
 		return fmt.Errorf("invalid MCP client type for %s", serverName)
 	}
 
-	// Register with the aggregator
-	if err := am.aggregatorServer.RegisterServer(ctx, serverName, mcpClient, toolPrefix); err != nil {
+	registration := ServerRegistration{
+		Name:       serverName,
+		ToolPrefix: toolPrefix,
+		Family:     family,
+	}
+	if err := am.aggregatorServer.RegisterServer(ctx, registration, mcpClient); err != nil {
 		return fmt.Errorf("failed to register server: %w", err)
 	}
 
-	logging.Info("Aggregator-Manager", "Successfully registered MCP server %s with prefix %s", serverName, toolPrefix)
+	logging.Info("Aggregator-Manager", "Successfully registered MCP server %s (prefix=%q family=%q)", serverName, toolPrefix, family)
 	return nil
 }
 
-// RegisterServerPendingAuth registers a server that requires authentication.
-// This creates a placeholder with a synthetic auth tool that users can call
-// to initiate the OAuth flow.
+// RegisterServerPendingAuth registers a server that requires OAuth authentication
+// before its tools can be exposed. Per ADR-008, no synthetic auth tools are
+// created; users authenticate via core_auth_login.
 //
-// Args:
-//   - serverName: Unique name of the server
-//   - url: The server endpoint URL
-//   - toolPrefix: Server-specific prefix for tools
-//   - authInfo: OAuth information from the 401 response
-//
-// Returns an error if registration fails.
-func (am *AggregatorManager) RegisterServerPendingAuth(serverName, url, toolPrefix string, authInfo *AuthInfo) error {
-	return am.RegisterServerPendingAuthWithConfig(serverName, url, toolPrefix, authInfo, nil)
-}
-
-// RegisterServerPendingAuthWithConfig registers a server that requires authentication with auth config.
-// This is an extended version that also accepts auth config for SSO token forwarding.
-//
-// Args:
-//   - serverName: Unique name of the server
-//   - url: The server endpoint URL
-//   - toolPrefix: Server-specific prefix for tools
-//   - authInfo: OAuth information from the 401 response
-//   - authConfig: Auth configuration for token forwarding (may be nil)
-//
-// Returns an error if registration fails.
-func (am *AggregatorManager) RegisterServerPendingAuthWithConfig(serverName, url, toolPrefix string, authInfo *AuthInfo, authConfig *api.MCPServerAuth) error {
+// AuthConfig inside registration may be nil; in either case the server is
+// flagged as requiring per-session authentication.
+func (am *AggregatorManager) RegisterServerPendingAuth(registration PendingAuthRegistration) error {
 	am.mu.Lock()
 	defer am.mu.Unlock()
 
@@ -407,14 +390,15 @@ func (am *AggregatorManager) RegisterServerPendingAuthWithConfig(serverName, url
 		return fmt.Errorf("aggregator server not available")
 	}
 
-	if err := am.aggregatorServer.GetRegistry().RegisterPendingAuthWithConfig(serverName, url, toolPrefix, authInfo, authConfig); err != nil {
+	if err := am.aggregatorServer.GetRegistry().RegisterPendingAuth(registration); err != nil {
 		return err
 	}
 
 	// Wire pool notification callback for servers with session-scoped auth so that
 	// OnNotification is auto-wired on every pooled client.
+	authConfig := registration.AuthConfig
 	if authConfig != nil && (authConfig.ForwardToken || (authConfig.TokenExchange != nil && authConfig.TokenExchange.Enabled)) {
-		am.aggregatorServer.wirePoolNotificationCallback(serverName)
+		am.aggregatorServer.wirePoolNotificationCallback(registration.Name)
 	}
 
 	return nil

@@ -46,6 +46,19 @@ type MCPServerSpec struct {
 	// +kubebuilder:validation:Pattern="^[a-zA-Z][a-zA-Z0-9_-]*$"
 	ToolPrefix string `json:"toolPrefix,omitempty" yaml:"toolPrefix,omitempty"`
 
+	// Family declares that this MCP server is an instance of a family of
+	// equivalent servers (for example, multiple kubernetes MCP servers pointed
+	// at different clusters). When set, the aggregator exposes tools from all
+	// servers in the same family under a single name
+	// ({musterPrefix}_{family}_{toolName}) with a required "server" parameter
+	// that selects which instance handles the call. Single-instance families
+	// also use this naming, and the "server" parameter is always required, so
+	// skills written against the family name remain stable as instances are
+	// added or removed. When unset, the legacy per-server prefixing applies
+	// ({musterPrefix}_{toolPrefix-or-name}_{toolName}).
+	// +kubebuilder:validation:Pattern="^[a-zA-Z][a-zA-Z0-9_-]*$"
+	Family string `json:"family,omitempty" yaml:"family,omitempty"`
+
 	// Description provides a human-readable description of this MCP server's purpose.
 	// +kubebuilder:validation:MaxLength=500
 	Description string `json:"description,omitempty" yaml:"description,omitempty"`

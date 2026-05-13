@@ -6,11 +6,14 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- `MCPServer.spec.family` — optional string declaring that an MCPServer is an instance of a family of equivalent servers. When set, the aggregator exposes tools as `x_<family>_<tool>` with a required `server` enum parameter selecting the providing instance. Single-instance families also use this naming and require the parameter, so skills written against the family name remain stable as instances are added or removed. When unset, today's per-server prefixing applies (no behavior change for existing CRs).
+- `MCPServer.spec.family` is configurable via the `core_mcpserver_create` / `core_mcpserver_update` / `core_mcpserver_validate` tools.
 - `muster.oauth.server.trustedPublicRegistrationRedirectURIs` — HTTPS redirect-URI allowlist for unauthenticated dynamic client registration, passed through to mcp-oauth (`Config.TrustedPublicRegistrationRedirectURIs`). Strict exact-match after RFC 3986 normalization. Default: `[]` (opt-in per URI).
 - `oauth-secret` `fail` guard accepts a non-empty `trustedPublicRegistrationRedirectURIs` as a third valid escape valve.
 
 ### Changed
 
+- `aggregator.Register` / `aggregator.RegisterPendingAuth` and their manager-level / `api.AggregatorHandler` counterparts now take a `ServerRegistration` / `PendingAuthRegistration` struct rather than five-to-six positional `(name, url, toolPrefix, family, authInfo, authConfig)` arguments. The previous `RegisterServerPendingAuthWithConfig` is collapsed into the single `RegisterServerPendingAuth(registration)` form — `AuthConfig` is now a nullable field inside the struct. Internal API change; no behavior change for existing CRs.
 - mcp-oauth bumped to `v0.2.125`. Internal API migrated to functional options; `server.NewOAuthHTTPServer` now takes `...oauth.ServerOption`. Security-event log emission is rate-limited (1/s, burst 5). No user-facing config change.
 
 ### Fixed

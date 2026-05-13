@@ -23,6 +23,11 @@ type MCPServer struct {
 	// servers provide tools with similar names.
 	ToolPrefix string `yaml:"toolPrefix,omitempty" json:"toolPrefix,omitempty"`
 
+	// Family declares that this MCP server is an instance of a family of
+	// equivalent servers. When set, the aggregator exposes tools as
+	// {musterPrefix}_{family}_{toolName} with a required "server" parameter.
+	Family string `yaml:"family,omitempty" json:"family,omitempty"`
+
 	// AutoStart determines whether this MCP server should be automatically started
 	// when the muster system initializes or when dependencies become available.
 	AutoStart bool `yaml:"autoStart,omitempty" json:"autoStart,omitempty"`
@@ -304,6 +309,10 @@ type MCPServerInfo struct {
 
 	// ToolPrefix is an optional prefix for tool names.
 	ToolPrefix string `json:"toolPrefix,omitempty"`
+
+	// Family declares that this MCP server is an instance of a family of
+	// equivalent servers, sharing exposed tool names with siblings.
+	Family string `json:"family,omitempty"`
 
 	// Error contains any error message from recent server operations.
 	// This field is populated if the server is in an error state.

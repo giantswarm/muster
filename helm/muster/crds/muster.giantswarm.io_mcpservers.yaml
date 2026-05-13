@@ -300,6 +300,20 @@ spec:
                   For stdio servers, these are passed to the process when it is started.
                   For remote servers, these can be used for authentication or configuration.
                 type: object
+              family:
+                description: |-
+                  Family declares that this MCP server is an instance of a family of
+                  equivalent servers (for example, multiple kubernetes MCP servers pointed
+                  at different clusters). When set, the aggregator exposes tools from all
+                  servers in the same family under a single name
+                  ({musterPrefix}_{family}_{toolName}) with a required "server" parameter
+                  that selects which instance handles the call. Single-instance families
+                  also use this naming, and the "server" parameter is always required, so
+                  skills written against the family name remain stable as instances are
+                  added or removed. When unset, the legacy per-server prefixing applies
+                  ({musterPrefix}_{toolPrefix-or-name}_{toolName}).
+                pattern: ^[a-zA-Z][a-zA-Z0-9_-]*$
+                type: string
               headers:
                 additionalProperties:
                   type: string

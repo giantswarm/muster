@@ -3,6 +3,7 @@ package aggregator
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -13,6 +14,12 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 )
+
+// serverArgKey is the input-schema property name injected into family-grouped
+// tools to select which instance handles a call. Callers pass it as an
+// argument when invoking a family tool; the aggregator strips it from the
+// forwarded args before reaching the backend.
+const serverArgKey = "server"
 
 // resolvedName stores the reverse mapping from an exposed (prefixed) name
 // back to its origin server and original name.
@@ -29,10 +36,18 @@ type resolvedName struct {
 // It applies deterministic prefixing ({musterPrefix}_{serverPrefix}_{originalName})
 // and maintains a reverse lookup map for routing requests to the correct backend.
 //
+// Servers that declare spec.family share their exposed name space: every server
+// in a family advertises tools as {musterPrefix}_{family}_{toolName} and the
+// aggregator injects a required "server" enum parameter so callers select which
+// instance handles the call. The "server" parameter is always required when
+// family is set, even for single-instance families, so skills written against
+// the family name remain stable when instances are added or removed.
+//
 // Key responsibilities:
 //   - Server lifecycle management (registration/deregistration)
 //   - Capability caching for performance
 //   - Deterministic name prefixing and reverse resolution
+//   - Family-based grouping with explicit instance routing
 //   - Thread-safe access to server information
 //   - Update notifications for capability changes
 type ServerRegistry struct {
@@ -46,11 +61,20 @@ type ServerRegistry struct {
 	// Populated as a side effect of ExposedToolName/ExposedPromptName/ExposedResourceURI.
 	// Protected by nameMu (separate from mu to avoid deadlocks when
 	// GetAllTools/GetAllResources/GetAllPrompts call ExposedXxx while holding mu.RLock).
-	// serverPrefixes is also protected by nameMu because buildExposedNameLocked reads it.
+	// serverPrefixes and serverFamilies are also protected by nameMu.
 	nameMapping    map[string]resolvedName
 	serverPrefixes map[string]string // server name -> configured prefix
+	serverFamilies map[string]string // server name -> declared family ("" if none)
 	nameMu         sync.RWMutex
 	musterPrefix   string
+
+	// familyMappings indexes every exposed family tool name back to the set of
+	// servers that provide it. An entry exists only for tools that are
+	// family-grouped; single-server tools fall through to nameMapping.
+	// Keys are exposed names (e.g. x_kubernetes_list_pods); values list the
+	// providing servers with the per-server original tool name.
+	// Protected by nameMu.
+	familyMappings map[string][]resolvedName
 }
 
 // NewServerRegistry creates a new server registry with the specified global prefix.
@@ -71,7 +95,9 @@ func NewServerRegistry(musterPrefix string) *ServerRegistry {
 		updateChan:     make(chan struct{}, 1),
 		nameMapping:    make(map[string]resolvedName),
 		serverPrefixes: make(map[string]string),
+		serverFamilies: make(map[string]string),
 		musterPrefix:   musterPrefix,
+		familyMappings: make(map[string][]resolvedName),
 	}
 }
 
@@ -141,6 +167,26 @@ func (r *ServerRegistry) setServerPrefixLocked(serverName, prefix string) {
 	r.serverPrefixes[serverName] = prefix
 }
 
+// setServerFamilyLocked records the family declared by a server (or removes
+// the entry when family is empty). Caller must hold nameMu.
+func (r *ServerRegistry) setServerFamilyLocked(serverName, family string) {
+	if family == "" {
+		delete(r.serverFamilies, serverName)
+		return
+	}
+	r.serverFamilies[serverName] = family
+}
+
+// familyExposedName returns the family-scoped exposed name for a tool:
+// {musterPrefix}_{family}_{toolName}. If the original tool name already
+// carries the family prefix it is not duplicated.
+func (r *ServerRegistry) familyExposedName(family, toolName string) string {
+	if !strings.HasPrefix(toolName, family+"_") {
+		toolName = family + "_" + toolName
+	}
+	return r.musterPrefix + "_" + toolName
+}
+
 // Register adds a new MCP server to the registry and initializes its capabilities.
 //
 // This method performs the following operations:
@@ -154,18 +200,17 @@ func (r *ServerRegistry) setServerPrefixLocked(serverName, prefix string) {
 //
 // Args:
 //   - ctx: Context for initialization and capability queries
-//   - name: Unique identifier for the server
+//   - registration: Server identification (name, toolPrefix, family)
 //   - client: MCP client instance for communicating with the server
-//   - toolPrefix: Server-specific prefix for tools (uses server name if empty)
 //
 // Returns an error if the server name is already registered, client initialization
 // fails, or the server cannot be reached.
-func (r *ServerRegistry) Register(ctx context.Context, name string, client MCPClient, toolPrefix string) error {
+func (r *ServerRegistry) Register(ctx context.Context, registration ServerRegistration, client MCPClient) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if _, exists := r.servers[name]; exists {
-		return fmt.Errorf("server %s already registered", name)
+	if _, exists := r.servers[registration.Name]; exists {
+		return fmt.Errorf("server %s already registered", registration.Name)
 	}
 
 	// Check if client is already initialized, if not try to initialize
@@ -175,40 +220,41 @@ func (r *ServerRegistry) Register(ctx context.Context, name string, client MCPCl
 		defer cancel()
 
 		if err := initializer.Initialize(initCtx); err != nil {
-			return fmt.Errorf("failed to initialize client for %s: %w", name, err)
+			return fmt.Errorf("failed to initialize client for %s: %w", registration.Name, err)
 		}
 	}
 
-	// Create server info structure
 	info := &ServerInfo{
-		Name:       name,
+		Name:       registration.Name,
 		Client:     client,
-		ToolPrefix: toolPrefix,
+		ToolPrefix: registration.ToolPrefix,
+		Family:     registration.Family,
 	}
 
 	r.nameMu.Lock()
-	r.setServerPrefixLocked(name, toolPrefix)
+	r.setServerPrefixLocked(registration.Name, registration.ToolPrefix)
+	r.setServerFamilyLocked(registration.Name, registration.Family)
 	r.nameMu.Unlock()
 
 	// Fetch initial capabilities from the server
 	if err := r.refreshServerCapabilities(ctx, info); err != nil {
-		logging.Warn("Aggregator", "Failed to get initial capabilities for %s: %v", name, err)
+		logging.Warn("Aggregator", "Failed to get initial capabilities for %s: %v", registration.Name, err)
 		// Log diagnostic information about partial success
 		info.mu.RLock()
 		logging.Debug("Aggregator", "Server %s registered with %d tools, %d resources, %d prompts",
-			name, len(info.Tools), len(info.Resources), len(info.Prompts))
+			registration.Name, len(info.Tools), len(info.Resources), len(info.Prompts))
 		info.mu.RUnlock()
 	} else {
 		info.mu.RLock()
 		logging.Info("Aggregator", "Server %s registered successfully with %d tools, %d resources, %d prompts",
-			name, len(info.Tools), len(info.Resources), len(info.Prompts))
+			registration.Name, len(info.Tools), len(info.Resources), len(info.Prompts))
 		info.mu.RUnlock()
 	}
 
-	r.servers[name] = info
+	r.servers[registration.Name] = info
 	r.notifyUpdate()
 
-	logging.Info("Aggregator", "Registered MCP server: %s", name)
+	logging.Info("Aggregator", "Registered MCP server: %s", registration.Name)
 	return nil
 }
 
@@ -240,6 +286,35 @@ func (r *ServerRegistry) Deregister(name string) error {
 	}
 
 	delete(r.servers, name)
+
+	// Drop reverse-lookup state owned by this server: any nameMapping or
+	// familyMappings entry that points at it would otherwise route subsequent
+	// calls to a deregistered server. familyMappings entries that still have
+	// other providers keep those providers; entries with no surviving
+	// providers are removed entirely.
+	r.nameMu.Lock()
+	delete(r.serverPrefixes, name)
+	delete(r.serverFamilies, name)
+	for exposed, rn := range r.nameMapping {
+		if rn.serverName == name {
+			delete(r.nameMapping, exposed)
+		}
+	}
+	for exposed, providers := range r.familyMappings {
+		filtered := providers[:0]
+		for _, p := range providers {
+			if p.serverName != name {
+				filtered = append(filtered, p)
+			}
+		}
+		if len(filtered) == 0 {
+			delete(r.familyMappings, exposed)
+			continue
+		}
+		r.familyMappings[exposed] = filtered
+	}
+	r.nameMu.Unlock()
+
 	r.notifyUpdate()
 
 	logging.Info("Aggregator", "Deregistered MCP server: %s", name)
@@ -275,29 +350,25 @@ func (r *ServerRegistry) GetClient(name string) (MCPClient, error) {
 
 // GetAllTools returns a consolidated list of all tools from all connected servers.
 //
-// This method aggregates tools from all registered and connected servers, applying
-// intelligent prefixing to avoid name conflicts. Only servers that are currently
-// connected contribute their tools to the result.
+// Tools from servers that share a non-empty spec.family are grouped under a
+// single exposed name ({musterPrefix}_{family}_{toolName}) with a required
+// "server" enum parameter selecting the providing instance. Tools from
+// servers without a family fall back to per-server prefixing
+// ({musterPrefix}_{serverPrefix}_{originalName}).
 //
 // Per ADR-008, servers in auth_required state do NOT contribute any tools.
 // Users must use core_auth_login to authenticate before server tools become visible.
-//
-// The returned tools have their names modified to include appropriate prefixes
-// following the pattern: {muster_prefix}_{server_prefix}_{original_name}
 //
 // Returns a slice of MCP tools ready for exposure through the aggregator.
 func (r *ServerRegistry) GetAllTools() []mcp.Tool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	var allTools []mcp.Tool
+	var contributions []serverToolContribution
 	connectedCount := 0
 	authRequiredCount := 0
-	totalServerCount := 0
 
 	for serverName, info := range r.servers {
-		totalServerCount++
-
 		// Per ADR-008: Servers requiring authentication do NOT expose any tools
 		// Users must use core_auth_login to authenticate first
 		if info.RequiresSessionAuth() {
@@ -313,22 +384,183 @@ func (r *ServerRegistry) GetAllTools() []mcp.Tool {
 		connectedCount++
 
 		info.mu.RLock()
-		serverToolCount := len(info.Tools)
-		for _, tool := range info.Tools {
-			// Apply smart prefixing to avoid name conflicts
-			exposedTool := tool
-			exposedTool.Name = r.ExposedToolName(serverName, tool.Name)
-			allTools = append(allTools, exposedTool)
-		}
+		toolsCopy := append([]mcp.Tool(nil), info.Tools...)
 		info.mu.RUnlock()
 
-		logging.Debug("Aggregator", "Server %s has %d tools", serverName, serverToolCount)
+		contributions = append(contributions, serverToolContribution{
+			serverName: serverName,
+			family:     info.Family,
+			tools:      toolsCopy,
+		})
+		logging.Debug("Aggregator", "Server %s has %d tools", serverName, len(toolsCopy))
 	}
 
+	allTools := r.assembleExposedTools(contributions)
 	logging.Debug("Aggregator", "GetAllTools: returning %d tools from %d connected servers (%d servers require auth, use core_auth_login)",
 		len(allTools), connectedCount, authRequiredCount)
 
 	return allTools
+}
+
+// serverToolContribution carries one server's tool contribution into the
+// family-aware assembly pipeline used by GetAllTools / GetAllToolsForSession.
+type serverToolContribution struct {
+	serverName string
+	family     string
+	tools      []mcp.Tool
+}
+
+// assembleExposedTools turns a set of per-server tool contributions into the
+// flat exposed list, applying family grouping. It rebuilds the
+// familyMappings index as a side effect so that subsequent
+// ResolveToolName / ResolveToolNameForServer calls route correctly.
+//
+// Family grouping rules:
+//   - Servers without a family always emit per-server prefixed tools.
+//   - Servers in the same family emit a single exposed tool per original
+//     tool name. The exposed tool has a required "server" enum parameter
+//     listing all family members that provide it.
+//   - When two servers in the same family expose the same tool name with
+//     diverging descriptions, that specific tool falls back to per-server
+//     prefixing on both sides (and a warning is logged). Other tools in
+//     the family with consistent descriptions still group.
+func (r *ServerRegistry) assembleExposedTools(contributions []serverToolContribution) []mcp.Tool {
+	type familyKey struct {
+		family   string
+		toolName string
+	}
+	type familyEntry struct {
+		servers     []string
+		tools       []mcp.Tool // parallel to servers
+		description string
+		descMatches bool
+	}
+
+	familyBuckets := make(map[familyKey]*familyEntry)
+	var soloTools []mcp.Tool
+
+	for _, c := range contributions {
+		if c.family == "" {
+			for _, tool := range c.tools {
+				exposedTool := tool
+				exposedTool.Name = r.ExposedToolName(c.serverName, tool.Name)
+				soloTools = append(soloTools, exposedTool)
+			}
+			continue
+		}
+		for _, tool := range c.tools {
+			key := familyKey{family: c.family, toolName: tool.Name}
+			entry, ok := familyBuckets[key]
+			if !ok {
+				familyBuckets[key] = &familyEntry{
+					servers:     []string{c.serverName},
+					tools:       []mcp.Tool{tool},
+					description: tool.Description,
+					descMatches: true,
+				}
+				continue
+			}
+			entry.servers = append(entry.servers, c.serverName)
+			entry.tools = append(entry.tools, tool)
+			if tool.Description != entry.description {
+				entry.descMatches = false
+			}
+		}
+	}
+
+	// Reset family routing index for tools — solo (non-family) tools have
+	// already populated nameMapping via ExposedToolName above.
+	r.nameMu.Lock()
+	for exposed := range r.familyMappings {
+		// Only clear tool-typed entries; keep other family-mapped item kinds
+		// (none today, but future-proof).
+		if len(r.familyMappings[exposed]) > 0 && r.familyMappings[exposed][0].itemType == metatools.ItemKindTool {
+			delete(r.familyMappings, exposed)
+		}
+	}
+	r.nameMu.Unlock()
+
+	for key, entry := range familyBuckets {
+		if !entry.descMatches {
+			logging.Warn("Aggregator",
+				"family %q tool %q has divergent descriptions across servers %v; falling back to per-server prefixing",
+				key.family, key.toolName, entry.servers)
+			for i, srv := range entry.servers {
+				exposedTool := entry.tools[i]
+				exposedTool.Name = r.ExposedToolName(srv, entry.tools[i].Name)
+				soloTools = append(soloTools, exposedTool)
+			}
+			continue
+		}
+
+		sortedServers := append([]string(nil), entry.servers...)
+		sort.Strings(sortedServers)
+
+		exposedTool := entry.tools[0]
+		exposedTool.Name = r.familyExposedName(key.family, key.toolName)
+		exposedTool.InputSchema = injectServerEnum(exposedTool.InputSchema, sortedServers)
+		exposedTool.Description = annotateMultiServer(exposedTool.Description, sortedServers)
+
+		soloTools = append(soloTools, exposedTool)
+		r.registerFamilyTool(exposedTool.Name, key.toolName, sortedServers)
+	}
+
+	return soloTools
+}
+
+// registerFamilyTool records the reverse-lookup mapping for a family-grouped
+// tool: exposed name -> every server that provides it, with the original
+// (per-server) tool name. Caller must NOT hold nameMu.
+func (r *ServerRegistry) registerFamilyTool(exposedName, originalName string, serverNames []string) {
+	r.nameMu.Lock()
+	defer r.nameMu.Unlock()
+	providers := make([]resolvedName, len(serverNames))
+	for i, sn := range serverNames {
+		providers[i] = resolvedName{serverName: sn, originalName: originalName, itemType: metatools.ItemKindTool}
+	}
+	r.familyMappings[exposedName] = providers
+}
+
+// injectServerEnum returns a copy of schema with a required "server" string
+// parameter whose enum lists the available backend servers. Properties and
+// Required are deep-copied so the per-server cached tool schema is not
+// mutated.
+func injectServerEnum(schema mcp.ToolInputSchema, servers []string) mcp.ToolInputSchema {
+	enumVals := make([]any, len(servers))
+	for i, s := range servers {
+		enumVals[i] = s
+	}
+
+	properties := make(map[string]any, len(schema.Properties)+1)
+	for k, v := range schema.Properties {
+		properties[k] = v
+	}
+	properties[serverArgKey] = map[string]any{
+		"type":        "string",
+		"description": "Target server to execute this tool on. Available: " + strings.Join(servers, ", "),
+		"enum":        enumVals,
+	}
+
+	required := make([]string, 0, len(schema.Required)+1)
+	required = append(required, schema.Required...)
+	required = append(required, serverArgKey)
+
+	schema.Properties = properties
+	schema.Required = required
+	return schema
+}
+
+// annotateMultiServer appends a (available on servers: …) trailer to the
+// description so MCP clients reading tools/list see which instances the
+// "server" parameter accepts. A single trailer is preserved across repeated
+// passes by treating an existing parenthesised "available on servers" suffix
+// as canonical.
+func annotateMultiServer(description string, servers []string) string {
+	trailer := " (available on servers: " + strings.Join(servers, ", ") + ")"
+	if idx := strings.LastIndex(description, " (available on servers:"); idx >= 0 {
+		description = description[:idx]
+	}
+	return description + trailer
 }
 
 // GetAllResources returns a consolidated list of all resources from all connected servers.
@@ -396,24 +628,105 @@ func (r *ServerRegistry) GetAllPrompts() []mcp.Prompt {
 // ResolveToolName resolves an exposed (prefixed) tool name back to its source server and original name.
 //
 // This method is used when a tool call is received to determine which server should
-// handle the request and what the original tool name was before prefixing.
+// handle the request and what the original tool name was before prefixing. For
+// family-grouped tools where multiple servers provide the same exposed name,
+// callers must specify which server via ResolveToolNameForServer instead; this
+// method returns an error noting that the "server" parameter is required.
 //
 // Args:
 //   - exposedName: The prefixed tool name as seen by clients
 //
 // Returns the server name, original tool name, and nil error if resolution succeeds.
-// Returns empty strings and an error if the name cannot be resolved or refers to a different item type.
+// Returns empty strings and an error if the name cannot be resolved, is ambiguous
+// (family-grouped with multiple providers), or refers to a different item type.
 func (r *ServerRegistry) ResolveToolName(exposedName string) (serverName, originalName string, err error) {
 	r.nameMu.RLock()
-	m, ok := r.nameMapping[exposedName]
+	providers, family := r.familyMappings[exposedName], ""
+	m, soloOK := r.nameMapping[exposedName]
+	if len(providers) > 0 {
+		family = strings.SplitN(strings.TrimPrefix(exposedName, r.musterPrefix+"_"), "_", 2)[0]
+	}
 	r.nameMu.RUnlock()
-	if !ok {
+
+	if len(providers) > 1 {
+		names := make([]string, len(providers))
+		for i, p := range providers {
+			names[i] = p.serverName
+		}
+		sort.Strings(names)
+		return "", "", fmt.Errorf("tool %s is provided by family %s on servers %s; the 'server' parameter is required",
+			exposedName, family, strings.Join(names, ", "))
+	}
+	if len(providers) == 1 {
+		return providers[0].serverName, providers[0].originalName, nil
+	}
+	if !soloOK {
 		return "", "", fmt.Errorf("unknown name: %s", exposedName)
 	}
 	if m.itemType != metatools.ItemKindTool {
 		return "", "", fmt.Errorf("name %s is a %s, not a tool", exposedName, m.itemType)
 	}
 	return m.serverName, m.originalName, nil
+}
+
+// ResolveToolNameForServer resolves a family-grouped or per-server exposed
+// tool name when the caller already specified which backend server to route
+// to (via the injected "server" arg). The returned originalName is the
+// per-server tool name to forward to the backend.
+//
+// Returns an error if the exposed name is unknown OR if the requested
+// serverName is not among the providers (for family tools) or not the owning
+// server (for solo tools). Crucially, ambiguous family tools resolve here
+// when given an explicit server, instead of falling back to legacy mappings.
+func (r *ServerRegistry) ResolveToolNameForServer(exposedName, serverName string) (originalName string, err error) {
+	r.nameMu.RLock()
+	defer r.nameMu.RUnlock()
+	if providers, ok := r.familyMappings[exposedName]; ok {
+		for _, p := range providers {
+			if p.serverName == serverName {
+				return p.originalName, nil
+			}
+		}
+		available := make([]string, len(providers))
+		for i, p := range providers {
+			available[i] = p.serverName
+		}
+		sort.Strings(available)
+		return "", fmt.Errorf("tool %s is not available on server %q (available: %s)",
+			exposedName, serverName, strings.Join(available, ", "))
+	}
+	m, ok := r.nameMapping[exposedName]
+	if !ok {
+		return "", fmt.Errorf("unknown name: %s", exposedName)
+	}
+	if m.itemType != metatools.ItemKindTool {
+		return "", fmt.Errorf("name %s is a %s, not a tool", exposedName, m.itemType)
+	}
+	if m.serverName != serverName {
+		return "", fmt.Errorf("tool %s belongs to server %q, not %q", exposedName, m.serverName, serverName)
+	}
+	return m.originalName, nil
+}
+
+// GetToolServerNames returns the set of server names that provide the given
+// exposed tool name. Returns nil if the name is unknown. For family-grouped
+// tools the slice has multiple entries (sorted); for solo tools a single
+// entry; for prompts/resources or unmapped names, nil.
+func (r *ServerRegistry) GetToolServerNames(exposedName string) []string {
+	r.nameMu.RLock()
+	defer r.nameMu.RUnlock()
+	if providers, ok := r.familyMappings[exposedName]; ok {
+		out := make([]string, len(providers))
+		for i, p := range providers {
+			out[i] = p.serverName
+		}
+		sort.Strings(out)
+		return out
+	}
+	if m, ok := r.nameMapping[exposedName]; ok && m.itemType == metatools.ItemKindTool {
+		return []string{m.serverName}
+	}
+	return nil
 }
 
 // ResolvePromptName resolves an exposed (prefixed) prompt name back to its source server and original name.
@@ -567,70 +880,46 @@ func (r *ServerRegistry) refreshServerCapabilities(ctx context.Context, info *Se
 	return nil
 }
 
-// RegisterPendingAuth registers a server that requires authentication before it can be fully connected.
-// This creates a placeholder server entry requiring session auth. Per ADR-008, no synthetic
-// authentication tools are created - users should use core_auth_login to authenticate.
+// RegisterPendingAuth registers a server that is reachable but requires
+// authentication before its tools can be exposed. Per ADR-008, no synthetic
+// authentication tools are created — users authenticate via core_auth_login.
 //
-// Args:
-//   - name: Unique identifier for the server
-//   - url: The server endpoint URL
-//   - toolPrefix: Server-specific prefix for tools
-//   - authInfo: OAuth authentication information from the 401 response
-//
-// Returns an error if the server name is already registered.
-func (r *ServerRegistry) RegisterPendingAuth(name, url, toolPrefix string, authInfo *AuthInfo) error {
-	return r.RegisterPendingAuthWithConfig(name, url, toolPrefix, authInfo, nil)
-}
-
-// RegisterPendingAuthWithConfig registers a server that requires authentication with auth configuration.
-// This is an extended version of RegisterPendingAuth that also accepts auth config for SSO token forwarding.
-//
-// Args:
-//   - name: Unique identifier for the server
-//   - url: The server endpoint URL
-//   - toolPrefix: Server-specific prefix for tools
-//   - authInfo: OAuth authentication information from the 401 response
-//   - authConfig: Auth configuration for token forwarding (may be nil)
-//
-// Returns an error if the server name is already registered.
-func (r *ServerRegistry) RegisterPendingAuthWithConfig(name, url, toolPrefix string, authInfo *AuthInfo, authConfig *api.MCPServerAuth) error {
+// AuthConfig in the registration may be nil; in either case the server is
+// flagged as requiring per-session authentication.
+func (r *ServerRegistry) RegisterPendingAuth(registration PendingAuthRegistration) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if _, exists := r.servers[name]; exists {
-		return fmt.Errorf("server %s already registered", name)
+	if _, exists := r.servers[registration.Name]; exists {
+		return fmt.Errorf("server %s already registered", registration.Name)
 	}
 
-	// A nil authConfig means "no auth config was provided by the caller".
-	// We normalise it to an empty struct so RequiresSessionAuth() returns true
-	// for every server registered through this path — all pending-auth servers
-	// require per-session authentication by definition.
+	authConfig := registration.AuthConfig
 	if authConfig == nil {
 		authConfig = &api.MCPServerAuth{}
 	}
 
-	// Per ADR-008: No synthetic tools are created. Users use core_auth_login instead.
 	info := &ServerInfo{
-		Name:       name,
-		URL:        url,
-		ToolPrefix: toolPrefix,
-		AuthInfo:   authInfo,
+		Name:       registration.Name,
+		URL:        registration.URL,
+		ToolPrefix: registration.ToolPrefix,
+		Family:     registration.Family,
+		AuthInfo:   registration.AuthInfo,
 		AuthConfig: authConfig,
-		Client:     nil, // No client until authentication succeeds
-		Tools:      nil, // No tools exposed until authenticated
 	}
 
 	r.nameMu.Lock()
-	r.setServerPrefixLocked(name, toolPrefix)
+	r.setServerPrefixLocked(registration.Name, registration.ToolPrefix)
+	r.setServerFamilyLocked(registration.Name, registration.Family)
 	r.nameMu.Unlock()
 
-	r.servers[name] = info
+	r.servers[registration.Name] = info
 	r.notifyUpdate()
 
-	if authConfig != nil && authConfig.ForwardToken {
-		logging.Info("Aggregator", "Registered pending auth server: %s (requires auth, SSO token forwarding enabled)", name)
+	if authConfig.ForwardToken {
+		logging.Info("Aggregator", "Registered pending auth server: %s (requires auth, SSO token forwarding enabled)", registration.Name)
 	} else {
-		logging.Info("Aggregator", "Registered pending auth server: %s (requires authentication, use core_auth_login)", name)
+		logging.Info("Aggregator", "Registered pending auth server: %s (requires authentication, use core_auth_login)", registration.Name)
 	}
 	return nil
 }
@@ -639,12 +928,14 @@ func (r *ServerRegistry) RegisterPendingAuthWithConfig(name, url, toolPrefix str
 //
 // For OAuth servers (RequiresSessionAuth), tools are read from the CapabilityStore
 // keyed by session ID (token family). For non-OAuth servers, tools are read from
-// ServerInfo.Tools (same as GetAllTools).
+// ServerInfo.Tools (same as GetAllTools). Family grouping is applied to the
+// resulting union so a user who is authenticated against multiple instances
+// of the same family sees a single deduplicated tool with the "server" enum.
 func (r *ServerRegistry) GetAllToolsForSession(ctx context.Context, store CapabilityStore, sessionID string) []mcp.Tool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	var allTools []mcp.Tool
+	var contributions []serverToolContribution
 
 	for serverName, info := range r.servers {
 		if info.RequiresSessionAuth() {
@@ -655,11 +946,11 @@ func (r *ServerRegistry) GetAllToolsForSession(ctx context.Context, store Capabi
 			if err != nil || caps == nil {
 				continue
 			}
-			for _, tool := range caps.Tools {
-				exposedTool := tool
-				exposedTool.Name = r.ExposedToolName(serverName, tool.Name)
-				allTools = append(allTools, exposedTool)
-			}
+			contributions = append(contributions, serverToolContribution{
+				serverName: serverName,
+				family:     info.Family,
+				tools:      append([]mcp.Tool(nil), caps.Tools...),
+			})
 			continue
 		}
 
@@ -668,15 +959,16 @@ func (r *ServerRegistry) GetAllToolsForSession(ctx context.Context, store Capabi
 		}
 
 		info.mu.RLock()
-		for _, tool := range info.Tools {
-			exposedTool := tool
-			exposedTool.Name = r.ExposedToolName(serverName, tool.Name)
-			allTools = append(allTools, exposedTool)
-		}
+		toolsCopy := append([]mcp.Tool(nil), info.Tools...)
 		info.mu.RUnlock()
+		contributions = append(contributions, serverToolContribution{
+			serverName: serverName,
+			family:     info.Family,
+			tools:      toolsCopy,
+		})
 	}
 
-	return allTools
+	return r.assembleExposedTools(contributions)
 }
 
 // GetAllResourcesForSession returns the resources visible to a specific login session.

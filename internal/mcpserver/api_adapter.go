@@ -116,6 +116,7 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 		Type:                server.Spec.Type,
 		Description:         server.Spec.Description,
 		ToolPrefix:          server.Spec.ToolPrefix,
+		Family:              server.Spec.Family,
 		AutoStart:           server.Spec.AutoStart,
 		Command:             server.Spec.Command,
 		Args:                server.Spec.Args,
@@ -252,6 +253,7 @@ func (a *Adapter) convertRequestToCRD(req *api.MCPServerCreateRequest) *musterv1
 		Spec: musterv1alpha1.MCPServerSpec{
 			Type:        req.Type,
 			ToolPrefix:  req.ToolPrefix,
+			Family:      req.Family,
 			Description: req.Description,
 			AutoStart:   req.AutoStart,
 			Command:     req.Command,
@@ -313,6 +315,7 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 		{Name: "name", Type: "string", Required: true, Description: "MCP server name"},
 		{Name: "type", Type: "string", Required: typeRequired, Description: "MCP server type (stdio, streamable-http, or sse)"},
 		{Name: "toolPrefix", Type: "string", Required: false, Description: "Tool prefix for namespacing"},
+		{Name: "family", Type: "string", Required: false, Description: "Family that this MCP server instance belongs to (groups equivalent servers under a single tool name)"},
 		{Name: "description", Type: "string", Required: false, Description: "MCP server description"},
 		{Name: "autoStart", Type: "boolean", Required: false, Description: "Whether server should auto-start"},
 		{Name: "command", Type: "string", Required: false, Description: "Command executable path (required for stdio)"},
@@ -541,6 +544,7 @@ func (a *Adapter) handleMCPServerValidate(args map[string]interface{}) (*api.Cal
 		Name:        req.Name,
 		Type:        req.Type,
 		ToolPrefix:  req.ToolPrefix,
+		Family:      req.Family,
 		Description: req.Description,
 		AutoStart:   req.AutoStart,
 		Command:     req.Command,
@@ -630,6 +634,9 @@ func (a *Adapter) handleMCPServerUpdate(args map[string]interface{}) (*api.CallT
 	}
 	if req.ToolPrefix != "" {
 		existing.Spec.ToolPrefix = req.ToolPrefix
+	}
+	if req.Family != "" {
+		existing.Spec.Family = req.Family
 	}
 	if req.Description != "" {
 		existing.Spec.Description = req.Description
