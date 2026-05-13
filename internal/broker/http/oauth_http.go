@@ -622,7 +622,7 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 
 		// Set up encryption if key is provided
 		if cfg.EncryptionKey != "" {
-			keyBytes, err := broker.DecodeEncryptionKey(cfg.EncryptionKey)
+			keyBytes, err := security.DecodeKey(cfg.EncryptionKey)
 			if err != nil {
 				valkeyStore.Close()
 				return nil, nil, fmt.Errorf("failed to decode encryption key: %w", err)

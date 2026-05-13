@@ -740,3 +740,16 @@ func TestStoreIDTokenForSSO_SetsExpiresAtFromJWT(t *testing.T) {
 		}
 	})
 }
+
+func TestResolveMusterIssuer_NilTokenBroker(t *testing.T) {
+	a := &AggregatorServer{
+		config: AggregatorConfig{
+			OAuthServer: OAuthServerConfig{
+				Enabled: false,
+			},
+		},
+	}
+
+	issuer := a.resolveMusterIssuer("any-session")
+	assert.Empty(t, issuer, "nil tokenBroker must short-circuit to empty issuer")
+}

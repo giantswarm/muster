@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/giantswarm/muster/internal/aggregator"
+	"github.com/giantswarm/muster/internal/aggregator/tokenbroker"
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/services"
 	"github.com/giantswarm/muster/pkg/logging"
@@ -57,6 +58,8 @@ func (s *AggregatorService) Start(ctx context.Context) error {
 
 	// Create the manager with APIs
 	s.manager = aggregator.NewAggregatorManager(s.config, s.orchestratorAPI, s.serviceRegistry, s.onManagerErrorCallback)
+
+	s.manager.GetAggregatorServer().SetTokenBroker(tokenbroker.NewInProcess(s.manager.GetBrokerManager()))
 
 	// Start the manager
 	if err := s.manager.Start(ctx); err != nil {

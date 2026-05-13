@@ -312,6 +312,24 @@ func (m *Manager) StoreToken(sessionID, userID, issuer string, token *pkgoauth.T
 	m.client.tokenStore.Store(key, token, userID)
 }
 
+// ErrSessionUnknown is returned by [Manager.SessionIssuer] when the
+// session has no stored token carrying an issuer claim.
+var ErrSessionUnknown = fmt.Errorf("broker: session has no stored issuer")
+
+// SessionIssuer returns the IdP issuer URL bound to sessionID, or
+// [ErrSessionUnknown] if no stored token carries an ID token.
+func (m *Manager) SessionIssuer(_ context.Context, sessionID string) (string, error) {
+	if m == nil || m.client == nil || m.client.tokenStore == nil {
+		return "", fmt.Errorf("broker: not initialized")
+	}
+	for _, token := range m.client.tokenStore.GetAllForSession(sessionID) {
+		if token != nil && token.IDToken != "" && token.Issuer != "" {
+			return token.Issuer, nil
+		}
+	}
+	return "", ErrSessionUnknown
+}
+
 // CreateAuthChallenge creates an authentication challenge for a 401 response.
 // Returns the auth URL the user should visit and the challenge response.
 func (m *Manager) CreateAuthChallenge(ctx context.Context, sessionID, userID, serverName, issuer, scope string) (*AuthRequiredResponse, error) {

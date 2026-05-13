@@ -9,6 +9,8 @@ import (
 	"github.com/giantswarm/muster/internal/config"
 )
 
+const fallbackIssuer = "https://fallback-issuer.example.com"
+
 // issuerMockOAuthHandler implements api.OAuthHandler for testing getMusterIssuer
 type issuerMockOAuthHandler struct {
 	enabled          bool
@@ -124,18 +126,10 @@ func TestGetMusterIssuer_WithOAuthServerConfig(t *testing.T) {
 }
 
 func TestGetMusterIssuer_WithEmptyBaseURL(t *testing.T) {
-	// Register a mock OAuth handler
-	mockHandler := &issuerMockOAuthHandler{
-		enabled: true,
-		findTokenResult: &api.OAuthToken{
-			Issuer:  "https://fallback-issuer.example.com",
-			IDToken: "test-id-token",
-		},
-	}
+	mockHandler := &issuerMockOAuthHandler{enabled: true}
 	api.RegisterOAuthHandler(mockHandler)
 	t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
-	// Create an aggregator with OAuthServer.Config but empty BaseURL
 	aggregator := &AggregatorServer{
 		config: AggregatorConfig{
 			OAuthServer: OAuthServerConfig{
@@ -146,14 +140,17 @@ func TestGetMusterIssuer_WithEmptyBaseURL(t *testing.T) {
 			},
 		},
 	}
+	aggregator.SetTokenBroker(&mockTokenBroker{
+		sessionIssuerFn: func(_ context.Context, _ string) (string, error) {
+			return fallbackIssuer, nil
+		},
+	})
 
 	provider := NewAuthToolProvider(aggregator)
 
-	// Call getMusterIssuer - should fall back to FindTokenWithIDToken
 	issuer := provider.getMusterIssuer("test-user-sub")
 
-	// Should return the issuer from the fallback token
-	if issuer != "https://fallback-issuer.example.com" {
+	if issuer != fallbackIssuer {
 		t.Errorf("expected issuer 'https://fallback-issuer.example.com', got '%s'", issuer)
 	}
 }
@@ -215,18 +212,10 @@ func TestGetMusterIssuer_NoOAuthHandler(t *testing.T) {
 }
 
 func TestGetMusterIssuer_ConfigNotOAuthServerConfig(t *testing.T) {
-	// Register a mock OAuth handler
-	mockHandler := &issuerMockOAuthHandler{
-		enabled: true,
-		findTokenResult: &api.OAuthToken{
-			Issuer:  "https://fallback-issuer.example.com",
-			IDToken: "test-id-token",
-		},
-	}
+	mockHandler := &issuerMockOAuthHandler{enabled: true}
 	api.RegisterOAuthHandler(mockHandler)
 	t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
-	// Create an aggregator with OAuthServer.Config set to wrong type
 	aggregator := &AggregatorServer{
 		config: AggregatorConfig{
 			OAuthServer: OAuthServerConfig{
@@ -235,14 +224,17 @@ func TestGetMusterIssuer_ConfigNotOAuthServerConfig(t *testing.T) {
 			},
 		},
 	}
+	aggregator.SetTokenBroker(&mockTokenBroker{
+		sessionIssuerFn: func(_ context.Context, _ string) (string, error) {
+			return fallbackIssuer, nil
+		},
+	})
 
 	provider := NewAuthToolProvider(aggregator)
 
-	// Call getMusterIssuer - should fall back to FindTokenWithIDToken
 	issuer := provider.getMusterIssuer("test-user-sub")
 
-	// Should return the issuer from the fallback token
-	if issuer != "https://fallback-issuer.example.com" {
+	if issuer != fallbackIssuer {
 		t.Errorf("expected issuer 'https://fallback-issuer.example.com', got '%s'", issuer)
 	}
 }

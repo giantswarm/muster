@@ -11,7 +11,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
-- mcp-oauth bumped to `v0.2.125`. Internal API migrated to functional options; `server.NewOAuthHTTPServer` now takes `...oauth.ServerOption`. Security-event log emission is rate-limited (1/s, burst 5). No user-facing config change.
+- mcp-oauth bumped to `v0.2.128`. Internal API migrated to functional options; `brokerhttp.NewOAuthHTTPServer` now takes `...oauth.ServerOption`. Security-event log emission is rate-limited (1/s, burst 5). The encryption-key decode helper is now `security.DecodeKey` (upstream); muster's `internal/broker.DecodeEncryptionKey` wrapper is removed. No user-facing config change.
 
 ### Fixed
 

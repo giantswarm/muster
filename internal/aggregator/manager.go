@@ -40,7 +40,7 @@ type AggregatorManager struct {
 	// Internal components
 	aggregatorServer *AggregatorServer // The core MCP server that exposes aggregated capabilities
 	eventHandler     *EventHandler     // Handles service state change events
-	oauthManager     *broker.Manager   // OAuth proxy for remote MCP server authentication
+	broker           *broker.Manager   // OAuth proxy for remote MCP server authentication
 
 	// Lifecycle management
 	ctx        context.Context    // Context for coordinating shutdown
@@ -90,21 +90,30 @@ func NewAggregatorManager(config AggregatorConfig, orchestratorAPI api.Orchestra
 			)
 		}
 
-		manager.oauthManager = broker.NewManager(oauthMCPClientConfig, oauthOpts...)
+		manager.broker = broker.NewManager(oauthMCPClientConfig, oauthOpts...)
 
-		if manager.oauthManager != nil {
+		if manager.broker != nil {
 			// Register OAuth handler with the API layer
-			oauthAdapter := broker.NewAdapter(manager.oauthManager)
+			oauthAdapter := broker.NewAdapter(manager.broker)
 			oauthAdapter.Register()
 			logging.Info("Aggregator-Manager", "OAuth proxy enabled with public URL: %s", config.OAuth.PublicURL)
 
 			// Register the auth completion callback to establish session connections
 			// after browser OAuth completes
-			manager.oauthManager.SetAuthCompletionCallback(manager.handleAuthCompletion)
+			manager.broker.SetAuthCompletionCallback(manager.handleAuthCompletion)
 		}
 	}
 
 	return manager
+}
+
+// GetBrokerManager returns the underlying broker.Manager, or nil when
+// the OAuth proxy is disabled. Composition-root-only: aggregator-domain
+// code in this package must not call it.
+func (am *AggregatorManager) GetBrokerManager() *broker.Manager {
+	am.mu.RLock()
+	defer am.mu.RUnlock()
+	return am.broker
 }
 
 // Start initializes and starts the aggregator manager.
@@ -192,8 +201,8 @@ func (am *AggregatorManager) Stop(ctx context.Context) error {
 	}
 
 	// Stop OAuth manager
-	if am.oauthManager != nil {
-		am.oauthManager.Stop()
+	if am.broker != nil {
+		am.broker.Stop()
 	}
 
 	// Stop aggregator server and wait for graceful shutdown

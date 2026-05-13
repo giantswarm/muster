@@ -434,7 +434,7 @@ func (p *AuthToolProvider) tryConnectWithToken(ctx context.Context, serverName, 
 // This is needed for token forwarding - we need to get the ID token from muster's auth session.
 //
 // This method first checks if the OAuth handler is enabled (required for token forwarding),
-// then delegates to the aggregator's getMusterIssuerWithFallback for the actual issuer lookup.
+// then delegates to the aggregator's resolveMusterIssuer for the actual issuer lookup.
 //
 // Returns empty string if:
 //   - No OAuth handler is registered
@@ -446,7 +446,7 @@ func (p *AuthToolProvider) getMusterIssuer(sessionID string) string {
 		return ""
 	}
 
-	return p.aggregator.getMusterIssuerWithFallback(sessionID)
+	return p.aggregator.resolveMusterIssuer(sessionID)
 }
 
 // isIssuerExclusiveToServer returns true if the given issuer is used ONLY by
