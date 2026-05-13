@@ -99,32 +99,15 @@ type OAuthHandler interface {
 
 	// ExchangeTokenForRemoteCluster exchanges a local token for one valid on a remote cluster.
 	// This implements RFC 8693 Token Exchange for cross-cluster SSO scenarios.
-	//
-	// Args:
-	//   - ctx: Context for the operation
-	//   - localToken: The local ID token to exchange
-	//   - userID: The user's unique identifier (from validated JWT 'sub' claim)
-	//   - config: Token exchange configuration for the remote cluster
-	//
-	// Returns the exchanged access token, or an error if exchange fails.
-	ExchangeTokenForRemoteCluster(ctx context.Context, localToken, userID string, config *TokenExchangeConfig) (string, error)
+	// Returns the exchanged access token, the issued-token-type URI from the
+	// authorization server response (RFC 8693 §2.2.1), or an error.
+	ExchangeTokenForRemoteCluster(ctx context.Context, localToken, userID string, config *TokenExchangeConfig) (string, string, error)
 
 	// ExchangeTokenForRemoteClusterWithClient exchanges a local token for one valid on a remote cluster
-	// using a custom HTTP client. This is used when the token exchange endpoint is accessed via
-	// Teleport Application Access, which requires mutual TLS authentication.
-	//
-	// The httpClient parameter should be configured with the appropriate TLS certificates
-	// (e.g., Teleport Machine ID certificates). If nil, uses the default HTTP client.
-	//
-	// Args:
-	//   - ctx: Context for the operation
-	//   - localToken: The local ID token to exchange
-	//   - userID: The user's unique identifier (from validated JWT 'sub' claim)
-	//   - config: Token exchange configuration for the remote cluster
-	//   - httpClient: Custom HTTP client with Teleport TLS certificates (or nil for default)
-	//
-	// Returns the exchanged access token, or an error if exchange fails.
-	ExchangeTokenForRemoteClusterWithClient(ctx context.Context, localToken, userID string, config *TokenExchangeConfig, httpClient *http.Client) (string, error)
+	// using a custom HTTP client (for Teleport Application Access mutual TLS).
+	// A nil httpClient uses the default. Returns the same triple as
+	// [OAuthHandler.ExchangeTokenForRemoteCluster].
+	ExchangeTokenForRemoteClusterWithClient(ctx context.Context, localToken, userID string, config *TokenExchangeConfig, httpClient *http.Client) (string, string, error)
 
 	// Stop stops the OAuth handler and cleans up resources.
 	Stop()

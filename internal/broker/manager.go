@@ -432,22 +432,18 @@ func (m *Manager) HandleCallback(ctx context.Context, code, state string) error 
 // ExchangeTokenForRemoteCluster exchanges a local token for one valid on a remote cluster.
 // This implements RFC 8693 Token Exchange for cross-cluster SSO scenarios.
 //
-// Args:
-//   - ctx: Context for the operation
-//   - localToken: The local ID token to exchange
-//   - userID: The user's unique identifier (from validated JWT 'sub' claim)
-//   - config: Token exchange configuration for the remote cluster
-//
-// Returns the exchanged access token, or an error if exchange fails.
-func (m *Manager) ExchangeTokenForRemoteCluster(ctx context.Context, localToken, userID string, config *api.TokenExchangeConfig) (string, error) {
+// Returns the exchanged access token, the issued-token-type URI from the
+// authorization server response (RFC 8693 §2.2.1), or an error if exchange
+// fails.
+func (m *Manager) ExchangeTokenForRemoteCluster(ctx context.Context, localToken, userID string, config *api.TokenExchangeConfig) (string, string, error) {
 	if m == nil {
-		return "", fmt.Errorf("OAuth proxy is disabled")
+		return "", "", fmt.Errorf("OAuth proxy is disabled")
 	}
 	if m.tokenExchanger == nil {
-		return "", fmt.Errorf("token exchanger not initialized")
+		return "", "", fmt.Errorf("token exchanger not initialized")
 	}
 	if config == nil {
-		return "", fmt.Errorf("token exchange config is nil")
+		return "", "", fmt.Errorf("token exchange config is nil")
 	}
 
 	result, err := m.tokenExchanger.Exchange(ctx, &ExchangeRequest{
@@ -457,36 +453,25 @@ func (m *Manager) ExchangeTokenForRemoteCluster(ctx context.Context, localToken,
 		UserID:           userID,
 	})
 	if err != nil {
-		return "", fmt.Errorf("exchange token for remote cluster: %w", err)
+		return "", "", fmt.Errorf("exchange token for remote cluster: %w", err)
 	}
 
-	return result.AccessToken, nil
+	return result.AccessToken, result.IssuedTokenType, nil
 }
 
 // ExchangeTokenForRemoteClusterWithClient exchanges a local token for one valid on a remote cluster
-// using a custom HTTP client. This is used when the token exchange endpoint is accessed via
-// Teleport Application Access, which requires mutual TLS authentication.
-//
-// The httpClient parameter should be configured with the appropriate TLS certificates
-// (e.g., Teleport Machine ID certificates). If nil, uses the default HTTP client.
-//
-// Args:
-//   - ctx: Context for the operation
-//   - localToken: The local ID token to exchange
-//   - userID: The user's unique identifier (from validated JWT 'sub' claim)
-//   - config: Token exchange configuration for the remote cluster
-//   - httpClient: Custom HTTP client with Teleport TLS certificates (or nil for default)
-//
-// Returns the exchanged access token, or an error if exchange fails.
-func (m *Manager) ExchangeTokenForRemoteClusterWithClient(ctx context.Context, localToken, userID string, config *api.TokenExchangeConfig, httpClient *http.Client) (string, error) {
+// using a custom HTTP client (for Teleport Application Access mutual TLS).
+// A nil httpClient uses the default broker HTTP client. Returns the same
+// triple as [Manager.ExchangeTokenForRemoteCluster].
+func (m *Manager) ExchangeTokenForRemoteClusterWithClient(ctx context.Context, localToken, userID string, config *api.TokenExchangeConfig, httpClient *http.Client) (string, string, error) {
 	if m == nil {
-		return "", fmt.Errorf("OAuth proxy is disabled")
+		return "", "", fmt.Errorf("OAuth proxy is disabled")
 	}
 	if m.tokenExchanger == nil {
-		return "", fmt.Errorf("token exchanger not initialized")
+		return "", "", fmt.Errorf("token exchanger not initialized")
 	}
 	if config == nil {
-		return "", fmt.Errorf("token exchange config is nil")
+		return "", "", fmt.Errorf("token exchange config is nil")
 	}
 
 	result, err := m.tokenExchanger.ExchangeWithClient(ctx, &ExchangeRequest{
@@ -496,10 +481,10 @@ func (m *Manager) ExchangeTokenForRemoteClusterWithClient(ctx context.Context, l
 		UserID:           userID,
 	}, httpClient)
 	if err != nil {
-		return "", fmt.Errorf("exchange token for remote cluster with custom client: %w", err)
+		return "", "", fmt.Errorf("exchange token for remote cluster with custom client: %w", err)
 	}
 
-	return result.AccessToken, nil
+	return result.AccessToken, result.IssuedTokenType, nil
 }
 
 // GetTokenExchanger returns the token exchanger for direct access.

@@ -155,6 +155,16 @@ func (a *AggregatorServer) SetTokenBroker(tb TokenBroker) {
 	a.tokenBroker = tb
 }
 
+// tokenBrokerSnapshot returns the currently-installed [TokenBroker], or
+// nil before [SetTokenBroker] has been called. Call sites that need the
+// broker should snapshot it through this helper and release the lock
+// before invoking broker methods — broker calls may block on the network.
+func (a *AggregatorServer) tokenBrokerSnapshot() TokenBroker {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.tokenBroker
+}
+
 // getValkeyClient returns the shared Valkey client if one was configured,
 // or nil when using in-memory stores. Used by AggregatorManager to share the
 // client with the OAuth token/state stores.
@@ -2609,12 +2619,12 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 ) (MCPClient, time.Time, string, error) {
 	serverName := serverInfo.Name
 	musterIssuer := a.getMusterIssuer()
-	oauthHandler := api.GetOAuthHandler()
-	if oauthHandler == nil || !oauthHandler.IsEnabled() {
-		return nil, time.Time{}, "", fmt.Errorf("OAuth handler not available for token exchange to %s", serverName)
+	tokenBroker := a.tokenBrokerSnapshot()
+	if tokenBroker == nil || !tokenBroker.Enabled() {
+		return nil, time.Time{}, "", fmt.Errorf("broker not available for token exchange to %s", serverName)
 	}
 
-	idToken := lookupIDTokenForSession(sessionID, musterIssuer)
+	idToken := lookupIDTokenForSession(ctx, tokenBroker, sessionID, musterIssuer)
 	if idToken == "" {
 		return nil, time.Time{}, "", fmt.Errorf("no ID token available for token exchange to %s", serverName)
 	}
@@ -2657,19 +2667,24 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 		return nil, time.Time{}, "", fmt.Errorf("teleport configuration failed for %s: %w", serverName, teleportResult.Error)
 	}
 
-	var exchangedToken string
-	if teleportResult.Client != nil {
-		exchangedToken, err = oauthHandler.ExchangeTokenForRemoteClusterWithClient(
-			ctx, idToken, userID, &exchangeConfig, teleportResult.Client,
-		)
-	} else {
-		exchangedToken, err = oauthHandler.ExchangeTokenForRemoteCluster(
-			ctx, idToken, userID, &exchangeConfig,
-		)
-	}
+	exchanged, err := tokenBroker.ExchangeToken(ctx, ExchangeRequest{
+		SessionID:    sessionID,
+		Subject:      userID,
+		SubjectToken: idToken,
+		Audience:     serverName,
+		Config: ExchangeConfig{
+			TokenEndpoint:  exchangeConfig.DexTokenEndpoint,
+			ExpectedIssuer: exchangeConfig.ExpectedIssuer,
+			ConnectorID:    exchangeConfig.ConnectorID,
+			ClientID:       exchangeConfig.ClientID,
+			ClientSecret:   exchangeConfig.ClientSecret,
+			Scopes:         exchangeConfig.Scopes,
+		},
+	})
 	if err != nil {
 		return nil, time.Time{}, "", fmt.Errorf("token exchange failed for %s: %w", serverName, err)
 	}
+	exchangedToken := exchanged.AccessToken
 
 	tokenExpiry, err := pkgoauth.Expiry(exchangedToken)
 	if err != nil {
@@ -2774,7 +2789,8 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 
 	} else if ShouldUseTokenForwarding(serverInfo) {
 		musterIssuer := a.getMusterIssuer()
-		idToken := lookupIDTokenForSession(sessionID, musterIssuer)
+		tokenBroker := a.tokenBrokerSnapshot()
+		idToken := lookupIDTokenForSession(ctx, tokenBroker, sessionID, musterIssuer)
 		if idToken == "" {
 			return nil, nil, fmt.Errorf("no ID token available for forwarding to %s", serverName)
 		}
@@ -2784,7 +2800,7 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 		}
 
 		headerFunc := func(_ context.Context) map[string]string {
-			latestToken := lookupIDTokenForSession(sessionID, musterIssuer)
+			latestToken := lookupIDTokenForSession(context.Background(), tokenBroker, sessionID, musterIssuer)
 			if latestToken == "" {
 				latestToken = idToken
 			}

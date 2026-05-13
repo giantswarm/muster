@@ -56,11 +56,11 @@ func (m *stubOAuthHandler) Stop()                                               
 func (m *stubOAuthHandler) CreateAuthChallenge(_ context.Context, _, _, _, _, _ string) (*api.AuthChallenge, error) {
 	return nil, nil
 }
-func (m *stubOAuthHandler) ExchangeTokenForRemoteCluster(_ context.Context, _, _ string, _ *api.TokenExchangeConfig) (string, error) {
-	return "", nil
+func (m *stubOAuthHandler) ExchangeTokenForRemoteCluster(_ context.Context, _, _ string, _ *api.TokenExchangeConfig) (string, string, error) {
+	return "", "", nil
 }
-func (m *stubOAuthHandler) ExchangeTokenForRemoteClusterWithClient(_ context.Context, _, _ string, _ *api.TokenExchangeConfig, _ *http.Client) (string, error) {
-	return "", nil
+func (m *stubOAuthHandler) ExchangeTokenForRemoteClusterWithClient(_ context.Context, _, _ string, _ *api.TokenExchangeConfig, _ *http.Client) (string, string, error) {
+	return "", "", nil
 }
 
 var _ api.OAuthHandler = (*stubOAuthHandler)(nil)

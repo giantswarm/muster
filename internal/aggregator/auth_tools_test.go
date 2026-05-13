@@ -86,23 +86,15 @@ func (m *issuerMockOAuthHandler) SetAuthCompletionCallback(callback api.AuthComp
 func (m *issuerMockOAuthHandler) Stop() {
 }
 
-func (m *issuerMockOAuthHandler) ExchangeTokenForRemoteCluster(ctx context.Context, localToken, userID string, config *api.TokenExchangeConfig) (string, error) {
-	return "", nil
+func (m *issuerMockOAuthHandler) ExchangeTokenForRemoteCluster(_ context.Context, _, _ string, _ *api.TokenExchangeConfig) (string, string, error) {
+	return "", "", nil
 }
 
-func (m *issuerMockOAuthHandler) ExchangeTokenForRemoteClusterWithClient(ctx context.Context, localToken, userID string, config *api.TokenExchangeConfig, httpClient *http.Client) (string, error) {
-	return "", nil
+func (m *issuerMockOAuthHandler) ExchangeTokenForRemoteClusterWithClient(_ context.Context, _, _ string, _ *api.TokenExchangeConfig, _ *http.Client) (string, string, error) {
+	return "", "", nil
 }
 
 func TestGetMusterIssuer_WithOAuthServerConfig(t *testing.T) {
-	// Register a mock OAuth handler
-	mockHandler := &issuerMockOAuthHandler{
-		enabled: true,
-	}
-	api.RegisterOAuthHandler(mockHandler)
-	t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
-
-	// Create an aggregator with OAuthServer.Config properly set
 	aggregator := &AggregatorServer{
 		config: AggregatorConfig{
 			OAuthServer: OAuthServerConfig{
@@ -113,57 +105,43 @@ func TestGetMusterIssuer_WithOAuthServerConfig(t *testing.T) {
 			},
 		},
 	}
+	aggregator.SetTokenBroker(&mockTokenBroker{enabled: true})
 
 	provider := NewAuthToolProvider(aggregator)
-
-	// Call getMusterIssuer
 	issuer := provider.getMusterIssuer(t.Context(), "test-user-sub")
 
-	// Should return the BaseURL from the config
 	if issuer != "https://muster.example.com" {
 		t.Errorf("expected issuer 'https://muster.example.com', got '%s'", issuer)
 	}
 }
 
 func TestGetMusterIssuer_WithEmptyBaseURL(t *testing.T) {
-	mockHandler := &issuerMockOAuthHandler{enabled: true}
-	api.RegisterOAuthHandler(mockHandler)
-	t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
-
 	aggregator := &AggregatorServer{
 		config: AggregatorConfig{
 			OAuthServer: OAuthServerConfig{
 				Enabled: true,
 				Config: config.OAuthServerConfig{
-					BaseURL: "", // Empty
+					BaseURL: "",
 				},
 			},
 		},
 	}
 	aggregator.SetTokenBroker(&mockTokenBroker{
+		enabled: true,
 		sessionIssuerFn: func(_ context.Context, _ string) (string, error) {
 			return fallbackIssuer, nil
 		},
 	})
 
 	provider := NewAuthToolProvider(aggregator)
-
 	issuer := provider.getMusterIssuer(t.Context(), "test-user-sub")
 
 	if issuer != fallbackIssuer {
-		t.Errorf("expected issuer 'https://fallback-issuer.example.com', got '%s'", issuer)
+		t.Errorf("expected issuer %q, got %q", fallbackIssuer, issuer)
 	}
 }
 
-func TestGetMusterIssuer_OAuthNotEnabled(t *testing.T) {
-	// Register a mock OAuth handler that's not enabled
-	mockHandler := &issuerMockOAuthHandler{
-		enabled: false,
-	}
-	api.RegisterOAuthHandler(mockHandler)
-	t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
-
-	// Create an aggregator with OAuthServer.Config
+func TestGetMusterIssuer_BrokerNotEnabled(t *testing.T) {
 	aggregator := &AggregatorServer{
 		config: AggregatorConfig{
 			OAuthServer: OAuthServerConfig{
@@ -174,22 +152,17 @@ func TestGetMusterIssuer_OAuthNotEnabled(t *testing.T) {
 			},
 		},
 	}
+	aggregator.SetTokenBroker(&mockTokenBroker{enabled: false})
 
 	provider := NewAuthToolProvider(aggregator)
-
-	// Call getMusterIssuer - should return empty because OAuth handler is not enabled
 	issuer := provider.getMusterIssuer(t.Context(), "test-user-sub")
 
 	if issuer != "" {
-		t.Errorf("expected empty issuer when OAuth not enabled, got '%s'", issuer)
+		t.Errorf("expected empty issuer when broker disabled, got %q", issuer)
 	}
 }
 
-func TestGetMusterIssuer_NoOAuthHandler(t *testing.T) {
-	// Ensure no OAuth handler is registered
-	api.RegisterOAuthHandler(nil)
-
-	// Create an aggregator with OAuthServer.Config
+func TestGetMusterIssuer_NoBroker(t *testing.T) {
 	aggregator := &AggregatorServer{
 		config: AggregatorConfig{
 			OAuthServer: OAuthServerConfig{
@@ -200,66 +173,49 @@ func TestGetMusterIssuer_NoOAuthHandler(t *testing.T) {
 			},
 		},
 	}
-
 	provider := NewAuthToolProvider(aggregator)
-
-	// Call getMusterIssuer - should return empty because no OAuth handler
 	issuer := provider.getMusterIssuer(t.Context(), "test-user-sub")
 
 	if issuer != "" {
-		t.Errorf("expected empty issuer when no OAuth handler, got '%s'", issuer)
+		t.Errorf("expected empty issuer when no broker wired, got %q", issuer)
 	}
 }
 
 func TestGetMusterIssuer_ConfigNotOAuthServerConfig(t *testing.T) {
-	mockHandler := &issuerMockOAuthHandler{enabled: true}
-	api.RegisterOAuthHandler(mockHandler)
-	t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
-
 	aggregator := &AggregatorServer{
 		config: AggregatorConfig{
 			OAuthServer: OAuthServerConfig{
 				Enabled: true,
-				Config:  "invalid-type", // Wrong type, should fall back
+				Config:  "invalid-type",
 			},
 		},
 	}
 	aggregator.SetTokenBroker(&mockTokenBroker{
+		enabled: true,
 		sessionIssuerFn: func(_ context.Context, _ string) (string, error) {
 			return fallbackIssuer, nil
 		},
 	})
 
 	provider := NewAuthToolProvider(aggregator)
-
 	issuer := provider.getMusterIssuer(t.Context(), "test-user-sub")
 
 	if issuer != fallbackIssuer {
-		t.Errorf("expected issuer 'https://fallback-issuer.example.com', got '%s'", issuer)
+		t.Errorf("expected issuer %q, got %q", fallbackIssuer, issuer)
 	}
 }
 
 func TestGetMusterIssuer_NoFallbackToken(t *testing.T) {
-	// Register a mock OAuth handler with no fallback token
-	mockHandler := &issuerMockOAuthHandler{
-		enabled:         true,
-		findTokenResult: nil, // No fallback token
-	}
-	api.RegisterOAuthHandler(mockHandler)
-	t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
-
-	// Create an aggregator with OAuthServer disabled
 	aggregator := &AggregatorServer{
 		config: AggregatorConfig{
 			OAuthServer: OAuthServerConfig{
-				Enabled: false, // Disabled
+				Enabled: false,
 			},
 		},
 	}
+	aggregator.SetTokenBroker(&mockTokenBroker{enabled: true})
 
 	provider := NewAuthToolProvider(aggregator)
-
-	// Call getMusterIssuer - should return empty
 	issuer := provider.getMusterIssuer(t.Context(), "test-user-sub")
 
 	if issuer != "" {
