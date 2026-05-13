@@ -32,7 +32,7 @@ func newManagerForTest(t *testing.T) *broker.Manager {
 }
 
 func TestInProcess_NilManager_ReturnsBrokerDisabled(t *testing.T) {
-	a := NewInProcess(nil, nil)
+	a := NewInProcess(nil)
 	ctx := context.Background()
 
 	require.False(t, a.Enabled())
@@ -54,8 +54,8 @@ func TestInProcess_NilManager_ReturnsBrokerDisabled(t *testing.T) {
 
 func TestInProcess_Enabled_TracksManagerState(t *testing.T) {
 	m := newManagerForTest(t)
-	require.True(t, NewInProcess(m, nil).Enabled(), "active manager should be enabled")
-	require.False(t, NewInProcess(nil, nil).Enabled(), "nil manager should be disabled")
+	require.True(t, NewInProcess(m).Enabled(), "active manager should be enabled")
+	require.False(t, NewInProcess(nil).Enabled(), "nil manager should be disabled")
 }
 
 func TestInProcess_BeginOAuthFlow_BuildsAuthURL(t *testing.T) {
@@ -78,7 +78,7 @@ func TestInProcess_BeginOAuthFlow_BuildsAuthURL(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	m := newManagerForTest(t)
-	a := NewInProcess(m, nil)
+	a := NewInProcess(m)
 
 	flow, err := a.BeginOAuthFlow(context.Background(), aggregator.BeginRequest{
 		SessionID:  "session-flow",
@@ -104,7 +104,7 @@ func TestInProcess_BeginOAuthFlow_BuildsAuthURL(t *testing.T) {
 
 func TestInProcess_InvalidateToken_EvictsFromCache(t *testing.T) {
 	m := newManagerForTest(t)
-	a := NewInProcess(m, nil)
+	a := NewInProcess(m)
 	ctx := context.Background()
 
 	const (
@@ -130,7 +130,7 @@ func TestInProcess_InvalidateToken_EvictsFromCache(t *testing.T) {
 
 func TestInProcess_ExchangeToken_RejectsEmptyConfig(t *testing.T) {
 	m := newManagerForTest(t)
-	a := NewInProcess(m, nil)
+	a := NewInProcess(m)
 
 	_, err := a.ExchangeToken(context.Background(), aggregator.ExchangeRequest{
 		SessionID:    "sid",
@@ -141,108 +141,6 @@ func TestInProcess_ExchangeToken_RejectsEmptyConfig(t *testing.T) {
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "missing token endpoint")
-}
-
-// captureTransportResolver records which audience was asked for, returns
-// the prepared client (or nil to signal "use default").
-type captureTransportResolver struct {
-	audience string
-	client   *http.Client
-}
-
-func (r *captureTransportResolver) HTTPClientFor(_ context.Context, audience string) (*http.Client, error) {
-	r.audience = audience
-	return r.client, nil
-}
-
-func TestInProcess_ExchangeToken_ConsultsResolver(t *testing.T) {
-	m := newManagerForTest(t)
-	resolver := &captureTransportResolver{client: nil}
-	a := NewInProcess(m, resolver)
-
-	// Best-effort: ExchangeToken will fail because the synthetic config has
-	// no reachable endpoint. We only assert that the resolver was consulted
-	// with the audience name before the broker tried to talk to the IdP.
-	_, _ = a.ExchangeToken(context.Background(), aggregator.ExchangeRequest{
-		SessionID:    "sid",
-		Subject:      "user",
-		SubjectToken: "id-token",
-		Audience:     "mcp-kubernetes",
-		Config: aggregator.ExchangeConfig{ //nolint:gosec // test fixture, not credentials
-			TokenEndpoint: "http://127.0.0.1:1/token",
-			ConnectorID:   "c",
-		},
-	})
-	require.Equal(t, "mcp-kubernetes", resolver.audience, "resolver should be consulted with the audience")
-}
-
-// erroringTransportResolver always fails resolution.
-type erroringTransportResolver struct {
-	err error
-}
-
-func (r *erroringTransportResolver) HTTPClientFor(_ context.Context, _ string) (*http.Client, error) {
-	return nil, r.err
-}
-
-// perAudienceTransportResolver returns a different *http.Client per audience.
-type perAudienceTransportResolver struct {
-	clients map[string]*http.Client
-	calls   []string
-}
-
-func (r *perAudienceTransportResolver) HTTPClientFor(_ context.Context, audience string) (*http.Client, error) {
-	r.calls = append(r.calls, audience)
-	return r.clients[audience], nil
-}
-
-func TestInProcess_ExchangeToken_RoutesPerAudience(t *testing.T) {
-	m := newManagerForTest(t)
-	clientA := &http.Client{}
-	clientB := &http.Client{}
-	resolver := &perAudienceTransportResolver{clients: map[string]*http.Client{
-		"audience-a": clientA,
-		"audience-b": clientB,
-	}}
-	a := NewInProcess(m, resolver)
-
-	ctx := context.Background()
-	exchange := func(audience string) {
-		_, _ = a.ExchangeToken(ctx, aggregator.ExchangeRequest{
-			SessionID:    "sid",
-			Subject:      "user",
-			SubjectToken: "id-token",
-			Audience:     audience,
-			Config: aggregator.ExchangeConfig{ //nolint:gosec // test fixture, not credentials
-				TokenEndpoint: "https://idp.test/token",
-				ConnectorID:   "c",
-			},
-		})
-	}
-	exchange("audience-a")
-	exchange("audience-b")
-	exchange("audience-a")
-
-	require.Equal(t, []string{"audience-a", "audience-b", "audience-a"}, resolver.calls,
-		"resolver must be consulted with the per-call audience (regression: ignoring audience would return the same client every time)")
-}
-
-func TestInProcess_ExchangeToken_PropagatesResolverError(t *testing.T) {
-	m := newManagerForTest(t)
-	resolverErr := errors.New("teleport cert unavailable")
-	a := NewInProcess(m, &erroringTransportResolver{err: resolverErr})
-
-	_, err := a.ExchangeToken(context.Background(), aggregator.ExchangeRequest{
-		SessionID:    "sid",
-		Subject:      "user",
-		SubjectToken: "id-token",
-		Audience:     "mcp-kubernetes",
-		Config: aggregator.ExchangeConfig{ //nolint:gosec // test fixture, not credentials
-			TokenEndpoint: "http://127.0.0.1:1/token",
-			ConnectorID:   "c",
-		},
-	})
-	require.ErrorIs(t, err, resolverErr, "resolver failures must surface to callers (no silent fallback)")
 }
 
 func TestTranslateExchangeConfig_SetsEnabledAndCopiesFields(t *testing.T) {
@@ -268,7 +166,7 @@ func TestTranslateExchangeConfig_SetsEnabledAndCopiesFields(t *testing.T) {
 
 func TestInProcess_GetToken_RoundTrip(t *testing.T) {
 	m := newManagerForTest(t)
-	a := NewInProcess(m, nil)
+	a := NewInProcess(m)
 	ctx := context.Background()
 
 	const (
@@ -298,7 +196,7 @@ func TestInProcess_GetToken_RoundTrip(t *testing.T) {
 
 func TestInProcess_SessionIssuer_RoundTrip(t *testing.T) {
 	m := newManagerForTest(t)
-	a := NewInProcess(m, nil)
+	a := NewInProcess(m)
 	ctx := context.Background()
 
 	const (

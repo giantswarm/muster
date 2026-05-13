@@ -92,7 +92,7 @@ func TestRootCommandHelp(t *testing.T) {
 		Use:   "muster",
 		Short: "Connect your environment to Giant Swarm clusters",
 		Long: `muster simplifies connecting your local development environment
-(e.g., MCP servers in Cursor) to Giant Swarm clusters via Teleport
+(e.g., MCP servers in Cursor) to Giant Swarm clusters
 and setting up necessary connections like Prometheus port-forwarding.`,
 		SilenceUsage: true,
 	}

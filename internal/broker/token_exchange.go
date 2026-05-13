@@ -125,7 +125,7 @@ type ExchangeResult struct {
 }
 
 // validateExchangeRequest validates the exchange request and returns an error if invalid.
-// This is used by both Exchange and ExchangeWithClient to ensure consistent validation.
+// Pulled out so ExchangeRequest validation stays consistent across call sites.
 func validateExchangeRequest(req *ExchangeRequest) error {
 	if req == nil {
 		return fmt.Errorf("exchange request is nil")
@@ -263,112 +263,6 @@ func (e *TokenExchanger) Exchange(ctx context.Context, req *ExchangeRequest) (*E
 	}, nil
 }
 
-// ExchangeWithClient exchanges a local token for a token valid on a remote cluster using
-// a custom HTTP client. This is used when the token exchange endpoint is accessed via
-// Teleport Application Access, which requires mutual TLS authentication.
-//
-// The httpClient parameter should be configured with the appropriate TLS certificates
-// (e.g., Teleport Machine ID certificates). If nil, uses the default exchanger client.
-//
-// Args:
-//   - ctx: Context for cancellation and timeouts
-//   - req: Exchange request parameters
-//   - httpClient: Custom HTTP client with Teleport TLS certificates (or nil for default)
-//
-// Returns the exchanged token or an error if exchange fails.
-func (e *TokenExchanger) ExchangeWithClient(ctx context.Context, req *ExchangeRequest, httpClient *http.Client) (*ExchangeResult, error) {
-	// If no custom client provided, use the default Exchange method
-	if httpClient == nil {
-		return e.Exchange(ctx, req)
-	}
-
-	// Validate request using shared validation logic (DRY)
-	if err := validateExchangeRequest(req); err != nil {
-		return nil, err
-	}
-
-	tokenType, scopes := getExchangeDefaults(req)
-
-	// Check cache first (same cache key as normal exchange)
-	cacheKey := oidc.GenerateCacheKey(req.Config.DexTokenEndpoint, req.Config.ConnectorID, req.UserID)
-	if cached := e.cache.Get(cacheKey); cached != nil {
-		logging.Debug("TokenExchange", "Cache hit for user=%s endpoint=%s (with custom client)",
-			logging.TruncateIdentifier(req.UserID), req.Config.DexTokenEndpoint)
-		return &ExchangeResult{
-			AccessToken:     cached.AccessToken,
-			IssuedTokenType: cached.IssuedTokenType,
-			FromCache:       true,
-		}, nil
-	}
-
-	// Create a temporary TokenExchangeClient with the custom HTTP client
-	// This is efficient because:
-	// 1. Cache hit above means we rarely reach this code path
-	// 2. Creating the client is cheap (just wraps the HTTP client)
-	tempClient := oidc.NewTokenExchangeClientWithOptions(oidc.TokenExchangeClientOptions{
-		Logger:         e.logger,
-		AllowPrivateIP: e.allowPrivateIP,
-		HTTPClient:     httpClient,
-	})
-
-	logging.Debug("TokenExchange", "Exchanging token for user=%s endpoint=%s connector=%s (with custom client)",
-		logging.TruncateIdentifier(req.UserID), req.Config.DexTokenEndpoint, req.Config.ConnectorID)
-
-	// Build the token exchange request with client credentials if available
-	exchangeReq := oidc.TokenExchangeRequest{
-		TokenEndpoint:      req.Config.DexTokenEndpoint,
-		SubjectToken:       req.SubjectToken,
-		SubjectTokenType:   tokenType,
-		ConnectorID:        req.Config.ConnectorID,
-		Scope:              scopes,
-		RequestedTokenType: oidc.TokenTypeAccessToken,
-		ClientID:           req.Config.ClientID,
-		ClientSecret:       req.Config.ClientSecret,
-	}
-
-	// Log whether client credentials are being used (without revealing them)
-	if req.Config.ClientID != "" {
-		logging.Debug("TokenExchange", "Using client credentials for token exchange (client_id=%s, with custom client)",
-			req.Config.ClientID)
-	}
-
-	// Perform the exchange with the custom client
-	resp, err := tempClient.Exchange(ctx, exchangeReq)
-	if err != nil {
-		logging.Warn("TokenExchange", "Token exchange failed for user=%s endpoint=%s (with custom client): %v",
-			logging.TruncateIdentifier(req.UserID), req.Config.DexTokenEndpoint, err)
-		return nil, fmt.Errorf("token exchange failed: %w", err)
-	}
-
-	// Validate the issuer claim of the exchanged token
-	expectedIssuer := GetExpectedIssuer(req.Config)
-	if expectedIssuer != "" {
-		if err := validateTokenIssuer(resp.AccessToken, expectedIssuer); err != nil {
-			logging.Warn("TokenExchange", "Issuer validation failed for user=%s endpoint=%s (with custom client): %v",
-				logging.TruncateIdentifier(req.UserID), req.Config.DexTokenEndpoint, err)
-			return nil, fmt.Errorf("issuer validation failed: %w", err)
-		}
-		logging.Debug("TokenExchange", "Issuer validation passed for user=%s (expected=%s, with custom client)",
-			logging.TruncateIdentifier(req.UserID), expectedIssuer)
-	}
-
-	// Cache the result (same cache as normal exchange)
-	if resp.ExpiresIn > 0 {
-		e.cache.Set(cacheKey, resp.AccessToken, resp.IssuedTokenType, resp.ExpiresIn)
-		logging.Debug("TokenExchange", "Cached exchanged token for user=%s (expires in %ds, with custom client)",
-			logging.TruncateIdentifier(req.UserID), resp.ExpiresIn)
-	}
-
-	logging.Info("TokenExchange", "Successfully exchanged token for user=%s endpoint=%s (with custom client)",
-		logging.TruncateIdentifier(req.UserID), req.Config.DexTokenEndpoint)
-
-	return &ExchangeResult{
-		AccessToken:     resp.AccessToken,
-		IssuedTokenType: resp.IssuedTokenType,
-		FromCache:       false,
-	}, nil
-}
-
 // ClearCache removes a cached token for the given parameters.
 // This is useful when a cached token is rejected by the remote server.
 func (e *TokenExchanger) ClearCache(tokenEndpoint, connectorID, userID string) {
@@ -486,7 +380,7 @@ func validateTokenIssuer(token, expectedIssuer string) error {
 	if subtle.ConstantTimeCompare([]byte(normalizedActual), []byte(normalizedExpected)) != 1 {
 		// Provide actionable guidance in the error message
 		return fmt.Errorf("token issuer mismatch: expected %q, got %q. "+
-			"Hint: If accessing Dex via a proxy (e.g., Teleport), set 'expectedIssuer' to the actual Dex issuer URL (%q)",
+			"Hint: If accessing Dex via a proxy, set 'expectedIssuer' to the actual Dex issuer URL (%q)",
 			normalizedExpected, normalizedActual, normalizedActual)
 	}
 

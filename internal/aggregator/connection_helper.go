@@ -3,7 +3,6 @@ package aggregator
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"time"
 
 	internalmcp "github.com/giantswarm/muster/internal/mcpserver"
@@ -543,17 +542,6 @@ func EstablishConnectionWithTokenExchange(
 		}
 	}
 
-	// Resolve Teleport HTTP client for the MCP server connection below.
-	// The broker handles transport selection for the exchange call itself
-	// via its TransportResolver; this lookup is only for the downstream MCP
-	// transport, a separate concern.
-	teleportResult := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
-	if teleportResult.Configured && teleportResult.Error != nil {
-		logging.Error("Connection", teleportResult.Error, "Teleport required for %s but failed",
-			serverInfo.Name)
-		return nil, fmt.Errorf("teleport configuration failed: %w", teleportResult.Error)
-	}
-
 	exchanged, err := tokenBroker.ExchangeToken(ctx, ExchangeRequest{
 		SessionID:    sessionID,
 		Subject:      userID,
@@ -622,15 +610,7 @@ func EstablishConnectionWithTokenExchange(
 		return map[string]string{"Authorization": "Bearer " + exchangedToken}
 	}
 
-	// Create a client with the dynamic header function.
-	// If Teleport is configured, use the Teleport HTTP client for the MCP connection as well.
-	var client *internalmcp.StreamableHTTPClient
-	if teleportResult.Client != nil {
-		logging.Debug("Connection", "Using Teleport HTTP client for MCP connection to %s", serverInfo.Name)
-		client = internalmcp.NewStreamableHTTPClientWithHeaderFuncAndHTTPClient(serverInfo.URL, headerFunc, teleportResult.Client)
-	} else {
-		client = internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
-	}
+	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
 
 	// Try to initialize the client with the exchanged token
 	if err := client.Initialize(ctx); err != nil {
@@ -847,45 +827,6 @@ func notifyMCPServerConnected(serverName, authMethod string) {
 		logging.Warn("Connection", "Failed to update MCPServer %s state after %s: %v",
 			serverName, authMethod, err)
 	}
-}
-
-// TeleportClientResult contains the result of getting a Teleport HTTP client.
-// This provides explicit error handling for Teleport configuration issues.
-type TeleportClientResult struct {
-	// Client is the HTTP client configured with Teleport mTLS certificates.
-	// Nil if Teleport is not configured or if there was an error.
-	Client *http.Client
-
-	// Configured indicates whether Teleport authentication was configured
-	// for this server. When true but Client is nil, Error will contain the reason.
-	Configured bool
-
-	// Error contains the error if Teleport was configured but client creation failed.
-	// This allows callers to distinguish between "not configured" and "configured but failed".
-	Error error
-}
-
-// getTeleportHTTPClientIfConfigured returns a Teleport HTTP client if the server
-// is configured to use Teleport authentication.
-//
-// The TeleportClientResult distinguishes between:
-//   - Not configured: Configured=false, Client=nil, Error=nil (use default HTTP client)
-//   - Configured and successful: Configured=true, Client!=nil, Error=nil
-//   - Configured but failed: Configured=true, Client=nil, Error!=nil (caller should fail, not fallback)
-//
-// Explicit error handling prevents silent fallback when Teleport is
-// required but misconfigured.
-func getTeleportHTTPClientIfConfigured(ctx context.Context, serverInfo *ServerInfo) TeleportClientResult {
-	client, configured, err := teleportHTTPClient(ctx, serverInfo)
-	if !configured {
-		return TeleportClientResult{Configured: false}
-	}
-	if err != nil {
-		logging.Error("Connection", err, "Teleport error for %s", serverInfo.Name)
-		return TeleportClientResult{Configured: true, Error: err}
-	}
-	logging.Debug("Connection", "Got Teleport HTTP client for %s", serverInfo.Name)
-	return TeleportClientResult{Configured: true, Client: client}
 }
 
 // loadTokenExchangeCredentials loads OAuth client credentials from a Kubernetes secret

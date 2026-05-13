@@ -103,12 +103,6 @@ type OAuthHandler interface {
 	// authorization server response (RFC 8693 §2.2.1), or an error.
 	ExchangeTokenForRemoteCluster(ctx context.Context, localToken, userID string, config *TokenExchangeConfig) (string, string, error)
 
-	// ExchangeTokenForRemoteClusterWithClient exchanges a local token for one valid on a remote cluster
-	// using a custom HTTP client (for Teleport Application Access mutual TLS).
-	// A nil httpClient uses the default. Returns the same triple as
-	// [OAuthHandler.ExchangeTokenForRemoteCluster].
-	ExchangeTokenForRemoteClusterWithClient(ctx context.Context, localToken, userID string, config *TokenExchangeConfig, httpClient *http.Client) (string, string, error)
-
 	// Stop stops the OAuth handler and cleans up resources.
 	Stop()
 }

@@ -459,34 +459,6 @@ func (m *Manager) ExchangeTokenForRemoteCluster(ctx context.Context, localToken,
 	return result.AccessToken, result.IssuedTokenType, nil
 }
 
-// ExchangeTokenForRemoteClusterWithClient exchanges a local token for one valid on a remote cluster
-// using a custom HTTP client (for Teleport Application Access mutual TLS).
-// A nil httpClient uses the default broker HTTP client. Returns the same
-// triple as [Manager.ExchangeTokenForRemoteCluster].
-func (m *Manager) ExchangeTokenForRemoteClusterWithClient(ctx context.Context, localToken, userID string, config *api.TokenExchangeConfig, httpClient *http.Client) (string, string, error) {
-	if m == nil {
-		return "", "", fmt.Errorf("OAuth proxy is disabled")
-	}
-	if m.tokenExchanger == nil {
-		return "", "", fmt.Errorf("token exchanger not initialized")
-	}
-	if config == nil {
-		return "", "", fmt.Errorf("token exchange config is nil")
-	}
-
-	result, err := m.tokenExchanger.ExchangeWithClient(ctx, &ExchangeRequest{
-		Config:           config,
-		SubjectToken:     localToken,
-		SubjectTokenType: "", // defaults to ID token
-		UserID:           userID,
-	}, httpClient)
-	if err != nil {
-		return "", "", fmt.Errorf("exchange token for remote cluster with custom client: %w", err)
-	}
-
-	return result.AccessToken, result.IssuedTokenType, nil
-}
-
 // GetTokenExchanger returns the token exchanger for direct access.
 // This is useful for cache management and monitoring.
 func (m *Manager) GetTokenExchanger() *TokenExchanger {

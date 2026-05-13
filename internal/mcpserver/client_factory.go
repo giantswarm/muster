@@ -23,7 +23,7 @@ type MCPClientConfig struct {
 	Headers map[string]string
 	// HTTPClient is a custom HTTP client to use for remote servers.
 	// When set, this client is used instead of the default.
-	// Used for Teleport authentication with custom TLS certificates.
+	// Used when the MCP server requires a custom TLS certificate.
 	HTTPClient *http.Client
 }
 
@@ -36,7 +36,7 @@ type MCPClientConfig struct {
 //   - "streamable-http": Creates a StreamableHTTPClient for HTTP-based servers
 //   - "sse": Creates an SSEClient for Server-Sent Events communication
 //
-// If config.HTTPClient is provided (e.g., for Teleport TLS authentication),
+// If config.HTTPClient is provided (e.g., for mutual TLS),
 // it will be used instead of the default HTTP client for remote server types.
 //
 // Returns an error if the server type is not recognized.
@@ -52,7 +52,7 @@ func NewMCPClientFromType(serverType api.MCPServerType, config MCPClientConfig) 
 		if config.URL == "" {
 			return nil, fmt.Errorf("url is required for streamable-http type")
 		}
-		// Use custom HTTP client if provided (e.g., for Teleport authentication)
+		// Use custom HTTP client if provided (e.g., for mutual TLS)
 		if config.HTTPClient != nil {
 			logging.Debug("MCPClientFactory", "Creating StreamableHTTP client with custom HTTP client for %s", config.URL)
 			return NewStreamableHTTPClientWithHTTPClient(config.URL, config.Headers, config.HTTPClient), nil
@@ -64,7 +64,7 @@ func NewMCPClientFromType(serverType api.MCPServerType, config MCPClientConfig) 
 			return nil, fmt.Errorf("url is required for sse type")
 		}
 		// Note: SSE client doesn't support custom HTTP clients yet
-		// Teleport authentication for SSE would require extending SSEClient similarly
+		// Custom HTTP client for SSE would require extending SSEClient similarly
 		if config.HTTPClient != nil {
 			logging.Warn("MCPClientFactory", "Custom HTTP client not supported for SSE type, ignoring")
 		}

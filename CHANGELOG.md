@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Removed
+
+- **Breaking (CRD + service-locator):** Teleport-aware MCP server connection support removed. The replacement architecture (`MCPServer → app → service-in-MC`) is shipping; Teleport's role as the local-dev remote-cluster transport is obsolete.
+  - `MCPServer.spec.auth.teleport` CRD field removed. `spec.auth.type` enum drops `teleport`. CRs using `auth.type: teleport` are now rejected; rewire via the replacement architecture before upgrading.
+  - `api.TeleportClientHandler`, `api.TeleportClientConfig`, `api.TeleportAuth`, `api.AuthTypeTeleport`, `api.GetTeleportClient`, `api.RegisterTeleportClient`, `api.OAuthHandler.ExchangeTokenForRemoteClusterWithClient` are removed.
+  - `internal/teleport/` package removed in full (TLS-aware HTTP client, certificate watcher, Kubernetes Secret loader).
+  - `internal/aggregator/transport_resolver.go` removed. The Teleport-only TransportResolver seam (added in #654/#656 to keep gRPC-safety) is no longer needed; the in-process broker adapter takes a single `*broker.Manager` and calls `ExchangeTokenForRemoteCluster` directly.
+  - `internal/aggregator/connection_helper.go`'s `getTeleportHTTPClientIfConfigured` helper + `TeleportClientResult` type removed. Token exchange always uses the broker's default HTTP client.
+  - `tokenbroker.NewInProcess(manager)` — signature simplified (no resolver parameter).
+  - Helm RBAC comments updated to drop "teleport identity" from the secret-access rationale (the `secrets` verb stays — token-exchange credentials still require it).
+
 ### Added
 
 - `muster.oauth.server.trustedPublicRegistrationRedirectURIs` — HTTPS redirect-URI allowlist for unauthenticated dynamic client registration, passed through to mcp-oauth (`Config.TrustedPublicRegistrationRedirectURIs`). Strict exact-match after RFC 3986 normalization. Default: `[]` (opt-in per URI).

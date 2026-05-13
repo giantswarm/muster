@@ -201,16 +201,6 @@ func (a *Adapter) ExchangeTokenForRemoteCluster(ctx context.Context, localToken,
 	return a.manager.ExchangeTokenForRemoteCluster(ctx, localToken, userID, config)
 }
 
-// ExchangeTokenForRemoteClusterWithClient exchanges a local token for one valid on a remote cluster
-// using a custom HTTP client (for Teleport Application Access mutual TLS).
-func (a *Adapter) ExchangeTokenForRemoteClusterWithClient(ctx context.Context, localToken, userID string, config *api.TokenExchangeConfig, httpClient *http.Client) (string, string, error) {
-	if config == nil {
-		return "", "", fmt.Errorf("token exchange config is nil")
-	}
-
-	return a.manager.ExchangeTokenForRemoteClusterWithClient(ctx, localToken, userID, config, httpClient)
-}
-
 // Stop stops the OAuth handler and cleans up resources.
 func (a *Adapter) Stop() {
 	a.manager.Stop()

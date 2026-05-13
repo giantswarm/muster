@@ -19,7 +19,7 @@ type StreamableHTTPClient struct {
 	url        string
 	headers    map[string]string
 	headerFunc transport.HTTPHeaderFunc // Dynamic header function called on each request
-	httpClient *http.Client             // Custom HTTP client (e.g., for Teleport TLS)
+	httpClient *http.Client             // Custom HTTP client (e.g., for mutual TLS)
 }
 
 // NewStreamableHTTPClientWithHeaders creates a new StreamableHTTP-based MCP client with custom headers
@@ -45,7 +45,7 @@ func NewStreamableHTTPClientWithHeaderFunc(url string, headerFunc transport.HTTP
 }
 
 // NewStreamableHTTPClientWithHeaderFuncAndHTTPClient creates a new StreamableHTTP-based MCP client
-// with both a dynamic header function and a custom HTTP client (e.g., for Teleport TLS).
+// with both a dynamic header function and a custom HTTP client (e.g., for mutual TLS).
 func NewStreamableHTTPClientWithHeaderFuncAndHTTPClient(url string, headerFunc transport.HTTPHeaderFunc, httpClient *http.Client) *StreamableHTTPClient {
 	return &StreamableHTTPClient{
 		url:        url,
@@ -56,7 +56,7 @@ func NewStreamableHTTPClientWithHeaderFuncAndHTTPClient(url string, headerFunc t
 }
 
 // NewStreamableHTTPClientWithHTTPClient creates a new StreamableHTTP-based MCP client with a custom HTTP client.
-// This is useful for Teleport authentication where the HTTP client needs custom TLS certificates.
+// This is useful when the HTTP client needs custom TLS certificates.
 func NewStreamableHTTPClientWithHTTPClient(url string, headers map[string]string, httpClient *http.Client) *StreamableHTTPClient {
 	if headers == nil {
 		headers = make(map[string]string)
@@ -89,10 +89,10 @@ func (c *StreamableHTTPClient) Initialize(ctx context.Context) error {
 		logging.Debug("StreamableHTTPClient", "Configured %d custom headers", len(c.headers))
 	}
 
-	// If a custom HTTP client is provided (e.g., for Teleport TLS), use it
+	// If a custom HTTP client is provided (e.g., for mutual TLS), use it
 	if c.httpClient != nil {
 		opts = append(opts, transport.WithHTTPBasicClient(c.httpClient))
-		logging.Debug("StreamableHTTPClient", "Using custom HTTP client (e.g., Teleport TLS)")
+		logging.Debug("StreamableHTTPClient", "Using custom HTTP client (e.g., mutual TLS)")
 	}
 
 	// Enable receiving server-pushed notifications outside active requests.

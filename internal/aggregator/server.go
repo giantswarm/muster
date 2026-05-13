@@ -2662,11 +2662,6 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 		}
 	}
 
-	teleportResult := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
-	if teleportResult.Configured && teleportResult.Error != nil {
-		return nil, time.Time{}, "", fmt.Errorf("teleport configuration failed for %s: %w", serverName, teleportResult.Error)
-	}
-
 	exchanged, err := tokenBroker.ExchangeToken(ctx, ExchangeRequest{
 		SessionID:    sessionID,
 		Subject:      userID,
@@ -2695,12 +2690,7 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 		return map[string]string{"Authorization": "Bearer " + exchangedToken}
 	}
 
-	var client MCPClient
-	if teleportResult.Client != nil {
-		client = internalmcp.NewStreamableHTTPClientWithHeaderFuncAndHTTPClient(serverInfo.URL, headerFunc, teleportResult.Client)
-	} else {
-		client = internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
-	}
+	client := MCPClient(internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc))
 
 	return client, tokenExpiry, exchangedToken, nil
 }

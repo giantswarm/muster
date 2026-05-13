@@ -12,18 +12,13 @@ import (
 
 // InProcess implements [aggregator.TokenBroker] against an in-process
 // *broker.Manager. A nil manager short-circuits every method with
-// [aggregator.ErrBrokerDisabled]. A nil resolver falls back to
-// [aggregator.DefaultTransportResolver].
+// [aggregator.ErrBrokerDisabled].
 type InProcess struct {
-	manager  *broker.Manager
-	resolver aggregator.TransportResolver
+	manager *broker.Manager
 }
 
-func NewInProcess(manager *broker.Manager, resolver aggregator.TransportResolver) *InProcess {
-	if resolver == nil {
-		resolver = aggregator.DefaultTransportResolver{}
-	}
-	return &InProcess{manager: manager, resolver: resolver}
+func NewInProcess(manager *broker.Manager) *InProcess {
+	return &InProcess{manager: manager}
 }
 
 var _ aggregator.TokenBroker = (*InProcess)(nil)
@@ -74,22 +69,9 @@ func (a *InProcess) ExchangeToken(ctx context.Context, req aggregator.ExchangeRe
 		return aggregator.Token{}, fmt.Errorf("exchange request missing token endpoint for audience %q", req.Audience)
 	}
 
-	client, err := a.resolver.HTTPClientFor(ctx, req.Audience)
-	if err != nil {
-		return aggregator.Token{}, fmt.Errorf("resolve transport for audience %q: %w", req.Audience, err)
-	}
-
-	brokerCfg := translateExchangeConfig(req.Config)
-
-	var (
-		accessToken     string
-		issuedTokenType string
+	accessToken, issuedTokenType, err := a.manager.ExchangeTokenForRemoteCluster(
+		ctx, req.SubjectToken, req.Subject, translateExchangeConfig(req.Config),
 	)
-	if client != nil {
-		accessToken, issuedTokenType, err = a.manager.ExchangeTokenForRemoteClusterWithClient(ctx, req.SubjectToken, req.Subject, brokerCfg, client)
-	} else {
-		accessToken, issuedTokenType, err = a.manager.ExchangeTokenForRemoteCluster(ctx, req.SubjectToken, req.Subject, brokerCfg)
-	}
 	if err != nil {
 		return aggregator.Token{}, err
 	}

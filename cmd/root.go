@@ -28,7 +28,7 @@ var rootCmd = &cobra.Command{
 	Use:   "muster",
 	Short: "Connect your environment to Giant Swarm clusters",
 	Long: `muster simplifies connecting your local development environment
-(e.g., MCP servers in Cursor) to Giant Swarm clusters via Teleport
+(e.g., MCP servers in Cursor) to Giant Swarm clusters
 and setting up necessary connections like Prometheus port-forwarding.`,
 	// SilenceUsage prevents Cobra from printing the usage message on errors that are handled by the application.
 	// This is useful for providing cleaner error output to the user.
