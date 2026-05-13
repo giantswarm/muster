@@ -148,7 +148,7 @@ func TestGetMusterIssuer_WithEmptyBaseURL(t *testing.T) {
 
 	provider := NewAuthToolProvider(aggregator)
 
-	issuer := provider.getMusterIssuer(context.Background(), "test-user-sub")
+	issuer := provider.getMusterIssuer(t.Context(), "test-user-sub")
 
 	if issuer != fallbackIssuer {
 		t.Errorf("expected issuer 'https://fallback-issuer.example.com', got '%s'", issuer)
