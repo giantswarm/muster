@@ -57,6 +57,9 @@ spec:
             - --oauth-server
             - --oauth-server-base-url={{ .Values.muster.oauth.server.baseUrl }}
             {{- end }}
+            {{- if .Values.muster.extraCaFile.secret.name }}
+            - --extra-ca-file={{ .Values.muster.extraCaFile.path }}
+            {{- end }}
           ports:
             - name: http
               containerPort: {{ .Values.muster.aggregator.port }}
@@ -137,6 +140,11 @@ spec:
               mountPath: /etc/muster/secrets
               readOnly: true
             {{- end }}
+            {{- if .Values.muster.extraCaFile.secret.name }}
+            - name: extra-ca
+              mountPath: {{ dir .Values.muster.extraCaFile.path }}
+              readOnly: true
+            {{- end }}
           {{- with .Values.volumeMounts }}
             {{- toYaml . | nindent 12 }}
           {{- end }}
@@ -178,6 +186,14 @@ spec:
                     - path: namespace
                       fieldRef:
                         fieldPath: metadata.namespace
+        {{- if .Values.muster.extraCaFile.secret.name }}
+        - name: extra-ca
+          secret:
+            secretName: {{ .Values.muster.extraCaFile.secret.name }}
+            items:
+              - key: {{ .Values.muster.extraCaFile.secret.key }}
+                path: {{ base .Values.muster.extraCaFile.path }}
+        {{- end }}
       {{- with .Values.volumes }}
         {{- toYaml . | nindent 8 }}
       {{- end }}

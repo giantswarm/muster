@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- `muster serve --extra-ca-file <path>` flag: appends a PEM file to the system trust pool at startup, so outbound HTTP (MCP backends, token exchange, OAuth proxy) trusts an internal CA without per-MCPServer plumbing. Exposed in the chart as `muster.extraCaFile.{path,secret.name,secret.key}`; the chart mounts the named Secret and passes the flag when `secret.name` is set. Use case: tunnelport's SPIFFE-issued tunnel certificates on a Giant Swarm consumer MC.
 - `muster.oauth.server.trustedPublicRegistrationRedirectURIs` — HTTPS redirect-URI allowlist for unauthenticated dynamic client registration, passed through to mcp-oauth (`Config.TrustedPublicRegistrationRedirectURIs`). Strict exact-match after RFC 3986 normalization. Default: `[]` (opt-in per URI).
 - `oauth-secret` `fail` guard accepts a non-empty `trustedPublicRegistrationRedirectURIs` as a third valid escape valve.
 
