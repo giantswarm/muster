@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 
@@ -87,6 +88,15 @@ func TestInProcess_BeginOAuthFlow_BuildsAuthURL(t *testing.T) {
 	require.Contains(t, flow.URL, server.URL+"/authorize", "auth URL should target the issuer's authorize endpoint")
 	require.Equal(t, "mcp-kubernetes", flow.ServerName)
 	require.NotEmpty(t, flow.Message)
+
+	// Pin OAuth 2.1 / RFC 7636 / RFC 6749 shape on the produced authorization URL.
+	parsed, err := url.Parse(flow.URL)
+	require.NoError(t, err)
+	q := parsed.Query()
+	require.Equal(t, "code", q.Get("response_type"))
+	require.Equal(t, "S256", q.Get("code_challenge_method"), "OAuth 2.1 forbids plain; S256 is the only accepted method")
+	require.NotEmpty(t, q.Get("code_challenge"), "PKCE code_challenge must be present")
+	require.NotEmpty(t, q.Get("state"), "state must be present for CSRF protection")
 }
 
 func TestInProcess_InvalidateToken_EvictsFromCache(t *testing.T) {
@@ -105,14 +115,12 @@ func TestInProcess_InvalidateToken_EvictsFromCache(t *testing.T) {
 		Issuer:      issuer,
 	})
 
-	// Precondition: token reachable.
 	got, err := a.GetToken(ctx, sessionID, issuer)
 	require.NoError(t, err)
 	require.Equal(t, "access", got.AccessToken)
 
 	require.NoError(t, a.InvalidateToken(ctx, sessionID, issuer))
 
-	// Postcondition: gone.
 	_, err = a.GetToken(ctx, sessionID, issuer)
 	require.ErrorIs(t, err, aggregator.ErrTokenNotFound)
 }

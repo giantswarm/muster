@@ -173,8 +173,6 @@ func TestGetMusterIssuer_NoBroker(t *testing.T) {
 			},
 		},
 	}
-	// No SetTokenBroker call -- nil broker.
-
 	provider := NewAuthToolProvider(aggregator)
 	issuer := provider.getMusterIssuer(t.Context(), "test-user-sub")
 

@@ -38,6 +38,7 @@ package aggregator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/giantswarm/muster/internal/api"
@@ -156,10 +157,7 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		}
 	}
 
-	// Check if the broker is available
-	p.aggregator.mu.RLock()
-	broker := p.aggregator.tokenBroker
-	p.aggregator.mu.RUnlock()
+	broker := p.aggregator.tokenBrokerSnapshot()
 	if broker == nil || !broker.Enabled() {
 		if p.aggregator.authMetrics != nil {
 			p.aggregator.authMetrics.RecordLoginFailure(serverName, sub, "oauth_not_configured")
@@ -243,7 +241,10 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 	// with the same OAuth issuer, we can reuse that token.
 	// Tokens with only an ID token (no access token) are muster-level tokens
 	// stored for SSO forwarding and cannot be used for bearer authentication.
-	token, _ := broker.GetToken(ctx, sessionID, authInfo.Issuer)
+	token, err := broker.GetToken(ctx, sessionID, authInfo.Issuer)
+	if err != nil && !errors.Is(err, ErrTokenNotFound) {
+		logging.Debug("AuthTools", "broker.GetToken failed for server %s: %v", serverName, err)
+	}
 
 	if token.AccessToken != "" {
 		logging.Info("AuthTools", "Found existing token for server %s via SSO (issuer=%s), attempting to connect",
@@ -372,9 +373,7 @@ func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string
 	// would break other servers (or muster itself) that rely on the same token.
 	if serverInfo.AuthInfo != nil && serverInfo.AuthInfo.Issuer != "" {
 		if p.isIssuerExclusiveToServer(ctx, sessionID, serverName, serverInfo.AuthInfo.Issuer) {
-			p.aggregator.mu.RLock()
-			broker := p.aggregator.tokenBroker
-			p.aggregator.mu.RUnlock()
+			broker := p.aggregator.tokenBrokerSnapshot()
 			if broker != nil && broker.Enabled() {
 				if err := broker.InvalidateToken(ctx, sessionID, serverInfo.AuthInfo.Issuer); err != nil {
 					logging.Debug("AuthTools", "broker.InvalidateToken failed for server %s: %v", serverName, err)
@@ -448,9 +447,7 @@ func (p *AuthToolProvider) tryConnectWithToken(ctx context.Context, serverName, 
 // authenticate the user, for token forwarding. Returns empty when the
 // broker is not enabled or no issuer can be determined.
 func (p *AuthToolProvider) getMusterIssuer(ctx context.Context, sessionID string) string {
-	p.aggregator.mu.RLock()
-	broker := p.aggregator.tokenBroker
-	p.aggregator.mu.RUnlock()
+	broker := p.aggregator.tokenBrokerSnapshot()
 	if broker == nil || !broker.Enabled() {
 		return ""
 	}

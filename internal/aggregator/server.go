@@ -155,6 +155,16 @@ func (a *AggregatorServer) SetTokenBroker(tb TokenBroker) {
 	a.tokenBroker = tb
 }
 
+// tokenBrokerSnapshot returns the currently-installed [TokenBroker], or
+// nil before [SetTokenBroker] has been called. Call sites that need the
+// broker should snapshot it through this helper and release the lock
+// before invoking broker methods — broker calls may block on the network.
+func (a *AggregatorServer) tokenBrokerSnapshot() TokenBroker {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.tokenBroker
+}
+
 // getValkeyClient returns the shared Valkey client if one was configured,
 // or nil when using in-memory stores. Used by AggregatorManager to share the
 // client with the OAuth token/state stores.
