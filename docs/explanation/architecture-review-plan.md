@@ -50,11 +50,13 @@ For these customers, individual MCs are upgraded from the default (backend-only)
 - **agentgateway is deployed wherever the full stack lives** — default: only on the central MC, sized for the customer's whole traffic. Per-MC variant: on each upgraded MC.
 - **`MCPServer.spec.auth.teleport`** is the default cross-MC transport. It exists in the schema today and works without Phase 7.
 - **`MCPServer.spec.auth.tokenExchange`** (Phase 7) is the upgrade transport, gated on customer demand for per-MC isolation. Trigger-driven, not critical path.
-- **Hub-vs-spoke** in the per-MC variant is config (which `MCPServer` CRDs each muster owns, which broker peers each Dex trusts). In the default shape there's no hub-vs-spoke — there's one muster per customer.
+- **Hub-vs-spoke** in the per-MC variant is config (which `MCPServer` CRDs each muster owns, which broker peers each Dex trusts) and applies **within a single customer** with multiple MCs of their own. It does NOT apply across customers — there is no GS-side hub federating into customer environments.
+- **GS-Central is its own customer-style stack, isolated.** GS runs one stack (agw + muster + broker + valkey + GS Dex) on a GS-managed MC for **GS-internal MCP work only** (dogfooding muster, GS-internal backends, validation of new MCP integrations). It does not federate into customer brokers; it does not contain MCPServer CRDs pointing at customer backends. The total agentgateway count in an installation is `1 (GS-Central) + N (one per customer)`, not "per MC".
+- **GS staff access customer MCs by direct connection to the customer's gateway.** When a GS engineer needs MCP-driven access to Acme, they configure Claude Code with `muster.acme-prod.<inst>.gigantic.io/mcp` as a separate entry, alongside their `muster.gs-central.../mcp` entry for GS-internal work. The customer's Dex configures GS Dex as a federated upstream OIDC connector (customer-opt-in, similar to how customer Teleport already trusts GS support roles); the GS engineer authenticates against the customer's Dex via the GS Dex connector; the customer's Dex issues a customer-audience JWT with `sub=<gs-engineer>`; the customer's agw and audit see the GS engineer's identity end-to-end. No broker federation, no cross-Dex JWKS sharing at the agw layer — just standard OIDC upstream federation at the identity layer.
 
 ## Where federation logic lives
 
-The broker handles federation entirely. muster's call sites are federation-agnostic.
+Federation in this plan means **a single customer's broker reaching that same customer's other MCs**, not GS-to-customer reach. The broker handles federation entirely. muster's call sites are federation-agnostic.
 
 ```
 muster operator             broker (in-process)              remote broker (peer)
@@ -91,24 +93,26 @@ The `TokenBroker` interface in `internal/aggregator/token_broker.go` (Phase 2) i
 
 ## Tool catalog and cluster attribution
 
-When a hub fans out across many MCs, tool name disambiguation is load-bearing. Convention: **`toolPrefix` on hub-side MCPServer CRDs encodes cluster identity**.
+This applies to **a customer with multiple MCs** who has upgraded to the per-MC variant — their central muster sees backends across their own MCs and needs to disambiguate. (It does not apply across customers — GS-Central does not aggregate customer backends.)
+
+Convention: **`toolPrefix` on the customer's hub-side MCPServer CRDs encodes the customer's cluster identity**.
 
 ```yaml
-# Hub-side MCPServer
+# Acme's hub muster on acme-prod, MCPServer pointing at acme-dev's backend
 spec:
-  toolPrefix: acme_prod_k8s
-  url: https://muster-agw.acme-prod.azuretest.gigantic.io/mcp/k8s
+  toolPrefix: acme_dev_k8s
+  url: https://muster-agw.acme-dev.azuretest.gigantic.io/mcp/k8s
   auth:
     tokenExchange: { ... }
 ```
 
-User and LLM see `x_acme_prod_k8s_list_pods` in the tool catalog; the cluster targeting is unambiguous. Spoke backends are unchanged — they receive the post-prefix-strip name (`list_pods`) just like in single-MC deployments.
+Acme's engineers see `x_acme_dev_k8s_list_pods` in their tool catalog; the cluster targeting is unambiguous. The spoke (acme-dev) MCPServers are unchanged — they receive the post-prefix-strip name (`list_pods`) just like in single-MC deployments.
 
-Tool catalog visibility is filtered per-user at the hub aggregator based on JWT claims (ADR-006 territory; the catalog filter stays at the hub aggregator because agw's `traffic.authorization` enforces individual calls, not catalog responses). Three enforcement layers in total:
+Tool catalog visibility is filtered per-user at the customer's hub aggregator based on JWT claims (ADR-006 territory; the catalog filter stays at the aggregator because agw's `traffic.authorization` enforces individual calls, not catalog responses). Three enforcement layers in total within the customer's stack:
 
-1. Hub aggregator filters `tools/list` by user identity (catalog visibility)
-2. Hub agw `traffic.authorization` enforces per-call access (Phase 6)
-3. Spoke agw + spoke broker JWKS validate the federated JWT (defense in depth)
+1. Customer's hub aggregator filters `tools/list` by user identity (catalog visibility)
+2. Customer's hub agw `traffic.authorization` enforces per-call access (Phase 6)
+3. Customer's spoke agw + spoke broker JWKS validate the federated JWT (defense in depth)
 
 ## Target architecture (end of Phase 8)
 
@@ -490,36 +494,40 @@ Deletes done for cluster mode must be careful not to remove code filesystem mode
 
 ---
 
-### Phase 7 — Cross-cluster broker federation (trigger-driven, opt-in per customer)
+### Phase 7 — Cross-MC broker federation (trigger-driven, opt-in per customer)
 
-*Schema is already designed (`MCPServer.spec.auth.tokenExchange`); this phase is broker plumbing. Not on the critical path — applies only to customers who upgrade specific MCs to the per-MC variant.*
+*Schema is already designed (`MCPServer.spec.auth.tokenExchange`) and the broker-side RFC 8693 exchange logic already exists in `mcp-oauth`. **Phase 7 is purely about a single customer's multi-MC fan-out** — Acme's central muster reaching backends on Acme's other MCs with full user identity preservation. It is **not** about GS staff accessing customer MCs (that's handled by per-customer Claude Code config + customer Dex's OIDC connector federation to GS Dex, no broker federation needed). Not on the critical path.*
 
 `pkg/apis/muster/v1alpha1/mcpserver_types.go` already has:
 
 ```go
-TokenExchange *TokenExchangeConfig  // RFC 8693 cross-cluster
+TokenExchange *TokenExchangeConfig  // RFC 8693 within a customer's MCs
 Teleport      *TeleportAuthConfig
 ```
 
-with documented semantics. What's missing is the broker runtime support for chained exchange across cluster Dexes.
+with documented semantics. The broker-side exchange code exists today; what's missing is the per-MC operational pattern that exercises it with spoke-side agw validation.
 
-**Work items (when triggered):**
-- Broker `exchange.go` learns to dispatch RFC 8693 against a remote Dex per `TokenExchangeConfig`
-- Cross-Dex JWKS fetch + cache for verifying tokens issued by a peer broker
-- agw on the remote cluster validates JWTs from local broker via remote broker JWKS
+**Work items (when triggered for a specific customer):**
+- Confirm/extend broker `exchange.go` to dispatch RFC 8693 against the customer's remote Dex (within the customer's trust domain) per `TokenExchangeConfig`
+- Cross-Dex JWKS fetch + cache for the customer's spoke broker to verify JWTs issued by the customer's hub broker
+- The customer's spoke agw validates JWTs from the customer's hub broker via the customer's spoke broker's JWKS — both inside the customer's trust domain
 - Translator (Phase 5) emits the right `AgentgatewayPolicy` based on whether `MCPServer.spec.auth.tokenExchange` or `auth.teleport` is set
 - Teleport-based MCPServers continue working alongside via the existing `auth.teleport` path
 
-**Topology after a Phase 7 upgrade for one customer MC:**
+**This is entirely within a single customer's trust domain.** GS-Central is not involved; no cross-customer broker peering. The federation graph is intra-customer (Acme's prod hub broker ↔ Acme's dev/staging brokers), not cross-customer.
+
+**Topology after a Phase 7 upgrade within a customer (Acme upgrades acme-dev to its own full stack):**
 
 ```
-Central MC: Claude Code → Envoy → muster + agw → cross-MC HTTPS → upgraded MC agw → upgraded MC backend
-                                       │ broker.GetToken(audience=upgraded-MC)        │
-                                       │ → RFC 8693 with upgraded MC's broker         │
-                                       │ → JWT (sub preserved, aud=upgraded-MC)       │
-                                       └─                                              ◄─ JWT validated
-                                                                                          against upgraded
-                                                                                          MC's broker JWKS
+Acme staff member → Acme central hub agw → Acme hub muster → cross-MC HTTPS → acme-dev agw → acme-dev backend
+                                                │ broker.GetToken(audience=acme-dev)              │
+                                                │ → RFC 8693 with acme-dev's broker               │
+                                                │ → JWT (sub preserved, aud=acme-dev)             │
+                                                └─                                                ◄─ JWT validated
+                                                                                                    against acme-dev
+                                                                                                    broker's JWKS
+
+All within Acme's trust domain. GS-Central is not involved.
 ```
 
 **Triggers (Phase 7 is undertaken when at least one applies for a specific customer):**
@@ -530,7 +538,9 @@ Central MC: Claude Code → Envoy → muster + agw → cross-MC HTTPS → upgrad
 - Scale on the central stack (throughput bottleneck)
 - Per-tenant operations within a customer (team isolation)
 
-Until at least one trigger applies, Teleport (`auth.teleport`) stays as the cross-MC transport — already supported, no Phase 7 work required.
+Until at least one trigger applies for a customer, Teleport (`auth.teleport`) stays as the cross-MC transport within that customer's stack — already supported, no Phase 7 work required.
+
+**Phase 7 has no GS-side scope.** GS staff cross-customer access is handled by per-customer Claude Code config + customer-side Dex OIDC federation to GS Dex — no broker federation primitive needed.
 
 **Effort:** 2 weeks of broker work plus per-customer cross-Dex trust setup (one-time per MC pair). **Risk:** medium (JWKS rotation timing, OIDC connector setup per cluster pair).
 
@@ -619,7 +629,7 @@ Steady state
 Trigger-driven (opt-in per customer, no fixed schedule):
    Phase 7 — broker federation (only for customers upgrading to per-MC variant)
    Broker pod extraction (compliance / scale / multi-tenancy)
-   MCPServerClass (when hub catalogs grow large)
+   MCPServerClass (when a customer's per-MC hub catalog grows large)
 ```
 
 **Effort to ship-to-customers (end of Phase 5)**: ~5-6 weeks once ServiceClass removal merges and Phase 2 reviews progress. Phase 2 dominates because of PR throughput; Phases 3 and 5 are smaller.
@@ -628,16 +638,29 @@ Trigger-driven (opt-in per customer, no fixed schedule):
 
 **Per-customer Phase 7 upgrade**: ~2 weeks when triggered, per customer who needs it.
 
-## Multi-cluster model
+## Deployment count per installation
 
-| Cluster type | Runs muster? | Runs agw? | Why |
-|---|---|---|---|
-| MC with platform/team agents | yes | yes | local agw handles muster ↔ same-cluster MCPs |
-| WC running its own MCP backends only (no muster) | no | optional | only needed if MC-side translator emits routes via WC's agw — Phase 7+ |
-| Remote MC with its own muster instance + MCPs | yes | yes | each MC's stack is symmetric; cross-MC calls go local-agw → remote-agw via broker federation |
-| Cluster that's a pure backend host (no muster, MCPs reached via Teleport from elsewhere) | no | no | Teleport tunnel terminates at the MCP service directly; agw isn't in this path |
+For an installation with `N` customers (where each customer may have 1+ MCs):
 
-Rule of thumb: **wherever muster runs, run agw**. Wherever muster only reaches via Teleport, agw is unnecessary.
+| Stack | Count | Location |
+|---|---|---|
+| **GS-Central stack** (agw + muster + broker + valkey + GS Dex client) | 1 | GS-managed MC, for GS-internal MCP work only |
+| **Customer stack** (agw + muster + broker + valkey + customer Dex client) | N | one on each customer's central MC |
+| **Customer secondary-MC stacks** (per-MC variant, opt-in) | 0 to many per customer | only when a customer's specific MC has been upgraded for compliance / isolation / latency / RBAC / scale / team-tenancy drivers |
+| **Backend-only MCs** (no muster, no agw — backend pods only) | many | customer MCs that host MCPs but have not been upgraded; reached from the customer's central muster via Teleport tunnel (or via the GS-built Teleport operator's URL once it lands) |
+
+**Total agw deployments**: `1 (GS-Central) + N (customers) + per-MC-upgrade-instances`. Each is a complete per-customer stack — not a fan-out of a single agw across MCs.
+
+GS-Central is **isolated**: it does not run MCPServer CRDs pointing at customer backends, does not federate into customer brokers, does not see or audit customer-side traffic. It exists for GS-internal use only.
+
+Cross-tenant access for GS staff (when needed): handled at the **identity layer**, not the broker layer. Per customer that has granted GS access:
+
+1. Customer's Dex configures GS Dex as a federated upstream OIDC connector (standard Dex config; one-time per customer; documented in the customer-onboarding template; analogous to GS Teleport role trust).
+2. GS engineer's Claude Code has a separate MCP server entry per customer they access: `muster.<customer>.<inst>.gigantic.io/mcp`.
+3. OAuth flow: Claude Code → customer's gateway → customer's Dex → GS Dex (via the federated connector) → GS corp SSO. Customer's Dex issues a customer-audience JWT with `sub=<gs-engineer>`. The customer's gateway and audit see the GS engineer's identity end-to-end.
+4. No broker federation. No cross-customer MCPServer CRDs at GS-Central. No GS-side aggregated catalog.
+
+Rule of thumb: **wherever muster runs, run agw**. Wherever muster only reaches via Teleport, agw is unnecessary. Cross-customer access is a customer-side trust decision exercised at the identity layer.
 
 ## Filesystem-mode behavior per phase
 
