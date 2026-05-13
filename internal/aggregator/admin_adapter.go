@@ -13,6 +13,28 @@ import (
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 )
 
+// adminLookupSessionIDToken returns the stored ID token for sessionID via
+// the [TokenBroker] port, or "" when the broker is disabled, the session
+// has no recorded issuer, or no token is cached. Used by admin views that
+// surface user identity (email) from the JWT.
+func (a *AggregatorServer) adminLookupSessionIDToken(ctx context.Context, sessionID string) string {
+	a.mu.RLock()
+	broker := a.tokenBroker
+	a.mu.RUnlock()
+	if broker == nil {
+		return ""
+	}
+	issuer, err := broker.SessionIssuer(ctx, sessionID)
+	if err != nil {
+		return ""
+	}
+	token, err := broker.GetToken(ctx, sessionID, issuer)
+	if err != nil {
+		return ""
+	}
+	return token.IDToken
+}
+
 // adminDeps builds the callbacks that admin.Server needs from the
 // aggregator's internal stores. It is a tiny glue layer; all business logic
 // lives in the underlying stores and mirrors the teardown sequence used by
@@ -70,15 +92,11 @@ func (a *AggregatorServer) adminListSessions(ctx context.Context) ([]admin.Sessi
 			summary.Subject = unknownSubject
 		}
 
-		// Extract email from ID token if available
-		oauthHandler := api.GetOAuthHandler()
-		if oauthHandler != nil && oauthHandler.IsEnabled() {
-			if tok := oauthHandler.FindTokenWithIDToken(sid); tok != nil && tok.IDToken != "" {
-				var err error
-				summary.Email, err = pkgoauth.Email(tok.IDToken)
-				if err != nil {
-					logging.Debug("AdminAdapter", "Failed to extract email for session %s: %v", logging.TruncateIdentifier(sid), err)
-				}
+		if idToken := a.adminLookupSessionIDToken(ctx, sid); idToken != "" {
+			var err error
+			summary.Email, err = pkgoauth.Email(idToken)
+			if err != nil {
+				logging.Debug("AdminAdapter", "Failed to extract email for session %s: %v", logging.TruncateIdentifier(sid), err)
 			}
 		}
 
@@ -138,29 +156,21 @@ func (a *AggregatorServer) adminGetSessionDetail(ctx context.Context, sessionID 
 		}
 	}
 
-	oauthHandler := api.GetOAuthHandler()
-	oauthEnabled := oauthHandler != nil && oauthHandler.IsEnabled()
+	a.mu.RLock()
+	broker := a.tokenBroker
+	a.mu.RUnlock()
 
-	// Cached once so forward-token servers don't re-fetch per iteration.
-	var sessionIDToken string
-	if oauthEnabled {
-		if tok := oauthHandler.FindTokenWithIDToken(sessionID); tok != nil {
-			sessionIDToken = tok.IDToken
-		}
-	}
+	sessionIDToken := a.adminLookupSessionIDToken(ctx, sessionID)
 
 	// Dedupe JWT rows when two servers share an issuer.
 	seenIssuers := map[string]bool{}
 
-	// Extract email from ID token if available
 	var email string
-	if oauthEnabled {
-		if tok := oauthHandler.FindTokenWithIDToken(sessionID); tok != nil && tok.IDToken != "" {
-			var err error
-			email, err = pkgoauth.Email(tok.IDToken)
-			if err != nil {
-				logging.Debug("AdminAdapter", "Failed to extract email for session %s: %v", logging.TruncateIdentifier(sessionID), err)
-			}
+	if sessionIDToken != "" {
+		var err error
+		email, err = pkgoauth.Email(sessionIDToken)
+		if err != nil {
+			logging.Debug("AdminAdapter", "Failed to extract email for session %s: %v", logging.TruncateIdentifier(sessionID), err)
 		}
 	}
 
@@ -196,7 +206,7 @@ func (a *AggregatorServer) adminGetSessionDetail(ctx context.Context, sessionID 
 
 		detail.Servers = append(detail.Servers, entry)
 
-		if !oauthEnabled || !hasInfo {
+		if broker == nil || !hasInfo {
 			continue
 		}
 
@@ -220,7 +230,7 @@ func (a *AggregatorServer) adminGetSessionDetail(ctx context.Context, sessionID 
 			})
 		default:
 			if issuer != "" && !seenIssuers[issuer] {
-				if tok := oauthHandler.GetFullTokenByIssuer(sessionID, issuer); tok != nil && tok.IDToken != "" {
+				if tok, err := broker.GetToken(ctx, sessionID, issuer); err == nil && tok.IDToken != "" {
 					detail.Tokens = append(detail.Tokens, admin.SessionToken{
 						Label: fmt.Sprintf("muster → %s (id_token)", serverName),
 						Raw:   tok.IDToken,
@@ -234,7 +244,7 @@ func (a *AggregatorServer) adminGetSessionDetail(ctx context.Context, sessionID 
 	// When no per-server token surfaced (e.g. session hasn't touched a
 	// downstream server yet), show the user's own login token so the detail
 	// page always has at least one JWT to decode.
-	if oauthEnabled && len(detail.Tokens) == 0 && sessionIDToken != "" {
+	if broker != nil && len(detail.Tokens) == 0 && sessionIDToken != "" {
 		detail.Tokens = append(detail.Tokens, admin.SessionToken{
 			Label: "session (id_token)",
 			Raw:   sessionIDToken,
@@ -326,10 +336,6 @@ func (a *AggregatorServer) adminReconnectServer(ctx context.Context, sessionID, 
 
 	a.tearDownSessionServer(timeoutCtx, sessionID, info)
 
-	oauthHandler := api.GetOAuthHandler()
-	if oauthHandler == nil || !oauthHandler.IsEnabled() {
-		return nil
-	}
 	subject := ""
 	if a.subjectSessions != nil {
 		subject = a.subjectSessions.OAuthSubject(sessionID)
@@ -341,8 +347,8 @@ func (a *AggregatorServer) adminReconnectServer(ctx context.Context, sessionID, 
 		return nil
 	}
 
-	tok := oauthHandler.FindTokenWithIDToken(sessionID)
-	if tok == nil || tok.IDToken == "" {
+	idToken := a.adminLookupSessionIDToken(timeoutCtx, sessionID)
+	if idToken == "" {
 		logging.InfoWithAttrs("Admin", "Reconnect skipped SSO re-init — no ID token stored",
 			slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
 			slog.String("server", serverName))
@@ -352,7 +358,7 @@ func (a *AggregatorServer) adminReconnectServer(ctx context.Context, sessionID, 
 	ssoCtx := api.WithSubject(timeoutCtx, subject)
 	ssoCtx = api.WithSessionID(ssoCtx, sessionID)
 
-	a.establishSSOConnection(ssoCtx, info, a.getMusterIssuer(), tok.IDToken)
+	a.establishSSOConnection(ssoCtx, info, a.getMusterIssuer(), idToken)
 
 	logging.InfoWithAttrs("Admin", "Server reconnected via admin UI",
 		slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
