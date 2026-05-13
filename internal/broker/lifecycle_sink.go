@@ -3,16 +3,16 @@ package broker
 import "context"
 
 // LifecycleSink receives OAuth token-family lifecycle events from the
-// broker after the broker has handled its own persistence. The aggregator
-// implements this interface to wire domain side-effects (SSO setup,
-// upstream-refresh-failure cleanup, session teardown) without owning the
-// event source.
+// broker after the broker has handled its own persistence. Consumers
+// implement this interface to react to session-scoped domain effects
+// (SSO setup, upstream-refresh-failure cleanup, session teardown)
+// without owning the event source.
 //
-// Semantically the broker is the source of truth for these events — it
-// hosts the mcp-oauth server that emits them. The sink is the consumer.
-// When the broker becomes a separate pod (Phase 8), the sink becomes a
-// gRPC stream from broker to aggregator; the in-process implementation
-// is a direct method dispatch.
+// The broker is the source of truth: it hosts the OAuth server that
+// emits these events and persists its own caches before invoking the
+// sink. Sink dispatch is synchronous and best-effort; sink methods
+// return no error because the broker cannot meaningfully react to a
+// consumer-side failure.
 type LifecycleSink interface {
 	// OnSessionCreated fires after a new token family is created during
 	// authorization-code exchange and the broker has persisted the

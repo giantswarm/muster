@@ -167,6 +167,11 @@ func (a *AggregatorServer) SetBrokerManager(m *broker.Manager) {
 	a.brokerManager = m
 }
 
+// Compile-time guard: AggregatorServer satisfies broker.LifecycleSink.
+// A signature change to the sink breaks compilation here, not silently at
+// the brokerhttp.NewOAuthHTTPServer call site.
+var _ broker.LifecycleSink = (*AggregatorServer)(nil)
+
 // OnSessionCreated implements [broker.LifecycleSink]. The broker invokes
 // this after persisting a newly-issued session's ID token; the aggregator
 // fires SSO setup for the new session.

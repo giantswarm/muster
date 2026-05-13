@@ -151,11 +151,11 @@ type OAuthHTTPServer struct {
 //
 // The broker owns token-family lifecycle persistence: callers pass a
 // *broker.Manager for the broker-internal persist/clear plus a
-// [broker.LifecycleSink] for aggregator-side domain reactions (SSO
-// setup, upstream-refresh-failure cleanup, session teardown). Caller-
-// supplied opts are forwarded to mcp-oauth verbatim and may NOT include
-// lifecycle handlers — those are appended by this function so the broker
-// stays the source of truth.
+// [broker.LifecycleSink] for consumer-side domain reactions. The broker's
+// lifecycle options are appended last to opts so they take precedence in
+// mcp-oauth's last-writer-wins option merge; callers should not pass
+// their own session-creation, token-refresh, or session-revocation
+// handlers.
 func NewOAuthHTTPServer(
 	cfg config.OAuthServerConfig,
 	mcpHandler http.Handler,
