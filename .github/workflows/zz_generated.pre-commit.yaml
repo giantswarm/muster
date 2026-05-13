@@ -27,7 +27,7 @@ jobs:
       - name: Set up Python environment
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
       - name: Install helm-docs
-        uses: giantswarm/install-binary-action@e2730babbc89f02ef1559b042d33cbe24f5c3547 # v4.0.2
+        uses: giantswarm/install-binary-action@5bef88f65012037dd836117c8d344b21bb559854 # v4.1.0
         with:
           binary: helm-docs
           version: "${{ env.HELM_DOCS_VERSION }}"
@@ -53,7 +53,7 @@ jobs:
         run: |
           go install golang.org/x/tools/cmd/goimports@v0.44.0
       - name: Install golangci-lint
-        uses: giantswarm/install-binary-action@e2730babbc89f02ef1559b042d33cbe24f5c3547 # v4.0.2
+        uses: giantswarm/install-binary-action@5bef88f65012037dd836117c8d344b21bb559854 # v4.1.0
         with:
           binary: golangci-lint
           version: "2.11.4"
