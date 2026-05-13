@@ -204,7 +204,7 @@ func TestGetMusterIssuer_NoOAuthHandler(t *testing.T) {
 	provider := NewAuthToolProvider(aggregator)
 
 	// Call getMusterIssuer - should return empty because no OAuth handler
-	issuer := provider.getMusterIssuer(context.Background(), "test-user-sub")
+	issuer := provider.getMusterIssuer(t.Context(), "test-user-sub")
 
 	if issuer != "" {
 		t.Errorf("expected empty issuer when no OAuth handler, got '%s'", issuer)
