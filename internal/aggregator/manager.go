@@ -77,6 +77,7 @@ func NewAggregatorManager(config AggregatorConfig, orchestratorAPI api.Orchestra
 			ClientID:     config.OAuth.ClientID,
 			CallbackPath: config.OAuth.CallbackPath,
 			CAFile:       config.OAuth.CAFile,
+			ExtraCAFile:  config.OAuth.ExtraCAFile,
 		}
 
 		var oauthOpts []oauth.ManagerOption

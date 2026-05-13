@@ -107,8 +107,13 @@ func NewManager(cfg config.OAuthMCPClientConfig, opts ...ManagerOption) *Manager
 	// Create token exchanger for RFC 8693 cross-cluster SSO
 	// Use the same HTTP client as the OAuth client for consistent TLS configuration.
 	// This ensures token exchange requests trust the same CA certificates.
+	// Internal-deployment heuristic: a custom OAuth CAFile or a process-level
+	// --extra-ca-file both signal that this muster is talking to in-cluster TLS
+	// endpoints. In that case allow the token-exchange client to resolve to
+	// private/loopback IPs (otherwise its SSRF guard rejects .svc.cluster.local
+	// targets like an in-cluster Dex).
 	tokenExchanger := NewTokenExchangerWithOptions(TokenExchangerOptions{
-		AllowPrivateIP: cfg.CAFile != "", // If custom CA is provided, likely internal deployment
+		AllowPrivateIP: cfg.CAFile != "" || cfg.ExtraCAFile != "",
 		HTTPClient:     customHTTPClient, // Share the same HTTP client with CA config
 	})
 
