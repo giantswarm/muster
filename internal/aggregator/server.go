@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -1786,13 +1787,22 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 	sub := getUserSubjectFromContext(ctx)
 	sessionID := getSessionIDFromContext(ctx)
 
-	// Family-grouped tools carry a required serverArgKey routing parameter
-	// selecting which instance handles the call. Strip it from the forwarded
-	// args so the backend sees its native schema, and use it to resolve the
-	// routing target precisely (any error here is surfaced directly — an
-	// explicit-but-invalid server must not silently fall back to legacy
-	// single-server resolution).
-	if explicitServer, ok := args[serverArgKey].(string); ok && explicitServer != "" {
+	// Family-grouped tools carry a required routing parameter selecting which
+	// instance handles the call. When the target is family-grouped, strip the
+	// parameter from the forwarded args so the backend sees its native schema
+	// and use it to resolve the routing target precisely (any error here is
+	// surfaced directly — an explicit-but-invalid server must not silently
+	// fall back to legacy single-server resolution). For non-family tools
+	// (including core tools that legitimately accept "server" as a regular
+	// argument), the value is passed through untouched.
+	if a.registry.IsFamilyTool(toolName) {
+		explicitServer, _ := args[serverArgKey].(string)
+		if explicitServer == "" {
+			providers := a.registry.GetToolServerNames(toolName)
+			sort.Strings(providers)
+			return nil, fmt.Errorf("tool %s is provided by a family on servers %s; the 'server' parameter is required",
+				toolName, strings.Join(providers, ", "))
+		}
 		forwarded := make(map[string]interface{}, len(args)-1)
 		for k, v := range args {
 			if k != serverArgKey {
@@ -1811,13 +1821,6 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 		logging.DebugWithAttrs("Aggregator", "Tool found in registry",
 			slog.String("tool", toolName), slog.String("server", serverName), slog.String("original", originalName))
 		return a.dispatchResolvedTool(ctx, toolName, serverName, originalName, args, sessionID, sub)
-	}
-
-	// Surface the "server parameter is required" error for family-grouped
-	// tools called without a server arg, instead of falling through to
-	// session/core lookups that would mask the actual problem.
-	if providers := a.registry.GetToolServerNames(toolName); len(providers) > 1 {
-		return nil, err
 	}
 
 	logging.DebugWithAttrs("Aggregator", "Tool not found in registry, checking capability cache",

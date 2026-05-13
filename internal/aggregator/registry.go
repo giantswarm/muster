@@ -287,19 +287,16 @@ func (r *ServerRegistry) Deregister(name string) error {
 
 	delete(r.servers, name)
 
-	// Drop reverse-lookup state owned by this server: any nameMapping or
-	// familyMappings entry that points at it would otherwise route subsequent
-	// calls to a deregistered server. familyMappings entries that still have
-	// other providers keep those providers; entries with no surviving
-	// providers are removed entirely.
+	// Drop family routing state owned by this server so that subsequent calls
+	// to a family-grouped tool can no longer be routed to a deregistered
+	// instance. Entries that still have surviving providers keep them;
+	// entries with no surviving providers are removed entirely. Solo
+	// nameMapping entries are intentionally left in place — callers that hit
+	// them get a "server not found" error from the dispatch layer, which is
+	// the long-standing semantic for "the server providing this tool is
+	// gone".
 	r.nameMu.Lock()
-	delete(r.serverPrefixes, name)
 	delete(r.serverFamilies, name)
-	for exposed, rn := range r.nameMapping {
-		if rn.serverName == name {
-			delete(r.nameMapping, exposed)
-		}
-	}
 	for exposed, providers := range r.familyMappings {
 		filtered := providers[:0]
 		for _, p := range providers {
@@ -706,6 +703,16 @@ func (r *ServerRegistry) ResolveToolNameForServer(exposedName, serverName string
 		return "", fmt.Errorf("tool %s belongs to server %q, not %q", exposedName, m.serverName, serverName)
 	}
 	return m.originalName, nil
+}
+
+// IsFamilyTool reports whether the given exposed name is family-grouped
+// (i.e. provided by one or more servers sharing a spec.family). Returns
+// false for solo tools, core tools, and unknown names.
+func (r *ServerRegistry) IsFamilyTool(exposedName string) bool {
+	r.nameMu.RLock()
+	defer r.nameMu.RUnlock()
+	_, ok := r.familyMappings[exposedName]
+	return ok
 }
 
 // GetToolServerNames returns the set of server names that provide the given
