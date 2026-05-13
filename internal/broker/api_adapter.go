@@ -193,21 +193,19 @@ func (a *Adapter) SetAuthCompletionCallback(callback api.AuthCompletionCallback)
 
 // ExchangeTokenForRemoteCluster exchanges a local token for one valid on a remote cluster.
 // This implements RFC 8693 Token Exchange for cross-cluster SSO scenarios.
-func (a *Adapter) ExchangeTokenForRemoteCluster(ctx context.Context, localToken, userID string, config *api.TokenExchangeConfig) (string, error) {
+func (a *Adapter) ExchangeTokenForRemoteCluster(ctx context.Context, localToken, userID string, config *api.TokenExchangeConfig) (string, string, error) {
 	if config == nil {
-		return "", fmt.Errorf("token exchange config is nil")
+		return "", "", fmt.Errorf("token exchange config is nil")
 	}
 
-	// Pass API config directly - no conversion needed (DRY principle)
 	return a.manager.ExchangeTokenForRemoteCluster(ctx, localToken, userID, config)
 }
 
 // ExchangeTokenForRemoteClusterWithClient exchanges a local token for one valid on a remote cluster
-// using a custom HTTP client. This is used when the token exchange endpoint is accessed via
-// Teleport Application Access, which requires mutual TLS authentication.
-func (a *Adapter) ExchangeTokenForRemoteClusterWithClient(ctx context.Context, localToken, userID string, config *api.TokenExchangeConfig, httpClient *http.Client) (string, error) {
+// using a custom HTTP client (for Teleport Application Access mutual TLS).
+func (a *Adapter) ExchangeTokenForRemoteClusterWithClient(ctx context.Context, localToken, userID string, config *api.TokenExchangeConfig, httpClient *http.Client) (string, string, error) {
 	if config == nil {
-		return "", fmt.Errorf("token exchange config is nil")
+		return "", "", fmt.Errorf("token exchange config is nil")
 	}
 
 	return a.manager.ExchangeTokenForRemoteClusterWithClient(ctx, localToken, userID, config, httpClient)

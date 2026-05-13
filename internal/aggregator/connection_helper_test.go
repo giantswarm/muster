@@ -90,12 +90,12 @@ func (m *mockOAuthHandler) CreateAuthChallenge(_ context.Context, _, _, _, _, _ 
 	return nil, nil
 }
 
-func (m *mockOAuthHandler) ExchangeTokenForRemoteCluster(_ context.Context, _, _ string, _ *api.TokenExchangeConfig) (string, error) {
-	return "", nil
+func (m *mockOAuthHandler) ExchangeTokenForRemoteCluster(_ context.Context, _, _ string, _ *api.TokenExchangeConfig) (string, string, error) {
+	return "", "", nil
 }
 
-func (m *mockOAuthHandler) ExchangeTokenForRemoteClusterWithClient(_ context.Context, _, _ string, _ *api.TokenExchangeConfig, _ *http.Client) (string, error) {
-	return "", nil
+func (m *mockOAuthHandler) ExchangeTokenForRemoteClusterWithClient(_ context.Context, _, _ string, _ *api.TokenExchangeConfig, _ *http.Client) (string, string, error) {
+	return "", "", nil
 }
 
 func (m *mockOAuthHandler) StoreToken(sessionID, _, issuer string, token *api.OAuthToken) {
@@ -109,65 +109,61 @@ func (m *mockOAuthHandler) GetFullTokenByIssuer(sessionID, issuer string) *api.O
 func TestLookupIDTokenForSession(t *testing.T) {
 	validToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiZXhwIjo5OTk5OTk5OTk5fQ.signature" //nolint:goconst,gosec
 
-	t.Run("returns empty when no OAuth handler is registered", func(t *testing.T) {
-		api.RegisterOAuthHandler(nil)
-
-		token := lookupIDTokenForSession("test-user", "https://accounts.google.com")
-
+	t.Run("returns empty when broker is nil", func(t *testing.T) {
+		token := lookupIDTokenForSession(context.Background(), nil, "session-abc", "https://accounts.google.com")
 		assert.Empty(t, token)
 	})
 
-	t.Run("returns empty when OAuth handler is disabled", func(t *testing.T) {
-		mock := newMockOAuthHandler(false)
-		mock.StoreToken("session-abc", "user1", "https://accounts.google.com", &api.OAuthToken{IDToken: validToken})
-		api.RegisterOAuthHandler(mock)
-		defer api.RegisterOAuthHandler(nil)
-
-		token := lookupIDTokenForSession("session-abc", "https://accounts.google.com")
-
+	t.Run("returns empty when broker is disabled", func(t *testing.T) {
+		tb := &mockTokenBroker{enabled: false}
+		token := lookupIDTokenForSession(context.Background(), tb, "session-abc", "https://accounts.google.com")
 		assert.Empty(t, token)
 	})
 
 	t.Run("returns empty when issuer is empty", func(t *testing.T) {
-		mock := newMockOAuthHandler(true)
-		mock.StoreToken("session-abc", "user1", "https://accounts.google.com", &api.OAuthToken{IDToken: validToken})
-		api.RegisterOAuthHandler(mock)
-		defer api.RegisterOAuthHandler(nil)
-
-		token := lookupIDTokenForSession("session-abc", "")
-
+		tb := &mockTokenBroker{
+			enabled: true,
+			getTokenFn: func(_ context.Context, _, _ string) (Token, error) {
+				return Token{IDToken: validToken}, nil
+			},
+		}
+		token := lookupIDTokenForSession(context.Background(), tb, "session-abc", "")
 		assert.Empty(t, token)
 	})
 
-	t.Run("returns token from OAuth handler when present", func(t *testing.T) {
-		mock := newMockOAuthHandler(true)
-		mock.StoreToken("session-abc", "user1", "https://accounts.google.com", &api.OAuthToken{IDToken: validToken})
-		api.RegisterOAuthHandler(mock)
-		defer api.RegisterOAuthHandler(nil)
-
-		token := lookupIDTokenForSession("session-abc", "https://accounts.google.com")
-
+	t.Run("returns token from broker when present", func(t *testing.T) {
+		tb := &mockTokenBroker{
+			enabled: true,
+			getTokenFn: func(_ context.Context, sessionID, issuer string) (Token, error) {
+				if sessionID == "session-abc" && issuer == "https://accounts.google.com" {
+					return Token{IDToken: validToken}, nil
+				}
+				return Token{}, nil
+			},
+		}
+		token := lookupIDTokenForSession(context.Background(), tb, "session-abc", "https://accounts.google.com")
 		assert.Equal(t, validToken, token)
 	})
 
-	t.Run("returns empty when OAuth handler has no entry for session", func(t *testing.T) {
-		mock := newMockOAuthHandler(true)
-		api.RegisterOAuthHandler(mock)
-		defer api.RegisterOAuthHandler(nil)
-
-		token := lookupIDTokenForSession("unknown-session", "https://accounts.google.com")
-
+	t.Run("returns empty when broker returns error", func(t *testing.T) {
+		tb := &mockTokenBroker{
+			enabled: true,
+			getTokenFn: func(_ context.Context, _, _ string) (Token, error) {
+				return Token{}, errors.New("not found")
+			},
+		}
+		token := lookupIDTokenForSession(context.Background(), tb, "session-abc", "https://accounts.google.com")
 		assert.Empty(t, token)
 	})
 
-	t.Run("returns empty when store entry has empty IDToken", func(t *testing.T) {
-		mock := newMockOAuthHandler(true)
-		mock.StoreToken("session-abc", "user1", "https://accounts.google.com", &api.OAuthToken{IDToken: ""})
-		api.RegisterOAuthHandler(mock)
-		defer api.RegisterOAuthHandler(nil)
-
-		token := lookupIDTokenForSession("session-abc", "https://accounts.google.com")
-
+	t.Run("returns empty when broker returns empty IDToken", func(t *testing.T) {
+		tb := &mockTokenBroker{
+			enabled: true,
+			getTokenFn: func(_ context.Context, _, _ string) (Token, error) {
+				return Token{IDToken: ""}, nil
+			},
+		}
+		token := lookupIDTokenForSession(context.Background(), tb, "session-abc", "https://accounts.google.com")
 		assert.Empty(t, token)
 	})
 }
@@ -826,10 +822,9 @@ func TestHeaderFunc_RateLimitsWarning(t *testing.T) {
 	serverName := "test-server"               //nolint:goconst
 	fallbackToken := "original-token"         //nolint:goconst
 
-	// No OAuth handler registered means lookupIDTokenForSession always returns "".
-	api.RegisterOAuthHandler(nil)
+	tb := &mockTokenBroker{enabled: true}
 
-	headerFunc := makeTokenForwardingHeaderFunc(sessionID, sub, musterIssuer, serverName, fallbackToken, nil)
+	headerFunc := makeTokenForwardingHeaderFunc(tb, sessionID, sub, musterIssuer, serverName, fallbackToken, nil)
 
 	// First call: should produce a WARN (interval has not been hit yet).
 	logBuf.Reset()
@@ -855,12 +850,14 @@ func TestHeaderFunc_RateLimitsWarning(t *testing.T) {
 	thirdCallLogs := logBuf.String()
 	assert.NotContains(t, thirdCallLogs, "WARN", "third call should NOT emit a WARN")
 
-	// Now simulate token recovery by registering an OAuth handler with a token.
+	// Now simulate token recovery by swapping in a GetToken impl.
 	validToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiZXhwIjo5OTk5OTk5OTk5fQ.signature" //nolint:gosec
-	mock := newMockOAuthHandler(true)
-	mock.StoreToken(sessionID, "", musterIssuer, &api.OAuthToken{IDToken: validToken})
-	api.RegisterOAuthHandler(mock)
-	defer api.RegisterOAuthHandler(nil)
+	tb.getTokenFn = func(_ context.Context, sid, audience string) (Token, error) {
+		if sid == sessionID && audience == musterIssuer {
+			return Token{IDToken: validToken}, nil
+		}
+		return Token{}, nil
+	}
 
 	logBuf.Reset()
 	headers = headerFunc(context.Background())
@@ -880,8 +877,7 @@ func TestHeaderFunc_EvictsAfterConsecutiveFailures(t *testing.T) {
 	serverName := "test-server"
 	fallbackToken := "original-token"
 
-	api.RegisterOAuthHandler(nil)
-	defer api.RegisterOAuthHandler(nil)
+	tb := &mockTokenBroker{enabled: true}
 
 	var evictCount atomic.Int32
 	var firstEvict sync.WaitGroup
@@ -892,7 +888,7 @@ func TestHeaderFunc_EvictsAfterConsecutiveFailures(t *testing.T) {
 		}
 	}
 
-	headerFunc := makeTokenForwardingHeaderFunc(sessionID, sub, musterIssuer, serverName, fallbackToken, onStaleToken)
+	headerFunc := makeTokenForwardingHeaderFunc(tb, sessionID, sub, musterIssuer, serverName, fallbackToken, onStaleToken)
 
 	// Call fewer than maxConsecutiveTokenFailures times — callback should NOT fire.
 	for i := 0; i < maxConsecutiveTokenFailures-1; i++ {
@@ -933,14 +929,14 @@ func TestHeaderFunc_ResetsFailureCountOnRecovery(t *testing.T) {
 	serverName := "test-server"
 	fallbackToken := "original-token"
 
-	api.RegisterOAuthHandler(nil)
+	tb := &mockTokenBroker{enabled: true}
 
 	var evictCount atomic.Int32
 	onStaleToken := func() {
 		evictCount.Add(1)
 	}
 
-	headerFunc := makeTokenForwardingHeaderFunc(sessionID, sub, musterIssuer, serverName, fallbackToken, onStaleToken)
+	headerFunc := makeTokenForwardingHeaderFunc(tb, sessionID, sub, musterIssuer, serverName, fallbackToken, onStaleToken)
 
 	// Accumulate failures just below the threshold.
 	for i := 0; i < maxConsecutiveTokenFailures-1; i++ {
@@ -950,17 +946,19 @@ func TestHeaderFunc_ResetsFailureCountOnRecovery(t *testing.T) {
 
 	// Recover by providing a valid token.
 	validToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiZXhwIjo5OTk5OTk5OTk5fQ.signature" //nolint:gosec
-	mock := newMockOAuthHandler(true)
-	mock.StoreToken(sessionID, "", musterIssuer, &api.OAuthToken{IDToken: validToken})
-	api.RegisterOAuthHandler(mock)
-	defer api.RegisterOAuthHandler(nil)
+	tb.getTokenFn = func(_ context.Context, sid, audience string) (Token, error) {
+		if sid == sessionID && audience == musterIssuer {
+			return Token{IDToken: validToken}, nil
+		}
+		return Token{}, nil
+	}
 
 	headers := headerFunc(context.Background())
 	assert.Equal(t, "Bearer "+validToken, headers["Authorization"],
 		"should use recovered token")
 
 	// Now remove the token again and accumulate failures.
-	api.RegisterOAuthHandler(nil)
+	tb.getTokenFn = nil
 	for i := 0; i < maxConsecutiveTokenFailures-1; i++ {
 		headerFunc(context.Background())
 	}
@@ -972,10 +970,7 @@ func TestHeaderFunc_NilCallback(t *testing.T) {
 	var logBuf bytes.Buffer
 	logging.InitForCLI(logging.LevelDebug, &logBuf)
 
-	api.RegisterOAuthHandler(nil)
-	defer api.RegisterOAuthHandler(nil)
-
-	headerFunc := makeTokenForwardingHeaderFunc("s", "u", "iss", "srv", "tok", nil)
+	headerFunc := makeTokenForwardingHeaderFunc(nil, "s", "u", "iss", "srv", "tok", nil)
 
 	// Should not panic even after many failures with nil callback.
 	for i := 0; i < maxConsecutiveTokenFailures+5; i++ {

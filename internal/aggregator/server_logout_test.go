@@ -406,11 +406,11 @@ func (d *deleteCaptureMockHandler) GetCIMDHandler() http.HandlerFunc {
 func (d *deleteCaptureMockHandler) RegisterServer(_, _, _ string)                          {}
 func (d *deleteCaptureMockHandler) SetAuthCompletionCallback(_ api.AuthCompletionCallback) {}
 func (d *deleteCaptureMockHandler) Stop()                                                  {}
-func (d *deleteCaptureMockHandler) ExchangeTokenForRemoteCluster(_ context.Context, _, _ string, _ *api.TokenExchangeConfig) (string, error) {
-	return "", nil
+func (d *deleteCaptureMockHandler) ExchangeTokenForRemoteCluster(_ context.Context, _, _ string, _ *api.TokenExchangeConfig) (string, string, error) {
+	return "", "", nil
 }
-func (d *deleteCaptureMockHandler) ExchangeTokenForRemoteClusterWithClient(_ context.Context, _, _ string, _ *api.TokenExchangeConfig, _ *http.Client) (string, error) {
-	return "", nil
+func (d *deleteCaptureMockHandler) ExchangeTokenForRemoteClusterWithClient(_ context.Context, _, _ string, _ *api.TokenExchangeConfig, _ *http.Client) (string, string, error) {
+	return "", "", nil
 }
 
 // clearCaptureMockHandler wraps issuerMockOAuthHandler and captures
@@ -456,9 +456,9 @@ func (c *clearCaptureMockHandler) GetCIMDHandler() http.HandlerFunc {
 func (c *clearCaptureMockHandler) RegisterServer(_, _, _ string)                          {}
 func (c *clearCaptureMockHandler) SetAuthCompletionCallback(_ api.AuthCompletionCallback) {}
 func (c *clearCaptureMockHandler) Stop()                                                  {}
-func (c *clearCaptureMockHandler) ExchangeTokenForRemoteCluster(_ context.Context, _, _ string, _ *api.TokenExchangeConfig) (string, error) {
-	return "", nil
+func (c *clearCaptureMockHandler) ExchangeTokenForRemoteCluster(_ context.Context, _, _ string, _ *api.TokenExchangeConfig) (string, string, error) {
+	return "", "", nil
 }
-func (c *clearCaptureMockHandler) ExchangeTokenForRemoteClusterWithClient(_ context.Context, _, _ string, _ *api.TokenExchangeConfig, _ *http.Client) (string, error) {
-	return "", nil
+func (c *clearCaptureMockHandler) ExchangeTokenForRemoteClusterWithClient(_ context.Context, _, _ string, _ *api.TokenExchangeConfig, _ *http.Client) (string, string, error) {
+	return "", "", nil
 }
