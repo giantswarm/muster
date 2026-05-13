@@ -225,11 +225,11 @@ func (r *ConnectionResult) FormatAsMCPResult() *mcp.CallToolResult {
 
 // lookupIDTokenForSession returns the ID token for (sessionID, musterIssuer)
 // from the broker, or "" when no entry is available.
-func lookupIDTokenForSession(ctx context.Context, tb TokenBroker, sessionID, musterIssuer string) string {
-	if tb == nil || !tb.Enabled() || musterIssuer == "" {
+func lookupIDTokenForSession(ctx context.Context, broker TokenBroker, sessionID, musterIssuer string) string {
+	if broker == nil || !broker.Enabled() || musterIssuer == "" {
 		return ""
 	}
-	token, err := tb.GetToken(ctx, sessionID, musterIssuer)
+	token, err := broker.GetToken(ctx, sessionID, musterIssuer)
 	if err != nil || token.IDToken == "" {
 		return ""
 	}
@@ -262,9 +262,7 @@ func EstablishConnectionWithTokenForwarding(
 		}
 	}
 
-	a.mu.RLock()
-	tb := a.tokenBroker
-	a.mu.RUnlock()
+	tokenBroker := a.tokenBrokerSnapshot()
 
 	if idToken == "" {
 		logging.Debug("Connection", "No ID token available for user %s",
@@ -308,7 +306,7 @@ func EstablishConnectionWithTokenForwarding(
 			}
 		}
 	}
-	headerFunc := makeTokenForwardingHeaderFunc(tb, sessionID, sub, musterIssuer, serverInfo.Name, idToken, onStaleToken)
+	headerFunc := makeTokenForwardingHeaderFunc(tokenBroker, sessionID, sub, musterIssuer, serverInfo.Name, idToken, onStaleToken)
 	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
 
 	// Try to initialize the client with the forwarded token
@@ -475,10 +473,8 @@ func EstablishConnectionWithTokenExchange(
 		}
 	}
 
-	a.mu.RLock()
-	tb := a.tokenBroker
-	a.mu.RUnlock()
-	if tb == nil || !tb.Enabled() {
+	tokenBroker := a.tokenBrokerSnapshot()
+	if tokenBroker == nil || !tokenBroker.Enabled() {
 		return nil, fmt.Errorf("broker not available for token exchange")
 	}
 
@@ -558,7 +554,7 @@ func EstablishConnectionWithTokenExchange(
 		return nil, fmt.Errorf("teleport configuration failed: %w", teleportResult.Error)
 	}
 
-	exchanged, err := tb.ExchangeToken(ctx, ExchangeRequest{
+	exchanged, err := tokenBroker.ExchangeToken(ctx, ExchangeRequest{
 		SessionID:    sessionID,
 		Subject:      userID,
 		SubjectToken: idToken,
@@ -774,7 +770,7 @@ const maxConsecutiveTokenFailures = 3
 // The closure is safe to call without a mutex because headerFunc is called
 // sequentially per connection by the MCP client.
 func makeTokenForwardingHeaderFunc(
-	tb TokenBroker,
+	broker TokenBroker,
 	sessionID, sub, musterIssuer, serverName, fallbackToken string,
 	onStaleToken func(),
 ) func(context.Context) map[string]string {
@@ -783,7 +779,7 @@ func makeTokenForwardingHeaderFunc(
 	var staleEvicted bool
 	hadToken := true
 	return func(_ context.Context) map[string]string {
-		latestToken := lookupIDTokenForSession(context.Background(), tb, sessionID, musterIssuer)
+		latestToken := lookupIDTokenForSession(context.Background(), broker, sessionID, musterIssuer)
 		if latestToken == "" {
 			consecutiveFailures++
 

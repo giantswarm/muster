@@ -2619,9 +2619,7 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 ) (MCPClient, time.Time, string, error) {
 	serverName := serverInfo.Name
 	musterIssuer := a.getMusterIssuer()
-	a.mu.RLock()
-	tokenBroker := a.tokenBroker
-	a.mu.RUnlock()
+	tokenBroker := a.tokenBrokerSnapshot()
 	if tokenBroker == nil || !tokenBroker.Enabled() {
 		return nil, time.Time{}, "", fmt.Errorf("broker not available for token exchange to %s", serverName)
 	}
@@ -2791,10 +2789,8 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 
 	} else if ShouldUseTokenForwarding(serverInfo) {
 		musterIssuer := a.getMusterIssuer()
-		a.mu.RLock()
-		tb := a.tokenBroker
-		a.mu.RUnlock()
-		idToken := lookupIDTokenForSession(ctx, tb, sessionID, musterIssuer)
+		tokenBroker := a.tokenBrokerSnapshot()
+		idToken := lookupIDTokenForSession(ctx, tokenBroker, sessionID, musterIssuer)
 		if idToken == "" {
 			return nil, nil, fmt.Errorf("no ID token available for forwarding to %s", serverName)
 		}
@@ -2804,7 +2800,7 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 		}
 
 		headerFunc := func(_ context.Context) map[string]string {
-			latestToken := lookupIDTokenForSession(context.Background(), tb, sessionID, musterIssuer)
+			latestToken := lookupIDTokenForSession(context.Background(), tokenBroker, sessionID, musterIssuer)
 			if latestToken == "" {
 				latestToken = idToken
 			}

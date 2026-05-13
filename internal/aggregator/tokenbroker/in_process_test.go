@@ -168,7 +168,7 @@ func TestInProcess_ExchangeToken_ConsultsResolver(t *testing.T) {
 		Subject:      "user",
 		SubjectToken: "id-token",
 		Audience:     "mcp-kubernetes",
-		Config: aggregator.ExchangeConfig{
+		Config: aggregator.ExchangeConfig{ //nolint:gosec // test fixture, not credentials
 			TokenEndpoint: "http://127.0.0.1:1/token",
 			ConnectorID:   "c",
 		},
@@ -213,7 +213,7 @@ func TestInProcess_ExchangeToken_RoutesPerAudience(t *testing.T) {
 			Subject:      "user",
 			SubjectToken: "id-token",
 			Audience:     audience,
-			Config: aggregator.ExchangeConfig{
+			Config: aggregator.ExchangeConfig{ //nolint:gosec // test fixture, not credentials
 				TokenEndpoint: "https://idp.test/token",
 				ConnectorID:   "c",
 			},
@@ -237,7 +237,7 @@ func TestInProcess_ExchangeToken_PropagatesResolverError(t *testing.T) {
 		Subject:      "user",
 		SubjectToken: "id-token",
 		Audience:     "mcp-kubernetes",
-		Config: aggregator.ExchangeConfig{
+		Config: aggregator.ExchangeConfig{ //nolint:gosec // test fixture, not credentials
 			TokenEndpoint: "http://127.0.0.1:1/token",
 			ConnectorID:   "c",
 		},
@@ -246,7 +246,7 @@ func TestInProcess_ExchangeToken_PropagatesResolverError(t *testing.T) {
 }
 
 func TestTranslateExchangeConfig_SetsEnabledAndCopiesFields(t *testing.T) {
-	cfg := aggregator.ExchangeConfig{
+	cfg := aggregator.ExchangeConfig{ //nolint:gosec // test fixture, not credentials
 		TokenEndpoint:  "https://dex.example.com/token",
 		ExpectedIssuer: "https://dex.example.com",
 		ConnectorID:    "github",
