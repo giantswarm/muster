@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -314,13 +315,13 @@ func (m *Manager) StoreToken(sessionID, userID, issuer string, token *pkgoauth.T
 
 // ErrSessionUnknown is returned by [Manager.SessionIssuer] when the
 // session has no stored token carrying an issuer claim.
-var ErrSessionUnknown = fmt.Errorf("broker: session has no stored issuer")
+var ErrSessionUnknown = errors.New("broker: session has no stored issuer")
 
 // SessionIssuer returns the IdP issuer URL bound to sessionID, or
 // [ErrSessionUnknown] if no stored token carries an ID token.
 func (m *Manager) SessionIssuer(_ context.Context, sessionID string) (string, error) {
 	if m == nil || m.client == nil || m.client.tokenStore == nil {
-		return "", fmt.Errorf("broker: not initialized")
+		return "", errors.New("broker: not initialized")
 	}
 	for _, token := range m.client.tokenStore.GetAllForSession(sessionID) {
 		if token != nil && token.IDToken != "" && token.Issuer != "" {

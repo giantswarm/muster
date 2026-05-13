@@ -6,6 +6,7 @@ import (
 
 	"github.com/giantswarm/muster/internal/aggregator"
 	"github.com/giantswarm/muster/internal/broker"
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // InProcess implements [aggregator.TokenBroker] against an in-process
@@ -27,7 +28,7 @@ func (a *InProcess) GetToken(_ context.Context, sessionID, issuer string) (aggre
 	}
 	cached := a.manager.GetTokenByIssuer(sessionID, issuer)
 	if cached == nil {
-		return aggregator.Token{}, fmt.Errorf("session=%s issuer=%s: %w", sessionID, issuer, aggregator.ErrTokenNotFound)
+		return aggregator.Token{}, fmt.Errorf("session=%s issuer=%s: %w", logging.TruncateIdentifier(sessionID), issuer, aggregator.ErrTokenNotFound)
 	}
 	return aggregator.Token{
 		AccessToken:  cached.AccessToken,

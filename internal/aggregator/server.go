@@ -140,10 +140,15 @@ type AggregatorServer struct {
 	// adminServer is the optional admin web UI listener. Nil when disabled.
 	adminServer *admin.Server
 
-	// tokenBroker may be nil in test fixtures; call sites guard accordingly.
+	// tokenBroker is nil until the composition root wires it via
+	// SetTokenBroker. Call sites snapshot it under a.mu and guard nil.
 	tokenBroker TokenBroker
 }
 
+// SetTokenBroker installs the [TokenBroker] adapter. The composition root
+// (internal/services/aggregator) calls this once after constructing the
+// manager and before Start. Subsequent calls replace the binding under
+// a.mu; concurrent reads see either the old or the new value.
 func (a *AggregatorServer) SetTokenBroker(tb TokenBroker) {
 	a.mu.Lock()
 	defer a.mu.Unlock()

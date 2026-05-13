@@ -117,7 +117,7 @@ func TestGetMusterIssuer_WithOAuthServerConfig(t *testing.T) {
 	provider := NewAuthToolProvider(aggregator)
 
 	// Call getMusterIssuer
-	issuer := provider.getMusterIssuer("test-user-sub")
+	issuer := provider.getMusterIssuer(context.Background(), "test-user-sub")
 
 	// Should return the BaseURL from the config
 	if issuer != "https://muster.example.com" {
@@ -148,7 +148,7 @@ func TestGetMusterIssuer_WithEmptyBaseURL(t *testing.T) {
 
 	provider := NewAuthToolProvider(aggregator)
 
-	issuer := provider.getMusterIssuer("test-user-sub")
+	issuer := provider.getMusterIssuer(context.Background(), "test-user-sub")
 
 	if issuer != fallbackIssuer {
 		t.Errorf("expected issuer 'https://fallback-issuer.example.com', got '%s'", issuer)
@@ -178,7 +178,7 @@ func TestGetMusterIssuer_OAuthNotEnabled(t *testing.T) {
 	provider := NewAuthToolProvider(aggregator)
 
 	// Call getMusterIssuer - should return empty because OAuth handler is not enabled
-	issuer := provider.getMusterIssuer("test-user-sub")
+	issuer := provider.getMusterIssuer(context.Background(), "test-user-sub")
 
 	if issuer != "" {
 		t.Errorf("expected empty issuer when OAuth not enabled, got '%s'", issuer)
@@ -204,7 +204,7 @@ func TestGetMusterIssuer_NoOAuthHandler(t *testing.T) {
 	provider := NewAuthToolProvider(aggregator)
 
 	// Call getMusterIssuer - should return empty because no OAuth handler
-	issuer := provider.getMusterIssuer("test-user-sub")
+	issuer := provider.getMusterIssuer(context.Background(), "test-user-sub")
 
 	if issuer != "" {
 		t.Errorf("expected empty issuer when no OAuth handler, got '%s'", issuer)
@@ -232,7 +232,7 @@ func TestGetMusterIssuer_ConfigNotOAuthServerConfig(t *testing.T) {
 
 	provider := NewAuthToolProvider(aggregator)
 
-	issuer := provider.getMusterIssuer("test-user-sub")
+	issuer := provider.getMusterIssuer(context.Background(), "test-user-sub")
 
 	if issuer != fallbackIssuer {
 		t.Errorf("expected issuer 'https://fallback-issuer.example.com', got '%s'", issuer)
@@ -260,7 +260,7 @@ func TestGetMusterIssuer_NoFallbackToken(t *testing.T) {
 	provider := NewAuthToolProvider(aggregator)
 
 	// Call getMusterIssuer - should return empty
-	issuer := provider.getMusterIssuer("test-user-sub")
+	issuer := provider.getMusterIssuer(context.Background(), "test-user-sub")
 
 	if issuer != "" {
 		t.Errorf("expected empty issuer, got '%s'", issuer)

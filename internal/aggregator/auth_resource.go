@@ -301,7 +301,7 @@ func (a *AggregatorServer) handleUpstreamRefreshFailure(sessionID, userID, reaso
 // resolveMusterIssuer returns the configured muster issuer URL, or — when
 // the config does not pin one — the issuer recorded for sessionID by the
 // broker. Returns empty if neither source yields an issuer.
-func (a *AggregatorServer) resolveMusterIssuer(sessionID string) string {
+func (a *AggregatorServer) resolveMusterIssuer(ctx context.Context, sessionID string) string {
 	if issuer := a.getMusterIssuer(); issuer != "" {
 		return issuer
 	}
@@ -313,7 +313,7 @@ func (a *AggregatorServer) resolveMusterIssuer(sessionID string) string {
 		return ""
 	}
 
-	issuer, err := broker.SessionIssuer(context.Background(), sessionID)
+	issuer, err := broker.SessionIssuer(ctx, sessionID)
 	if err != nil {
 		logging.Debug("Aggregator", "SessionIssuer unavailable for session %s: %v",
 			logging.TruncateIdentifier(sessionID), err)

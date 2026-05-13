@@ -361,7 +361,7 @@ func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string
 	// and it is not muster's upstream issuer. Clearing a shared issuer token
 	// would break other servers (or muster itself) that rely on the same token.
 	if serverInfo.AuthInfo != nil && serverInfo.AuthInfo.Issuer != "" {
-		if p.isIssuerExclusiveToServer(sessionID, serverName, serverInfo.AuthInfo.Issuer) {
+		if p.isIssuerExclusiveToServer(ctx, sessionID, serverName, serverInfo.AuthInfo.Issuer) {
 			oauthHandler := api.GetOAuthHandler()
 			if oauthHandler != nil && oauthHandler.IsEnabled() {
 				oauthHandler.ClearTokenByIssuer(sessionID, serverInfo.AuthInfo.Issuer)
@@ -430,31 +430,24 @@ func (p *AuthToolProvider) tryConnectWithToken(ctx context.Context, serverName, 
 	return result.FormatAsAPIResult(), nil
 }
 
-// getMusterIssuer determines the OAuth issuer that muster used to authenticate the user.
-// This is needed for token forwarding - we need to get the ID token from muster's auth session.
-//
-// This method first checks if the OAuth handler is enabled (required for token forwarding),
-// then delegates to the aggregator's resolveMusterIssuer for the actual issuer lookup.
-//
-// Returns empty string if:
-//   - No OAuth handler is registered
-//   - The OAuth handler is not enabled
-//   - No issuer could be determined from config or tokens
-func (p *AuthToolProvider) getMusterIssuer(sessionID string) string {
+// getMusterIssuer determines the OAuth issuer that muster used to
+// authenticate the user, for token forwarding. Returns empty when the
+// OAuth handler is not enabled or no issuer can be determined.
+func (p *AuthToolProvider) getMusterIssuer(ctx context.Context, sessionID string) string {
 	oauthHandler := api.GetOAuthHandler()
 	if oauthHandler == nil || !oauthHandler.IsEnabled() {
 		return ""
 	}
 
-	return p.aggregator.resolveMusterIssuer(sessionID)
+	return p.aggregator.resolveMusterIssuer(ctx, sessionID)
 }
 
 // isIssuerExclusiveToServer returns true if the given issuer is used ONLY by
 // the specified server and is NOT muster's upstream issuer. When an issuer is
 // shared, clearing it on logout of one server would break other servers (or
 // muster's own token forwarding) that depend on the same token.
-func (p *AuthToolProvider) isIssuerExclusiveToServer(sessionID, serverName, issuer string) bool {
-	if musterIssuer := p.getMusterIssuer(sessionID); musterIssuer != "" && musterIssuer == issuer {
+func (p *AuthToolProvider) isIssuerExclusiveToServer(ctx context.Context, sessionID, serverName, issuer string) bool {
+	if musterIssuer := p.getMusterIssuer(ctx, sessionID); musterIssuer != "" && musterIssuer == issuer {
 		return false
 	}
 
