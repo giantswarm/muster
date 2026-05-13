@@ -260,7 +260,7 @@ func TestGetMusterIssuer_NoFallbackToken(t *testing.T) {
 	provider := NewAuthToolProvider(aggregator)
 
 	// Call getMusterIssuer - should return empty
-	issuer := provider.getMusterIssuer(context.Background(), "test-user-sub")
+	issuer := provider.getMusterIssuer(t.Context(), "test-user-sub")
 
 	if issuer != "" {
 		t.Errorf("expected empty issuer, got '%s'", issuer)
