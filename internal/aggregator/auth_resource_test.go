@@ -750,6 +750,6 @@ func TestResolveMusterIssuer_NilTokenBroker(t *testing.T) {
 		},
 	}
 
-	issuer := a.resolveMusterIssuer(context.Background(), "any-session")
+	issuer := a.resolveMusterIssuer(t.Context(), "any-session")
 	assert.Empty(t, issuer, "nil tokenBroker must short-circuit to empty issuer")
 }
