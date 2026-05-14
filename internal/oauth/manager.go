@@ -112,9 +112,20 @@ func NewManager(cfg config.OAuthMCPClientConfig, opts ...ManagerOption) *Manager
 	// endpoints. In that case allow the token-exchange client to resolve to
 	// private/loopback IPs (otherwise its SSRF guard rejects .svc.cluster.local
 	// targets like an in-cluster Dex).
+	tokenExchangeHTTPClient := customHTTPClient
+	if tokenExchangeHTTPClient == nil && cfg.ExtraCAFile != "" {
+		// mcp-oauth's NewPrivateIPAllowedHTTPClient builds a fresh *http.Transport
+		// that bypasses the augmented pool installExtraCAFile mutated into
+		// http.DefaultTransport. Hand the exchanger an explicit client backed by
+		// the augmented DefaultTransport so token-exchange TLS uses the extra CAs.
+		tokenExchangeHTTPClient = &http.Client{
+			Transport: http.DefaultTransport,
+			Timeout:   30 * time.Second,
+		}
+	}
 	tokenExchanger := NewTokenExchangerWithOptions(TokenExchangerOptions{
 		AllowPrivateIP: cfg.CAFile != "" || cfg.ExtraCAFile != "",
-		HTTPClient:     customHTTPClient, // Share the same HTTP client with CA config
+		HTTPClient:     tokenExchangeHTTPClient,
 	})
 
 	m := &Manager{
