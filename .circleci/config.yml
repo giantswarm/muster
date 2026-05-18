@@ -15,26 +15,12 @@ workflows:
             tags:
               only: /^v.*/
 
-      # Branch builds: same multi-arch path as release. Platforms auto-derive
-      # from the workspace .platforms file written by go-build.
+      # split-china-push: true delegates Aliyun to sync-china-registry on
+      # tags. Safe on branches: registries-data marks Aliyun push_dev_image=false.
       - architect/push-to-registries:
           context: architect
           multiarch: true
           name: push-to-registries
-          requires:
-            - go-build
-          filters:
-            branches:
-              ignore:
-                - main
-
-      # Tag builds: push multi-arch image to gsoci + gsociprivate. Aliyun is
-      # handled by the sync-china-registry job below (orb's split-china-push
-      # mechanism), so the buildx push no longer crosses the Pacific.
-      - architect/push-to-registries:
-          context: architect
-          multiarch: true
-          name: push-to-registries-release
           split-china-push: true
           requires:
             - go-build
@@ -42,7 +28,8 @@ workflows:
             tags:
               only: /^v.*/
             branches:
-              ignore: /.*/
+              ignore:
+                - main
 
       # Mirror gsoci -> Aliyun via the in-China giantswarm/galaxy-runner.
       # Runs in parallel with the chart catalog push; an Aliyun mirror failure
@@ -51,7 +38,7 @@ workflows:
           context: architect
           name: sync-china-registry
           requires:
-            - push-to-registries-release
+            - push-to-registries
           filters:
             tags:
               only: /^v.*/
@@ -116,7 +103,7 @@ workflows:
           chart: muster
           requires:
             - execute chart tests
-            - push-to-registries-release
+            - push-to-registries
           filters:
             tags:
               only: /^v.*/
