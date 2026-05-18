@@ -1,0 +1,16 @@
+version: "2"
+
+linters:
+  exclusions:
+    rules:
+      # Test fixtures legitimately set credential-named fields on CRD
+      # types (ClientCredentialsSecretRef, IdentitySecretName,
+      # TokenExchange, …). gosec G101's recursive struct-field heuristic
+      # matches these even when the values are obviously placeholders.
+      # Scope the exemption to *_test.go so production code is still
+      # scanned. goconst stays enabled in test files: real duplicate-
+      # literal hits should be hoisted to package constants, not
+      # silenced.
+      - path: _test\.go
+        linters: [gosec]
+        text: G101
