@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Replace the `push-to-gsoci-release` + `push-to-all-registries-release` workaround pair with a single `push-to-registries-release` job using `split-china-push: true` and a companion `sync-china-registry` job. The cross-Pacific `docker buildx` push to the Aliyun mirror is replaced with `regctl image copy` (gsoci -> Aliyun) executed on the in-China `giantswarm/galaxy-runner` self-hosted CircleCI runner via the Singapore geo-replica. The chart catalog publish still does not gate on Aliyun.
 - Migrate image pushes from the deprecated `architect/push-to-registries-multiarch` job to `push-to-registries` with `multiarch: true`. Picks up the orb v8.1.0 QEMU/binfmt auto-registration, hardened buildx bootstrap, and standard OCI image labels.
 
 ### Added
