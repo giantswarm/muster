@@ -1207,6 +1207,13 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 						"url":       mockInfo.Endpoint,
 					}
 
+					if toolPrefix, ok := mcpServer.Config["toolPrefix"].(string); ok && toolPrefix != "" {
+						spec["toolPrefix"] = toolPrefix
+					}
+					if family, ok := mcpServer.Config["family"].(map[string]interface{}); ok {
+						spec["family"] = family
+					}
+
 					// Handle SSO configuration from oauth config
 					if oauthConfig, hasOAuth := mcpServer.Config["oauth"].(map[string]interface{}); hasOAuth {
 						authConfig := make(map[string]interface{})
@@ -1308,6 +1315,18 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 					mockConfigFile := filepath.Join(configPath, "mocks", mcpServer.Name+".yaml")
 
 					// Create MCPServer CRD structure
+					stdioSpec := map[string]interface{}{
+						"type":      "stdio",
+						"autoStart": true,
+						"command":   musterPath,
+						"args":      []string{"test", "--mock-mcp-server", "--mock-config", mockConfigFile},
+					}
+					if toolPrefix, ok := mcpServer.Config["toolPrefix"].(string); ok && toolPrefix != "" {
+						stdioSpec["toolPrefix"] = toolPrefix
+					}
+					if family, ok := mcpServer.Config["family"].(map[string]interface{}); ok {
+						stdioSpec["family"] = family
+					}
 					mcpServerCRD := map[string]interface{}{
 						"apiVersion": "muster.giantswarm.io/v1alpha1",
 						"kind":       "MCPServer",
@@ -1315,12 +1334,7 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 							"name":      mcpServer.Name,
 							"namespace": "default",
 						},
-						"spec": map[string]interface{}{
-							"type":      "stdio",
-							"autoStart": true,
-							"command":   musterPath,
-							"args":      []string{"test", "--mock-mcp-server", "--mock-config", mockConfigFile},
-						},
+						"spec": stdioSpec,
 					}
 
 					if m.debug {
