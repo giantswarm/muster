@@ -1,7 +1,7 @@
-package translator_test
+package agentgateway_test
 
 import (
-	"github.com/giantswarm/muster/internal/reconciler/translator"
+	"github.com/giantswarm/muster/internal/reconciler/agentgateway"
 	v1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
 )
 
@@ -50,18 +50,6 @@ func authOAuthAuthorizationServer() *v1alpha1.MCPServerAuth {
 	}
 }
 
-func authTeleport() *v1alpha1.MCPServerAuth {
-	return &v1alpha1.MCPServerAuth{
-		Type: "teleport",
-		Teleport: &v1alpha1.TeleportAuthConfig{
-			IdentitySecretName:      "tbot-identity-output",
-			IdentitySecretNamespace: "tbot",
-			IdentityDir:             "/var/run/tbot/identity",
-			AppName:                 "mcp-kubernetes",
-		},
-	}
-}
-
 func stdioSpec(auth *v1alpha1.MCPServerAuth) v1alpha1.MCPServerSpec {
 	return v1alpha1.MCPServerSpec{
 		Type:    "stdio",
@@ -88,19 +76,11 @@ func sseSpec(auth *v1alpha1.MCPServerAuth) v1alpha1.MCPServerSpec {
 	}
 }
 
-// kind describes which Backend variant a happy case expects.
-type kind int
-
-const (
-	kindStdio kind = iota
-	kindStreamableHTTP
-	kindSSE
-)
-
 type expectHTTP struct {
-	host string
-	port int
-	path string
+	protocol agentgateway.HTTPProtocol
+	host     string
+	port     int
+	path     string
 }
 
 type expectStdio struct {
@@ -112,9 +92,9 @@ type expectStdio struct {
 type happyCase struct {
 	name          string
 	spec          v1alpha1.MCPServerSpec
-	wantKind      kind
+	wantKind      agentgateway.TargetKind
 	wantHTTP      expectHTTP
 	wantStdio     expectStdio
-	wantAuthn     translator.AuthnConfig
+	wantAuthn     agentgateway.Authn
 	wantPathMatch string
 }
