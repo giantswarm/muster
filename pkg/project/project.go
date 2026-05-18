@@ -1,5 +1,9 @@
 package project
 
+// dev is the default for unset build identifiers. Local `go build`
+// invocations without ldflags keep this so `muster version` stays printable.
+const dev = "dev"
+
 // Populated at link time via `-X` ldflags. Two injection paths:
 //
 //   - goreleaser (release archives) sets `version` to the semver tag,
@@ -7,12 +11,9 @@ package project
 //   - architect-orb's `go-build` job (container images) sets `gitSHA` to
 //     `CIRCLE_SHA1` and `buildTimestamp` to the UTC build time; `version`
 //     stays at its default because no tag is plumbed through.
-//
-// Local `go build` invocations that don't set any flags keep the defaults
-// so `muster version` is still printable.
 var (
-	version        = "dev"
-	gitSHA         = "dev"
+	version        = dev
+	gitSHA         = dev
 	buildTimestamp = "unknown"
 )
 
@@ -20,13 +21,13 @@ var (
 // release tag if goreleaser injected one, otherwise the commit SHA if CI
 // injected one, otherwise the placeholder "dev".
 func Version() string {
-	if version != "dev" {
+	if version != dev {
 		return version
 	}
-	if gitSHA != "dev" {
+	if gitSHA != dev {
 		return gitSHA
 	}
-	return "dev"
+	return dev
 }
 
 // GitSHA returns the commit SHA the binary was built from.

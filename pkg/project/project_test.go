@@ -4,10 +4,10 @@ import "testing"
 
 func TestVersionFallback(t *testing.T) {
 	tests := []struct {
-		name           string
-		version        string
-		gitSHA         string
-		want           string
+		name    string
+		version string
+		gitSHA  string
+		want    string
 	}{
 		{"no injection", "dev", "dev", "dev"},
 		{"goreleaser only", "v1.2.3", "dev", "v1.2.3"},
