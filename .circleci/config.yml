@@ -10,6 +10,7 @@ workflows:
           context: architect
           name: go-build
           binary: muster
+          architectures: "linux/amd64,linux/arm64"
           filters:
             tags:
               only: /^v.*/

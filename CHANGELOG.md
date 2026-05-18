@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Container image build no longer compiles the Go binary inside `docker buildx`. `go-build` now produces both `muster-linux-amd64` and `muster-linux-arm64` in one job (architect-orb `architectures` parameter) and the Dockerfile copies the matching binary from the workspace. Removes the duplicate compile and the QEMU-emulated arm64 cross-build on tag releases; `push-to-registries` auto-derives `--platform` from the workspace `.platforms` file.
+- Build identifiers (`version`, `gitSHA`, `buildTimestamp`) now live in `pkg/project` instead of `main`. Both injection paths populate the same vars: goreleaser writes the semver tag + short commit + date for release archives, architect-orb's `go-build` writes the commit SHA + UTC timestamp for container images. `muster version` prefers the tag, falls back to the SHA, falls back to `dev`. Closes the gap where CI-built container images reported `version=dev` because the Dockerfile build args were never passed.
 - Migrate image pushes from the deprecated `architect/push-to-registries-multiarch` job to `push-to-registries` with `multiarch: true`. Picks up the orb v8.1.0 QEMU/binfmt auto-registration, hardened buildx bootstrap, and standard OCI image labels.
 
 ### Added
