@@ -6,15 +6,17 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/giantswarm/muster/internal/api"
 )
 
 // columnDisplayNames maps internal field names to user-friendly column headers.
 // This allows consistent presentation of column names across CLI output.
 var columnDisplayNames = map[string]map[string]string{
-	"mcpServers": {
+	api.ResponseKeyMCPServers: {
 		"sessionAuth": "session", // Session auth status shown as "SESSION" per issue #337
 	},
-	"mcpServer": {
+	api.ResponseKeyMCPServer: {
 		"sessionAuth": "session",
 	},
 }
@@ -33,20 +35,20 @@ var columnDisplayNames = map[string]map[string]string{
 //   - statusMessage: Shown in footer notes instead of column
 //   - consecutiveFailures, lastAttempt, nextRetryAfter: Diagnostic fields for verbose/debug use
 var unwantedColumnsByResourceType = map[string][]string{
-	"mcpServers": {
-		"args", "command", "url", "env", "headers", "timeout", "toolPrefix",
-		"error", "description", "auth", "health", "statusMessage",
+	api.ResponseKeyMCPServers: {
+		api.FieldArgs, api.FieldCommand, "url", "env", "headers", "timeout", "toolPrefix",
+		api.FieldError, api.SchemaKeyDescription, "auth", api.FieldHealth, "statusMessage",
 		"consecutiveFailures", "lastAttempt", "nextRetryAfter",
 	},
-	"mcpServer": {
-		"args", "command", "url", "env", "headers", "timeout", "toolPrefix",
-		"error", "description", "auth", "health", "statusMessage",
+	api.ResponseKeyMCPServer: {
+		api.FieldArgs, api.FieldCommand, "url", "env", "headers", "timeout", "toolPrefix",
+		api.FieldError, api.SchemaKeyDescription, "auth", api.FieldHealth, "statusMessage",
 		"consecutiveFailures", "lastAttempt", "nextRetryAfter",
 	},
-	"service": {
+	api.ResourceTypeService: {
 		"metadata", // Nested data doesn't display well in list view
 	},
-	"services": {
+	api.ResourceTypeServices: {
 		"metadata", // Nested data doesn't display well in list view
 	},
 }
@@ -289,7 +291,12 @@ func (f *TableFormatter) printServerStatusNotes(data map[string]interface{}) {
 // Returns:
 //   - string: The key name containing array data, or empty string if none found
 func (f *TableFormatter) findArrayKey(data map[string]interface{}) string {
-	arrayKeys := []string{"services", "serviceClasses", "mcpServers", "workflows", "executions", "capabilities", "items", "results", "tools", "resources", "prompts"}
+	arrayKeys := []string{
+		api.ResourceTypeServices, api.ResponseKeyServiceClasses, api.ResponseKeyMCPServers,
+		api.ResourceTypeWorkflows, api.ResponseKeyExecutions,
+		"capabilities", api.SchemaKeyItems, "results",
+		api.MCPPrimitiveTools, api.MCPPrimitiveResources, api.MCPPrimitivePrompts,
+	}
 
 	for _, key := range arrayKeys {
 		if value, exists := data[key]; exists {
@@ -344,7 +351,7 @@ func (f *TableFormatter) formatTableFromArray(data []interface{}) error {
 			row := make([]string, len(columns))
 			for i, col := range columns {
 				// Use context-aware formatting for MCP servers (plain text version)
-				if resourceType == "mcpServers" || resourceType == "mcpServer" {
+				if resourceType == api.ResponseKeyMCPServers || resourceType == api.ResponseKeyMCPServer {
 					row[i] = f.builder.FormatCellValuePlain(col, itemMap[col], itemMap)
 				} else {
 					row[i] = f.builder.FormatCellValuePlain(col, itemMap[col], nil)
@@ -396,7 +403,7 @@ func (f *TableFormatter) optimizeColumns(objects []interface{}) []string {
 	sample := objects[0].(map[string]interface{})
 
 	// Always prioritize name/ID fields first
-	nameFields := []string{"name", "label", "id", "workflow"}
+	nameFields := []string{api.FieldName, "label", "id", api.ResourceTypeWorkflow}
 	var columns []string
 
 	// Add the primary identifier first (Name/ID/Label)
@@ -409,21 +416,21 @@ func (f *TableFormatter) optimizeColumns(objects []interface{}) []string {
 
 	// Define priority columns for different resource types (excluding name fields already added)
 	priorityColumns := map[string][]string{
-		"service":        {"health", "state", "service_type"},
-		"services":       {"health", "state", "service_type"},
-		"serviceClasses": {"available", "serviceType", "description", "requiredTools"},
-		"serviceClass":   {"available", "serviceType", "description", "requiredTools"},
-		"mcpServers":     {"state", "type", "sessionAuth"},
-		"mcpServer":      {"state", "type", "sessionAuth"},
-		"workflows":      {"status", "description", "steps"},
-		"workflow":       {"status", "description", "steps"},
-		"executions":     {"workflow_name", "status", "started_at", "duration_ms"},
-		"execution":      {"workflow_name", "status", "started_at", "duration_ms"},
-		"event":          {"timestamp", "type", "resource_type", "resource_name", "reason", "message"},
-		"mcpTool":        {"description"},
-		"mcpResource":    {"uri", "description", "mimeType"},
-		"mcpPrompt":      {"description"},
-		"generic":        {"status", "type", "description", "available"},
+		api.ResourceTypeService:       {api.FieldHealth, api.FieldState, "service_type"},
+		api.ResourceTypeServices:      {api.FieldHealth, api.FieldState, "service_type"},
+		api.ResponseKeyServiceClasses: {"available", "serviceType", api.SchemaKeyDescription, "requiredTools"},
+		api.ResponseKeyServiceClass:   {"available", "serviceType", api.SchemaKeyDescription, "requiredTools"},
+		api.ResponseKeyMCPServers:     {api.FieldState, api.SchemaKeyType, "sessionAuth"},
+		api.ResponseKeyMCPServer:      {api.FieldState, api.SchemaKeyType, "sessionAuth"},
+		api.ResourceTypeWorkflows:     {api.FieldStatus, api.SchemaKeyDescription, api.FieldSteps},
+		api.ResourceTypeWorkflow:      {api.FieldStatus, api.SchemaKeyDescription, api.FieldSteps},
+		api.ResponseKeyExecutions:     {"workflow_name", api.FieldStatus, "started_at", "duration_ms"},
+		"execution":                   {"workflow_name", api.FieldStatus, "started_at", "duration_ms"},
+		"event":                       {"timestamp", api.SchemaKeyType, "resource_type", "resource_name", "reason", api.FieldMessage},
+		"mcpTool":                     {api.SchemaKeyDescription},
+		"mcpResource":                 {"uri", api.SchemaKeyDescription, api.FieldMimeType},
+		"mcpPrompt":                   {api.SchemaKeyDescription},
+		"generic":                     {api.FieldStatus, api.SchemaKeyType, api.SchemaKeyDescription, "available"},
 	}
 
 	// Extended columns for wide mode (-o wide)
@@ -874,7 +881,7 @@ func (f *TableFormatter) displayWorkflowInputs(workflowData map[string]interface
 	fmt.Println("\nInput Args:")
 
 	tw := NewPlainTableWriter(os.Stdout)
-	tw.SetHeaders([]string{"ARGUMENT", "TYPE", "DESCRIPTION", "REQUIRED"})
+	tw.SetHeaders([]string{"ARGUMENT", "TYPE", headerDescription, "REQUIRED"})
 	tw.SetNoHeaders(f.options.NoHeaders)
 
 	// Sort arg names
@@ -948,7 +955,7 @@ func (f *TableFormatter) displayWorkflowSteps(workflowData map[string]interface{
 	fmt.Println("\nWorkflow Steps:")
 
 	tw := NewPlainTableWriter(os.Stdout)
-	tw.SetHeaders([]string{"STEP", "TOOL", "DESCRIPTION"})
+	tw.SetHeaders([]string{"STEP", "TOOL", headerDescription})
 	tw.SetNoHeaders(f.options.NoHeaders)
 
 	for i, step := range steps {

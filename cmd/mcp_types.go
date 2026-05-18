@@ -1,21 +1,26 @@
 package cmd
 
-const (
-	resourceTypeService            = "service"
-	resourceTypeServices           = "services"
-	resourceTypeMCPServer          = "mcpserver"
-	resourceTypeMCPServers         = "mcpservers"
-	resourceTypeWorkflow           = "workflow"
-	resourceTypeWorkflows          = "workflows"
-	resourceTypeWorkflowExecution  = "workflow-execution"
-	resourceTypeWorkflowExecutions = "workflow-executions"
+import "github.com/giantswarm/muster/internal/api"
 
-	mcpPrimitiveTool      = "tool"
-	mcpPrimitiveTools     = "tools"
-	mcpPrimitiveResource  = "resource"
-	mcpPrimitiveResources = "resources"
-	mcpPrimitivePrompt    = "prompt"
-	mcpPrimitivePrompts   = "prompts"
+// Local aliases for resource-type identifiers so the existing cmd/*
+// switch statements and slice literals stay terse. Source of truth lives
+// in internal/api so internal/cli can reference the same identifiers.
+const (
+	resourceTypeService            = api.ResourceTypeService
+	resourceTypeServices           = api.ResourceTypeServices
+	resourceTypeMCPServer          = api.ResourceTypeMCPServer
+	resourceTypeMCPServers         = api.ResourceTypeMCPServers
+	resourceTypeWorkflow           = api.ResourceTypeWorkflow
+	resourceTypeWorkflows          = api.ResourceTypeWorkflows
+	resourceTypeWorkflowExecution  = api.ResourceTypeWorkflowExecution
+	resourceTypeWorkflowExecutions = api.ResourceTypeWorkflowExecutions
+
+	mcpPrimitiveTool      = api.MCPPrimitiveTool
+	mcpPrimitiveTools     = api.MCPPrimitiveTools
+	mcpPrimitiveResource  = api.MCPPrimitiveResource
+	mcpPrimitiveResources = api.MCPPrimitiveResources
+	mcpPrimitivePrompt    = api.MCPPrimitivePrompt
+	mcpPrimitivePrompts   = api.MCPPrimitivePrompts
 )
 
 // mcpPrimitiveTypes maps MCP primitive type aliases (singular and plural)
