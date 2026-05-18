@@ -235,10 +235,7 @@ func (r *ServerRegistry) Register(ctx context.Context, registration ServerRegist
 		Family:     cloneFamily(registration.Family),
 	}
 
-	r.nameMu.Lock()
-	r.setServerPrefixLocked(registration.Name, registration.ToolPrefix)
-	r.setServerFamilyLocked(registration.Name, registration.Family)
-	r.nameMu.Unlock()
+	r.applyServerRegistrationLocked(registration.Name, registration.ToolPrefix, registration.Family)
 
 	// Fetch initial capabilities from the server
 	if err := r.refreshServerCapabilities(ctx, info); err != nil {
@@ -412,38 +409,45 @@ type serverToolContribution struct {
 }
 
 // assembleExposedTools turns a set of per-server tool contributions into the
-// flat exposed list, applying family grouping. It rebuilds the
-// familyMappings index as a side effect so that subsequent
-// ResolveToolName / ResolveToolNameForServer calls route correctly.
+// flat exposed list, applying family grouping. It upserts the
+// familyMappings index by union so per-session contributions add providers
+// without overwriting other sessions' visibility. Deregister is the only
+// path that removes providers from the index.
 //
 // Family grouping rules:
 //   - Servers without a family always emit per-server prefixed tools.
-//   - Servers in the same family emit a single exposed tool per original
-//     tool name. The exposed tool has a required "server" enum parameter
-//     listing all family members that provide it.
-//   - When two servers in the same family expose the same tool name with
-//     diverging descriptions, that specific tool falls back to per-server
-//     prefixing on both sides (and a warning is logged). Other tools in
-//     the family with consistent descriptions still group.
+//   - Family-level invariants are checked first against the global
+//     serverFamilies state: any family whose members declare different
+//     family.instanceArg falls back ENTIRELY to per-server prefixing for
+//     all its tools — independent of whether their tool sets overlap.
+//   - Per-tool divergence within a non-fallback family (diverging
+//     descriptions) falls back only that specific tool to per-server
+//     prefixing; other tools in the family still group.
+//   - Tools in a non-fallback family emit a single exposed tool per
+//     original tool name with a required instance-selector enum.
 func (r *ServerRegistry) assembleExposedTools(contributions []serverToolContribution) []mcp.Tool {
+	r.nameMu.RLock()
+	familyFallback := r.familyFallbackStatusLocked()
+	r.nameMu.RUnlock()
+
 	type familyKey struct {
 		family   string
 		toolName string
 	}
 	type familyEntry struct {
-		servers      []string
-		tools        []mcp.Tool // parallel to servers
-		description  string
-		descMatches  bool
-		instanceArg  string
-		argDivergent bool
+		servers     []string
+		tools       []mcp.Tool // parallel to servers
+		description string
+		descMatches bool
+		instanceArg string
 	}
 
 	familyBuckets := make(map[familyKey]*familyEntry)
 	var soloTools []mcp.Tool
 
 	for _, c := range contributions {
-		if c.family == nil || c.family.Name == "" {
+		inFallbackFamily := c.family != nil && c.family.Name != "" && familyFallback[c.family.Name]
+		if c.family == nil || c.family.Name == "" || inFallbackFamily {
 			for _, tool := range c.tools {
 				exposedTool := tool
 				exposedTool.Name = r.ExposedToolName(c.serverName, tool.Name)
@@ -469,41 +473,25 @@ func (r *ServerRegistry) assembleExposedTools(contributions []serverToolContribu
 			if tool.Description != entry.description {
 				entry.descMatches = false
 			}
-			if c.family.InstanceArg != entry.instanceArg {
-				entry.argDivergent = true
-			}
 		}
 	}
-
-	// Reset family routing index for tools — solo (non-family) tools have
-	// already populated nameMapping via ExposedToolName above.
-	r.nameMu.Lock()
-	for exposed, bucket := range r.familyMappings {
-		// Only clear tool-typed entries; keep other family-mapped item kinds
-		// (none today, but future-proof).
-		if len(bucket.providers) > 0 && bucket.providers[0].itemType == metatools.ItemKindTool {
-			delete(r.familyMappings, exposed)
-		}
-	}
-	r.nameMu.Unlock()
 
 	for key, entry := range familyBuckets {
-		if entry.argDivergent {
-			logging.Warn("Aggregator",
-				"family %q tool %q has divergent instanceArg across servers %v; falling back to per-server prefixing",
-				key.family, key.toolName, entry.servers)
-		}
 		if !entry.descMatches {
 			logging.Warn("Aggregator",
-				"family %q tool %q has divergent descriptions across servers %v; falling back to per-server prefixing",
+				"family %q tool %q has divergent descriptions across servers %v; falling back to per-server prefixing for this tool",
 				key.family, key.toolName, entry.servers)
-		}
-		if entry.argDivergent || !entry.descMatches {
 			for i, srv := range entry.servers {
 				exposedTool := entry.tools[i]
 				exposedTool.Name = r.ExposedToolName(srv, entry.tools[i].Name)
 				soloTools = append(soloTools, exposedTool)
 			}
+			// Purge any leftover grouped entry from an earlier call when fewer
+			// contributors had been observed (e.g. servers connecting at
+			// different times, or per-session views that hadn't yet seen the
+			// diverging contributor). The next call with a non-divergent set
+			// of contributors will repopulate via upsertFamilyTool.
+			r.removeFamilyTool(r.familyExposedName(key.family, key.toolName))
 			continue
 		}
 
@@ -516,28 +504,136 @@ func (r *ServerRegistry) assembleExposedTools(contributions []serverToolContribu
 		exposedTool.Description = annotateMultiServer(exposedTool.Description, sortedServers)
 
 		soloTools = append(soloTools, exposedTool)
-		r.registerFamilyTool(exposedTool.Name, key.toolName, key.family, entry.instanceArg, sortedServers)
+		r.upsertFamilyTool(exposedTool.Name, key.toolName, key.family, entry.instanceArg, sortedServers)
 	}
 
 	return soloTools
 }
 
-// registerFamilyTool records the reverse-lookup mapping for a family-grouped
-// tool: exposed name -> every server that provides it, with the original
-// (per-server) tool name, family name, and instance-selector arg.
+// applyServerRegistrationLocked records the server's prefix and declared
+// family in the registry's name tables, and — if adding this server tips
+// its family into instanceArg divergence — purges any stale family-grouped
+// routing entries and emits a single state-change warning. Used by both
+// Register and RegisterPendingAuth so the family-conflict surface is
+// identical for stdio and OAuth servers. Caller must NOT hold nameMu.
+func (r *ServerRegistry) applyServerRegistrationLocked(name, toolPrefix string, family *api.MCPServerFamily) {
+	r.nameMu.Lock()
+	r.setServerPrefixLocked(name, toolPrefix)
+	r.setServerFamilyLocked(name, family)
+	var (
+		fallbackTriggered bool
+		fallbackMembers   []string
+	)
+	if family != nil && family.Name != "" {
+		if r.familyFallbackStatusLocked()[family.Name] {
+			r.purgeFamilyFromIndexLocked(family.Name)
+			fallbackTriggered = true
+			fallbackMembers = r.familyMembersLocked(family.Name)
+		}
+	}
+	r.nameMu.Unlock()
+	if fallbackTriggered {
+		logging.Warn("Aggregator",
+			"family %q has divergent family.instanceArg across members %v; falling back to per-server prefixing for the entire family",
+			family.Name, fallbackMembers)
+	}
+}
+
+// familyFallbackStatusLocked returns the set of family names whose declared
+// members disagree on family.instanceArg. Detection is global (driven by
+// serverFamilies), so a family-level fallback fires even when no two members
+// happen to share a tool name. Caller must hold nameMu (read or write).
+//
+// This function is pure — the divergence warning is emitted at state change
+// in Register/RegisterPendingAuth, not on every tools/list call.
+func (r *ServerRegistry) familyFallbackStatusLocked() map[string]bool {
+	seenInstanceArg := make(map[string]string)
+	fallback := make(map[string]bool)
+	for _, f := range r.serverFamilies {
+		if f == nil || f.Name == "" {
+			continue
+		}
+		if existing, ok := seenInstanceArg[f.Name]; ok {
+			if existing != f.InstanceArg {
+				fallback[f.Name] = true
+			}
+			continue
+		}
+		seenInstanceArg[f.Name] = f.InstanceArg
+	}
+	return fallback
+}
+
+// familyMembersLocked returns the sorted list of server names declaring the
+// given family.Name. Caller must hold nameMu.
+func (r *ServerRegistry) familyMembersLocked(familyName string) []string {
+	var members []string
+	for serverName, f := range r.serverFamilies {
+		if f != nil && f.Name == familyName {
+			members = append(members, serverName)
+		}
+	}
+	sort.Strings(members)
+	return members
+}
+
+// upsertFamilyTool unions the given providers into the family routing
+// index entry for exposedName, creating the entry if absent. Existing
+// providers are preserved; only previously unseen serverNames are appended.
+// This keeps per-session listings from overwriting each other's view of the
+// family's full membership — Deregister remains the sole path that removes
+// providers.
 // Caller must NOT hold nameMu.
-func (r *ServerRegistry) registerFamilyTool(exposedName, originalName, family, instanceArg string, serverNames []string) {
+func (r *ServerRegistry) upsertFamilyTool(exposedName, originalName, family, instanceArg string, serverNames []string) {
 	r.nameMu.Lock()
 	defer r.nameMu.Unlock()
-	providers := make([]resolvedName, len(serverNames))
-	for i, sn := range serverNames {
-		providers[i] = resolvedName{serverName: sn, originalName: originalName, itemType: metatools.ItemKindTool}
+	bucket, ok := r.familyMappings[exposedName]
+	if !ok {
+		providers := make([]resolvedName, len(serverNames))
+		for i, sn := range serverNames {
+			providers[i] = resolvedName{serverName: sn, originalName: originalName, itemType: metatools.ItemKindTool}
+		}
+		r.familyMappings[exposedName] = &familyBucket{
+			family:      family,
+			instanceArg: instanceArg,
+			providers:   providers,
+		}
+		return
 	}
-	r.familyMappings[exposedName] = &familyBucket{
-		family:      family,
-		instanceArg: instanceArg,
-		providers:   providers,
+	bucket.family = family
+	bucket.instanceArg = instanceArg
+	existing := make(map[string]struct{}, len(bucket.providers))
+	for _, p := range bucket.providers {
+		existing[p.serverName] = struct{}{}
 	}
+	for _, sn := range serverNames {
+		if _, dup := existing[sn]; dup {
+			continue
+		}
+		bucket.providers = append(bucket.providers, resolvedName{serverName: sn, originalName: originalName, itemType: metatools.ItemKindTool})
+	}
+}
+
+// purgeFamilyFromIndexLocked removes every family-grouped routing entry
+// whose bucket belongs to the given family.Name. Used when a family
+// transitions into fallback so stale family-prefixed names cannot keep
+// routing through a no-longer-valid grouping. Caller must hold nameMu.
+func (r *ServerRegistry) purgeFamilyFromIndexLocked(familyName string) {
+	for exposed, bucket := range r.familyMappings {
+		if bucket.family == familyName {
+			delete(r.familyMappings, exposed)
+		}
+	}
+}
+
+// removeFamilyTool removes a single family-grouped routing entry by exposed
+// name. Used when per-tool divergence (e.g. diverging descriptions) is
+// detected and the previously-grouped exposed name must no longer route via
+// the family bucket. Caller must NOT hold nameMu.
+func (r *ServerRegistry) removeFamilyTool(exposedName string) {
+	r.nameMu.Lock()
+	defer r.nameMu.Unlock()
+	delete(r.familyMappings, exposedName)
 }
 
 // injectInstanceEnum returns a copy of schema with a required string
@@ -955,10 +1051,7 @@ func (r *ServerRegistry) RegisterPendingAuth(registration PendingAuthRegistratio
 		AuthConfig: authConfig,
 	}
 
-	r.nameMu.Lock()
-	r.setServerPrefixLocked(registration.Name, registration.ToolPrefix)
-	r.setServerFamilyLocked(registration.Name, registration.Family)
-	r.nameMu.Unlock()
+	r.applyServerRegistrationLocked(registration.Name, registration.ToolPrefix, registration.Family)
 
 	r.servers[registration.Name] = info
 	r.notifyUpdate()
