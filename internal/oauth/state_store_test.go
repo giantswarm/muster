@@ -11,7 +11,7 @@ func TestStateStore_GenerateAndValidate(t *testing.T) {
 	ss := NewStateStore()
 	defer ss.Stop()
 
-	subject := "user-123"
+	subject := testSubject
 	serverName := testServerName
 	issuer := "https://auth.example.com"
 	codeVerifier := "test-code-verifier-abc123"
