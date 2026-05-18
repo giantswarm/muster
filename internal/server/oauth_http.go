@@ -18,6 +18,7 @@ import (
 	"golang.org/x/oauth2"
 
 	oauth "github.com/giantswarm/mcp-oauth"
+	oauthhandler "github.com/giantswarm/mcp-oauth/handler"
 	"github.com/giantswarm/mcp-oauth/providers"
 	"github.com/giantswarm/mcp-oauth/providers/dex"
 	"github.com/giantswarm/mcp-oauth/providers/google"
@@ -138,7 +139,7 @@ func buildDexScopes(requiredAudiences []string) []string {
 type OAuthHTTPServer struct {
 	config          config.OAuthServerConfig
 	oauthServer     *oauth.Server
-	oauthHandler    *oauth.Handler
+	oauthHandler    *oauthhandler.Handler
 	tokenStore      storage.TokenStore
 	httpServer      *http.Server
 	mcpHandler      http.Handler
@@ -164,7 +165,7 @@ func NewOAuthHTTPServer(cfg config.OAuthServerConfig, mcpHandler http.Handler, d
 		return nil, fmt.Errorf("failed to create OAuth server: %w", err)
 	}
 
-	oauthHandler := oauth.NewHandler(oauthServer, oauthServer.Logger)
+	oauthHandler := oauthhandler.New(oauthServer, oauthServer.Logger)
 
 	server := &OAuthHTTPServer{
 		config:       cfg,
@@ -219,7 +220,7 @@ func (s *OAuthHTTPServer) CreateMux() http.Handler {
 // the /mcp sub-path, and the Authorization Server Metadata routes (RFC 8414
 // + OpenID Connect Discovery).
 func (s *OAuthHTTPServer) setupOAuthRoutes(mux *http.ServeMux) {
-	s.oauthHandler.RegisterOAuthRoutes(mux, oauth.OAuthRoutesOptions{
+	s.oauthHandler.RegisterOAuthRoutes(mux, oauthhandler.OAuthRoutesOptions{
 		MCPPath:         "/mcp",
 		IncludeMetadata: true,
 	})
@@ -285,7 +286,7 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		ctx := r.Context()
 
 		// Get user info from context (set by ValidateToken middleware)
-		userInfo, ok := oauth.UserInfoFromContext(ctx)
+		userInfo, ok := oauthhandler.UserInfoFromContext(ctx)
 		if !ok || userInfo == nil {
 			if s.debug {
 				logging.Debug("OAuth", "No user info in context, proceeding without token injection")
@@ -305,7 +306,7 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		// Always propagate session ID early so onAuthenticated callbacks can
 		// detect sessions with broken refresh chains even when the ID token
 		// is missing.
-		if sessionID, ok := oauth.SessionIDFromContext(ctx); ok {
+		if sessionID, ok := oauthhandler.SessionIDFromContext(ctx); ok {
 			ctx = api.WithSessionID(ctx, sessionID)
 		}
 
@@ -482,7 +483,7 @@ func (s *OAuthHTTPServer) GetOAuthServer() *oauth.Server {
 }
 
 // GetOAuthHandler returns the OAuth handler for testing or direct access.
-func (s *OAuthHTTPServer) GetOAuthHandler() *oauth.Handler {
+func (s *OAuthHTTPServer) GetOAuthHandler() *oauthhandler.Handler {
 	return s.oauthHandler
 }
 
@@ -494,7 +495,7 @@ func (s *OAuthHTTPServer) ValidateTokenWithSubject(next http.Handler) http.Handl
 	return s.oauthHandler.ValidateToken(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
-		userInfo, ok := oauth.UserInfoFromContext(ctx)
+		userInfo, ok := oauthhandler.UserInfoFromContext(ctx)
 		if !ok || userInfo == nil || userInfo.ID == "" {
 			http.Error(w, "Unauthorized: missing user identity", http.StatusUnauthorized)
 			return
@@ -503,7 +504,7 @@ func (s *OAuthHTTPServer) ValidateTokenWithSubject(next http.Handler) http.Handl
 		ctx = api.WithSubject(ctx, userInfo.ID)
 
 		// Propagate the session ID from mcp-oauth's ValidateToken middleware.
-		if sessionID, ok := oauth.SessionIDFromContext(ctx); ok {
+		if sessionID, ok := oauthhandler.SessionIDFromContext(ctx); ok {
 			ctx = api.WithSessionID(ctx, sessionID)
 		}
 

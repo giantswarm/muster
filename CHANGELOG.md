@@ -14,6 +14,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - `aggregator.Register` / `aggregator.RegisterPendingAuth` and their manager-level / `api.AggregatorHandler` counterparts now take a `ServerRegistration` / `PendingAuthRegistration` struct rather than five-to-six positional `(name, url, toolPrefix, family, authInfo, authConfig)` arguments. The previous `RegisterServerPendingAuthWithConfig` is collapsed into the single `RegisterServerPendingAuth(registration)` form — `AuthConfig` is now a nullable field inside the struct. Internal API change; no behavior change for existing CRs.
+- mcp-oauth bumped to `v0.2.140`. The OAuth HTTP handler (`Handler`, `New`, `OAuthRoutesOptions`, `UserInfoFromContext`, `SessionIDFromContext`) moved to a `handler` subpackage; muster's `internal/server` and `internal/aggregator` import the new path. No user-facing config change.
 - mcp-oauth bumped to `v0.2.125`. Internal API migrated to functional options; `server.NewOAuthHTTPServer` now takes `...oauth.ServerOption`. Security-event log emission is rate-limited (1/s, burst 5). No user-facing config change.
 
 ### Fixed
