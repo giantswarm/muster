@@ -1,7 +1,7 @@
 version: 2.1
 
 orbs:
-  architect: giantswarm/architect@8.0.2
+  architect: giantswarm/architect@8.1.0
 
 workflows:
   build:
@@ -15,8 +15,9 @@ workflows:
               only: /^v.*/
 
       # Branch builds: amd64 only for faster PR feedback
-      - architect/push-to-registries-multiarch:
+      - architect/push-to-registries:
           context: architect
+          multiarch: true
           name: push-to-registries
           platforms: "linux/amd64"
           requires:
@@ -28,8 +29,9 @@ workflows:
 
       # Tag builds: push multi-arch image to gsoci (primary registry).
       # Chart push depends on this completing successfully.
-      - architect/push-to-registries-multiarch:
+      - architect/push-to-registries:
           context: architect
+          multiarch: true
           name: push-to-gsoci-release
           registries-data: "public gsoci.azurecr.io ACR_GSOCI_USERNAME ACR_GSOCI_PASSWORD true"
           requires:
@@ -43,8 +45,9 @@ workflows:
       # Tag builds: push multi-arch image to all registries (including China mirrors).
       # Runs in parallel, does NOT block the chart push. If a mirror is unreachable,
       # only mirror-dependent clusters are affected, not the primary delivery pipeline.
-      - architect/push-to-registries-multiarch:
+      - architect/push-to-registries:
           context: architect
+          multiarch: true
           name: push-to-all-registries-release
           requires:
             - go-build

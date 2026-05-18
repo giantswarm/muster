@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Migrate image pushes from the deprecated `architect/push-to-registries-multiarch` job to `push-to-registries` with `multiarch: true`. Picks up the orb v8.1.0 QEMU/binfmt auto-registration, hardened buildx bootstrap, and standard OCI image labels.
+
 ### Added
 
 - `MCPServer.spec.family` — optional object `{name, instanceArg}` grouping equivalent MCPServers under a shared exposed surface. When set, the aggregator exposes tools as `x_<family.name>_<tool>` with a required parameter (named by `family.instanceArg`) selecting the providing instance. Both fields are required when `family` is set. The parameter is always required even for single-instance families so skills written against the family name remain stable as instances are added or removed. When unset, today's per-server prefixing applies (no behavior change for existing CRs).
