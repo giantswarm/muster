@@ -627,11 +627,11 @@ func newTestAggregatorWithPool(t *testing.T) *AggregatorServer {
 func TestCallToolWithTokenExchangeRetry_SuccessNoRetry(t *testing.T) {
 	a := newTestAggregatorWithPool(t)
 	ctx := context.Background()
-	sessionID := "test-session"     //nolint:goconst
-	serverName := "exchange-server" //nolint:goconst
+	sessionID := "test-session"
+	serverName := "exchange-server"
 
 	tokenExchangeAuth := &api.MCPServerAuth{
-		TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+		TokenExchange: &api.TokenExchangeConfig{
 			Enabled:          true,
 			DexTokenEndpoint: "https://dex.example.com/token",
 			ConnectorID:      "ldap",
@@ -666,7 +666,7 @@ func TestCallToolWithTokenExchangeRetry_EvictsPoolOn401ForTokenExchange(t *testi
 	serverName := "exchange-server"
 
 	tokenExchangeAuth := &api.MCPServerAuth{
-		TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+		TokenExchange: &api.TokenExchangeConfig{
 			Enabled:          true,
 			DexTokenEndpoint: "https://dex.example.com/token",
 			ConnectorID:      "ldap",
@@ -729,7 +729,7 @@ func TestCallToolWithTokenExchangeRetry_NoRetryForNon401Error(t *testing.T) {
 	serverName := "exchange-server"
 
 	tokenExchangeAuth := &api.MCPServerAuth{
-		TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+		TokenExchange: &api.TokenExchangeConfig{
 			Enabled:          true,
 			DexTokenEndpoint: "https://dex.example.com/token",
 			ConnectorID:      "ldap",
@@ -761,7 +761,7 @@ func TestGetOrCreateClientForToolCall_ExpiringSoonReturnsClientAndTriggersBackgr
 	serverName := "exchange-server"
 
 	tokenExchangeAuth := &api.MCPServerAuth{
-		TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+		TokenExchange: &api.TokenExchangeConfig{
 			Enabled:          true,
 			DexTokenEndpoint: "https://dex.example.com/token",
 			ConnectorID:      "ldap",
@@ -800,7 +800,7 @@ func TestGetOrCreateClientForToolCall_ExpiredTokenEvictsSynchronously(t *testing
 	serverName := "exchange-server"
 
 	tokenExchangeAuth := &api.MCPServerAuth{
-		TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+		TokenExchange: &api.TokenExchangeConfig{
 			Enabled:          true,
 			DexTokenEndpoint: "https://dex.example.com/token",
 			ConnectorID:      "ldap",
@@ -833,7 +833,7 @@ func TestGetOrCreateClientForToolCall_NoEvictionWhenTokenFresh(t *testing.T) {
 	serverName := "exchange-server"
 
 	tokenExchangeAuth := &api.MCPServerAuth{
-		TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+		TokenExchange: &api.TokenExchangeConfig{
 			Enabled:          true,
 			DexTokenEndpoint: "https://dex.example.com/token",
 			ConnectorID:      "ldap",

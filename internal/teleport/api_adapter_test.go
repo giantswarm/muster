@@ -538,7 +538,7 @@ func TestAdapter_GetHTTPClientForConfig_WithSecret(t *testing.T) {
 
 	ctx := context.Background()
 
-	config := api.TeleportClientConfig{ //nolint:gosec
+	config := api.TeleportClientConfig{
 		IdentitySecretName:      "tbot-identity",
 		IdentitySecretNamespace: "teleport-system",
 	}
@@ -775,7 +775,7 @@ func TestAdapter_CloseWithSecretProviders(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a secret-based provider
-	config := api.TeleportClientConfig{ //nolint:gosec
+	config := api.TeleportClientConfig{
 		IdentitySecretName:      "tbot-identity",
 		IdentitySecretNamespace: "teleport-system",
 	}
@@ -825,7 +825,7 @@ func TestAdapter_SecretProviderCaching(t *testing.T) {
 
 	ctx := context.Background()
 
-	config := api.TeleportClientConfig{ //nolint:gosec
+	config := api.TeleportClientConfig{
 		IdentitySecretName:      "tbot-identity",
 		IdentitySecretNamespace: "teleport-system",
 	}

@@ -67,7 +67,7 @@ func TestManager_GetCallbackPath(t *testing.T) {
 	defer manager.Stop()
 
 	path := manager.GetCallbackPath()
-	if path != "/oauth/proxy/callback" { //nolint:goconst
+	if path != "/oauth/proxy/callback" {
 		t.Errorf("Expected callback path %q, got %q", "/oauth/proxy/callback", path)
 	}
 }

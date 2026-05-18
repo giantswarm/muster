@@ -1,0 +1,29 @@
+version: "2"
+
+linters:
+  settings:
+    goconst:
+      min-len: 5
+      min-occurrences: 5
+      ignore-tests: true
+      ignore-functions:
+        - logging.Info
+        - logging.Debug
+        - logging.Warn
+        - logging.Error
+        - logging.InfoWithAttrs
+        - logging.DebugWithAttrs
+        - logging.WarnWithAttrs
+        - logging.ErrorWithAttrs
+
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - gosec
+      # MCPServerToken* / MCPServerTokenForwarded* are Kubernetes event reason
+      # identifiers (not credentials). Stop gosec G101 from flagging them.
+      - path: internal/events/types\.go
+        linters:
+          - gosec
+        text: "G101"

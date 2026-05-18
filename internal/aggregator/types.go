@@ -9,6 +9,7 @@ import (
 	"github.com/giantswarm/muster/internal/mcpserver"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // MCPClient defines the interface for MCP client operations.
@@ -171,11 +172,11 @@ func (s *ServerInfo) IsConnected() bool {
 	return false
 }
 
-// GetNamespace returns the namespace for this server.
-// Returns "default" if the namespace is not set.
+// GetNamespace returns the namespace for this server, defaulting to
+// metav1.NamespaceDefault when no namespace is set.
 func (s *ServerInfo) GetNamespace() string {
 	if s.Namespace == "" {
-		return "default" //nolint:goconst
+		return metav1.NamespaceDefault
 	}
 	return s.Namespace
 }

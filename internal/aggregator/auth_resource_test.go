@@ -139,13 +139,13 @@ func TestHandleAuthStatusResource_WithAuthRequiredServer(t *testing.T) {
 
 	// Check server status
 	srv := response.Servers[0]
-	if srv.Name != "test-server" { //nolint:goconst
+	if srv.Name != "test-server" {
 		t.Errorf("expected server name 'test-server', got '%s'", srv.Name)
 	}
 	if srv.Status != "auth_required" {
 		t.Errorf("expected status 'auth_required', got '%s'", srv.Status)
 	}
-	if srv.Issuer != "https://dex.example.com" { //nolint:goconst
+	if srv.Issuer != "https://dex.example.com" {
 		t.Errorf("expected issuer 'https://dex.example.com', got '%s'", srv.Issuer)
 	}
 	if srv.Scope != "openid profile" {
@@ -217,7 +217,7 @@ func TestHandleAuthStatusResource_SSOServerNoAuthTool(t *testing.T) {
 			"ssoexch",
 			&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
 			&api.MCPServerAuth{
-				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+				TokenExchange: &api.TokenExchangeConfig{
 					Enabled:          true,
 					DexTokenEndpoint: "https://remote-dex.example.com/token",
 					ConnectorID:      "cluster-a-dex",
@@ -342,7 +342,7 @@ func TestDetermineSessionAuthStatus_SSOServers(t *testing.T) {
 			"exch",
 			&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
 			&api.MCPServerAuth{
-				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+				TokenExchange: &api.TokenExchangeConfig{
 					Enabled:          true,
 					DexTokenEndpoint: "https://remote-dex.example.com/token",
 					ConnectorID:      "cluster-a-dex",
@@ -557,7 +557,7 @@ func TestDetermineSessionAuthStatus_ReauthRequired_TokenExchangeServer(t *testin
 		"https://exchange.example.com",
 		"exchange",
 		&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
-		&api.MCPServerAuth{TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+		&api.MCPServerAuth{TokenExchange: &api.TokenExchangeConfig{
 			Enabled:          true,
 			DexTokenEndpoint: "https://remote-dex.example.com/token",
 			ConnectorID:      "cluster-a-dex",
@@ -688,7 +688,7 @@ func TestStoreIDTokenForSSO_SetsExpiresAtFromJWT(t *testing.T) {
 
 	t.Run("populates ExpiresAt when JWT carries an exp claim", func(t *testing.T) {
 		// JWT payload: {"sub":"alice","exp":9999999999} (year 2286).
-		idToken := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhbGljZSIsImV4cCI6OTk5OTk5OTk5OX0.sig" //nolint:gosec
+		idToken := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhbGljZSIsImV4cCI6OTk5OTk5OTk5OX0.sig"
 		a.storeIDTokenForSSO("family-1", "alice", idToken)
 
 		stored := mock.GetFullTokenByIssuer("family-1", "https://muster.example")
@@ -716,7 +716,7 @@ func TestStoreIDTokenForSSO_SetsExpiresAtFromJWT(t *testing.T) {
 	t.Run("refuses to store a JWT without exp", func(t *testing.T) {
 		mock.tokens = map[string]*api.OAuthToken{}
 		// Payload: {"sub":"carol"} — no exp.
-		idToken := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJjYXJvbCJ9.sig" //nolint:gosec
+		idToken := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJjYXJvbCJ9.sig"
 		a.storeIDTokenForSSO("family-3", "carol", idToken)
 
 		if stored := mock.GetFullTokenByIssuer("family-3", "https://muster.example"); stored != nil {
@@ -727,7 +727,7 @@ func TestStoreIDTokenForSSO_SetsExpiresAtFromJWT(t *testing.T) {
 	t.Run("stored entry is IsExpiredWithMargin-expired when JWT exp is in the past", func(t *testing.T) {
 		mock.tokens = map[string]*api.OAuthToken{}
 		// Payload: {"sub":"dave","exp":1} — Unix epoch + 1s.
-		idToken := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJkYXZlIiwiZXhwIjoxfQ.sig" //nolint:gosec
+		idToken := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJkYXZlIiwiZXhwIjoxfQ.sig"
 		a.storeIDTokenForSSO("family-4", "dave", idToken)
 
 		stored := mock.GetFullTokenByIssuer("family-4", "https://muster.example")

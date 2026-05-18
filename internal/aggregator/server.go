@@ -517,7 +517,7 @@ func createStores(cfg AggregatorConfig) storeBundle {
 	if ok && oauthCfg.Storage.Type == "valkey" && oauthCfg.Storage.Valkey.URL != "" {
 		keyPrefix := oauthCfg.Storage.Valkey.KeyPrefix
 		if keyPrefix == "" {
-			keyPrefix = "muster:" //nolint:goconst
+			keyPrefix = defaultValkeyKeyPrefix
 		}
 
 		client, err := newValkeyClient(oauthCfg.Storage.Valkey)
@@ -548,7 +548,7 @@ func createStores(cfg AggregatorConfig) storeBundle {
 	return storeBundle{
 		authStore:       NewInMemorySessionAuthStore(DefaultCapabilityStoreTTL),
 		capabilityStore: NewInMemoryCapabilityStore(DefaultCapabilityStoreTTL),
-		keyPrefix:       "muster:",
+		keyPrefix:       defaultValkeyKeyPrefix,
 	}
 }
 
@@ -822,8 +822,9 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		if useSystemdActivation {
 			logging.Info("Aggregator", "Using systemd socket activation for SSE transport")
 			for i, listener := range systemdListeners {
-				server := &http.Server{ //nolint:gosec
-					Handler: handler,
+				server := &http.Server{
+					Handler:           handler,
+					ReadHeaderTimeout: httpReadHeaderTimeout,
 				}
 				a.httpServer = append(a.httpServer, server)
 				go func(s *http.Server, l net.Listener, index int) {
@@ -836,9 +837,10 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		} else {
 			logging.InfoWithAttrs("Aggregator", "Starting MCP aggregator server with SSE transport",
 				slog.String("addr", addr))
-			server := &http.Server{ //nolint:gosec
-				Addr:    addr,
-				Handler: handler,
+			server := &http.Server{
+				Addr:              addr,
+				Handler:           handler,
+				ReadHeaderTimeout: httpReadHeaderTimeout,
 			}
 			a.httpServer = append(a.httpServer, server)
 			go func() {
@@ -885,8 +887,9 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		if useSystemdActivation {
 			logging.Info("Aggregator", "Using systemd socket activation for streamable HTTP transport")
 			for i, listener := range systemdListeners {
-				server := &http.Server{ //nolint:gosec
-					Handler: handler,
+				server := &http.Server{
+					Handler:           handler,
+					ReadHeaderTimeout: httpReadHeaderTimeout,
 				}
 				a.httpServer = append(a.httpServer, server)
 				go func(s *http.Server, l net.Listener, index int) {
@@ -899,9 +902,10 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		} else {
 			logging.InfoWithAttrs("Aggregator", "Starting MCP aggregator server with streamable-http transport",
 				slog.String("addr", addr))
-			server := &http.Server{ //nolint:gosec
-				Addr:    addr,
-				Handler: handler,
+			server := &http.Server{
+				Addr:              addr,
+				Handler:           handler,
+				ReadHeaderTimeout: httpReadHeaderTimeout,
 			}
 			a.httpServer = append(a.httpServer, server)
 			go func() {
@@ -1496,7 +1500,7 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 			a.ssoTracker.ClearAllSSOFailed(userID)
 		}
 
-		go a.initSSOForSession(ctx, userID, sessionID, idToken) //nolint:gosec
+		go a.initSSOForSession(ctx, userID, sessionID, idToken)
 	})
 
 	logging.InfoWithAttrs("Aggregator", "OAuth 2.1 server protection enabled",

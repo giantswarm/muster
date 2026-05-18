@@ -12,8 +12,8 @@ var checkFlags cli.CommandFlags
 
 // Available resource types for check operations
 var checkResourceTypes = []string{
-	"mcpserver",
-	"workflow",
+	resourceTypeMCPServer,
+	resourceTypeWorkflow,
 }
 
 // Dynamic completion for resource names
@@ -57,8 +57,8 @@ Note: The aggregator server must be running (use 'muster serve') before using th
 
 // Resource type mappings for check operations
 var checkResourceMappings = map[string]string{
-	"mcpserver": "core_service_status",
-	"workflow":  "core_workflow_available",
+	resourceTypeMCPServer: "core_service_status",
+	resourceTypeWorkflow:  "core_workflow_available",
 }
 
 func init() {
