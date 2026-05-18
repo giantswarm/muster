@@ -1,4 +1,4 @@
-// Package configtypes declares hand-rolled Go structs for the subset of the
+// Package config declares hand-rolled Go structs for the subset of the
 // agentgateway native YAML configuration schema (v1.2.1) that muster emits.
 //
 // Source of truth:
@@ -9,4 +9,4 @@
 // structs cover only the fields muster's YAML emitter produces. Tags use
 // yaml.v3 conventions; struct field order is significant for deterministic
 // marshalling.
-package configtypes
+package config

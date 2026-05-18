@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -13,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 	goyaml "gopkg.in/yaml.v3"
 
-	"github.com/giantswarm/muster/internal/agentgateway/configtypes"
+	agwconfig "github.com/giantswarm/muster/internal/agentgateway/config"
 	"github.com/giantswarm/muster/internal/reconciler/translator"
 	yamlemit "github.com/giantswarm/muster/internal/reconciler/translator/yaml"
 )
@@ -106,7 +107,7 @@ func TestEmit_RoundTripUnmarshal(t *testing.T) {
 	require.NoError(t, e.Emit(t.Context(), canonicalModel()))
 	raw := readInDir(t, dir, "grizzly.yaml")
 
-	var cfg configtypes.LocalConfig
+	var cfg agwconfig.LocalConfig
 	require.NoError(t, goyaml.Unmarshal(raw, &cfg))
 
 	require.Len(t, cfg.Binds, 1)
@@ -148,7 +149,7 @@ func TestEmit_SSEProtocol(t *testing.T) {
 	require.NoError(t, e.Emit(t.Context(), sseModel()))
 	raw := readInDir(t, dir, "grizzly.yaml")
 
-	var cfg configtypes.LocalConfig
+	var cfg agwconfig.LocalConfig
 	require.NoError(t, goyaml.Unmarshal(raw, &cfg))
 	target := cfg.Binds[0].Listeners[0].Routes[0].Backends[0].MCP.Targets[0]
 	require.Nil(t, target.MCP)
@@ -168,7 +169,7 @@ func TestEmit_CustomListenerPort(t *testing.T) {
 
 	raw := readInDir(t, dir, "grizzly.yaml")
 
-	var cfg configtypes.LocalConfig
+	var cfg agwconfig.LocalConfig
 	require.NoError(t, goyaml.Unmarshal(raw, &cfg))
 	require.Equal(t, uint16(9090), cfg.Binds[0].Port)
 }
@@ -376,7 +377,7 @@ func TestEmit_ConcurrentDistinctNames(t *testing.T) {
 	for i := range goroutines {
 		go func(idx int) {
 			m := canonicalModel()
-			n := "srv-" + string(rune('a'+idx))
+			n := fmt.Sprintf("srv-%d", idx)
 			m.Backends[0].Name = n
 			m.Routes[0].Name = n
 			m.Policies[0].Name = n

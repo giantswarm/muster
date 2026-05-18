@@ -1,4 +1,4 @@
-package configtypes
+package config
 
 // LocalConfig is the root object of an agentgateway YAML configuration file.
 type LocalConfig struct {

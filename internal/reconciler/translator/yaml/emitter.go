@@ -12,7 +12,7 @@ import (
 
 	goyaml "gopkg.in/yaml.v3"
 
-	"github.com/giantswarm/muster/internal/agentgateway/configtypes"
+	agwconfig "github.com/giantswarm/muster/internal/agentgateway/config"
 	"github.com/giantswarm/muster/internal/reconciler/translator"
 )
 
@@ -181,7 +181,7 @@ func nameFromModel(m translator.Model) (string, error) {
 	return name, nil
 }
 
-func buildLocalConfig(name string, m translator.Model, port uint16) (*configtypes.LocalConfig, error) {
+func buildLocalConfig(name string, m translator.Model, port uint16) (*agwconfig.LocalConfig, error) {
 	backend := m.Backends[0]
 	route := m.Routes[0]
 	policy := m.Policies[0]
@@ -193,8 +193,8 @@ func buildLocalConfig(name string, m translator.Model, port uint16) (*configtype
 		return nil, fmt.Errorf("backend %q has out-of-range port %d", backend.Name, backend.Port)
 	}
 
-	target := configtypes.LocalMcpTarget{Name: backend.Name}
-	endpoint := &configtypes.McpTargetEndpoint{
+	target := agwconfig.LocalMcpTarget{Name: backend.Name}
+	endpoint := &agwconfig.McpTargetEndpoint{
 		Host: backend.Host,
 		Port: uint16(backend.Port),
 		Path: backend.Path,
@@ -213,38 +213,38 @@ func buildLocalConfig(name string, m translator.Model, port uint16) (*configtype
 		pathPrefix = routePathRoot + name
 	}
 
-	emittedRoute := configtypes.LocalRoute{
+	emittedRoute := agwconfig.LocalRoute{
 		Name: route.Name,
-		Matches: []configtypes.RouteMatch{
-			{Path: &configtypes.PathMatch{PathPrefix: pathPrefix}},
+		Matches: []agwconfig.RouteMatch{
+			{Path: &agwconfig.PathMatch{PathPrefix: pathPrefix}},
 		},
-		Backends: []configtypes.LocalRouteBackend{
-			{MCP: &configtypes.LocalMcpBackend{Targets: []configtypes.LocalMcpTarget{target}}},
+		Backends: []agwconfig.LocalRouteBackend{
+			{MCP: &agwconfig.LocalMcpBackend{Targets: []agwconfig.LocalMcpTarget{target}}},
 		},
 		Policies: policyFor(policy),
 	}
 
-	return &configtypes.LocalConfig{
-		Binds: []configtypes.LocalBind{{
+	return &agwconfig.LocalConfig{
+		Binds: []agwconfig.LocalBind{{
 			Port: port,
-			Listeners: []configtypes.LocalListener{{
+			Listeners: []agwconfig.LocalListener{{
 				Name:   name,
-				Routes: []configtypes.LocalRoute{emittedRoute},
+				Routes: []agwconfig.LocalRoute{emittedRoute},
 			}},
 		}},
 	}, nil
 }
 
-func policyFor(p translator.Policy) *configtypes.FilterOrPolicy {
+func policyFor(p translator.Policy) *agwconfig.FilterOrPolicy {
 	if !p.Authn.ForwardToken {
 		return nil
 	}
-	return &configtypes.FilterOrPolicy{
-		BackendAuth: &configtypes.BackendAuth{Passthrough: &configtypes.Passthrough{}},
+	return &agwconfig.FilterOrPolicy{
+		BackendAuth: &agwconfig.BackendAuth{Passthrough: &agwconfig.Passthrough{}},
 	}
 }
 
-func marshalConfig(cfg *configtypes.LocalConfig) ([]byte, error) {
+func marshalConfig(cfg *agwconfig.LocalConfig) ([]byte, error) {
 	var buf bytes.Buffer
 	if _, err := buf.WriteString(pragma); err != nil {
 		return nil, err
