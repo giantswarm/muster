@@ -16,11 +16,15 @@ const (
 
 const routePathPrefix = "/mcp"
 
-// Compile produces an agentgateway Config for the given MCPServer name and
-// spec. Same input always yields the same output and Compile performs no I/O.
-func Compile(name string, spec v1alpha1.MCPServerSpec) (Config, error) {
+// Compile produces an agentgateway Config for the given MCPServer name,
+// namespace, and spec. Same input always yields the same output and Compile
+// performs no I/O.
+func Compile(name, namespace string, spec v1alpha1.MCPServerSpec) (Config, error) {
 	if name == "" {
 		return Config{}, fmt.Errorf("agentgateway: MCPServer name is required")
+	}
+	if namespace == "" {
+		return Config{}, fmt.Errorf("agentgateway: MCPServer namespace is required")
 	}
 
 	authn, err := compileAuth(spec.Auth)
@@ -42,9 +46,11 @@ func Compile(name string, spec v1alpha1.MCPServerSpec) (Config, error) {
 	policy := Policy{Name: name, Authn: authn}
 
 	return Config{
-		Backends: []Backend{backend},
-		Routes:   []Route{route},
-		Policies: []Policy{policy},
+		Name:      name,
+		Namespace: namespace,
+		Backends:  []Backend{backend},
+		Routes:    []Route{route},
+		Policies:  []Policy{policy},
 	}, nil
 }
 

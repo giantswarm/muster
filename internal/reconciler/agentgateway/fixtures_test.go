@@ -5,7 +5,10 @@ import (
 	v1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
 )
 
-const testName = "my-server"
+const (
+	testName      = "my-server"
+	testNamespace = "muster"
+)
 
 func authOAuth() *v1alpha1.MCPServerAuth {
 	return &v1alpha1.MCPServerAuth{Type: "oauth"}

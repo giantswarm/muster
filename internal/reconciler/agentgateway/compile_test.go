@@ -83,8 +83,10 @@ func TestCompile_Happy(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := agentgateway.Compile(testName, tc.spec)
+			got, err := agentgateway.Compile(testName, testNamespace, tc.spec)
 			require.NoError(t, err)
+			require.Equal(t, testName, got.Name)
+			require.Equal(t, testNamespace, got.Namespace)
 
 			require.Len(t, got.Backends, 1, "exactly one backend")
 			backend := got.Backends[0]
@@ -132,104 +134,110 @@ func TestCompile_Errors(t *testing.T) {
 
 	cases := []struct {
 		name string
-		in   func() (string, v1alpha1.MCPServerSpec)
+		in   func() (name, namespace string, spec v1alpha1.MCPServerSpec)
 	}{
 		{
 			name: "empty-name",
-			in: func() (string, v1alpha1.MCPServerSpec) {
-				return "", streamableSpec(nil)
+			in: func() (string, string, v1alpha1.MCPServerSpec) {
+				return "", testNamespace, streamableSpec(nil)
+			},
+		},
+		{
+			name: "empty-namespace",
+			in: func() (string, string, v1alpha1.MCPServerSpec) {
+				return testName, "", streamableSpec(nil)
 			},
 		},
 		{
 			name: "unknown-spec-type",
-			in: func() (string, v1alpha1.MCPServerSpec) {
-				return testName, v1alpha1.MCPServerSpec{Type: "grpc", URL: "https://x.example.com"}
+			in: func() (string, string, v1alpha1.MCPServerSpec) {
+				return testName, testNamespace, v1alpha1.MCPServerSpec{Type: "grpc", URL: "https://x.example.com"}
 			},
 		},
 		{
 			name: "stdio-missing-command",
-			in: func() (string, v1alpha1.MCPServerSpec) {
+			in: func() (string, string, v1alpha1.MCPServerSpec) {
 				s := stdioSpec(nil)
 				s.Command = ""
-				return testName, s
+				return testName, testNamespace, s
 			},
 		},
 		{
 			name: "streamable-missing-url",
-			in: func() (string, v1alpha1.MCPServerSpec) {
+			in: func() (string, string, v1alpha1.MCPServerSpec) {
 				s := streamableSpec(nil)
 				s.URL = ""
-				return testName, s
+				return testName, testNamespace, s
 			},
 		},
 		{
 			name: "sse-missing-url",
-			in: func() (string, v1alpha1.MCPServerSpec) {
+			in: func() (string, string, v1alpha1.MCPServerSpec) {
 				s := sseSpec(nil)
 				s.URL = ""
-				return testName, s
+				return testName, testNamespace, s
 			},
 		},
 		{
 			name: "streamable-invalid-url",
-			in: func() (string, v1alpha1.MCPServerSpec) {
-				return testName, v1alpha1.MCPServerSpec{Type: "streamable-http", URL: "::not a url"}
+			in: func() (string, string, v1alpha1.MCPServerSpec) {
+				return testName, testNamespace, v1alpha1.MCPServerSpec{Type: "streamable-http", URL: "::not a url"}
 			},
 		},
 		{
 			name: "streamable-unsupported-scheme",
-			in: func() (string, v1alpha1.MCPServerSpec) {
-				return testName, v1alpha1.MCPServerSpec{Type: "streamable-http", URL: "ftp://example.com/mcp"}
+			in: func() (string, string, v1alpha1.MCPServerSpec) {
+				return testName, testNamespace, v1alpha1.MCPServerSpec{Type: "streamable-http", URL: "ftp://example.com/mcp"}
 			},
 		},
 		{
 			name: "streamable-missing-host",
-			in: func() (string, v1alpha1.MCPServerSpec) {
-				return testName, v1alpha1.MCPServerSpec{Type: "streamable-http", URL: "https:///mcp"}
+			in: func() (string, string, v1alpha1.MCPServerSpec) {
+				return testName, testNamespace, v1alpha1.MCPServerSpec{Type: "streamable-http", URL: "https:///mcp"}
 			},
 		},
 		{
 			name: "streamable-non-numeric-port",
-			in: func() (string, v1alpha1.MCPServerSpec) {
-				return testName, v1alpha1.MCPServerSpec{Type: "streamable-http", URL: "http://host:abc/mcp"}
+			in: func() (string, string, v1alpha1.MCPServerSpec) {
+				return testName, testNamespace, v1alpha1.MCPServerSpec{Type: "streamable-http", URL: "http://host:abc/mcp"}
 			},
 		},
 		{
 			name: "forward-token-with-authorization-server",
-			in: func() (string, v1alpha1.MCPServerSpec) {
+			in: func() (string, string, v1alpha1.MCPServerSpec) {
 				auth := authOAuthForward()
 				auth.AuthorizationServer = &v1alpha1.MCPServerAuthAuthorizationServer{Issuer: "https://issuer.example.com"}
-				return testName, streamableSpec(auth)
+				return testName, testNamespace, streamableSpec(auth)
 			},
 		},
 		{
 			name: "token-exchange-with-authorization-server",
-			in: func() (string, v1alpha1.MCPServerSpec) {
+			in: func() (string, string, v1alpha1.MCPServerSpec) {
 				auth := authOAuthTokenExchange()
 				auth.AuthorizationServer = &v1alpha1.MCPServerAuthAuthorizationServer{Issuer: "https://issuer.example.com"}
-				return testName, streamableSpec(auth)
+				return testName, testNamespace, streamableSpec(auth)
 			},
 		},
 		{
 			name: "authorization-server-with-none-type",
-			in: func() (string, v1alpha1.MCPServerSpec) {
+			in: func() (string, string, v1alpha1.MCPServerSpec) {
 				auth := &v1alpha1.MCPServerAuth{
 					Type:                "none",
 					AuthorizationServer: &v1alpha1.MCPServerAuthAuthorizationServer{Issuer: "https://issuer.example.com"},
 				}
-				return testName, streamableSpec(auth)
+				return testName, testNamespace, streamableSpec(auth)
 			},
 		},
 		{
 			name: "unknown-auth-type",
-			in: func() (string, v1alpha1.MCPServerSpec) {
-				return testName, streamableSpec(&v1alpha1.MCPServerAuth{Type: "mtls"})
+			in: func() (string, string, v1alpha1.MCPServerSpec) {
+				return testName, testNamespace, streamableSpec(&v1alpha1.MCPServerAuth{Type: "mtls"})
 			},
 		},
 		{
 			name: "teleport-auth-type-rejected",
-			in: func() (string, v1alpha1.MCPServerSpec) {
-				return testName, streamableSpec(&v1alpha1.MCPServerAuth{Type: "teleport"})
+			in: func() (string, string, v1alpha1.MCPServerSpec) {
+				return testName, testNamespace, streamableSpec(&v1alpha1.MCPServerAuth{Type: "teleport"})
 			},
 		},
 	}
@@ -238,8 +246,8 @@ func TestCompile_Errors(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			name, spec := tc.in()
-			_, err := agentgateway.Compile(name, spec)
+			name, namespace, spec := tc.in()
+			_, err := agentgateway.Compile(name, namespace, spec)
 			require.Error(t, err, "expected Compile to reject input")
 		})
 	}
@@ -250,9 +258,9 @@ func TestCompile_IsPure(t *testing.T) {
 
 	spec := streamableSpec(authOAuthForwardAudiences())
 
-	first, err := agentgateway.Compile(testName, spec)
+	first, err := agentgateway.Compile(testName, testNamespace, spec)
 	require.NoError(t, err)
-	second, err := agentgateway.Compile(testName, spec)
+	second, err := agentgateway.Compile(testName, testNamespace, spec)
 	require.NoError(t, err)
 
 	require.Equal(t, first, second, "Compile must be deterministic")
@@ -266,7 +274,7 @@ func TestCompile_HTTPStreamableWithExplicitPort(t *testing.T) {
 		URL:  "http://mcp-internal:9000/api/v1/mcp",
 	}
 
-	got, err := agentgateway.Compile(testName, spec)
+	got, err := agentgateway.Compile(testName, testNamespace, spec)
 	require.NoError(t, err)
 
 	require.Len(t, got.Backends, 1)
@@ -286,7 +294,7 @@ func TestCompile_HTTPDefaultPort(t *testing.T) {
 		URL:  "http://plain-http.example.com/mcp",
 	}
 
-	got, err := agentgateway.Compile(testName, spec)
+	got, err := agentgateway.Compile(testName, testNamespace, spec)
 	require.NoError(t, err)
 	require.Len(t, got.Backends, 1)
 	target, ok := got.Backends[0].Target.(agentgateway.HTTPTarget)
@@ -304,7 +312,7 @@ func TestCompile_StdioPreservesArgsAndEnv(t *testing.T) {
 		Env:     map[string]string{"LOG_LEVEL": "debug", "TOKEN": "secret"},
 	}
 
-	got, err := agentgateway.Compile(testName, spec)
+	got, err := agentgateway.Compile(testName, testNamespace, spec)
 	require.NoError(t, err)
 
 	require.Len(t, got.Backends, 1)

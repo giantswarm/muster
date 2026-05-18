@@ -2,10 +2,14 @@ package agentgateway
 
 // Config is the agentgateway configuration for a single MCPServer.
 // Backends, Routes, and Policies share the MCPServer's name as their identifier.
+// Namespace is the MCPServer's namespace; adapters use it to scope emitted
+// resources (Kubernetes namespace, filesystem directory layout, …).
 type Config struct {
-	Backends []Backend
-	Routes   []Route
-	Policies []Policy
+	Name      string
+	Namespace string
+	Backends  []Backend
+	Routes    []Route
+	Policies  []Policy
 }
 
 // TargetKind identifies the upstream transport of a Backend's Target.
