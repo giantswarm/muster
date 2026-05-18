@@ -16,14 +16,6 @@ linters:
         - logging.WarnWithAttrs
         - logging.ErrorWithAttrs
         - fmt.Errorf
-      # JSON-key / column-name vocabulary that's defined by an external spec
-      # (JSON Schema, MCP, OpenAPI) or by CLI table headers. Extracting these
-      # to constants would only rename them, not improve safety. ArgMetadata
-      # type vocabulary is handled by the api.ArgType enum instead.
-      ignore-string-values:
-        - '^(description|additionalProperties|properties|items|required|default|enum)$'
-        - '^(name|status|state|health|command|args|tools|services|service|workflow|workflows|executions|mcpServer|mcpServers|mimeType)$'
-        - '^(NAME|DESCRIPTION|VALUE|PROPERTY)$'
 
   exclusions:
     rules:
@@ -36,3 +28,16 @@ linters:
         linters:
           - gosec
         text: "G101"
+      # pkg/oauth/wire.go is a constants-only file holding RFC 6749/6750/8693
+      # vocabulary; G101 heuristically flags the grant-type URN string.
+      - path: pkg/oauth/wire\.go
+        linters:
+          - gosec
+        text: "G101"
+      # internal/testing/mock/* is the mock OAuth server used by BDD tests.
+      # It must honor the OAuth redirect_uri parameter, which gosec flags as
+      # an open redirect; the mock is never bundled into the production image.
+      - path: internal/testing/mock/.*\.go
+        linters:
+          - gosec
+        text: "G710"

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/metatools"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -31,8 +32,8 @@ func (f *FilterCommand) Execute(ctx context.Context, args []string) error {
 	}
 
 	target := strings.ToLower(parsed[0])
-	if target != "tools" {
-		return f.validateTarget(target, []string{"tools"})
+	if target != api.FieldTools {
+		return f.validateTarget(target, []string{api.FieldTools})
 	}
 
 	// Get pattern and description filter from args
@@ -46,10 +47,10 @@ func (f *FilterCommand) Execute(ctx context.Context, args []string) error {
 		descriptionFilter = parsed[2]
 	}
 	if len(parsed) > 3 {
-		caseSensitive = strings.ToLower(parsed[3]) == "true" //nolint:goconst
+		caseSensitive = strings.ToLower(parsed[3]) == boolStringTrue
 	}
 	if len(parsed) > 4 {
-		detailed = strings.ToLower(parsed[4]) == "true"
+		detailed = strings.ToLower(parsed[4]) == boolStringTrue
 	}
 
 	return f.filterTools(ctx, pattern, descriptionFilter, caseSensitive, detailed)
@@ -164,7 +165,7 @@ func (f *FilterCommand) Completions(input string) []string {
 	parts := strings.Fields(input)
 
 	if len(parts) == 1 {
-		return []string{"tools"}
+		return []string{api.FieldTools}
 	}
 
 	return []string{}

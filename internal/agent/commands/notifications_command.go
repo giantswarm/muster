@@ -27,14 +27,14 @@ func (n *NotificationsCommand) Execute(ctx context.Context, args []string) error
 
 	action := strings.ToLower(parsed[0])
 	switch action {
-	case "on", "enable", "true": //nolint:goconst
+	case "on", "enable", boolStringTrue:
 		if !n.transport.SupportsNotifications() {
 			n.output.Error("Notifications are not supported with current transport. Use --transport=sse or --transport=streamable-http for notification support.")
 			return nil
 		}
 		// Enable notifications (implementation would go here)
 		n.output.Success("Notifications enabled")
-	case "off", "disable", "false":
+	case "off", "disable", boolStringFalse:
 		// Disable notifications (implementation would go here)
 		n.output.Success("Notifications disabled")
 	default:

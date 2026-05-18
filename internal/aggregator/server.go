@@ -1500,7 +1500,10 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 			a.ssoTracker.ClearAllSSOFailed(userID)
 		}
 
-		go a.initSSOForSession(ctx, userID, sessionID, idToken)
+		// initSSOForSession is meant to outlive the request that triggered it;
+		// pass a fresh background context so cancellation when the handler
+		// returns does not abort the SSO bootstrap.
+		go a.initSSOForSession(context.Background(), userID, sessionID, idToken) //nolint:gosec // G118: SSO bootstrap must outlive the request handler that triggered it
 	})
 
 	logging.InfoWithAttrs("Aggregator", "OAuth 2.1 server protection enabled",
@@ -2664,7 +2667,7 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 	}
 
 	headerFunc := func(_ context.Context) map[string]string {
-		return map[string]string{"Authorization": "Bearer " + exchangedToken}
+		return map[string]string{pkgoauth.HeaderAuthorization: pkgoauth.SchemeBearer + " " + exchangedToken}
 	}
 
 	var client MCPClient
@@ -2778,7 +2781,7 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 			if latestToken == "" {
 				return map[string]string{}
 			}
-			return map[string]string{"Authorization": "Bearer " + latestToken}
+			return map[string]string{pkgoauth.HeaderAuthorization: pkgoauth.SchemeBearer + " " + latestToken}
 		}
 		client = internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
 
