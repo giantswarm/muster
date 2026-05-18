@@ -458,4 +458,3 @@ func TestIsJWTToken(t *testing.T) {
 		assert.False(t, isJWTToken(""))
 	})
 }
-
