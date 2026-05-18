@@ -25,6 +25,7 @@ import (
 
 	"github.com/coreos/go-systemd/v22/activation"
 	oauth "github.com/giantswarm/mcp-oauth"
+	oauthhandler "github.com/giantswarm/mcp-oauth/handler"
 	"github.com/giantswarm/mcp-oauth/providers/dex"
 	"github.com/giantswarm/mcp-oauth/security"
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
@@ -2382,7 +2383,7 @@ func getUserSubjectFromContext(ctx context.Context) string {
 	if sub := api.GetSubjectFromContext(ctx); sub != "" {
 		return sub
 	}
-	if userInfo, ok := oauth.UserInfoFromContext(ctx); ok && userInfo != nil && userInfo.ID != "" {
+	if userInfo, ok := oauthhandler.UserInfoFromContext(ctx); ok && userInfo != nil && userInfo.ID != "" {
 		return userInfo.ID
 	}
 	return ""
@@ -2408,7 +2409,7 @@ func getSessionIDFromContext(ctx context.Context) string {
 	if sessionID := api.GetSessionIDFromContext(ctx); sessionID != "" {
 		return sessionID
 	}
-	if sessionID, ok := oauth.SessionIDFromContext(ctx); ok {
+	if sessionID, ok := oauthhandler.SessionIDFromContext(ctx); ok {
 		return sessionID
 	}
 	return ""
