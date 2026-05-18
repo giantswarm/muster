@@ -15,6 +15,15 @@ linters:
         - logging.DebugWithAttrs
         - logging.WarnWithAttrs
         - logging.ErrorWithAttrs
+        - fmt.Errorf
+      # JSON-key / column-name vocabulary that's defined by an external spec
+      # (JSON Schema, MCP, OpenAPI) or by CLI table headers. Extracting these
+      # to constants would only rename them, not improve safety. ArgMetadata
+      # type vocabulary is handled by the api.ArgType enum instead.
+      ignore-string-values:
+        - '^(description|additionalProperties|properties|items|required|default|enum)$'
+        - '^(name|status|state|health|command|args|tools|services|service|workflow|workflows|executions|mcpServer|mcpServers|mimeType)$'
+        - '^(NAME|DESCRIPTION|VALUE|PROPERTY)$'
 
   exclusions:
     rules:

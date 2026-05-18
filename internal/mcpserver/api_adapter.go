@@ -310,30 +310,30 @@ func (a *Adapter) convertRequestToCRD(req *api.MCPServerCreateRequest) *musterv1
 // typeRequired controls whether the "type" field is required (true for create/validate, false for update).
 func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 	return []api.ArgMetadata{
-		{Name: "name", Type: "string", Required: true, Description: "MCP server name"},
-		{Name: "type", Type: "string", Required: typeRequired, Description: "MCP server type (stdio, streamable-http, or sse)"},
-		{Name: "toolPrefix", Type: "string", Required: false, Description: "Tool prefix for namespacing"},
-		{Name: "description", Type: "string", Required: false, Description: "MCP server description"},
-		{Name: "autoStart", Type: "boolean", Required: false, Description: "Whether server should auto-start"},
-		{Name: "command", Type: "string", Required: false, Description: "Command executable path (required for stdio)"},
-		{Name: "args", Type: "array", Required: false, Description: "Command arguments (stdio only)", Schema: map[string]interface{}{
+		{Name: "name", Type: api.ArgTypeString, Required: true, Description: "MCP server name"},
+		{Name: "type", Type: api.ArgTypeString, Required: typeRequired, Description: "MCP server type (stdio, streamable-http, or sse)"},
+		{Name: "toolPrefix", Type: api.ArgTypeString, Required: false, Description: "Tool prefix for namespacing"},
+		{Name: "description", Type: api.ArgTypeString, Required: false, Description: "MCP server description"},
+		{Name: "autoStart", Type: api.ArgTypeBoolean, Required: false, Description: "Whether server should auto-start"},
+		{Name: "command", Type: api.ArgTypeString, Required: false, Description: "Command executable path (required for stdio)"},
+		{Name: "args", Type: api.ArgTypeArray, Required: false, Description: "Command arguments (stdio only)", Schema: map[string]interface{}{
 			"type":        "array",
 			"items":       map[string]interface{}{"type": "string"},
 			"description": "Command line arguments for stdio servers",
 		}},
-		{Name: "url", Type: "string", Required: false, Description: "Server endpoint URL (required for streamable-http and sse)"},
-		{Name: "env", Type: "object", Required: false, Description: "Environment variables", Schema: map[string]interface{}{
+		{Name: "url", Type: api.ArgTypeString, Required: false, Description: "Server endpoint URL (required for streamable-http and sse)"},
+		{Name: "env", Type: api.ArgTypeObject, Required: false, Description: "Environment variables", Schema: map[string]interface{}{
 			"type":                 "object",
 			"additionalProperties": map[string]interface{}{"type": "string"},
 			"description":          "Environment variables for the server",
 		}},
-		{Name: "headers", Type: "object", Required: false, Description: "HTTP headers (streamable-http and sse only)", Schema: map[string]interface{}{
+		{Name: "headers", Type: api.ArgTypeObject, Required: false, Description: "HTTP headers (streamable-http and sse only)", Schema: map[string]interface{}{
 			"type":                 "object",
 			"additionalProperties": map[string]interface{}{"type": "string"},
 			"description":          "HTTP headers for remote servers",
 		}},
-		{Name: "timeout", Type: "integer", Required: false, Description: "Connection timeout in seconds"},
-		{Name: "auth", Type: "object", Required: false, Description: "Authentication configuration for remote servers", Schema: map[string]interface{}{
+		{Name: "timeout", Type: api.ArgTypeInteger, Required: false, Description: "Connection timeout in seconds"},
+		{Name: "auth", Type: api.ArgTypeObject, Required: false, Description: "Authentication configuration for remote servers", Schema: map[string]interface{}{
 			"type":        "object",
 			"description": "Authentication configuration (oauth, teleport, or none)",
 			"properties": map[string]interface{}{
@@ -385,15 +385,15 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Name:        "mcpserver_list",
 			Description: "List all MCP server definitions with their status. By default, unreachable servers are hidden.",
 			Args: []api.ArgMetadata{
-				{Name: "showAll", Type: "boolean", Required: false, Description: "Show all servers including unreachable ones (default: false)"},
-				{Name: "verbose", Type: "boolean", Required: false, Description: "Show detailed error information for failed/unreachable servers (default: false)"},
+				{Name: "showAll", Type: api.ArgTypeBoolean, Required: false, Description: "Show all servers including unreachable ones (default: false)"},
+				{Name: "verbose", Type: api.ArgTypeBoolean, Required: false, Description: "Show detailed error information for failed/unreachable servers (default: false)"},
 			},
 		},
 		{
 			Name:        "mcpserver_get",
 			Description: "Get detailed information about a specific MCP server definition",
 			Args: []api.ArgMetadata{
-				{Name: "name", Type: "string", Required: true, Description: "Name of the MCP server to retrieve"},
+				{Name: "name", Type: api.ArgTypeString, Required: true, Description: "Name of the MCP server to retrieve"},
 			},
 		},
 		{
@@ -415,7 +415,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Name:        "mcpserver_delete",
 			Description: "Delete an MCP server definition",
 			Args: []api.ArgMetadata{
-				{Name: "name", Type: "string", Required: true, Description: "Name of the MCP server to delete"},
+				{Name: "name", Type: api.ArgTypeString, Required: true, Description: "Name of the MCP server to delete"},
 			},
 		},
 	}
