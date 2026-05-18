@@ -11,6 +11,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- mcp-oauth bumped to `v0.2.140`. The OAuth HTTP handler (`Handler`, `New`, `OAuthRoutesOptions`, `UserInfoFromContext`, `SessionIDFromContext`) moved to a `handler` subpackage; muster's `internal/server` and `internal/aggregator` import the new path. No user-facing config change.
 - mcp-oauth bumped to `v0.2.125`. Internal API migrated to functional options; `server.NewOAuthHTTPServer` now takes `...oauth.ServerOption`. Security-event log emission is rate-limited (1/s, burst 5). No user-facing config change.
 
 ### Fixed
