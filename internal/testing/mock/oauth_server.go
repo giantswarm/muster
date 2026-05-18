@@ -23,6 +23,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 )
 
 // jwtHeader is the pre-computed base64-encoded JWT header for unsigned tokens.
@@ -493,7 +495,7 @@ func (s *OAuthServer) SimulateCallback(code string) (*TokenResponse, error) {
 	return &TokenResponse{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
-		TokenType:    "Bearer",
+		TokenType:    pkgoauth.SchemeBearer,
 		ExpiresIn:    int(s.config.TokenLifetime.Seconds()),
 		Scope:        entry.Scope,
 		IDToken:      idToken,
@@ -556,7 +558,7 @@ func (s *OAuthServer) GenerateTestToken(clientID, scope string) *TokenResponse {
 	return &TokenResponse{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
-		TokenType:    "Bearer",
+		TokenType:    pkgoauth.SchemeBearer,
 		ExpiresIn:    int(s.config.TokenLifetime.Seconds()),
 		Scope:        scope,
 		IDToken:      idToken,
@@ -598,7 +600,7 @@ func (s *OAuthServer) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(s.config.SimulateErrors.AuthorizeEndpointDelay)
 	}
 
-	clientID := r.URL.Query().Get("client_id")
+	clientID := r.URL.Query().Get(pkgoauth.FormFieldClientID)
 	redirectURI := r.URL.Query().Get("redirect_uri")
 	scope := r.URL.Query().Get("scope")
 	state := r.URL.Query().Get("state")
@@ -689,15 +691,15 @@ func (s *OAuthServer) handleToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	grantType := r.FormValue("grant_type") //nolint:gosec
+	grantType := r.FormValue(pkgoauth.FormFieldGrantType) //nolint:gosec
 
 	if s.config.SimulateErrors != nil {
 		if s.config.SimulateErrors.TokenEndpointError != "" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
 			_ = json.NewEncoder(w).Encode(map[string]string{
-				"error":             "server_error",
-				"error_description": s.config.SimulateErrors.TokenEndpointError,
+				pkgoauth.JSONFieldError:            pkgoauth.ErrServerError,
+				pkgoauth.JSONFieldErrorDescription: s.config.SimulateErrors.TokenEndpointError,
 			})
 			return
 		}
@@ -705,17 +707,17 @@ func (s *OAuthServer) handleToken(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
 			_ = json.NewEncoder(w).Encode(map[string]string{
-				"error":             "invalid_grant",
-				"error_description": "authorization code is invalid",
+				pkgoauth.JSONFieldError:            pkgoauth.ErrInvalidGrant,
+				pkgoauth.JSONFieldErrorDescription: "authorization code is invalid",
 			})
 			return
 		}
 	}
 
 	switch grantType {
-	case "authorization_code":
+	case pkgoauth.GrantTypeAuthorizationCode:
 		s.handleAuthCodeExchange(w, r)
-	case "refresh_token":
+	case pkgoauth.GrantTypeRefreshToken:
 		s.handleRefreshToken(w, r)
 	case "urn:ietf:params:oauth:grant-type:token-exchange":
 		s.handleTokenExchange(w, r)
@@ -723,16 +725,16 @@ func (s *OAuthServer) handleToken(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]string{
-			"error":             "unsupported_grant_type",
-			"error_description": fmt.Sprintf("grant_type %s not supported", grantType),
+			pkgoauth.JSONFieldError:            pkgoauth.ErrUnsupportedGrantType,
+			pkgoauth.JSONFieldErrorDescription: fmt.Sprintf("grant_type %s not supported", grantType),
 		})
 	}
 }
 
 func (s *OAuthServer) handleAuthCodeExchange(w http.ResponseWriter, r *http.Request) {
-	code := r.FormValue("code")                  //nolint:gosec
-	codeVerifier := r.FormValue("code_verifier") //nolint:gosec
-	clientID := r.FormValue("client_id")         //nolint:gosec
+	code := r.FormValue("code")                                 //nolint:gosec
+	codeVerifier := r.FormValue(pkgoauth.FormFieldCodeVerifier) //nolint:gosec
+	clientID := r.FormValue(pkgoauth.FormFieldClientID)         //nolint:gosec
 
 	if s.config.Debug {
 		fmt.Fprintf(os.Stderr, "🔐 Token exchange request: code=%s..., client_id=%s\n",
@@ -750,8 +752,8 @@ func (s *OAuthServer) handleAuthCodeExchange(w http.ResponseWriter, r *http.Requ
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]string{
-			"error":             "invalid_grant",
-			"error_description": "authorization code not found or expired",
+			pkgoauth.JSONFieldError:            pkgoauth.ErrInvalidGrant,
+			pkgoauth.JSONFieldErrorDescription: "authorization code not found or expired",
 		})
 		return
 	}
@@ -762,8 +764,8 @@ func (s *OAuthServer) handleAuthCodeExchange(w http.ResponseWriter, r *http.Requ
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
 			_ = json.NewEncoder(w).Encode(map[string]string{
-				"error":             "invalid_grant",
-				"error_description": "code_verifier required",
+				pkgoauth.JSONFieldError:            pkgoauth.ErrInvalidGrant,
+				pkgoauth.JSONFieldErrorDescription: "code_verifier required",
 			})
 			return
 		}
@@ -773,8 +775,8 @@ func (s *OAuthServer) handleAuthCodeExchange(w http.ResponseWriter, r *http.Requ
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
 			_ = json.NewEncoder(w).Encode(map[string]string{
-				"error":             "invalid_grant",
-				"error_description": "code_verifier verification failed",
+				pkgoauth.JSONFieldError:            pkgoauth.ErrInvalidGrant,
+				pkgoauth.JSONFieldErrorDescription: "code_verifier verification failed",
 			})
 			return
 		}
@@ -821,7 +823,7 @@ func (s *OAuthServer) handleAuthCodeExchange(w http.ResponseWriter, r *http.Requ
 	response := TokenResponse{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
-		TokenType:    "Bearer",
+		TokenType:    pkgoauth.SchemeBearer,
 		ExpiresIn:    int(s.config.TokenLifetime.Seconds()),
 		Scope:        entry.Scope,
 		IDToken:      idToken,
@@ -836,7 +838,7 @@ func (s *OAuthServer) handleAuthCodeExchange(w http.ResponseWriter, r *http.Requ
 }
 
 func (s *OAuthServer) handleRefreshToken(w http.ResponseWriter, r *http.Request) {
-	refreshToken := r.FormValue("refresh_token") //nolint:gosec
+	refreshToken := r.FormValue(pkgoauth.FormFieldRefreshToken) //nolint:gosec
 
 	// Find the token by refresh token
 	var originalToken *issuedToken
@@ -853,8 +855,8 @@ func (s *OAuthServer) handleRefreshToken(w http.ResponseWriter, r *http.Request)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]string{
-			"error":             "invalid_grant",
-			"error_description": "refresh token not found",
+			pkgoauth.JSONFieldError:            pkgoauth.ErrInvalidGrant,
+			pkgoauth.JSONFieldErrorDescription: "refresh token not found",
 		})
 		return
 	}
@@ -892,7 +894,7 @@ func (s *OAuthServer) handleRefreshToken(w http.ResponseWriter, r *http.Request)
 	_ = json.NewEncoder(w).Encode(TokenResponse{ //nolint:gosec
 		AccessToken:  newAccessToken,
 		RefreshToken: newRefreshToken,
-		TokenType:    "Bearer",
+		TokenType:    pkgoauth.SchemeBearer,
 		ExpiresIn:    int(s.config.TokenLifetime.Seconds()),
 		Scope:        originalToken.Scope,
 		IDToken:      newIDToken,
@@ -1007,8 +1009,8 @@ func (s *OAuthServer) tokenExchangeError(w http.ResponseWriter, errorCode, descr
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusBadRequest)
 	_ = json.NewEncoder(w).Encode(map[string]string{
-		"error":             errorCode,
-		"error_description": description,
+		"error":                            errorCode,
+		pkgoauth.JSONFieldErrorDescription: description,
 	})
 }
 

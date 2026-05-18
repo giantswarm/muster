@@ -141,10 +141,10 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 							// For failed steps, create a result structure
 							if stepMeta.Status == "failed" { //nolint:goconst
 								referencedStepResult = map[string]interface{}{
-									"error":   fmt.Sprintf("Step %s failed", stepMeta.ID),
-									"success": false,
-									"isError": true,
-									"status":  stepMeta.Status,
+									api.FieldError:   fmt.Sprintf("Step %s failed", stepMeta.ID),
+									api.FieldSuccess: false,
+									"isError":        true,
+									api.FieldStatus:  stepMeta.Status,
 								}
 								found = true
 								logging.Debug("WorkflowExecutor", "Created error result for failed step %s", step.Condition.FromStep)
@@ -152,8 +152,8 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 							} else if stepMeta.Status == "completed" { //nolint:goconst
 								// For completed steps without stored results, create a basic success structure
 								referencedStepResult = map[string]interface{}{
-									"success": true,
-									"status":  stepMeta.Status,
+									api.FieldSuccess: true,
+									api.FieldStatus:  stepMeta.Status,
 								}
 								found = true
 								logging.Debug("WorkflowExecutor", "Created basic success result for completed step %s", step.Condition.FromStep)
@@ -360,7 +360,7 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 			// Generate step failed event
 			we.eventCallback.GenerateStepEvent(workflow.Name, step.ID, "step_failed", map[string]interface{}{
 				"tool":          step.Tool,
-				"error":         err.Error(),
+				api.FieldError:  err.Error(),
 				"allow_failure": step.AllowFailure,
 			})
 
@@ -383,9 +383,9 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 				// Store the error result for subsequent steps to reference
 				if step.Store {
 					errorResult := map[string]interface{}{
-						"error":   err.Error(),
-						"success": false,
-						"isError": true,
+						api.FieldError:   err.Error(),
+						api.FieldSuccess: false,
+						"isError":        true,
 					}
 					execCtx.results[step.ID] = errorResult
 					logging.Debug("WorkflowExecutor", "Stored error result from step %s as %s: %+v", step.ID, step.ID, errorResult)
@@ -401,9 +401,9 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 			partialResult := map[string]interface{}{
 				"execution_id":  "", // Will be filled by manager
 				"workflow":      workflow.Name,
-				"status":        "failed",
+				api.FieldStatus: "failed",
 				"input":         execCtx.input,
-				"steps":         steps,
+				api.FieldSteps:  steps,
 				"template_vars": execCtx.templateVars,
 			}
 
@@ -477,7 +477,7 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 			// Generate step failed event for error result case
 			we.eventCallback.GenerateStepEvent(workflow.Name, step.ID, "step_failed", map[string]interface{}{
 				"tool":          step.Tool,
-				"error":         "step returned error result",
+				api.FieldError:  "step returned error result",
 				"allow_failure": step.AllowFailure,
 			})
 
@@ -501,9 +501,9 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 					}
 
 					errorResult := map[string]interface{}{
-						"success": false,
-						"isError": true,
-						"error":   errorMessage,
+						api.FieldSuccess: false,
+						"isError":        true,
+						api.FieldError:   errorMessage,
 					}
 					execCtx.results[step.ID] = errorResult
 					logging.Debug("WorkflowExecutor", "Stored error result from failed step %s: %+v", step.ID, errorResult)
@@ -524,9 +524,9 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 	finalResult := map[string]interface{}{
 		"execution_id":  "", // Will be filled by manager
 		"workflow":      workflow.Name,
-		"status":        "completed",
+		api.FieldStatus: "completed",
 		"input":         execCtx.input,
-		"steps":         steps,
+		api.FieldSteps:  steps,
 		"template_vars": execCtx.templateVars,
 	}
 
@@ -575,9 +575,9 @@ func (we *WorkflowExecutor) buildStepsArray(stepMetadata []stepMetadata, results
 
 	for _, stepMeta := range stepMetadata {
 		step := map[string]interface{}{
-			"id":     stepMeta.ID,
-			"tool":   stepMeta.Tool,
-			"status": stepMeta.Status,
+			"id":            stepMeta.ID,
+			"tool":          stepMeta.Tool,
+			api.FieldStatus: stepMeta.Status,
 		}
 
 		// Add condition information if present

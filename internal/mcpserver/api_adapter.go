@@ -317,59 +317,59 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 		{Name: "autoStart", Type: api.ArgTypeBoolean, Required: false, Description: "Whether server should auto-start"},
 		{Name: "command", Type: api.ArgTypeString, Required: false, Description: "Command executable path (required for stdio)"},
 		{Name: "args", Type: api.ArgTypeArray, Required: false, Description: "Command arguments (stdio only)", Schema: map[string]interface{}{
-			"type":        "array",
-			"items":       map[string]interface{}{"type": "string"},
-			"description": "Command line arguments for stdio servers",
+			api.SchemaKeyType:        string(api.ArgTypeArray),
+			api.SchemaKeyItems:       map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeString)},
+			api.SchemaKeyDescription: "Command line arguments for stdio servers",
 		}},
 		{Name: "url", Type: api.ArgTypeString, Required: false, Description: "Server endpoint URL (required for streamable-http and sse)"},
 		{Name: "env", Type: api.ArgTypeObject, Required: false, Description: "Environment variables", Schema: map[string]interface{}{
-			"type":                 "object",
-			"additionalProperties": map[string]interface{}{"type": "string"},
-			"description":          "Environment variables for the server",
+			api.SchemaKeyType:                 string(api.ArgTypeObject),
+			api.SchemaKeyAdditionalProperties: map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeString)},
+			api.SchemaKeyDescription:          "Environment variables for the server",
 		}},
 		{Name: "headers", Type: api.ArgTypeObject, Required: false, Description: "HTTP headers (streamable-http and sse only)", Schema: map[string]interface{}{
-			"type":                 "object",
-			"additionalProperties": map[string]interface{}{"type": "string"},
-			"description":          "HTTP headers for remote servers",
+			api.SchemaKeyType:                 string(api.ArgTypeObject),
+			api.SchemaKeyAdditionalProperties: map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeString)},
+			api.SchemaKeyDescription:          "HTTP headers for remote servers",
 		}},
 		{Name: "timeout", Type: api.ArgTypeInteger, Required: false, Description: "Connection timeout in seconds"},
 		{Name: "auth", Type: api.ArgTypeObject, Required: false, Description: "Authentication configuration for remote servers", Schema: map[string]interface{}{
-			"type":        "object",
-			"description": "Authentication configuration (oauth, teleport, or none)",
-			"properties": map[string]interface{}{
-				"type": map[string]interface{}{
-					"type":        "string",
-					"description": "Authentication type: oauth, teleport, or none",
-					"enum":        []string{"oauth", "teleport", "none"},
+			api.SchemaKeyType:        string(api.ArgTypeObject),
+			api.SchemaKeyDescription: "Authentication configuration (oauth, teleport, or none)",
+			api.SchemaKeyProperties: map[string]interface{}{
+				api.SchemaKeyType: map[string]interface{}{
+					api.SchemaKeyType:        string(api.ArgTypeString),
+					api.SchemaKeyDescription: "Authentication type: oauth, teleport, or none",
+					api.SchemaKeyEnum:        []string{"oauth", "teleport", "none"},
 				},
 				"forwardToken": map[string]interface{}{
-					"type":        "boolean",
-					"description": "Enable SSO token forwarding (oauth only)",
+					api.SchemaKeyType:        string(api.ArgTypeBoolean),
+					api.SchemaKeyDescription: "Enable SSO token forwarding (oauth only)",
 				},
 				"requiredAudiences": map[string]interface{}{
-					"type":        "array",
-					"items":       map[string]interface{}{"type": "string"},
-					"description": "Additional audiences to request from IdP for token forwarding (e.g., dex-k8s-authenticator for Kubernetes OIDC)",
+					api.SchemaKeyType:        string(api.ArgTypeArray),
+					api.SchemaKeyItems:       map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeString)},
+					api.SchemaKeyDescription: "Additional audiences to request from IdP for token forwarding (e.g., dex-k8s-authenticator for Kubernetes OIDC)",
 				},
 				"teleport": map[string]interface{}{
-					"type":        "object",
-					"description": "Teleport authentication configuration",
-					"properties": map[string]interface{}{
+					api.SchemaKeyType:        string(api.ArgTypeObject),
+					api.SchemaKeyDescription: "Teleport authentication configuration",
+					api.SchemaKeyProperties: map[string]interface{}{
 						"identityDir": map[string]interface{}{
-							"type":        "string",
-							"description": "Filesystem path to tbot identity files",
+							api.SchemaKeyType:        string(api.ArgTypeString),
+							api.SchemaKeyDescription: "Filesystem path to tbot identity files",
 						},
 						"identitySecretName": map[string]interface{}{
-							"type":        "string",
-							"description": "Kubernetes Secret name containing tbot identity files",
+							api.SchemaKeyType:        string(api.ArgTypeString),
+							api.SchemaKeyDescription: "Kubernetes Secret name containing tbot identity files",
 						},
 						"identitySecretNamespace": map[string]interface{}{
-							"type":        "string",
-							"description": "Kubernetes namespace of the identity secret",
+							api.SchemaKeyType:        string(api.ArgTypeString),
+							api.SchemaKeyDescription: "Kubernetes namespace of the identity secret",
 						},
 						"appName": map[string]interface{}{
-							"type":        "string",
-							"description": "Teleport application name for routing",
+							api.SchemaKeyType:        string(api.ArgTypeString),
+							api.SchemaKeyDescription: "Teleport application name for routing",
 						},
 					},
 				},
