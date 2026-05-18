@@ -15,12 +15,12 @@ workflows:
             tags:
               only: /^v.*/
 
-      # Branch builds: amd64 only for faster PR feedback
+      # Branch builds: same multi-arch path as release. Platforms auto-derive
+      # from the workspace .platforms file written by go-build.
       - architect/push-to-registries:
           context: architect
           multiarch: true
           name: push-to-registries
-          platforms: "linux/amd64"
           requires:
             - go-build
           filters:
