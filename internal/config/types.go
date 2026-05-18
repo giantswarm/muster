@@ -2,6 +2,12 @@ package config
 
 import "strings"
 
+// DefaultValkeyKeyPrefix is the default prefix prepended to every Valkey key
+// used by muster's backed stores when the operator does not override it via
+// ValkeyConfig.KeyPrefix. Centralised here so the OAuth client/state stores
+// and the aggregator session/capability stores agree on the namespace.
+const DefaultValkeyKeyPrefix = "muster:"
+
 // MusterConfig is the top-level configuration structure for muster.
 type MusterConfig struct {
 	Aggregator AggregatorConfig `yaml:"aggregator"`

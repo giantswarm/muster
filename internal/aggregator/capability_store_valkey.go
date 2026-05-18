@@ -8,6 +8,7 @@ import (
 
 	"github.com/valkey-io/valkey-go"
 
+	"github.com/giantswarm/muster/internal/config"
 	"github.com/giantswarm/muster/pkg/logging"
 )
 
@@ -28,7 +29,7 @@ type ValkeyCapabilityStore struct {
 // keyPrefix is prepended to all Valkey keys (default "muster:" if empty).
 func NewValkeyCapabilityStore(client valkey.Client, ttl time.Duration, keyPrefix string) *ValkeyCapabilityStore {
 	if keyPrefix == "" {
-		keyPrefix = defaultValkeyKeyPrefix
+		keyPrefix = config.DefaultValkeyKeyPrefix
 	}
 	return &ValkeyCapabilityStore{
 		client:    client,

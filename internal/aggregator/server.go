@@ -517,7 +517,7 @@ func createStores(cfg AggregatorConfig) storeBundle {
 	if ok && oauthCfg.Storage.Type == "valkey" && oauthCfg.Storage.Valkey.URL != "" {
 		keyPrefix := oauthCfg.Storage.Valkey.KeyPrefix
 		if keyPrefix == "" {
-			keyPrefix = defaultValkeyKeyPrefix
+			keyPrefix = config.DefaultValkeyKeyPrefix
 		}
 
 		client, err := newValkeyClient(oauthCfg.Storage.Valkey)
@@ -548,7 +548,7 @@ func createStores(cfg AggregatorConfig) storeBundle {
 	return storeBundle{
 		authStore:       NewInMemorySessionAuthStore(DefaultCapabilityStoreTTL),
 		capabilityStore: NewInMemoryCapabilityStore(DefaultCapabilityStoreTTL),
-		keyPrefix:       defaultValkeyKeyPrefix,
+		keyPrefix:       config.DefaultValkeyKeyPrefix,
 	}
 }
 
