@@ -1437,6 +1437,53 @@ func (m *musterInstanceManager) extractExpectedToolsWithHTTPMocks(config *Muster
 
 	var expectedTools []string
 
+	// Identify family groups whose members would fall back to per-server
+	// prefixing: same family.name but diverging family.instanceArg, or same
+	// (family.name, tool.name) with diverging descriptions. For those tools,
+	// expect x_<server>_<tool> instead of x_<family.name>_<tool>.
+	familyArgs := map[string]string{}       // family name -> first-seen instanceArg
+	familyArgDivergent := map[string]bool{} // family name -> true when args disagree
+	type toolKey struct{ family, name string }
+	toolDescriptions := map[toolKey]string{}
+	toolDivergent := map[toolKey]bool{}
+	for _, mcpServer := range config.MCPServers {
+		family, ok := mcpServer.Config["family"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		familyName, _ := family["name"].(string)
+		if familyName == "" {
+			continue
+		}
+		instanceArg, _ := family["instanceArg"].(string)
+		if prev, seen := familyArgs[familyName]; seen && prev != instanceArg {
+			familyArgDivergent[familyName] = true
+		} else if !seen {
+			familyArgs[familyName] = instanceArg
+		}
+		if tools, hasTools := mcpServer.Config["tools"]; hasTools {
+			if toolsList, ok := tools.([]interface{}); ok {
+				for _, tool := range toolsList {
+					toolMap, ok := tool.(map[string]interface{})
+					if !ok {
+						continue
+					}
+					name, _ := toolMap["name"].(string)
+					if name == "" {
+						continue
+					}
+					desc, _ := toolMap["description"].(string)
+					key := toolKey{family: familyName, name: name}
+					if prev, seen := toolDescriptions[key]; seen && prev != desc {
+						toolDivergent[key] = true
+					} else if !seen {
+						toolDescriptions[key] = desc
+					}
+				}
+			}
+		}
+	}
+
 	// Extract tools from MCP server configurations
 	for _, mcpServer := range config.MCPServers {
 		// For OAuth-protected servers, no tools are exposed until authenticated (per ADR-008)
@@ -1450,13 +1497,27 @@ func (m *musterInstanceManager) extractExpectedToolsWithHTTPMocks(config *Muster
 			continue
 		}
 
+		// Family-grouped servers expose tools as x_<family.name>_<tool>; non-
+		// family servers retain per-server prefixing as x_<server>_<tool>.
+		familyName := ""
+		if family, ok := mcpServer.Config["family"].(map[string]interface{}); ok {
+			if name, ok := family["name"].(string); ok {
+				familyName = name
+			}
+		}
+
 		if tools, hasTools := mcpServer.Config["tools"]; hasTools {
 			if toolsList, ok := tools.([]interface{}); ok {
 				for _, tool := range toolsList {
 					if toolMap, ok := tool.(map[string]interface{}); ok {
 						if name, ok := toolMap["name"].(string); ok {
-							// For MCP server tools, expect them to be available with x_<server-name>_<tool-name> prefix
-							prefixedName := fmt.Sprintf("x_%s_%s", mcpServer.Name, name)
+							var prefixedName string
+							grouped := familyName != "" && !familyArgDivergent[familyName] && !toolDivergent[toolKey{family: familyName, name: name}]
+							if grouped {
+								prefixedName = fmt.Sprintf("x_%s_%s", familyName, name)
+							} else {
+								prefixedName = fmt.Sprintf("x_%s_%s", mcpServer.Name, name)
+							}
 							expectedTools = append(expectedTools, prefixedName)
 						}
 					}
