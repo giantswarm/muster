@@ -196,6 +196,7 @@ func (a *APIAdapter) RegisterServerPendingAuth(registration api.PendingAuthRegis
 	})
 }
 
+
 // Register registers this adapter with the API package
 func (a *APIAdapter) Register() {
 	api.RegisterAggregator(a)

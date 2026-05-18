@@ -57,7 +57,7 @@ type MCPServerCreateRequest struct {
 
 	// Family declares that this MCP server is an instance of a family of
 	// equivalent servers, sharing exposed tool names with siblings.
-	Family string `json:"family,omitempty"`
+	Family *MCPServerFamily `json:"family,omitempty"`
 
 	// Description for the MCP server
 	Description string `json:"description,omitempty"`
@@ -106,7 +106,7 @@ type MCPServerUpdateRequest struct {
 
 	// Family declares that this MCP server is an instance of a family of
 	// equivalent servers, sharing exposed tool names with siblings.
-	Family string `json:"family,omitempty"`
+	Family *MCPServerFamily `json:"family,omitempty"`
 
 	// Description for the MCP server
 	Description string `json:"description,omitempty"`
@@ -149,7 +149,7 @@ type MCPServerValidateRequest struct {
 	ToolPrefix string `json:"toolPrefix,omitempty"`
 
 	// Family for validation.
-	Family string `json:"family,omitempty"`
+	Family *MCPServerFamily `json:"family,omitempty"`
 
 	// AutoStart determines whether this MCP server should be automatically started
 	AutoStart bool `json:"autoStart,omitempty"`

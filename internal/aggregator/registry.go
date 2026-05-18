@@ -15,18 +15,22 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-// serverArgKey is the input-schema property name injected into family-grouped
-// tools to select which instance handles a call. Callers pass it as an
-// argument when invoking a family tool; the aggregator strips it from the
-// forwarded args before reaching the backend.
-const serverArgKey = "server"
-
 // resolvedName stores the reverse mapping from an exposed (prefixed) name
 // back to its origin server and original name.
 type resolvedName struct {
 	serverName   string
 	originalName string
 	itemType     metatools.ItemKind
+}
+
+// familyBucket is the per-exposed-name routing record for a family-grouped
+// tool. Keeping family + instanceArg alongside the providers lets
+// ResolveToolName produce its error message and CallToolInternal strip the
+// instance-selector arg without re-deriving the family name from the prefix.
+type familyBucket struct {
+	family      string
+	instanceArg string
+	providers   []resolvedName
 }
 
 // ServerRegistry manages the collection of registered MCP servers and their capabilities.
@@ -63,18 +67,17 @@ type ServerRegistry struct {
 	// GetAllTools/GetAllResources/GetAllPrompts call ExposedXxx while holding mu.RLock).
 	// serverPrefixes and serverFamilies are also protected by nameMu.
 	nameMapping    map[string]resolvedName
-	serverPrefixes map[string]string // server name -> configured prefix
-	serverFamilies map[string]string // server name -> declared family ("" if none)
+	serverPrefixes map[string]string               // server name -> configured prefix
+	serverFamilies map[string]*api.MCPServerFamily // server name -> declared family (nil if none)
 	nameMu         sync.RWMutex
 	musterPrefix   string
 
-	// familyMappings indexes every exposed family tool name back to the set of
-	// servers that provide it. An entry exists only for tools that are
-	// family-grouped; single-server tools fall through to nameMapping.
-	// Keys are exposed names (e.g. x_kubernetes_list_pods); values list the
-	// providing servers with the per-server original tool name.
-	// Protected by nameMu.
-	familyMappings map[string][]resolvedName
+	// familyMappings indexes every exposed family tool name back to the family
+	// name, required instance arg, and set of providing servers. An entry
+	// exists only for tools that are family-grouped; single-server tools fall
+	// through to nameMapping. Keys are exposed names (e.g.
+	// x_kubernetes_list_pods). Protected by nameMu.
+	familyMappings map[string]*familyBucket
 }
 
 // NewServerRegistry creates a new server registry with the specified global prefix.
@@ -95,9 +98,9 @@ func NewServerRegistry(musterPrefix string) *ServerRegistry {
 		updateChan:     make(chan struct{}, 1),
 		nameMapping:    make(map[string]resolvedName),
 		serverPrefixes: make(map[string]string),
-		serverFamilies: make(map[string]string),
+		serverFamilies: make(map[string]*api.MCPServerFamily),
 		musterPrefix:   musterPrefix,
-		familyMappings: make(map[string][]resolvedName),
+		familyMappings: make(map[string]*familyBucket),
 	}
 }
 
@@ -168,13 +171,14 @@ func (r *ServerRegistry) setServerPrefixLocked(serverName, prefix string) {
 }
 
 // setServerFamilyLocked records the family declared by a server (or removes
-// the entry when family is empty). Caller must hold nameMu.
-func (r *ServerRegistry) setServerFamilyLocked(serverName, family string) {
-	if family == "" {
+// the entry when family is nil). Caller must hold nameMu.
+func (r *ServerRegistry) setServerFamilyLocked(serverName string, family *api.MCPServerFamily) {
+	if family == nil || family.Name == "" {
 		delete(r.serverFamilies, serverName)
 		return
 	}
-	r.serverFamilies[serverName] = family
+	clone := *family
+	r.serverFamilies[serverName] = &clone
 }
 
 // familyExposedName returns the family-scoped exposed name for a tool:
@@ -228,7 +232,7 @@ func (r *ServerRegistry) Register(ctx context.Context, registration ServerRegist
 		Name:       registration.Name,
 		Client:     client,
 		ToolPrefix: registration.ToolPrefix,
-		Family:     registration.Family,
+		Family:     cloneFamily(registration.Family),
 	}
 
 	r.nameMu.Lock()
@@ -297,9 +301,9 @@ func (r *ServerRegistry) Deregister(name string) error {
 	// gone".
 	r.nameMu.Lock()
 	delete(r.serverFamilies, name)
-	for exposed, providers := range r.familyMappings {
-		filtered := providers[:0]
-		for _, p := range providers {
+	for exposed, bucket := range r.familyMappings {
+		filtered := bucket.providers[:0]
+		for _, p := range bucket.providers {
 			if p.serverName != name {
 				filtered = append(filtered, p)
 			}
@@ -308,7 +312,7 @@ func (r *ServerRegistry) Deregister(name string) error {
 			delete(r.familyMappings, exposed)
 			continue
 		}
-		r.familyMappings[exposed] = filtered
+		bucket.providers = filtered
 	}
 	r.nameMu.Unlock()
 
@@ -386,7 +390,7 @@ func (r *ServerRegistry) GetAllTools() []mcp.Tool {
 
 		contributions = append(contributions, serverToolContribution{
 			serverName: serverName,
-			family:     info.Family,
+			family:     cloneFamily(info.Family),
 			tools:      toolsCopy,
 		})
 		logging.Debug("Aggregator", "Server %s has %d tools", serverName, len(toolsCopy))
@@ -403,7 +407,7 @@ func (r *ServerRegistry) GetAllTools() []mcp.Tool {
 // family-aware assembly pipeline used by GetAllTools / GetAllToolsForSession.
 type serverToolContribution struct {
 	serverName string
-	family     string
+	family     *api.MCPServerFamily
 	tools      []mcp.Tool
 }
 
@@ -427,17 +431,19 @@ func (r *ServerRegistry) assembleExposedTools(contributions []serverToolContribu
 		toolName string
 	}
 	type familyEntry struct {
-		servers     []string
-		tools       []mcp.Tool // parallel to servers
-		description string
-		descMatches bool
+		servers      []string
+		tools        []mcp.Tool // parallel to servers
+		description  string
+		descMatches  bool
+		instanceArg  string
+		argDivergent bool
 	}
 
 	familyBuckets := make(map[familyKey]*familyEntry)
 	var soloTools []mcp.Tool
 
 	for _, c := range contributions {
-		if c.family == "" {
+		if c.family == nil || c.family.Name == "" {
 			for _, tool := range c.tools {
 				exposedTool := tool
 				exposedTool.Name = r.ExposedToolName(c.serverName, tool.Name)
@@ -446,7 +452,7 @@ func (r *ServerRegistry) assembleExposedTools(contributions []serverToolContribu
 			continue
 		}
 		for _, tool := range c.tools {
-			key := familyKey{family: c.family, toolName: tool.Name}
+			key := familyKey{family: c.family.Name, toolName: tool.Name}
 			entry, ok := familyBuckets[key]
 			if !ok {
 				familyBuckets[key] = &familyEntry{
@@ -454,6 +460,7 @@ func (r *ServerRegistry) assembleExposedTools(contributions []serverToolContribu
 					tools:       []mcp.Tool{tool},
 					description: tool.Description,
 					descMatches: true,
+					instanceArg: c.family.InstanceArg,
 				}
 				continue
 			}
@@ -462,26 +469,36 @@ func (r *ServerRegistry) assembleExposedTools(contributions []serverToolContribu
 			if tool.Description != entry.description {
 				entry.descMatches = false
 			}
+			if c.family.InstanceArg != entry.instanceArg {
+				entry.argDivergent = true
+			}
 		}
 	}
 
 	// Reset family routing index for tools — solo (non-family) tools have
 	// already populated nameMapping via ExposedToolName above.
 	r.nameMu.Lock()
-	for exposed := range r.familyMappings {
+	for exposed, bucket := range r.familyMappings {
 		// Only clear tool-typed entries; keep other family-mapped item kinds
 		// (none today, but future-proof).
-		if len(r.familyMappings[exposed]) > 0 && r.familyMappings[exposed][0].itemType == metatools.ItemKindTool {
+		if len(bucket.providers) > 0 && bucket.providers[0].itemType == metatools.ItemKindTool {
 			delete(r.familyMappings, exposed)
 		}
 	}
 	r.nameMu.Unlock()
 
 	for key, entry := range familyBuckets {
+		if entry.argDivergent {
+			logging.Warn("Aggregator",
+				"family %q tool %q has divergent instanceArg across servers %v; falling back to per-server prefixing",
+				key.family, key.toolName, entry.servers)
+		}
 		if !entry.descMatches {
 			logging.Warn("Aggregator",
 				"family %q tool %q has divergent descriptions across servers %v; falling back to per-server prefixing",
 				key.family, key.toolName, entry.servers)
+		}
+		if entry.argDivergent || !entry.descMatches {
 			for i, srv := range entry.servers {
 				exposedTool := entry.tools[i]
 				exposedTool.Name = r.ExposedToolName(srv, entry.tools[i].Name)
@@ -495,11 +512,11 @@ func (r *ServerRegistry) assembleExposedTools(contributions []serverToolContribu
 
 		exposedTool := entry.tools[0]
 		exposedTool.Name = r.familyExposedName(key.family, key.toolName)
-		exposedTool.InputSchema = injectServerEnum(exposedTool.InputSchema, sortedServers)
+		exposedTool.InputSchema = injectInstanceEnum(exposedTool.InputSchema, entry.instanceArg, sortedServers)
 		exposedTool.Description = annotateMultiServer(exposedTool.Description, sortedServers)
 
 		soloTools = append(soloTools, exposedTool)
-		r.registerFamilyTool(exposedTool.Name, key.toolName, sortedServers)
+		r.registerFamilyTool(exposedTool.Name, key.toolName, key.family, entry.instanceArg, sortedServers)
 	}
 
 	return soloTools
@@ -507,22 +524,27 @@ func (r *ServerRegistry) assembleExposedTools(contributions []serverToolContribu
 
 // registerFamilyTool records the reverse-lookup mapping for a family-grouped
 // tool: exposed name -> every server that provides it, with the original
-// (per-server) tool name. Caller must NOT hold nameMu.
-func (r *ServerRegistry) registerFamilyTool(exposedName, originalName string, serverNames []string) {
+// (per-server) tool name, family name, and instance-selector arg.
+// Caller must NOT hold nameMu.
+func (r *ServerRegistry) registerFamilyTool(exposedName, originalName, family, instanceArg string, serverNames []string) {
 	r.nameMu.Lock()
 	defer r.nameMu.Unlock()
 	providers := make([]resolvedName, len(serverNames))
 	for i, sn := range serverNames {
 		providers[i] = resolvedName{serverName: sn, originalName: originalName, itemType: metatools.ItemKindTool}
 	}
-	r.familyMappings[exposedName] = providers
+	r.familyMappings[exposedName] = &familyBucket{
+		family:      family,
+		instanceArg: instanceArg,
+		providers:   providers,
+	}
 }
 
-// injectServerEnum returns a copy of schema with a required "server" string
-// parameter whose enum lists the available backend servers. Properties and
-// Required are deep-copied so the per-server cached tool schema is not
-// mutated.
-func injectServerEnum(schema mcp.ToolInputSchema, servers []string) mcp.ToolInputSchema {
+// injectInstanceEnum returns a copy of schema with a required string
+// parameter (named instanceArg) whose enum lists the available backend
+// servers. Properties and Required are deep-copied so the per-server cached
+// tool schema is not mutated.
+func injectInstanceEnum(schema mcp.ToolInputSchema, instanceArg string, servers []string) mcp.ToolInputSchema {
 	enumVals := make([]any, len(servers))
 	for i, s := range servers {
 		enumVals[i] = s
@@ -532,19 +554,28 @@ func injectServerEnum(schema mcp.ToolInputSchema, servers []string) mcp.ToolInpu
 	for k, v := range schema.Properties {
 		properties[k] = v
 	}
-	properties[serverArgKey] = map[string]any{
+	properties[instanceArg] = map[string]any{
 		"type":        "string",
-		"description": "Target server to execute this tool on. Available: " + strings.Join(servers, ", "),
+		"description": "Target instance to execute this tool on. Available: " + strings.Join(servers, ", "),
 		"enum":        enumVals,
 	}
 
 	required := make([]string, 0, len(schema.Required)+1)
 	required = append(required, schema.Required...)
-	required = append(required, serverArgKey)
+	required = append(required, instanceArg)
 
 	schema.Properties = properties
 	schema.Required = required
 	return schema
+}
+
+// cloneFamily returns a deep copy of the given family pointer, or nil.
+func cloneFamily(f *api.MCPServerFamily) *api.MCPServerFamily {
+	if f == nil {
+		return nil
+	}
+	clone := *f
+	return &clone
 }
 
 // annotateMultiServer appends a (available on servers: …) trailer to the
@@ -638,24 +669,21 @@ func (r *ServerRegistry) GetAllPrompts() []mcp.Prompt {
 // (family-grouped with multiple providers), or refers to a different item type.
 func (r *ServerRegistry) ResolveToolName(exposedName string) (serverName, originalName string, err error) {
 	r.nameMu.RLock()
-	providers, family := r.familyMappings[exposedName], ""
+	bucket := r.familyMappings[exposedName]
 	m, soloOK := r.nameMapping[exposedName]
-	if len(providers) > 0 {
-		family = strings.SplitN(strings.TrimPrefix(exposedName, r.musterPrefix+"_"), "_", 2)[0]
-	}
 	r.nameMu.RUnlock()
 
-	if len(providers) > 1 {
-		names := make([]string, len(providers))
-		for i, p := range providers {
+	if bucket != nil && len(bucket.providers) > 1 {
+		names := make([]string, len(bucket.providers))
+		for i, p := range bucket.providers {
 			names[i] = p.serverName
 		}
 		sort.Strings(names)
-		return "", "", fmt.Errorf("tool %s is provided by family %s on servers %s; the 'server' parameter is required",
-			exposedName, family, strings.Join(names, ", "))
+		return "", "", fmt.Errorf("tool %s is provided by family %s on servers %s; the %q parameter is required",
+			exposedName, bucket.family, strings.Join(names, ", "), bucket.instanceArg)
 	}
-	if len(providers) == 1 {
-		return providers[0].serverName, providers[0].originalName, nil
+	if bucket != nil && len(bucket.providers) == 1 {
+		return bucket.providers[0].serverName, bucket.providers[0].originalName, nil
 	}
 	if !soloOK {
 		return "", "", fmt.Errorf("unknown name: %s", exposedName)
@@ -678,14 +706,14 @@ func (r *ServerRegistry) ResolveToolName(exposedName string) (serverName, origin
 func (r *ServerRegistry) ResolveToolNameForServer(exposedName, serverName string) (originalName string, err error) {
 	r.nameMu.RLock()
 	defer r.nameMu.RUnlock()
-	if providers, ok := r.familyMappings[exposedName]; ok {
-		for _, p := range providers {
+	if bucket, ok := r.familyMappings[exposedName]; ok {
+		for _, p := range bucket.providers {
 			if p.serverName == serverName {
 				return p.originalName, nil
 			}
 		}
-		available := make([]string, len(providers))
-		for i, p := range providers {
+		available := make([]string, len(bucket.providers))
+		for i, p := range bucket.providers {
 			available[i] = p.serverName
 		}
 		sort.Strings(available)
@@ -715,6 +743,18 @@ func (r *ServerRegistry) IsFamilyTool(exposedName string) bool {
 	return ok
 }
 
+// FamilyInstanceArgFor returns the required instance-selector arg name for a
+// family-grouped exposed tool, or empty string if the name is not family-
+// grouped or unknown.
+func (r *ServerRegistry) FamilyInstanceArgFor(exposedName string) string {
+	r.nameMu.RLock()
+	defer r.nameMu.RUnlock()
+	if bucket, ok := r.familyMappings[exposedName]; ok {
+		return bucket.instanceArg
+	}
+	return ""
+}
+
 // GetToolServerNames returns the set of server names that provide the given
 // exposed tool name. Returns nil if the name is unknown. For family-grouped
 // tools the slice has multiple entries (sorted); for solo tools a single
@@ -722,9 +762,9 @@ func (r *ServerRegistry) IsFamilyTool(exposedName string) bool {
 func (r *ServerRegistry) GetToolServerNames(exposedName string) []string {
 	r.nameMu.RLock()
 	defer r.nameMu.RUnlock()
-	if providers, ok := r.familyMappings[exposedName]; ok {
-		out := make([]string, len(providers))
-		for i, p := range providers {
+	if bucket, ok := r.familyMappings[exposedName]; ok {
+		out := make([]string, len(bucket.providers))
+		for i, p := range bucket.providers {
 			out[i] = p.serverName
 		}
 		sort.Strings(out)
@@ -910,7 +950,7 @@ func (r *ServerRegistry) RegisterPendingAuth(registration PendingAuthRegistratio
 		Name:       registration.Name,
 		URL:        registration.URL,
 		ToolPrefix: registration.ToolPrefix,
-		Family:     registration.Family,
+		Family:     cloneFamily(registration.Family),
 		AuthInfo:   registration.AuthInfo,
 		AuthConfig: authConfig,
 	}
@@ -955,7 +995,7 @@ func (r *ServerRegistry) GetAllToolsForSession(ctx context.Context, store Capabi
 			}
 			contributions = append(contributions, serverToolContribution{
 				serverName: serverName,
-				family:     info.Family,
+				family:     cloneFamily(info.Family),
 				tools:      append([]mcp.Tool(nil), caps.Tools...),
 			})
 			continue
@@ -970,7 +1010,7 @@ func (r *ServerRegistry) GetAllToolsForSession(ctx context.Context, store Capabi
 		info.mu.RUnlock()
 		contributions = append(contributions, serverToolContribution{
 			serverName: serverName,
-			family:     info.Family,
+			family:     cloneFamily(info.Family),
 			tools:      toolsCopy,
 		})
 	}

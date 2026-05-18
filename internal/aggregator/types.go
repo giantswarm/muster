@@ -70,14 +70,15 @@ type ServerRegistration struct {
 	// Name is the unique identifier for the server within the aggregator.
 	Name string
 
-	// ToolPrefix is the per-server tool prefix used when Family is empty.
+	// ToolPrefix is the per-server tool prefix used when Family is nil.
 	// Pattern: {musterPrefix}_{toolPrefix-or-name}_{toolName}.
 	ToolPrefix string
 
 	// Family declares that this server is an instance of a family of
-	// equivalent servers. When non-empty, tools are exposed as
-	// {musterPrefix}_{family}_{toolName} with a required "server" parameter.
-	Family string
+	// equivalent servers. When set, tools are exposed as
+	// {musterPrefix}_{family.Name}_{toolName} with a required parameter
+	// named by family.InstanceArg.
+	Family *api.MCPServerFamily
 }
 
 // PendingAuthRegistration carries the configuration needed to register a
@@ -121,11 +122,11 @@ type ServerInfo struct {
 	// This is used for name collision resolution.
 	ToolPrefix string
 
-	// Family, when non-empty, declares that this server is an instance of a
+	// Family, when set, declares that this server is an instance of a
 	// family of equivalent servers. Tools from all servers in the same family
-	// are exposed as {musterPrefix}_{family}_{toolName} with a required
-	// "server" parameter selecting the instance.
-	Family string
+	// are exposed as {musterPrefix}_{family.Name}_{toolName} with a required
+	// parameter named by family.InstanceArg selecting the instance.
+	Family *api.MCPServerFamily
 
 	// URL is the server endpoint URL (for remote servers)
 	URL string

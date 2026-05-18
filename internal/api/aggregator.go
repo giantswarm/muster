@@ -124,9 +124,10 @@ type PendingAuthRegistration struct {
 	ToolPrefix string
 
 	// Family declares that this server is an instance of a family of
-	// equivalent servers. When non-empty, tools are exposed as
-	// {musterPrefix}_{family}_{toolName} with a required "server" parameter.
-	Family string
+	// equivalent servers. When set, tools are exposed as
+	// {musterPrefix}_{family.name}_{toolName} with a required parameter
+	// named by family.instanceArg.
+	Family *MCPServerFamily
 
 	// AuthInfo carries the OAuth metadata returned in the 401 response.
 	AuthInfo *AuthInfo

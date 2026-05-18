@@ -351,7 +351,7 @@ func (am *AggregatorManager) registerSingleServer(ctx context.Context, serverNam
 	}
 
 	toolPrefix, _ := serviceData["toolPrefix"].(string)
-	family, _ := serviceData["family"].(string)
+	family, _ := serviceData["family"].(*api.MCPServerFamily)
 
 	clientInterface, exists := serviceData["client"]
 	if !exists || clientInterface == nil {
@@ -372,7 +372,11 @@ func (am *AggregatorManager) registerSingleServer(ctx context.Context, serverNam
 		return fmt.Errorf("failed to register server: %w", err)
 	}
 
-	logging.Info("Aggregator-Manager", "Successfully registered MCP server %s (prefix=%q family=%q)", serverName, toolPrefix, family)
+	familyName := ""
+	if family != nil {
+		familyName = family.Name
+	}
+	logging.Info("Aggregator-Manager", "Successfully registered MCP server %s (prefix=%q family=%q)", serverName, toolPrefix, familyName)
 	return nil
 }
 

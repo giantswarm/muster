@@ -6,10 +6,15 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/giantswarm/muster/internal/api"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func family(name, instanceArg string) *api.MCPServerFamily {
+	return &api.MCPServerFamily{Name: name, InstanceArg: instanceArg}
+}
 
 func TestServerRegistry_AlwaysPrefixing(t *testing.T) {
 	tests := []struct {
@@ -201,7 +206,7 @@ func TestServerRegistry_FamilyGrouping(t *testing.T) {
 		require.NoError(t, registry.Register(ctx, ServerRegistration{
 			Name:       "mcp-kubernetes-graveler",
 			ToolPrefix: "k8s-graveler",
-			Family:     "kubernetes",
+			Family:     family("kubernetes", "management_cluster"),
 		}, client))
 
 		tools := registry.GetAllTools()
@@ -212,11 +217,11 @@ func TestServerRegistry_FamilyGrouping(t *testing.T) {
 		assert.Contains(t, exposed.Description, "(available on servers: mcp-kubernetes-graveler)")
 
 		require.NotNil(t, exposed.InputSchema.Properties)
-		serverProp, ok := exposed.InputSchema.Properties["server"].(map[string]any)
-		require.True(t, ok, "server property must be present even for single-instance families")
-		assert.Equal(t, "string", serverProp["type"])
-		assert.Equal(t, []any{"mcp-kubernetes-graveler"}, serverProp["enum"])
-		assert.Contains(t, exposed.InputSchema.Required, "server")
+		instanceProp, ok := exposed.InputSchema.Properties["management_cluster"].(map[string]any)
+		require.True(t, ok, "configured instance arg must be present even for single-instance families")
+		assert.Equal(t, "string", instanceProp["type"])
+		assert.Equal(t, []any{"mcp-kubernetes-graveler"}, instanceProp["enum"])
+		assert.Contains(t, exposed.InputSchema.Required, "management_cluster")
 	})
 
 	t.Run("two instances in the same family deduplicate with server enum listing both", func(t *testing.T) {
@@ -227,12 +232,12 @@ func TestServerRegistry_FamilyGrouping(t *testing.T) {
 		require.NoError(t, registry.Register(ctx, ServerRegistration{
 			Name:       "mcp-kubernetes-graveler",
 			ToolPrefix: "k8s-graveler",
-			Family:     "kubernetes",
+			Family:     family("kubernetes", "management_cluster"),
 		}, &mockMCPClient{tools: toolA}))
 		require.NoError(t, registry.Register(ctx, ServerRegistration{
 			Name:       "mcp-kubernetes-gazelle",
 			ToolPrefix: "k8s-gazelle",
-			Family:     "kubernetes",
+			Family:     family("kubernetes", "management_cluster"),
 		}, &mockMCPClient{tools: toolB}))
 
 		tools := registry.GetAllTools()
@@ -240,8 +245,8 @@ func TestServerRegistry_FamilyGrouping(t *testing.T) {
 		exposed := tools[0]
 		assert.Equal(t, "x_kubernetes_list_pods", exposed.Name)
 
-		serverProp := exposed.InputSchema.Properties["server"].(map[string]any)
-		assert.Equal(t, []any{"mcp-kubernetes-gazelle", "mcp-kubernetes-graveler"}, serverProp["enum"])
+		instanceProp := exposed.InputSchema.Properties["management_cluster"].(map[string]any)
+		assert.Equal(t, []any{"mcp-kubernetes-gazelle", "mcp-kubernetes-graveler"}, instanceProp["enum"])
 	})
 
 	t.Run("non-family servers retain per-server prefixing", func(t *testing.T) {
@@ -254,8 +259,10 @@ func TestServerRegistry_FamilyGrouping(t *testing.T) {
 		tools := registry.GetAllTools()
 		require.Len(t, tools, 1)
 		assert.Equal(t, "x_slack_send_message", tools[0].Name)
-		// No "server" parameter injected for non-family tools.
-		_, has := tools[0].InputSchema.Properties["server"]
+		// No instance-arg parameter injected for non-family tools.
+		_, has := tools[0].InputSchema.Properties["management_cluster"]
+		assert.False(t, has)
+		_, has = tools[0].InputSchema.Properties["server"]
 		assert.False(t, has)
 	})
 
@@ -264,7 +271,7 @@ func TestServerRegistry_FamilyGrouping(t *testing.T) {
 		require.NoError(t, registry.Register(ctx, ServerRegistration{
 			Name:       "k8s-graveler",
 			ToolPrefix: "k8s-graveler",
-			Family:     "kubernetes",
+			Family:     family("kubernetes", "management_cluster"),
 		}, &mockMCPClient{tools: []mcp.Tool{
 			{Name: "list_pods", Description: "v1 API"},
 			{Name: "get_node", Description: "Get node"},
@@ -272,7 +279,7 @@ func TestServerRegistry_FamilyGrouping(t *testing.T) {
 		require.NoError(t, registry.Register(ctx, ServerRegistration{
 			Name:       "k8s-gazelle",
 			ToolPrefix: "k8s-gazelle",
-			Family:     "kubernetes",
+			Family:     family("kubernetes", "management_cluster"),
 		}, &mockMCPClient{tools: []mcp.Tool{
 			{Name: "list_pods", Description: "v2 API"},  // diverges
 			{Name: "get_node", Description: "Get node"}, // matches
@@ -297,12 +304,12 @@ func TestServerRegistry_FamilyGrouping(t *testing.T) {
 		require.NoError(t, registry.Register(ctx, ServerRegistration{
 			Name:       "k8s-a",
 			ToolPrefix: "k8s-a",
-			Family:     "kubernetes",
+			Family:     family("kubernetes", "management_cluster"),
 		}, &mockMCPClient{tools: []mcp.Tool{{Name: "list_pods", Description: "L"}}}))
 		require.NoError(t, registry.Register(ctx, ServerRegistration{
 			Name:       "k8s-b",
 			ToolPrefix: "k8s-b",
-			Family:     "kubernetes",
+			Family:     family("kubernetes", "management_cluster"),
 		}, &mockMCPClient{tools: []mcp.Tool{{Name: "list_pods", Description: "L"}}}))
 
 		// Prime the family routing index by listing tools.
@@ -331,29 +338,29 @@ func TestServerRegistry_FamilyGrouping(t *testing.T) {
 		registry := NewServerRegistry("x")
 		require.NoError(t, registry.Register(ctx, ServerRegistration{
 			Name:   "a",
-			Family: "kubernetes",
+			Family: family("kubernetes", "management_cluster"),
 		}, &mockMCPClient{tools: []mcp.Tool{{Name: "list_pods", Description: "L"}}}))
 		require.NoError(t, registry.Register(ctx, ServerRegistration{
 			Name:   "b",
-			Family: "kubernetes",
+			Family: family("kubernetes", "management_cluster"),
 		}, &mockMCPClient{tools: []mcp.Tool{{Name: "list_pods", Description: "L"}}}))
 		_ = registry.GetAllTools()
 
 		_, _, err := registry.ResolveToolName("x_kubernetes_list_pods")
 		require.Error(t, err)
-		assert.True(t, strings.Contains(err.Error(), "'server' parameter is required"),
-			"expected error to mention required server parameter, got: %v", err)
+		assert.True(t, strings.Contains(err.Error(), `"management_cluster" parameter is required`),
+			"expected error to mention required instance arg, got: %v", err)
 	})
 
 	t.Run("ResolveToolNameForServer rejects unknown server", func(t *testing.T) {
 		registry := NewServerRegistry("x")
 		require.NoError(t, registry.Register(ctx, ServerRegistration{
 			Name:   "a",
-			Family: "kubernetes",
+			Family: family("kubernetes", "management_cluster"),
 		}, &mockMCPClient{tools: []mcp.Tool{{Name: "list_pods", Description: "L"}}}))
 		require.NoError(t, registry.Register(ctx, ServerRegistration{
 			Name:   "b",
-			Family: "kubernetes",
+			Family: family("kubernetes", "management_cluster"),
 		}, &mockMCPClient{tools: []mcp.Tool{{Name: "list_pods", Description: "L"}}}))
 		_ = registry.GetAllTools()
 
@@ -376,11 +383,11 @@ func TestServerRegistry_FamilyGrouping(t *testing.T) {
 		client := &mockMCPClient{tools: []mcp.Tool{tool}}
 		require.NoError(t, registry.Register(ctx, ServerRegistration{
 			Name:   "a",
-			Family: "kubernetes",
+			Family: family("kubernetes", "management_cluster"),
 		}, client))
 		require.NoError(t, registry.Register(ctx, ServerRegistration{
 			Name:   "b",
-			Family: "kubernetes",
+			Family: family("kubernetes", "management_cluster"),
 		}, &mockMCPClient{tools: []mcp.Tool{tool}}))
 
 		// Repeated GetAllTools calls must not stack-mutate cached schemas.
@@ -390,9 +397,9 @@ func TestServerRegistry_FamilyGrouping(t *testing.T) {
 		serverInfo, ok := registry.GetServerInfo("a")
 		require.True(t, ok)
 		cached := serverInfo.Tools[0]
-		_, leakedServer := cached.InputSchema.Properties["server"]
-		assert.False(t, leakedServer, "server enum must not bleed back into the backend's cached tool schema")
+		_, leaked := cached.InputSchema.Properties["management_cluster"]
+		assert.False(t, leaked, "instance enum must not bleed back into the backend's cached tool schema")
 		assert.Equal(t, []string{"namespace"}, cached.InputSchema.Required,
-			"Required slice must not accumulate 'server' across calls")
+			"Required slice must not accumulate the instance arg across calls")
 	})
 }

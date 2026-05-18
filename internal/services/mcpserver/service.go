@@ -373,8 +373,8 @@ func (s *Service) ConfigurationChanged(newConfig interface{}) bool {
 		s.LogDebug("Config change detected: toolPrefix changed from %q to %q", cur.ToolPrefix, newDef.ToolPrefix)
 		return true
 	}
-	if cur.Family != newDef.Family {
-		s.LogDebug("Config change detected: family changed from %q to %q", cur.Family, newDef.Family)
+	if !reflect.DeepEqual(cur.Family, newDef.Family) {
+		s.LogDebug("Config change detected: family changed from %+v to %+v", cur.Family, newDef.Family)
 		return true
 	}
 	if !reflect.DeepEqual(cur.Auth, newDef.Auth) {

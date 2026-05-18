@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- `MCPServer.spec.family` — optional string declaring that an MCPServer is an instance of a family of equivalent servers. When set, the aggregator exposes tools as `x_<family>_<tool>` with a required `server` enum parameter selecting the providing instance. Single-instance families also use this naming and require the parameter, so skills written against the family name remain stable as instances are added or removed. When unset, today's per-server prefixing applies (no behavior change for existing CRs).
+- `MCPServer.spec.family` — optional object `{name, instanceArg}` grouping equivalent MCPServers under a shared exposed surface. When set, the aggregator exposes tools as `x_<family.name>_<tool>` with a required parameter (named by `family.instanceArg`) selecting the providing instance. Both fields are required when `family` is set. The parameter is always required even for single-instance families so skills written against the family name remain stable as instances are added or removed. When unset, today's per-server prefixing applies (no behavior change for existing CRs).
 - `MCPServer.spec.family` is configurable via the `core_mcpserver_create` / `core_mcpserver_update` / `core_mcpserver_validate` tools.
 - `muster.oauth.server.trustedPublicRegistrationRedirectURIs` — HTTPS redirect-URI allowlist for unauthenticated dynamic client registration, passed through to mcp-oauth (`Config.TrustedPublicRegistrationRedirectURIs`). Strict exact-match after RFC 3986 normalization. Default: `[]` (opt-in per URI).
 - `oauth-secret` `fail` guard accepts a non-empty `trustedPublicRegistrationRedirectURIs` as a third valid escape valve.

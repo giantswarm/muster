@@ -1092,48 +1092,48 @@ func TestAggregatorServer_CallToolInternal_FamilyRouting(t *testing.T) {
 		}
 		require.NoError(t, server.RegisterServer(ctx, ServerRegistration{
 			Name:   "mcp-k8s-graveler",
-			Family: "kubernetes",
+			Family: &api.MCPServerFamily{Name: "kubernetes", InstanceArg: "management_cluster"},
 		}, clientA))
 		require.NoError(t, server.RegisterServer(ctx, ServerRegistration{
 			Name:   "mcp-k8s-gazelle",
-			Family: "kubernetes",
+			Family: &api.MCPServerFamily{Name: "kubernetes", InstanceArg: "management_cluster"},
 		}, clientB))
 		_ = server.registry.GetAllTools() // prime familyMappings
 		return clientA, clientB
 	}
 
-	t.Run("explicit server arg routes to matching backend and strips server from forwarded args", func(t *testing.T) {
+	t.Run("explicit instance arg routes to matching backend and strips it from forwarded args", func(t *testing.T) {
 		server := makeServer(t)
 		clientA, clientB := makeFamily(t, server)
 
 		_, err := server.CallToolInternal(ctx, "x_kubernetes_list_pods", map[string]interface{}{
-			"server":    "mcp-k8s-graveler",
-			"namespace": "default",
+			"management_cluster": "mcp-k8s-graveler",
+			"namespace":          "default",
 		})
 		require.NoError(t, err)
 		assert.Equal(t, "list_pods", clientA.lastName)
 		assert.Equal(t, map[string]interface{}{"namespace": "default"}, clientA.lastArgs,
-			"forwarded args must not include the routing 'server' parameter")
+			"forwarded args must not include the routing instance arg")
 		assert.Empty(t, clientB.lastName, "non-target server must not be called")
 	})
 
-	t.Run("invalid server arg surfaces resolution error without legacy fallback", func(t *testing.T) {
+	t.Run("invalid instance arg surfaces resolution error without legacy fallback", func(t *testing.T) {
 		server := makeServer(t)
 		makeFamily(t, server)
 
 		_, err := server.CallToolInternal(ctx, "x_kubernetes_list_pods", map[string]interface{}{
-			"server": "mcp-k8s-typo",
+			"management_cluster": "mcp-k8s-typo",
 		})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not available on server")
 	})
 
-	t.Run("missing server arg returns 'server parameter is required' for multi-instance families", func(t *testing.T) {
+	t.Run("missing instance arg returns parameter-required error for multi-instance families", func(t *testing.T) {
 		server := makeServer(t)
 		makeFamily(t, server)
 
 		_, err := server.CallToolInternal(ctx, "x_kubernetes_list_pods", map[string]interface{}{})
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "'server' parameter is required")
+		assert.Contains(t, err.Error(), `"management_cluster" parameter is required`)
 	})
 }

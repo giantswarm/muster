@@ -1796,16 +1796,17 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 	// (including core tools that legitimately accept "server" as a regular
 	// argument), the value is passed through untouched.
 	if a.registry.IsFamilyTool(toolName) {
-		explicitServer, _ := args[serverArgKey].(string)
+		instanceArg := a.registry.FamilyInstanceArgFor(toolName)
+		explicitServer, _ := args[instanceArg].(string)
 		if explicitServer == "" {
 			providers := a.registry.GetToolServerNames(toolName)
 			sort.Strings(providers)
-			return nil, fmt.Errorf("tool %s is provided by a family on servers %s; the 'server' parameter is required",
-				toolName, strings.Join(providers, ", "))
+			return nil, fmt.Errorf("tool %s is provided by a family on servers %s; the %q parameter is required",
+				toolName, strings.Join(providers, ", "), instanceArg)
 		}
 		forwarded := make(map[string]interface{}, len(args)-1)
 		for k, v := range args {
-			if k != serverArgKey {
+			if k != instanceArg {
 				forwarded[k] = v
 			}
 		}
