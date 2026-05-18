@@ -9,7 +9,7 @@ import (
 	v1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
 )
 
-func TestCompile_Happy(t *testing.T) {
+func TestNewConfig_Happy(t *testing.T) {
 	t.Parallel()
 
 	stdioBody := expectStdio{
@@ -83,7 +83,7 @@ func TestCompile_Happy(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := agentgateway.Compile(testName, testNamespace, tc.spec)
+			got, err := agentgateway.NewConfig(testName, testNamespace, tc.spec)
 			require.NoError(t, err)
 			require.Equal(t, testName, got.Name)
 			require.Equal(t, testNamespace, got.Namespace)
@@ -129,7 +129,7 @@ func assertBackendTarget(t *testing.T, b agentgateway.Backend, wantKind agentgat
 	}
 }
 
-func TestCompile_Errors(t *testing.T) {
+func TestNewConfig_Errors(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -247,26 +247,26 @@ func TestCompile_Errors(t *testing.T) {
 			t.Parallel()
 
 			name, namespace, spec := tc.in()
-			_, err := agentgateway.Compile(name, namespace, spec)
-			require.Error(t, err, "expected Compile to reject input")
+			_, err := agentgateway.NewConfig(name, namespace, spec)
+			require.Error(t, err, "expected NewConfig to reject input")
 		})
 	}
 }
 
-func TestCompile_IsPure(t *testing.T) {
+func TestNewConfig_IsPure(t *testing.T) {
 	t.Parallel()
 
 	spec := streamableSpec(authOAuthForwardAudiences())
 
-	first, err := agentgateway.Compile(testName, testNamespace, spec)
+	first, err := agentgateway.NewConfig(testName, testNamespace, spec)
 	require.NoError(t, err)
-	second, err := agentgateway.Compile(testName, testNamespace, spec)
+	second, err := agentgateway.NewConfig(testName, testNamespace, spec)
 	require.NoError(t, err)
 
-	require.Equal(t, first, second, "Compile must be deterministic")
+	require.Equal(t, first, second, "NewConfig must be deterministic")
 }
 
-func TestCompile_HTTPStreamableWithExplicitPort(t *testing.T) {
+func TestNewConfig_HTTPStreamableWithExplicitPort(t *testing.T) {
 	t.Parallel()
 
 	spec := v1alpha1.MCPServerSpec{
@@ -274,7 +274,7 @@ func TestCompile_HTTPStreamableWithExplicitPort(t *testing.T) {
 		URL:  "http://mcp-internal:9000/api/v1/mcp",
 	}
 
-	got, err := agentgateway.Compile(testName, testNamespace, spec)
+	got, err := agentgateway.NewConfig(testName, testNamespace, spec)
 	require.NoError(t, err)
 
 	require.Len(t, got.Backends, 1)
@@ -286,7 +286,7 @@ func TestCompile_HTTPStreamableWithExplicitPort(t *testing.T) {
 	require.Equal(t, "/api/v1/mcp", target.Path)
 }
 
-func TestCompile_HTTPDefaultPort(t *testing.T) {
+func TestNewConfig_HTTPDefaultPort(t *testing.T) {
 	t.Parallel()
 
 	spec := v1alpha1.MCPServerSpec{
@@ -294,7 +294,7 @@ func TestCompile_HTTPDefaultPort(t *testing.T) {
 		URL:  "http://plain-http.example.com/mcp",
 	}
 
-	got, err := agentgateway.Compile(testName, testNamespace, spec)
+	got, err := agentgateway.NewConfig(testName, testNamespace, spec)
 	require.NoError(t, err)
 	require.Len(t, got.Backends, 1)
 	target, ok := got.Backends[0].Target.(agentgateway.HTTPTarget)
@@ -302,7 +302,7 @@ func TestCompile_HTTPDefaultPort(t *testing.T) {
 	require.Equal(t, 80, target.Port)
 }
 
-func TestCompile_StdioPreservesArgsAndEnv(t *testing.T) {
+func TestNewConfig_StdioPreservesArgsAndEnv(t *testing.T) {
 	t.Parallel()
 
 	spec := v1alpha1.MCPServerSpec{
@@ -312,7 +312,7 @@ func TestCompile_StdioPreservesArgsAndEnv(t *testing.T) {
 		Env:     map[string]string{"LOG_LEVEL": "debug", "TOKEN": "secret"},
 	}
 
-	got, err := agentgateway.Compile(testName, testNamespace, spec)
+	got, err := agentgateway.NewConfig(testName, testNamespace, spec)
 	require.NoError(t, err)
 
 	require.Len(t, got.Backends, 1)

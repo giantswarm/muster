@@ -16,10 +16,10 @@ const (
 
 const routePathPrefix = "/mcp"
 
-// Compile produces an agentgateway Config for the given MCPServer name,
-// namespace, and spec. Same input always yields the same output and Compile
+// NewConfig produces an agentgateway Config for the given MCPServer name,
+// namespace, and spec. Same input always yields the same output and NewConfig
 // performs no I/O.
-func Compile(name, namespace string, spec v1alpha1.MCPServerSpec) (Config, error) {
+func NewConfig(name, namespace string, spec v1alpha1.MCPServerSpec) (Config, error) {
 	if name == "" {
 		return Config{}, fmt.Errorf("agentgateway: MCPServer name is required")
 	}
@@ -27,12 +27,12 @@ func Compile(name, namespace string, spec v1alpha1.MCPServerSpec) (Config, error
 		return Config{}, fmt.Errorf("agentgateway: MCPServer namespace is required")
 	}
 
-	authn, err := compileAuth(spec.Auth)
+	authn, err := authFromSpec(spec.Auth)
 	if err != nil {
 		return Config{}, fmt.Errorf("agentgateway: auth: %w", err)
 	}
 
-	backend, err := compileBackend(name, spec)
+	backend, err := backendFromSpec(name, spec)
 	if err != nil {
 		return Config{}, fmt.Errorf("agentgateway: backend: %w", err)
 	}
@@ -54,7 +54,7 @@ func Compile(name, namespace string, spec v1alpha1.MCPServerSpec) (Config, error
 	}, nil
 }
 
-func compileBackend(name string, spec v1alpha1.MCPServerSpec) (Backend, error) {
+func backendFromSpec(name string, spec v1alpha1.MCPServerSpec) (Backend, error) {
 	switch spec.Type {
 	case specTypeStdio:
 		if spec.Command == "" {
@@ -116,7 +116,7 @@ func httpTargetFromURL(raw string, protocol HTTPProtocol) (HTTPTarget, error) {
 	return HTTPTarget{Protocol: protocol, Host: host, Port: port, Path: parsed.Path}, nil
 }
 
-func compileAuth(auth *v1alpha1.MCPServerAuth) (Authn, error) {
+func authFromSpec(auth *v1alpha1.MCPServerAuth) (Authn, error) {
 	if auth == nil {
 		return Authn{Type: AuthnTypeNone}, nil
 	}
