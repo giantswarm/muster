@@ -267,6 +267,7 @@ func (h *TestToolsHandler) handleSimulateOAuthCallback(ctx context.Context, args
 	scope := parsedURL.Query().Get("scope")
 	codeChallenge := parsedURL.Query().Get("code_challenge")
 	codeChallengeMethod := parsedURL.Query().Get("code_challenge_method")
+	nonce := parsedURL.Query().Get("nonce")
 
 	if state == "" {
 		return nil, fmt.Errorf("no state parameter found in auth URL")
@@ -321,7 +322,7 @@ func (h *TestToolsHandler) handleSimulateOAuthCallback(ctx context.Context, args
 
 	// Step 4: Generate an authorization code in the mock OAuth server
 	// Use the parameters from muster's auth URL so PKCE verification will pass
-	authCode := oauthServer.GenerateAuthCode(clientID, redirectURI, scope, state, codeChallenge, codeChallengeMethod)
+	authCode := oauthServer.GenerateAuthCode(clientID, redirectURI, scope, state, codeChallenge, codeChallengeMethod, nonce)
 
 	if h.debug {
 		h.logger.Debug("🔐 Generated auth code: %s...\n", authCode[:min(16, len(authCode))])
@@ -480,7 +481,7 @@ func (h *TestToolsHandler) fallbackDirectTokenInjection(ctx context.Context, ser
 	scope := "openid profile"
 
 	// Generate auth code and exchange it
-	authCode := server.GenerateAuthCode(clientID, "http://localhost/callback", scope, "fallback-state", "", "")
+	authCode := server.GenerateAuthCode(clientID, "http://localhost/callback", scope, "fallback-state", "", "", "")
 	tokenResp, err := server.SimulateCallback(authCode)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate token: %w", err)
@@ -1358,6 +1359,7 @@ func (h *TestToolsHandler) handleMusterAuthLogin(ctx context.Context, args map[s
 	dexScope := parsedDexURL.Query().Get("scope")
 	codeChallenge := parsedDexURL.Query().Get("code_challenge")
 	codeChallengeMethod := parsedDexURL.Query().Get("code_challenge_method")
+	dexNonce := parsedDexURL.Query().Get("nonce")
 
 	if dexState == "" {
 		return nil, fmt.Errorf("no state in Dex auth URL")
@@ -1372,9 +1374,9 @@ func (h *TestToolsHandler) handleMusterAuthLogin(ctx context.Context, args map[s
 	subject, _ := args["subject"].(string)
 	var authCode string
 	if subject != "" {
-		authCode = musterOAuthServer.GenerateAuthCodeWithSubject(dexClientID, dexRedirectURI, dexScope, dexState, codeChallenge, codeChallengeMethod, subject)
+		authCode = musterOAuthServer.GenerateAuthCodeWithSubject(dexClientID, dexRedirectURI, dexScope, dexState, codeChallenge, codeChallengeMethod, subject, dexNonce)
 	} else {
-		authCode = musterOAuthServer.GenerateAuthCode(dexClientID, dexRedirectURI, dexScope, dexState, codeChallenge, codeChallengeMethod)
+		authCode = musterOAuthServer.GenerateAuthCode(dexClientID, dexRedirectURI, dexScope, dexState, codeChallenge, codeChallengeMethod, dexNonce)
 	}
 
 	if h.debug {

@@ -121,7 +121,7 @@ func TestOAuthServer_GenerateAndValidateToken(t *testing.T) {
 	defer func() { _ = server.Stop(ctx) }()
 
 	// Generate an auth code
-	code := server.GenerateAuthCode("test-client", "http://localhost/callback", "openid profile", "state123", "", "")
+	code := server.GenerateAuthCode("test-client", "http://localhost/callback", "openid profile", "state123", "", "", "")
 
 	if code == "" {
 		t.Error("Expected non-empty auth code")
@@ -173,7 +173,7 @@ func TestOAuthServer_TokenExchange(t *testing.T) {
 	}
 
 	// Generate an auth code
-	code := server.GenerateAuthCode("test-client", "http://localhost/callback", "openid", "state456", "", "")
+	code := server.GenerateAuthCode("test-client", "http://localhost/callback", "openid", "state456", "", "", "")
 
 	// Exchange code for token via HTTP
 	tokenURL := server.GetTokenURL()
@@ -301,7 +301,7 @@ func TestOAuthServer_TokenExpiry(t *testing.T) {
 	defer func() { _ = server.Stop(ctx) }()
 
 	// Generate a token
-	code := server.GenerateAuthCode("test-client", "http://localhost/callback", "openid", "state", "", "")
+	code := server.GenerateAuthCode("test-client", "http://localhost/callback", "openid", "state", "", "", "")
 	tokenResp, err := server.SimulateCallback(code)
 	if err != nil {
 		t.Fatalf("Failed to get token: %v", err)
@@ -377,7 +377,7 @@ func TestOAuthServer_TokenExpiryWithMockClock(t *testing.T) {
 	defer func() { _ = server.Stop(ctx) }()
 
 	// Generate a token
-	code := server.GenerateAuthCode("test-client", "http://localhost/callback", "openid", "state", "", "")
+	code := server.GenerateAuthCode("test-client", "http://localhost/callback", "openid", "state", "", "", "")
 	tokenResp, err := server.SimulateCallback(code)
 	if err != nil {
 		t.Fatalf("Failed to get token: %v", err)
