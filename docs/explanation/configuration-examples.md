@@ -36,20 +36,6 @@ spec:
   description: "Kubernetes cluster management MCP server"
 ```
 
-### **Authentication Provider** (`.muster/mcpservers/teleport.yaml`)
-```yaml
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: MCPServer
-metadata:
-  name: teleport
-  namespace: default
-spec:
-  type: stdio
-  autoStart: true
-  command: ["mcp-teleport"]
-  description: "Teleport authentication and access management"
-```
-
 ### **Monitoring Stack** (`.muster/mcpservers/prometheus.yaml`)
 ```yaml
 apiVersion: muster.giantswarm.io/v1alpha1
@@ -102,7 +88,7 @@ spec:
   steps:
     - id: "login-cluster"
       description: "Login to workload cluster"
-      tool: "x_teleport_kube_login"
+      tool: "x_kubernetes_login"
       args:
         kubeCluster: "{{.input.installation}}-{{.input.workloadCluster}}"
     - id: "check-cilium-pods"
@@ -177,7 +163,7 @@ workflow_check-cilium-health {
 ## Configuration Best Practices
 
 ### **Naming Conventions**
-- **MCP Servers**: Simple names (kubernetes, teleport, prometheus)
+- **MCP Servers**: Simple names (kubernetes, prometheus, grafana)
 - **Workflows**: Action-oriented names (connect-monitoring, check-cilium-health)
 
 ### **Argument Design**

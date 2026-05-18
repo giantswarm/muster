@@ -150,7 +150,7 @@ What gets executed via `call_tool`:
 
 - **Core Tools** (36): `core_config_*`, `core_service_*`, `core_workflow_*`, etc.
 - **Workflow Tools** (dynamic): `workflow_auth-workflow`, `workflow_connect-monitoring`, etc.
-- **External Tools** (variable): `x_kubernetes_*`, `x_teleport_*`, etc.
+- **External Tools** (variable): `x_kubernetes_*`, `x_prometheus_*`, etc.
 
 ### Usage Pattern
 

@@ -257,7 +257,7 @@ serviceConfig:
       type: "string"
       required: true
   lifecycleTools:
-    start: { tool: "x_teleport_kube_login" }
+    start: { tool: "x_kubernetes_login" }
 ```
 
 Workflow to compare pods on two clusters

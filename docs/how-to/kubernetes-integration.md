@@ -187,5 +187,4 @@ filter tools kubernetes
 
 - [MCP Server Management](mcp-server-management.md) - Detailed MCP server configuration
 - [SSO Authentication](mcp-server-management.md#sso-authentication) - Single Sign-On setup
-- [Teleport Authentication](teleport-authentication.md) - Teleport integration for cluster access
 - [Configuration Reference](../reference/configuration.md) - Complete configuration options
