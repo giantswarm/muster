@@ -32,8 +32,10 @@ import (
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
 	mcptoolkitlogging "github.com/giantswarm/mcp-toolkit/logging"
 	"github.com/mark3labs/mcp-go/mcp"
+	mcpotel "github.com/mark3labs/mcp-go/otel"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/valkey-io/valkey-go"
+	"go.opentelemetry.io/otel"
 	"golang.org/x/oauth2"
 	"golang.org/x/sync/singleflight"
 
@@ -717,15 +719,14 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	// WithToolFilter enables session-specific tool visibility for OAuth-authenticated servers
 	// (see ADR-006: Session-Scoped Tool Visibility)
 	//
-	// mcp-go applies middleware in reverse registration order, so the
-	// chain below becomes Tracing(Logging(Metrics(handler))). Tracing is
-	// outermost so the span is active while Logging emits its line and
-	// Metrics records its observation — log records pick up trace_id /
-	// span_id via the slog ↔ OTel bridge, and histogram exemplars
-	// attach the local trace_id for Grafana's "click latency bucket →
-	// jump to trace" pivot. The Tracing wrapper still observes the
-	// final outcome through its next(...) return values, so codes.Error
-	// on IsError fires after the inner chain completes.
+	// mcp-go's otel adapter installs a server-wide tracer and W3C propagator,
+	// emitting mcp.<method> spans for every JSON-RPC dispatch and tool.<name>
+	// spans around tool handlers. mcp-go applies middleware in reverse
+	// registration order, so the chain below becomes
+	// nativeTracing(Logging(Metrics(handler))) — the tracing span stays active
+	// while Logging emits its line and Metrics records its observation, so log
+	// records pick up trace_id / span_id via the slog ↔ OTel bridge and
+	// histogram exemplars attach the local trace_id.
 	mcpSrv := mcpserver.NewMCPServer(
 		"muster-aggregator",
 		serverVersion,
@@ -734,7 +735,7 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		mcpserver.WithPromptCapabilities(true),         // Enable prompt retrieval
 		mcpserver.WithToolFilter(a.sessionToolFilter),  // Return session-specific tools for OAuth servers
 		mcpserver.WithHooks(hooks),                     // Clean up subject-session mappings on disconnect
-		mcpserver.WithToolHandlerMiddleware(instrument.Tracing()),
+		mcpotel.WithServerTracing(otel.Tracer(instrument.TracerName)),
 		mcpserver.WithToolHandlerMiddleware(instrument.Logging()),
 		mcpserver.WithToolHandlerMiddleware(instrument.Metrics()),
 	)
