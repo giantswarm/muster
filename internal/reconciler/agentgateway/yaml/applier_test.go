@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 	goyaml "gopkg.in/yaml.v3"
 
-	"github.com/giantswarm/muster/internal/agentgateway/nativeconfig"
 	"github.com/giantswarm/muster/internal/reconciler/agentgateway"
 	yamlapply "github.com/giantswarm/muster/internal/reconciler/agentgateway/yaml"
 )
@@ -126,7 +125,7 @@ func TestApply_RoundTripUnmarshal(t *testing.T) {
 	require.NoError(t, a.Apply(t.Context(), canonicalConfig()))
 	raw := readInDir(t, dir, "grizzly.yaml")
 
-	var cfg nativeconfig.LocalConfig
+	var cfg yamlapply.LocalConfig
 	require.NoError(t, goyaml.Unmarshal(raw, &cfg))
 
 	require.Len(t, cfg.Binds, 1)
@@ -169,7 +168,7 @@ func TestApply_SSEProtocol(t *testing.T) {
 	require.NoError(t, a.Apply(t.Context(), sseConfig()))
 	raw := readInDir(t, dir, "grizzly.yaml")
 
-	var cfg nativeconfig.LocalConfig
+	var cfg yamlapply.LocalConfig
 	require.NoError(t, goyaml.Unmarshal(raw, &cfg))
 	target := cfg.Binds[0].Listeners[0].Routes[0].Backends[0].MCP.Targets[0]
 	require.Nil(t, target.MCP)
@@ -188,7 +187,7 @@ func TestApply_StdioTarget(t *testing.T) {
 	require.NoError(t, a.Apply(t.Context(), stdioConfig()))
 	raw := readInDir(t, dir, "grizzly.yaml")
 
-	var cfg nativeconfig.LocalConfig
+	var cfg yamlapply.LocalConfig
 	require.NoError(t, goyaml.Unmarshal(raw, &cfg))
 	target := cfg.Binds[0].Listeners[0].Routes[0].Backends[0].MCP.Targets[0]
 	require.Nil(t, target.MCP, "stdio target must not write an mcp endpoint")
@@ -208,7 +207,7 @@ func TestApply_CustomListenerPort(t *testing.T) {
 
 	raw := readInDir(t, dir, "grizzly.yaml")
 
-	var cfg nativeconfig.LocalConfig
+	var cfg yamlapply.LocalConfig
 	require.NoError(t, goyaml.Unmarshal(raw, &cfg))
 	require.Equal(t, uint16(9090), cfg.Binds[0].Port)
 }

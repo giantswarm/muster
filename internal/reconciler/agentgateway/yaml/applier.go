@@ -11,7 +11,6 @@ import (
 
 	goyaml "gopkg.in/yaml.v3"
 
-	"github.com/giantswarm/muster/internal/agentgateway/nativeconfig"
 	"github.com/giantswarm/muster/internal/reconciler/agentgateway"
 )
 
@@ -179,7 +178,7 @@ func nameFromConfig(c agentgateway.Config) (string, error) {
 	return name, nil
 }
 
-func buildLocalConfig(name string, c agentgateway.Config, port uint16) (*nativeconfig.LocalConfig, error) {
+func buildLocalConfig(name string, c agentgateway.Config, port uint16) (*LocalConfig, error) {
 	backend := c.Backends[0]
 	route := c.Routes[0]
 	policy := c.Policies[0]
@@ -194,35 +193,35 @@ func buildLocalConfig(name string, c agentgateway.Config, port uint16) (*nativec
 		pathPrefix = routePathRoot + name
 	}
 
-	emittedRoute := nativeconfig.LocalRoute{
+	emittedRoute := LocalRoute{
 		Name: route.Name,
-		Matches: []nativeconfig.RouteMatch{
-			{Path: &nativeconfig.PathMatch{PathPrefix: pathPrefix}},
+		Matches: []RouteMatch{
+			{Path: &PathMatch{PathPrefix: pathPrefix}},
 		},
-		Backends: []nativeconfig.LocalRouteBackend{
-			{MCP: &nativeconfig.LocalMcpBackend{Targets: []nativeconfig.LocalMcpTarget{target}}},
+		Backends: []LocalRouteBackend{
+			{MCP: &LocalMcpBackend{Targets: []LocalMcpTarget{target}}},
 		},
 		Policies: policyFor(policy),
 	}
 
-	return &nativeconfig.LocalConfig{
-		Binds: []nativeconfig.LocalBind{{
+	return &LocalConfig{
+		Binds: []LocalBind{{
 			Port: port,
-			Listeners: []nativeconfig.LocalListener{{
+			Listeners: []LocalListener{{
 				Name:   name,
-				Routes: []nativeconfig.LocalRoute{emittedRoute},
+				Routes: []LocalRoute{emittedRoute},
 			}},
 		}},
 	}, nil
 }
 
-func targetFromBackend(b agentgateway.Backend) (nativeconfig.LocalMcpTarget, error) {
-	target := nativeconfig.LocalMcpTarget{Name: b.Name}
+func targetFromBackend(b agentgateway.Backend) (LocalMcpTarget, error) {
+	target := LocalMcpTarget{Name: b.Name}
 	switch t := b.Target.(type) {
 	case agentgateway.HTTPTarget:
 		ep, err := httpEndpoint(b.Name, t)
 		if err != nil {
-			return nativeconfig.LocalMcpTarget{}, err
+			return LocalMcpTarget{}, err
 		}
 		switch t.Protocol {
 		case agentgateway.SSE:
@@ -232,43 +231,43 @@ func targetFromBackend(b agentgateway.Backend) (nativeconfig.LocalMcpTarget, err
 		}
 	case agentgateway.StdioTarget:
 		if t.Command == "" {
-			return nativeconfig.LocalMcpTarget{}, fmt.Errorf("backend %q stdio target has no command", b.Name)
+			return LocalMcpTarget{}, fmt.Errorf("backend %q stdio target has no command", b.Name)
 		}
-		target.Stdio = &nativeconfig.McpTargetStdio{
+		target.Stdio = &McpTargetStdio{
 			Cmd:  t.Command,
 			Args: t.Args,
 			Env:  t.Env,
 		}
 	default:
-		return nativeconfig.LocalMcpTarget{}, fmt.Errorf("backend %q has no transport target", b.Name)
+		return LocalMcpTarget{}, fmt.Errorf("backend %q has no transport target", b.Name)
 	}
 	return target, nil
 }
 
-func httpEndpoint(name string, t agentgateway.HTTPTarget) (*nativeconfig.McpTargetEndpoint, error) {
+func httpEndpoint(name string, t agentgateway.HTTPTarget) (*McpTargetEndpoint, error) {
 	if t.Host == "" {
 		return nil, fmt.Errorf("backend %q has unresolved host", name)
 	}
 	if t.Port <= 0 || t.Port > 65535 {
 		return nil, fmt.Errorf("backend %q has out-of-range port %d", name, t.Port)
 	}
-	return &nativeconfig.McpTargetEndpoint{
+	return &McpTargetEndpoint{
 		Host: t.Host,
 		Port: uint16(t.Port),
 		Path: t.Path,
 	}, nil
 }
 
-func policyFor(p agentgateway.Policy) *nativeconfig.FilterOrPolicy {
+func policyFor(p agentgateway.Policy) *FilterOrPolicy {
 	if !p.Authn.ForwardToken {
 		return nil
 	}
-	return &nativeconfig.FilterOrPolicy{
-		BackendAuth: &nativeconfig.BackendAuth{Passthrough: &nativeconfig.Passthrough{}},
+	return &FilterOrPolicy{
+		BackendAuth: &BackendAuth{Passthrough: &Passthrough{}},
 	}
 }
 
-func marshalConfig(cfg *nativeconfig.LocalConfig) ([]byte, error) {
+func marshalConfig(cfg *LocalConfig) ([]byte, error) {
 	var buf bytes.Buffer
 	if _, err := buf.WriteString(pragma); err != nil {
 		return nil, err
