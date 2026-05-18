@@ -14,3 +14,18 @@ linters:
       - path: _test\.go
         linters: [gosec]
         text: G101
+      # musterstdio is by design a generic stdio→HTTP shim: its --child-command
+      # / --child-arg flags carry user-controlled values straight to os/exec.
+      # G204's heuristic flags every exec.Command call in these files. Only the
+      # specific files that actually need to launch the configured child (or,
+      # in the test helpers, the built shim binary / re-exec'd fake child) are
+      # exempt — the rest of cmd/musterstdio is still scanned.
+      - path: cmd/musterstdio/bridge\.go
+        linters: [gosec]
+        text: G204
+      - path: cmd/musterstdio/main_test\.go
+        linters: [gosec]
+        text: G204
+      - path: cmd/musterstdio/testhelpers_test\.go
+        linters: [gosec]
+        text: G204

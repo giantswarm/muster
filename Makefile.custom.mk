@@ -7,6 +7,20 @@
 release-dry-run: ## Test the release process without publishing (all platforms)
 	goreleaser release --snapshot --clean --skip=announce,publish,validate
 
+.PHONY: musterstdio-image
+musterstdio-image: ## Build the musterstdio container image for the current platform
+	docker build -f Dockerfile.musterstdio -t musterstdio:$(VERSION) .
+
+.PHONY: musterstdio-image-multiarch
+musterstdio-image-multiarch: ## Build and push the musterstdio image for linux/amd64 + linux/arm64 (requires buildx)
+	docker buildx build -f Dockerfile.musterstdio \
+		--platform linux/amd64,linux/arm64 \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg COMMIT=$(GITSHA1) \
+		--build-arg DATE=$(BUILDTIMESTAMP) \
+		-t musterstdio:$(VERSION) \
+		--push .
+
 .PHONY: release-dry-run-fast
 release-dry-run-fast: ## Fast release dry-run for CI (linux/amd64 only, ~6min faster)
 	goreleaser release --config .goreleaser.ci.yaml --snapshot --clean --skip=announce,publish,validate

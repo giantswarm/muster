@@ -50,9 +50,28 @@ builds:
       - >-
         -s -w -X main.version={{.Version}} -X main.commit={{.ShortCommit}}
         -X main.date={{.Date}}
+  - id: musterstdio
+    main: ./cmd/musterstdio
+    binary: musterstdio
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    env:
+      - CGO_ENABLED=0
+    mod_timestamp: '{{ .CommitTimestamp }}'
+    flags:
+      - -trimpath
+    ldflags:
+      - >-
+        -s -w -X main.version={{.Version}} -X main.commit={{.ShortCommit}}
+        -X main.date={{.Date}}
 
 archives:
   - id: default
+    builds:
+      - muster
     # Default formats for all platforms (can be overridden per OS)
     formats: [tar.gz]
     name_template: >-
@@ -74,6 +93,18 @@ archives:
     files:
       - LICENSE
       - README.md
+  - id: musterstdio
+    builds:
+      - musterstdio
+    formats: [tar.gz]
+    name_template: >-
+      musterstdio_ {{- title .Os }}_ {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    wrap_in_directory: true
+    files:
+      - LICENSE
 
 checksum:
   # Algorithm to use. Valid options are sha256, sha512, sha1, crc32, md5, etc.
@@ -126,6 +157,10 @@ release:
       name_template: muster_windows_amd64.exe
     - glob: ./dist/muster_windows_arm64*/muster.exe
       name_template: muster_windows_arm64.exe
+    - glob: ./dist/musterstdio_linux_amd64*/musterstdio
+      name_template: musterstdio_linux_amd64
+    - glob: ./dist/musterstdio_linux_arm64*/musterstdio
+      name_template: musterstdio_linux_arm64
 
 brews:
   - name: muster

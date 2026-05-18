@@ -1,0 +1,33 @@
+# Stage 1: Build the musterstdio binary (cross-compiles for target).
+FROM --platform=$BUILDPLATFORM golang:1.26.3 AS builder
+
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG DATE=unknown
+ARG TARGETOS
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath \
+    -ldflags "-w -extldflags '-static' \
+    -X 'main.version=${VERSION}' \
+    -X 'main.commit=${COMMIT}' \
+    -X 'main.date=${DATE}'" \
+    -o musterstdio ./cmd/musterstdio
+
+# Stage 2: distroless runtime.
+FROM gsoci.azurecr.io/giantswarm/alpine:3.20.3-giantswarm AS certs
+FROM scratch
+
+COPY --from=certs /etc/passwd /etc/passwd
+COPY --from=certs /etc/group /etc/group
+COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+
+COPY --from=builder /app/musterstdio /musterstdio
+USER giantswarm
+
+EXPOSE 8080
+ENTRYPOINT ["/musterstdio"]
