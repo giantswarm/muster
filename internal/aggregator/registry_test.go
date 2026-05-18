@@ -403,4 +403,156 @@ func TestServerRegistry_FamilyGrouping(t *testing.T) {
 		assert.Equal(t, []string{"namespace"}, cached.InputSchema.Required,
 			"Required slice must not accumulate the instance arg across calls")
 	})
+
+	t.Run("family deep-copy survives mutation of nested object properties", func(t *testing.T) {
+		registry := NewServerRegistry("x")
+		tool := mcp.Tool{
+			Name:        "list_pods",
+			Description: "L",
+			InputSchema: mcp.ToolInputSchema{
+				Type: "object",
+				Properties: map[string]any{
+					"filter": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"namespace": map[string]any{"type": "string"},
+						},
+						"required": []any{"namespace"},
+					},
+				},
+			},
+		}
+		require.NoError(t, registry.Register(ctx, ServerRegistration{
+			Name:   "a",
+			Family: family("kubernetes", "management_cluster"),
+		}, &mockMCPClient{tools: []mcp.Tool{tool}}))
+
+		got := registry.GetAllTools()
+		require.Len(t, got, 1)
+
+		filter, ok := got[0].InputSchema.Properties["filter"].(map[string]any)
+		require.True(t, ok)
+		nested, ok := filter["properties"].(map[string]any)
+		require.True(t, ok)
+		nested["namespace"] = map[string]any{"type": "object"} // mutate the exposed copy
+		filter["required"] = []any{"namespace", "INJECTED"}
+
+		serverInfo, ok := registry.GetServerInfo("a")
+		require.True(t, ok)
+		cached := serverInfo.Tools[0]
+		cachedFilter := cached.InputSchema.Properties["filter"].(map[string]any)
+		cachedNested := cachedFilter["properties"].(map[string]any)
+		assert.Equal(t, "string", cachedNested["namespace"].(map[string]any)["type"],
+			"mutating the exposed copy's nested property must not leak into the cached schema")
+		assert.Equal(t, []any{"namespace"}, cachedFilter["required"],
+			"mutating the exposed copy's nested required slice must not leak into the cached schema")
+	})
+
+	t.Run("tools/list order is stable across calls", func(t *testing.T) {
+		registry := NewServerRegistry("x")
+		// Three servers + three tools each, mixed family/solo, to exercise
+		// both contribution-sort and family-bucket-sort paths.
+		tools := func(names ...string) []mcp.Tool {
+			out := make([]mcp.Tool, len(names))
+			for i, n := range names {
+				out[i] = mcp.Tool{Name: n, Description: "d", InputSchema: mcp.ToolInputSchema{Type: "object"}}
+			}
+			return out
+		}
+		require.NoError(t, registry.Register(ctx, ServerRegistration{
+			Name:   "k8s-c",
+			Family: family("kubernetes", "management_cluster"),
+		}, &mockMCPClient{tools: tools("delete_pod", "list_pods", "get_node")}))
+		require.NoError(t, registry.Register(ctx, ServerRegistration{
+			Name:   "k8s-a",
+			Family: family("kubernetes", "management_cluster"),
+		}, &mockMCPClient{tools: tools("delete_pod", "list_pods", "get_node")}))
+		require.NoError(t, registry.Register(ctx, ServerRegistration{
+			Name: "solo",
+		}, &mockMCPClient{tools: tools("ping", "scan")}))
+
+		names := func(ts []mcp.Tool) []string {
+			out := make([]string, len(ts))
+			for i, t := range ts {
+				out[i] = t.Name
+			}
+			return out
+		}
+		first := names(registry.GetAllTools())
+		for i := 0; i < 10; i++ {
+			assert.Equal(t, first, names(registry.GetAllTools()),
+				"tools/list order must be stable across repeated calls (iteration %d)", i)
+		}
+	})
+
+	t.Run("family.instanceArg colliding with a tool input property falls back to per-server prefixing", func(t *testing.T) {
+		registry := NewServerRegistry("x")
+		tool := mcp.Tool{
+			Name:        "list_pods",
+			Description: "L",
+			InputSchema: mcp.ToolInputSchema{
+				Type: "object",
+				Properties: map[string]any{
+					"cluster":   map[string]any{"type": "string", "description": "Tool-defined cluster"},
+					"namespace": map[string]any{"type": "string"},
+				},
+				Required: []string{"cluster"},
+			},
+		}
+		require.NoError(t, registry.Register(ctx, ServerRegistration{
+			Name:   "k8s-single",
+			Family: family("kubernetes", "cluster"), // collides with the tool's "cluster" property
+		}, &mockMCPClient{tools: []mcp.Tool{tool}}))
+
+		got := registry.GetAllTools()
+		var exposedNames []string
+		for _, t := range got {
+			exposedNames = append(exposedNames, t.Name)
+		}
+		assert.Contains(t, exposedNames, "x_k8s-single_list_pods",
+			"collision must surface per-server fallback name")
+		assert.NotContains(t, exposedNames, "x_kubernetes_list_pods",
+			"collision must NOT surface the family-prefixed name (the tool-defined property would be overwritten)")
+	})
+
+	t.Run("concurrent GetAllToolsForSession does not race", func(t *testing.T) {
+		// Hammer two concurrent session listings + global listings to surface
+		// any race in the upsert / read paths under `go test -race`. The fix
+		// from PR #670 (union semantics, no destructive reset) should make
+		// these read-write interleavings safe.
+		registry := NewServerRegistry("x")
+		tool := mcp.Tool{
+			Name:        "list_pods",
+			Description: "L",
+			InputSchema: mcp.ToolInputSchema{
+				Type:       "object",
+				Properties: map[string]any{"namespace": map[string]any{"type": "string"}},
+			},
+		}
+		require.NoError(t, registry.Register(ctx, ServerRegistration{
+			Name:   "k8s-a",
+			Family: family("kubernetes", "management_cluster"),
+		}, &mockMCPClient{tools: []mcp.Tool{tool}}))
+		require.NoError(t, registry.Register(ctx, ServerRegistration{
+			Name:   "k8s-b",
+			Family: family("kubernetes", "management_cluster"),
+		}, &mockMCPClient{tools: []mcp.Tool{tool}}))
+
+		const goroutines = 8
+		const iterations = 50
+		done := make(chan struct{}, goroutines)
+		for g := 0; g < goroutines; g++ {
+			go func() {
+				defer func() { done <- struct{}{} }()
+				for i := 0; i < iterations; i++ {
+					_ = registry.GetAllTools()
+					_, err := registry.ResolveToolNameForServer("x_kubernetes_list_pods", "k8s-a")
+					assert.NoError(t, err)
+				}
+			}()
+		}
+		for g := 0; g < goroutines; g++ {
+			<-done
+		}
+	})
 }
