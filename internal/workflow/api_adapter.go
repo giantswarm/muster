@@ -830,7 +830,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Args: []api.ArgMetadata{
 				{
 					Name:        "include_system",
-					Type:        "boolean",
+					Type:        api.ArgTypeBoolean,
 					Required:    false,
 					Description: "Include system-defined workflows",
 					Default:     true,
@@ -843,7 +843,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
-					Type:        "string",
+					Type:        api.ArgTypeString,
 					Required:    true,
 					Description: "Name of the workflow",
 				},
@@ -855,26 +855,26 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
-					Type:        "string",
+					Type:        api.ArgTypeString,
 					Required:    true,
 					Description: "Name of the workflow",
 				},
 				{
 					Name:        "description",
-					Type:        "string",
+					Type:        api.ArgTypeString,
 					Required:    false,
 					Description: "Description of the workflow",
 				},
 				{
 					Name:        "args",
-					Type:        "object",
+					Type:        api.ArgTypeObject,
 					Required:    false,
 					Description: "Workflow arguments definition",
 					Schema:      getWorkflowArgsSchema(),
 				},
 				{
 					Name:        "steps",
-					Type:        "array",
+					Type:        api.ArgTypeArray,
 					Required:    true,
 					Description: "Workflow steps",
 					Schema:      getWorkflowStepsSchema(),
@@ -887,26 +887,26 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
-					Type:        "string",
+					Type:        api.ArgTypeString,
 					Required:    true,
 					Description: "Name of the workflow to update",
 				},
 				{
 					Name:        "description",
-					Type:        "string",
+					Type:        api.ArgTypeString,
 					Required:    false,
 					Description: "Description of the workflow",
 				},
 				{
 					Name:        "args",
-					Type:        "object",
+					Type:        api.ArgTypeObject,
 					Required:    false,
 					Description: "Workflow arguments definition",
 					Schema:      getWorkflowArgsSchema(),
 				},
 				{
 					Name:        "steps",
-					Type:        "array",
+					Type:        api.ArgTypeArray,
 					Required:    true,
 					Description: "Workflow steps",
 					Schema:      getWorkflowStepsSchema(),
@@ -919,7 +919,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
-					Type:        "string",
+					Type:        api.ArgTypeString,
 					Required:    true,
 					Description: "Name of the workflow to delete",
 				},
@@ -931,26 +931,26 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
-					Type:        "string",
+					Type:        api.ArgTypeString,
 					Required:    true,
 					Description: "Name of the workflow",
 				},
 				{
 					Name:        "description",
-					Type:        "string",
+					Type:        api.ArgTypeString,
 					Required:    false,
 					Description: "Description of the workflow",
 				},
 				{
 					Name:        "args",
-					Type:        "object",
+					Type:        api.ArgTypeObject,
 					Required:    false,
 					Description: "Workflow arguments definition",
 					Schema:      getWorkflowArgsSchema(),
 				},
 				{
 					Name:        "steps",
-					Type:        "array",
+					Type:        api.ArgTypeArray,
 					Required:    true,
 					Description: "Workflow steps",
 					Schema:      getWorkflowStepsSchema(),
@@ -963,7 +963,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
-					Type:        "string",
+					Type:        api.ArgTypeString,
 					Required:    true,
 					Description: "Name of the workflow",
 				},
@@ -975,26 +975,26 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Args: []api.ArgMetadata{
 				{
 					Name:        "workflow_name",
-					Type:        "string",
+					Type:        api.ArgTypeString,
 					Required:    false,
 					Description: "Filter by workflow name",
 				},
 				{
 					Name:        "status",
-					Type:        "string",
+					Type:        api.ArgTypeString,
 					Required:    false,
 					Description: "Filter by execution status",
 				},
 				{
 					Name:        "limit",
-					Type:        "number",
+					Type:        api.ArgTypeNumber,
 					Required:    false,
 					Description: "Maximum number of executions to return",
 					Default:     50,
 				},
 				{
 					Name:        "offset",
-					Type:        "number",
+					Type:        api.ArgTypeNumber,
 					Required:    false,
 					Description: "Number of executions to skip",
 					Default:     0,
@@ -1007,20 +1007,20 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Args: []api.ArgMetadata{
 				{
 					Name:        "execution_id",
-					Type:        "string",
+					Type:        api.ArgTypeString,
 					Required:    true,
 					Description: "ID of the execution",
 				},
 				{
 					Name:        "include_steps",
-					Type:        "boolean",
+					Type:        api.ArgTypeBoolean,
 					Required:    false,
 					Description: "Include step details",
 					Default:     true,
 				},
 				{
 					Name:        "step_id",
-					Type:        "string",
+					Type:        api.ArgTypeString,
 					Required:    false,
 					Description: "Get specific step details",
 				},
@@ -1085,7 +1085,7 @@ func (a *Adapter) convertWorkflowArgs(workflowName string) []api.ArgMetadata {
 	for name, argDef := range workflow.Args {
 		param := api.ArgMetadata{
 			Name:        name,
-			Type:        argDef.Type,
+			Type:        api.ArgType(argDef.Type),
 			Required:    argDef.Required,
 			Description: argDef.Description,
 			Default:     argDef.Default,
