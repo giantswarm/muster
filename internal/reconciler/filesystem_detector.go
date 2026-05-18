@@ -15,9 +15,8 @@ import (
 
 // resourceDirMapping maps resource types to their directory names.
 var resourceDirMapping = map[ResourceType]string{
-	ResourceTypeMCPServer:    "mcpservers",
-	ResourceTypeServiceClass: "serviceclasses",
-	ResourceTypeWorkflow:     "workflows",
+	ResourceTypeMCPServer: "mcpservers",
+	ResourceTypeWorkflow:  "workflows",
 }
 
 // FilesystemDetector implements ChangeDetector for filesystem-based configurations.

@@ -10,13 +10,12 @@ muster test [OPTIONS]
 
 ## Description
 
-The `test` command executes comprehensive behavioral and integration tests for Muster by creating clean, isolated instances of `muster serve` for each test scenario. It validates all core Muster concepts including ServiceClass management, workflow execution, MCP server registration, and service lifecycle management.
+The `test` command executes comprehensive behavioral and integration tests for Muster by creating clean, isolated instances of `muster serve` for each test scenario. It validates all core Muster concepts including workflow execution, MCP server registration, and service lifecycle management.
 
 ## Test Categories
 
 ### Behavioral Tests
 BDD-style scenarios validating expected user behavior:
-- ServiceClass creation and management
 - Service lifecycle operations
 - Workflow execution patterns
 - Error handling scenarios
@@ -32,7 +31,6 @@ Component interaction and end-to-end validation:
 
 | Concept | Description | Example Scenarios |
 |---------|-------------|------------------|
-| `serviceclass` | ServiceClass management and dynamic instantiation | Creation, validation, templating |
 | `workflow` | Workflow execution and argument templating | Parameter passing, step execution |
 | `mcpserver` | MCP server registration and tool aggregation | Server lifecycle, tool discovery |
 | `service` | Service lifecycle and dependency management | Start/stop, health checks, dependencies |
@@ -42,7 +40,7 @@ Component interaction and end-to-end validation:
 ### Test Execution
 - `--scenario` (string): Run specific test scenario by name
 - `--category` (string): Run specific test category (behavioral\|integration)
-- `--concept` (string): Run tests for specific concept (serviceclass\|workflow\|mcpserver\|service)
+- `--concept` (string): Run tests for specific concept (workflow\|mcpserver\|service)
 
 ### Execution Control
 - `--parallel` (int): Number of parallel test workers
@@ -89,13 +87,10 @@ muster test --verbose --debug
 ### Running Specific Tests
 ```bash
 # Run specific test scenario
-muster test --scenario serviceclass-crud
+muster test --scenario service-lifecycle
 
 # Run all behavioral tests
 muster test --category behavioral
-
-# Run all ServiceClass-related tests
-muster test --concept serviceclass
 
 # Run workflow tests with debugging
 muster test --concept workflow --debug --verbose
@@ -126,21 +121,6 @@ muster test --generate-schema --validate-scenarios --verbose
 ```
 
 ## Test Scenarios
-
-### ServiceClass Tests
-```bash
-# Basic CRUD operations
-muster test --scenario serviceclass-crud
-
-# Complex ServiceClass with dependencies
-muster test --scenario serviceclass-with-mock
-
-# Parameter validation and templating
-muster test --scenario serviceclass-arg-validation
-
-# Availability checking
-muster test --scenario serviceclass-check-available
-```
 
 ### Service Lifecycle Tests
 ```bash
@@ -223,46 +203,41 @@ Tests can use mock MCP servers for consistent results:
 
 ### Default Output
 ```bash
-muster test --scenario serviceclass-crud
-# Running scenario: serviceclass-crud
+muster test --scenario service-lifecycle
+# Running scenario: service-lifecycle
 # ✓ Setup test environment
 # ✓ Start muster serve on port 19001
-# ✓ Create ServiceClass 'test-service'
-# ✓ Verify ServiceClass availability
 # ✓ Create service instance
 # ✓ Check service status
 # ✓ Cleanup test environment
 #
-# PASS: serviceclass-crud (2.34s)
+# PASS: service-lifecycle (2.34s)
 ```
 
 ### Verbose Output
 ```bash
-muster test --scenario serviceclass-crud --verbose
-# Running scenario: serviceclass-crud
+muster test --scenario service-lifecycle --verbose
+# Running scenario: service-lifecycle
 # [19:00:01] Setting up test environment in /tmp/muster-test-abc123
 # [19:00:01] Starting muster serve on port 19001
 # [19:00:02] Waiting for server readiness...
 # [19:00:02] Server ready, executing test steps
-# [19:00:02] Step 1: Create ServiceClass 'test-service'
-# [19:00:02] → muster create serviceclass test-service
-# [19:00:02] ✓ ServiceClass created successfully
-# [19:00:03] Step 2: Verify ServiceClass availability
-# [19:00:03] → muster check serviceclass test-service
-# [19:00:03] ✓ ServiceClass is available
+# [19:00:02] Step 1: Create service 'test-service'
+# [19:00:02] → muster create service test-service
+# [19:00:02] ✓ service created successfully
 # [19:00:03] Cleaning up test environment
 #
-# PASS: serviceclass-crud (2.34s)
+# PASS: service-lifecycle (2.34s)
 ```
 
 ### Debug Output
 ```bash
-muster test --scenario serviceclass-crud --debug
+muster test --scenario service-lifecycle --debug
 # Includes all verbose output plus:
 # [DEBUG] Configuration loaded from /tmp/muster-test-abc123
 # [DEBUG] Starting muster serve with args: [--config-path, /tmp/muster-test-abc123, --port, 19001]
 # [DEBUG] Server PID: 12345
-# [DEBUG] Executing command: muster create serviceclass test-service
+# [DEBUG] Executing command: muster create service test-service
 # [DEBUG] Command output: {"name": "test-service", "status": "Created"}
 # [DEBUG] Terminating server process 12345
 ```
@@ -319,7 +294,7 @@ muster test --parallel 4 --base-port 25000
 muster test --scenario my-new-feature --fail-fast --debug
 
 # Test specific component after changes
-muster test --concept serviceclass --parallel 2
+muster test --concept workflow --parallel 2
 ```
 
 ## CI/CD Integration
@@ -427,11 +402,11 @@ muster test --parallel 4 --base-port 20000
 
 #### Configuration Issues
 ```bash
-muster test --scenario serviceclass-crud
+muster test --scenario service-lifecycle
 # Error: Failed to load test configuration
 
 # Solution: Check configuration path
-muster test --scenario serviceclass-crud --config-path ~/.config/muster
+muster test --scenario service-lifecycle --config-path ~/.config/muster
 ```
 
 #### Test Environment Setup
@@ -466,8 +441,8 @@ cd /tmp/manual-test
 muster serve --config-path . --port 19999 --debug &
 
 # Run test commands manually
-muster create serviceclass test-service
-muster check serviceclass test-service
+muster create service test-service
+muster get service test-service
 ```
 
 ## Related Commands

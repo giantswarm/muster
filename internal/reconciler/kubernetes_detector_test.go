@@ -60,10 +60,6 @@ func TestKubernetesDetectorAddResourceType(t *testing.T) {
 		t.Errorf("AddResourceType(MCPServer) failed: %v", err)
 	}
 
-	if err := detector.AddResourceType(ResourceTypeServiceClass); err != nil {
-		t.Errorf("AddResourceType(ServiceClass) failed: %v", err)
-	}
-
 	if err := detector.AddResourceType(ResourceTypeWorkflow); err != nil {
 		t.Errorf("AddResourceType(Workflow) failed: %v", err)
 	}
@@ -72,9 +68,6 @@ func TestKubernetesDetectorAddResourceType(t *testing.T) {
 	detector.mu.RLock()
 	if !detector.resourceTypes[ResourceTypeMCPServer] {
 		t.Error("MCPServer not in resourceTypes")
-	}
-	if !detector.resourceTypes[ResourceTypeServiceClass] {
-		t.Error("ServiceClass not in resourceTypes")
 	}
 	if !detector.resourceTypes[ResourceTypeWorkflow] {
 		t.Error("Workflow not in resourceTypes")

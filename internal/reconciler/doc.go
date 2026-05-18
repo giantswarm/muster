@@ -40,7 +40,6 @@
 // The following resource types are supported for reconciliation:
 //
 //   - MCPServer: MCP server definitions and lifecycle management
-//   - ServiceClass: Service class templates for dynamic services
 //   - Workflow: Workflow definitions for multi-step operations
 //
 // # Event Integration

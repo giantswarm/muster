@@ -29,7 +29,6 @@ Examples:
   muster call core_service_status --name=prometheus
   muster call workflow_deploy --environment=production --replicas=3
   muster call core_mcpserver_list --output json
-  muster call core_service_create --json '{"name":"my-svc","serviceClassName":"example"}'
 
 Note: The aggregator server must be running (use 'muster serve') before using this command.`,
 	Args: cobra.MinimumNArgs(1),

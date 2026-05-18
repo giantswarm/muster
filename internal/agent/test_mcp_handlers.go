@@ -37,17 +37,14 @@ func (t *TestMCPServer) handleRunScenarios(ctx context.Context, request mcp.Call
 
 	if concept, ok := args["concept"].(string); ok && concept != "" {
 		switch concept {
-		case "serviceclass": //nolint:goconst
-			config.Concept = testing.ConceptServiceClass
 		case "workflow": //nolint:goconst
 			config.Concept = testing.ConceptWorkflow
 		case "mcpserver": //nolint:goconst
 			config.Concept = testing.ConceptMCPServer
-
 		case "service": //nolint:goconst
 			config.Concept = testing.ConceptService
 		default:
-			return mcp.NewToolResultError(fmt.Sprintf("Invalid concept '%s', must be one of: serviceclass, workflow, mcpserver, service", concept)), nil
+			return mcp.NewToolResultError(fmt.Sprintf("Invalid concept '%s', must be one of: workflow, mcpserver, service", concept)), nil
 		}
 	}
 
@@ -158,8 +155,6 @@ func (t *TestMCPServer) handleListScenarios(ctx context.Context, request mcp.Cal
 	// Apply concept filter
 	if concept, ok := args["concept"].(string); ok && concept != "" {
 		switch concept {
-		case "serviceclass":
-			testConfig.Concept = testing.ConceptServiceClass
 		case "workflow":
 			testConfig.Concept = testing.ConceptWorkflow
 		case "mcpserver":
@@ -351,8 +346,6 @@ func (t *TestMCPServer) handleAPISchemaValidation(ctx context.Context, scenarioP
 	// Apply concept filter
 	if concept, ok := args["concept"].(string); ok && concept != "" {
 		switch concept {
-		case "serviceclass":
-			testConfig.Concept = testing.ConceptServiceClass
 		case "workflow":
 			testConfig.Concept = testing.ConceptWorkflow
 		case "mcpserver":

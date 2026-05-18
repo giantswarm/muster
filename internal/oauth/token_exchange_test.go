@@ -361,13 +361,14 @@ func TestDeriveIssuerFromTokenEndpoint(t *testing.T) {
 }
 
 func TestValidateTokenIssuer(t *testing.T) {
-	// Create a valid JWT with a specific issuer
+	// Build a 3-part JWT with the given issuer. All segments are
+	// base64url-encoded — the signature placeholder must round-trip through
+	// base64 since the parser decodes every segment.
 	createTestToken := func(issuer string) string {
-		// JWT payload with the specified issuer
 		payload := fmt.Sprintf(`{"iss":"%s","sub":"user123","exp":9999999999}`, issuer)
-		// Encode as base64 (header.payload.signature format)
-		encodedPayload := base64.RawURLEncoding.EncodeToString([]byte(payload))
-		return "eyJhbGciOiJSUzI1NiJ9." + encodedPayload + ".signature"
+		return "eyJhbGciOiJSUzI1NiJ9." +
+			base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." +
+			base64.RawURLEncoding.EncodeToString([]byte("signature"))
 	}
 
 	t.Run("validation passes when issuer matches", func(t *testing.T) {
@@ -457,38 +458,6 @@ func TestIsJWTToken(t *testing.T) {
 
 	t.Run("returns false for empty token", func(t *testing.T) {
 		assert.False(t, isJWTToken(""))
-	})
-}
-
-func TestExtractIssuerFromToken(t *testing.T) {
-	createTestToken := func(payload string) string {
-		encodedPayload := base64.RawURLEncoding.EncodeToString([]byte(payload))
-		return "eyJhbGciOiJSUzI1NiJ9." + encodedPayload + ".signature"
-	}
-
-	t.Run("extracts issuer from valid token", func(t *testing.T) {
-		token := createTestToken(`{"iss":"https://dex.example.com","sub":"user123"}`)
-		issuer, err := extractIssuerFromToken(token)
-		require.NoError(t, err)
-		assert.Equal(t, "https://dex.example.com", issuer)
-	})
-
-	t.Run("returns error for token without iss claim", func(t *testing.T) {
-		token := createTestToken(`{"sub":"user123"}`)
-		_, err := extractIssuerFromToken(token)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "iss claim not found")
-	})
-
-	t.Run("returns error for invalid JWT format", func(t *testing.T) {
-		_, err := extractIssuerFromToken("invalid")
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "invalid JWT format")
-	})
-
-	t.Run("returns error for empty token", func(t *testing.T) {
-		_, err := extractIssuerFromToken("")
-		require.Error(t, err)
 	})
 }
 

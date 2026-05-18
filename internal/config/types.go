@@ -5,7 +5,7 @@ import "strings"
 // MusterConfig is the top-level configuration structure for muster.
 type MusterConfig struct {
 	Aggregator AggregatorConfig `yaml:"aggregator"`
-	Namespace  string           `yaml:"namespace,omitempty"`  // Namespace for MCPServer, ServiceClass and Workflow discovery
+	Namespace  string           `yaml:"namespace,omitempty"`  // Namespace for MCPServer and Workflow discovery
 	Kubernetes bool             `yaml:"kubernetes,omitempty"` // Enable Kubernetes CRD mode (uses CRDs instead of filesystem)
 	Events     bool             `yaml:"events,omitempty"`     // Enable Kubernetes event emission (alpha, disabled by default)
 }
@@ -254,6 +254,12 @@ type OAuthServerConfig struct {
 	// client registration. Enables Cursor/VSCode without registration tokens.
 	// Example: ["cursor", "vscode"]
 	TrustedPublicRegistrationSchemes []string `yaml:"trustedPublicRegistrationSchemes,omitempty"`
+
+	// TrustedPublicRegistrationRedirectURIs lists fully-qualified HTTPS redirect URIs
+	// allowed to register without a RegistrationAccessToken. Matching is exact after
+	// RFC 3986 normalization. Enables SaaS MCP clients that cannot send a DCR token.
+	// Example: ["https://claude.ai/api/mcp/auth_callback"]
+	TrustedPublicRegistrationRedirectURIs []string `yaml:"trustedPublicRegistrationRedirectURIs,omitempty"`
 
 	// EnableCIMD enables Client ID Metadata Documents per MCP 2025-11-25 spec.
 	// Default: true

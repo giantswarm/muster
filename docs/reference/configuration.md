@@ -24,9 +24,6 @@ Muster uses a file-based configuration system with YAML files organized in a str
 ├── workflows/               # Workflow definitions
 │   ├── deploy-app.yaml
 │   └── backup-database.yaml
-├── serviceclasses/          # ServiceClass templates
-│   ├── web-app.yaml
-│   └── database.yaml
 └── services/                # Service instances
     ├── my-web-app.yaml
     └── prod-database.yaml
@@ -57,7 +54,7 @@ namespace: "default"            # Kubernetes namespace for CR discovery (default
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `namespace` | `string` | `"default"` | Kubernetes namespace for discovering MCPServer, ServiceClass, and Workflow CRs |
+| `namespace` | `string` | `"default"` | Kubernetes namespace for discovering MCPServer and Workflow CRs |
 | `kubernetes` | `bool` | `false` | Enable Kubernetes CRD mode. When `true`, uses Kubernetes CRDs for resource storage. When `false`, uses filesystem YAML files. The Helm chart sets this to `true` by default. |
 | `aggregator` | `AggregatorConfig` | see below | Aggregator service configuration |
 | `auth` | `AuthConfig` | see below | Authentication settings for CLI |
@@ -243,63 +240,6 @@ mcpservers:
 | `timeout` | `integer` | ❌ | `30` | Connection timeout in seconds |
 | `headers` | `map[string]string` | ❌ | `{}` | HTTP headers (streamable-http and sse only) |
 
-### ServiceClass Configuration
-
-**Location**: `serviceclasses/*.yaml`
-
-```yaml
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: ServiceClass
-metadata:
-  name: web-application
-  namespace: default
-spec:
-  description: "Web application service template"
-  args:                          # Argument definitions
-    port:
-      type: integer
-      default: 8080
-      description: "Application port"
-      required: false
-    replicas:
-      type: integer
-      default: 1
-      description: "Number of replicas"
-      required: true
-  serviceConfig:                 # Service configuration template
-    lifecycleTools:
-      start:
-        tool: "start_web_service"
-        args:
-          port: "{{.port}}"
-          replicas: "{{.replicas}}"
-      stop:
-        tool: "stop_web_service"
-        args:
-          name: "{{.name}}"
-    healthCheck:
-      tool: "check_web_service"
-      args:
-        port: "{{.port}}"
-```
-
-#### ServiceClass Fields
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `description` | `string` | ❌ | Human-readable description |
-| `args` | `map[string]ArgDefinition` | ❌ | Argument schema for instantiation |
-| `serviceConfig` | `ServiceConfig` | ✅ | Service configuration template |
-
-#### Argument Definition
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `type` | `string` | ✅ | Data type (`string`, `integer`, `boolean`, `number`, `object`, `array`) |
-| `required` | `bool` | ❌ | Whether argument must be provided |
-| `default` | `any` | ❌ | Default value if not specified |
-| `description` | `string` | ❌ | Argument documentation |
-
 ### Workflow Configuration
 
 **Location**: `workflows/*.yaml`
@@ -382,7 +322,6 @@ metadata:
   name: my-web-app
   namespace: default
 spec:
-  serviceClassName: "web-application"
   args:
     port: 3000
     replicas: 2
@@ -403,7 +342,7 @@ Use `--config-path` to specify a custom configuration directory:
 
 ```bash
 muster serve --config-path /etc/muster
-muster create service --config-path ./project-config app-name web-app
+muster create service --config-path ./project-config app-name
 ```
 
 ### Environment-Specific Configuration
@@ -438,7 +377,6 @@ Check resource availability:
 ```bash
 # Check specific resources
 muster check mcpserver kubernetes
-muster check serviceclass web-app
 muster check workflow deploy-app
 ```
 
@@ -461,9 +399,8 @@ In resource templates, these variables are available:
 
 | Context | Variables | Description |
 |---------|-----------|-------------|
-| ServiceClass | `.name`, `.args.*` | Service name and arguments |
 | Workflow | `.args.*`, `.stepResults.*` | Workflow args and step outputs |
-| Service | `.name`, `.args.*`, `.serviceClass.*` | Service context |
+| Service | `.name`, `.args.*` | Service context |
 
 ## CLI Commands
 
@@ -473,7 +410,7 @@ In resource templates, these variables are available:
 |---------|-------------|
 | `muster serve` | Start the muster aggregator server |
 | `muster agent` | MCP client for the aggregator server |
-| `muster create` | Create resources (service, serviceclass, workflow) |
+| `muster create` | Create resources (service, workflow) |
 | `muster get` | Get detailed information about resources |
 | `muster list` | List resources |
 | `muster start` | Start services or execute workflows |
@@ -486,7 +423,6 @@ In resource templates, these variables are available:
 | Resource Type | Create | Get | List | Check | Start |
 |---------------|--------|-----|------|-------|-------|
 | `service` | ✅ | ✅ | ✅ | ❌ | ✅ |
-| `serviceclass` | ✅ | ✅ | ✅ | ✅ | ❌ |
 | `mcpserver` | ❌ | ✅ | ✅ | ✅ | ❌ |
 | `workflow` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `workflow-execution` | ❌ | ✅ | ✅ | ❌ | ❌ |

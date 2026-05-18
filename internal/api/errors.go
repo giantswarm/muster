@@ -13,7 +13,7 @@ import (
 // supports custom error messages for specific use cases.
 type NotFoundError struct {
 	// ResourceType categorizes the type of resource that was not found
-	// (e.g., "workflow", "serviceclass", "service")
+	// (e.g., "workflow", "service", "MCP server")
 	ResourceType string
 
 	// ResourceName is the specific identifier of the resource that was not found
@@ -80,17 +80,6 @@ var (
 	//   - *NotFoundError: A NotFoundError for the specified workflow
 	NewWorkflowNotFoundError = func(name string) *NotFoundError {
 		return NewNotFoundError("workflow", name)
-	}
-
-	// NewServiceClassNotFoundError creates a service class not found error.
-	//
-	// Args:
-	//   - name: The name of the service class that was not found
-	//
-	// Returns:
-	//   - *NotFoundError: A NotFoundError for the specified service class
-	NewServiceClassNotFoundError = func(name string) *NotFoundError {
-		return NewNotFoundError("service class", name)
 	}
 
 	// NewServiceNotFoundError creates a service not found error.

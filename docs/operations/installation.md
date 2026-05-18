@@ -136,7 +136,6 @@ For container orchestration environments.
 #### Install CRDs
 ```bash
 kubectl apply -f https://raw.githubusercontent.com/giantswarm/muster/main/helm/muster/crds/muster.giantswarm.io_mcpservers.yaml
-kubectl apply -f https://raw.githubusercontent.com/giantswarm/muster/main/helm/muster/crds/muster.giantswarm.io_serviceclasses.yaml
 kubectl apply -f https://raw.githubusercontent.com/giantswarm/muster/main/helm/muster/crds/muster.giantswarm.io_workflows.yaml
 ```
 
@@ -213,8 +212,6 @@ spec:
 ├── mcpservers/           # MCP server definitions
 │   ├── kubernetes.yaml
 │   └── prometheus.yaml
-├── serviceclasses/       # Service templates
-│   └── web-app.yaml
 └── workflows/           # Workflow definitions
     └── deploy-app.yaml
 ```
@@ -429,7 +426,6 @@ sudo systemctl start muster
 ```bash
 # Update CRDs
 kubectl apply -f https://raw.githubusercontent.com/giantswarm/muster/main/helm/muster/crds/muster.giantswarm.io_mcpservers.yaml
-kubectl apply -f https://raw.githubusercontent.com/giantswarm/muster/main/helm/muster/crds/muster.giantswarm.io_serviceclasses.yaml
 kubectl apply -f https://raw.githubusercontent.com/giantswarm/muster/main/helm/muster/crds/muster.giantswarm.io_workflows.yaml
 
 # Update deployment image
@@ -440,9 +436,8 @@ kubectl set image deployment/muster-server muster=giantswarm/muster:latest -n mu
 
 After installation:
 1. [Configure your first MCP server](../how-to/mcp-server-management.md)
-2. [Create service classes](../how-to/serviceclass-patterns.md)
-3. [Build your first workflow](../how-to/workflow-creation.md)
-4. [Set up monitoring](monitoring.md)
+2. [Build your first workflow](../how-to/workflow-creation.md)
+3. [Set up monitoring](monitoring.md)
 
 ## Support
 

@@ -38,9 +38,7 @@
 //   - **ConfigHandler**: Configuration management and runtime settings
 //
 // ## Specialized Handlers
-//   - **ServiceClassManagerHandler**: ServiceClass definition and lifecycle management
 //   - **MCPServerManagerHandler**: MCP server definition and process management
-
 //   - **WorkflowHandler**: Multi-step workflow execution and orchestration
 //
 // # Core Operations
@@ -51,28 +49,12 @@
 //   - Service registry operations (register, get, list services)
 //   - Service lifecycle management (start, stop, restart)
 //   - Service state monitoring and health checking
-//   - Dynamic service instance creation and management
-//   - Both static services (from configuration) and ServiceClass-based instances
-//
-// ## ServiceClass Operations
-//   - List available ServiceClasses with real-time availability status
-//   - Get ServiceClass definitions, args, and lifecycle tool configuration
-//   - Check tool availability for ServiceClasses and validate configurations
-//   - Create and manage ServiceClass-based service instances with arg validation
-//   - ServiceClass instance lifecycle, health monitoring, and event streaming
 //
 // ## MCP Server Management
 //   - MCP server definition management (create, update, delete, validate)
 //   - MCP server lifecycle management and health monitoring
 //   - Tool aggregation, namespace management, and conflict resolution
 //   - Dynamic MCP server registration and tool discovery
-//
-// ## Service Class System
-//   - User-defined service class definition management with operation validation
-//   - Service class operation execution with arg validation
-//   - Dynamic service class availability checking based on underlying tools
-//   - Integration with tool provider system for extensible operations
-//   - Service class namespace management and conflict resolution
 //
 // ## Workflow Management
 //   - Workflow definition management (create, update, delete, validate)
@@ -91,7 +73,6 @@
 //   - Structured request types for all operations (Create, Update, Validate patterns)
 //   - Type-safe arg parsing and validation using ParseRequest
 //   - Comprehensive error handling with contextual information
-//   - Response mapping for ServiceClass tool integration
 //
 // # Tool Update Events
 //
@@ -164,20 +145,6 @@
 //	    api.RegisterServiceRegistry(r)
 //	}
 //
-// ## ServiceClass Registration
-//
-//	type ServiceClassAdapter struct {
-//	    manager *ServiceClassManager
-//	}
-//
-//	func (s *ServiceClassAdapter) ListServiceClasses(ctx context.Context) ([]*ServiceClassInfo, error) {
-//	    return s.manager.ListServiceClasses(ctx)
-//	}
-//
-//	func (s *ServiceClassAdapter) Register() {
-//	    api.RegisterServiceClassManager(s)
-//	}
-//
 // ## Tool Provider Registration
 //
 //	type MyToolProvider struct {
@@ -201,26 +168,8 @@
 //	    err := serviceManager.StartService(ctx, "my-service")
 //	}
 //
-//	serviceClassMgr := api.GetServiceClassManager()
-//	if serviceClassMgr != nil {
-//	    classes, err := serviceClassMgr.ListServiceClasses(ctx)
-//	}
-//
 //	// Execute workflows through convenience functions
 //	result, err := api.ExecuteWorkflow(ctx, "deploy-app", args)
-//
-// ## Request Validation and Parsing
-//
-//	// Parse and validate request args
-//	var req ServiceClassCreateRequest
-//	if err := api.ParseRequest(args, &req); err != nil {
-//	    return fmt.Errorf("invalid request: %w", err)
-//	}
-//
-//	// Validate without creating
-//	var validateReq ServiceClassValidateRequest
-//	api.ParseRequest(args, &validateReq)
-//	// Perform validation logic...
 //
 // # Workflow Integration
 //
@@ -254,13 +203,8 @@
 //
 // The API provides orchestrator functionality for unified service operations:
 //
-//	// Create services through orchestrator
-//	orchestrator := api.GetOrchestrator()
-//	if orchestrator != nil {
-//	    instance, err := orchestrator.CreateServiceClassInstance(ctx, req)
-//	}
-//
 //	// List all services with unified status
+//	orchestrator := api.GetOrchestrator()
 //	services, err := orchestrator.ListServices(ctx)
 //
 // # Thread Safety
@@ -279,7 +223,7 @@
 // The API layer provides structured error handling:
 //
 //   - Handler availability checking with nil safety
-//   - Service and ServiceClass validation with detailed error messages
+//   - Service validation with detailed error messages
 //   - Tool execution error propagation with context preservation
 //   - Workflow execution error handling
 //   - Request parsing validation with field-level error reporting
@@ -300,7 +244,6 @@
 //
 // The API package provides testing utilities:
 //
-//   - **Mock handler registration**: SetServiceClassManagerForTesting and similar
 //   - **Handler isolation**: Independent handler registration per test
 //   - **Event testing**: Tool update event validation and mocking
 //   - **Request validation testing**: ParseRequest error scenario testing

@@ -312,35 +312,28 @@ type MockStatusUpdater struct {
 	mu sync.Mutex
 
 	// Storage for CRDs
-	MCPServers     map[string]*musterv1alpha1.MCPServer
-	ServiceClasses map[string]*musterv1alpha1.ServiceClass
-	Workflows      map[string]*musterv1alpha1.Workflow
+	MCPServers map[string]*musterv1alpha1.MCPServer
+	Workflows  map[string]*musterv1alpha1.Workflow
 
 	// Tracking for verification
-	GetMCPServerCalled             bool
-	UpdateMCPServerStatusCalled    bool
-	GetServiceClassCalled          bool
-	UpdateServiceClassStatusCalled bool
-	GetWorkflowCalled              bool
-	UpdateWorkflowStatusCalled     bool
+	GetMCPServerCalled          bool
+	UpdateMCPServerStatusCalled bool
+	GetWorkflowCalled           bool
+	UpdateWorkflowStatusCalled  bool
 
 	// Call counts for retry testing
-	UpdateMCPServerStatusCallCount    int
-	UpdateServiceClassStatusCallCount int
-	UpdateWorkflowStatusCallCount     int
+	UpdateMCPServerStatusCallCount int
+	UpdateWorkflowStatusCallCount  int
 
 	// Last updated resources for verification
-	LastUpdatedMCPServer    *musterv1alpha1.MCPServer
-	LastUpdatedServiceClass *musterv1alpha1.ServiceClass
-	LastUpdatedWorkflow     *musterv1alpha1.Workflow
+	LastUpdatedMCPServer *musterv1alpha1.MCPServer
+	LastUpdatedWorkflow  *musterv1alpha1.Workflow
 
 	// Configurable errors
-	GetMCPServerError             error
-	UpdateMCPServerStatusError    error
-	GetServiceClassError          error
-	UpdateServiceClassStatusError error
-	GetWorkflowError              error
-	UpdateWorkflowStatusError     error
+	GetMCPServerError          error
+	UpdateMCPServerStatusError error
+	GetWorkflowError           error
+	UpdateWorkflowStatusError  error
 
 	// For retry testing: fail N times before succeeding
 	UpdateMCPServerStatusFailCount int
@@ -353,7 +346,6 @@ type MockStatusUpdater struct {
 func NewMockStatusUpdater() *MockStatusUpdater {
 	return &MockStatusUpdater{
 		MCPServers:     make(map[string]*musterv1alpha1.MCPServer),
-		ServiceClasses: make(map[string]*musterv1alpha1.ServiceClass),
 		Workflows:      make(map[string]*musterv1alpha1.Workflow),
 		KubernetesMode: true,
 	}
@@ -399,41 +391,6 @@ func (m *MockStatusUpdater) UpdateMCPServerStatus(ctx context.Context, server *m
 
 	key := server.Namespace + "/" + server.Name
 	m.MCPServers[key] = server
-	return nil
-}
-
-func (m *MockStatusUpdater) GetServiceClass(ctx context.Context, name, namespace string) (*musterv1alpha1.ServiceClass, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.GetServiceClassCalled = true
-
-	if m.GetServiceClassError != nil {
-		return nil, m.GetServiceClassError
-	}
-
-	key := namespace + "/" + name
-	sc, ok := m.ServiceClasses[key]
-	if !ok {
-		defaultSC := &musterv1alpha1.ServiceClass{}
-		defaultSC.Name = name
-		defaultSC.Namespace = namespace
-		return defaultSC, nil
-	}
-	return sc, nil
-}
-
-func (m *MockStatusUpdater) UpdateServiceClassStatus(ctx context.Context, serviceClass *musterv1alpha1.ServiceClass) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.UpdateServiceClassStatusCalled = true
-	m.LastUpdatedServiceClass = serviceClass
-
-	if m.UpdateServiceClassStatusError != nil {
-		return m.UpdateServiceClassStatusError
-	}
-
-	key := serviceClass.Namespace + "/" + serviceClass.Name
-	m.ServiceClasses[key] = serviceClass
 	return nil
 }
 
@@ -502,20 +459,6 @@ func (m *MockStatusUpdater) WasUpdateMCPServerStatusCalled() bool {
 	return m.UpdateMCPServerStatusCalled
 }
 
-// WasGetServiceClassCalled returns whether GetServiceClass was called (thread-safe).
-func (m *MockStatusUpdater) WasGetServiceClassCalled() bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.GetServiceClassCalled
-}
-
-// WasUpdateServiceClassStatusCalled returns whether UpdateServiceClassStatus was called (thread-safe).
-func (m *MockStatusUpdater) WasUpdateServiceClassStatusCalled() bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.UpdateServiceClassStatusCalled
-}
-
 // WasGetWorkflowCalled returns whether GetWorkflow was called (thread-safe).
 func (m *MockStatusUpdater) WasGetWorkflowCalled() bool {
 	m.mu.Lock()
@@ -535,13 +478,6 @@ func (m *MockStatusUpdater) GetLastUpdatedMCPServer() *musterv1alpha1.MCPServer 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.LastUpdatedMCPServer
-}
-
-// GetLastUpdatedServiceClass returns the last updated ServiceClass (thread-safe copy).
-func (m *MockStatusUpdater) GetLastUpdatedServiceClass() *musterv1alpha1.ServiceClass {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.LastUpdatedServiceClass
 }
 
 // GetLastUpdatedWorkflow returns the last updated Workflow (thread-safe copy).
@@ -564,11 +500,8 @@ func (m *MockStatusUpdater) ResetCallCounts() {
 	defer m.mu.Unlock()
 	m.GetMCPServerCalled = false
 	m.UpdateMCPServerStatusCalled = false
-	m.GetServiceClassCalled = false
-	m.UpdateServiceClassStatusCalled = false
 	m.GetWorkflowCalled = false
 	m.UpdateWorkflowStatusCalled = false
 	m.UpdateMCPServerStatusCallCount = 0
-	m.UpdateServiceClassStatusCallCount = 0
 	m.UpdateWorkflowStatusCallCount = 0
 }

@@ -16,7 +16,6 @@ var getFlags cli.CommandFlags
 // Available resource types for autocompletion
 var getResourceTypes = []string{
 	"service",
-	"serviceclass",
 	"mcpserver",
 	"workflow",
 	"workflow-execution",
@@ -31,7 +30,6 @@ var getMCPResourceTypes = mcpPrimitiveTypes
 // Resource type mappings for get operations
 var getResourceMappings = map[string]string{
 	"service":            "core_service_status",
-	"serviceclass":       "core_serviceclass_get",
 	"mcpserver":          "core_mcpserver_get",
 	"workflow":           "core_workflow_get",
 	"workflow-execution": "core_workflow_execution_get",
@@ -85,7 +83,6 @@ func getResourceNameCompletion(cmd *cobra.Command, args []string, toComplete str
 	// Map resource types to tools
 	toolMap := map[string]string{
 		"service":            "core_service_list",
-		"serviceclass":       "core_serviceclass_list",
 		"mcpserver":          "core_mcpserver_list",
 		"workflow":           "core_workflow_list",
 		"workflow-execution": "core_workflow_execution_list",
@@ -212,7 +209,6 @@ var getCmd = &cobra.Command{
 
 Available resource types:
   service             - Get detailed status of a service (by name)
-  serviceclass        - Get ServiceClass details and configuration (by name)
   mcpserver           - Get MCP server details and configuration (by name)
   workflow            - Get workflow definition and details (by name)
   workflow-execution  - Get workflow execution details and results (by execution ID)
@@ -224,7 +220,7 @@ Examples:
   muster get service prometheus
   muster get workflow auth-flow
   muster get workflow-execution abc123-def456-789
-  muster get serviceclass kubernetes --output yaml
+  muster get mcpserver kubernetes --output yaml
   muster get tool core_service_list
   muster get resource muster://auth/status
   muster get prompt code_review

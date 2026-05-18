@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.20.1
+    controller-gen.kubebuilder.io/version: v0.21.0
   name: workflows.muster.giantswarm.io
 spec:
   group: muster.giantswarm.io
@@ -53,17 +53,17 @@ spec:
             properties:
               args:
                 additionalProperties:
-                  description: ArgDefinition defines validation and metadata for service
-                    arguments
+                  description: |-
+                    ArgDefinition defines validation rules and metadata for a single workflow argument.
+                    It specifies the expected type, whether the argument is required, an optional default,
+                    and a human-readable description.
                   properties:
                     default:
-                      description: Default provides a default value if the argument
-                        is not specified.
-                      type: object
+                      description: Default provides a default value when the argument
+                        is omitted.
                       x-kubernetes-preserve-unknown-fields: true
                     description:
-                      description: Description explains the purpose and usage of this
-                        argument.
+                      description: Description provides human-readable documentation.
                       maxLength: 500
                       type: string
                     required:
@@ -72,8 +72,6 @@ spec:
                         provided.
                       type: boolean
                     type:
-                      description: Type specifies the expected data type for this
-                        argument.
                       enum:
                       - string
                       - integer
@@ -107,10 +105,13 @@ spec:
                       type: boolean
                     args:
                       additionalProperties:
-                        type: object
                         x-kubernetes-preserve-unknown-fields: true
-                      description: Args provides arguments for the tool execution
-                        (supports templating).
+                      description: |-
+                        Args provides arguments for the tool execution (supports templating).
+                        Values may be any JSON type (string, integer, boolean, number, object, array)
+                        because the schema uses x-kubernetes-preserve-unknown-fields. Templated
+                        strings such as "{{.input.namespace}}" are resolved server-side at
+                        execution time.
                       type: object
                     condition:
                       description: Condition defines an optional condition that determines
@@ -118,20 +119,20 @@ spec:
                       properties:
                         args:
                           additionalProperties:
-                            type: object
                             x-kubernetes-preserve-unknown-fields: true
-                          description: Args provides the arguments to pass to the
-                            condition tool.
+                          description: |-
+                            Args provides the arguments to pass to the condition tool.
+                            Values may be any JSON type.
                           type: object
                         expect:
                           description: Expect defines positive health check expectations.
                           properties:
                             jsonPath:
                               additionalProperties:
-                                type: object
                                 x-kubernetes-preserve-unknown-fields: true
-                              description: JsonPath defines JSON path conditions to
-                                check in the result.
+                              description: |-
+                                JsonPath defines JSON path conditions to check in the result.
+                                Values may be any JSON type (typically scalars compared to a result field).
                               type: object
                             success:
                               description: Success indicates whether the tool call
@@ -143,10 +144,10 @@ spec:
                           properties:
                             jsonPath:
                               additionalProperties:
-                                type: object
                                 x-kubernetes-preserve-unknown-fields: true
-                              description: JsonPath defines JSON path conditions to
-                                check in the result.
+                              description: |-
+                                JsonPath defines JSON path conditions to check in the result.
+                                Values may be any JSON type (typically scalars compared to a result field).
                               type: object
                             success:
                               description: Success indicates whether the tool call
@@ -176,10 +177,10 @@ spec:
                       type: string
                     outputs:
                       additionalProperties:
-                        type: object
                         x-kubernetes-preserve-unknown-fields: true
-                      description: Outputs defines how step results should be stored
-                        and made available to subsequent steps.
+                      description: |-
+                        Outputs defines how step results should be stored and made available to subsequent steps.
+                        Values may be any JSON type.
                       type: object
                     store:
                       default: false

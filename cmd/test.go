@@ -54,9 +54,21 @@ func completeCategoryFlag(cmd *cobra.Command, args []string, toComplete string) 
 	return []string{"behavioral", "integration"}, cobra.ShellCompDirectiveDefault
 }
 
+// validTestConcepts is the canonical set of --concept values; consumed by
+// completion, validation, and the error message.
+var validTestConcepts = []testing.TestConcept{
+	testing.ConceptWorkflow,
+	testing.ConceptMCPServer,
+	testing.ConceptService,
+}
+
 // completeConceptFlag provides shell completion for the concept flag
 func completeConceptFlag(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	return []string{"serviceclass", "workflow", "mcpserver", "service"}, cobra.ShellCompDirectiveDefault
+	out := make([]string, len(validTestConcepts))
+	for i, c := range validTestConcepts {
+		out[i] = string(c)
+	}
+	return out, cobra.ShellCompDirectiveDefault
 }
 
 // completeScenarioFlag provides shell completion for the scenario flag by loading available scenarios
@@ -85,7 +97,6 @@ var testCmd = &cobra.Command{
 for muster by creating clean, isolated instances of muster serve for each test scenario.
 
 This command validates all core muster concepts including:
-- ServiceClass management and templating
 - Workflow execution and arg resolution
 - MCPServer registration and tool aggregation
 
@@ -105,7 +116,6 @@ Test Categories:
 - integration: Component interaction and end-to-end validation
 
 Core Concepts:
-- serviceclass: ServiceClass management and dynamic instantiation
 - workflow: Workflow execution and arg templating
 - mcpserver: MCP server registration and tool aggregation
 
@@ -119,7 +129,7 @@ with the actual API as it evolves.
 Example usage:
   muster test                              # Run all tests
   muster test --category=behavioral        # Run behavioral tests only
-  muster test --concept=serviceclass      # Run ServiceClass tests
+  muster test --concept=workflow          # Run Workflow tests
   muster test --scenario=basic-create     # Run specific scenario
   muster test --verbose --debug           # Detailed output and debugging
   muster test --fail-fast                 # Stop on first failure
@@ -161,7 +171,7 @@ func init() {
 
 	// Test selection and filtering
 	testCmd.Flags().StringVar(&testCategory, "category", "", "Run tests for specific category (behavioral, integration)")
-	testCmd.Flags().StringVar(&testConcept, "concept", "", "Run tests for specific concept (serviceclass, workflow, mcpserver, service)")
+	testCmd.Flags().StringVar(&testConcept, "concept", "", "Run tests for specific concept (workflow, mcpserver, service)")
 	testCmd.Flags().StringVar(&testScenario, "scenario", "", "Run specific test scenario by name")
 
 	// Test configuration and reporting
@@ -354,17 +364,20 @@ func runTest(cmd *cobra.Command, args []string) error {
 
 	// Parse concept filter
 	if testConcept != "" {
-		switch testConcept {
-		case "serviceclass":
-			testConfig.Concept = testing.ConceptServiceClass
-		case "workflow": //nolint:goconst
-			testConfig.Concept = testing.ConceptWorkflow
-		case "mcpserver": //nolint:goconst
-			testConfig.Concept = testing.ConceptMCPServer
-		case "service":
-			testConfig.Concept = testing.ConceptService
-		default:
-			return fmt.Errorf("invalid concept '%s', must be one of: serviceclass, workflow, mcpserver, service", testConcept)
+		matched := false
+		for _, c := range validTestConcepts {
+			if testing.TestConcept(testConcept) == c {
+				testConfig.Concept = c
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			names := make([]string, len(validTestConcepts))
+			for i, c := range validTestConcepts {
+				names[i] = string(c)
+			}
+			return fmt.Errorf("invalid concept %q, must be one of: %s", testConcept, strings.Join(names, ", "))
 		}
 	}
 
@@ -386,9 +399,8 @@ func runTest(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(scenarios) == 0 {
-		fmt.Printf("⚠️  No test scenarios found in %s\n", scenarioPath)
-		fmt.Printf("💡 Available test scenario files:\n")
-		fmt.Printf("   • internal/testing/scenarios/serviceclass_basic.yaml\n")
+		fmt.Printf("No test scenarios found in %s\n", scenarioPath)
+		fmt.Printf("Available test scenario files:\n")
 		fmt.Printf("   • internal/testing/scenarios/workflow_basic.yaml\n")
 		fmt.Printf("\n")
 		fmt.Printf("📚 For more information, see:\n")

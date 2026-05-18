@@ -167,6 +167,13 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 				AppName:                 server.Spec.Auth.Teleport.AppName,
 			}
 		}
+		// Convert AuthorizationServer override if present
+		if server.Spec.Auth.AuthorizationServer != nil {
+			info.Auth.AuthorizationServer = &api.MCPServerAuthAuthorizationServer{
+				Issuer: server.Spec.Auth.AuthorizationServer.Issuer.Normalize(),
+				Scopes: server.Spec.Auth.AuthorizationServer.Scopes,
+			}
+		}
 	}
 
 	// Generate user-friendly status message based on state and error
@@ -283,6 +290,13 @@ func (a *Adapter) convertRequestToCRD(req *api.MCPServerCreateRequest) *musterv1
 				IdentitySecretName:      req.Auth.Teleport.IdentitySecretName,
 				IdentitySecretNamespace: req.Auth.Teleport.IdentitySecretNamespace,
 				AppName:                 req.Auth.Teleport.AppName,
+			}
+		}
+		// Convert AuthorizationServer override if present
+		if req.Auth.AuthorizationServer != nil {
+			crd.Spec.Auth.AuthorizationServer = &musterv1alpha1.MCPServerAuthAuthorizationServer{
+				Issuer: musterv1alpha1.IssuerURL(strings.TrimSuffix(req.Auth.AuthorizationServer.Issuer, "/")),
+				Scopes: req.Auth.AuthorizationServer.Scopes,
 			}
 		}
 	}
@@ -662,6 +676,12 @@ func (a *Adapter) handleMCPServerUpdate(args map[string]interface{}) (*api.CallT
 				IdentitySecretName:      req.Auth.Teleport.IdentitySecretName,
 				IdentitySecretNamespace: req.Auth.Teleport.IdentitySecretNamespace,
 				AppName:                 req.Auth.Teleport.AppName,
+			}
+		}
+		if req.Auth.AuthorizationServer != nil {
+			existing.Spec.Auth.AuthorizationServer = &musterv1alpha1.MCPServerAuthAuthorizationServer{
+				Issuer: musterv1alpha1.IssuerURL(strings.TrimSuffix(req.Auth.AuthorizationServer.Issuer, "/")),
+				Scopes: req.Auth.AuthorizationServer.Scopes,
 			}
 		}
 	}

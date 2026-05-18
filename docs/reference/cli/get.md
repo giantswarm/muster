@@ -19,7 +19,6 @@ The `get` command retrieves detailed information about a specific resource in Mu
 | Resource Type | Description | Example |
 |---------------|-------------|---------|
 | `service` | Get detailed status of a service | `muster get service my-app` |
-| `serviceclass` | Get ServiceClass details and configuration | `muster get serviceclass web-app` |
 | `mcpserver` | Get MCP server details and configuration | `muster get mcpserver kubernetes` |
 | `workflow` | Get workflow definition and details | `muster get workflow deploy-app` |
 | `workflow-execution` | Get workflow execution details and results | `muster get workflow-execution abc123` |
@@ -46,7 +45,6 @@ muster get service my-web-app
 # Example output:
 # Name:              my-web-app
 # Status:            Running
-# ServiceClass:      web-application
 # Created:           2024-01-07 10:00:00
 # Uptime:           2h 15m
 # Parameters:
@@ -55,27 +53,6 @@ muster get service my-web-app
 #   environment:     production
 # Health:           Healthy
 # Last Restart:     Never
-```
-
-### Getting ServiceClass Information
-```bash
-# Get ServiceClass configuration
-muster get serviceclass web-application
-
-# Example output:
-# Name:              web-application
-# Description:       Scalable web application service
-# Created:           2024-01-07 08:00:00
-# Tools Required:
-#   - x_kubernetes_apply
-#   - x_kubernetes_get_status
-#   - x_kubernetes_scale
-# Parameters:
-#   image:           (required) Container image
-#   replicas:        (optional) Number of replicas (default: 1)
-#   environment:     (optional) Environment name
-# Instances:         2 services using this class
-# Status:           Available
 ```
 
 ### Getting MCP Server Information
@@ -155,7 +132,6 @@ Human-readable formatted output with sections:
 muster get service my-app
 # Name:              my-app
 # Status:            Running
-# ServiceClass:      web-service
 # Created:           2h ago
 # Parameters:
 #   image:           nginx:latest
@@ -170,7 +146,6 @@ muster get service my-app --output json
 # {
 #   "name": "my-app",
 #   "status": "Running",
-#   "serviceClass": "web-service",
 #   "created": "2024-01-07T10:00:00Z",
 #   "uptime": "2h15m",
 #   "parameters": {
@@ -193,29 +168,25 @@ muster get service my-app --output json
 Configuration-friendly output:
 
 ```bash
-muster get serviceclass web-app --output yaml
+muster get workflow deploy-app --output yaml
 # apiVersion: muster.giantswarm.io/v1alpha1
-# kind: ServiceClass
+# kind: Workflow
 # metadata:
-#   name: web-app
+#   name: deploy-app
 #   created: "2024-01-07T08:00:00Z"
 # spec:
-#   description: "Web application service"
-#   toolsRequired:
-#   - x_kubernetes_apply
-#   - x_kubernetes_get_status
+#   description: "Application deployment workflow"
 #   parameters:
-#     image:
+#     app_name:
 #       type: string
 #       required: true
-#       description: "Container image"
+#       description: "Application name"
 #     replicas:
 #       type: integer
 #       required: false
 #       default: 1
 # status:
 #   available: true
-#   instances: 2
 ```
 
 ## Detailed Information Sections
@@ -223,20 +194,11 @@ muster get serviceclass web-app --output yaml
 ### Service Details
 When getting service information, you'll see:
 
-- **Basic Info**: Name, status, ServiceClass, creation time
+- **Basic Info**: Name, status, creation time
 - **Runtime Info**: Uptime, PID, health status
 - **Configuration**: All parameters passed during creation
 - **Lifecycle**: Start/stop history, restart information
 - **Dependencies**: Required tools and their availability
-
-### ServiceClass Details
-ServiceClass information includes:
-
-- **Template Info**: Name, description, creation time
-- **Tool Requirements**: List of required MCP tools
-- **Parameter Schema**: Required and optional parameters with types
-- **Usage Statistics**: Number of service instances
-- **Availability**: Whether all required tools are available
 
 ### MCP Server Details
 MCP server information shows:
@@ -279,17 +241,6 @@ muster get service problematic-app
 # - Parameters: Incorrect configuration
 ```
 
-### Configuration Verification
-```bash
-# Verify ServiceClass configuration
-muster get serviceclass my-template --output yaml
-
-# Check:
-# - Tool requirements are met
-# - Parameter schema is correct
-# - Instance count matches expectations
-```
-
 ### Workflow Analysis
 ```bash
 # Analyze workflow performance
@@ -330,7 +281,7 @@ muster list service
 muster get invalid-type my-resource
 # Error: unknown resource type 'invalid-type'
 
-# Valid types: service, serviceclass, mcpserver, workflow, workflow-execution
+# Valid types: service, mcpserver, workflow, workflow-execution
 ```
 
 ### Connection Issues
@@ -368,7 +319,7 @@ The get command supports tab completion:
 ```bash
 # Resource types
 muster get [TAB]
-# Suggestions: service, serviceclass, mcpserver, workflow, workflow-execution
+# Suggestions: service, mcpserver, workflow, workflow-execution
 
 # Resource names (context-aware)
 muster get service [TAB]
@@ -399,13 +350,10 @@ fi
 # 1. Check service status
 muster get service my-app
 
-# 2. If unhealthy, check the ServiceClass
-muster get serviceclass web-application
-
-# 3. Verify MCP servers are running
+# 2. Verify MCP servers are running
 muster get mcpserver kubernetes
 
-# 4. Check recent workflow executions
+# 3. Check recent workflow executions
 muster list workflow-execution | head -5
 ```
 
@@ -435,11 +383,6 @@ fi
 ```bash
 # Extract service configuration for backup
 muster get service my-app --output yaml > my-app-backup.yaml
-
-# Extract all ServiceClass configurations
-for sc in $(muster list serviceclass --output json | jq -r '.serviceClasses[].name'); do
-  muster get serviceclass "$sc" --output yaml > "serviceclass-$sc.yaml"
-done
 ```
 
 ### Performance Analysis

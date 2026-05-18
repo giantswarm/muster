@@ -993,8 +993,8 @@ func (c *Client) CallToolSimple(ctx context.Context, name string, args map[strin
 //
 // Example:
 //
-//	result, err := client.CallToolJSON(ctx, "core_service_get", map[string]interface{}{
-//	    "name": "web-app",
+//	result, err := client.CallToolJSON(ctx, "core_service_status", map[string]interface{}{
+//	    "name": "mcp-aggregator",
 //	})
 //	if err != nil {
 //	    return err

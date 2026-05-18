@@ -100,12 +100,6 @@ call core_config_get_aggregator {}
 call core_service_list {}
 call core_service_status {"name": "mcp-aggregator"}
 
-# ServiceClass templates
-call core_serviceclass_list {}
-call core_serviceclass_available {
-  "name": "service-k8s-connection"
-}
-
 # Workflow orchestration
 call core_workflow_list {}
 call core_workflow_execution_list {}
@@ -174,9 +168,6 @@ core_service_list()                         # Not available
 Based on the current `.muster` setup, try these examples:
 
 ```bash
-# Explore available ServiceClasses
-call core_serviceclass_list {}
-
 # Check what workflows are available
 filter tools workflow_*
 
@@ -185,23 +176,12 @@ call workflow_auth-workflow {
   "cluster": "my-cluster",
   "profile": "default"
 }
-
-# Create a Kubernetes connection service
-call core_service_create {
-  "serviceClassName": "service-k8s-connection",
-  "name": "demo-connection",
-  "args": {
-    "cluster_name": "demo-cluster",
-    "role": "management"
-  }
-}
 ```
 
 ## Next Steps
 
 1. **Connect Your IDE**: Use [ai-agent-setup.md](ai-agent-setup.md) for AI agent integration
 2. **Follow Platform Setup**: [platform-setup.md](platform-setup.md) for real infrastructure
-3. **Create ServiceClasses**: Define your own service templates in `.muster/serviceclasses/`
 4. **Build Workflows**: Chain operations for automation in `.muster/workflows/`
 5. **Add MCP Servers**: Integrate with external tools in `.muster/mcpservers/`
 

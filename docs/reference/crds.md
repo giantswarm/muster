@@ -4,12 +4,11 @@ Complete reference for muster's Kubernetes Custom Resource Definitions. These CR
 
 ## Overview
 
-Muster provides three primary CRDs:
+Muster provides two primary CRDs:
 
 | CRD | API Version | Kind | Short Name | Purpose |
 |-----|-------------|------|------------|---------|
 | **MCPServer** | `muster.giantswarm.io/v1alpha1` | `MCPServer` | `mcps` | Manages MCP (Model Context Protocol) servers that provide tools |
-| **ServiceClass** | `muster.giantswarm.io/v1alpha1` | `ServiceClass` | `sc` | Defines reusable service templates with lifecycle management |
 | **Workflow** | `muster.giantswarm.io/v1alpha1` | `Workflow` | `wf` | Defines multi-step processes for automated task execution |
 
 ## MCPServer
@@ -624,338 +623,6 @@ kubectl apply -f mcpserver.yaml
 
 ---
 
-## ServiceClass
-
-ServiceClass resources define reusable templates for service instances with complete lifecycle management including start, stop, health checking, and dependency management.
-
-### Resource Definition
-
-```yaml
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: ServiceClass
-metadata:
-  name: <serviceclass-name>
-  namespace: <namespace>
-spec:
-  # Optional: Human-readable description
-  description: "<description>"
-
-  # Optional: Argument schema for service instantiation
-  args:
-    <arg_name>:
-      type: string|integer|boolean|number|object|array
-      required: true|false
-      default: <default_value>
-      description: "<description>"
-
-  # Required: Service configuration template
-  serviceConfig:
-    # Optional: Default name template for instances
-    defaultName: "<name_template>"
-
-    # Optional: ServiceClass dependencies
-    dependencies: ["<serviceclass1>", "<serviceclass2>"]
-
-    # Required: Lifecycle tool definitions
-    lifecycleTools:
-      # Required: Start tool
-      start:
-        tool: "<tool_name>"
-        args:
-          <key>: <value_template>
-        outputs:
-          <var_name>: "<json_path>"
-
-      # Required: Stop tool
-      stop:
-        tool: "<tool_name>"
-        args:
-          <key>: <value_template>
-        outputs:
-          <var_name>: "<json_path>"
-
-      # Optional: Restart tool
-      restart:
-        tool: "<tool_name>"
-        args:
-          <key>: <value_template>
-        outputs:
-          <var_name>: "<json_path>"
-
-      # Optional: Health check tool
-      healthCheck:
-        tool: "<tool_name>"
-        args:
-          <key>: <value_template>
-        expect:
-          success: true|false
-          jsonPath:
-            <path>: <expected_value>
-        expectNot:
-          success: true|false
-          jsonPath:
-            <path>: <unexpected_value>
-
-      # Optional: Status tool
-      status:
-        tool: "<tool_name>"
-        args:
-          <key>: <value_template>
-        outputs:
-          <var_name>: "<json_path>"
-
-    # Optional: Health check configuration
-    healthCheck:
-      enabled: true|false
-      interval: "<duration>"
-      failureThreshold: <number>
-      successThreshold: <number>
-
-    # Optional: Operation timeouts
-    timeout:
-      create: "<duration>"
-      delete: "<duration>"
-      healthCheck: "<duration>"
-
-    # Optional: Output templates
-    outputs:
-      <output_name>: "<template>"
-
-# Status is managed automatically by muster (via reconciliation)
-status:
-  valid: true|false                  # Spec passes structural validation
-  validationErrors: []               # Any spec validation error messages
-  referencedTools: []                # Tools mentioned in lifecycle definitions (informational)
-  conditions: []                     # Kubernetes standard conditions
-```
-
-### Field Reference
-
-#### Spec Fields
-
-| Field | Type | Required | Description | Constraints |
-|-------|------|----------|-------------|-------------|
-| `description` | `string` | No | Human-readable description | Max 1000 characters |
-| `args` | `map[string]ArgDefinition` | No | Argument schema for service instances | - |
-| `serviceConfig` | `ServiceConfig` | Yes | Core service configuration template | - |
-
-#### ArgDefinition Fields
-
-| Field | Type | Required | Description | Constraints |
-|-------|------|----------|-------------|-------------|
-| `type` | `string` | Yes | Data type of the argument | `string`, `integer`, `boolean`, `number`, `object`, `array` |
-| `required` | `boolean` | No | Whether argument is mandatory | Default: `false` |
-| `default` | `any` | No | Default value if not provided | - |
-| `description` | `string` | No | Usage explanation | Max 500 characters |
-
-#### ServiceConfig Fields
-
-| Field | Type | Required | Description | Constraints |
-|-------|------|----------|-------------|-------------|
-| `defaultName` | `string` | No | Template for generating instance names | Supports templating |
-| `dependencies` | `[]string` | No | Required ServiceClasses | - |
-| `lifecycleTools` | `LifecycleTools` | Yes | Tool definitions for lifecycle management | - |
-| `healthCheck` | `HealthCheckConfig` | No | Health monitoring configuration | - |
-| `timeout` | `TimeoutConfig` | No | Operation timeout settings | - |
-| `outputs` | `map[string]string` | No | Output templates for instances | Supports templating |
-
-#### LifecycleTools Fields
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `start` | `ToolCall` | Yes | Tool for starting service instances |
-| `stop` | `ToolCall` | Yes | Tool for stopping service instances |
-| `restart` | `ToolCall` | No | Tool for restarting service instances |
-| `healthCheck` | `HealthCheckToolCall` | No | Tool for health checking |
-| `status` | `ToolCall` | No | Tool for querying service status |
-
-#### ToolCall Fields
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `tool` | `string` | Yes | Name of the tool to execute |
-| `args` | `map[string]any` | No | Arguments for tool execution (supports templating) |
-| `outputs` | `map[string]string` | No | Maps tool result paths to variable names |
-
-#### HealthCheckToolCall Fields
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `tool` | `string` | Yes | Name of the health check tool |
-| `args` | `map[string]any` | No | Arguments for tool execution |
-| `expect` | `HealthCheckExpectation` | No | Positive health check expectations |
-| `expectNot` | `HealthCheckExpectation` | No | Negative health check expectations |
-
-#### HealthCheckExpectation Fields
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `success` | `boolean` | Whether the tool call should succeed |
-| `jsonPath` | `map[string]any` | JSON path conditions to check in results |
-
-#### HealthCheckConfig Fields
-
-| Field | Type | Default | Description | Constraints |
-|-------|------|---------|-------------|-------------|
-| `enabled` | `boolean` | `false` | Whether health checking is active | - |
-| `interval` | `string` | `"30s"` | How often to perform health checks | Duration format: `^[0-9]+(ns\|us\|ms\|s\|m\|h)$` |
-| `failureThreshold` | `integer` | `3` | Failures before marking unhealthy | Min: 1 |
-| `successThreshold` | `integer` | `1` | Successes to mark healthy | Min: 1 |
-
-#### TimeoutConfig Fields
-
-| Field | Type | Description | Constraints |
-|-------|------|-------------|-------------|
-| `create` | `string` | Timeout for service creation | Duration format: `^[0-9]+(ns\|us\|ms\|s\|m\|h)$` |
-| `delete` | `string` | Timeout for service deletion | Duration format: `^[0-9]+(ns\|us\|ms\|s\|m\|h)$` |
-| `healthCheck` | `string` | Timeout for individual health checks | Duration format: `^[0-9]+(ns\|us\|ms\|s\|m\|h)$` |
-
-### Examples
-
-#### PostgreSQL Database ServiceClass
-```yaml
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: ServiceClass
-metadata:
-  name: postgres-database
-  namespace: default
-spec:
-  description: "PostgreSQL database service with lifecycle management"
-  args:
-    database_name:
-      type: string
-      required: true
-      description: "Name of the database to create"
-    port:
-      type: integer
-      required: false
-      default: 5432
-      description: "Port number for the database"
-    replicas:
-      type: integer
-      required: false
-      default: 1
-      description: "Number of database replicas"
-  serviceConfig:
-    defaultName: "postgres-{{.database_name}}"
-    dependencies: []
-    lifecycleTools:
-      start:
-        tool: "docker_run"
-        args:
-          image: "postgres:13"
-          env:
-            POSTGRES_DB: "{{.database_name}}"
-            POSTGRES_PORT: "{{.port}}"
-        outputs:
-          containerId: "result.container_id"
-      stop:
-        tool: "docker_stop"
-        args:
-          container_id: "{{.containerId}}"
-      healthCheck:
-        tool: "postgres_health_check"
-        args:
-          port: "{{.port}}"
-        expect:
-          success: true
-          jsonPath:
-            status: "healthy"
-    healthCheck:
-      enabled: true
-      interval: "30s"
-      failureThreshold: 3
-      successThreshold: 1
-    timeout:
-      create: "5m"
-      delete: "2m"
-      healthCheck: "10s"
-    outputs:
-      connection_string: "postgresql://user:pass@localhost:{{.port}}/{{.database_name}}"
-      port: "{{.port}}"
-```
-
-#### Web Application ServiceClass
-```yaml
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: ServiceClass
-metadata:
-  name: web-application
-  namespace: default
-spec:
-  description: "Generic web application service"
-  args:
-    image:
-      type: string
-      required: true
-      description: "Container image to deploy"
-    port:
-      type: integer
-      default: 8080
-      description: "Application port"
-    replicas:
-      type: integer
-      default: 1
-      description: "Number of replicas"
-    environment:
-      type: object
-      default: {}
-      description: "Environment variables"
-  serviceConfig:
-    defaultName: "web-{{.image | replace '/' '-' | replace ':' '-'}}"
-    lifecycleTools:
-      start:
-        tool: "kubernetes_deploy"
-        args:
-          image: "{{.image}}"
-          port: "{{.port}}"
-          replicas: "{{.replicas}}"
-          env: "{{.environment}}"
-        outputs:
-          deploymentName: "metadata.name"
-          serviceName: "service.metadata.name"
-      stop:
-        tool: "kubernetes_delete"
-        args:
-          deployment: "{{.deploymentName}}"
-          service: "{{.serviceName}}"
-      status:
-        tool: "kubernetes_status"
-        args:
-          deployment: "{{.deploymentName}}"
-        outputs:
-          readyReplicas: "status.readyReplicas"
-      healthCheck:
-        tool: "http_check"
-        args:
-          url: "http://{{.serviceName}}:{{.port}}/health"
-        expect:
-          success: true
-    healthCheck:
-      enabled: true
-      interval: "30s"
-    outputs:
-      url: "http://{{.serviceName}}:{{.port}}"
-      deployment: "{{.deploymentName}}"
-```
-
-### CLI Usage
-
-```bash
-# List all ServiceClasses
-kubectl get serviceclasses
-# or using short name
-kubectl get sc
-
-# Get detailed information
-kubectl describe serviceclass postgres-database
-
-# Create from file
-kubectl apply -f serviceclass.yaml
-```
-
----
-
 ## Workflow
 
 Workflow resources define multi-step processes that can be executed to automate complex tasks like application deployment, data migration, or system configuration.
@@ -1070,58 +737,6 @@ status:
 
 ### Examples
 
-#### Application Deployment Workflow
-```yaml
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: Workflow
-metadata:
-  name: deploy-application
-  namespace: default
-spec:
-  name: deploy-application
-  description: "Deploy application to production environment with validation"
-  args:
-    app_name:
-      type: string
-      required: true
-      description: "Name of the application to deploy"
-    environment:
-      type: string
-      default: "production"
-      description: "Target deployment environment"
-    replicas:
-      type: integer
-      default: 3
-      description: "Number of application replicas"
-  steps:
-    - id: build_image
-      tool: docker_build
-      args:
-        name: "{{.app_name}}"
-        tag: "{{.environment}}-latest"
-      store: true
-      description: "Build container image for deployment"
-
-    - id: deploy_service
-      tool: core_service_create
-      args:
-        name: "{{.app_name}}-{{.environment}}"
-        serviceClassName: "web-application"
-        args:
-          image: "{{.results.build_image.image_id}}"
-          replicas: "{{.replicas}}"
-      store: true
-      description: "Create service instance"
-
-    - id: verify_deployment
-      tool: health_check
-      args:
-        service_name: "{{.results.deploy_service.name}}"
-        timeout: "5m"
-      store: true
-      description: "Verify deployment health"
-```
-
 #### Conditional Database Migration Workflow
 ```yaml
 apiVersion: muster.giantswarm.io/v1alpha1
@@ -1204,83 +819,6 @@ spec:
       description: "Rollback on migration failure"
 ```
 
-#### Multi-Environment Deployment Workflow
-```yaml
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: Workflow
-metadata:
-  name: progressive-deployment
-  namespace: default
-spec:
-  name: progressive-deployment
-  description: "Deploy application progressively across environments"
-  args:
-    app_name:
-      type: string
-      required: true
-      description: "Application name"
-    version:
-      type: string
-      required: true
-      description: "Application version"
-    environments:
-      type: array
-      default: ["staging", "production"]
-      description: "Target environments in order"
-  steps:
-    - id: deploy_staging
-      tool: core_service_create
-      args:
-        name: "{{.app_name}}-staging"
-        serviceClassName: "web-application"
-        args:
-          image: "{{.app_name}}:{{.version}}"
-          environment: "staging"
-      store: true
-      description: "Deploy to staging environment"
-
-    - id: test_staging
-      tool: integration_test
-      args:
-        service_name: "{{.results.deploy_staging.name}}"
-        test_suite: "smoke-tests"
-      condition:
-        fromStep: "deploy_staging"
-        expect:
-          success: true
-      store: true
-      description: "Run integration tests on staging"
-
-    - id: deploy_production
-      tool: core_service_create
-      args:
-        name: "{{.app_name}}-production"
-        serviceClassName: "web-application"
-        args:
-          image: "{{.app_name}}:{{.version}}"
-          environment: "production"
-          replicas: 5
-      condition:
-        fromStep: "test_staging"
-        expect:
-          success: true
-          jsonPath:
-            test_result: "passed"
-      store: true
-      description: "Deploy to production environment"
-
-    - id: monitor_production
-      tool: health_monitor
-      args:
-        service_name: "{{.results.deploy_production.name}}"
-        duration: "10m"
-      condition:
-        fromStep: "deploy_production"
-        expect:
-          success: true
-      description: "Monitor production deployment"
-```
-
 ### CLI Usage
 
 ```bash
@@ -1306,9 +844,6 @@ All CRDs support Go template syntax for dynamic values. Templates can reference:
 
 | Context | Variables | Description |
 |---------|-----------|-------------|
-| **ServiceClass** | `.` | All args passed during service creation |
-| | `.<arg_name>` | Specific argument values |
-| | `.containerId`, `.deploymentName`, etc. | Outputs from previous tools |
 | **Workflow** | `.` | All args passed during workflow execution |
 | | `.<arg_name>` | Specific argument values |
 | | `.results.<step_id>.<output>` | Results from previous steps |
@@ -1325,14 +860,6 @@ All CRDs support Go template syntax for dynamic values. Templates can reference:
 ### Examples
 
 ```yaml
-# ServiceClass templating
-defaultName: "{{.app_name}}-{{.environment}}"
-args:
-  image: "{{.registry}}/{{.app_name}}:{{.version}}"
-  env:
-    APP_NAME: "{{.app_name | upper}}"
-    DATABASE_URL: "{{.database_connection_string}}"
-
 # Workflow templating
 args:
   service_name: "{{.app_name}}-{{.environment}}"
@@ -1365,23 +892,11 @@ This means:
 - The same Workflow is not executable by users who haven't authenticated
 - The `valid` status field indicates spec correctness, not tool availability
 
-### Dependency Resolution
-
-#### ServiceClass Dependencies
-```yaml
-spec:
-  serviceConfig:
-    dependencies: ["database", "cache"]  # Must be available ServiceClasses
-```
-
 ### Status Monitoring
 
 CRDs provide status information about validation and referenced tools:
 
 ```bash
-# Check ServiceClass validation status
-kubectl get serviceclass postgres-database -o jsonpath='{.status.valid}'
-
 # Check referenced tools (informational)
 kubectl get workflow deploy-app -o jsonpath='{.status.referencedTools}'
 
@@ -1394,7 +909,6 @@ kubectl get mcpserver git-tools -o jsonpath='{.status.state}'
 Muster automatically reconciles CRD status with runtime state:
 
 - **MCPServer**: Status reflects actual process state (running, stopped, healthy, unhealthy)
-- **ServiceClass**: Status reflects spec validation and lists referenced tools
 - **Workflow**: Status reflects spec validation and lists referenced tools
 
 Reconciliation works in both filesystem mode (watching YAML files) and Kubernetes mode (using informers). See the [reconciler package documentation](../../internal/reconciler/doc.go) for implementation details.
@@ -1408,7 +922,6 @@ Reconciliation works in both filesystem mode (watching YAML files) and Kubernete
 | Resource | Pattern | Examples |
 |----------|---------|----------|
 | **MCPServer** | `<tool-category>-tools` | `git-tools`, `filesystem-tools`, `database-tools` |
-| **ServiceClass** | `<service-type>` | `postgres-database`, `web-application`, `message-queue` |
 | **Workflow** | `<action>-<target>` | `deploy-application`, `backup-database`, `scale-service` |
 
 ### Resource Organization
@@ -1438,16 +951,6 @@ env:
 
   # Use references to secrets
   DATABASE_URL_FROM_SECRET: "database-credentials"         # ✅ GOOD
-
-# ServiceClass security
-serviceConfig:
-  lifecycleTools:
-    start:
-      args:
-        # Use secure defaults
-        security_context:
-          runAsNonRoot: true
-          readOnlyRootFilesystem: true
 ```
 
 #### SSO Token Forwarding Security
@@ -1506,7 +1009,6 @@ timeout:
 ## Related Documentation
 
 - **[CLI Reference](cli/)** - Command-line tools for managing CRDs
-- **[MCP Tools Reference](mcp-tools.md)** - Available tools for use in ServiceClasses and Workflows
+- **[MCP Tools Reference](mcp-tools.md)** - Available tools for use in Workflows
 - **[Workflow Creation Guide](../how-to/workflow-creation.md)** - Step-by-step workflow development
-- **[Service Configuration Guide](../how-to/service-configuration.md)** - ServiceClass development patterns
 - **[Architecture Overview](../explanation/architecture.md)** - How CRDs fit into the muster system

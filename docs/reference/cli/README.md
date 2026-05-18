@@ -15,7 +15,7 @@ Complete reference for all Muster command-line interface commands.
 | [`muster list`](list.md) | List resources | `muster list services` |
 | [`muster start`](start.md) | Start resources | `muster start service my-app` |
 | [`muster stop`](stop.md) | Stop resources | `muster stop service my-app` |
-| [`muster check`](check.md) | Check availability | `muster check serviceclass web-service` |
+| [`muster check`](check.md) | Check availability | `muster check workflow deploy-flow` |
 | [`muster events`](events.md) | List resource events | `muster events --resource-type mcpserver` |
 | [`muster test`](test.md) | Run tests | `muster test --scenario basic-crud` |
 | [`muster version`](version.md) | Show version info | `muster version` |
@@ -76,16 +76,14 @@ Commands for creating, retrieving, and managing Muster resources.
 
 - **[create](create.md)** - Create new resources
   ```bash
-  muster create serviceclass web-app
-  muster create service my-app web-app --image=nginx:latest
+  muster create service my-app --image=nginx:latest
   muster create workflow deploy-flow
   ```
 
 - **[get](get.md)** - Retrieve resource details
   ```bash
   muster get service my-app
-  muster get workflow deploy-flow
-  muster get serviceclass web-app --output yaml
+  muster get workflow deploy-flow --output yaml
   ```
 
 - **[list](list.md)** - List multiple resources
@@ -111,7 +109,6 @@ Commands for starting, stopping, and checking resources.
 
 - **[check](check.md)** - Check resource availability
   ```bash
-  muster check serviceclass web-app
   muster check mcpserver kubernetes
   muster check workflow deploy-flow
   ```
@@ -157,7 +154,6 @@ Muster uses configuration files located in `~/.config/muster/` by default:
 ├── config.yaml           # Main configuration
 ├── mcpservers/           # MCP server definitions
 ├── workflows/            # Workflow definitions
-├── serviceclasses/       # Service class templates
 └── services/             # Service instances
 ```
 
@@ -177,7 +173,6 @@ Muster manages these resource types:
 | Resource Type | Description | Examples |
 |---------------|-------------|----------|
 | **mcpserver** | MCP server configurations | `kubernetes`, `prometheus`, `github` |
-| **serviceclass** | Service templates | `web-app`, `database`, `monitoring` |
 | **service** | Service instances | `my-web-app`, `prod-db`, `grafana-instance` |
 | **workflow** | Workflow definitions | `deploy-app`, `backup-db`, `scale-service` |
 | **workflow-execution** | Workflow run history | Execution results and logs |
@@ -191,10 +186,9 @@ muster serve
 
 # 2. Check what's available
 muster list mcpserver
-muster list serviceclass
 
 # 3. Create a service
-muster create service my-app web-service --replicas=3
+muster create service my-app --replicas=3
 
 # 4. Check service status
 muster get service my-app
@@ -202,10 +196,6 @@ muster get service my-app
 
 ### Resource Management
 ```bash
-# Create resources from templates
-muster create serviceclass my-template
-muster create service instance-1 my-template
-
 # Monitor and control
 muster list service
 muster start service instance-1
@@ -238,7 +228,6 @@ muster test --verbose --debug
 muster test --scenario service-lifecycle
 
 # Check resource availability
-muster check serviceclass web-app
 muster check workflow deploy-app
 ```
 
@@ -249,9 +238,9 @@ Most commands support multiple output formats:
 ### Table Format (Default)
 ```bash
 muster list service
-# NAME        STATUS    SERVICECLASS    CREATED
-# my-app      Running   web-service     2m ago
-# my-db       Stopped   database        1h ago
+# NAME        STATUS    CREATED
+# my-app      Running   2m ago
+# my-db       Stopped   1h ago
 ```
 
 ### JSON Format
@@ -262,7 +251,6 @@ muster list service --output json
 #     {
 #       "name": "my-app",
 #       "status": "Running",
-#       "serviceClass": "web-service",
 #       "created": "2024-01-07T10:00:00Z"
 #     }
 #   ]
@@ -277,7 +265,6 @@ muster get service my-app --output yaml
 # metadata:
 #   name: my-app
 # spec:
-#   serviceClass: web-service
 #   replicas: 3
 ```
 

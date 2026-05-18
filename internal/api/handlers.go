@@ -13,16 +13,15 @@ import (
 // Handler registry variables store the registered implementations.
 // These variables are protected by handlerMutex for thread-safe access.
 var (
-	registryHandler            ServiceRegistryHandler
-	serviceManagerHandler      ServiceManagerHandler
-	serviceClassManagerHandler ServiceClassManagerHandler
-	mcpServerManagerHandler    MCPServerManagerHandler
-	aggregatorHandler          AggregatorHandler
-	configHandler              ConfigHandler
-	workflowHandler            WorkflowHandler
-	eventManagerHandler        EventManagerHandler
-	reconcileManagerHandler    ReconcileManagerHandler
-	teleportClientHandler      TeleportClientHandler
+	registryHandler         ServiceRegistryHandler
+	serviceManagerHandler   ServiceManagerHandler
+	mcpServerManagerHandler MCPServerManagerHandler
+	aggregatorHandler       AggregatorHandler
+	configHandler           ConfigHandler
+	workflowHandler         WorkflowHandler
+	eventManagerHandler     EventManagerHandler
+	reconcileManagerHandler ReconcileManagerHandler
+	teleportClientHandler   TeleportClientHandler
 
 	// toolUpdateSubscribers stores the list of components subscribed to tool update events.
 	// Access is protected by toolUpdateMutex.
@@ -34,9 +33,7 @@ var (
 )
 
 // RegisterServiceRegistry registers the service registry handler implementation.
-// This handler provides access to all registered services in the system,
-// including both static services (defined in configuration) and dynamic
-// ServiceClass-based service instances.
+// This handler provides access to all registered services in the system.
 //
 // The registration is thread-safe and should be called during system initialization.
 // Only one service registry handler can be registered at a time; subsequent
@@ -58,8 +55,8 @@ func RegisterServiceRegistry(h ServiceRegistryHandler) {
 }
 
 // RegisterServiceManager registers the service manager handler implementation.
-// This handler provides unified service lifecycle management for both static services
-// and ServiceClass-based service instances.
+// This handler provides lifecycle management for the static services registered
+// in the orchestrator's service registry.
 //
 // The registration is thread-safe and should be called during system initialization.
 // Only one service manager handler can be registered at a time; subsequent
@@ -127,19 +124,6 @@ func RegisterConfigHandler(h ConfigHandler) {
 	configHandler = h
 }
 
-// RegisterConfig is an alias for RegisterConfigHandler for backward compatibility.
-// New code should prefer using RegisterConfigHandler for clarity.
-//
-// Args:
-//   - h: ConfigHandler implementation that manages configuration operations
-//
-// Thread-safe: Yes, delegates to RegisterConfigHandler.
-//
-// Deprecated: Use RegisterConfigHandler directly for better clarity.
-func RegisterConfig(h ConfigHandler) {
-	RegisterConfigHandler(h)
-}
-
 // GetServiceRegistry returns the registered service registry handler.
 // This provides access to the service discovery and information interface.
 //
@@ -165,8 +149,8 @@ func GetServiceRegistry() ServiceRegistryHandler {
 }
 
 // GetServiceManager returns the registered service manager handler.
-// This provides access to unified service lifecycle management for both
-// static services and ServiceClass-based service instances.
+// This provides access to lifecycle management for the static services
+// registered in the orchestrator's service registry.
 //
 // Returns nil if no handler has been registered yet. Callers should always
 // check for nil before using the returned handler.
@@ -237,19 +221,6 @@ func GetConfigHandler() ConfigHandler {
 	return configHandler
 }
 
-// GetConfig is an alias for GetConfigHandler for backward compatibility.
-// New code should prefer using GetConfigHandler for clarity.
-//
-// Returns:
-//   - ConfigHandler: The registered handler, or nil if not registered
-//
-// Thread-safe: Yes, delegates to GetConfigHandler.
-//
-// Deprecated: Use GetConfigHandler directly for better clarity.
-func GetConfig() ConfigHandler {
-	return GetConfigHandler()
-}
-
 // RegisterWorkflow registers the workflow handler implementation.
 // This handler provides workflow definition management and execution functionality,
 // allowing components to define and execute multi-step processes through the system.
@@ -296,54 +267,6 @@ func GetWorkflow() WorkflowHandler {
 	handlerMutex.RLock()
 	defer handlerMutex.RUnlock()
 	return workflowHandler
-}
-
-// RegisterServiceClassManager registers the service class manager handler implementation.
-// This handler provides ServiceClass definition management and lifecycle tool access,
-// enabling the creation of service instances from predefined templates.
-//
-// The registration is thread-safe and should be called during system initialization.
-// Only one service class manager handler can be registered at a time; subsequent
-// registrations will replace the previous handler.
-//
-// Args:
-//   - h: ServiceClassManagerHandler implementation that manages ServiceClass operations
-//
-// Thread-safe: Yes, protected by handlerMutex.
-//
-// Example:
-//
-//	adapter := serviceclass.NewAdapter(configPath)
-//	adapter.Register()
-func RegisterServiceClassManager(h ServiceClassManagerHandler) {
-	handlerMutex.Lock()
-	defer handlerMutex.Unlock()
-	logging.Debug("API", "Registering service class manager handler: %v", h != nil)
-	serviceClassManagerHandler = h
-}
-
-// GetServiceClassManager returns the registered service class manager handler.
-// This provides access to ServiceClass definition management and lifecycle tool access.
-//
-// Returns nil if no handler has been registered yet. Callers should always
-// check for nil before using the returned handler.
-//
-// Returns:
-//   - ServiceClassManagerHandler: The registered handler, or nil if not registered
-//
-// Thread-safe: Yes, protected by handlerMutex read lock.
-//
-// Example:
-//
-//	manager := api.GetServiceClassManager()
-//	if manager == nil {
-//	    return fmt.Errorf("service class manager not available")
-//	}
-//	classes := manager.ListServiceClasses()
-func GetServiceClassManager() ServiceClassManagerHandler {
-	handlerMutex.RLock()
-	defer handlerMutex.RUnlock()
-	return serviceClassManagerHandler
 }
 
 // RegisterMCPServerManager registers the MCP server manager handler implementation.

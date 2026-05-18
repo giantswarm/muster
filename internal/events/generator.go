@@ -40,21 +40,6 @@ func (g *EventGenerator) MCPServerEvent(server *musterv1alpha1.MCPServer, reason
 	return g.client.CreateEvent(context.Background(), server, string(reason), message, eventType)
 }
 
-// ServiceClassEvent generates an event for a ServiceClass CRD.
-func (g *EventGenerator) ServiceClassEvent(serviceClass *musterv1alpha1.ServiceClass, reason EventReason, data EventData) error {
-	// Populate event data with ServiceClass information
-	data.Name = serviceClass.Name
-	data.Namespace = serviceClass.Namespace
-
-	message := g.templates.Render(reason, data)
-	eventType := string(getEventType(reason))
-
-	logging.Debug("events", "Generating ServiceClass event: reason=%s, message=%s, type=%s",
-		string(reason), message, eventType)
-
-	return g.client.CreateEvent(context.Background(), serviceClass, string(reason), message, eventType)
-}
-
 // WorkflowEvent generates an event for a Workflow CRD.
 func (g *EventGenerator) WorkflowEvent(workflow *musterv1alpha1.Workflow, reason EventReason, data EventData) error {
 	// Populate event data with Workflow information
@@ -84,25 +69,6 @@ func (g *EventGenerator) CRDEvent(crdType, name, namespace string, reason EventR
 		crdType, string(reason), message, eventType)
 
 	return g.client.CreateEventForCRD(context.Background(), crdType, name, namespace, string(reason), message, eventType)
-}
-
-// ServiceInstanceEvent generates an event for a service instance.
-// Since service instances are not CRDs, this creates events using the CreateEventForCRD method
-// with a synthetic CRD type.
-func (g *EventGenerator) ServiceInstanceEvent(serviceName, serviceClass, namespace string, reason EventReason, data EventData) error {
-	// Populate event data with service instance information
-	data.Name = serviceName
-	data.Namespace = namespace
-	data.ServiceClass = serviceClass
-
-	message := g.templates.Render(reason, data)
-	eventType := string(getEventType(reason))
-
-	logging.Debug("events", "Generating service instance event: service=%s, reason=%s, message=%s, type=%s",
-		serviceName, string(reason), message, eventType)
-
-	// For service instances, we use a synthetic CRD type since they're not actual CRDs
-	return g.client.CreateEventForCRD(context.Background(), "ServiceInstance", serviceName, namespace, string(reason), message, eventType)
 }
 
 // SetTemplate allows customizing the message template for a specific event reason.

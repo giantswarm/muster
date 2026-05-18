@@ -28,11 +28,14 @@ import (
 	"github.com/giantswarm/mcp-oauth/providers/dex"
 	"github.com/giantswarm/mcp-oauth/security"
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
+	mcptoolkitlogging "github.com/giantswarm/mcp-toolkit/logging"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/valkey-io/valkey-go"
 	"golang.org/x/oauth2"
 	"golang.org/x/sync/singleflight"
+
+	"github.com/giantswarm/muster/internal/aggregator/instrument"
 )
 
 // AggregatorServer implements a comprehensive MCP server that aggregates multiple backend MCP servers.
@@ -530,7 +533,7 @@ func createStores(cfg AggregatorConfig) storeBundle {
 		enc := createEncryptor(oauthCfg)
 
 		logging.InfoWithAttrs("Aggregator", "Using Valkey-backed session auth and capability stores",
-			slog.String("address", redactURL(oauthCfg.Storage.Valkey.URL)))
+			slog.String("address", mcptoolkitlogging.RedactHost(oauthCfg.Storage.Valkey.URL)))
 		return storeBundle{
 			authStore:       NewValkeySessionAuthStore(client, DefaultCapabilityStoreTTL, keyPrefix),
 			capabilityStore: NewValkeyCapabilityStore(client, DefaultCapabilityStoreTTL, keyPrefix),
@@ -600,27 +603,6 @@ func newValkeyClient(cfg config.ValkeyConfig) (valkey.Client, error) {
 	return client, nil
 }
 
-// redactURL removes any userinfo (user:password@) from a URL or address string
-// before logging. Returns the input unchanged if it is not a parseable URL.
-func redactURL(raw string) string {
-	if !strings.Contains(raw, "@") {
-		return raw
-	}
-	normalized := raw
-	if !strings.Contains(raw, "://") {
-		normalized = "redis://" + raw
-	}
-	u, err := url.Parse(normalized)
-	if err != nil {
-		return raw
-	}
-	u.User = nil
-	if !strings.Contains(raw, "://") {
-		return u.Host + u.Path
-	}
-	return u.String()
-}
-
 // Start initializes and starts the aggregator server with all configured transports.
 //
 // This method performs a comprehensive startup sequence:
@@ -661,19 +643,19 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 
 	// Set up hooks for session lifecycle tracking and MCP protocol logging
 	hooks := &mcpserver.Hooks{}
-	hooks.AddOnUnregisterSession(func(_ context.Context, session mcpserver.ClientSession) {
-		logging.InfoWithAttrs("MCP-Protocol", "Session unregistered",
+	hooks.AddOnUnregisterSession(func(ctx context.Context, session mcpserver.ClientSession) {
+		logging.InfoWithAttrsCtx(ctx, "MCP-Protocol", "Session unregistered",
 			logging.TransportSessionID(session.SessionID()))
 		a.subjectSessions.RemoveSession(session.SessionID())
 	})
 
-	hooks.AddOnRegisterSession(func(_ context.Context, session mcpserver.ClientSession) {
-		logging.InfoWithAttrs("MCP-Protocol", "Session registered",
+	hooks.AddOnRegisterSession(func(ctx context.Context, session mcpserver.ClientSession) {
+		logging.InfoWithAttrsCtx(ctx, "MCP-Protocol", "Session registered",
 			logging.TransportSessionID(session.SessionID()))
 	})
 
 	hooks.AddAfterInitialize(func(ctx context.Context, _ any, msg *mcp.InitializeRequest, result *mcp.InitializeResult) {
-		logging.InfoWithAttrs("MCP-Protocol", "Initialize completed",
+		logging.InfoWithAttrsCtx(ctx, "MCP-Protocol", "Initialize completed",
 			slog.String("client", msg.Params.ClientInfo.Name+"/"+msg.Params.ClientInfo.Version),
 			slog.String("protocol", string(msg.Params.ProtocolVersion)),
 			logging.TransportSessionID(getTransportSessionID(ctx)),
@@ -685,7 +667,7 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		for _, t := range result.Tools {
 			toolNames = append(toolNames, t.Name)
 		}
-		logging.InfoWithAttrs("MCP-Protocol", "tools/list response",
+		logging.InfoWithAttrsCtx(ctx, "MCP-Protocol", "tools/list response",
 			logging.TransportSessionID(getTransportSessionID(ctx)),
 			slog.String("subject", logging.TruncateIdentifier(getUserSubjectFromContext(ctx))),
 			slog.Int("toolCount", len(result.Tools)),
@@ -694,7 +676,7 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 
 	hooks.AddBeforeCallTool(func(ctx context.Context, _ any, msg *mcp.CallToolRequest) {
 		subject := getUserSubjectFromContext(ctx)
-		logging.InfoWithAttrs("MCP-Protocol", "tools/call request",
+		logging.InfoWithAttrsCtx(ctx, "MCP-Protocol", "tools/call request",
 			logging.TransportSessionID(getTransportSessionID(ctx)),
 			slog.String("subject", logging.TruncateIdentifier(subject)),
 			slog.String("tool", msg.Params.Name))
@@ -708,13 +690,13 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 
 	hooks.AddAfterCallTool(func(ctx context.Context, _ any, msg *mcp.CallToolRequest, result any) {
 		if r, ok := result.(*mcp.CallToolResult); ok {
-			logging.InfoWithAttrs("MCP-Protocol", "tools/call response",
+			logging.InfoWithAttrsCtx(ctx, "MCP-Protocol", "tools/call response",
 				logging.TransportSessionID(getTransportSessionID(ctx)),
 				slog.String("tool", msg.Params.Name),
 				slog.Bool("isError", r.IsError),
 				slog.Int("contentItems", len(r.Content)))
 		} else {
-			logging.InfoWithAttrs("MCP-Protocol", "tools/call response",
+			logging.InfoWithAttrsCtx(ctx, "MCP-Protocol", "tools/call response",
 				logging.TransportSessionID(getTransportSessionID(ctx)),
 				slog.String("tool", msg.Params.Name),
 				slog.String("resultType", fmt.Sprintf("%T", result)))
@@ -722,7 +704,7 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	})
 
 	hooks.AddOnError(func(ctx context.Context, id any, method mcp.MCPMethod, _ any, err error) {
-		logging.WarnWithAttrs("MCP-Protocol", "Error",
+		logging.WarnWithAttrsCtx(ctx, "MCP-Protocol", "Error",
 			logging.TransportSessionID(getTransportSessionID(ctx)),
 			slog.String("method", string(method)),
 			slog.Any("id", id),
@@ -732,6 +714,16 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	// Create MCP server with full capabilities enabled
 	// WithToolFilter enables session-specific tool visibility for OAuth-authenticated servers
 	// (see ADR-006: Session-Scoped Tool Visibility)
+	//
+	// mcp-go applies middleware in reverse registration order, so the
+	// chain below becomes Tracing(Logging(Metrics(handler))). Tracing is
+	// outermost so the span is active while Logging emits its line and
+	// Metrics records its observation — log records pick up trace_id /
+	// span_id via the slog ↔ OTel bridge, and histogram exemplars
+	// attach the local trace_id for Grafana's "click latency bucket →
+	// jump to trace" pivot. The Tracing wrapper still observes the
+	// final outcome through its next(...) return values, so codes.Error
+	// on IsError fires after the inner chain completes.
 	mcpSrv := mcpserver.NewMCPServer(
 		"muster-aggregator",
 		serverVersion,
@@ -740,6 +732,9 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		mcpserver.WithPromptCapabilities(true),         // Enable prompt retrieval
 		mcpserver.WithToolFilter(a.sessionToolFilter),  // Return session-specific tools for OAuth servers
 		mcpserver.WithHooks(hooks),                     // Clean up subject-session mappings on disconnect
+		mcpserver.WithToolHandlerMiddleware(instrument.Tracing()),
+		mcpserver.WithToolHandlerMiddleware(instrument.Logging()),
+		mcpserver.WithToolHandlerMiddleware(instrument.Metrics()),
 	)
 
 	a.mcpServer = mcpSrv
@@ -1209,9 +1204,8 @@ func (a *AggregatorServer) runSSOTrackerCleanup() {
 // publishToolUpdateEvent publishes a tool update event to notify dependent managers.
 //
 // This method creates and publishes an event containing the current set of available
-// tools, which notifies other muster components (like ServiceClass
-// managers) that the tool landscape has changed. This ensures system-wide consistency
-// when tools become available or unavailable.
+// tools, notifying subscribers that the tool landscape has changed. This ensures
+// system-wide consistency when tools become available or unavailable.
 //
 // The event uses "aggregator" as the server name since it represents the aggregated
 // view of all tools from multiple sources.
@@ -1227,7 +1221,7 @@ func (a *AggregatorServer) publishToolUpdateEvent() {
 		Timestamp:  time.Now(),
 	}
 
-	// Publish the event - this will notify ServiceClass managers
+	// Publish the event to notify all subscribers of the new tool inventory
 	api.PublishToolUpdateEvent(event)
 
 	logging.DebugWithAttrs("Aggregator", "Published tool update event",
@@ -1272,8 +1266,7 @@ func (a *AggregatorServer) updateCapabilities() {
 	servers := a.registry.GetAllServers()
 	a.logCapabilitiesSummary(servers)
 
-	// Publish tool update event to notify dependent managers (like ServiceClass manager)
-	// This ensures subscribers are notified when core tools become available during startup
+	// Publish tool update event to notify all subscribers when the tool inventory changes
 	a.publishToolUpdateEvent()
 }
 
@@ -1439,7 +1432,7 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 		return nil, fmt.Errorf("invalid OAuth server config type: expected OAuthServerConfig")
 	}
 
-	oauthHTTPServer, err := server.NewOAuthHTTPServer(cfg, mcpHandler, a.config.Debug)
+	oauthHTTPServer, err := server.NewOAuthHTTPServer(cfg, mcpHandler, a.config.Debug, a.ssoLifecycleOptions()...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OAuth HTTP server: %w", err)
 	}
@@ -1505,48 +1498,6 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 		go a.initSSOForSession(ctx, userID, sessionID, idToken) //nolint:gosec
 	})
 
-	// Establish SSO connections synchronously during login (token issuance).
-	// This fires inside ExchangeAuthorizationCode, so SSO servers are connected
-	// before the client receives its access token.
-	oauthServer := oauthHTTPServer.GetOAuthServer()
-
-	oauthServer.SetSessionCreationHandler(func(ctx context.Context, userID, familyID string, token *oauth2.Token) {
-		idToken := oauthserver.ExtractIDToken(token)
-		logging.InfoWithAttrs("Aggregator", "SSO: SessionCreationHandler fired",
-			slog.String("userID", logging.TruncateIdentifier(userID)),
-			slog.String("familyID", logging.TruncateIdentifier(familyID)),
-			slog.Bool("hasIDToken", idToken != ""),
-			slog.Int("idTokenLen", len(idToken)))
-		a.initSSOForSession(ctx, userID, familyID, idToken)
-		a.storeIDTokenForSSO(familyID, userID, idToken)
-	})
-
-	oauthServer.SetTokenRefreshHandler(func(ctx context.Context, userID, familyID string, newToken *oauth2.Token) {
-		idToken := oauthserver.ExtractIDToken(newToken)
-		if idToken == "" {
-			// The upstream provider refreshed tokens but did not include an
-			// ID token. This signals a degraded refresh chain (e.g. Dex
-			// obtained new access/refresh tokens from GitHub but the OIDC
-			// id_token was dropped). Evict SSO connections so they don't
-			// keep retrying with stale credentials.
-			a.handleUpstreamRefreshFailure(familyID, userID, "TokenRefreshHandler: refreshed token has no ID token")
-			return
-		}
-		a.storeIDTokenForSSO(familyID, userID, idToken)
-		logging.DebugWithAttrs("Aggregator", "Stored refreshed ID token via TokenRefreshHandler",
-			slog.String("familyID", logging.TruncateIdentifier(familyID)))
-	})
-
-	oauthServer.SetSessionRevocationHandler(func(ctx context.Context, userID, familyID string) {
-		a.tearDownSession(ctx, familyID)
-		if oauthHandler := api.GetOAuthHandler(); oauthHandler != nil && oauthHandler.IsEnabled() {
-			oauthHandler.DeleteTokensBySession(familyID)
-		}
-		logging.InfoWithAttrs("Aggregator", "Cleaned up session state for revoked session",
-			slog.String("familyID", logging.TruncateIdentifier(familyID)),
-			slog.String("userID", logging.TruncateIdentifier(userID)))
-	})
-
 	logging.InfoWithAttrs("Aggregator", "OAuth 2.1 server protection enabled",
 		slog.String("baseURL", cfg.BaseURL))
 
@@ -1563,6 +1514,47 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 	outerMux.Handle("/", oauthMux)
 
 	return outerMux, nil
+}
+
+// ssoLifecycleOptions returns the mcp-oauth options that drive aggregator-side
+// SSO setup from token-family lifecycle events. SessionCreationHandler fires
+// synchronously inside ExchangeAuthorizationCode, so downstream SSO connections
+// are established before the access token reaches the client.
+func (a *AggregatorServer) ssoLifecycleOptions() []oauth.ServerOption {
+	return []oauth.ServerOption{
+		oauth.WithSessionCreationHandler(func(ctx context.Context, userID, familyID string, token *oauth2.Token) {
+			idToken := oauthserver.ExtractIDToken(token)
+			logging.InfoWithAttrs("Aggregator", "SSO: SessionCreationHandler fired",
+				slog.String("userID", logging.TruncateIdentifier(userID)),
+				slog.String("familyID", logging.TruncateIdentifier(familyID)),
+				slog.Bool("hasIDToken", idToken != ""),
+				slog.Int("idTokenLen", len(idToken)))
+			a.initSSOForSession(ctx, userID, familyID, idToken)
+			a.storeIDTokenForSSO(familyID, userID, idToken)
+		}),
+		// An upstream refresh with no ID token signals a broken refresh chain
+		// (Dex obtained new tokens but the id_token was dropped); evict SSO
+		// connections to stop mcp-go retrying with stale credentials.
+		oauth.WithTokenRefreshHandler(func(ctx context.Context, userID, familyID string, newToken *oauth2.Token) {
+			idToken := oauthserver.ExtractIDToken(newToken)
+			if idToken == "" {
+				a.handleUpstreamRefreshFailure(familyID, userID, "TokenRefreshHandler: refreshed token has no ID token")
+				return
+			}
+			a.storeIDTokenForSSO(familyID, userID, idToken)
+			logging.DebugWithAttrs("Aggregator", "Stored refreshed ID token via TokenRefreshHandler",
+				slog.String("familyID", logging.TruncateIdentifier(familyID)))
+		}),
+		oauth.WithSessionRevocationHandler(func(ctx context.Context, userID, familyID string) {
+			a.tearDownSession(ctx, familyID)
+			if oauthHandler := api.GetOAuthHandler(); oauthHandler != nil && oauthHandler.IsEnabled() {
+				oauthHandler.DeleteTokensBySession(familyID)
+			}
+			logging.InfoWithAttrs("Aggregator", "Cleaned up session state for revoked session",
+				slog.String("familyID", logging.TruncateIdentifier(familyID)),
+				slog.String("userID", logging.TruncateIdentifier(userID)))
+		}),
+	}
 }
 
 // GetEndpoint returns the aggregator's primary endpoint URL based on the configured transport.
@@ -1785,7 +1777,10 @@ func (a *AggregatorServer) IsYoloMode() bool {
 //   - args: Arguments to pass to the tool as key-value pairs
 //
 // Returns the tool execution result or an error if the tool cannot be found or executed.
-func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string, args map[string]interface{}) (*mcp.CallToolResult, error) {
+func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string, args map[string]interface{}) (res *mcp.CallToolResult, err error) {
+	ctx, endSpan := instrument.StartToolSpan(ctx, toolName)
+	defer func() { endSpan(res, err) }()
+
 	logging.DebugWithAttrs("Aggregator", "CallToolInternal called",
 		slog.String("tool", toolName))
 
@@ -1871,7 +1866,6 @@ func (a *AggregatorServer) isCoreToolByName(toolName string) bool {
 		"core_workflow_",
 		"core_service_",
 		"core_config_",
-		"core_serviceclass_",
 		"core_mcpserver_",
 		"core_events",
 		"core_auth_", // Authentication tools (core_auth_login, core_auth_logout)
@@ -1898,7 +1892,6 @@ func (a *AggregatorServer) isCoreToolByName(toolName string) bool {
 //   - workflow_*: Routed to the workflow manager for workflow operations
 //   - service_*: Routed to the service manager for service lifecycle operations
 //   - config_*: Routed to the config manager for configuration operations
-//   - serviceclass_*: Routed to the service class manager for service class operations
 //   - mcpserver_*: Routed to the MCP server manager for MCP server operations
 //
 // The method removes the "core_" prefix from tool names before routing to ensure
@@ -1982,7 +1975,7 @@ func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName st
 
 	case strings.HasPrefix(originalToolName, "config_"):
 		// Configuration management operations
-		handler := api.GetConfig() //nolint:staticcheck
+		handler := api.GetConfigHandler()
 		if handler == nil {
 			return nil, fmt.Errorf("config handler not available")
 		}
@@ -1994,21 +1987,6 @@ func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName st
 			return convertToMCPResult(result), nil
 		}
 		return nil, fmt.Errorf("config handler does not implement ToolProvider interface")
-
-	case strings.HasPrefix(originalToolName, "serviceclass_"):
-		// Service class management operations
-		handler := api.GetServiceClassManager()
-		if handler == nil {
-			return nil, fmt.Errorf("service class manager handler not available")
-		}
-		if provider, ok := handler.(api.ToolProvider); ok {
-			result, err := provider.ExecuteTool(ctx, originalToolName, args)
-			if err != nil {
-				return nil, err
-			}
-			return convertToMCPResult(result), nil
-		}
-		return nil, fmt.Errorf("service class manager does not implement ToolProvider interface")
 
 	case strings.HasPrefix(originalToolName, "mcpserver_"):
 		// MCP server management operations
@@ -2230,53 +2208,150 @@ type ProtectedResourceMetadata struct {
 	Issuer string
 	// Scope is the space-separated list of required scopes
 	Scope string
+	// Resource is the canonical resource URI per RFC 9728 §3.2 (REQUIRED in
+	// the spec but omitted by some real backends — log + accept on absence).
+	// Used by RFC 8707 token-binding consumers downstream.
+	Resource string
 }
 
-// discoverProtectedResourceMetadata fetches OAuth information from
-// the server's /.well-known/oauth-protected-resource endpoint.
-// This follows the MCP OAuth specification for resource metadata discovery (RFC 9728).
-func discoverProtectedResourceMetadata(ctx context.Context, serverURL string) (*ProtectedResourceMetadata, error) {
-	baseURL := pkgoauth.NormalizeServerURL(serverURL)
-	resourceMetadataURL := baseURL + "/.well-known/oauth-protected-resource"
+// discoverProtectedResourceMetadata resolves the authorization server for an
+// MCP server. When override is non-nil it skips PRM probing and uses the
+// operator-pinned values, performing an RFC 8414 §3.3 self-verification fetch
+// against the override issuer to fail closed on a wrong pin. Otherwise it
+// follows the MCP OAuth specification for resource metadata discovery (RFC 9728).
+func discoverProtectedResourceMetadata(ctx context.Context, serverURL string, override *api.MCPServerAuthAuthorizationServer) (*ProtectedResourceMetadata, error) {
+	httpClient := &http.Client{Timeout: 10 * time.Second}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", resourceMetadataURL, nil)
+	if override != nil {
+		issuer := strings.TrimSuffix(override.Issuer, "/")
+		// RFC 8414 §3.3 self-verification: fetch AS metadata at the pinned
+		// issuer and confirm it advertises the same issuer back. A typo or
+		// stale pin fails closed instead of driving an OAuth flow against
+		// the wrong AS.
+		md, err := pkgoauth.NewClient().DiscoverMetadata(ctx, issuer)
+		if err != nil {
+			return nil, fmt.Errorf("authorizationServer override: %w", err)
+		}
+		if got := strings.TrimSuffix(md.Issuer, "/"); got != issuer {
+			return nil, fmt.Errorf("authorizationServer override: issuer mismatch — spec.auth.authorizationServer.issuer=%q but AS metadata reports issuer=%q", issuer, md.Issuer)
+		}
+		logging.InfoWithAttrs("AuthTools", "oauth_authorization_server_override_used",
+			slog.String("issuer", issuer))
+		return &ProtectedResourceMetadata{Issuer: issuer, Scope: override.Scopes}, nil
+	}
+
+	// Step 1: WWW-Authenticate on 401.
+	if md := tryWWWAuthenticate(ctx, httpClient, serverURL); md != nil {
+		return md, nil
+	}
+
+	// Step 2 + 3: well-known paths (path-based first per MCP spec, then root).
+	parsed, err := url.Parse(serverURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse server URL: %w", err)
+	}
+	host := parsed.Scheme + "://" + parsed.Host
+	path := strings.TrimRight(parsed.Path, "/")
+	wellKnown := []string{}
+	if path != "" {
+		wellKnown = append(wellKnown, host+pkgoauth.WellKnownProtectedResource+path)
+	}
+	wellKnown = append(wellKnown, host+pkgoauth.WellKnownProtectedResource)
+
+	var lastErr error
+	for _, u := range wellKnown {
+		md, err := fetchProtectedResourceMetadata(ctx, httpClient, u)
+		if err == nil {
+			return md, nil
+		}
+		lastErr = err
+	}
+	return nil, fmt.Errorf("RFC 9728 protected resource metadata not found at any well-known path (last attempt: %w); set spec.auth.authorizationServer.issuer to bypass discovery", lastErr)
+}
+
+// tryWWWAuthenticate makes an unauthenticated GET to the MCP URL and follows
+// the WWW-Authenticate header's resource_metadata= URL when present, per
+// MCP 2025-11-25 §"PRM Discovery Requirements". Returns nil (not an error)
+// when the header is absent or carries no usable pointer — caller falls
+// through to well-known probing. Each abandoned branch logs at debug so
+// failures on this path remain diagnosable.
+func tryWWWAuthenticate(ctx context.Context, httpClient *http.Client, serverURL string) *ProtectedResourceMetadata {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, serverURL, nil)
+	if err != nil {
+		logging.Debug("AuthTools", "WWW-Authenticate probe: build request for %s failed: %v", serverURL, err)
+		return nil
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		logging.Debug("AuthTools", "WWW-Authenticate probe: %s unreachable: %v", serverURL, err)
+		return nil
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusUnauthorized {
+		logging.Debug("AuthTools", "WWW-Authenticate probe: %s returned %d (need 401), falling through", serverURL, resp.StatusCode)
+		return nil
+	}
+	// Header.Get returns the first value; RFC 7235 allows repeated header
+	// instances, but ParseWWWAuthenticate already handles multiple challenges
+	// inside one value, which is the form every real MCP backend emits.
+	header := resp.Header.Get("WWW-Authenticate")
+	if header == "" {
+		logging.Debug("AuthTools", "WWW-Authenticate probe: %s 401 carried no WWW-Authenticate header", serverURL)
+		return nil
+	}
+	challenge, err := pkgoauth.ParseWWWAuthenticate(header)
+	if err != nil || challenge.ResourceMetadataURL == "" {
+		logging.Debug("AuthTools", "WWW-Authenticate probe: %s carried no resource_metadata= pointer (parse err=%v)", serverURL, err)
+		return nil
+	}
+	md, err := fetchProtectedResourceMetadata(ctx, httpClient, challenge.ResourceMetadataURL)
+	if err != nil {
+		logging.Debug("AuthTools", "WWW-Authenticate probe: fetch %s failed: %v", challenge.ResourceMetadataURL, err)
+		return nil
+	}
+	return md
+}
+
+// fetchProtectedResourceMetadata fetches and parses an RFC 9728 PRM document.
+func fetchProtectedResourceMetadata(ctx context.Context, httpClient *http.Client, metadataURL string) (*ProtectedResourceMetadata, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, metadataURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
+	req.Header.Set("Accept", "application/json")
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch resource metadata: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("resource metadata returned status %d", resp.StatusCode)
+		return nil, fmt.Errorf("resource metadata at %s returned status %d", metadataURL, resp.StatusCode)
 	}
 
-	// Parse the response per RFC 9728
 	var metadata struct {
+		Resource             string   `json:"resource"`
 		AuthorizationServers []string `json:"authorization_servers"`
 		ScopesSupported      []string `json:"scopes_supported"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&metadata); err != nil {
 		return nil, fmt.Errorf("failed to parse resource metadata: %w", err)
 	}
-
+	// RFC 9728 §3.2 lists `resource` as REQUIRED but real backends omit it.
+	// Log + accept rather than reject so spec-noncompliant servers still work.
+	if metadata.Resource == "" {
+		logging.Warn("AuthTools", "RFC 9728 PRM at %s omits REQUIRED `resource` field", metadataURL)
+	}
 	if len(metadata.AuthorizationServers) == 0 {
-		return nil, fmt.Errorf("no authorization servers in resource metadata")
+		return nil, fmt.Errorf("no authorization servers in resource metadata at %s", metadataURL)
 	}
 
 	result := &ProtectedResourceMetadata{
-		Issuer: metadata.AuthorizationServers[0],
+		Issuer:   metadata.AuthorizationServers[0],
+		Resource: metadata.Resource,
 	}
-
-	// Join all supported scopes with space separator
 	if len(metadata.ScopesSupported) > 0 {
 		result.Scope = strings.Join(metadata.ScopesSupported, " ")
 	}
-
 	return result, nil
 }
 
@@ -2525,13 +2600,13 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 	if idToken == "" {
 		return nil, time.Time{}, "", fmt.Errorf("no ID token available for token exchange to %s", serverName)
 	}
-	if isIDTokenExpired(idToken) {
-		return nil, time.Time{}, "", fmt.Errorf("ID token has expired for %s, re-authenticate to refresh", serverName)
+	if expired, err := pkgoauth.IsExpired(idToken); expired {
+		return nil, time.Time{}, "", fmt.Errorf("ID token has expired for %s, re-authenticate to refresh: %w", serverName, err)
 	}
 
-	userID := extractUserIDFromToken(idToken)
-	if userID == "" {
-		return nil, time.Time{}, "", fmt.Errorf("failed to extract user ID from token for %s", serverName)
+	userID, err := pkgoauth.Subject(idToken)
+	if err != nil || userID == "" {
+		return nil, time.Time{}, "", fmt.Errorf("failed to extract user ID from token for %s: %w", serverName, err)
 	}
 
 	exchangeConfig := *serverInfo.AuthConfig.TokenExchange
@@ -2565,7 +2640,6 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 	}
 
 	var exchangedToken string
-	var err error
 	if teleportResult.Client != nil {
 		exchangedToken, err = oauthHandler.ExchangeTokenForRemoteClusterWithClient(
 			ctx, idToken, userID, &exchangeConfig, teleportResult.Client,
@@ -2579,7 +2653,10 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 		return nil, time.Time{}, "", fmt.Errorf("token exchange failed for %s: %w", serverName, err)
 	}
 
-	tokenExpiry := getTokenExpiryTime(exchangedToken)
+	tokenExpiry, err := pkgoauth.Expiry(exchangedToken)
+	if err != nil {
+		logging.Debug("TokenExchange", "Could not extract expiry from exchanged token, proactive refresh disabled: %v", err)
+	}
 
 	headerFunc := func(_ context.Context) map[string]string {
 		return map[string]string{"Authorization": "Bearer " + exchangedToken}
@@ -2684,8 +2761,8 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 			return nil, nil, fmt.Errorf("no ID token available for forwarding to %s", serverName)
 		}
 
-		if isIDTokenExpired(idToken) {
-			return nil, nil, fmt.Errorf("ID token has expired for %s, re-authenticate to refresh", serverName)
+		if expired, err := pkgoauth.IsExpired(idToken); expired {
+			return nil, nil, fmt.Errorf("ID token has expired for %s, re-authenticate to refresh: %w", serverName, err)
 		}
 
 		headerFunc := func(_ context.Context) map[string]string {
@@ -2861,8 +2938,8 @@ func (a *AggregatorServer) backgroundTokenRefresh(sessionID, serverName, sub str
 //   - MCP server tools (prefixed with x_<server>_)
 //   - Core muster tools (prefixed with core_) from internal providers
 //
-// The core tools are collected from workflow, service, config, serviceclass,
-// mcpserver, events, and auth providers.
+// The core tools are collected from workflow, service, config, mcpserver,
+// events, and auth providers.
 func (a *AggregatorServer) ListToolsForContext(ctx context.Context) []mcp.Tool {
 	sessionID := getSessionIDFromContext(ctx)
 	if sessionID == "" {

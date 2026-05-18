@@ -202,10 +202,10 @@ muster serve
 list_tools()
 
 # Get details about a specific tool
-describe_tool(name="core_service_create")
+describe_tool(name="core_service_list")
 
 # Execute any tool
-call_tool(name="core_service_create", arguments={...})
+call_tool(name="core_service_list", arguments={})
 
 # Filter tools by pattern
 filter_tools(pattern="core_service_*")

@@ -91,18 +91,8 @@ The aggregator has the actual business logic tools:
 call_tool(name="core_config_get", arguments={})
 call_tool(name="core_config_save", arguments={})
 
-# Service Management Tools (9 tools)
+# Service Management Tools
 call_tool(name="core_service_list", arguments={})
-call_tool(name="core_service_create", arguments={
-  "serviceClassName": "service-k8s-connection",
-  "name": "my-connection"
-})
-
-# ServiceClass Tools (7 tools)
-call_tool(name="core_serviceclass_list", arguments={})
-call_tool(name="core_serviceclass_available", arguments={
-  "name": "service-k8s-connection"
-})
 
 # MCP Server Tools (6 tools)
 call_tool(name="core_mcpserver_list", arguments={})
@@ -121,19 +111,6 @@ Based on the current `.muster` configuration:
 ```bash
 # Discover available tools
 list_tools()
-
-# Create a Kubernetes connection service
-call_tool(
-  name="core_service_create",
-  arguments={
-    "serviceClassName": "service-k8s-connection",
-    "name": "my-k8s-connection",
-    "args": {
-      "cluster_name": "my-cluster",
-      "role": "management"
-    }
-  }
-)
 
 # Execute authentication workflow
 call_tool(

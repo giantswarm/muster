@@ -30,7 +30,7 @@ serviceAccount:
 
 # RBAC Configuration
 # Muster requires access to:
-#   - Muster CRDs (MCPServer, ServiceClass, Workflow)
+#   - Muster CRDs (MCPServer, Workflow)
 #   - CRD discovery
 #   - Events (for core_events tool)
 #   - Secrets (for reading credentials: token exchange, teleport identity, OAuth)
@@ -210,7 +210,7 @@ muster:
     # Options: "streamable-http", "sse"
     transport: "streamable-http"
 
-  # Namespace for MCPServer, ServiceClass and Workflow discovery
+  # Namespace for MCPServer and Workflow discovery
   # Defaults to the release namespace if not set
   namespace: ""
 
@@ -388,6 +388,15 @@ muster:
       # Example: ["cursor", "vscode"]
       trustedPublicRegistrationSchemes: []
 
+      # HTTPS redirect URIs pre-attested by the operator for unauthenticated
+      # client registration. SECURITY: every entry here is a client that can
+      # complete DCR without a registration token. Use only for SaaS MCP
+      # clients whose redirect URI you fully control or operationally trust.
+      # Matching is exact after RFC 3986 normalization.
+      # Example (uncomment to allow the Claude.ai connector):
+      #   - https://claude.ai/api/mcp/auth_callback
+      trustedPublicRegistrationRedirectURIs: []
+
       # Enable Client ID Metadata Documents (CIMD) per MCP 2025-11-25 spec
       enableCIMD: true
 
@@ -403,6 +412,57 @@ muster:
       #
       # SECURITY: only list client IDs you fully trust.
       trustedAudiences: []
+
+  # OpenTelemetry observability configuration.
+  #
+  # When endpoint is empty (the default), muster does not export any
+  # telemetry. The W3C TraceContext propagator is still installed, so
+  # inbound traceparent headers from agentgateway propagate to outbound
+  # calls and downstream backends can join the trace chain.
+  observability:
+    otel:
+      # OTLP endpoint, e.g. "tempo-distributor.tempo.svc:4317" for gRPC
+      # or "https://tempo.example.com:4318" for HTTP. Applies to both
+      # traces and metrics (same OTEL_EXPORTER_OTLP_ENDPOINT).
+      endpoint: ""
+      # OTLP protocol: "grpc" (default) or "http/protobuf".
+      protocol: grpc
+      # Extra OTLP headers, e.g. "X-Scope-OrgID=giantswarm" for a
+      # multi-tenant Tempo / Mimir deployment.
+      headers: ""
+      # Additional OTEL_RESOURCE_ATTRIBUTES appended to the
+      # downward-API-derived k8s.pod.name / k8s.namespace.name /
+      # k8s.node.name. Example: "deployment.environment=glean".
+      resourceAttributes: ""
+
+    # Metric exporter selection. Empty means muster relies on the
+    # toolkit's default — OTLP when otel.endpoint is set, no-op
+    # otherwise.
+    #
+    # Set to one of (or a comma-separated combination of):
+    #   - "otlp"        push metrics to the OTLP endpoint above
+    #   - "prometheus"  self-host a /metrics endpoint on port 9464,
+    #                   scrapable by Prometheus / Mimir agents
+    #   - "console"     local dev: dump metrics to stdout
+    #   - "none"        explicit no-op
+    metrics:
+      exporter: ""
+      prometheus:
+        # Port the self-hosted /metrics endpoint listens on. Only
+        # exposed when "prometheus" is in metrics.exporter.
+        port: 9464
+        # ServiceMonitor for Prometheus-Operator clusters. When
+        # enabled, a ServiceMonitor selecting muster's Service on the
+        # prometheus port is rendered.
+        serviceMonitor:
+          enabled: false
+          # Scrape interval. Empty falls back to the Prometheus
+          # operator's global default.
+          interval: ""
+          # Extra labels applied to the ServiceMonitor — useful for
+          # selecting the right Prometheus instance in a multi-tenant
+          # cluster.
+          labels: {}
 
 # CRD installation
 crds:

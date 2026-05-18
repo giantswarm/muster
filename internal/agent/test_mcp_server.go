@@ -84,7 +84,7 @@ func (t *TestMCPServer) registerTools() {
 			mcp.Description("Filter by category (behavioral, integration)"),
 		),
 		mcp.WithString("concept",
-			mcp.Description("Filter by concept (serviceclass, workflow, mcpserver, service)"),
+			mcp.Description("Filter by concept (workflow, mcpserver, service)"),
 		),
 		mcp.WithString("scenario",
 			mcp.Description("Run specific scenario by name"),
@@ -133,7 +133,7 @@ func (t *TestMCPServer) registerTools() {
 			mcp.Description("Filter by category (behavioral, integration) when using schema validation"),
 		),
 		mcp.WithString("concept",
-			mcp.Description("Filter by concept (serviceclass, workflow, mcpserver, service) when using schema validation"),
+			mcp.Description("Filter by concept (workflow, mcpserver, service) when using schema validation"),
 		),
 	)
 	t.mcpServer.AddTool(validateScenarioTool, t.handleValidateScenario)

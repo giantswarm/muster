@@ -10,65 +10,6 @@ Create workflows that automate complex deployment processes with proper error ha
 ### Prerequisites
 - Understanding of your deployment process
 - Required tools available via MCP servers
-- ServiceClasses defined for your services
-
-### Basic Workflow Structure
-
-```yaml
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: Workflow
-metadata:
-  name: deployment-workflow
-  namespace: default
-spec:
-  description: "Multi-step deployment with validation"
-  args:
-    app_name:
-      type: string
-      required: true
-      description: "Application name"
-    version:
-      type: string
-      required: true
-      description: "Version to deploy"
-    environment:
-      type: string
-      default: "staging"
-      description: "Target environment"
-  steps:
-    - id: validate_prerequisites
-      tool: x_deployment_validate_prerequisites
-      args:
-        app_name: "{{.app_name}}"
-        environment: "{{.environment}}"
-
-    - id: create_deployment
-      tool: core_service_create
-      args:
-        name: "{{.app_name}}-{{.environment}}"
-        serviceClassName: "web-application"
-        args:
-          image: "{{.app_name}}:{{.version}}"
-          environment: "{{.environment}}"
-      store: true
-
-    - id: wait_for_ready
-      tool: x_kubernetes_wait_for_deployment
-      args:
-        deployment_name: "{{.results.create_deployment.name}}"
-        timeout: "300s"
-
-    - id: run_health_checks
-      tool: x_monitoring_health_check
-      args:
-        endpoint: "{{.results.create_deployment.endpoint}}"
-
-    - id: notify_team
-      tool: x_slack_send_notification
-      args:
-        message: "✅ {{.app_name}} {{.version}} deployed to {{.environment}}"
-        channel: "#deployments"
-```
 
 ### Advanced Features
 
@@ -92,12 +33,6 @@ spec:
       args:
         version: "{{.version}}"
       allowFailure: true  # Continue workflow even if this fails
-
-    - id: deploy_app
-      tool: core_service_create
-      args:
-        name: "{{.app_name}}"
-        serviceClassName: "web-application"
 ```
 
 #### Conditional Steps
@@ -256,41 +191,6 @@ spec:
 ### Goal
 Use Go templates to create dynamic, reusable workflows.
 
-### Basic Templating
-
-```yaml
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: Workflow
-metadata:
-  name: templated-workflow
-  namespace: default
-spec:
-  name: templated-workflow
-  description: "Workflow with dynamic configuration"
-  args:
-    app_name:
-      type: string
-      required: true
-    replicas:
-      type: integer
-      default: 1
-    environment:
-      type: string
-      default: "development"
-  steps:
-    - id: deploy_app
-      tool: core_service_create
-      args:
-        name: "{{.app_name}}-{{.environment}}"
-        serviceClassName: "web-application"
-        args:
-          # Template expressions
-          image: "{{.app_name}}:{{ if eq .environment \"production\" }}stable{{ else }}latest{{ end }}"
-          replicas: "{{.replicas}}"
-          # Conditional configuration
-          resources: "{{ if eq .environment \"production\" }}{\"cpu\": \"1000m\", \"memory\": \"2Gi\"}{{ else }}{\"cpu\": \"100m\", \"memory\": \"256Mi\"}{{ end }}"
-```
-
 ### Advanced Template Functions
 
 ```yaml
@@ -433,19 +333,7 @@ muster get workflow-execution deployment-workflow-20240107-123456 --export-trace
 
 ### Testing Strategies
 
-#### 1. Dry Run Mode
-```yaml
-# Add dry-run capability to workflows
-steps:
-  - id: deploy_service
-    tool: core_service_create
-    args:
-      name: "{{.app_name}}"
-      serviceClassName: "web-application"
-      dryRun: "{{ .dry_run | default false }}"
-```
-
-#### 2. Mock Steps for Testing
+#### 1. Mock Steps for Testing
 ```yaml
 # Test workflow with mock tools
 apiVersion: muster.giantswarm.io/v1alpha1
@@ -561,5 +449,4 @@ spec:
 - Version control workflow definitions
 
 ## Related Documentation
-- [ServiceClass Patterns](serviceclass-patterns.md)
 - [Workflow Reference](../reference/mcp-tools.md#workflow-tools)

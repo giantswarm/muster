@@ -525,6 +525,14 @@
               },
               "description": "URI schemes allowed for unauthenticated client registration"
             },
+            "trustedPublicRegistrationRedirectURIs": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^https://[A-Za-z0-9._~%-]+(:[0-9]+)?(/\\S*)?$"
+              },
+              "description": "HTTPS redirect URIs allowed for unauthenticated client registration (exact match after RFC 3986 normalization)"
+            },
             "enableCIMD": {
               "type": "boolean",
               "description": "Enable Client ID Metadata Documents"

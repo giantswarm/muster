@@ -30,7 +30,7 @@ steps:
       - id: "list_services"
         tool: "core_service_list"
       - id: "list_capabilities"
-        tool: "core_serviceclass_list"
+        tool: "core_workflow_list"
   expected:
     success: true
   cleanup:

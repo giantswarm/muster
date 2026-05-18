@@ -1,11 +1,10 @@
 # Service Management Component
 
 ## Purpose
-Handles lifecycle management of service instances based on ServiceClass templates.
+Handles lifecycle management of service instances.
 
 ## Key Responsibilities
 - Service registry and instance tracking
-- ServiceClass template management
 - State management (start/stop/restart)
 - Dependency resolution and ordering
 - Response processing and status monitoring
@@ -18,4 +17,4 @@ Handles lifecycle management of service instances based on ServiceClass template
 - `interfaces.go`: Service interfaces
 
 ## Integration
-Uses API adapters to integrate with orchestrator and aggregator. Defines ServiceClasses for reusable service patterns.
+Uses API adapters to integrate with orchestrator and aggregator.

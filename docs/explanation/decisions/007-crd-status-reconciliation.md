@@ -2,7 +2,10 @@
 
 ## Status
 
-Accepted
+Partially superseded. ServiceClass-related parts of this ADR no longer apply
+because the ServiceClass feature has been removed. The MCPServer and Workflow
+status reconciliation described here remains in effect. Historical references
+to ServiceClass below are preserved for context.
 
 ## Date
 

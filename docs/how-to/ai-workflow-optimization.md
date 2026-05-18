@@ -99,35 +99,6 @@ spec:
         timeout: "30m"
       depends_on: ["validate_environment", "validate_image"]
 
-    # Main deployment with progress tracking
-    - id: deploy_application
-      description: "Deploy application using rolling update strategy"
-      tool: core_service_create
-      args:
-        name: "{{.app_name}}-{{.environment}}"
-        serviceClassName: "web-application"
-        args:
-          image: "{{.app_name}}:{{.image_tag}}"
-          environment: "{{.environment}}"
-          replicas: "{{.replicas}}"
-          strategy: "rolling_update"
-      timeout: "10m"
-      progress_tracking: true
-      store_result: true
-
-    # Health verification with retries
-    - id: verify_deployment
-      description: "Verify deployment health and readiness"
-      tool: verify_application_health
-      args:
-        service_name: "{{.results.deploy_application.name}}"
-        expected_replicas: "{{.replicas}}"
-        health_check_timeout: "5m"
-      retry:
-        attempts: 3
-        delay: "30s"
-        backoff: "exponential"
-
     # Parallel post-deployment tasks
     - id: update_monitoring
       description: "Update monitoring configuration for new deployment"

@@ -73,7 +73,7 @@
 // - **YAML Parsing**: Parse and validate YAML scenario definitions
 // - **Schema Validation**: Ensure scenario files conform to expected structure
 // - **Category Filtering**: Filter tests by category (behavioral, integration)
-// - **Concept Filtering**: Filter tests by concept (serviceclass, workflow, etc.)
+// - **Concept Filtering**: Filter tests by concept (workflow, mcpserver, service)
 // - **Configuration Management**: Load and merge configuration from multiple sources
 //
 // Key methods:
@@ -129,7 +129,7 @@
 //
 // **ScenarioFilter**: Test selection and filtering criteria
 //   - Category-based filtering (behavioral, integration)
-//   - Concept-based filtering (serviceclass, workflow, mcpserver, service)
+//   - Concept-based filtering (workflow, mcpserver, service)
 //   - Tag-based filtering for fine-grained test selection
 //   - Name pattern matching for specific scenario selection
 //
@@ -148,12 +148,6 @@
 // - **Focus**: System integration, data flow, and error propagation
 //
 // # Core Concepts Coverage
-//
-// ## ServiceClass Testing
-// - **Management Operations**: Create, update, delete, list ServiceClass definitions
-// - **Dynamic Instantiation**: Validate ServiceClass-to-Service instantiation
-// - **Arg Validation**: Test arg templating and validation logic
-// - **Tool Integration**: Verify ServiceClass tool definitions and availability
 //
 // ## Workflow Testing
 // - **Execution Logic**: Validate workflow step execution and flow control
@@ -262,7 +256,7 @@
 //	```bash
 //	muster test                          # Run all tests
 //	muster test --category=behavioral    # Category-specific
-//	muster test --concept=serviceclass  # Concept-specific
+//	muster test --concept=workflow      # Concept-specific
 //	muster test --scenario=basic-create # Scenario-specific
 //	```
 //

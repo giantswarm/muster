@@ -149,7 +149,8 @@ func createHTTPClientWithCA(caFile string) (*http.Client, error) {
 
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{
-			RootCAs: caCertPool,
+			RootCAs:    caCertPool,
+			MinVersion: tls.VersionTLS12,
 		},
 	}
 

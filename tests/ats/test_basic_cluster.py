@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 deployment_name = "muster"
 namespace_name = "muster"
 
-timeout: int = 560
+timeout: int = 180
 
 
 @pytest.mark.smoke
@@ -44,7 +44,7 @@ def wait_for_deployment(kube_cluster: Cluster) -> List[pykube.Deployment]:
 
 @pytest.mark.smoke
 @pytest.mark.upgrade
-@pytest.mark.flaky(reruns=5, reruns_delay=10)
+@pytest.mark.flaky(reruns=1, reruns_delay=15)
 def test_pods_available(kube_cluster: Cluster, deployment: List[pykube.Deployment]):
     for s in deployment:
         assert int(s.obj["status"]["readyReplicas"]) == int(
