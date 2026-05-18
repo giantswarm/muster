@@ -38,6 +38,12 @@ import (
 // If you see alg:none tokens in production, it indicates a security misconfiguration.
 const jwtHeader = "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0"
 
+// jwtDummySignature satisfies mcp-oauth's structural JWT check that requires
+// three non-empty segments (see oidc.ParseUnverifiedClaims). The value is a
+// constant placeholder — these tokens are still unsigned (alg:none) and MUST
+// NOT be trusted outside tests.
+const jwtDummySignature = "dGVzdC1zaWduYXR1cmU"
+
 // idTokenClaims represents the claims in an ID token.
 type idTokenClaims struct {
 	Iss    string   `json:"iss"`              // Issuer
@@ -45,6 +51,7 @@ type idTokenClaims struct {
 	Aud    string   `json:"aud"`              // Audience (client ID)
 	Exp    int64    `json:"exp"`              // Expiration time
 	Iat    int64    `json:"iat"`              // Issued at
+	Nonce  string   `json:"nonce,omitempty"`  // OIDC nonce echoed from the auth request
 	Email  string   `json:"email,omitempty"`  // User email
 	Name   string   `json:"name,omitempty"`   // User name
 	Groups []string `json:"groups,omitempty"` // User groups for RBAC
@@ -140,6 +147,7 @@ type authCodeEntry struct {
 	ChallengeMethod string
 	CreatedAt       time.Time
 	Subject         string // Optional: override subject in generated tokens
+	Nonce           string // OIDC nonce from the auth request; echoed in id_token
 }
 
 type issuedToken struct {
@@ -401,13 +409,14 @@ func (s *OAuthServer) GetTokenURL() string {
 
 // GenerateAuthCode generates an authorization code for testing
 // This simulates a user completing the OAuth flow
-func (s *OAuthServer) GenerateAuthCode(clientID, redirectURI, scope, state, codeChallenge, codeChallengeMethod string) string {
-	return s.GenerateAuthCodeWithSubject(clientID, redirectURI, scope, state, codeChallenge, codeChallengeMethod, "")
+func (s *OAuthServer) GenerateAuthCode(clientID, redirectURI, scope, state, codeChallenge, codeChallengeMethod, nonce string) string {
+	return s.GenerateAuthCodeWithSubject(clientID, redirectURI, scope, state, codeChallenge, codeChallengeMethod, "", nonce)
 }
 
 // GenerateAuthCodeWithSubject generates an authorization code with a custom subject claim.
-// If subject is empty, the default "test-user-123" is used.
-func (s *OAuthServer) GenerateAuthCodeWithSubject(clientID, redirectURI, scope, state, codeChallenge, codeChallengeMethod, subject string) string {
+// If subject is empty, the default "test-user-123" is used. The nonce, when non-empty,
+// is echoed back in the issued id_token to satisfy OIDC nonce-echo verification.
+func (s *OAuthServer) GenerateAuthCodeWithSubject(clientID, redirectURI, scope, state, codeChallenge, codeChallengeMethod, subject, nonce string) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -422,6 +431,7 @@ func (s *OAuthServer) GenerateAuthCodeWithSubject(clientID, redirectURI, scope, 
 		ChallengeMethod: codeChallengeMethod,
 		CreatedAt:       s.clock.Now(),
 		Subject:         subject,
+		Nonce:           nonce,
 	}
 
 	if s.config.Debug {
@@ -446,12 +456,13 @@ func (s *OAuthServer) SimulateCallback(code string) (*TokenResponse, error) {
 	accessToken := s.generateAccessToken(entry.ClientID, entry.Scope)
 	refreshToken := generateOpaqueToken()
 
-	// Generate ID token, using subject override from auth code if present
+	// Generate ID token, using subject override from auth code if present.
+	// Echo the request-bound nonce so mcp-oauth's nonce-echo verification accepts it.
 	var idToken string
 	if entry.Subject != "" {
-		idToken = s.generateIDTokenWithSub(entry.ClientID, entry.Scope, entry.Subject)
+		idToken = s.generateIDTokenWithSub(entry.ClientID, entry.Scope, entry.Subject, entry.Nonce)
 	} else {
-		idToken = s.generateIDToken(entry.ClientID, entry.Scope)
+		idToken = s.generateIDToken(entry.ClientID, entry.Scope, entry.Nonce)
 	}
 
 	sub := entry.Subject
@@ -522,7 +533,7 @@ func (s *OAuthServer) GenerateTestToken(clientID, scope string) *TokenResponse {
 
 	accessToken := s.generateAccessToken(clientID, scope)
 	refreshToken := generateOpaqueToken()
-	idToken := s.generateIDToken(clientID, scope)
+	idToken := s.generateIDToken(clientID, scope, "")
 
 	token := &issuedToken{
 		AccessToken:  accessToken,
@@ -594,6 +605,7 @@ func (s *OAuthServer) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 	codeChallenge := r.URL.Query().Get("code_challenge")
 	codeChallengeMethod := r.URL.Query().Get("code_challenge_method")
 	responseType := r.URL.Query().Get("response_type")
+	nonce := r.URL.Query().Get("nonce")
 
 	if s.config.Debug {
 		fmt.Fprintf(os.Stderr, "🔐 Authorization request: client_id=%s, redirect_uri=%s, scope=%s\n",
@@ -619,7 +631,7 @@ func (s *OAuthServer) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Generate authorization code
-	code := s.GenerateAuthCode(clientID, redirectURI, scope, state, codeChallenge, codeChallengeMethod)
+	code := s.GenerateAuthCode(clientID, redirectURI, scope, state, codeChallenge, codeChallengeMethod, nonce)
 
 	if s.config.AutoApprove {
 		// Auto-redirect with code (simulating user approval)
@@ -772,13 +784,14 @@ func (s *OAuthServer) handleAuthCodeExchange(w http.ResponseWriter, r *http.Requ
 	accessToken := s.generateAccessToken(entry.ClientID, entry.Scope)
 	refreshToken := generateOpaqueToken()
 
-	// Generate ID token for SSO token forwarding support
-	// Use subject override from auth code if present
+	// Generate ID token for SSO token forwarding support.
+	// Use subject override from auth code if present and echo the request-bound
+	// nonce so mcp-oauth's nonce-echo verification accepts the upstream id_token.
 	var idToken string
 	if entry.Subject != "" {
-		idToken = s.generateIDTokenWithSub(entry.ClientID, entry.Scope, entry.Subject)
+		idToken = s.generateIDTokenWithSub(entry.ClientID, entry.Scope, entry.Subject, entry.Nonce)
 	} else {
-		idToken = s.generateIDToken(entry.ClientID, entry.Scope)
+		idToken = s.generateIDToken(entry.ClientID, entry.Scope, entry.Nonce)
 	}
 
 	sub := entry.Subject
@@ -856,7 +869,8 @@ func (s *OAuthServer) handleRefreshToken(w http.ResponseWriter, r *http.Request)
 	if sub == "" {
 		sub = "test-user-123"
 	}
-	newIDToken := s.generateIDTokenWithSub(originalToken.ClientID, originalToken.Scope, sub)
+	// Nonce is bound to the auth request, not the refresh, so no echo on refresh.
+	newIDToken := s.generateIDTokenWithSub(originalToken.ClientID, originalToken.Scope, sub, "")
 
 	newToken := &issuedToken{
 		AccessToken:  newAccessToken,
@@ -955,7 +969,8 @@ func (s *OAuthServer) handleTokenExchange(w http.ResponseWriter, r *http.Request
 
 	// Issue new tokens for this server
 	accessToken := s.generateAccessToken(s.config.ClientID, scope)
-	idToken := s.generateIDTokenWithSub(s.config.ClientID, scope, userID)
+	// RFC 8693 token exchange: no nonce binding from the original auth request.
+	idToken := s.generateIDTokenWithSub(s.config.ClientID, scope, userID, "")
 
 	token := &issuedToken{
 		AccessToken:  accessToken,
@@ -1041,8 +1056,10 @@ func (s *OAuthServer) extractSubFromToken(token string) string {
 	return claims.Sub
 }
 
-// generateIDTokenWithSub generates an ID token with a specific subject
-func (s *OAuthServer) generateIDTokenWithSub(clientID, scope, subject string) string {
+// generateIDTokenWithSub generates an ID token with a specific subject.
+// When nonce is non-empty, it is echoed in the `nonce` claim so callers can
+// satisfy OIDC nonce-echo verification (RFC 8252, OpenID Connect Core §3.1.2.7).
+func (s *OAuthServer) generateIDTokenWithSub(clientID, scope, subject, nonce string) string {
 	now := s.clock.Now()
 
 	claims := idTokenClaims{
@@ -1051,6 +1068,7 @@ func (s *OAuthServer) generateIDTokenWithSub(clientID, scope, subject string) st
 		Aud:   clientID,
 		Exp:   now.Add(s.config.TokenLifetime).Unix(),
 		Iat:   now.Unix(),
+		Nonce: nonce,
 		Email: "test@example.com",
 		Name:  "Test User",
 	}
@@ -1066,7 +1084,7 @@ func (s *OAuthServer) generateIDTokenWithSub(clientID, scope, subject string) st
 	}
 
 	payload := base64.RawURLEncoding.EncodeToString(claimsJSON)
-	return fmt.Sprintf("%s.%s.", jwtHeader, payload)
+	return fmt.Sprintf("%s.%s.%s", jwtHeader, payload, jwtDummySignature)
 }
 
 func (s *OAuthServer) handleUserInfo(w http.ResponseWriter, r *http.Request) {
@@ -1193,7 +1211,7 @@ func hasScope(scopeString, target string) bool {
 //   - Use proper JWT signing (RS256, ES256)
 //   - Reject tokens with alg: none
 //   - Verify signatures against the IdP's JWKS
-func (s *OAuthServer) generateIDToken(clientID, scope string) string {
+func (s *OAuthServer) generateIDToken(clientID, scope, nonce string) string {
 	now := s.clock.Now()
 
 	claims := idTokenClaims{
@@ -1202,6 +1220,7 @@ func (s *OAuthServer) generateIDToken(clientID, scope string) string {
 		Aud:   clientID,
 		Exp:   now.Add(s.config.TokenLifetime).Unix(),
 		Iat:   now.Unix(),
+		Nonce: nonce,
 		Email: "test@example.com",
 		Name:  "Test User",
 	}
@@ -1221,7 +1240,7 @@ func (s *OAuthServer) generateIDToken(clientID, scope string) string {
 
 	// Return unsigned JWT (header.payload.)
 	// The trailing dot indicates no signature (alg: none)
-	return fmt.Sprintf("%s.%s.", jwtHeader, payload)
+	return fmt.Sprintf("%s.%s.%s", jwtHeader, payload, jwtDummySignature)
 }
 
 // WaitForReady waits for the OAuth server to be ready
