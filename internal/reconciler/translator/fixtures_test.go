@@ -88,14 +88,22 @@ func sseSpec(auth *v1alpha1.MCPServerAuth) v1alpha1.MCPServerSpec {
 	}
 }
 
-type expectBackend struct {
-	host     string
-	port     int
-	path     string
-	protocol translator.Protocol
+// kind describes which Backend variant a happy case expects.
+type kind int
+
+const (
+	kindStdio kind = iota
+	kindStreamableHTTP
+	kindSSE
+)
+
+type expectHTTP struct {
+	host string
+	port int
+	path string
 }
 
-type expectShim struct {
+type expectStdio struct {
 	command string
 	args    []string
 	env     map[string]string
@@ -104,8 +112,9 @@ type expectShim struct {
 type happyCase struct {
 	name          string
 	spec          v1alpha1.MCPServerSpec
-	wantBackend   expectBackend
-	wantShim      *expectShim
+	wantKind      kind
+	wantHTTP      expectHTTP
+	wantStdio     expectStdio
 	wantAuthn     translator.AuthnConfig
 	wantPathMatch string
 }

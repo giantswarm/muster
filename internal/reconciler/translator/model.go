@@ -1,15 +1,5 @@
 package translator
 
-// Protocol identifies the wire protocol an agentgateway backend speaks.
-type Protocol string
-
-const (
-	// ProtocolStreamableHTTP is MCP over HTTP POST with optional chunked streaming.
-	ProtocolStreamableHTTP Protocol = "StreamableHTTP"
-	// ProtocolSSE is MCP over Server-Sent Events.
-	ProtocolSSE Protocol = "SSE"
-)
-
 // AuthnType is the authentication strategy applied at the gateway for a route.
 type AuthnType string
 
@@ -31,28 +21,44 @@ type Model struct {
 	Routes []Route
 	// Policies declare authentication and authorization for routes.
 	Policies []Policy
-	// Shims declare stdio child processes that the reconciler must spawn
-	// before emitting the Model. The reconciler injects the resolved
-	// Endpoint into the matching Backend (matched by Name) and clears
-	// this slice from the Emit-time Model if it chooses.
-	Shims []ShimRequest
 }
 
-// Backend is one upstream target reachable over HTTP that agentgateway proxies.
+// Backend is the gateway-side description of one MCPServer upstream. It is a
+// tagged union: exactly one of StreamableHTTP, SSE, Stdio is non-nil and
+// Transform guarantees this invariant. Emitters branch on which field is set.
 type Backend struct {
-	// Name is the stable identifier shared with the owning Route and Policy
-	// and, for stdio-derived backends, the corresponding ShimRequest.
+	// Name is the stable identifier shared with the owning Route and Policy.
 	Name string
-	// Host is the DNS name or IP of the upstream. Empty until the reconciler
-	// resolves a stdio shim's listener address.
+	// StreamableHTTP, when non-nil, indicates an MCP-over-StreamableHTTP upstream.
+	StreamableHTTP *HTTPTarget
+	// SSE, when non-nil, indicates an MCP-over-SSE upstream.
+	SSE *HTTPTarget
+	// Stdio, when non-nil, indicates an stdio MCP child that agentgateway
+	// spawns itself per agw's `mcp.targets[].stdio` schema.
+	Stdio *StdioTarget
+}
+
+// HTTPTarget is the host/port/path triple shared by the StreamableHTTP and SSE
+// transports.
+type HTTPTarget struct {
+	// Host is the DNS name or IP of the upstream.
 	Host string
-	// Port is the TCP port of the upstream. Zero until the reconciler
-	// resolves a stdio shim's listener address.
+	// Port is the TCP port of the upstream.
 	Port int
 	// Path is the URL path agentgateway forwards requests to on the upstream.
 	Path string
-	// Protocol selects the wire protocol agentgateway speaks to the upstream.
-	Protocol Protocol
+}
+
+// StdioTarget describes a stdio MCP child that agentgateway spawns directly.
+// Maps to agw's LocalMcpTarget.stdio schema: cmd, args, env (clear_env is
+// always false today and not modeled).
+type StdioTarget struct {
+	// Command is the executable path for the stdio child.
+	Command string
+	// Args is the command-line argument list for the stdio child.
+	Args []string
+	// Env is the environment passed to the stdio child.
+	Env map[string]string
 }
 
 // Route attaches a gateway path-match to a Backend under a Policy.
@@ -136,26 +142,4 @@ type AuthorizationServer struct {
 	Issuer string
 	// Scopes is the OAuth scope parameter value (RFC 6749 §3.3 wire format).
 	Scopes string
-}
-
-// ShimRequest describes a stdio MCP child the reconciler must spawn before the
-// corresponding Backend is reachable.
-type ShimRequest struct {
-	// Name matches the corresponding Backend.Name.
-	Name string
-	// Command is the executable path for the stdio child.
-	Command string
-	// Args is the command-line argument list for the stdio child.
-	Args []string
-	// Env is the environment passed to the stdio child.
-	Env map[string]string
-}
-
-// Endpoint is the host/port the reconciler injects into a Backend after the
-// shim runner reports the child is listening.
-type Endpoint struct {
-	// Host is the DNS name or IP the shim listens on.
-	Host string
-	// Port is the TCP port the shim listens on.
-	Port int
 }

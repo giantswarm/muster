@@ -15,15 +15,15 @@ const (
 	specTypeSSE            = "sse"
 )
 
-const shimPath = "/mcp"
+const routePathPrefix = "/mcp"
 
 // Transform produces a Model for the given MCPServer name and spec. It is pure:
 // the result depends only on the inputs and never performs I/O.
 //
-// For spec.Type == "stdio" the resulting Model carries a ShimRequest; the
-// reconciler is expected to resolve the shim's listener Endpoint and inject
-// Host and Port into the matching Backend before handing the Model to a
-// ConfigEmitter.
+// For spec.Type == "stdio" the Backend carries a non-nil Stdio target; the
+// yaml emitter serializes this as agentgateway's `mcp.targets[].stdio` and
+// agentgateway spawns the child process itself. The k8s emitter rejects stdio
+// targets in cluster mode (see internal/reconciler/translator/k8s).
 func Transform(name string, spec v1alpha1.MCPServerSpec) (Model, error) {
 	if name == "" {
 		return Model{}, fmt.Errorf("translator: MCPServer name is required")
@@ -34,83 +34,74 @@ func Transform(name string, spec v1alpha1.MCPServerSpec) (Model, error) {
 		return Model{}, fmt.Errorf("translator: auth: %w", err)
 	}
 
-	backend, shim, err := transformBackend(name, spec)
+	backend, err := transformBackend(name, spec)
 	if err != nil {
 		return Model{}, fmt.Errorf("translator: backend: %w", err)
 	}
 
 	route := Route{
 		Name:       name,
-		PathMatch:  shimPath + "/" + name,
+		PathMatch:  routePathPrefix + "/" + name,
 		BackendRef: name,
 		PolicyRef:  name,
 	}
 	policy := Policy{Name: name, Authn: authn}
 
-	model := Model{
+	return Model{
 		Backends: []Backend{backend},
 		Routes:   []Route{route},
 		Policies: []Policy{policy},
-	}
-	if shim != nil {
-		model.Shims = []ShimRequest{*shim}
-	}
-	return model, nil
+	}, nil
 }
 
-func transformBackend(name string, spec v1alpha1.MCPServerSpec) (Backend, *ShimRequest, error) {
+func transformBackend(name string, spec v1alpha1.MCPServerSpec) (Backend, error) {
 	switch spec.Type {
 	case specTypeStdio:
 		if spec.Command == "" {
-			return Backend{}, nil, fmt.Errorf("stdio MCPServer requires spec.command")
+			return Backend{}, fmt.Errorf("stdio MCPServer requires spec.command")
 		}
-		backend := Backend{
-			Name:     name,
-			Path:     shimPath,
-			Protocol: ProtocolStreamableHTTP,
-		}
-		shim := &ShimRequest{
-			Name:    name,
-			Command: spec.Command,
-			Args:    spec.Args,
-			Env:     spec.Env,
-		}
-		return backend, shim, nil
+		return Backend{
+			Name: name,
+			Stdio: &StdioTarget{
+				Command: spec.Command,
+				Args:    spec.Args,
+				Env:     spec.Env,
+			},
+		}, nil
 
 	case specTypeStreamableHTTP:
-		backend, err := backendFromURL(name, spec.URL, ProtocolStreamableHTTP)
+		target, err := httpTargetFromURL(spec.URL)
 		if err != nil {
-			return Backend{}, nil, err
+			return Backend{}, err
 		}
-		return backend, nil, nil
+		return Backend{Name: name, StreamableHTTP: &target}, nil
 
 	case specTypeSSE:
-		backend, err := backendFromURL(name, spec.URL, ProtocolSSE)
+		target, err := httpTargetFromURL(spec.URL)
 		if err != nil {
-			return Backend{}, nil, err
+			return Backend{}, err
 		}
-		return backend, nil, nil
+		return Backend{Name: name, SSE: &target}, nil
 
 	default:
-		return Backend{}, nil, fmt.Errorf("unsupported spec.type %q", spec.Type)
+		return Backend{}, fmt.Errorf("unsupported spec.type %q", spec.Type)
 	}
 }
 
-func backendFromURL(name, raw string, protocol Protocol) (Backend, error) {
+func httpTargetFromURL(raw string) (HTTPTarget, error) {
 	if raw == "" {
-		return Backend{}, fmt.Errorf("spec.url is required")
+		return HTTPTarget{}, fmt.Errorf("spec.url is required")
 	}
 	parsed, err := url.Parse(raw)
 	if err != nil {
-		return Backend{}, fmt.Errorf("parse spec.url %q: %w", raw, err)
+		return HTTPTarget{}, fmt.Errorf("parse spec.url %q: %w", raw, err)
 	}
 	host := parsed.Hostname()
 	if host == "" {
-		return Backend{}, fmt.Errorf("spec.url %q has no host", raw)
+		return HTTPTarget{}, fmt.Errorf("spec.url %q has no host", raw)
 	}
 	var port int
 	if p := parsed.Port(); p != "" {
-		// net/url already rejected non-numeric ports at Parse.
 		port, _ = strconv.Atoi(p)
 	} else {
 		switch parsed.Scheme {
@@ -119,16 +110,10 @@ func backendFromURL(name, raw string, protocol Protocol) (Backend, error) {
 		case "https":
 			port = 443
 		default:
-			return Backend{}, fmt.Errorf("unsupported url scheme %q", parsed.Scheme)
+			return HTTPTarget{}, fmt.Errorf("unsupported url scheme %q", parsed.Scheme)
 		}
 	}
-	return Backend{
-		Name:     name,
-		Host:     host,
-		Port:     port,
-		Path:     parsed.Path,
-		Protocol: protocol,
-	}, nil
+	return HTTPTarget{Host: host, Port: port, Path: parsed.Path}, nil
 }
 
 func transformAuth(auth *v1alpha1.MCPServerAuth) (AuthnConfig, error) {

@@ -12,14 +12,14 @@ import (
 func TestTransform_Happy(t *testing.T) {
 	t.Parallel()
 
-	stdioBackend := expectBackend{host: "", port: 0, path: "/mcp", protocol: translator.ProtocolStreamableHTTP}
-	stdioShim := &expectShim{
+	stdioHTTP := expectHTTP{} // stdio backends have no HTTP target
+	stdioBody := expectStdio{
 		command: "/usr/local/bin/mcp-child",
 		args:    []string{"--flag", "value"},
 		env:     map[string]string{"FOO": "bar"},
 	}
-	streamableBackend := expectBackend{host: "api.example.com", port: 443, path: "/mcp", protocol: translator.ProtocolStreamableHTTP}
-	sseBackend := expectBackend{host: "mcp.cluster.local", port: 8080, path: "/sse", protocol: translator.ProtocolSSE}
+	streamableHTTP := expectHTTP{host: "api.example.com", port: 443, path: "/mcp"}
+	sseHTTP := expectHTTP{host: "mcp.cluster.local", port: 8080, path: "/sse"}
 
 	authNoneCfg := translator.AuthnConfig{Type: translator.AuthnTypeNone}
 	authOAuthCfg := translator.AuthnConfig{Type: translator.AuthnTypeOAuth}
@@ -62,34 +62,34 @@ func TestTransform_Happy(t *testing.T) {
 
 	cases := []happyCase{
 		// stdio × 8 auth profiles
-		{name: "stdio/auth-nil", spec: stdioSpec(nil), wantBackend: stdioBackend, wantShim: stdioShim, wantAuthn: authNoneCfg, wantPathMatch: pathMatch},
-		{name: "stdio/auth-none", spec: stdioSpec(&v1alpha1.MCPServerAuth{Type: "none"}), wantBackend: stdioBackend, wantShim: stdioShim, wantAuthn: authNoneCfg, wantPathMatch: pathMatch},
-		{name: "stdio/auth-oauth", spec: stdioSpec(authOAuth()), wantBackend: stdioBackend, wantShim: stdioShim, wantAuthn: authOAuthCfg, wantPathMatch: pathMatch},
-		{name: "stdio/auth-oauth-forward", spec: stdioSpec(authOAuthForward()), wantBackend: stdioBackend, wantShim: stdioShim, wantAuthn: authOAuthForwardCfg, wantPathMatch: pathMatch},
-		{name: "stdio/auth-oauth-forward-audiences", spec: stdioSpec(authOAuthForwardAudiences()), wantBackend: stdioBackend, wantShim: stdioShim, wantAuthn: authOAuthForwardAudCfg, wantPathMatch: pathMatch},
-		{name: "stdio/auth-oauth-token-exchange", spec: stdioSpec(authOAuthTokenExchange()), wantBackend: stdioBackend, wantShim: stdioShim, wantAuthn: authOAuthTokenExCfg, wantPathMatch: pathMatch},
-		{name: "stdio/auth-oauth-authorization-server", spec: stdioSpec(authOAuthAuthorizationServer()), wantBackend: stdioBackend, wantShim: stdioShim, wantAuthn: authOAuthASCfg, wantPathMatch: pathMatch},
-		{name: "stdio/auth-teleport", spec: stdioSpec(authTeleport()), wantBackend: stdioBackend, wantShim: stdioShim, wantAuthn: authTeleportCfg, wantPathMatch: pathMatch},
+		{name: "stdio/auth-nil", spec: stdioSpec(nil), wantKind: kindStdio, wantHTTP: stdioHTTP, wantStdio: stdioBody, wantAuthn: authNoneCfg, wantPathMatch: pathMatch},
+		{name: "stdio/auth-none", spec: stdioSpec(&v1alpha1.MCPServerAuth{Type: "none"}), wantKind: kindStdio, wantHTTP: stdioHTTP, wantStdio: stdioBody, wantAuthn: authNoneCfg, wantPathMatch: pathMatch},
+		{name: "stdio/auth-oauth", spec: stdioSpec(authOAuth()), wantKind: kindStdio, wantHTTP: stdioHTTP, wantStdio: stdioBody, wantAuthn: authOAuthCfg, wantPathMatch: pathMatch},
+		{name: "stdio/auth-oauth-forward", spec: stdioSpec(authOAuthForward()), wantKind: kindStdio, wantHTTP: stdioHTTP, wantStdio: stdioBody, wantAuthn: authOAuthForwardCfg, wantPathMatch: pathMatch},
+		{name: "stdio/auth-oauth-forward-audiences", spec: stdioSpec(authOAuthForwardAudiences()), wantKind: kindStdio, wantHTTP: stdioHTTP, wantStdio: stdioBody, wantAuthn: authOAuthForwardAudCfg, wantPathMatch: pathMatch},
+		{name: "stdio/auth-oauth-token-exchange", spec: stdioSpec(authOAuthTokenExchange()), wantKind: kindStdio, wantHTTP: stdioHTTP, wantStdio: stdioBody, wantAuthn: authOAuthTokenExCfg, wantPathMatch: pathMatch},
+		{name: "stdio/auth-oauth-authorization-server", spec: stdioSpec(authOAuthAuthorizationServer()), wantKind: kindStdio, wantHTTP: stdioHTTP, wantStdio: stdioBody, wantAuthn: authOAuthASCfg, wantPathMatch: pathMatch},
+		{name: "stdio/auth-teleport", spec: stdioSpec(authTeleport()), wantKind: kindStdio, wantHTTP: stdioHTTP, wantStdio: stdioBody, wantAuthn: authTeleportCfg, wantPathMatch: pathMatch},
 
 		// streamable-http × 8 auth profiles
-		{name: "streamable/auth-nil", spec: streamableSpec(nil), wantBackend: streamableBackend, wantAuthn: authNoneCfg, wantPathMatch: pathMatch},
-		{name: "streamable/auth-none", spec: streamableSpec(&v1alpha1.MCPServerAuth{Type: "none"}), wantBackend: streamableBackend, wantAuthn: authNoneCfg, wantPathMatch: pathMatch},
-		{name: "streamable/auth-oauth", spec: streamableSpec(authOAuth()), wantBackend: streamableBackend, wantAuthn: authOAuthCfg, wantPathMatch: pathMatch},
-		{name: "streamable/auth-oauth-forward", spec: streamableSpec(authOAuthForward()), wantBackend: streamableBackend, wantAuthn: authOAuthForwardCfg, wantPathMatch: pathMatch},
-		{name: "streamable/auth-oauth-forward-audiences", spec: streamableSpec(authOAuthForwardAudiences()), wantBackend: streamableBackend, wantAuthn: authOAuthForwardAudCfg, wantPathMatch: pathMatch},
-		{name: "streamable/auth-oauth-token-exchange", spec: streamableSpec(authOAuthTokenExchange()), wantBackend: streamableBackend, wantAuthn: authOAuthTokenExCfg, wantPathMatch: pathMatch},
-		{name: "streamable/auth-oauth-authorization-server", spec: streamableSpec(authOAuthAuthorizationServer()), wantBackend: streamableBackend, wantAuthn: authOAuthASCfg, wantPathMatch: pathMatch},
-		{name: "streamable/auth-teleport", spec: streamableSpec(authTeleport()), wantBackend: streamableBackend, wantAuthn: authTeleportCfg, wantPathMatch: pathMatch},
+		{name: "streamable/auth-nil", spec: streamableSpec(nil), wantKind: kindStreamableHTTP, wantHTTP: streamableHTTP, wantAuthn: authNoneCfg, wantPathMatch: pathMatch},
+		{name: "streamable/auth-none", spec: streamableSpec(&v1alpha1.MCPServerAuth{Type: "none"}), wantKind: kindStreamableHTTP, wantHTTP: streamableHTTP, wantAuthn: authNoneCfg, wantPathMatch: pathMatch},
+		{name: "streamable/auth-oauth", spec: streamableSpec(authOAuth()), wantKind: kindStreamableHTTP, wantHTTP: streamableHTTP, wantAuthn: authOAuthCfg, wantPathMatch: pathMatch},
+		{name: "streamable/auth-oauth-forward", spec: streamableSpec(authOAuthForward()), wantKind: kindStreamableHTTP, wantHTTP: streamableHTTP, wantAuthn: authOAuthForwardCfg, wantPathMatch: pathMatch},
+		{name: "streamable/auth-oauth-forward-audiences", spec: streamableSpec(authOAuthForwardAudiences()), wantKind: kindStreamableHTTP, wantHTTP: streamableHTTP, wantAuthn: authOAuthForwardAudCfg, wantPathMatch: pathMatch},
+		{name: "streamable/auth-oauth-token-exchange", spec: streamableSpec(authOAuthTokenExchange()), wantKind: kindStreamableHTTP, wantHTTP: streamableHTTP, wantAuthn: authOAuthTokenExCfg, wantPathMatch: pathMatch},
+		{name: "streamable/auth-oauth-authorization-server", spec: streamableSpec(authOAuthAuthorizationServer()), wantKind: kindStreamableHTTP, wantHTTP: streamableHTTP, wantAuthn: authOAuthASCfg, wantPathMatch: pathMatch},
+		{name: "streamable/auth-teleport", spec: streamableSpec(authTeleport()), wantKind: kindStreamableHTTP, wantHTTP: streamableHTTP, wantAuthn: authTeleportCfg, wantPathMatch: pathMatch},
 
 		// sse × 8 auth profiles
-		{name: "sse/auth-nil", spec: sseSpec(nil), wantBackend: sseBackend, wantAuthn: authNoneCfg, wantPathMatch: pathMatch},
-		{name: "sse/auth-none", spec: sseSpec(&v1alpha1.MCPServerAuth{Type: "none"}), wantBackend: sseBackend, wantAuthn: authNoneCfg, wantPathMatch: pathMatch},
-		{name: "sse/auth-oauth", spec: sseSpec(authOAuth()), wantBackend: sseBackend, wantAuthn: authOAuthCfg, wantPathMatch: pathMatch},
-		{name: "sse/auth-oauth-forward", spec: sseSpec(authOAuthForward()), wantBackend: sseBackend, wantAuthn: authOAuthForwardCfg, wantPathMatch: pathMatch},
-		{name: "sse/auth-oauth-forward-audiences", spec: sseSpec(authOAuthForwardAudiences()), wantBackend: sseBackend, wantAuthn: authOAuthForwardAudCfg, wantPathMatch: pathMatch},
-		{name: "sse/auth-oauth-token-exchange", spec: sseSpec(authOAuthTokenExchange()), wantBackend: sseBackend, wantAuthn: authOAuthTokenExCfg, wantPathMatch: pathMatch},
-		{name: "sse/auth-oauth-authorization-server", spec: sseSpec(authOAuthAuthorizationServer()), wantBackend: sseBackend, wantAuthn: authOAuthASCfg, wantPathMatch: pathMatch},
-		{name: "sse/auth-teleport", spec: sseSpec(authTeleport()), wantBackend: sseBackend, wantAuthn: authTeleportCfg, wantPathMatch: pathMatch},
+		{name: "sse/auth-nil", spec: sseSpec(nil), wantKind: kindSSE, wantHTTP: sseHTTP, wantAuthn: authNoneCfg, wantPathMatch: pathMatch},
+		{name: "sse/auth-none", spec: sseSpec(&v1alpha1.MCPServerAuth{Type: "none"}), wantKind: kindSSE, wantHTTP: sseHTTP, wantAuthn: authNoneCfg, wantPathMatch: pathMatch},
+		{name: "sse/auth-oauth", spec: sseSpec(authOAuth()), wantKind: kindSSE, wantHTTP: sseHTTP, wantAuthn: authOAuthCfg, wantPathMatch: pathMatch},
+		{name: "sse/auth-oauth-forward", spec: sseSpec(authOAuthForward()), wantKind: kindSSE, wantHTTP: sseHTTP, wantAuthn: authOAuthForwardCfg, wantPathMatch: pathMatch},
+		{name: "sse/auth-oauth-forward-audiences", spec: sseSpec(authOAuthForwardAudiences()), wantKind: kindSSE, wantHTTP: sseHTTP, wantAuthn: authOAuthForwardAudCfg, wantPathMatch: pathMatch},
+		{name: "sse/auth-oauth-token-exchange", spec: sseSpec(authOAuthTokenExchange()), wantKind: kindSSE, wantHTTP: sseHTTP, wantAuthn: authOAuthTokenExCfg, wantPathMatch: pathMatch},
+		{name: "sse/auth-oauth-authorization-server", spec: sseSpec(authOAuthAuthorizationServer()), wantKind: kindSSE, wantHTTP: sseHTTP, wantAuthn: authOAuthASCfg, wantPathMatch: pathMatch},
+		{name: "sse/auth-teleport", spec: sseSpec(authTeleport()), wantKind: kindSSE, wantHTTP: sseHTTP, wantAuthn: authTeleportCfg, wantPathMatch: pathMatch},
 	}
 
 	for _, tc := range cases {
@@ -102,10 +102,7 @@ func TestTransform_Happy(t *testing.T) {
 			require.Len(t, got.Backends, 1, "exactly one backend")
 			backend := got.Backends[0]
 			require.Equal(t, testName, backend.Name)
-			require.Equal(t, tc.wantBackend.host, backend.Host)
-			require.Equal(t, tc.wantBackend.port, backend.Port)
-			require.Equal(t, tc.wantBackend.path, backend.Path)
-			require.Equal(t, tc.wantBackend.protocol, backend.Protocol)
+			assertBackendVariant(t, backend, tc.wantKind, tc.wantHTTP, tc.wantStdio)
 
 			require.Len(t, got.Routes, 1, "exactly one route")
 			route := got.Routes[0]
@@ -118,18 +115,34 @@ func TestTransform_Happy(t *testing.T) {
 			policy := got.Policies[0]
 			require.Equal(t, testName, policy.Name)
 			require.Equal(t, tc.wantAuthn, policy.Authn)
-
-			if tc.wantShim == nil {
-				require.Empty(t, got.Shims, "non-stdio must not emit shims")
-				return
-			}
-			require.Len(t, got.Shims, 1, "stdio must emit exactly one shim")
-			shim := got.Shims[0]
-			require.Equal(t, testName, shim.Name)
-			require.Equal(t, tc.wantShim.command, shim.Command)
-			require.Equal(t, tc.wantShim.args, shim.Args)
-			require.Equal(t, tc.wantShim.env, shim.Env)
 		})
+	}
+}
+
+func assertBackendVariant(t *testing.T, b translator.Backend, want kind, http expectHTTP, stdio expectStdio) {
+	t.Helper()
+	switch want {
+	case kindStdio:
+		require.Nil(t, b.StreamableHTTP, "stdio backend must not have StreamableHTTP target")
+		require.Nil(t, b.SSE, "stdio backend must not have SSE target")
+		require.NotNil(t, b.Stdio, "stdio backend must have Stdio target")
+		require.Equal(t, stdio.command, b.Stdio.Command)
+		require.Equal(t, stdio.args, b.Stdio.Args)
+		require.Equal(t, stdio.env, b.Stdio.Env)
+	case kindStreamableHTTP:
+		require.Nil(t, b.Stdio, "streamable-http backend must not have Stdio target")
+		require.Nil(t, b.SSE, "streamable-http backend must not have SSE target")
+		require.NotNil(t, b.StreamableHTTP, "streamable-http backend must have StreamableHTTP target")
+		require.Equal(t, http.host, b.StreamableHTTP.Host)
+		require.Equal(t, http.port, b.StreamableHTTP.Port)
+		require.Equal(t, http.path, b.StreamableHTTP.Path)
+	case kindSSE:
+		require.Nil(t, b.Stdio, "sse backend must not have Stdio target")
+		require.Nil(t, b.StreamableHTTP, "sse backend must not have StreamableHTTP target")
+		require.NotNil(t, b.SSE, "sse backend must have SSE target")
+		require.Equal(t, http.host, b.SSE.Host)
+		require.Equal(t, http.port, b.SSE.Port)
+		require.Equal(t, http.path, b.SSE.Path)
 	}
 }
 
@@ -279,10 +292,12 @@ func TestTransform_HTTPStreamableWithExplicitPort(t *testing.T) {
 
 	require.Len(t, got.Backends, 1)
 	backend := got.Backends[0]
-	require.Equal(t, "mcp-internal", backend.Host)
-	require.Equal(t, 9000, backend.Port)
-	require.Equal(t, "/api/v1/mcp", backend.Path)
-	require.Equal(t, translator.ProtocolStreamableHTTP, backend.Protocol)
+	require.NotNil(t, backend.StreamableHTTP)
+	require.Nil(t, backend.SSE)
+	require.Nil(t, backend.Stdio)
+	require.Equal(t, "mcp-internal", backend.StreamableHTTP.Host)
+	require.Equal(t, 9000, backend.StreamableHTTP.Port)
+	require.Equal(t, "/api/v1/mcp", backend.StreamableHTTP.Path)
 }
 
 func TestTransform_HTTPDefaultPort(t *testing.T) {
@@ -296,7 +311,8 @@ func TestTransform_HTTPDefaultPort(t *testing.T) {
 	got, err := translator.Transform(testName, spec)
 	require.NoError(t, err)
 	require.Len(t, got.Backends, 1)
-	require.Equal(t, 80, got.Backends[0].Port)
+	require.NotNil(t, got.Backends[0].StreamableHTTP)
+	require.Equal(t, 80, got.Backends[0].StreamableHTTP.Port)
 }
 
 func TestTransform_StdioPreservesArgsAndEnv(t *testing.T) {
@@ -311,13 +327,13 @@ func TestTransform_StdioPreservesArgsAndEnv(t *testing.T) {
 
 	got, err := translator.Transform(testName, spec)
 	require.NoError(t, err)
-	require.Len(t, got.Shims, 1)
-	shim := got.Shims[0]
-	require.Equal(t, spec.Command, shim.Command)
-	require.Equal(t, spec.Args, shim.Args)
-	require.Equal(t, spec.Env, shim.Env)
 
 	require.Len(t, got.Backends, 1)
-	require.Empty(t, got.Backends[0].Host)
-	require.Zero(t, got.Backends[0].Port)
+	backend := got.Backends[0]
+	require.NotNil(t, backend.Stdio, "stdio spec must produce a Stdio target")
+	require.Nil(t, backend.StreamableHTTP)
+	require.Nil(t, backend.SSE)
+	require.Equal(t, spec.Command, backend.Stdio.Command)
+	require.Equal(t, spec.Args, backend.Stdio.Args)
+	require.Equal(t, spec.Env, backend.Stdio.Env)
 }
