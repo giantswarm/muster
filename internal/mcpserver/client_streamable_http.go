@@ -55,19 +55,6 @@ func NewStreamableHTTPClientWithHeaderFuncAndHTTPClient(url string, headerFunc t
 	}
 }
 
-// NewStreamableHTTPClientWithHTTPClient creates a new StreamableHTTP-based MCP client with a custom HTTP client.
-// This is useful for Teleport authentication where the HTTP client needs custom TLS certificates.
-func NewStreamableHTTPClientWithHTTPClient(url string, headers map[string]string, httpClient *http.Client) *StreamableHTTPClient {
-	if headers == nil {
-		headers = make(map[string]string)
-	}
-	return &StreamableHTTPClient{
-		url:        url,
-		headers:    headers,
-		httpClient: httpClient,
-	}
-}
-
 // Initialize establishes the connection and performs protocol handshake
 func (c *StreamableHTTPClient) Initialize(ctx context.Context) error {
 	c.mu.Lock()
