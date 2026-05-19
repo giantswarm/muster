@@ -55,7 +55,7 @@ func TestListServersRequiringAuth(t *testing.T) {
 			URL:                "https://sso-exchange.example.com",
 			AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
 			AuthConfig: &api.MCPServerAuth{
-				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+				TokenExchange: &api.TokenExchangeConfig{
 					Enabled:          true,
 					DexTokenEndpoint: "https://dex.remote.example.com/token",
 					ConnectorID:      "local-oidc",
@@ -165,7 +165,7 @@ func TestListServersRequiringAuth(t *testing.T) {
 			URL:                "https://sso-ex.example.com",
 			AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
 			AuthConfig: &api.MCPServerAuth{
-				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+				TokenExchange: &api.TokenExchangeConfig{
 					Enabled:          true,
 					DexTokenEndpoint: "https://dex.remote.example.com/token",
 					ConnectorID:      "local-oidc",
@@ -232,7 +232,7 @@ func TestListServersRequiringAuth(t *testing.T) {
 			URL:                "https://disabled.example.com",
 			AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
 			AuthConfig: &api.MCPServerAuth{
-				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+				TokenExchange: &api.TokenExchangeConfig{
 					Enabled:          false,
 					DexTokenEndpoint: "https://dex.remote.example.com/token",
 					ConnectorID:      "local-oidc",
