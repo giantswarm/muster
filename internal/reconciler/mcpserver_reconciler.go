@@ -209,7 +209,7 @@ func (r *MCPServerReconciler) applyConfig(ctx context.Context, req ReconcileRequ
 	}
 
 	if err := applier.Apply(ctx, config); err != nil {
-		if errors.Is(err, k8sapply.ErrStdioNotSupportedInCluster) {
+		if errors.Is(err, agentgateway.ErrUnsupportedTransport) {
 			logging.Info("MCPServerReconciler", "MCPServer %s uses stdio; cluster mode does not support it yet — marking NotSupportedInCluster", req.Name)
 			r.setNotSupportedInClusterCondition(ctx, req.Name, req.Namespace, err)
 			return ReconcileResult{RequeueAfter: DefaultStatusSyncInterval}, true
