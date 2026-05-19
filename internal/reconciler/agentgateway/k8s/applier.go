@@ -83,6 +83,11 @@ func (a *Applier) Apply(ctx context.Context, config agentgateway.Config) error {
 	return nil
 }
 
+// Delete is a no-op: emitted objects are owned by the MCPServer via
+// OwnerReferences, so cluster deletion cascades without any work from the
+// applier.
+func (a *Applier) Delete(_ context.Context, _ string) error { return nil }
+
 func (a *Applier) validate(config agentgateway.Config) error {
 	if config.Namespace == "" {
 		return errors.New("Config.Namespace is required")

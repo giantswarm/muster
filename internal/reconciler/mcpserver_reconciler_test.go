@@ -129,7 +129,7 @@ const (
 )
 
 func newReconcilerForTest(applier *stubApplier, mgr MCPServerManager, upd StatusUpdater) *MCPServerReconciler {
-	r := NewMCPServerReconcilerFilesystem(mgr, applier, applier)
+	r := NewMCPServerReconciler(mgr, func(_ context.Context, _, _ string) agentgateway.Applier { return applier })
 	r.WithStatusUpdater(upd, "default")
 	return r
 }
@@ -256,6 +256,53 @@ func TestReconcileRegisterFailureRequeues(t *testing.T) {
 	require.Error(t, result.Error)
 	require.True(t, result.Requeue)
 	require.Equal(t, musterv1alpha1.MCPServerStateDisconnected, updater.GetLastUpdatedMCPServer().Status.State)
+}
+
+func TestReconcileClosureInvokedPerRequestWithCallArgs(t *testing.T) {
+	mgr := NewMockMCPServerManager()
+	mgr.AddMCPServer(&api.MCPServerInfo{
+		Name:      "alpha",
+		Type:      testTypeStreamable,
+		URL:       "https://alpha.example/mcp",
+		AutoStart: true,
+	})
+	mgr.AddMCPServer(&api.MCPServerInfo{
+		Name:      "beta",
+		Type:      testTypeStreamable,
+		URL:       "https://beta.example/mcp",
+		AutoStart: true,
+	})
+
+	withAggregator(t, newStubAggregator())
+
+	type call struct{ name, namespace string }
+	var (
+		mu       sync.Mutex
+		calls    []call
+		appliers []*stubApplier
+	)
+	applierFn := func(_ context.Context, name, namespace string) agentgateway.Applier {
+		mu.Lock()
+		defer mu.Unlock()
+		calls = append(calls, call{name: name, namespace: namespace})
+		a := &stubApplier{}
+		appliers = append(appliers, a)
+		return a
+	}
+
+	r := NewMCPServerReconciler(mgr, applierFn).WithStatusUpdater(NewMockStatusUpdater(), "default")
+
+	require.NoError(t, r.Reconcile(t.Context(), ReconcileRequest{Name: "alpha", Namespace: DefaultNamespace}).Error)
+	require.NoError(t, r.Reconcile(t.Context(), ReconcileRequest{Name: "beta", Namespace: DefaultNamespace}).Error)
+
+	require.Equal(t, []call{
+		{name: "alpha", namespace: DefaultNamespace},
+		{name: "beta", namespace: DefaultNamespace},
+	}, calls)
+	require.Len(t, appliers, 2)
+	require.NotSame(t, appliers[0], appliers[1], "closure should return a distinct Applier per request")
+	require.Equal(t, []string{"alpha"}, appliers[0].appliedNames())
+	require.Equal(t, []string{"beta"}, appliers[1].appliedNames())
 }
 
 func TestReconcileMapsAuthRequiredFromAggregatorState(t *testing.T) {

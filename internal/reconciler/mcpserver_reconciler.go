@@ -10,13 +10,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/utils/ptr"
-	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
 
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/reconciler/agentgateway"
-	k8sapply "github.com/giantswarm/muster/internal/reconciler/agentgateway/k8s"
 	"github.com/giantswarm/muster/pkg/logging"
 )
 
@@ -38,65 +36,47 @@ type MCPServerManager interface {
 	GetMCPServer(name string) (*api.MCPServerInfo, error)
 }
 
+// ApplierFunc resolves the agentgateway.Applier to use for one Reconcile.
+// Filesystem mode closes over a long-lived yaml.Applier; cluster mode
+// constructs a fresh k8s.Applier with a per-MCPServer ownerRef. The reconciler
+// is mode-agnostic and only sees this closure.
+type ApplierFunc func(ctx context.Context, name, namespace string) agentgateway.Applier
+
 // MCPServerReconciler reconciles MCPServer resources by emitting the
 // agentgateway config stack and federating muster's aggregator to dial
 // agentgateway for the named MCPServer.
 //
 // Each Reconcile:
-//   - calls agentgateway.NewConfig + applier.Apply (per-mode K8s or YAML),
+//   - calls agentgateway.NewConfig + applier.Apply via the wired ApplierFunc,
 //   - on a clean apply with AutoStart=true, calls
 //     api.GetAggregator().RegisterUpstream so the aggregator opens its
 //     federated connection to <UpstreamProxy>/mcp/<name>.
 //
-// reconcileDelete deregisters the upstream and clears persisted YAML.
+// reconcileDelete deregisters the upstream and calls Delete on the same
+// applier the create path would use.
 type MCPServerReconciler struct {
 	BaseStatusConfig
 
 	mcpServerManager MCPServerManager
 
-	yamlApplier agentgateway.Applier
-
-	k8sClient     ctrlclient.Client
-	k8sApplierCfg k8sapply.Config
-
-	deleter agentgateway.Deleter
+	applierFn ApplierFunc
 }
 
-// NewMCPServerReconcilerFilesystem builds a reconciler wired to the
-// long-lived yaml Applier used in filesystem mode. yamlApplier and deleter
-// are typically the same instance (yaml.Applier satisfies both ports).
-func NewMCPServerReconcilerFilesystem(
+// NewMCPServerReconciler wires the reconciler with a per-request ApplierFunc.
+// Filesystem-mode callers pass a closure returning the same long-lived
+// yaml.Applier; cluster-mode callers pass a closure that constructs a fresh
+// k8s.Applier with the MCPServer's ownerRef bound for cascade deletion.
+func NewMCPServerReconciler(
 	mcpServerManager MCPServerManager,
-	yamlApplier agentgateway.Applier,
-	deleter agentgateway.Deleter,
+	applierFn ApplierFunc,
 ) *MCPServerReconciler {
-	if yamlApplier == nil {
-		panic("reconciler: NewMCPServerReconcilerFilesystem requires a non-nil yaml Applier")
+	if applierFn == nil {
+		panic("reconciler: NewMCPServerReconciler requires a non-nil ApplierFunc")
 	}
 	return &MCPServerReconciler{
 		BaseStatusConfig: BaseStatusConfig{Namespace: DefaultNamespace},
 		mcpServerManager: mcpServerManager,
-		yamlApplier:      yamlApplier,
-		deleter:          deleter,
-	}
-}
-
-// NewMCPServerReconcilerCluster builds a reconciler that constructs a fresh
-// k8s.Applier per Reconcile. ownerRef is bound on each construction so emitted
-// objects cascade-delete with the MCPServer.
-func NewMCPServerReconcilerCluster(
-	mcpServerManager MCPServerManager,
-	k8sClient ctrlclient.Client,
-	k8sApplierCfg k8sapply.Config,
-) *MCPServerReconciler {
-	if k8sClient == nil {
-		panic("reconciler: NewMCPServerReconcilerCluster requires a non-nil client")
-	}
-	return &MCPServerReconciler{
-		BaseStatusConfig: BaseStatusConfig{Namespace: DefaultNamespace},
-		mcpServerManager: mcpServerManager,
-		k8sClient:        k8sClient,
-		k8sApplierCfg:    k8sApplierCfg,
+		applierFn:        applierFn,
 	}
 }
 
@@ -157,7 +137,7 @@ func (r *MCPServerReconciler) applyConfig(ctx context.Context, req ReconcileRequ
 		return ReconcileResult{Error: fmt.Errorf("agentgateway: %w", err)}, true
 	}
 
-	applier := r.applierFor(ctx, req.Name, namespace)
+	applier := r.applierFn(ctx, req.Name, namespace)
 
 	if err := applier.Apply(ctx, config); err != nil {
 		if errors.Is(err, agentgateway.ErrUnsupportedTransport) {
@@ -200,24 +180,12 @@ func (r *MCPServerReconciler) deregisterUpstream(ctx context.Context, name strin
 	return agg.DeregisterUpstream(ctx, name)
 }
 
-// applierFor picks the Applier for this Reconcile:
-//
-//   - Filesystem mode: returns the long-lived yamlApplier set at startup.
-//   - Cluster mode: constructs a fresh k8s.Applier bound to the live
-//     MCPServer's ownerRef so emitted objects cascade-delete with it.
-func (r *MCPServerReconciler) applierFor(ctx context.Context, name, namespace string) agentgateway.Applier {
-	if r.yamlApplier != nil {
-		return r.yamlApplier
-	}
-	ownerRef := r.resolveOwnerRef(ctx, name, namespace)
-	return k8sapply.NewApplier(r.k8sClient, ownerRef, r.k8sApplierCfg)
-}
-
-// resolveOwnerRef builds the metav1.OwnerReference for an MCPServer reconcile
-// request in cluster mode. The K8s applier rejects empty UID/APIVersion/Kind,
-// so cluster-mode callers MUST wire a StatusUpdater that can fetch the live
-// CRD.
-func (r *MCPServerReconciler) resolveOwnerRef(ctx context.Context, name, namespace string) metav1.OwnerReference {
+// OwnerRefFor builds the metav1.OwnerReference for an MCPServer reconcile
+// request. When getter is non-nil, UID + APIVersion + Kind are read from the
+// live CRD — required because the K8s applier rejects empty UID. Callers that
+// don't need cascade deletion (filesystem mode, tests without a client) pass
+// nil getter and receive a UID-less skeleton.
+func OwnerRefFor(ctx context.Context, getter StatusUpdater, name, namespace string) metav1.OwnerReference {
 	ref := metav1.OwnerReference{
 		APIVersion:         mcpServerAPIVersion,
 		Kind:               mcpServerKind,
@@ -225,10 +193,10 @@ func (r *MCPServerReconciler) resolveOwnerRef(ctx context.Context, name, namespa
 		Controller:         ptr.To(true),
 		BlockOwnerDeletion: ptr.To(true),
 	}
-	if r.StatusUpdater == nil {
+	if getter == nil {
 		return ref
 	}
-	server, err := r.StatusUpdater.GetMCPServer(ctx, name, namespace)
+	server, err := getter.GetMCPServer(ctx, name, namespace)
 	if err != nil || server == nil {
 		return ref
 	}
@@ -443,11 +411,9 @@ func upstreamState(name string) api.UpstreamServerState {
 	return agg.UpstreamServerState(name)
 }
 
-// reconcileDelete handles deleting an MCPServer service.
-//
-// If a Deleter is wired (yaml applier in filesystem mode), Delete is called so
-// the persisted config file is removed. Cluster mode leaves deleter nil —
-// emitted objects cascade-delete via OwnerReferences.
+// reconcileDelete handles deleting an MCPServer service. It deregisters the
+// federated upstream and asks the applier to drop its persisted state. The
+// K8s applier's Delete is a no-op — OwnerReferences cascade.
 func (r *MCPServerReconciler) reconcileDelete(ctx context.Context, req ReconcileRequest) ReconcileResult {
 	logging.Info("MCPServerReconciler", "Deleting MCPServer service: %s", req.Name)
 
@@ -455,13 +421,12 @@ func (r *MCPServerReconciler) reconcileDelete(ctx context.Context, req Reconcile
 		logging.Debug("MCPServerReconciler", "DeregisterUpstream for %s failed: %v", req.Name, err)
 	}
 
-	if r.deleter != nil {
-		if err := r.deleter.Delete(ctx, req.Name); err != nil {
-			logging.Debug("MCPServerReconciler", "Deleter for %s failed: %v", req.Name, err)
-			return ReconcileResult{
-				Error:   fmt.Errorf("delete config: %w", err),
-				Requeue: true,
-			}
+	applier := r.applierFn(ctx, req.Name, r.GetNamespace(req.Namespace))
+	if err := applier.Delete(ctx, req.Name); err != nil {
+		logging.Debug("MCPServerReconciler", "Applier.Delete for %s failed: %v", req.Name, err)
+		return ReconcileResult{
+			Error:   fmt.Errorf("delete config: %w", err),
+			Requeue: true,
 		}
 	}
 

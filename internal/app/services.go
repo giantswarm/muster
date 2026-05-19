@@ -22,6 +22,7 @@ import (
 	"github.com/giantswarm/muster/internal/metatools"
 	"github.com/giantswarm/muster/internal/orchestrator"
 	"github.com/giantswarm/muster/internal/reconciler"
+	"github.com/giantswarm/muster/internal/reconciler/agentgateway"
 	k8sapply "github.com/giantswarm/muster/internal/reconciler/agentgateway/k8s"
 	yamlapply "github.com/giantswarm/muster/internal/reconciler/agentgateway/yaml"
 	"github.com/giantswarm/muster/internal/services"
@@ -595,17 +596,15 @@ func mergeOAuthServerConfig(cfg *Config) config.OAuthServerConfig {
 
 // Note: MCPServer service creation moved to orchestrator for proper dependency management
 
-// buildMCPServerReconciler wires the MCPServer reconciler for the active mode:
+// buildMCPServerReconciler wires the MCPServer reconciler for the active mode.
+// The reconciler itself is mode-agnostic; the per-mode applier construction
+// lives in the ApplierFunc closure passed here.
 //
-//   - Cluster mode: per-Reconcile k8s.NewApplier(client, ownerRef, cfg) with
-//     ownerRef bound for cascade deletion. No Deleter — K8s owns cleanup via
-//     OwnerReferences. agentgateway runs as a sibling pod; configDir is "".
-//   - Filesystem mode: a single long-lived yaml.NewApplier(dir). The same
-//     instance serves as the Deleter so reconcileDelete can remove the file.
-//     The reconciler is constructed with WithDisableLocalSpawn(true) so the
-//     orchestrator does not race agentgateway over stdio child processes.
-//     configDir is the absolute path the subprocess manager must point agw
-//     at via `-f <configDir>` once runOrchestrator spawns it.
+//   - Cluster mode: closure builds a fresh k8s.Applier per Reconcile, binding
+//     the live MCPServer's ownerRef for cascade deletion. configDir is "".
+//   - Filesystem mode: closure returns the same long-lived yaml.Applier for
+//     every Reconcile. configDir is the absolute path the subprocess manager
+//     must point agw at via `-f <configDir>` once runOrchestrator spawns it.
 func buildMCPServerReconciler(
 	kubernetesMode bool,
 	mcpServerMgr reconciler.MCPServerManager,
@@ -615,14 +614,19 @@ func buildMCPServerReconciler(
 	listenerPort, adminPort, statsPort, readinessPort uint16,
 ) (*reconciler.MCPServerReconciler, string, error) {
 	if kubernetesMode {
-		r := reconciler.NewMCPServerReconcilerCluster(
-			mcpServerMgr,
-			musterClient,
-			k8sapply.Config{
-				GatewayName:      defaultGatewayName,
-				GatewayNamespace: namespace,
-			},
-		).WithStatusUpdater(musterClient, namespace)
+		k8sApplierCfg := k8sapply.Config{
+			GatewayName:      defaultGatewayName,
+			GatewayNamespace: namespace,
+		}
+		applierFn := func(ctx context.Context, name, ns string) agentgateway.Applier {
+			return k8sapply.NewApplier(
+				musterClient,
+				reconciler.OwnerRefFor(ctx, musterClient, name, ns),
+				k8sApplierCfg,
+			)
+		}
+		r := reconciler.NewMCPServerReconciler(mcpServerMgr, applierFn).
+			WithStatusUpdater(musterClient, namespace)
 		return r, "", nil
 	}
 	if configPath == "" {
@@ -640,17 +644,15 @@ func buildMCPServerReconciler(
 			addrIfPort(readinessPort, "[::]"),
 		))
 	}
-	applier, err := yamlapply.NewApplier(dir, applierOpts...)
+	yamlApplier, err := yamlapply.NewApplier(dir, applierOpts...)
 	if err != nil {
 		return nil, "", fmt.Errorf("construct YAML Applier at %s: %w", dir, err)
 	}
 	logging.Info("Services", "Wired YAML Applier writing to %s (listener=%d, admin=%d, stats=%d, readiness=%d)", dir, listenerPort, adminPort, statsPort, readinessPort)
 
-	r := reconciler.NewMCPServerReconcilerFilesystem(
-		mcpServerMgr,
-		applier,
-		applier,
-	).WithStatusUpdater(musterClient, namespace)
+	applierFn := func(_ context.Context, _, _ string) agentgateway.Applier { return yamlApplier }
+	r := reconciler.NewMCPServerReconciler(mcpServerMgr, applierFn).
+		WithStatusUpdater(musterClient, namespace)
 	return r, dir, nil
 }
 

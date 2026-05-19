@@ -33,7 +33,8 @@ var ErrUnsupportedTransport = errors.New("agentgateway: backend transport not su
 // Implementations must:
 //
 //   - Be idempotent: re-applying an identical Config produces no observable
-//     change.
+//     change. Delete may be called for a name never Applied; implementations
+//     return nil in that case.
 //   - Reconcile prior state: when an Apply drops entities previously
 //     persisted, the persisted view is updated so it matches the latest
 //     Config.
@@ -41,6 +42,11 @@ var ErrUnsupportedTransport = errors.New("agentgateway: backend transport not su
 //     that satisfies errors.Is against the context's error.
 //   - Wrap returned errors as fmt.Errorf("context: %w", err) so callers
 //     can errors.Is/As the underlying cause.
+//
+// Delete removes the persisted state for the named MCPServer. K8s adapters
+// return nil — cleanup cascades via OwnerReferences. YAML adapters remove the
+// route entry and rewrite the combined file.
 type Applier interface {
 	Apply(ctx context.Context, config Config) error
+	Delete(ctx context.Context, name string) error
 }

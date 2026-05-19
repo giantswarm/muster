@@ -120,6 +120,18 @@ func TestApply_SSEBackend_SetsSSEProtocol(t *testing.T) {
 	require.Equal(t, agw.MCPProtocolSSE, *got.Spec.MCP.Targets[0].Static.Protocol)
 }
 
+func TestDelete_NoOp(t *testing.T) {
+	t.Parallel()
+
+	c := newClient(t)
+	a := newApplier(c)
+	require.NoError(t, a.Apply(t.Context(), streamableConfig()))
+
+	before := snapshotResources(t, c)
+	require.NoError(t, a.Delete(t.Context(), "any-name"))
+	require.Equal(t, before, snapshotResources(t, c), "Delete must leave OwnerReference-managed objects untouched")
+}
+
 func TestApply_EmptyConfig_NoObjectsAndNoError(t *testing.T) {
 	t.Parallel()
 
