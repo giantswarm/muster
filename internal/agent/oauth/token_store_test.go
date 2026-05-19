@@ -72,7 +72,6 @@ func TestTokenStore_ExpiredToken(t *testing.T) {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
 
-
 	// Store an expired token
 	expiredToken := &oauth2.Token{
 		AccessToken: "expired-token",
@@ -190,7 +189,6 @@ func TestTokenStore_HasValidToken(t *testing.T) {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
 
-
 	// Initially should not have valid token
 	if store.HasValidToken(testMusterURL) {
 		t.Error("Expected no valid token initially")
@@ -223,7 +221,6 @@ func TestTokenStore_HasCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
-
 
 	// Initially no credentials
 	if store.HasCredentials(testMusterURL) {
@@ -468,7 +465,6 @@ func TestTokenStore_GetByIssuer_ExpiredToken(t *testing.T) {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
 
-
 	// Store an expired token
 	expiredToken := &oauth2.Token{
 		AccessToken: "expired-token",
@@ -495,7 +491,6 @@ func TestTokenStore_HasValidTokenForIssuer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
-
 
 	// Initially should not have valid token for issuer
 	if store.HasValidTokenForIssuer(testDexURL) {
@@ -528,7 +523,6 @@ func TestTokenStore_GetByIssuer_FileMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
-
 
 	// Store a token with file mode enabled
 	token := &oauth2.Token{
@@ -569,7 +563,6 @@ func TestTokenStore_IsTokenValid_ExpiryMargin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
-
 
 	testCases := []struct {
 		name         string
@@ -714,7 +707,6 @@ func TestTokenStore_ZeroExpiry_ConsideredValid(t *testing.T) {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
 
-
 	// Token with zero expiry (some tokens don't have expiry info)
 	token := &oauth2.Token{
 		AccessToken: "no-expiry-token",
@@ -747,7 +739,6 @@ func TestTokenStore_GetTokenIncludingExpiring(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
-
 
 	t.Run("returns nil for non-existent token", func(t *testing.T) {
 		token := store.GetTokenIncludingExpiring("https://nonexistent.example.com")
@@ -864,7 +855,6 @@ func TestTokenStore_GetTokenIncludingExpiring_FileMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
-
 
 	// Store a token that's expiring soon
 	expiringToken := &oauth2.Token{
