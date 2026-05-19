@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- `MCPServerReconciler` now compiles each reconciled MCPServer into an `agentgateway.Config` and applies it via the `agentgateway.Applier` port (cluster mode → `k8s` adapter, filesystem mode → `yaml` adapter). Cluster-mode wiring requires a `StatusUpdater` so the reconciler can surface unsupported-transport errors (stdio) on `MCPServer.status.conditions`; the resolved `OwnerReference` is cached for the lifetime of the reconciler.
 - `agentgateway.Authn.RequiresPolicy() bool` and `agentgateway.HTTPTarget.Validate() error` on the agentgateway domain config.
 
 ### Changed
