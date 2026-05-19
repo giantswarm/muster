@@ -50,6 +50,27 @@ func TestResolve_EnvVarNonExecutable(t *testing.T) {
 	require.Contains(t, err.Error(), "not executable")
 }
 
+func TestResolve_EnvVarPointsAtDirectory(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(EnvVar, dir)
+	_, err := Resolve(t.Context(), WithBaseDir(t.TempDir()), WithNoDownload(true))
+	require.Error(t, err, "a directory at MUSTER_AGW_BINARY must be rejected")
+	require.Contains(t, err.Error(), EnvVar)
+}
+
+func TestResolve_EnvVarPointsAtEmptyFile(t *testing.T) {
+	if runtime.GOOS == goosWindows {
+		t.Skip("Windows skips the size check today; tracked for a follow-up")
+	}
+	dir := t.TempDir()
+	p := filepath.Join(dir, "agw")
+	require.NoError(t, os.WriteFile(p, []byte{}, 0o755)) //nolint:gosec // executable bit needed; size==0 is the test condition
+	t.Setenv(EnvVar, p)
+	_, err := Resolve(t.Context(), WithBaseDir(t.TempDir()), WithNoDownload(true))
+	require.Error(t, err, "a zero-byte file at MUSTER_AGW_BINARY must be rejected")
+	require.Contains(t, err.Error(), EnvVar)
+}
+
 func TestResolve_CacheHit(t *testing.T) {
 	t.Setenv(EnvVar, "")
 	baseDir := t.TempDir()

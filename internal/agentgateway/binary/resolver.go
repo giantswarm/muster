@@ -101,9 +101,12 @@ func resolveWithChecksums(ctx context.Context, checksums map[string]string, opts
 	return cachedPath, nil
 }
 
-// checkExecutable returns nil iff path is a regular file with at least
-// one execute bit set. On Windows the execute bit is not checked;
+// checkExecutable returns nil iff path is a non-empty regular file with
+// at least one execute bit set. On Windows the execute bit is not checked;
 // existence is sufficient because the OS keys off the .exe extension.
+// Zero-byte files are rejected on every platform — a truncated download
+// or a touch'd placeholder passes the existence and exec-bit checks but
+// fails to run.
 func checkExecutable(path string) error {
 	info, err := os.Stat(path) //nolint:gosec // path is env-var override or constructed cache filename, both caller-trusted
 	if err != nil {
@@ -111,6 +114,9 @@ func checkExecutable(path string) error {
 	}
 	if info.IsDir() {
 		return fmt.Errorf("is a directory")
+	}
+	if info.Size() == 0 {
+		return fmt.Errorf("is a zero-byte file")
 	}
 	if runtime.GOOS != goosWindows && info.Mode().Perm()&0o111 == 0 {
 		return fmt.Errorf("not executable (mode %v)", info.Mode().Perm())
