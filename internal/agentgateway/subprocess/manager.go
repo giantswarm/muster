@@ -18,12 +18,8 @@ import (
 // being supervised.
 var ErrAlreadyRunning = errors.New("subprocess: already running")
 
-// ErrNotRunning is returned by Reload when no process is being
-// supervised.
-var ErrNotRunning = errors.New("subprocess: not running")
-
 // Manager owns one external child process: start, supervise, signal,
-// reload, and graceful shutdown with a SIGKILL fallback.
+// and graceful shutdown with a SIGKILL fallback.
 //
 // A Manager value is single-shot in the sense that Stop is terminal —
 // after Stop returns the Manager refuses further Start calls. Create a
@@ -138,25 +134,6 @@ func (m *Manager) Start(
 // call from multiple goroutines.
 func (m *Manager) Stop(ctx context.Context) error {
 	return m.shutdown(ctx)
-}
-
-// Reload sends SIGHUP to the supervised process. agentgateway watches
-// its config directory natively, so this is belt-and-suspenders for
-// callers that want to nudge a reload. Returns ErrNotRunning if no
-// process is being supervised.
-func (m *Manager) Reload(_ context.Context) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.state != stateRunning {
-		return ErrNotRunning
-	}
-	if m.pgid <= 0 {
-		return ErrNotRunning
-	}
-	if err := signalProcessGroup(m.pgid, syscall.SIGHUP); err != nil {
-		return fmt.Errorf("send SIGHUP: %w", err)
-	}
-	return nil
 }
 
 func (m *Manager) shutdown(ctx context.Context) error {

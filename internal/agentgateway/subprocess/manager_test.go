@@ -7,12 +7,10 @@ import (
 	"errors"
 	"log/slog"
 	"os"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"testing"
 	"time"
 
@@ -227,37 +225,6 @@ func TestManager_Stop_SIGKILLFallback(t *testing.T) {
 	require.Eventually(t, func() bool { return !pidExists(pid) },
 		3*time.Second, 50*time.Millisecond)
 	assert.Contains(t, logs.String(), "escalating to SIGKILL")
-}
-
-func TestManager_Reload_SendsSIGHUP(t *testing.T) {
-	logger, _ := captureLogger(t)
-	readyPath := tmpFile(t, "ready")
-	signalLog := tmpFile(t, "signals.log")
-
-	mgr := newManager(t, logger,
-		WithDrainTimeout(1*time.Second),
-		WithStartupTimeout(3*time.Second),
-	)
-	t.Cleanup(func() { _ = mgr.Stop(context.Background()) })
-
-	env := fakeEnv(map[string]string{
-		envFakeMode:      fakeModeNormal + ",record_signals",
-		envFakeReadyFile: readyPath,
-		envFakeSignalLog: signalLog,
-	})
-	require.NoError(t, mgr.Start(t.Context(), os.Args[0], nil, env, fileReadyProbe(readyPath)))
-	require.NoError(t, mgr.Reload(t.Context()))
-
-	require.Eventually(t, func() bool {
-		return slices.Contains(readLines(t, signalLog), syscall.SIGHUP.String())
-	}, 2*time.Second, 20*time.Millisecond)
-}
-
-func TestManager_Reload_NotRunning(t *testing.T) {
-	logger, _ := captureLogger(t)
-	mgr, err := New(logger)
-	require.NoError(t, err)
-	require.ErrorIs(t, mgr.Reload(t.Context()), ErrNotRunning)
 }
 
 func TestManager_CapturesStdoutStderr(t *testing.T) {
