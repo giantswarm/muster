@@ -14,6 +14,10 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
 
+// jsonSchemaTypeString is the JSON Schema type designator for string properties
+// in the InputSchema maps emitted by createToolsFromProviders.
+const jsonSchemaTypeString = "string"
+
 // createToolsFromProviders creates MCP tools to be exposed to clients.
 //
 // IMPORTANT: As of the server-side meta-tools migration (Issue #343), this method
@@ -265,7 +269,7 @@ func (a *AggregatorServer) getAllCoreToolsAsMCPTools() []mcp.Tool {
 				Type: "object",
 				Properties: map[string]interface{}{
 					"server": map[string]interface{}{
-						"type":        "string",
+						"type":        jsonSchemaTypeString,
 						"description": "Name of the MCP server to authenticate to",
 					},
 				},
@@ -279,7 +283,7 @@ func (a *AggregatorServer) getAllCoreToolsAsMCPTools() []mcp.Tool {
 				Type: "object",
 				Properties: map[string]interface{}{
 					"server": map[string]interface{}{
-						"type":        "string",
+						"type":        jsonSchemaTypeString,
 						"description": "Name of the MCP server to log out from",
 					},
 				},

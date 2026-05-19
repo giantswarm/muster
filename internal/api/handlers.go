@@ -495,8 +495,6 @@ func GetReconcileManager() ReconcileManagerHandler {
 	return reconcileManagerHandler
 }
 
-
-
 // metaToolsHandler stores the registered MetaToolsHandler implementation.
 var metaToolsHandler MetaToolsHandler
 

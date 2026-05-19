@@ -114,28 +114,28 @@ func (a *ServiceToolAdapter) GetTools() []api.ToolMetadata {
 			Name:        "service_start",
 			Description: "Register the named MCPServer through the upstream proxy",
 			Args: []api.ArgMetadata{
-				{Name: "name", Type: "string", Required: true, Description: "MCPServer name"},
+				{Name: "name", Type: api.ArgTypeString, Required: true, Description: "MCPServer name"},
 			},
 		},
 		{
 			Name:        "service_stop",
 			Description: "Deregister the named MCPServer and remember the user-stop intent",
 			Args: []api.ArgMetadata{
-				{Name: "name", Type: "string", Required: true, Description: "MCPServer name"},
+				{Name: "name", Type: api.ArgTypeString, Required: true, Description: "MCPServer name"},
 			},
 		},
 		{
 			Name:        "service_restart",
 			Description: "Deregister and immediately re-register the named MCPServer",
 			Args: []api.ArgMetadata{
-				{Name: "name", Type: "string", Required: true, Description: "MCPServer name"},
+				{Name: "name", Type: api.ArgTypeString, Required: true, Description: "MCPServer name"},
 			},
 		},
 		{
 			Name:        "service_status",
 			Description: "Report the upstream-proxy state of the named MCPServer",
 			Args: []api.ArgMetadata{
-				{Name: "name", Type: "string", Required: true, Description: "MCPServer name"},
+				{Name: "name", Type: api.ArgTypeString, Required: true, Description: "MCPServer name"},
 			},
 		},
 	}

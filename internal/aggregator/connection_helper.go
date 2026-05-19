@@ -870,7 +870,6 @@ func makeTokenForwardingHeaderFunc(
 // torn down.
 const deferredCloseDelay = 60 * time.Second
 
-
 // loadTokenExchangeCredentials loads OAuth client credentials from a Kubernetes secret
 // for token exchange authentication with remote Dex instances.
 //
