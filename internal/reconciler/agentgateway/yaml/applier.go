@@ -349,4 +349,3 @@ func (a *Applier) writeAtomic(payload []byte) error {
 	}
 	return nil
 }
-

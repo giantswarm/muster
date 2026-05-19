@@ -325,4 +325,3 @@ func newManager(t *testing.T, logger *slog.Logger, opts ...Option) *Manager {
 	require.NoError(t, err)
 	return mgr
 }
-
