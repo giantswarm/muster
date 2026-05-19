@@ -110,7 +110,7 @@ Workflows handle complex prerequisites:
 1. **Agent Request**: "I need to check Cilium health in the gazelle installation"
 2. **Workflow Discovery**: Finds `workflow_check-cilium-health`
 3. **Service Creation**: Creates required port-forwarding services
-4. **Authentication**: Handles Teleport authentication automatically
+4. **Authentication**: Handles cluster authentication automatically
 5. **Health Check**: Executes comprehensive Cilium health verification
 6. **Result Delivery**: Returns structured health status and recommendations
 7. **Cleanup**: Automatically cleans up temporary resources

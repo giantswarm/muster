@@ -822,8 +822,9 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		if useSystemdActivation {
 			logging.Info("Aggregator", "Using systemd socket activation for SSE transport")
 			for i, listener := range systemdListeners {
-				server := &http.Server{ //nolint:gosec
-					Handler: handler,
+				server := &http.Server{
+					Handler:           handler,
+					ReadHeaderTimeout: httpReadHeaderTimeout,
 				}
 				a.httpServer = append(a.httpServer, server)
 				go func(s *http.Server, l net.Listener, index int) {
@@ -836,9 +837,10 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		} else {
 			logging.InfoWithAttrs("Aggregator", "Starting MCP aggregator server with SSE transport",
 				slog.String("addr", addr))
-			server := &http.Server{ //nolint:gosec
-				Addr:    addr,
-				Handler: handler,
+			server := &http.Server{
+				Addr:              addr,
+				Handler:           handler,
+				ReadHeaderTimeout: httpReadHeaderTimeout,
 			}
 			a.httpServer = append(a.httpServer, server)
 			go func() {
@@ -885,8 +887,9 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		if useSystemdActivation {
 			logging.Info("Aggregator", "Using systemd socket activation for streamable HTTP transport")
 			for i, listener := range systemdListeners {
-				server := &http.Server{ //nolint:gosec
-					Handler: handler,
+				server := &http.Server{
+					Handler:           handler,
+					ReadHeaderTimeout: httpReadHeaderTimeout,
 				}
 				a.httpServer = append(a.httpServer, server)
 				go func(s *http.Server, l net.Listener, index int) {
@@ -899,9 +902,10 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		} else {
 			logging.InfoWithAttrs("Aggregator", "Starting MCP aggregator server with streamable-http transport",
 				slog.String("addr", addr))
-			server := &http.Server{ //nolint:gosec
-				Addr:    addr,
-				Handler: handler,
+			server := &http.Server{
+				Addr:              addr,
+				Handler:           handler,
+				ReadHeaderTimeout: httpReadHeaderTimeout,
 			}
 			a.httpServer = append(a.httpServer, server)
 			go func() {
@@ -2635,21 +2639,9 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 		}
 	}
 
-	teleportResult := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
-	if teleportResult.Configured && teleportResult.Error != nil {
-		return nil, time.Time{}, "", fmt.Errorf("teleport configuration failed for %s: %w", serverName, teleportResult.Error)
-	}
-
-	var exchangedToken string
-	if teleportResult.Client != nil {
-		exchangedToken, err = oauthHandler.ExchangeTokenForRemoteClusterWithClient(
-			ctx, idToken, userID, &exchangeConfig, teleportResult.Client,
-		)
-	} else {
-		exchangedToken, err = oauthHandler.ExchangeTokenForRemoteCluster(
-			ctx, idToken, userID, &exchangeConfig,
-		)
-	}
+	exchangedToken, err := oauthHandler.ExchangeTokenForRemoteCluster(
+		ctx, idToken, userID, &exchangeConfig,
+	)
 	if err != nil {
 		return nil, time.Time{}, "", fmt.Errorf("token exchange failed for %s: %w", serverName, err)
 	}
@@ -2663,12 +2655,8 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 		return map[string]string{"Authorization": "Bearer " + exchangedToken}
 	}
 
-	var client MCPClient
-	if teleportResult.Client != nil {
-		client = internalmcp.NewStreamableHTTPClientWithHeaderFuncAndHTTPClient(serverInfo.URL, headerFunc, teleportResult.Client)
-	} else {
-		client = internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
-	}
+	dialURL := proxyURLFor(a.config.UpstreamProxy, serverInfo.Name)
+	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(dialURL, headerFunc)
 
 	return client, tokenExpiry, exchangedToken, nil
 }

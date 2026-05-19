@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/cli"
 
 	"github.com/spf13/cobra"
@@ -22,10 +23,10 @@ var (
 
 // Resource configurations mapping tool names to their aliases
 var listResourceConfigs = map[string][]string{
-	"core_service_list":            {"service", "services"},
-	"core_mcpserver_list":          {"mcpserver", "mcpservers"},
-	"core_workflow_list":           {"workflow", "workflows"},
-	"core_workflow_execution_list": {"workflow-execution", "workflow-executions"},
+	"core_service_list":            {api.ResourceTypeService, api.ResourceTypeServices},
+	"core_mcpserver_list":          {api.ResourceTypeMCPServer, api.ResourceTypeMCPServers},
+	"core_workflow_list":           {api.ResourceTypeWorkflow, api.ResourceTypeWorkflows},
+	"core_workflow_execution_list": {api.ResourceTypeWorkflowExecution, api.ResourceTypeWorkflowExecutions},
 }
 
 // Build resource types for autocompletion
@@ -53,7 +54,6 @@ func getListResourceMappings() map[string]string {
 	return mappings
 }
 
-// mcpResourceTypes aliases to the shared mcpPrimitiveTypes for backward compatibility
 var mcpResourceTypes = mcpPrimitiveTypes
 
 // MCPFilterOptions contains filter criteria for MCP primitives
@@ -351,11 +351,11 @@ func runListMCP(cmd *cobra.Command, mcpType string) error {
 	}
 
 	switch mcpType {
-	case "tool": //nolint:goconst
+	case api.MCPPrimitiveTool:
 		return runListMCPTools(cmd, executor, filterOpts)
-	case "resource": //nolint:goconst
+	case api.MCPPrimitiveResource:
 		return runListMCPResources(cmd, executor, filterOpts)
-	case "prompt": //nolint:goconst
+	case api.MCPPrimitivePrompt:
 		return runListMCPPrompts(cmd, executor, filterOpts)
 	default:
 		return fmt.Errorf("unknown MCP type: %s", mcpType)

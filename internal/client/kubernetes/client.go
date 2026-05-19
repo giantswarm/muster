@@ -51,7 +51,7 @@ func New(config *rest.Config) (*Client, error) {
 	scheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(musterv1alpha1.AddToScheme(scheme))
-	utilruntime.Must(agw.AddToScheme(scheme))
+	utilruntime.Must(agw.Install(scheme))
 	utilruntime.Must(gwv1.Install(scheme))
 
 	k8sClient, err := client.New(config, client.Options{

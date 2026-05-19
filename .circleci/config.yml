@@ -1,7 +1,7 @@
 version: 2.1
 
 orbs:
-  architect: giantswarm/architect@8.0.2
+  architect: giantswarm/architect@8.2.2
 
 workflows:
   build:
@@ -10,44 +10,35 @@ workflows:
           context: architect
           name: go-build
           binary: muster
+          architectures: "linux/amd64,linux/arm64"
           filters:
             tags:
               only: /^v.*/
 
-      # Branch builds: amd64 only for faster PR feedback
-      - architect/push-to-registries-multiarch:
+      # split-china-push: true delegates Aliyun to sync-china-registry on
+      # tags. Safe on branches: registries-data marks Aliyun push_dev_image=false.
+      - architect/push-to-registries:
           context: architect
+          multiarch: true
           name: push-to-registries
-          platforms: "linux/amd64"
+          split-china-push: true
           requires:
             - go-build
           filters:
+            tags:
+              only: /^v.*/
             branches:
               ignore:
                 - main
 
-      # Tag builds: push multi-arch image to gsoci (primary registry).
-      # Chart push depends on this completing successfully.
-      - architect/push-to-registries-multiarch:
+      # Mirror gsoci -> Aliyun via the in-China giantswarm/galaxy-runner.
+      # Runs in parallel with the chart catalog push; an Aliyun mirror failure
+      # does NOT block the chart publish.
+      - architect/sync-china-registry:
           context: architect
-          name: push-to-gsoci-release
-          registries-data: "public gsoci.azurecr.io ACR_GSOCI_USERNAME ACR_GSOCI_PASSWORD true"
+          name: sync-china-registry
           requires:
-            - go-build
-          filters:
-            tags:
-              only: /^v.*/
-            branches:
-              ignore: /.*/
-
-      # Tag builds: push multi-arch image to all registries (including China mirrors).
-      # Runs in parallel, does NOT block the chart push. If a mirror is unreachable,
-      # only mirror-dependent clusters are affected, not the primary delivery pipeline.
-      - architect/push-to-registries-multiarch:
-          context: architect
-          name: push-to-all-registries-release
-          requires:
-            - go-build
+            - push-to-registries
           filters:
             tags:
               only: /^v.*/
@@ -100,7 +91,9 @@ workflows:
               ignore:
                 - main
 
-      # Tag: push chart after tests + gsoci image
+      # Tag: push chart after tests + the gsoci image. Intentionally does NOT
+      # depend on sync-china-registry so the chart catalog can publish even
+      # if the in-China Aliyun mirror is slow or fails.
       - architect/push-to-app-catalog:
           executor: app-build-suite
           context: architect
@@ -110,7 +103,7 @@ workflows:
           chart: muster
           requires:
             - execute chart tests
-            - push-to-gsoci-release
+            - push-to-registries
           filters:
             tags:
               only: /^v.*/
