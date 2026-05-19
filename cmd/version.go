@@ -7,6 +7,7 @@ import (
 
 	"github.com/giantswarm/muster/internal/agent"
 	"github.com/giantswarm/muster/internal/cli"
+	"github.com/giantswarm/muster/pkg/project"
 
 	"github.com/spf13/cobra"
 )
@@ -24,8 +25,9 @@ func newVersionCmd() *cobra.Command {
 		Long: `Displays the muster CLI version and, if the aggregator server is running,
 also displays the server version obtained from the MCP protocol handshake.`,
 		Run: func(cmd *cobra.Command, args []string) {
-			// Print CLI version
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "muster version %s\n", rootCmd.Version)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  commit: %s\n", project.GitSHA())
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  built:  %s\n", project.BuildTimestamp())
 
 			// Try to get server version
 			serverVersion, serverName, err := getServerVersion()
