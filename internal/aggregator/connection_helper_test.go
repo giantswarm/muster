@@ -16,46 +16,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// mockTeleportClientHandler implements api.TeleportClientHandler for testing.
-type mockTeleportClientHandler struct {
-	httpClient    *http.Client
-	httpTransport *http.Transport
-	err           error
-	// Track calls for verification
-	getClientCalls    int
-	getTransportCalls int
-	getConfigCalls    int
-	lastConfig        api.TeleportClientConfig
-	lastIdentityDir   string
-}
-
-func (m *mockTeleportClientHandler) GetHTTPClientForIdentity(identityDir string) (*http.Client, error) {
-	m.getClientCalls++
-	m.lastIdentityDir = identityDir
-	if m.err != nil {
-		return nil, m.err
-	}
-	return m.httpClient, nil
-}
-
-func (m *mockTeleportClientHandler) GetHTTPTransportForIdentity(identityDir string) (*http.Transport, error) {
-	m.getTransportCalls++
-	m.lastIdentityDir = identityDir
-	if m.err != nil {
-		return nil, m.err
-	}
-	return m.httpTransport, nil
-}
-
-func (m *mockTeleportClientHandler) GetHTTPClientForConfig(ctx context.Context, config api.TeleportClientConfig) (*http.Client, error) {
-	m.getConfigCalls++
-	m.lastConfig = config
-	if m.err != nil {
-		return nil, m.err
-	}
-	return m.httpClient, nil
-}
-
 // mockOAuthHandler implements api.OAuthHandler for testing getIDTokenForForwarding.
 type mockOAuthHandler struct {
 	enabled bool
@@ -95,10 +55,6 @@ func (m *mockOAuthHandler) ExchangeTokenForRemoteCluster(_ context.Context, _, _
 	return "", nil
 }
 
-func (m *mockOAuthHandler) ExchangeTokenForRemoteClusterWithClient(_ context.Context, _, _ string, _ *api.TokenExchangeConfig, _ *http.Client) (string, error) {
-	return "", nil
-}
-
 func (m *mockOAuthHandler) StoreToken(sessionID, _, issuer string, token *api.OAuthToken) {
 	m.tokens[sessionID+"|"+issuer] = token
 }
@@ -110,7 +66,7 @@ func (m *mockOAuthHandler) GetFullTokenByIssuer(sessionID, issuer string) *api.O
 func TestGetIDTokenForForwarding(t *testing.T) {
 	// Valid JWT-like token with future expiry (not a real JWT, just the format for parsing).
 	// The exp claim is set to 9999999999 (year 2286) to ensure it never expires during tests.
-	validToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiZXhwIjo5OTk5OTk5OTk5fQ.signature" //nolint:goconst,gosec
+	validToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiZXhwIjo5OTk5OTk5OTk5fQ.signature"
 
 	t.Run("returns token from context when available", func(t *testing.T) {
 		ctx := context.Background()
@@ -160,7 +116,7 @@ func TestGetIDTokenForForwarding(t *testing.T) {
 	})
 
 	t.Run("context token takes priority over OAuth handler token", func(t *testing.T) {
-		storedToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjYWNoZWQiLCJleHAiOjk5OTk5OTk5OTl9.sig" //nolint:gosec
+		storedToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjYWNoZWQiLCJleHAiOjk5OTk5OTk5OTl9.sig"
 		mock := newMockOAuthHandler(true)
 		mock.StoreToken("session-abc", "user1", "https://accounts.google.com", &api.OAuthToken{IDToken: storedToken})
 		api.RegisterOAuthHandler(mock)
@@ -276,7 +232,7 @@ func TestShouldUseTokenExchange(t *testing.T) {
 			Name: "test-server",
 			AuthConfig: &api.MCPServerAuth{
 				Type: "oauth",
-				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+				TokenExchange: &api.TokenExchangeConfig{
 					Enabled:          false,
 					DexTokenEndpoint: "https://dex.example.com/token",
 					ConnectorID:      "local-dex",
@@ -319,7 +275,7 @@ func TestShouldUseTokenExchange(t *testing.T) {
 			Name: "test-server",
 			AuthConfig: &api.MCPServerAuth{
 				Type: "oauth",
-				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+				TokenExchange: &api.TokenExchangeConfig{
 					Enabled:          true,
 					DexTokenEndpoint: "https://dex.example.com/token",
 				},
@@ -333,7 +289,7 @@ func TestShouldUseTokenExchange(t *testing.T) {
 			Name: "test-server",
 			AuthConfig: &api.MCPServerAuth{
 				Type: "oauth",
-				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+				TokenExchange: &api.TokenExchangeConfig{
 					Enabled:          true,
 					DexTokenEndpoint: "https://dex.example.com/token",
 					ConnectorID:      "local-dex",
@@ -400,7 +356,7 @@ func TestLoadTokenExchangeCredentials(t *testing.T) {
 			Name: "test-server",
 			AuthConfig: &api.MCPServerAuth{
 				Type: "oauth",
-				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+				TokenExchange: &api.TokenExchangeConfig{
 					Enabled:                    true,
 					DexTokenEndpoint:           "https://dex.example.com/token",
 					ConnectorID:                "local-dex",
@@ -421,7 +377,7 @@ func TestLoadTokenExchangeCredentials(t *testing.T) {
 			Name: "test-server",
 			AuthConfig: &api.MCPServerAuth{
 				Type: "oauth",
-				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+				TokenExchange: &api.TokenExchangeConfig{
 					Enabled:          true,
 					DexTokenEndpoint: "https://dex.example.com/token",
 					ConnectorID:      "local-dex",
@@ -452,7 +408,7 @@ func TestLoadTokenExchangeCredentials(t *testing.T) {
 			Namespace: "muster",
 			AuthConfig: &api.MCPServerAuth{
 				Type: "oauth",
-				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+				TokenExchange: &api.TokenExchangeConfig{
 					Enabled:          true,
 					DexTokenEndpoint: "https://dex.example.com/token",
 					ConnectorID:      "local-dex",
@@ -489,7 +445,7 @@ func TestLoadTokenExchangeCredentials(t *testing.T) {
 			Namespace: "my-namespace",
 			AuthConfig: &api.MCPServerAuth{
 				Type: "oauth",
-				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+				TokenExchange: &api.TokenExchangeConfig{
 					Enabled:          true,
 					DexTokenEndpoint: "https://dex.example.com/token",
 					ConnectorID:      "local-dex",
@@ -521,7 +477,7 @@ func TestLoadTokenExchangeCredentials(t *testing.T) {
 			Namespace: "", // Empty namespace
 			AuthConfig: &api.MCPServerAuth{
 				Type: "oauth",
-				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+				TokenExchange: &api.TokenExchangeConfig{
 					Enabled:          true,
 					DexTokenEndpoint: "https://dex.example.com/token",
 					ConnectorID:      "local-dex",
@@ -548,7 +504,7 @@ func TestLoadTokenExchangeCredentials(t *testing.T) {
 			Namespace: "muster",
 			AuthConfig: &api.MCPServerAuth{
 				Type: "oauth",
-				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+				TokenExchange: &api.TokenExchangeConfig{
 					Enabled:          true,
 					DexTokenEndpoint: "https://dex.example.com/token",
 					ConnectorID:      "local-dex",
@@ -564,291 +520,16 @@ func TestLoadTokenExchangeCredentials(t *testing.T) {
 	})
 }
 
-func TestGetTeleportHTTPClientIfConfigured(t *testing.T) {
-	ctx := context.Background()
-
-	t.Run("returns not configured for nil serverInfo", func(t *testing.T) {
-		result := getTeleportHTTPClientIfConfigured(ctx, nil)
-		assert.False(t, result.Configured)
-		assert.Nil(t, result.Client)
-		assert.NoError(t, result.Error)
-	})
-
-	t.Run("returns not configured for nil authConfig", func(t *testing.T) {
-		serverInfo := &ServerInfo{
-			Name:       "test-server",
-			AuthConfig: nil,
-		}
-		result := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
-		assert.False(t, result.Configured)
-		assert.Nil(t, result.Client)
-		assert.NoError(t, result.Error)
-	})
-
-	t.Run("returns not configured for non-teleport auth type", func(t *testing.T) {
-		serverInfo := &ServerInfo{
-			Name: "test-server",
-			AuthConfig: &api.MCPServerAuth{
-				Type: "oauth",
-			},
-		}
-		result := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
-		assert.False(t, result.Configured)
-		assert.Nil(t, result.Client)
-		assert.NoError(t, result.Error)
-	})
-
-	t.Run("returns error for teleport type without teleport settings", func(t *testing.T) {
-		serverInfo := &ServerInfo{
-			Name: "test-server",
-			AuthConfig: &api.MCPServerAuth{
-				Type:     api.AuthTypeTeleport,
-				Teleport: nil,
-			},
-		}
-		result := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
-		assert.True(t, result.Configured)
-		assert.Nil(t, result.Client)
-		assert.Error(t, result.Error)
-		assert.Contains(t, result.Error.Error(), "teleport settings missing")
-	})
-
-	t.Run("returns error when no identity source is configured", func(t *testing.T) {
-		// Register a handler to pass the handler check
-		mockHandler := &mockTeleportClientHandler{httpClient: &http.Client{}}
-		api.RegisterTeleportClient(mockHandler)
-		defer api.RegisterTeleportClient(nil)
-
-		serverInfo := &ServerInfo{
-			Name: "test-server",
-			AuthConfig: &api.MCPServerAuth{
-				Type: api.AuthTypeTeleport,
-				Teleport: &api.TeleportAuth{
-					// No IdentityDir or IdentitySecretName
-					AppName: "test-app",
-				},
-			},
-		}
-		result := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
-		assert.True(t, result.Configured)
-		assert.Nil(t, result.Client)
-		assert.Error(t, result.Error)
-		assert.Contains(t, result.Error.Error(), "identityDir or identitySecretName")
-	})
-
-	t.Run("returns error when both identity sources are configured", func(t *testing.T) {
-		// Register a handler to pass the handler check
-		mockHandler := &mockTeleportClientHandler{httpClient: &http.Client{}}
-		api.RegisterTeleportClient(mockHandler)
-		defer api.RegisterTeleportClient(nil)
-
-		serverInfo := &ServerInfo{
-			Name: "test-server",
-			AuthConfig: &api.MCPServerAuth{
-				Type: api.AuthTypeTeleport,
-				Teleport: &api.TeleportAuth{ //nolint:gosec
-					IdentityDir:        "/var/run/tbot/identity",
-					IdentitySecretName: "tbot-identity",
-					AppName:            "test-app",
-				},
-			},
-		}
-		result := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
-		assert.True(t, result.Configured)
-		assert.Nil(t, result.Client)
-		assert.Error(t, result.Error)
-		assert.Contains(t, result.Error.Error(), "mutually exclusive")
-	})
-
-	t.Run("returns error when teleport handler is not registered", func(t *testing.T) {
-		// Ensure no handler is registered
-		api.RegisterTeleportClient(nil)
-
-		serverInfo := &ServerInfo{
-			Name: "test-server",
-			AuthConfig: &api.MCPServerAuth{
-				Type: api.AuthTypeTeleport,
-				Teleport: &api.TeleportAuth{
-					IdentityDir: "/var/run/tbot/identity",
-					AppName:     "test-app",
-				},
-			},
-		}
-		result := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
-		assert.True(t, result.Configured)
-		assert.Nil(t, result.Client)
-		assert.Error(t, result.Error)
-		assert.Contains(t, result.Error.Error(), "handler not registered")
-	})
-
-	t.Run("returns http client when handler is registered with identityDir", func(t *testing.T) {
-		expectedClient := &http.Client{}
-		mockHandler := &mockTeleportClientHandler{
-			httpClient: expectedClient,
-		}
-		api.RegisterTeleportClient(mockHandler)
-		defer api.RegisterTeleportClient(nil)
-
-		serverInfo := &ServerInfo{
-			Name: "test-server",
-			AuthConfig: &api.MCPServerAuth{
-				Type: api.AuthTypeTeleport,
-				Teleport: &api.TeleportAuth{
-					IdentityDir: "/var/run/tbot/identity",
-					AppName:     "mcp-kubernetes",
-				},
-			},
-		}
-		result := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
-		assert.True(t, result.Configured)
-		assert.Equal(t, expectedClient, result.Client)
-		assert.NoError(t, result.Error)
-		assert.Equal(t, 1, mockHandler.getConfigCalls)
-		assert.Equal(t, "/var/run/tbot/identity", mockHandler.lastConfig.IdentityDir)
-		assert.Equal(t, "mcp-kubernetes", mockHandler.lastConfig.AppName)
-	})
-
-	t.Run("returns http client when handler is registered with secret", func(t *testing.T) {
-		expectedClient := &http.Client{}
-		mockHandler := &mockTeleportClientHandler{
-			httpClient: expectedClient,
-		}
-		api.RegisterTeleportClient(mockHandler)
-		defer api.RegisterTeleportClient(nil)
-
-		serverInfo := &ServerInfo{
-			Name: "test-server",
-			AuthConfig: &api.MCPServerAuth{
-				Type: api.AuthTypeTeleport,
-				Teleport: &api.TeleportAuth{ //nolint:gosec
-					IdentitySecretName:      "tbot-identity-output",
-					IdentitySecretNamespace: "teleport-system",
-					AppName:                 "mcp-kubernetes",
-				},
-			},
-		}
-		result := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
-		assert.True(t, result.Configured)
-		assert.Equal(t, expectedClient, result.Client)
-		assert.NoError(t, result.Error)
-		assert.Equal(t, 1, mockHandler.getConfigCalls)
-		assert.Equal(t, "tbot-identity-output", mockHandler.lastConfig.IdentitySecretName)
-		assert.Equal(t, "teleport-system", mockHandler.lastConfig.IdentitySecretNamespace)
-		assert.Equal(t, "mcp-kubernetes", mockHandler.lastConfig.AppName)
-	})
-
-	t.Run("returns error when handler returns error", func(t *testing.T) {
-		mockHandler := &mockTeleportClientHandler{
-			err: errors.New("failed to load certificates"),
-		}
-		api.RegisterTeleportClient(mockHandler)
-		defer api.RegisterTeleportClient(nil)
-
-		serverInfo := &ServerInfo{
-			Name: "test-server",
-			AuthConfig: &api.MCPServerAuth{
-				Type: api.AuthTypeTeleport,
-				Teleport: &api.TeleportAuth{
-					IdentityDir: "/var/run/tbot/identity",
-					AppName:     "mcp-kubernetes",
-				},
-			},
-		}
-		result := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
-		assert.True(t, result.Configured)
-		assert.Nil(t, result.Client)
-		assert.Error(t, result.Error)
-		assert.Contains(t, result.Error.Error(), "failed to load certificates")
-		assert.Equal(t, 1, mockHandler.getConfigCalls)
-	})
-
-	t.Run("returns not configured for empty auth type", func(t *testing.T) {
-		serverInfo := &ServerInfo{
-			Name: "test-server",
-			AuthConfig: &api.MCPServerAuth{
-				Type: "", // Empty type, should not match teleport
-				Teleport: &api.TeleportAuth{
-					IdentityDir: "/var/run/tbot/identity",
-				},
-			},
-		}
-		result := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
-		assert.False(t, result.Configured)
-		assert.Nil(t, result.Client)
-		assert.NoError(t, result.Error)
-	})
-
-	t.Run("works without AppName", func(t *testing.T) {
-		expectedClient := &http.Client{}
-		mockHandler := &mockTeleportClientHandler{
-			httpClient: expectedClient,
-		}
-		api.RegisterTeleportClient(mockHandler)
-		defer api.RegisterTeleportClient(nil)
-
-		serverInfo := &ServerInfo{
-			Name: "test-server",
-			AuthConfig: &api.MCPServerAuth{
-				Type: api.AuthTypeTeleport,
-				Teleport: &api.TeleportAuth{
-					IdentityDir: "/var/run/tbot/identity",
-					// No AppName - should still work
-				},
-			},
-		}
-		result := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
-		assert.True(t, result.Configured)
-		assert.Equal(t, expectedClient, result.Client)
-		assert.NoError(t, result.Error)
-		assert.Equal(t, "", mockHandler.lastConfig.AppName)
-	})
-
-	// Verify that caller can distinguish between "not configured" and "error"
-	t.Run("caller can distinguish not-configured from error", func(t *testing.T) {
-		// Not configured case (type is oauth, not teleport)
-		oauthServer := &ServerInfo{
-			Name: "oauth-server",
-			AuthConfig: &api.MCPServerAuth{
-				Type: "oauth",
-			},
-		}
-		notConfigured := getTeleportHTTPClientIfConfigured(ctx, oauthServer)
-
-		// Error case (teleport configured but handler missing)
-		api.RegisterTeleportClient(nil)
-		teleportServer := &ServerInfo{
-			Name: "teleport-server",
-			AuthConfig: &api.MCPServerAuth{
-				Type: api.AuthTypeTeleport,
-				Teleport: &api.TeleportAuth{
-					IdentityDir: "/var/run/tbot/identity",
-				},
-			},
-		}
-		errorCase := getTeleportHTTPClientIfConfigured(ctx, teleportServer)
-
-		// Not configured: caller should use default HTTP client
-		assert.False(t, notConfigured.Configured, "oauth server should not be configured for teleport")
-		assert.Nil(t, notConfigured.Client)
-		assert.NoError(t, notConfigured.Error)
-
-		// Error: caller should fail with explicit error, NOT fallback
-		assert.True(t, errorCase.Configured, "teleport server is configured")
-		assert.Nil(t, errorCase.Client)
-		assert.Error(t, errorCase.Error, "should return error when teleport configured but failed")
-	})
-}
-
 func TestHeaderFunc_RateLimitsWarning(t *testing.T) {
 	// Set up a logger that captures output at DEBUG level so we can see all messages.
 	var logBuf bytes.Buffer
 	logging.InitForCLI(logging.LevelDebug, &logBuf)
 
 	sessionID := "test-session-rate-limit"
-	sub := "test-user"                        //nolint:goconst
-	musterIssuer := "https://dex.example.com" //nolint:goconst
-	serverName := "test-server"               //nolint:goconst
-	fallbackToken := "original-token"         //nolint:goconst
+	sub := "test-user"
+	musterIssuer := "https://dex.example.com"
+	serverName := "test-server"
+	fallbackToken := "original-token"
 
 	// No OAuth handler registered means getIDTokenForForwarding always returns "".
 	api.RegisterOAuthHandler(nil)
@@ -880,7 +561,7 @@ func TestHeaderFunc_RateLimitsWarning(t *testing.T) {
 	assert.NotContains(t, thirdCallLogs, "WARN", "third call should NOT emit a WARN")
 
 	// Now simulate token recovery by registering an OAuth handler with a token.
-	validToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiZXhwIjo5OTk5OTk5OTk5fQ.signature" //nolint:gosec
+	validToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiZXhwIjo5OTk5OTk5OTk5fQ.signature"
 	mock := newMockOAuthHandler(true)
 	mock.StoreToken(sessionID, "", musterIssuer, &api.OAuthToken{IDToken: validToken})
 	api.RegisterOAuthHandler(mock)
@@ -973,7 +654,7 @@ func TestHeaderFunc_ResetsFailureCountOnRecovery(t *testing.T) {
 	assert.Equal(t, int32(0), evictCount.Load(), "should not evict before threshold")
 
 	// Recover by providing a valid token.
-	validToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiZXhwIjo5OTk5OTk5OTk5fQ.signature" //nolint:gosec
+	validToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiZXhwIjo5OTk5OTk5OTk5fQ.signature"
 	mock := newMockOAuthHandler(true)
 	mock.StoreToken(sessionID, "", musterIssuer, &api.OAuthToken{IDToken: validToken})
 	api.RegisterOAuthHandler(mock)

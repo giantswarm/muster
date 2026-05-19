@@ -141,7 +141,7 @@ func TestFilesystemDetector_StartStop(t *testing.T) {
 
 	// Create the mcpservers directory
 	mcpDir := filepath.Join(tempDir, "mcpservers")
-	if err := os.MkdirAll(mcpDir, 0755); err != nil { //nolint:gosec
+	if err := os.MkdirAll(mcpDir, 0755); err != nil {
 		t.Fatalf("failed to create directory: %v", err)
 	}
 
@@ -173,7 +173,7 @@ func TestFilesystemDetector_DetectFileChange(t *testing.T) {
 
 	// Create the mcpservers directory
 	mcpDir := filepath.Join(tempDir, "mcpservers")
-	if err := os.MkdirAll(mcpDir, 0755); err != nil { //nolint:gosec
+	if err := os.MkdirAll(mcpDir, 0755); err != nil {
 		t.Fatalf("failed to create directory: %v", err)
 	}
 
@@ -195,7 +195,7 @@ func TestFilesystemDetector_DetectFileChange(t *testing.T) {
 
 	// Create a new file
 	testFile := filepath.Join(mcpDir, "test-server.yaml")
-	if err := os.WriteFile(testFile, []byte("name: test-server"), 0644); err != nil { //nolint:gosec
+	if err := os.WriteFile(testFile, []byte("name: test-server"), 0644); err != nil {
 		t.Fatalf("failed to create test file: %v", err)
 	}
 
@@ -205,7 +205,7 @@ func TestFilesystemDetector_DetectFileChange(t *testing.T) {
 		if event.Type != ResourceTypeMCPServer {
 			t.Errorf("expected type MCPServer, got %s", event.Type)
 		}
-		if event.Name != "test-server" { //nolint:goconst
+		if event.Name != "test-server" {
 			t.Errorf("expected name test-server, got %s", event.Name)
 		}
 		if event.Operation != OperationCreate {
@@ -221,7 +221,7 @@ func TestFilesystemDetector_Debouncing(t *testing.T) {
 
 	// Create the mcpservers directory
 	mcpDir := filepath.Join(tempDir, "mcpservers")
-	if err := os.MkdirAll(mcpDir, 0755); err != nil { //nolint:gosec
+	if err := os.MkdirAll(mcpDir, 0755); err != nil {
 		t.Fatalf("failed to create directory: %v", err)
 	}
 
@@ -244,14 +244,14 @@ func TestFilesystemDetector_Debouncing(t *testing.T) {
 
 	// Create a file
 	testFile := filepath.Join(mcpDir, "debounce-test.yaml")
-	if err := os.WriteFile(testFile, []byte("v1"), 0644); err != nil { //nolint:gosec
+	if err := os.WriteFile(testFile, []byte("v1"), 0644); err != nil {
 		t.Fatalf("failed to create test file: %v", err)
 	}
 
 	// Rapidly update the file multiple times
 	for i := 0; i < 5; i++ {
 		time.Sleep(10 * time.Millisecond)
-		if err := os.WriteFile(testFile, []byte("v"+string(rune('2'+i))), 0644); err != nil { //nolint:gosec
+		if err := os.WriteFile(testFile, []byte("v"+string(rune('2'+i))), 0644); err != nil {
 			t.Fatalf("failed to update test file: %v", err)
 		}
 	}

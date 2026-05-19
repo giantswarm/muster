@@ -26,8 +26,10 @@ builds:
       - -trimpath
     ldflags:
       - >-
-        -s -w -X main.version={{.Version}} -X main.commit={{.ShortCommit}}
-        -X main.date={{.Date}}
+        -s -w
+        -X github.com/giantswarm/muster/pkg/project.version={{.Version}}
+        -X github.com/giantswarm/muster/pkg/project.gitSHA={{.ShortCommit}}
+        -X github.com/giantswarm/muster/pkg/project.buildTimestamp={{.Date}}
 
 archives:
   - id: default

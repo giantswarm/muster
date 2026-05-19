@@ -69,9 +69,11 @@ func NewServerFromFile(configPath string, debug bool) (*Server, error) {
 		handler := NewToolHandler(toolConfig, mockServer.templateEngine, debug)
 		mockServer.toolHandlers[toolConfig.Name] = handler
 
-		// Register the tool with the MCP server
-		tool := mcp.NewTool(toolConfig.Name, mcp.WithDescription(toolConfig.Description))
-		mcpServer.AddTool(tool, mockServer.createToolHandler(toolConfig.Name))
+		// Register the tool with the MCP server, propagating any input_schema
+		// from the YAML config so downstream consumers (e.g. the aggregator's
+		// family-grouping collision check) see the same schema operators
+		// declared in pre_configuration.
+		mcpServer.AddTool(toolWithSchema(toolConfig), mockServer.createToolHandler(toolConfig.Name))
 	}
 
 	if debug {
@@ -83,6 +85,24 @@ func NewServerFromFile(configPath string, debug bool) (*Server, error) {
 	}
 
 	return mockServer, nil
+}
+
+// toolWithSchema builds an mcp.Tool from a ToolConfig, attaching the raw
+// JSON-Schema declared in the YAML config when present. Without this, the
+// mock server publishes tools with no input schema and downstream consumers
+// (notably the aggregator's family-grouping logic) cannot see the schema
+// operators wrote in the scenario fixture.
+//
+// mcp.NewToolWithRawSchema and mcp.NewTool produce mutually exclusive Tool
+// shapes (the former is documented as incompatible with ToolOption); we
+// pick one or the other based on whether a schema was declared.
+func toolWithSchema(toolConfig ToolConfig) mcp.Tool {
+	if len(toolConfig.InputSchema) > 0 {
+		if raw, err := json.Marshal(toolConfig.InputSchema); err == nil {
+			return mcp.NewToolWithRawSchema(toolConfig.Name, toolConfig.Description, raw)
+		}
+	}
+	return mcp.NewTool(toolConfig.Name, mcp.WithDescription(toolConfig.Description))
 }
 
 // createToolHandler creates an MCP tool handler function for the given tool name
@@ -137,8 +157,7 @@ func (s *Server) AddDynamicTool(toolConfig ToolConfig) {
 	s.toolHandlers[toolConfig.Name] = handler
 	s.mu.Unlock()
 
-	tool := mcp.NewTool(toolConfig.Name, mcp.WithDescription(toolConfig.Description))
-	s.mcpServer.AddTool(tool, s.createToolHandler(toolConfig.Name))
+	s.mcpServer.AddTool(toolWithSchema(toolConfig), s.createToolHandler(toolConfig.Name))
 
 	if s.debug {
 		fmt.Fprintf(os.Stderr, "Dynamically added tool '%s' to mock server '%s'\n", toolConfig.Name, s.name)

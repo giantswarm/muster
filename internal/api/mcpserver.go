@@ -23,6 +23,12 @@ type MCPServer struct {
 	// servers provide tools with similar names.
 	ToolPrefix string `yaml:"toolPrefix,omitempty" json:"toolPrefix,omitempty"`
 
+	// Family declares that this MCP server is an instance of a family of
+	// equivalent servers. When set, the aggregator exposes tools as
+	// {musterPrefix}_{family.name}_{toolName} with a required parameter named
+	// by family.instanceArg.
+	Family *MCPServerFamily `yaml:"family,omitempty" json:"family,omitempty"`
+
 	// AutoStart determines whether this MCP server should be automatically started
 	// when the muster system initializes or when dependencies become available.
 	AutoStart bool `yaml:"autoStart,omitempty" json:"autoStart,omitempty"`
@@ -65,9 +71,20 @@ type MCPServer struct {
 	Description string `json:"description,omitempty" yaml:"-"`
 }
 
+// MCPServerFamily groups equivalent MCP server instances under a shared
+// exposed surface. Name and InstanceArg are both required when set.
+type MCPServerFamily struct {
+	// Name is the family identifier shared across instances.
+	Name string `yaml:"name" json:"name"`
+
+	// InstanceArg names the required parameter callers use to select which
+	// family member handles the tool call.
+	InstanceArg string `yaml:"instanceArg" json:"instanceArg"`
+}
+
 // MCPServerAuth configures authentication behavior for an MCP server.
 //
-// Muster supports three distinct authentication mechanisms:
+// Muster supports two distinct authentication mechanisms:
 //
 //   - SSO Token Forwarding: Muster forwards its own ID token to downstream servers.
 //     Enable with ForwardToken: true. Requires downstream to trust muster's client ID.
@@ -75,15 +92,10 @@ type MCPServer struct {
 //   - SSO Token Exchange (RFC 8693): Muster exchanges its token for one valid on the
 //     remote cluster's Dex. Enable with TokenExchange config. Requires the remote Dex
 //     to have an OIDC connector configured for the local cluster's Dex.
-//
-//   - Teleport Authentication: Muster uses Teleport Machine ID certificates to access
-//     private installations via Teleport Application Access. Enable with Type: "teleport"
-//     and configure Teleport settings.
 type MCPServerAuth struct {
 	// Type specifies the authentication type.
 	// Supported values:
 	//   - "oauth": OAuth 2.0/OIDC authentication
-	//   - "teleport": Teleport Application Access with Machine ID certificates
 	//   - "none": No authentication
 	Type string `yaml:"type,omitempty" json:"type,omitempty"`
 
@@ -128,17 +140,6 @@ type MCPServerAuth struct {
 	// Token exchange takes precedence over ForwardToken if both are configured.
 	TokenExchange *TokenExchangeConfig `yaml:"tokenExchange,omitempty" json:"tokenExchange,omitempty"`
 
-	// Teleport configures Teleport authentication for accessing private installations.
-	// This is only used when Type is "teleport".
-	//
-	// When configured, muster uses Teleport Machine ID certificates to establish
-	// mutual TLS connections to MCP servers accessible via Teleport Application Access.
-	//
-	// The Teleport identity files (tls.crt, tls.key, ca.crt) are typically:
-	//   - In Kubernetes: Mounted from a Secret managed by tbot
-	//   - In filesystem mode: Read directly from the tbot output directory
-	Teleport *TeleportAuth `yaml:"teleport,omitempty" json:"teleport,omitempty"`
-
 	// AuthorizationServer pins the OAuth issuer when the MCP server does not
 	// publish RFC 9728 Protected Resource Metadata. See the v1alpha1 CRD field
 	// of the same name for full semantics. When set, muster's per-server OAuth
@@ -180,7 +181,7 @@ type TokenExchangeConfig struct {
 	Enabled bool `yaml:"enabled,omitempty" json:"enabled,omitempty"`
 
 	// DexTokenEndpoint is the URL used to connect to the remote cluster's Dex token endpoint.
-	// This may differ from the issuer URL when access goes through a proxy (e.g., Teleport).
+	// This may differ from the issuer URL when access goes through a proxy.
 	// Required when Enabled is true.
 	// Example: https://dex.cluster-b.example.com/token (direct)
 	// Example: https://dex-cluster.proxy.example.com/token (via proxy)
@@ -304,6 +305,10 @@ type MCPServerInfo struct {
 
 	// ToolPrefix is an optional prefix for tool names.
 	ToolPrefix string `json:"toolPrefix,omitempty"`
+
+	// Family declares that this MCP server is an instance of a family of
+	// equivalent servers, sharing exposed tool names with siblings.
+	Family *MCPServerFamily `json:"family,omitempty"`
 
 	// Error contains any error message from recent server operations.
 	// This field is populated if the server is in an error state.

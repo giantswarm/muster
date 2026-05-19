@@ -57,7 +57,7 @@ func New(cfg Config) *Orchestrator {
 
 // Start initializes and starts all registered static services.
 func (o *Orchestrator) Start(ctx context.Context) error {
-	o.ctx, o.cancelFunc = context.WithCancel(ctx) //nolint:gosec
+	o.ctx, o.cancelFunc = context.WithCancel(ctx)
 
 	staticServices := o.registry.GetAll()
 	o.setupStateChangeNotifications(staticServices)
