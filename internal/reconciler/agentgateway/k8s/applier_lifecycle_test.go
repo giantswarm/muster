@@ -164,3 +164,32 @@ func TestApply_DeletionCascade_OwnerRefsAreControllerBlocking(t *testing.T) {
 	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: ownerNamespace, Name: ownerName}, backend))
 	checkRef(backend.OwnerReferences)
 }
+
+func TestApply_RecreatedMCPServer_ReplacesStaleOwnerRefInPlace(t *testing.T) {
+	t.Parallel()
+
+	c := newClient(t)
+	require.NoError(t, newApplier(c).Apply(t.Context(), streamableConfig()))
+
+	backend := &agw.AgentgatewayBackend{}
+	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: ownerNamespace, Name: ownerName}, backend))
+	require.Len(t, backend.OwnerReferences, 1)
+	require.Equal(t, types.UID(ownerUID), backend.OwnerReferences[0].UID)
+
+	const recreatedUID = "u-5678"
+	recreatedRef := ownerRef()
+	recreatedRef.UID = types.UID(recreatedUID)
+	recreated := k8s.NewApplier(c, recreatedRef, k8s.Config{GatewayName: gatewayName, GatewayNamespace: gatewayNS})
+	require.NoError(t, recreated.Apply(t.Context(), streamableConfig()))
+
+	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: ownerNamespace, Name: ownerName}, backend))
+	require.Len(t, backend.OwnerReferences, 1, "stale ownerRef from previous MCPServer incarnation must be replaced, not appended")
+	require.Equal(t, types.UID(recreatedUID), backend.OwnerReferences[0].UID)
+	require.Equal(t, ownerName, backend.OwnerReferences[0].Name)
+	require.Equal(t, ownerKind, backend.OwnerReferences[0].Kind)
+	require.Equal(t, ownerAPIVersion, backend.OwnerReferences[0].APIVersion)
+	require.NotNil(t, backend.OwnerReferences[0].Controller)
+	require.True(t, *backend.OwnerReferences[0].Controller)
+	require.NotNil(t, backend.OwnerReferences[0].BlockOwnerDeletion)
+	require.True(t, *backend.OwnerReferences[0].BlockOwnerDeletion)
+}

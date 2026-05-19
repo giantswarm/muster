@@ -43,7 +43,8 @@ func (a *Applier) deleteIfExists(ctx context.Context, obj client.Object) error {
 
 func (a *Applier) applyOwner(meta *metav1.ObjectMeta) {
 	for i := range meta.OwnerReferences {
-		if meta.OwnerReferences[i].UID == a.ownerRef.UID {
+		ref := &meta.OwnerReferences[i]
+		if ref.Name == a.ownerRef.Name && ref.Kind == a.ownerRef.Kind && ref.APIVersion == a.ownerRef.APIVersion {
 			meta.OwnerReferences[i] = a.ownerRef
 			return
 		}
