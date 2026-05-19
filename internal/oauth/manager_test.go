@@ -13,6 +13,7 @@ const (
 	testServerName = "mcp-kubernetes"
 	testIssuer     = "https://auth.example.com"
 	testScopes     = "openid profile"
+	testSubject    = "user-123"
 )
 
 func TestNewManager_Disabled(t *testing.T) {
@@ -183,7 +184,7 @@ func TestManager_GetToken_NoServerConfig(t *testing.T) {
 	defer manager.Stop()
 
 	// No server registered, should return nil
-	token := manager.GetToken("user-123", "unknown-server")
+	token := manager.GetToken(testSubject, "unknown-server")
 	if token != nil {
 		t.Error("Expected nil token for unknown server")
 	}
@@ -245,7 +246,7 @@ func TestManager_GetToken_WithToken(t *testing.T) {
 	serverName := testServerName
 	issuer := testIssuer
 	scope := testScopes
-	subject := "user-123"
+	subject := testSubject
 
 	// Register the server
 	manager.RegisterServer(serverName, issuer, scope)
@@ -286,7 +287,7 @@ func TestManager_GetTokenByIssuer(t *testing.T) {
 	defer manager.Stop()
 
 	issuer := testIssuer
-	subject := "user-123"
+	subject := testSubject
 
 	// Store a token directly
 	testToken := &pkgoauth.Token{
@@ -324,7 +325,7 @@ func TestManager_ClearTokenByIssuer(t *testing.T) {
 	defer manager.Stop()
 
 	issuer := testIssuer
-	subject := "user-123"
+	subject := testSubject
 
 	// Store a token directly
 	testToken := &pkgoauth.Token{
@@ -502,7 +503,7 @@ func TestManager_CreateAuthChallenge(t *testing.T) {
 	scope := testScopes
 
 	ctx := context.Background()
-	_, err := manager.CreateAuthChallenge(ctx, "user-123", "test-user", "mcp-server", issuer, scope)
+	_, err := manager.CreateAuthChallenge(ctx, testSubject, "test-user", "mcp-server", issuer, scope)
 	// Expected to fail because the issuer doesn't return valid metadata
 	if err == nil {
 		// If it succeeds (unlikely), that's also fine
