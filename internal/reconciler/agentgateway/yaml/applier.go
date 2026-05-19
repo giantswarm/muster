@@ -39,11 +39,6 @@ const (
 	maxNameLen     = 253
 )
 
-// MusterRouteName is the reserved route identifier used by the baseline
-// /mcp/muster federation entry configured via WithMusterBackend. An MCPServer
-// declared with this name is rejected by Apply when the baseline is active.
-const MusterRouteName = "muster"
-
 // nameSafe restricts route identifiers to the Kubernetes DNS subdomain shape
 // (RFC 1123 labels joined by dots) so callers cannot inject yaml or shell
 // metacharacters via MCPServer names.
@@ -62,35 +57,15 @@ func WithListenerName(name string) Option {
 	return func(a *Applier) { a.listenerName = name }
 }
 
-// WithMusterBackend configures a baseline route at /mcp/muster proxying to
-// muster's own aggregator at host:port + path. Without it, agentgateway
-// federates only external MCPServers and clients must reach muster's
-// aggregator directly for intrinsic tools (workflows, meta-tools,
-// capabilities). When set, an MCPServer named "muster" is rejected by Apply.
-func WithMusterBackend(host string, port uint16, path string) Option {
-	return func(a *Applier) {
-		a.musterBackend = &musterBackend{Host: host, Port: port, Path: path}
-	}
-}
-
-// musterBackend captures the host/port/path of muster's own /mcp aggregator
-// the baseline federation route forwards to.
-type musterBackend struct {
-	Host string
-	Port uint16
-	Path string
-}
-
 // Applier maintains the agentgateway native config as a single combined file
 // at <dir>/agentgateway.yaml. Every Apply replaces the route for that
 // MCPServer, every Delete removes one, and the file is rewritten atomically so
 // agentgateway never observes a half-merged config. The zero value is not
 // usable; construct via NewApplier.
 type Applier struct {
-	root          *os.Root
-	listenerPort  uint16
-	listenerName  string
-	musterBackend *musterBackend
+	root         *os.Root
+	listenerPort uint16
+	listenerName string
 
 	mu     sync.Mutex
 	routes map[string]LocalRoute
@@ -150,9 +125,6 @@ func (a *Applier) Apply(ctx context.Context, config agentgateway.Config) error {
 	if !isSafeName(name) {
 		return fmt.Errorf("yaml applier: name %q is not a safe route identifier", name)
 	}
-	if a.musterBackend != nil && name == MusterRouteName {
-		return fmt.Errorf("yaml applier: route name %q is reserved for the muster federation baseline", name)
-	}
 
 	route, err := buildLocalRoute(name, config)
 	if err != nil {
@@ -202,7 +174,7 @@ func (a *Applier) writeLocked() error {
 }
 
 func (a *Applier) buildConfig() *LocalConfig {
-	if len(a.routes) == 0 && a.musterBackend == nil {
+	if len(a.routes) == 0 {
 		return &LocalConfig{}
 	}
 	names := make([]string, 0, len(a.routes))
@@ -210,10 +182,7 @@ func (a *Applier) buildConfig() *LocalConfig {
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	routes := make([]LocalRoute, 0, len(names)+1)
-	if a.musterBackend != nil {
-		routes = append(routes, a.musterBaselineRoute())
-	}
+	routes := make([]LocalRoute, 0, len(names))
 	for _, name := range names {
 		routes = append(routes, a.routes[name])
 	}
@@ -225,28 +194,6 @@ func (a *Applier) buildConfig() *LocalConfig {
 				Routes: routes,
 			}},
 		}},
-	}
-}
-
-func (a *Applier) musterBaselineRoute() LocalRoute {
-	return LocalRoute{
-		Name: MusterRouteName,
-		Matches: []RouteMatch{
-			{Path: &PathMatch{PathPrefix: routePathRoot + MusterRouteName}},
-		},
-		Backends: []LocalRouteBackend{{
-			MCP: &LocalMcpBackend{Targets: []LocalMcpTarget{{
-				Name: MusterRouteName,
-				MCP: &McpTargetEndpoint{
-					Host: a.musterBackend.Host,
-					Port: a.musterBackend.Port,
-					Path: a.musterBackend.Path,
-				},
-			}}},
-		}},
-		Policies: &FilterOrPolicy{
-			BackendAuth: &BackendAuth{Passthrough: &Passthrough{}},
-		},
 	}
 }
 

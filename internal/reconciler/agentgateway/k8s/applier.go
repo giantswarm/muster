@@ -18,32 +18,6 @@ import (
 // applier's own tests still see the precise wording.
 var ErrStdioNotSupportedInCluster = fmt.Errorf("k8s applier: stdio MCPServers are not supported in cluster mode: %w", agentgateway.ErrUnsupportedTransport)
 
-// MusterBaselineName is the metadata.name of the AgentgatewayBackend, HTTPRoute
-// and AgentgatewayPolicy emitted by EnsureMusterBaseline for muster's own
-// /mcp federation route.
-const MusterBaselineName = "muster"
-
-// ManagedByLabel and ManagedByValue mark resources whose lifetime is owned by
-// the operator deployment (typically via Helm) rather than by an MCPServer.
-const (
-	ManagedByLabel = "app.kubernetes.io/managed-by"
-	ManagedByValue = "muster-operator"
-)
-
-// MusterBackendConfig points the baseline /mcp/muster federation route at
-// muster's own aggregator Service.
-type MusterBackendConfig struct {
-	// ServiceName names muster's Kubernetes Service.
-	ServiceName string
-	// ServiceNamespace is the Service's namespace and also where the baseline
-	// objects (AgentgatewayBackend, HTTPRoute, AgentgatewayPolicy) are created.
-	ServiceNamespace string
-	// ServicePort is the Service port exposing muster's aggregator /mcp.
-	ServicePort int
-	// Path is the URL path muster's aggregator serves /mcp on.
-	Path string
-}
-
 // Config configures an Applier at construction.
 type Config struct {
 	// GatewayName is the metadata.name of the Gateway HTTPRoutes attach to.
@@ -54,11 +28,6 @@ type Config struct {
 	// UpdateConflictRetries caps the number of CreateOrUpdate retries on
 	// conflict per object. Zero selects a sensible default.
 	UpdateConflictRetries int
-	// MusterBackend, when non-nil, makes EnsureMusterBaseline emit a baseline
-	// AgentgatewayBackend + HTTPRoute + AgentgatewayPolicy for muster's own
-	// /mcp endpoint so agentgateway federates intrinsic tools alongside
-	// external MCPServers. Nil disables baseline emission.
-	MusterBackend *MusterBackendConfig
 }
 
 // Applier persists an agentgateway.Config into a Kubernetes cluster.

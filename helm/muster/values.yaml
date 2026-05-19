@@ -202,15 +202,6 @@ affinity: {}
 
 # Muster specific configuration
 muster:
-  # Service identity for the agentgateway federation baseline.
-  # The operator emits an AgentgatewayBackend + HTTPRoute + AgentgatewayPolicy
-  # pointing /mcp/muster at the Service below so agentgateway can federate
-  # muster's intrinsic tools (workflows, meta-tools) alongside external
-  # MCPServers. Leave name empty to default to the chart's fullname.
-  service:
-    name: ""
-    port: 8090
-
   # Aggregator configuration
   aggregator:
     # Port for the MCP aggregator HTTP server
