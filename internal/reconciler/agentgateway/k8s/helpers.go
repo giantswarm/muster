@@ -66,10 +66,9 @@ func mapProtocol(p agentgateway.HTTPProtocol) agw.MCPProtocol {
 }
 
 // policySpec maps a domain Policy to an AgentgatewayPolicySpec. emit=false
-// means the policy should be deleted rather than written: the no-auth /
-// no-forward case carries no information that the upstream needs.
+// means the policy should be deleted rather than written.
 func policySpec(p agentgateway.Policy) (agw.AgentgatewayPolicySpec, bool) {
-	if p.Authn.Type == agentgateway.AuthnTypeNone && !p.Authn.ForwardToken {
+	if !p.Authn.RequiresPolicy() {
 		return agw.AgentgatewayPolicySpec{}, false
 	}
 	httpRouteKind := gwv1.Kind(kindHTTPRoute)

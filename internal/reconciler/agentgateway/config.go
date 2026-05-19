@@ -95,6 +95,13 @@ type Authn struct {
 	AuthorizationServer *AuthorizationServer
 }
 
+// RequiresPolicy reports whether the Authn carries information the gateway
+// must materialise as a policy resource. AuthnTypeNone with ForwardToken
+// false produces no policy.
+func (a Authn) RequiresPolicy() bool {
+	return a.Type != AuthnTypeNone || a.ForwardToken
+}
+
 // TokenExchange configures RFC 8693 token exchange against an upstream IdP.
 type TokenExchange struct {
 	Enabled                          bool
