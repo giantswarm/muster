@@ -30,6 +30,17 @@ spec:
   # Optional: Tool name prefix (applies to all types)
   toolPrefix: "<prefix>"
 
+  # Optional: Family grouping. When set, the aggregator exposes tools as
+  # x_<family.name>_<toolName> with a required parameter (named by
+  # family.instanceArg) selecting which instance handles the call. Multiple
+  # MCPServer CRs sharing the same family.name (for example, several kubernetes
+  # MCP servers pointed at different clusters) appear to clients as a single
+  # deduplicated tool surface. Both name and instanceArg are required when
+  # family is set.
+  family:
+    name: "<family-name>"
+    instanceArg: "<parameter-name>"  # e.g. management_cluster, country, model
+
   # Optional: Human-readable description
   description: "<description>"
 
@@ -80,7 +91,10 @@ status:
 | Field | Type | Required | Description | Constraints |
 |-------|------|----------|-------------|-------------|
 | `type` | `string` | Yes | Execution method for the MCP server | Must be `stdio`, `streamable-http`, or `sse` |
-| `toolPrefix` | `string` | No | Prefix for all tool names from this server | Pattern: `^[a-zA-Z][a-zA-Z0-9_-]*$` |
+| `toolPrefix` | `string` | No | Per-server tool prefix used when `family` is unset | Pattern: `^[a-zA-Z][a-zA-Z0-9_-]*$` |
+| `family` | `object` | No | Family grouping for equivalent servers under a shared tool surface | `name` and `instanceArg` both required when set |
+| `family.name` | `string` | Yes (in `family`) | Family identifier | Pattern: `^[a-zA-Z][a-zA-Z0-9_-]*$` |
+| `family.instanceArg` | `string` | Yes (in `family`) | Name of the required parameter the LLM uses to select an instance (e.g. `management_cluster`, `country`, `model`) | Pattern: `^[a-zA-Z][a-zA-Z0-9_]*$` |
 | `description` | `string` | No | Human-readable description | Max 500 characters |
 | `autoStart` | `boolean` | No | Auto-start when system initializes | Default: `false`, only for stdio servers |
 | `command` | `string` | Yes* | Executable path for stdio servers | Required when `type` is `stdio` |
@@ -95,11 +109,10 @@ status:
 
 | Field | Type | Required | Description | Constraints |
 |-------|------|----------|-------------|-------------|
-| `type` | `string` | No | Authentication type | Must be `oauth`, `teleport`, or `none` |
+| `type` | `string` | No | Authentication type | Must be `oauth` or `none` |
 | `forwardToken` | `boolean` | No | Forward muster's ID token for SSO | Default: `false` |
 | `requiredAudiences` | `[]string` | No | Additional audiences to request from IdP for SSO | Used with `forwardToken` or `tokenExchange` |
 | `tokenExchange` | `TokenExchangeConfig` | No | RFC 8693 token exchange for cross-cluster SSO | See below |
-| `teleport` | `TeleportAuth` | No | Teleport authentication settings (when `type: teleport`) | See below |
 
 **Note on `requiredAudiences`**: When using SSO (token forwarding or token exchange) with downstream servers that require specific audience claims (e.g., Kubernetes OIDC authentication), specify the required audiences here.
 
@@ -109,17 +122,6 @@ status:
 Example: `requiredAudiences: ["dex-k8s-authenticator"]`.
 
 **Security**: Access control for `requiredAudiences` relies on two layers: (1) Kubernetes RBAC controls who can create/modify MCPServer CRDs, and (2) the IdP's cross-client configuration determines which audiences are allowed. Audience values must not contain whitespace characters and are validated before use.
-
-#### TeleportAuth Fields
-
-| Field | Type | Required | Description | Constraints |
-|-------|------|----------|-------------|-------------|
-| `identityDir` | `string` | No* | Filesystem path to tbot identity directory | Mutually exclusive with `identitySecretName` |
-| `identitySecretName` | `string` | No* | Name of Kubernetes Secret with tbot identity | Mutually exclusive with `identityDir` |
-| `identitySecretNamespace` | `string` | No | Namespace of identity secret | Default: same as MCPServer |
-| `appName` | `string` | No | Teleport application name for routing | Used in Host header |
-
-*Note: Either `identityDir` or `identitySecretName` must be specified
 
 #### TokenExchangeConfig Fields
 
@@ -441,7 +443,7 @@ staticClients:
     # No redirect URIs needed for token exchange
 ```
 
-#### Cross-Cluster SSO via Proxy (OAuth Token Forwarding)
+#### Cross-Cluster SSO via Proxy (OAuth Token Exchange)
 ```yaml
 apiVersion: muster.giantswarm.io/v1alpha1
 kind: MCPServer
@@ -451,8 +453,8 @@ metadata:
 spec:
   type: streamable-http
   toolPrefix: "private_k8s"
-  description: "Kubernetes tools on private cluster accessed via Teleport"
-  url: "https://mcp-kubernetes.private-cluster.teleport.example.com/mcp"
+  description: "Kubernetes tools on a private cluster accessed via a proxy"
+  url: "https://mcp-kubernetes.private-cluster.proxy.example.com/mcp"
   timeout: 60
   auth:
     type: oauth
@@ -472,99 +474,6 @@ When accessing Dex through a proxy (e.g., VPN, HTTP proxy):
 This is necessary because Dex's tokens contain the configured issuer URL in the `iss` claim, not the proxy URL used to access it. Muster validates that the exchanged token's issuer matches `expectedIssuer` for security.
 
 > **Warning**: When accessing Dex through a proxy, you **MUST** set `expectedIssuer` explicitly. If omitted, muster derives the expected issuer from `dexTokenEndpoint` (the proxy URL), which will cause token validation to fail because the token's `iss` claim contains the actual Dex issuer URL, not the proxy URL. This validation failure is intentional - it ensures you explicitly configure the expected issuer for proxied scenarios.
-
-#### Teleport Application Access with Token Exchange (Private Installations)
-```yaml
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: MCPServer
-metadata:
-  name: private-cluster-mcp
-  namespace: default
-spec:
-  type: streamable-http
-  toolPrefix: "private"
-  description: "MCP server on private cluster via Teleport with cross-cluster SSO"
-  # MCP server URL is accessed via Teleport
-  url: "https://mcp-kubernetes.private-cluster.teleport.example.com/mcp"
-  timeout: 60
-  auth:
-    # Teleport provides the network access layer (mutual TLS)
-    type: teleport
-    teleport:
-      # Kubernetes Secret containing tbot identity files
-      identitySecretName: tbot-private-cluster
-      identitySecretNamespace: muster-system
-      # Teleport application name for routing
-      appName: mcp-kubernetes-private
-    # Token exchange provides user identity (cross-cluster SSO)
-    tokenExchange:
-      enabled: true
-      # Token endpoint accessed via Teleport
-      dexTokenEndpoint: "https://dex.private-cluster.teleport.example.com/token"
-      # Expected issuer is the actual Dex issuer URL
-      expectedIssuer: "https://dex.private-cluster.internal.example.com"
-      connectorId: "management-cluster-dex"
-      scopes: "openid profile email groups"
-```
-
-This configuration combines:
-
-1. **Teleport Authentication (`auth.type: teleport`)**: Provides encrypted network access to private installations
-   - Uses Machine ID certificates for mutual TLS authentication
-   - Supports both filesystem identity directories and Kubernetes Secrets
-   - Routes requests through Teleport Application Access
-
-2. **Token Exchange (`auth.tokenExchange`)**: Provides user identity via RFC 8693
-   - Exchanges local user token for one valid on remote cluster's Dex
-   - Preserves user identity for RBAC on the remote cluster
-   - Token exchange request uses the Teleport HTTP client
-
-The complete flow:
-```
-User authenticates to muster (local Dex)
-    ↓
-Muster loads Teleport identity certificates
-    ↓
-Token exchange request via Teleport → Remote Dex
-    ↓
-Remote Dex validates token via OIDC connector
-    ↓
-Remote Dex issues new token with user identity
-    ↓
-MCP server call via Teleport with exchanged token
-    ↓
-Remote MCP server authenticates user for RBAC
-```
-
-**Prerequisites for Teleport + Token Exchange:**
-
-1. **tbot (Teleport Machine ID)** configured to output identity files:
-   ```yaml
-   # Kubernetes Secret created by tbot
-   apiVersion: v1
-   kind: Secret
-   metadata:
-     name: tbot-private-cluster
-     namespace: muster-system
-   data:
-     tlscert: <base64-encoded-client-cert>
-     key: <base64-encoded-private-key>
-     teleport-application-ca.pem: <base64-encoded-ca-cert>
-   ```
-
-2. **Remote Dex** configured with OIDC connector for local cluster:
-   ```yaml
-   connectors:
-     - type: oidc
-       id: management-cluster-dex
-       name: "Management Cluster"
-       config:
-         issuer: https://dex.management-cluster.example.com
-         getUserInfo: true
-         insecureEnableGroups: true
-   ```
-
-3. **Teleport Application Access** configured for both Dex and MCP server
 
 #### Troubleshooting Token Exchange
 

@@ -16,12 +16,11 @@ import (
 func TestListServersRequiringAuth(t *testing.T) {
 	t.Run("returns non-SSO auth-required servers", func(t *testing.T) {
 		reg := NewServerRegistry("x")
-		err := reg.RegisterPendingAuth(
-			"plain-oauth",
-			"https://plain.example.com",
-			"plain",
-			&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
-		)
+		err := reg.RegisterPendingAuth(PendingAuthRegistration{
+			ServerRegistration: ServerRegistration{Name: "plain-oauth", ToolPrefix: "plain"},
+			URL:                "https://plain.example.com",
+			AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
+		})
 		require.NoError(t, err)
 
 		agg := &AggregatorServer{registry: reg}
@@ -35,13 +34,12 @@ func TestListServersRequiringAuth(t *testing.T) {
 
 	t.Run("skips token-forwarding SSO server", func(t *testing.T) {
 		reg := NewServerRegistry("x")
-		err := reg.RegisterPendingAuthWithConfig(
-			"sso-fwd",
-			"https://sso-fwd.example.com",
-			"ssofwd",
-			&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
-			&api.MCPServerAuth{ForwardToken: true},
-		)
+		err := reg.RegisterPendingAuth(PendingAuthRegistration{
+			ServerRegistration: ServerRegistration{Name: "sso-fwd", ToolPrefix: "ssofwd"},
+			URL:                "https://sso-fwd.example.com",
+			AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
+			AuthConfig:         &api.MCPServerAuth{ForwardToken: true},
+		})
 		require.NoError(t, err)
 
 		agg := &AggregatorServer{registry: reg}
@@ -52,19 +50,18 @@ func TestListServersRequiringAuth(t *testing.T) {
 
 	t.Run("skips token-exchange SSO server", func(t *testing.T) {
 		reg := NewServerRegistry("x")
-		err := reg.RegisterPendingAuthWithConfig(
-			"sso-exchange",
-			"https://sso-exchange.example.com",
-			"ssoex",
-			&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
-			&api.MCPServerAuth{
-				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+		err := reg.RegisterPendingAuth(PendingAuthRegistration{
+			ServerRegistration: ServerRegistration{Name: "sso-exchange", ToolPrefix: "ssoex"},
+			URL:                "https://sso-exchange.example.com",
+			AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
+			AuthConfig: &api.MCPServerAuth{
+				TokenExchange: &api.TokenExchangeConfig{
 					Enabled:          true,
 					DexTokenEndpoint: "https://dex.remote.example.com/token",
 					ConnectorID:      "local-oidc",
 				},
 			},
-		)
+		})
 		require.NoError(t, err)
 
 		agg := &AggregatorServer{registry: reg}
@@ -75,13 +72,12 @@ func TestListServersRequiringAuth(t *testing.T) {
 
 	t.Run("skips SSO server from auth required list", func(t *testing.T) {
 		reg := NewServerRegistry("x")
-		err := reg.RegisterPendingAuthWithConfig(
-			"sso-pending",
-			"https://sso-pending.example.com",
-			"ssopending",
-			&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
-			&api.MCPServerAuth{ForwardToken: true},
-		)
+		err := reg.RegisterPendingAuth(PendingAuthRegistration{
+			ServerRegistration: ServerRegistration{Name: "sso-pending", ToolPrefix: "ssopending"},
+			URL:                "https://sso-pending.example.com",
+			AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
+			AuthConfig:         &api.MCPServerAuth{ForwardToken: true},
+		})
 		require.NoError(t, err)
 
 		agg := &AggregatorServer{registry: reg, ssoTracker: newSSOTracker()}
@@ -92,13 +88,12 @@ func TestListServersRequiringAuth(t *testing.T) {
 
 	t.Run("always skips SSO server regardless of failure state", func(t *testing.T) {
 		reg := NewServerRegistry("x")
-		err := reg.RegisterPendingAuthWithConfig(
-			"sso-failed",
-			"https://sso-failed.example.com",
-			"ssofailed",
-			&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
-			&api.MCPServerAuth{ForwardToken: true},
-		)
+		err := reg.RegisterPendingAuth(PendingAuthRegistration{
+			ServerRegistration: ServerRegistration{Name: "sso-failed", ToolPrefix: "ssofailed"},
+			URL:                "https://sso-failed.example.com",
+			AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
+			AuthConfig:         &api.MCPServerAuth{ForwardToken: true},
+		})
 		require.NoError(t, err)
 
 		tracker := newSSOTracker()
@@ -117,7 +112,7 @@ func TestListServersRequiringAuth(t *testing.T) {
 		}
 
 		ctx := context.Background()
-		err := reg.Register(ctx, "connected-server", client, "conn")
+		err := reg.Register(ctx, ServerRegistration{Name: "connected-server", ToolPrefix: "conn"}, client)
 		require.NoError(t, err)
 
 		agg := &AggregatorServer{registry: reg}
@@ -128,12 +123,11 @@ func TestListServersRequiringAuth(t *testing.T) {
 
 	t.Run("skips servers already authenticated", func(t *testing.T) {
 		reg := NewServerRegistry("x")
-		err := reg.RegisterPendingAuth(
-			"cached-server",
-			"https://cached.example.com",
-			"cached",
-			&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
-		)
+		err := reg.RegisterPendingAuth(PendingAuthRegistration{
+			ServerRegistration: ServerRegistration{Name: "cached-server", ToolPrefix: "cached"},
+			URL:                "https://cached.example.com",
+			AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
+		})
 		require.NoError(t, err)
 
 		authStore := NewInMemorySessionAuthStore(30 * time.Minute)
@@ -153,41 +147,37 @@ func TestListServersRequiringAuth(t *testing.T) {
 	t.Run("mixed SSO and non-SSO servers", func(t *testing.T) {
 		reg := NewServerRegistry("x")
 
-		require.NoError(t, reg.RegisterPendingAuth(
-			"manual-oauth-1",
-			"https://manual1.example.com",
-			"m1",
-			&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
-		))
+		require.NoError(t, reg.RegisterPendingAuth(PendingAuthRegistration{
+			ServerRegistration: ServerRegistration{Name: "manual-oauth-1", ToolPrefix: "m1"},
+			URL:                "https://manual1.example.com",
+			AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
+		}))
 
-		require.NoError(t, reg.RegisterPendingAuthWithConfig(
-			"sso-fwd-server",
-			"https://sso-fwd.example.com",
-			"ssofwd",
-			&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
-			&api.MCPServerAuth{ForwardToken: true},
-		))
+		require.NoError(t, reg.RegisterPendingAuth(PendingAuthRegistration{
+			ServerRegistration: ServerRegistration{Name: "sso-fwd-server", ToolPrefix: "ssofwd"},
+			URL:                "https://sso-fwd.example.com",
+			AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
+			AuthConfig:         &api.MCPServerAuth{ForwardToken: true},
+		}))
 
-		require.NoError(t, reg.RegisterPendingAuthWithConfig(
-			"sso-exchange-server",
-			"https://sso-ex.example.com",
-			"ssoex",
-			&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
-			&api.MCPServerAuth{
-				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+		require.NoError(t, reg.RegisterPendingAuth(PendingAuthRegistration{
+			ServerRegistration: ServerRegistration{Name: "sso-exchange-server", ToolPrefix: "ssoex"},
+			URL:                "https://sso-ex.example.com",
+			AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
+			AuthConfig: &api.MCPServerAuth{
+				TokenExchange: &api.TokenExchangeConfig{
 					Enabled:          true,
 					DexTokenEndpoint: "https://dex.remote.example.com/token",
 					ConnectorID:      "local-oidc",
 				},
 			},
-		))
+		}))
 
-		require.NoError(t, reg.RegisterPendingAuth(
-			"manual-oauth-2",
-			"https://manual2.example.com",
-			"m2",
-			&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
-		))
+		require.NoError(t, reg.RegisterPendingAuth(PendingAuthRegistration{
+			ServerRegistration: ServerRegistration{Name: "manual-oauth-2", ToolPrefix: "m2"},
+			URL:                "https://manual2.example.com",
+			AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
+		}))
 
 		agg := &AggregatorServer{registry: reg}
 
@@ -213,19 +203,18 @@ func TestListServersRequiringAuth(t *testing.T) {
 
 	t.Run("incomplete token exchange config treated as non-SSO", func(t *testing.T) {
 		reg := NewServerRegistry("x")
-		err := reg.RegisterPendingAuthWithConfig(
-			"partial-exchange",
-			"https://partial.example.com",
-			"partial",
-			&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
-			&api.MCPServerAuth{
+		err := reg.RegisterPendingAuth(PendingAuthRegistration{
+			ServerRegistration: ServerRegistration{Name: "partial-exchange", ToolPrefix: "partial"},
+			URL:                "https://partial.example.com",
+			AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
+			AuthConfig: &api.MCPServerAuth{
 				TokenExchange: &api.TokenExchangeConfig{
 					Enabled:          true,
 					DexTokenEndpoint: "",
 					ConnectorID:      "",
 				},
 			},
-		)
+		})
 		require.NoError(t, err)
 
 		agg := &AggregatorServer{registry: reg}
@@ -238,19 +227,18 @@ func TestListServersRequiringAuth(t *testing.T) {
 
 	t.Run("disabled token exchange treated as non-SSO", func(t *testing.T) {
 		reg := NewServerRegistry("x")
-		err := reg.RegisterPendingAuthWithConfig(
-			"disabled-exchange",
-			"https://disabled.example.com",
-			"disabled",
-			&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
-			&api.MCPServerAuth{
-				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+		err := reg.RegisterPendingAuth(PendingAuthRegistration{
+			ServerRegistration: ServerRegistration{Name: "disabled-exchange", ToolPrefix: "disabled"},
+			URL:                "https://disabled.example.com",
+			AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
+			AuthConfig: &api.MCPServerAuth{
+				TokenExchange: &api.TokenExchangeConfig{
 					Enabled:          false,
 					DexTokenEndpoint: "https://dex.remote.example.com/token",
 					ConnectorID:      "local-oidc",
 				},
 			},
-		)
+		})
 		require.NoError(t, err)
 
 		agg := &AggregatorServer{registry: reg}

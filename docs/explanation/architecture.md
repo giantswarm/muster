@@ -31,7 +31,6 @@ graph TB
             subgraph "External MCP Servers"
                 K8s[Kubernetes MCP]
                 Prometheus[Monitoring MCP]
-                Teleport[Authentication MCP]
                 Grafana[Visualization MCP]
                 Flux[GitOps MCP]
                 Custom[Custom MCPs...]
@@ -50,7 +49,6 @@ graph TB
 
     Aggregator <--> K8s
     Aggregator <--> Prometheus
-    Aggregator <--> Teleport
     Aggregator <--> Grafana
     Aggregator <--> Flux
     Aggregator <--> Custom
@@ -79,7 +77,7 @@ The aggregator server provides the **meta-tools interface** as the primary way t
 **Actual Tools (Accessed via `call_tool`):**
 - **36 Core Tools**: `core_service_list`, `core_workflow_create`, `core_config_get`, etc.
 - **Dynamic Workflow Tools**: `workflow_connect-monitoring`, `workflow_auth-workflow`, etc.
-- **External MCP Tools**: `x_kubernetes_*`, `x_teleport_*`, etc. (from configured MCP servers)
+- **External MCP Tools**: `x_kubernetes_*`, `x_prometheus_*`, etc. (from configured MCP servers)
 
 **Purpose**:
 - Exposes meta-tools as the only MCP interface
@@ -234,7 +232,7 @@ sequenceDiagram
 
     Client->>Server: call_tool("workflow_connect-monitoring", {...})
     Server->>WF: Execute workflow
-    WF->>Ext: call x_teleport_kube_login
+    WF->>Ext: call x_kubernetes_login
     WF->>Server: Workflow result
     Server->>Client: Wrapped result as JSON
 ```
@@ -247,7 +245,7 @@ Tools are backed by persistent configuration in `.muster/`:
 ├── config.yaml              # Core configuration (aggregator settings)
 ├── mcpservers/              # External MCP server definitions (8 servers)
 │   ├── kubernetes.yaml      # → Provides x_kubernetes_* tools
-│   ├── teleport.yaml        # → Provides x_teleport_* tools
+│   ├── prometheus.yaml      # → Provides x_prometheus_* tools
 │   └── ...
 ├── workflows/               # Workflow definitions (8 workflows)
 │   ├── connect-monitoring.yaml  # → Creates workflow_connect-monitoring

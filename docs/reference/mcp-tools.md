@@ -992,7 +992,7 @@ This generates a `workflow_deploy-webapp` tool that you execute via:
 
 ## External Tools
 
-External MCP tools come from your configured MCP servers (Kubernetes, Prometheus, Teleport, etc.). These are accessed the same way as core tools - via `call_tool`.
+External MCP tools come from your configured MCP servers (Kubernetes, Prometheus, Grafana, etc.). These are accessed the same way as core tools - via `call_tool`.
 
 ### Naming Convention
 
@@ -1002,7 +1002,7 @@ External tools follow the pattern: `x_<mcpserver-name>_<tool-name>`
 |------------|------|-----------|
 | `kubernetes` | `get_pods` | `x_kubernetes_get_pods` |
 | `prometheus` | `query` | `x_prometheus_query` |
-| `teleport` | `kube_login` | `x_teleport_kube_login` |
+| `grafana` | `list_dashboards` | `x_grafana_list_dashboards` |
 
 ### Example: Kubernetes Tool
 

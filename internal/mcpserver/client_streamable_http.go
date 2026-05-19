@@ -3,13 +3,15 @@ package mcpserver
 import (
 	"context"
 	"fmt"
-	"net/http"
 
 	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/pkg/observability"
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
+	mcpotel "github.com/mark3labs/mcp-go/otel"
+	"go.opentelemetry.io/otel"
 )
 
 // StreamableHTTPClient implements the MCPClient interface using StreamableHTTP transport.
@@ -19,7 +21,6 @@ type StreamableHTTPClient struct {
 	url        string
 	headers    map[string]string
 	headerFunc transport.HTTPHeaderFunc // Dynamic header function called on each request
-	httpClient *http.Client             // Custom HTTP client (e.g., for Teleport TLS)
 }
 
 // NewStreamableHTTPClientWithHeaders creates a new StreamableHTTP-based MCP client with custom headers
@@ -44,30 +45,6 @@ func NewStreamableHTTPClientWithHeaderFunc(url string, headerFunc transport.HTTP
 	}
 }
 
-// NewStreamableHTTPClientWithHeaderFuncAndHTTPClient creates a new StreamableHTTP-based MCP client
-// with both a dynamic header function and a custom HTTP client (e.g., for Teleport TLS).
-func NewStreamableHTTPClientWithHeaderFuncAndHTTPClient(url string, headerFunc transport.HTTPHeaderFunc, httpClient *http.Client) *StreamableHTTPClient {
-	return &StreamableHTTPClient{
-		url:        url,
-		headers:    make(map[string]string),
-		headerFunc: headerFunc,
-		httpClient: httpClient,
-	}
-}
-
-// NewStreamableHTTPClientWithHTTPClient creates a new StreamableHTTP-based MCP client with a custom HTTP client.
-// This is useful for Teleport authentication where the HTTP client needs custom TLS certificates.
-func NewStreamableHTTPClientWithHTTPClient(url string, headers map[string]string, httpClient *http.Client) *StreamableHTTPClient {
-	if headers == nil {
-		headers = make(map[string]string)
-	}
-	return &StreamableHTTPClient{
-		url:        url,
-		headers:    headers,
-		httpClient: httpClient,
-	}
-}
-
 // Initialize establishes the connection and performs protocol handshake
 func (c *StreamableHTTPClient) Initialize(ctx context.Context) error {
 	c.mu.Lock()
@@ -89,12 +66,6 @@ func (c *StreamableHTTPClient) Initialize(ctx context.Context) error {
 		logging.Debug("StreamableHTTPClient", "Configured %d custom headers", len(c.headers))
 	}
 
-	// If a custom HTTP client is provided (e.g., for Teleport TLS), use it
-	if c.httpClient != nil {
-		opts = append(opts, transport.WithHTTPBasicClient(c.httpClient))
-		logging.Debug("StreamableHTTPClient", "Using custom HTTP client (e.g., Teleport TLS)")
-	}
-
 	// Enable receiving server-pushed notifications outside active requests.
 	// This opens a long-lived GET connection to the server per the MCP spec.
 	opts = append(opts, transport.WithContinuousListening())
@@ -103,6 +74,7 @@ func (c *StreamableHTTPClient) Initialize(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create StreamableHTTP client: %w", err)
 	}
+	mcpotel.WithClientTracing(otel.Tracer(observability.TracerName))(mcpClient)
 
 	// Start with a background context so the continuous GET listener goroutine
 	// survives after the caller's initialization context (which may be short-lived) completes.

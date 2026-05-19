@@ -15,10 +15,15 @@ import (
 
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
+	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/testing/mock"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )
+
+// defaultTestUser is the user identifier for the implicit "default" user
+// session in multi-user BDD test scenarios.
+const defaultTestUser = "default"
 
 // Test tool name constants for BDD test scenarios.
 const (
@@ -80,7 +85,7 @@ func NewTestToolsHandler(instanceManager MusterInstanceManager, instance *Muster
 		instanceManager: manager,
 		currentInstance: instance,
 		userClients:     make(map[string]MCPTestClient),
-		currentUser:     "default",
+		currentUser:     defaultTestUser,
 		debug:           debug,
 		logger:          logger,
 	}
@@ -94,13 +99,13 @@ func (h *TestToolsHandler) SetMCPClient(client MCPTestClient) {
 	if h.userClients == nil {
 		h.userClients = make(map[string]MCPTestClient)
 	}
-	h.userClients["default"] = client
-	h.currentUser = "default" //nolint:goconst
+	h.userClients[defaultTestUser] = client
+	h.currentUser = defaultTestUser
 }
 
 // GetCurrentClient returns the MCP client for the currently active user.
 func (h *TestToolsHandler) GetCurrentClient() MCPTestClient {
-	if h.currentUser != "" && h.currentUser != "default" {
+	if h.currentUser != "" && h.currentUser != defaultTestUser {
 		if client, exists := h.userClients[h.currentUser]; exists {
 			return client
 		}
@@ -111,7 +116,7 @@ func (h *TestToolsHandler) GetCurrentClient() MCPTestClient {
 // GetCurrentUserName returns the name of the currently active user.
 func (h *TestToolsHandler) GetCurrentUserName() string {
 	if h.currentUser == "" {
-		return "default"
+		return defaultTestUser
 	}
 	return h.currentUser
 }
@@ -120,7 +125,7 @@ func (h *TestToolsHandler) GetCurrentUserName() string {
 // The default client is managed by the test runner.
 func (h *TestToolsHandler) CloseAllUserClients() {
 	for name, client := range h.userClients {
-		if name != "default" && client != nil {
+		if name != defaultTestUser && client != nil {
 			if h.debug {
 				h.logger.Debug("🔌 Closing MCP client for user %s\n", name)
 			}
@@ -373,10 +378,10 @@ func (h *TestToolsHandler) handleSimulateOAuthCallback(ctx context.Context, args
 		// that masked aggregator bugs and didn't match real user behavior.
 
 		return map[string]interface{}{
-			"success":     true,
-			"message":     "OAuth callback completed successfully - token stored",
-			"server":      serverName,
-			"status_code": resp.StatusCode,
+			api.FieldSuccess: true,
+			api.FieldMessage: "OAuth callback completed successfully - token stored",
+			api.FieldServer:  serverName,
+			"status_code":    resp.StatusCode,
 		}, nil
 	}
 
@@ -397,7 +402,7 @@ func (h *TestToolsHandler) callAuthenticateTool(ctx context.Context, serverName 
 	}
 
 	result, err := h.mcpClient.CallTool(ctx, authToolName, map[string]interface{}{
-		"server": serverName,
+		api.FieldServer: serverName,
 	})
 	if err != nil {
 		return "", fmt.Errorf("authenticate tool call failed: %w", err)
@@ -492,13 +497,13 @@ func (h *TestToolsHandler) fallbackDirectTokenInjection(ctx context.Context, ser
 	// The aggregator will get a 401, create an auth challenge, and we'd need to complete the flow
 
 	return map[string]interface{}{
-		"success":      true,
-		"message":      "OAuth callback simulated via direct token exchange (fallback mode)",
-		"server":       serverName,
-		"access_token": tokenResp.AccessToken,
-		"token_type":   tokenResp.TokenType,
-		"expires_in":   tokenResp.ExpiresIn,
-		"note":         "Token is valid in mock OAuth server but may not be in muster's token store",
+		api.FieldSuccess: true,
+		api.FieldMessage: "OAuth callback simulated via direct token exchange (fallback mode)",
+		api.FieldServer:  serverName,
+		"access_token":   tokenResp.AccessToken,
+		"token_type":     tokenResp.TokenType,
+		"expires_in":     tokenResp.ExpiresIn,
+		"note":           "Token is valid in mock OAuth server but may not be in muster's token store",
 	}, nil
 }
 
@@ -559,9 +564,9 @@ func (h *TestToolsHandler) handleInjectToken(ctx context.Context, args map[strin
 	}
 
 	return map[string]interface{}{
-		"success": true,
-		"message": fmt.Sprintf("Token injected successfully for server %s", serverName),
-		"server":  serverName,
+		api.FieldSuccess: true,
+		api.FieldMessage: fmt.Sprintf("Token injected successfully for server %s", serverName),
+		api.FieldServer:  serverName,
 	}, nil
 }
 
@@ -577,9 +582,9 @@ func (h *TestToolsHandler) handleGetOAuthServerInfo(ctx context.Context, args ma
 		servers := make(map[string]interface{})
 		for name, info := range h.currentInstance.MockOAuthServers {
 			servers[name] = map[string]interface{}{
-				"name":       info.Name,
-				"port":       info.Port,
-				"issuer_url": info.IssuerURL,
+				api.FieldName: info.Name,
+				"port":        info.Port,
+				"issuer_url":  info.IssuerURL,
 			}
 		}
 
@@ -595,9 +600,9 @@ func (h *TestToolsHandler) handleGetOAuthServerInfo(ctx context.Context, args ma
 	}
 
 	return map[string]interface{}{
-		"name":       info.Name,
-		"port":       info.Port,
-		"issuer_url": info.IssuerURL,
+		api.FieldName: info.Name,
+		"port":        info.Port,
+		"issuer_url":  info.IssuerURL,
 	}, nil
 }
 
@@ -659,8 +664,8 @@ func (h *TestToolsHandler) handleAdvanceOAuthClock(ctx context.Context, args map
 	}
 
 	return map[string]interface{}{
-		"success":          true,
-		"message":          fmt.Sprintf("Advanced OAuth clock by %s", duration),
+		api.FieldSuccess:   true,
+		api.FieldMessage:   fmt.Sprintf("Advanced OAuth clock by %s", duration),
 		"advanced_by":      d.String(),
 		"servers_advanced": advancedServers,
 	}, nil
@@ -716,8 +721,8 @@ func (h *TestToolsHandler) handleRevokeToken(ctx context.Context, args map[strin
 	}
 
 	return map[string]interface{}{
-		"success":         true,
-		"message":         fmt.Sprintf("Revoked %d tokens on %d OAuth server(s)", totalRevoked, len(revokedServers)),
+		api.FieldSuccess:  true,
+		api.FieldMessage:  fmt.Sprintf("Revoked %d tokens on %d OAuth server(s)", totalRevoked, len(revokedServers)),
 		"tokens_revoked":  totalRevoked,
 		"servers_updated": revokedServers,
 	}, nil
@@ -927,11 +932,11 @@ func (h *TestToolsHandler) handleCreateUser(ctx context.Context, args map[string
 	}
 
 	return map[string]interface{}{
-		"success":      true,
-		"message":      fmt.Sprintf("Created user session '%s'", userName),
-		"user":         userName,
-		"total_users":  len(h.userClients),
-		"current_user": h.currentUser,
+		api.FieldSuccess: true,
+		api.FieldMessage: fmt.Sprintf("Created user session '%s'", userName),
+		"user":           userName,
+		"total_users":    len(h.userClients),
+		"current_user":   h.currentUser,
 	}, nil
 }
 
@@ -966,10 +971,10 @@ func (h *TestToolsHandler) handleSwitchUser(ctx context.Context, args map[string
 	}
 
 	return map[string]interface{}{
-		"success":       true,
-		"message":       fmt.Sprintf("Switched to user '%s'", userName),
-		"current_user":  userName,
-		"previous_user": previousUser,
+		api.FieldSuccess: true,
+		api.FieldMessage: fmt.Sprintf("Switched to user '%s'", userName),
+		"current_user":   userName,
+		"previous_user":  previousUser,
 	}, nil
 }
 
@@ -1014,10 +1019,10 @@ func (h *TestToolsHandler) handleListToolsForUser(ctx context.Context, args map[
 	}
 
 	return map[string]interface{}{
-		"success":    true,
-		"user":       userName,
-		"tool_count": len(toolNames),
-		"tools":      toolNames,
+		api.FieldSuccess: true,
+		"user":           userName,
+		"tool_count":     len(toolNames),
+		api.FieldTools:   toolNames,
 	}, nil
 }
 
@@ -1061,7 +1066,7 @@ func (h *TestToolsHandler) handleGetCurrentUser(ctx context.Context, args map[st
 	}
 
 	return map[string]interface{}{
-		"success":         true,
+		api.FieldSuccess:  true,
 		"current_user":    h.currentUser,
 		"available_users": available,
 		"total_users":     len(h.userClients),
@@ -1130,8 +1135,8 @@ func (h *TestToolsHandler) handleSimulateMusterReauth(ctx context.Context, args 
 	}
 
 	return map[string]interface{}{
-		"success": true,
-		"message": "Successfully re-authenticated to muster with new token",
+		api.FieldSuccess: true,
+		api.FieldMessage: "Successfully re-authenticated to muster with new token",
 	}, nil
 }
 
@@ -1435,10 +1440,10 @@ func (h *TestToolsHandler) handleMusterAuthLogin(ctx context.Context, args map[s
 			h.logger.Debug("🔐 No muster auth code in redirect, falling back to ID token store only\n")
 		}
 		return map[string]interface{}{
-			"success":      true,
-			"message":      "Muster auth login completed - ID token stored for SSO forwarding",
-			"oauth_server": musterOAuthServerName,
-			"issuer_url":   musterOAuthServerInfo.IssuerURL,
+			api.FieldSuccess: true,
+			api.FieldMessage: "Muster auth login completed - ID token stored for SSO forwarding",
+			"oauth_server":   musterOAuthServerName,
+			"issuer_url":     musterOAuthServerInfo.IssuerURL,
 		}, nil
 	}
 
@@ -1473,10 +1478,10 @@ func (h *TestToolsHandler) handleMusterAuthLogin(ctx context.Context, args map[s
 	}
 
 	return map[string]interface{}{
-		"success":      true,
-		"message":      "Muster auth login completed - ID token stored for SSO forwarding",
-		"oauth_server": musterOAuthServerName,
-		"issuer_url":   musterOAuthServerInfo.IssuerURL,
+		api.FieldSuccess: true,
+		api.FieldMessage: "Muster auth login completed - ID token stored for SSO forwarding",
+		"oauth_server":   musterOAuthServerName,
+		"issuer_url":     musterOAuthServerInfo.IssuerURL,
 	}, nil
 }
 
@@ -1560,7 +1565,7 @@ func (h *TestToolsHandler) handleAddMockTool(ctx context.Context, args map[strin
 		Name:        toolName,
 		Description: description,
 		Responses: []mock.ToolResponse{
-			{Response: map[string]interface{}{"status": "ok", "tool": toolName}},
+			{Response: map[string]interface{}{api.FieldStatus: "ok", "tool": toolName}},
 		},
 	}
 
@@ -1585,10 +1590,10 @@ func (h *TestToolsHandler) handleAddMockTool(ctx context.Context, args map[strin
 	}
 
 	return map[string]interface{}{
-		"success": true,
-		"message": fmt.Sprintf("Added tool '%s' to mock server '%s'", toolName, serverName),
-		"server":  serverName,
-		"tool":    toolName,
+		api.FieldSuccess: true,
+		api.FieldMessage: fmt.Sprintf("Added tool '%s' to mock server '%s'", toolName, serverName),
+		api.FieldServer:  serverName,
+		"tool":           toolName,
 	}, nil
 }
 
@@ -1636,9 +1641,9 @@ func (h *TestToolsHandler) handleRemoveMockTool(ctx context.Context, args map[st
 	}
 
 	return map[string]interface{}{
-		"success": true,
-		"message": fmt.Sprintf("Removed tool '%s' from mock server '%s'", toolName, serverName),
-		"server":  serverName,
-		"tool":    toolName,
+		api.FieldSuccess: true,
+		api.FieldMessage: fmt.Sprintf("Removed tool '%s' from mock server '%s'", toolName, serverName),
+		api.FieldServer:  serverName,
+		"tool":           toolName,
 	}, nil
 }

@@ -67,7 +67,6 @@ Workflows orchestrate services:
 
 ### **MCP Server Coordination**
 Workflows can coordinate multiple external MCP servers:
-- Authentication flows (Teleport)
 - Infrastructure management (Kubernetes)
 - Monitoring setup (Prometheus, Grafana)
 - GitOps operations (Flux)

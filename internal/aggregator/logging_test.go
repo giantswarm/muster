@@ -1,4 +1,4 @@
-package instrument
+package aggregator
 
 import (
 	"bytes"
