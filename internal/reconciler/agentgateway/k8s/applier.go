@@ -12,9 +12,11 @@ import (
 )
 
 // ErrStdioNotSupportedInCluster is returned by Apply when any Backend in the
-// Config carries a StdioTarget. The reconciler maps this to a
-// NotSupportedInCluster status condition on the MCPServer and does not requeue.
-var ErrStdioNotSupportedInCluster = errors.New("k8s applier: stdio MCPServers are not supported in cluster mode")
+// Config carries a StdioTarget. Wraps agentgateway.ErrUnsupportedTransport so
+// adapter-agnostic callers (the reconciler) route on the port-level sentinel
+// without importing this package; operators reading logs and the K8s
+// applier's own tests still see the precise wording.
+var ErrStdioNotSupportedInCluster = fmt.Errorf("k8s applier: stdio MCPServers are not supported in cluster mode: %w", agentgateway.ErrUnsupportedTransport)
 
 // Config configures an Applier at construction.
 type Config struct {
