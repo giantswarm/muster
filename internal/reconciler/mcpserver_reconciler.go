@@ -19,6 +19,7 @@ import (
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/reconciler/agentgateway"
 	k8sapply "github.com/giantswarm/muster/internal/reconciler/agentgateway/k8s"
+	"github.com/giantswarm/muster/internal/reconciler/agentgateway/translate"
 	"github.com/giantswarm/muster/pkg/logging"
 )
 
@@ -188,7 +189,7 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileReques
 // applyConfig compiles the MCPServer spec into an agentgateway.Config and
 // hands it to the Applier appropriate for the current mode.
 func (r *MCPServerReconciler) applyConfig(ctx context.Context, req ReconcileRequest, info *api.MCPServerInfo) (ReconcileResult, bool) {
-	spec := infoToMCPServerSpec(info)
+	spec := translate.InfoToMCPServerSpec(info)
 	namespace := r.GetNamespace(req.Namespace)
 	config, err := agentgateway.NewConfig(req.Name, namespace, spec)
 	if err != nil {
@@ -364,62 +365,6 @@ func (r *MCPServerReconciler) mutateMCPServerStatus(ctx context.Context, name, n
 	if helper.WasSuccessful(retryErr, lastErr) {
 		logging.Debug("MCPServerReconciler", "%s for MCPServer %s", op, name)
 	}
-}
-
-func infoToMCPServerSpec(info *api.MCPServerInfo) musterv1alpha1.MCPServerSpec {
-	spec := musterv1alpha1.MCPServerSpec{
-		Type:        info.Type,
-		ToolPrefix:  info.ToolPrefix,
-		Description: info.Description,
-		AutoStart:   info.AutoStart,
-		Command:     info.Command,
-		Args:        info.Args,
-		URL:         info.URL,
-		Env:         info.Env,
-		Headers:     info.Headers,
-		Timeout:     info.Timeout,
-	}
-	if info.Auth != nil {
-		spec.Auth = mcpServerAuthFromAPI(info.Auth)
-	}
-	return spec
-}
-
-func mcpServerAuthFromAPI(auth *api.MCPServerAuth) *musterv1alpha1.MCPServerAuth {
-	out := &musterv1alpha1.MCPServerAuth{
-		Type:              auth.Type,
-		ForwardToken:      auth.ForwardToken,
-		RequiredAudiences: auth.RequiredAudiences,
-	}
-	if auth.TokenExchange != nil {
-		out.TokenExchange = tokenExchangeFromAPI(auth.TokenExchange)
-	}
-	if auth.AuthorizationServer != nil {
-		out.AuthorizationServer = &musterv1alpha1.MCPServerAuthAuthorizationServer{
-			Issuer: musterv1alpha1.IssuerURL(auth.AuthorizationServer.Issuer),
-			Scopes: auth.AuthorizationServer.Scopes,
-		}
-	}
-	return out
-}
-
-func tokenExchangeFromAPI(tx *api.TokenExchangeConfig) *musterv1alpha1.TokenExchangeConfig {
-	out := &musterv1alpha1.TokenExchangeConfig{
-		Enabled:          tx.Enabled,
-		DexTokenEndpoint: tx.DexTokenEndpoint,
-		ExpectedIssuer:   tx.ExpectedIssuer,
-		ConnectorID:      tx.ConnectorID,
-		Scopes:           tx.Scopes,
-	}
-	if tx.ClientCredentialsSecretRef != nil {
-		out.ClientCredentialsSecretRef = &musterv1alpha1.ClientCredentialsSecretRef{
-			Name:            tx.ClientCredentialsSecretRef.Name,
-			Namespace:       tx.ClientCredentialsSecretRef.Namespace,
-			ClientIDKey:     tx.ClientCredentialsSecretRef.ClientIDKey,
-			ClientSecretKey: tx.ClientCredentialsSecretRef.ClientSecretKey,
-		}
-	}
-	return out
 }
 
 func (r *MCPServerReconciler) syncStatus(ctx context.Context, name, namespace string, reconcileErr error) {
