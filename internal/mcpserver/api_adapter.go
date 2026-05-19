@@ -318,61 +318,61 @@ func (a *Adapter) convertRequestToCRD(req *api.MCPServerCreateRequest) *musterv1
 // typeRequired controls whether the "type" field is required (true for create/validate, false for update).
 func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 	return []api.ArgMetadata{
-		{Name: "name", Type: "string", Required: true, Description: "MCP server name"},
-		{Name: "type", Type: "string", Required: typeRequired, Description: "MCP server type (stdio, streamable-http, or sse)"},
-		{Name: "toolPrefix", Type: "string", Required: false, Description: "Tool prefix for namespacing"},
-		{Name: "family", Type: "object", Required: false, Description: "Family that this MCP server instance belongs to (groups equivalent servers under a single tool name)", Schema: map[string]interface{}{
-			"type":        "object",
-			"description": "Family grouping for equivalent MCP server instances. When set, both name and instanceArg are required.",
-			"properties": map[string]interface{}{
+		{Name: "name", Type: api.ArgTypeString, Required: true, Description: "MCP server name"},
+		{Name: "type", Type: api.ArgTypeString, Required: typeRequired, Description: "MCP server type (stdio, streamable-http, or sse)"},
+		{Name: "toolPrefix", Type: api.ArgTypeString, Required: false, Description: "Tool prefix for namespacing"},
+		{Name: "family", Type: api.ArgTypeObject, Required: false, Description: "Family that this MCP server instance belongs to (groups equivalent servers under a single tool name)", Schema: map[string]interface{}{
+			api.SchemaKeyType:        string(api.ArgTypeObject),
+			api.SchemaKeyDescription: "Family grouping for equivalent MCP server instances. When set, both name and instanceArg are required.",
+			api.SchemaKeyProperties: map[string]interface{}{
 				"name": map[string]interface{}{
-					"type":        "string",
-					"description": "Family identifier shared across instances",
+					api.SchemaKeyType:        string(api.ArgTypeString),
+					api.SchemaKeyDescription: "Family identifier shared across instances",
 				},
 				"instanceArg": map[string]interface{}{
-					"type":        "string",
-					"description": "Name of the required parameter the LLM uses to select which family member handles a call (e.g. management_cluster, country, model)",
+					api.SchemaKeyType:        string(api.ArgTypeString),
+					api.SchemaKeyDescription: "Name of the required parameter the LLM uses to select which family member handles a call (e.g. management_cluster, country, model)",
 				},
 			},
-			"required": []string{"name", "instanceArg"},
+			api.SchemaKeyRequired: []string{"name", "instanceArg"},
 		}},
-		{Name: "description", Type: "string", Required: false, Description: "MCP server description"},
-		{Name: "autoStart", Type: "boolean", Required: false, Description: "Whether server should auto-start"},
-		{Name: "command", Type: "string", Required: false, Description: "Command executable path (required for stdio)"},
-		{Name: "args", Type: "array", Required: false, Description: "Command arguments (stdio only)", Schema: map[string]interface{}{
-			"type":        "array",
-			"items":       map[string]interface{}{"type": "string"},
-			"description": "Command line arguments for stdio servers",
+		{Name: "description", Type: api.ArgTypeString, Required: false, Description: "MCP server description"},
+		{Name: "autoStart", Type: api.ArgTypeBoolean, Required: false, Description: "Whether server should auto-start"},
+		{Name: "command", Type: api.ArgTypeString, Required: false, Description: "Command executable path (required for stdio)"},
+		{Name: "args", Type: api.ArgTypeArray, Required: false, Description: "Command arguments (stdio only)", Schema: map[string]interface{}{
+			api.SchemaKeyType:        string(api.ArgTypeArray),
+			api.SchemaKeyItems:       map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeString)},
+			api.SchemaKeyDescription: "Command line arguments for stdio servers",
 		}},
-		{Name: "url", Type: "string", Required: false, Description: "Server endpoint URL (required for streamable-http and sse)"},
-		{Name: "env", Type: "object", Required: false, Description: "Environment variables", Schema: map[string]interface{}{
-			"type":                 "object",
-			"additionalProperties": map[string]interface{}{"type": "string"},
-			"description":          "Environment variables for the server",
+		{Name: "url", Type: api.ArgTypeString, Required: false, Description: "Server endpoint URL (required for streamable-http and sse)"},
+		{Name: "env", Type: api.ArgTypeObject, Required: false, Description: "Environment variables", Schema: map[string]interface{}{
+			api.SchemaKeyType:                 string(api.ArgTypeObject),
+			api.SchemaKeyAdditionalProperties: map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeString)},
+			api.SchemaKeyDescription:          "Environment variables for the server",
 		}},
-		{Name: "headers", Type: "object", Required: false, Description: "HTTP headers (streamable-http and sse only)", Schema: map[string]interface{}{
-			"type":                 "object",
-			"additionalProperties": map[string]interface{}{"type": "string"},
-			"description":          "HTTP headers for remote servers",
+		{Name: "headers", Type: api.ArgTypeObject, Required: false, Description: "HTTP headers (streamable-http and sse only)", Schema: map[string]interface{}{
+			api.SchemaKeyType:                 string(api.ArgTypeObject),
+			api.SchemaKeyAdditionalProperties: map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeString)},
+			api.SchemaKeyDescription:          "HTTP headers for remote servers",
 		}},
-		{Name: "timeout", Type: "integer", Required: false, Description: "Connection timeout in seconds"},
-		{Name: "auth", Type: "object", Required: false, Description: "Authentication configuration for remote servers", Schema: map[string]interface{}{
-			"type":        "object",
-			"description": "Authentication configuration (oauth or none)",
-			"properties": map[string]interface{}{
-				"type": map[string]interface{}{
-					"type":        "string",
-					"description": "Authentication type: oauth or none",
-					"enum":        []string{"oauth", "none"},
+		{Name: "timeout", Type: api.ArgTypeInteger, Required: false, Description: "Connection timeout in seconds"},
+		{Name: "auth", Type: api.ArgTypeObject, Required: false, Description: "Authentication configuration for remote servers", Schema: map[string]interface{}{
+			api.SchemaKeyType:        string(api.ArgTypeObject),
+			api.SchemaKeyDescription: "Authentication configuration (oauth or none)",
+			api.SchemaKeyProperties: map[string]interface{}{
+				api.SchemaKeyType: map[string]interface{}{
+					api.SchemaKeyType:        string(api.ArgTypeString),
+					api.SchemaKeyDescription: "Authentication type: oauth or none",
+					api.SchemaKeyEnum:        []string{"oauth", "none"},
 				},
 				"forwardToken": map[string]interface{}{
-					"type":        "boolean",
-					"description": "Enable SSO token forwarding (oauth only)",
+					api.SchemaKeyType:        string(api.ArgTypeBoolean),
+					api.SchemaKeyDescription: "Enable SSO token forwarding (oauth only)",
 				},
 				"requiredAudiences": map[string]interface{}{
-					"type":        "array",
-					"items":       map[string]interface{}{"type": "string"},
-					"description": "Additional audiences to request from IdP for token forwarding (e.g., dex-k8s-authenticator for Kubernetes OIDC)",
+					api.SchemaKeyType:        string(api.ArgTypeArray),
+					api.SchemaKeyItems:       map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeString)},
+					api.SchemaKeyDescription: "Additional audiences to request from IdP for token forwarding (e.g., dex-k8s-authenticator for Kubernetes OIDC)",
 				},
 			},
 		}},
@@ -386,15 +386,15 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Name:        "mcpserver_list",
 			Description: "List all MCP server definitions with their status. By default, unreachable servers are hidden.",
 			Args: []api.ArgMetadata{
-				{Name: "showAll", Type: "boolean", Required: false, Description: "Show all servers including unreachable ones (default: false)"},
-				{Name: "verbose", Type: "boolean", Required: false, Description: "Show detailed error information for failed/unreachable servers (default: false)"},
+				{Name: "showAll", Type: api.ArgTypeBoolean, Required: false, Description: "Show all servers including unreachable ones (default: false)"},
+				{Name: "verbose", Type: api.ArgTypeBoolean, Required: false, Description: "Show detailed error information for failed/unreachable servers (default: false)"},
 			},
 		},
 		{
 			Name:        "mcpserver_get",
 			Description: "Get detailed information about a specific MCP server definition",
 			Args: []api.ArgMetadata{
-				{Name: "name", Type: "string", Required: true, Description: "Name of the MCP server to retrieve"},
+				{Name: "name", Type: api.ArgTypeString, Required: true, Description: "Name of the MCP server to retrieve"},
 			},
 		},
 		{
@@ -416,7 +416,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Name:        "mcpserver_delete",
 			Description: "Delete an MCP server definition",
 			Args: []api.ArgMetadata{
-				{Name: "name", Type: "string", Required: true, Description: "Name of the MCP server to delete"},
+				{Name: "name", Type: api.ArgTypeString, Required: true, Description: "Name of the MCP server to delete"},
 			},
 		},
 	}

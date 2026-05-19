@@ -122,7 +122,7 @@ func establishConnection(
 			logging.TruncateIdentifier(sessionID), serverName, issuer)
 	} else {
 		headers := map[string]string{
-			"Authorization": "Bearer " + accessToken,
+			pkgoauth.HeaderAuthorization: pkgoauth.SchemeBearer + " " + accessToken,
 		}
 		client = internalmcp.NewStreamableHTTPClientWithHeaders(serverURL, headers)
 		logging.Debug("Connection", "Using static auth headers for session %s, server %s",
@@ -661,7 +661,7 @@ func EstablishConnectionWithTokenExchange(
 	// returns 401. In that case, callToolWithTokenExchangeRetry evicts the stale
 	// pool entry, re-exchanges a fresh token, and retries the tool call.
 	headerFunc := func(_ context.Context) map[string]string {
-		return map[string]string{"Authorization": "Bearer " + exchangedToken}
+		return map[string]string{pkgoauth.HeaderAuthorization: pkgoauth.SchemeBearer + " " + exchangedToken}
 	}
 
 	// Create a client with the dynamic header function.
@@ -858,7 +858,7 @@ func makeTokenForwardingHeaderFunc(
 			}
 		}
 		return map[string]string{
-			"Authorization": "Bearer " + latestToken,
+			pkgoauth.HeaderAuthorization: pkgoauth.SchemeBearer + " " + latestToken,
 		}
 	}
 }
