@@ -1,0 +1,213 @@
+package binary
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+)
+
+// PinnedVersion is the agentgateway release this build of muster
+// targets. Bumping it is a deliberate, separate PR — the subprocess
+// manager and the native-config schema move in lockstep.
+const PinnedVersion = "1.2.1"
+
+// EnvVar names the override environment variable.
+const EnvVar = "MUSTER_AGW_BINARY"
+
+// Sentinel errors. Callers use errors.Is to discriminate.
+var (
+	ErrBinaryNotFound      = errors.New("agentgateway binary not found and download disabled")
+	ErrDownloadDisabled    = errors.New("agentgateway binary download disabled by configuration")
+	ErrChecksumMismatch    = errors.New("agentgateway binary checksum mismatch")
+	ErrUnsupportedPlatform = errors.New("agentgateway binary unavailable for this platform")
+)
+
+// Resolve returns an absolute path to an executable agentgateway
+// binary of the pinned version. See the package doc for the resolution
+// order.
+func Resolve(ctx context.Context, opts ...Option) (string, error) {
+	cfg := defaultOptions()
+	for _, opt := range opts {
+		if err := opt(&cfg); err != nil {
+			return "", fmt.Errorf("apply option: %w", err)
+		}
+	}
+	if cfg.baseDir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("determine user home: %w", err)
+		}
+		cfg.baseDir = filepath.Join(home, ".config", "muster", "bin")
+	}
+
+	if envPath := os.Getenv(EnvVar); envPath != "" {
+		if err := checkExecutable(envPath); err != nil {
+			return "", fmt.Errorf("%s=%s: %w", EnvVar, envPath, err)
+		}
+		cfg.logger.Info("resolved agentgateway binary", "source", "env", "path", envPath)
+		return envPath, nil
+	}
+
+	cachedPath := filepath.Join(cfg.baseDir, cacheFilename(runtime.GOOS))
+	if err := checkExecutable(cachedPath); err == nil {
+		cfg.logger.Info("resolved agentgateway binary", "source", "cache", "path", cachedPath)
+		return cachedPath, nil
+	}
+
+	if cfg.noDownload {
+		return "", fmt.Errorf("%w: cache %s missing", ErrBinaryNotFound, cachedPath)
+	}
+
+	asset, err := assetForPlatform(runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		return "", err
+	}
+	if err := download(ctx, cfg, asset, cachedPath); err != nil {
+		return "", err
+	}
+	cfg.logger.Info("resolved agentgateway binary", "source", "download", "path", cachedPath)
+	return cachedPath, nil
+}
+
+// checkExecutable returns nil iff path is a regular file with at least
+// one execute bit set. On Windows the execute bit is not checked;
+// existence is sufficient because the OS keys off the .exe extension.
+func checkExecutable(path string) error {
+	info, err := os.Stat(path) //nolint:gosec // path is env-var override or constructed cache filename, both caller-trusted
+	if err != nil {
+		return fmt.Errorf("stat: %w", err)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("is a directory")
+	}
+	if runtime.GOOS != goosWindows && info.Mode().Perm()&0o111 == 0 {
+		return fmt.Errorf("not executable (mode %v)", info.Mode().Perm())
+	}
+	return nil
+}
+
+func download(ctx context.Context, cfg options, asset, dest string) error {
+	if err := os.MkdirAll(cfg.baseDir, 0o755); err != nil { //nolint:gosec // 0o755 lets siblings read/execute the cached binary
+		return fmt.Errorf("create base dir %s: %w", cfg.baseDir, err)
+	}
+	assetURL := fmt.Sprintf("%s/v%s/%s", cfg.downloadBaseURL, PinnedVersion, asset)
+	sumURL := assetURL + ".sha256"
+
+	cfg.logger.Info("downloading agentgateway", "asset", asset, "url", assetURL)
+
+	expected, err := fetchExpectedDigest(ctx, cfg.httpClient, sumURL)
+	if err != nil {
+		return fmt.Errorf("fetch checksum %s: %w", sumURL, err)
+	}
+
+	tmpPath, actual, err := streamToTempFile(ctx, cfg.httpClient, assetURL, cfg.baseDir)
+	if err != nil {
+		return fmt.Errorf("download %s: %w", assetURL, err)
+	}
+	defer func() { _ = os.Remove(tmpPath) }()
+
+	if actual != expected {
+		return fmt.Errorf("%w: asset %s digest %s, expected %s", ErrChecksumMismatch, asset, actual, expected)
+	}
+
+	if runtime.GOOS != goosWindows {
+		if err := os.Chmod(tmpPath, 0o755); err != nil { //nolint:gosec // executable bit required for the cached binary
+			return fmt.Errorf("chmod temp: %w", err)
+		}
+	}
+	if err := os.Rename(tmpPath, dest); err != nil {
+		return fmt.Errorf("install %s: %w", dest, err)
+	}
+	return nil
+}
+
+func fetchExpectedDigest(ctx context.Context, client *http.Client, url string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("http %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if err != nil {
+		return "", err
+	}
+	return parseDigest(string(body))
+}
+
+// parseDigest extracts the first whitespace-delimited token from a
+// sha256sum-format line and validates it as a 64-char lowercase hex
+// digest. The filename column is deliberately ignored — upstream
+// agentgateway prefixes the filename with a "outputs/" build path that
+// strict matchers reject.
+func parseDigest(line string) (string, error) {
+	fields := strings.Fields(line)
+	if len(fields) == 0 {
+		return "", fmt.Errorf("%w: empty checksum line", ErrChecksumMismatch)
+	}
+	digest := strings.ToLower(fields[0])
+	if len(digest) != 64 {
+		return "", fmt.Errorf("%w: digest length %d != 64", ErrChecksumMismatch, len(digest))
+	}
+	if _, err := hex.DecodeString(digest); err != nil {
+		return "", fmt.Errorf("%w: digest not hex: %v", ErrChecksumMismatch, err)
+	}
+	return digest, nil
+}
+
+func streamToTempFile(ctx context.Context, client *http.Client, url, baseDir string) (string, string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", "", err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", "", err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return "", "", fmt.Errorf("http %d", resp.StatusCode)
+	}
+
+	suffix := make([]byte, 4)
+	if _, err := rand.Read(suffix); err != nil {
+		return "", "", fmt.Errorf("random suffix: %w", err)
+	}
+	tmpPath := filepath.Join(baseDir, fmt.Sprintf(".agentgateway-v%s.tmp.%d.%s", PinnedVersion, os.Getpid(), hex.EncodeToString(suffix)))
+
+	f, err := os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // tmpPath is constructed from caller-supplied baseDir plus a pid+random suffix
+	if err != nil {
+		return "", "", fmt.Errorf("create temp %s: %w", tmpPath, err)
+	}
+	hasher := sha256.New()
+	if _, err := io.Copy(io.MultiWriter(f, hasher), resp.Body); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmpPath)
+		return "", "", fmt.Errorf("stream body: %w", err)
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmpPath)
+		return "", "", fmt.Errorf("fsync: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return "", "", fmt.Errorf("close temp: %w", err)
+	}
+	return tmpPath, hex.EncodeToString(hasher.Sum(nil)), nil
+}
