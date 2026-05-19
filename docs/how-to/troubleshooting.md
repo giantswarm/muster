@@ -215,13 +215,9 @@ journalctl -u muster --since "1 hour ago"
 
 #### Service Recovery Procedures
 ```bash
-# Force restart service
-muster restart service <service-name>
-
-# Stop and recreate service
+# Stop and start the service
 muster stop service <service-name>
-muster delete service <service-name>
-muster create service <service-name> --serviceClassName <class-name> --args '<args>'
+muster start service <service-name>
 
 # Check service logs for errors
 muster logs service <service-name> --all-steps --since 1h
@@ -317,19 +313,6 @@ list_tools example
 
 # Restart MCP server
 muster restart mcpserver <server-name>
-```
-
-### "Service dependency timeout" Errors
-```yaml
-# Error: Dependency service did not become ready within timeout
-# Solution: Increase timeout or fix dependency issues
-
-serviceConfig:
-  dependencies:
-    - name: dependency-service
-      serviceClassName: dependency-class
-      waitFor: "running"
-      timeout: "15m"  # Increase timeout
 ```
 
 ### "Template rendering failed" Errors

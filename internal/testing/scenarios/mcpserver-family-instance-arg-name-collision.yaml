@@ -1,0 +1,87 @@
+name: "mcpserver-family-instance-arg-name-collision"
+description: "family.instanceArg colliding with a tool-defined input property falls back to per-server prefixing for that tool, mirroring how description divergence is handled"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "family", "aggregator", "schema", "fallback"]
+timeout: "2m"
+
+# Given: A single MCP server whose tool's input_schema declares a property
+#        named "cluster". The same server's family declares
+#        instanceArg: "cluster" — colliding with the tool-defined property.
+# When:  The aggregator assembles exposed tools.
+# Then:  The collision is detected at family-grouped emission time and the
+#        tool falls back to per-server prefixing. The per-server name
+#        x_k8s-single_list_pods is exposed with the original schema intact;
+#        x_kubernetes_list_pods is NOT exposed.
+#
+# Pattern matches description-divergence handling (same family.name + same
+# tool with different descriptions falls back per-server for that tool);
+# the instanceArg collision is detected at the same per-tool gate.
+
+pre_configuration:
+  mcp_servers:
+    - name: "k8s-single"
+      config:
+        family:
+          name: "kubernetes"
+          instanceArg: "cluster"          # collides with the tool's "cluster" property
+        tools:
+          - name: "list_pods"
+            description: "List pods on a workload cluster"
+            input_schema:
+              type: "object"
+              properties:
+                cluster:
+                  type: "string"
+                  description: "Workload cluster name (tool-defined; not the routing instance)"
+                namespace:
+                  type: "string"
+              required: ["cluster"]
+            responses:
+              - response:
+                  source: "k8s-single"
+                  cluster: "{{ .cluster }}"
+                  namespace: "{{ .namespace }}"
+
+steps:
+  - id: "wait-for-server"
+    tool: "core_service_status"
+    args:
+      name: "k8s-single"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "running"
+
+  # Per-server fallback name preserves the tool-defined "cluster" semantics:
+  # the user's value reaches the backend, and the response echoes it back.
+  - id: "per-server-fallback-preserves-tool-defined-cluster"
+    tool: "x_k8s-single_list_pods"
+    args:
+      cluster: "prod-eu-west-1"
+      namespace: "default"
+    expected:
+      success: true
+      contains: ["k8s-single", "prod-eu-west-1", "default"]
+
+  # The family-prefixed name must not exist — emitting it would silently
+  # overwrite the tool-defined "cluster" property with an instance-selector
+  # enum, losing the original schema's meaning.
+  - id: "family-prefixed-name-absent-on-collision"
+    tool: "x_kubernetes_list_pods"
+    args:
+      cluster: "k8s-single"
+      namespace: "default"
+    expected:
+      success: false
+      error_contains: ["tool not found"]
+
+cleanup:
+  - id: "cleanup-stop-single"
+    tool: "core_service_stop"
+    args:
+      name: "k8s-single"
+    expected:
+      success: true
+    continue_on_failure: true

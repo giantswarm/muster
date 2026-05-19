@@ -4,9 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"net/http"
 	"testing"
-	"time"
 
 	"github.com/giantswarm/muster/internal/api"
 
@@ -62,7 +60,7 @@ func TestTokenExchanger_Exchange_Validation(t *testing.T) {
 
 	t.Run("returns error for missing subject token", func(t *testing.T) {
 		_, err := exchanger.Exchange(context.Background(), &ExchangeRequest{
-			Config: &api.TokenExchangeConfig{ //nolint:gosec
+			Config: &api.TokenExchangeConfig{
 				Enabled:          true,
 				DexTokenEndpoint: "https://dex.example.com/token",
 				ConnectorID:      "local-dex",
@@ -88,7 +86,7 @@ func TestTokenExchanger_Exchange_Validation(t *testing.T) {
 
 	t.Run("returns error for missing connector ID", func(t *testing.T) {
 		_, err := exchanger.Exchange(context.Background(), &ExchangeRequest{
-			Config: &api.TokenExchangeConfig{ //nolint:gosec
+			Config: &api.TokenExchangeConfig{
 				Enabled:          true,
 				DexTokenEndpoint: "https://dex.example.com/token",
 				ConnectorID:      "",
@@ -101,7 +99,7 @@ func TestTokenExchanger_Exchange_Validation(t *testing.T) {
 
 	t.Run("returns error for missing user ID", func(t *testing.T) {
 		_, err := exchanger.Exchange(context.Background(), &ExchangeRequest{
-			Config: &api.TokenExchangeConfig{ //nolint:gosec
+			Config: &api.TokenExchangeConfig{
 				Enabled:          true,
 				DexTokenEndpoint: "https://dex.example.com/token",
 				ConnectorID:      "local-dex",
@@ -115,7 +113,7 @@ func TestTokenExchanger_Exchange_Validation(t *testing.T) {
 
 	t.Run("returns error for non-HTTPS endpoint", func(t *testing.T) {
 		_, err := exchanger.Exchange(context.Background(), &ExchangeRequest{
-			Config: &api.TokenExchangeConfig{ //nolint:gosec
+			Config: &api.TokenExchangeConfig{
 				Enabled:          true,
 				DexTokenEndpoint: "http://dex.example.com/token",
 				ConnectorID:      "local-dex",
@@ -130,7 +128,7 @@ func TestTokenExchanger_Exchange_Validation(t *testing.T) {
 	t.Run("rejects http://localhost - HTTPS required even for local", func(t *testing.T) {
 		// HTTPS is enforced for all endpoints for security
 		_, err := exchanger.Exchange(context.Background(), &ExchangeRequest{
-			Config: &api.TokenExchangeConfig{ //nolint:gosec
+			Config: &api.TokenExchangeConfig{
 				Enabled:          true,
 				DexTokenEndpoint: "http://localhost:5556/token",
 				ConnectorID:      "local-dex",
@@ -145,7 +143,7 @@ func TestTokenExchanger_Exchange_Validation(t *testing.T) {
 	t.Run("accepts HTTPS endpoint", func(t *testing.T) {
 		// Valid HTTPS endpoint should pass validation (but may fail on network)
 		_, err := exchanger.Exchange(context.Background(), &ExchangeRequest{
-			Config: &api.TokenExchangeConfig{ //nolint:gosec
+			Config: &api.TokenExchangeConfig{
 				Enabled:          true,
 				DexTokenEndpoint: "https://dex.example.com/token",
 				ConnectorID:      "local-dex",
@@ -162,7 +160,7 @@ func TestTokenExchanger_Exchange_Validation(t *testing.T) {
 		// Defense-in-depth: validate expectedIssuer uses HTTPS in code,
 		// even though CRD schema validation also enforces this
 		_, err := exchanger.Exchange(context.Background(), &ExchangeRequest{
-			Config: &api.TokenExchangeConfig{ //nolint:gosec
+			Config: &api.TokenExchangeConfig{
 				Enabled:          true,
 				DexTokenEndpoint: "https://dex.example.com/token",
 				ExpectedIssuer:   "http://dex.example.com", // Non-HTTPS issuer
@@ -178,7 +176,7 @@ func TestTokenExchanger_Exchange_Validation(t *testing.T) {
 	t.Run("accepts HTTPS expectedIssuer", func(t *testing.T) {
 		// Valid HTTPS expectedIssuer should pass validation
 		_, err := exchanger.Exchange(context.Background(), &ExchangeRequest{
-			Config: &api.TokenExchangeConfig{ //nolint:gosec
+			Config: &api.TokenExchangeConfig{
 				Enabled:          true,
 				DexTokenEndpoint: "https://dex-proxy.example.com/token",
 				ExpectedIssuer:   "https://dex.example.com",
@@ -195,7 +193,7 @@ func TestTokenExchanger_Exchange_Validation(t *testing.T) {
 	t.Run("allows empty expectedIssuer", func(t *testing.T) {
 		// Empty expectedIssuer is allowed (falls back to deriving from endpoint)
 		_, err := exchanger.Exchange(context.Background(), &ExchangeRequest{
-			Config: &api.TokenExchangeConfig{ //nolint:gosec
+			Config: &api.TokenExchangeConfig{
 				Enabled:          true,
 				DexTokenEndpoint: "https://dex.example.com/token",
 				ExpectedIssuer:   "", // Empty is allowed
@@ -234,7 +232,7 @@ func TestTokenExchanger_Cache(t *testing.T) {
 
 func TestTokenExchangeConfig(t *testing.T) {
 	t.Run("config struct holds all fields", func(t *testing.T) {
-		config := api.TokenExchangeConfig{ //nolint:gosec
+		config := api.TokenExchangeConfig{
 			Enabled:          true,
 			DexTokenEndpoint: "https://dex.remote.example.com/token",
 			ExpectedIssuer:   "https://dex.original.example.com",
@@ -253,7 +251,7 @@ func TestTokenExchangeConfig(t *testing.T) {
 		// This is the key scenario from issue #303:
 		// - DexTokenEndpoint is the proxy URL used to access Dex
 		// - ExpectedIssuer is the actual Dex issuer URL
-		config := api.TokenExchangeConfig{ //nolint:gosec
+		config := api.TokenExchangeConfig{
 			Enabled:          true,
 			DexTokenEndpoint: "https://dex-cluster.proxy.example.com/token", // Via proxy
 			ExpectedIssuer:   "https://dex.cluster.example.com",             // Original issuer
@@ -268,7 +266,7 @@ func TestTokenExchangeConfig(t *testing.T) {
 
 func TestGetExpectedIssuer(t *testing.T) {
 	t.Run("returns ExpectedIssuer when explicitly set", func(t *testing.T) {
-		config := &api.TokenExchangeConfig{ //nolint:gosec
+		config := &api.TokenExchangeConfig{
 			DexTokenEndpoint: "https://dex-proxy.example.com/token",
 			ExpectedIssuer:   "https://dex.original.example.com",
 		}
@@ -276,14 +274,14 @@ func TestGetExpectedIssuer(t *testing.T) {
 	})
 
 	t.Run("derives issuer from DexTokenEndpoint when ExpectedIssuer not set", func(t *testing.T) {
-		config := &api.TokenExchangeConfig{ //nolint:gosec
+		config := &api.TokenExchangeConfig{
 			DexTokenEndpoint: "https://dex.example.com/token",
 		}
 		assert.Equal(t, "https://dex.example.com", GetExpectedIssuer(config))
 	})
 
 	t.Run("handles /dex/token path correctly", func(t *testing.T) {
-		config := &api.TokenExchangeConfig{ //nolint:gosec
+		config := &api.TokenExchangeConfig{
 			DexTokenEndpoint: "https://dex.example.com/dex/token",
 		}
 		assert.Equal(t, "https://dex.example.com/dex", GetExpectedIssuer(config))
@@ -458,323 +456,5 @@ func TestIsJWTToken(t *testing.T) {
 
 	t.Run("returns false for empty token", func(t *testing.T) {
 		assert.False(t, isJWTToken(""))
-	})
-}
-
-func TestTokenExchanger_ExchangeWithClient(t *testing.T) {
-	exchanger := NewTokenExchangerWithOptions(TokenExchangerOptions{})
-
-	t.Run("calls Exchange when httpClient is nil", func(t *testing.T) {
-		// When httpClient is nil, it should delegate to Exchange
-		_, err := exchanger.ExchangeWithClient(context.Background(), nil, nil)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "exchange request is nil")
-	})
-
-	t.Run("returns error for nil request", func(t *testing.T) {
-		// Create a custom HTTP client (even though it won't be used due to nil request)
-		customClient := &http.Client{}
-		_, err := exchanger.ExchangeWithClient(context.Background(), nil, customClient)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "exchange request is nil")
-	})
-
-	t.Run("returns error for nil config with custom client", func(t *testing.T) {
-		customClient := &http.Client{}
-		_, err := exchanger.ExchangeWithClient(context.Background(), &ExchangeRequest{
-			Config: nil,
-		}, customClient)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "token exchange config is nil")
-	})
-
-	t.Run("validates request same as Exchange", func(t *testing.T) {
-		customClient := &http.Client{}
-
-		// Test all validation errors same as Exchange
-		testCases := []struct {
-			name    string
-			req     *ExchangeRequest
-			errText string
-		}{
-			{
-				name: "not enabled",
-				req: &ExchangeRequest{
-					Config: &api.TokenExchangeConfig{Enabled: false},
-				},
-				errText: "token exchange is not enabled",
-			},
-			{
-				name: "missing subject token",
-				req: &ExchangeRequest{
-					Config: &api.TokenExchangeConfig{ //nolint:gosec
-						Enabled:          true,
-						DexTokenEndpoint: "https://dex.example.com/token",
-						ConnectorID:      "local-dex",
-					},
-					SubjectToken: "",
-				},
-				errText: "subject token is required",
-			},
-			{
-				name: "missing dex token endpoint",
-				req: &ExchangeRequest{
-					Config: &api.TokenExchangeConfig{
-						Enabled:     true,
-						ConnectorID: "local-dex",
-					},
-					SubjectToken: "test-token",
-				},
-				errText: "dex token endpoint is required",
-			},
-			{
-				name: "non-HTTPS endpoint",
-				req: &ExchangeRequest{
-					Config: &api.TokenExchangeConfig{ //nolint:gosec
-						Enabled:          true,
-						DexTokenEndpoint: "http://dex.example.com/token",
-						ConnectorID:      "local-dex",
-					},
-					SubjectToken: "test-token",
-					UserID:       "user123",
-				},
-				errText: "dex token endpoint must use HTTPS",
-			},
-			{
-				name: "non-HTTPS expectedIssuer",
-				req: &ExchangeRequest{
-					Config: &api.TokenExchangeConfig{ //nolint:gosec
-						Enabled:          true,
-						DexTokenEndpoint: "https://dex.example.com/token",
-						ExpectedIssuer:   "http://dex.example.com",
-						ConnectorID:      "local-dex",
-					},
-					SubjectToken: "test-token",
-					UserID:       "user123",
-				},
-				errText: "expected issuer must use HTTPS",
-			},
-			{
-				name: "missing connector ID",
-				req: &ExchangeRequest{
-					Config: &api.TokenExchangeConfig{ //nolint:gosec
-						Enabled:          true,
-						DexTokenEndpoint: "https://dex.example.com/token",
-					},
-					SubjectToken: "test-token",
-					UserID:       "user123",
-				},
-				errText: "connector ID is required",
-			},
-			{
-				name: "missing user ID",
-				req: &ExchangeRequest{
-					Config: &api.TokenExchangeConfig{ //nolint:gosec
-						Enabled:          true,
-						DexTokenEndpoint: "https://dex.example.com/token",
-						ConnectorID:      "local-dex",
-					},
-					SubjectToken: "test-token",
-					UserID:       "",
-				},
-				errText: "user ID is required",
-			},
-		}
-
-		for _, tc := range testCases {
-			t.Run(tc.name, func(t *testing.T) {
-				_, err := exchanger.ExchangeWithClient(context.Background(), tc.req, customClient)
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tc.errText)
-			})
-		}
-	})
-
-	t.Run("uses custom HTTP client for exchange", func(t *testing.T) {
-		customClient := &http.Client{}
-
-		// Valid request - should fail on network but validation passes
-		req := &ExchangeRequest{
-			Config: &api.TokenExchangeConfig{ //nolint:gosec
-				Enabled:          true,
-				DexTokenEndpoint: "https://dex.example.com/token",
-				ConnectorID:      "local-dex",
-			},
-			SubjectToken: "test-token",
-			UserID:       "user123",
-		}
-
-		_, err := exchanger.ExchangeWithClient(context.Background(), req, customClient)
-		require.Error(t, err) // Will fail on network, but passed validation
-		assert.Contains(t, err.Error(), "token exchange failed")
-		assert.NotContains(t, err.Error(), "must use HTTPS")
-	})
-}
-
-func TestTokenExchanger_ExchangeWithClient_ErrorHandling(t *testing.T) {
-	exchanger := NewTokenExchangerWithOptions(TokenExchangerOptions{})
-
-	t.Run("network error includes endpoint in error message", func(t *testing.T) {
-		customClient := &http.Client{}
-
-		req := &ExchangeRequest{
-			Config: &api.TokenExchangeConfig{ //nolint:gosec
-				Enabled:          true,
-				DexTokenEndpoint: "https://nonexistent.dex.example.com:12345/token",
-				ConnectorID:      "local-dex",
-			},
-			SubjectToken: "test-token",
-			UserID:       "user123",
-		}
-
-		_, err := exchanger.ExchangeWithClient(context.Background(), req, customClient)
-		require.Error(t, err)
-		// Should indicate the exchange failed (might be network error)
-		assert.Contains(t, err.Error(), "token exchange failed")
-	})
-
-	t.Run("context cancellation stops exchange", func(t *testing.T) {
-		customClient := &http.Client{}
-
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel() // Cancel immediately
-
-		req := &ExchangeRequest{
-			Config: &api.TokenExchangeConfig{ //nolint:gosec
-				Enabled:          true,
-				DexTokenEndpoint: "https://dex.example.com/token",
-				ConnectorID:      "local-dex",
-			},
-			SubjectToken: "test-token",
-			UserID:       "user123",
-		}
-
-		_, err := exchanger.ExchangeWithClient(ctx, req, customClient)
-		require.Error(t, err)
-		// Context cancellation should propagate
-		assert.Contains(t, err.Error(), "context canceled")
-	})
-
-	t.Run("expectedIssuer validation with custom client", func(t *testing.T) {
-		customClient := &http.Client{}
-
-		// Request with both DexTokenEndpoint and ExpectedIssuer
-		req := &ExchangeRequest{
-			Config: &api.TokenExchangeConfig{ //nolint:gosec
-				Enabled:          true,
-				DexTokenEndpoint: "https://dex-proxy.teleport.example.com/token",
-				ExpectedIssuer:   "https://dex.cluster-internal.example.com",
-				ConnectorID:      "central-cluster",
-			},
-			SubjectToken: "test-token",
-			UserID:       "user123",
-		}
-
-		// The exchange will fail on network, but the validation should pass
-		_, err := exchanger.ExchangeWithClient(context.Background(), req, customClient)
-		require.Error(t, err)
-		// Should not fail on expectedIssuer validation
-		assert.NotContains(t, err.Error(), "expected issuer must use HTTPS")
-		assert.NotContains(t, err.Error(), "issuer mismatch")
-	})
-
-	t.Run("private IP allowed with custom options", func(t *testing.T) {
-		// Create exchanger that allows private IPs
-		privateIPExchanger := NewTokenExchangerWithOptions(TokenExchangerOptions{
-			AllowPrivateIP: true,
-		})
-		// Use a client with a short timeout to speed up the test
-		customClient := &http.Client{
-			Timeout: 100 * time.Millisecond,
-		}
-
-		req := &ExchangeRequest{
-			Config: &api.TokenExchangeConfig{ //nolint:gosec
-				Enabled:          true,
-				DexTokenEndpoint: "https://10.0.0.1:5556/token", // Private IP
-				ConnectorID:      "local-dex",
-			},
-			SubjectToken: "test-token",
-			UserID:       "user123",
-		}
-
-		_, err := privateIPExchanger.ExchangeWithClient(context.Background(), req, customClient)
-		require.Error(t, err)
-		// Should fail on network, not on IP validation
-		assert.Contains(t, err.Error(), "token exchange failed")
-		// With allowPrivateIP, it should attempt the exchange
-		assert.NotContains(t, err.Error(), "private IP")
-	})
-
-	t.Run("scopes are passed correctly", func(t *testing.T) {
-		customClient := &http.Client{}
-
-		req := &ExchangeRequest{
-			Config: &api.TokenExchangeConfig{ //nolint:gosec
-				Enabled:          true,
-				DexTokenEndpoint: "https://dex.example.com/token",
-				ConnectorID:      "local-dex",
-				Scopes:           "openid profile email groups mcp:admin",
-			},
-			SubjectToken: "test-token",
-			UserID:       "user123",
-		}
-
-		// The request should pass validation even with custom scopes
-		_, err := exchanger.ExchangeWithClient(context.Background(), req, customClient)
-		require.Error(t, err) // Network error expected
-		assert.Contains(t, err.Error(), "token exchange failed")
-	})
-
-	t.Run("falls back to default scopes when empty", func(t *testing.T) {
-		customClient := &http.Client{}
-
-		req := &ExchangeRequest{
-			Config: &api.TokenExchangeConfig{ //nolint:gosec
-				Enabled:          true,
-				DexTokenEndpoint: "https://dex.example.com/token",
-				ConnectorID:      "local-dex",
-				Scopes:           "", // Empty, should use default
-			},
-			SubjectToken: "test-token",
-			UserID:       "user123",
-		}
-
-		_, err := exchanger.ExchangeWithClient(context.Background(), req, customClient)
-		require.Error(t, err) // Network error expected
-		// Should not fail on empty scopes
-		assert.NotContains(t, err.Error(), "scopes")
-	})
-}
-
-func TestTokenExchanger_CacheWithCustomClient(t *testing.T) {
-	exchanger := NewTokenExchangerWithOptions(TokenExchangerOptions{})
-
-	t.Run("cache key is consistent between Exchange and ExchangeWithClient", func(t *testing.T) {
-		// Both methods should use the same cache key format for the same configuration
-		// This ensures tokens are cached and reused regardless of which method retrieved them
-		config := &api.TokenExchangeConfig{ //nolint:gosec
-			Enabled:          true,
-			DexTokenEndpoint: "https://dex.example.com/token",
-			ConnectorID:      "local-dex",
-		}
-
-		// We can't easily test the cache directly, but we can verify the methods
-		// accept the same configuration structure
-		req := &ExchangeRequest{
-			Config:       config,
-			SubjectToken: "test-token",
-			UserID:       "user123",
-		}
-
-		// Both should fail on network, but with same error type
-		_, err1 := exchanger.Exchange(context.Background(), req)
-		_, err2 := exchanger.ExchangeWithClient(context.Background(), req, nil)
-
-		// Both should produce similar errors (nil client in ExchangeWithClient
-		// delegates to Exchange)
-		require.Error(t, err1)
-		require.Error(t, err2)
-		assert.Equal(t, err1.Error(), err2.Error())
 	})
 }

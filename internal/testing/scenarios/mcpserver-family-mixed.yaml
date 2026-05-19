@@ -1,0 +1,100 @@
+name: "mcpserver-family-mixed"
+description: "Family-grouped and non-family servers co-exist with distinct exposed names"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "family", "aggregator"]
+timeout: "2m"
+
+# Given: One MCP server declares spec.family and another does not
+# When: The aggregator lists tools
+# Then: The family server's tools appear under x_<family>_<tool> while the non-family
+#       server keeps today's per-server prefixing under x_<server>_<tool>.
+
+pre_configuration:
+  mcp_servers:
+    - name: "k8s-graveler"
+      config:
+        family:
+          name: "kubernetes"
+          instanceArg: "management_cluster"
+        tools:
+          - name: "list_pods"
+            description: "List pods"
+            input_schema:
+              type: "object"
+              properties:
+                namespace: { type: "string" }
+            responses:
+              - response:
+                  source: "k8s-graveler"
+                  namespace: "{{ .namespace }}"
+    - name: "slack"
+      config:
+        tools:
+          - name: "send_message"
+            description: "Send a Slack message"
+            input_schema:
+              type: "object"
+              properties:
+                channel: { type: "string" }
+                text:    { type: "string" }
+            responses:
+              - response:
+                  channel: "{{ .channel }}"
+                  text:    "{{ .text }}"
+                  source:  "slack"
+
+steps:
+  - id: "wait-for-graveler"
+    tool: "core_service_status"
+    args:
+      name: "k8s-graveler"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "running"
+
+  - id: "wait-for-slack"
+    tool: "core_service_status"
+    args:
+      name: "slack"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "running"
+
+  - id: "family-tool-uses-family-prefix"
+    tool: "x_kubernetes_list_pods"
+    args:
+      management_cluster: "k8s-graveler"
+      namespace: "default"
+    expected:
+      success: true
+      contains: ["k8s-graveler"]
+
+  - id: "non-family-tool-uses-per-server-prefix"
+    tool: "x_slack_send_message"
+    args:
+      channel: "#ops"
+      text:    "hello"
+    expected:
+      success: true
+      contains: ["#ops", "hello", "slack"]
+
+cleanup:
+  - id: "cleanup-stop-graveler"
+    tool: "core_service_stop"
+    args:
+      name: "k8s-graveler"
+    expected:
+      success: true
+    continue_on_failure: true
+  - id: "cleanup-stop-slack"
+    tool: "core_service_stop"
+    args:
+      name: "slack"
+    expected:
+      success: true
+    continue_on_failure: true

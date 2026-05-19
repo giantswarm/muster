@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/cli"
 
 	"github.com/spf13/cobra"
@@ -103,7 +104,7 @@ func init() {
 func runEvents(cmd *cobra.Command, args []string) error {
 	// Validate resource type if provided
 	if eventsResourceType != "" {
-		validTypes := []string{"mcpserver", "workflow"}
+		validTypes := []string{api.ResourceTypeMCPServer, api.ResourceTypeWorkflow}
 		if !contains(validTypes, strings.ToLower(eventsResourceType)) {
 			return fmt.Errorf("invalid resource type '%s'. Valid types: %s", eventsResourceType, strings.Join(validTypes, ", "))
 		}
@@ -111,9 +112,9 @@ func runEvents(cmd *cobra.Command, args []string) error {
 		eventsResourceType = strings.ToLower(eventsResourceType)
 		// Convert to the expected CRD Kind format
 		switch eventsResourceType {
-		case "mcpserver": //nolint:goconst
+		case api.ResourceTypeMCPServer:
 			eventsResourceType = "MCPServer"
-		case "workflow": //nolint:goconst
+		case api.ResourceTypeWorkflow:
 			eventsResourceType = "Workflow"
 		}
 	}
