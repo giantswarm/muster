@@ -1500,9 +1500,13 @@ func (m *musterInstanceManager) extractExpectedToolsWithHTTPMocks(config *Muster
 		// Family-grouped servers expose tools as x_<family.name>_<tool>; non-
 		// family servers retain per-server prefixing as x_<server>_<tool>.
 		familyName := ""
+		familyInstanceArg := ""
 		if family, ok := mcpServer.Config["family"].(map[string]interface{}); ok {
 			if name, ok := family["name"].(string); ok {
 				familyName = name
+			}
+			if arg, ok := family["instanceArg"].(string); ok {
+				familyInstanceArg = arg
 			}
 		}
 
@@ -1512,7 +1516,23 @@ func (m *musterInstanceManager) extractExpectedToolsWithHTTPMocks(config *Muster
 					if toolMap, ok := tool.(map[string]interface{}); ok {
 						if name, ok := toolMap["name"].(string); ok {
 							var prefixedName string
-							grouped := familyName != "" && !familyArgDivergent[familyName] && !toolDivergent[toolKey{family: familyName, name: name}]
+							// instanceArg colliding with a declared tool
+							// property causes the aggregator to fall back to
+							// per-server prefixing for that tool. Mirror the
+							// production logic here so readiness checks
+							// expect the same exposed name.
+							instanceArgCollides := false
+							if familyInstanceArg != "" {
+								if schema, ok := toolMap["input_schema"].(map[string]interface{}); ok {
+									if props, ok := schema["properties"].(map[string]interface{}); ok {
+										_, instanceArgCollides = props[familyInstanceArg]
+									}
+								}
+							}
+							grouped := familyName != "" &&
+								!familyArgDivergent[familyName] &&
+								!toolDivergent[toolKey{family: familyName, name: name}] &&
+								!instanceArgCollides
 							if grouped {
 								prefixedName = fmt.Sprintf("x_%s_%s", familyName, name)
 							} else {

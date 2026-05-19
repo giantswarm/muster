@@ -3,6 +3,7 @@ package aggregator
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -13,6 +14,7 @@ import (
 	"github.com/giantswarm/muster/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // resolvedName stores the reverse mapping from an exposed (prefixed) name
@@ -430,6 +432,15 @@ func (r *ServerRegistry) assembleExposedTools(contributions []serverToolContribu
 	familyFallback := r.familyFallbackStatusLocked()
 	r.nameMu.RUnlock()
 
+	// Sort contributions by serverName so emission order is independent of
+	// the map iteration order in GetAllTools / GetAllToolsForSession.
+	// Without this, two successive tools/list calls can return the same set
+	// of tools in different orders, surfacing as spurious tools/list_changed
+	// diffs and flaky downstream assertions.
+	slices.SortFunc(contributions, func(a, b serverToolContribution) int {
+		return strings.Compare(a.serverName, b.serverName)
+	})
+
 	type familyKey struct {
 		family   string
 		toolName string
@@ -476,21 +487,35 @@ func (r *ServerRegistry) assembleExposedTools(contributions []serverToolContribu
 		}
 	}
 
-	for key, entry := range familyBuckets {
+	// Sort family bucket keys so family-grouped tools are emitted in a
+	// stable order across calls. familyBuckets is a Go map and its native
+	// iteration order is randomized.
+	familyKeys := make([]familyKey, 0, len(familyBuckets))
+	for k := range familyBuckets {
+		familyKeys = append(familyKeys, k)
+	}
+	slices.SortFunc(familyKeys, func(a, b familyKey) int {
+		if c := strings.Compare(a.family, b.family); c != 0 {
+			return c
+		}
+		return strings.Compare(a.toolName, b.toolName)
+	})
+
+	for _, key := range familyKeys {
+		entry := familyBuckets[key]
 		if !entry.descMatches {
 			logging.Warn("Aggregator",
 				"family %q tool %q has divergent descriptions across servers %v; falling back to per-server prefixing for this tool",
 				key.family, key.toolName, entry.servers)
-			for i, srv := range entry.servers {
-				exposedTool := entry.tools[i]
-				exposedTool.Name = r.ExposedToolName(srv, entry.tools[i].Name)
-				soloTools = append(soloTools, exposedTool)
-			}
-			// Purge any leftover grouped entry from an earlier call when fewer
-			// contributors had been observed (e.g. servers connecting at
-			// different times, or per-session views that hadn't yet seen the
-			// diverging contributor). The next call with a non-divergent set
-			// of contributors will repopulate via upsertFamilyTool.
+			soloTools = append(soloTools, r.perServerTools(entry.servers, entry.tools)...)
+			r.removeFamilyTool(r.familyExposedName(key.family, key.toolName))
+			continue
+		}
+		if instanceArgCollides(entry.tools, entry.instanceArg) {
+			logging.Warn("Aggregator",
+				"family %q tool %q already declares an input property named %q on at least one contributor; family.instanceArg collides — falling back to per-server prefixing for this tool",
+				key.family, key.toolName, entry.instanceArg)
+			soloTools = append(soloTools, r.perServerTools(entry.servers, entry.tools)...)
 			r.removeFamilyTool(r.familyExposedName(key.family, key.toolName))
 			continue
 		}
@@ -614,6 +639,20 @@ func (r *ServerRegistry) upsertFamilyTool(exposedName, originalName, family, ins
 	}
 }
 
+// perServerTools returns the given tools renamed with per-server exposed
+// prefixes (one per servers[i]/tools[i] pair). Used by the per-tool
+// fallback branches in assembleExposedTools so divergence-of-any-kind
+// handlers share one emission shape. Caller must NOT hold nameMu (because
+// ExposedToolName acquires it).
+func (r *ServerRegistry) perServerTools(servers []string, tools []mcp.Tool) []mcp.Tool {
+	out := make([]mcp.Tool, len(servers))
+	for i, srv := range servers {
+		out[i] = tools[i]
+		out[i].Name = r.ExposedToolName(srv, tools[i].Name)
+	}
+	return out
+}
+
 // purgeFamilyFromIndexLocked removes every family-grouped routing entry
 // whose bucket belongs to the given family.Name. Used when a family
 // transitions into fallback so stale family-prefixed names cannot keep
@@ -638,17 +677,18 @@ func (r *ServerRegistry) removeFamilyTool(exposedName string) {
 
 // injectInstanceEnum returns a copy of schema with a required string
 // parameter (named instanceArg) whose enum lists the available backend
-// servers. Properties and Required are deep-copied so the per-server cached
-// tool schema is not mutated.
+// servers. Properties and Required are deep-copied — including nested
+// object properties and array items — so the per-server cached tool schema
+// is not mutated by callers that walk the returned schema.
 func injectInstanceEnum(schema mcp.ToolInputSchema, instanceArg string, servers []string) mcp.ToolInputSchema {
 	enumVals := make([]any, len(servers))
 	for i, s := range servers {
 		enumVals[i] = s
 	}
 
-	properties := make(map[string]any, len(schema.Properties)+1)
-	for k, v := range schema.Properties {
-		properties[k] = v
+	properties := runtime.DeepCopyJSON(schema.Properties)
+	if properties == nil {
+		properties = make(map[string]any, 1)
 	}
 	properties[instanceArg] = map[string]any{
 		"type":        "string",
@@ -663,6 +703,23 @@ func injectInstanceEnum(schema mcp.ToolInputSchema, instanceArg string, servers 
 	schema.Properties = properties
 	schema.Required = required
 	return schema
+}
+
+// instanceArgCollides reports whether instanceArg matches a property name on
+// any contributing tool's InputSchema. The collision is asymmetric: server A's
+// tool can lack the property while server B's tool declares it, in which case
+// grouping would still silently overwrite B's declaration. Check every
+// contributor, not just the first.
+func instanceArgCollides(tools []mcp.Tool, instanceArg string) bool {
+	if instanceArg == "" {
+		return false
+	}
+	for _, t := range tools {
+		if _, ok := t.InputSchema.Properties[instanceArg]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // cloneFamily returns a deep copy of the given family pointer, or nil.
