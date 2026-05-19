@@ -30,7 +30,7 @@ func TestConfigReloadIntegration(t *testing.T) {
 	// Write initial config
 	data, err := yaml.Marshal(initialConfig)
 	assert.NoError(t, err)
-	err = os.WriteFile(configPath, data, 0644) //nolint:gosec
+	err = os.WriteFile(configPath, data, 0644)
 	assert.NoError(t, err)
 
 	// Create adapter
@@ -51,7 +51,7 @@ func TestConfigReloadIntegration(t *testing.T) {
 	// Write modified config
 	data, err = yaml.Marshal(modifiedConfig)
 	assert.NoError(t, err)
-	err = os.WriteFile(configPath, data, 0644) //nolint:gosec
+	err = os.WriteFile(configPath, data, 0644)
 	assert.NoError(t, err)
 
 	// Ensure file is written (some filesystems have delays)
@@ -82,7 +82,7 @@ func TestConfigReloadTool(t *testing.T) {
 	// Write initial config
 	data, err := yaml.Marshal(initialConfig)
 	assert.NoError(t, err)
-	err = os.WriteFile(configPath, data, 0644) //nolint:gosec
+	err = os.WriteFile(configPath, data, 0644)
 	assert.NoError(t, err)
 
 	// Create adapter

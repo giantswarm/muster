@@ -34,10 +34,11 @@ func getServerInfo(t *testing.T, reg *ServerRegistry, name string) *ServerInfo {
 func TestHandleAuthStatusResource_DegradedWithoutSession(t *testing.T) {
 	aggServer := &AggregatorServer{registry: NewServerRegistry("x")}
 
-	err := aggServer.registry.RegisterPendingAuth(
-		"auth-server", "https://auth.example.com", "auth",
-		&AuthInfo{Issuer: "https://dex.example.com"},
-	)
+	err := aggServer.registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: "auth-server", ToolPrefix: "auth"},
+		URL:                "https://auth.example.com",
+		AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com"},
+	})
 	if err != nil {
 		t.Fatalf("failed to register server: %v", err)
 	}
@@ -102,15 +103,14 @@ func TestHandleAuthStatusResource_WithAuthRequiredServer(t *testing.T) {
 	}
 
 	// Add a server in auth_required state
-	err := aggServer.registry.RegisterPendingAuth(
-		"test-server",
-		"https://test.example.com",
-		"test",
-		&AuthInfo{
+	err := aggServer.registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: "test-server", ToolPrefix: "test"},
+		URL:                "https://test.example.com",
+		AuthInfo: &AuthInfo{
 			Issuer: "https://dex.example.com",
 			Scope:  "openid profile",
 		},
-	)
+	})
 	if err != nil {
 		t.Fatalf("failed to register pending auth server: %v", err)
 	}
@@ -139,13 +139,13 @@ func TestHandleAuthStatusResource_WithAuthRequiredServer(t *testing.T) {
 
 	// Check server status
 	srv := response.Servers[0]
-	if srv.Name != "test-server" { //nolint:goconst
+	if srv.Name != "test-server" {
 		t.Errorf("expected server name 'test-server', got '%s'", srv.Name)
 	}
 	if srv.Status != "auth_required" {
 		t.Errorf("expected status 'auth_required', got '%s'", srv.Status)
 	}
-	if srv.Issuer != "https://dex.example.com" { //nolint:goconst
+	if srv.Issuer != "https://dex.example.com" {
 		t.Errorf("expected issuer 'https://dex.example.com', got '%s'", srv.Issuer)
 	}
 	if srv.Scope != "openid profile" {
@@ -163,13 +163,12 @@ func TestHandleAuthStatusResource_SSOServerNoAuthTool(t *testing.T) {
 			registry: NewServerRegistry("x"),
 		}
 
-		err := aggServer.registry.RegisterPendingAuthWithConfig(
-			"sso-fwd-server",
-			"https://sso-fwd.example.com",
-			"ssofwd",
-			&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
-			&api.MCPServerAuth{ForwardToken: true},
-		)
+		err := aggServer.registry.RegisterPendingAuth(PendingAuthRegistration{
+			ServerRegistration: ServerRegistration{Name: "sso-fwd-server", ToolPrefix: "ssofwd"},
+			URL:                "https://sso-fwd.example.com",
+			AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
+			AuthConfig:         &api.MCPServerAuth{ForwardToken: true},
+		})
 		if err != nil {
 			t.Fatalf("failed to register server: %v", err)
 		}
@@ -211,20 +210,19 @@ func TestHandleAuthStatusResource_SSOServerNoAuthTool(t *testing.T) {
 			registry: NewServerRegistry("x"),
 		}
 
-		err := aggServer.registry.RegisterPendingAuthWithConfig(
-			"sso-exch-server",
-			"https://sso-exch.example.com",
-			"ssoexch",
-			&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
-			&api.MCPServerAuth{
-				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+		err := aggServer.registry.RegisterPendingAuth(PendingAuthRegistration{
+			ServerRegistration: ServerRegistration{Name: "sso-exch-server", ToolPrefix: "ssoexch"},
+			URL:                "https://sso-exch.example.com",
+			AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
+			AuthConfig: &api.MCPServerAuth{
+				TokenExchange: &api.TokenExchangeConfig{
 					Enabled:          true,
 					DexTokenEndpoint: "https://remote-dex.example.com/token",
 					ConnectorID:      "cluster-a-dex",
 					ClientID:         "test-client",
 				},
 			},
-		)
+		})
 		if err != nil {
 			t.Fatalf("failed to register server: %v", err)
 		}
@@ -262,12 +260,11 @@ func TestHandleAuthStatusResource_SSOServerNoAuthTool(t *testing.T) {
 			registry: NewServerRegistry("x"),
 		}
 
-		err := aggServer.registry.RegisterPendingAuth(
-			"regular-server",
-			"https://regular.example.com",
-			"reg",
-			&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
-		)
+		err := aggServer.registry.RegisterPendingAuth(PendingAuthRegistration{
+			ServerRegistration: ServerRegistration{Name: "regular-server", ToolPrefix: "reg"},
+			URL:                "https://regular.example.com",
+			AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
+		})
 		if err != nil {
 			t.Fatalf("failed to register server: %v", err)
 		}
@@ -309,13 +306,12 @@ func TestDetermineSessionAuthStatus_SSOServers(t *testing.T) {
 			ssoTracker: tracker,
 		}
 
-		err := aggServer.registry.RegisterPendingAuthWithConfig(
-			"sso-server",
-			"https://sso.example.com",
-			"sso",
-			&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
-			&api.MCPServerAuth{ForwardToken: true},
-		)
+		err := aggServer.registry.RegisterPendingAuth(PendingAuthRegistration{
+			ServerRegistration: ServerRegistration{Name: "sso-server", ToolPrefix: "sso"},
+			URL:                "https://sso.example.com",
+			AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
+			AuthConfig:         &api.MCPServerAuth{ForwardToken: true},
+		})
 		if err != nil {
 			t.Fatalf("failed to register server: %v", err)
 		}
@@ -336,20 +332,19 @@ func TestDetermineSessionAuthStatus_SSOServers(t *testing.T) {
 			ssoTracker: tracker,
 		}
 
-		err := aggServer.registry.RegisterPendingAuthWithConfig(
-			"exchange-server",
-			"https://exchange.example.com",
-			"exch",
-			&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
-			&api.MCPServerAuth{
-				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+		err := aggServer.registry.RegisterPendingAuth(PendingAuthRegistration{
+			ServerRegistration: ServerRegistration{Name: "exchange-server", ToolPrefix: "exch"},
+			URL:                "https://exchange.example.com",
+			AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
+			AuthConfig: &api.MCPServerAuth{
+				TokenExchange: &api.TokenExchangeConfig{
 					Enabled:          true,
 					DexTokenEndpoint: "https://remote-dex.example.com/token",
 					ConnectorID:      "cluster-a-dex",
 					ClientID:         "test-client",
 				},
 			},
-		)
+		})
 		if err != nil {
 			t.Fatalf("failed to register server: %v", err)
 		}
@@ -369,13 +364,12 @@ func TestDetermineSessionAuthStatus_SSOServers(t *testing.T) {
 			ssoTracker: newSSOTracker(),
 		}
 
-		err := aggServer.registry.RegisterPendingAuthWithConfig(
-			"sso-no-pending",
-			"https://sso.example.com",
-			"sso",
-			&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
-			&api.MCPServerAuth{ForwardToken: true},
-		)
+		err := aggServer.registry.RegisterPendingAuth(PendingAuthRegistration{
+			ServerRegistration: ServerRegistration{Name: "sso-no-pending", ToolPrefix: "sso"},
+			URL:                "https://sso.example.com",
+			AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
+			AuthConfig:         &api.MCPServerAuth{ForwardToken: true},
+		})
 		if err != nil {
 			t.Fatalf("failed to register server: %v", err)
 		}
@@ -395,13 +389,12 @@ func TestDetermineSessionAuthStatus_SSOServers(t *testing.T) {
 			ssoTracker: tracker,
 		}
 
-		err := aggServer.registry.RegisterPendingAuthWithConfig(
-			"sso-server",
-			"https://sso.example.com",
-			"sso",
-			&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
-			&api.MCPServerAuth{ForwardToken: true},
-		)
+		err := aggServer.registry.RegisterPendingAuth(PendingAuthRegistration{
+			ServerRegistration: ServerRegistration{Name: "sso-server", ToolPrefix: "sso"},
+			URL:                "https://sso.example.com",
+			AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
+			AuthConfig:         &api.MCPServerAuth{ForwardToken: true},
+		})
 		if err != nil {
 			t.Fatalf("failed to register server: %v", err)
 		}
@@ -421,12 +414,11 @@ func TestDetermineSessionAuthStatus_SSOServers(t *testing.T) {
 			ssoTracker: newSSOTracker(),
 		}
 
-		err := aggServer.registry.RegisterPendingAuth(
-			"non-sso-server",
-			"https://non-sso.example.com",
-			"nonsso",
-			&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
-		)
+		err := aggServer.registry.RegisterPendingAuth(PendingAuthRegistration{
+			ServerRegistration: ServerRegistration{Name: "non-sso-server", ToolPrefix: "nonsso"},
+			URL:                "https://non-sso.example.com",
+			AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
+		})
 		if err != nil {
 			t.Fatalf("failed to register server: %v", err)
 		}
@@ -475,13 +467,12 @@ func TestDetermineSessionAuthStatus_SSOPendingTimeout(t *testing.T) {
 		ssoTracker: tracker,
 	}
 
-	err := aggServer.registry.RegisterPendingAuthWithConfig(
-		"sso-server",
-		"https://sso.example.com",
-		"sso",
-		&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
-		&api.MCPServerAuth{ForwardToken: true},
-	)
+	err := aggServer.registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: "sso-server", ToolPrefix: "sso"},
+		URL:                "https://sso.example.com",
+		AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
+		AuthConfig:         &api.MCPServerAuth{ForwardToken: true},
+	})
 	if err != nil {
 		t.Fatalf("failed to register server: %v", err)
 	}
@@ -518,13 +509,12 @@ func TestDetermineSessionAuthStatus_ReauthRequired_WhenSSOFailed(t *testing.T) {
 		ssoTracker: tracker,
 	}
 
-	err := aggServer.registry.RegisterPendingAuthWithConfig(
-		"sso-server",
-		"https://sso.example.com",
-		"sso",
-		&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
-		&api.MCPServerAuth{ForwardToken: true},
-	)
+	err := aggServer.registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: "sso-server", ToolPrefix: "sso"},
+		URL:                "https://sso.example.com",
+		AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
+		AuthConfig:         &api.MCPServerAuth{ForwardToken: true},
+	})
 	if err != nil {
 		t.Fatalf("failed to register server: %v", err)
 	}
@@ -552,18 +542,17 @@ func TestDetermineSessionAuthStatus_ReauthRequired_TokenExchangeServer(t *testin
 		ssoTracker: tracker,
 	}
 
-	err := aggServer.registry.RegisterPendingAuthWithConfig(
-		"exchange-server",
-		"https://exchange.example.com",
-		"exchange",
-		&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
-		&api.MCPServerAuth{TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+	err := aggServer.registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: "exchange-server", ToolPrefix: "exchange"},
+		URL:                "https://exchange.example.com",
+		AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
+		AuthConfig: &api.MCPServerAuth{TokenExchange: &api.TokenExchangeConfig{
 			Enabled:          true,
 			DexTokenEndpoint: "https://remote-dex.example.com/token",
 			ConnectorID:      "cluster-a-dex",
 			ClientID:         "test-client",
 		}},
-	)
+	})
 	if err != nil {
 		t.Fatalf("failed to register server: %v", err)
 	}
@@ -583,13 +572,12 @@ func TestHandleAuthStatusResource_ReauthRequired_PopulatesAuthMetadata(t *testin
 		ssoTracker: tracker,
 	}
 
-	err := aggServer.registry.RegisterPendingAuthWithConfig(
-		"sso-server",
-		"https://sso.example.com",
-		"sso",
-		&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
-		&api.MCPServerAuth{ForwardToken: true},
-	)
+	err := aggServer.registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: "sso-server", ToolPrefix: "sso"},
+		URL:                "https://sso.example.com",
+		AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
+		AuthConfig:         &api.MCPServerAuth{ForwardToken: true},
+	})
 	if err != nil {
 		t.Fatalf("failed to register server: %v", err)
 	}
@@ -688,7 +676,7 @@ func TestStoreIDTokenForSSO_SetsExpiresAtFromJWT(t *testing.T) {
 
 	t.Run("populates ExpiresAt when JWT carries an exp claim", func(t *testing.T) {
 		// JWT payload: {"sub":"alice","exp":9999999999} (year 2286).
-		idToken := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhbGljZSIsImV4cCI6OTk5OTk5OTk5OX0.sig" //nolint:gosec
+		idToken := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhbGljZSIsImV4cCI6OTk5OTk5OTk5OX0.sig"
 		a.storeIDTokenForSSO("family-1", "alice", idToken)
 
 		stored := mock.GetFullTokenByIssuer("family-1", "https://muster.example")
@@ -716,7 +704,7 @@ func TestStoreIDTokenForSSO_SetsExpiresAtFromJWT(t *testing.T) {
 	t.Run("refuses to store a JWT without exp", func(t *testing.T) {
 		mock.tokens = map[string]*api.OAuthToken{}
 		// Payload: {"sub":"carol"} — no exp.
-		idToken := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJjYXJvbCJ9.sig" //nolint:gosec
+		idToken := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJjYXJvbCJ9.sig"
 		a.storeIDTokenForSSO("family-3", "carol", idToken)
 
 		if stored := mock.GetFullTokenByIssuer("family-3", "https://muster.example"); stored != nil {
@@ -727,7 +715,7 @@ func TestStoreIDTokenForSSO_SetsExpiresAtFromJWT(t *testing.T) {
 	t.Run("stored entry is IsExpiredWithMargin-expired when JWT exp is in the past", func(t *testing.T) {
 		mock.tokens = map[string]*api.OAuthToken{}
 		// Payload: {"sub":"dave","exp":1} — Unix epoch + 1s.
-		idToken := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJkYXZlIiwiZXhwIjoxfQ.sig" //nolint:gosec
+		idToken := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJkYXZlIiwiZXhwIjoxfQ.sig"
 		a.storeIDTokenForSSO("family-4", "dave", idToken)
 
 		stored := mock.GetFullTokenByIssuer("family-4", "https://muster.example")

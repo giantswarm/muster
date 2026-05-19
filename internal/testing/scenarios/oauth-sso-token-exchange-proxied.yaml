@@ -10,7 +10,6 @@ description: |
   3. Muster validates that the exchanged token's issuer matches expectedIssuer
 
   This is critical for:
-  - Teleport Application Access scenarios
   - VPN/tunnel access to private clusters
   - Any proxy that changes the access URL
 
@@ -20,7 +19,7 @@ description: |
 
   The key difference from oauth-sso-token-exchange-basic is the use of
   expected_issuer to explicitly set the issuer validation.
-tags: ["oauth", "sso", "token-exchange", "rfc8693", "proxy", "teleport", "authentication", "mcpserver"]
+tags: ["oauth", "sso", "token-exchange", "rfc8693", "proxy", "authentication", "mcpserver"]
 timeout: "2m"
 
 pre_configuration:

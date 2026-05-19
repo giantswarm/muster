@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/cli"
 
 	"github.com/spf13/cobra"
@@ -18,8 +19,8 @@ var createFlags cli.CommandFlags
 
 // Available resource types for create operations
 var createResourceTypes = []string{
-	"workflow",
-	"mcpserver",
+	api.ResourceTypeWorkflow,
+	api.ResourceTypeMCPServer,
 }
 
 // createCmd represents the create command
@@ -55,7 +56,7 @@ Note: The aggregator server must be running (use 'muster serve') before using th
 
 // Resource type mappings for create operations
 var createResourceMappings = map[string]string{
-	"workflow": "core_workflow_create",
+	api.ResourceTypeWorkflow: "core_workflow_create",
 }
 
 func init() {
@@ -208,7 +209,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if resourceType == "mcpserver" { //nolint:goconst
+	if resourceType == api.ResourceTypeMCPServer {
 		// Handle MCPServer creation: muster create mcpserver <name> --type <type> [options]
 		if len(args) < 2 {
 			return fmt.Errorf("MCPServer creation requires: muster create mcpserver <name> --type <type> [options]")

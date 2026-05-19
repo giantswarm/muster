@@ -1,0 +1,216 @@
+name: "mcpserver-family-partial-description-divergence-strict"
+description: "When one tool's description diverges within a family, ONLY that tool falls back to per-server prefixing; other tools still group and the diverging tool's family-prefixed name must not be exposed"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "family", "aggregator", "fallback"]
+timeout: "2m"
+
+# Given: Three MCP servers share family.name=kubernetes. They expose two
+#        tools: list_pods (description consistent across all three) and
+#        delete_pod (description diverges on one of the three).
+# When:  The aggregator lists tools.
+# Then:  - list_pods groups as x_kubernetes_list_pods with a 3-element enum
+#        - delete_pod falls back: x_k8s-{a,b,c}_delete_pod are exposed but
+#          x_kubernetes_delete_pod is NOT.
+#
+# Tighter than mcpserver-family-description-divergence.yaml because that
+# scenario only verifies the per-server fallback works for the diverging
+# tool and the family grouping works for the matching tool — it does NOT
+# pin that the diverging tool's family-prefixed name is absent. A regression
+# that over-eagerly falls back the entire family (or under-eagerly exposes
+# both grouped and per-server names) would slip past the existing test.
+
+pre_configuration:
+  mcp_servers:
+    - name: "k8s-a"
+      config:
+        family:
+          name: "kubernetes"
+          instanceArg: "management_cluster"
+        tools:
+          - name: "list_pods"
+            description: "List pods in a namespace"
+            input_schema:
+              type: "object"
+              properties:
+                namespace: { type: "string" }
+            responses:
+              - response: { source: "k8s-a" }
+          - name: "delete_pod"
+            description: "Delete pod (idempotent)"
+            input_schema:
+              type: "object"
+              properties:
+                namespace: { type: "string" }
+                name:      { type: "string" }
+            responses:
+              - response: { source: "k8s-a" }
+    - name: "k8s-b"
+      config:
+        family:
+          name: "kubernetes"
+          instanceArg: "management_cluster"
+        tools:
+          - name: "list_pods"
+            description: "List pods in a namespace"
+            input_schema:
+              type: "object"
+              properties:
+                namespace: { type: "string" }
+            responses:
+              - response: { source: "k8s-b" }
+          - name: "delete_pod"
+            description: "Delete pod (force, no grace period)"   # diverges
+            input_schema:
+              type: "object"
+              properties:
+                namespace: { type: "string" }
+                name:      { type: "string" }
+            responses:
+              - response: { source: "k8s-b" }
+    - name: "k8s-c"
+      config:
+        family:
+          name: "kubernetes"
+          instanceArg: "management_cluster"
+        tools:
+          - name: "list_pods"
+            description: "List pods in a namespace"
+            input_schema:
+              type: "object"
+              properties:
+                namespace: { type: "string" }
+            responses:
+              - response: { source: "k8s-c" }
+          - name: "delete_pod"
+            description: "Delete pod (idempotent)"     # matches k8s-a, diverges from k8s-b
+            input_schema:
+              type: "object"
+              properties:
+                namespace: { type: "string" }
+                name:      { type: "string" }
+            responses:
+              - response: { source: "k8s-c" }
+
+steps:
+  - id: "wait-for-a"
+    tool: "core_service_status"
+    args:
+      name: "k8s-a"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "running"
+
+  - id: "wait-for-b"
+    tool: "core_service_status"
+    args:
+      name: "k8s-b"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "running"
+
+  - id: "wait-for-c"
+    tool: "core_service_status"
+    args:
+      name: "k8s-c"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "running"
+
+  # Consistent-description tool still groups across all three.
+  - id: "matching-tool-groups-a"
+    tool: "x_kubernetes_list_pods"
+    args:
+      management_cluster: "k8s-a"
+      namespace: "default"
+    expected:
+      success: true
+      contains: ["k8s-a"]
+
+  - id: "matching-tool-groups-b"
+    tool: "x_kubernetes_list_pods"
+    args:
+      management_cluster: "k8s-b"
+      namespace: "default"
+    expected:
+      success: true
+      contains: ["k8s-b"]
+
+  - id: "matching-tool-groups-c"
+    tool: "x_kubernetes_list_pods"
+    args:
+      management_cluster: "k8s-c"
+      namespace: "default"
+    expected:
+      success: true
+      contains: ["k8s-c"]
+
+  # Diverging-description tool: per-server fallback works for all three.
+  - id: "diverging-tool-per-server-a"
+    tool: "x_k8s-a_delete_pod"
+    args:
+      namespace: "default"
+      name:      "pod-1"
+    expected:
+      success: true
+      contains: ["k8s-a"]
+
+  - id: "diverging-tool-per-server-b"
+    tool: "x_k8s-b_delete_pod"
+    args:
+      namespace: "default"
+      name:      "pod-2"
+    expected:
+      success: true
+      contains: ["k8s-b"]
+
+  - id: "diverging-tool-per-server-c"
+    tool: "x_k8s-c_delete_pod"
+    args:
+      namespace: "default"
+      name:      "pod-3"
+    expected:
+      success: true
+      contains: ["k8s-c"]
+
+  # The negative assertion the existing scenario does not make: the diverging
+  # tool's family-prefixed name MUST NOT be exposed.
+  - id: "diverging-tool-family-name-absent"
+    description: "x_kubernetes_delete_pod must not exist; only the per-server fallback names are exposed for the diverging tool"
+    tool: "x_kubernetes_delete_pod"
+    args:
+      management_cluster: "k8s-a"
+      namespace: "default"
+      name:      "pod-1"
+    expected:
+      success: false
+      error_contains: ["tool not found"]
+
+cleanup:
+  - id: "cleanup-stop-a"
+    tool: "core_service_stop"
+    args:
+      name: "k8s-a"
+    expected:
+      success: true
+    continue_on_failure: true
+  - id: "cleanup-stop-b"
+    tool: "core_service_stop"
+    args:
+      name: "k8s-b"
+    expected:
+      success: true
+    continue_on_failure: true
+  - id: "cleanup-stop-c"
+    tool: "core_service_stop"
+    args:
+      name: "k8s-c"
+    expected:
+      success: true
+    continue_on_failure: true

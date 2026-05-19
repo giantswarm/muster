@@ -79,7 +79,7 @@ func New(cfg Config) *Orchestrator {
 // Start initializes and starts all registered static services and creates
 // auto-start MCPServer services from MCPServer definitions.
 func (o *Orchestrator) Start(ctx context.Context) error {
-	o.ctx, o.cancelFunc = context.WithCancel(ctx) //nolint:gosec
+	o.ctx, o.cancelFunc = context.WithCancel(ctx)
 
 	staticServices := o.registry.GetAll()
 
@@ -196,7 +196,14 @@ func (o *Orchestrator) handleAuthRequiredServer(mcpServerInfo api.MCPServerInfo,
 		ResourceMetadataURL: authErr.AuthInfo.ResourceMetadataURL,
 	}
 
-	if err := aggregator.RegisterServerPendingAuthWithConfig(mcpServerInfo.Name, mcpServerInfo.URL, mcpServerInfo.ToolPrefix, authInfo, mcpServerInfo.Auth); err != nil {
+	if err := aggregator.RegisterServerPendingAuth(api.PendingAuthRegistration{
+		Name:       mcpServerInfo.Name,
+		URL:        mcpServerInfo.URL,
+		ToolPrefix: mcpServerInfo.ToolPrefix,
+		Family:     mcpServerInfo.Family,
+		AuthInfo:   authInfo,
+		AuthConfig: mcpServerInfo.Auth,
+	}); err != nil {
 		logging.Error("Orchestrator", err, "Failed to register pending auth server: %s", mcpServerInfo.Name)
 		return
 	}
