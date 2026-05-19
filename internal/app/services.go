@@ -35,9 +35,17 @@ import (
 // templates/deployment.yaml.
 const upstreamProxyEnvVar = "MUSTER_AGW_UPSTREAM_URL"
 
-// agentgatewayReadyURL is the standard agentgateway readiness endpoint the
-// subprocess manager polls before Start returns.
-const agentgatewayReadyURL = "http://localhost:15021/healthz/ready"
+// agentgatewayDefaultReadinessPort is agentgateway's default readiness probe
+// port when no override is supplied. Multi-instance deployments override
+// this via AggregatorConfig.AgentgatewayReadinessPort.
+const agentgatewayDefaultReadinessPort uint16 = 15021
+
+// agentgatewayDefaultAdminPort and agentgatewayDefaultStatsPort are
+// agentgateway's default management ports.
+const (
+	agentgatewayDefaultAdminPort uint16 = 15000
+	agentgatewayDefaultStatsPort uint16 = 15020
+)
 
 // agentgatewayStartupTimeout caps how long Start waits for the readiness probe
 // before failing initialization. 30s is comfortable margin over agw's typical
@@ -337,12 +345,15 @@ func InitializeServices(cfg *Config) (*Services, error) {
 		if cfg.MusterConfig.Kubernetes {
 			aggConfig.UpstreamProxy = os.Getenv(upstreamProxyEnvVar)
 		} else {
-			port, err := reserveFilesystemModeAgwPort()
+			fsmPorts, err := resolveFilesystemModeAgwPorts(cfg.MusterConfig.Aggregator)
 			if err != nil {
-				return nil, fmt.Errorf("reserve agentgateway port: %w", err)
+				return nil, err
 			}
-			aggConfig.AgentgatewayListenerPort = port
-			aggConfig.UpstreamProxy = "http://localhost:" + strconv.Itoa(int(port))
+			aggConfig.AgentgatewayListenerPort = fsmPorts.listener
+			aggConfig.AgentgatewayAdminPort = fsmPorts.admin
+			aggConfig.AgentgatewayStatsPort = fsmPorts.stats
+			aggConfig.AgentgatewayReadinessPort = fsmPorts.readiness
+			aggConfig.UpstreamProxy = "http://localhost:" + strconv.Itoa(int(fsmPorts.listener))
 		}
 		if aggConfig.UpstreamProxy == "" {
 			return nil, fmt.Errorf("aggregator: UpstreamProxy required; cluster mode reads %s, filesystem mode picks a free port at startup",
@@ -391,9 +402,10 @@ func InitializeServices(cfg *Config) (*Services, error) {
 		// Get handlers for reconciler dependencies
 		mcpServerMgr := api.GetMCPServerManager()
 		if mcpServerMgr != nil {
-			listenerPort := uint16(0)
+			var listenerPort, adminPort, statsPort, readinessPort uint16
 			if aggManager != nil {
 				listenerPort = aggManager.AgentgatewayListenerPort()
+				adminPort, statsPort, readinessPort = aggManager.AgentgatewayManagementPorts()
 			}
 			mcpReconciler, configDir, err := buildMCPServerReconciler(
 				cfg.MusterConfig.Kubernetes,
@@ -402,6 +414,9 @@ func InitializeServices(cfg *Config) (*Services, error) {
 				namespace,
 				cfg.ConfigPath,
 				listenerPort,
+				adminPort,
+				statsPort,
+				readinessPort,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("build MCPServer reconciler: %w", err)
@@ -460,19 +475,66 @@ func aggregatorErrorCallback(err error) {
 	logging.Error("Aggregator", err, "Aggregator manager encountered a fatal error")
 }
 
+// filesystemModeAgwPorts groups every port the filesystem-mode
+// agentgateway subprocess needs.
+type filesystemModeAgwPorts struct {
+	listener  uint16 // data port; muster's aggregator dials here
+	admin     uint16 // agentgateway admin UI
+	stats     uint16 // agentgateway prometheus / stats
+	readiness uint16 // health probe
+}
+
+// resolveFilesystemModeAgwPorts returns the agentgateway ports the
+// filesystem-mode subprocess should bind. Explicit values from the
+// AggregatorConfig win (the BDD test harness sets these so parallel
+// muster instances coexist); zero values fall back to a random free port
+// per missing port.
+func resolveFilesystemModeAgwPorts(cfg config.AggregatorConfig) (filesystemModeAgwPorts, error) {
+	out := filesystemModeAgwPorts{
+		listener:  cfg.AgentgatewayPort,
+		admin:     cfg.AgentgatewayAdminPort,
+		stats:     cfg.AgentgatewayStatsPort,
+		readiness: cfg.AgentgatewayReadinessPort,
+	}
+	for _, slot := range []*uint16{&out.listener, &out.admin, &out.stats, &out.readiness} {
+		if *slot != 0 {
+			continue
+		}
+		port, err := reserveFilesystemModeAgwPort()
+		if err != nil {
+			return filesystemModeAgwPorts{}, fmt.Errorf("reserve agentgateway port: %w", err)
+		}
+		*slot = port
+	}
+	return out, nil
+}
+
+// addrIfPort returns "<host>:<port>" when port is non-zero so callers can
+// conditionally emit a listener override. Empty string preserves the
+// agentgateway default.
+func addrIfPort(port uint16, host string) string {
+	if port == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%s:%d", host, port)
+}
+
 // reserveFilesystemModeAgwPort grabs an unused TCP port for the agentgateway
-// subprocess to bind. Filesystem-mode muster spawns its own agentgateway,
-// so a hardcoded port would prevent parallel muster instances (BDD test
-// harness, multiple local dev sessions) from coexisting. There is a tiny
-// race window between Close and agentgateway's bind; in practice it's
-// dominated by the kernel's TIME_WAIT behavior, not contention.
+// subprocess to bind. There is a tiny race window between Close and
+// agentgateway's bind; for parallel test runs the BDD harness reserves
+// ports up-front via AggregatorConfig.AgentgatewayPort/AdminPort/etc to
+// avoid that race entirely.
 func reserveFilesystemModeAgwPort() (uint16, error) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return 0, fmt.Errorf("listen: %w", err)
 	}
 	addr := listener.Addr().(*net.TCPAddr)
-	port := uint16(addr.Port)
+	if addr.Port < 0 || addr.Port > 65535 {
+		_ = listener.Close()
+		return 0, fmt.Errorf("kernel-assigned port %d out of range [0, 65535]", addr.Port)
+	}
+	port := uint16(addr.Port) //nolint:gosec // G115: bounds checked immediately above
 	if err := listener.Close(); err != nil {
 		return 0, fmt.Errorf("close: %w", err)
 	}
@@ -550,7 +612,7 @@ func buildMCPServerReconciler(
 	musterClient client.MusterClient,
 	namespace string,
 	configPath string,
-	listenerPort uint16,
+	listenerPort, adminPort, statsPort, readinessPort uint16,
 ) (*reconciler.MCPServerReconciler, string, error) {
 	if kubernetesMode {
 		r := reconciler.NewMCPServerReconcilerCluster(
@@ -571,11 +633,18 @@ func buildMCPServerReconciler(
 	if listenerPort != 0 {
 		applierOpts = append(applierOpts, yamlapply.WithListenerPort(listenerPort))
 	}
+	if adminPort != 0 || statsPort != 0 || readinessPort != 0 {
+		applierOpts = append(applierOpts, yamlapply.WithAdminAddr(
+			addrIfPort(adminPort, "127.0.0.1"),
+			addrIfPort(statsPort, "[::]"),
+			addrIfPort(readinessPort, "[::]"),
+		))
+	}
 	applier, err := yamlapply.NewApplier(dir, applierOpts...)
 	if err != nil {
 		return nil, "", fmt.Errorf("construct YAML Applier at %s: %w", dir, err)
 	}
-	logging.Info("Services", "Wired YAML Applier writing to %s (listener port=%d)", dir, listenerPort)
+	logging.Info("Services", "Wired YAML Applier writing to %s (listener=%d, admin=%d, stats=%d, readiness=%d)", dir, listenerPort, adminPort, statsPort, readinessPort)
 
 	r := reconciler.NewMCPServerReconcilerFilesystem(
 		mcpServerMgr,
@@ -588,10 +657,17 @@ func buildMCPServerReconciler(
 // startAgentgatewaySubprocess resolves the pinned agentgateway binary, spawns
 // it with -f <configDir>, and waits for its readiness endpoint to respond
 // before returning. The returned Manager owns the process; the caller stops
-// it during application shutdown.
-func startAgentgatewaySubprocess(ctx context.Context, configDir string) (*subprocess.Manager, error) {
+// it during application shutdown. readinessPort lets multi-instance callers
+// (BDD test harness) probe a per-instance port instead of the agentgateway
+// default :15021.
+func startAgentgatewaySubprocess(ctx context.Context, configDir string, readinessPort uint16) (*subprocess.Manager, error) {
 	startCtx, cancel := context.WithTimeout(ctx, agentgatewayStartupTimeout)
 	defer cancel()
+
+	if readinessPort == 0 {
+		readinessPort = agentgatewayDefaultReadinessPort
+	}
+	readyURL := fmt.Sprintf("http://localhost:%d/healthz/ready", readinessPort)
 
 	binaryPath, err := binary.Resolve(startCtx)
 	if err != nil {
@@ -608,10 +684,10 @@ func startAgentgatewaySubprocess(ctx context.Context, configDir string) (*subpro
 	}
 
 	configFile := filepath.Join(configDir, yamlapply.ConfigFilename)
-	probe := subprocess.HTTPReadyProbe(agentgatewayReadyURL, 0)
+	probe := subprocess.HTTPReadyProbe(readyURL, 0)
 	if err := manager.Start(startCtx, binaryPath, []string{"-f", configFile}, nil, probe); err != nil {
 		return nil, fmt.Errorf("start agentgateway: %w", err)
 	}
-	logging.Info("Services", "agentgateway subprocess ready (pid=%d, config=%s)", manager.PID(), configFile)
+	logging.Info("Services", "agentgateway subprocess ready (pid=%d, config=%s, ready=%s)", manager.PID(), configFile, readyURL)
 	return manager, nil
 }
