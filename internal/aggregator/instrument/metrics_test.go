@@ -109,8 +109,10 @@ func TestClassify(t *testing.T) {
 // default exemplar filter (TraceBasedFilter as of SDK v1.21+) attaches
 // the active span's TraceID/SpanID to histogram observations. This is
 // the mechanism behind Grafana's "click latency bucket → jump to
-// trace" pivot and is gated on muster's middleware order
-// (Tracing OUTER of Metrics, so the span is live during Record).
+// trace" pivot and is gated on the muster middleware order: in production
+// the mcp-go otel adapter installs the tool-handler tracing span outside
+// the metrics middleware, so the span is live during histogram.Record.
+// Simulate that here by opening a span manually around the Metrics chain.
 func TestMetrics_HistogramExemplarAttachesTraceID(t *testing.T) {
 	tracerExp := setupTracer(t)
 	reader := setupMeter(t)
@@ -118,11 +120,10 @@ func TestMetrics_HistogramExemplarAttachesTraceID(t *testing.T) {
 	handler := func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		return &mcp.CallToolResult{}, nil
 	}
-	// Match production composition: Tracing wraps Metrics. mcp-go's
-	// composition is outermost-first, so Tracing(Metrics(handler))
-	// puts the active span in ctx when histogram.Record fires.
-	chain := Tracing()(Metrics()(handler))
-	_, _ = chain(context.Background(), callRequest("x_kubernetes_list_pods"))
+	ctx, end := StartToolSpan(context.Background(), "x_kubernetes_list_pods")
+	chain := Metrics()(handler)
+	res, err := chain(ctx, callRequest("x_kubernetes_list_pods"))
+	end(res, err)
 
 	spans := tracerExp.GetSpans()
 	require.Len(t, spans, 1)
