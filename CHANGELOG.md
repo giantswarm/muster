@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 
 - `internal/reconciler/agentgateway` domain package: typed `Config` / `Backend` / `Authn` / `Policy` / `HTTPTarget` / `StdioTarget` models built from `v1alpha1.MCPServer`. Pure functions only — no Kubernetes client, no filesystem, no `internal/api` dependencies — so downstream emitter adapters (cluster, filesystem) and translation tests can share one source of truth for what a "compiled MCPServer" looks like.
 - `agentgateway.Applier` interface with `Apply` and `Delete`. `MCPServerReconciler` writes and removes agentgateway config through one port; the concrete implementation (cluster-mode k8s adapter, filesystem-mode yaml adapter) is wired by `internal/app` per Reconcile. The cluster-mode adapter's `Delete` is a no-op for `AgentgatewayBackend` / `HTTPRoute` (cleanup cascades via OwnerReferences) and only removes the `AgentgatewayPolicy` slot when present.
+- `internal/reconciler/agentgateway/k8s` Applier: emits the `AgentgatewayBackend` / `HTTPRoute` / `AgentgatewayPolicy` CRD stack (`agentgateway.dev/v1alpha1`) for each MCPServer in cluster mode, with `OwnerReferences` set so deletion cascades. Stdio MCPServers in cluster mode are rejected with `k8s.ErrStdioNotSupportedInCluster` (per-MCPServer pod isolation deferred).
 
 ### Changed
 
