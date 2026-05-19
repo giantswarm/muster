@@ -16,6 +16,7 @@ import (
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	agw "github.com/agentgateway/agentgateway/controller/api/v1alpha1/agentgateway"
+
 	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
 
 	"github.com/giantswarm/muster/internal/api"
