@@ -275,10 +275,6 @@ func TestNew_RejectsBadOptions(t *testing.T) {
 	})
 }
 
-// TestManager_StopDuringStartup exercises the race between cmd.Start
-// returning and the supervisor recording m.pgid: Stop is invoked before
-// the child has had time to reach readiness. The Manager must still
-// reap the child rather than leak it.
 func TestManager_StopDuringStartup(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("signal model differs on windows")
@@ -294,8 +290,6 @@ func TestManager_StopDuringStartup(t *testing.T) {
 	env := fakeEnv(map[string]string{
 		envFakeMode:      fakeModeNormal,
 		envFakeReadyFile: readyPath,
-		// Block the child indefinitely before touching ready — the
-		// readiness probe never completes on its own.
 		envFakeReadyWait: "60000",
 	})
 
@@ -303,10 +297,6 @@ func TestManager_StopDuringStartup(t *testing.T) {
 	go func() {
 		startErr <- mgr.Start(t.Context(), os.Args[0], nil, env, fileReadyProbe(readyPath))
 	}()
-
-	// Give the supervisor goroutine a chance to schedule but try to
-	// land Stop in the cmd.Start → pgid-assignment window.
-	time.Sleep(2 * time.Millisecond)
 
 	require.NoError(t, mgr.Stop(t.Context()))
 
@@ -324,8 +314,6 @@ func TestManager_StopDuringStartup(t *testing.T) {
 	}
 }
 
-// TestManager_StopReapsGroup verifies the package-level guarantee that
-// children the supervised process spawned terminate with it.
 func TestManager_StopReapsGroup(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("process-group signalling differs on windows")

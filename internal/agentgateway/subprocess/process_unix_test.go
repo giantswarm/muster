@@ -18,15 +18,10 @@ func TestSignalProcessGroup_RejectsNonPositivePgid(t *testing.T) {
 	}
 }
 
-// TestSignalProcessGroup_ESRCHIsSuccess pins the contract that signalling
-// a group that no longer exists is a no-op rather than an error: the
-// terminal state we care about (group gone) is already achieved.
 func TestSignalProcessGroup_ESRCHIsSuccess(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("process-group signalling differs on windows")
 	}
-	// Spawn /bin/true in its own process group, wait for exit, then
-	// signal — the group has been reaped so kill returns ESRCH.
 	cmd := exec.Command("/bin/true")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	require.NoError(t, cmd.Start())

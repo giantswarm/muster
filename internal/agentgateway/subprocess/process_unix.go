@@ -17,9 +17,7 @@ func configureProcAttr(cmd *exec.Cmd) {
 
 // signalProcessGroup delivers sig to the process group identified by
 // pgid. ESRCH (group already reaped) is treated as success; any other
-// errno is returned wrapped so the caller can decide what to do. There
-// is deliberately no single-pid fallback: silently widening to one PID
-// would defeat the whole-group reap guarantee.
+// errno is wrapped and returned.
 func signalProcessGroup(pgid int, sig syscall.Signal) error {
 	if pgid <= 0 {
 		return fmt.Errorf("invalid pgid %d", pgid)
