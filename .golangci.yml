@@ -23,19 +23,6 @@ linters:
         - logging.WarnWithAttrs
         - logging.ErrorWithAttrs
         - fmt.Errorf
-      # Protocol / format vocabulary still appearing as repeated string
-      # literals at this point in the stack. The follow-up PRs lift each
-      # cluster to typed constants (api.ArgType, api.SchemaKey*, api.Field*,
-      # pkg/oauth wire constants) and shrink this list to empty.
-      ignore-string-values:
-        - '^(string|boolean|object|array|number|integer|null)$'
-        - '^(description|additionalProperties|properties|items|required|default|enum)$'
-        - '^(name|status|state|health|command|args|tools|services|service|workflow|workflows|executions|mcpServer|mcpServers|serviceClass|serviceClasses|mimeType|inputSchema|uri|label)$'
-        - '^(NAME|DESCRIPTION|VALUE|PROPERTY|TYPE|REQUIRED|ARGUMENT|STEP|TOOL|SERVER|ARGS|MIME TYPE|URI)$'
-        - '^(success|error|message|server)$'
-        - '^(Authorization|Bearer|error_description|invalid_grant|authorization_code|refresh_token|id_token|grant_type|client_id|code_verifier|S256|access_token|token_type|expires_in)$'
-        - '^(execute|validate|steps)$'
-        - '^/oauth/revoke$'
 
   exclusions:
     rules:
@@ -53,22 +40,17 @@ linters:
         linters:
           - gosec
         text: "G101"
-      # G118 / G710 / govet findings below are suppressed here so this
-      # unblocker PR stays green without dragging in their source-level
-      # fixes. The narrowing PRs (#706 + follow-ups) tighten or remove
-      # each exclusion.
-      - path: internal/aggregator/server\.go
+      # pkg/oauth/wire.go is a constants-only file holding RFC 6749/6750/8693
+      # vocabulary; G101 heuristically flags the grant-type URN string.
+      - path: pkg/oauth/wire\.go
         linters:
           - gosec
-        text: "G118" # tracked: #706
-      - path: internal/admin/handlers\.go
-        linters:
-          - gosec
-        text: "G710" # tracked: #706
+        text: "G101"
+      # internal/testing/mock/* is the mock OAuth server used by BDD tests.
+      # It must honour the OAuth redirect_uri parameter, which gosec flags
+      # as an open redirect; the mock is never bundled into the production
+      # image.
       - path: internal/testing/mock/.*\.go
         linters:
           - gosec
-        text: "G710" # tracked: #706
-      - path: internal/testing/muster_manager\.go
-        linters:
-          - govet # tracked: #706
+        text: "G710"

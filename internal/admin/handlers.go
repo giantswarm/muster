@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"io"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -172,7 +173,7 @@ func (s *Server) handleReconnect(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("reconnect: %v", err), http.StatusInternalServerError)
 		return
 	}
-	http.Redirect(w, r, "/sessions/"+id, http.StatusSeeOther)
+	http.Redirect(w, r, "/sessions/"+url.PathEscape(id), http.StatusSeeOther)
 }
 
 // render buffers the template output so a template error produces a clean
