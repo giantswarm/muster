@@ -9,6 +9,11 @@ import (
 	"golang.org/x/oauth2"
 )
 
+const (
+	testMusterURL = "https://muster.example.com"
+	testDexURL    = "https://dex.example.com"
+)
+
 func TestTokenStore_StoreAndGet(t *testing.T) {
 	// Create a temporary directory for token storage
 	tmpDir := t.TempDir()
@@ -21,8 +26,8 @@ func TestTokenStore_StoreAndGet(t *testing.T) {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
 
-	serverURL := "https://muster.example.com" //nolint:goconst
-	issuerURL := "https://dex.example.com"    //nolint:goconst
+	serverURL := testMusterURL
+	issuerURL := testDexURL
 	token := &oauth2.Token{
 		AccessToken:  "test-access-token",
 		RefreshToken: "test-refresh-token",
@@ -69,8 +74,8 @@ func TestTokenStore_ExpiredToken(t *testing.T) {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
 
-	serverURL := "https://muster.example.com"
-	issuerURL := "https://dex.example.com"
+	serverURL := testMusterURL
+	issuerURL := testDexURL
 
 	// Store an expired token
 	expiredToken := &oauth2.Token{
@@ -101,8 +106,8 @@ func TestTokenStore_DeleteToken(t *testing.T) {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
 
-	serverURL := "https://muster.example.com"
-	issuerURL := "https://dex.example.com"
+	serverURL := testMusterURL
+	issuerURL := testDexURL
 	token := &oauth2.Token{
 		AccessToken: "test-token",
 		TokenType:   "Bearer",
@@ -136,8 +141,8 @@ func TestTokenStore_FileMode(t *testing.T) {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
 
-	serverURL := "https://muster.example.com"
-	issuerURL := "https://dex.example.com"
+	serverURL := testMusterURL
+	issuerURL := testDexURL
 	token := &oauth2.Token{
 		AccessToken: "persistent-token",
 		TokenType:   "Bearer",
@@ -193,8 +198,8 @@ func TestTokenStore_HasValidToken(t *testing.T) {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
 
-	serverURL := "https://muster.example.com"
-	issuerURL := "https://dex.example.com"
+	serverURL := testMusterURL
+	issuerURL := testDexURL
 
 	// Initially should not have valid token
 	if store.HasValidToken(serverURL) {
@@ -229,8 +234,8 @@ func TestTokenStore_HasCredentials(t *testing.T) {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
 
-	serverURL := "https://muster.example.com"
-	issuerURL := "https://dex.example.com"
+	serverURL := testMusterURL
+	issuerURL := testDexURL
 
 	// Initially no credentials
 	if store.HasCredentials(serverURL) {
@@ -297,7 +302,7 @@ func TestTokenStore_Clear(t *testing.T) {
 			TokenType:   "Bearer",
 			Expiry:      time.Now().Add(1 * time.Hour),
 		}
-		if err := store.StoreToken(serverURL, "https://dex.example.com", token); err != nil {
+		if err := store.StoreToken(serverURL, testDexURL, token); err != nil {
 			t.Fatalf("Failed to store token: %v", err)
 		}
 	}
@@ -377,7 +382,7 @@ func TestTokenStore_GetByIssuer(t *testing.T) {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
 
-	issuerURL := "https://dex.example.com"
+	issuerURL := testDexURL
 	serverURL1 := "https://muster1.example.com"
 	serverURL2 := "https://muster2.example.com"
 
@@ -443,7 +448,7 @@ func TestTokenStore_GetByIssuer_DifferentIssuers(t *testing.T) {
 
 	issuer1 := "https://dex1.example.com"
 	issuer2 := "https://dex2.example.com"
-	serverURL := "https://muster.example.com"
+	serverURL := testMusterURL
 
 	// Store token with issuer1
 	token := &oauth2.Token{
@@ -477,8 +482,8 @@ func TestTokenStore_GetByIssuer_ExpiredToken(t *testing.T) {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
 
-	issuerURL := "https://dex.example.com"
-	serverURL := "https://muster.example.com"
+	issuerURL := testDexURL
+	serverURL := testMusterURL
 
 	// Store an expired token
 	expiredToken := &oauth2.Token{
@@ -507,8 +512,8 @@ func TestTokenStore_HasValidTokenForIssuer(t *testing.T) {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
 
-	issuerURL := "https://dex.example.com"
-	serverURL := "https://muster.example.com"
+	issuerURL := testDexURL
+	serverURL := testMusterURL
 
 	// Initially should not have valid token for issuer
 	if store.HasValidTokenForIssuer(issuerURL) {
@@ -542,8 +547,8 @@ func TestTokenStore_GetByIssuer_FileMode(t *testing.T) {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
 
-	issuerURL := "https://dex.example.com"
-	serverURL := "https://muster.example.com"
+	issuerURL := testDexURL
+	serverURL := testMusterURL
 
 	// Store a token with file mode enabled
 	token := &oauth2.Token{
@@ -585,8 +590,8 @@ func TestTokenStore_IsTokenValid_ExpiryMargin(t *testing.T) {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
 
-	serverURL := "https://muster.example.com"
-	issuerURL := "https://dex.example.com"
+	serverURL := testMusterURL
+	issuerURL := testDexURL
 
 	testCases := []struct {
 		name         string
@@ -661,8 +666,8 @@ func TestTokenStore_FileMode_Permissions(t *testing.T) {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
 
-	serverURL := "https://muster.example.com"
-	issuerURL := "https://dex.example.com"
+	serverURL := testMusterURL
+	issuerURL := testDexURL
 	token := &oauth2.Token{
 		AccessToken: "secret-token",
 		TokenType:   "Bearer",
@@ -733,8 +738,8 @@ func TestTokenStore_ZeroExpiry_ConsideredValid(t *testing.T) {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
 
-	serverURL := "https://muster.example.com"
-	issuerURL := "https://dex.example.com"
+	serverURL := testMusterURL
+	issuerURL := testDexURL
 
 	// Token with zero expiry (some tokens don't have expiry info)
 	token := &oauth2.Token{ //nolint:gosec
@@ -769,8 +774,8 @@ func TestTokenStore_GetTokenIncludingExpiring(t *testing.T) {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
 
-	serverURL := "https://muster.example.com"
-	issuerURL := "https://dex.example.com"
+	serverURL := testMusterURL
+	issuerURL := testDexURL
 
 	t.Run("returns nil for non-existent token", func(t *testing.T) {
 		token := store.GetTokenIncludingExpiring("https://nonexistent.example.com")
@@ -888,8 +893,8 @@ func TestTokenStore_GetTokenIncludingExpiring_FileMode(t *testing.T) {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
 
-	serverURL := "https://muster.example.com"
-	issuerURL := "https://dex.example.com"
+	serverURL := testMusterURL
+	issuerURL := testDexURL
 
 	// Store a token that's expiring soon
 	expiringToken := &oauth2.Token{ //nolint:gosec
