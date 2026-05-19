@@ -3,6 +3,7 @@ package aggregator
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -13,6 +14,7 @@ import (
 	"github.com/giantswarm/muster/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // resolvedName stores the reverse mapping from an exposed (prefixed) name
@@ -435,8 +437,8 @@ func (r *ServerRegistry) assembleExposedTools(contributions []serverToolContribu
 	// Without this, two successive tools/list calls can return the same set
 	// of tools in different orders, surfacing as spurious tools/list_changed
 	// diffs and flaky downstream assertions.
-	sort.Slice(contributions, func(i, j int) bool {
-		return contributions[i].serverName < contributions[j].serverName
+	slices.SortFunc(contributions, func(a, b serverToolContribution) int {
+		return strings.Compare(a.serverName, b.serverName)
 	})
 
 	type familyKey struct {
@@ -492,11 +494,11 @@ func (r *ServerRegistry) assembleExposedTools(contributions []serverToolContribu
 	for k := range familyBuckets {
 		familyKeys = append(familyKeys, k)
 	}
-	sort.Slice(familyKeys, func(i, j int) bool {
-		if familyKeys[i].family != familyKeys[j].family {
-			return familyKeys[i].family < familyKeys[j].family
+	slices.SortFunc(familyKeys, func(a, b familyKey) int {
+		if c := strings.Compare(a.family, b.family); c != 0 {
+			return c
 		}
-		return familyKeys[i].toolName < familyKeys[j].toolName
+		return strings.Compare(a.toolName, b.toolName)
 	})
 
 	for _, key := range familyKeys {
@@ -509,9 +511,9 @@ func (r *ServerRegistry) assembleExposedTools(contributions []serverToolContribu
 			r.removeFamilyTool(r.familyExposedName(key.family, key.toolName))
 			continue
 		}
-		if _, collides := entry.tools[0].InputSchema.Properties[entry.instanceArg]; collides {
+		if instanceArgCollides(entry.tools, entry.instanceArg) {
 			logging.Warn("Aggregator",
-				"family %q tool %q already declares an input property named %q; family.instanceArg collides — falling back to per-server prefixing for this tool",
+				"family %q tool %q already declares an input property named %q on at least one contributor; family.instanceArg collides — falling back to per-server prefixing for this tool",
 				key.family, key.toolName, entry.instanceArg)
 			soloTools = append(soloTools, r.perServerTools(entry.servers, entry.tools)...)
 			r.removeFamilyTool(r.familyExposedName(key.family, key.toolName))
@@ -684,9 +686,9 @@ func injectInstanceEnum(schema mcp.ToolInputSchema, instanceArg string, servers 
 		enumVals[i] = s
 	}
 
-	properties := make(map[string]any, len(schema.Properties)+1)
-	for k, v := range schema.Properties {
-		properties[k] = deepCopyJSONValue(v)
+	properties := runtime.DeepCopyJSON(schema.Properties)
+	if properties == nil {
+		properties = make(map[string]any, 1)
 	}
 	properties[instanceArg] = map[string]any{
 		"type":        "string",
@@ -703,26 +705,21 @@ func injectInstanceEnum(schema mcp.ToolInputSchema, instanceArg string, servers 
 	return schema
 }
 
-// deepCopyJSONValue returns a structural deep copy of a JSON-decoded value
-// (map[string]any, []any, or scalar). Scalars are immutable in Go's value
-// semantics and are returned as-is.
-func deepCopyJSONValue(v any) any {
-	switch typed := v.(type) {
-	case map[string]any:
-		out := make(map[string]any, len(typed))
-		for k, vv := range typed {
-			out[k] = deepCopyJSONValue(vv)
-		}
-		return out
-	case []any:
-		out := make([]any, len(typed))
-		for i, vv := range typed {
-			out[i] = deepCopyJSONValue(vv)
-		}
-		return out
-	default:
-		return v
+// instanceArgCollides reports whether instanceArg matches a property name on
+// any contributing tool's InputSchema. The collision is asymmetric: server A's
+// tool can lack the property while server B's tool declares it, in which case
+// grouping would still silently overwrite B's declaration. Check every
+// contributor, not just the first.
+func instanceArgCollides(tools []mcp.Tool, instanceArg string) bool {
+	if instanceArg == "" {
+		return false
 	}
+	for _, t := range tools {
+		if _, ok := t.InputSchema.Properties[instanceArg]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // cloneFamily returns a deep copy of the given family pointer, or nil.

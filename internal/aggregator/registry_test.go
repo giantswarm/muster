@@ -515,6 +515,49 @@ func TestServerRegistry_FamilyGrouping(t *testing.T) {
 			"collision must NOT surface the family-prefixed name (the tool-defined property would be overwritten)")
 	})
 
+	t.Run("asymmetric family.instanceArg collision (only one contributor declares the property) falls back", func(t *testing.T) {
+		registry := NewServerRegistry("x")
+		toolClean := mcp.Tool{
+			Name:        "list_pods",
+			Description: "L",
+			InputSchema: mcp.ToolInputSchema{
+				Type:       "object",
+				Properties: map[string]any{"namespace": map[string]any{"type": "string"}},
+			},
+		}
+		toolColliding := mcp.Tool{
+			Name:        "list_pods",
+			Description: "L",
+			InputSchema: mcp.ToolInputSchema{
+				Type: "object",
+				Properties: map[string]any{
+					"namespace": map[string]any{"type": "string"},
+					"cluster":   map[string]any{"type": "string", "description": "Tool-defined cluster"},
+				},
+			},
+		}
+		require.NoError(t, registry.Register(ctx, ServerRegistration{
+			Name:   "k8s-a",
+			Family: family("kubernetes", "cluster"),
+		}, &mockMCPClient{tools: []mcp.Tool{toolClean}}))
+		require.NoError(t, registry.Register(ctx, ServerRegistration{
+			Name:   "k8s-b",
+			Family: family("kubernetes", "cluster"),
+		}, &mockMCPClient{tools: []mcp.Tool{toolColliding}}))
+
+		got := registry.GetAllTools()
+		var exposedNames []string
+		for _, t := range got {
+			exposedNames = append(exposedNames, t.Name)
+		}
+		assert.Contains(t, exposedNames, "x_k8s-a_list_pods",
+			"asymmetric collision must surface per-server name for clean contributor")
+		assert.Contains(t, exposedNames, "x_k8s-b_list_pods",
+			"asymmetric collision must surface per-server name for colliding contributor")
+		assert.NotContains(t, exposedNames, "x_kubernetes_list_pods",
+			"asymmetric collision must NOT surface the family-prefixed name")
+	})
+
 	t.Run("concurrent GetAllToolsForSession does not race", func(t *testing.T) {
 		// Hammer two concurrent session listings + global listings to surface
 		// any race in the upsert / read paths under `go test -race`. The fix
