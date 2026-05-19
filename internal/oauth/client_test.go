@@ -70,7 +70,7 @@ func TestClient_GetToken(t *testing.T) {
 	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
 
-	subject := "user-123"
+	subject := testSubject
 	issuer := "https://auth.example.com"
 	scope := testScopes
 
@@ -105,7 +105,7 @@ func TestClient_GetToken_SSO_FallbackToIssuer(t *testing.T) {
 	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
 
-	subject := "user-123"
+	subject := testSubject
 	issuer := "https://auth.example.com"
 	scope1 := testScopes
 	scope2 := "openid email" // Different scope
@@ -255,7 +255,7 @@ func TestClient_GenerateAuthURL(t *testing.T) {
 	defer client.Stop()
 
 	ctx := context.Background()
-	authURL, err := client.GenerateAuthURL(ctx, "user-123", "test-user", testServerName, server.URL, testScopes)
+	authURL, err := client.GenerateAuthURL(ctx, testSubject, "test-user", testServerName, server.URL, testScopes)
 	if err != nil {
 		t.Fatalf("Failed to generate auth URL: %v", err)
 	}
@@ -311,7 +311,7 @@ func TestClient_GenerateAuthURL_RefusesWithoutS256PKCE(t *testing.T) {
 	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
 
-	_, err := client.GenerateAuthURL(context.Background(), "user-123", "test-user", testServerName, server.URL, testScopes)
+	_, err := client.GenerateAuthURL(context.Background(), testSubject, "test-user", testServerName, server.URL, testScopes)
 	if err == nil {
 		t.Fatal("expected refusal error when AS does not advertise S256 PKCE")
 	}

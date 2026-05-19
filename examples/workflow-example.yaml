@@ -28,13 +28,11 @@ spec:
       store: true
 
     - id: deploy_service
-      tool: core_service_create
+      tool: kubectl_apply
       args:
         name: "{{.app_name}}-{{.environment}}"
-        serviceClassName: "web-application"
-        args:
-          image: "{{.results.build_image.image_id}}"
-          replicas: "{{.replicas}}"
+        image: "{{.results.build_image.image_id}}"
+        replicas: "{{.replicas}}"
       store: true
 
     - id: verify_deployment

@@ -36,8 +36,6 @@ import (
 	"github.com/valkey-io/valkey-go"
 	"golang.org/x/oauth2"
 	"golang.org/x/sync/singleflight"
-
-	"github.com/giantswarm/muster/internal/aggregator/instrument"
 )
 
 // AggregatorServer implements a comprehensive MCP server that aggregates multiple backend MCP servers.
@@ -717,27 +715,18 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	// WithToolFilter enables session-specific tool visibility for OAuth-authenticated servers
 	// (see ADR-006: Session-Scoped Tool Visibility)
 	//
-	// mcp-go applies middleware in reverse registration order, so the
-	// chain below becomes Tracing(Logging(Metrics(handler))). Tracing is
-	// outermost so the span is active while Logging emits its line and
-	// Metrics records its observation — log records pick up trace_id /
-	// span_id via the slog ↔ OTel bridge, and histogram exemplars
-	// attach the local trace_id for Grafana's "click latency bucket →
-	// jump to trace" pivot. The Tracing wrapper still observes the
-	// final outcome through its next(...) return values, so codes.Error
-	// on IsError fires after the inner chain completes.
-	mcpSrv := mcpserver.NewMCPServer(
-		"muster-aggregator",
-		serverVersion,
+	// mcpServerOptions appends the OTEL chain in the exact order the SDK
+	// requires for histogram exemplars to carry the active tool-handler
+	// span — see the helper's doc comment.
+	opts := []mcpserver.ServerOption{
 		mcpserver.WithToolCapabilities(true),           // Enable tool execution
 		mcpserver.WithResourceCapabilities(true, true), // Enable resources with subscribe and listChanged
 		mcpserver.WithPromptCapabilities(true),         // Enable prompt retrieval
 		mcpserver.WithToolFilter(a.sessionToolFilter),  // Return session-specific tools for OAuth servers
 		mcpserver.WithHooks(hooks),                     // Clean up subject-session mappings on disconnect
-		mcpserver.WithToolHandlerMiddleware(instrument.Tracing()),
-		mcpserver.WithToolHandlerMiddleware(instrument.Logging()),
-		mcpserver.WithToolHandlerMiddleware(instrument.Metrics()),
-	)
+	}
+	opts = append(opts, mcpServerOptions()...)
+	mcpSrv := mcpserver.NewMCPServer("muster-aggregator", serverVersion, opts...)
 
 	a.mcpServer = mcpSrv
 	a.isShuttingDown = false
@@ -1779,9 +1768,6 @@ func (a *AggregatorServer) IsYoloMode() bool {
 //
 // Returns the tool execution result or an error if the tool cannot be found or executed.
 func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string, args map[string]interface{}) (res *mcp.CallToolResult, err error) {
-	ctx, endSpan := instrument.StartToolSpan(ctx, toolName)
-	defer func() { endSpan(res, err) }()
-
 	logging.DebugWithAttrs("Aggregator", "CallToolInternal called",
 		slog.String("tool", toolName))
 
