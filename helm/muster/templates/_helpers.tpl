@@ -70,6 +70,17 @@ Create the namespace for muster resource discovery
 {{- end }}
 
 {{/*
+Resolve the agentgateway upstream URL muster's aggregator dials. Operators
+override via .Values.muster.agentgateway.upstreamURL. The chart ships no
+agentgateway Service template; agentgateway must be deployed out-of-band
+and the override pointed at whatever Service routes to its pods. Empty
+output makes muster fail loudly at startup.
+*/}}
+{{- define "muster.agentgatewayUpstreamURL" -}}
+{{- .Values.muster.agentgateway.upstreamURL | default "" }}
+{{- end }}
+
+{{/*
 Render "true" when "prometheus" is an exact comma-separated element of
 muster.observability.metrics.exporter, trimming whitespace per element.
 Distinguishes "prometheus" / "otlp,prometheus" / "otlp, prometheus"

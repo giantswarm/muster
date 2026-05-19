@@ -225,6 +225,15 @@ type AggregatorConfig struct {
 	// Admin, when enabled, starts a separate HTTP listener that serves the
 	// session management web UI. See internal/admin for details.
 	Admin AdminConfig
+
+	// UpstreamProxy is the agentgateway base URL the aggregator dials for
+	// every external MCPServer. The per-server dial target is
+	// UpstreamProxy + "/mcp/" + <server-name>, always streamable-http
+	// regardless of spec.type. Required: empty values are rejected at
+	// application init. Filesystem mode sets "http://localhost:8080" (the
+	// in-process agentgateway subprocess); cluster mode reads
+	// MUSTER_AGW_UPSTREAM_URL from the muster pod's environment.
+	UpstreamProxy string
 }
 
 // AdminConfig holds admin web UI configuration for the aggregator.

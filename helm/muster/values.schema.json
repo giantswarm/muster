@@ -351,6 +351,16 @@
             }
           }
         },
+        "agentgateway": {
+          "type": "object",
+          "description": "agentgateway federation configuration",
+          "properties": {
+            "upstreamURL": {
+              "type": "string",
+              "description": "Base URL muster's aggregator dials for every external MCPServer. The full dial path is <upstreamURL>/mcp/<server-name> regardless of spec.type. Required in cluster mode; muster fails at startup when unset."
+            }
+          }
+        },
         "namespace": {
           "type": "string",
           "description": "Namespace for CRD discovery"

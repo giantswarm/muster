@@ -38,52 +38,35 @@ type MCPServerManager interface {
 	GetMCPServer(name string) (*api.MCPServerInfo, error)
 }
 
-// MCPServerReconciler reconciles MCPServer resources.
+// MCPServerReconciler reconciles MCPServer resources by emitting the
+// agentgateway config stack and federating muster's aggregator to dial
+// agentgateway for the named MCPServer.
 //
-// Reconciliation logic:
-//   - Create: Register and start a new MCPServer service
-//   - Update: Update the service configuration and restart if needed
-//   - Delete: Stop and unregister the MCPServer service
+// Each Reconcile:
+//   - calls agentgateway.NewConfig + applier.Apply (per-mode K8s or YAML),
+//   - on a clean apply with AutoStart=true, calls
+//     api.GetAggregator().RegisterUpstream so the aggregator opens its
+//     federated connection to <UpstreamProxy>/mcp/<name>.
 //
-// After each reconciliation, the reconciler syncs the service state
-// back to the CRD's Status field. See ADR 007 for details.
+// reconcileDelete deregisters the upstream and clears persisted YAML.
 type MCPServerReconciler struct {
 	BaseStatusConfig
 
-	orchestratorAPI  api.OrchestratorAPI
 	mcpServerManager MCPServerManager
-	serviceRegistry  api.ServiceRegistryHandler
 
-	// yamlApplier is the long-lived agentgateway.Applier used in filesystem
-	// mode. Non-nil only in filesystem mode; nil in cluster mode.
 	yamlApplier agentgateway.Applier
 
-	// k8sClient + k8sApplierCfg are the inputs to k8s.NewApplier in cluster
-	// mode. The reconciler constructs a fresh k8s.Applier per Reconcile so the
-	// MCPServer's ownerRef can be baked in for cascade deletion. Non-nil only
-	// in cluster mode.
 	k8sClient     ctrlclient.Client
 	k8sApplierCfg k8sapply.Config
 
-	// deleter, when non-nil, is called from reconcileDelete to clean up
-	// persisted state that does not cascade from the MCPServer (yaml file).
-	// Cluster mode leaves this nil — ownerReferences handle deletion.
 	deleter agentgateway.Deleter
-
-	// disableLocalSpawn skips orchestratorAPI.StartService / RestartService.
-	// Set in filesystem mode where agentgateway owns the data plane and spawns
-	// child processes itself via mcp.targets[].stdio; cluster mode leaves it
-	// false so the orchestrator continues to manage local service state.
-	disableLocalSpawn bool
 }
 
 // NewMCPServerReconcilerFilesystem builds a reconciler wired to the
 // long-lived yaml Applier used in filesystem mode. yamlApplier and deleter
 // are typically the same instance (yaml.Applier satisfies both ports).
 func NewMCPServerReconcilerFilesystem(
-	orchestratorAPI api.OrchestratorAPI,
 	mcpServerManager MCPServerManager,
-	serviceRegistry api.ServiceRegistryHandler,
 	yamlApplier agentgateway.Applier,
 	deleter agentgateway.Deleter,
 ) *MCPServerReconciler {
@@ -92,9 +75,7 @@ func NewMCPServerReconcilerFilesystem(
 	}
 	return &MCPServerReconciler{
 		BaseStatusConfig: BaseStatusConfig{Namespace: DefaultNamespace},
-		orchestratorAPI:  orchestratorAPI,
 		mcpServerManager: mcpServerManager,
-		serviceRegistry:  serviceRegistry,
 		yamlApplier:      yamlApplier,
 		deleter:          deleter,
 	}
@@ -102,12 +83,9 @@ func NewMCPServerReconcilerFilesystem(
 
 // NewMCPServerReconcilerCluster builds a reconciler that constructs a fresh
 // k8s.Applier per Reconcile. ownerRef is bound on each construction so emitted
-// objects cascade-delete with the MCPServer; cleanup is handled by Kubernetes
-// garbage collection, so no Deleter is needed.
+// objects cascade-delete with the MCPServer.
 func NewMCPServerReconcilerCluster(
-	orchestratorAPI api.OrchestratorAPI,
 	mcpServerManager MCPServerManager,
-	serviceRegistry api.ServiceRegistryHandler,
 	k8sClient ctrlclient.Client,
 	k8sApplierCfg k8sapply.Config,
 ) *MCPServerReconciler {
@@ -116,9 +94,7 @@ func NewMCPServerReconcilerCluster(
 	}
 	return &MCPServerReconciler{
 		BaseStatusConfig: BaseStatusConfig{Namespace: DefaultNamespace},
-		orchestratorAPI:  orchestratorAPI,
 		mcpServerManager: mcpServerManager,
-		serviceRegistry:  serviceRegistry,
 		k8sClient:        k8sClient,
 		k8sApplierCfg:    k8sApplierCfg,
 	}
@@ -127,16 +103,6 @@ func NewMCPServerReconcilerCluster(
 // WithStatusUpdater sets the status updater for syncing status back to CRDs.
 func (r *MCPServerReconciler) WithStatusUpdater(updater StatusUpdater, namespace string) *MCPServerReconciler {
 	r.SetStatusUpdater(updater, namespace)
-	return r
-}
-
-// WithDisableLocalSpawn skips orchestratorAPI.StartService / RestartService for
-// every MCPServer the reconciler processes. Filesystem-mode callers set this
-// once agentgateway is the data plane: agentgateway spawns stdio children from
-// mcp.targets[].stdio and connects to streamable-http / sse backends itself,
-// so the orchestrator's local lifecycle path would race it.
-func (r *MCPServerReconciler) WithDisableLocalSpawn(disable bool) *MCPServerReconciler {
-	r.disableLocalSpawn = disable
 	return r
 }
 
@@ -164,22 +130,19 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileReques
 		return result
 	}
 
-	existingService, exists := r.serviceRegistry.Get(req.Name)
-
-	var result ReconcileResult
-	if !exists {
-		result = r.reconcileCreate(ctx, req, mcpServerInfo)
-	} else {
-		result = r.reconcileUpdate(ctx, req, mcpServerInfo, existingService)
+	if mcpServerInfo.AutoStart {
+		if err := r.registerUpstream(ctx, req.Name); err != nil {
+			logging.Debug("MCPServerReconciler", "RegisterUpstream for %s failed: %v", req.Name, err)
+			r.syncStatus(ctx, req.Name, req.Namespace, mcpServerInfo.Type, err)
+			return ReconcileResult{
+				Error:   fmt.Errorf("register upstream: %w", err),
+				Requeue: true,
+			}
+		}
 	}
 
-	r.syncStatus(ctx, req.Name, req.Namespace, result.Error)
-
-	if result.Error == nil && !result.Requeue {
-		result.RequeueAfter = DefaultStatusSyncInterval
-	}
-
-	return result
+	r.syncStatus(ctx, req.Name, req.Namespace, mcpServerInfo.Type, nil)
+	return ReconcileResult{RequeueAfter: DefaultStatusSyncInterval}
 }
 
 // applyConfig compiles the MCPServer spec into an agentgateway.Config and
@@ -190,7 +153,7 @@ func (r *MCPServerReconciler) applyConfig(ctx context.Context, req ReconcileRequ
 	config, err := agentgateway.NewConfig(req.Name, namespace, spec)
 	if err != nil {
 		logging.Debug("MCPServerReconciler", "NewConfig failed for MCPServer %s: %v", req.Name, err)
-		r.syncStatus(ctx, req.Name, req.Namespace, err)
+		r.syncStatus(ctx, req.Name, req.Namespace, info.Type, err)
 		return ReconcileResult{Error: fmt.Errorf("agentgateway: %w", err)}, true
 	}
 
@@ -203,7 +166,7 @@ func (r *MCPServerReconciler) applyConfig(ctx context.Context, req ReconcileRequ
 			return ReconcileResult{RequeueAfter: DefaultStatusSyncInterval}, true
 		}
 		logging.Debug("MCPServerReconciler", "Apply failed for MCPServer %s: %v", req.Name, err)
-		r.syncStatus(ctx, req.Name, req.Namespace, err)
+		r.syncStatus(ctx, req.Name, req.Namespace, info.Type, err)
 		return ReconcileResult{
 			Error:   fmt.Errorf("apply config: %w", err),
 			Requeue: true,
@@ -212,6 +175,29 @@ func (r *MCPServerReconciler) applyConfig(ctx context.Context, req ReconcileRequ
 
 	r.clearNotSupportedInClusterCondition(ctx, req.Name, req.Namespace)
 	return ReconcileResult{}, false
+}
+
+// registerUpstream calls api.GetAggregator().RegisterUpstream. It's a no-op
+// when the aggregator handler is not yet registered (boot-order edge cases:
+// the reconcile manager starts after the aggregator in runOrchestrator, so
+// in production this should not happen, but defensive nil-check keeps tests
+// that skip aggregator wiring buildable).
+func (r *MCPServerReconciler) registerUpstream(ctx context.Context, name string) error {
+	agg := api.GetAggregator()
+	if agg == nil {
+		logging.Debug("MCPServerReconciler", "Aggregator handler not registered; skipping RegisterUpstream for %s", name)
+		return nil
+	}
+	return agg.RegisterUpstream(ctx, name)
+}
+
+// deregisterUpstream is the symmetric DeregisterUpstream call.
+func (r *MCPServerReconciler) deregisterUpstream(ctx context.Context, name string) error {
+	agg := api.GetAggregator()
+	if agg == nil {
+		return nil
+	}
+	return agg.DeregisterUpstream(ctx, name)
 }
 
 // applierFor picks the Applier for this Reconcile:
@@ -369,7 +355,7 @@ func tokenExchangeFromAPI(tx *api.TokenExchangeConfig) *musterv1alpha1.TokenExch
 	return out
 }
 
-func (r *MCPServerReconciler) syncStatus(ctx context.Context, name, namespace string, reconcileErr error) {
+func (r *MCPServerReconciler) syncStatus(ctx context.Context, name, namespace, serverType string, reconcileErr error) {
 	if r.StatusUpdater == nil {
 		return
 	}
@@ -387,7 +373,7 @@ func (r *MCPServerReconciler) syncStatus(ctx context.Context, name, namespace st
 			return nil
 		}
 
-		r.applyStatusFromService(server, name, reconcileErr)
+		r.applyStatusFromAggregator(server, name, serverType, reconcileErr)
 
 		if err := r.StatusUpdater.UpdateMCPServerStatus(ctx, server); err != nil {
 			lastErr = err
@@ -403,40 +389,38 @@ func (r *MCPServerReconciler) syncStatus(ctx context.Context, name, namespace st
 	}
 }
 
-func (r *MCPServerReconciler) applyStatusFromService(server *musterv1alpha1.MCPServer, name string, reconcileErr error) {
-	service, exists := r.serviceRegistry.Get(name)
+// applyStatusFromAggregator maps the aggregator's view of an upstream
+// MCPServer onto the CRD status. Connected upstreams set State=Connected
+// (or =Running for stdio in filesystem mode) and stamp LastConnected.
+// Absent upstreams fall back to Disconnected (remote) or Stopped (stdio).
+// MCPServer.status.consecutiveFailures / lastAttempt / nextRetryAfter are no
+// longer updated — the per-service retry state machine was removed in PR 11;
+// the fields stay on the CRD for forward compatibility.
+func (r *MCPServerReconciler) applyStatusFromAggregator(server *musterv1alpha1.MCPServer, name, serverType string, reconcileErr error) {
+	if serverType == "" {
+		serverType = server.Spec.Type
+	}
+	isRemote := serverType == "streamable-http" || serverType == "sse"
+	state := upstreamState(name)
 
-	if exists {
-		state := service.GetState()
-		server.Status.State = r.determineState(state, server.Spec.Type)
-
-		if service.GetLastError() != nil {
-			server.Status.LastError = SanitizeErrorMessage(service.GetLastError().Error())
+	switch state {
+	case api.UpstreamServerConnected:
+		if isRemote {
+			server.Status.State = musterv1alpha1.MCPServerStateConnected
 		} else {
-			server.Status.LastError = ""
+			server.Status.State = musterv1alpha1.MCPServerStateRunning
 		}
-
-		if api.IsActiveState(state) {
-			now := metav1.NewTime(time.Now())
-			server.Status.LastConnected = &now
+		now := metav1.NewTime(time.Now())
+		server.Status.LastConnected = &now
+		server.Status.LastError = ""
+	case api.UpstreamServerAuthRequired:
+		if isRemote {
+			server.Status.State = musterv1alpha1.MCPServerStateAuthRequired
+		} else {
+			server.Status.State = musterv1alpha1.MCPServerStateRunning
 		}
-
-		serviceData := service.GetServiceData()
-		if serviceData != nil {
-			if failures, ok := serviceData["consecutiveFailures"].(int); ok {
-				server.Status.ConsecutiveFailures = failures
-			}
-			if lastAttempt, ok := serviceData["lastAttempt"].(time.Time); ok {
-				t := metav1.NewTime(lastAttempt)
-				server.Status.LastAttempt = &t
-			}
-			if nextRetry, ok := serviceData["nextRetryAfter"].(time.Time); ok {
-				t := metav1.NewTime(nextRetry)
-				server.Status.NextRetryAfter = &t
-			}
-		}
-	} else {
-		isRemote := server.Spec.Type == "streamable-http" || server.Spec.Type == "sse"
+		server.Status.LastError = ""
+	default:
 		if isRemote {
 			server.Status.State = musterv1alpha1.MCPServerStateDisconnected
 		} else {
@@ -448,147 +432,15 @@ func (r *MCPServerReconciler) applyStatusFromService(server *musterv1alpha1.MCPS
 	}
 }
 
-func (r *MCPServerReconciler) determineState(state api.ServiceState, serverType string) musterv1alpha1.MCPServerStateValue {
-	isRemote := serverType == "streamable-http" || serverType == "sse"
-
-	switch state {
-	case api.StateRunning, api.StateConnected:
-		if isRemote {
-			return musterv1alpha1.MCPServerStateConnected
-		}
-		return musterv1alpha1.MCPServerStateRunning
-
-	case api.StateAuthRequired:
-		if isRemote {
-			return musterv1alpha1.MCPServerStateAuthRequired
-		}
-		return musterv1alpha1.MCPServerStateRunning
-
-	case api.StateStarting, api.StateWaiting, api.StateRetrying:
-		if isRemote {
-			return musterv1alpha1.MCPServerStateConnecting
-		}
-		return musterv1alpha1.MCPServerStateStarting
-
-	case api.StateStopping:
-		if isRemote {
-			return musterv1alpha1.MCPServerStateConnected
-		}
-		return musterv1alpha1.MCPServerStateRunning
-
-	case api.StateStopped, api.StateUnknown:
-		if isRemote {
-			return musterv1alpha1.MCPServerStateDisconnected
-		}
-		return musterv1alpha1.MCPServerStateStopped
-
-	case api.StateDisconnected:
-		if isRemote {
-			return musterv1alpha1.MCPServerStateDisconnected
-		}
-		return musterv1alpha1.MCPServerStateStopped
-
-	case api.StateFailed, api.StateError, api.StateUnreachable:
-		return musterv1alpha1.MCPServerStateFailed
-
-	default:
-		if isRemote {
-			return musterv1alpha1.MCPServerStateDisconnected
-		}
-		return musterv1alpha1.MCPServerStateStopped
+// upstreamState is a tiny indirection around api.GetAggregator that returns
+// Absent when the aggregator handler is not yet registered (test setups,
+// boot-order races). Production code reaches the production aggregator.
+func upstreamState(name string) api.UpstreamServerState {
+	agg := api.GetAggregator()
+	if agg == nil {
+		return api.UpstreamServerAbsent
 	}
-}
-
-func (r *MCPServerReconciler) reconcileCreate(ctx context.Context, req ReconcileRequest, info *api.MCPServerInfo) ReconcileResult {
-	logging.Info("MCPServerReconciler", "Creating MCPServer service: %s", req.Name)
-
-	if !info.AutoStart {
-		logging.Debug("MCPServerReconciler", "Skipping MCPServer %s: AutoStart=false", req.Name)
-		return ReconcileResult{}
-	}
-
-	if r.disableLocalSpawn {
-		logging.Debug("MCPServerReconciler", "Skipping orchestrator StartService for %s: agentgateway owns the data plane", req.Name)
-		return ReconcileResult{}
-	}
-
-	if err := r.orchestratorAPI.StartService(req.Name); err != nil {
-		if api.IsAuthRequiredError(err) {
-			logging.Info("MCPServerReconciler", "MCPServer %s requires authentication (Auth Required)", req.Name)
-			return ReconcileResult{}
-		}
-		logging.Debug("MCPServerReconciler", "Failed to start service %s: %v", req.Name, err)
-		return ReconcileResult{
-			Error:   fmt.Errorf("failed to start service: %w", err),
-			Requeue: true,
-		}
-	}
-
-	logging.Info("MCPServerReconciler", "Successfully created MCPServer service: %s", req.Name)
-	return ReconcileResult{}
-}
-
-func (r *MCPServerReconciler) reconcileUpdate(ctx context.Context, req ReconcileRequest, info *api.MCPServerInfo, existingService api.ServiceInfo) ReconcileResult {
-	logging.Debug("MCPServerReconciler", "Checking MCPServer service for updates: %s", req.Name)
-
-	newConfig := infoToMCPServer(info)
-
-	configurableService, ok := existingService.(api.ConfigurableService)
-	if !ok {
-		logging.Debug("MCPServerReconciler", "Service %s does not implement ConfigurableService, skipping update", req.Name)
-		return ReconcileResult{}
-	}
-
-	if !configurableService.ConfigurationChanged(newConfig) {
-		logging.Debug("MCPServerReconciler", "MCPServer %s is up to date", req.Name)
-		return ReconcileResult{}
-	}
-
-	logging.Info("MCPServerReconciler", "MCPServer %s configuration changed, updating and restarting", req.Name)
-
-	if err := configurableService.UpdateConfiguration(newConfig); err != nil {
-		return ReconcileResult{
-			Error:   fmt.Errorf("failed to update service configuration: %w", err),
-			Requeue: true,
-		}
-	}
-	logging.Debug("MCPServerReconciler", "Updated configuration for MCPServer %s", req.Name)
-
-	if r.disableLocalSpawn {
-		logging.Debug("MCPServerReconciler", "Skipping orchestrator RestartService for %s: agentgateway owns the data plane", req.Name)
-		return ReconcileResult{}
-	}
-
-	if err := r.orchestratorAPI.RestartService(req.Name); err != nil {
-		if api.IsAuthRequiredError(err) {
-			logging.Info("MCPServerReconciler", "MCPServer %s requires authentication after config update", req.Name)
-			return ReconcileResult{}
-		}
-		return ReconcileResult{
-			Error:   fmt.Errorf("failed to restart service: %w", err),
-			Requeue: true,
-		}
-	}
-
-	logging.Info("MCPServerReconciler", "Successfully updated MCPServer service: %s", req.Name)
-	return ReconcileResult{}
-}
-
-func infoToMCPServer(info *api.MCPServerInfo) *api.MCPServer {
-	return &api.MCPServer{
-		Name:        info.Name,
-		Type:        api.MCPServerType(info.Type),
-		Description: info.Description,
-		ToolPrefix:  info.ToolPrefix,
-		AutoStart:   info.AutoStart,
-		Command:     info.Command,
-		Args:        info.Args,
-		URL:         info.URL,
-		Env:         info.Env,
-		Headers:     info.Headers,
-		Timeout:     info.Timeout,
-		Auth:        info.Auth,
-	}
+	return agg.UpstreamServerState(name)
 }
 
 // reconcileDelete handles deleting an MCPServer service.
@@ -599,6 +451,10 @@ func infoToMCPServer(info *api.MCPServerInfo) *api.MCPServer {
 func (r *MCPServerReconciler) reconcileDelete(ctx context.Context, req ReconcileRequest) ReconcileResult {
 	logging.Info("MCPServerReconciler", "Deleting MCPServer service: %s", req.Name)
 
+	if err := r.deregisterUpstream(ctx, req.Name); err != nil {
+		logging.Debug("MCPServerReconciler", "DeregisterUpstream for %s failed: %v", req.Name, err)
+	}
+
 	if r.deleter != nil {
 		if err := r.deleter.Delete(ctx, req.Name); err != nil {
 			logging.Debug("MCPServerReconciler", "Deleter for %s failed: %v", req.Name, err)
@@ -606,22 +462,6 @@ func (r *MCPServerReconciler) reconcileDelete(ctx context.Context, req Reconcile
 				Error:   fmt.Errorf("delete config: %w", err),
 				Requeue: true,
 			}
-		}
-	}
-
-	_, exists := r.serviceRegistry.Get(req.Name)
-	if !exists {
-		logging.Debug("MCPServerReconciler", "MCPServer service %s already deleted", req.Name)
-		return ReconcileResult{}
-	}
-
-	if err := r.orchestratorAPI.StopService(req.Name); err != nil {
-		if IsNotFoundError(err) {
-			return ReconcileResult{}
-		}
-		return ReconcileResult{
-			Error:   fmt.Errorf("failed to stop service: %w", err),
-			Requeue: true,
 		}
 	}
 

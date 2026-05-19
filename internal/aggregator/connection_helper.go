@@ -114,19 +114,21 @@ func establishConnection(
 
 	oauthHandler := api.GetOAuthHandler()
 
+	dialURL := proxyURLFor(a.config.UpstreamProxy, serverName)
+
 	var client internalmcp.MCPClient
 	if oauthHandler != nil && oauthHandler.IsEnabled() && issuer != "" {
 		tokenStore := internalmcp.NewMusterTokenStore(sessionID, sub, issuer, oauthHandler)
-		client = internalmcp.NewDynamicAuthClient(serverURL, tokenStore, scope)
-		logging.Debug("Connection", "Using DynamicAuthClient for session %s, server %s (issuer=%s)",
-			logging.TruncateIdentifier(sessionID), serverName, issuer)
+		client = internalmcp.NewDynamicAuthClient(dialURL, tokenStore, scope)
+		logging.Debug("Connection", "Using DynamicAuthClient for session %s, server %s (issuer=%s, dial=%s, display=%s)",
+			logging.TruncateIdentifier(sessionID), serverName, issuer, dialURL, serverURL)
 	} else {
 		headers := map[string]string{
 			"Authorization": "Bearer " + accessToken,
 		}
-		client = internalmcp.NewStreamableHTTPClientWithHeaders(serverURL, headers)
-		logging.Debug("Connection", "Using static auth headers for session %s, server %s",
-			logging.TruncateIdentifier(sessionID), serverName)
+		client = internalmcp.NewStreamableHTTPClientWithHeaders(dialURL, headers)
+		logging.Debug("Connection", "Using static auth headers for session %s, server %s (dial=%s, display=%s)",
+			logging.TruncateIdentifier(sessionID), serverName, dialURL, serverURL)
 	}
 
 	// Try to initialize the client
@@ -347,7 +349,8 @@ func EstablishConnectionWithTokenForwarding(
 		}
 	}
 	headerFunc := makeTokenForwardingHeaderFunc(sessionID, sub, musterIssuer, serverInfo.Name, idToken, onStaleToken)
-	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
+	dialURL := proxyURLFor(a.config.UpstreamProxy, serverInfo.Name)
+	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(dialURL, headerFunc)
 
 	// Try to initialize the client with the forwarded token
 	if err := client.Initialize(ctx); err != nil {
@@ -688,14 +691,14 @@ func EstablishConnectionWithTokenExchange(
 		return map[string]string{"Authorization": "Bearer " + exchangedToken}
 	}
 
-	// Create a client with the dynamic header function.
-	// If Teleport is configured, use the Teleport HTTP client for the MCP connection as well.
+	dialURL := proxyURLFor(a.config.UpstreamProxy, serverInfo.Name)
+
 	var client *internalmcp.StreamableHTTPClient
 	if teleportResult.Client != nil {
 		logging.Debug("Connection", "Using Teleport HTTP client for MCP connection to %s", serverInfo.Name)
-		client = internalmcp.NewStreamableHTTPClientWithHeaderFuncAndHTTPClient(serverInfo.URL, headerFunc, teleportResult.Client)
+		client = internalmcp.NewStreamableHTTPClientWithHeaderFuncAndHTTPClient(dialURL, headerFunc, teleportResult.Client)
 	} else {
-		client = internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
+		client = internalmcp.NewStreamableHTTPClientWithHeaderFunc(dialURL, headerFunc)
 	}
 
 	// Try to initialize the client with the exchanged token

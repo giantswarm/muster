@@ -2,11 +2,13 @@ package reconciler
 
 import (
 	"context"
-	"fmt"
+	"errors"
+	"sync"
 	"testing"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/runtime/schema"
+	"github.com/stretchr/testify/require"
+
+	"github.com/mark3labs/mcp-go/mcp"
 
 	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
 
@@ -14,1070 +16,267 @@ import (
 	"github.com/giantswarm/muster/internal/reconciler/agentgateway"
 )
 
-// stubApplier is a no-op agentgateway.Applier (and Deleter) used to wire the
-// reconciler in tests that don't exercise the apply path.
-type stubApplier struct{}
-
-func (stubApplier) Apply(context.Context, agentgateway.Config) error { return nil }
-func (stubApplier) Delete(context.Context, string) error             { return nil }
-
-func newTestReconciler(orchAPI api.OrchestratorAPI, mgr MCPServerManager, registry api.ServiceRegistryHandler) *MCPServerReconciler {
-	stub := stubApplier{}
-	return NewMCPServerReconcilerFilesystem(orchAPI, mgr, registry, stub, stub)
+// stubApplier records every Config it was asked to apply and optionally
+// returns a sentinel error from the next Apply call.
+type stubApplier struct {
+	mu        sync.Mutex
+	applied   []agentgateway.Config
+	deleted   []string
+	applyErr  error
+	deleteErr error
 }
 
-func TestMCPServerReconciler_GetResourceType(t *testing.T) {
-	mgr := NewMockMCPServerManager()
-	orchAPI := NewMockOrchestratorAPI()
-	registry := NewMockServiceRegistry()
-	reconciler := newTestReconciler(orchAPI, mgr, registry)
-
-	if reconciler.GetResourceType() != ResourceTypeMCPServer {
-		t.Errorf("expected ResourceTypeMCPServer, got %s", reconciler.GetResourceType())
-	}
+func (s *stubApplier) Apply(_ context.Context, config agentgateway.Config) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.applied = append(s.applied, config)
+	return s.applyErr
 }
 
-func TestMCPServerReconciler_ReconcileCreate(t *testing.T) {
-	mgr := NewMockMCPServerManager()
-	orchAPI := NewMockOrchestratorAPI()
-	registry := NewMockServiceRegistry()
-	reconciler := newTestReconciler(orchAPI, mgr, registry)
-
-	// Add a valid MCPServer with AutoStart enabled
-	mgr.AddMCPServer(&api.MCPServerInfo{
-		Name:      "test-server",
-		Type:      "stdio",
-		Command:   "test-command",
-		AutoStart: true,
-	})
-
-	req := ReconcileRequest{
-		Type:    ResourceTypeMCPServer,
-		Name:    "test-server",
-		Attempt: 1,
-	}
-
-	ctx := context.Background()
-	result := reconciler.Reconcile(ctx, req)
-
-	if result.Error != nil {
-		t.Errorf("unexpected error: %v", result.Error)
-	}
-
-	// Verify service was started
-	if !orchAPI.StartedServices["test-server"] {
-		t.Error("expected service to be started")
-	}
+func (s *stubApplier) Delete(_ context.Context, name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.deleted = append(s.deleted, name)
+	return s.deleteErr
 }
 
-func TestMCPServerReconciler_ReconcileCreateNoAutoStart(t *testing.T) {
-	mgr := NewMockMCPServerManager()
-	orchAPI := NewMockOrchestratorAPI()
-	registry := NewMockServiceRegistry()
-	reconciler := newTestReconciler(orchAPI, mgr, registry)
-
-	// Add a valid MCPServer with AutoStart disabled
-	mgr.AddMCPServer(&api.MCPServerInfo{
-		Name:      "test-server",
-		Type:      "stdio",
-		Command:   "test-command",
-		AutoStart: false,
-	})
-
-	req := ReconcileRequest{
-		Type:    ResourceTypeMCPServer,
-		Name:    "test-server",
-		Attempt: 1,
+func (s *stubApplier) appliedNames() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]string, len(s.applied))
+	for i, c := range s.applied {
+		out[i] = c.Name
 	}
-
-	ctx := context.Background()
-	result := reconciler.Reconcile(ctx, req)
-
-	if result.Error != nil {
-		t.Errorf("unexpected error: %v", result.Error)
-	}
-
-	// Verify service was NOT started (AutoStart is false)
-	if orchAPI.StartedServices["test-server"] {
-		t.Error("service should not be started when AutoStart is false")
-	}
+	return out
 }
 
-func TestMCPServerReconciler_ReconcileDelete(t *testing.T) {
-	mgr := NewMockMCPServerManager()
-	orchAPI := NewMockOrchestratorAPI()
-	registry := NewMockServiceRegistry()
-
-	// Add service to registry to simulate it exists
-	registry.AddService("deleted-server", &MockServiceInfo{
-		Name:        "deleted-server",
-		ServiceType: api.TypeMCPServer,
-		State:       api.StateRunning,
-		Health:      api.HealthHealthy,
-	})
-
-	reconciler := newTestReconciler(orchAPI, mgr, registry)
-
-	// Do not add the MCPServer to manager - simulate a delete scenario
-	req := ReconcileRequest{
-		Type:    ResourceTypeMCPServer,
-		Name:    "deleted-server",
-		Attempt: 1,
-	}
-
-	ctx := context.Background()
-	result := reconciler.Reconcile(ctx, req)
-
-	if result.Error != nil {
-		t.Errorf("unexpected error for delete: %v", result.Error)
-	}
-
-	// Verify service was stopped
-	if !orchAPI.StoppedServices["deleted-server"] {
-		t.Error("expected service to be stopped on delete")
-	}
+// stubAggregator implements api.AggregatorHandler so RegisterUpstream calls
+// from the reconciler hit a recorder instead of nil. Only the upstream
+// methods carry assertions; the rest return zero values.
+type stubAggregator struct {
+	mu           sync.Mutex
+	registered   []string
+	deregistered []string
+	state        map[string]api.UpstreamServerState
+	registerErr  error
 }
 
-func TestMCPServerReconciler_ReconcileDeleteNotFound(t *testing.T) {
-	mgr := NewMockMCPServerManager()
-	orchAPI := NewMockOrchestratorAPI()
-	registry := NewMockServiceRegistry()
-	reconciler := newTestReconciler(orchAPI, mgr, registry)
-
-	// Do not add the MCPServer to manager or registry - nothing to delete
-	req := ReconcileRequest{
-		Type:    ResourceTypeMCPServer,
-		Name:    "nonexistent-server",
-		Attempt: 1,
-	}
-
-	ctx := context.Background()
-	result := reconciler.Reconcile(ctx, req)
-
-	if result.Error != nil {
-		t.Errorf("unexpected error for nonexistent delete: %v", result.Error)
-	}
-	if result.Requeue {
-		t.Error("expected no requeue for nonexistent resource")
-	}
+func newStubAggregator() *stubAggregator {
+	return &stubAggregator{state: make(map[string]api.UpstreamServerState)}
 }
 
-func TestMCPServerReconciler_ReconcileUpdate(t *testing.T) {
-	mgr := NewMockMCPServerManager()
-	orchAPI := NewMockOrchestratorAPI()
-	registry := NewMockServiceRegistry()
-
-	// Add existing service whose configuration has changed
-	registry.AddService("test-server", &MockServiceInfo{
-		Name:          "test-server",
-		ServiceType:   api.TypeMCPServer,
-		State:         api.StateRunning,
-		Health:        api.HealthHealthy,
-		ConfigChanged: true,
-	})
-
-	reconciler := newTestReconciler(orchAPI, mgr, registry)
-
-	// Add MCPServer with new configuration
-	mgr.AddMCPServer(&api.MCPServerInfo{
-		Name:      "test-server",
-		Type:      "stdio",
-		Command:   "new-command", // Changed
-		AutoStart: true,
-	})
-
-	req := ReconcileRequest{
-		Type:    ResourceTypeMCPServer,
-		Name:    "test-server",
-		Attempt: 1,
+func (s *stubAggregator) RegisterUpstream(_ context.Context, name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.registerErr != nil {
+		return s.registerErr
 	}
-
-	ctx := context.Background()
-	result := reconciler.Reconcile(ctx, req)
-
-	if result.Error != nil {
-		t.Errorf("unexpected error: %v", result.Error)
+	s.registered = append(s.registered, name)
+	if _, preseeded := s.state[name]; !preseeded {
+		s.state[name] = api.UpstreamServerConnected
 	}
-
-	// Verify service was restarted due to config change
-	if !orchAPI.RestartedServices["test-server"] {
-		t.Error("expected service to be restarted on config change")
-	}
+	return nil
 }
 
-func TestMCPServerReconciler_ReconcileUpdateNoChange(t *testing.T) {
-	mgr := NewMockMCPServerManager()
-	orchAPI := NewMockOrchestratorAPI()
-	registry := NewMockServiceRegistry()
-
-	// Add existing service with unchanged configuration (ConfigChanged defaults to false)
-	registry.AddService("test-server", &MockServiceInfo{
-		Name:        "test-server",
-		ServiceType: api.TypeMCPServer,
-		State:       api.StateRunning,
-		Health:      api.HealthHealthy,
-	})
-
-	reconciler := newTestReconciler(orchAPI, mgr, registry)
-
-	// Add MCPServer with same configuration
-	mgr.AddMCPServer(&api.MCPServerInfo{
-		Name:      "test-server",
-		Type:      "stdio",
-		Command:   "test-command",
-		AutoStart: true,
-	})
-
-	req := ReconcileRequest{
-		Type:    ResourceTypeMCPServer,
-		Name:    "test-server",
-		Attempt: 1,
-	}
-
-	ctx := context.Background()
-	result := reconciler.Reconcile(ctx, req)
-
-	if result.Error != nil {
-		t.Errorf("unexpected error: %v", result.Error)
-	}
-
-	// Verify service was NOT restarted (no config change)
-	if orchAPI.RestartedServices["test-server"] {
-		t.Error("service should not be restarted when config is unchanged")
-	}
+func (s *stubAggregator) DeregisterUpstream(_ context.Context, name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.deregistered = append(s.deregistered, name)
+	delete(s.state, name)
+	return nil
 }
 
-func TestMCPServerReconciler_ReconcileCreateAuthRequired(t *testing.T) {
-	mgr := NewMockMCPServerManager()
-	orchAPI := NewMockOrchestratorAPI()
-	registry := NewMockServiceRegistry()
-
-	// Simulate AuthRequiredError from StartService
-	orchAPI.StartError = fmt.Errorf("failed to start service: %w", &mockAuthRequiredError{msg: "401 Unauthorized"})
-
-	reconciler := newTestReconciler(orchAPI, mgr, registry)
-
-	mgr.AddMCPServer(&api.MCPServerInfo{
-		Name:      "remote-server",
-		Type:      "streamable-http",
-		URL:       "https://example.com/mcp",
-		AutoStart: true,
-	})
-
-	req := ReconcileRequest{
-		Type:    ResourceTypeMCPServer,
-		Name:    "remote-server",
-		Attempt: 1,
-	}
-
-	ctx := context.Background()
-	result := reconciler.Reconcile(ctx, req)
-
-	// Auth Required should be treated as success, not an error
-	if result.Error != nil {
-		t.Errorf("expected no error for auth required state, got: %v", result.Error)
-	}
-	if result.Requeue {
-		t.Error("expected no requeue for auth required state")
-	}
+func (s *stubAggregator) UpstreamServerState(name string) api.UpstreamServerState {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.state[name]
 }
 
-func TestMCPServerReconciler_ReconcileStartError(t *testing.T) {
-	mgr := NewMockMCPServerManager()
-	orchAPI := NewMockOrchestratorAPI()
-	registry := NewMockServiceRegistry()
-
-	// Simulate start error
-	orchAPI.StartError = fmt.Errorf("service not found in orchestrator")
-
-	reconciler := newTestReconciler(orchAPI, mgr, registry)
-
-	mgr.AddMCPServer(&api.MCPServerInfo{
-		Name:      "test-server",
-		Type:      "stdio",
-		Command:   "test-command",
-		AutoStart: true,
-	})
-
-	req := ReconcileRequest{
-		Type:    ResourceTypeMCPServer,
-		Name:    "test-server",
-		Attempt: 1,
-	}
-
-	ctx := context.Background()
-	result := reconciler.Reconcile(ctx, req)
-
-	if result.Error == nil {
-		t.Error("expected error when start fails")
-	}
-	if !result.Requeue {
-		t.Error("expected requeue on start error")
-	}
+func (s *stubAggregator) GetServiceData() map[string]interface{} { return nil }
+func (s *stubAggregator) GetEndpoint() string                    { return "" }
+func (s *stubAggregator) GetPort() int                           { return 0 }
+func (s *stubAggregator) CallTool(_ context.Context, _ string, _ map[string]interface{}) (*api.CallToolResult, error) {
+	return nil, nil
+}
+func (s *stubAggregator) CallToolInternal(_ context.Context, _ string, _ map[string]interface{}) (*mcp.CallToolResult, error) {
+	return nil, nil
+}
+func (s *stubAggregator) IsToolAvailable(_ string) bool { return false }
+func (s *stubAggregator) GetAvailableTools() []string   { return nil }
+func (s *stubAggregator) UpdateCapabilities()           {}
+func (s *stubAggregator) RegisterServerPendingAuth(_, _, _ string, _ *api.AuthInfo) error {
+	return nil
+}
+func (s *stubAggregator) RegisterServerPendingAuthWithConfig(_, _, _ string, _ *api.AuthInfo, _ *api.MCPServerAuth) error {
+	return nil
 }
 
-func TestMCPServerReconciler_ReconcileStopError(t *testing.T) {
-	mgr := NewMockMCPServerManager()
-	orchAPI := NewMockOrchestratorAPI()
-	registry := NewMockServiceRegistry()
-
-	// Add service to registry to simulate it exists
-	registry.AddService("deleted-server", &MockServiceInfo{
-		Name:        "deleted-server",
-		ServiceType: api.TypeMCPServer,
-		State:       api.StateRunning,
-		Health:      api.HealthHealthy,
-	})
-
-	// Simulate stop error
-	orchAPI.StopError = fmt.Errorf("failed to stop service")
-
-	reconciler := newTestReconciler(orchAPI, mgr, registry)
-
-	// Do not add the MCPServer to manager - simulate a delete scenario
-	req := ReconcileRequest{
-		Type:    ResourceTypeMCPServer,
-		Name:    "deleted-server",
-		Attempt: 1,
-	}
-
-	ctx := context.Background()
-	result := reconciler.Reconcile(ctx, req)
-
-	if result.Error == nil {
-		t.Error("expected error when stop fails")
-	}
-	if !result.Requeue {
-		t.Error("expected requeue on stop error")
-	}
-}
-
-func TestMCPServerReconciler_ReconcileUpdateAuthRequired(t *testing.T) {
-	mgr := NewMockMCPServerManager()
-	orchAPI := NewMockOrchestratorAPI()
-	registry := NewMockServiceRegistry()
-
-	// Add existing service whose configuration has changed
-	registry.AddService("remote-server", &MockServiceInfo{
-		Name:          "remote-server",
-		ServiceType:   api.TypeMCPServer,
-		State:         api.StateRunning,
-		Health:        api.HealthHealthy,
-		ConfigChanged: true,
-	})
-
-	// Simulate AuthRequiredError from RestartService
-	orchAPI.RestartError = fmt.Errorf("failed to restart: %w", &mockAuthRequiredError{msg: "401 Unauthorized"})
-
-	reconciler := newTestReconciler(orchAPI, mgr, registry)
-
-	mgr.AddMCPServer(&api.MCPServerInfo{
-		Name:      "remote-server",
-		Type:      "streamable-http",
-		URL:       "https://new-url.com/mcp", // Changed URL to trigger restart
-		AutoStart: true,
-	})
-
-	req := ReconcileRequest{
-		Type:    ResourceTypeMCPServer,
-		Name:    "remote-server",
-		Attempt: 1,
-	}
-
-	ctx := context.Background()
-	result := reconciler.Reconcile(ctx, req)
-
-	// Auth Required after config update should be treated as success
-	if result.Error != nil {
-		t.Errorf("expected no error for auth required after restart, got: %v", result.Error)
-	}
-	if result.Requeue {
-		t.Error("expected no requeue for auth required after restart")
-	}
-}
-
-func TestMCPServerReconciler_ReconcileRestartError(t *testing.T) {
-	mgr := NewMockMCPServerManager()
-	orchAPI := NewMockOrchestratorAPI()
-	registry := NewMockServiceRegistry()
-
-	// Add existing service whose configuration has changed
-	registry.AddService("test-server", &MockServiceInfo{
-		Name:          "test-server",
-		ServiceType:   api.TypeMCPServer,
-		State:         api.StateRunning,
-		Health:        api.HealthHealthy,
-		ConfigChanged: true,
-	})
-
-	// Simulate restart error
-	orchAPI.RestartError = fmt.Errorf("failed to restart service")
-
-	reconciler := newTestReconciler(orchAPI, mgr, registry)
-
-	// Add MCPServer with new configuration to trigger restart
-	mgr.AddMCPServer(&api.MCPServerInfo{
-		Name:      "test-server",
-		Type:      "stdio",
-		Command:   "new-command", // Changed
-		AutoStart: true,
-	})
-
-	req := ReconcileRequest{
-		Type:    ResourceTypeMCPServer,
-		Name:    "test-server",
-		Attempt: 1,
-	}
-
-	ctx := context.Background()
-	result := reconciler.Reconcile(ctx, req)
-
-	if result.Error == nil {
-		t.Error("expected error when restart fails")
-	}
-	if !result.Requeue {
-		t.Error("expected requeue on restart error")
-	}
-}
-
-func TestMCPServerReconciler_PeriodicRequeue(t *testing.T) {
-	mgr := NewMockMCPServerManager()
-	orchAPI := NewMockOrchestratorAPI()
-	registry := NewMockServiceRegistry()
-
-	// Add existing service (no config change, ConfigChanged defaults to false)
-	registry.AddService("test-server", &MockServiceInfo{
-		Name:        "test-server",
-		ServiceType: api.TypeMCPServer,
-		State:       api.StateRunning,
-		Health:      api.HealthHealthy,
-	})
-
-	reconciler := newTestReconciler(orchAPI, mgr, registry)
-
-	mgr.AddMCPServer(&api.MCPServerInfo{
-		Name:      "test-server",
-		Type:      "stdio",
-		Command:   "test-command",
-		AutoStart: true,
-	})
-
-	req := ReconcileRequest{
-		Type:    ResourceTypeMCPServer,
-		Name:    "test-server",
-		Attempt: 1,
-	}
-
-	ctx := context.Background()
-	result := reconciler.Reconcile(ctx, req)
-
-	if result.Error != nil {
-		t.Errorf("unexpected error: %v", result.Error)
-	}
-
-	// Verify RequeueAfter is set for periodic status sync
-	if result.RequeueAfter == 0 {
-		t.Error("expected RequeueAfter to be set for periodic status sync")
-	}
-
-	if result.RequeueAfter != DefaultStatusSyncInterval {
-		t.Errorf("expected RequeueAfter = %v, got %v", DefaultStatusSyncInterval, result.RequeueAfter)
-	}
-}
-
-func TestMCPServerReconciler_ArgsChange(t *testing.T) {
-	mgr := NewMockMCPServerManager()
-	orchAPI := NewMockOrchestratorAPI()
-	registry := NewMockServiceRegistry()
-
-	// Add existing service whose args have changed
-	registry.AddService("test-server", &MockServiceInfo{
-		Name:          "test-server",
-		ServiceType:   api.TypeMCPServer,
-		State:         api.StateRunning,
-		Health:        api.HealthHealthy,
-		ConfigChanged: true,
-	})
-
-	reconciler := newTestReconciler(orchAPI, mgr, registry)
-
-	// Add MCPServer with different args
-	mgr.AddMCPServer(&api.MCPServerInfo{
-		Name:      "test-server",
-		Type:      "stdio",
-		Command:   "test-command",
-		Args:      []string{"new-arg1", "new-arg2"},
-		AutoStart: true,
-	})
-
-	req := ReconcileRequest{
-		Type:    ResourceTypeMCPServer,
-		Name:    "test-server",
-		Attempt: 1,
-	}
-
-	ctx := context.Background()
-	result := reconciler.Reconcile(ctx, req)
-
-	if result.Error != nil {
-		t.Errorf("unexpected error: %v", result.Error)
-	}
-
-	// Verify service was restarted due to args change
-	if !orchAPI.RestartedServices["test-server"] {
-		t.Error("expected service to be restarted when args change")
-	}
-}
-
-// =============================================================================
-// Status Sync Tests - Verify syncStatus functionality
-// =============================================================================
-
-func TestMCPServerReconciler_SyncStatus_RunningService(t *testing.T) {
-	mgr := NewMockMCPServerManager()
-	orchAPI := NewMockOrchestratorAPI()
-	registry := NewMockServiceRegistry()
-	statusUpdater := NewMockStatusUpdater()
-
-	// Add existing running service
-	registry.AddService("test-server", &MockServiceInfo{
-		Name:        "test-server",
-		ServiceType: api.TypeMCPServer,
-		State:       api.StateRunning,
-		Health:      api.HealthHealthy,
-	})
-
-	reconciler := newTestReconciler(orchAPI, mgr, registry).
-		WithStatusUpdater(statusUpdater, "default")
-
-	// Add MCPServer with same config (no restart needed)
-	mgr.AddMCPServer(&api.MCPServerInfo{
-		Name:      "test-server",
-		Type:      "stdio",
-		Command:   "test-command",
-		AutoStart: true,
-	})
-
-	req := ReconcileRequest{
-		Type:      ResourceTypeMCPServer,
-		Name:      "test-server",
-		Namespace: "default",
-		Attempt:   1,
-	}
-
-	ctx := context.Background()
-	result := reconciler.Reconcile(ctx, req)
-
-	if result.Error != nil {
-		t.Errorf("unexpected error: %v", result.Error)
-	}
-
-	// Verify status was synced
-	if !statusUpdater.GetMCPServerCalled {
-		t.Error("expected GetMCPServer to be called for status sync")
-	}
-	if !statusUpdater.UpdateMCPServerStatusCalled {
-		t.Error("expected UpdateMCPServerStatus to be called")
-	}
-
-	// Verify status values
-	if statusUpdater.LastUpdatedMCPServer == nil {
-		t.Fatal("expected LastUpdatedMCPServer to be set")
-	}
-	// For stdio servers, Running state maps to MCPServerStateRunning
-	if statusUpdater.LastUpdatedMCPServer.Status.State != musterv1alpha1.MCPServerStateRunning {
-		t.Errorf("expected state 'Running', got '%s'", statusUpdater.LastUpdatedMCPServer.Status.State)
-	}
-	if statusUpdater.LastUpdatedMCPServer.Status.LastConnected == nil {
-		t.Error("expected LastConnected to be set for running service")
-	}
-}
-
-func TestMCPServerReconciler_SyncStatus_ServiceNotFound(t *testing.T) {
-	mgr := NewMockMCPServerManager()
-	orchAPI := NewMockOrchestratorAPI()
-	registry := NewMockServiceRegistry()
-	statusUpdater := NewMockStatusUpdater()
-
-	// No service in registry - simulate deleted service
-
-	reconciler := newTestReconciler(orchAPI, mgr, registry).
-		WithStatusUpdater(statusUpdater, "default")
-
-	// MCPServer exists but service doesn't - will be created
-	mgr.AddMCPServer(&api.MCPServerInfo{
-		Name:      "test-server",
-		Type:      "stdio",
-		Command:   "test-command",
-		AutoStart: true,
-	})
-
-	req := ReconcileRequest{
-		Type:      ResourceTypeMCPServer,
-		Name:      "test-server",
-		Namespace: "default",
-		Attempt:   1,
-	}
-
-	ctx := context.Background()
-	_ = reconciler.Reconcile(ctx, req)
-
-	// Verify status was synced (even if service is not yet running)
-	if !statusUpdater.UpdateMCPServerStatusCalled {
-		t.Error("expected UpdateMCPServerStatus to be called")
-	}
-}
-
-func TestMCPServerReconciler_SyncStatus_WithError(t *testing.T) {
-	mgr := NewMockMCPServerManager()
-	orchAPI := NewMockOrchestratorAPI()
-	registry := NewMockServiceRegistry()
-	statusUpdater := NewMockStatusUpdater()
-
-	// Add service with error
-	registry.AddService("test-server", &MockServiceInfo{
-		Name:        "test-server",
-		ServiceType: api.TypeMCPServer,
-		State:       api.StateError,
-		Health:      api.HealthUnhealthy,
-		LastError:   fmt.Errorf("connection failed"),
-	})
-
-	reconciler := newTestReconciler(orchAPI, mgr, registry).
-		WithStatusUpdater(statusUpdater, "default")
-
-	mgr.AddMCPServer(&api.MCPServerInfo{
-		Name:      "test-server",
-		Type:      "stdio",
-		Command:   "test-command",
-		AutoStart: true,
-	})
-
-	req := ReconcileRequest{
-		Type:      ResourceTypeMCPServer,
-		Name:      "test-server",
-		Namespace: "default",
-		Attempt:   1,
-	}
-
-	ctx := context.Background()
-	_ = reconciler.Reconcile(ctx, req)
-
-	// Verify status was synced with error
-	if !statusUpdater.UpdateMCPServerStatusCalled {
-		t.Error("expected UpdateMCPServerStatus to be called")
-	}
-
-	if statusUpdater.LastUpdatedMCPServer == nil {
-		t.Fatal("expected LastUpdatedMCPServer to be set")
-	}
-	if statusUpdater.LastUpdatedMCPServer.Status.State != musterv1alpha1.MCPServerStateFailed {
-		t.Errorf("expected state 'Failed', got '%s'", statusUpdater.LastUpdatedMCPServer.Status.State)
-	}
-	if statusUpdater.LastUpdatedMCPServer.Status.LastError == "" {
-		t.Error("expected LastError to be set")
-	}
-}
-
-func TestMCPServerReconciler_SyncStatus_NoUpdaterConfigured(t *testing.T) {
-	mgr := NewMockMCPServerManager()
-	orchAPI := NewMockOrchestratorAPI()
-	registry := NewMockServiceRegistry()
-
-	// No status updater configured - should not panic
-	reconciler := newTestReconciler(orchAPI, mgr, registry)
-
-	mgr.AddMCPServer(&api.MCPServerInfo{
-		Name:      "test-server",
-		Type:      "stdio",
-		Command:   "test-command",
-		AutoStart: true,
-	})
-
-	req := ReconcileRequest{
-		Type:    ResourceTypeMCPServer,
-		Name:    "test-server",
-		Attempt: 1,
-	}
-
-	ctx := context.Background()
-	result := reconciler.Reconcile(ctx, req)
-
-	// Should complete without error even without status updater
-	if result.Error != nil {
-		t.Errorf("unexpected error: %v", result.Error)
-	}
-}
-
-func TestMCPServerReconciler_SyncStatus_GetMCPServerError(t *testing.T) {
-	mgr := NewMockMCPServerManager()
-	orchAPI := NewMockOrchestratorAPI()
-	registry := NewMockServiceRegistry()
-	statusUpdater := NewMockStatusUpdater()
-
-	// Simulate error when getting MCPServer CRD
-	statusUpdater.GetMCPServerError = fmt.Errorf("CRD not found")
-
-	registry.AddService("test-server", &MockServiceInfo{
-		Name:        "test-server",
-		ServiceType: api.TypeMCPServer,
-		State:       api.StateRunning,
-		Health:      api.HealthHealthy,
-	})
-
-	reconciler := newTestReconciler(orchAPI, mgr, registry).
-		WithStatusUpdater(statusUpdater, "default")
-
-	mgr.AddMCPServer(&api.MCPServerInfo{
-		Name:      "test-server",
-		Type:      "stdio",
-		Command:   "test-command",
-		AutoStart: true,
-	})
-
-	req := ReconcileRequest{
-		Type:      ResourceTypeMCPServer,
-		Name:      "test-server",
-		Namespace: "default",
-		Attempt:   1,
-	}
-
-	ctx := context.Background()
-	result := reconciler.Reconcile(ctx, req)
-
-	// Reconciliation should still succeed even if status sync fails
-	if result.Error != nil {
-		t.Errorf("unexpected error: %v", result.Error)
-	}
-
-	// GetMCPServer was called but UpdateMCPServerStatus should not be called
-	if !statusUpdater.GetMCPServerCalled {
-		t.Error("expected GetMCPServer to be called")
-	}
-	if statusUpdater.UpdateMCPServerStatusCalled {
-		t.Error("expected UpdateMCPServerStatus NOT to be called when GetMCPServer fails")
-	}
-}
-
-func TestMCPServerReconciler_SyncStatus_UpdateError(t *testing.T) {
-	mgr := NewMockMCPServerManager()
-	orchAPI := NewMockOrchestratorAPI()
-	registry := NewMockServiceRegistry()
-	statusUpdater := NewMockStatusUpdater()
-
-	// Simulate error when updating status
-	statusUpdater.UpdateMCPServerStatusError = fmt.Errorf("update failed")
-
-	registry.AddService("test-server", &MockServiceInfo{
-		Name:        "test-server",
-		ServiceType: api.TypeMCPServer,
-		State:       api.StateRunning,
-		Health:      api.HealthHealthy,
-	})
-
-	reconciler := newTestReconciler(orchAPI, mgr, registry).
-		WithStatusUpdater(statusUpdater, "default")
-
-	mgr.AddMCPServer(&api.MCPServerInfo{
-		Name:      "test-server",
-		Type:      "stdio",
-		Command:   "test-command",
-		AutoStart: true,
-	})
-
-	req := ReconcileRequest{
-		Type:      ResourceTypeMCPServer,
-		Name:      "test-server",
-		Namespace: "default",
-		Attempt:   1,
-	}
-
-	ctx := context.Background()
-	result := reconciler.Reconcile(ctx, req)
-
-	// Reconciliation should still succeed even if status update fails
-	// (status sync is best-effort)
-	if result.Error != nil {
-		t.Errorf("unexpected error: %v", result.Error)
-	}
-
-	// Both methods should be called
-	if !statusUpdater.GetMCPServerCalled {
-		t.Error("expected GetMCPServer to be called")
-	}
-	if !statusUpdater.UpdateMCPServerStatusCalled {
-		t.Error("expected UpdateMCPServerStatus to be called")
-	}
-}
-
-func TestCategorizeStatusSyncError(t *testing.T) {
-	tests := []struct {
-		name     string
-		err      error
-		expected string
-	}{
-		{
-			name:     "nil error",
-			err:      nil,
-			expected: "unknown",
-		},
-		{
-			name:     "not found error",
-			err:      fmt.Errorf("resource not found"),
-			expected: "crd_not_found",
-		},
-		{
-			name:     "connection refused",
-			err:      fmt.Errorf("connection refused"),
-			expected: "api_server_unreachable",
-		},
-		{
-			name:     "no route to host",
-			err:      fmt.Errorf("no route to host"),
-			expected: "api_server_unreachable",
-		},
-		{
-			name:     "network unreachable",
-			err:      fmt.Errorf("network is unreachable"),
-			expected: "api_server_unreachable",
-		},
-		{
-			name:     "timeout error",
-			err:      fmt.Errorf("request timeout"),
-			expected: "timeout",
-		},
-		{
-			name:     "deadline exceeded",
-			err:      fmt.Errorf("context deadline exceeded"),
-			expected: "timeout",
-		},
-		{
-			name:     "forbidden lowercase",
-			err:      fmt.Errorf("forbidden: user does not have access"),
-			expected: "permission_denied",
-		},
-		{
-			name:     "Forbidden uppercase",
-			err:      fmt.Errorf("Forbidden: RBAC denied"),
-			expected: "permission_denied",
-		},
-		{
-			name:     "unauthorized",
-			err:      fmt.Errorf("unauthorized: invalid token"),
-			expected: "authentication_failed",
-		},
-		{
-			name:     "generic error",
-			err:      fmt.Errorf("some random error"),
-			expected: "update_status_failed",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := CategorizeStatusSyncError(tt.err)
-			if result != tt.expected {
-				t.Errorf("CategorizeStatusSyncError(%v) = %s, want %s", tt.err, result, tt.expected)
-			}
-		})
-	}
-}
-
-func TestIsConflictError(t *testing.T) {
-	tests := []struct {
-		name     string
-		err      error
-		expected bool
-	}{
-		{
-			name:     "nil error",
-			err:      nil,
-			expected: false,
-		},
-		{
-			name:     "regular error",
-			err:      fmt.Errorf("some error"),
-			expected: false,
-		},
-		{
-			name:     "Kubernetes conflict error",
-			err:      apierrors.NewConflict(schema.GroupResource{Group: "muster.giantswarm.io", Resource: "mcpservers"}, "test", fmt.Errorf("the object has been modified")),
-			expected: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := IsConflictError(tt.err)
-			if result != tt.expected {
-				t.Errorf("IsConflictError(%v) = %v, want %v", tt.err, result, tt.expected)
-			}
-		})
-	}
-}
-
-func TestMCPServerReconciler_SyncStatus_RetriesOnConflict(t *testing.T) {
-	// This test verifies that the retry-on-conflict logic works correctly:
-	// 1. First update attempt returns a conflict error
-	// 2. Retry loop should re-fetch the CRD and try again
-	// 3. Second attempt should succeed
-
-	mgr := NewMockMCPServerManager()
-	orchAPI := NewMockOrchestratorAPI()
-	registry := NewMockServiceRegistry()
-	statusUpdater := NewMockStatusUpdater()
-
-	// Configure to fail with conflict on first attempt, succeed on second
-	conflictErr := apierrors.NewConflict(
-		schema.GroupResource{Group: "muster.giantswarm.io", Resource: "mcpservers"},
-		"test-server",
-		fmt.Errorf("the object has been modified"),
-	)
-	statusUpdater.UpdateMCPServerStatusError = conflictErr
-	statusUpdater.UpdateMCPServerStatusFailCount = 1 // Fail only the first attempt
-
-	// Add running service (no config change)
-	registry.AddService("test-server", &MockServiceInfo{
-		Name:        "test-server",
-		ServiceType: api.TypeMCPServer,
-		State:       api.StateRunning,
-		Health:      api.HealthHealthy,
-	})
-
-	reconciler := newTestReconciler(orchAPI, mgr, registry).
-		WithStatusUpdater(statusUpdater, "default")
-
-	// Add MCPServer with same config (no restart needed)
-	mgr.AddMCPServer(&api.MCPServerInfo{
-		Name:      "test-server",
-		Type:      "stdio",
-		Command:   "test-command",
-		AutoStart: true,
-	})
-
-	req := ReconcileRequest{
-		Type:      ResourceTypeMCPServer,
-		Name:      "test-server",
-		Namespace: "default",
-		Attempt:   1,
-	}
-
-	ctx := context.Background()
-	result := reconciler.Reconcile(ctx, req)
-
-	// Reconciliation should succeed (status sync retried and succeeded)
-	if result.Error != nil {
-		t.Errorf("unexpected error: %v", result.Error)
-	}
-
-	// Verify UpdateMCPServerStatus was called multiple times (retry happened)
-	callCount := statusUpdater.GetUpdateMCPServerStatusCallCount()
-	if callCount < 2 {
-		t.Errorf("expected UpdateMCPServerStatus to be called at least 2 times (retry), got %d", callCount)
-	}
-
-	// Verify the status was eventually synced correctly
-	if statusUpdater.LastUpdatedMCPServer == nil {
-		t.Fatal("expected LastUpdatedMCPServer to be set")
-	}
-	// For stdio servers, Running state maps to MCPServerStateRunning
-	if statusUpdater.LastUpdatedMCPServer.Status.State != musterv1alpha1.MCPServerStateRunning {
-		t.Errorf("expected state 'Running', got '%s'", statusUpdater.LastUpdatedMCPServer.Status.State)
-	}
+// withAggregator swaps the API service-locator aggregator handler for the
+// duration of one test. Use t.Cleanup so parallel tests don't leak state.
+func withAggregator(t *testing.T, agg api.AggregatorHandler) {
+	t.Helper()
+	prev := api.GetAggregator()
+	api.RegisterAggregator(agg)
+	t.Cleanup(func() { api.RegisterAggregator(prev) })
 }
 
 const (
-	disableGateCreateFixture  = "filesystem-stdio"
-	disableGateRestartFixture = "filesystem-http"
-	disableGateDefaultFixture = "default-stdio"
+	testServerGitHub    = "github"
+	testTypeStreamable  = "streamable-http"
+	testGithubURL       = "https://github.example.com/mcp"
 )
 
-func TestMCPServerReconciler_DisableLocalSpawn_SkipsStartService(t *testing.T) {
-	mgr := NewMockMCPServerManager()
-	orchAPI := NewMockOrchestratorAPI()
-	registry := NewMockServiceRegistry()
-	reconciler := newTestReconciler(orchAPI, mgr, registry).WithDisableLocalSpawn(true)
-
-	mgr.AddMCPServer(&api.MCPServerInfo{
-		Name:      disableGateCreateFixture,
-		Type:      "stdio",
-		Command:   "test-command",
-		AutoStart: true,
-	})
-
-	result := reconciler.Reconcile(context.Background(), ReconcileRequest{
-		Type:    ResourceTypeMCPServer,
-		Name:    disableGateCreateFixture,
-		Attempt: 1,
-	})
-
-	if result.Error != nil {
-		t.Errorf("unexpected error: %v", result.Error)
-	}
-	if orchAPI.StartedServices[disableGateCreateFixture] {
-		t.Error("StartService must not be called when local spawn is disabled")
-	}
+func newReconcilerForTest(applier *stubApplier, mgr MCPServerManager, upd StatusUpdater) *MCPServerReconciler {
+	r := NewMCPServerReconcilerFilesystem(mgr, applier, applier)
+	r.WithStatusUpdater(upd, "default")
+	return r
 }
 
-func TestMCPServerReconciler_DisableLocalSpawn_SkipsRestartService(t *testing.T) {
+func TestReconcileRegistersUpstreamOnAutoStart(t *testing.T) {
+	applier := &stubApplier{}
 	mgr := NewMockMCPServerManager()
-	orchAPI := NewMockOrchestratorAPI()
-	registry := NewMockServiceRegistry()
-
-	registry.AddService(disableGateRestartFixture, &MockServiceInfo{
-		Name:          disableGateRestartFixture,
-		ServiceType:   api.TypeMCPServer,
-		State:         api.StateRunning,
-		Health:        api.HealthHealthy,
-		ConfigChanged: true,
-	})
-
-	reconciler := newTestReconciler(orchAPI, mgr, registry).WithDisableLocalSpawn(true)
-
 	mgr.AddMCPServer(&api.MCPServerInfo{
-		Name:      disableGateRestartFixture,
-		Type:      "streamable-http",
-		URL:       "https://example.com/mcp",
+		Name:      testServerGitHub,
+		Type:      testTypeStreamable,
+		URL:       testGithubURL,
 		AutoStart: true,
 	})
 
-	result := reconciler.Reconcile(context.Background(), ReconcileRequest{
-		Type:    ResourceTypeMCPServer,
-		Name:    disableGateRestartFixture,
-		Attempt: 1,
-	})
+	updater := NewMockStatusUpdater()
+	agg := newStubAggregator()
+	withAggregator(t, agg)
 
-	if result.Error != nil {
-		t.Errorf("unexpected error: %v", result.Error)
-	}
-	if orchAPI.RestartedServices[disableGateRestartFixture] {
-		t.Error("RestartService must not be called when local spawn is disabled")
-	}
+	r := newReconcilerForTest(applier, mgr, updater)
+
+	result := r.Reconcile(t.Context(), ReconcileRequest{Name: testServerGitHub, Namespace: DefaultNamespace})
+
+	require.NoError(t, result.Error)
+	require.Equal(t, []string{testServerGitHub}, applier.appliedNames())
+	require.Equal(t, []string{testServerGitHub}, agg.registered)
+	require.Empty(t, agg.deregistered)
+	require.Equal(t, musterv1alpha1.MCPServerStateConnected, updater.GetLastUpdatedMCPServer().Status.State)
 }
 
-func TestMCPServerReconciler_DisableLocalSpawn_DefaultFalsePreservesStart(t *testing.T) {
+func TestReconcileSkipsRegisterWhenAutoStartFalse(t *testing.T) {
+	applier := &stubApplier{}
 	mgr := NewMockMCPServerManager()
-	orchAPI := NewMockOrchestratorAPI()
-	registry := NewMockServiceRegistry()
-	reconciler := newTestReconciler(orchAPI, mgr, registry)
-
 	mgr.AddMCPServer(&api.MCPServerInfo{
-		Name:      disableGateDefaultFixture,
+		Name:      testServerGitHub,
+		Type:      testTypeStreamable,
+		URL:       testGithubURL,
+		AutoStart: false,
+	})
+
+	updater := NewMockStatusUpdater()
+	agg := newStubAggregator()
+	withAggregator(t, agg)
+
+	r := newReconcilerForTest(applier, mgr, updater)
+
+	result := r.Reconcile(t.Context(), ReconcileRequest{Name: testServerGitHub, Namespace: DefaultNamespace})
+
+	require.NoError(t, result.Error)
+	require.Equal(t, []string{testServerGitHub}, applier.appliedNames(), "applyConfig still runs so agentgateway sees the route")
+	require.Empty(t, agg.registered, "RegisterUpstream skipped when AutoStart=false")
+}
+
+func TestReconcileMarksNotSupportedInClusterOnStdioSentinel(t *testing.T) {
+	applier := &stubApplier{applyErr: agentgateway.ErrUnsupportedTransport}
+	mgr := NewMockMCPServerManager()
+	mgr.AddMCPServer(&api.MCPServerInfo{
+		Name:      "kubernetes",
 		Type:      "stdio",
-		Command:   "test-command",
+		Command:   "/usr/local/bin/mcp-kubernetes",
 		AutoStart: true,
 	})
 
-	result := reconciler.Reconcile(context.Background(), ReconcileRequest{
-		Type:    ResourceTypeMCPServer,
-		Name:    disableGateDefaultFixture,
-		Attempt: 1,
+	updater := NewMockStatusUpdater()
+	agg := newStubAggregator()
+	withAggregator(t, agg)
+
+	r := newReconcilerForTest(applier, mgr, updater)
+
+	result := r.Reconcile(t.Context(), ReconcileRequest{Name: "kubernetes", Namespace: "default"})
+
+	require.NoError(t, result.Error)
+	require.NotZero(t, result.RequeueAfter)
+	require.Empty(t, agg.registered, "RegisterUpstream must be skipped when applyConfig short-circuits")
+
+	server := updater.GetLastUpdatedMCPServer()
+	require.NotNil(t, server)
+	var found bool
+	for _, c := range server.Status.Conditions {
+		if c.Type == ConditionTypeNotSupportedInCluster {
+			found = true
+			break
+		}
+	}
+	require.True(t, found, "NotSupportedInCluster condition should be set")
+}
+
+func TestReconcileDeleteDeregistersUpstreamAndDeletesApplier(t *testing.T) {
+	applier := &stubApplier{}
+	mgr := NewMockMCPServerManager()
+	// No MCPServer registered → reconciler treats it as a delete.
+
+	updater := NewMockStatusUpdater()
+	agg := newStubAggregator()
+	withAggregator(t, agg)
+
+	r := newReconcilerForTest(applier, mgr, updater)
+
+	result := r.Reconcile(t.Context(), ReconcileRequest{Name: testServerGitHub, Namespace: DefaultNamespace})
+
+	require.NoError(t, result.Error)
+	require.Equal(t, []string{testServerGitHub}, agg.deregistered)
+	require.Equal(t, []string{testServerGitHub}, applier.deleted)
+}
+
+func TestReconcileRegisterFailureRequeues(t *testing.T) {
+	applier := &stubApplier{}
+	mgr := NewMockMCPServerManager()
+	mgr.AddMCPServer(&api.MCPServerInfo{
+		Name:      testServerGitHub,
+		Type:      testTypeStreamable,
+		URL:       testGithubURL,
+		AutoStart: true,
 	})
 
-	if result.Error != nil {
-		t.Errorf("unexpected error: %v", result.Error)
-	}
-	if !orchAPI.StartedServices[disableGateDefaultFixture] {
-		t.Error("StartService must still be called when local spawn is not disabled (default)")
-	}
+	updater := NewMockStatusUpdater()
+	agg := newStubAggregator()
+	agg.registerErr = errors.New("upstream init failed")
+	withAggregator(t, agg)
+
+	r := newReconcilerForTest(applier, mgr, updater)
+
+	result := r.Reconcile(t.Context(), ReconcileRequest{Name: testServerGitHub, Namespace: DefaultNamespace})
+
+	require.Error(t, result.Error)
+	require.True(t, result.Requeue)
+	require.Equal(t, musterv1alpha1.MCPServerStateDisconnected, updater.GetLastUpdatedMCPServer().Status.State)
+}
+
+func TestReconcileMapsAuthRequiredFromAggregatorState(t *testing.T) {
+	applier := &stubApplier{}
+	mgr := NewMockMCPServerManager()
+	mgr.AddMCPServer(&api.MCPServerInfo{
+		Name:      testServerGitHub,
+		Type:      testTypeStreamable,
+		URL:       testGithubURL,
+		AutoStart: true,
+	})
+
+	updater := NewMockStatusUpdater()
+	agg := newStubAggregator()
+	withAggregator(t, agg)
+	// Pretend the aggregator's RegisterUpstream rolled the upstream into
+	// pending-auth state (the real implementation does this when the
+	// upstream returns 401 on Initialize).
+	agg.state[testServerGitHub] = api.UpstreamServerAuthRequired
+
+	r := newReconcilerForTest(applier, mgr, updater)
+
+	result := r.Reconcile(t.Context(), ReconcileRequest{Name: testServerGitHub, Namespace: DefaultNamespace})
+	require.NoError(t, result.Error)
+	require.Equal(t, musterv1alpha1.MCPServerStateAuthRequired, updater.GetLastUpdatedMCPServer().Status.State)
 }

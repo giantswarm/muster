@@ -210,6 +210,16 @@ muster:
     # Options: "streamable-http", "sse"
     transport: "streamable-http"
 
+  # agentgateway configuration. In cluster mode muster's aggregator dials
+  # agentgateway at <upstreamURL>/mcp/<server-name> for every external
+  # MCPServer; agentgateway acts as transparent L7 middleware while muster
+  # retains token exchange, server-family grouping, and ADR-006 filtering.
+  # The chart ships no agentgateway Service template — agentgateway is
+  # deployed out-of-band; point upstreamURL at whichever Service routes to
+  # its pods. Empty values make muster fail at startup.
+  agentgateway:
+    upstreamURL: ""
+
   # Namespace for MCPServer and Workflow discovery
   # Defaults to the release namespace if not set
   namespace: ""

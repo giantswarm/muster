@@ -95,6 +95,8 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+            - name: MUSTER_AGW_UPSTREAM_URL
+              value: {{ include "muster.agentgatewayUpstreamURL" . | quote }}
             {{- with .Values.muster.observability.otel.endpoint }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: {{ . | quote }}

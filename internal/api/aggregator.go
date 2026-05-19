@@ -124,7 +124,32 @@ type AggregatorHandler interface {
 	//
 	// Returns an error if registration fails.
 	RegisterServerPendingAuthWithConfig(serverName, url, toolPrefix string, authInfo *AuthInfo, authConfig *MCPServerAuth) error
+
+	// RegisterUpstream opens the federated streamable-http connection through
+	// UpstreamProxy for the named MCPServer and inserts it into the aggregator's
+	// registry. Pending-auth and idempotency are handled internally.
+	RegisterUpstream(ctx context.Context, name string) error
+
+	// DeregisterUpstream removes a previously registered MCPServer from the
+	// aggregator. Returns nil when no registration exists.
+	DeregisterUpstream(ctx context.Context, name string) error
+
+	// UpstreamServerState reports the current registration state of an upstream
+	// MCPServer. The reconciler reads this for CRD status sync.
+	UpstreamServerState(name string) UpstreamServerState
 }
+
+// UpstreamServerState enumerates the aggregator's view of an upstream MCPServer.
+type UpstreamServerState int
+
+const (
+	// UpstreamServerAbsent means the upstream is not registered with the aggregator.
+	UpstreamServerAbsent UpstreamServerState = iota
+	// UpstreamServerConnected means the upstream is registered and its client is connected.
+	UpstreamServerConnected
+	// UpstreamServerAuthRequired means the upstream is registered in pending-auth state.
+	UpstreamServerAuthRequired
+)
 
 // CallTool implements the ToolCaller interface by delegating to the aggregator handler.
 // It provides a standardized way to execute tools with proper error handling

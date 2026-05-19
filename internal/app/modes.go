@@ -60,11 +60,11 @@ func runOrchestrator(ctx context.Context, services *Services) error {
 		}
 	}
 
-	if services.Aggregator != nil {
-		if err := services.Aggregator.Start(ctx); err != nil {
+	if services.AggregatorManager != nil {
+		if err := services.AggregatorManager.Start(ctx); err != nil {
 			return fmt.Errorf("start aggregator: %w", err)
 		}
-		logging.Info("CLI", "Aggregator started directly (out of orchestrator service registry)")
+		logging.Info("CLI", "Aggregator manager started directly (out of orchestrator service registry)")
 	}
 
 	if services.AgentgatewayConfigDir != "" {
@@ -118,9 +118,9 @@ func runOrchestrator(ctx context.Context, services *Services) error {
 		cancel()
 	}
 
-	if services.Aggregator != nil {
+	if services.AggregatorManager != nil {
 		shutCtx, cancel := context.WithTimeout(context.Background(), aggregatorShutdownTimeout)
-		if err := services.Aggregator.Stop(shutCtx); err != nil {
+		if err := services.AggregatorManager.Stop(shutCtx); err != nil {
 			logging.Error("CLI", err, "Error stopping aggregator")
 		}
 		cancel()

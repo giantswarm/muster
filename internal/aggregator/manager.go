@@ -2,63 +2,43 @@ package aggregator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
-	"time"
 
 	configPkg "github.com/giantswarm/muster/internal/config"
+	internalmcp "github.com/giantswarm/muster/internal/mcpserver"
 
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/oauth"
 	"github.com/giantswarm/muster/pkg/logging"
 )
 
-// This file contains aggregator manager logic that coordinates between
-// the aggregator server and event handling to provide automatic MCP
-// server registration based on health status.
-
-// AggregatorManager provides a high-level interface for managing the aggregator server
-// and coordinating automatic MCP server registration based on service health status.
-//
-// The manager combines the aggregator server with event handling to provide:
-//   - Automatic registration of healthy MCP servers
-//   - Event-driven updates when service states change
-//   - Periodic retry mechanisms for failed registrations
-//   - Centralized lifecycle management
-//   - OAuth proxy for remote MCP server authentication
-//
-// It acts as the primary entry point for the aggregator functionality and
-// integrates with the muster service architecture through the central API pattern.
+// AggregatorManager owns the aggregator HTTP server and the OAuth proxy that
+// authenticates muster's outbound MCP connections. It is the only component
+// muster's reconciler calls to (de)register an upstream MCPServer: each dial
+// flows through UpstreamProxy ("<proxy>/mcp/<server-name>", streamable-http)
+// so agentgateway can apply tracing, audit, metrics, and passthrough auth
+// while muster retains token exchange, family grouping, and ADR-006
+// session-scoped tool filtering.
 type AggregatorManager struct {
 	mu     sync.RWMutex
 	config AggregatorConfig
 
-	// External dependencies - accessed through the central API pattern
 	orchestratorAPI api.OrchestratorAPI
 	serviceRegistry api.ServiceRegistryHandler
 
-	// Internal components
-	aggregatorServer *AggregatorServer // The core MCP server that exposes aggregated capabilities
-	eventHandler     *EventHandler     // Handles service state change events
-	oauthManager     *oauth.Manager    // OAuth proxy for remote MCP server authentication
+	aggregatorServer *AggregatorServer
+	oauthManager     *oauth.Manager
 
-	// Lifecycle management
-	ctx        context.Context    // Context for coordinating shutdown
-	cancelFunc context.CancelFunc // Function to cancel the context
+	ctx        context.Context
+	cancelFunc context.CancelFunc
 }
 
-// NewAggregatorManager creates a new aggregator manager with the specified configuration.
-//
-// The manager requires access to the orchestrator API for receiving service state events
-// and the service registry for querying service information. These dependencies are
-// provided through the central API pattern to maintain loose coupling.
-//
-// Args:
-//   - config: Configuration for the aggregator server behavior
-//   - orchestratorAPI: Interface for receiving service lifecycle events
-//   - serviceRegistry: Interface for querying service information
-//
-// Returns a configured but not yet started aggregator manager.
+// NewAggregatorManager constructs a manager. orchestratorAPI surfaces static
+// service lifecycle hooks; serviceRegistry exposes non-MCPServer services for
+// the GetServiceData report. errorCallback receives fatal listener errors
+// from background goroutines and may be nil (errors will be logged instead).
 func NewAggregatorManager(config AggregatorConfig, orchestratorAPI api.OrchestratorAPI, serviceRegistry api.ServiceRegistryHandler, errorCallback func(err error)) *AggregatorManager {
 	manager := &AggregatorManager{
 		config:          config,
@@ -66,10 +46,8 @@ func NewAggregatorManager(config AggregatorConfig, orchestratorAPI api.Orchestra
 		serviceRegistry: serviceRegistry,
 	}
 
-	// Create the aggregator server with the provided configuration
 	manager.aggregatorServer = NewAggregatorServer(config, errorCallback)
 
-	// Initialize OAuth manager if enabled (OAuth MCP client/proxy for authenticating TO remote MCP servers)
 	if config.OAuth.Enabled {
 		oauthMCPClientConfig := configPkg.OAuthMCPClientConfig{
 			Enabled:      config.OAuth.Enabled,
@@ -93,13 +71,10 @@ func NewAggregatorManager(config AggregatorConfig, orchestratorAPI api.Orchestra
 		manager.oauthManager = oauth.NewManager(oauthMCPClientConfig, oauthOpts...)
 
 		if manager.oauthManager != nil {
-			// Register OAuth handler with the API layer
 			oauthAdapter := oauth.NewAdapter(manager.oauthManager)
 			oauthAdapter.Register()
 			logging.Info("Aggregator-Manager", "OAuth proxy enabled with public URL: %s", config.OAuth.PublicURL)
 
-			// Register the auth completion callback to establish session connections
-			// after browser OAuth completes
 			manager.oauthManager.SetAuthCompletionCallback(manager.handleAuthCompletion)
 		}
 	}
@@ -107,20 +82,10 @@ func NewAggregatorManager(config AggregatorConfig, orchestratorAPI api.Orchestra
 	return manager
 }
 
-// Start initializes and starts the aggregator manager.
-//
-// This method performs the following initialization sequence:
-//  1. Starts the underlying aggregator server
-//  2. Validates that required APIs are available
-//  3. Performs initial sync of healthy MCP servers
-//  4. Sets up event handling for automatic updates
-//  5. Starts periodic retry mechanism for failed registrations
-//
-// The method is idempotent - calling it multiple times has no additional effect.
-// Returns an error if any component fails to start.
+// Start brings the aggregator HTTP server up. Upstream MCPServer registration
+// is reconciler-driven (see RegisterUpstream); no initial-sync or retry loop
+// runs here.
 func (am *AggregatorManager) Start(ctx context.Context) error {
-
-	// Validate that required APIs are available
 	if am.orchestratorAPI == nil {
 		return fmt.Errorf("required APIs not available")
 	}
@@ -128,75 +93,30 @@ func (am *AggregatorManager) Start(ctx context.Context) error {
 	am.mu.Lock()
 	defer am.mu.Unlock()
 
-	// Create cancellable context for coordinating shutdown
 	am.ctx, am.cancelFunc = context.WithCancel(ctx)
 
-	// Start the aggregator server first
 	if err := am.aggregatorServer.Start(am.ctx); err != nil {
 		return fmt.Errorf("failed to start aggregator server: %w", err)
 	}
-
-	// Perform initial synchronization: Register all healthy running MCP servers
-	if err := am.registerHealthyMCPServers(am.ctx); err != nil {
-		logging.Warn("Aggregator-Manager", "Error during initial MCP server registration: %v", err)
-		// Continue anyway - the event handler will handle future registrations
-	}
-
-	// Create event handler with callbacks for registration/deregistration
-	am.eventHandler = NewEventHandler(
-		am.orchestratorAPI,
-		am.registerSingleServer,
-		am.deregisterSingleServer,
-		am.isServerAuthRequired,
-		am.isServerSSOBased,
-	)
-
-	// Start the event handler for automatic updates
-	if err := am.eventHandler.Start(am.ctx); err != nil {
-		// Stop the aggregator server if event handler fails
-		_ = am.aggregatorServer.Stop(am.ctx)
-		return fmt.Errorf("failed to start event handler: %w", err)
-	}
-
-	// Start periodic retry mechanism for failed registrations
-	go am.retryFailedRegistrations(am.ctx)
 
 	logging.Info("Aggregator-Manager", "Started aggregator manager on %s", am.aggregatorServer.GetEndpoint())
 	return nil
 }
 
-// Stop gracefully shuts down the aggregator manager.
-//
-// This method stops all components in reverse order of startup:
-//  1. Cancels the context to signal shutdown to all goroutines
-//  2. Stops the event handler
-//  3. Stops the OAuth manager
-//  4. Stops the aggregator server
-//  5. Waits for all background operations to complete
-//
-// The method is idempotent and can be called multiple times safely.
+// Stop tears the aggregator server and OAuth manager down in reverse order
+// of Start. Safe to call multiple times.
 func (am *AggregatorManager) Stop(ctx context.Context) error {
 	am.mu.Lock()
 	defer am.mu.Unlock()
 
-	// Cancel context to signal shutdown to all components
 	if am.cancelFunc != nil {
 		am.cancelFunc()
 	}
 
-	// Stop event handler first to prevent new registrations
-	if am.eventHandler != nil {
-		if err := am.eventHandler.Stop(); err != nil {
-			logging.Error("Aggregator-Manager", err, "Error stopping event handler")
-		}
-	}
-
-	// Stop OAuth manager
 	if am.oauthManager != nil {
 		am.oauthManager.Stop()
 	}
 
-	// Stop aggregator server and wait for graceful shutdown
 	if am.aggregatorServer != nil {
 		if err := am.aggregatorServer.Stop(ctx); err != nil {
 			logging.Error("Aggregator-Manager", err, "Error stopping aggregator server")
@@ -207,14 +127,10 @@ func (am *AggregatorManager) Stop(ctx context.Context) error {
 	return nil
 }
 
-// GetServiceData returns comprehensive service monitoring data.
-//
-// This method provides detailed information about the aggregator's current state,
-// including configuration, connection status, tool/resource/prompt counts,
-// and server statistics. The data is suitable for monitoring dashboards
-// and health checks.
-//
-// Returns a map containing various metrics and status information.
+// GetServiceData reports current capability counts and configuration for
+// monitoring dashboards. Server connectivity counts come from the
+// aggregator's own registry (which RegisterUpstream populates) rather than
+// the orchestrator service registry.
 func (am *AggregatorManager) GetServiceData() map[string]interface{} {
 	am.mu.RLock()
 	defer am.mu.RUnlock()
@@ -225,11 +141,9 @@ func (am *AggregatorManager) GetServiceData() map[string]interface{} {
 		"yolo": am.config.Yolo,
 	}
 
-	// Add aggregator server metrics if available
 	if am.aggregatorServer != nil {
 		data["endpoint"] = am.aggregatorServer.GetEndpoint()
 
-		// Get capability counts
 		tools := am.aggregatorServer.GetTools()
 		resources := am.aggregatorServer.GetResources()
 		prompts := am.aggregatorServer.GetPrompts()
@@ -238,11 +152,9 @@ func (am *AggregatorManager) GetServiceData() map[string]interface{} {
 		data["resources"] = len(resources)
 		data["prompts"] = len(prompts)
 
-		// Get detailed tool status information
 		toolsWithStatus := am.aggregatorServer.GetToolsWithStatus()
 		data["tools_with_status"] = toolsWithStatus
 
-		// Count blocked tools for security monitoring
 		blockedCount := 0
 		for _, t := range toolsWithStatus {
 			if t.Blocked {
@@ -251,154 +163,147 @@ func (am *AggregatorManager) GetServiceData() map[string]interface{} {
 		}
 		data["blocked_tools"] = blockedCount
 
-		// Calculate server connectivity statistics
-		totalServers := 0
-		connectedServers := 0
-
-		if am.serviceRegistry != nil {
-			// Get all MCP services from the registry
-			allServices := am.serviceRegistry.GetByType(api.TypeMCPServer)
-			totalServers = len(allServices)
-
-			// Count healthy running/connected services (these have ready clients)
-			for _, service := range allServices {
-				if api.IsActiveState(service.GetState()) && service.GetHealth() == api.HealthHealthy {
-					connectedServers++
-				}
+		registered := am.aggregatorServer.GetRegistry().GetAllServers()
+		connected := 0
+		for _, info := range registered {
+			if info.IsConnected() {
+				connected++
 			}
 		}
-
-		data["servers_total"] = totalServers
-		data["servers_connected"] = connectedServers
-	}
-
-	// Add event handler status
-	if am.eventHandler != nil {
-		data["event_handler_running"] = am.eventHandler.IsRunning()
+		data["servers_total"] = len(registered)
+		data["servers_connected"] = connected
 	}
 
 	return data
 }
 
-// registerHealthyMCPServers performs initial synchronization by registering all
-// currently healthy and running MCP servers.
-//
-// This method is called during startup to ensure that existing healthy servers
-// are immediately available through the aggregator. It only registers servers
-// that are both running and healthy, as this guarantees that their MCP clients
-// are ready for use.
-//
-// Returns an error if the service registry is unavailable, but continues
-// processing even if individual server registrations fail.
-func (am *AggregatorManager) registerHealthyMCPServers(ctx context.Context) error {
-	if am.serviceRegistry == nil {
-		return fmt.Errorf("service registry not available")
+// RegisterUpstream opens the federated streamable-http connection through
+// UpstreamProxy for the named MCPServer and inserts it into the aggregator
+// registry. On a 401 with WWW-Authenticate the upstream is registered in
+// pending-auth state so the synthetic auth tool can drive the OAuth flow.
+// Idempotent: a second call for an already-registered name returns nil.
+func (am *AggregatorManager) RegisterUpstream(ctx context.Context, name string) error {
+	if name == "" {
+		return fmt.Errorf("aggregator: RegisterUpstream requires a server name")
+	}
+	if am.config.UpstreamProxy == "" {
+		return fmt.Errorf("aggregator: UpstreamProxy not configured")
 	}
 
-	// Get all MCP services from the registry
-	mcpServices := am.serviceRegistry.GetByType(api.TypeMCPServer)
+	am.mu.RLock()
+	server := am.aggregatorServer
+	am.mu.RUnlock()
 
-	registeredCount := 0
-	for _, service := range mcpServices {
-		// Only register servers that are running/connected AND healthy (client is guaranteed ready)
-		if !api.IsActiveState(service.GetState()) || service.GetHealth() != api.HealthHealthy {
-			continue
+	if server == nil {
+		return fmt.Errorf("aggregator: server not initialized")
+	}
+
+	if _, exists := server.GetRegistry().GetServerInfo(name); exists {
+		return nil
+	}
+
+	mcpServerMgr := api.GetMCPServerManager()
+	if mcpServerMgr == nil {
+		return fmt.Errorf("aggregator: MCPServerManager not registered")
+	}
+	info, err := mcpServerMgr.GetMCPServer(name)
+	if err != nil {
+		return fmt.Errorf("lookup MCPServer %q: %w", name, err)
+	}
+	if info == nil {
+		return fmt.Errorf("aggregator: MCPServer %q not found", name)
+	}
+
+	dialURL := proxyURLFor(am.config.UpstreamProxy, name)
+	headers := map[string]string{}
+	for k, v := range info.Headers {
+		headers[k] = v
+	}
+
+	client := internalmcp.NewStreamableHTTPClientWithHeaders(dialURL, headers)
+	if err := client.Initialize(ctx); err != nil {
+		var authErr *internalmcp.AuthRequiredError
+		if errors.As(err, &authErr) {
+			_ = client.Close()
+			authInfo := &AuthInfo{
+				Issuer:              authErr.AuthInfo.Issuer,
+				Scope:               authErr.AuthInfo.Scope,
+				ResourceMetadataURL: authErr.AuthInfo.ResourceMetadataURL,
+			}
+			if regErr := am.RegisterServerPendingAuthWithConfig(name, info.URL, info.ToolPrefix, authInfo, info.Auth); regErr != nil {
+				return fmt.Errorf("register pending-auth %q: %w", name, regErr)
+			}
+			logging.Info("Aggregator-Manager", "Registered MCPServer %s in pending-auth state via upstream proxy", name)
+			return nil
 		}
-
-		// Attempt to register the healthy server
-		if err := am.registerSingleServer(ctx, service.GetName()); err != nil {
-			logging.Warn("Aggregator-Manager", "Failed to register healthy MCP server %s: %v",
-				service.GetName(), err)
-			// Continue with other servers
-		} else {
-			registeredCount++
-		}
+		_ = client.Close()
+		return fmt.Errorf("initialize upstream %q at %s: %w", name, dialURL, err)
 	}
 
-	if registeredCount > 0 {
-		logging.Info("Aggregator-Manager", "Initial sync completed: registered %d healthy MCP servers", registeredCount)
+	if err := server.RegisterServer(ctx, name, client, info.ToolPrefix); err != nil {
+		_ = client.Close()
+		return fmt.Errorf("register upstream %q: %w", name, err)
 	}
 
+	logging.Info("Aggregator-Manager", "Registered MCPServer %s via upstream proxy at %s", name, dialURL)
 	return nil
 }
 
-// registerSingleServer registers a single MCP server with the aggregator.
-//
-// This method is called when a server becomes healthy and running. Since the
-// service architecture guarantees that running+healthy services have ready
-// MCP clients, this method can safely extract and use the client immediately.
-//
-// If the server returns a 401 during initialization, the method will register
-// the server in auth_required state with a synthetic authentication tool.
-//
-// Args:
-//   - ctx: Context for the registration operation
-//   - serverName: Unique name of the server to register
-//
-// Returns an error if the server cannot be found, has no client, or
-// registration with the aggregator fails.
-func (am *AggregatorManager) registerSingleServer(ctx context.Context, serverName string) error {
-	// Get the service from registry
-	service, exists := am.serviceRegistry.Get(serverName)
+// UpstreamServerState reports the aggregator's view of an upstream MCPServer.
+// Absent (never registered or already deregistered) is the zero value; a
+// pending-auth registration returns AuthRequired; a connected client returns
+// Connected.
+func (am *AggregatorManager) UpstreamServerState(name string) api.UpstreamServerState {
+	am.mu.RLock()
+	server := am.aggregatorServer
+	am.mu.RUnlock()
+	if server == nil {
+		return api.UpstreamServerAbsent
+	}
+	info, exists := server.GetRegistry().GetServerInfo(name)
 	if !exists {
-		return fmt.Errorf("service %s not found", serverName)
+		return api.UpstreamServerAbsent
 	}
-
-	// Get service data - this contains the MCP client and configuration
-	serviceData := service.GetServiceData()
-	if serviceData == nil {
-		return fmt.Errorf("no service data available for %s", serverName)
+	if info.RequiresSessionAuth() {
+		return api.UpstreamServerAuthRequired
 	}
-
-	// Extract tool prefix from service configuration
-	toolPrefix, _ := serviceData["toolPrefix"].(string)
-
-	// Get MCP client from service data - this is the authoritative source
-	clientInterface, exists := serviceData["client"]
-	if !exists || clientInterface == nil {
-		return fmt.Errorf("no MCP client available for %s (service state inconsistent)", serverName)
+	if info.IsConnected() {
+		return api.UpstreamServerConnected
 	}
+	return api.UpstreamServerAbsent
+}
 
-	mcpClient, ok := clientInterface.(MCPClient)
-	if !ok {
-		return fmt.Errorf("invalid MCP client type for %s", serverName)
+// DeregisterUpstream removes a previously registered MCPServer and closes
+// its client. Returns nil when no registration exists.
+func (am *AggregatorManager) DeregisterUpstream(_ context.Context, name string) error {
+	am.mu.RLock()
+	server := am.aggregatorServer
+	am.mu.RUnlock()
+
+	if server == nil {
+		return nil
 	}
-
-	// Register with the aggregator
-	if err := am.aggregatorServer.RegisterServer(ctx, serverName, mcpClient, toolPrefix); err != nil {
-		return fmt.Errorf("failed to register server: %w", err)
+	if _, exists := server.GetRegistry().GetServerInfo(name); !exists {
+		return nil
 	}
-
-	logging.Info("Aggregator-Manager", "Successfully registered MCP server %s with prefix %s", serverName, toolPrefix)
+	if err := server.DeregisterServer(name); err != nil {
+		return fmt.Errorf("deregister upstream %q: %w", name, err)
+	}
+	logging.Info("Aggregator-Manager", "Deregistered MCPServer %s", name)
 	return nil
 }
 
-// RegisterServerPendingAuth registers a server that requires authentication.
-// This creates a placeholder with a synthetic auth tool that users can call
-// to initiate the OAuth flow.
-//
-// Args:
-//   - serverName: Unique name of the server
-//   - url: The server endpoint URL
-//   - toolPrefix: Server-specific prefix for tools
-//   - authInfo: OAuth information from the 401 response
-//
-// Returns an error if registration fails.
+// RegisterServerPendingAuth registers a server that requires OAuth with no
+// extra auth config; preserved for the api.AggregatorHandler interface.
 func (am *AggregatorManager) RegisterServerPendingAuth(serverName, url, toolPrefix string, authInfo *AuthInfo) error {
 	return am.RegisterServerPendingAuthWithConfig(serverName, url, toolPrefix, authInfo, nil)
 }
 
-// RegisterServerPendingAuthWithConfig registers a server that requires authentication with auth config.
-// This is an extended version that also accepts auth config for SSO token forwarding.
-//
-// Args:
-//   - serverName: Unique name of the server
-//   - url: The server endpoint URL
-//   - toolPrefix: Server-specific prefix for tools
-//   - authInfo: OAuth information from the 401 response
-//   - authConfig: Auth configuration for token forwarding (may be nil)
-//
-// Returns an error if registration fails.
+// RegisterServerPendingAuthWithConfig registers a server requiring OAuth and
+// stores its auth configuration so synthetic auth tools can drive forwarding
+// or RFC 8693 exchange after browser auth completes. url is the upstream's
+// own URL (used in the synthetic tool's user-facing description); the dial
+// URL is computed from UpstreamProxy at session-connection time.
 func (am *AggregatorManager) RegisterServerPendingAuthWithConfig(serverName, url, toolPrefix string, authInfo *AuthInfo, authConfig *api.MCPServerAuth) error {
 	am.mu.Lock()
 	defer am.mu.Unlock()
@@ -411,8 +316,6 @@ func (am *AggregatorManager) RegisterServerPendingAuthWithConfig(serverName, url
 		return err
 	}
 
-	// Wire pool notification callback for servers with session-scoped auth so that
-	// OnNotification is auto-wired on every pooled client.
 	if authConfig != nil && (authConfig.ForwardToken || (authConfig.TokenExchange != nil && authConfig.TokenExchange.Enabled)) {
 		am.aggregatorServer.wirePoolNotificationCallback(serverName)
 	}
@@ -420,75 +323,10 @@ func (am *AggregatorManager) RegisterServerPendingAuthWithConfig(serverName, url
 	return nil
 }
 
-// isServerAuthRequired checks if a server is currently in auth_required state.
-// This is used by the event handler to avoid deregistering servers that are
-// waiting for OAuth authentication.
-func (am *AggregatorManager) isServerAuthRequired(serverName string) bool {
-	am.mu.RLock()
-	defer am.mu.RUnlock()
-
-	if am.aggregatorServer == nil {
-		return false
-	}
-
-	info, exists := am.aggregatorServer.GetRegistry().GetServerInfo(serverName)
-	if !exists {
-		return false
-	}
-
-	return info.RequiresSessionAuth()
-}
-
-// isServerSSOBased checks if a server is configured for SSO token forwarding or token exchange.
-// These servers are handled at the session level rather than globally, so the event handler
-// should skip global registration attempts for them.
-//
-// SSO-based servers work differently from regular OAuth servers:
-// - When the MCPServerService tries to connect, the server returns 401
-// - The service never creates an MCP client (it stops at the 401)
-// - User authentication happens at the session level via token forwarding/exchange
-// - Each user session creates its own connection with their SSO token
-//
-// This method is called by the event handler when a server becomes healthy/connected
-// to determine if global registration should be skipped.
-//
-// See Issue #318 for details on this design decision.
-func (am *AggregatorManager) isServerSSOBased(serverName string) bool {
-	am.mu.RLock()
-	defer am.mu.RUnlock()
-
-	if am.aggregatorServer == nil {
-		return false
-	}
-
-	info, exists := am.aggregatorServer.GetRegistry().GetServerInfo(serverName)
-	if !exists {
-		return false
-	}
-
-	// Check if AuthConfig has SSO token forwarding or token exchange enabled
-	if info.AuthConfig == nil {
-		return false
-	}
-
-	// ForwardToken enables SSO via token forwarding
-	if info.AuthConfig.ForwardToken {
-		return true
-	}
-
-	// TokenExchange enables SSO via RFC 8693 token exchange
-	if info.AuthConfig.TokenExchange != nil && info.AuthConfig.TokenExchange.Enabled {
-		return true
-	}
-
-	return false
-}
-
-// handleAuthCompletion is called after successful OAuth browser authentication.
-// It establishes the connection to the MCP server using the new token.
-//
-// This callback is registered with the OAuth manager and called from the OAuth
-// callback handler after a user successfully authenticates in the browser.
+// handleAuthCompletion runs after a user finishes browser-based OAuth. The
+// session-establishing connection it kicks off is dialed via UpstreamProxy
+// inside establishConnection (see connection_helper.go); url and issuer here
+// are display-only.
 func (am *AggregatorManager) handleAuthCompletion(ctx context.Context, sessionID, userID, serverName, accessToken string) error {
 	am.mu.RLock()
 	aggregatorServer := am.aggregatorServer
@@ -512,7 +350,6 @@ func (am *AggregatorManager) handleAuthCompletion(ctx context.Context, sessionID
 	logging.Info("Aggregator-Manager", "OAuth callback completing - establishing connection for session=%s server=%s",
 		logging.TruncateIdentifier(sessionID), serverName)
 
-	// Inject session ID and subject into the context for establishConnection
 	ctx = api.WithSessionID(ctx, sessionID)
 	ctx = api.WithSubject(ctx, userID)
 
@@ -528,142 +365,20 @@ func (am *AggregatorManager) handleAuthCompletion(ctx context.Context, sessionID
 	return nil
 }
 
-// deregisterSingleServer removes a single MCP server from the aggregator.
-//
-// This method is called when a server is no longer healthy or running.
-// It cleanly removes the server from the aggregator, which will also
-// remove all tools, resources, and prompts provided by that server.
-//
-// Args:
-//   - serverName: Unique name of the server to deregister
-//
-// Returns an error if deregistration fails.
-func (am *AggregatorManager) deregisterSingleServer(serverName string) error {
-	// Deregister from the aggregator
-	if err := am.aggregatorServer.DeregisterServer(serverName); err != nil {
-		return fmt.Errorf("failed to deregister server: %w", err)
-	}
-
-	logging.Info("Aggregator-Manager", "Successfully deregistered MCP server %s", serverName)
-	return nil
-}
-
 // GetEndpoint returns the aggregator's MCP endpoint URL.
-//
-// The endpoint format depends on the configured transport:
-//   - SSE: http://host:port/sse
-//   - Streamable HTTP: http://host:port/mcp
-//   - Stdio: "stdio"
-//
-// Returns an empty string if the aggregator server is not available.
 func (am *AggregatorManager) GetEndpoint() string {
 	am.mu.RLock()
 	defer am.mu.RUnlock()
-
 	if am.aggregatorServer != nil {
 		return am.aggregatorServer.GetEndpoint()
 	}
-
 	return ""
 }
 
-// GetAggregatorServer returns the underlying aggregator server instance.
-//
-// This method provides access to advanced aggregator operations that are
-// not exposed through the manager interface. It should be used carefully
-// and primarily for testing or debugging purposes.
-//
-// Returns nil if the server is not initialized.
+// GetAggregatorServer exposes the underlying server for advanced operations
+// (test helpers, the API adapter's CallTool path).
 func (am *AggregatorManager) GetAggregatorServer() *AggregatorServer {
 	am.mu.RLock()
 	defer am.mu.RUnlock()
 	return am.aggregatorServer
-}
-
-// GetEventHandler returns the event handler instance.
-//
-// This method is primarily intended for testing and debugging purposes
-// to inspect the state of the event handling system.
-//
-// Returns nil if the event handler is not initialized.
-func (am *AggregatorManager) GetEventHandler() *EventHandler {
-	am.mu.RLock()
-	defer am.mu.RUnlock()
-	return am.eventHandler
-}
-
-// ManualRefresh manually triggers a re-synchronization of all healthy MCP servers.
-//
-// This method can be useful for debugging or when you need to force a refresh
-// of the server registrations outside of the normal event-driven flow.
-// It performs the same operation as the initial sync during startup.
-//
-// Args:
-//   - ctx: Context for the refresh operation
-//
-// Returns an error if the refresh operation fails.
-func (am *AggregatorManager) ManualRefresh(ctx context.Context) error {
-	return am.registerHealthyMCPServers(ctx)
-}
-
-// retryFailedRegistrations runs a periodic background task that attempts to
-// register services that are healthy but not yet registered with the aggregator.
-//
-// This mechanism provides resilience against temporary failures during
-// initial registration or when services recover from unhealthy states.
-// It runs until the provided context is cancelled.
-//
-// Args:
-//   - ctx: Context for controlling the retry loop lifecycle
-func (am *AggregatorManager) retryFailedRegistrations(ctx context.Context) {
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			am.attemptPendingRegistrations(ctx)
-		}
-	}
-}
-
-// attemptPendingRegistrations tries to register services that are healthy
-// but not yet registered with the aggregator.
-//
-// This method scans all MCP services and attempts to register any that are
-// running and healthy but not currently registered. It's used by the retry
-// mechanism to handle temporary registration failures.
-//
-// Args:
-//   - ctx: Context for the registration attempts
-func (am *AggregatorManager) attemptPendingRegistrations(ctx context.Context) {
-	if am.serviceRegistry == nil {
-		return
-	}
-
-	// Get all MCP services from the registry
-	mcpServices := am.serviceRegistry.GetByType(api.TypeMCPServer)
-
-	for _, service := range mcpServices {
-		// Only try services that are running/connected and healthy
-		if !api.IsActiveState(service.GetState()) || service.GetHealth() != api.HealthHealthy {
-			continue
-		}
-
-		// Check if already registered with aggregator
-		if am.aggregatorServer != nil {
-			if _, exists := am.aggregatorServer.GetRegistry().GetServerInfo(service.GetName()); exists {
-				continue // Already registered
-			}
-		}
-
-		// Attempt registration
-		if err := am.registerSingleServer(ctx, service.GetName()); err != nil {
-			logging.Debug("Aggregator-Manager", "Retry registration failed for %s: %v", service.GetName(), err)
-		} else {
-			logging.Info("Aggregator-Manager", "Successfully registered %s on retry", service.GetName())
-		}
-	}
 }

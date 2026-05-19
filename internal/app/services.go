@@ -4,11 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	mcpserverPkg "github.com/giantswarm/muster/internal/mcpserver"
-	aggregatorService "github.com/giantswarm/muster/internal/services/aggregator"
 
 	"github.com/giantswarm/muster/internal/agentgateway/binary"
 	"github.com/giantswarm/muster/internal/agentgateway/subprocess"
@@ -27,6 +28,11 @@ import (
 	"github.com/giantswarm/muster/internal/workflow"
 	"github.com/giantswarm/muster/pkg/logging"
 )
+
+// upstreamProxyEnvVar is the environment variable cluster-mode muster reads
+// for the agentgateway base URL. The Helm chart wires it through
+// templates/deployment.yaml.
+const upstreamProxyEnvVar = "MUSTER_AGW_UPSTREAM_URL"
 
 // agentgatewayReadyURL is the standard agentgateway readiness endpoint the
 // subprocess manager polls before Start returns.
@@ -120,7 +126,7 @@ type Services struct {
 	// from the orchestrator's. nil when registryHandler was unavailable at
 	// initialization. runOrchestrator starts it after the StateChangeBridge and
 	// stops it before the orchestrator during shutdown.
-	Aggregator *aggregatorService.AggregatorService
+	AggregatorManager *aggregator.AggregatorManager
 }
 
 // InitializeServices creates and registers all required services for the application.
@@ -169,10 +175,6 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	orchConfig := orchestrator.Config{
 		Aggregator: cfg.MusterConfig.Aggregator,
 		Yolo:       cfg.Yolo,
-		// Filesystem mode hands the MCPServer data plane to the agentgateway
-		// subprocess; both spawning the same stdio children would yield two
-		// parents for one pid and a fight over stdin/stdout.
-		DisableMCPServerAutoStart: !cfg.MusterConfig.Kubernetes,
 	}
 
 	orch := orchestrator.New(orchConfig)
@@ -252,10 +254,10 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	// Note: Service creation (including MCPServer services) is handled by the orchestrator
 	// during its Start() method. The orchestrator manages dependencies and lifecycle.
 
-	// aggService is constructed inside the registryHandler block and bound to
+	// aggManager is constructed inside the registryHandler block and bound to
 	// the Services struct so runOrchestrator can start/stop it directly,
 	// bypassing the orchestrator service registry.
-	var aggService *aggregatorService.AggregatorService
+	var aggManager *aggregator.AggregatorManager
 
 	// Need to get the service registry handler from the registry adapter
 	registryHandler := api.GetServiceRegistry()
@@ -331,14 +333,24 @@ func InitializeServices(cfg *Config) (*Services, error) {
 			}
 		}
 
-		aggService = aggregatorService.NewAggregatorService(
+		if cfg.MusterConfig.Kubernetes {
+			aggConfig.UpstreamProxy = os.Getenv(upstreamProxyEnvVar)
+		} else {
+			aggConfig.UpstreamProxy = "http://localhost:" + strconv.Itoa(int(yamlapply.DefaultListenerPort))
+		}
+		if aggConfig.UpstreamProxy == "" {
+			return nil, fmt.Errorf("aggregator: UpstreamProxy required; cluster mode reads %s, filesystem mode defaults to the agentgateway subprocess at localhost:%d",
+				upstreamProxyEnvVar, yamlapply.DefaultListenerPort)
+		}
+
+		aggManager = aggregator.NewAggregatorManager(
 			aggConfig,
 			orchestratorAPI,
 			registryHandler,
+			aggregatorErrorCallback,
 		)
 
-		// Create aggregator API adapter
-		aggAdapter := aggregatorService.NewAPIAdapter(aggService)
+		aggAdapter := aggregator.NewAPIAdapter(aggManager)
 		aggAdapter.Register()
 
 		// Step 4b: Initialize meta-tools for server-side tool management (Issue #343)
@@ -375,9 +387,7 @@ func InitializeServices(cfg *Config) (*Services, error) {
 		if mcpServerMgr != nil {
 			mcpReconciler, configDir, err := buildMCPServerReconciler(
 				cfg.MusterConfig.Kubernetes,
-				orchestratorAPI,
 				mcpServerMgr,
-				registryHandler,
 				musterClient,
 				namespace,
 				cfg.ConfigPath,
@@ -425,11 +435,18 @@ func InitializeServices(cfg *Config) (*Services, error) {
 		OrchestratorAPI:       orchestratorAPI,
 		ConfigAPI:             configAPI,
 		AggregatorPort:        cfg.MusterConfig.Aggregator.Port,
-		Aggregator:            aggService,
+		AggregatorManager:     aggManager,
 		ReconcileManager:      reconcileManager,
 		StateChangeBridge:     stateChangeBridge,
 		AgentgatewayConfigDir: agentgatewayConfigDir,
 	}, nil
+}
+
+// aggregatorErrorCallback is the sink for fatal async errors surfaced by the
+// aggregator server's background goroutines. With the BaseService wrapper
+// gone, the operator's only signal is a log line; restart is the user's call.
+func aggregatorErrorCallback(err error) {
+	logging.Error("Aggregator", err, "Aggregator manager encountered a fatal error")
 }
 
 // createMusterClientWithConfig creates a muster client with full configuration context.
@@ -499,18 +516,14 @@ func mergeOAuthServerConfig(cfg *Config) config.OAuthServerConfig {
 //     at via `-f <configDir>` once runOrchestrator spawns it.
 func buildMCPServerReconciler(
 	kubernetesMode bool,
-	orchestratorAPI api.OrchestratorAPI,
 	mcpServerMgr reconciler.MCPServerManager,
-	registryHandler api.ServiceRegistryHandler,
 	musterClient client.MusterClient,
 	namespace string,
 	configPath string,
 ) (*reconciler.MCPServerReconciler, string, error) {
 	if kubernetesMode {
 		r := reconciler.NewMCPServerReconcilerCluster(
-			orchestratorAPI,
 			mcpServerMgr,
-			registryHandler,
 			musterClient,
 			k8sapply.Config{
 				GatewayName:      defaultGatewayName,
@@ -530,14 +543,10 @@ func buildMCPServerReconciler(
 	logging.Info("Services", "Wired YAML Applier writing to %s", dir)
 
 	r := reconciler.NewMCPServerReconcilerFilesystem(
-		orchestratorAPI,
 		mcpServerMgr,
-		registryHandler,
 		applier,
 		applier,
-	).
-		WithStatusUpdater(musterClient, namespace).
-		WithDisableLocalSpawn(true)
+	).WithStatusUpdater(musterClient, namespace)
 	return r, dir, nil
 }
 
