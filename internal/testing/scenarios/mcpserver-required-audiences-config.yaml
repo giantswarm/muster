@@ -1,0 +1,112 @@
+name: "mcpserver-required-audiences-config"
+description: "MCPServer.spec.auth.requiredAudiences round-trips through create + get + update so the muster-in-front-of-agentgateway topology cannot silently drop it"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "create", "oauth", "required-audiences", "regression", "rfc8707"]
+timeout: "1m"
+
+# requiredAudiences is collected by muster's aggregator at user
+# authentication and forwarded as additional `aud` claims on the
+# ID token. Under the muster-in-front-of-agentgateway pivot,
+# muster keeps performing this aggregation before the dial through
+# agentgateway, so the field MUST survive every CRUD path; a
+# dropped value would silently break cross-cluster SSO.
+
+steps:
+- id: "create-with-single-required-audience"
+  description: "Create an MCPServer with one requiredAudiences value"
+  tool: "core_mcpserver_create"
+  args:
+    name: "audiences-single"
+    type: "streamable-http"
+    url: "https://mcp.example.com/v1/mcp"
+    auth:
+      type: "oauth"
+      requiredAudiences:
+        - "mcp:cluster-a"
+  expected:
+    success: true
+
+- id: "verify-single-audience-roundtrips"
+  description: "Verify the single requiredAudiences value roundtrips through get"
+  tool: "core_mcpserver_get"
+  args:
+    name: "audiences-single"
+  expected:
+    success: true
+    json_path:
+      name: "audiences-single"
+    contains:
+      - "requiredAudiences"
+      - "mcp:cluster-a"
+
+- id: "create-with-multiple-required-audiences"
+  description: "Create an MCPServer with multiple requiredAudiences values"
+  tool: "core_mcpserver_create"
+  args:
+    name: "audiences-multi"
+    type: "streamable-http"
+    url: "https://mcp.example.com/v1/mcp"
+    auth:
+      type: "oauth"
+      requiredAudiences:
+        - "mcp:cluster-a"
+        - "mcp:cluster-b"
+        - "mcp:platform"
+  expected:
+    success: true
+
+- id: "verify-multiple-audiences-roundtrip"
+  description: "Verify all requiredAudiences values are preserved in order"
+  tool: "core_mcpserver_get"
+  args:
+    name: "audiences-multi"
+  expected:
+    success: true
+    contains:
+      - "mcp:cluster-a"
+      - "mcp:cluster-b"
+      - "mcp:platform"
+
+- id: "update-required-audiences"
+  description: "Drop one audience and add another via update"
+  tool: "core_mcpserver_update"
+  args:
+    name: "audiences-multi"
+    type: "streamable-http"
+    url: "https://mcp.example.com/v1/mcp"
+    auth:
+      type: "oauth"
+      requiredAudiences:
+        - "mcp:cluster-a"
+        - "mcp:replacement"
+  expected:
+    success: true
+
+- id: "verify-update-applied"
+  description: "Verify the updated requiredAudiences set survives the update"
+  tool: "core_mcpserver_get"
+  args:
+    name: "audiences-multi"
+  expected:
+    success: true
+    contains:
+      - "mcp:cluster-a"
+      - "mcp:replacement"
+
+cleanup:
+- id: "cleanup-audiences-single"
+  tool: "core_mcpserver_delete"
+  args:
+    name: "audiences-single"
+  expected:
+    success: true
+  continue_on_failure: true
+
+- id: "cleanup-audiences-multi"
+  tool: "core_mcpserver_delete"
+  args:
+    name: "audiences-multi"
+  expected:
+    success: true
+  continue_on_failure: true

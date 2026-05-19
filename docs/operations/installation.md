@@ -94,6 +94,137 @@ docker run -p 8080:8080 -p 8081:8081 \
   giantswarm/muster:latest serve --config-path=/config
 ```
 
+## Data plane: muster + agentgateway
+
+Every Muster deployment runs `muster` in front of an `agentgateway` data
+plane. Muster's aggregator keeps client-facing responsibilities (token
+exchange, audience validation, server-family grouping, ADR-006 session
+filtering); agentgateway terminates the proxy hop to each MCPServer and
+contributes traces, audit logs, metrics, and passthrough auth.
+
+```
+client → muster:8090 (aggregator) → agentgateway:8080/mcp/<name> → MCPServer
+```
+
+The two modes below describe how the agentgateway data plane gets wired
+in. Pick the mode that matches your deployment target before the
+configuration section.
+
+### Filesystem mode
+
+Single-host Muster (developer machines, demos, BDD harness, the
+`muster serve` defaults) runs agentgateway as a child process of `muster`.
+
+* On startup, `muster serve` calls `internal/agentgateway/binary.Resolve`
+  to locate an `agentgateway` binary. Resolution order:
+  1. `MUSTER_AGW_BINARY` environment variable, if set, points at the
+     binary directly (CI and air-gapped installs use this).
+  2. `~/.config/muster/bin/agentgateway-v<PinnedVersion>` (or
+     `.exe` on Windows), if present.
+  3. Pinned GitHub release download to that cache path, verified against
+     the shipped SHA-256 checksum.
+
+  The pinned version travels with the muster binary (see
+  `internal/agentgateway/binary/resolver.go: PinnedVersion`). Bumping it
+  is a deliberate PR.
+
+* The reconciler emits one combined native config file at
+  `<configPath>/agentgateway/agentgateway.yaml` and atomically rewrites
+  it on every `Apply` / `Delete`. The file contains a single `binds`
+  entry, a single listener named `muster` on port `8080`, and N routes
+  under `mcp.targets[]`:
+  * `streamable-http` MCPServers serialize as `{name, mcp: {host, port, path}}`.
+  * `sse` MCPServers serialize as `{name, sse: {host, port, path}}`.
+  * `stdio` MCPServers serialize as `{name, stdio: {cmd, args, env}}` —
+    agentgateway spawns the child itself, so the stdio process's parent
+    pid is the agentgateway pid, not the muster pid.
+
+* The aggregator's upstream dial URL becomes `http://localhost:<port>`.
+  The BDD harness can override `<port>` via the
+  `aggregator.AgentgatewayPort` config so parallel instances coexist;
+  by default the port is allocated by binding `127.0.0.1:0` at startup.
+  The corresponding YAML applier option is
+  `yamlapply.WithListenerPort(port)`.
+
+* On `SIGTERM`, muster stops the reconciler, then sends `SIGTERM` to
+  agentgateway and waits for it to drain (10s default), then forcibly
+  kills any stragglers. agentgateway cascades to its stdio children.
+
+### Cluster mode — one MCPServer CRD suffices
+
+Cluster deployments install muster + an agentgateway deployment (out of
+band, see `helm/muster/values.yaml: muster.agentgateway.upstreamURL`).
+For every MCPServer CRD a user applies, muster's reconciler emits the
+full agentgateway config stack with the MCPServer set as
+`metav1.OwnerReference`:
+
+| Resource | API group | Purpose |
+|---|---|---|
+| `AgentgatewayBackend` | `agentgateway.dev/v1alpha1` | One per MCPServer; addresses the upstream MCPServer |
+| `HTTPRoute` | `gateway.networking.k8s.io/v1` | Path match for `/mcp/<server-name>` attached to the `agentgateway` Gateway |
+| `AgentgatewayPolicy` | `agentgateway.dev/v1alpha1` | Auth / routing policy attached to the HTTPRoute |
+
+Hand-applying `AgentgatewayBackend` + `HTTPRoute` per backend is no
+longer required. Delete the MCPServer and the cascade removes the
+emitted stack.
+
+Wiring:
+
+* The aggregator dials agentgateway at
+  `<MUSTER_AGW_UPSTREAM_URL>/mcp/<server-name>` for every external
+  MCPServer. The Helm chart sets `MUSTER_AGW_UPSTREAM_URL` from
+  `.Values.muster.agentgateway.upstreamURL`; when unset, the chart
+  falls back to
+  `http://agentgateway.<release-namespace>.svc.cluster.local:8080`.
+* `stdio` MCPServers in cluster mode surface a
+  `NotSupportedInCluster` status condition and are not emitted —
+  per-MCPServer pod isolation for arbitrary commands is deferred. Use
+  `streamable-http` or `sse` for cluster workloads.
+
+### Pause / resume an MCPServer
+
+`MCPServer.spec.suspended` is a declarative boolean that pauses the
+backend without deleting the CRD. Flipping it true:
+
+* Cluster mode — the reconciler removes the emitted
+  `AgentgatewayBackend` + `HTTPRoute` + `AgentgatewayPolicy` (cascade
+  via OwnerReferences) and deregisters the upstream from the
+  aggregator.
+* Filesystem mode — the reconciler removes the corresponding entry
+  from `<configPath>/agentgateway/agentgateway.yaml` (agentgateway
+  reloads natively) and deregisters the upstream. For
+  `spec.type: stdio`, this also tears down the stdio child spawned by
+  agentgateway.
+
+Either mode surfaces a `Suspended` status condition while paused. Flip
+back to `false` and the next reconcile re-emits the config and
+re-registers the upstream.
+
+Three equivalent ways to flip it:
+
+```bash
+# kubectl
+kubectl patch mcpserver my-server --type=merge -p '{"spec":{"suspended":true}}'
+
+# YAML edit, then apply
+spec:
+  suspended: true
+
+# MCP tool
+core_mcpserver_update name=my-server suspended=true
+```
+
+> `core_service_list` and `core_service_status` still report the live
+> aggregator dial state (`connected` / `auth_required` / `disconnected`
+> / `absent`). They are deprecated and slated for removal once muster's
+> `/mcp` surface goes away in Phase 8 — prefer `core_mcpserver_list` and
+> `core_mcpserver_get` for CRD-level queries, and use
+> `core_mcpserver_reconnect` to force-reconnect after token rotation or
+> sticky transient failure. The cosmetic `core_service_start` /
+> `core_service_stop` / `core_service_restart` tools were removed
+> alongside `spec.suspended`; they only flipped muster's dial intent
+> and did not affect the MCPServer pod or stdio child.
+
 ## Deployment Configurations
 
 ### Standalone Deployment

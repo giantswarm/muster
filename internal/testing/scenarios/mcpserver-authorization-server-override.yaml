@@ -1,8 +1,8 @@
 name: "mcpserver-authorization-server-override"
-description: "MCPServer accepts spec.auth.authorizationServer override for non-RFC-9728 backends (issue #599)"
+description: "MCPServer.spec.auth.authorizationServer override (issue #599) is accepted at create and survives an update — regression for the muster-in-front-of-agentgateway pivot, which still routes OAuth discovery through muster rather than agentgateway"
 category: "behavioral"
 concept: "mcpserver"
-tags: ["mcpserver", "create", "oauth", "authentication", "issue-599"]
+tags: ["mcpserver", "create", "update", "oauth", "authentication", "issue-599", "regression"]
 timeout: "1m"
 
 steps:
@@ -35,6 +35,34 @@ steps:
       - "authorizationServer"
       - "https://cf.mcp.example.com"
       - "openid offline_access"
+
+- id: "update-override-with-new-issuer"
+  description: "Update the override to a different issuer and broader scopes"
+  tool: "core_mcpserver_update"
+  args:
+    name: "atlassian-style-server"
+    type: "streamable-http"
+    url: "https://mcp.example.com/v1/mcp"
+    timeout: 30
+    auth:
+      type: "oauth"
+      authorizationServer:
+        issuer: "https://idp.example.org"
+        scopes: "openid profile email offline_access"
+  expected:
+    success: true
+
+- id: "verify-updated-override-roundtrips"
+  description: "Verify the updated override is persisted (regression for #599 — would silently drop the override)"
+  tool: "core_mcpserver_get"
+  args:
+    name: "atlassian-style-server"
+  expected:
+    success: true
+    contains:
+      - "authorizationServer"
+      - "https://idp.example.org"
+      - "openid profile email offline_access"
 
 cleanup:
 - id: "cleanup-atlassian-style-server"

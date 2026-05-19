@@ -3,9 +3,11 @@ RBAC Configuration for muster
 
 Muster needs access to:
   - Its own CRDs (MCPServer, Workflow)
+  - agentgateway CRs the MCPServer reconciler emits per MCPServer
+    (AgentgatewayBackend, AgentgatewayPolicy, HTTPRoute)
   - CRD discovery
   - Events (for core_events tool)
-  - Secrets (for reading credentials: token exchange, teleport identity, OAuth)
+  - Secrets (for reading credentials: token exchange, OAuth)
 */}}
 
 {{- if and .Values.serviceAccount.create .Values.rbac.create -}}
@@ -26,6 +28,19 @@ rules:
     resources: ["mcpservers/status", "workflows/status"]
     verbs: ["get", "update", "patch"]
 
+  # agentgateway CRs emitted per MCPServer by the reconciler. Cascade on
+  # delete relies on OwnerReferences, so the reconciler also needs
+  # create/update/patch to keep the stack in sync.
+  - apiGroups: ["agentgateway.dev"]
+    resources: ["agentgatewaybackends", "agentgatewaypolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  # Gateway API HTTPRoute emitted per MCPServer alongside the agentgateway
+  # CRs. Same reason as above.
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["httproutes"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
   # CRD discovery - for finding available CRDs
   - apiGroups: ["apiextensions.k8s.io"]
     resources: ["customresourcedefinitions"]
@@ -36,7 +51,7 @@ rules:
     resources: ["events"]
     verbs: ["get", "list", "watch", "create"]
 
-  # Secrets - required for reading credentials (token exchange, teleport identity, OAuth)
+  # Secrets - required for reading credentials (token exchange, OAuth)
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get"]

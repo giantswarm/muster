@@ -1,0 +1,98 @@
+name: "mcpserver-reconnect"
+description: "core_mcpserver_reconnect force-reopens an established MCPServer client; tool calls succeed both before and after the reconnect"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "reconnect", "core-api", "feature"]
+timeout: "2m"
+
+# core_mcpserver_reconnect is the rename of the legacy core_service_restart
+# semantic (PR 15). The use case is OAuth token rotation or sticky transient
+# failure: muster's persisted dial intent is still correct, but the live
+# client must be reopened. This scenario asserts the call deregisters and
+# re-registers the upstream without losing tools.
+
+pre_configuration:
+  mcp_servers:
+    - name: "reconnect-target"
+      config:
+        type: "streamable-http"
+        tools:
+          - name: "ping"
+            description: "Ping tool for reconnect verification"
+            input_schema:
+              type: "object"
+              properties:
+                payload: { type: "string" }
+            responses:
+              - response:
+                  source: "reconnect-target"
+                  payload: "{{ .payload }}"
+                  status: "ok"
+
+steps:
+- id: "verify-connected-before-reconnect"
+  tool: "core_service_status"
+  args:
+    name: "reconnect-target"
+  expected:
+    success: true
+    wait_for_state: "30s"
+    json_path:
+      name: "reconnect-target"
+      state: "connected"
+
+- id: "tool-call-before-reconnect"
+  tool: "x_reconnect-target_ping"
+  args:
+    payload: "before-reconnect"
+  expected:
+    success: true
+    contains: ["before-reconnect", "ok"]
+
+- id: "force-reconnect"
+  description: "Force-reconnect deregisters and re-registers the upstream"
+  tool: "core_mcpserver_reconnect"
+  args:
+    name: "reconnect-target"
+  expected:
+    success: true
+    contains: ["reconnected"]
+
+- id: "verify-connected-after-reconnect"
+  description: "The reconnect must restore the connected state without manual intervention"
+  tool: "core_service_status"
+  args:
+    name: "reconnect-target"
+  expected:
+    success: true
+    wait_for_state: "30s"
+    json_path:
+      name: "reconnect-target"
+      state: "connected"
+
+- id: "tool-call-after-reconnect"
+  description: "Tools must remain callable across the reconnect"
+  tool: "x_reconnect-target_ping"
+  args:
+    payload: "after-reconnect"
+  expected:
+    success: true
+    contains: ["after-reconnect", "ok"]
+
+- id: "reconnect-non-existent-fails"
+  description: "Reconnecting an unknown MCPServer returns a clear error rather than registering a phantom upstream"
+  tool: "core_mcpserver_reconnect"
+  args:
+    name: "no-such-server"
+  expected:
+    success: false
+    error_contains: ["Failed to reconnect"]
+
+cleanup:
+- id: "cleanup-reconnect-target"
+  tool: "core_mcpserver_delete"
+  args:
+    name: "reconnect-target"
+  expected:
+    success: true
+  continue_on_failure: true

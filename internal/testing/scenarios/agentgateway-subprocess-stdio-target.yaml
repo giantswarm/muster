@@ -1,0 +1,82 @@
+name: "agentgateway-subprocess-stdio-target"
+description: "Filesystem-mode agentgateway subprocess spawns stdio MCPServer children natively via mcp.targets[].stdio and tool calls reach them via the proxy"
+category: "behavioral"
+concept: "agentgateway"
+tags: ["agentgateway", "subprocess", "stdio", "filesystem-mode", "tool-call", "feature"]
+timeout: "2m"
+
+# agentgateway-subprocess-data-plane.yaml proves the streamable-http path
+# through the filesystem-mode subprocess. This one is the stdio counterpart:
+# the yaml applier serializes a stdio MCPServer as mcp.targets[].stdio and
+# agentgateway itself spawns the child, so the child's parent pid is the
+# agentgateway pid, not the muster pid. Process-topology assertions live
+# in internal/testing/integration/agw_subprocess_integration_test.go because
+# the BDD runner has no /proc primitives; this scenario covers the
+# surface-level outcome users observe.
+#
+# Requires the agentgateway binary; the harness's MUSTER_AGW_BINARY env is
+# consumed by internal/agentgateway/binary.Resolve and surfaces as a startup
+# error if absent.
+
+pre_configuration:
+  mcp_servers:
+    - name: "agw-stdio-backend"
+      config:
+        # Mock-server stdio backend. The harness materializes a process the
+        # subprocess manager can exec; agentgateway proxies stdio frames
+        # in and out.
+        tools:
+          - name: "echo"
+            description: "Echo a payload via the stdio agentgateway data plane"
+            input_schema:
+              type: "object"
+              properties:
+                operation: { type: "string" }
+                message:   { type: "string" }
+            responses:
+              - response:
+                  transport: "stdio"
+                  operation: "{{ .operation }}"
+                  message:   "{{ .message }}"
+                  server:    "agw-stdio-backend"
+                  status:    "executed"
+
+steps:
+- id: "verify-stdio-backend-running"
+  description: "The stdio MCPServer must reach running state via the reconcile path"
+  tool: "core_service_status"
+  args:
+    name: "agw-stdio-backend"
+  expected:
+    success: true
+    wait_for_state: "30s"
+    json_path:
+      name:  "agw-stdio-backend"
+      state: "running"
+
+- id: "tool-call-stdio"
+  description: "Tool call against the stdio backend must succeed end-to-end"
+  tool: "x_agw-stdio-backend_echo"
+  args:
+    operation: "smoke"
+    message:   "agw-stdio-target-ok"
+  expected:
+    success: true
+    contains: ["smoke", "agw-stdio-target-ok", "executed", "stdio"]
+
+- id: "list-mcpservers-includes-stdio"
+  description: "core_mcpserver_list must surface the stdio fixture"
+  tool: "core_mcpserver_list"
+  expected:
+    success: true
+    contains: ["agw-stdio-backend"]
+
+cleanup:
+- id: "cleanup-delete-stdio-backend"
+  description: "Delete the stdio MCPServer so the next scenario starts clean (also tears down the agentgateway-spawned child via reconciler delete → yaml applier rewrite)"
+  tool: "core_mcpserver_delete"
+  args:
+    name: "agw-stdio-backend"
+  expected:
+    success: true
+  continue_on_failure: true

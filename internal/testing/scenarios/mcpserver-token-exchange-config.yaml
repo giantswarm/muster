@@ -1,0 +1,133 @@
+name: "mcpserver-token-exchange-config"
+description: "MCPServer.spec.auth.tokenExchange (RFC 8693) round-trips through CRUD without Teleport, asserting required fields and mutually-exclusive rejections"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "create", "oauth", "token-exchange", "rfc8693", "regression"]
+timeout: "1m"
+
+# Token exchange used to ship glued to Teleport; PR #687 split them, and the
+# muster-in-front-of-agentgateway pivot means muster's aggregator continues
+# to perform the RFC 8693 exchange before dialing through agentgateway. Lock
+# the standalone (non-Teleport) config shape with CRUD coverage so a future
+# refactor cannot silently drop fields.
+
+steps:
+- id: "create-with-token-exchange-minimal"
+  description: "Create an MCPServer with the minimal token-exchange configuration (no expectedIssuer; derived from dexTokenEndpoint)"
+  tool: "core_mcpserver_create"
+  args:
+    name: "te-minimal"
+    type: "streamable-http"
+    url: "https://mcp.cluster-b.example.com/mcp"
+    auth:
+      type: "oauth"
+      tokenExchange:
+        enabled: true
+        dexTokenEndpoint: "https://dex.cluster-b.example.com/token"
+        connectorId: "cluster-a-dex"
+  expected:
+    success: true
+
+- id: "verify-minimal-roundtrips"
+  description: "Verify minimal tokenExchange roundtrips through get"
+  tool: "core_mcpserver_get"
+  args:
+    name: "te-minimal"
+  expected:
+    success: true
+    contains:
+      - "tokenExchange"
+      - "https://dex.cluster-b.example.com/token"
+      - "cluster-a-dex"
+
+- id: "create-with-explicit-issuer-and-scopes"
+  description: "Create with explicit expectedIssuer + custom scopes"
+  tool: "core_mcpserver_create"
+  args:
+    name: "te-full"
+    type: "streamable-http"
+    url: "https://mcp.cluster-b.example.com/mcp"
+    auth:
+      type: "oauth"
+      tokenExchange:
+        enabled: true
+        dexTokenEndpoint: "https://dex-proxy.example.com/cluster-b/token"
+        expectedIssuer: "https://dex.cluster-b.example.com"
+        connectorId: "cluster-a-dex"
+        scopes: "openid profile email groups mcp:admin"
+  expected:
+    success: true
+
+- id: "verify-full-roundtrips"
+  description: "Verify the full tokenExchange spec roundtrips, including custom scopes"
+  tool: "core_mcpserver_get"
+  args:
+    name: "te-full"
+  expected:
+    success: true
+    contains:
+      - "tokenExchange"
+      - "https://dex-proxy.example.com/cluster-b/token"
+      - "https://dex.cluster-b.example.com"
+      - "mcp:admin"
+
+- id: "reject-token-exchange-with-authorization-server"
+  description: "tokenExchange + authorizationServer is mutually exclusive (CEL rule on the CRD)"
+  tool: "core_mcpserver_create"
+  args:
+    name: "te-mutually-exclusive"
+    type: "streamable-http"
+    url: "https://mcp.example.com/mcp"
+    auth:
+      type: "oauth"
+      tokenExchange:
+        enabled: true
+        dexTokenEndpoint: "https://dex.cluster-b.example.com/token"
+        connectorId: "cluster-a-dex"
+      authorizationServer:
+        issuer: "https://idp.example.com"
+        scopes: "openid"
+  expected:
+    success: false
+    error_contains: ["one or the other"]
+
+- id: "create-with-disabled-token-exchange"
+  description: "Explicitly disabled tokenExchange must still validate (config persists, runtime skips the exchange)"
+  tool: "core_mcpserver_create"
+  args:
+    name: "te-disabled"
+    type: "streamable-http"
+    url: "https://mcp.example.com/mcp"
+    auth:
+      type: "oauth"
+      tokenExchange:
+        enabled: false
+        dexTokenEndpoint: "https://dex.example.com/token"
+        connectorId: "some-connector"
+  expected:
+    success: true
+
+cleanup:
+- id: "cleanup-te-minimal"
+  tool: "core_mcpserver_delete"
+  args:
+    name: "te-minimal"
+  expected:
+    success: true
+  continue_on_failure: true
+
+- id: "cleanup-te-full"
+  tool: "core_mcpserver_delete"
+  args:
+    name: "te-full"
+  expected:
+    success: true
+  continue_on_failure: true
+
+- id: "cleanup-te-disabled"
+  tool: "core_mcpserver_delete"
+  args:
+    name: "te-disabled"
+  expected:
+    success: true
+  continue_on_failure: true
