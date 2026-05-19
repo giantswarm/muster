@@ -20,12 +20,10 @@ import (
 	"github.com/giantswarm/muster/internal/config"
 	"github.com/giantswarm/muster/internal/events"
 	"github.com/giantswarm/muster/internal/metatools"
-	"github.com/giantswarm/muster/internal/orchestrator"
 	"github.com/giantswarm/muster/internal/reconciler"
 	"github.com/giantswarm/muster/internal/reconciler/agentgateway"
 	k8sapply "github.com/giantswarm/muster/internal/reconciler/agentgateway/k8s"
 	yamlapply "github.com/giantswarm/muster/internal/reconciler/agentgateway/yaml"
-	"github.com/giantswarm/muster/internal/services"
 	"github.com/giantswarm/muster/internal/workflow"
 	"github.com/giantswarm/muster/pkg/logging"
 )
@@ -81,38 +79,18 @@ const agentgatewayConfigSubdir = "agentgateway"
 //  5. Aggregator service (when enabled)
 //  6. Reconciliation manager (for automatic change detection)
 type Services struct {
-	// Orchestrator manages the lifecycle of all registered services.
-	// It handles service startup, shutdown, dependency resolution, and health monitoring.
-	Orchestrator *orchestrator.Orchestrator
-
-	// OrchestratorAPI provides programmatic access to orchestrator operations.
-	// This interface allows other components to interact with service management
-	// functionality through the central API layer.
-	OrchestratorAPI api.OrchestratorAPI
-
 	// ConfigAPI provides programmatic access to configuration management.
-	// This interface enables runtime configuration updates, persistence,
-	// and retrieval through the central API layer.
 	ConfigAPI api.ConfigAPI
 
 	// AggregatorPort specifies the port number for the MCP aggregator service.
-	// This port is used by external MCP clients to connect to the aggregator
-	// for tool discovery and execution.
 	AggregatorPort int
 
 	// ReconcileManager handles automatic detection and reconciliation of
 	// configuration changes for MCPServers and Workflows.
-	// This enables automatic synchronization between desired state (YAML/CRDs)
-	// and actual state (running services).
 	ReconcileManager *reconciler.Manager
 
-	// StateChangeBridge bridges service state changes from the orchestrator to
-	// the reconciliation system. This enables status sync when services change
-	// state at runtime (e.g., crash, health check failure, restart).
-	StateChangeBridge *reconciler.StateChangeBridge
-
 	// AgentgatewayConfigDir is the absolute path to the directory the yaml
-	// Applier writes per-MCPServer agentgateway native configs into. Set in
+	// Applier writes the combined agentgateway native config into. Set in
 	// filesystem mode, empty in cluster mode. runOrchestrator uses this to
 	// decide whether to spawn the agentgateway subprocess.
 	AgentgatewayConfigDir string
@@ -123,11 +101,10 @@ type Services struct {
 	// reconciliation manager has drained.
 	AgentgatewayManager *subprocess.Manager
 
-	// Aggregator is the MCP aggregator service muster boots directly (rather
-	// than via the orchestrator service registry) so its lifecycle is decoupled
-	// from the orchestrator's. nil when registryHandler was unavailable at
-	// initialization. runOrchestrator starts it after the StateChangeBridge and
-	// stops it before the orchestrator during shutdown.
+	// AggregatorManager is the MCP aggregator. runOrchestrator starts it
+	// after the reconciliation manager so the aggregator's tool registry
+	// reflects the loaded definitions, and stops it before the agentgateway
+	// subprocess on shutdown so in-flight tool calls drain cleanly.
 	AggregatorManager *aggregator.AggregatorManager
 }
 
@@ -174,16 +151,6 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	toolChecker := api.NewToolChecker()
 	toolCaller := api.NewToolCaller()
 
-	orchConfig := orchestrator.Config{
-		Aggregator: cfg.MusterConfig.Aggregator,
-		Yolo:       cfg.Yolo,
-	}
-
-	orch := orchestrator.New(orchConfig)
-
-	// Get the service registry
-	registry := orch.GetServiceRegistry()
-
 	// Step 1: Create unified muster client once
 	// This avoids redundant Kubernetes connection attempts and CRD validation
 	musterClient, err := createMusterClientWithConfig(cfg.ConfigPath, cfg.Debug, *cfg.MusterConfig)
@@ -193,14 +160,6 @@ func InitializeServices(cfg *Config) (*Services, error) {
 
 	// Step 2: Create and register adapters using the muster client
 	// This is critical - APIs need handlers to be registered first
-
-	// Register service registry adapter
-	registryAdapter := services.NewRegistryAdapter(registry)
-	registryAdapter.Register()
-
-	// Register orchestrator adapter
-	orchAdapter := orchestrator.NewAPIAdapter(orch)
-	orchAdapter.Register()
 
 	// Register configuration adapter
 	configAdapter := NewConfigAdapter(cfg.MusterConfig, "") // Empty path means auto-detect
@@ -239,16 +198,10 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	// Note: Definition loading is now handled by the unified client automatically
 
 	// Step 3: Create APIs that use the registered handlers
-	orchestratorAPI := api.NewOrchestratorAPI()
 	configAPI := api.NewConfigServiceAPI()
 
-	// aggManager is constructed inside the registryHandler block and bound to
-	// the Services struct so runOrchestrator can start/stop it directly.
 	var aggManager *aggregator.AggregatorManager
-
-	// Need to get the service registry handler from the registry adapter
-	registryHandler := api.GetServiceRegistry()
-	if registryHandler != nil {
+	{
 		// Merge OAuth MCP client/proxy config: serve command flags override config file, but use config file as fallback
 		oauthMCPClientEnabled := cfg.OAuthMCPClientEnabled || cfg.MusterConfig.Aggregator.OAuth.MCPClient.Enabled
 		oauthPublicURL := cfg.OAuthMCPClientPublicURL
@@ -338,15 +291,13 @@ func InitializeServices(cfg *Config) (*Services, error) {
 				upstreamProxyEnvVar)
 		}
 
-		aggManager = aggregator.NewAggregatorManager(
-			aggConfig,
-			orchestratorAPI,
-			registryHandler,
-			aggregatorErrorCallback,
-		)
+		aggManager = aggregator.NewAggregatorManager(aggConfig, aggregatorErrorCallback)
 
 		aggAdapter := aggregator.NewAPIAdapter(aggManager)
 		aggAdapter.Register()
+
+		serviceToolAdapter := aggregator.NewServiceToolAdapter(aggManager)
+		serviceToolAdapter.Register()
 
 		// Step 4b: Initialize meta-tools for server-side tool management (Issue #343)
 		// The metatools adapter provides the MetaToolsHandler interface that the
@@ -422,26 +373,11 @@ func InitializeServices(cfg *Config) (*Services, error) {
 		logging.Info("Services", "Initialized reconciliation manager with filesystem watching for %s", cfg.ConfigPath)
 	}
 
-	// Step 6: Create StateChangeBridge to sync runtime state changes to CRD status
-	// This bridges service state changes from the orchestrator to the reconciliation system.
-	var stateChangeBridge *reconciler.StateChangeBridge
-	if reconcileManager != nil {
-		stateChangeBridge = reconciler.NewStateChangeBridge(
-			orchestratorAPI,
-			reconcileManager,
-			namespace,
-		)
-		logging.Info("Services", "Initialized state change bridge for runtime status sync")
-	}
-
 	return &Services{
-		Orchestrator:          orch,
-		OrchestratorAPI:       orchestratorAPI,
 		ConfigAPI:             configAPI,
 		AggregatorPort:        cfg.MusterConfig.Aggregator.Port,
 		AggregatorManager:     aggManager,
 		ReconcileManager:      reconcileManager,
-		StateChangeBridge:     stateChangeBridge,
 		AgentgatewayConfigDir: agentgatewayConfigDir,
 	}, nil
 }
