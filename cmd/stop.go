@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/cli"
 
 	"github.com/spf13/cobra"
@@ -12,12 +13,12 @@ var stopFlags cli.CommandFlags
 
 // Available resource types for stop operations
 var stopResourceTypes = []string{
-	"service",
+	api.ResourceTypeService,
 }
 
 // Dynamic completion for service names
 func stopServiceNameCompletion(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	if len(args) != 1 || args[0] != "service" { //nolint:goconst
+	if len(args) != 1 || args[0] != api.ResourceTypeService {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
@@ -55,7 +56,7 @@ Note: The aggregator server must be running (use 'muster serve') before using th
 
 // Resource type mappings for stop operations
 var stopResourceMappings = map[string]string{
-	"service": "core_service_stop",
+	api.ResourceTypeService: "core_service_stop",
 }
 
 func init() {

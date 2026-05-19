@@ -125,7 +125,7 @@ Use list_tools to show me what tools are available in the aggregator
 Your agent will execute `list_tools()` and show all available tools including:
 - **Core Tools**: `core_service_list`, `core_workflow_create`, etc. (36 tools)
 - **Workflow Tools**: `workflow_auth-workflow`, `workflow_connect-monitoring`, etc.
-- **External Tools**: `x_kubernetes_*`, `x_teleport_*`, etc. (varies by configuration)
+- **External Tools**: `x_kubernetes_*`, `x_prometheus_*`, etc. (varies by configuration)
 
 ### Try Tool Execution
 Ask your AI agent:

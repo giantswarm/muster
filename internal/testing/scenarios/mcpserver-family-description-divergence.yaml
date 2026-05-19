@@ -1,0 +1,121 @@
+name: "mcpserver-family-description-divergence"
+description: "Diverging tool descriptions within a family fall back to per-server prefixing for that tool only"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "family", "aggregator", "fallback"]
+timeout: "2m"
+
+# Given: Two MCP servers in the same family share one tool name but with different descriptions
+#        for one of the tools, while the other tool descriptions match
+# When: The aggregator lists tools
+# Then: The diverging tool falls back to per-server prefixing on both sides (warning logged),
+#       while the matching tool still groups under the family-prefixed exposed name.
+
+pre_configuration:
+  mcp_servers:
+    - name: "k8s-graveler"
+      config:
+        family:
+          name: "kubernetes"
+          instanceArg: "management_cluster"
+        tools:
+          - name: "list_pods"
+            description: "v1 API"
+            input_schema:
+              type: "object"
+              properties:
+                namespace: { type: "string" }
+            responses:
+              - response: { source: "k8s-graveler" }
+          - name: "get_node"
+            description: "Get node info"
+            input_schema:
+              type: "object"
+              properties:
+                node: { type: "string" }
+            responses:
+              - response: { source: "k8s-graveler" }
+    - name: "k8s-gazelle"
+      config:
+        family:
+          name: "kubernetes"
+          instanceArg: "management_cluster"
+        tools:
+          - name: "list_pods"
+            description: "v2 API"          # diverges from graveler
+            input_schema:
+              type: "object"
+              properties:
+                namespace: { type: "string" }
+            responses:
+              - response: { source: "k8s-gazelle" }
+          - name: "get_node"
+            description: "Get node info"   # matches
+            input_schema:
+              type: "object"
+              properties:
+                node: { type: "string" }
+            responses:
+              - response: { source: "k8s-gazelle" }
+
+steps:
+  - id: "wait-for-graveler"
+    tool: "core_service_status"
+    args:
+      name: "k8s-graveler"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "running"
+
+  - id: "wait-for-gazelle"
+    tool: "core_service_status"
+    args:
+      name: "k8s-gazelle"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "running"
+
+  - id: "diverging-tool-falls-back-graveler"
+    tool: "x_k8s-graveler_list_pods"
+    args:
+      namespace: "default"
+    expected:
+      success: true
+      contains: ["k8s-graveler"]
+
+  - id: "diverging-tool-falls-back-gazelle"
+    tool: "x_k8s-gazelle_list_pods"
+    args:
+      namespace: "default"
+    expected:
+      success: true
+      contains: ["k8s-gazelle"]
+
+  - id: "matching-tool-still-groups"
+    tool: "x_kubernetes_get_node"
+    args:
+      management_cluster: "k8s-graveler"
+      node: "ip-10-0-0-1"
+    expected:
+      success: true
+      contains: ["k8s-graveler"]
+
+cleanup:
+  - id: "cleanup-stop-graveler"
+    tool: "core_service_stop"
+    args:
+      name: "k8s-graveler"
+    expected:
+      success: true
+    continue_on_failure: true
+  - id: "cleanup-stop-gazelle"
+    tool: "core_service_stop"
+    args:
+      name: "k8s-gazelle"
+    expected:
+      success: true
+    continue_on_failure: true

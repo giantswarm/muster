@@ -1,16 +1,56 @@
 version: "2"
 
 linters:
+  settings:
+    goconst:
+      min-len: 5
+      min-occurrences: 5
+      # ignore-tests skips test files during occurrence COUNTING — needed
+      # so test-only string usage doesn't inflate the production count
+      # past min-occurrences. The path-based _test.go exclusion below
+      # separately silences any test-file goconst reports. Both are
+      # required: ignore-tests alone reports nothing on test files but
+      # only after counting; the path exclusion alone still lets test
+      # occurrences push production strings over the threshold.
+      ignore-tests: true
+      ignore-functions:
+        - logging.Info
+        - logging.Debug
+        - logging.Warn
+        - logging.Error
+        - logging.InfoWithAttrs
+        - logging.DebugWithAttrs
+        - logging.WarnWithAttrs
+        - logging.ErrorWithAttrs
+        - fmt.Errorf
+
   exclusions:
     rules:
-      # Test fixtures legitimately set credential-named fields on CRD
-      # types (ClientCredentialsSecretRef, IdentitySecretName,
-      # TokenExchange, …). gosec G101's recursive struct-field heuristic
-      # matches these even when the values are obviously placeholders.
-      # Scope the exemption to *_test.go so production code is still
-      # scanned. goconst stays enabled in test files: real duplicate-
-      # literal hits should be hoisted to package constants, not
-      # silenced.
+      # Test fixtures legitimately repeat dummy tokens, fake URLs and table
+      # data. goconst's ignore-tests setting only suppresses test-file
+      # reporting in the standalone CLI; in golangci-lint v2 the equivalent
+      # is a path-based exclusion.
       - path: _test\.go
-        linters: [gosec]
-        text: G101
+        linters:
+          - gosec
+          - goconst
+      # MCPServerToken* / MCPServerTokenForwarded* are Kubernetes event reason
+      # identifiers (not credentials). Stop gosec G101 from flagging them.
+      - path: internal/events/types\.go
+        linters:
+          - gosec
+        text: "G101"
+      # pkg/oauth/wire.go is a constants-only file holding RFC 6749/6750/8693
+      # vocabulary; G101 heuristically flags the grant-type URN string.
+      - path: pkg/oauth/wire\.go
+        linters:
+          - gosec
+        text: "G101"
+      # internal/testing/mock/* is the mock OAuth server used by BDD tests.
+      # It must honour the OAuth redirect_uri parameter, which gosec flags
+      # as an open redirect; the mock is never bundled into the production
+      # image.
+      - path: internal/testing/mock/.*\.go
+        linters:
+          - gosec
+        text: "G710"

@@ -43,13 +43,14 @@ builds:
     # Defaults to -trimpath.
     flags:
       - -trimpath
-    # Ldflags to pass to the go build command.
-    # Defaults to -s -w -X main.version={{.Version}} -X main.commit={{.Commit}}
-    # -X main.date={{.Date}} -X main.builtBy=goreleaser.
+    # Ldflags inject build metadata into pkg/project. Same vars are populated
+    # by architect-orb's go-build job for container images.
     ldflags:
       - >-
-        -s -w -X main.version={{.Version}} -X main.commit={{.ShortCommit}}
-        -X main.date={{.Date}}
+        -s -w
+        -X github.com/giantswarm/muster/pkg/project.version={{.Version}}
+        -X github.com/giantswarm/muster/pkg/project.gitSHA={{.ShortCommit}}
+        -X github.com/giantswarm/muster/pkg/project.buildTimestamp={{.Date}}
 
 archives:
   - id: default

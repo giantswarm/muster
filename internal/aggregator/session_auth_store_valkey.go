@@ -7,6 +7,7 @@ import (
 
 	"github.com/valkey-io/valkey-go"
 
+	"github.com/giantswarm/muster/internal/config"
 	"github.com/giantswarm/muster/pkg/logging"
 )
 
@@ -27,7 +28,7 @@ type ValkeySessionAuthStore struct {
 // keyPrefix is prepended to all Valkey keys (default "muster:" if empty).
 func NewValkeySessionAuthStore(client valkey.Client, ttl time.Duration, keyPrefix string) *ValkeySessionAuthStore {
 	if keyPrefix == "" {
-		keyPrefix = "muster:" //nolint:goconst
+		keyPrefix = config.DefaultValkeyKeyPrefix
 	}
 	return &ValkeySessionAuthStore{
 		client:    client,
