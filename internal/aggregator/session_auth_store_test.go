@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -74,20 +75,22 @@ func TestInMemorySessionAuthStore_TTLExpiry(t *testing.T) {
 }
 
 func TestInMemorySessionAuthStore_TTLResetOnMark(t *testing.T) {
-	ttl := 100 * time.Millisecond
-	store := NewInMemorySessionAuthStore(ttl)
-	defer store.Stop()
-	ctx := context.Background()
+	synctest.Test(t, func(t *testing.T) {
+		ttl := 100 * time.Millisecond
+		store := NewInMemorySessionAuthStore(ttl)
+		defer store.Stop()
+		ctx := t.Context()
 
-	_ = store.MarkAuthenticated(ctx, "session1", "server1")
+		require.NoError(t, store.MarkAuthenticated(ctx, "session1", "server1"))
 
-	time.Sleep(70 * time.Millisecond)
-	_ = store.MarkAuthenticated(ctx, "session1", "server2")
+		time.Sleep(70 * time.Millisecond)
+		require.NoError(t, store.MarkAuthenticated(ctx, "session1", "server2"))
 
-	time.Sleep(70 * time.Millisecond)
-	authed, err := store.IsAuthenticated(ctx, "session1", "server1")
-	require.NoError(t, err)
-	assert.True(t, authed, "server1 should still be authenticated after TTL reset by server2 MarkAuthenticated")
+		time.Sleep(70 * time.Millisecond)
+		authed, err := store.IsAuthenticated(ctx, "session1", "server1")
+		require.NoError(t, err)
+		assert.True(t, authed, "server1 should still be authenticated after TTL reset by server2 MarkAuthenticated")
+	})
 }
 
 func TestInMemorySessionAuthStore_Revoke(t *testing.T) {

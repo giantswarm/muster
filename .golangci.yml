@@ -5,6 +5,13 @@ linters:
     goconst:
       min-len: 5
       min-occurrences: 5
+      # ignore-tests skips test files during occurrence COUNTING — needed
+      # so test-only string usage doesn't inflate the production count
+      # past min-occurrences. The path-based _test.go exclusion below
+      # separately silences any test-file goconst reports. Both are
+      # required: ignore-tests alone reports nothing on test files but
+      # only after counting; the path exclusion alone still lets test
+      # occurrences push production strings over the threshold.
       ignore-tests: true
       ignore-functions:
         - logging.Info

@@ -9,6 +9,11 @@ import (
 	"golang.org/x/oauth2"
 )
 
+const (
+	testMusterURL = "https://muster.example.com"
+	testDexURL    = "https://dex.example.com"
+)
+
 func TestTokenStore_StoreAndGet(t *testing.T) {
 	// Create a temporary directory for token storage
 	tmpDir := t.TempDir()
@@ -21,8 +26,6 @@ func TestTokenStore_StoreAndGet(t *testing.T) {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
 
-	serverURL := "https://muster.example.com"
-	issuerURL := "https://dex.example.com"
 	token := &oauth2.Token{
 		AccessToken:  "test-access-token",
 		RefreshToken: "test-refresh-token",
@@ -31,12 +34,12 @@ func TestTokenStore_StoreAndGet(t *testing.T) {
 	}
 
 	// Store the token
-	if err := store.StoreToken(serverURL, issuerURL, token); err != nil {
+	if err := store.StoreToken(testMusterURL, testDexURL, token); err != nil {
 		t.Fatalf("Failed to store token: %v", err)
 	}
 
 	// Retrieve the token
-	storedToken := store.GetToken(serverURL)
+	storedToken := store.GetToken(testMusterURL)
 	if storedToken == nil {
 		t.Fatal("Expected to get stored token, got nil")
 	}
@@ -49,12 +52,12 @@ func TestTokenStore_StoreAndGet(t *testing.T) {
 		t.Errorf("Expected refresh token %q, got %q", token.RefreshToken, storedToken.RefreshToken)
 	}
 
-	if storedToken.ServerURL != serverURL {
-		t.Errorf("Expected server URL %q, got %q", serverURL, storedToken.ServerURL)
+	if storedToken.ServerURL != testMusterURL {
+		t.Errorf("Expected server URL %q, got %q", testMusterURL, storedToken.ServerURL)
 	}
 
-	if storedToken.IssuerURL != issuerURL {
-		t.Errorf("Expected issuer URL %q, got %q", issuerURL, storedToken.IssuerURL)
+	if storedToken.IssuerURL != testDexURL {
+		t.Errorf("Expected issuer URL %q, got %q", testDexURL, storedToken.IssuerURL)
 	}
 }
 
@@ -69,8 +72,6 @@ func TestTokenStore_ExpiredToken(t *testing.T) {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
 
-	serverURL := "https://muster.example.com"
-	issuerURL := "https://dex.example.com"
 
 	// Store an expired token
 	expiredToken := &oauth2.Token{
@@ -79,12 +80,12 @@ func TestTokenStore_ExpiredToken(t *testing.T) {
 		Expiry:      time.Now().Add(-1 * time.Hour), // Expired 1 hour ago
 	}
 
-	if err := store.StoreToken(serverURL, issuerURL, expiredToken); err != nil {
+	if err := store.StoreToken(testMusterURL, testDexURL, expiredToken); err != nil {
 		t.Fatalf("Failed to store token: %v", err)
 	}
 
 	// Should not return expired token
-	storedToken := store.GetToken(serverURL)
+	storedToken := store.GetToken(testMusterURL)
 	if storedToken != nil {
 		t.Error("Expected nil for expired token, got a token")
 	}
@@ -101,8 +102,6 @@ func TestTokenStore_DeleteToken(t *testing.T) {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
 
-	serverURL := "https://muster.example.com"
-	issuerURL := "https://dex.example.com"
 	token := &oauth2.Token{
 		AccessToken: "test-token",
 		TokenType:   "Bearer",
@@ -110,16 +109,16 @@ func TestTokenStore_DeleteToken(t *testing.T) {
 	}
 
 	// Store and then delete
-	if err := store.StoreToken(serverURL, issuerURL, token); err != nil {
+	if err := store.StoreToken(testMusterURL, testDexURL, token); err != nil {
 		t.Fatalf("Failed to store token: %v", err)
 	}
 
-	if err := store.DeleteToken(serverURL); err != nil {
+	if err := store.DeleteToken(testMusterURL); err != nil {
 		t.Fatalf("Failed to delete token: %v", err)
 	}
 
 	// Should return nil after deletion
-	storedToken := store.GetToken(serverURL)
+	storedToken := store.GetToken(testMusterURL)
 	if storedToken != nil {
 		t.Error("Expected nil after deletion, got a token")
 	}
@@ -136,8 +135,6 @@ func TestTokenStore_FileMode(t *testing.T) {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
 
-	serverURL := "https://muster.example.com"
-	issuerURL := "https://dex.example.com"
 	token := &oauth2.Token{
 		AccessToken: "persistent-token",
 		TokenType:   "Bearer",
@@ -145,7 +142,7 @@ func TestTokenStore_FileMode(t *testing.T) {
 	}
 
 	// Store the token
-	if err := store.StoreToken(serverURL, issuerURL, token); err != nil {
+	if err := store.StoreToken(testMusterURL, testDexURL, token); err != nil {
 		t.Fatalf("Failed to store token: %v", err)
 	}
 
@@ -172,7 +169,7 @@ func TestTokenStore_FileMode(t *testing.T) {
 		t.Fatalf("Failed to create second token store: %v", err)
 	}
 
-	storedToken := store2.GetToken(serverURL)
+	storedToken := store2.GetToken(testMusterURL)
 	if storedToken == nil {
 		t.Fatal("Expected to get token from file, got nil")
 	}
@@ -193,11 +190,9 @@ func TestTokenStore_HasValidToken(t *testing.T) {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
 
-	serverURL := "https://muster.example.com"
-	issuerURL := "https://dex.example.com"
 
 	// Initially should not have valid token
-	if store.HasValidToken(serverURL) {
+	if store.HasValidToken(testMusterURL) {
 		t.Error("Expected no valid token initially")
 	}
 
@@ -208,12 +203,12 @@ func TestTokenStore_HasValidToken(t *testing.T) {
 		Expiry:      time.Now().Add(1 * time.Hour),
 	}
 
-	if err := store.StoreToken(serverURL, issuerURL, token); err != nil {
+	if err := store.StoreToken(testMusterURL, testDexURL, token); err != nil {
 		t.Fatalf("Failed to store token: %v", err)
 	}
 
 	// Now should have valid token
-	if !store.HasValidToken(serverURL) {
+	if !store.HasValidToken(testMusterURL) {
 		t.Error("Expected valid token after storing")
 	}
 }
@@ -229,11 +224,9 @@ func TestTokenStore_HasCredentials(t *testing.T) {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
 
-	serverURL := "https://muster.example.com"
-	issuerURL := "https://dex.example.com"
 
 	// Initially no credentials
-	if store.HasCredentials(serverURL) {
+	if store.HasCredentials(testMusterURL) {
 		t.Error("Expected no credentials initially")
 	}
 
@@ -243,10 +236,10 @@ func TestTokenStore_HasCredentials(t *testing.T) {
 		TokenType:   "Bearer",
 		Expiry:      time.Now().Add(1 * time.Hour),
 	}
-	if err := store.StoreToken(serverURL, issuerURL, token); err != nil {
+	if err := store.StoreToken(testMusterURL, testDexURL, token); err != nil {
 		t.Fatalf("Failed to store token: %v", err)
 	}
-	if !store.HasCredentials(serverURL) {
+	if !store.HasCredentials(testMusterURL) {
 		t.Error("Expected credentials with valid access token")
 	}
 
@@ -257,10 +250,10 @@ func TestTokenStore_HasCredentials(t *testing.T) {
 		TokenType:    "Bearer",
 		Expiry:       time.Now().Add(-1 * time.Hour),
 	}
-	if err := store.StoreToken(serverURL, issuerURL, expiredWithRefresh); err != nil {
+	if err := store.StoreToken(testMusterURL, testDexURL, expiredWithRefresh); err != nil {
 		t.Fatalf("Failed to store token: %v", err)
 	}
-	if !store.HasCredentials(serverURL) {
+	if !store.HasCredentials(testMusterURL) {
 		t.Error("Expected credentials with expired access token + refresh token")
 	}
 
@@ -270,10 +263,10 @@ func TestTokenStore_HasCredentials(t *testing.T) {
 		TokenType:   "Bearer",
 		Expiry:      time.Now().Add(-1 * time.Hour),
 	}
-	if err := store.StoreToken(serverURL, issuerURL, expiredNoRefresh); err != nil {
+	if err := store.StoreToken(testMusterURL, testDexURL, expiredNoRefresh); err != nil {
 		t.Fatalf("Failed to store token: %v", err)
 	}
-	if store.HasCredentials(serverURL) {
+	if store.HasCredentials(testMusterURL) {
 		t.Error("Expected no credentials with expired access token and no refresh token")
 	}
 }
@@ -297,7 +290,7 @@ func TestTokenStore_Clear(t *testing.T) {
 			TokenType:   "Bearer",
 			Expiry:      time.Now().Add(1 * time.Hour),
 		}
-		if err := store.StoreToken(serverURL, "https://dex.example.com", token); err != nil {
+		if err := store.StoreToken(serverURL, testDexURL, token); err != nil {
 			t.Fatalf("Failed to store token: %v", err)
 		}
 	}
@@ -377,12 +370,11 @@ func TestTokenStore_GetByIssuer(t *testing.T) {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
 
-	issuerURL := "https://dex.example.com"
 	serverURL1 := "https://muster1.example.com"
 	serverURL2 := "https://muster2.example.com"
 
 	// Initially should not have any tokens
-	if store.GetByIssuer(issuerURL) != nil {
+	if store.GetByIssuer(testDexURL) != nil {
 		t.Error("Expected no token for issuer initially")
 	}
 
@@ -392,20 +384,20 @@ func TestTokenStore_GetByIssuer(t *testing.T) {
 		TokenType:   "Bearer",
 		Expiry:      time.Now().Add(1 * time.Hour),
 	}
-	if err := store.StoreToken(serverURL1, issuerURL, token1); err != nil {
+	if err := store.StoreToken(serverURL1, testDexURL, token1); err != nil {
 		t.Fatalf("Failed to store token: %v", err)
 	}
 
 	// Should find the token by issuer
-	found := store.GetByIssuer(issuerURL)
+	found := store.GetByIssuer(testDexURL)
 	if found == nil {
 		t.Fatal("Expected to find token by issuer, got nil")
 	}
 	if found.AccessToken != token1.AccessToken {
 		t.Errorf("Expected access token %q, got %q", token1.AccessToken, found.AccessToken)
 	}
-	if found.IssuerURL != issuerURL {
-		t.Errorf("Expected issuer URL %q, got %q", issuerURL, found.IssuerURL)
+	if found.IssuerURL != testDexURL {
+		t.Errorf("Expected issuer URL %q, got %q", testDexURL, found.IssuerURL)
 	}
 
 	// Store another token for server2 with the same issuer (SSO scenario)
@@ -414,19 +406,19 @@ func TestTokenStore_GetByIssuer(t *testing.T) {
 		TokenType:   "Bearer",
 		Expiry:      time.Now().Add(1 * time.Hour),
 	}
-	if err := store.StoreToken(serverURL2, issuerURL, token2); err != nil {
+	if err := store.StoreToken(serverURL2, testDexURL, token2); err != nil {
 		t.Fatalf("Failed to store token: %v", err)
 	}
 
 	// GetByIssuer should find one of the tokens (either is valid for SSO)
-	found = store.GetByIssuer(issuerURL)
+	found = store.GetByIssuer(testDexURL)
 	if found == nil {
 		t.Fatal("Expected to find token by issuer after storing second token")
 	}
 
 	// The token should have the issuer we searched for
-	if found.IssuerURL != issuerURL {
-		t.Errorf("Expected issuer URL %q, got %q", issuerURL, found.IssuerURL)
+	if found.IssuerURL != testDexURL {
+		t.Errorf("Expected issuer URL %q, got %q", testDexURL, found.IssuerURL)
 	}
 }
 
@@ -443,7 +435,6 @@ func TestTokenStore_GetByIssuer_DifferentIssuers(t *testing.T) {
 
 	issuer1 := "https://dex1.example.com"
 	issuer2 := "https://dex2.example.com"
-	serverURL := "https://muster.example.com"
 
 	// Store token with issuer1
 	token := &oauth2.Token{
@@ -451,7 +442,7 @@ func TestTokenStore_GetByIssuer_DifferentIssuers(t *testing.T) {
 		TokenType:   "Bearer",
 		Expiry:      time.Now().Add(1 * time.Hour),
 	}
-	if err := store.StoreToken(serverURL, issuer1, token); err != nil {
+	if err := store.StoreToken(testMusterURL, issuer1, token); err != nil {
 		t.Fatalf("Failed to store token: %v", err)
 	}
 
@@ -477,8 +468,6 @@ func TestTokenStore_GetByIssuer_ExpiredToken(t *testing.T) {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
 
-	issuerURL := "https://dex.example.com"
-	serverURL := "https://muster.example.com"
 
 	// Store an expired token
 	expiredToken := &oauth2.Token{
@@ -486,12 +475,12 @@ func TestTokenStore_GetByIssuer_ExpiredToken(t *testing.T) {
 		TokenType:   "Bearer",
 		Expiry:      time.Now().Add(-1 * time.Hour), // Expired
 	}
-	if err := store.StoreToken(serverURL, issuerURL, expiredToken); err != nil {
+	if err := store.StoreToken(testMusterURL, testDexURL, expiredToken); err != nil {
 		t.Fatalf("Failed to store token: %v", err)
 	}
 
 	// Should NOT return expired token
-	if store.GetByIssuer(issuerURL) != nil {
+	if store.GetByIssuer(testDexURL) != nil {
 		t.Error("Expected nil for expired token by issuer")
 	}
 }
@@ -507,11 +496,9 @@ func TestTokenStore_HasValidTokenForIssuer(t *testing.T) {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
 
-	issuerURL := "https://dex.example.com"
-	serverURL := "https://muster.example.com"
 
 	// Initially should not have valid token for issuer
-	if store.HasValidTokenForIssuer(issuerURL) {
+	if store.HasValidTokenForIssuer(testDexURL) {
 		t.Error("Expected no valid token for issuer initially")
 	}
 
@@ -521,12 +508,12 @@ func TestTokenStore_HasValidTokenForIssuer(t *testing.T) {
 		TokenType:   "Bearer",
 		Expiry:      time.Now().Add(1 * time.Hour),
 	}
-	if err := store.StoreToken(serverURL, issuerURL, token); err != nil {
+	if err := store.StoreToken(testMusterURL, testDexURL, token); err != nil {
 		t.Fatalf("Failed to store token: %v", err)
 	}
 
 	// Now should have valid token for issuer
-	if !store.HasValidTokenForIssuer(issuerURL) {
+	if !store.HasValidTokenForIssuer(testDexURL) {
 		t.Error("Expected valid token for issuer after storing")
 	}
 }
@@ -542,8 +529,6 @@ func TestTokenStore_GetByIssuer_FileMode(t *testing.T) {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
 
-	issuerURL := "https://dex.example.com"
-	serverURL := "https://muster.example.com"
 
 	// Store a token with file mode enabled
 	token := &oauth2.Token{
@@ -551,7 +536,7 @@ func TestTokenStore_GetByIssuer_FileMode(t *testing.T) {
 		TokenType:   "Bearer",
 		Expiry:      time.Now().Add(1 * time.Hour),
 	}
-	if err := store.StoreToken(serverURL, issuerURL, token); err != nil {
+	if err := store.StoreToken(testMusterURL, testDexURL, token); err != nil {
 		t.Fatalf("Failed to store token: %v", err)
 	}
 
@@ -565,7 +550,7 @@ func TestTokenStore_GetByIssuer_FileMode(t *testing.T) {
 	}
 
 	// Should find the token by issuer from file
-	found := store2.GetByIssuer(issuerURL)
+	found := store2.GetByIssuer(testDexURL)
 	if found == nil {
 		t.Fatal("Expected to find token by issuer from file, got nil")
 	}
@@ -585,8 +570,6 @@ func TestTokenStore_IsTokenValid_ExpiryMargin(t *testing.T) {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
 
-	serverURL := "https://muster.example.com"
-	issuerURL := "https://dex.example.com"
 
 	testCases := []struct {
 		name         string
@@ -634,18 +617,18 @@ func TestTokenStore_IsTokenValid_ExpiryMargin(t *testing.T) {
 			}
 
 			// Store the token
-			if err := store.StoreToken(serverURL, issuerURL, token); err != nil {
+			if err := store.StoreToken(testMusterURL, testDexURL, token); err != nil {
 				t.Fatalf("Failed to store token: %v", err)
 			}
 
 			// Check if token is valid
-			hasValid := store.HasValidToken(serverURL)
+			hasValid := store.HasValidToken(testMusterURL)
 			if hasValid != tc.expectValid {
 				t.Errorf("HasValidToken() = %v, want %v for expiry offset %v", hasValid, tc.expectValid, tc.expiryOffset)
 			}
 
 			// Clean up for next test case
-			_ = store.DeleteToken(serverURL)
+			_ = store.DeleteToken(testMusterURL)
 		})
 	}
 }
@@ -661,8 +644,6 @@ func TestTokenStore_FileMode_Permissions(t *testing.T) {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
 
-	serverURL := "https://muster.example.com"
-	issuerURL := "https://dex.example.com"
 	token := &oauth2.Token{
 		AccessToken: "secret-token",
 		TokenType:   "Bearer",
@@ -670,7 +651,7 @@ func TestTokenStore_FileMode_Permissions(t *testing.T) {
 	}
 
 	// Store the token
-	if err := store.StoreToken(serverURL, issuerURL, token); err != nil {
+	if err := store.StoreToken(testMusterURL, testDexURL, token); err != nil {
 		t.Fatalf("Failed to store token: %v", err)
 	}
 
@@ -733,8 +714,6 @@ func TestTokenStore_ZeroExpiry_ConsideredValid(t *testing.T) {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
 
-	serverURL := "https://muster.example.com"
-	issuerURL := "https://dex.example.com"
 
 	// Token with zero expiry (some tokens don't have expiry info)
 	token := &oauth2.Token{
@@ -743,16 +722,16 @@ func TestTokenStore_ZeroExpiry_ConsideredValid(t *testing.T) {
 		// Expiry is zero value
 	}
 
-	if err := store.StoreToken(serverURL, issuerURL, token); err != nil {
+	if err := store.StoreToken(testMusterURL, testDexURL, token); err != nil {
 		t.Fatalf("Failed to store token: %v", err)
 	}
 
 	// Token with zero expiry should be considered valid
-	if !store.HasValidToken(serverURL) {
+	if !store.HasValidToken(testMusterURL) {
 		t.Error("Token with zero expiry should be considered valid")
 	}
 
-	storedToken := store.GetToken(serverURL)
+	storedToken := store.GetToken(testMusterURL)
 	if storedToken == nil {
 		t.Error("Expected to get token with zero expiry")
 	}
@@ -769,8 +748,6 @@ func TestTokenStore_GetTokenIncludingExpiring(t *testing.T) {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
 
-	serverURL := "https://muster.example.com"
-	issuerURL := "https://dex.example.com"
 
 	t.Run("returns nil for non-existent token", func(t *testing.T) {
 		token := store.GetTokenIncludingExpiring("https://nonexistent.example.com")
@@ -788,17 +765,17 @@ func TestTokenStore_GetTokenIncludingExpiring(t *testing.T) {
 			Expiry:       time.Now().Add(30 * time.Second), // Expires in 30s (within 60s margin)
 		}
 
-		if err := store.StoreToken(serverURL, issuerURL, expiringToken); err != nil {
+		if err := store.StoreToken(testMusterURL, testDexURL, expiringToken); err != nil {
 			t.Fatalf("Failed to store token: %v", err)
 		}
 
 		// GetToken should return nil (token is within expiry margin)
-		if store.GetToken(serverURL) != nil {
+		if store.GetToken(testMusterURL) != nil {
 			t.Error("GetToken should return nil for token within expiry margin")
 		}
 
 		// GetTokenIncludingExpiring should still return the token
-		token := store.GetTokenIncludingExpiring(serverURL)
+		token := store.GetTokenIncludingExpiring(testMusterURL)
 		if token == nil {
 			t.Fatal("GetTokenIncludingExpiring should return token even if expiring soon")
 		}
@@ -812,7 +789,7 @@ func TestTokenStore_GetTokenIncludingExpiring(t *testing.T) {
 		}
 
 		// Clean up
-		_ = store.DeleteToken(serverURL)
+		_ = store.DeleteToken(testMusterURL)
 	})
 
 	t.Run("returns already expired token with refresh token", func(t *testing.T) {
@@ -824,17 +801,17 @@ func TestTokenStore_GetTokenIncludingExpiring(t *testing.T) {
 			Expiry:       time.Now().Add(-1 * time.Hour), // Expired 1 hour ago
 		}
 
-		if err := store.StoreToken(serverURL, issuerURL, expiredToken); err != nil {
+		if err := store.StoreToken(testMusterURL, testDexURL, expiredToken); err != nil {
 			t.Fatalf("Failed to store token: %v", err)
 		}
 
 		// GetToken should return nil (token is expired)
-		if store.GetToken(serverURL) != nil {
+		if store.GetToken(testMusterURL) != nil {
 			t.Error("GetToken should return nil for expired token")
 		}
 
 		// GetTokenIncludingExpiring should still return the token
-		token := store.GetTokenIncludingExpiring(serverURL)
+		token := store.GetTokenIncludingExpiring(testMusterURL)
 		if token == nil {
 			t.Fatal("GetTokenIncludingExpiring should return expired token")
 		}
@@ -844,7 +821,7 @@ func TestTokenStore_GetTokenIncludingExpiring(t *testing.T) {
 		}
 
 		// Clean up
-		_ = store.DeleteToken(serverURL)
+		_ = store.DeleteToken(testMusterURL)
 	})
 
 	t.Run("returns valid token", func(t *testing.T) {
@@ -856,13 +833,13 @@ func TestTokenStore_GetTokenIncludingExpiring(t *testing.T) {
 			Expiry:       time.Now().Add(1 * time.Hour), // Valid for 1 hour
 		}
 
-		if err := store.StoreToken(serverURL, issuerURL, validToken); err != nil {
+		if err := store.StoreToken(testMusterURL, testDexURL, validToken); err != nil {
 			t.Fatalf("Failed to store token: %v", err)
 		}
 
 		// Both methods should return the token
-		token1 := store.GetToken(serverURL)
-		token2 := store.GetTokenIncludingExpiring(serverURL)
+		token1 := store.GetToken(testMusterURL)
+		token2 := store.GetTokenIncludingExpiring(testMusterURL)
 
 		if token1 == nil || token2 == nil {
 			t.Error("Both GetToken and GetTokenIncludingExpiring should return valid token")
@@ -888,8 +865,6 @@ func TestTokenStore_GetTokenIncludingExpiring_FileMode(t *testing.T) {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
 
-	serverURL := "https://muster.example.com"
-	issuerURL := "https://dex.example.com"
 
 	// Store a token that's expiring soon
 	expiringToken := &oauth2.Token{
@@ -899,7 +874,7 @@ func TestTokenStore_GetTokenIncludingExpiring_FileMode(t *testing.T) {
 		Expiry:       time.Now().Add(30 * time.Second),
 	}
 
-	if err := store.StoreToken(serverURL, issuerURL, expiringToken); err != nil {
+	if err := store.StoreToken(testMusterURL, testDexURL, expiringToken); err != nil {
 		t.Fatalf("Failed to store token: %v", err)
 	}
 
@@ -913,7 +888,7 @@ func TestTokenStore_GetTokenIncludingExpiring_FileMode(t *testing.T) {
 	}
 
 	// GetTokenIncludingExpiring should load from file and return the token
-	token := store2.GetTokenIncludingExpiring(serverURL)
+	token := store2.GetTokenIncludingExpiring(testMusterURL)
 	if token == nil {
 		t.Fatal("Expected to load expiring token from file")
 	}
