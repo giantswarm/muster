@@ -102,7 +102,11 @@ func httpTargetFromURL(raw string, protocol HTTPProtocol) (HTTPTarget, error) {
 	}
 	var port int
 	if p := parsed.Port(); p != "" {
-		port, _ = strconv.Atoi(p)
+		parsedPort, err := strconv.Atoi(p)
+		if err != nil {
+			return HTTPTarget{}, fmt.Errorf("spec.url %q has non-numeric port %q: %w", raw, p, err)
+		}
+		port = parsedPort
 	} else {
 		switch parsed.Scheme {
 		case "http":
