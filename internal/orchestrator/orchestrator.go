@@ -38,8 +38,9 @@ type Orchestrator struct {
 	registry services.ServiceRegistry
 
 	// Configuration
-	aggregator config.AggregatorConfig
-	yolo       bool
+	aggregator                config.AggregatorConfig
+	yolo                      bool
+	disableMCPServerAutoStart bool
 
 	// Service tracking
 	stopReasons map[string]StopReason
@@ -61,6 +62,14 @@ type Orchestrator struct {
 type Config struct {
 	Aggregator config.AggregatorConfig
 	Yolo       bool
+
+	// DisableMCPServerAutoStart suppresses processAutoStartMCPServers and
+	// retryFailedMCPServers. Filesystem mode sets this true because
+	// agentgateway owns the MCPServer data plane; left at the default false,
+	// the orchestrator and agentgateway would both spawn the same stdio
+	// children — the gate this flag enforces is observable as
+	// ppid(stdio_child) != muster_pid at runtime.
+	DisableMCPServerAutoStart bool
 }
 
 // New creates a new orchestrator.
@@ -68,11 +77,12 @@ func New(cfg Config) *Orchestrator {
 	registry := services.NewRegistry()
 
 	return &Orchestrator{
-		registry:               registry,
-		aggregator:             cfg.Aggregator,
-		yolo:                   cfg.Yolo,
-		stopReasons:            make(map[string]StopReason),
-		stateChangeSubscribers: make([]chan<- ServiceStateChangedEvent, 0),
+		registry:                  registry,
+		aggregator:                cfg.Aggregator,
+		yolo:                      cfg.Yolo,
+		disableMCPServerAutoStart: cfg.DisableMCPServerAutoStart,
+		stopReasons:               make(map[string]StopReason),
+		stateChangeSubscribers:    make([]chan<- ServiceStateChangedEvent, 0),
 	}
 }
 
@@ -95,11 +105,14 @@ func (o *Orchestrator) Start(ctx context.Context) error {
 		}(service)
 	}
 
-	if err := o.processAutoStartMCPServers(ctx); err != nil {
-		logging.Error("Orchestrator", err, "Failed to process auto-start MCPServers")
+	if o.disableMCPServerAutoStart {
+		logging.Info("Orchestrator", "MCPServer auto-start disabled (agentgateway owns the data plane in filesystem mode)")
+	} else {
+		if err := o.processAutoStartMCPServers(ctx); err != nil {
+			logging.Error("Orchestrator", err, "Failed to process auto-start MCPServers")
+		}
+		go o.retryFailedMCPServers()
 	}
-
-	go o.retryFailedMCPServers()
 
 	logging.Info("Orchestrator", "Started orchestrator with %d static services", len(staticServices))
 	return nil

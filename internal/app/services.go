@@ -162,6 +162,10 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	orchConfig := orchestrator.Config{
 		Aggregator: cfg.MusterConfig.Aggregator,
 		Yolo:       cfg.Yolo,
+		// Filesystem mode hands the MCPServer data plane to the agentgateway
+		// subprocess; both spawning the same stdio children would yield two
+		// parents for one pid and a fight over stdin/stdout.
+		DisableMCPServerAutoStart: !cfg.MusterConfig.Kubernetes,
 	}
 
 	orch := orchestrator.New(orchConfig)
