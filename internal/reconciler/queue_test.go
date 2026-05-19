@@ -174,7 +174,7 @@ func TestWorkQueue_ConcurrentAccess(t *testing.T) {
 			for j := 0; j < numItemsPerProducer; j++ {
 				q.Add(ReconcileRequest{
 					Type:    ResourceTypeMCPServer,
-					Name:    "server-" + string(rune('A'+producerID)) + "-" + string(rune('0'+j)), //nolint:gosec
+					Name:    "server-" + string(rune('A'+producerID)) + "-" + string(rune('0'+j)),
 					Attempt: 1,
 				})
 			}

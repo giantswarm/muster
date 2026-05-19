@@ -437,8 +437,8 @@ func TestTokenStore_SubjectIsolation(t *testing.T) {
 	// Simulate two different users with different subjects
 	user1Subject := "user1@example.com"
 	user2Subject := "user2@example.com"
-	commonIssuer := "https://auth.example.com" //nolint:goconst
-	commonScope := "openid profile"            //nolint:goconst
+	commonIssuer := "https://auth.example.com"
+	commonScope := "openid profile"
 
 	// User 1 stores their token
 	user1Key := TokenKey{

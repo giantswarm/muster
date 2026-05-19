@@ -16,6 +16,7 @@ import (
 
 	"github.com/giantswarm/mcp-oauth/providers/dex"
 	"github.com/mark3labs/mcp-go/mcp"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // errMissingSession is the user-facing message returned when a tool call
@@ -430,8 +431,8 @@ func emitTokenForwardingEvent(serverName, namespace string, success bool, errorM
 
 	// Log when namespace is missing - this indicates a configuration issue
 	if namespace == "" {
-		logging.Warn("Connection", "No namespace set for server %s event, defaulting to 'default' - check MCPServer configuration", serverName)
-		namespace = "default" //nolint:goconst
+		logging.Warn("Connection", "No namespace set for server %s event, defaulting to %q - check MCPServer configuration", serverName, metav1.NamespaceDefault)
+		namespace = metav1.NamespaceDefault
 	}
 
 	objRef := api.ObjectReference{
@@ -772,8 +773,8 @@ func emitTokenExchangeEvent(serverName, namespace string, success bool, errorMsg
 
 	// Log when namespace is missing - this indicates a configuration issue
 	if namespace == "" {
-		logging.Warn("Connection", "No namespace set for server %s event, defaulting to 'default' - check MCPServer configuration", serverName)
-		namespace = "default" //nolint:goconst
+		logging.Warn("Connection", "No namespace set for server %s event, defaulting to %q - check MCPServer configuration", serverName, metav1.NamespaceDefault)
+		namespace = metav1.NamespaceDefault
 	}
 
 	objRef := api.ObjectReference{
@@ -1025,7 +1026,7 @@ func loadTokenExchangeCredentials(ctx context.Context, serverInfo *ServerInfo) (
 	// Use the server's namespace as the default for the secret
 	defaultNamespace := serverInfo.GetNamespace()
 	if defaultNamespace == "" {
-		defaultNamespace = "default"
+		defaultNamespace = metav1.NamespaceDefault
 	}
 
 	return handler.LoadClientCredentials(ctx, serverInfo.AuthConfig.TokenExchange.ClientCredentialsSecretRef, defaultNamespace)

@@ -110,7 +110,7 @@ func TestAdapter_ClearTokenByIssuer(t *testing.T) {
 
 	adapter := NewAdapter(manager)
 
-	issuer := "https://auth.example.com" //nolint:goconst
+	issuer := "https://auth.example.com"
 	subject := testSubject
 
 	// Store a token directly
@@ -176,7 +176,7 @@ func TestAdapter_GetCallbackPath(t *testing.T) {
 
 	adapter := NewAdapter(manager)
 	path := adapter.GetCallbackPath()
-	if path != "/oauth/proxy/callback" { //nolint:goconst
+	if path != "/oauth/proxy/callback" {
 		t.Errorf("Expected callback path %q, got %q", "/oauth/proxy/callback", path)
 	}
 }
@@ -200,7 +200,7 @@ func TestAdapter_GetCIMDPath(t *testing.T) {
 
 	adapter := NewAdapter(manager)
 	path := adapter.GetCIMDPath()
-	if path != "/.well-known/oauth-client.json" { //nolint:goconst
+	if path != "/.well-known/oauth-client.json" {
 		t.Errorf("Expected CIMD path %q, got %q", "/.well-known/oauth-client.json", path)
 	}
 }
@@ -421,7 +421,7 @@ func TestTokenToAPIToken(t *testing.T) {
 	if result.TokenType != "Bearer" {
 		t.Errorf("Expected token type %q, got %q", "Bearer", result.TokenType)
 	}
-	if result.Scope != "openid profile" { //nolint:goconst
+	if result.Scope != "openid profile" {
 		t.Errorf("Expected scope %q, got %q", "openid profile", result.Scope)
 	}
 }
