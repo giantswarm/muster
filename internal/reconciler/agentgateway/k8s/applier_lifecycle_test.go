@@ -164,6 +164,37 @@ func TestApply_DeletionCascade_OwnerRefsAreControllerBlocking(t *testing.T) {
 	backend := &agw.AgentgatewayBackend{}
 	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: ownerNamespace, Name: ownerName}, backend))
 	checkRef(backend.OwnerReferences)
+
+	route := &gwv1.HTTPRoute{}
+	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: ownerNamespace, Name: ownerName}, route))
+	checkRef(route.OwnerReferences)
+
+	policy := &agw.AgentgatewayPolicy{}
+	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: ownerNamespace, Name: ownerName}, policy))
+	checkRef(policy.OwnerReferences)
+}
+
+func TestApply_DefaultsControllerAndBlockOwnerDeletion_WhenOwnerRefOmitsThem(t *testing.T) {
+	t.Parallel()
+
+	c := newClient(t)
+	bareOwner := metav1.OwnerReference{
+		APIVersion: ownerAPIVersion,
+		Kind:       ownerKind,
+		Name:       ownerName,
+		UID:        types.UID(ownerUID),
+		// Controller and BlockOwnerDeletion intentionally left nil.
+	}
+	a := k8s.NewApplier(c, bareOwner, k8s.Config{GatewayName: gatewayName, GatewayNamespace: gatewayNS})
+	require.NoError(t, a.Apply(t.Context(), streamableConfig()))
+
+	backend := &agw.AgentgatewayBackend{}
+	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: ownerNamespace, Name: ownerName}, backend))
+	require.Len(t, backend.OwnerReferences, 1)
+	require.NotNil(t, backend.OwnerReferences[0].Controller, "Controller pointer must be defaulted to true")
+	require.True(t, *backend.OwnerReferences[0].Controller)
+	require.NotNil(t, backend.OwnerReferences[0].BlockOwnerDeletion, "BlockOwnerDeletion must be defaulted to true")
+	require.True(t, *backend.OwnerReferences[0].BlockOwnerDeletion)
 }
 
 func TestApply_HTTPRouteSpec_FullOwnership_RevertsExternalEdits(t *testing.T) {
