@@ -36,14 +36,27 @@ func (a *Applier) deleteIfExists(ctx context.Context, obj client.Object) error {
 }
 
 func (a *Applier) applyOwner(meta *metav1.ObjectMeta) {
+	ref := a.ownerRef
+	// Defensive defaults so a caller that forgot to set Controller or
+	// BlockOwnerDeletion still gets cascade-blocking semantics consistent
+	// with the test fixture. ownerRef passed by future callers may not
+	// carry these.
+	if ref.Controller == nil {
+		t := true
+		ref.Controller = &t
+	}
+	if ref.BlockOwnerDeletion == nil {
+		t := true
+		ref.BlockOwnerDeletion = &t
+	}
 	for i := range meta.OwnerReferences {
-		ref := &meta.OwnerReferences[i]
-		if ref.Name == a.ownerRef.Name && ref.Kind == a.ownerRef.Kind && ref.APIVersion == a.ownerRef.APIVersion {
-			meta.OwnerReferences[i] = a.ownerRef
+		existing := &meta.OwnerReferences[i]
+		if existing.Name == ref.Name && existing.Kind == ref.Kind && existing.APIVersion == ref.APIVersion {
+			meta.OwnerReferences[i] = ref
 			return
 		}
 	}
-	meta.OwnerReferences = append(meta.OwnerReferences, a.ownerRef)
+	meta.OwnerReferences = append(meta.OwnerReferences, ref)
 }
 
 func portInt32(p int) (int32, error) {
