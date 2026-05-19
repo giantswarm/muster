@@ -1,0 +1,123 @@
+name: "mcpserver-family-deregister"
+description: "Stopping one family member removes it from the routing target set"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "family", "aggregator", "lifecycle"]
+timeout: "2m"
+
+# Given: Two MCP servers in the same family expose the same tool
+# When: One server is stopped
+# Then: The exposed family tool only routes to the surviving instance; calls targeting the
+#       stopped instance via the management_cluster arg fail with a clear error.
+
+pre_configuration:
+  mcp_servers:
+    - name: "k8s-a"
+      config:
+        family:
+          name: "kubernetes"
+          instanceArg: "management_cluster"
+        tools:
+          - name: "list_pods"
+            description: "List pods"
+            input_schema:
+              type: "object"
+              properties:
+                namespace: { type: "string" }
+            responses:
+              - response: { source: "k8s-a" }
+    - name: "k8s-b"
+      config:
+        family:
+          name: "kubernetes"
+          instanceArg: "management_cluster"
+        tools:
+          - name: "list_pods"
+            description: "List pods"
+            input_schema:
+              type: "object"
+              properties:
+                namespace: { type: "string" }
+            responses:
+              - response: { source: "k8s-b" }
+
+steps:
+  - id: "wait-for-a"
+    tool: "core_service_status"
+    args:
+      name: "k8s-a"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "running"
+
+  - id: "wait-for-b"
+    tool: "core_service_status"
+    args:
+      name: "k8s-b"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "running"
+
+  - id: "both-targets-resolve"
+    tool: "x_kubernetes_list_pods"
+    args:
+      management_cluster: "k8s-a"
+      namespace: "default"
+    expected:
+      success: true
+      contains: ["k8s-a"]
+
+  - id: "stop-k8s-a"
+    tool: "core_service_stop"
+    args:
+      name: "k8s-a"
+    expected:
+      success: true
+
+  - id: "wait-for-stopped-a"
+    tool: "core_service_status"
+    args:
+      name: "k8s-a"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "stopped"
+
+  - id: "stopped-target-is-rejected"
+    tool: "x_kubernetes_list_pods"
+    args:
+      management_cluster: "k8s-a"
+      namespace: "default"
+    expected:
+      success: false
+      error_contains: ["not available on server"]
+
+  - id: "surviving-target-still-resolves"
+    tool: "x_kubernetes_list_pods"
+    args:
+      management_cluster: "k8s-b"
+      namespace: "default"
+    expected:
+      success: true
+      contains: ["k8s-b"]
+
+cleanup:
+  - id: "cleanup-stop-a"
+    tool: "core_service_stop"
+    args:
+      name: "k8s-a"
+    expected:
+      success: true
+    continue_on_failure: true
+  - id: "cleanup-stop-b"
+    tool: "core_service_stop"
+    args:
+      name: "k8s-b"
+    expected:
+      success: true
+    continue_on_failure: true

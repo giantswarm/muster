@@ -1207,6 +1207,13 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 						"url":       mockInfo.Endpoint,
 					}
 
+					if toolPrefix, ok := mcpServer.Config["toolPrefix"].(string); ok && toolPrefix != "" {
+						spec["toolPrefix"] = toolPrefix
+					}
+					if family, ok := mcpServer.Config["family"].(map[string]interface{}); ok {
+						spec["family"] = family
+					}
+
 					// Handle SSO configuration from oauth config
 					if oauthConfig, hasOAuth := mcpServer.Config["oauth"].(map[string]interface{}); hasOAuth {
 						authConfig := make(map[string]interface{})
@@ -1308,6 +1315,18 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 					mockConfigFile := filepath.Join(configPath, "mocks", mcpServer.Name+".yaml")
 
 					// Create MCPServer CRD structure
+					stdioSpec := map[string]interface{}{
+						"type":      "stdio",
+						"autoStart": true,
+						"command":   musterPath,
+						"args":      []string{"test", "--mock-mcp-server", "--mock-config", mockConfigFile},
+					}
+					if toolPrefix, ok := mcpServer.Config["toolPrefix"].(string); ok && toolPrefix != "" {
+						stdioSpec["toolPrefix"] = toolPrefix
+					}
+					if family, ok := mcpServer.Config["family"].(map[string]interface{}); ok {
+						stdioSpec["family"] = family
+					}
 					mcpServerCRD := map[string]interface{}{
 						"apiVersion": "muster.giantswarm.io/v1alpha1",
 						"kind":       "MCPServer",
@@ -1315,12 +1334,7 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 							"name":      mcpServer.Name,
 							"namespace": "default",
 						},
-						"spec": map[string]interface{}{
-							"type":      "stdio",
-							"autoStart": true,
-							"command":   musterPath,
-							"args":      []string{"test", "--mock-mcp-server", "--mock-config", mockConfigFile},
-						},
+						"spec": stdioSpec,
 					}
 
 					if m.debug {
@@ -1423,6 +1437,53 @@ func (m *musterInstanceManager) extractExpectedToolsWithHTTPMocks(config *Muster
 
 	var expectedTools []string
 
+	// Identify family groups whose members would fall back to per-server
+	// prefixing: same family.name but diverging family.instanceArg, or same
+	// (family.name, tool.name) with diverging descriptions. For those tools,
+	// expect x_<server>_<tool> instead of x_<family.name>_<tool>.
+	familyArgs := map[string]string{}       // family name -> first-seen instanceArg
+	familyArgDivergent := map[string]bool{} // family name -> true when args disagree
+	type toolKey struct{ family, name string }
+	toolDescriptions := map[toolKey]string{}
+	toolDivergent := map[toolKey]bool{}
+	for _, mcpServer := range config.MCPServers {
+		family, ok := mcpServer.Config["family"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		familyName, _ := family["name"].(string)
+		if familyName == "" {
+			continue
+		}
+		instanceArg, _ := family["instanceArg"].(string)
+		if prev, seen := familyArgs[familyName]; seen && prev != instanceArg {
+			familyArgDivergent[familyName] = true
+		} else if !seen {
+			familyArgs[familyName] = instanceArg
+		}
+		if tools, hasTools := mcpServer.Config["tools"]; hasTools {
+			if toolsList, ok := tools.([]interface{}); ok {
+				for _, tool := range toolsList {
+					toolMap, ok := tool.(map[string]interface{})
+					if !ok {
+						continue
+					}
+					name, _ := toolMap["name"].(string)
+					if name == "" {
+						continue
+					}
+					desc, _ := toolMap["description"].(string)
+					key := toolKey{family: familyName, name: name}
+					if prev, seen := toolDescriptions[key]; seen && prev != desc {
+						toolDivergent[key] = true
+					} else if !seen {
+						toolDescriptions[key] = desc
+					}
+				}
+			}
+		}
+	}
+
 	// Extract tools from MCP server configurations
 	for _, mcpServer := range config.MCPServers {
 		// For OAuth-protected servers, no tools are exposed until authenticated (per ADR-008)
@@ -1436,13 +1497,27 @@ func (m *musterInstanceManager) extractExpectedToolsWithHTTPMocks(config *Muster
 			continue
 		}
 
+		// Family-grouped servers expose tools as x_<family.name>_<tool>; non-
+		// family servers retain per-server prefixing as x_<server>_<tool>.
+		familyName := ""
+		if family, ok := mcpServer.Config["family"].(map[string]interface{}); ok {
+			if name, ok := family["name"].(string); ok {
+				familyName = name
+			}
+		}
+
 		if tools, hasTools := mcpServer.Config["tools"]; hasTools {
 			if toolsList, ok := tools.([]interface{}); ok {
 				for _, tool := range toolsList {
 					if toolMap, ok := tool.(map[string]interface{}); ok {
 						if name, ok := toolMap["name"].(string); ok {
-							// For MCP server tools, expect them to be available with x_<server-name>_<tool-name> prefix
-							prefixedName := fmt.Sprintf("x_%s_%s", mcpServer.Name, name)
+							var prefixedName string
+							grouped := familyName != "" && !familyArgDivergent[familyName] && !toolDivergent[toolKey{family: familyName, name: name}]
+							if grouped {
+								prefixedName = fmt.Sprintf("x_%s_%s", familyName, name)
+							} else {
+								prefixedName = fmt.Sprintf("x_%s_%s", mcpServer.Name, name)
+							}
 							expectedTools = append(expectedTools, prefixedName)
 						}
 					}
