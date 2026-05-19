@@ -108,8 +108,65 @@ func (d *FilesystemDetector) Start(ctx context.Context, changes chan<- ChangeEve
 	d.wg.Add(1)
 	go d.processEvents(ctx, changes, eventsCh, errorsCh)
 
+	// Emit a synthetic Create event for every YAML that already exists in a
+	// watched directory. fsnotify only fires on changes after Start; without
+	// this initial sweep, MCPServer / Workflow files the operator authored
+	// before muster booted would stay invisible to their reconcilers. This
+	// parallels how a Kubernetes informer surfaces existing resources via
+	// ADDED events from its initial list().
+	d.emitInitialEvents(ctx, changes)
+
 	logging.Info("FilesystemDetector", "Started watching %s for configuration changes", d.basePath)
 	return nil
+}
+
+// emitInitialEvents walks every watched resource-type directory and pushes a
+// Create event for each YAML file it finds. The order is irrelevant: the
+// reconciler manager debounces and deduplicates upstream.
+func (d *FilesystemDetector) emitInitialEvents(ctx context.Context, changes chan<- ChangeEvent) {
+	d.mu.RLock()
+	resourceTypes := make([]ResourceType, 0, len(d.resourceTypes))
+	for resourceType := range d.resourceTypes {
+		resourceTypes = append(resourceTypes, resourceType)
+	}
+	basePath := d.basePath
+	d.mu.RUnlock()
+
+	for _, resourceType := range resourceTypes {
+		dirName, ok := resourceDirMapping[resourceType]
+		if !ok {
+			continue
+		}
+		dirPath := filepath.Join(basePath, dirName)
+		entries, err := os.ReadDir(dirPath)
+		if err != nil {
+			if !os.IsNotExist(err) {
+				logging.Warn("FilesystemDetector", "Initial scan failed for %s: %v", dirPath, err)
+			}
+			continue
+		}
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue
+			}
+			name := entry.Name()
+			if !isYAMLFile(name) {
+				continue
+			}
+			resourceName := strings.TrimSuffix(strings.TrimSuffix(name, ".yaml"), ".yml")
+			event := ChangeEvent{
+				Type:      resourceType,
+				Name:      resourceName,
+				Operation: OperationCreate,
+				Timestamp: time.Now(),
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case changes <- event:
+			}
+		}
+	}
 }
 
 // setupWatches adds filesystem watches for all registered resource types.

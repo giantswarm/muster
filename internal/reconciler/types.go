@@ -146,20 +146,6 @@ type Reconciler interface {
 	GetResourceType() ResourceType
 }
 
-// InitialSyncProvider is the optional interface a Reconciler implements to
-// drive an initial reconcile pass for every resource that already exists
-// when the Manager starts. Filesystem-mode detectors use fsnotify, which
-// fires only on changes after Start, so pre-existing files are otherwise
-// invisible. The manager type-asserts each registered Reconciler for this
-// interface and queues every returned request before workers start
-// processing.
-type InitialSyncProvider interface {
-	// InitialResources lists every resource the Reconciler is bound to.
-	// Returning an empty slice is fine; an error logs but does not stop
-	// Manager.Start.
-	InitialResources(ctx context.Context) ([]ReconcileRequest, error)
-}
-
 // ChangeDetector is the interface for components that detect changes in resources.
 //
 // Different implementations exist for filesystem watching and Kubernetes informers.
