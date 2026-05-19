@@ -202,7 +202,9 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 				logging.Debug("WorkflowExecutor", "Step %s condition resolved args: %+v", step.ID, resolvedConditionArgs)
 
 				// Execute the condition tool
-				conditionToolResult, conditionError = we.toolCaller.CallToolInternal(ctx, step.Condition.Tool, resolvedConditionArgs)
+				condCtx, endCondSpan := startStepSpan(ctx, workflow.Name, step.ID+".condition", step.Condition.Tool)
+				conditionToolResult, conditionError = we.toolCaller.CallToolInternal(condCtx, step.Condition.Tool, resolvedConditionArgs)
+				endCondSpan(conditionToolResult != nil && conditionToolResult.IsError, conditionError)
 				if conditionError != nil {
 					// Condition tool failed - this means condition is false
 					logging.Debug("WorkflowExecutor", "Step %s condition tool failed: %v", step.ID, conditionError)
@@ -352,8 +354,9 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 			"tool": step.Tool,
 		})
 
-		// Execute the tool
-		result, err := we.toolCaller.CallToolInternal(ctx, step.Tool, resolvedArgs)
+		stepCtx, endStepSpan := startStepSpan(ctx, workflow.Name, step.ID, step.Tool)
+		result, err := we.toolCaller.CallToolInternal(stepCtx, step.Tool, resolvedArgs)
+		endStepSpan(result != nil && result.IsError, err)
 		if err != nil {
 			logging.Error("WorkflowExecutor", err, "Step %s failed", step.ID)
 
