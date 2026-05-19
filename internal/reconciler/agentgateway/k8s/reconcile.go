@@ -13,7 +13,6 @@ import (
 )
 
 const (
-	groupAgentgateway   = "agentgateway.dev"
 	kindAgentgatewayBE  = "AgentgatewayBackend"
 	kindHTTPRoute       = "HTTPRoute"
 	gatewayAPIGroupName = gwv1.GroupName
@@ -66,7 +65,7 @@ func (a *Applier) reconcileRoute(ctx context.Context, namespace string, r agentg
 	}
 	pathType := gwv1.PathMatchPathPrefix
 	pathValue := r.PathMatch
-	backendGroup := gwv1.Group(groupAgentgateway)
+	backendGroup := gwv1.Group(agw.GroupName)
 	backendKind := gwv1.Kind(kindAgentgatewayBE)
 	mutate := func() error {
 		a.applyOwner(&obj.ObjectMeta)
