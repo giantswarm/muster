@@ -1504,9 +1504,25 @@ func (m *musterInstanceManager) extractExpectedWorkflowsFromInstance(_ *MusterIn
 	return []string{}
 }
 
+// readyMCPServerStates is the set of MCPServer.status.state values that mean
+// muster's aggregator has actually attempted dial — RegisterUpstream succeeded
+// or surfaced AuthRequired. Anything else (Disconnected, Stopped, empty)
+// means the reconciler hasn't yet reached the upstream and tests that depend
+// on a registered upstream (core_auth_login, x_<server>_* tools) will race.
+var readyMCPServerStates = map[string]bool{
+	"Connected":     true,
+	"Running":       true,
+	"AuthRequired":  true,
+	"Auth Required": true, // human-readable form returned by core_mcpserver_list
+	"auth_required": true,
+	"Connecting":    true,
+	"Starting":      true,
+}
+
 // checkMCPServersAvailability checks if the expected MCP servers are registered.
-// This includes servers in "auth_required" state (OAuth-protected servers).
-// Returns the list of registered server names and any error.
+// Only servers whose status.state is one of readyMCPServerStates are treated
+// as registered; pre-RegisterUpstream Disconnected entries are skipped so the
+// readiness check waits for the reconciler to actually dial.
 func (m *musterInstanceManager) checkMCPServersAvailability(client MCPTestClient, ctx context.Context, expectedServers []string) ([]string, error) {
 	if len(expectedServers) == 0 {
 		return nil, nil
@@ -1570,13 +1586,19 @@ func (m *musterInstanceManager) checkMCPServersAvailability(client MCPTestClient
 			if mcpServers, exists := response["mcpServers"]; exists {
 				if serverArray, ok := mcpServers.([]interface{}); ok {
 					for _, server := range serverArray {
-						if serverMap, ok := server.(map[string]interface{}); ok {
-							if name, exists := serverMap["name"]; exists {
-								if nameStr, ok := name.(string); ok {
-									registeredServers = append(registeredServers, nameStr)
-								}
-							}
+						serverMap, ok := server.(map[string]interface{})
+						if !ok {
+							continue
 						}
+						nameStr, ok := serverMap["name"].(string)
+						if !ok {
+							continue
+						}
+						stateStr, _ := serverMap["state"].(string)
+						if !readyMCPServerStates[stateStr] {
+							continue
+						}
+						registeredServers = append(registeredServers, nameStr)
 					}
 				}
 			}

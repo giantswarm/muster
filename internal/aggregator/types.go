@@ -230,10 +230,17 @@ type AggregatorConfig struct {
 	// every external MCPServer. The per-server dial target is
 	// UpstreamProxy + "/mcp/" + <server-name>, always streamable-http
 	// regardless of spec.type. Required: empty values are rejected at
-	// application init. Filesystem mode sets "http://localhost:8080" (the
-	// in-process agentgateway subprocess); cluster mode reads
+	// application init. Filesystem mode picks a free port at startup and
+	// constructs "http://localhost:<port>"; cluster mode reads
 	// MUSTER_AGW_UPSTREAM_URL from the muster pod's environment.
 	UpstreamProxy string
+
+	// AgentgatewayListenerPort is the TCP port the filesystem-mode
+	// agentgateway subprocess binds. The reconciler's yaml.Applier writes
+	// it into the bind block so the spawned agentgateway listens where
+	// UpstreamProxy expects. Zero in cluster mode (agentgateway is
+	// out-of-band).
+	AgentgatewayListenerPort uint16
 }
 
 // AdminConfig holds admin web UI configuration for the aggregator.

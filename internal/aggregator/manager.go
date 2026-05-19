@@ -221,7 +221,10 @@ func (am *AggregatorManager) RegisterUpstream(ctx context.Context, name string) 
 	}
 
 	client := internalmcp.NewStreamableHTTPClientWithHeaders(dialURL, headers)
-	if err := client.Initialize(ctx); err != nil {
+	// Retry the initial dial on transient connect failures so we ride out
+	// agentgateway's file-watch reload latency (~300ms typical) without
+	// kicking the reconcile manager through a full 1s+ backoff cycle.
+	if err := initializeWithConnectRetry(ctx, client, dialURL); err != nil {
 		var authErr *internalmcp.AuthRequiredError
 		if errors.As(err, &authErr) {
 			_ = client.Close()
@@ -363,6 +366,15 @@ func (am *AggregatorManager) handleAuthCompletion(ctx context.Context, sessionID
 	}
 
 	return nil
+}
+
+// AgentgatewayListenerPort surfaces the filesystem-mode agentgateway bind
+// port so the reconciler's yaml.Applier writes a matching `binds[].port`.
+// Zero in cluster mode (agentgateway is deployed out-of-band).
+func (am *AggregatorManager) AgentgatewayListenerPort() uint16 {
+	am.mu.RLock()
+	defer am.mu.RUnlock()
+	return am.config.AgentgatewayListenerPort
 }
 
 // GetEndpoint returns the aggregator's MCP endpoint URL.

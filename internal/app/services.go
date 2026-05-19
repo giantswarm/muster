@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -336,11 +337,16 @@ func InitializeServices(cfg *Config) (*Services, error) {
 		if cfg.MusterConfig.Kubernetes {
 			aggConfig.UpstreamProxy = os.Getenv(upstreamProxyEnvVar)
 		} else {
-			aggConfig.UpstreamProxy = "http://localhost:" + strconv.Itoa(int(yamlapply.DefaultListenerPort))
+			port, err := reserveFilesystemModeAgwPort()
+			if err != nil {
+				return nil, fmt.Errorf("reserve agentgateway port: %w", err)
+			}
+			aggConfig.AgentgatewayListenerPort = port
+			aggConfig.UpstreamProxy = "http://localhost:" + strconv.Itoa(int(port))
 		}
 		if aggConfig.UpstreamProxy == "" {
-			return nil, fmt.Errorf("aggregator: UpstreamProxy required; cluster mode reads %s, filesystem mode defaults to the agentgateway subprocess at localhost:%d",
-				upstreamProxyEnvVar, yamlapply.DefaultListenerPort)
+			return nil, fmt.Errorf("aggregator: UpstreamProxy required; cluster mode reads %s, filesystem mode picks a free port at startup",
+				upstreamProxyEnvVar)
 		}
 
 		aggManager = aggregator.NewAggregatorManager(
@@ -385,12 +391,17 @@ func InitializeServices(cfg *Config) (*Services, error) {
 		// Get handlers for reconciler dependencies
 		mcpServerMgr := api.GetMCPServerManager()
 		if mcpServerMgr != nil {
+			listenerPort := uint16(0)
+			if aggManager != nil {
+				listenerPort = aggManager.AgentgatewayListenerPort()
+			}
 			mcpReconciler, configDir, err := buildMCPServerReconciler(
 				cfg.MusterConfig.Kubernetes,
 				mcpServerMgr,
 				musterClient,
 				namespace,
 				cfg.ConfigPath,
+				listenerPort,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("build MCPServer reconciler: %w", err)
@@ -447,6 +458,25 @@ func InitializeServices(cfg *Config) (*Services, error) {
 // gone, the operator's only signal is a log line; restart is the user's call.
 func aggregatorErrorCallback(err error) {
 	logging.Error("Aggregator", err, "Aggregator manager encountered a fatal error")
+}
+
+// reserveFilesystemModeAgwPort grabs an unused TCP port for the agentgateway
+// subprocess to bind. Filesystem-mode muster spawns its own agentgateway,
+// so a hardcoded port would prevent parallel muster instances (BDD test
+// harness, multiple local dev sessions) from coexisting. There is a tiny
+// race window between Close and agentgateway's bind; in practice it's
+// dominated by the kernel's TIME_WAIT behavior, not contention.
+func reserveFilesystemModeAgwPort() (uint16, error) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 0, fmt.Errorf("listen: %w", err)
+	}
+	addr := listener.Addr().(*net.TCPAddr)
+	port := uint16(addr.Port)
+	if err := listener.Close(); err != nil {
+		return 0, fmt.Errorf("close: %w", err)
+	}
+	return port, nil
 }
 
 // createMusterClientWithConfig creates a muster client with full configuration context.
@@ -520,6 +550,7 @@ func buildMCPServerReconciler(
 	musterClient client.MusterClient,
 	namespace string,
 	configPath string,
+	listenerPort uint16,
 ) (*reconciler.MCPServerReconciler, string, error) {
 	if kubernetesMode {
 		r := reconciler.NewMCPServerReconcilerCluster(
@@ -536,11 +567,15 @@ func buildMCPServerReconciler(
 		return nil, "", fmt.Errorf("filesystem mode requires a non-empty configPath for the YAML Applier")
 	}
 	dir := filepath.Join(configPath, agentgatewayConfigSubdir)
-	applier, err := yamlapply.NewApplier(dir)
+	var applierOpts []yamlapply.Option
+	if listenerPort != 0 {
+		applierOpts = append(applierOpts, yamlapply.WithListenerPort(listenerPort))
+	}
+	applier, err := yamlapply.NewApplier(dir, applierOpts...)
 	if err != nil {
 		return nil, "", fmt.Errorf("construct YAML Applier at %s: %w", dir, err)
 	}
-	logging.Info("Services", "Wired YAML Applier writing to %s", dir)
+	logging.Info("Services", "Wired YAML Applier writing to %s (listener port=%d)", dir, listenerPort)
 
 	r := reconciler.NewMCPServerReconcilerFilesystem(
 		mcpServerMgr,

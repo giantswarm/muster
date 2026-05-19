@@ -51,16 +51,42 @@ func (a *Adapter) Register() {
 	api.RegisterServiceManager(a)
 }
 
-// Service lifecycle management.
+// Service lifecycle management. MCPServers no longer live in the
+// orchestrator service registry (PR 11); when the registry has no entry,
+// fall back to driving the aggregator upstream so core_service_start /
+// _stop / _restart keep working against MCPServer names without
+// resurrecting the orchestrator-driven lifecycle path.
 func (a *Adapter) StartService(name string) error {
+	if _, exists := a.orchestrator.registry.Get(name); exists {
+		return a.orchestrator.StartService(name)
+	}
+	if agg := api.GetAggregator(); agg != nil {
+		return agg.RegisterUpstream(context.Background(), name)
+	}
 	return a.orchestrator.StartService(name)
 }
 
 func (a *Adapter) StopService(name string) error {
+	if _, exists := a.orchestrator.registry.Get(name); exists {
+		return a.orchestrator.StopService(name)
+	}
+	if agg := api.GetAggregator(); agg != nil {
+		return agg.DeregisterUpstream(context.Background(), name)
+	}
 	return a.orchestrator.StopService(name)
 }
 
 func (a *Adapter) RestartService(name string) error {
+	if _, exists := a.orchestrator.registry.Get(name); exists {
+		return a.orchestrator.RestartService(name)
+	}
+	if agg := api.GetAggregator(); agg != nil {
+		ctx := context.Background()
+		if err := agg.DeregisterUpstream(ctx, name); err != nil {
+			return err
+		}
+		return agg.RegisterUpstream(ctx, name)
+	}
 	return a.orchestrator.RestartService(name)
 }
 
@@ -122,6 +148,18 @@ func (a *Adapter) GetServiceStatus(name string) (*api.ServiceStatus, error) {
 }
 
 func mcpServerAPIStatusFromAggregator(name string) (*api.ServiceStatus, bool) {
+	// Confirm this name corresponds to a known MCPServer CRD before
+	// fabricating a synthetic status. Without this, core_service_status
+	// would invent ServiceStatus entries for arbitrary names.
+	mcpServerMgr := api.GetMCPServerManager()
+	if mcpServerMgr == nil {
+		return nil, false
+	}
+	info, err := mcpServerMgr.GetMCPServer(name)
+	if err != nil || info == nil {
+		return nil, false
+	}
+
 	agg := api.GetAggregator()
 	if agg == nil {
 		return nil, false
@@ -141,8 +179,17 @@ func mcpServerAPIStatusFromAggregator(name string) (*api.ServiceStatus, bool) {
 			State:       api.StateAuthRequired,
 			Health:      api.HealthUnknown,
 		}, true
+	default:
+		// CRD exists, aggregator hasn't registered (yet) or DeregisterUpstream
+		// happened. Surface as Stopped so core_service_status reflects the
+		// user-visible "this MCPServer is not currently connected" state.
+		return &api.ServiceStatus{
+			Name:        name,
+			ServiceType: string(api.TypeMCPServer),
+			State:       api.StateStopped,
+			Health:      api.HealthUnknown,
+		}, true
 	}
-	return nil, false
 }
 
 // GetAllServices returns the status of all services.
