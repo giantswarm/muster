@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/cli"
 
 	"github.com/spf13/cobra"
@@ -22,10 +23,10 @@ var (
 
 // Resource configurations mapping tool names to their aliases
 var listResourceConfigs = map[string][]string{
-	"core_service_list":            {resourceTypeService, resourceTypeServices},
-	"core_mcpserver_list":          {resourceTypeMCPServer, resourceTypeMCPServers},
-	"core_workflow_list":           {resourceTypeWorkflow, resourceTypeWorkflows},
-	"core_workflow_execution_list": {resourceTypeWorkflowExecution, resourceTypeWorkflowExecutions},
+	"core_service_list":            {api.ResourceTypeService, api.ResourceTypeServices},
+	"core_mcpserver_list":          {api.ResourceTypeMCPServer, api.ResourceTypeMCPServers},
+	"core_workflow_list":           {api.ResourceTypeWorkflow, api.ResourceTypeWorkflows},
+	"core_workflow_execution_list": {api.ResourceTypeWorkflowExecution, api.ResourceTypeWorkflowExecutions},
 }
 
 // Build resource types for autocompletion
@@ -350,11 +351,11 @@ func runListMCP(cmd *cobra.Command, mcpType string) error {
 	}
 
 	switch mcpType {
-	case mcpPrimitiveTool:
+	case api.MCPPrimitiveTool:
 		return runListMCPTools(cmd, executor, filterOpts)
-	case mcpPrimitiveResource:
+	case api.MCPPrimitiveResource:
 		return runListMCPResources(cmd, executor, filterOpts)
-	case mcpPrimitivePrompt:
+	case api.MCPPrimitivePrompt:
 		return runListMCPPrompts(cmd, executor, filterOpts)
 	default:
 		return fmt.Errorf("unknown MCP type: %s", mcpType)

@@ -99,6 +99,19 @@ type ToolMetadata struct {
 	Args []ArgMetadata
 }
 
+// ArgType is the JSON-Schema-style type of an ArgMetadata. The valid set is
+// closed; using any other value is a programmer error.
+type ArgType string
+
+const (
+	ArgTypeString  ArgType = "string"
+	ArgTypeInteger ArgType = "integer"
+	ArgTypeNumber  ArgType = "number"
+	ArgTypeBoolean ArgType = "boolean"
+	ArgTypeObject  ArgType = "object"
+	ArgTypeArray   ArgType = "array"
+)
+
 // ArgMetadata describes a single argument for a tool.
 // This is used for validation, documentation, and UI generation
 // for tool arguments in various interfaces.
@@ -110,8 +123,7 @@ type ArgMetadata struct {
 	Name string
 
 	// Type specifies the expected argument type for validation.
-	// Valid values: "string", "number", "boolean", "object", "array"
-	Type string
+	Type ArgType
 
 	// Required indicates whether this argument must be provided in tool calls
 	Required bool

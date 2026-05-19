@@ -1601,7 +1601,7 @@ func (m *musterInstanceManager) checkMCPServersAvailability(client MCPTestClient
 
 	// Method 1: Try reflection to access the Content field dynamically
 	resultValue := reflect.ValueOf(result)
-	if resultValue.Kind() == reflect.Ptr {
+	if resultValue.Kind() == reflect.Pointer {
 		resultValue = resultValue.Elem()
 	}
 
