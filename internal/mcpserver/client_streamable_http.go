@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/giantswarm/muster/internal/aggregator/instrument"
 	"github.com/giantswarm/muster/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
+	mcpotel "github.com/mark3labs/mcp-go/otel"
+	"go.opentelemetry.io/otel"
 )
 
 // StreamableHTTPClient implements the MCPClient interface using StreamableHTTP transport.
@@ -103,6 +106,7 @@ func (c *StreamableHTTPClient) Initialize(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create StreamableHTTP client: %w", err)
 	}
+	mcpotel.WithClientTracing(otel.Tracer(instrument.TracerName))(mcpClient)
 
 	// Start with a background context so the continuous GET listener goroutine
 	// survives after the caller's initialization context (which may be short-lived) completes.
