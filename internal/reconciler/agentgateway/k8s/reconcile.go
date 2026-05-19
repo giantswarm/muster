@@ -26,12 +26,15 @@ func (a *Applier) reconcileBackend(ctx context.Context, namespace string, b agen
 	if err := target.Validate(); err != nil {
 		return fmt.Errorf("backend %q: %w", b.Name, err)
 	}
-	port := int32(target.Port)
+	port, err := portInt32(target.Port)
+	if err != nil {
+		return fmt.Errorf("backend %q: %w", b.Name, err)
+	}
 	host := agw.ShortString(target.Host)
 	path := agw.LongString(target.Path)
 	protocol, err := mapProtocol(target.Protocol)
 	if err != nil {
-		return err
+		return fmt.Errorf("backend %q: %w", b.Name, err)
 	}
 
 	obj := &agw.AgentgatewayBackend{

@@ -261,6 +261,9 @@ func httpEndpoint(name string, t agentgateway.HTTPTarget) (*McpTargetEndpoint, e
 	if err := t.Validate(); err != nil {
 		return nil, fmt.Errorf("backend %q: %w", name, err)
 	}
+	if t.Port < 0 || t.Port > 65535 {
+		return nil, fmt.Errorf("backend %q port %d out of range [0, 65535]", name, t.Port)
+	}
 	return &McpTargetEndpoint{
 		Host: t.Host,
 		Port: uint16(t.Port),
