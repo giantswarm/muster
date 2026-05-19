@@ -18,13 +18,40 @@ import "context"
 //
 //   - Be idempotent: re-applying an identical Config produces no observable
 //     change.
-//   - Reconcile prior state: when an Apply drops entities previously
-//     persisted, the persisted view is updated so it matches the latest
-//     Config.
+//   - Reconcile prior state for entities the implementation owns end-to-end
+//     (yaml: the combined config file; k8s: the per-MCPServer Policy slot,
+//     which is created or removed based on Authn.RequiresPolicy()). Cleanup
+//     of Backend / HTTPRoute objects on Config deletion is handled by the
+//     Deleter port (cluster mode) or by removing entries from the combined
+//     file on the next Apply (filesystem mode); per-Apply pruning of
+//     Backend/HTTPRoute objects within a single MCPServer's slot is not
+//     required because the Config produced by NewConfig holds exactly one
+//     Backend per MCPServer.
 //   - Honor context cancellation: a canceled ctx returns a non-nil error
 //     that satisfies errors.Is against the context's error.
-//   - Wrap returned errors as fmt.Errorf("context: %w", err) so callers
-//     can errors.Is/As the underlying cause.
+//   - Wrap returned errors so callers can use errors.Is / errors.As to
+//     reach the underlying cause (the exact format string is left to the
+//     implementation; carry adapter-identifying context).
+//
+// No applier_test.go lives alongside this port file because the contract is
+// exercised through the concrete adapters (internal/reconciler/agentgateway/k8s
+// and internal/reconciler/agentgateway/yaml). Add a port-level fake-driven
+// test only if a third adapter lands.
 type Applier interface {
 	Apply(ctx context.Context, config Config) error
+}
+
+// Deleter removes the entire persisted representation of a Config by its
+// identifying name. Cluster mode relies on Kubernetes ownerReference cascade
+// (no explicit delete needed for the per-MCPServer Backend/HTTPRoute), so the
+// k8s adapter implements Deleter as a no-op for those resources and only
+// removes the Policy slot when it exists. Filesystem mode must implement
+// Deleter to drop the MCPServer's entries from the combined config file.
+//
+// Kept separate from Applier because (a) cluster-mode callers may pass an
+// Applier that never needs an explicit delete and (b) the two operations
+// have different idempotence semantics (Delete of an absent name is a no-op,
+// Apply of an absent config is meaningless).
+type Deleter interface {
+	Delete(ctx context.Context, name string) error
 }
