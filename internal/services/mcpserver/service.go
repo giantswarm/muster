@@ -372,6 +372,10 @@ func (s *Service) ConfigurationChanged(newConfig interface{}) bool {
 		s.LogDebug("Config change detected: toolPrefix changed from %q to %q", cur.ToolPrefix, newDef.ToolPrefix)
 		return true
 	}
+	if !reflect.DeepEqual(cur.Family, newDef.Family) {
+		s.LogDebug("Config change detected: family changed from %+v to %+v", cur.Family, newDef.Family)
+		return true
+	}
 	if !reflect.DeepEqual(cur.Auth, newDef.Auth) {
 		s.LogDebug("Config change detected: auth configuration changed")
 		return true
@@ -416,8 +420,9 @@ func (s *Service) GetServiceData() map[string]interface{} {
 	}
 	s.clientInitMutex.Unlock()
 
-	// Add tool prefix for aggregator registration
+	// Add tool prefix and family for aggregator registration
 	data["toolPrefix"] = s.definition.ToolPrefix
+	data["family"] = s.definition.Family
 
 	// Add failure tracking data for unreachable server detection (thread-safe read)
 	s.failureMutex.RLock()

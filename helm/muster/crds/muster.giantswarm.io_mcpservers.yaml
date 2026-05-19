@@ -264,6 +264,38 @@ spec:
                   For stdio servers, these are passed to the process when it is started.
                   For remote servers, these can be used for authentication or configuration.
                 type: object
+              family:
+                description: |-
+                  Family declares that this MCP server is an instance of a family of
+                  equivalent servers (for example, multiple kubernetes MCP servers pointed
+                  at different clusters). When set, the aggregator exposes tools from all
+                  servers in the same family under a single name
+                  ({musterPrefix}_{family.name}_{toolName}) with a required parameter
+                  (named by family.instanceArg) that selects which instance handles the
+                  call. The parameter is always required even for single-instance families
+                  so skills written against the family name remain stable as instances are
+                  added or removed. When unset, the legacy per-server prefixing applies
+                  ({musterPrefix}_{toolPrefix-or-name}_{toolName}).
+                properties:
+                  instanceArg:
+                    description: |-
+                      InstanceArg names the required parameter callers use to select which
+                      family member handles the tool call (for example "management_cluster",
+                      "country", "model"). All servers declaring the same family.name must
+                      agree on InstanceArg; if they diverge, the aggregator falls back to
+                      per-server prefixing for the entire family and logs a warning.
+                    pattern: ^[a-zA-Z][a-zA-Z0-9_]*$
+                    type: string
+                  name:
+                    description: |-
+                      Name is the family identifier. Servers sharing the same Name expose
+                      their tools as {musterPrefix}_{Name}_{toolName}.
+                    pattern: ^[a-zA-Z][a-zA-Z0-9_-]*$
+                    type: string
+                required:
+                - instanceArg
+                - name
+                type: object
               headers:
                 additionalProperties:
                   type: string
