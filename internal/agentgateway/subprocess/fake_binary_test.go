@@ -5,6 +5,7 @@ package subprocess
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strconv"
 	"strings"
@@ -20,15 +21,16 @@ import (
 // instead of running the test suite. Production code never touches
 // these envs.
 const (
-	envFakeMode      = "SUBPROCESS_FAKE_MODE"
-	envFakeReadyFile = "SUBPROCESS_FAKE_READY_FILE"
-	envFakeStartFile = "SUBPROCESS_FAKE_START_FILE"
-	envFakeSignalLog = "SUBPROCESS_FAKE_SIGNAL_LOG"
-	envFakeReadyWait = "SUBPROCESS_FAKE_READY_WAIT_MS"
-	envFakeRunFor    = "SUBPROCESS_FAKE_RUN_FOR_MS"
-	envFakeExitCode  = "SUBPROCESS_FAKE_EXIT_CODE"
-	envFakeStdout    = "SUBPROCESS_FAKE_STDOUT"
-	envFakeStderr    = "SUBPROCESS_FAKE_STDERR"
+	envFakeMode         = "SUBPROCESS_FAKE_MODE"
+	envFakeReadyFile    = "SUBPROCESS_FAKE_READY_FILE"
+	envFakeStartFile    = "SUBPROCESS_FAKE_START_FILE"
+	envFakeSignalLog    = "SUBPROCESS_FAKE_SIGNAL_LOG"
+	envFakeReadyWait    = "SUBPROCESS_FAKE_READY_WAIT_MS"
+	envFakeRunFor       = "SUBPROCESS_FAKE_RUN_FOR_MS"
+	envFakeExitCode     = "SUBPROCESS_FAKE_EXIT_CODE"
+	envFakeStdout       = "SUBPROCESS_FAKE_STDOUT"
+	envFakeStderr       = "SUBPROCESS_FAKE_STDERR"
+	envFakeChildPIDFile = "SUBPROCESS_FAKE_CHILD_PID_FILE"
 )
 
 const (
@@ -60,6 +62,8 @@ func TestMain(m *testing.M) {
 //   - "ignore_term" — install no-op handler for SIGTERM; exit only on
 //     SIGKILL.
 //   - "record_signals" — append every received signal to SIGNAL_LOG file.
+//   - "spawn_child" — fork /bin/sleep 300, write its pid to
+//     SUBPROCESS_FAKE_CHILD_PID_FILE, then behave like "normal".
 func runFakeBinary(mode string) {
 	flags := map[string]bool{}
 	for m := range strings.SplitSeq(mode, ",") {
@@ -89,6 +93,22 @@ func runFakeBinary(mode string) {
 		// Explicitly mask SIGTERM so default handler doesn't terminate
 		// us; we exit only on SIGKILL (which can't be caught).
 		signal.Ignore(syscall.SIGTERM)
+	}
+
+	if flags["spawn_child"] {
+		pidFile := os.Getenv(envFakeChildPIDFile)
+		if pidFile == "" {
+			fmt.Fprintln(os.Stderr, "fake: spawn_child requires SUBPROCESS_FAKE_CHILD_PID_FILE")
+			os.Exit(2)
+		}
+		child, err := spawnLongSleeper()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "fake: spawn child: %v\n", err)
+			os.Exit(2)
+		}
+		if err := os.WriteFile(pidFile, []byte(strconv.Itoa(child)), 0o600); err != nil { //nolint:gosec // test fake; path from test-controlled env
+			fmt.Fprintf(os.Stderr, "fake: write child pid: %v\n", err)
+		}
 	}
 
 	readyWait := durationFromEnv(envFakeReadyWait)
@@ -154,6 +174,16 @@ func appendLine(path, line string) {
 	if _, err := f.WriteString(line + "\n"); err != nil {
 		fmt.Fprintf(os.Stderr, "fake: write %s: %v\n", path, err)
 	}
+}
+
+// spawnLongSleeper forks /bin/sleep 300 inheriting the fake's process
+// group so the manager's group-kill reaches it. Returns the child pid.
+func spawnLongSleeper() (int, error) {
+	cmd := exec.Command("/bin/sleep", "300")
+	if err := cmd.Start(); err != nil {
+		return 0, err
+	}
+	return cmd.Process.Pid, nil
 }
 
 func durationFromEnv(key string) time.Duration {

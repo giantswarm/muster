@@ -20,9 +20,15 @@ type options struct {
 
 const defaultDownloadBaseURL = "https://github.com/agentgateway/agentgateway/releases/download"
 
+// defaultResponseHeaderTimeout caps how long the resolver waits for the
+// release host to start sending response headers. The body itself is
+// streamed with caller-context cancellation so a slow connection on a
+// 50MB asset is not killed by a wall-clock Client.Timeout.
+const defaultResponseHeaderTimeout = 30 * time.Second
+
 func defaultOptions() options {
 	return options{
-		httpClient:      &http.Client{Timeout: 5 * time.Minute},
+		httpClient:      &http.Client{Transport: &http.Transport{ResponseHeaderTimeout: defaultResponseHeaderTimeout}},
 		downloadBaseURL: defaultDownloadBaseURL,
 		logger:          slog.Default(),
 	}

@@ -17,7 +17,9 @@ func HTTPReadyProbe(url string, interval time.Duration) func(context.Context) er
 	if interval <= 0 {
 		interval = 200 * time.Millisecond
 	}
-	client := &http.Client{Timeout: interval}
+	// Per-request timeout deliberately exceeds the poll interval so a
+	// slow first response isn't cancelled and immediately re-issued.
+	client := &http.Client{Timeout: 2 * interval}
 	return func(ctx context.Context) error {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
