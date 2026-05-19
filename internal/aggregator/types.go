@@ -63,6 +63,43 @@ type MCPClient interface {
 	OnNotification(handler func(mcp.JSONRPCNotification))
 }
 
+// ServerRegistration carries the configuration needed to register a backend
+// MCP server with the aggregator. Use this struct instead of passing fields
+// positionally to avoid silent swaps between same-typed identifiers
+// (toolPrefix, family, name) that the type system would otherwise tolerate.
+type ServerRegistration struct {
+	// Name is the unique identifier for the server within the aggregator.
+	Name string
+
+	// ToolPrefix is the per-server tool prefix used when Family is nil.
+	// Pattern: {musterPrefix}_{toolPrefix-or-name}_{toolName}.
+	ToolPrefix string
+
+	// Family declares that this server is an instance of a family of
+	// equivalent servers. When set, tools are exposed as
+	// {musterPrefix}_{family.Name}_{toolName} with a required parameter
+	// named by family.InstanceArg.
+	Family *api.MCPServerFamily
+}
+
+// PendingAuthRegistration carries the configuration needed to register a
+// backend MCP server that is reachable but requires OAuth authentication
+// before its tools can be exposed. AuthConfig may be nil; an empty
+// AuthConfig is equivalent to a nil one — both mark the server as requiring
+// per-session authentication.
+type PendingAuthRegistration struct {
+	ServerRegistration
+
+	// URL is the remote server endpoint.
+	URL string
+
+	// AuthInfo carries the OAuth metadata returned in the 401 response.
+	AuthInfo *AuthInfo
+
+	// AuthConfig describes how to forward or exchange tokens, when set.
+	AuthConfig *api.MCPServerAuth
+}
+
 // ServerInfo contains information about a registered MCP server.
 // This structure maintains both the connection details and cached
 // capabilities for efficient access. It is thread-safe for concurrent
@@ -85,6 +122,12 @@ type ServerInfo struct {
 	// ToolPrefix is the configured prefix for tools from this server.
 	// This is used for name collision resolution.
 	ToolPrefix string
+
+	// Family, when set, declares that this server is an instance of a
+	// family of equivalent servers. Tools from all servers in the same family
+	// are exposed as {musterPrefix}_{family.Name}_{toolName} with a required
+	// parameter named by family.InstanceArg selecting the instance.
+	Family *api.MCPServerFamily
 
 	// URL is the server endpoint URL (for remote servers)
 	URL string

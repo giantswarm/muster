@@ -23,6 +23,12 @@ type MCPServer struct {
 	// servers provide tools with similar names.
 	ToolPrefix string `yaml:"toolPrefix,omitempty" json:"toolPrefix,omitempty"`
 
+	// Family declares that this MCP server is an instance of a family of
+	// equivalent servers. When set, the aggregator exposes tools as
+	// {musterPrefix}_{family.name}_{toolName} with a required parameter named
+	// by family.instanceArg.
+	Family *MCPServerFamily `yaml:"family,omitempty" json:"family,omitempty"`
+
 	// AutoStart determines whether this MCP server should be automatically started
 	// when the muster system initializes or when dependencies become available.
 	AutoStart bool `yaml:"autoStart,omitempty" json:"autoStart,omitempty"`
@@ -63,6 +69,17 @@ type MCPServer struct {
 	// Description provides a human-readable description of this MCP server's purpose.
 	// This is runtime information populated from server metadata and not persisted to YAML.
 	Description string `json:"description,omitempty" yaml:"-"`
+}
+
+// MCPServerFamily groups equivalent MCP server instances under a shared
+// exposed surface. Name and InstanceArg are both required when set.
+type MCPServerFamily struct {
+	// Name is the family identifier shared across instances.
+	Name string `yaml:"name" json:"name"`
+
+	// InstanceArg names the required parameter callers use to select which
+	// family member handles the tool call.
+	InstanceArg string `yaml:"instanceArg" json:"instanceArg"`
 }
 
 // MCPServerAuth configures authentication behavior for an MCP server.
@@ -304,6 +321,10 @@ type MCPServerInfo struct {
 
 	// ToolPrefix is an optional prefix for tool names.
 	ToolPrefix string `json:"toolPrefix,omitempty"`
+
+	// Family declares that this MCP server is an instance of a family of
+	// equivalent servers, sharing exposed tool names with siblings.
+	Family *MCPServerFamily `json:"family,omitempty"`
 
 	// Error contains any error message from recent server operations.
 	// This field is populated if the server is in an error state.
