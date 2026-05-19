@@ -29,7 +29,10 @@ func (a *Applier) reconcileBackend(ctx context.Context, namespace string, b agen
 	}
 	host := agw.ShortString(target.Host)
 	path := agw.LongString(target.Path)
-	protocol := mapProtocol(target.Protocol)
+	protocol, err := mapProtocol(target.Protocol)
+	if err != nil {
+		return err
+	}
 
 	obj := &agw.AgentgatewayBackend{
 		ObjectMeta: metav1.ObjectMeta{Name: b.Name, Namespace: namespace},

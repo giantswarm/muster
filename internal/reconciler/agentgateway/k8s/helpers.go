@@ -53,11 +53,15 @@ func portInt32(p int) (int32, error) {
 	return int32(p), nil
 }
 
-func mapProtocol(p agentgateway.HTTPProtocol) agw.MCPProtocol {
-	if p == agentgateway.SSE {
-		return agw.MCPProtocolSSE
+func mapProtocol(p agentgateway.HTTPProtocol) (agw.MCPProtocol, error) {
+	switch p {
+	case agentgateway.StreamableHTTP:
+		return agw.MCPProtocolStreamableHTTP, nil
+	case agentgateway.SSE:
+		return agw.MCPProtocolSSE, nil
+	default:
+		return "", fmt.Errorf("unknown HTTPProtocol %q", p)
 	}
-	return agw.MCPProtocolStreamableHTTP
 }
 
 // policySpec maps a domain Policy to an AgentgatewayPolicySpec. emit=false
