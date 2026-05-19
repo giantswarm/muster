@@ -49,7 +49,7 @@ func TestNewClient(t *testing.T) {
 
 func TestDiscoverMetadata(t *testing.T) {
 	t.Run("discovers via RFC 8414 endpoint", func(t *testing.T) {
-		metadata := &Metadata{ //nolint:gosec
+		metadata := &Metadata{
 			Issuer:                "https://issuer.example.com",
 			AuthorizationEndpoint: "https://issuer.example.com/authorize",
 			TokenEndpoint:         "https://issuer.example.com/token",
@@ -80,7 +80,7 @@ func TestDiscoverMetadata(t *testing.T) {
 	})
 
 	t.Run("falls back to OIDC endpoint", func(t *testing.T) {
-		metadata := &Metadata{ //nolint:gosec
+		metadata := &Metadata{
 			Issuer:                "https://issuer.example.com",
 			AuthorizationEndpoint: "https://issuer.example.com/authorize",
 			TokenEndpoint:         "https://issuer.example.com/token",
@@ -124,7 +124,7 @@ func TestDiscoverMetadata(t *testing.T) {
 
 	t.Run("caches metadata", func(t *testing.T) {
 		var callCount int32
-		metadata := &Metadata{ //nolint:gosec
+		metadata := &Metadata{
 			Issuer:                "https://issuer.example.com",
 			AuthorizationEndpoint: "https://issuer.example.com/authorize",
 			TokenEndpoint:         "https://issuer.example.com/token",
@@ -162,7 +162,7 @@ func TestDiscoverMetadata(t *testing.T) {
 
 	t.Run("deduplicates concurrent requests", func(t *testing.T) {
 		var callCount int32
-		metadata := &Metadata{ //nolint:gosec
+		metadata := &Metadata{
 			Issuer:                "https://issuer.example.com",
 			AuthorizationEndpoint: "https://issuer.example.com/authorize",
 			TokenEndpoint:         "https://issuer.example.com/token",
@@ -201,7 +201,7 @@ func TestDiscoverMetadata(t *testing.T) {
 	})
 
 	t.Run("strips trailing slash from issuer", func(t *testing.T) {
-		metadata := &Metadata{ //nolint:gosec
+		metadata := &Metadata{
 			Issuer:                "https://issuer.example.com",
 			AuthorizationEndpoint: "https://issuer.example.com/authorize",
 			TokenEndpoint:         "https://issuer.example.com/token",
@@ -244,7 +244,7 @@ func TestExchangeCode(t *testing.T) {
 				t.Errorf("expected /token path, got %s", r.URL.Path)
 			}
 
-			err := r.ParseForm() //nolint:gosec
+			err := r.ParseForm()
 			if err != nil {
 				t.Fatalf("failed to parse form: %v", err)
 			}
@@ -266,7 +266,7 @@ func TestExchangeCode(t *testing.T) {
 			}
 
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(expectedToken) //nolint:gosec
+			_ = json.NewEncoder(w).Encode(expectedToken)
 		}))
 		defer server.Close()
 
@@ -414,7 +414,7 @@ func TestBuildAuthorizationURL(t *testing.T) {
 }
 
 func TestClearMetadataCache(t *testing.T) {
-	metadata := &Metadata{ //nolint:gosec
+	metadata := &Metadata{
 		Issuer:                "https://issuer.example.com",
 		AuthorizationEndpoint: "https://issuer.example.com/authorize",
 		TokenEndpoint:         "https://issuer.example.com/token",
@@ -465,7 +465,7 @@ func TestClearMetadataCache(t *testing.T) {
 }
 
 func TestMetadataCacheExpiry(t *testing.T) {
-	metadata := &Metadata{ //nolint:gosec
+	metadata := &Metadata{
 		Issuer:                "https://issuer.example.com",
 		AuthorizationEndpoint: "https://issuer.example.com/authorize",
 		TokenEndpoint:         "https://issuer.example.com/token",

@@ -40,8 +40,8 @@ func NewFormatters() *Formatters {
 //
 //	[
 //	  {
-//	    "name": "tool_name",
-//	    "description": "Tool description"
+//	    api.FieldName: "tool_name",
+//	    api.SchemaKeyDescription: "Tool description"
 //	  }
 //	]
 //
@@ -90,11 +90,11 @@ func (f *Formatters) FormatToolsListJSON(tools []mcp.Tool) (string, error) {
 // Output format:
 //
 //	{
-//	  "tools": [...],
+//	  api.FieldTools: [...],
 //	  "servers_requiring_auth": [
 //	    {
-//	      "name": "server-name",
-//	      "status": "auth_required",
+//	      api.FieldName: "server-name",
+//	      api.FieldStatus: "auth_required",
 //	      "auth_tool": "core_auth_login"
 //	    }
 //	  ]
@@ -229,15 +229,15 @@ func (f *Formatters) FormatPromptsListJSON(prompts []mcp.Prompt) (string, error)
 // Output format:
 //
 //	{
-//	  "name": "tool_name",
-//	  "description": "Tool description",
-//	  "inputSchema": { ... }
+//	  api.FieldName: "tool_name",
+//	  api.SchemaKeyDescription: "Tool description",
+//	  api.FieldInputSchema: { ... }
 //	}
 func (f *Formatters) FormatToolDetailJSON(tool mcp.Tool) (string, error) {
 	toolInfo := map[string]interface{}{
-		"name":        tool.Name,
-		"description": tool.Description,
-		"inputSchema": tool.InputSchema,
+		api.FieldName:            tool.Name,
+		api.SchemaKeyDescription: tool.Description,
+		api.FieldInputSchema:     tool.InputSchema,
 	}
 
 	jsonData, err := json.MarshalIndent(toolInfo, "", "  ")
@@ -260,10 +260,10 @@ func (f *Formatters) FormatToolDetailJSON(tool mcp.Tool) (string, error) {
 //   - error: JSON marshaling errors (should be rare)
 func (f *Formatters) FormatResourceDetailJSON(resource mcp.Resource) (string, error) {
 	resourceInfo := map[string]interface{}{
-		"uri":         resource.URI,
-		"name":        resource.Name,
-		"description": resource.Description,
-		"mimeType":    resource.MIMEType,
+		"uri":                    resource.URI,
+		api.FieldName:            resource.Name,
+		api.SchemaKeyDescription: resource.Description,
+		api.FieldMimeType:        resource.MIMEType,
 	}
 
 	jsonData, err := json.MarshalIndent(resourceInfo, "", "  ")
@@ -286,17 +286,17 @@ func (f *Formatters) FormatResourceDetailJSON(resource mcp.Resource) (string, er
 //   - error: JSON marshaling errors (should be rare)
 func (f *Formatters) FormatPromptDetailJSON(prompt mcp.Prompt) (string, error) {
 	promptInfo := map[string]interface{}{
-		"name":        prompt.Name,
-		"description": prompt.Description,
+		api.FieldName:            prompt.Name,
+		api.SchemaKeyDescription: prompt.Description,
 	}
 
 	if len(prompt.Arguments) > 0 {
 		args := make([]map[string]interface{}, len(prompt.Arguments))
 		for i, arg := range prompt.Arguments {
 			args[i] = map[string]interface{}{
-				"name":        arg.Name,
-				"description": arg.Description,
-				"required":    arg.Required,
+				api.FieldName:            arg.Name,
+				api.SchemaKeyDescription: arg.Description,
+				api.SchemaKeyRequired:    arg.Required,
 			}
 		}
 		promptInfo["arguments"] = args
@@ -388,15 +388,15 @@ func SerializeContent(content []mcp.Content) []interface{} {
 			})
 		} else if imageContent, ok := mcp.AsImageContent(item); ok {
 			result = append(result, map[string]interface{}{
-				"type":     "image",
-				"mimeType": imageContent.MIMEType,
-				"dataSize": len(imageContent.Data),
+				"type":            "image",
+				api.FieldMimeType: imageContent.MIMEType,
+				"dataSize":        len(imageContent.Data),
 			})
 		} else if audioContent, ok := mcp.AsAudioContent(item); ok {
 			result = append(result, map[string]interface{}{
-				"type":     "audio",
-				"mimeType": audioContent.MIMEType,
-				"dataSize": len(audioContent.Data),
+				"type":            "audio",
+				api.FieldMimeType: audioContent.MIMEType,
+				"dataSize":        len(audioContent.Data),
 			})
 		} else {
 			// Fallback for unknown content types

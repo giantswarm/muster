@@ -155,9 +155,9 @@ func TestAggregatorServer_HandlerTracking(t *testing.T) {
 	}
 
 	// Register multiple servers
-	require.NoError(t, server.RegisterServer(ctx, "server1", client1, ""))
+	require.NoError(t, server.RegisterServer(ctx, ServerRegistration{Name: "server1"}, client1))
 	time.Sleep(100 * time.Millisecond)
-	require.NoError(t, server.RegisterServer(ctx, "server2", client2, ""))
+	require.NoError(t, server.RegisterServer(ctx, ServerRegistration{Name: "server2"}, client2))
 
 	// Give the registry update a moment to process
 	// This is needed because updateCapabilities runs in a goroutine
@@ -223,7 +223,7 @@ func TestAggregatorServer_InitialRegistration(t *testing.T) {
 	defer func() { _ = server.Stop(ctx) }()
 
 	// Register another server
-	require.NoError(t, server.RegisterServer(ctx, "test-server", client, ""))
+	require.NoError(t, server.RegisterServer(ctx, ServerRegistration{Name: "test-server"}, client))
 
 	// Wait for the asynchronous update to complete
 	time.Sleep(50 * time.Millisecond)
@@ -273,7 +273,7 @@ func TestAggregatorServer_EmptyStart(t *testing.T) {
 		},
 	}
 
-	err = server.RegisterServer(ctx, "late-server", client, "")
+	err = server.RegisterServer(ctx, ServerRegistration{Name: "late-server"}, client)
 	assert.NoError(t, err)
 
 	// Tool should now be available
@@ -304,7 +304,7 @@ func TestAggregatorServer_HandlerExecution(t *testing.T) {
 		},
 	}
 
-	err = server.RegisterServer(ctx, "exec-server", client, "")
+	err = server.RegisterServer(ctx, ServerRegistration{Name: "exec-server"}, client)
 	assert.NoError(t, err)
 
 	// Wait for the asynchronous update to complete
@@ -368,9 +368,9 @@ func TestAggregatorServer_ToolsRemovedOnServerStop(t *testing.T) {
 	}
 
 	// Register servers with clients that return errors
-	require.NoError(t, server.RegisterServer(ctx, "server1", client1, ""))
+	require.NoError(t, server.RegisterServer(ctx, ServerRegistration{Name: "server1"}, client1))
 	time.Sleep(100 * time.Millisecond)
-	require.NoError(t, server.RegisterServer(ctx, "server2", client2, ""))
+	require.NoError(t, server.RegisterServer(ctx, ServerRegistration{Name: "server2"}, client2))
 
 	// Wait for updates
 	time.Sleep(50 * time.Millisecond)
@@ -440,7 +440,7 @@ func TestAggregatorServer_DynamicToolManagement(t *testing.T) {
 		},
 	}
 
-	err = server.RegisterServer(ctx, "server1", client1, "")
+	err = server.RegisterServer(ctx, ServerRegistration{Name: "server1"}, client1)
 	assert.NoError(t, err)
 
 	// Wait for the update to complete
@@ -463,7 +463,7 @@ func TestAggregatorServer_DynamicToolManagement(t *testing.T) {
 		},
 	}
 
-	err = server.RegisterServer(ctx, "server2", client2, "")
+	err = server.RegisterServer(ctx, ServerRegistration{Name: "server2"}, client2)
 	assert.NoError(t, err)
 
 	// Wait for the update to complete
@@ -531,7 +531,7 @@ func TestAggregatorServer_NoStaleHandlersAfterRestart(t *testing.T) {
 		},
 	}
 
-	err = server.RegisterServer(ctx, "server1", client1, "")
+	err = server.RegisterServer(ctx, ServerRegistration{Name: "server1"}, client1)
 	assert.NoError(t, err)
 
 	// Wait for registration
@@ -556,7 +556,7 @@ func TestAggregatorServer_NoStaleHandlersAfterRestart(t *testing.T) {
 		},
 	}
 
-	err = server.RegisterServer(ctx, "server2", client2, "")
+	err = server.RegisterServer(ctx, ServerRegistration{Name: "server2"}, client2)
 	assert.NoError(t, err)
 
 	// Wait for registration
@@ -627,17 +627,22 @@ func newTestAggregatorWithPool(t *testing.T) *AggregatorServer {
 func TestCallToolWithTokenExchangeRetry_SuccessNoRetry(t *testing.T) {
 	a := newTestAggregatorWithPool(t)
 	ctx := context.Background()
-	sessionID := "test-session"     //nolint:goconst
-	serverName := "exchange-server" //nolint:goconst
+	sessionID := "test-session"
+	serverName := "exchange-server"
 
 	tokenExchangeAuth := &api.MCPServerAuth{
-		TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+		TokenExchange: &api.TokenExchangeConfig{
 			Enabled:          true,
 			DexTokenEndpoint: "https://dex.example.com/token",
 			ConnectorID:      "ldap",
 		},
 	}
-	err := a.registry.RegisterPendingAuthWithConfig(serverName, "https://server.example.com", "", nil, tokenExchangeAuth)
+	err := a.registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: serverName, ToolPrefix: ""},
+		URL:                "https://server.example.com",
+		AuthInfo:           nil,
+		AuthConfig:         tokenExchangeAuth,
+	})
 	require.NoError(t, err)
 
 	_ = a.capabilityStore.Set(ctx, sessionID, serverName, &Capabilities{
@@ -666,13 +671,18 @@ func TestCallToolWithTokenExchangeRetry_EvictsPoolOn401ForTokenExchange(t *testi
 	serverName := "exchange-server"
 
 	tokenExchangeAuth := &api.MCPServerAuth{
-		TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+		TokenExchange: &api.TokenExchangeConfig{
 			Enabled:          true,
 			DexTokenEndpoint: "https://dex.example.com/token",
 			ConnectorID:      "ldap",
 		},
 	}
-	err := a.registry.RegisterPendingAuthWithConfig(serverName, "https://server.example.com", "", nil, tokenExchangeAuth)
+	err := a.registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: serverName, ToolPrefix: ""},
+		URL:                "https://server.example.com",
+		AuthInfo:           nil,
+		AuthConfig:         tokenExchangeAuth,
+	})
 	require.NoError(t, err)
 
 	_ = a.capabilityStore.Set(ctx, sessionID, serverName, &Capabilities{
@@ -703,7 +713,12 @@ func TestCallToolWithTokenExchangeRetry_NoRetryForNonTokenExchange(t *testing.T)
 	forwardAuth := &api.MCPServerAuth{
 		ForwardToken: true,
 	}
-	err := a.registry.RegisterPendingAuthWithConfig(serverName, "https://server.example.com", "", nil, forwardAuth)
+	err := a.registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: serverName, ToolPrefix: ""},
+		URL:                "https://server.example.com",
+		AuthInfo:           nil,
+		AuthConfig:         forwardAuth,
+	})
 	require.NoError(t, err)
 
 	_ = a.capabilityStore.Set(ctx, sessionID, serverName, &Capabilities{
@@ -729,13 +744,18 @@ func TestCallToolWithTokenExchangeRetry_NoRetryForNon401Error(t *testing.T) {
 	serverName := "exchange-server"
 
 	tokenExchangeAuth := &api.MCPServerAuth{
-		TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+		TokenExchange: &api.TokenExchangeConfig{
 			Enabled:          true,
 			DexTokenEndpoint: "https://dex.example.com/token",
 			ConnectorID:      "ldap",
 		},
 	}
-	err := a.registry.RegisterPendingAuthWithConfig(serverName, "https://server.example.com", "", nil, tokenExchangeAuth)
+	err := a.registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: serverName, ToolPrefix: ""},
+		URL:                "https://server.example.com",
+		AuthInfo:           nil,
+		AuthConfig:         tokenExchangeAuth,
+	})
 	require.NoError(t, err)
 
 	_ = a.capabilityStore.Set(ctx, sessionID, serverName, &Capabilities{
@@ -761,13 +781,18 @@ func TestGetOrCreateClientForToolCall_ExpiringSoonReturnsClientAndTriggersBackgr
 	serverName := "exchange-server"
 
 	tokenExchangeAuth := &api.MCPServerAuth{
-		TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+		TokenExchange: &api.TokenExchangeConfig{
 			Enabled:          true,
 			DexTokenEndpoint: "https://dex.example.com/token",
 			ConnectorID:      "ldap",
 		},
 	}
-	err := a.registry.RegisterPendingAuthWithConfig(serverName, "https://server.example.com", "", nil, tokenExchangeAuth)
+	err := a.registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: serverName, ToolPrefix: ""},
+		URL:                "https://server.example.com",
+		AuthInfo:           nil,
+		AuthConfig:         tokenExchangeAuth,
+	})
 	require.NoError(t, err)
 
 	_ = a.capabilityStore.Set(ctx, sessionID, serverName, &Capabilities{
@@ -800,13 +825,18 @@ func TestGetOrCreateClientForToolCall_ExpiredTokenEvictsSynchronously(t *testing
 	serverName := "exchange-server"
 
 	tokenExchangeAuth := &api.MCPServerAuth{
-		TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+		TokenExchange: &api.TokenExchangeConfig{
 			Enabled:          true,
 			DexTokenEndpoint: "https://dex.example.com/token",
 			ConnectorID:      "ldap",
 		},
 	}
-	err := a.registry.RegisterPendingAuthWithConfig(serverName, "https://server.example.com", "", nil, tokenExchangeAuth)
+	err := a.registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: serverName, ToolPrefix: ""},
+		URL:                "https://server.example.com",
+		AuthInfo:           nil,
+		AuthConfig:         tokenExchangeAuth,
+	})
 	require.NoError(t, err)
 
 	_ = a.capabilityStore.Set(ctx, sessionID, serverName, &Capabilities{
@@ -833,13 +863,18 @@ func TestGetOrCreateClientForToolCall_NoEvictionWhenTokenFresh(t *testing.T) {
 	serverName := "exchange-server"
 
 	tokenExchangeAuth := &api.MCPServerAuth{
-		TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+		TokenExchange: &api.TokenExchangeConfig{
 			Enabled:          true,
 			DexTokenEndpoint: "https://dex.example.com/token",
 			ConnectorID:      "ldap",
 		},
 	}
-	err := a.registry.RegisterPendingAuthWithConfig(serverName, "https://server.example.com", "", nil, tokenExchangeAuth)
+	err := a.registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: serverName, ToolPrefix: ""},
+		URL:                "https://server.example.com",
+		AuthInfo:           nil,
+		AuthConfig:         tokenExchangeAuth,
+	})
 	require.NoError(t, err)
 
 	_ = a.capabilityStore.Set(ctx, sessionID, serverName, &Capabilities{
@@ -1022,5 +1057,83 @@ func TestDiscoverProtectedResourceMetadata(t *testing.T) {
 		_, err := discoverProtectedResourceMetadata(context.Background(), mcp.URL+"/v1/mcp", nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "authorizationServer.issuer")
+	})
+}
+
+// recordingMCPClient embeds mockMCPClient and records the last CallTool
+// invocation so tests can assert on the forwarded tool name and args.
+type recordingMCPClient struct {
+	mockMCPClient
+	lastName string
+	lastArgs map[string]interface{}
+}
+
+func (r *recordingMCPClient) CallTool(ctx context.Context, name string, args map[string]interface{}) (*mcp.CallToolResult, error) {
+	r.lastName = name
+	r.lastArgs = args
+	return r.mockMCPClient.CallTool(ctx, name, args)
+}
+
+func TestAggregatorServer_CallToolInternal_FamilyRouting(t *testing.T) {
+	ctx := context.Background()
+
+	makeServer := func(t *testing.T) *AggregatorServer {
+		t.Helper()
+		return NewAggregatorServer(AggregatorConfig{Host: "localhost", Port: 0}, nil)
+	}
+
+	makeFamily := func(t *testing.T, server *AggregatorServer) (*recordingMCPClient, *recordingMCPClient) {
+		t.Helper()
+		clientA := &recordingMCPClient{
+			mockMCPClient: mockMCPClient{tools: []mcp.Tool{{Name: "list_pods", Description: "List pods"}}},
+		}
+		clientB := &recordingMCPClient{
+			mockMCPClient: mockMCPClient{tools: []mcp.Tool{{Name: "list_pods", Description: "List pods"}}},
+		}
+		require.NoError(t, server.RegisterServer(ctx, ServerRegistration{
+			Name:   "mcp-k8s-graveler",
+			Family: &api.MCPServerFamily{Name: "kubernetes", InstanceArg: "management_cluster"},
+		}, clientA))
+		require.NoError(t, server.RegisterServer(ctx, ServerRegistration{
+			Name:   "mcp-k8s-gazelle",
+			Family: &api.MCPServerFamily{Name: "kubernetes", InstanceArg: "management_cluster"},
+		}, clientB))
+		_ = server.registry.GetAllTools() // prime familyMappings
+		return clientA, clientB
+	}
+
+	t.Run("explicit instance arg routes to matching backend and strips it from forwarded args", func(t *testing.T) {
+		server := makeServer(t)
+		clientA, clientB := makeFamily(t, server)
+
+		_, err := server.CallToolInternal(ctx, "x_kubernetes_list_pods", map[string]interface{}{
+			"management_cluster": "mcp-k8s-graveler",
+			"namespace":          "default",
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "list_pods", clientA.lastName)
+		assert.Equal(t, map[string]interface{}{"namespace": "default"}, clientA.lastArgs,
+			"forwarded args must not include the routing instance arg")
+		assert.Empty(t, clientB.lastName, "non-target server must not be called")
+	})
+
+	t.Run("invalid instance arg surfaces resolution error without legacy fallback", func(t *testing.T) {
+		server := makeServer(t)
+		makeFamily(t, server)
+
+		_, err := server.CallToolInternal(ctx, "x_kubernetes_list_pods", map[string]interface{}{
+			"management_cluster": "mcp-k8s-typo",
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not available on server")
+	})
+
+	t.Run("missing instance arg returns parameter-required error for multi-instance families", func(t *testing.T) {
+		server := makeServer(t)
+		makeFamily(t, server)
+
+		_, err := server.CallToolInternal(ctx, "x_kubernetes_list_pods", map[string]interface{}{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `"management_cluster" parameter is required`)
 	})
 }

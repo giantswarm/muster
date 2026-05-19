@@ -23,7 +23,6 @@ import (
 	k8sapply "github.com/giantswarm/muster/internal/reconciler/agentgateway/k8s"
 	yamlapply "github.com/giantswarm/muster/internal/reconciler/agentgateway/yaml"
 	"github.com/giantswarm/muster/internal/services"
-	"github.com/giantswarm/muster/internal/teleport"
 	"github.com/giantswarm/muster/internal/workflow"
 	"github.com/giantswarm/muster/pkg/logging"
 )
@@ -169,10 +168,6 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	orchConfig := orchestrator.Config{
 		Aggregator: cfg.MusterConfig.Aggregator,
 		Yolo:       cfg.Yolo,
-		// Filesystem mode hands the MCPServer data plane to the agentgateway
-		// subprocess; both spawning the same stdio children would yield two
-		// parents for one pid and a fight over stdin/stdout.
-		DisableMCPServerAutoStart: !cfg.MusterConfig.Kubernetes,
 	}
 
 	orch := orchestrator.New(orchConfig)
@@ -217,16 +212,6 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	} else {
 		logging.Debug("Services", "Kubernetes event emission disabled (use --enable-events to enable)")
 	}
-
-	// Register Teleport client adapter for private installation access
-	// The adapter uses the muster client for Kubernetes secret access when in K8s mode
-	var teleportAdapter *teleport.Adapter
-	if musterClient.IsKubernetesMode() {
-		teleportAdapter = teleport.NewAdapterWithClient(musterClient)
-	} else {
-		teleportAdapter = teleport.NewAdapter()
-	}
-	teleportAdapter.Register()
 
 	// Create and register Workflow adapter using the muster client
 	workflowAdapter := workflow.NewAdapterWithClient(musterClient, namespace, toolCaller, toolChecker, cfg.ConfigPath)

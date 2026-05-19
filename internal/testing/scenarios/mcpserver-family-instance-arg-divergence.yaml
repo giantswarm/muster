@@ -1,0 +1,103 @@
+name: "mcpserver-family-instance-arg-divergence"
+description: "Same family.name with diverging instanceArg falls back to per-server prefixing for the whole family"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "family", "aggregator", "fallback"]
+timeout: "2m"
+
+# Given: Two MCP servers share family.name but disagree on family.instanceArg
+# When: The aggregator lists tools
+# Then: Family grouping is rejected for both — each server's tools surface under per-server
+#       prefixing, and no x_<family>_<tool> entry is exposed. Operators see a warning log
+#       and have to reconcile the CRs.
+
+pre_configuration:
+  mcp_servers:
+    - name: "k8s-graveler"
+      config:
+        family:
+          name: "kubernetes"
+          instanceArg: "management_cluster"
+        tools:
+          - name: "list_pods"
+            description: "List pods"
+            input_schema:
+              type: "object"
+              properties:
+                namespace: { type: "string" }
+            responses:
+              - response: { source: "k8s-graveler" }
+    - name: "k8s-gazelle"
+      config:
+        family:
+          name: "kubernetes"
+          instanceArg: "cluster"        # diverges
+        tools:
+          - name: "list_pods"
+            description: "List pods"
+            input_schema:
+              type: "object"
+              properties:
+                namespace: { type: "string" }
+            responses:
+              - response: { source: "k8s-gazelle" }
+
+steps:
+  - id: "wait-for-graveler"
+    tool: "core_service_status"
+    args:
+      name: "k8s-graveler"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "running"
+
+  - id: "wait-for-gazelle"
+    tool: "core_service_status"
+    args:
+      name: "k8s-gazelle"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "running"
+
+  - id: "graveler-falls-back"
+    tool: "x_k8s-graveler_list_pods"
+    args:
+      namespace: "default"
+    expected:
+      success: true
+      contains: ["k8s-graveler"]
+
+  - id: "gazelle-falls-back"
+    tool: "x_k8s-gazelle_list_pods"
+    args:
+      namespace: "default"
+    expected:
+      success: true
+      contains: ["k8s-gazelle"]
+
+  - id: "no-family-tool-exposed"
+    tool: "x_kubernetes_list_pods"
+    args: {}
+    expected:
+      success: false
+      error_contains: ["tool not found"]
+
+cleanup:
+  - id: "cleanup-stop-graveler"
+    tool: "core_service_stop"
+    args:
+      name: "k8s-graveler"
+    expected:
+      success: true
+    continue_on_failure: true
+  - id: "cleanup-stop-gazelle"
+    tool: "core_service_stop"
+    args:
+      name: "k8s-gazelle"
+    expected:
+      success: true
+    continue_on_failure: true

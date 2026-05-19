@@ -164,14 +164,8 @@ func (a *APIAdapter) UpdateCapabilities() {
 	server.UpdateCapabilities()
 }
 
-// RegisterServerPendingAuth registers a server that requires OAuth authentication
-func (a *APIAdapter) RegisterServerPendingAuth(serverName, url, toolPrefix string, authInfo *api.AuthInfo) error {
-	return a.RegisterServerPendingAuthWithConfig(serverName, url, toolPrefix, authInfo, nil)
-}
-
-// RegisterServerPendingAuthWithConfig registers a server that requires OAuth authentication
-// with additional auth configuration for SSO token forwarding.
-func (a *APIAdapter) RegisterServerPendingAuthWithConfig(serverName, url, toolPrefix string, authInfo *api.AuthInfo, authConfig *api.MCPServerAuth) error {
+// RegisterServerPendingAuth registers a server that requires OAuth authentication.
+func (a *APIAdapter) RegisterServerPendingAuth(registration api.PendingAuthRegistration) error {
 	if a.service == nil {
 		return fmt.Errorf("aggregator service not available")
 	}
@@ -181,14 +175,25 @@ func (a *APIAdapter) RegisterServerPendingAuthWithConfig(serverName, url, toolPr
 		return fmt.Errorf("aggregator manager not available")
 	}
 
-	// Convert api.AuthInfo to aggregator.AuthInfo (type alias)
-	aggAuthInfo := &aggregator.AuthInfo{
-		Issuer:              authInfo.Issuer,
-		Scope:               authInfo.Scope,
-		ResourceMetadataURL: authInfo.ResourceMetadataURL,
+	var aggregatorAuthInfo *aggregator.AuthInfo
+	if registration.AuthInfo != nil {
+		aggregatorAuthInfo = &aggregator.AuthInfo{
+			Issuer:              registration.AuthInfo.Issuer,
+			Scope:               registration.AuthInfo.Scope,
+			ResourceMetadataURL: registration.AuthInfo.ResourceMetadataURL,
+		}
 	}
 
-	return manager.RegisterServerPendingAuthWithConfig(serverName, url, toolPrefix, aggAuthInfo, authConfig)
+	return manager.RegisterServerPendingAuth(aggregator.PendingAuthRegistration{
+		ServerRegistration: aggregator.ServerRegistration{
+			Name:       registration.Name,
+			ToolPrefix: registration.ToolPrefix,
+			Family:     registration.Family,
+		},
+		URL:        registration.URL,
+		AuthInfo:   aggregatorAuthInfo,
+		AuthConfig: registration.AuthConfig,
+	})
 }
 
 // Register registers this adapter with the API package

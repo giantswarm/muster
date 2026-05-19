@@ -60,11 +60,11 @@ func (m *issuerMockOAuthHandler) GetHTTPHandler() http.Handler {
 }
 
 func (m *issuerMockOAuthHandler) GetCallbackPath() string {
-	return "/oauth/proxy/callback" //nolint:goconst
+	return "/oauth/proxy/callback"
 }
 
 func (m *issuerMockOAuthHandler) GetCIMDPath() string {
-	return "/.well-known/oauth-client.json" //nolint:goconst
+	return "/.well-known/oauth-client.json"
 }
 
 func (m *issuerMockOAuthHandler) ShouldServeCIMD() bool {
@@ -85,10 +85,6 @@ func (m *issuerMockOAuthHandler) Stop() {
 }
 
 func (m *issuerMockOAuthHandler) ExchangeTokenForRemoteCluster(ctx context.Context, localToken, userID string, config *api.TokenExchangeConfig) (string, error) {
-	return "", nil
-}
-
-func (m *issuerMockOAuthHandler) ExchangeTokenForRemoteClusterWithClient(ctx context.Context, localToken, userID string, config *api.TokenExchangeConfig, httpClient *http.Client) (string, error) {
 	return "", nil
 }
 

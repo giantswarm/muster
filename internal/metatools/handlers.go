@@ -228,8 +228,8 @@ func (p *Provider) handleFilterTools(ctx context.Context, args map[string]interf
 
 		if matches {
 			toolInfo := map[string]interface{}{
-				"name":        tool.Name,
-				"description": tool.Description,
+				api.FieldName:            tool.Name,
+				api.SchemaKeyDescription: tool.Description,
 			}
 
 			if includeSchema {
@@ -249,7 +249,7 @@ func (p *Provider) handleFilterTools(ctx context.Context, args map[string]interf
 		},
 		"total_tools":    len(tools),
 		"filtered_count": len(filteredTools),
-		"tools":          filteredTools,
+		api.FieldTools:   filteredTools,
 	}
 
 	jsonData, err := json.MarshalIndent(result, "", "  ")
@@ -511,16 +511,16 @@ func serializePromptContent(content mcp.Content) (json.RawMessage, error) {
 	}
 	if imageContent, ok := mcp.AsImageContent(content); ok {
 		return json.Marshal(map[string]interface{}{
-			"type":     "image",
-			"mimeType": imageContent.MIMEType,
-			"dataSize": len(imageContent.Data),
+			"type":            "image",
+			api.FieldMimeType: imageContent.MIMEType,
+			"dataSize":        len(imageContent.Data),
 		})
 	}
 	if audioContent, ok := mcp.AsAudioContent(content); ok {
 		return json.Marshal(map[string]interface{}{
-			"type":     "audio",
-			"mimeType": audioContent.MIMEType,
-			"dataSize": len(audioContent.Data),
+			"type":            "audio",
+			api.FieldMimeType: audioContent.MIMEType,
+			"dataSize":        len(audioContent.Data),
 		})
 	}
 	if resource, ok := mcp.AsEmbeddedResource(content); ok {
