@@ -6,6 +6,14 @@ import "context"
 // Kubernetes objects in cluster mode, agentgateway native YAML in filesystem
 // mode.
 //
+// Construction conventions differ by mode:
+//
+//   - Filesystem mode: yaml.NewApplier(dir) is called once at startup and the
+//     same instance serves every reconcile.
+//   - Cluster mode: k8s.NewApplier(client, ownerRef, cfg) is called per
+//     reconcile so the K8s adapter can stamp emitted objects with an
+//     ownerReference for cascade deletion. The reconciler builds it inline.
+//
 // Implementations must:
 //
 //   - Be idempotent: re-applying an identical Config produces no observable
