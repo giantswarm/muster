@@ -97,6 +97,15 @@ const (
 // Authn is the gateway-side view of MCPServerSpec.Auth.
 // TokenExchange and AuthorizationServer are mutually exclusive and
 // only valid when Type is AuthnTypeOAuth.
+//
+// RequiredAudiences is consumer-trusted: NewConfig forwards the CRD slice
+// verbatim with no deduplication, ordering, or emptiness normalization.
+// Callers that need a canonical form must impose it themselves.
+//
+// Trap: leaving MCPServerSpec.Auth.Type empty while populating
+// AuthorizationServer is rejected at NewConfig time — the type discriminator
+// must be set explicitly to AuthnTypeOAuth for AuthorizationServer to take
+// effect. CRD validation does not enforce this today.
 type Authn struct {
 	Type                AuthnType
 	ForwardToken        bool
