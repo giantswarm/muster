@@ -6,6 +6,7 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -17,21 +18,14 @@ import (
 )
 
 func (a *Applier) createOrUpdate(ctx context.Context, obj client.Object, mutate controllerutil.MutateFn) error {
-	var lastErr error
-	for attempt := 0; attempt <= a.cfg.UpdateConflictRetries; attempt++ {
+	err := retry.RetryOnConflict(retry.DefaultBackoff, func() error {
 		_, err := controllerutil.CreateOrUpdate(ctx, a.client, obj, mutate)
-		if err == nil {
-			return nil
-		}
-		if !apierrors.IsConflict(err) {
-			return err
-		}
-		lastErr = err
-		if err := a.client.Get(ctx, client.ObjectKeyFromObject(obj), obj); err != nil && !apierrors.IsNotFound(err) {
-			return fmt.Errorf("refresh after conflict: %w", err)
-		}
+		return err
+	})
+	if apierrors.IsConflict(err) {
+		return fmt.Errorf("conflict retries exhausted: %w", err)
 	}
-	return fmt.Errorf("conflict retries exhausted: %w", lastErr)
+	return err
 }
 
 func (a *Applier) deleteIfExists(ctx context.Context, obj client.Object) error {
@@ -43,7 +37,8 @@ func (a *Applier) deleteIfExists(ctx context.Context, obj client.Object) error {
 
 func (a *Applier) applyOwner(meta *metav1.ObjectMeta) {
 	for i := range meta.OwnerReferences {
-		if meta.OwnerReferences[i].UID == a.ownerRef.UID {
+		ref := &meta.OwnerReferences[i]
+		if ref.Name == a.ownerRef.Name && ref.Kind == a.ownerRef.Kind && ref.APIVersion == a.ownerRef.APIVersion {
 			meta.OwnerReferences[i] = a.ownerRef
 			return
 		}
@@ -58,18 +53,21 @@ func portInt32(p int) (int32, error) {
 	return int32(p), nil
 }
 
-func mapProtocol(p agentgateway.HTTPProtocol) agw.MCPProtocol {
-	if p == agentgateway.SSE {
-		return agw.MCPProtocolSSE
+func mapProtocol(p agentgateway.HTTPProtocol) (agw.MCPProtocol, error) {
+	switch p {
+	case agentgateway.StreamableHTTP:
+		return agw.MCPProtocolStreamableHTTP, nil
+	case agentgateway.SSE:
+		return agw.MCPProtocolSSE, nil
+	default:
+		return "", fmt.Errorf("unknown HTTPProtocol %q", p)
 	}
-	return agw.MCPProtocolStreamableHTTP
 }
 
 // policySpec maps a domain Policy to an AgentgatewayPolicySpec. emit=false
-// means the policy should be deleted rather than written: the no-auth /
-// no-forward case carries no information that the upstream needs.
+// means the policy should be deleted rather than written.
 func policySpec(p agentgateway.Policy) (agw.AgentgatewayPolicySpec, bool) {
-	if p.Authn.Type == agentgateway.AuthnTypeNone && !p.Authn.ForwardToken {
+	if !p.Authn.RequiresPolicy() {
 		return agw.AgentgatewayPolicySpec{}, false
 	}
 	httpRouteKind := gwv1.Kind(kindHTTPRoute)

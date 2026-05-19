@@ -6,10 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"regexp"
+	"strings"
 	"sync"
 
 	goyaml "gopkg.in/yaml.v3"
+	"k8s.io/apimachinery/pkg/util/validation"
 
 	"github.com/giantswarm/muster/internal/reconciler/agentgateway"
 )
@@ -28,13 +29,7 @@ const (
 	routePathRoot  = "/mcp/"
 	dirPermissions = 0o755
 	filePermission = 0o600
-	maxNameLen     = 253
 )
-
-// nameSafe restricts emitted file basenames to the Kubernetes DNS subdomain
-// shape (RFC 1123 labels joined by dots) so the applier cannot be coerced into
-// writing outside its configured directory.
-var nameSafe = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`)
 
 // Option configures Applier at construction time.
 type Option func(*Applier)
@@ -93,8 +88,8 @@ func (a *Applier) Apply(ctx context.Context, config agentgateway.Config) error {
 	if err != nil {
 		return fmt.Errorf("yaml applier: %w", err)
 	}
-	if !isSafeName(name) {
-		return fmt.Errorf("yaml applier: name %q is not a safe filename component", name)
+	if err := validateName(name); err != nil {
+		return fmt.Errorf("yaml applier: %w", err)
 	}
 
 	cfg, err := buildLocalConfig(name, config, a.listenerPort)
@@ -127,13 +122,16 @@ func (a *Applier) Delete(ctx context.Context, name string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if !isSafeName(name) {
-		return fmt.Errorf("yaml applier: name %q is not a safe filename component", name)
+	if err := validateName(name); err != nil {
+		return fmt.Errorf("yaml applier: %w", err)
 	}
 
 	mu := a.lockFor(name)
 	mu.Lock()
-	defer mu.Unlock()
+	defer func() {
+		mu.Unlock()
+		a.dropLock(name, mu)
+	}()
 
 	if err := a.root.Remove(name + fileExt); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("yaml applier: remove %q: %w", name+fileExt, err)
@@ -153,11 +151,23 @@ func (a *Applier) lockFor(name string) *sync.Mutex {
 	return mu
 }
 
-func isSafeName(name string) bool {
-	if name == "" || len(name) > maxNameLen {
-		return false
+// dropLock removes name's entry from a.locks if it still points at mu.
+// A concurrent lockFor that observed mu before Delete entered its critical
+// section will keep using mu safely; once dropLock returns, subsequent
+// lockFor calls install a fresh mutex.
+func (a *Applier) dropLock(name string, mu *sync.Mutex) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.locks[name] == mu {
+		delete(a.locks, name)
 	}
-	return nameSafe.MatchString(name)
+}
+
+func validateName(name string) error {
+	if errs := validation.IsDNS1123Subdomain(name); len(errs) > 0 {
+		return fmt.Errorf("invalid name %q: %s", name, strings.Join(errs, "; "))
+	}
+	return nil
 }
 
 func nameFromConfig(c agentgateway.Config) (string, error) {
@@ -248,8 +258,11 @@ func httpEndpoint(name string, t agentgateway.HTTPTarget) (*McpTargetEndpoint, e
 	if t.Host == "" {
 		return nil, fmt.Errorf("backend %q has unresolved host", name)
 	}
-	if t.Port <= 0 || t.Port > 65535 {
-		return nil, fmt.Errorf("backend %q has out-of-range port %d", name, t.Port)
+	if err := t.Validate(); err != nil {
+		return nil, fmt.Errorf("backend %q: %w", name, err)
+	}
+	if t.Port < 0 || t.Port > 65535 {
+		return nil, fmt.Errorf("backend %q port %d out of range [0, 65535]", name, t.Port)
 	}
 	return &McpTargetEndpoint{
 		Host: t.Host,

@@ -13,7 +13,6 @@ import (
 )
 
 const (
-	groupAgentgateway   = "agentgateway.dev"
 	kindAgentgatewayBE  = "AgentgatewayBackend"
 	kindHTTPRoute       = "HTTPRoute"
 	gatewayAPIGroupName = gwv1.GroupName
@@ -24,13 +23,19 @@ func (a *Applier) reconcileBackend(ctx context.Context, namespace string, b agen
 	if !ok {
 		return fmt.Errorf("backend %q: expected HTTPTarget, got %T", b.Name, b.Target)
 	}
+	if err := target.Validate(); err != nil {
+		return fmt.Errorf("backend %q: %w", b.Name, err)
+	}
 	port, err := portInt32(target.Port)
 	if err != nil {
-		return err
+		return fmt.Errorf("backend %q: %w", b.Name, err)
 	}
 	host := agw.ShortString(target.Host)
 	path := agw.LongString(target.Path)
-	protocol := mapProtocol(target.Protocol)
+	protocol, err := mapProtocol(target.Protocol)
+	if err != nil {
+		return fmt.Errorf("backend %q: %w", b.Name, err)
+	}
 
 	obj := &agw.AgentgatewayBackend{
 		ObjectMeta: metav1.ObjectMeta{Name: b.Name, Namespace: namespace},
@@ -66,7 +71,7 @@ func (a *Applier) reconcileRoute(ctx context.Context, namespace string, r agentg
 	}
 	pathType := gwv1.PathMatchPathPrefix
 	pathValue := r.PathMatch
-	backendGroup := gwv1.Group(groupAgentgateway)
+	backendGroup := gwv1.Group(agw.GroupName)
 	backendKind := gwv1.Kind(kindAgentgatewayBE)
 	mutate := func() error {
 		a.applyOwner(&obj.ObjectMeta)

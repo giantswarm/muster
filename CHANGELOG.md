@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `agentgateway.Authn.RequiresPolicy() bool` and `agentgateway.HTTPTarget.Validate() error` on the agentgateway domain config.
+
 ### Changed
 
 - Container image build no longer compiles the Go binary inside `docker buildx`. `go-build` now produces both `muster-linux-amd64` and `muster-linux-arm64` in one job (architect-orb `architectures` parameter) and the Dockerfile copies the matching binary from the workspace. Removes the duplicate compile and the QEMU-emulated arm64 cross-build on tag releases; `push-to-registries` auto-derives `--platform` from the workspace `.platforms` file.
