@@ -1,4 +1,4 @@
-package instrument
+package aggregator
 
 import (
 	"context"
@@ -8,15 +8,9 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/giantswarm/muster/pkg/observability"
 )
-
-// TracerName is the instrumentation scope written to the inner span opened
-// by StartToolSpan. JSON-RPC method spans and the mcp-go-side tool handler
-// span are emitted by the mcp-go otel adapter under its own scope.
-const TracerName = "github.com/giantswarm/muster/internal/aggregator"
-
-// AttrToolName is the OTEL attribute key carrying the MCP tool name.
-const AttrToolName = "mcp.tool.name"
 
 // StartToolSpan opens a "tool.<name>" span (SpanKindInternal) and returns
 // the new context plus an End function that finalizes the span based on
@@ -24,10 +18,10 @@ const AttrToolName = "mcp.tool.name"
 // resolved tool name for calls that enter through the internal dispatch
 // path (workflows, direct API) rather than mcp-go's tool handler chain.
 func StartToolSpan(ctx context.Context, name string) (context.Context, func(*mcp.CallToolResult, error)) {
-	tracer := otel.Tracer(TracerName)
+	tracer := otel.Tracer(observability.TracerName)
 	ctx, span := tracer.Start(ctx, "tool."+name,
 		trace.WithSpanKind(trace.SpanKindInternal),
-		trace.WithAttributes(attribute.String(AttrToolName, name)),
+		trace.WithAttributes(attribute.String(observability.AttrToolName, name)),
 	)
 	end := func(res *mcp.CallToolResult, err error) {
 		if err != nil {
