@@ -82,7 +82,7 @@ func TestProvider_GetTools_Metadata(t *testing.T) {
 					Required bool
 				}{
 					Name:     arg.Name,
-					Type:     arg.Type,
+					Type:     string(arg.Type),
 					Required: arg.Required,
 				})
 			}

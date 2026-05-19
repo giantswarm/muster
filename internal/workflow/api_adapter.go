@@ -86,7 +86,7 @@ func (a *Adapter) ExecuteWorkflow(ctx context.Context, workflowName string, args
 		// Generate workflow unavailable event with missing tools
 		missingTools := a.findMissingTools(workflow)
 		a.generateCRDEvent(workflowName, events.ReasonWorkflowUnavailable, events.EventData{
-			Operation: "execute",
+			Operation: opExecute,
 			ToolNames: missingTools,
 		})
 
@@ -98,7 +98,7 @@ func (a *Adapter) ExecuteWorkflow(ctx context.Context, workflowName string, args
 
 	// Generate execution started event
 	a.generateCRDEvent(workflowName, events.ReasonWorkflowExecutionStarted, events.EventData{
-		Operation: "execute",
+		Operation: opExecute,
 		StepCount: len(workflow.Steps),
 	})
 
@@ -110,7 +110,7 @@ func (a *Adapter) ExecuteWorkflow(ctx context.Context, workflowName string, args
 	// Generate execution tracked event
 	if execution != nil {
 		a.generateCRDEvent(workflowName, events.ReasonWorkflowExecutionTracked, events.EventData{
-			Operation:   "execute",
+			Operation:   opExecute,
 			ExecutionID: execution.ExecutionID,
 		})
 	}
@@ -131,7 +131,7 @@ func (a *Adapter) ExecuteWorkflow(ctx context.Context, workflowName string, args
 	if err != nil {
 		// Generate execution failed event
 		eventData := events.EventData{
-			Operation: "execute",
+			Operation: opExecute,
 			Error:     err.Error(),
 		}
 		if execution != nil {
@@ -163,7 +163,7 @@ func (a *Adapter) ExecuteWorkflow(ctx context.Context, workflowName string, args
 
 	// Generate execution completed event
 	eventData := events.EventData{
-		Operation: "execute",
+		Operation: opExecute,
 		StepCount: len(workflow.Steps),
 	}
 	if execution != nil {
@@ -359,7 +359,7 @@ func (a *Adapter) ValidateWorkflowFromStructured(args map[string]interface{}) er
 		// Generate validation failure event
 		a.generateCRDEvent(wf.Name, events.ReasonWorkflowValidationFailed, events.EventData{
 			Error:     err.Error(),
-			Operation: "validate",
+			Operation: opValidate,
 		})
 		return err
 	}
@@ -369,7 +369,7 @@ func (a *Adapter) ValidateWorkflowFromStructured(args map[string]interface{}) er
 		err := fmt.Errorf("workflow name is required")
 		a.generateCRDEvent("", events.ReasonWorkflowValidationFailed, events.EventData{
 			Error:     err.Error(),
-			Operation: "validate",
+			Operation: opValidate,
 		})
 		return err
 	}
@@ -377,7 +377,7 @@ func (a *Adapter) ValidateWorkflowFromStructured(args map[string]interface{}) er
 		err := fmt.Errorf("workflow must have at least one step")
 		a.generateCRDEvent(wf.Name, events.ReasonWorkflowValidationFailed, events.EventData{
 			Error:     err.Error(),
-			Operation: "validate",
+			Operation: opValidate,
 		})
 		return err
 	}
@@ -390,7 +390,7 @@ func (a *Adapter) ValidateWorkflowFromStructured(args map[string]interface{}) er
 			err := fmt.Errorf("step %d: step ID cannot be empty", i)
 			a.generateCRDEvent(wf.Name, events.ReasonWorkflowValidationFailed, events.EventData{
 				Error:     err.Error(),
-				Operation: "validate",
+				Operation: opValidate,
 			})
 			return err
 		}
@@ -400,7 +400,7 @@ func (a *Adapter) ValidateWorkflowFromStructured(args map[string]interface{}) er
 			err := fmt.Errorf("duplicate step ID '%s' found", step.ID)
 			a.generateCRDEvent(wf.Name, events.ReasonWorkflowValidationFailed, events.EventData{
 				Error:     err.Error(),
-				Operation: "validate",
+				Operation: opValidate,
 			})
 			return err
 		}
@@ -411,7 +411,7 @@ func (a *Adapter) ValidateWorkflowFromStructured(args map[string]interface{}) er
 			err := fmt.Errorf("step %d (%s): tool cannot be empty", i, step.ID)
 			a.generateCRDEvent(wf.Name, events.ReasonWorkflowValidationFailed, events.EventData{
 				Error:     err.Error(),
-				Operation: "validate",
+				Operation: opValidate,
 			})
 			return err
 		}
@@ -419,7 +419,7 @@ func (a *Adapter) ValidateWorkflowFromStructured(args map[string]interface{}) er
 
 	// Generate validation success event
 	a.generateCRDEvent(wf.Name, events.ReasonWorkflowValidationSucceeded, events.EventData{
-		Operation: "validate",
+		Operation: opValidate,
 		StepCount: len(wf.Steps),
 	})
 
@@ -830,7 +830,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Args: []api.ArgMetadata{
 				{
 					Name:        "include_system",
-					Type:        "boolean",
+					Type:        api.ArgTypeBoolean,
 					Required:    false,
 					Description: "Include system-defined workflows",
 					Default:     true,
@@ -843,7 +843,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
-					Type:        "string",
+					Type:        api.ArgTypeString,
 					Required:    true,
 					Description: "Name of the workflow",
 				},
@@ -855,26 +855,26 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
-					Type:        "string",
+					Type:        api.ArgTypeString,
 					Required:    true,
 					Description: "Name of the workflow",
 				},
 				{
 					Name:        "description",
-					Type:        "string",
+					Type:        api.ArgTypeString,
 					Required:    false,
 					Description: "Description of the workflow",
 				},
 				{
 					Name:        "args",
-					Type:        "object",
+					Type:        api.ArgTypeObject,
 					Required:    false,
 					Description: "Workflow arguments definition",
 					Schema:      getWorkflowArgsSchema(),
 				},
 				{
 					Name:        "steps",
-					Type:        "array",
+					Type:        api.ArgTypeArray,
 					Required:    true,
 					Description: "Workflow steps",
 					Schema:      getWorkflowStepsSchema(),
@@ -887,26 +887,26 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
-					Type:        "string",
+					Type:        api.ArgTypeString,
 					Required:    true,
 					Description: "Name of the workflow to update",
 				},
 				{
 					Name:        "description",
-					Type:        "string",
+					Type:        api.ArgTypeString,
 					Required:    false,
 					Description: "Description of the workflow",
 				},
 				{
 					Name:        "args",
-					Type:        "object",
+					Type:        api.ArgTypeObject,
 					Required:    false,
 					Description: "Workflow arguments definition",
 					Schema:      getWorkflowArgsSchema(),
 				},
 				{
 					Name:        "steps",
-					Type:        "array",
+					Type:        api.ArgTypeArray,
 					Required:    true,
 					Description: "Workflow steps",
 					Schema:      getWorkflowStepsSchema(),
@@ -919,7 +919,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
-					Type:        "string",
+					Type:        api.ArgTypeString,
 					Required:    true,
 					Description: "Name of the workflow to delete",
 				},
@@ -931,26 +931,26 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
-					Type:        "string",
+					Type:        api.ArgTypeString,
 					Required:    true,
 					Description: "Name of the workflow",
 				},
 				{
 					Name:        "description",
-					Type:        "string",
+					Type:        api.ArgTypeString,
 					Required:    false,
 					Description: "Description of the workflow",
 				},
 				{
 					Name:        "args",
-					Type:        "object",
+					Type:        api.ArgTypeObject,
 					Required:    false,
 					Description: "Workflow arguments definition",
 					Schema:      getWorkflowArgsSchema(),
 				},
 				{
 					Name:        "steps",
-					Type:        "array",
+					Type:        api.ArgTypeArray,
 					Required:    true,
 					Description: "Workflow steps",
 					Schema:      getWorkflowStepsSchema(),
@@ -963,7 +963,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
-					Type:        "string",
+					Type:        api.ArgTypeString,
 					Required:    true,
 					Description: "Name of the workflow",
 				},
@@ -975,26 +975,26 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Args: []api.ArgMetadata{
 				{
 					Name:        "workflow_name",
-					Type:        "string",
+					Type:        api.ArgTypeString,
 					Required:    false,
 					Description: "Filter by workflow name",
 				},
 				{
 					Name:        "status",
-					Type:        "string",
+					Type:        api.ArgTypeString,
 					Required:    false,
 					Description: "Filter by execution status",
 				},
 				{
 					Name:        "limit",
-					Type:        "number",
+					Type:        api.ArgTypeNumber,
 					Required:    false,
 					Description: "Maximum number of executions to return",
 					Default:     50,
 				},
 				{
 					Name:        "offset",
-					Type:        "number",
+					Type:        api.ArgTypeNumber,
 					Required:    false,
 					Description: "Number of executions to skip",
 					Default:     0,
@@ -1007,20 +1007,20 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Args: []api.ArgMetadata{
 				{
 					Name:        "execution_id",
-					Type:        "string",
+					Type:        api.ArgTypeString,
 					Required:    true,
 					Description: "ID of the execution",
 				},
 				{
 					Name:        "include_steps",
-					Type:        "boolean",
+					Type:        api.ArgTypeBoolean,
 					Required:    false,
 					Description: "Include step details",
 					Default:     true,
 				},
 				{
 					Name:        "step_id",
-					Type:        "string",
+					Type:        api.ArgTypeString,
 					Required:    false,
 					Description: "Get specific step details",
 				},
@@ -1085,7 +1085,7 @@ func (a *Adapter) convertWorkflowArgs(workflowName string) []api.ArgMetadata {
 	for name, argDef := range workflow.Args {
 		param := api.ArgMetadata{
 			Name:        name,
-			Type:        argDef.Type,
+			Type:        api.ArgType(argDef.Type),
 			Required:    argDef.Required,
 			Description: argDef.Description,
 			Default:     argDef.Default,
@@ -1104,8 +1104,8 @@ func (a *Adapter) handleList(args map[string]interface{}) (*api.CallToolResult, 
 	var result []map[string]interface{}
 	for _, wf := range workflows {
 		workflowInfo := map[string]interface{}{
-			"name":      wf.Name,
-			"available": wf.Available,
+			api.FieldName: wf.Name,
+			"available":   wf.Available,
 		}
 
 		// Only include description if it's not empty
@@ -1286,8 +1286,8 @@ func (a *Adapter) handleWorkflowAvailable(args map[string]interface{}) (*api.Cal
 	available := a.isWorkflowAvailable(workflow)
 
 	result := map[string]interface{}{
-		"name":      name,
-		"available": available,
+		api.FieldName: name,
+		"available":   available,
 	}
 
 	return &api.CallToolResult{
@@ -1466,7 +1466,7 @@ func (a *Adapter) handleExecutionGet(ctx context.Context, args map[string]interf
 		summaryResponse := map[string]interface{}{
 			"execution_id":  execution.ExecutionID,
 			"workflow_name": execution.WorkflowName,
-			"status":        execution.Status,
+			api.FieldStatus: execution.Status,
 			"started_at":    execution.StartedAt,
 			"duration_ms":   execution.DurationMs,
 			"input":         execution.Input,
@@ -1735,31 +1735,38 @@ func convertWorkflowConditionExpectation(expectParam map[string]interface{}) (ap
 // getWorkflowArgsSchema returns the detailed schema definition for workflow arguments
 func getWorkflowArgsSchema() map[string]interface{} {
 	return map[string]interface{}{
-		"type":        "object",
-		"description": "Workflow arguments definition with validation rules",
-		"additionalProperties": map[string]interface{}{
-			"type":                 "object",
-			"description":          "Argument definition with validation rules",
-			"additionalProperties": false,
-			"properties": map[string]interface{}{
-				"type": map[string]interface{}{
-					"type":        "string",
-					"description": "Expected data type for validation",
-					"enum":        []string{"string", "integer", "boolean", "number", "object", "array"},
+		api.SchemaKeyType:        string(api.ArgTypeObject),
+		api.SchemaKeyDescription: "Workflow arguments definition with validation rules",
+		api.SchemaKeyAdditionalProperties: map[string]interface{}{
+			api.SchemaKeyType:                 string(api.ArgTypeObject),
+			api.SchemaKeyDescription:          "Argument definition with validation rules",
+			api.SchemaKeyAdditionalProperties: false,
+			api.SchemaKeyProperties: map[string]interface{}{
+				api.SchemaKeyType: map[string]interface{}{
+					api.SchemaKeyType:        string(api.ArgTypeString),
+					api.SchemaKeyDescription: "Expected data type for validation",
+					api.SchemaKeyEnum: []string{
+						string(api.ArgTypeString),
+						string(api.ArgTypeInteger),
+						string(api.ArgTypeBoolean),
+						string(api.ArgTypeNumber),
+						string(api.ArgTypeObject),
+						string(api.ArgTypeArray),
+					},
 				},
-				"required": map[string]interface{}{
-					"type":        "boolean",
-					"description": "Whether this argument is required",
+				api.SchemaKeyRequired: map[string]interface{}{
+					api.SchemaKeyType:        string(api.ArgTypeBoolean),
+					api.SchemaKeyDescription: "Whether this argument is required",
 				},
-				"default": map[string]interface{}{
-					"description": "Default value if argument is not provided",
+				api.SchemaKeyDefault: map[string]interface{}{
+					api.SchemaKeyDescription: "Default value if argument is not provided",
 				},
-				"description": map[string]interface{}{
-					"type":        "string",
-					"description": "Human-readable documentation for this argument",
+				api.SchemaKeyDescription: map[string]interface{}{
+					api.SchemaKeyType:        string(api.ArgTypeString),
+					api.SchemaKeyDescription: "Human-readable documentation for this argument",
 				},
 			},
-			"required": []string{"type"},
+			api.SchemaKeyRequired: []string{"type"},
 		},
 	}
 }
@@ -1767,79 +1774,79 @@ func getWorkflowArgsSchema() map[string]interface{} {
 // getWorkflowStepsSchema returns the detailed schema definition for workflow steps
 func getWorkflowStepsSchema() map[string]interface{} {
 	return map[string]interface{}{
-		"type":        "array",
-		"description": "Workflow steps defining the sequence of operations",
-		"items": map[string]interface{}{
-			"type":                 "object",
-			"description":          "Individual workflow step configuration",
-			"additionalProperties": false,
-			"properties": map[string]interface{}{
+		api.SchemaKeyType:        string(api.ArgTypeArray),
+		api.SchemaKeyDescription: "Workflow steps defining the sequence of operations",
+		api.SchemaKeyItems: map[string]interface{}{
+			api.SchemaKeyType:                 string(api.ArgTypeObject),
+			api.SchemaKeyDescription:          "Individual workflow step configuration",
+			api.SchemaKeyAdditionalProperties: false,
+			api.SchemaKeyProperties: map[string]interface{}{
 				"id": map[string]interface{}{
-					"type":        "string",
-					"description": "Unique identifier for this step within the workflow",
+					api.SchemaKeyType:        string(api.ArgTypeString),
+					api.SchemaKeyDescription: "Unique identifier for this step within the workflow",
 				},
 				"tool": map[string]interface{}{
-					"type":        "string",
-					"description": "Name of the tool to execute for this step",
+					api.SchemaKeyType:        string(api.ArgTypeString),
+					api.SchemaKeyDescription: "Name of the tool to execute for this step",
 				},
 				"args": map[string]interface{}{
-					"type":        "object",
-					"description": "Arguments to pass to the tool, supporting templating with {{.argName}} for workflow args and {{stepId.field}} for step outputs",
+					api.SchemaKeyType:        string(api.ArgTypeObject),
+					api.SchemaKeyDescription: "Arguments to pass to the tool, supporting templating with {{.argName}} for workflow args and {{stepId.field}} for step outputs",
 				},
 				"condition": map[string]interface{}{
-					"type":                 "object",
-					"description":          "Optional condition that determines whether this step should execute",
-					"additionalProperties": false,
-					"properties": map[string]interface{}{
+					api.SchemaKeyType:                 string(api.ArgTypeObject),
+					api.SchemaKeyDescription:          "Optional condition that determines whether this step should execute",
+					api.SchemaKeyAdditionalProperties: false,
+					api.SchemaKeyProperties: map[string]interface{}{
 						"tool": map[string]interface{}{
-							"type":        "string",
-							"description": "Tool to call for condition evaluation",
+							api.SchemaKeyType:        string(api.ArgTypeString),
+							api.SchemaKeyDescription: "Tool to call for condition evaluation",
 						},
 						"args": map[string]interface{}{
-							"type":        "object",
-							"description": "Arguments for the condition tool",
+							api.SchemaKeyType:        string(api.ArgTypeObject),
+							api.SchemaKeyDescription: "Arguments for the condition tool",
 						},
 						"expect": map[string]interface{}{
-							"type":        "object",
-							"description": "Expected results for condition evaluation",
-							"properties": map[string]interface{}{
-								"success": map[string]interface{}{
-									"type":        "boolean",
-									"description": "Whether the tool call should succeed",
+							api.SchemaKeyType:        string(api.ArgTypeObject),
+							api.SchemaKeyDescription: "Expected results for condition evaluation",
+							api.SchemaKeyProperties: map[string]interface{}{
+								api.FieldSuccess: map[string]interface{}{
+									api.SchemaKeyType:        string(api.ArgTypeBoolean),
+									api.SchemaKeyDescription: "Whether the tool call should succeed",
 								},
 								"json_path": map[string]interface{}{
-									"type":        "object",
-									"description": "JSON path expressions to evaluate against tool result",
-									"additionalProperties": map[string]interface{}{
-										"description": "Expected value for the JSON path",
+									api.SchemaKeyType:        string(api.ArgTypeObject),
+									api.SchemaKeyDescription: "JSON path expressions to evaluate against tool result",
+									api.SchemaKeyAdditionalProperties: map[string]interface{}{
+										api.SchemaKeyDescription: "Expected value for the JSON path",
 									},
 								},
 							},
 						},
 					},
-					"required": []string{"tool"},
+					api.SchemaKeyRequired: []string{"tool"},
 				},
 				"allow_failure": map[string]interface{}{
-					"type":        "boolean",
-					"description": "Whether this step is allowed to fail without failing the workflow",
+					api.SchemaKeyType:        string(api.ArgTypeBoolean),
+					api.SchemaKeyDescription: "Whether this step is allowed to fail without failing the workflow",
 				},
 				"outputs": map[string]interface{}{
-					"type":        "object",
-					"description": "Defines how step results should be stored and made available to subsequent steps",
-					"additionalProperties": map[string]interface{}{
-						"description": "Output variable assignment, can be a static value or template expression",
+					api.SchemaKeyType:        string(api.ArgTypeObject),
+					api.SchemaKeyDescription: "Defines how step results should be stored and made available to subsequent steps",
+					api.SchemaKeyAdditionalProperties: map[string]interface{}{
+						api.SchemaKeyDescription: "Output variable assignment, can be a static value or template expression",
 					},
 				},
 				"store": map[string]interface{}{
-					"type":        "boolean",
-					"description": "Whether the step result should be stored in workflow results",
+					api.SchemaKeyType:        string(api.ArgTypeBoolean),
+					api.SchemaKeyDescription: "Whether the step result should be stored in workflow results",
 				},
-				"description": map[string]interface{}{
-					"type":        "string",
-					"description": "Human-readable documentation for this step's purpose",
+				api.SchemaKeyDescription: map[string]interface{}{
+					api.SchemaKeyType:        string(api.ArgTypeString),
+					api.SchemaKeyDescription: "Human-readable documentation for this step's purpose",
 				},
 			},
-			"required": []string{"id", "tool"},
+			api.SchemaKeyRequired: []string{"id", "tool"},
 		},
 		"minItems": 1,
 	}

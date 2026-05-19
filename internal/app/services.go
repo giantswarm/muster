@@ -40,13 +40,6 @@ const upstreamProxyEnvVar = "MUSTER_AGW_UPSTREAM_URL"
 // this via AggregatorConfig.AgentgatewayReadinessPort.
 const agentgatewayDefaultReadinessPort uint16 = 15021
 
-// agentgatewayDefaultAdminPort and agentgatewayDefaultStatsPort are
-// agentgateway's default management ports.
-const (
-	agentgatewayDefaultAdminPort uint16 = 15000
-	agentgatewayDefaultStatsPort uint16 = 15020
-)
-
 // agentgatewayStartupTimeout caps how long Start waits for the readiness probe
 // before failing initialization. 30s is comfortable margin over agw's typical
 // sub-second startup on a warm binary, with headroom for cold downloads.

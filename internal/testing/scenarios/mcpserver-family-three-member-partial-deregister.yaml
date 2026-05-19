@@ -1,0 +1,174 @@
+name: "mcpserver-family-three-member-partial-deregister"
+description: "Stopping the middle member of a three-instance family removes only that instance from the routing target set and the management_cluster enum"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "family", "aggregator", "lifecycle"]
+timeout: "2m"
+
+# Given: Three MCP servers k8s-a, k8s-b, k8s-c share family.name=kubernetes
+# When:  k8s-b is stopped (deregistered) while k8s-a and k8s-c keep running
+# Then:  - x_kubernetes_list_pods stays exposed
+#        - calls with management_cluster=k8s-a or k8s-c succeed
+#        - calls with management_cluster=k8s-b fail with "not available on server"
+#        and the error lists the survivors (k8s-a, k8s-c)
+#
+# Broader coverage than mcpserver-family-deregister.yaml (which only tests
+# two-member -> one-member transitions). Surfaces any regression that drops
+# the surviving providers from the family bucket when a middle member is
+# removed (e.g. slice-copy bugs in Deregister cleanup).
+
+pre_configuration:
+  mcp_servers:
+    - name: "k8s-a"
+      config:
+        family:
+          name: "kubernetes"
+          instanceArg: "management_cluster"
+        tools:
+          - name: "list_pods"
+            description: "List pods"
+            input_schema:
+              type: "object"
+              properties:
+                namespace: { type: "string" }
+            responses:
+              - response: { source: "k8s-a" }
+    - name: "k8s-b"
+      config:
+        family:
+          name: "kubernetes"
+          instanceArg: "management_cluster"
+        tools:
+          - name: "list_pods"
+            description: "List pods"
+            input_schema:
+              type: "object"
+              properties:
+                namespace: { type: "string" }
+            responses:
+              - response: { source: "k8s-b" }
+    - name: "k8s-c"
+      config:
+        family:
+          name: "kubernetes"
+          instanceArg: "management_cluster"
+        tools:
+          - name: "list_pods"
+            description: "List pods"
+            input_schema:
+              type: "object"
+              properties:
+                namespace: { type: "string" }
+            responses:
+              - response: { source: "k8s-c" }
+
+steps:
+  - id: "wait-for-a"
+    tool: "core_service_status"
+    args:
+      name: "k8s-a"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "running"
+
+  - id: "wait-for-b"
+    tool: "core_service_status"
+    args:
+      name: "k8s-b"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "running"
+
+  - id: "wait-for-c"
+    tool: "core_service_status"
+    args:
+      name: "k8s-c"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "running"
+
+  - id: "all-three-targets-resolve"
+    description: "Sanity: each of the three instances routes correctly before the deregister"
+    tool: "x_kubernetes_list_pods"
+    args:
+      management_cluster: "k8s-b"
+      namespace: "default"
+    expected:
+      success: true
+      contains: ["k8s-b"]
+
+  - id: "stop-middle-member"
+    tool: "core_service_stop"
+    args:
+      name: "k8s-b"
+    expected:
+      success: true
+
+  - id: "wait-for-stopped-b"
+    tool: "core_service_status"
+    args:
+      name: "k8s-b"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "stopped"
+
+  - id: "stopped-middle-target-is-rejected"
+    description: "k8s-b is no longer a valid instance value; the error must list the survivors"
+    tool: "x_kubernetes_list_pods"
+    args:
+      management_cluster: "k8s-b"
+      namespace: "default"
+    expected:
+      success: false
+      error_contains: ["not available on server", "k8s-a", "k8s-c"]
+
+  - id: "surviving-first-still-resolves"
+    tool: "x_kubernetes_list_pods"
+    args:
+      management_cluster: "k8s-a"
+      namespace: "default"
+    expected:
+      success: true
+      contains: ["k8s-a"]
+      not_contains: ["k8s-b"]
+
+  - id: "surviving-last-still-resolves"
+    tool: "x_kubernetes_list_pods"
+    args:
+      management_cluster: "k8s-c"
+      namespace: "default"
+    expected:
+      success: true
+      contains: ["k8s-c"]
+      not_contains: ["k8s-b"]
+
+cleanup:
+  - id: "cleanup-stop-a"
+    tool: "core_service_stop"
+    args:
+      name: "k8s-a"
+    expected:
+      success: true
+    continue_on_failure: true
+  - id: "cleanup-stop-b"
+    tool: "core_service_stop"
+    args:
+      name: "k8s-b"
+    expected:
+      success: true
+    continue_on_failure: true
+  - id: "cleanup-stop-c"
+    tool: "core_service_stop"
+    args:
+      name: "k8s-c"
+    expected:
+      success: true
+    continue_on_failure: true
