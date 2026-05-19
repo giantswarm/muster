@@ -1,0 +1,138 @@
+name: "mcpserver-family-disjoint-tools-divergence"
+description: "BUG REPRODUCER: same family.name with diverging family.instanceArg must fall back to per-server prefixing for the ENTIRE family. Today the divergence check is per-(family, tool) so tools that are unique to one server escape detection and get exposed under x_<family.name>_<tool> with mismatched instanceArgs."
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "family", "aggregator", "fallback", "bug-reproducer"]
+timeout: "2m"
+
+# Given: Two MCP servers share family.name="kubernetes" but disagree on
+#        family.instanceArg, AND each server exposes a different tool name
+#        (disjoint tool sets).
+# When:  The aggregator lists tools.
+# Then:  The PR description's contract — "Same family.name, diverging
+#        family.instanceArg | Entire family falls back to per-server prefixing
+#        (warn)" — requires that NEITHER tool surfaces under x_kubernetes_*.
+#        Both tools must surface only as x_<server.name>_<tool>.
+#
+# Today's implementation only flags divergence when both servers contribute
+# the SAME tool name (the per-(family, tool) bucket compares instanceArgs as
+# a second contributor joins). When the tools are disjoint, no bucket sees
+# the conflict, argDivergent stays false, and each tool is exposed under
+# x_kubernetes_<tool> with the declaring server's instanceArg — defeating
+# the family-level guarantee for any operator who deploys family members
+# with non-overlapping tool sets (e.g. capability skew across versions).
+#
+# Companion of mcpserver-family-instance-arg-divergence.yaml, which already
+# passes because its two servers expose an overlapping tool name.
+
+pre_configuration:
+  mcp_servers:
+    - name: "k8s-graveler"
+      config:
+        family:
+          name: "kubernetes"
+          instanceArg: "management_cluster"
+        tools:
+          - name: "list_pods"
+            description: "List pods"
+            input_schema:
+              type: "object"
+              properties:
+                namespace: { type: "string" }
+            responses:
+              - response: { source: "k8s-graveler" }
+
+    - name: "k8s-gazelle"
+      config:
+        family:
+          name: "kubernetes"
+          instanceArg: "cluster"        # diverges from k8s-graveler
+        tools:
+          - name: "list_nodes"          # DIFFERENT tool — disjoint from k8s-graveler
+            description: "List nodes"
+            input_schema:
+              type: "object"
+              properties: {}
+            responses:
+              - response: { source: "k8s-gazelle" }
+
+steps:
+  - id: "wait-for-graveler"
+    tool: "core_service_status"
+    args:
+      name: "k8s-graveler"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "running"
+
+  - id: "wait-for-gazelle"
+    tool: "core_service_status"
+    args:
+      name: "k8s-gazelle"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "running"
+
+  # Per-server fallback must work for both — this is the expected exposed
+  # surface when the family rejects grouping.
+  - id: "graveler-falls-back-per-server"
+    tool: "x_k8s-graveler_list_pods"
+    args:
+      namespace: "default"
+    expected:
+      success: true
+      contains: ["k8s-graveler"]
+
+  - id: "gazelle-falls-back-per-server"
+    tool: "x_k8s-gazelle_list_nodes"
+    args: {}
+    expected:
+      success: true
+      contains: ["k8s-gazelle"]
+
+  # BUG: the next two assertions fail today. The per-(family, tool) divergence
+  # detection only fires when both servers contribute the SAME tool name. Each
+  # of these tools is unique to one server, so the bucket sees only one
+  # contributor and argDivergent stays false. The aggregator then emits
+  # x_kubernetes_list_pods (with management_cluster) and x_kubernetes_list_nodes
+  # (with cluster) — two tools under the same family name with conflicting
+  # instance-selector arg names, which is the failure mode the family-level
+  # fallback is meant to prevent.
+  - id: "no-graveler-family-tool-exposed"
+    description: "BUG: x_kubernetes_list_pods must not exist when the family rejected grouping"
+    tool: "x_kubernetes_list_pods"
+    args:
+      management_cluster: "k8s-graveler"
+      namespace: "default"
+    expected:
+      success: false
+      error_contains: ["tool not found"]
+
+  - id: "no-gazelle-family-tool-exposed"
+    description: "BUG: x_kubernetes_list_nodes must not exist when the family rejected grouping"
+    tool: "x_kubernetes_list_nodes"
+    args:
+      cluster: "k8s-gazelle"
+    expected:
+      success: false
+      error_contains: ["tool not found"]
+
+cleanup:
+  - id: "cleanup-stop-graveler"
+    tool: "core_service_stop"
+    args:
+      name: "k8s-graveler"
+    expected:
+      success: true
+    continue_on_failure: true
+  - id: "cleanup-stop-gazelle"
+    tool: "core_service_stop"
+    args:
+      name: "k8s-gazelle"
+    expected:
+      success: true
+    continue_on_failure: true
