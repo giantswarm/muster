@@ -166,9 +166,20 @@ resources:
   limits:
     cpu: 500m
     memory: 512Mi
+    # The muster container mounts /tmp as emptyDir (read-only-root-fs).
+    # Kyverno's audit policy on Giant Swarm workload clusters warns
+    # without an explicit ephemeral-storage limit; strict-enforce clusters
+    # would reject the pod outright.
+    ephemeral-storage: 100Mi
   requests:
     cpu: 100m
     memory: 128Mi
+    ephemeral-storage: 50Mi
+
+# Cap the number of old ReplicaSets retained by the Deployment. Kubernetes
+# defaults to 10, which leaves a long trail of zero-replica RS objects in
+# the cluster after frequent rollouts.
+revisionHistoryLimit: 3
 
 autoscaling:
   enabled: false

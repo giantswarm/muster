@@ -80,6 +80,18 @@ spec:
             - port: "443"
               protocol: TCP
 
+    # Reach the agentgateway data-plane in the same namespace on the
+    # upstream-proxy path. No-op on Cilium when the data-plane is not
+    # deployed (selector matches zero endpoints).
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: agentgateway
+            k8s:io.kubernetes.pod.namespace: {{ .Release.Namespace }}
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+
     {{- if .Values.muster.oauth.server.enabled }}
     {{- if .Values.muster.oauth.server.storage }}
     {{- if eq .Values.muster.oauth.server.storage.type "valkey" }}
