@@ -60,7 +60,7 @@ func TestTokenExchanger_Exchange_Validation(t *testing.T) {
 
 	t.Run("returns error for missing subject token", func(t *testing.T) {
 		_, err := exchanger.Exchange(context.Background(), &ExchangeRequest{
-			Config: &api.TokenExchangeConfig{ //nolint:gosec
+			Config: &api.TokenExchangeConfig{
 				Enabled:          true,
 				DexTokenEndpoint: "https://dex.example.com/token",
 				ConnectorID:      "local-dex",
@@ -86,7 +86,7 @@ func TestTokenExchanger_Exchange_Validation(t *testing.T) {
 
 	t.Run("returns error for missing connector ID", func(t *testing.T) {
 		_, err := exchanger.Exchange(context.Background(), &ExchangeRequest{
-			Config: &api.TokenExchangeConfig{ //nolint:gosec
+			Config: &api.TokenExchangeConfig{
 				Enabled:          true,
 				DexTokenEndpoint: "https://dex.example.com/token",
 				ConnectorID:      "",
@@ -99,7 +99,7 @@ func TestTokenExchanger_Exchange_Validation(t *testing.T) {
 
 	t.Run("returns error for missing user ID", func(t *testing.T) {
 		_, err := exchanger.Exchange(context.Background(), &ExchangeRequest{
-			Config: &api.TokenExchangeConfig{ //nolint:gosec
+			Config: &api.TokenExchangeConfig{
 				Enabled:          true,
 				DexTokenEndpoint: "https://dex.example.com/token",
 				ConnectorID:      "local-dex",
@@ -113,7 +113,7 @@ func TestTokenExchanger_Exchange_Validation(t *testing.T) {
 
 	t.Run("returns error for non-HTTPS endpoint", func(t *testing.T) {
 		_, err := exchanger.Exchange(context.Background(), &ExchangeRequest{
-			Config: &api.TokenExchangeConfig{ //nolint:gosec
+			Config: &api.TokenExchangeConfig{
 				Enabled:          true,
 				DexTokenEndpoint: "http://dex.example.com/token",
 				ConnectorID:      "local-dex",
@@ -128,7 +128,7 @@ func TestTokenExchanger_Exchange_Validation(t *testing.T) {
 	t.Run("rejects http://localhost - HTTPS required even for local", func(t *testing.T) {
 		// HTTPS is enforced for all endpoints for security
 		_, err := exchanger.Exchange(context.Background(), &ExchangeRequest{
-			Config: &api.TokenExchangeConfig{ //nolint:gosec
+			Config: &api.TokenExchangeConfig{
 				Enabled:          true,
 				DexTokenEndpoint: "http://localhost:5556/token",
 				ConnectorID:      "local-dex",
@@ -143,7 +143,7 @@ func TestTokenExchanger_Exchange_Validation(t *testing.T) {
 	t.Run("accepts HTTPS endpoint", func(t *testing.T) {
 		// Valid HTTPS endpoint should pass validation (but may fail on network)
 		_, err := exchanger.Exchange(context.Background(), &ExchangeRequest{
-			Config: &api.TokenExchangeConfig{ //nolint:gosec
+			Config: &api.TokenExchangeConfig{
 				Enabled:          true,
 				DexTokenEndpoint: "https://dex.example.com/token",
 				ConnectorID:      "local-dex",
@@ -160,7 +160,7 @@ func TestTokenExchanger_Exchange_Validation(t *testing.T) {
 		// Defense-in-depth: validate expectedIssuer uses HTTPS in code,
 		// even though CRD schema validation also enforces this
 		_, err := exchanger.Exchange(context.Background(), &ExchangeRequest{
-			Config: &api.TokenExchangeConfig{ //nolint:gosec
+			Config: &api.TokenExchangeConfig{
 				Enabled:          true,
 				DexTokenEndpoint: "https://dex.example.com/token",
 				ExpectedIssuer:   "http://dex.example.com", // Non-HTTPS issuer
@@ -176,7 +176,7 @@ func TestTokenExchanger_Exchange_Validation(t *testing.T) {
 	t.Run("accepts HTTPS expectedIssuer", func(t *testing.T) {
 		// Valid HTTPS expectedIssuer should pass validation
 		_, err := exchanger.Exchange(context.Background(), &ExchangeRequest{
-			Config: &api.TokenExchangeConfig{ //nolint:gosec
+			Config: &api.TokenExchangeConfig{
 				Enabled:          true,
 				DexTokenEndpoint: "https://dex-proxy.example.com/token",
 				ExpectedIssuer:   "https://dex.example.com",
@@ -193,7 +193,7 @@ func TestTokenExchanger_Exchange_Validation(t *testing.T) {
 	t.Run("allows empty expectedIssuer", func(t *testing.T) {
 		// Empty expectedIssuer is allowed (falls back to deriving from endpoint)
 		_, err := exchanger.Exchange(context.Background(), &ExchangeRequest{
-			Config: &api.TokenExchangeConfig{ //nolint:gosec
+			Config: &api.TokenExchangeConfig{
 				Enabled:          true,
 				DexTokenEndpoint: "https://dex.example.com/token",
 				ExpectedIssuer:   "", // Empty is allowed
@@ -232,7 +232,7 @@ func TestTokenExchanger_Cache(t *testing.T) {
 
 func TestTokenExchangeConfig(t *testing.T) {
 	t.Run("config struct holds all fields", func(t *testing.T) {
-		config := api.TokenExchangeConfig{ //nolint:gosec
+		config := api.TokenExchangeConfig{
 			Enabled:          true,
 			DexTokenEndpoint: "https://dex.remote.example.com/token",
 			ExpectedIssuer:   "https://dex.original.example.com",
@@ -251,7 +251,7 @@ func TestTokenExchangeConfig(t *testing.T) {
 		// This is the key scenario from issue #303:
 		// - DexTokenEndpoint is the proxy URL used to access Dex
 		// - ExpectedIssuer is the actual Dex issuer URL
-		config := api.TokenExchangeConfig{ //nolint:gosec
+		config := api.TokenExchangeConfig{
 			Enabled:          true,
 			DexTokenEndpoint: "https://dex-cluster.proxy.example.com/token", // Via proxy
 			ExpectedIssuer:   "https://dex.cluster.example.com",             // Original issuer
@@ -266,7 +266,7 @@ func TestTokenExchangeConfig(t *testing.T) {
 
 func TestGetExpectedIssuer(t *testing.T) {
 	t.Run("returns ExpectedIssuer when explicitly set", func(t *testing.T) {
-		config := &api.TokenExchangeConfig{ //nolint:gosec
+		config := &api.TokenExchangeConfig{
 			DexTokenEndpoint: "https://dex-proxy.example.com/token",
 			ExpectedIssuer:   "https://dex.original.example.com",
 		}
@@ -274,14 +274,14 @@ func TestGetExpectedIssuer(t *testing.T) {
 	})
 
 	t.Run("derives issuer from DexTokenEndpoint when ExpectedIssuer not set", func(t *testing.T) {
-		config := &api.TokenExchangeConfig{ //nolint:gosec
+		config := &api.TokenExchangeConfig{
 			DexTokenEndpoint: "https://dex.example.com/token",
 		}
 		assert.Equal(t, "https://dex.example.com", GetExpectedIssuer(config))
 	})
 
 	t.Run("handles /dex/token path correctly", func(t *testing.T) {
-		config := &api.TokenExchangeConfig{ //nolint:gosec
+		config := &api.TokenExchangeConfig{
 			DexTokenEndpoint: "https://dex.example.com/dex/token",
 		}
 		assert.Equal(t, "https://dex.example.com/dex", GetExpectedIssuer(config))

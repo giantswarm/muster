@@ -211,7 +211,7 @@ func TestListTokenFiles(t *testing.T) {
 	t.Run("directory with non-json files", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		// Create a non-json file
-		err := os.WriteFile(filepath.Join(tmpDir, "test.txt"), []byte("test"), 0644) //nolint:gosec
+		err := os.WriteFile(filepath.Join(tmpDir, "test.txt"), []byte("test"), 0644)
 		if err != nil {
 			t.Fatalf("failed to create test file: %v", err)
 		}
@@ -240,7 +240,7 @@ func TestReadTokenFile(t *testing.T) {
 
 	t.Run("invalid json", func(t *testing.T) {
 		tmpFile := filepath.Join(t.TempDir(), "invalid.json")
-		err := os.WriteFile(tmpFile, []byte("not valid json"), 0644) //nolint:gosec
+		err := os.WriteFile(tmpFile, []byte("not valid json"), 0644)
 		if err != nil {
 			t.Fatalf("failed to create test file: %v", err)
 		}
@@ -350,7 +350,7 @@ func TestRevokeRefreshToken(t *testing.T) {
 		if receivedMethod != http.MethodPost {
 			t.Errorf("expected POST, got %s", receivedMethod)
 		}
-		if receivedPath != "/oauth/revoke" { //nolint:goconst
+		if receivedPath != "/oauth/revoke" {
 			t.Errorf("expected path /oauth/revoke, got %s", receivedPath)
 		}
 		if receivedContentType != "application/x-www-form-urlencoded" {
@@ -455,7 +455,7 @@ func TestDeleteUserTokens(t *testing.T) {
 
 		adapter.deleteUserTokens(srv.URL, "token")
 
-		if receivedPath != "/user-tokens" { //nolint:goconst
+		if receivedPath != "/user-tokens" {
 			t.Errorf("expected path /user-tokens, got %s", receivedPath)
 		}
 	})

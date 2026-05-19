@@ -60,11 +60,11 @@ func (m *issuerMockOAuthHandler) GetHTTPHandler() http.Handler {
 }
 
 func (m *issuerMockOAuthHandler) GetCallbackPath() string {
-	return "/oauth/proxy/callback" //nolint:goconst
+	return "/oauth/proxy/callback"
 }
 
 func (m *issuerMockOAuthHandler) GetCIMDPath() string {
-	return "/.well-known/oauth-client.json" //nolint:goconst
+	return "/.well-known/oauth-client.json"
 }
 
 func (m *issuerMockOAuthHandler) ShouldServeCIMD() bool {

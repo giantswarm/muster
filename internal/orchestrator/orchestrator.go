@@ -79,7 +79,7 @@ func New(cfg Config) *Orchestrator {
 // Start initializes and starts all registered static services and creates
 // auto-start MCPServer services from MCPServer definitions.
 func (o *Orchestrator) Start(ctx context.Context) error {
-	o.ctx, o.cancelFunc = context.WithCancel(ctx) //nolint:gosec
+	o.ctx, o.cancelFunc = context.WithCancel(ctx)
 
 	staticServices := o.registry.GetAll()
 

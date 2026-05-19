@@ -66,7 +66,7 @@ func (m *mockOAuthHandler) GetFullTokenByIssuer(sessionID, issuer string) *api.O
 func TestGetIDTokenForForwarding(t *testing.T) {
 	// Valid JWT-like token with future expiry (not a real JWT, just the format for parsing).
 	// The exp claim is set to 9999999999 (year 2286) to ensure it never expires during tests.
-	validToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiZXhwIjo5OTk5OTk5OTk5fQ.signature" //nolint:goconst,gosec
+	validToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiZXhwIjo5OTk5OTk5OTk5fQ.signature"
 
 	t.Run("returns token from context when available", func(t *testing.T) {
 		ctx := context.Background()
@@ -116,7 +116,7 @@ func TestGetIDTokenForForwarding(t *testing.T) {
 	})
 
 	t.Run("context token takes priority over OAuth handler token", func(t *testing.T) {
-		storedToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjYWNoZWQiLCJleHAiOjk5OTk5OTk5OTl9.sig" //nolint:gosec
+		storedToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjYWNoZWQiLCJleHAiOjk5OTk5OTk5OTl9.sig"
 		mock := newMockOAuthHandler(true)
 		mock.StoreToken("session-abc", "user1", "https://accounts.google.com", &api.OAuthToken{IDToken: storedToken})
 		api.RegisterOAuthHandler(mock)
@@ -232,7 +232,7 @@ func TestShouldUseTokenExchange(t *testing.T) {
 			Name: "test-server",
 			AuthConfig: &api.MCPServerAuth{
 				Type: "oauth",
-				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+				TokenExchange: &api.TokenExchangeConfig{
 					Enabled:          false,
 					DexTokenEndpoint: "https://dex.example.com/token",
 					ConnectorID:      "local-dex",
@@ -275,7 +275,7 @@ func TestShouldUseTokenExchange(t *testing.T) {
 			Name: "test-server",
 			AuthConfig: &api.MCPServerAuth{
 				Type: "oauth",
-				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+				TokenExchange: &api.TokenExchangeConfig{
 					Enabled:          true,
 					DexTokenEndpoint: "https://dex.example.com/token",
 				},
@@ -289,7 +289,7 @@ func TestShouldUseTokenExchange(t *testing.T) {
 			Name: "test-server",
 			AuthConfig: &api.MCPServerAuth{
 				Type: "oauth",
-				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+				TokenExchange: &api.TokenExchangeConfig{
 					Enabled:          true,
 					DexTokenEndpoint: "https://dex.example.com/token",
 					ConnectorID:      "local-dex",
@@ -356,7 +356,7 @@ func TestLoadTokenExchangeCredentials(t *testing.T) {
 			Name: "test-server",
 			AuthConfig: &api.MCPServerAuth{
 				Type: "oauth",
-				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+				TokenExchange: &api.TokenExchangeConfig{
 					Enabled:                    true,
 					DexTokenEndpoint:           "https://dex.example.com/token",
 					ConnectorID:                "local-dex",
@@ -377,7 +377,7 @@ func TestLoadTokenExchangeCredentials(t *testing.T) {
 			Name: "test-server",
 			AuthConfig: &api.MCPServerAuth{
 				Type: "oauth",
-				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+				TokenExchange: &api.TokenExchangeConfig{
 					Enabled:          true,
 					DexTokenEndpoint: "https://dex.example.com/token",
 					ConnectorID:      "local-dex",
@@ -408,7 +408,7 @@ func TestLoadTokenExchangeCredentials(t *testing.T) {
 			Namespace: "muster",
 			AuthConfig: &api.MCPServerAuth{
 				Type: "oauth",
-				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+				TokenExchange: &api.TokenExchangeConfig{
 					Enabled:          true,
 					DexTokenEndpoint: "https://dex.example.com/token",
 					ConnectorID:      "local-dex",
@@ -445,7 +445,7 @@ func TestLoadTokenExchangeCredentials(t *testing.T) {
 			Namespace: "my-namespace",
 			AuthConfig: &api.MCPServerAuth{
 				Type: "oauth",
-				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+				TokenExchange: &api.TokenExchangeConfig{
 					Enabled:          true,
 					DexTokenEndpoint: "https://dex.example.com/token",
 					ConnectorID:      "local-dex",
@@ -477,7 +477,7 @@ func TestLoadTokenExchangeCredentials(t *testing.T) {
 			Namespace: "", // Empty namespace
 			AuthConfig: &api.MCPServerAuth{
 				Type: "oauth",
-				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+				TokenExchange: &api.TokenExchangeConfig{
 					Enabled:          true,
 					DexTokenEndpoint: "https://dex.example.com/token",
 					ConnectorID:      "local-dex",
@@ -504,7 +504,7 @@ func TestLoadTokenExchangeCredentials(t *testing.T) {
 			Namespace: "muster",
 			AuthConfig: &api.MCPServerAuth{
 				Type: "oauth",
-				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+				TokenExchange: &api.TokenExchangeConfig{
 					Enabled:          true,
 					DexTokenEndpoint: "https://dex.example.com/token",
 					ConnectorID:      "local-dex",
@@ -520,16 +520,17 @@ func TestLoadTokenExchangeCredentials(t *testing.T) {
 	})
 }
 
+
 func TestHeaderFunc_RateLimitsWarning(t *testing.T) {
 	// Set up a logger that captures output at DEBUG level so we can see all messages.
 	var logBuf bytes.Buffer
 	logging.InitForCLI(logging.LevelDebug, &logBuf)
 
 	sessionID := "test-session-rate-limit"
-	sub := "test-user"                        //nolint:goconst
-	musterIssuer := "https://dex.example.com" //nolint:goconst
-	serverName := "test-server"               //nolint:goconst
-	fallbackToken := "original-token"         //nolint:goconst
+	sub := "test-user"
+	musterIssuer := "https://dex.example.com"
+	serverName := "test-server"
+	fallbackToken := "original-token"
 
 	// No OAuth handler registered means getIDTokenForForwarding always returns "".
 	api.RegisterOAuthHandler(nil)
@@ -561,7 +562,7 @@ func TestHeaderFunc_RateLimitsWarning(t *testing.T) {
 	assert.NotContains(t, thirdCallLogs, "WARN", "third call should NOT emit a WARN")
 
 	// Now simulate token recovery by registering an OAuth handler with a token.
-	validToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiZXhwIjo5OTk5OTk5OTk5fQ.signature" //nolint:gosec
+	validToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiZXhwIjo5OTk5OTk5OTk5fQ.signature"
 	mock := newMockOAuthHandler(true)
 	mock.StoreToken(sessionID, "", musterIssuer, &api.OAuthToken{IDToken: validToken})
 	api.RegisterOAuthHandler(mock)
@@ -654,7 +655,7 @@ func TestHeaderFunc_ResetsFailureCountOnRecovery(t *testing.T) {
 	assert.Equal(t, int32(0), evictCount.Load(), "should not evict before threshold")
 
 	// Recover by providing a valid token.
-	validToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiZXhwIjo5OTk5OTk5OTk5fQ.signature" //nolint:gosec
+	validToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiZXhwIjo5OTk5OTk5OTk5fQ.signature"
 	mock := newMockOAuthHandler(true)
 	mock.StoreToken(sessionID, "", musterIssuer, &api.OAuthToken{IDToken: validToken})
 	api.RegisterOAuthHandler(mock)
