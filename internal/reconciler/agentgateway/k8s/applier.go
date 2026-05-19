@@ -23,9 +23,6 @@ type Config struct {
 	// GatewayNamespace is the namespace of the Gateway. Empty means the
 	// HTTPRoute targets a Gateway in the same namespace as the MCPServer.
 	GatewayNamespace string
-	// UpdateConflictRetries caps the number of CreateOrUpdate retries on
-	// conflict per object. Zero selects a sensible default.
-	UpdateConflictRetries int
 }
 
 // Applier persists an agentgateway.Config into a Kubernetes cluster.
@@ -40,9 +37,6 @@ type Applier struct {
 // emitted object so deletion of the MCPServer cascades to the agentgateway
 // stack. Defaults are applied for Config fields left at the zero value.
 func NewApplier(c client.Client, ownerRef metav1.OwnerReference, cfg Config) *Applier {
-	if cfg.UpdateConflictRetries <= 0 {
-		cfg.UpdateConflictRetries = 3
-	}
 	return &Applier{client: c, ownerRef: ownerRef, cfg: cfg}
 }
 

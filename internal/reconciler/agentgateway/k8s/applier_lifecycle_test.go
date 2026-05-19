@@ -14,6 +14,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	agw "github.com/agentgateway/agentgateway/controller/api/v1alpha1/agentgateway"
 
@@ -163,4 +164,58 @@ func TestApply_DeletionCascade_OwnerRefsAreControllerBlocking(t *testing.T) {
 	backend := &agw.AgentgatewayBackend{}
 	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: ownerNamespace, Name: ownerName}, backend))
 	checkRef(backend.OwnerReferences)
+}
+
+func TestApply_HTTPRouteSpec_FullOwnership_RevertsExternalEdits(t *testing.T) {
+	t.Parallel()
+
+	c := newClient(t)
+	a := newApplier(c)
+	require.NoError(t, a.Apply(t.Context(), streamableConfig()))
+
+	route := &gwv1.HTTPRoute{}
+	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: ownerNamespace, Name: ownerName}, route))
+
+	requestMirror := gwv1.HTTPRouteFilterRequestMirror
+	route.Spec.Rules[0].Filters = []gwv1.HTTPRouteFilter{{Type: requestMirror}}
+	extraParent := gwv1.ParentReference{Name: gwv1.ObjectName("other-gateway")}
+	route.Spec.ParentRefs = append(route.Spec.ParentRefs, extraParent)
+	require.NoError(t, c.Update(t.Context(), route))
+
+	require.NoError(t, a.Apply(t.Context(), streamableConfig()))
+
+	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: ownerNamespace, Name: ownerName}, route))
+	require.Len(t, route.Spec.ParentRefs, 1, "external ParentRef must be reverted (full-ownership contract)")
+	require.Equal(t, gwv1.ObjectName(gatewayName), route.Spec.ParentRefs[0].Name)
+	require.Len(t, route.Spec.Rules, 1)
+	require.Empty(t, route.Spec.Rules[0].Filters, "external Filters must be reverted (full-ownership contract)")
+}
+
+func TestApply_RecreatedMCPServer_ReplacesStaleOwnerRefInPlace(t *testing.T) {
+	t.Parallel()
+
+	c := newClient(t)
+	require.NoError(t, newApplier(c).Apply(t.Context(), streamableConfig()))
+
+	backend := &agw.AgentgatewayBackend{}
+	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: ownerNamespace, Name: ownerName}, backend))
+	require.Len(t, backend.OwnerReferences, 1)
+	require.Equal(t, types.UID(ownerUID), backend.OwnerReferences[0].UID)
+
+	const recreatedUID = "u-5678"
+	recreatedRef := ownerRef()
+	recreatedRef.UID = types.UID(recreatedUID)
+	recreated := k8s.NewApplier(c, recreatedRef, k8s.Config{GatewayName: gatewayName, GatewayNamespace: gatewayNS})
+	require.NoError(t, recreated.Apply(t.Context(), streamableConfig()))
+
+	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: ownerNamespace, Name: ownerName}, backend))
+	require.Len(t, backend.OwnerReferences, 1, "stale ownerRef from previous MCPServer incarnation must be replaced, not appended")
+	require.Equal(t, types.UID(recreatedUID), backend.OwnerReferences[0].UID)
+	require.Equal(t, ownerName, backend.OwnerReferences[0].Name)
+	require.Equal(t, ownerKind, backend.OwnerReferences[0].Kind)
+	require.Equal(t, ownerAPIVersion, backend.OwnerReferences[0].APIVersion)
+	require.NotNil(t, backend.OwnerReferences[0].Controller)
+	require.True(t, *backend.OwnerReferences[0].Controller)
+	require.NotNil(t, backend.OwnerReferences[0].BlockOwnerDeletion)
+	require.True(t, *backend.OwnerReferences[0].BlockOwnerDeletion)
 }
