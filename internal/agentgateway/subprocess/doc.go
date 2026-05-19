@@ -9,8 +9,6 @@
 //     escalates to SIGKILL. The whole process group is signalled so any
 //     children the process spawned (e.g. agentgateway's own stdio MCP
 //     children) terminate with it.
-//   - Reload sends SIGHUP. agentgateway watches its config directory
-//     natively, so Reload is belt-and-suspenders.
 //   - If the process exits unexpectedly the Manager restarts it with
 //     capped exponential backoff.
 //

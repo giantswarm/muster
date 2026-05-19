@@ -47,13 +47,12 @@ agent: "Connect to Prometheus"
 Traditional approach requires manual coordination:
 ```bash
 1. Start Kubernetes MCP server
-2. Start Teleport MCP server
-3. Start Prometheus MCP server
-4. Manually: x_teleport_kube_login(cluster="my-cluster")
-5. Manually: x_kubernetes_port_forward(service="prometheus", port=9090)
-6. Manually: x_prometheus_query(query="up", endpoint="localhost:9090")
-7. Remember to clean up port-forwards
-8. Stop unused MCP servers
+2. Start Prometheus MCP server
+3. Manually: x_kubernetes_login(cluster="my-cluster")
+4. Manually: x_kubernetes_port_forward(service="prometheus", port=9090)
+5. Manually: x_prometheus_query(query="up", endpoint="localhost:9090")
+6. Remember to clean up port-forwards
+7. Stop unused MCP servers
 ```
 
 ## How Muster Solves These Problems
@@ -82,7 +81,7 @@ agent: "Connect to monitoring in the staging cluster in the eu-west-1 region"
 → workflow_connect-monitoring(region="eu-west-1", cluster="staging")
 
 # Automatically handles:
-# ✓ Authentication (Teleport login)
+# ✓ Authentication (cluster login)
 # ✓ Port forwarding setup
 # ✓ Service health checks
 # ✓ Cleanup on completion

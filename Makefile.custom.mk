@@ -51,6 +51,25 @@ govulncheck: ## Run govulncheck to scan for known vulnerabilities
 	@command -v govulncheck >/dev/null 2>&1 || { echo "Installing govulncheck..."; go install golang.org/x/vuln/cmd/govulncheck@latest; }
 	@govulncheck ./...
 
+.PHONY: verify-checksums
+verify-checksums: ## Diff pinned agentgateway SHA-256 constants against upstream release .sha256 files.
+	@set -euo pipefail; \
+	version=$$(awk -F'"' '/^const PinnedVersion/ {print $$2}' internal/agentgateway/binary/resolver.go); \
+	if [ -z "$$version" ]; then echo "could not parse PinnedVersion"; exit 1; fi; \
+	echo "Verifying pinned checksums against agentgateway v$$version..."; \
+	rc=0; \
+	for asset in agentgateway-linux-amd64 agentgateway-linux-arm64 agentgateway-darwin-arm64 agentgateway-windows-amd64.exe; do \
+		upstream=$$(curl -fsSL "https://github.com/agentgateway/agentgateway/releases/download/v$${version}/$${asset}.sha256" | awk '{print $$1}'); \
+		pinned=$$(awk -v key="\"$${asset}/$${version}\":" '$$1==key {gsub(/[",]/,"",$$2); print $$2}' internal/agentgateway/binary/checksums.go); \
+		if [ -z "$$pinned" ]; then echo "MISSING pinned entry for $$asset/$$version"; rc=1; continue; fi; \
+		if [ "$$upstream" != "$$pinned" ]; then \
+			echo "MISMATCH $$asset: upstream=$$upstream pinned=$$pinned"; rc=1; \
+		else \
+			echo "OK       $$asset $$pinned"; \
+		fi; \
+	done; \
+	exit $$rc
+
 # Note: These targets require Docker and 'act' to be installed.
 # See: https://github.com/nektos/act#installation
 

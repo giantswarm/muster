@@ -263,28 +263,28 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Name:        "service_start",
 			Description: "Start a specific service",
 			Args: []api.ArgMetadata{
-				{Name: "name", Type: "string", Required: true, Description: "Service name to start"},
+				{Name: "name", Type: api.ArgTypeString, Required: true, Description: "Service name to start"},
 			},
 		},
 		{
 			Name:        "service_stop",
 			Description: "Stop a specific service",
 			Args: []api.ArgMetadata{
-				{Name: "name", Type: "string", Required: true, Description: "Service name to stop"},
+				{Name: "name", Type: api.ArgTypeString, Required: true, Description: "Service name to stop"},
 			},
 		},
 		{
 			Name:        "service_restart",
 			Description: "Restart a specific service",
 			Args: []api.ArgMetadata{
-				{Name: "name", Type: "string", Required: true, Description: "Service name to restart"},
+				{Name: "name", Type: api.ArgTypeString, Required: true, Description: "Service name to restart"},
 			},
 		},
 		{
 			Name:        "service_status",
 			Description: "Get status of a specific service",
 			Args: []api.ArgMetadata{
-				{Name: "name", Type: "string", Required: true, Description: "Service name to get status for"},
+				{Name: "name", Type: api.ArgTypeString, Required: true, Description: "Service name to get status for"},
 			},
 		},
 	}

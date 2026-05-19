@@ -42,7 +42,7 @@ All inter-package communication goes through `internal/api`. This is the most cr
 - Each service package creates an `api_adapter.go` implementing the handler interface
 - Adapters register themselves via `api.RegisterXxx()` functions
 - Consumers retrieve handlers via `api.GetXxx()` — **never import service packages directly**
-- **Anti-pattern**: Never import `workflow`, `mcpserver`, `serviceclass`, or `service` packages directly
+- **Anti-pattern**: Never import `workflow` or `mcpserver` packages directly
 
 ### Key Packages
 
@@ -52,7 +52,6 @@ All inter-package communication goes through `internal/api`. This is the most cr
 - **`internal/aggregator/`** — MCP server aggregation, registry, transports (SSE, stdio, streamable-http)
 - **`internal/agent/`** — MCP client, interactive REPL, MCP server mode for AI assistants
 - **`internal/mcpserver/`** — MCP server process management and health checking
-- **`internal/serviceclass/`** — ServiceClass prerequisites management
 - **`internal/workflow/`** — Workflow definitions, execution engine, templating
 - **`internal/orchestrator/`** — Service lifecycle orchestration and state machine
 - **`internal/reconciler/agentgateway/`** — MCPServer→agentgateway Config compiler + Applier port; `k8s/` and `yaml/` adapters
@@ -90,4 +89,4 @@ All inter-package communication goes through `internal/api`. This is the most cr
 - Default: `~/.config/muster/config.yaml`
 - Project: `./.muster/config.yaml`
 - Custom: `--config-path` flag
-- Entity definitions: `{configPath}/{workflows,mcpservers,serviceclasses,services}/`
+- Entity definitions: `{configPath}/{workflows,mcpservers}/`

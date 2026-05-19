@@ -84,8 +84,8 @@ func TestAuthManager_CheckConnection_WithValidToken(t *testing.T) {
 	defer func() { _ = mgr.Close() }()
 
 	// Pre-store a valid token
-	serverURL := "https://muster.example.com" //nolint:goconst
-	issuerURL := "https://dex.example.com"    //nolint:goconst
+	serverURL := "https://muster.example.com"
+	issuerURL := "https://dex.example.com"
 	token := &StoredToken{
 		AccessToken: "valid-token",
 		TokenType:   "Bearer",
@@ -382,7 +382,7 @@ func TestAuthManager_HasValidTokenForEndpoint_UpdatesFromPendingAuth(t *testing.
 
 	// Now simulate CLI authentication by storing a token directly
 	issuerURL := "https://oauth.example.com"
-	token := &StoredToken{ //nolint:gosec
+	token := &StoredToken{
 		AccessToken: "cli-auth-token",
 		TokenType:   "Bearer",
 		Expiry:      time.Now().Add(1 * time.Hour),
@@ -513,7 +513,7 @@ func TestAuthManager_GetStoredTokenForEndpoint(t *testing.T) {
 
 	t.Run("returns expired token for silent re-auth hints", func(t *testing.T) {
 		// Store an expired token with an ID token (used for login hints)
-		expiredToken := &StoredToken{ //nolint:gosec
+		expiredToken := &StoredToken{
 			AccessToken:  "expired-access-token",
 			RefreshToken: "expired-refresh-token",
 			TokenType:    "Bearer",
@@ -609,7 +609,7 @@ func TestAuthFlowOptions(t *testing.T) {
 	})
 
 	t.Run("silent mode options", func(t *testing.T) {
-		opts := &AuthFlowOptions{ //nolint:gosec
+		opts := &AuthFlowOptions{
 			Silent:      true,
 			LoginHint:   "user@example.com",
 			IDTokenHint: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
