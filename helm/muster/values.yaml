@@ -215,8 +215,10 @@ muster:
   # MCPServer; agentgateway acts as transparent L7 middleware while muster
   # retains token exchange, server-family grouping, and ADR-006 filtering.
   # The chart ships no agentgateway Service template — agentgateway is
-  # deployed out-of-band; point upstreamURL at whichever Service routes to
-  # its pods. Empty values make muster fail at startup.
+  # deployed out-of-band. When unset, the chart defaults to the Giant Swarm
+  # convention of an `agentgateway` Service in the release namespace
+  # (http://agentgateway.<namespace>.svc.cluster.local:8080). Override for
+  # any divergent topology.
   agentgateway:
     upstreamURL: ""
 

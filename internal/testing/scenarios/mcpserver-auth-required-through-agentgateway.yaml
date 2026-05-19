@@ -1,0 +1,82 @@
+name: "mcpserver-auth-required-through-agentgateway"
+description: "OAuth-protected MCPServer dialed through agentgateway lands in auth_required state with WWW-Authenticate intact"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "oauth", "agentgateway", "auth-required", "pr-11"]
+timeout: "2m"
+
+# PR 11 routes every external-MCPServer dial through agentgateway. This
+# scenario asserts that a 401 + WWW-Authenticate challenge from the
+# upstream survives the round-trip and produces the same auth_required
+# state muster used to produce via direct dial. Process-topology and
+# RFC 9728 resource_metadata-header preservation are covered by
+# internal/testing/integration/agw_auth_proxy_test.go; this scenario
+# proves the surface-level outcome (auth-required state + synthetic
+# auth tool) the user actually sees through muster's API.
+#
+# Requires the agentgateway binary; the harness's MUSTER_AGW_BINARY env
+# is consumed by internal/agentgateway/binary.Resolve.
+
+pre_configuration:
+  mock_oauth_servers:
+    - name: "protected-idp"
+      scopes: ["openid", "profile"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "muster-client"
+      client_secret: "muster-secret"
+
+  mcp_servers:
+    - name: "protected-backend"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "protected-idp"
+        tools:
+          - name: "ping"
+            description: "Authenticated ping"
+            responses:
+              - response:
+                  source: "protected-backend"
+                  status: "ok"
+
+steps:
+  - id: "verify-registered"
+    description: "Protected MCPServer must register through agentgateway"
+    tool: "core_mcpserver_list"
+    expected:
+      success: true
+      contains: ["protected-backend"]
+
+  - id: "verify-auth-required-state"
+    description: "RegisterUpstream catches the upstream 401 (proxied verbatim by agentgateway) and registers pending-auth"
+    tool: "core_mcpserver_get"
+    args:
+      name: "protected-backend"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "protected-backend"
+        state: "auth_required"
+
+  - id: "verify-synthetic-auth-tool"
+    description: "Pending-auth state must surface the synthetic core_auth_login tool"
+    tool: "core_mcpserver_get"
+    args:
+      name: "protected-backend"
+    expected:
+      success: true
+      contains: ["protected-idp"]
+
+cleanup:
+  - id: "cleanup-protected-backend"
+    description: "Delete the protected MCPServer so the next scenario starts clean"
+    tool: "core_mcpserver_delete"
+    args:
+      name: "protected-backend"
+    expected:
+      success: true
+    continue_on_failure: true

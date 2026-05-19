@@ -71,13 +71,18 @@ Create the namespace for muster resource discovery
 
 {{/*
 Resolve the agentgateway upstream URL muster's aggregator dials. Operators
-override via .Values.muster.agentgateway.upstreamURL. The chart ships no
-agentgateway Service template; agentgateway must be deployed out-of-band
-and the override pointed at whatever Service routes to its pods. Empty
-output makes muster fail loudly at startup.
+override via .Values.muster.agentgateway.upstreamURL; otherwise the chart
+guesses at the Giant Swarm convention of an `agentgateway` Service deployed
+in the same namespace as muster, listening on the default agentgateway
+port. Confirm and pin the canonical name in a follow-up; until then,
+operators with a divergent topology MUST override.
 */}}
 {{- define "muster.agentgatewayUpstreamURL" -}}
-{{- .Values.muster.agentgateway.upstreamURL | default "" }}
+{{- if .Values.muster.agentgateway.upstreamURL }}
+{{- .Values.muster.agentgateway.upstreamURL }}
+{{- else }}
+{{- printf "http://agentgateway.%s.svc.cluster.local:8080" .Release.Namespace }}
+{{- end }}
 {{- end }}
 
 {{/*
