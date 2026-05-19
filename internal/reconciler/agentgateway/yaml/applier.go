@@ -9,6 +9,12 @@ import (
 	"strings"
 	"sync"
 
+	// gopkg.in/yaml.v3 is in maintenance mode. sigs.k8s.io/yaml is the
+	// Kubernetes-ecosystem standard, but it marshals via JSON tags rather
+	// than yaml tags — the LocalConfig types in local_types.go carry yaml
+	// tags only (to match agentgateway's native config field layout), so
+	// staying on yaml.v3 here is the deliberate choice. Revisit if the
+	// upstream schema starts requiring fields whose JSON/yaml names diverge.
 	goyaml "gopkg.in/yaml.v3"
 	"k8s.io/apimachinery/pkg/util/validation"
 
@@ -106,6 +112,11 @@ func (a *Applier) Apply(ctx context.Context, config agentgateway.Config) error {
 	mu.Lock()
 	defer mu.Unlock()
 
+	// File-size budget assumption: emitted MCPServer configs sit at <2 KB
+	// today (single bind, single listener, single route, single backend).
+	// Reading the whole file to skip an unchanged-write is fine at that
+	// scale. If the schema ever grows multi-MCPServer or multi-route
+	// configs into the hundreds of KB, switch to a hash sidecar.
 	targetName := name + fileExt
 	if existing, err := a.root.ReadFile(targetName); err == nil && bytes.Equal(existing, payload) {
 		return nil
@@ -271,8 +282,14 @@ func httpEndpoint(name string, t agentgateway.HTTPTarget) (*McpTargetEndpoint, e
 	}, nil
 }
 
+// policyFor emits the filesystem-mode equivalent of the cluster-mode
+// AgentgatewayPolicy. Today only Authn.ForwardToken maps to a concrete
+// agentgateway construct (Passthrough); RequiredAudiences, TokenExchange,
+// and AuthorizationServer are documented as cluster-only on the domain
+// Authn doc and are silently dropped here. A future filesystem-mode wiring
+// for those features should extend FilterOrPolicy and update this mapper.
 func policyFor(p agentgateway.Policy) *FilterOrPolicy {
-	if !p.Authn.ForwardToken {
+	if !p.Authn.RequiresPolicy() || !p.Authn.ForwardToken {
 		return nil
 	}
 	return &FilterOrPolicy{

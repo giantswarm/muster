@@ -106,6 +106,17 @@ const (
 // AuthorizationServer is rejected at NewConfig time — the type discriminator
 // must be set explicitly to AuthnTypeOAuth for AuthorizationServer to take
 // effect. CRD validation does not enforce this today.
+//
+// Adapter-specific support:
+//
+//   - The k8s adapter (cluster mode) materialises Authn into the full
+//     AgentgatewayPolicy stack: ForwardToken → BackendAuth.Passthrough,
+//     plus RequiredAudiences, TokenExchange, and AuthorizationServer
+//     surfacing on the policy where the upstream CRD supports them.
+//   - The yaml adapter (filesystem mode) only maps ForwardToken today;
+//     RequiredAudiences, TokenExchange, and AuthorizationServer are
+//     silently dropped because the agentgateway native config in
+//     filesystem mode does not yet expose those features.
 type Authn struct {
 	Type                AuthnType
 	ForwardToken        bool
