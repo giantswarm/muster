@@ -218,20 +218,6 @@ func TestApply_CustomListenerPort(t *testing.T) {
 	require.Equal(t, uint16(9090), cfg.Binds[0].Port)
 }
 
-func TestApply_CustomListenerName(t *testing.T) {
-	dir := t.TempDir()
-	a, err := yamlapply.NewApplier(dir, yamlapply.WithListenerName("alt"))
-	require.NoError(t, err)
-
-	require.NoError(t, a.Apply(t.Context(), canonicalConfig()))
-
-	raw := readInDir(t, dir, yamlapply.ConfigFilename)
-
-	var cfg yamlapply.LocalConfig
-	require.NoError(t, goyaml.Unmarshal(raw, &cfg))
-	require.Equal(t, "alt", cfg.Binds[0].Listeners[0].Name)
-}
-
 func TestApply_MultipleMCPServersShareOneListener(t *testing.T) {
 	dir := t.TempDir()
 	a, err := yamlapply.NewApplier(dir)

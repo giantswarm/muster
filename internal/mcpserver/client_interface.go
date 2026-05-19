@@ -9,9 +9,9 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-// MCPClient defines the interface for MCP client implementations.
-// All transport types (stdio, SSE, streamable-http) implement this interface,
-// enabling polymorphic usage and easier testing with mocks.
+// MCPClient defines the interface for MCP client implementations. Every
+// upstream dial goes through agentgateway as streamable-http (PR 11), so
+// StreamableHTTPClient and DynamicAuthClient are the only transports.
 type MCPClient interface {
 	// Initialize establishes the connection and performs protocol handshake
 	Initialize(ctx context.Context) error
@@ -39,8 +39,6 @@ type MCPClient interface {
 
 // Compile-time interface compliance checks
 var (
-	_ MCPClient = (*StdioClient)(nil)
-	_ MCPClient = (*SSEClient)(nil)
 	_ MCPClient = (*StreamableHTTPClient)(nil)
 	_ MCPClient = (*DynamicAuthClient)(nil)
 )

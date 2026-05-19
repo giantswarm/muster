@@ -242,13 +242,8 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	orchestratorAPI := api.NewOrchestratorAPI()
 	configAPI := api.NewConfigServiceAPI()
 
-	// Step 4: Create and register actual services
-	// Note: Service creation (including MCPServer services) is handled by the orchestrator
-	// during its Start() method. The orchestrator manages dependencies and lifecycle.
-
 	// aggManager is constructed inside the registryHandler block and bound to
-	// the Services struct so runOrchestrator can start/stop it directly,
-	// bypassing the orchestrator service registry.
+	// the Services struct so runOrchestrator can start/stop it directly.
 	var aggManager *aggregator.AggregatorManager
 
 	// Need to get the service registry handler from the registry adapter
@@ -452,8 +447,8 @@ func InitializeServices(cfg *Config) (*Services, error) {
 }
 
 // aggregatorErrorCallback is the sink for fatal async errors surfaced by the
-// aggregator server's background goroutines. With the BaseService wrapper
-// gone, the operator's only signal is a log line; restart is the user's call.
+// aggregator server's background goroutines. The operator's only signal is a
+// log line; restart is the user's call.
 func aggregatorErrorCallback(err error) {
 	logging.Error("Aggregator", err, "Aggregator manager encountered a fatal error")
 }
@@ -573,10 +568,6 @@ func mergeOAuthServerConfig(cfg *Config) config.OAuthServerConfig {
 
 	return serverCfg
 }
-
-// Note: Removed the individual adapter creation functions as they're now replaced by the unified muster client approach
-
-// Note: MCPServer service creation moved to orchestrator for proper dependency management
 
 // buildMCPServerReconciler wires the MCPServer reconciler for the active mode.
 // The reconciler itself is mode-agnostic; the per-mode applier construction

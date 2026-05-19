@@ -22,7 +22,7 @@ const SchemaURL = "https://raw.githubusercontent.com/agentgateway/agentgateway/r
 const DefaultListenerPort uint16 = 8080
 
 // DefaultListenerName is the stable name of the listener that owns every
-// per-MCPServer route in the combined config. Overridable via WithListenerName.
+// per-MCPServer route in the combined config.
 const DefaultListenerName = "muster"
 
 // ConfigFilename is the basename of the single combined agentgateway config
@@ -50,11 +50,6 @@ type Option func(*Applier)
 // WithListenerPort overrides the bind port written into the combined file.
 func WithListenerPort(port uint16) Option {
 	return func(a *Applier) { a.listenerPort = port }
-}
-
-// WithListenerName overrides the stable listener name in the combined file.
-func WithListenerName(name string) Option {
-	return func(a *Applier) { a.listenerName = name }
 }
 
 // WithAdminAddr overrides agentgateway's admin / stats / readiness listener
