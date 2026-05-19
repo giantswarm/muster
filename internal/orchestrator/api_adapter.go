@@ -61,6 +61,7 @@ func (a *Adapter) StartService(name string) error {
 		return a.orchestrator.StartService(name)
 	}
 	if agg := api.GetAggregator(); agg != nil {
+		agg.MarkUserStarted(name)
 		return agg.RegisterUpstream(context.Background(), name)
 	}
 	return a.orchestrator.StartService(name)
@@ -71,6 +72,7 @@ func (a *Adapter) StopService(name string) error {
 		return a.orchestrator.StopService(name)
 	}
 	if agg := api.GetAggregator(); agg != nil {
+		agg.MarkUserStopped(name)
 		return agg.DeregisterUpstream(context.Background(), name)
 	}
 	return a.orchestrator.StopService(name)
@@ -82,6 +84,7 @@ func (a *Adapter) RestartService(name string) error {
 	}
 	if agg := api.GetAggregator(); agg != nil {
 		ctx := context.Background()
+		agg.MarkUserStarted(name)
 		if err := agg.DeregisterUpstream(ctx, name); err != nil {
 			return err
 		}

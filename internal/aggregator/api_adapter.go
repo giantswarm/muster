@@ -158,6 +158,22 @@ func (a *APIAdapter) UpstreamServerState(name string) api.UpstreamServerState {
 	return a.manager.UpstreamServerState(name)
 }
 
+// MarkUserStopped forwards to AggregatorManager.MarkUserStopped.
+func (a *APIAdapter) MarkUserStopped(name string) {
+	if a.manager == nil {
+		return
+	}
+	a.manager.MarkUserStopped(name)
+}
+
+// MarkUserStarted forwards to AggregatorManager.MarkUserStarted.
+func (a *APIAdapter) MarkUserStarted(name string) {
+	if a.manager == nil {
+		return
+	}
+	a.manager.MarkUserStarted(name)
+}
+
 func (a *APIAdapter) server() (*AggregatorServer, error) {
 	if a.manager == nil {
 		return nil, fmt.Errorf("aggregator manager not available")

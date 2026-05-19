@@ -137,6 +137,16 @@ type AggregatorHandler interface {
 	// UpstreamServerState reports the current registration state of an upstream
 	// MCPServer. The reconciler reads this for CRD status sync.
 	UpstreamServerState(name string) UpstreamServerState
+
+	// MarkUserStopped records operator intent to keep the named MCPServer
+	// deregistered; RegisterUpstream becomes a no-op until MarkUserStarted
+	// clears the record. Without this, core_service_stop would be undone
+	// by the reconciler's next periodic RegisterUpstream pulse.
+	MarkUserStopped(name string)
+
+	// MarkUserStarted clears any operator-stop record set by MarkUserStopped
+	// so the next reconciler pass actually dials the upstream.
+	MarkUserStarted(name string)
 }
 
 // UpstreamServerState enumerates the aggregator's view of an upstream MCPServer.
