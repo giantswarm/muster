@@ -86,6 +86,11 @@ type MCPServerCreateRequest struct {
 	// Auth configures authentication behavior for this MCP server.
 	// This is only relevant for remote servers (streamable-http or sse).
 	Auth *MCPServerAuth `json:"auth,omitempty"`
+
+	// Suspended pauses agentgateway reconciliation for this MCPServer.
+	// When true, the reconciler removes the MCPServer's agentgateway config
+	// and deregisters the aggregator upstream.
+	Suspended *bool `json:"suspended,omitempty"`
 }
 
 // MCPServerUpdateRequest represents a request to update an existing MCP server definition.
@@ -126,6 +131,12 @@ type MCPServerUpdateRequest struct {
 
 	// Auth configures authentication behavior for this MCP server.
 	Auth *MCPServerAuth `json:"auth,omitempty"`
+
+	// Suspended pauses agentgateway reconciliation for this MCPServer.
+	// When non-nil, the value replaces spec.suspended; nil leaves the
+	// existing value untouched (so partial updates that omit suspended do
+	// not silently un-suspend).
+	Suspended *bool `json:"suspended,omitempty"`
 }
 
 // MCPServerValidateRequest represents a request to validate an MCP server definition

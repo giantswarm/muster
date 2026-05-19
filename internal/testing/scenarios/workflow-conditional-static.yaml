@@ -134,11 +134,12 @@ steps:
       steps.1.id: "always-execute"
       steps.1.status: "completed"
 
-# Stop probe-target so the next workflow exercises expect_not on the from_step result
-- id: "stop-probe-target"
-  tool: "core_service_stop"
+# Suspend probe-target so the next workflow exercises expect_not on the from_step result
+- id: "suspend-probe-target"
+  tool: "core_mcpserver_update"
   args:
     name: "probe-target"
+    suspended: true
   expected:
     success: true
 
@@ -186,10 +187,11 @@ steps:
       steps.3.status: "completed"
 
 cleanup:
-  - id: "restart-probe-target"
-    tool: "core_service_start"
+  - id: "resume-probe-target"
+    tool: "core_mcpserver_update"
     args:
       name: "probe-target"
+      suspended: false
     expected:
       success: true
     continue_on_failure: true

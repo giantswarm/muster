@@ -1,0 +1,99 @@
+name: "mcpserver-suspended-resumed"
+description: "MCPServer.spec.suspended pause/resume cycle: applied → suspended → resumed → suspended (idempotent) → resumed (idempotent), asserting Disconnected/Connected and a no-op suspend when already suspended."
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "suspended", "lifecycle", "core-api"]
+timeout: "2m"
+
+# Replaces the legacy service-state-static.yaml. The orchestrator-driven
+# core_service_{start,stop,restart} tools were removed in PR 15; pause / resume
+# is now declarative through MCPServer.spec.suspended via core_mcpserver_update.
+
+pre_configuration:
+  mcp_servers:
+    - name: "static-svc"
+      config:
+        type: "streamable-http"
+        tools:
+          - name: "ping"
+            input_schema:
+              type: "object"
+              properties: {}
+            responses:
+              - response:
+                  status: "ok"
+
+steps:
+  - id: "verify-initial-connected"
+    tool: "core_service_status"
+    args:
+      name: "static-svc"
+    expected:
+      success: true
+      json_path:
+        name: "static-svc"
+        state: "connected"
+
+  - id: "suspend-running-mcpserver"
+    tool: "core_mcpserver_update"
+    args:
+      name: "static-svc"
+      suspended: true
+    expected:
+      success: true
+
+  - id: "verify-disconnected-after-suspend"
+    tool: "core_service_status"
+    args:
+      name: "static-svc"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "static-svc"
+        state: "disconnected"
+
+  - id: "suspend-already-suspended"
+    tool: "core_mcpserver_update"
+    args:
+      name: "static-svc"
+      suspended: true
+    expected:
+      success: true
+
+  - id: "resume-suspended-mcpserver"
+    tool: "core_mcpserver_update"
+    args:
+      name: "static-svc"
+      suspended: false
+    expected:
+      success: true
+
+  - id: "verify-connected-after-resume"
+    tool: "core_service_status"
+    args:
+      name: "static-svc"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "static-svc"
+        state: "connected"
+
+  - id: "resume-already-running"
+    tool: "core_mcpserver_update"
+    args:
+      name: "static-svc"
+      suspended: false
+    expected:
+      success: true
+
+cleanup:
+  - id: "ensure-suspended-for-isolation"
+    tool: "core_mcpserver_update"
+    args:
+      name: "static-svc"
+      suspended: true
+    expected:
+      success: true
+    continue_on_failure: true

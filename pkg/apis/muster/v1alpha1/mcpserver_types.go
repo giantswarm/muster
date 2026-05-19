@@ -87,6 +87,17 @@ type MCPServerSpec struct {
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=300
 	Timeout int `json:"timeout,omitempty" yaml:"timeout,omitempty"`
+
+	// Suspended pauses reconciliation of the agentgateway data plane for this
+	// MCPServer. When true, the reconciler removes the MCPServer's
+	// agentgateway config: in cluster mode the AgentgatewayBackend / HTTPRoute /
+	// AgentgatewayPolicy resources are deleted (the upstream pod tears down
+	// via OwnerReferences cascade); in filesystem mode the matching
+	// mcp.targets[] entry is removed from the combined agentgateway.yaml
+	// (agentgateway loses the stdio child or HTTP route). The CRD persists;
+	// flip back to false to resume.
+	// +kubebuilder:default=false
+	Suspended *bool `json:"suspended,omitempty" yaml:"suspended,omitempty"`
 }
 
 // MCPServerAuth configures authentication behavior for an MCP server.
@@ -356,6 +367,13 @@ const (
 	// For http/sse: endpoint unreachable (network error, DNS failure, etc.).
 	MCPServerStateFailed MCPServerStateValue = "Failed"
 )
+
+// ConditionTypeSuspended is the MCPServer status condition raised when
+// spec.suspended is true. The reconciler skips emitting the agentgateway
+// config and deregisters the aggregator's upstream; setting the condition
+// to False on the next non-suspended reconcile is sufficient (the condition
+// is removed by reconcile-driven status sync, not by a finalizer).
+const ConditionTypeSuspended = "Suspended"
 
 // MCPServerStatus defines the observed state of MCPServer.
 //

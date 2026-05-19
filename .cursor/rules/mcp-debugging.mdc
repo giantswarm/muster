@@ -66,7 +66,7 @@ alwaysApply: false
     ```
   - 3. If a service shows as unhealthy:
       1. Check its detailed status: `core_service_status`
-      2. Try restarting it: `core_service_restart`
+      2. Force a reconnect: `core_mcpserver_reconnect`
       3. Check if its MCP client is attached in the service list
   - 4. Workflow validation fails:
     - Use `core_workflow_validate` to check syntax
@@ -110,8 +110,8 @@ alwaysApply: false
     ```
   - Service Recovery
     ```
-    # Restart failed services
-    mcp_mcp-debug_call_tool(name="core_service_restart", arguments={"label": "<service-name>"})
+    # Force-reconnect a stuck MCPServer (e.g. after OAuth token rotation)
+    mcp_mcp-debug_call_tool(name="core_mcpserver_reconnect", arguments={"name": "<server-name>"})
 
     # Check detailed status
     mcp_mcp-debug_call_tool(name="core_service_status", arguments={"label": "<service-name>"})

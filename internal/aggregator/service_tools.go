@@ -6,15 +6,14 @@ import (
 	"fmt"
 
 	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/internal/mcpserver"
 )
 
 // ServiceToolAdapter implements api.ServiceManagerHandler so the legacy
-// core_service_{list,start,stop,restart,status} MCP tools keep working
-// against MCPServer names. After PR 11 there are no "services" in the
-// orchestrator sense anymore — every operation targets an MCPServer's
-// upstream-proxy registration in the aggregator. The tool names survive
-// because BDD scenarios + operator skills key off them.
+// core_service_{list,status} MCP tools keep working against MCPServer
+// names. Both tools surface live aggregator dial state; lifecycle
+// operations (pause/resume, force-reconnect) moved to MCPServer.spec.suspended
+// and core_mcpserver_reconnect respectively. The remaining surface is
+// slated for removal in Phase 8 when muster's /mcp goes away.
 type ServiceToolAdapter struct {
 	manager *AggregatorManager
 }
@@ -29,41 +28,6 @@ func NewServiceToolAdapter(manager *AggregatorManager) *ServiceToolAdapter {
 // api.GetServiceManager().
 func (a *ServiceToolAdapter) Register() {
 	api.RegisterServiceManager(a)
-}
-
-// StartService re-registers the named MCPServer through the upstream proxy
-// and clears any user-stop record.
-func (a *ServiceToolAdapter) StartService(name string) error {
-	if a.manager == nil {
-		return errMissingAggregatorManager
-	}
-	a.manager.MarkUserStarted(name)
-	return a.manager.RegisterUpstream(context.Background(), name)
-}
-
-// StopService deregisters the named MCPServer and remembers the user's
-// stop intent so the next reconciler pass does not silently re-register
-// it.
-func (a *ServiceToolAdapter) StopService(name string) error {
-	if a.manager == nil {
-		return errMissingAggregatorManager
-	}
-	a.manager.MarkUserStopped(name)
-	return a.manager.DeregisterUpstream(context.Background(), name)
-}
-
-// RestartService deregisters then re-registers the named MCPServer,
-// clearing any user-stop intent first.
-func (a *ServiceToolAdapter) RestartService(name string) error {
-	if a.manager == nil {
-		return errMissingAggregatorManager
-	}
-	ctx := context.Background()
-	a.manager.MarkUserStarted(name)
-	if err := a.manager.DeregisterUpstream(ctx, name); err != nil {
-		return err
-	}
-	return a.manager.RegisterUpstream(ctx, name)
 }
 
 // GetServiceStatus reports the named MCPServer's current upstream-proxy
@@ -81,9 +45,7 @@ func (a *ServiceToolAdapter) GetServiceStatus(name string) (*api.ServiceStatus, 
 	return status, nil
 }
 
-// GetAllServices returns a synthetic status for every known MCPServer
-// CRD. There are no longer any non-MCPServer services in the system, so
-// the list is purely MCPServer-derived.
+// GetAllServices returns a synthetic status for every known MCPServer CRD.
 func (a *ServiceToolAdapter) GetAllServices() []api.ServiceStatus {
 	if a.manager == nil {
 		return nil
@@ -101,39 +63,16 @@ func (a *ServiceToolAdapter) GetAllServices() []api.ServiceStatus {
 	return statuses
 }
 
-// GetTools exposes the legacy core_service_* surface. The names predate
-// the muster-in-front pivot; they now operate exclusively on MCPServer
-// upstream registrations.
+// GetTools advertises the surviving legacy core_service_* tools.
 func (a *ServiceToolAdapter) GetTools() []api.ToolMetadata {
 	return []api.ToolMetadata{
 		{
 			Name:        "service_list",
-			Description: "List all MCPServers with their current upstream-proxy status",
-		},
-		{
-			Name:        "service_start",
-			Description: "Register the named MCPServer through the upstream proxy",
-			Args: []api.ArgMetadata{
-				{Name: "name", Type: "string", Required: true, Description: "MCPServer name"},
-			},
-		},
-		{
-			Name:        "service_stop",
-			Description: "Deregister the named MCPServer and remember the user-stop intent",
-			Args: []api.ArgMetadata{
-				{Name: "name", Type: "string", Required: true, Description: "MCPServer name"},
-			},
-		},
-		{
-			Name:        "service_restart",
-			Description: "Deregister and immediately re-register the named MCPServer",
-			Args: []api.ArgMetadata{
-				{Name: "name", Type: "string", Required: true, Description: "MCPServer name"},
-			},
+			Description: "List all MCPServers with their current upstream-proxy status (deprecated; use core_mcpserver_list)",
 		},
 		{
 			Name:        "service_status",
-			Description: "Report the upstream-proxy state of the named MCPServer",
+			Description: "Report the upstream-proxy state of the named MCPServer (deprecated; use core_mcpserver_get)",
 			Args: []api.ArgMetadata{
 				{Name: "name", Type: "string", Required: true, Description: "MCPServer name"},
 			},
@@ -146,12 +85,6 @@ func (a *ServiceToolAdapter) ExecuteTool(_ context.Context, toolName string, arg
 	switch toolName {
 	case "service_list":
 		return a.handleServiceList(), nil
-	case "service_start":
-		return a.handleServiceStart(args), nil
-	case "service_stop":
-		return a.handleServiceStop(args), nil
-	case "service_restart":
-		return a.handleServiceRestart(args), nil
 	case "service_status":
 		return a.handleServiceStatus(args), nil
 	default:
@@ -171,59 +104,6 @@ func (a *ServiceToolAdapter) handleServiceList() *api.CallToolResult {
 	}
 }
 
-func (a *ServiceToolAdapter) handleServiceStart(args map[string]interface{}) *api.CallToolResult {
-	name, ok := stringArg(args, "name")
-	if !ok {
-		return errResult("name is required")
-	}
-	status, err := a.GetServiceStatus(name)
-	if err != nil {
-		return errResult(fmt.Sprintf("Failed to start service: %v", err))
-	}
-	if status.State == api.StateRunning || status.State == api.StateConnected {
-		return okResult(fmt.Sprintf("Service '%s' is already running", name))
-	}
-	if err := a.StartService(name); err != nil {
-		if result := formatOAuthAuthError(name, err); result != nil {
-			return result
-		}
-		return errResult(fmt.Sprintf("Failed to start service: %v", err))
-	}
-	return okResult(fmt.Sprintf("Successfully started service '%s'", name))
-}
-
-func (a *ServiceToolAdapter) handleServiceStop(args map[string]interface{}) *api.CallToolResult {
-	name, ok := stringArg(args, "name")
-	if !ok {
-		return errResult("name is required")
-	}
-	status, err := a.GetServiceStatus(name)
-	if err != nil {
-		return errResult(fmt.Sprintf("Failed to stop service: %v", err))
-	}
-	if status.State == api.StateStopped || status.State == api.StateDisconnected {
-		return okResult(fmt.Sprintf("Service '%s' is already stopped", name))
-	}
-	if err := a.StopService(name); err != nil {
-		return errResult(fmt.Sprintf("Failed to stop service: %v", err))
-	}
-	return okResult(fmt.Sprintf("Successfully stopped service '%s'", name))
-}
-
-func (a *ServiceToolAdapter) handleServiceRestart(args map[string]interface{}) *api.CallToolResult {
-	name, ok := stringArg(args, "name")
-	if !ok {
-		return errResult("name is required")
-	}
-	if err := a.RestartService(name); err != nil {
-		if result := formatOAuthAuthError(name, err); result != nil {
-			return result
-		}
-		return errResult(fmt.Sprintf("Failed to restart service: %v", err))
-	}
-	return okResult(fmt.Sprintf("Successfully restarted service '%s'", name))
-}
-
 func (a *ServiceToolAdapter) handleServiceStatus(args map[string]interface{}) *api.CallToolResult {
 	name, ok := stringArg(args, "name")
 	if !ok {
@@ -241,33 +121,8 @@ func stringArg(args map[string]interface{}, key string) (string, bool) {
 	return v, ok
 }
 
-func okResult(msg string) *api.CallToolResult {
-	return &api.CallToolResult{Content: []interface{}{msg}}
-}
-
 func errResult(msg string) *api.CallToolResult {
 	return &api.CallToolResult{Content: []interface{}{msg}, IsError: true}
-}
-
-// formatOAuthAuthError detects AuthRequiredError and converts it into the
-// user-facing prompt the muster CLI surfaces. Returns nil for any other
-// error so callers fall back to the generic message.
-func formatOAuthAuthError(name string, err error) *api.CallToolResult {
-	var authErr *mcpserver.AuthRequiredError
-	if !errors.As(err, &authErr) {
-		return nil
-	}
-	return &api.CallToolResult{
-		Content: []interface{}{fmt.Sprintf(
-			"Service '%s' requires OAuth authentication.\n\n"+
-				"To connect to this server, use the core_auth_login tool:\n"+
-				"  core_auth_login(server=\"%s\")\n\n"+
-				"The service start/restart command cannot be used for OAuth-protected servers "+
-				"because authentication is session-scoped.",
-			name, name,
-		)},
-		IsError: true,
-	}
 }
 
 // mcpServerStatus resolves an MCPServer name to a synthetic ServiceStatus

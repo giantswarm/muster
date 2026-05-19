@@ -53,9 +53,12 @@ Note: The aggregator server must be running (use 'muster serve') before using th
 	RunE:                  runStop,
 }
 
-// Resource type mappings for stop operations
+// Resource type mappings for stop operations.
+// "service" used to call core_service_stop; that tool was removed when the
+// orchestrator-driven dial loop went away. Pause is now declarative: patch
+// MCPServer.spec.suspended=true through core_mcpserver_update.
 var stopResourceMappings = map[string]string{
-	"service": "core_service_stop",
+	"service": "core_mcpserver_update",
 }
 
 func init() {
@@ -91,6 +94,9 @@ func runStop(cmd *cobra.Command, args []string) error {
 
 	toolArgs := map[string]interface{}{
 		"name": resourceName,
+	}
+	if resourceType == "service" {
+		toolArgs["suspended"] = true
 	}
 
 	return executor.Execute(ctx, toolName, toolArgs)

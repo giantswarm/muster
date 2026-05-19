@@ -70,9 +70,10 @@ steps:
   # Phase 2: Stop the MCP server and verify tool calls fail
   - id: "stop-mcpserver-service"
     description: "Stop the HTTP MCP server service"
-    tool: "core_service_stop"
+    tool: "core_mcpserver_update"
     args:
       name: "http-tool-provider"
+      suspended: true
     expected:
       success: true
 
@@ -102,9 +103,10 @@ steps:
   # Phase 3: Start the MCP server and verify tool calls work again
   - id: "start-mcpserver-service"
     description: "Start the HTTP MCP server service again"
-    tool: "core_service_start"
+    tool: "core_mcpserver_update"
     args:
       name: "http-tool-provider"
+      suspended: false
     expected:
       success: true
 
@@ -133,9 +135,10 @@ steps:
 cleanup:
   - id: "cleanup-stop-service"
     description: "Stop the HTTP MCP server during cleanup"
-    tool: "core_service_stop"
+    tool: "core_mcpserver_update"
     args:
       name: "http-tool-provider"
+      suspended: true
     expected:
       success: true
     continue_on_failure: true

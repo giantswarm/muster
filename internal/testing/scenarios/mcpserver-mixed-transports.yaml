@@ -91,9 +91,10 @@ steps:
   # Phase 3: Stop HTTP service and verify stdio still works
   - id: "stop-http-service"
     description: "Stop the HTTP MCP server"
-    tool: "core_service_stop"
+    tool: "core_mcpserver_update"
     args:
       name: "http-provider"
+      suspended: true
     expected:
       success: true
 
@@ -130,9 +131,10 @@ steps:
   # Phase 4: Restart HTTP service and verify all work again
   - id: "start-http-service"
     description: "Start the HTTP MCP server again"
-    tool: "core_service_start"
+    tool: "core_mcpserver_update"
     args:
       name: "http-provider"
+      suspended: false
     expected:
       success: true
 
@@ -168,18 +170,20 @@ steps:
 cleanup:
   - id: "cleanup-stop-stdio"
     description: "Stop stdio service"
-    tool: "core_service_stop"
+    tool: "core_mcpserver_update"
     args:
       name: "stdio-provider"
+      suspended: true
     expected:
       success: true
     continue_on_failure: true
 
   - id: "cleanup-stop-http"
     description: "Stop HTTP service"
-    tool: "core_service_stop"
+    tool: "core_mcpserver_update"
     args:
       name: "http-provider"
+      suspended: true
     expected:
       success: true
     continue_on_failure: true

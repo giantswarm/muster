@@ -28,7 +28,10 @@ const (
 	mcpServerKind       = "MCPServer"
 )
 
-const reasonStdioInClusterMode = "StdioInClusterMode"
+const (
+	reasonStdioInClusterMode = "StdioInClusterMode"
+	reasonSuspendedBySpec    = "SuspendedBySpec"
+)
 
 // MCPServerManager is an interface for accessing MCPServer definitions.
 type MCPServerManager interface {
@@ -106,6 +109,10 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileReques
 		}
 	}
 
+	if isSuspended(mcpServerInfo) {
+		return r.reconcileSuspended(ctx, req, mcpServerInfo)
+	}
+
 	if result, stop := r.applyConfig(ctx, req, mcpServerInfo); stop {
 		return result
 	}
@@ -121,7 +128,39 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileReques
 		}
 	}
 
+	r.clearSuspendedCondition(ctx, req.Name, req.Namespace)
 	r.syncStatus(ctx, req.Name, req.Namespace, mcpServerInfo.Type, nil)
+	return ReconcileResult{RequeueAfter: DefaultStatusSyncInterval}
+}
+
+// isSuspended returns true when the MCPServer.spec.suspended pointer is set
+// to true. nil and *false both mean "reconcile normally".
+func isSuspended(info *api.MCPServerInfo) bool {
+	return info != nil && info.Suspended != nil && *info.Suspended
+}
+
+// reconcileSuspended tears down the agentgateway config for the MCPServer
+// and deregisters the aggregator upstream, then sets the Suspended status
+// condition. A subsequent reconcile with spec.suspended=false re-emits the
+// config and re-registers the upstream through the normal Reconcile path.
+func (r *MCPServerReconciler) reconcileSuspended(ctx context.Context, req ReconcileRequest, info *api.MCPServerInfo) ReconcileResult {
+	logging.Info("MCPServerReconciler", "MCPServer %s suspended; tearing down agentgateway config and deregistering upstream", req.Name)
+
+	namespace := r.GetNamespace(req.Namespace)
+	applier := r.applierFn(ctx, req.Name, namespace)
+	if err := applier.Delete(ctx, req.Name); err != nil {
+		logging.Debug("MCPServerReconciler", "Applier.Delete for suspended MCPServer %s failed: %v", req.Name, err)
+		return ReconcileResult{
+			Error:   fmt.Errorf("suspend delete: %w", err),
+			Requeue: true,
+		}
+	}
+
+	if err := r.deregisterUpstream(ctx, req.Name); err != nil {
+		logging.Debug("MCPServerReconciler", "DeregisterUpstream for suspended MCPServer %s failed: %v", req.Name, err)
+	}
+
+	r.setSuspendedCondition(ctx, req.Name, req.Namespace, info.Type)
 	return ReconcileResult{RequeueAfter: DefaultStatusSyncInterval}
 }
 
@@ -234,6 +273,49 @@ func (r *MCPServerReconciler) clearNotSupportedInClusterCondition(ctx context.Co
 	})
 }
 
+// setSuspendedCondition marks the MCPServer as suspended in CRD status and
+// drives State to the appropriate terminal value (Stopped for stdio,
+// Disconnected for remote). LastError is cleared because suspend is
+// intentional, not a failure.
+func (r *MCPServerReconciler) setSuspendedCondition(ctx context.Context, name, namespace, serverType string) {
+	cond := metav1.Condition{
+		Type:    musterv1alpha1.ConditionTypeSuspended,
+		Status:  metav1.ConditionTrue,
+		Reason:  reasonSuspendedBySpec,
+		Message: "spec.suspended is true; agentgateway config removed and aggregator upstream deregistered",
+	}
+	r.mutateMCPServerStatus(ctx, name, namespace, "set Suspended", func(server *musterv1alpha1.MCPServer) bool {
+		changed := meta.SetStatusCondition(&server.Status.Conditions, cond)
+		effectiveType := serverType
+		if effectiveType == "" {
+			effectiveType = server.Spec.Type
+		}
+		var target musterv1alpha1.MCPServerStateValue
+		if effectiveType == "streamable-http" || effectiveType == "sse" {
+			target = musterv1alpha1.MCPServerStateDisconnected
+		} else {
+			target = musterv1alpha1.MCPServerStateStopped
+		}
+		if server.Status.State != target {
+			server.Status.State = target
+			changed = true
+		}
+		if server.Status.LastError != "" {
+			server.Status.LastError = ""
+			changed = true
+		}
+		return changed
+	})
+}
+
+// clearSuspendedCondition removes the Suspended condition on the next
+// non-suspended reconcile.
+func (r *MCPServerReconciler) clearSuspendedCondition(ctx context.Context, name, namespace string) {
+	r.mutateMCPServerStatus(ctx, name, namespace, "clear Suspended", func(server *musterv1alpha1.MCPServer) bool {
+		return meta.RemoveStatusCondition(&server.Status.Conditions, musterv1alpha1.ConditionTypeSuspended)
+	})
+}
+
 func (r *MCPServerReconciler) mutateMCPServerStatus(ctx context.Context, name, namespace, op string, mutate func(*musterv1alpha1.MCPServer) bool) {
 	if r.StatusUpdater == nil {
 		return
@@ -279,6 +361,7 @@ func infoToMCPServerSpec(info *api.MCPServerInfo) musterv1alpha1.MCPServerSpec {
 		Env:         info.Env,
 		Headers:     info.Headers,
 		Timeout:     info.Timeout,
+		Suspended:   info.Suspended,
 	}
 	if info.Auth != nil {
 		spec.Auth = mcpServerAuthFromAPI(info.Auth)

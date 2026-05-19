@@ -307,6 +307,18 @@ spec:
                   Headers contains HTTP headers to send with requests to remote MCP servers.
                   This field is only relevant when Type is "streamable-http" or "sse".
                 type: object
+              suspended:
+                default: false
+                description: |-
+                  Suspended pauses reconciliation of the agentgateway data plane for this
+                  MCPServer. When true, the reconciler removes the MCPServer's
+                  agentgateway config: in cluster mode the AgentgatewayBackend / HTTPRoute /
+                  AgentgatewayPolicy resources are deleted (the upstream pod tears down
+                  via OwnerReferences cascade); in filesystem mode the matching
+                  mcp.targets[] entry is removed from the combined agentgateway.yaml
+                  (agentgateway loses the stdio child or HTTP route). The CRD persists;
+                  flip back to false to resume.
+                type: boolean
               timeout:
                 default: 30
                 description: Timeout specifies the connection timeout for remote operations

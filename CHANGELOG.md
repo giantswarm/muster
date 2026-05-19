@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `MCPServer.spec.suspended` (`*bool`, default `false`). When `true`, the reconciler deletes the MCPServer's agentgateway config (cluster: `AgentgatewayBackend` / `HTTPRoute` / `AgentgatewayPolicy` cascade via OwnerReferences; filesystem: the `mcp.targets[]` entry disappears from the combined `agentgateway.yaml` and agentgateway tears down the stdio child or HTTP route on its own watch). The MCPServer CRD persists; flip back to `false` to resume. The reconciler raises a `Suspended` status condition while suspended and clears it on resume. Toggle via `kubectl patch mcps/<name> --type=merge -p '{"spec":{"suspended":true}}'`, YAML edit, or `core_mcpserver_update name=<name> suspended=true|false`.
+- `core_mcpserver_reconnect` MCP tool — deregister and immediately re-register the named MCPServer's upstream-proxy connection in the aggregator. Use it after OAuth token rotation or when a transient transport failure has stuck a registration in pending-auth state without a corresponding CRD change. Replaces the removed `core_service_restart`.
+
+### Deprecated
+
+- `core_service_list` and `core_service_status` remain functional but are slated for removal when muster's `/mcp` tool surface goes away in Phase 8 (agentgateway-in-front topology). Use `core_mcpserver_list` / `core_mcpserver_get` for CRD-level information; the legacy `service_*` tools now only carry the aggregator-side dial state.
+
+### Removed
+
+- **Breaking (external consumers of `core_service_*`):** `core_service_start`, `core_service_stop`, and `core_service_restart` MCP tools deleted. They had become cosmetic after the muster-in-front pivot — they flipped muster's dial intent against agentgateway but did not stop the actual MCPServer pod (cluster) or stdio child (filesystem). The pause/resume primitive is now declarative: `MCPServer.spec.suspended` (set via `core_mcpserver_update`); the force-reconnect verb is `core_mcpserver_reconnect`. `muster start service <name>` and `muster stop service <name>` continue to work as CLI wrappers around `core_mcpserver_update name=<name> suspended=false|true`.
+- `api.ServiceManagerHandler.StartService` / `StopService` / `RestartService` interface methods, the corresponding `aggregator.ServiceToolAdapter` methods (`StartService` / `StopService` / `RestartService` / `handleServiceStart` / `handleServiceStop` / `handleServiceRestart` / `formatOAuthAuthError`), `aggregator.AggregatorManager.MarkUserStarted` / `MarkUserStopped`, the `userStopped` / `userStoppedMu` fields and `isUserStopped` helper, the `aggregator.APIAdapter.MarkUserStarted` / `MarkUserStopped` forwarders, and the `api.AggregatorHandler.MarkUserStarted` / `MarkUserStopped` interface methods. "User-stop intent" now lives on the CRD as `spec.suspended` rather than in in-memory aggregator state.
+- BDD scenarios `service-start-non-existent.yaml`, `service-stop-non-existent.yaml`, `service-restart-non-existent.yaml`, and `service-state-static.yaml`. The non-existent-name case is covered by `core_mcpserver_*` scenarios; `service-state-static.yaml` is replaced by `mcpserver-suspended-resumed.yaml` (full Suspend → Resume cycle with idempotency assertions). The `mcpserver-{tool-call,streamable-http-tool-call,sse-tool-call,tool-availability,mixed-transports,service-management}-lifecycle.yaml` and `workflow-conditional-static.yaml` scenarios were migrated to drive `spec.suspended` via `core_mcpserver_update` instead of the removed start/stop tools.
+
 ### Removed
 
 - `internal/orchestrator/` and `internal/services/` packages deleted. After PR 11 the orchestrator's service registry was provably empty in production (no code path ever called `registry.Register`) and the `services.BaseService` / `services.Service` / `services.ServiceRegistry` abstractions had no implementers. `core_service_{list,start,stop,restart,status}` MCP tools are rehomed to `internal/aggregator/service_tools.go` (`ServiceToolAdapter` implements `api.ServiceManagerHandler` directly via the aggregator's existing `RegisterUpstream` / `DeregisterUpstream` / `MarkUserStarted` / `MarkUserStopped` / `UpstreamServerState` methods). Tool surface, argument shapes, and BDD-visible responses are unchanged.

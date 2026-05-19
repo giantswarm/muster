@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
 
@@ -110,8 +111,6 @@ func (s *stubAggregator) RegisterServerPendingAuth(_, _, _ string, _ *api.AuthIn
 func (s *stubAggregator) RegisterServerPendingAuthWithConfig(_, _, _ string, _ *api.AuthInfo, _ *api.MCPServerAuth) error {
 	return nil
 }
-func (s *stubAggregator) MarkUserStopped(_ string) {}
-func (s *stubAggregator) MarkUserStarted(_ string) {}
 
 // withAggregator swaps the API service-locator aggregator handler for the
 // duration of one test. Use t.Cleanup so parallel tests don't leak state.
@@ -305,6 +304,79 @@ func TestReconcileClosureInvokedPerRequestWithCallArgs(t *testing.T) {
 	require.NotSame(t, appliers[0], appliers[1], "closure should return a distinct Applier per request")
 	require.Equal(t, []string{testServerAlpha}, appliers[0].appliedNames())
 	require.Equal(t, []string{testServerBeta}, appliers[1].appliedNames())
+}
+
+// TestReconcileSuspendThenResumeCycle exercises the spec.suspended primitive
+// end-to-end on a streamable-http MCPServer:
+//   - Initial reconcile (Suspended=nil) registers the upstream and emits config.
+//   - Flipping Suspended=true deletes the agentgateway config, deregisters the
+//     upstream, and surfaces the Suspended status condition. The MCPServer
+//     remains in the manager (the CRD persists).
+//   - Flipping Suspended=false reapplies the config, re-registers the upstream,
+//     clears the Suspended condition, and transitions the aggregator's
+//     UpstreamServerState back to Connected.
+func TestReconcileSuspendThenResumeCycle(t *testing.T) {
+	applier := &stubApplier{}
+	mgr := NewMockMCPServerManager()
+	info := &api.MCPServerInfo{
+		Name:      testServerGitHub,
+		Type:      testTypeStreamable,
+		URL:       testGithubURL,
+		AutoStart: true,
+	}
+	mgr.AddMCPServer(info)
+
+	updater := NewMockStatusUpdater()
+	agg := newStubAggregator()
+	withAggregator(t, agg)
+
+	r := newReconcilerForTest(applier, mgr, updater)
+	req := ReconcileRequest{Name: testServerGitHub, Namespace: DefaultNamespace}
+
+	require.NoError(t, r.Reconcile(t.Context(), req).Error)
+	require.Equal(t, []string{testServerGitHub}, applier.appliedNames(), "first reconcile emits agentgateway config")
+	require.Equal(t, []string{testServerGitHub}, agg.registered, "first reconcile registers the upstream")
+	require.Equal(t, api.UpstreamServerConnected, agg.UpstreamServerState(testServerGitHub))
+
+	suspended := true
+	info.Suspended = &suspended
+	require.NoError(t, r.Reconcile(t.Context(), req).Error)
+
+	require.Equal(t, []string{testServerGitHub}, applier.deleted, "suspended reconcile deletes the agentgateway config")
+	require.Equal(t, []string{testServerGitHub}, agg.deregistered, "suspended reconcile deregisters the upstream")
+	require.Equal(t, api.UpstreamServerAbsent, agg.UpstreamServerState(testServerGitHub))
+	require.Len(t, applier.appliedNames(), 1, "suspended reconcile must not emit config")
+
+	server := updater.GetLastUpdatedMCPServer()
+	require.NotNil(t, server)
+	var suspendedCond bool
+	for _, c := range server.Status.Conditions {
+		if c.Type == musterv1alpha1.ConditionTypeSuspended {
+			suspendedCond = c.Status == metav1.ConditionTrue
+			break
+		}
+	}
+	require.True(t, suspendedCond, "Suspended condition must be True while spec.suspended=true")
+	require.Equal(t, musterv1alpha1.MCPServerStateDisconnected, server.Status.State,
+		"streamable-http MCPServer reports Disconnected while suspended")
+
+	resumed := false
+	info.Suspended = &resumed
+	require.NoError(t, r.Reconcile(t.Context(), req).Error)
+
+	require.Equal(t, []string{testServerGitHub, testServerGitHub}, applier.appliedNames(),
+		"resume re-emits agentgateway config on the next reconcile")
+	require.Equal(t, []string{testServerGitHub, testServerGitHub}, agg.registered,
+		"resume re-registers the upstream")
+	require.Equal(t, api.UpstreamServerConnected, agg.UpstreamServerState(testServerGitHub))
+
+	server = updater.GetLastUpdatedMCPServer()
+	require.NotNil(t, server)
+	for _, c := range server.Status.Conditions {
+		require.NotEqual(t, musterv1alpha1.ConditionTypeSuspended, c.Type,
+			"Suspended condition must be cleared on resume")
+	}
+	require.Equal(t, musterv1alpha1.MCPServerStateConnected, server.Status.State)
 }
 
 func TestReconcileMapsAuthRequiredFromAggregatorState(t *testing.T) {

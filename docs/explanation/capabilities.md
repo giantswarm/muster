@@ -30,18 +30,16 @@ core_mcpserver_create
 core_mcpserver_validate
 ```
 
-### **Service Tools**
-Manage service instances throughout their lifecycle (aggregator, MCP servers):
+### **Service Tools** (deprecated)
+Inspect the aggregator's view of upstream MCPServers. Pause/resume moved to
+`MCPServer.spec.suspended` (set via `core_mcpserver_update`); the force-reconnect
+verb moved to `core_mcpserver_reconnect`. The remaining surface is scheduled
+for removal when muster's `/mcp` goes away in Phase 8.
 ```bash
-# Discover what's running in your system
+# Discover what upstream MCPServers the aggregator sees
 core_service_list
 
-# Start, stop, restart services dynamically
-core_service_start
-core_service_stop
-core_service_restart
-
-# Monitor service health and status
+# Monitor a single MCPServer's aggregator-side dial state
 core_service_status
 ```
 

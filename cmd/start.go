@@ -108,10 +108,12 @@ Note: The aggregator server must be running (use 'muster serve') before using th
 	RunE: runStart,
 }
 
-// Resource type mappings for start operations
+// Resource type mappings for start operations.
+// "service" used to call core_service_start; that tool was removed when the
+// orchestrator-driven dial loop went away. Resume is now declarative: patch
+// MCPServer.spec.suspended back to false through core_mcpserver_update.
 var startResourceMappings = map[string]string{
-	"service": "core_service_start",
-	// Note: workflows use workflow_<workflow-name> pattern, handled separately
+	"service": "core_mcpserver_update",
 }
 
 func init() {
@@ -220,6 +222,9 @@ func runStart(cmd *cobra.Command, args []string) error {
 
 	toolArgs := map[string]interface{}{
 		"name": resourceName,
+	}
+	if resourceType == "service" {
+		toolArgs["suspended"] = false
 	}
 
 	return executor.Execute(ctx, toolName, toolArgs)

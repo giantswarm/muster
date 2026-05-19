@@ -205,11 +205,13 @@ When your AI agent uses `call_tool`, it can execute any of the **36+ aggregator 
 - `core_config_save` - Persist configuration changes
 - `core_config_reload` - Reload from configuration files
 
-**Service Management:**
+**Service Management (deprecated — Phase 8 removal):**
 
-- `core_service_list` - List all services
-- `core_service_start/stop/restart` - Control service lifecycle
-- `core_service_status` - Monitor service health
+- `core_service_list` - Inspect aggregator-side state of all MCPServers
+- `core_service_status` - Inspect aggregator-side state of one MCPServer
+
+Pause/resume an MCPServer with `core_mcpserver_update name=<name> suspended=true|false`;
+force-reconnect with `core_mcpserver_reconnect name=<name>`.
 
 **Workflow Orchestration (9 tools):**
 

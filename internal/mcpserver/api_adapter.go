@@ -123,6 +123,7 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 		Env:                 server.Spec.Env,
 		Headers:             server.Spec.Headers,
 		Timeout:             server.Spec.Timeout,
+		Suspended:           server.Spec.Suspended,
 		Error:               server.Status.LastError,
 		State:               string(server.Status.State),
 		ConsecutiveFailures: server.Status.ConsecutiveFailures,
@@ -260,6 +261,7 @@ func (a *Adapter) convertRequestToCRD(req *api.MCPServerCreateRequest) *musterv1
 			Env:         req.Env,
 			Headers:     req.Headers,
 			Timeout:     req.Timeout,
+			Suspended:   req.Suspended,
 		},
 	}
 
@@ -333,6 +335,7 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 			"description":          "HTTP headers for remote servers",
 		}},
 		{Name: "timeout", Type: "integer", Required: false, Description: "Connection timeout in seconds"},
+		{Name: "suspended", Type: "boolean", Required: false, Description: "Pause agentgateway reconciliation for this MCPServer (declarative pause/resume)"},
 		{Name: "auth", Type: "object", Required: false, Description: "Authentication configuration for remote servers", Schema: map[string]interface{}{
 			"type":        "object",
 			"description": "Authentication configuration (oauth, teleport, or none)",
@@ -418,6 +421,13 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 				{Name: "name", Type: "string", Required: true, Description: "Name of the MCP server to delete"},
 			},
 		},
+		{
+			Name:        "mcpserver_reconnect",
+			Description: "Force the aggregator to deregister and re-register the named MCPServer upstream (e.g. after OAuth token rotation)",
+			Args: []api.ArgMetadata{
+				{Name: "name", Type: "string", Required: true, Description: "Name of the MCP server to reconnect"},
+			},
+		},
 	}
 }
 
@@ -436,9 +446,41 @@ func (a *Adapter) ExecuteTool(ctx context.Context, toolName string, args map[str
 		return a.handleMCPServerUpdate(args)
 	case "mcpserver_delete":
 		return a.handleMCPServerDelete(args)
+	case "mcpserver_reconnect":
+		return a.handleMCPServerReconnect(ctx, args)
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", toolName)
 	}
+}
+
+// handleMCPServerReconnect deregisters and re-registers the named MCPServer
+// through the aggregator's upstream proxy. The semantic carried over from
+// the legacy core_service_restart tool: a force-reconnect primitive for
+// situations like OAuth token rotation where the persisted dial intent is
+// correct but the live client must be reopened.
+func (a *Adapter) handleMCPServerReconnect(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
+	name, ok := args["name"].(string)
+	if !ok || name == "" {
+		return simpleError("name argument is required")
+	}
+
+	if _, err := a.GetMCPServer(name); err != nil {
+		return api.HandleErrorWithPrefix(err, "Failed to reconnect MCP server"), nil
+	}
+
+	aggregator := api.GetAggregator()
+	if aggregator == nil {
+		return simpleError("aggregator handler not available")
+	}
+
+	if err := aggregator.DeregisterUpstream(ctx, name); err != nil {
+		return simpleError(fmt.Sprintf("Failed to deregister MCPServer %q: %v", name, err))
+	}
+	if err := aggregator.RegisterUpstream(ctx, name); err != nil {
+		return simpleError(fmt.Sprintf("Failed to re-register MCPServer %q: %v", name, err))
+	}
+
+	return simpleOK(fmt.Sprintf("MCPServer '%s' reconnected", name))
 }
 
 // Tool handlers
@@ -652,6 +694,9 @@ func (a *Adapter) handleMCPServerUpdate(args map[string]interface{}) (*api.CallT
 	}
 	if req.Timeout > 0 {
 		existing.Spec.Timeout = req.Timeout
+	}
+	if req.Suspended != nil {
+		existing.Spec.Suspended = req.Suspended
 	}
 	// Update auth configuration if provided
 	if req.Auth != nil {

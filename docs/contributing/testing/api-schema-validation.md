@@ -122,7 +122,7 @@ The validation system handles different tool prefixes according to their purpose
 1. **`core_*` tools** - Core muster API tools
    - ✅ **Validated against API schema**:  Args nd tool existence are checked
    - ❌ **Fails if**: Tool doesn't exist in current API or has invalid args
-   - 📝 **Example**: `core_service_start`, `core_workflow_create`
+   - 📝 **Example**: `core_mcpserver_update`, `core_workflow_create`
 
 2. **`x_*` tools** - Mock MCP server tools
    - ✅ **Always valid**: Part of test scenario setup (mock servers)

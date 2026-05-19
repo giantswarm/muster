@@ -1,13 +1,13 @@
 package api
 
-// ServiceManagerHandler exposes MCPServer lifecycle through the legacy
-// core_service_{list,start,stop,restart,status} MCP tools. The "service"
-// naming predates the muster-in-front pivot — every operation now targets
-// an MCPServer's upstream-proxy registration in the aggregator.
+// ServiceManagerHandler exposes the legacy core_service_{list,status} MCP
+// tools so existing operator skills and BDD scenarios keep working while the
+// MCPServer-CRD surface (`core_mcpserver_*`) is the authoritative shape. The
+// pause/resume primitive moved to MCPServer.spec.suspended; the
+// force-reconnect verb moved to core_mcpserver_reconnect. Both list/status
+// are slated for removal when muster's /mcp tool surface goes away in
+// Phase 8 (agentgateway-in-front).
 type ServiceManagerHandler interface {
-	StartService(name string) error
-	StopService(name string) error
-	RestartService(name string) error
 	GetServiceStatus(name string) (*ServiceStatus, error)
 	GetAllServices() []ServiceStatus
 

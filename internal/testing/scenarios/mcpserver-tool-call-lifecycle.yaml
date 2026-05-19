@@ -64,9 +64,10 @@ steps:
 
   # Phase 2: Stop the MCP server and verify tool calls fail
   - id: "stop-mcpserver-service"
-    tool: "core_service_stop"
+    tool: "core_mcpserver_update"
     args:
       name: "tool-call-test-provider"
+      suspended: true
     expected:
       success: true
 
@@ -103,9 +104,10 @@ steps:
 
   # Phase 3: Start the MCP server and verify tool calls work again
   - id: "start-mcpserver-service"
-    tool: "core_service_start"
+    tool: "core_mcpserver_update"
     args:
       name: "tool-call-test-provider"
+      suspended: false
     expected:
       success: true
 
@@ -140,9 +142,10 @@ steps:
 
 cleanup:
   - id: "cleanup-stop-service"
-    tool: "core_service_stop"
+    tool: "core_mcpserver_update"
     args:
       name: "tool-call-test-provider"
+      suspended: true
     expected:
       success: true
     continue_on_failure: true

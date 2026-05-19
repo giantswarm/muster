@@ -28,13 +28,6 @@ type AggregatorManager struct {
 	aggregatorServer *AggregatorServer
 	oauthManager     *oauth.Manager
 
-	// userStopped tracks MCPServers the operator explicitly stopped via
-	// core_service_stop. The reconciler's periodic RegisterUpstream
-	// becomes a no-op for these until core_service_start clears the
-	// entry.
-	userStoppedMu sync.Mutex
-	userStopped   map[string]struct{}
-
 	ctx        context.Context
 	cancelFunc context.CancelFunc
 }
@@ -44,8 +37,7 @@ type AggregatorManager struct {
 // be logged instead).
 func NewAggregatorManager(config AggregatorConfig, errorCallback func(err error)) *AggregatorManager {
 	manager := &AggregatorManager{
-		config:      config,
-		userStopped: make(map[string]struct{}),
+		config: config,
 	}
 
 	manager.aggregatorServer = NewAggregatorServer(config, errorCallback)
@@ -175,44 +167,12 @@ func (am *AggregatorManager) GetServiceData() map[string]interface{} {
 	return data
 }
 
-// MarkUserStarted clears the operator-stop record for name so the next
-// reconciler-driven RegisterUpstream actually dials the upstream. Called
-// from the orchestrator API adapter when core_service_start fires.
-func (am *AggregatorManager) MarkUserStarted(name string) {
-	am.userStoppedMu.Lock()
-	delete(am.userStopped, name)
-	am.userStoppedMu.Unlock()
-}
-
-// MarkUserStopped records that the operator wants the named MCPServer to
-// stay deregistered. The reconciler still runs every status sync interval
-// but its RegisterUpstream becomes a no-op until MarkUserStarted clears
-// the entry. Without this, core_service_stop is undone by the next
-// reconciler pulse.
-func (am *AggregatorManager) MarkUserStopped(name string) {
-	am.userStoppedMu.Lock()
-	am.userStopped[name] = struct{}{}
-	am.userStoppedMu.Unlock()
-}
-
-func (am *AggregatorManager) isUserStopped(name string) bool {
-	am.userStoppedMu.Lock()
-	defer am.userStoppedMu.Unlock()
-	_, ok := am.userStopped[name]
-	return ok
-}
-
 // RegisterUpstream opens the federated streamable-http connection through
 // UpstreamProxy for the named MCPServer and inserts it into the aggregator
 // registry. On a 401 with WWW-Authenticate the upstream is registered in
 // pending-auth state so the synthetic auth tool can drive the OAuth flow.
 // Idempotent: a second call for an already-registered name returns nil.
-// No-op when the operator has called core_service_stop on this name.
 func (am *AggregatorManager) RegisterUpstream(ctx context.Context, name string) error {
-	if am.isUserStopped(name) {
-		logging.Debug("Aggregator-Manager", "Skipping RegisterUpstream for %s: marked stopped by operator", name)
-		return nil
-	}
 	if name == "" {
 		return fmt.Errorf("aggregator: RegisterUpstream requires a server name")
 	}

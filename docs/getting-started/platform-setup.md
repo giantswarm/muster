@@ -160,11 +160,13 @@ The aggregator provides **36+ core tools** plus dynamic capabilities:
 - `core_config_save` - Save configuration changes
 - `core_config_update_aggregator` - Modify aggregator settings
 
-**Service Management:**
+**Service Management (deprecated — Phase 8 removal):**
 
-- `core_service_list` - List all services
-- `core_service_start/stop/restart` - Control service lifecycle
-- `core_service_status` - Monitor service health
+- `core_service_list` - Inspect aggregator-side state of all MCPServers
+- `core_service_status` - Inspect aggregator-side state of one MCPServer
+
+Pause/resume an MCPServer with `core_mcpserver_update name=<name> suspended=true|false`;
+force-reconnect with `core_mcpserver_reconnect name=<name>`.
 
 **Workflow Orchestration (9 tools):**
 

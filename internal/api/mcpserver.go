@@ -302,6 +302,11 @@ type MCPServerInfo struct {
 	// Timeout specifies the connection timeout for remote operations (in seconds)
 	Timeout int `json:"timeout,omitempty"`
 
+	// Suspended mirrors MCPServer.spec.suspended. When true, the reconciler
+	// skips emitting the agentgateway config and deregisters the aggregator
+	// upstream; flip back to false to resume.
+	Suspended *bool `json:"suspended,omitempty"`
+
 	// ToolPrefix is an optional prefix for tool names.
 	ToolPrefix string `json:"toolPrefix,omitempty"`
 
