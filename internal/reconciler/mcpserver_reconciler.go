@@ -2,29 +2,43 @@ package reconciler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/retry"
+	"k8s.io/utils/ptr"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
 
 	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/reconciler/agentgateway"
+	k8sapply "github.com/giantswarm/muster/internal/reconciler/agentgateway/k8s"
 	"github.com/giantswarm/muster/pkg/logging"
 )
 
+// ConditionTypeNotSupportedInCluster is the MCPServer status condition the
+// reconciler raises when a Backend cannot be emitted in cluster mode (today,
+// stdio MCPServers).
+const ConditionTypeNotSupportedInCluster = "NotSupportedInCluster"
+
+const (
+	mcpServerAPIVersion = "muster.giantswarm.io/v1alpha1"
+	mcpServerKind       = "MCPServer"
+)
+
+const reasonStdioInClusterMode = "StdioInClusterMode"
+
 // MCPServerManager is an interface for accessing MCPServer definitions.
-// This is an alias for the api.MCPServerManagerHandler interface.
 type MCPServerManager interface {
 	ListMCPServers() []api.MCPServerInfo
 	GetMCPServer(name string) (*api.MCPServerInfo, error)
 }
 
 // MCPServerReconciler reconciles MCPServer resources.
-//
-// It ensures that MCPServer definitions (from CRDs or YAML files) are
-// synchronized with the running services managed by the orchestrator.
 //
 // Reconciliation logic:
 //   - Create: Register and start a new MCPServer service
@@ -36,27 +50,71 @@ type MCPServerManager interface {
 type MCPServerReconciler struct {
 	BaseStatusConfig
 
-	// orchestratorAPI provides access to service lifecycle management
-	orchestratorAPI api.OrchestratorAPI
-
-	// mcpServerManager provides access to MCPServer definitions
+	orchestratorAPI  api.OrchestratorAPI
 	mcpServerManager MCPServerManager
+	serviceRegistry  api.ServiceRegistryHandler
 
-	// serviceRegistry provides access to running services
-	serviceRegistry api.ServiceRegistryHandler
+	// yamlApplier is the long-lived agentgateway.Applier used in filesystem
+	// mode. Non-nil only in filesystem mode; nil in cluster mode.
+	yamlApplier agentgateway.Applier
+
+	// k8sClient + k8sApplierCfg are the inputs to k8s.NewApplier in cluster
+	// mode. The reconciler constructs a fresh k8s.Applier per Reconcile so the
+	// MCPServer's ownerRef can be baked in for cascade deletion. Non-nil only
+	// in cluster mode.
+	k8sClient     ctrlclient.Client
+	k8sApplierCfg k8sapply.Config
+
+	// deleter, when non-nil, is called from reconcileDelete to clean up
+	// persisted state that does not cascade from the MCPServer (yaml file).
+	// Cluster mode leaves this nil — ownerReferences handle deletion.
+	deleter agentgateway.Deleter
 }
 
-// NewMCPServerReconciler creates a new MCPServer reconciler.
-func NewMCPServerReconciler(
+// NewMCPServerReconcilerFilesystem builds a reconciler wired to the
+// long-lived yaml Applier used in filesystem mode. yamlApplier and deleter
+// are typically the same instance (yaml.Applier satisfies both ports).
+func NewMCPServerReconcilerFilesystem(
 	orchestratorAPI api.OrchestratorAPI,
 	mcpServerManager MCPServerManager,
 	serviceRegistry api.ServiceRegistryHandler,
+	yamlApplier agentgateway.Applier,
+	deleter agentgateway.Deleter,
 ) *MCPServerReconciler {
+	if yamlApplier == nil {
+		panic("reconciler: NewMCPServerReconcilerFilesystem requires a non-nil yaml Applier")
+	}
 	return &MCPServerReconciler{
 		BaseStatusConfig: BaseStatusConfig{Namespace: DefaultNamespace},
 		orchestratorAPI:  orchestratorAPI,
 		mcpServerManager: mcpServerManager,
 		serviceRegistry:  serviceRegistry,
+		yamlApplier:      yamlApplier,
+		deleter:          deleter,
+	}
+}
+
+// NewMCPServerReconcilerCluster builds a reconciler that constructs a fresh
+// k8s.Applier per Reconcile. ownerRef is bound on each construction so emitted
+// objects cascade-delete with the MCPServer; cleanup is handled by Kubernetes
+// garbage collection, so no Deleter is needed.
+func NewMCPServerReconcilerCluster(
+	orchestratorAPI api.OrchestratorAPI,
+	mcpServerManager MCPServerManager,
+	serviceRegistry api.ServiceRegistryHandler,
+	k8sClient ctrlclient.Client,
+	k8sApplierCfg k8sapply.Config,
+) *MCPServerReconciler {
+	if k8sClient == nil {
+		panic("reconciler: NewMCPServerReconcilerCluster requires a non-nil client")
+	}
+	return &MCPServerReconciler{
+		BaseStatusConfig: BaseStatusConfig{Namespace: DefaultNamespace},
+		orchestratorAPI:  orchestratorAPI,
+		mcpServerManager: mcpServerManager,
+		serviceRegistry:  serviceRegistry,
+		k8sClient:        k8sClient,
+		k8sApplierCfg:    k8sApplierCfg,
 	}
 }
 
@@ -72,18 +130,11 @@ func (r *MCPServerReconciler) GetResourceType() ResourceType {
 }
 
 // Reconcile processes a single MCPServer reconciliation request.
-//
-// After successful reconciliation, this returns RequeueAfter to enable periodic
-// status sync. This ensures that runtime state changes (service crashes, health
-// check failures, etc.) are eventually reflected in the CRD status even if
-// state change events are missed.
 func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileRequest) ReconcileResult {
 	logging.Debug("MCPServerReconciler", "Reconciling MCPServer: %s", req.Name)
 
-	// Fetch the desired state from the definition source
 	mcpServerInfo, err := r.mcpServerManager.GetMCPServer(req.Name)
 	if err != nil {
-		// If not found, this might be a delete operation
 		if IsNotFoundError(err) {
 			return r.reconcileDelete(ctx, req)
 		}
@@ -93,24 +144,21 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileReques
 		}
 	}
 
-	// Check if service exists
+	if result, stop := r.applyConfig(ctx, req, mcpServerInfo); stop {
+		return result
+	}
+
 	existingService, exists := r.serviceRegistry.Get(req.Name)
 
 	var result ReconcileResult
 	if !exists {
-		// Service doesn't exist, create it
 		result = r.reconcileCreate(ctx, req, mcpServerInfo)
 	} else {
-		// Service exists, check if update is needed
 		result = r.reconcileUpdate(ctx, req, mcpServerInfo, existingService)
 	}
 
-	// Sync status back to CRD after reconciliation
 	r.syncStatus(ctx, req.Name, req.Namespace, result.Error)
 
-	// If reconciliation succeeded, schedule periodic requeue for status sync.
-	// This implements the idiomatic Kubernetes controller pattern where status
-	// is periodically refreshed to ensure eventual consistency.
 	if result.Error == nil && !result.Requeue {
 		result.RequeueAfter = DefaultStatusSyncInterval
 	}
@@ -118,15 +166,193 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileReques
 	return result
 }
 
-// syncStatus syncs the current service state to the MCPServer CRD status.
+// applyConfig compiles the MCPServer spec into an agentgateway.Config and
+// hands it to the Applier appropriate for the current mode.
+func (r *MCPServerReconciler) applyConfig(ctx context.Context, req ReconcileRequest, info *api.MCPServerInfo) (ReconcileResult, bool) {
+	spec := infoToMCPServerSpec(info)
+	namespace := r.GetNamespace(req.Namespace)
+	config, err := agentgateway.NewConfig(req.Name, namespace, spec)
+	if err != nil {
+		logging.Debug("MCPServerReconciler", "NewConfig failed for MCPServer %s: %v", req.Name, err)
+		r.syncStatus(ctx, req.Name, req.Namespace, err)
+		return ReconcileResult{Error: fmt.Errorf("agentgateway: %w", err)}, true
+	}
+
+	applier := r.applierFor(ctx, req.Name, namespace)
+
+	if err := applier.Apply(ctx, config); err != nil {
+		if errors.Is(err, agentgateway.ErrUnsupportedTransport) {
+			logging.Info("MCPServerReconciler", "MCPServer %s uses stdio; cluster mode does not support it yet — marking NotSupportedInCluster", req.Name)
+			r.setNotSupportedInClusterCondition(ctx, req.Name, req.Namespace, err)
+			return ReconcileResult{RequeueAfter: DefaultStatusSyncInterval}, true
+		}
+		logging.Debug("MCPServerReconciler", "Apply failed for MCPServer %s: %v", req.Name, err)
+		r.syncStatus(ctx, req.Name, req.Namespace, err)
+		return ReconcileResult{
+			Error:   fmt.Errorf("apply config: %w", err),
+			Requeue: true,
+		}, true
+	}
+
+	r.clearNotSupportedInClusterCondition(ctx, req.Name, req.Namespace)
+	return ReconcileResult{}, false
+}
+
+// applierFor picks the Applier for this Reconcile:
 //
-// This function implements retry-on-conflict logic to handle optimistic locking
-// failures that occur when the CRD is modified between read and update operations.
-// The retry logic re-fetches the CRD and re-applies the status on each attempt.
-//
-// Status sync is a best-effort operation - failures are logged with backoff
-// to avoid log spam when a resource continuously fails. Failures are tracked
-// in metrics for monitoring.
+//   - Filesystem mode: returns the long-lived yamlApplier set at startup.
+//   - Cluster mode: constructs a fresh k8s.Applier bound to the live
+//     MCPServer's ownerRef so emitted objects cascade-delete with it.
+func (r *MCPServerReconciler) applierFor(ctx context.Context, name, namespace string) agentgateway.Applier {
+	if r.yamlApplier != nil {
+		return r.yamlApplier
+	}
+	ownerRef := r.resolveOwnerRef(ctx, name, namespace)
+	return k8sapply.NewApplier(r.k8sClient, ownerRef, r.k8sApplierCfg)
+}
+
+// resolveOwnerRef builds the metav1.OwnerReference for an MCPServer reconcile
+// request in cluster mode. The K8s applier rejects empty UID/APIVersion/Kind,
+// so cluster-mode callers MUST wire a StatusUpdater that can fetch the live
+// CRD.
+func (r *MCPServerReconciler) resolveOwnerRef(ctx context.Context, name, namespace string) metav1.OwnerReference {
+	ref := metav1.OwnerReference{
+		APIVersion:         mcpServerAPIVersion,
+		Kind:               mcpServerKind,
+		Name:               name,
+		Controller:         ptr.To(true),
+		BlockOwnerDeletion: ptr.To(true),
+	}
+	if r.StatusUpdater == nil {
+		return ref
+	}
+	server, err := r.StatusUpdater.GetMCPServer(ctx, name, namespace)
+	if err != nil || server == nil {
+		return ref
+	}
+	if server.APIVersion != "" {
+		ref.APIVersion = server.APIVersion
+	}
+	if server.Kind != "" {
+		ref.Kind = server.Kind
+	}
+	ref.UID = server.UID
+	return ref
+}
+
+func (r *MCPServerReconciler) setNotSupportedInClusterCondition(ctx context.Context, name, namespace string, cause error) {
+	cond := metav1.Condition{
+		Type:    ConditionTypeNotSupportedInCluster,
+		Status:  metav1.ConditionTrue,
+		Reason:  reasonStdioInClusterMode,
+		Message: cause.Error(),
+	}
+	r.mutateMCPServerStatus(ctx, name, namespace, "set NotSupportedInCluster", func(server *musterv1alpha1.MCPServer) bool {
+		changed := meta.SetStatusCondition(&server.Status.Conditions, cond)
+		sanitized := SanitizeErrorMessage(cause.Error())
+		if server.Status.LastError != sanitized {
+			server.Status.LastError = sanitized
+			changed = true
+		}
+		return changed
+	})
+}
+
+func (r *MCPServerReconciler) clearNotSupportedInClusterCondition(ctx context.Context, name, namespace string) {
+	r.mutateMCPServerStatus(ctx, name, namespace, "clear NotSupportedInCluster", func(server *musterv1alpha1.MCPServer) bool {
+		return meta.RemoveStatusCondition(&server.Status.Conditions, ConditionTypeNotSupportedInCluster)
+	})
+}
+
+func (r *MCPServerReconciler) mutateMCPServerStatus(ctx context.Context, name, namespace, op string, mutate func(*musterv1alpha1.MCPServer) bool) {
+	if r.StatusUpdater == nil {
+		return
+	}
+	ns := r.GetNamespace(namespace)
+	helper := NewStatusSyncHelper(ResourceTypeMCPServer, name, "MCPServerReconciler")
+	helper.RecordAttempt()
+
+	var lastErr error
+	retryErr := retry.OnError(StatusSyncRetryBackoff, IsConflictError, func() error {
+		server, err := r.StatusUpdater.GetMCPServer(ctx, name, ns)
+		if err != nil {
+			lastErr = err
+			return nil
+		}
+		if !mutate(server) {
+			lastErr = nil
+			return nil
+		}
+		if err := r.StatusUpdater.UpdateMCPServerStatus(ctx, server); err != nil {
+			lastErr = err
+			return err
+		}
+		lastErr = nil
+		return nil
+	})
+
+	helper.HandleResult(retryErr, lastErr)
+	if helper.WasSuccessful(retryErr, lastErr) {
+		logging.Debug("MCPServerReconciler", "%s for MCPServer %s", op, name)
+	}
+}
+
+func infoToMCPServerSpec(info *api.MCPServerInfo) musterv1alpha1.MCPServerSpec {
+	spec := musterv1alpha1.MCPServerSpec{
+		Type:        info.Type,
+		ToolPrefix:  info.ToolPrefix,
+		Description: info.Description,
+		AutoStart:   info.AutoStart,
+		Command:     info.Command,
+		Args:        info.Args,
+		URL:         info.URL,
+		Env:         info.Env,
+		Headers:     info.Headers,
+		Timeout:     info.Timeout,
+	}
+	if info.Auth != nil {
+		spec.Auth = mcpServerAuthFromAPI(info.Auth)
+	}
+	return spec
+}
+
+func mcpServerAuthFromAPI(auth *api.MCPServerAuth) *musterv1alpha1.MCPServerAuth {
+	out := &musterv1alpha1.MCPServerAuth{
+		Type:              auth.Type,
+		ForwardToken:      auth.ForwardToken,
+		RequiredAudiences: auth.RequiredAudiences,
+	}
+	if auth.TokenExchange != nil {
+		out.TokenExchange = tokenExchangeFromAPI(auth.TokenExchange)
+	}
+	if auth.AuthorizationServer != nil {
+		out.AuthorizationServer = &musterv1alpha1.MCPServerAuthAuthorizationServer{
+			Issuer: musterv1alpha1.IssuerURL(auth.AuthorizationServer.Issuer),
+			Scopes: auth.AuthorizationServer.Scopes,
+		}
+	}
+	return out
+}
+
+func tokenExchangeFromAPI(tx *api.TokenExchangeConfig) *musterv1alpha1.TokenExchangeConfig {
+	out := &musterv1alpha1.TokenExchangeConfig{
+		Enabled:          tx.Enabled,
+		DexTokenEndpoint: tx.DexTokenEndpoint,
+		ExpectedIssuer:   tx.ExpectedIssuer,
+		ConnectorID:      tx.ConnectorID,
+		Scopes:           tx.Scopes,
+	}
+	if tx.ClientCredentialsSecretRef != nil {
+		out.ClientCredentialsSecretRef = &musterv1alpha1.ClientCredentialsSecretRef{
+			Name:            tx.ClientCredentialsSecretRef.Name,
+			Namespace:       tx.ClientCredentialsSecretRef.Namespace,
+			ClientIDKey:     tx.ClientCredentialsSecretRef.ClientIDKey,
+			ClientSecretKey: tx.ClientCredentialsSecretRef.ClientSecretKey,
+		}
+	}
+	return out
+}
+
 func (r *MCPServerReconciler) syncStatus(ctx context.Context, name, namespace string, reconcileErr error) {
 	if r.StatusUpdater == nil {
 		return
@@ -134,76 +360,51 @@ func (r *MCPServerReconciler) syncStatus(ctx context.Context, name, namespace st
 
 	namespace = r.GetNamespace(namespace)
 
-	// Initialize status sync helper
 	helper := NewStatusSyncHelper(ResourceTypeMCPServer, name, "MCPServerReconciler")
 	helper.RecordAttempt()
 
-	// Use retry-on-conflict to handle optimistic locking failures.
-	// Each retry re-fetches the CRD with the latest resource version
-	// and re-applies the status changes.
 	var lastErr error
 	retryErr := retry.OnError(StatusSyncRetryBackoff, IsConflictError, func() error {
-		// Get the current CRD (re-fetch on each attempt to get latest resource version)
 		server, err := r.StatusUpdater.GetMCPServer(ctx, name, namespace)
 		if err != nil {
 			lastErr = err
-			return nil // Return nil to exit retry loop (non-retryable)
+			return nil
 		}
 
-		// Apply status from current service state
 		r.applyStatusFromService(server, name, reconcileErr)
 
-		// Update the CRD status
 		if err := r.StatusUpdater.UpdateMCPServerStatus(ctx, server); err != nil {
 			lastErr = err
-			return err // Return error to trigger retry if it's a conflict
+			return err
 		}
 		lastErr = nil
 		return nil
 	})
 
-	// Handle the result and log on success
 	helper.HandleResult(retryErr, lastErr)
 	if helper.WasSuccessful(retryErr, lastErr) {
 		logging.Debug("MCPServerReconciler", "Synced MCPServer %s status", name)
 	}
 }
 
-// applyStatusFromService applies the current service state to the MCPServer status.
-// This is extracted to allow re-application during retry-on-conflict.
-//
-// This function sets Status based on infrastructure state, using context-appropriate
-// terminology based on server type:
-//   - stdio servers: Running, Starting, Stopped, Failed
-//   - remote servers: Connected, Connecting, Disconnected, Failed
-//
-// Status is independent of user session state (which is tracked in Session Registry).
 func (r *MCPServerReconciler) applyStatusFromService(server *musterv1alpha1.MCPServer, name string, reconcileErr error) {
-	// Get the current service state
 	service, exists := r.serviceRegistry.Get(name)
 
 	if exists {
 		state := service.GetState()
-
-		// Set State based on infrastructure state and server type
-		// State terminology differs based on server type (stdio vs remote)
 		server.Status.State = r.determineState(state, server.Spec.Type)
 
 		if service.GetLastError() != nil {
-			// Sanitize error message to remove sensitive data before CRD exposure
-			// Note: Per-user auth errors are tracked in Session Registry, not here
 			server.Status.LastError = SanitizeErrorMessage(service.GetLastError().Error())
 		} else {
 			server.Status.LastError = ""
 		}
 
-		// Update LastConnected if service is running/connected
 		if api.IsActiveState(state) {
 			now := metav1.NewTime(time.Now())
 			server.Status.LastConnected = &now
 		}
 
-		// Sync failure tracking fields for unreachable server detection
 		serviceData := service.GetServiceData()
 		if serviceData != nil {
 			if failures, ok := serviceData["consecutiveFailures"].(int); ok {
@@ -219,7 +420,6 @@ func (r *MCPServerReconciler) applyStatusFromService(server *musterv1alpha1.MCPS
 			}
 		}
 	} else {
-		// Service doesn't exist - use appropriate initial state based on server type
 		isRemote := server.Spec.Type == "streamable-http" || server.Spec.Type == "sse"
 		if isRemote {
 			server.Status.State = musterv1alpha1.MCPServerStateDisconnected
@@ -227,77 +427,52 @@ func (r *MCPServerReconciler) applyStatusFromService(server *musterv1alpha1.MCPS
 			server.Status.State = musterv1alpha1.MCPServerStateStopped
 		}
 		if reconcileErr != nil {
-			// Sanitize error message to remove sensitive data before CRD exposure
 			server.Status.LastError = SanitizeErrorMessage(reconcileErr.Error())
 		}
 	}
 }
 
-// determineState converts service state to MCPServer State using context-appropriate terminology.
-//
-// For stdio (local process) servers:
-//   - Running: Process is running and responding
-//   - Starting: Process is being started
-//   - Stopped: Process is not running
-//   - Failed: Process crashed or cannot be started
-//
-// For remote (streamable-http, sse) servers:
-//   - Connected: TCP connection established and authenticated
-//   - Auth Required: Server is reachable but requires authentication (401 response)
-//   - Connecting: Attempting to establish connection
-//   - Disconnected: Not connected
-//   - Failed: Endpoint unreachable
 func (r *MCPServerReconciler) determineState(state api.ServiceState, serverType string) musterv1alpha1.MCPServerStateValue {
 	isRemote := serverType == "streamable-http" || serverType == "sse"
 
 	switch state {
 	case api.StateRunning, api.StateConnected:
-		// Infrastructure is working
 		if isRemote {
 			return musterv1alpha1.MCPServerStateConnected
 		}
 		return musterv1alpha1.MCPServerStateRunning
 
 	case api.StateAuthRequired:
-		// auth_required means the server IS reachable (it returned a 401 response)
-		// Per issue #337, expose this as "Auth Required" to give users clear feedback
-		// that the server is reachable but needs authentication
 		if isRemote {
 			return musterv1alpha1.MCPServerStateAuthRequired
 		}
-		// For stdio servers, auth_required is unlikely but treat as running
 		return musterv1alpha1.MCPServerStateRunning
 
 	case api.StateStarting, api.StateWaiting, api.StateRetrying:
-		// Transitional states - starting up or retrying
 		if isRemote {
 			return musterv1alpha1.MCPServerStateConnecting
 		}
 		return musterv1alpha1.MCPServerStateStarting
 
 	case api.StateStopping:
-		// Stopping - treat as still running/connected until fully stopped
 		if isRemote {
 			return musterv1alpha1.MCPServerStateConnected
 		}
 		return musterv1alpha1.MCPServerStateRunning
 
 	case api.StateStopped, api.StateUnknown:
-		// Not yet started or stopped
 		if isRemote {
 			return musterv1alpha1.MCPServerStateDisconnected
 		}
 		return musterv1alpha1.MCPServerStateStopped
 
 	case api.StateDisconnected:
-		// Disconnected - different from failed (intentional disconnect vs error)
 		if isRemote {
 			return musterv1alpha1.MCPServerStateDisconnected
 		}
 		return musterv1alpha1.MCPServerStateStopped
 
 	case api.StateFailed, api.StateError, api.StateUnreachable:
-		// Infrastructure failure
 		return musterv1alpha1.MCPServerStateFailed
 
 	default:
@@ -308,20 +483,15 @@ func (r *MCPServerReconciler) determineState(state api.ServiceState, serverType 
 	}
 }
 
-// reconcileCreate handles creating a new MCPServer service.
 func (r *MCPServerReconciler) reconcileCreate(ctx context.Context, req ReconcileRequest, info *api.MCPServerInfo) ReconcileResult {
 	logging.Info("MCPServerReconciler", "Creating MCPServer service: %s", req.Name)
 
-	// Only create if AutoStart is enabled
 	if !info.AutoStart {
 		logging.Debug("MCPServerReconciler", "Skipping MCPServer %s: AutoStart=false", req.Name)
 		return ReconcileResult{}
 	}
 
-	// Start the service via orchestrator
 	if err := r.orchestratorAPI.StartService(req.Name); err != nil {
-		// Auth Required is a stable state, not a failure. The service is registered
-		// and will be activated via SSO when a user authenticates.
 		if api.IsAuthRequiredError(err) {
 			logging.Info("MCPServerReconciler", "MCPServer %s requires authentication (Auth Required)", req.Name)
 			return ReconcileResult{}
@@ -337,7 +507,6 @@ func (r *MCPServerReconciler) reconcileCreate(ctx context.Context, req Reconcile
 	return ReconcileResult{}
 }
 
-// reconcileUpdate handles updating an existing MCPServer service.
 func (r *MCPServerReconciler) reconcileUpdate(ctx context.Context, req ReconcileRequest, info *api.MCPServerInfo, existingService api.ServiceInfo) ReconcileResult {
 	logging.Debug("MCPServerReconciler", "Checking MCPServer service for updates: %s", req.Name)
 
@@ -379,8 +548,6 @@ func (r *MCPServerReconciler) reconcileUpdate(ctx context.Context, req Reconcile
 	return ReconcileResult{}
 }
 
-// infoToMCPServer converts an MCPServerInfo (API/reconciler view) to an MCPServer
-// (service-layer configuration struct).
 func infoToMCPServer(info *api.MCPServerInfo) *api.MCPServer {
 	return &api.MCPServer{
 		Name:        info.Name,
@@ -399,19 +566,30 @@ func infoToMCPServer(info *api.MCPServerInfo) *api.MCPServer {
 }
 
 // reconcileDelete handles deleting an MCPServer service.
+//
+// If a Deleter is wired (yaml applier in filesystem mode), Delete is called so
+// the persisted config file is removed. Cluster mode leaves deleter nil —
+// emitted objects cascade-delete via OwnerReferences.
 func (r *MCPServerReconciler) reconcileDelete(ctx context.Context, req ReconcileRequest) ReconcileResult {
 	logging.Info("MCPServerReconciler", "Deleting MCPServer service: %s", req.Name)
 
-	// Check if service exists
+	if r.deleter != nil {
+		if err := r.deleter.Delete(ctx, req.Name); err != nil {
+			logging.Debug("MCPServerReconciler", "Deleter for %s failed: %v", req.Name, err)
+			return ReconcileResult{
+				Error:   fmt.Errorf("delete config: %w", err),
+				Requeue: true,
+			}
+		}
+	}
+
 	_, exists := r.serviceRegistry.Get(req.Name)
 	if !exists {
 		logging.Debug("MCPServerReconciler", "MCPServer service %s already deleted", req.Name)
 		return ReconcileResult{}
 	}
 
-	// Stop the service
 	if err := r.orchestratorAPI.StopService(req.Name); err != nil {
-		// If service not found, it's already stopped
 		if IsNotFoundError(err) {
 			return ReconcileResult{}
 		}

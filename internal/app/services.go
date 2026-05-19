@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"path/filepath"
 
 	mcpserverPkg "github.com/giantswarm/muster/internal/mcpserver"
 	aggregatorService "github.com/giantswarm/muster/internal/services/aggregator"
@@ -14,11 +15,22 @@ import (
 	"github.com/giantswarm/muster/internal/metatools"
 	"github.com/giantswarm/muster/internal/orchestrator"
 	"github.com/giantswarm/muster/internal/reconciler"
+	k8sapply "github.com/giantswarm/muster/internal/reconciler/agentgateway/k8s"
+	yamlapply "github.com/giantswarm/muster/internal/reconciler/agentgateway/yaml"
 	"github.com/giantswarm/muster/internal/services"
 	"github.com/giantswarm/muster/internal/teleport"
 	"github.com/giantswarm/muster/internal/workflow"
 	"github.com/giantswarm/muster/pkg/logging"
 )
+
+// defaultGatewayName is the metadata.name of the Gateway resource HTTPRoutes
+// emitted by the K8s Applier attach to. agentgateway's reference deployments
+// use this name; environments that diverge will need a flag.
+const defaultGatewayName = "agentgateway"
+
+// agentgatewayConfigSubdir is the directory under configPath where the YAML
+// applier writes one agw native config file per MCPServer.
+const agentgatewayConfigSubdir = "agentgateway"
 
 // Services holds all initialized services and APIs used by the application.
 // This struct serves as the central registry for all core application components,
@@ -315,13 +327,18 @@ func InitializeServices(cfg *Config) (*Services, error) {
 		// Get handlers for reconciler dependencies
 		mcpServerMgr := api.GetMCPServerManager()
 		if mcpServerMgr != nil {
-			// Create and register MCPServer reconciler with status updater for CRD status sync
-			// See ADR 007 for details on what status fields are synced
-			mcpReconciler := reconciler.NewMCPServerReconciler(
+			mcpReconciler, err := buildMCPServerReconciler(
+				cfg.MusterConfig.Kubernetes,
 				orchestratorAPI,
 				mcpServerMgr,
 				registryHandler,
-			).WithStatusUpdater(musterClient, namespace)
+				musterClient,
+				namespace,
+				cfg.ConfigPath,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("build MCPServer reconciler: %w", err)
+			}
 			if err := reconcileManager.RegisterReconciler(mcpReconciler); err != nil {
 				logging.Warn("Services", "Failed to register MCPServer reconciler: %v", err)
 			}
@@ -419,3 +436,51 @@ func mergeOAuthServerConfig(cfg *Config) config.OAuthServerConfig {
 // Note: Removed the individual adapter creation functions as they're now replaced by the unified muster client approach
 
 // Note: MCPServer service creation moved to orchestrator for proper dependency management
+
+// buildMCPServerReconciler wires the MCPServer reconciler for the active mode:
+//
+//   - Cluster mode: per-Reconcile k8s.NewApplier(client, ownerRef, cfg) with
+//     ownerRef bound for cascade deletion. No Deleter — K8s owns cleanup via
+//     OwnerReferences.
+//   - Filesystem mode: a single long-lived yaml.NewApplier(dir). The same
+//     instance serves as the Deleter so reconcileDelete can remove the file.
+func buildMCPServerReconciler(
+	kubernetesMode bool,
+	orchestratorAPI api.OrchestratorAPI,
+	mcpServerMgr reconciler.MCPServerManager,
+	registryHandler api.ServiceRegistryHandler,
+	musterClient client.MusterClient,
+	namespace string,
+	configPath string,
+) (*reconciler.MCPServerReconciler, error) {
+	if kubernetesMode {
+		r := reconciler.NewMCPServerReconcilerCluster(
+			orchestratorAPI,
+			mcpServerMgr,
+			registryHandler,
+			musterClient,
+			k8sapply.Config{
+				GatewayName:      defaultGatewayName,
+				GatewayNamespace: namespace,
+			},
+		).WithStatusUpdater(musterClient, namespace)
+		return r, nil
+	}
+	if configPath == "" {
+		return nil, fmt.Errorf("filesystem mode requires a non-empty configPath for the YAML Applier")
+	}
+	dir := filepath.Join(configPath, agentgatewayConfigSubdir)
+	applier, err := yamlapply.NewApplier(dir)
+	if err != nil {
+		return nil, fmt.Errorf("construct YAML Applier at %s: %w", dir, err)
+	}
+	logging.Info("Services", "Wired YAML Applier writing to %s", dir)
+	r := reconciler.NewMCPServerReconcilerFilesystem(
+		orchestratorAPI,
+		mcpServerMgr,
+		registryHandler,
+		applier,
+		applier,
+	).WithStatusUpdater(musterClient, namespace)
+	return r, nil
+}
