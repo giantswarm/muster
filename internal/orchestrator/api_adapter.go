@@ -164,12 +164,23 @@ func mcpServerAPIStatusFromAggregator(name string) (*api.ServiceStatus, bool) {
 	if agg == nil {
 		return nil, false
 	}
+	// Preserve the legacy stdio vs HTTP state-name convention: stdio
+	// MCPServers used to surface as "running" (local subprocess) while
+	// remote types surfaced as "connected" / "disconnected". After PR 11
+	// the aggregator always dials via streamable-http through agentgateway,
+	// but BDD scenarios and operator dashboards still key off the legacy
+	// state names per spec.type.
+	isRemote := info.Type != "stdio"
 	switch agg.UpstreamServerState(name) {
 	case api.UpstreamServerConnected:
+		state := api.StateRunning
+		if isRemote {
+			state = api.StateConnected
+		}
 		return &api.ServiceStatus{
 			Name:        name,
 			ServiceType: string(api.TypeMCPServer),
-			State:       api.StateConnected,
+			State:       state,
 			Health:      api.HealthHealthy,
 		}, true
 	case api.UpstreamServerAuthRequired:
@@ -181,12 +192,16 @@ func mcpServerAPIStatusFromAggregator(name string) (*api.ServiceStatus, bool) {
 		}, true
 	default:
 		// CRD exists, aggregator hasn't registered (yet) or DeregisterUpstream
-		// happened. Surface as Stopped so core_service_status reflects the
-		// user-visible "this MCPServer is not currently connected" state.
+		// happened. Surface as Stopped (stdio) / Disconnected (remote) so
+		// core_service_status reflects the user-visible state.
+		state := api.StateStopped
+		if isRemote {
+			state = api.StateDisconnected
+		}
 		return &api.ServiceStatus{
 			Name:        name,
 			ServiceType: string(api.TypeMCPServer),
-			State:       api.StateStopped,
+			State:       state,
 			Health:      api.HealthUnknown,
 		}, true
 	}
