@@ -6,10 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"regexp"
+	"strings"
 	"sync"
 
 	goyaml "gopkg.in/yaml.v3"
+	"k8s.io/apimachinery/pkg/util/validation"
 
 	"github.com/giantswarm/muster/internal/reconciler/agentgateway"
 )
@@ -28,13 +29,7 @@ const (
 	routePathRoot  = "/mcp/"
 	dirPermissions = 0o755
 	filePermission = 0o600
-	maxNameLen     = 253
 )
-
-// nameSafe restricts emitted file basenames to the Kubernetes DNS subdomain
-// shape (RFC 1123 labels joined by dots) so the applier cannot be coerced into
-// writing outside its configured directory.
-var nameSafe = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`)
 
 // Option configures Applier at construction time.
 type Option func(*Applier)
@@ -93,8 +88,8 @@ func (a *Applier) Apply(ctx context.Context, config agentgateway.Config) error {
 	if err != nil {
 		return fmt.Errorf("yaml applier: %w", err)
 	}
-	if !isSafeName(name) {
-		return fmt.Errorf("yaml applier: name %q is not a safe filename component", name)
+	if err := validateName(name); err != nil {
+		return fmt.Errorf("yaml applier: %w", err)
 	}
 
 	cfg, err := buildLocalConfig(name, config, a.listenerPort)
@@ -127,8 +122,8 @@ func (a *Applier) Delete(ctx context.Context, name string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if !isSafeName(name) {
-		return fmt.Errorf("yaml applier: name %q is not a safe filename component", name)
+	if err := validateName(name); err != nil {
+		return fmt.Errorf("yaml applier: %w", err)
 	}
 
 	mu := a.lockFor(name)
@@ -168,11 +163,11 @@ func (a *Applier) dropLock(name string, mu *sync.Mutex) {
 	}
 }
 
-func isSafeName(name string) bool {
-	if name == "" || len(name) > maxNameLen {
-		return false
+func validateName(name string) error {
+	if errs := validation.IsDNS1123Subdomain(name); len(errs) > 0 {
+		return fmt.Errorf("invalid name %q: %s", name, strings.Join(errs, "; "))
 	}
-	return nameSafe.MatchString(name)
+	return nil
 }
 
 func nameFromConfig(c agentgateway.Config) (string, error) {
