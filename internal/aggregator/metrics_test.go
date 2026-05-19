@@ -104,4 +104,3 @@ func TestClassify(t *testing.T) {
 	require.Equal(t, outcomeError, classify(&mcp.CallToolResult{IsError: true}, errors.New("x")))
 	require.Equal(t, outcomeErrorResult, classify(&mcp.CallToolResult{IsError: true}, nil))
 }
-
