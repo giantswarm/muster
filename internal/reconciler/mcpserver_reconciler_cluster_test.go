@@ -98,6 +98,54 @@ func TestNewMCPServerReconcilerCluster_PanicsOnNilClient(t *testing.T) {
 	})
 }
 
+func TestNewMCPServerReconcilerCluster_PanicsOnNilOrchestratorAPI(t *testing.T) {
+	t.Parallel()
+
+	require.Panics(t, func() {
+		NewMCPServerReconcilerCluster(
+			nil,
+			NewMockMCPServerManager(),
+			NewMockServiceRegistry(),
+			newFakeClient(t),
+			k8sapply.Config{GatewayName: "agw", GatewayNamespace: "default"},
+			NewMockStatusUpdater(),
+			"default",
+		)
+	})
+}
+
+func TestNewMCPServerReconcilerCluster_PanicsOnNilMCPServerManager(t *testing.T) {
+	t.Parallel()
+
+	require.Panics(t, func() {
+		NewMCPServerReconcilerCluster(
+			NewMockOrchestratorAPI(),
+			nil,
+			NewMockServiceRegistry(),
+			newFakeClient(t),
+			k8sapply.Config{GatewayName: "agw", GatewayNamespace: "default"},
+			NewMockStatusUpdater(),
+			"default",
+		)
+	})
+}
+
+func TestNewMCPServerReconcilerCluster_PanicsOnNilServiceRegistry(t *testing.T) {
+	t.Parallel()
+
+	require.Panics(t, func() {
+		NewMCPServerReconcilerCluster(
+			NewMockOrchestratorAPI(),
+			NewMockMCPServerManager(),
+			nil,
+			newFakeClient(t),
+			k8sapply.Config{GatewayName: "agw", GatewayNamespace: "default"},
+			NewMockStatusUpdater(),
+			"default",
+		)
+	})
+}
+
 func TestResolveOwnerRef_PropagatesGetError(t *testing.T) {
 	t.Parallel()
 

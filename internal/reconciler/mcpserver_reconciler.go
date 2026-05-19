@@ -91,6 +91,15 @@ func NewMCPServerReconcilerFilesystem(
 	yamlApplier agentgateway.Applier,
 	deleter agentgateway.Deleter,
 ) *MCPServerReconciler {
+	if orchestratorAPI == nil {
+		panic("reconciler: NewMCPServerReconcilerFilesystem requires a non-nil OrchestratorAPI")
+	}
+	if mcpServerManager == nil {
+		panic("reconciler: NewMCPServerReconcilerFilesystem requires a non-nil MCPServerManager")
+	}
+	if serviceRegistry == nil {
+		panic("reconciler: NewMCPServerReconcilerFilesystem requires a non-nil ServiceRegistryHandler")
+	}
 	if yamlApplier == nil {
 		panic("reconciler: NewMCPServerReconcilerFilesystem requires a non-nil yaml Applier")
 	}
@@ -120,6 +129,15 @@ func NewMCPServerReconcilerCluster(
 	statusUpdater StatusUpdater,
 	namespace string,
 ) *MCPServerReconciler {
+	if orchestratorAPI == nil {
+		panic("reconciler: NewMCPServerReconcilerCluster requires a non-nil OrchestratorAPI")
+	}
+	if mcpServerManager == nil {
+		panic("reconciler: NewMCPServerReconcilerCluster requires a non-nil MCPServerManager")
+	}
+	if serviceRegistry == nil {
+		panic("reconciler: NewMCPServerReconcilerCluster requires a non-nil ServiceRegistryHandler")
+	}
 	if k8sClient == nil {
 		panic("reconciler: NewMCPServerReconcilerCluster requires a non-nil client")
 	}
