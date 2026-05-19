@@ -47,7 +47,6 @@ workflows:
 
       - architect/push-to-app-catalog:
           executor: app-build-suite
-          sign: false
           context: architect
           name: build-muster-chart
           app_catalog: giantswarm-catalog
@@ -79,7 +78,6 @@ workflows:
       # Branch: push chart after tests + amd64 image
       - architect/push-to-app-catalog:
           executor: app-build-suite
-          sign: false
           context: architect
           name: push-muster-to-giantswarm-app-catalog
           app_catalog: giantswarm-catalog
@@ -98,7 +96,6 @@ workflows:
       # if the in-China Aliyun mirror is slow or fails.
       - architect/push-to-app-catalog:
           executor: app-build-suite
-          sign: false
           context: architect
           name: push-muster-to-giantswarm-app-catalog-release
           app_catalog: giantswarm-catalog
