@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- `agentgateway.Applier` / `agentgateway.Deleter` port interfaces and `agentgateway.ApplierFor(mode)` factory. Lets `MCPServerReconciler` write agentgateway config through a single port whose concrete backend (cluster-mode k8s adapter, filesystem-mode yaml adapter) is selected at startup.
 - `muster.oauth.server.trustedPublicRegistrationRedirectURIs` — HTTPS redirect-URI allowlist for unauthenticated dynamic client registration, passed through to mcp-oauth (`Config.TrustedPublicRegistrationRedirectURIs`). Strict exact-match after RFC 3986 normalization. Default: `[]` (opt-in per URI).
 - `oauth-secret` `fail` guard accepts a non-empty `trustedPublicRegistrationRedirectURIs` as a third valid escape valve.
 
