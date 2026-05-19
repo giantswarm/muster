@@ -463,7 +463,9 @@ func buildMCPServerReconciler(
 				GatewayName:      defaultGatewayName,
 				GatewayNamespace: namespace,
 			},
-		).WithStatusUpdater(musterClient, namespace)
+			musterClient,
+			namespace,
+		)
 		return r, nil
 	}
 	if configPath == "" {
