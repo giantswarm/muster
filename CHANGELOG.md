@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- `internal/agentgateway/subprocess.Manager`: standalone supervisor that starts the `agentgateway` binary as a child process in filesystem mode, reloads on `SIGHUP` when the config file changes, stops cleanly on shutdown, and exposes the live PID for diagnostics. Decoupled from any specific config format so the yaml emitter (next PR) can plug in.
 - `muster.oauth.server.trustedPublicRegistrationRedirectURIs` — HTTPS redirect-URI allowlist for unauthenticated dynamic client registration, passed through to mcp-oauth (`Config.TrustedPublicRegistrationRedirectURIs`). Strict exact-match after RFC 3986 normalization. Default: `[]` (opt-in per URI).
 - `oauth-secret` `fail` guard accepts a non-empty `trustedPublicRegistrationRedirectURIs` as a third valid escape valve.
 
