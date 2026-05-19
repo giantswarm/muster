@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/giantswarm/muster/internal/aggregator/instrument"
 	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/pkg/observability"
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
@@ -76,7 +76,7 @@ func (c *DynamicAuthClient) Initialize(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create StreamableHTTP client: %w", err)
 	}
-	mcpotel.WithClientTracing(otel.Tracer(instrument.TracerName))(mcpClient)
+	mcpotel.WithClientTracing(otel.Tracer(observability.TracerName))(mcpClient)
 
 	// Start with a background context so the continuous GET listener goroutine
 	// survives after the caller's initialization context (which may be short-lived) completes.

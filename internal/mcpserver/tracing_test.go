@@ -15,7 +15,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/giantswarm/muster/internal/aggregator/instrument"
+	"github.com/giantswarm/muster/pkg/observability"
 )
 
 // TestClientTracing_PostConstruction pins the wiring used in
@@ -26,7 +26,7 @@ import (
 // assertion catches an upstream ClientOption signature change (the
 // option call would stop compiling, or compile silently with the
 // wrong semantics) and any global tracer-provider plumbing regression
-// that prevents otel.Tracer(instrument.TracerName) from reaching the
+// that prevents otel.Tracer(observability.TracerName) from reaching the
 // recording SDK.
 func TestClientTracing_PostConstruction(t *testing.T) {
 	rec := tracetest.NewSpanRecorder()
@@ -41,7 +41,7 @@ func TestClientTracing_PostConstruction(t *testing.T) {
 	})
 
 	c := client.NewClient(transport.NewInProcessTransport(srv))
-	mcpotel.WithClientTracing(otel.Tracer(instrument.TracerName))(c)
+	mcpotel.WithClientTracing(otel.Tracer(observability.TracerName))(c)
 
 	require.NoError(t, c.Start(t.Context()))
 	t.Cleanup(func() { _ = c.Close() })
