@@ -1,0 +1,20 @@
+apiVersion: v2
+name: muster-crds
+description: CustomResourceDefinitions for muster (MCPServer, Workflow). Shipped as a separate chart so its lifecycle (install / upgrade) is managed independently of the muster control plane.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/giantswarm/muster
+icon: https://s.giantswarm.io/app-icons/muster/1/light.svg
+sources:
+  - https://github.com/giantswarm/muster
+keywords:
+  - mcp
+  - crds
+  - model-context-protocol
+maintainers:
+  - name: Giant Swarm
+    email: team-planeteers@giantswarm.io
+annotations:
+  io.giantswarm.application.audience: all
+  io.giantswarm.application.team: planeteers

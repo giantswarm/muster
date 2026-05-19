@@ -29,7 +29,7 @@ A Helm chart for muster - Universal Control Plane for AI Agents built on MCP
 | ciliumNetworkPolicy.annotations | object | `{}` |  |
 | ciliumNetworkPolicy.enabled | bool | `false` |  |
 | ciliumNetworkPolicy.labels | object | `{}` |  |
-| crds.install | bool | `true` |  |
+| crds.install | bool | `false` | DEPRECATED: no-op; CRDs ship in the sibling `muster-crds` chart. Removed in chart v0.2.0. |
 | fullnameOverride | string | `""` |  |
 | gatewayAPI.backendTrafficPolicy.annotations | object | `{}` |  |
 | gatewayAPI.backendTrafficPolicy.enabled | bool | `false` |  |

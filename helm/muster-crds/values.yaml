@@ -1,0 +1,8 @@
+# muster-crds intentionally ships zero templates — Helm 3 reads the
+# crds/ directory directly and applies every file as a CRD on install.
+# Helm deliberately does NOT upgrade CRDs from crds/; bumping the CRD
+# schema requires installing a newer chart release (which deletes the
+# previous CR-API-version manifests and reinstalls the new ones) or
+# running `kubectl apply -f` of the bundled CRDs out-of-band.
+#
+# See helm/muster-crds/UPGRADE.md.

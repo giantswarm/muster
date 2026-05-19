@@ -1,11 +1,11 @@
 # CRD Generation Targets
 #
 # This Makefile extension provides targets to generate CRDs from Go types.
-# CRDs are generated directly into helm/muster/crds/ which is the single
-# source of truth for all CRD definitions.
+# CRDs are generated into helm/muster-crds/crds/, which is the single
+# source of truth and the chart that ships them to clusters.
 
 # CRD directory (single location)
-CRD_DIR := helm/muster/crds
+CRD_DIR := helm/muster-crds/crds
 
 ##@ CRD Management
 

@@ -465,9 +465,12 @@ muster:
           labels: {}
 
 # CRD installation
+#
+# DEPRECATED: CRDs ship in the sibling chart `muster-crds`. This toggle is
+# now a no-op kept for chart-value compatibility and will be removed in
+# muster chart v0.2.0. Install / upgrade `muster-crds` before `muster`.
 crds:
-  # Install Custom Resource Definitions
-  install: true
+  install: false
 
 # Cilium Network Policy configuration
 ciliumNetworkPolicy:

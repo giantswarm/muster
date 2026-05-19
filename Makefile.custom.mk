@@ -27,6 +27,7 @@ lint-yaml: ## Run YAML linter
 helm-lint: ## Run Helm linter
 	@echo "Running Helm linter..."
 	@helm lint helm/muster/
+	@helm lint helm/muster-crds/
 
 .PHONY: helm-test
 helm-test: ## Run Helm unit tests (requires helm-unittest plugin)

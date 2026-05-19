@@ -1,0 +1,15 @@
+{{ .Chart.Name }} {{ .Chart.Version }} installed.
+
+CRDs installed (cluster-scoped):
+  mcpservers.muster.giantswarm.io
+  workflows.muster.giantswarm.io
+
+Verify:
+  kubectl get crd mcpservers.muster.giantswarm.io workflows.muster.giantswarm.io
+
+Helm 3 reads the crds/ directory at install time. `helm upgrade` does NOT
+re-apply CRDs from crds/ — see UPGRADE.md for the schema-change ratchet.
+
+`helm uninstall {{ .Release.Name }}` will NOT delete the CRDs (Helm does
+not garbage-collect crds/). Remove them explicitly if and only if every
+MCPServer / Workflow CR has been deleted first.

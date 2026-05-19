@@ -1,0 +1,7 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/giantswarm/muster/helm/muster-crds/values.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {}
+}

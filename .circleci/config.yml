@@ -109,3 +109,64 @@ workflows:
               only: /^v.*/
             branches:
               ignore: /.*/
+
+      # muster-crds: CRD chart shipped alongside muster. Independent of the
+      # muster binary (no go-build / push-to-registries dependency); tracks
+      # the same release tag for version coupling but its release pipeline
+      # only needs the chart package + catalog push.
+      - architect/push-to-app-catalog:
+          executor: app-build-suite
+          context: architect
+          name: build-muster-crds-chart
+          app_catalog: giantswarm-catalog
+          app_catalog_test: giantswarm-test-catalog
+          chart: muster-crds
+          push_to_appcatalog: false
+          push_to_oci_registry: false
+          persist_chart_archive: true
+          filters:
+            tags:
+              only: /^v.*/
+            branches:
+              ignore:
+                - main
+
+      - architect/run-tests-with-ats:
+          name: execute muster-crds chart tests
+          requires:
+            - build-muster-crds-chart
+          filters:
+            tags:
+              only: /^v.*/
+            branches:
+              ignore:
+                - main
+
+      - architect/push-to-app-catalog:
+          executor: app-build-suite
+          context: architect
+          name: push-muster-crds-to-giantswarm-app-catalog
+          app_catalog: giantswarm-catalog
+          app_catalog_test: giantswarm-test-catalog
+          chart: muster-crds
+          requires:
+            - execute muster-crds chart tests
+          filters:
+            branches:
+              ignore:
+                - main
+
+      - architect/push-to-app-catalog:
+          executor: app-build-suite
+          context: architect
+          name: push-muster-crds-to-giantswarm-app-catalog-release
+          app_catalog: giantswarm-catalog
+          app_catalog_test: giantswarm-test-catalog
+          chart: muster-crds
+          requires:
+            - execute muster-crds chart tests
+          filters:
+            tags:
+              only: /^v.*/
+            branches:
+              ignore: /.*/
