@@ -113,7 +113,11 @@ func httpTargetFromURL(raw string, protocol HTTPProtocol) (HTTPTarget, error) {
 			return HTTPTarget{}, fmt.Errorf("unsupported url scheme %q", parsed.Scheme)
 		}
 	}
-	return HTTPTarget{Protocol: protocol, Host: host, Port: port, Path: parsed.Path}, nil
+	target := HTTPTarget{Protocol: protocol, Host: host, Port: port, Path: parsed.Path}
+	if err := target.Validate(); err != nil {
+		return HTTPTarget{}, err
+	}
+	return target, nil
 }
 
 func authFromSpec(auth *v1alpha1.MCPServerAuth) (Authn, error) {

@@ -24,10 +24,10 @@ func (a *Applier) reconcileBackend(ctx context.Context, namespace string, b agen
 	if !ok {
 		return fmt.Errorf("backend %q: expected HTTPTarget, got %T", b.Name, b.Target)
 	}
-	port, err := portInt32(target.Port)
-	if err != nil {
-		return err
+	if err := target.Validate(); err != nil {
+		return fmt.Errorf("backend %q: %w", b.Name, err)
 	}
+	port := int32(target.Port)
 	host := agw.ShortString(target.Host)
 	path := agw.LongString(target.Path)
 	protocol := mapProtocol(target.Protocol)

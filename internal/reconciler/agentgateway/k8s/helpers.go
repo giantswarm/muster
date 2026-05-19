@@ -51,13 +51,6 @@ func (a *Applier) applyOwner(meta *metav1.ObjectMeta) {
 	meta.OwnerReferences = append(meta.OwnerReferences, a.ownerRef)
 }
 
-func portInt32(p int) (int32, error) {
-	if p < 1 || p > 65535 {
-		return 0, fmt.Errorf("port %d out of range [1, 65535]", p)
-	}
-	return int32(p), nil
-}
-
 func mapProtocol(p agentgateway.HTTPProtocol) agw.MCPProtocol {
 	if p == agentgateway.SSE {
 		return agw.MCPProtocolSSE

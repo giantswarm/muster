@@ -1,5 +1,7 @@
 package agentgateway
 
+import "fmt"
+
 // Config is the agentgateway configuration for a single MCPServer.
 // Backends, Routes, and Policies share the MCPServer's name as their identifier.
 // Namespace is the MCPServer's namespace; adapters use it to scope emitted
@@ -44,6 +46,14 @@ type HTTPTarget struct {
 
 // Kind reports TargetHTTP.
 func (HTTPTarget) Kind() TargetKind { return TargetHTTP }
+
+// Validate reports an error if Port falls outside the TCP range [1, 65535].
+func (t HTTPTarget) Validate() error {
+	if t.Port < 1 || t.Port > 65535 {
+		return fmt.Errorf("port %d out of range [1, 65535]", t.Port)
+	}
+	return nil
+}
 
 // StdioTarget is an MCP child process agentgateway spawns directly.
 type StdioTarget struct {

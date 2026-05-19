@@ -258,8 +258,8 @@ func httpEndpoint(name string, t agentgateway.HTTPTarget) (*McpTargetEndpoint, e
 	if t.Host == "" {
 		return nil, fmt.Errorf("backend %q has unresolved host", name)
 	}
-	if t.Port <= 0 || t.Port > 65535 {
-		return nil, fmt.Errorf("backend %q has out-of-range port %d", name, t.Port)
+	if err := t.Validate(); err != nil {
+		return nil, fmt.Errorf("backend %q: %w", name, err)
 	}
 	return &McpTargetEndpoint{
 		Host: t.Host,
