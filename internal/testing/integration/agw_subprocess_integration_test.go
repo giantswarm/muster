@@ -4,7 +4,7 @@
 // binary as a real process. They are skipped unless the runner exposes
 // MUSTER_BINARY (the muster build under test) and MUSTER_AGW_BINARY (the
 // pinned agentgateway binary that internal/agentgateway/binary.Resolve
-// short-circuits to). CI provisioning lives in a follow-up PR.
+// short-circuits to).
 package integration
 
 import (

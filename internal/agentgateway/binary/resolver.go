@@ -15,9 +15,8 @@ import (
 	"strings"
 )
 
-// PinnedVersion is the agentgateway release this build of muster
-// targets. Bumping it is a deliberate, separate PR — the subprocess
-// manager and the native-config schema move in lockstep.
+// PinnedVersion is the agentgateway release this build of muster targets.
+// The subprocess manager and the native-config schema move in lockstep with it.
 const PinnedVersion = "1.2.1"
 
 // EnvVar names the override environment variable.

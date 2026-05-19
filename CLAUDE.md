@@ -55,6 +55,9 @@ All inter-package communication goes through `internal/api`. This is the most cr
 - **`internal/serviceclass/`** — ServiceClass prerequisites management
 - **`internal/workflow/`** — Workflow definitions, execution engine, templating
 - **`internal/orchestrator/`** — Service lifecycle orchestration and state machine
+- **`internal/reconciler/agentgateway/`** — MCPServer→agentgateway Config compiler + Applier port; `k8s/` and `yaml/` adapters
+- **`internal/agentgateway/subprocess/`** — agentgateway process supervisor for filesystem mode
+- **`internal/agentgateway/binary/`** — pinned-release resolver for the agentgateway binary
 - **`internal/testing/`** — BDD test framework, scenarios in `scenarios/*.yaml`
 - **`pkg/`** — Public packages (Kubernetes APIs, auth, logging, OAuth)
 

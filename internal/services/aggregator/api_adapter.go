@@ -188,7 +188,6 @@ func (a *APIAdapter) RegisterServerPendingAuthWithConfig(serverName, url, toolPr
 		ResourceMetadataURL: authInfo.ResourceMetadataURL,
 	}
 
-	// Pass auth config directly - aggregator now uses api.MCPServerAuth
 	return manager.RegisterServerPendingAuthWithConfig(serverName, url, toolPrefix, aggAuthInfo, authConfig)
 }
 
