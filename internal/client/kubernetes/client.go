@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	agw "github.com/agentgateway/agentgateway/controller/api/v1alpha1/agentgateway"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -11,6 +12,7 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
 )
@@ -49,6 +51,8 @@ func New(config *rest.Config) (*Client, error) {
 	scheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(musterv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(agw.AddToScheme(scheme))
+	utilruntime.Must(gwv1.Install(scheme))
 
 	k8sClient, err := client.New(config, client.Options{
 		Scheme: scheme,
