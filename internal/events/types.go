@@ -75,20 +75,20 @@ const (
 	// ReasonMCPServerTokenForwarded indicates an ID token was forwarded to a downstream server.
 	// This event is generated when muster forwards a user's ID token instead of triggering
 	// a separate OAuth flow, enabling SSO across the MCP ecosystem.
-	ReasonMCPServerTokenForwarded EventReason = "MCPServerTokenForwarded" //nolint:gosec // G101: event reason identifier, not a credential
+	ReasonMCPServerTokenForwarded EventReason = "MCPServerTokenForwarded" //nolint:gosec // G101: Kubernetes event reason identifier, not a credential
 
 	// ReasonMCPServerTokenForwardingFailed indicates ID token forwarding failed.
 	// This may trigger fallback to server-specific OAuth if configured.
-	ReasonMCPServerTokenForwardingFailed EventReason = "MCPServerTokenForwardingFailed" //nolint:gosec // G101: event reason identifier, not a credential
+	ReasonMCPServerTokenForwardingFailed EventReason = "MCPServerTokenForwardingFailed" //nolint:gosec // G101: Kubernetes event reason identifier, not a credential
 
 	// ReasonMCPServerTokenExchanged indicates a token was successfully exchanged via RFC 8693.
 	// This event is generated when muster exchanges a local token for one valid on a remote
 	// cluster's Identity Provider, enabling cross-cluster SSO.
-	ReasonMCPServerTokenExchanged EventReason = "MCPServerTokenExchanged" //nolint:gosec // G101: event reason identifier, not a credential
+	ReasonMCPServerTokenExchanged EventReason = "MCPServerTokenExchanged" //nolint:gosec // G101: Kubernetes event reason identifier, not a credential
 
 	// ReasonMCPServerTokenExchangeFailed indicates RFC 8693 token exchange failed.
 	// This may trigger fallback to server-specific OAuth if configured.
-	ReasonMCPServerTokenExchangeFailed EventReason = "MCPServerTokenExchangeFailed" //nolint:gosec // G101: event reason identifier, not a credential
+	ReasonMCPServerTokenExchangeFailed EventReason = "MCPServerTokenExchangeFailed" //nolint:gosec // G101: Kubernetes event reason identifier, not a credential
 )
 
 // Workflow event reasons

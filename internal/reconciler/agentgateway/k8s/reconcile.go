@@ -23,18 +23,15 @@ func (a *Applier) reconcileBackend(ctx context.Context, namespace string, b agen
 	if !ok {
 		return fmt.Errorf("backend %q: expected HTTPTarget, got %T", b.Name, b.Target)
 	}
-	if err := target.Validate(); err != nil {
-		return fmt.Errorf("backend %q: %w", b.Name, err)
-	}
 	port, err := portInt32(target.Port)
 	if err != nil {
-		return fmt.Errorf("backend %q: %w", b.Name, err)
+		return err
 	}
 	host := agw.ShortString(target.Host)
 	path := agw.LongString(target.Path)
 	protocol, err := mapProtocol(target.Protocol)
 	if err != nil {
-		return fmt.Errorf("backend %q: %w", b.Name, err)
+		return err
 	}
 
 	obj := &agw.AgentgatewayBackend{

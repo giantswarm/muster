@@ -20,6 +20,7 @@ import (
 	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
 
 	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/reconciler/agentgateway"
 	k8sapply "github.com/giantswarm/muster/internal/reconciler/agentgateway/k8s"
 )
 
@@ -333,4 +334,5 @@ type failingDeleter struct {
 	err error
 }
 
-func (d failingDeleter) Delete(context.Context, string) error { return d.err }
+func (failingDeleter) Apply(context.Context, agentgateway.Config) error { return nil }
+func (d failingDeleter) Delete(context.Context, string) error           { return d.err }

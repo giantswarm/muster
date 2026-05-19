@@ -72,7 +72,7 @@ type MCPServerReconciler struct {
 	// deleter, when non-nil, is called from reconcileDelete to clean up
 	// persisted state that does not cascade from the MCPServer (yaml file).
 	// Cluster mode leaves this nil — ownerReferences handle deletion.
-	deleter agentgateway.Deleter
+	deleter agentgateway.Applier
 
 	// ownerRefs caches OwnerReferences resolved from the live MCPServer in
 	// cluster mode so periodic status-sync requeues don't re-fetch and
@@ -89,7 +89,7 @@ func NewMCPServerReconcilerFilesystem(
 	mcpServerManager MCPServerManager,
 	serviceRegistry api.ServiceRegistryHandler,
 	yamlApplier agentgateway.Applier,
-	deleter agentgateway.Deleter,
+	deleter agentgateway.Applier,
 ) *MCPServerReconciler {
 	if orchestratorAPI == nil {
 		panic("reconciler: NewMCPServerReconcilerFilesystem requires a non-nil OrchestratorAPI")
