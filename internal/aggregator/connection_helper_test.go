@@ -520,7 +520,6 @@ func TestLoadTokenExchangeCredentials(t *testing.T) {
 	})
 }
 
-
 func TestHeaderFunc_RateLimitsWarning(t *testing.T) {
 	// Set up a logger that captures output at DEBUG level so we can see all messages.
 	var logBuf bytes.Buffer
