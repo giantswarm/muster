@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/cli"
 
 	"github.com/spf13/cobra"
@@ -15,23 +16,23 @@ var getFlags cli.CommandFlags
 
 // Available resource types for autocompletion
 var getResourceTypes = []string{
-	resourceTypeService,
-	resourceTypeMCPServer,
-	resourceTypeWorkflow,
-	resourceTypeWorkflowExecution,
-	mcpPrimitiveTool,
-	mcpPrimitiveResource,
-	mcpPrimitivePrompt,
+	api.ResourceTypeService,
+	api.ResourceTypeMCPServer,
+	api.ResourceTypeWorkflow,
+	api.ResourceTypeWorkflowExecution,
+	api.MCPPrimitiveTool,
+	api.MCPPrimitiveResource,
+	api.MCPPrimitivePrompt,
 }
 
 var getMCPResourceTypes = mcpPrimitiveTypes
 
 // Resource type mappings for get operations
 var getResourceMappings = map[string]string{
-	resourceTypeService:           "core_service_status",
-	resourceTypeMCPServer:         "core_mcpserver_get",
-	resourceTypeWorkflow:          "core_workflow_get",
-	resourceTypeWorkflowExecution: "core_workflow_execution_get",
+	api.ResourceTypeService:           "core_service_status",
+	api.ResourceTypeMCPServer:         "core_mcpserver_get",
+	api.ResourceTypeWorkflow:          "core_workflow_get",
+	api.ResourceTypeWorkflowExecution: "core_workflow_execution_get",
 }
 
 // availableGetResourceTypes returns a comma-separated list of available resource types
@@ -114,7 +115,7 @@ func getMCPPrimitiveCompletion(ctx context.Context, executor *cli.ToolExecutor, 
 	var names []string
 
 	switch resourceType {
-	case mcpPrimitiveTool:
+	case api.MCPPrimitiveTool:
 		tools, err := executor.ListMCPTools(ctx)
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveNoFileComp
@@ -122,7 +123,7 @@ func getMCPPrimitiveCompletion(ctx context.Context, executor *cli.ToolExecutor, 
 		for _, tool := range tools {
 			names = append(names, tool.Name)
 		}
-	case mcpPrimitiveResource:
+	case api.MCPPrimitiveResource:
 		resources, err := executor.ListMCPResources(ctx)
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveNoFileComp
@@ -131,7 +132,7 @@ func getMCPPrimitiveCompletion(ctx context.Context, executor *cli.ToolExecutor, 
 			// For resources, we complete on URI
 			names = append(names, resource.URI)
 		}
-	case mcpPrimitivePrompt:
+	case api.MCPPrimitivePrompt:
 		prompts, err := executor.ListMCPPrompts(ctx)
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveNoFileComp
@@ -277,7 +278,7 @@ func runGet(cmd *cobra.Command, args []string) error {
 
 	// Prepare arguments based on resource type
 	var toolArgs map[string]interface{}
-	if resourceType == resourceTypeWorkflowExecution {
+	if resourceType == api.ResourceTypeWorkflowExecution {
 		// workflow-execution uses execution_id instead of name
 		toolArgs = map[string]interface{}{
 			"execution_id": resourceName,
@@ -310,11 +311,11 @@ func runGetMCP(cmd *cobra.Command, mcpType, name string) error {
 	}
 
 	switch mcpType {
-	case mcpPrimitiveTool:
+	case api.MCPPrimitiveTool:
 		return runGetMCPTool(cmd, executor, name)
-	case mcpPrimitiveResource:
+	case api.MCPPrimitiveResource:
 		return runGetMCPResource(cmd, executor, name)
-	case mcpPrimitivePrompt:
+	case api.MCPPrimitivePrompt:
 		return runGetMCPPrompt(cmd, executor, name)
 	default:
 		return fmt.Errorf("unknown MCP type: %s", mcpType)

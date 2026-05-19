@@ -582,7 +582,7 @@ func (s *OAuthServer) handleMetadata(w http.ResponseWriter, r *http.Request) {
 		"userinfo_endpoint":                     s.config.Issuer + "/userinfo",
 		"jwks_uri":                              s.config.Issuer + "/jwks",
 		"response_types_supported":              []string{"code"},
-		"grant_types_supported":                 []string{"authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:token-exchange"},
+		"grant_types_supported":                 []string{pkgoauth.GrantTypeAuthorizationCode, pkgoauth.GrantTypeRefreshToken, pkgoauth.GrantTypeTokenExchange},
 		"token_endpoint_auth_methods_supported": []string{"none", "client_secret_post", "client_secret_basic"},
 		"scopes_supported":                      s.config.AcceptedScopes,
 		"code_challenge_methods_supported":      []string{"S256", "plain"},
@@ -601,8 +601,8 @@ func (s *OAuthServer) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 	}
 
 	clientID := r.URL.Query().Get(pkgoauth.FormFieldClientID)
-	redirectURI := r.URL.Query().Get("redirect_uri")
-	scope := r.URL.Query().Get("scope")
+	redirectURI := r.URL.Query().Get(pkgoauth.FormFieldRedirectURI)
+	scope := r.URL.Query().Get(pkgoauth.FormFieldScope)
 	state := r.URL.Query().Get("state")
 	codeChallenge := r.URL.Query().Get("code_challenge")
 	codeChallengeMethod := r.URL.Query().Get("code_challenge_method")
@@ -719,7 +719,7 @@ func (s *OAuthServer) handleToken(w http.ResponseWriter, r *http.Request) {
 		s.handleAuthCodeExchange(w, r)
 	case pkgoauth.GrantTypeRefreshToken:
 		s.handleRefreshToken(w, r)
-	case "urn:ietf:params:oauth:grant-type:token-exchange":
+	case pkgoauth.GrantTypeTokenExchange:
 		s.handleTokenExchange(w, r)
 	default:
 		w.Header().Set("Content-Type", "application/json")
@@ -732,7 +732,7 @@ func (s *OAuthServer) handleToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *OAuthServer) handleAuthCodeExchange(w http.ResponseWriter, r *http.Request) {
-	code := r.FormValue("code")                                 //nolint:gosec
+	code := r.FormValue(pkgoauth.FormFieldCode)                 //nolint:gosec
 	codeVerifier := r.FormValue(pkgoauth.FormFieldCodeVerifier) //nolint:gosec
 	clientID := r.FormValue(pkgoauth.FormFieldClientID)         //nolint:gosec
 
@@ -904,14 +904,14 @@ func (s *OAuthServer) handleRefreshToken(w http.ResponseWriter, r *http.Request)
 // handleTokenExchange implements RFC 8693 OAuth 2.0 Token Exchange.
 // This allows exchanging a token from a trusted issuer for a token valid on this server.
 func (s *OAuthServer) handleTokenExchange(w http.ResponseWriter, r *http.Request) {
-	subjectToken := r.FormValue("subject_token")          //nolint:gosec
-	subjectTokenType := r.FormValue("subject_token_type") //nolint:gosec
-	scope := r.FormValue("scope")                         //nolint:gosec
+	subjectToken := r.FormValue(pkgoauth.FormFieldSubjectToken)      //nolint:gosec
+	subjectTokenType := r.FormValue(pkgoauth.FormFieldSubjectTokenT) //nolint:gosec
+	scope := r.FormValue(pkgoauth.FormFieldScope)                    //nolint:gosec
 
 	// Dex uses "connector_id" as the audience parameter for token exchange.
 	// RFC 8693 uses "audience". Accept both for compatibility.
-	connectorID := r.FormValue("connector_id") //nolint:gosec
-	audience := r.FormValue("audience")        //nolint:gosec
+	connectorID := r.FormValue("connector_id")              //nolint:gosec
+	audience := r.FormValue(pkgoauth.FormFieldRequestedAud) //nolint:gosec
 	if connectorID != "" && audience == "" {
 		audience = connectorID
 	}
@@ -1009,7 +1009,7 @@ func (s *OAuthServer) tokenExchangeError(w http.ResponseWriter, errorCode, descr
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusBadRequest)
 	_ = json.NewEncoder(w).Encode(map[string]string{
-		"error":                            errorCode,
+		pkgoauth.JSONFieldError:            errorCode,
 		pkgoauth.JSONFieldErrorDescription: description,
 	})
 }
