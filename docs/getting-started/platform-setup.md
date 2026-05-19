@@ -204,7 +204,7 @@ call_tool(name="core_service_status", arguments={"name": "my-service"})
 Based on the current `.muster` configuration, you already have examples for:
 
 - **Workflows**: `auth-workflow`, `login-workload-cluster`, `connect-monitoring`
-- **MCP Servers**: `kubernetes`, `prometheus`, `grafana`, `teleport`
+- **MCP Servers**: `kubernetes`, `prometheus`, `grafana`
 
 ### Understanding the Architecture
 

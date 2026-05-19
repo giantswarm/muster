@@ -35,6 +35,12 @@ type Manager struct {
 	cancel  context.CancelFunc
 	done    chan struct{}
 	readyCh chan error
+	// spawned is closed exactly once after the supervisor has either
+	// recorded the first successful cmd.Start() (m.pgid set) or given
+	// up before any spawn. shutdown waits on it before reading m.pgid
+	// so SIGTERM never races a still-pending assignment.
+	spawned     chan struct{}
+	spawnedOnce sync.Once
 }
 
 type state int
@@ -95,6 +101,8 @@ func (m *Manager) Start(
 	m.cancel = cancel
 	m.done = make(chan struct{})
 	m.readyCh = make(chan error, 1)
+	m.spawned = make(chan struct{})
+	m.spawnedOnce = sync.Once{}
 	m.mu.Unlock()
 
 	envSlice := envToSlice(env)
@@ -107,7 +115,11 @@ func (m *Manager) Start(
 	select {
 	case err := <-m.readyCh:
 		if err != nil {
-			_ = m.shutdown(context.Background())
+			// Honor the caller's cancellation on the shutdown leg too —
+			// dropping ctx and using context.Background() would let a
+			// stuck child keep the failing Start blocked past the
+			// caller's lifetime.
+			_ = m.shutdown(ctx)
 			return err
 		}
 		m.mu.Lock()
@@ -123,7 +135,11 @@ func (m *Manager) Start(
 		m.mu.Unlock()
 		return fmt.Errorf("subprocess: supervisor exited before ready")
 	case <-startupCtx.Done():
-		_ = m.shutdown(context.Background())
+		// startupCtx is derived from ctx, so its Done() already implies
+		// ctx is cancelled or the startup timeout fired. Either way pass
+		// ctx (which may still be live if only the timeout fired) so
+		// shutdown respects further caller cancellation.
+		_ = m.shutdown(ctx)
 		return fmt.Errorf("subprocess: startup: %w", startupCtx.Err())
 	}
 }
@@ -153,9 +169,9 @@ func (m *Manager) shutdown(ctx context.Context) error {
 		m.mu.Unlock()
 		return nil
 	}
-	pgid := m.pgid
 	done := m.done
 	cancel := m.cancel
+	spawned := m.spawned
 	m.state = stateStopped
 	m.mu.Unlock()
 
@@ -163,6 +179,21 @@ func (m *Manager) shutdown(ctx context.Context) error {
 	if cancel != nil {
 		cancel()
 	}
+
+	// Wait for the supervisor to either record the spawned pgid or
+	// give up before any spawn — otherwise SIGTERM might race the
+	// assignment in supervise() and miss a live child.
+	if spawned != nil {
+		select {
+		case <-spawned:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
+	m.mu.Lock()
+	pgid := m.pgid
+	m.mu.Unlock()
 
 	if pgid > 0 {
 		if err := signalProcessGroup(pgid, syscall.SIGTERM); err != nil {
@@ -206,6 +237,9 @@ func (m *Manager) supervise(
 	readyProbe func(context.Context) error,
 ) {
 	defer close(m.done)
+	// Guarantees shutdown can never block on spawned even if we exit
+	// before recording a pgid (e.g. first cmd.Start failed).
+	defer m.markSpawned()
 
 	backoff := m.opts.backoffInitial
 	attempt := 0
@@ -250,7 +284,16 @@ func (m *Manager) supervise(
 		m.mu.Lock()
 		m.cmd = cmd
 		m.pgid = pid
+		shuttingDown := ctx.Err() != nil
 		m.mu.Unlock()
+		m.markSpawned()
+
+		// If Stop fired between cmd.Start returning and this assignment,
+		// the parent shutdown saw pgid=0 and didn't signal. Self-signal
+		// to unblock cmd.Wait.
+		if shuttingDown {
+			_ = signalProcessGroup(pid, syscall.SIGTERM)
+		}
 
 		m.logger.Info("subprocess: started",
 			slog.String("binary", binaryPath),
@@ -320,6 +363,10 @@ func (m *Manager) supervise(
 	}
 }
 
+func (m *Manager) markSpawned() {
+	m.spawnedOnce.Do(func() { close(m.spawned) })
+}
+
 func (m *Manager) signalReadyOnce(signalled *bool, err error) {
 	if *signalled {
 		return
@@ -366,6 +413,9 @@ func (m *Manager) pumpLines(ctx context.Context, wg *sync.WaitGroup, r io.ReadCl
 	}
 }
 
+// envToSlice flattens env into the KEY=VALUE form exec.Cmd.Env expects.
+// Keys are sorted purely for test stability (process env ordering has no
+// semantic meaning to POSIX); the sort lets golden tests pin the slice.
 func envToSlice(env map[string]string) []string {
 	if len(env) == 0 {
 		return nil

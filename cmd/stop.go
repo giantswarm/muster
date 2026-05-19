@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/cli"
 
 	"github.com/spf13/cobra"
@@ -12,12 +13,12 @@ var stopFlags cli.CommandFlags
 
 // Available resource types for stop operations
 var stopResourceTypes = []string{
-	"service",
+	api.ResourceTypeService,
 }
 
 // Dynamic completion for service names
 func stopServiceNameCompletion(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	if len(args) != 1 || args[0] != "service" { //nolint:goconst
+	if len(args) != 1 || args[0] != api.ResourceTypeService { //nolint:goconst
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
@@ -54,7 +55,7 @@ Note: The aggregator server must be running (use 'muster serve') before using th
 }
 
 // Resource type mappings for stop operations.
-// "service" used to call core_service_stop; that tool was removed when the
+// api.ResourceTypeService used to call core_service_stop; that tool was removed when the
 // orchestrator-driven dial loop went away. Pause is now declarative: patch
 // MCPServer.spec.suspended=true through core_mcpserver_update.
 var stopResourceMappings = map[string]string{
@@ -95,7 +96,7 @@ func runStop(cmd *cobra.Command, args []string) error {
 	toolArgs := map[string]interface{}{
 		"name": resourceName,
 	}
-	if resourceType == "service" {
+	if resourceType == api.ResourceTypeService {
 		toolArgs["suspended"] = true
 	}
 

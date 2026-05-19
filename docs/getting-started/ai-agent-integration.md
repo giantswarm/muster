@@ -235,7 +235,7 @@ force-reconnect with `core_mcpserver_reconnect name=<name>`.
 
 **External Tools (Variable):**
 
-- Tools from configured MCP servers (e.g., `x_kubernetes_*`, `x_teleport_*`)
+- Tools from configured MCP servers (e.g., `x_kubernetes_*`, `x_prometheus_*`)
 
 ## Example AI interactions
 
@@ -414,7 +414,7 @@ For self-hosted Muster deployments, ensure your IdP trusts this client ID.
 Based on your `.muster` setup, you can try:
 
 - **Workflows**: `auth-workflow`, `login-workload-cluster`, `connect-monitoring`
-- **MCP Servers**: `kubernetes`, `prometheus`, `grafana`, `teleport`
+- **MCP Servers**: `kubernetes`, `prometheus`, `grafana`
 
 ### Key Usage Patterns for AI Agents
 

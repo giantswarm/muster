@@ -55,6 +55,10 @@ type MCPServerCreateRequest struct {
 	// Optional; if not specified, tools are exposed with their original names.
 	ToolPrefix string `json:"toolPrefix,omitempty"`
 
+	// Family declares that this MCP server is an instance of a family of
+	// equivalent servers, sharing exposed tool names with siblings.
+	Family *MCPServerFamily `json:"family,omitempty"`
+
 	// Description for the MCP server
 	Description string `json:"description,omitempty"`
 
@@ -105,6 +109,10 @@ type MCPServerUpdateRequest struct {
 	// ToolPrefix can be updated, affecting tool naming.
 	ToolPrefix string `json:"toolPrefix,omitempty"`
 
+	// Family declares that this MCP server is an instance of a family of
+	// equivalent servers, sharing exposed tool names with siblings.
+	Family *MCPServerFamily `json:"family,omitempty"`
+
 	// Description for the MCP server
 	Description string `json:"description,omitempty"`
 
@@ -150,6 +158,9 @@ type MCPServerValidateRequest struct {
 
 	// ToolPrefix for validation.
 	ToolPrefix string `json:"toolPrefix,omitempty"`
+
+	// Family for validation.
+	Family *MCPServerFamily `json:"family,omitempty"`
 
 	// AutoStart determines whether this MCP server should be automatically started
 	AutoStart bool `json:"autoStart,omitempty"`
