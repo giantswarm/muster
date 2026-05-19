@@ -5,7 +5,7 @@ Muster needs access to:
   - Its own CRDs (MCPServer, Workflow)
   - CRD discovery
   - Events (for core_events tool)
-  - Secrets (for reading credentials: token exchange, teleport identity, OAuth)
+  - Secrets (for reading credentials: token exchange, OAuth)
 */}}
 
 {{- if and .Values.serviceAccount.create .Values.rbac.create -}}
@@ -36,7 +36,7 @@ rules:
     resources: ["events"]
     verbs: ["get", "list", "watch", "create"]
 
-  # Secrets - required for reading credentials (token exchange, teleport identity, OAuth)
+  # Secrets - required for reading credentials (token exchange, OAuth)
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get"]

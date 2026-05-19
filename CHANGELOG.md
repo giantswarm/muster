@@ -38,6 +38,7 @@ All notable changes to this project will be documented in this file.
 
 ### Removed
 
+- **Breaking (MCPServer CRD):** Teleport authentication support removed from muster — moved to a separate operator. `MCPServerAuth.type` no longer accepts `teleport`; the `teleport` field (`TeleportAuthConfig` with `identityDir` / `identitySecretName` / `identitySecretNamespace` / `appName`) is removed from the CRD. Existing CRs with `auth.type: teleport` or an `auth.teleport` block will be rejected by validation and must be migrated to the new operator. The `internal/teleport` package, the `api.TeleportClientHandler` / `api.RegisterTeleportClient` / `api.GetTeleportClient` / `api.TeleportClientConfig` / `api.TeleportAuth` / `api.AuthTypeTeleport` API surface, the `OAuthHandler.ExchangeTokenForRemoteClusterWithClient` method, the `TokenExchanger.ExchangeWithClient` method, the `mcpserver.MCPClientConfig.HTTPClient` field, and the `NewStreamableHTTPClientWithHTTPClient` / `NewStreamableHTTPClientWithHeaderFuncAndHTTPClient` constructors are removed.
 - **Breaking (external consumers of `pkg/oauth`):** `pkg/oauth.IDTokenClaims` struct and `ParseIDTokenClaims` function removed. Replaced by typed accessors in `pkg/oauth/jwt.go` — `Subject`, `Email`, `Expiry`, `Issuer`, `IsExpired` — each returning `(value, error)` so callers can distinguish "missing claim" from "decode failed".
 
 ### Changed
