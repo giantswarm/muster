@@ -2,7 +2,7 @@
 binds:
   - port: 8080
     listeners:
-      - name: grizzly
+      - name: muster
         routes:
           - name: grizzly
             matches:

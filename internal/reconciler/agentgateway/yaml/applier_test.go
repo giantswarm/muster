@@ -36,12 +36,18 @@ func writeInDir(t *testing.T, dir, name string, payload []byte) {
 	require.NoError(t, root.WriteFile(name, payload, 0o600))
 }
 
+const (
+	fixtureAlpha   = "alpha"
+	fixtureBravo   = "bravo"
+	fixtureGrizzly = "grizzly"
+)
+
 func canonicalConfig() agentgateway.Config {
 	return agentgateway.Config{
-		Name:      "grizzly",
+		Name:      fixtureGrizzly,
 		Namespace: "muster",
 		Backends: []agentgateway.Backend{{
-			Name: "grizzly",
+			Name: fixtureGrizzly,
 			Target: agentgateway.HTTPTarget{
 				Protocol: agentgateway.StreamableHTTP,
 				Host:     "grizzly.muster.svc.cluster.local",
@@ -50,13 +56,13 @@ func canonicalConfig() agentgateway.Config {
 			},
 		}},
 		Routes: []agentgateway.Route{{
-			Name:       "grizzly",
+			Name:       fixtureGrizzly,
 			PathMatch:  "/mcp/grizzly",
-			BackendRef: "grizzly",
-			PolicyRef:  "grizzly",
+			BackendRef: fixtureGrizzly,
+			PolicyRef:  fixtureGrizzly,
 		}},
 		Policies: []agentgateway.Policy{{
-			Name:  "grizzly",
+			Name:  fixtureGrizzly,
 			Authn: agentgateway.Authn{Type: agentgateway.AuthnTypeOAuth, ForwardToken: true},
 		}},
 	}
@@ -85,22 +91,22 @@ func stdioConfig() agentgateway.Config {
 	return c
 }
 
-func TestApply_WritesFilePerMCPServer(t *testing.T) {
+func TestApply_WritesCombinedFile(t *testing.T) {
 	dir := t.TempDir()
 	a, err := yamlapply.NewApplier(dir)
 	require.NoError(t, err)
 
 	require.NoError(t, a.Apply(t.Context(), canonicalConfig()))
 
-	data := readInDir(t, dir, "grizzly.yaml")
+	data := readInDir(t, dir, yamlapply.ConfigFilename)
 
 	first := strings.SplitN(string(data), "\n", 2)[0]
 	require.Equal(t, "# yaml-language-server: $schema="+yamlapply.SchemaURL, first)
 
 	entries, err := os.ReadDir(dir)
 	require.NoError(t, err)
-	require.Len(t, entries, 1, "only the target file should remain after a successful apply")
-	require.Equal(t, "grizzly.yaml", entries[0].Name())
+	require.Len(t, entries, 1, "applier must write a single combined file")
+	require.Equal(t, yamlapply.ConfigFilename, entries[0].Name())
 }
 
 func TestApply_ReApplyIsByteIdentical(t *testing.T) {
@@ -109,10 +115,10 @@ func TestApply_ReApplyIsByteIdentical(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, a.Apply(t.Context(), canonicalConfig()))
-	first := readInDir(t, dir, "grizzly.yaml")
+	first := readInDir(t, dir, yamlapply.ConfigFilename)
 
 	require.NoError(t, a.Apply(t.Context(), canonicalConfig()))
-	second := readInDir(t, dir, "grizzly.yaml")
+	second := readInDir(t, dir, yamlapply.ConfigFilename)
 
 	require.True(t, bytes.Equal(first, second), "re-apply must produce byte-identical output")
 }
@@ -123,7 +129,7 @@ func TestApply_RoundTripUnmarshal(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, a.Apply(t.Context(), canonicalConfig()))
-	raw := readInDir(t, dir, "grizzly.yaml")
+	raw := readInDir(t, dir, yamlapply.ConfigFilename)
 
 	var cfg yamlapply.LocalConfig
 	require.NoError(t, goyaml.Unmarshal(raw, &cfg))
@@ -133,11 +139,11 @@ func TestApply_RoundTripUnmarshal(t *testing.T) {
 	require.Len(t, cfg.Binds[0].Listeners, 1)
 
 	listener := cfg.Binds[0].Listeners[0]
-	require.Equal(t, "grizzly", listener.Name)
+	require.Equal(t, yamlapply.DefaultListenerName, listener.Name)
 	require.Len(t, listener.Routes, 1)
 
 	route := listener.Routes[0]
-	require.Equal(t, "grizzly", route.Name)
+	require.Equal(t, fixtureGrizzly, route.Name)
 	require.Len(t, route.Matches, 1)
 	require.NotNil(t, route.Matches[0].Path)
 	require.Equal(t, "/mcp/grizzly", route.Matches[0].Path.PathPrefix)
@@ -147,7 +153,7 @@ func TestApply_RoundTripUnmarshal(t *testing.T) {
 	require.Len(t, route.Backends[0].MCP.Targets, 1)
 
 	target := route.Backends[0].MCP.Targets[0]
-	require.Equal(t, "grizzly", target.Name)
+	require.Equal(t, fixtureGrizzly, target.Name)
 	require.NotNil(t, target.MCP)
 	require.Nil(t, target.SSE)
 	require.Nil(t, target.Stdio)
@@ -166,7 +172,7 @@ func TestApply_SSEProtocol(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, a.Apply(t.Context(), sseConfig()))
-	raw := readInDir(t, dir, "grizzly.yaml")
+	raw := readInDir(t, dir, yamlapply.ConfigFilename)
 
 	var cfg yamlapply.LocalConfig
 	require.NoError(t, goyaml.Unmarshal(raw, &cfg))
@@ -185,7 +191,7 @@ func TestApply_StdioTarget(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, a.Apply(t.Context(), stdioConfig()))
-	raw := readInDir(t, dir, "grizzly.yaml")
+	raw := readInDir(t, dir, yamlapply.ConfigFilename)
 
 	var cfg yamlapply.LocalConfig
 	require.NoError(t, goyaml.Unmarshal(raw, &cfg))
@@ -205,11 +211,63 @@ func TestApply_CustomListenerPort(t *testing.T) {
 
 	require.NoError(t, a.Apply(t.Context(), canonicalConfig()))
 
-	raw := readInDir(t, dir, "grizzly.yaml")
+	raw := readInDir(t, dir, yamlapply.ConfigFilename)
 
 	var cfg yamlapply.LocalConfig
 	require.NoError(t, goyaml.Unmarshal(raw, &cfg))
 	require.Equal(t, uint16(9090), cfg.Binds[0].Port)
+}
+
+func TestApply_CustomListenerName(t *testing.T) {
+	dir := t.TempDir()
+	a, err := yamlapply.NewApplier(dir, yamlapply.WithListenerName("alt"))
+	require.NoError(t, err)
+
+	require.NoError(t, a.Apply(t.Context(), canonicalConfig()))
+
+	raw := readInDir(t, dir, yamlapply.ConfigFilename)
+
+	var cfg yamlapply.LocalConfig
+	require.NoError(t, goyaml.Unmarshal(raw, &cfg))
+	require.Equal(t, "alt", cfg.Binds[0].Listeners[0].Name)
+}
+
+func TestApply_MultipleMCPServersShareOneListener(t *testing.T) {
+	dir := t.TempDir()
+	a, err := yamlapply.NewApplier(dir)
+	require.NoError(t, err)
+
+	a1 := canonicalConfig()
+	a1.Backends[0].Name = fixtureAlpha
+	a1.Routes[0].Name = fixtureAlpha
+	a1.Routes[0].PathMatch = "/mcp/alpha"
+	a1.Policies[0].Name = fixtureAlpha
+
+	a2 := stdioConfig()
+	a2.Backends[0].Name = fixtureBravo
+	a2.Routes[0].Name = fixtureBravo
+	a2.Routes[0].PathMatch = "/mcp/bravo"
+	a2.Policies[0].Name = fixtureBravo
+
+	require.NoError(t, a.Apply(t.Context(), a1))
+	require.NoError(t, a.Apply(t.Context(), a2))
+
+	raw := readInDir(t, dir, yamlapply.ConfigFilename)
+
+	var cfg yamlapply.LocalConfig
+	require.NoError(t, goyaml.Unmarshal(raw, &cfg))
+
+	require.Len(t, cfg.Binds, 1, "all routes must share one bind")
+	require.Len(t, cfg.Binds[0].Listeners, 1, "all routes must share one listener")
+	listener := cfg.Binds[0].Listeners[0]
+	require.Equal(t, yamlapply.DefaultListenerName, listener.Name)
+	require.Len(t, listener.Routes, 2)
+
+	require.Equal(t, fixtureAlpha, listener.Routes[0].Name, "routes must sort by name for deterministic output")
+	require.Equal(t, fixtureBravo, listener.Routes[1].Name)
+
+	require.NotNil(t, listener.Routes[0].Backends[0].MCP.Targets[0].MCP)
+	require.NotNil(t, listener.Routes[1].Backends[0].MCP.Targets[0].Stdio)
 }
 
 func TestApply_ContextCanceled(t *testing.T) {
@@ -217,13 +275,15 @@ func TestApply_ContextCanceled(t *testing.T) {
 	a, err := yamlapply.NewApplier(dir)
 	require.NoError(t, err)
 
+	bootstrapBefore := readInDir(t, dir, yamlapply.ConfigFilename)
+
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	require.ErrorIs(t, a.Apply(ctx, canonicalConfig()), context.Canceled)
 
-	entries, err := os.ReadDir(dir)
-	require.NoError(t, err)
-	require.Empty(t, entries, "canceled apply must not touch the filesystem")
+	bootstrapAfter := readInDir(t, dir, yamlapply.ConfigFilename)
+	require.True(t, bytes.Equal(bootstrapBefore, bootstrapAfter),
+		"canceled apply must not rewrite the combined config")
 }
 
 func TestApply_RejectsInvalidNames(t *testing.T) {
@@ -240,6 +300,8 @@ func TestApply_RejectsInvalidNames(t *testing.T) {
 		{"uppercase", "Grizzly"},
 		{"empty", ""},
 	}
+	bootstrapBefore := readInDir(t, dir, yamlapply.ConfigFilename)
+
 	for _, tc := range cases {
 		t.Run(tc.label, func(t *testing.T) {
 			c := canonicalConfig()
@@ -250,9 +312,9 @@ func TestApply_RejectsInvalidNames(t *testing.T) {
 		})
 	}
 
-	entries, err := os.ReadDir(dir)
-	require.NoError(t, err)
-	require.Empty(t, entries)
+	bootstrapAfter := readInDir(t, dir, yamlapply.ConfigFilename)
+	require.True(t, bytes.Equal(bootstrapBefore, bootstrapAfter),
+		"rejected applies must not change the combined config")
 }
 
 func TestApply_RejectsMalformedConfig(t *testing.T) {
@@ -306,11 +368,11 @@ func TestApply_OverwritesStaleContent(t *testing.T) {
 	a, err := yamlapply.NewApplier(dir)
 	require.NoError(t, err)
 
-	writeInDir(t, dir, "grizzly.yaml", []byte("stale: content\n"))
+	writeInDir(t, dir, yamlapply.ConfigFilename, []byte("stale: content\n"))
 
 	require.NoError(t, a.Apply(t.Context(), canonicalConfig()))
 
-	raw := readInDir(t, dir, "grizzly.yaml")
+	raw := readInDir(t, dir, yamlapply.ConfigFilename)
 	require.NotContains(t, string(raw), "stale: content")
 	require.Contains(t, string(raw), "grizzly.muster.svc.cluster.local")
 }
@@ -320,7 +382,7 @@ func TestApply_CleansLeftoverTempFile(t *testing.T) {
 	a, err := yamlapply.NewApplier(dir)
 	require.NoError(t, err)
 
-	writeInDir(t, dir, "grizzly.yaml.tmp", []byte("crashed mid-write"))
+	writeInDir(t, dir, yamlapply.ConfigFilename+".tmp", []byte("crashed mid-write"))
 
 	require.NoError(t, a.Apply(t.Context(), canonicalConfig()))
 
@@ -330,28 +392,49 @@ func TestApply_CleansLeftoverTempFile(t *testing.T) {
 	for _, en := range entries {
 		names = append(names, en.Name())
 	}
-	require.Contains(t, names, "grizzly.yaml")
-	require.NotContains(t, names, "grizzly.yaml.tmp", "rename must replace any preexisting temp file")
+	require.Contains(t, names, yamlapply.ConfigFilename)
+	require.NotContains(t, names, yamlapply.ConfigFilename+".tmp", "rename must replace any preexisting temp file")
 }
 
-func TestDelete_RemovesFile(t *testing.T) {
+func TestDelete_RemovesRouteFromCombinedFile(t *testing.T) {
 	dir := t.TempDir()
 	a, err := yamlapply.NewApplier(dir)
 	require.NoError(t, err)
 
-	require.NoError(t, a.Apply(t.Context(), canonicalConfig()))
-	require.FileExists(t, filepath.Join(dir, "grizzly.yaml"))
+	a1 := canonicalConfig()
+	a1.Backends[0].Name = fixtureAlpha
+	a1.Routes[0].Name = fixtureAlpha
+	a1.Routes[0].PathMatch = "/mcp/alpha"
+	a1.Policies[0].Name = fixtureAlpha
 
-	require.NoError(t, a.Delete(t.Context(), "grizzly"))
-	_, err = os.Stat(filepath.Join(dir, "grizzly.yaml"))
-	require.True(t, os.IsNotExist(err))
+	a2 := canonicalConfig()
+	a2.Backends[0].Name = fixtureBravo
+	a2.Routes[0].Name = fixtureBravo
+	a2.Routes[0].PathMatch = "/mcp/bravo"
+	a2.Policies[0].Name = fixtureBravo
+
+	require.NoError(t, a.Apply(t.Context(), a1))
+	require.NoError(t, a.Apply(t.Context(), a2))
+
+	require.NoError(t, a.Delete(t.Context(), fixtureAlpha))
+
+	raw := readInDir(t, dir, yamlapply.ConfigFilename)
+	var cfg yamlapply.LocalConfig
+	require.NoError(t, goyaml.Unmarshal(raw, &cfg))
+	require.Len(t, cfg.Binds[0].Listeners[0].Routes, 1)
+	require.Equal(t, fixtureBravo, cfg.Binds[0].Listeners[0].Routes[0].Name)
 }
 
 func TestDelete_NoopWhenMissing(t *testing.T) {
 	dir := t.TempDir()
 	a, err := yamlapply.NewApplier(dir)
 	require.NoError(t, err)
+
+	bootstrapBefore := readInDir(t, dir, yamlapply.ConfigFilename)
 	require.NoError(t, a.Delete(t.Context(), "absent"))
+	bootstrapAfter := readInDir(t, dir, yamlapply.ConfigFilename)
+	require.True(t, bytes.Equal(bootstrapBefore, bootstrapAfter),
+		"delete of an unknown route must not rewrite the combined config")
 }
 
 func TestDelete_RejectsInvalidName(t *testing.T) {
@@ -370,8 +453,8 @@ func TestDelete_ContextCanceled(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	require.ErrorIs(t, a.Delete(ctx, "grizzly"), context.Canceled)
-	require.FileExists(t, filepath.Join(dir, "grizzly.yaml"), "canceled delete must leave the file in place")
+	require.ErrorIs(t, a.Delete(ctx, fixtureGrizzly), context.Canceled)
+	require.FileExists(t, filepath.Join(dir, yamlapply.ConfigFilename), "canceled delete must leave the file in place")
 }
 
 func TestNewApplier_RequiresDir(t *testing.T) {
@@ -384,7 +467,7 @@ func TestNewApplier_CreatesDir(t *testing.T) {
 	a, err := yamlapply.NewApplier(dir)
 	require.NoError(t, err)
 	require.NoError(t, a.Apply(t.Context(), canonicalConfig()))
-	require.FileExists(t, filepath.Join(dir, "grizzly.yaml"))
+	require.FileExists(t, filepath.Join(dir, yamlapply.ConfigFilename))
 }
 
 func TestApply_MatchesGolden(t *testing.T) {
@@ -393,26 +476,7 @@ func TestApply_MatchesGolden(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, a.Apply(t.Context(), canonicalConfig()))
 
-	got := readInDir(t, dir, "grizzly.yaml")
-
-	testdataRoot, err := os.OpenRoot("testdata")
-	require.NoError(t, err)
-	defer func() { _ = testdataRoot.Close() }()
-
-	want, err := testdataRoot.ReadFile("grizzly.yaml")
-	if errors.Is(err, os.ErrNotExist) && os.Getenv("UPDATE_GOLDEN") == "1" {
-		require.NoError(t, testdataRoot.WriteFile("grizzly.yaml", got, 0o600))
-		t.Skip("golden file created")
-	}
-	require.NoError(t, err, "golden file missing — regenerate with UPDATE_GOLDEN=1 go test ...")
-
-	if !bytes.Equal(got, want) {
-		if os.Getenv("UPDATE_GOLDEN") == "1" {
-			require.NoError(t, testdataRoot.WriteFile("grizzly.yaml", got, 0o600))
-			t.Skip("golden file refreshed")
-		}
-		t.Fatalf("golden mismatch:\n--- want\n%s\n--- got\n%s", want, got)
-	}
+	assertMatchesGolden(t, dir, "grizzly.yaml", yamlapply.ConfigFilename)
 }
 
 func TestApply_StdioMatchesGolden(t *testing.T) {
@@ -421,26 +485,7 @@ func TestApply_StdioMatchesGolden(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, a.Apply(t.Context(), stdioConfig()))
 
-	got := readInDir(t, dir, "grizzly.yaml")
-
-	testdataRoot, err := os.OpenRoot("testdata")
-	require.NoError(t, err)
-	defer func() { _ = testdataRoot.Close() }()
-
-	want, err := testdataRoot.ReadFile("grizzly-stdio.yaml")
-	if errors.Is(err, os.ErrNotExist) && os.Getenv("UPDATE_GOLDEN") == "1" {
-		require.NoError(t, testdataRoot.WriteFile("grizzly-stdio.yaml", got, 0o600))
-		t.Skip("golden file created")
-	}
-	require.NoError(t, err, "golden file missing — regenerate with UPDATE_GOLDEN=1 go test ...")
-
-	if !bytes.Equal(got, want) {
-		if os.Getenv("UPDATE_GOLDEN") == "1" {
-			require.NoError(t, testdataRoot.WriteFile("grizzly-stdio.yaml", got, 0o600))
-			t.Skip("golden file refreshed")
-		}
-		t.Fatalf("golden mismatch:\n--- want\n%s\n--- got\n%s", want, got)
-	}
+	assertMatchesGolden(t, dir, "grizzly-stdio.yaml", yamlapply.ConfigFilename)
 }
 
 func TestApply_ConcurrentDistinctNames(t *testing.T) {
@@ -466,5 +511,34 @@ func TestApply_ConcurrentDistinctNames(t *testing.T) {
 	}
 	entries, err := os.ReadDir(dir)
 	require.NoError(t, err)
-	require.Len(t, entries, goroutines)
+	require.Len(t, entries, 1, "concurrent applies must converge on the single combined file")
+
+	raw := readInDir(t, dir, yamlapply.ConfigFilename)
+	var cfg yamlapply.LocalConfig
+	require.NoError(t, goyaml.Unmarshal(raw, &cfg))
+	require.Len(t, cfg.Binds[0].Listeners[0].Routes, goroutines)
+}
+
+func assertMatchesGolden(t *testing.T, dir, goldenName, fileName string) {
+	t.Helper()
+	got := readInDir(t, dir, fileName)
+
+	testdataRoot, err := os.OpenRoot("testdata")
+	require.NoError(t, err)
+	defer func() { _ = testdataRoot.Close() }()
+
+	want, err := testdataRoot.ReadFile(goldenName)
+	if errors.Is(err, os.ErrNotExist) && os.Getenv("UPDATE_GOLDEN") == "1" {
+		require.NoError(t, testdataRoot.WriteFile(goldenName, got, 0o600))
+		t.Skip("golden file created")
+	}
+	require.NoError(t, err, "golden file missing — regenerate with UPDATE_GOLDEN=1 go test ...")
+
+	if !bytes.Equal(got, want) {
+		if os.Getenv("UPDATE_GOLDEN") == "1" {
+			require.NoError(t, testdataRoot.WriteFile(goldenName, got, 0o600))
+			t.Skip("golden file refreshed")
+		}
+		t.Fatalf("golden mismatch:\n--- want\n%s\n--- got\n%s", want, got)
+	}
 }

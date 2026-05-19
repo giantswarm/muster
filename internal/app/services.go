@@ -547,10 +547,11 @@ func startAgentgatewaySubprocess(ctx context.Context, configDir string) (*subpro
 		return nil, fmt.Errorf("construct subprocess manager: %w", err)
 	}
 
+	configFile := filepath.Join(configDir, yamlapply.ConfigFilename)
 	probe := subprocess.HTTPReadyProbe(agentgatewayReadyURL, 0)
-	if err := manager.Start(startCtx, binaryPath, []string{"-f", configDir}, nil, probe); err != nil {
+	if err := manager.Start(startCtx, binaryPath, []string{"-f", configFile}, nil, probe); err != nil {
 		return nil, fmt.Errorf("start agentgateway: %w", err)
 	}
-	logging.Info("Services", "agentgateway subprocess ready (pid=%d, config=%s)", manager.PID(), configDir)
+	logging.Info("Services", "agentgateway subprocess ready (pid=%d, config=%s)", manager.PID(), configFile)
 	return manager, nil
 }
