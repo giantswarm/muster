@@ -10,10 +10,13 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// TracerName is the instrumentation scope written to the inner span opened
-// by StartToolSpan. JSON-RPC method spans and the mcp-go-side tool handler
-// span are emitted by the mcp-go otel adapter under its own scope.
-const TracerName = "github.com/giantswarm/muster/internal/aggregator"
+// TracerName is the OpenTelemetry instrumentation scope used for every span
+// emitted by muster — server-side mcp-go spans, the inner StartToolSpan, and
+// the outbound mcp-go client spans on the muster → backend leg. Direction is
+// captured by SpanKind (Server vs Client) and span name (tool.<name> only
+// exists on the inbound leg), so a single scope keeps dashboard filtering
+// readable.
+const TracerName = "github.com/giantswarm/muster"
 
 // AttrToolName is the OTEL attribute key carrying the MCP tool name.
 const AttrToolName = "mcp.tool.name"
