@@ -12,7 +12,7 @@ func TestTokenStore_StoreAndGet(t *testing.T) {
 	defer ts.Stop()
 
 	key := TokenKey{
-		SessionID: "user-123",
+		SessionID: testSubject,
 		Issuer:    "https://auth.example.com",
 		Scope:     "openid profile",
 	}
@@ -64,7 +64,7 @@ func TestTokenStore_GetExpiredToken(t *testing.T) {
 	defer ts.Stop()
 
 	key := TokenKey{
-		SessionID: "user-123",
+		SessionID: testSubject,
 		Issuer:    "https://auth.example.com",
 		Scope:     "openid",
 	}
@@ -92,7 +92,7 @@ func TestTokenStore_GetByIssuer(t *testing.T) {
 
 	// Store a token
 	key := TokenKey{
-		SessionID: "user-123",
+		SessionID: testSubject,
 		Issuer:    "https://auth.example.com",
 		Scope:     "openid profile email",
 	}
@@ -108,7 +108,7 @@ func TestTokenStore_GetByIssuer(t *testing.T) {
 	ts.Store(key, token, "test-user")
 
 	// Retrieve by issuer (different scope should still find it)
-	retrieved := ts.GetByIssuer("user-123", "https://auth.example.com")
+	retrieved := ts.GetByIssuer(testSubject, "https://auth.example.com")
 	if retrieved == nil {
 		t.Fatal("Expected to retrieve token by issuer, got nil")
 	}
@@ -124,7 +124,7 @@ func TestTokenStore_GetByIssuerNotFound(t *testing.T) {
 
 	// Store a token for a different user
 	key := TokenKey{
-		SessionID: "user-123",
+		SessionID: testSubject,
 		Issuer:    "https://auth.example.com",
 		Scope:     "openid",
 	}
@@ -145,7 +145,7 @@ func TestTokenStore_GetByIssuerNotFound(t *testing.T) {
 	}
 
 	// Try to retrieve with different issuer
-	retrieved = ts.GetByIssuer("user-123", "https://different-issuer.com")
+	retrieved = ts.GetByIssuer(testSubject, "https://different-issuer.com")
 	if retrieved != nil {
 		t.Errorf("Expected nil for different issuer, got %v", retrieved)
 	}
@@ -156,7 +156,7 @@ func TestTokenStore_Delete(t *testing.T) {
 	defer ts.Stop()
 
 	key := TokenKey{
-		SessionID: "user-123",
+		SessionID: testSubject,
 		Issuer:    "https://auth.example.com",
 		Scope:     "openid",
 	}
@@ -266,7 +266,7 @@ func TestTokenStore_DeleteByIssuer(t *testing.T) {
 	ts := NewTokenStore()
 	defer ts.Stop()
 
-	subject := "user-123"
+	subject := testSubject
 	issuerToDelete := "https://issuer-to-delete.com"
 	issuerToKeep := "https://issuer-to-keep.com"
 
@@ -356,7 +356,7 @@ func TestTokenStore_DeleteByIssuer_NoMatch(t *testing.T) {
 
 	// Store a token
 	key := TokenKey{
-		SessionID: "user-123",
+		SessionID: testSubject,
 		Issuer:    "https://auth.example.com",
 		Scope:     "openid",
 	}
@@ -376,7 +376,7 @@ func TestTokenStore_DeleteByIssuer_NoMatch(t *testing.T) {
 	}
 
 	// Try to delete with non-matching issuer
-	ts.DeleteByIssuer("user-123", "https://non-existent-issuer.com")
+	ts.DeleteByIssuer(testSubject, "https://non-existent-issuer.com")
 
 	// Token should still exist
 	if ts.Count() != 1 {
@@ -521,7 +521,7 @@ func TestTokenStore_Cleanup(t *testing.T) {
 
 	// Store a token
 	key := TokenKey{
-		SessionID: "user-123",
+		SessionID: testSubject,
 		Issuer:    "https://auth.example.com",
 		Scope:     "openid",
 	}
@@ -548,7 +548,7 @@ func TestTokenStore_CleanupExpiredTokens(t *testing.T) {
 
 	// Store an expired token
 	key := TokenKey{
-		SessionID: "user-123",
+		SessionID: testSubject,
 		Issuer:    "https://auth.example.com",
 		Scope:     "openid",
 	}
