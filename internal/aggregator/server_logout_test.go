@@ -409,9 +409,6 @@ func (d *deleteCaptureMockHandler) Stop()                                       
 func (d *deleteCaptureMockHandler) ExchangeTokenForRemoteCluster(_ context.Context, _, _ string, _ *api.TokenExchangeConfig) (string, error) {
 	return "", nil
 }
-func (d *deleteCaptureMockHandler) ExchangeTokenForRemoteClusterWithClient(_ context.Context, _, _ string, _ *api.TokenExchangeConfig, _ *http.Client) (string, error) {
-	return "", nil
-}
 
 // clearCaptureMockHandler wraps issuerMockOAuthHandler and captures
 // calls to ClearTokenByIssuer for assertion.
@@ -457,8 +454,5 @@ func (c *clearCaptureMockHandler) RegisterServer(_, _, _ string)                
 func (c *clearCaptureMockHandler) SetAuthCompletionCallback(_ api.AuthCompletionCallback) {}
 func (c *clearCaptureMockHandler) Stop()                                                  {}
 func (c *clearCaptureMockHandler) ExchangeTokenForRemoteCluster(_ context.Context, _, _ string, _ *api.TokenExchangeConfig) (string, error) {
-	return "", nil
-}
-func (c *clearCaptureMockHandler) ExchangeTokenForRemoteClusterWithClient(_ context.Context, _, _ string, _ *api.TokenExchangeConfig, _ *http.Client) (string, error) {
 	return "", nil
 }

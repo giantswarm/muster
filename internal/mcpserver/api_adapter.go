@@ -183,15 +183,6 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 				server.Spec.Auth.TokenExchange.ClientCredentialsSecretRef,
 			)
 		}
-		// Convert Teleport config if present
-		if server.Spec.Auth.Teleport != nil {
-			info.Auth.Teleport = &api.TeleportAuth{
-				IdentityDir:             server.Spec.Auth.Teleport.IdentityDir,
-				IdentitySecretName:      server.Spec.Auth.Teleport.IdentitySecretName,
-				IdentitySecretNamespace: server.Spec.Auth.Teleport.IdentitySecretNamespace,
-				AppName:                 server.Spec.Auth.Teleport.AppName,
-			}
-		}
 		// Convert AuthorizationServer override if present
 		if server.Spec.Auth.AuthorizationServer != nil {
 			info.Auth.AuthorizationServer = &api.MCPServerAuthAuthorizationServer{
@@ -309,15 +300,6 @@ func (a *Adapter) convertRequestToCRD(req *api.MCPServerCreateRequest) *musterv1
 			}
 		}
 
-		// Convert Teleport auth if present
-		if req.Auth.Teleport != nil {
-			crd.Spec.Auth.Teleport = &musterv1alpha1.TeleportAuthConfig{
-				IdentityDir:             req.Auth.Teleport.IdentityDir,
-				IdentitySecretName:      req.Auth.Teleport.IdentitySecretName,
-				IdentitySecretNamespace: req.Auth.Teleport.IdentitySecretNamespace,
-				AppName:                 req.Auth.Teleport.AppName,
-			}
-		}
 		// Convert AuthorizationServer override if present
 		if req.Auth.AuthorizationServer != nil {
 			crd.Spec.Auth.AuthorizationServer = &musterv1alpha1.MCPServerAuthAuthorizationServer{
@@ -376,12 +358,12 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 		{Name: "timeout", Type: api.ArgTypeInteger, Required: false, Description: "Connection timeout in seconds"},
 		{Name: "auth", Type: api.ArgTypeObject, Required: false, Description: "Authentication configuration for remote servers", Schema: map[string]interface{}{
 			api.SchemaKeyType:        string(api.ArgTypeObject),
-			api.SchemaKeyDescription: "Authentication configuration (oauth, teleport, or none)",
+			api.SchemaKeyDescription: "Authentication configuration (oauth or none)",
 			api.SchemaKeyProperties: map[string]interface{}{
 				api.SchemaKeyType: map[string]interface{}{
 					api.SchemaKeyType:        string(api.ArgTypeString),
-					api.SchemaKeyDescription: "Authentication type: oauth, teleport, or none",
-					api.SchemaKeyEnum:        []string{"oauth", "teleport", "none"},
+					api.SchemaKeyDescription: "Authentication type: oauth or none",
+					api.SchemaKeyEnum:        []string{"oauth", "none"},
 				},
 				"forwardToken": map[string]interface{}{
 					api.SchemaKeyType:        string(api.ArgTypeBoolean),
@@ -391,28 +373,6 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 					api.SchemaKeyType:        string(api.ArgTypeArray),
 					api.SchemaKeyItems:       map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeString)},
 					api.SchemaKeyDescription: "Additional audiences to request from IdP for token forwarding (e.g., dex-k8s-authenticator for Kubernetes OIDC)",
-				},
-				"teleport": map[string]interface{}{
-					api.SchemaKeyType:        string(api.ArgTypeObject),
-					api.SchemaKeyDescription: "Teleport authentication configuration",
-					api.SchemaKeyProperties: map[string]interface{}{
-						"identityDir": map[string]interface{}{
-							api.SchemaKeyType:        string(api.ArgTypeString),
-							api.SchemaKeyDescription: "Filesystem path to tbot identity files",
-						},
-						"identitySecretName": map[string]interface{}{
-							api.SchemaKeyType:        string(api.ArgTypeString),
-							api.SchemaKeyDescription: "Kubernetes Secret name containing tbot identity files",
-						},
-						"identitySecretNamespace": map[string]interface{}{
-							api.SchemaKeyType:        string(api.ArgTypeString),
-							api.SchemaKeyDescription: "Kubernetes namespace of the identity secret",
-						},
-						"appName": map[string]interface{}{
-							api.SchemaKeyType:        string(api.ArgTypeString),
-							api.SchemaKeyDescription: "Teleport application name for routing",
-						},
-					},
 				},
 			},
 		}},
@@ -715,14 +675,6 @@ func (a *Adapter) handleMCPServerUpdate(args map[string]interface{}) (*api.CallT
 				ClientCredentialsSecretRef: convertAPISecretRefToCRD(req.Auth.TokenExchange.ClientCredentialsSecretRef),
 			}
 		}
-		if req.Auth.Teleport != nil {
-			existing.Spec.Auth.Teleport = &musterv1alpha1.TeleportAuthConfig{
-				IdentityDir:             req.Auth.Teleport.IdentityDir,
-				IdentitySecretName:      req.Auth.Teleport.IdentitySecretName,
-				IdentitySecretNamespace: req.Auth.Teleport.IdentitySecretNamespace,
-				AppName:                 req.Auth.Teleport.AppName,
-			}
-		}
 		if req.Auth.AuthorizationServer != nil {
 			existing.Spec.Auth.AuthorizationServer = &musterv1alpha1.MCPServerAuthAuthorizationServer{
 				Issuer: musterv1alpha1.IssuerURL(strings.TrimSuffix(req.Auth.AuthorizationServer.Issuer, "/")),
@@ -809,32 +761,6 @@ func (a *Adapter) validateMCPServer(server *musterv1alpha1.MCPServer) error {
 	default:
 		return fmt.Errorf("unsupported MCP server type: %s (supported: %s, %s, %s)",
 			server.Spec.Type, api.MCPServerTypeStdio, api.MCPServerTypeStreamableHTTP, api.MCPServerTypeSSE)
-	}
-
-	// Validate Teleport auth configuration if present
-	if server.Spec.Auth != nil && server.Spec.Auth.Type == api.AuthTypeTeleport {
-		if err := a.validateTeleportAuth(server.Spec.Auth.Teleport); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// validateTeleportAuth validates Teleport authentication configuration
-func (a *Adapter) validateTeleportAuth(teleport *musterv1alpha1.TeleportAuthConfig) error {
-	if teleport == nil {
-		return fmt.Errorf("teleport auth requires either identityDir or identitySecretName")
-	}
-
-	// Validate mutual exclusivity
-	if teleport.IdentityDir != "" && teleport.IdentitySecretName != "" {
-		return fmt.Errorf("teleport auth: identityDir and identitySecretName are mutually exclusive")
-	}
-
-	// Require at least one identity source
-	if teleport.IdentityDir == "" && teleport.IdentitySecretName == "" {
-		return fmt.Errorf("teleport auth requires either identityDir or identitySecretName")
 	}
 
 	return nil

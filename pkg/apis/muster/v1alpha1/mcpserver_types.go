@@ -124,8 +124,7 @@ type MCPServerFamily struct {
 
 // MCPServerAuth configures authentication behavior for an MCP server.
 // This enables Single Sign-On (SSO) via token forwarding between muster and
-// downstream MCP servers that share the same Identity Provider, or Teleport
-// authentication for private installations.
+// downstream MCP servers that share the same Identity Provider.
 // +kubebuilder:validation:XValidation:rule="!has(self.authorizationServer) || self.type == 'oauth'",message="authorizationServer is only valid when type is oauth"
 // +kubebuilder:validation:XValidation:rule="!(has(self.forwardToken) && self.forwardToken == true && has(self.authorizationServer))",message="forwardToken bypasses per-backend OAuth; set one or the other, not both"
 // +kubebuilder:validation:XValidation:rule="!(has(self.tokenExchange) && has(self.tokenExchange.enabled) && self.tokenExchange.enabled == true && has(self.authorizationServer))",message="tokenExchange has its own issuer/endpoint config; set one or the other, not both"
@@ -133,9 +132,8 @@ type MCPServerAuth struct {
 	// Type specifies the authentication type.
 	// Supported values:
 	//   - "oauth": OAuth 2.0/OIDC authentication
-	//   - "teleport": Teleport Application Access with Machine ID certificates
 	//   - "none": No authentication
-	// +kubebuilder:validation:Enum=oauth;teleport;none
+	// +kubebuilder:validation:Enum=oauth;none
 	// +kubebuilder:default=none
 	Type string `json:"type,omitempty" yaml:"type,omitempty"`
 
@@ -170,13 +168,6 @@ type MCPServerAuth struct {
 	//
 	// Token exchange takes precedence over ForwardToken if both are configured.
 	TokenExchange *TokenExchangeConfig `json:"tokenExchange,omitempty" yaml:"tokenExchange,omitempty"`
-
-	// Teleport configures Teleport authentication for accessing private installations.
-	// This is only used when Type is "teleport".
-	//
-	// When configured, muster uses Teleport Machine ID certificates to establish
-	// mutual TLS connections to MCP servers accessible via Teleport Application Access.
-	Teleport *TeleportAuthConfig `json:"teleport,omitempty" yaml:"teleport,omitempty"`
 
 	// AuthorizationServer is an opt-out for backends that don't publish RFC 9728
 	// Protected Resource Metadata. When set, muster's per-server OAuth login flow
@@ -214,32 +205,6 @@ type MCPServerAuthAuthorizationServer struct {
 	Scopes string `json:"scopes,omitempty" yaml:"scopes,omitempty"`
 }
 
-// TeleportAuthConfig configures Teleport authentication for an MCP server.
-// This enables access to MCP servers on private installations via Teleport
-// Application Access using Machine ID certificates managed by tbot.
-type TeleportAuthConfig struct {
-	// IdentitySecretName is the name of the Kubernetes Secret containing
-	// tbot identity files. The secret should contain: tlscert, key, teleport-application-ca.pem
-	// (matching tbot's application output type).
-	// Required when running in Kubernetes mode.
-	// Example: tbot-identity-output
-	IdentitySecretName string `json:"identitySecretName,omitempty" yaml:"identitySecretName,omitempty"`
-
-	// IdentitySecretNamespace is the Kubernetes namespace where the identity
-	// secret is located. Defaults to the MCPServer's namespace if not specified.
-	IdentitySecretNamespace string `json:"identitySecretNamespace,omitempty" yaml:"identitySecretNamespace,omitempty"`
-
-	// IdentityDir is the directory containing Teleport identity files.
-	// Used in filesystem mode when certificates are mounted directly.
-	// Example: /var/run/tbot/identity
-	IdentityDir string `json:"identityDir,omitempty" yaml:"identityDir,omitempty"`
-
-	// AppName is the Teleport application name for routing.
-	// This is used to identify which Teleport-protected application to connect to.
-	// Example: mcp-kubernetes
-	AppName string `json:"appName,omitempty" yaml:"appName,omitempty"`
-}
-
 // TokenExchangeConfig configures RFC 8693 Token Exchange for cross-cluster SSO.
 // This enables muster to exchange its local token for a token valid on a remote
 // cluster's Identity Provider (typically Dex).
@@ -262,7 +227,7 @@ type TokenExchangeConfig struct {
 	Enabled bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
 
 	// DexTokenEndpoint is the URL used to connect to the remote cluster's Dex token endpoint.
-	// This may differ from the issuer URL when access goes through a proxy (e.g., Teleport).
+	// This may differ from the issuer URL when access goes through a proxy.
 	// Required when Enabled is true.
 	// Example: https://dex.cluster-b.example.com/token (direct)
 	// Example: https://dex-cluster.proxy.example.com/token (via proxy)

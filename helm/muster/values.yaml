@@ -33,7 +33,7 @@ serviceAccount:
 #   - Muster CRDs (MCPServer, Workflow)
 #   - CRD discovery
 #   - Events (for core_events tool)
-#   - Secrets (for reading credentials: token exchange, teleport identity, OAuth)
+#   - Secrets (for reading credentials: token exchange, OAuth)
 rbac:
   # Create RBAC resources (ClusterRole and ClusterRoleBinding)
   create: true

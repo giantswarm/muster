@@ -2660,21 +2660,9 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 		}
 	}
 
-	teleportResult := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
-	if teleportResult.Configured && teleportResult.Error != nil {
-		return nil, time.Time{}, "", fmt.Errorf("teleport configuration failed for %s: %w", serverName, teleportResult.Error)
-	}
-
-	var exchangedToken string
-	if teleportResult.Client != nil {
-		exchangedToken, err = oauthHandler.ExchangeTokenForRemoteClusterWithClient(
-			ctx, idToken, userID, &exchangeConfig, teleportResult.Client,
-		)
-	} else {
-		exchangedToken, err = oauthHandler.ExchangeTokenForRemoteCluster(
-			ctx, idToken, userID, &exchangeConfig,
-		)
-	}
+	exchangedToken, err := oauthHandler.ExchangeTokenForRemoteCluster(
+		ctx, idToken, userID, &exchangeConfig,
+	)
 	if err != nil {
 		return nil, time.Time{}, "", fmt.Errorf("token exchange failed for %s: %w", serverName, err)
 	}
@@ -2688,13 +2676,7 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 		return map[string]string{pkgoauth.HeaderAuthorization: pkgoauth.SchemeBearer + " " + exchangedToken}
 	}
 
-	var client MCPClient
-	if teleportResult.Client != nil {
-		client = internalmcp.NewStreamableHTTPClientWithHeaderFuncAndHTTPClient(serverInfo.URL, headerFunc, teleportResult.Client)
-	} else {
-		client = internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
-	}
-
+	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
 	return client, tokenExpiry, exchangedToken, nil
 }
 
