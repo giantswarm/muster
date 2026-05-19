@@ -46,6 +46,18 @@ type MCPServerSpec struct {
 	// +kubebuilder:validation:Pattern="^[a-zA-Z][a-zA-Z0-9_-]*$"
 	ToolPrefix string `json:"toolPrefix,omitempty" yaml:"toolPrefix,omitempty"`
 
+	// Family declares that this MCP server is an instance of a family of
+	// equivalent servers (for example, multiple kubernetes MCP servers pointed
+	// at different clusters). When set, the aggregator exposes tools from all
+	// servers in the same family under a single name
+	// ({musterPrefix}_{family.name}_{toolName}) with a required parameter
+	// (named by family.instanceArg) that selects which instance handles the
+	// call. The parameter is always required even for single-instance families
+	// so skills written against the family name remain stable as instances are
+	// added or removed. When unset, the legacy per-server prefixing applies
+	// ({musterPrefix}_{toolPrefix-or-name}_{toolName}).
+	Family *MCPServerFamily `json:"family,omitempty" yaml:"family,omitempty"`
+
 	// Description provides a human-readable description of this MCP server's purpose.
 	// +kubebuilder:validation:MaxLength=500
 	Description string `json:"description,omitempty" yaml:"description,omitempty"`
@@ -87,6 +99,27 @@ type MCPServerSpec struct {
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=300
 	Timeout int `json:"timeout,omitempty" yaml:"timeout,omitempty"`
+}
+
+// MCPServerFamily groups equivalent MCP server instances under a shared
+// exposed surface. When MCPServerSpec.Family is set, the aggregator emits a
+// single family-scoped tool per backend tool name with a required parameter
+// (named by InstanceArg) that selects which instance handles the call.
+type MCPServerFamily struct {
+	// Name is the family identifier. Servers sharing the same Name expose
+	// their tools as {musterPrefix}_{Name}_{toolName}.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Pattern="^[a-zA-Z][a-zA-Z0-9_-]*$"
+	Name string `json:"name" yaml:"name"`
+
+	// InstanceArg names the required parameter callers use to select which
+	// family member handles the tool call (for example "management_cluster",
+	// "country", "model"). All servers declaring the same family.name must
+	// agree on InstanceArg; if they diverge, the aggregator falls back to
+	// per-server prefixing for the entire family and logs a warning.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Pattern="^[a-zA-Z][a-zA-Z0-9_]*$"
+	InstanceArg string `json:"instanceArg" yaml:"instanceArg"`
 }
 
 // MCPServerAuth configures authentication behavior for an MCP server.

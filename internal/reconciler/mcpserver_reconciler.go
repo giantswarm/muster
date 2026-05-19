@@ -387,6 +387,7 @@ func infoToMCPServer(info *api.MCPServerInfo) *api.MCPServer {
 		Type:        api.MCPServerType(info.Type),
 		Description: info.Description,
 		ToolPrefix:  info.ToolPrefix,
+		Family:      info.Family,
 		AutoStart:   info.AutoStart,
 		Command:     info.Command,
 		Args:        info.Args,
