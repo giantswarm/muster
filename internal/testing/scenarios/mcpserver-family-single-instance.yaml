@@ -1,0 +1,69 @@
+name: "mcpserver-family-single-instance"
+description: "Single-instance family exposes family-prefixed tool with a required instance arg"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "family", "aggregator"]
+timeout: "2m"
+
+# Given: One MCP server declares spec.family = {name: kubernetes, instanceArg: management_cluster}
+# When: The aggregator lists and routes tools
+# Then: The tool is exposed as x_kubernetes_<tool> and requires the management_cluster arg
+#       (even with a single backing instance), and the call reaches the backend with that
+#       arg stripped from the forwarded payload.
+
+pre_configuration:
+  mcp_servers:
+    - name: "k8s-graveler"
+      config:
+        family:
+          name: "kubernetes"
+          instanceArg: "management_cluster"
+        tools:
+          - name: "list_pods"
+            description: "List pods"
+            input_schema:
+              type: "object"
+              properties:
+                namespace: { type: "string" }
+            responses:
+              - response:
+                  namespace: "{{ .namespace }}"
+                  source: "k8s-graveler"
+
+steps:
+  - id: "wait-for-service-running"
+    tool: "core_service_status"
+    args:
+      name: "k8s-graveler"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "k8s-graveler"
+        state: "running"
+
+  - id: "family-tool-routes-with-instance-arg"
+    tool: "x_kubernetes_list_pods"
+    args:
+      management_cluster: "k8s-graveler"
+      namespace: "default"
+    expected:
+      success: true
+      contains: ["default", "k8s-graveler"]
+
+  - id: "missing-instance-arg-rejected"
+    tool: "x_kubernetes_list_pods"
+    args:
+      namespace: "default"
+    expected:
+      success: false
+      error_contains: ["management_cluster"]
+
+cleanup:
+  - id: "cleanup-stop-service"
+    tool: "core_service_stop"
+    args:
+      name: "k8s-graveler"
+    expected:
+      success: true
+    continue_on_failure: true

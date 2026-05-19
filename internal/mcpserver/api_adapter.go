@@ -16,6 +16,30 @@ import (
 	"github.com/giantswarm/muster/pkg/logging"
 )
 
+// convertCRDFamilyToAPI converts a CRD MCPServerFamily to an API MCPServerFamily.
+// Returns nil if the input is nil.
+func convertCRDFamilyToAPI(src *musterv1alpha1.MCPServerFamily) *api.MCPServerFamily {
+	if src == nil {
+		return nil
+	}
+	return &api.MCPServerFamily{
+		Name:        src.Name,
+		InstanceArg: src.InstanceArg,
+	}
+}
+
+// convertAPIFamilyToCRD converts an API MCPServerFamily to a CRD MCPServerFamily.
+// Returns nil if the input is nil.
+func convertAPIFamilyToCRD(src *api.MCPServerFamily) *musterv1alpha1.MCPServerFamily {
+	if src == nil {
+		return nil
+	}
+	return &musterv1alpha1.MCPServerFamily{
+		Name:        src.Name,
+		InstanceArg: src.InstanceArg,
+	}
+}
+
 // convertCRDSecretRefToAPI converts a CRD ClientCredentialsSecretRef to an API ClientCredentialsSecretRef.
 // Returns nil if the input is nil.
 func convertCRDSecretRefToAPI(src *musterv1alpha1.ClientCredentialsSecretRef) *api.ClientCredentialsSecretRef {
@@ -116,6 +140,7 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 		Type:                server.Spec.Type,
 		Description:         server.Spec.Description,
 		ToolPrefix:          server.Spec.ToolPrefix,
+		Family:              convertCRDFamilyToAPI(server.Spec.Family),
 		AutoStart:           server.Spec.AutoStart,
 		Command:             server.Spec.Command,
 		Args:                server.Spec.Args,
@@ -252,6 +277,7 @@ func (a *Adapter) convertRequestToCRD(req *api.MCPServerCreateRequest) *musterv1
 		Spec: musterv1alpha1.MCPServerSpec{
 			Type:        req.Type,
 			ToolPrefix:  req.ToolPrefix,
+			Family:      convertAPIFamilyToCRD(req.Family),
 			Description: req.Description,
 			AutoStart:   req.AutoStart,
 			Command:     req.Command,
@@ -313,6 +339,21 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 		{Name: "name", Type: "string", Required: true, Description: "MCP server name"},
 		{Name: "type", Type: "string", Required: typeRequired, Description: "MCP server type (stdio, streamable-http, or sse)"},
 		{Name: "toolPrefix", Type: "string", Required: false, Description: "Tool prefix for namespacing"},
+		{Name: "family", Type: "object", Required: false, Description: "Family that this MCP server instance belongs to (groups equivalent servers under a single tool name)", Schema: map[string]interface{}{
+			"type":        "object",
+			"description": "Family grouping for equivalent MCP server instances. When set, both name and instanceArg are required.",
+			"properties": map[string]interface{}{
+				"name": map[string]interface{}{
+					"type":        "string",
+					"description": "Family identifier shared across instances",
+				},
+				"instanceArg": map[string]interface{}{
+					"type":        "string",
+					"description": "Name of the required parameter the LLM uses to select which family member handles a call (e.g. management_cluster, country, model)",
+				},
+			},
+			"required": []string{"name", "instanceArg"},
+		}},
 		{Name: "description", Type: "string", Required: false, Description: "MCP server description"},
 		{Name: "autoStart", Type: "boolean", Required: false, Description: "Whether server should auto-start"},
 		{Name: "command", Type: "string", Required: false, Description: "Command executable path (required for stdio)"},
@@ -541,6 +582,7 @@ func (a *Adapter) handleMCPServerValidate(args map[string]interface{}) (*api.Cal
 		Name:        req.Name,
 		Type:        req.Type,
 		ToolPrefix:  req.ToolPrefix,
+		Family:      req.Family,
 		Description: req.Description,
 		AutoStart:   req.AutoStart,
 		Command:     req.Command,
@@ -630,6 +672,9 @@ func (a *Adapter) handleMCPServerUpdate(args map[string]interface{}) (*api.CallT
 	}
 	if req.ToolPrefix != "" {
 		existing.Spec.ToolPrefix = req.ToolPrefix
+	}
+	if req.Family != nil {
+		existing.Spec.Family = convertAPIFamilyToCRD(req.Family)
 	}
 	if req.Description != "" {
 		existing.Spec.Description = req.Description
