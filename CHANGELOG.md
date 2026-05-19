@@ -6,6 +6,9 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- `internal/reconciler/agentgateway` domain package: typed `Config` / `Backend` / `Authn` / `Policy` / `HTTPTarget` / `StdioTarget` models built from `v1alpha1.MCPServer`. Pure functions only — no Kubernetes client, no filesystem, no `internal/api` dependencies — so downstream emitter adapters (cluster, filesystem) and translation tests can share one source of truth for what a "compiled MCPServer" looks like.
+- `agentgateway.Applier` / `agentgateway.Deleter` port interfaces and `agentgateway.ApplierFor(mode)` factory. Lets `MCPServerReconciler` write agentgateway config through a single port whose concrete backend (cluster-mode k8s adapter, filesystem-mode yaml adapter) is selected at startup.
+- `internal/reconciler/agentgateway/k8s` Applier: emits the `AgentgatewayBackend` / `HTTPRoute` / `AgentgatewayPolicy` CRD stack (`agentgateway.dev/v1alpha1`) for each MCPServer in cluster mode, with `OwnerReferences` set so deletion cascades. Stdio MCPServers in cluster mode are rejected with `k8s.ErrStdioNotSupportedInCluster` (per-MCPServer pod isolation deferred).
 - `MCPServerReconciler` now compiles each reconciled MCPServer into an `agentgateway.Config` and applies it via the `agentgateway.Applier` port (cluster mode → `k8s` adapter, filesystem mode → `yaml` adapter). Cluster-mode wiring requires a `StatusUpdater` so the reconciler can surface unsupported-transport errors (stdio) on `MCPServer.status.conditions`; the resolved `OwnerReference` is cached for the lifetime of the reconciler.
 - `agentgateway.Authn.RequiresPolicy() bool` and `agentgateway.HTTPTarget.Validate() error` on the agentgateway domain config.
 
