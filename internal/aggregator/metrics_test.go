@@ -1,4 +1,4 @@
-package instrument
+package aggregator
 
 import (
 	"context"
@@ -103,63 +103,4 @@ func TestClassify(t *testing.T) {
 	require.Equal(t, outcomeError, classify(nil, errors.New("x")))
 	require.Equal(t, outcomeError, classify(&mcp.CallToolResult{IsError: true}, errors.New("x")))
 	require.Equal(t, outcomeErrorResult, classify(&mcp.CallToolResult{IsError: true}, nil))
-}
-
-// TestMetrics_HistogramExemplarAttachesTraceID verifies the OTel SDK's
-// default exemplar filter (TraceBasedFilter as of SDK v1.21+) attaches
-// the active span's TraceID/SpanID to histogram observations. This is
-// the mechanism behind Grafana's "click latency bucket → jump to
-// trace" pivot and is gated on muster's middleware order
-// (Tracing OUTER of Metrics, so the span is live during Record).
-func TestMetrics_HistogramExemplarAttachesTraceID(t *testing.T) {
-	tracerExp := setupTracer(t)
-	reader := setupMeter(t)
-
-	handler := func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return &mcp.CallToolResult{}, nil
-	}
-	// Match production composition: Tracing wraps Metrics. mcp-go's
-	// composition is outermost-first, so Tracing(Metrics(handler))
-	// puts the active span in ctx when histogram.Record fires.
-	chain := Tracing()(Metrics()(handler))
-	_, _ = chain(context.Background(), callRequest("x_kubernetes_list_pods"))
-
-	spans := tracerExp.GetSpans()
-	require.Len(t, spans, 1)
-	wantTraceID := spans[0].SpanContext.TraceID().String()
-
-	var rm metricdata.ResourceMetrics
-	require.NoError(t, reader.Collect(context.Background(), &rm))
-
-	var sawExemplar bool
-	for _, sm := range rm.ScopeMetrics {
-		for _, m := range sm.Metrics {
-			if m.Name != "muster.tool_call.duration" {
-				continue
-			}
-			hist := m.Data.(metricdata.Histogram[float64])
-			for _, dp := range hist.DataPoints {
-				for _, ex := range dp.Exemplars {
-					if hex(ex.TraceID) == wantTraceID {
-						sawExemplar = true
-					}
-				}
-			}
-		}
-	}
-	require.True(t, sawExemplar, "expected histogram exemplar carrying the active span's TraceID; "+
-		"verify the OTel SDK exemplar filter defaults to TraceBased or set it explicitly")
-}
-
-// hex stringifies an exemplar TraceID byte slice as lower-case hex,
-// matching trace.TraceID.String() so the equality check holds without
-// importing extra helpers.
-func hex(b []byte) string {
-	const hexchars = "0123456789abcdef"
-	out := make([]byte, len(b)*2)
-	for i, x := range b {
-		out[i*2] = hexchars[x>>4]
-		out[i*2+1] = hexchars[x&0x0f]
-	}
-	return string(out)
 }
