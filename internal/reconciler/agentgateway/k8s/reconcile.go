@@ -99,18 +99,15 @@ func (a *Applier) reconcileRoute(ctx context.Context, namespace string, r agentg
 }
 
 func (a *Applier) reconcilePolicy(ctx context.Context, namespace string, p agentgateway.Policy) error {
-	spec, emit := policySpec(p)
-	if !emit {
-		return a.deleteIfExists(ctx, &agw.AgentgatewayPolicy{
-			ObjectMeta: metav1.ObjectMeta{Name: p.Name, Namespace: namespace},
-		})
-	}
 	obj := &agw.AgentgatewayPolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: p.Name, Namespace: namespace},
 	}
+	if p.Authn.Type == agentgateway.AuthnTypeNone && !p.Authn.ForwardToken {
+		return a.deleteIfExists(ctx, obj)
+	}
 	mutate := func() error {
 		a.applyOwner(&obj.ObjectMeta)
-		obj.Spec = spec
+		obj.Spec = policySpec(p)
 		return nil
 	}
 	return a.createOrUpdate(ctx, obj, mutate)
