@@ -14,6 +14,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	agw "github.com/agentgateway/agentgateway/controller/api/v1alpha1/agentgateway"
 
@@ -163,6 +164,31 @@ func TestApply_DeletionCascade_OwnerRefsAreControllerBlocking(t *testing.T) {
 	backend := &agw.AgentgatewayBackend{}
 	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: ownerNamespace, Name: ownerName}, backend))
 	checkRef(backend.OwnerReferences)
+}
+
+func TestApply_HTTPRouteSpec_FullOwnership_RevertsExternalEdits(t *testing.T) {
+	t.Parallel()
+
+	c := newClient(t)
+	a := newApplier(c)
+	require.NoError(t, a.Apply(t.Context(), streamableConfig()))
+
+	route := &gwv1.HTTPRoute{}
+	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: ownerNamespace, Name: ownerName}, route))
+
+	requestMirror := gwv1.HTTPRouteFilterRequestMirror
+	route.Spec.Rules[0].Filters = []gwv1.HTTPRouteFilter{{Type: requestMirror}}
+	extraParent := gwv1.ParentReference{Name: gwv1.ObjectName("other-gateway")}
+	route.Spec.ParentRefs = append(route.Spec.ParentRefs, extraParent)
+	require.NoError(t, c.Update(t.Context(), route))
+
+	require.NoError(t, a.Apply(t.Context(), streamableConfig()))
+
+	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: ownerNamespace, Name: ownerName}, route))
+	require.Len(t, route.Spec.ParentRefs, 1, "external ParentRef must be reverted (full-ownership contract)")
+	require.Equal(t, gwv1.ObjectName(gatewayName), route.Spec.ParentRefs[0].Name)
+	require.Len(t, route.Spec.Rules, 1)
+	require.Empty(t, route.Spec.Rules[0].Filters, "external Filters must be reverted (full-ownership contract)")
 }
 
 func TestApply_RecreatedMCPServer_ReplacesStaleOwnerRefInPlace(t *testing.T) {
