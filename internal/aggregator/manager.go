@@ -25,17 +25,13 @@ type AggregatorManager struct {
 	mu     sync.RWMutex
 	config AggregatorConfig
 
-	orchestratorAPI api.OrchestratorAPI
-	serviceRegistry api.ServiceRegistryHandler
-
 	aggregatorServer *AggregatorServer
 	oauthManager     *oauth.Manager
 
 	// userStopped tracks MCPServers the operator explicitly stopped via
 	// core_service_stop. The reconciler's periodic RegisterUpstream
 	// becomes a no-op for these until core_service_start clears the
-	// entry, so the legacy "stop is sticky" UX survives PR 11's
-	// reconciler-driven federation.
+	// entry.
 	userStoppedMu sync.Mutex
 	userStopped   map[string]struct{}
 
@@ -43,16 +39,13 @@ type AggregatorManager struct {
 	cancelFunc context.CancelFunc
 }
 
-// NewAggregatorManager constructs a manager. orchestratorAPI surfaces static
-// service lifecycle hooks; serviceRegistry exposes non-MCPServer services for
-// the GetServiceData report. errorCallback receives fatal listener errors
-// from background goroutines and may be nil (errors will be logged instead).
-func NewAggregatorManager(config AggregatorConfig, orchestratorAPI api.OrchestratorAPI, serviceRegistry api.ServiceRegistryHandler, errorCallback func(err error)) *AggregatorManager {
+// NewAggregatorManager constructs a manager. errorCallback receives fatal
+// listener errors from background goroutines and may be nil (errors will
+// be logged instead).
+func NewAggregatorManager(config AggregatorConfig, errorCallback func(err error)) *AggregatorManager {
 	manager := &AggregatorManager{
-		config:          config,
-		orchestratorAPI: orchestratorAPI,
-		serviceRegistry: serviceRegistry,
-		userStopped:     make(map[string]struct{}),
+		config:      config,
+		userStopped: make(map[string]struct{}),
 	}
 
 	manager.aggregatorServer = NewAggregatorServer(config, errorCallback)
@@ -95,10 +88,6 @@ func NewAggregatorManager(config AggregatorConfig, orchestratorAPI api.Orchestra
 // is reconciler-driven (see RegisterUpstream); no initial-sync or retry loop
 // runs here.
 func (am *AggregatorManager) Start(ctx context.Context) error {
-	if am.orchestratorAPI == nil {
-		return fmt.Errorf("required APIs not available")
-	}
-
 	am.mu.Lock()
 	defer am.mu.Unlock()
 

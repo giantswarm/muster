@@ -133,18 +133,11 @@ func (s *ServerInfo) UpdatePrompts(prompts []mcp.Prompt) {
 	s.Prompts = prompts
 }
 
-// GetStatus returns the current service state from the canonical service registry.
-// Returns api.StateUnknown if the service is not found in the registry.
+// GetStatus is preserved for callers that previously read state out of the
+// service registry. The registry is gone; callers rely on IsConnected's
+// fallback path, so this consistently returns StateUnknown.
 func (s *ServerInfo) GetStatus() api.ServiceState {
-	registry := api.GetServiceRegistry()
-	if registry == nil {
-		return api.StateUnknown
-	}
-	svc, ok := registry.Get(s.Name)
-	if !ok {
-		return api.StateUnknown
-	}
-	return svc.GetState()
+	return api.StateUnknown
 }
 
 // RequiresSessionAuth reports whether this server uses per-session authentication.

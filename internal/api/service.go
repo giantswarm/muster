@@ -1,122 +1,17 @@
 package api
 
-import (
-	"time"
-)
-
-// ServiceInfo provides information about a service instance.
-// This interface defines the contract for accessing service metadata and state.
-//
-// All service implementations must provide this interface to be managed
-// by the service registry and orchestrator.
-type ServiceInfo interface {
-	// GetName returns the unique name/identifier of the service
-	GetName() string
-
-	// GetType returns the service type (e.g., TypeMCPServer, TypeAggregator)
-	GetType() ServiceType
-
-	// GetState returns the current operational state of the service
-	GetState() ServiceState
-
-	// GetHealth returns the current health status of the service
-	GetHealth() HealthStatus
-
-	// GetLastError returns the last error encountered by the service, or nil if none
-	GetLastError() error
-
-	// GetServiceData returns additional metadata and runtime information about the service
-	GetServiceData() map[string]interface{}
-}
-
-// ConfigurableService extends ServiceInfo with the ability to detect configuration
-// changes and update configuration at runtime. Services implement this interface
-// to allow reconcilers to determine whether a restart is needed and to apply
-// new configuration before restarting.
-//
-// Methods accept interface{} instead of a concrete type (e.g. *MCPServer) so
-// that the interface remains generic across different service kinds. Each
-// implementation performs a type assertion internally.
-type ConfigurableService interface {
-	ServiceInfo
-
-	// ConfigurationChanged returns true if the new configuration differs from
-	// the current one in a way that requires a restart. The service owns this
-	// comparison logic because it has typed access to its configuration struct.
-	//
-	// Args:
-	//   - newConfig: The new configuration to compare against (type depends on service implementation)
-	//
-	// Returns:
-	//   - bool: true if the configuration has changed and a restart is needed
-	ConfigurationChanged(newConfig interface{}) bool
-
-	// UpdateConfiguration updates the service's internal configuration.
-	// This should be called before restarting a service when its definition changes.
-	//
-	// Args:
-	//   - config: The new configuration (type depends on service implementation)
-	//
-	// Returns:
-	//   - error: Error if the configuration is invalid or update fails
-	UpdateConfiguration(config interface{}) error
-}
-
-// ServiceRegistryHandler provides access to registered services in the system.
-// This handler implements the service discovery aspect of the Service Locator Pattern,
-// allowing components to find and access service information without direct coupling.
-type ServiceRegistryHandler interface {
-	// Get retrieves a service by name from the registry.
-	//
-	// Args:
-	//   - name: The unique name of the service to retrieve
-	//
-	// Returns:
-	//   - ServiceInfo: The service information if found
-	//   - bool: true if the service exists, false otherwise
-	Get(name string) (ServiceInfo, bool)
-
-	// GetAll returns all services currently registered in the system.
-	//
-	// Returns:
-	//   - []ServiceInfo: List of all registered services (both static and dynamic)
-	GetAll() []ServiceInfo
-
-	// GetByType returns all services of a specific type.
-	//
-	// Args:
-	//   - serviceType: The type of services to retrieve (e.g., TypeMCPServer)
-	//
-	// Returns:
-	//   - []ServiceInfo: List of services matching the specified type
-	GetByType(serviceType ServiceType) []ServiceInfo
-}
-
-// ServiceManagerHandler provides lifecycle management for static services
-// (the aggregator and per-MCPServer wrappers) registered in the orchestrator's
-// service registry. This is the primary interface for service operations in
-// the Service Locator Pattern.
+// ServiceManagerHandler exposes MCPServer lifecycle through the legacy
+// core_service_{list,start,stop,restart,status} MCP tools. The "service"
+// naming predates the muster-in-front pivot — every operation now targets
+// an MCPServer's upstream-proxy registration in the aggregator.
 type ServiceManagerHandler interface {
-	// StartService starts a service by name.
 	StartService(name string) error
-
-	// StopService stops a running service by name.
 	StopService(name string) error
-
-	// RestartService restarts a service by name (stop followed by start).
 	RestartService(name string) error
-
-	// GetServiceStatus returns the current status of a service.
 	GetServiceStatus(name string) (*ServiceStatus, error)
-
-	// GetAllServices returns the status of all services in the system.
 	GetAllServices() []ServiceStatus
 
-	// SubscribeToStateChanges returns a channel for receiving service state change events.
-	// The returned channel should be consumed to prevent blocking the event system.
-	SubscribeToStateChanges() <-chan ServiceStateChangedEvent
-
-	// ToolProvider integration for exposing service management as MCP tools.
+	// ToolProvider integration so the aggregator can advertise service_*.
 	ToolProvider
 }
 
@@ -202,32 +97,6 @@ func IsActiveState(state ServiceState) bool {
 	return state == StateRunning || state == StateConnected
 }
 
-// ServiceStateChangedEvent represents a service state transition event.
-// These events are published whenever a service changes state, allowing
-// components to react to service lifecycle changes.
-type ServiceStateChangedEvent struct {
-	// Name is the unique identifier of the service that changed state
-	Name string `json:"name"`
-
-	// ServiceType indicates the type of service (e.g., "MCPServer", "Aggregator")
-	ServiceType string `json:"service_type"`
-
-	// OldState is the previous state before the transition
-	OldState string `json:"old_state"`
-
-	// NewState is the current state after the transition
-	NewState string `json:"new_state"`
-
-	// Health is the current health status of the service
-	Health string `json:"health"`
-
-	// Error contains error information if the state change was due to an error
-	Error error `json:"error,omitempty"`
-
-	// Timestamp indicates when the state change occurred
-	Timestamp time.Time `json:"timestamp"`
-}
-
 // ServiceStatus represents the current status of a service for API responses.
 // This is a simplified view of service information suitable for status queries
 // and monitoring dashboards.
@@ -249,26 +118,4 @@ type ServiceStatus struct {
 
 	// Metadata contains additional runtime information about the service
 	Metadata map[string]interface{} `json:"metadata,omitempty"`
-}
-
-// ServiceListResponse represents a list of services in API responses.
-// This is used by endpoints that return multiple service status information.
-type ServiceListResponse struct {
-	// Services contains the list of service status information
-	Services []ServiceStatus `json:"services"`
-}
-
-// StateUpdater is an optional interface for services that allow external state updates.
-// This is used to update service state when external events occur, such as SSO
-// authentication succeeding at the session level.
-//
-// Not all services implement this interface; callers should type-assert before use.
-type StateUpdater interface {
-	// UpdateState updates the service's operational state.
-	//
-	// Args:
-	//   - state: The new service state
-	//   - health: The new health status
-	//   - err: Optional error associated with the state change
-	UpdateState(state ServiceState, health HealthStatus, err error)
 }
