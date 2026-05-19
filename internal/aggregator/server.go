@@ -1768,9 +1768,6 @@ func (a *AggregatorServer) IsYoloMode() bool {
 //
 // Returns the tool execution result or an error if the tool cannot be found or executed.
 func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string, args map[string]interface{}) (res *mcp.CallToolResult, err error) {
-	ctx, endSpan := StartToolSpan(ctx, toolName)
-	defer func() { endSpan(res, err) }()
-
 	logging.DebugWithAttrs("Aggregator", "CallToolInternal called",
 		slog.String("tool", toolName))
 
