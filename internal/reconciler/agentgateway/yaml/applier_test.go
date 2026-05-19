@@ -468,3 +468,82 @@ func TestApply_ConcurrentDistinctNames(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, entries, goroutines)
 }
+
+func TestApply_ConcurrentSameName(t *testing.T) {
+	dir := t.TempDir()
+	a, err := yamlapply.NewApplier(dir)
+	require.NoError(t, err)
+
+	const goroutines = 16
+	done := make(chan error, goroutines)
+	for range goroutines {
+		go func() {
+			done <- a.Apply(t.Context(), canonicalConfig())
+		}()
+	}
+	for range goroutines {
+		require.NoError(t, <-done)
+	}
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "concurrent same-name applies must converge to one file")
+	require.Equal(t, "grizzly.yaml", entries[0].Name())
+}
+
+func TestApply_AfterCloseReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	a, err := yamlapply.NewApplier(dir)
+	require.NoError(t, err)
+
+	require.NoError(t, a.Apply(t.Context(), canonicalConfig()))
+	require.NoError(t, a.Close())
+
+	err = a.Apply(t.Context(), canonicalConfig())
+	require.Error(t, err, "Apply on a Closed applier must surface an error")
+}
+
+func TestApply_StdioMultiEnvSortedDeterministically(t *testing.T) {
+	dir := t.TempDir()
+	a, err := yamlapply.NewApplier(dir)
+	require.NoError(t, err)
+
+	cfg := stdioConfig()
+	stdio := cfg.Backends[0].Target.(agentgateway.StdioTarget)
+	stdio.Env = map[string]string{
+		"ZETA":  "26",
+		"ALPHA": "1",
+		"MIKE":  "13",
+	}
+	cfg.Backends[0].Target = stdio
+
+	require.NoError(t, a.Apply(t.Context(), cfg))
+	first := readInDir(t, dir, "grizzly.yaml")
+
+	dir2 := t.TempDir()
+	a2, err := yamlapply.NewApplier(dir2)
+	require.NoError(t, err)
+	require.NoError(t, a2.Apply(t.Context(), cfg))
+	second := readInDir(t, dir2, "grizzly.yaml")
+
+	require.True(t, bytes.Equal(first, second), "stdio multi-env emission must be deterministic across applier instances")
+}
+
+func TestApply_RequiredAudiencesPreservedAndDeterministic(t *testing.T) {
+	cfg := canonicalConfig()
+	cfg.Policies[0].Authn.RequiredAudiences = []string{"dex-k8s", "platform-api", "telemetry"}
+
+	dir := t.TempDir()
+	a, err := yamlapply.NewApplier(dir)
+	require.NoError(t, err)
+	require.NoError(t, a.Apply(t.Context(), cfg))
+	first := readInDir(t, dir, "grizzly.yaml")
+
+	dir2 := t.TempDir()
+	a2, err := yamlapply.NewApplier(dir2)
+	require.NoError(t, err)
+	require.NoError(t, a2.Apply(t.Context(), cfg))
+	second := readInDir(t, dir2, "grizzly.yaml")
+
+	require.True(t, bytes.Equal(first, second), "RequiredAudiences must serialise deterministically")
+}

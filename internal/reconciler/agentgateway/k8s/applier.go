@@ -29,6 +29,19 @@ type Config struct {
 
 // Applier persists an agentgateway.Config into a Kubernetes cluster.
 // Each instance is bound to one MCPServer via ownerRef.
+//
+// Ownership semantics:
+//
+//   - AgentgatewayBackend, HTTPRoute and AgentgatewayPolicy emitted for an
+//     MCPServer are wholly owned by the reconciler. Apply replaces .Spec
+//     wholesale on every reconcile, so external edits (Filters, extra
+//     ParentRefs, additional TargetRefs) are reverted on the next pass.
+//   - The MCPServer's ownerRef is stamped (Controller + BlockOwnerDeletion
+//     default to true if the caller leaves them nil) so deletion cascades
+//     through the Kubernetes garbage collector. applyOwner replaces a stale
+//     ownerRef in place (matched by Name+Kind+APIVersion) rather than
+//     appending — recreating an MCPServer with a new UID still yields
+//     exactly one ownerRef.
 type Applier struct {
 	client   client.Client
 	ownerRef metav1.OwnerReference
