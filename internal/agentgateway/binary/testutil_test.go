@@ -39,10 +39,8 @@ type fixtureServer struct {
 	AssetHits *atomic.Int32
 }
 
-// serveAsset spins up an httptest.Server that responds with body for
-// the asset path. The legacy `.sha256` companion route is no longer
-// served — the resolver trusts the in-source pinned constants and the
-// production code never fetches it.
+// serveAsset spins up an httptest.Server that responds with body on the
+// asset path under /v<PinnedVersion>/.
 func serveAsset(t *testing.T, asset string, body []byte) *fixtureServer {
 	t.Helper()
 	var assetHits atomic.Int32

@@ -10,10 +10,3 @@ var pinnedChecksums = map[string]string{
 	"agentgateway-darwin-arm64/1.2.1":      "e785ea8bd84be92f48eb0865643bb803e00f78b76244cf411a09e37fe179605f",
 	"agentgateway-windows-amd64.exe/1.2.1": "6e517cf2f19c0fa7557a97cb26530f6ffc9e258a23b2105c9c3138c23ef2702f",
 }
-
-// pinnedChecksum returns the pinned SHA-256 hex for asset at version,
-// and whether an entry exists.
-func pinnedChecksum(asset, version string) (string, bool) {
-	digest, ok := pinnedChecksums[asset+"/"+version]
-	return digest, ok
-}
