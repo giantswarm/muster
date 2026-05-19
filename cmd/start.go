@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/cli"
 
 	"github.com/spf13/cobra"
@@ -15,13 +16,13 @@ var startFlags cli.CommandFlags
 
 // Available resource types for start operations
 var startResourceTypes = []string{
-	"service",
-	"workflow",
+	api.ResourceTypeService,
+	api.ResourceTypeWorkflow,
 }
 
 // Dynamic completion for service names
 func startServiceNameCompletion(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	if len(args) != 1 || args[0] != "service" { //nolint:goconst
+	if len(args) != 1 || args[0] != api.ResourceTypeService { //nolint:goconst
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
@@ -31,7 +32,7 @@ func startServiceNameCompletion(cmd *cobra.Command, args []string, toComplete st
 
 // Dynamic completion for workflow names
 func startWorkflowNameCompletion(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	if len(args) != 1 || args[0] != "workflow" { //nolint:goconst
+	if len(args) != 1 || args[0] != api.ResourceTypeWorkflow { //nolint:goconst
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
@@ -53,7 +54,7 @@ func startWorkflowNameCompletion(cmd *cobra.Command, args []string, toComplete s
 	defer func() { _ = executor.Close() }()
 
 	// Get workflow list
-	names, err := getResourceNames(ctx, executor, "core_workflow_list", "workflow")
+	names, err := getResourceNames(ctx, executor, "core_workflow_list", api.ResourceTypeWorkflow)
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
@@ -92,10 +93,10 @@ Note: The aggregator server must be running (use 'muster serve') before using th
 			return startResourceTypes, cobra.ShellCompDirectiveNoFileComp
 		}
 		if len(args) == 1 {
-			if args[0] == "service" {
+			if args[0] == api.ResourceTypeService {
 				return startServiceNameCompletion(cmd, args, toComplete)
 			}
-			if args[0] == "workflow" { //nolint:goconst
+			if args[0] == api.ResourceTypeWorkflow { //nolint:goconst
 				return startWorkflowNameCompletion(cmd, args, toComplete)
 			}
 		}
@@ -109,7 +110,7 @@ Note: The aggregator server must be running (use 'muster serve') before using th
 }
 
 // Resource type mappings for start operations.
-// "service" used to call core_service_start; that tool was removed when the
+// api.ResourceTypeService used to call core_service_start; that tool was removed when the
 // orchestrator-driven dial loop went away. Resume is now declarative: patch
 // MCPServer.spec.suspended back to false through core_mcpserver_update.
 var startResourceMappings = map[string]string{
@@ -131,7 +132,7 @@ func parseWorkflowParameters(workflowName string) map[string]interface{} {
 	workflowIndex := -1
 
 	for i, arg := range args {
-		if arg == workflowName && i > 0 && args[i-1] == "workflow" {
+		if arg == workflowName && i > 0 && args[i-1] == api.ResourceTypeWorkflow {
 			workflowIndex = i
 			break
 		}
@@ -204,7 +205,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if resourceType == "workflow" {
+	if resourceType == api.ResourceTypeWorkflow {
 		// Execute workflow using workflow_<workflow-name> pattern
 		toolName := fmt.Sprintf("workflow_%s", resourceName)
 
@@ -223,7 +224,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 	toolArgs := map[string]interface{}{
 		"name": resourceName,
 	}
-	if resourceType == "service" {
+	if resourceType == api.ResourceTypeService {
 		toolArgs["suspended"] = false
 	}
 
