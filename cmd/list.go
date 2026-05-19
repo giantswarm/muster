@@ -22,10 +22,10 @@ var (
 
 // Resource configurations mapping tool names to their aliases
 var listResourceConfigs = map[string][]string{
-	"core_service_list":            {"service", "services"},
-	"core_mcpserver_list":          {"mcpserver", "mcpservers"},
-	"core_workflow_list":           {"workflow", "workflows"},
-	"core_workflow_execution_list": {"workflow-execution", "workflow-executions"},
+	"core_service_list":            {resourceTypeService, resourceTypeServices},
+	"core_mcpserver_list":          {resourceTypeMCPServer, resourceTypeMCPServers},
+	"core_workflow_list":           {resourceTypeWorkflow, resourceTypeWorkflows},
+	"core_workflow_execution_list": {resourceTypeWorkflowExecution, resourceTypeWorkflowExecutions},
 }
 
 // Build resource types for autocompletion
@@ -53,7 +53,6 @@ func getListResourceMappings() map[string]string {
 	return mappings
 }
 
-// mcpResourceTypes aliases to the shared mcpPrimitiveTypes for backward compatibility
 var mcpResourceTypes = mcpPrimitiveTypes
 
 // MCPFilterOptions contains filter criteria for MCP primitives
@@ -351,11 +350,11 @@ func runListMCP(cmd *cobra.Command, mcpType string) error {
 	}
 
 	switch mcpType {
-	case "tool": //nolint:goconst
+	case mcpPrimitiveTool:
 		return runListMCPTools(cmd, executor, filterOpts)
-	case "resource": //nolint:goconst
+	case mcpPrimitiveResource:
 		return runListMCPResources(cmd, executor, filterOpts)
-	case "prompt": //nolint:goconst
+	case mcpPrimitivePrompt:
 		return runListMCPPrompts(cmd, executor, filterOpts)
 	default:
 		return fmt.Errorf("unknown MCP type: %s", mcpType)

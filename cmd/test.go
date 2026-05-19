@@ -584,7 +584,7 @@ func writeSchemaToFile(schema map[string]interface{}, filename string) error {
 	}
 
 	// Write to file
-	if err := os.WriteFile(filename, jsonData, 0644); err != nil { //nolint:gosec
+	if err := os.WriteFile(filename, jsonData, 0o600); err != nil {
 		return fmt.Errorf("failed to write schema file: %w", err)
 	}
 
