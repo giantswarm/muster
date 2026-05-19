@@ -488,6 +488,102 @@ func TestApply_StdioMatchesGolden(t *testing.T) {
 	assertMatchesGolden(t, dir, "grizzly-stdio.yaml", yamlapply.ConfigFilename)
 }
 
+func TestApply_WithMusterBackend_BaselineOnly(t *testing.T) {
+	dir := t.TempDir()
+	_, err := yamlapply.NewApplier(dir, yamlapply.WithMusterBackend("127.0.0.1", 8090, "/mcp"))
+	require.NoError(t, err)
+
+	raw := readInDir(t, dir, yamlapply.ConfigFilename)
+	var cfg yamlapply.LocalConfig
+	require.NoError(t, goyaml.Unmarshal(raw, &cfg))
+
+	require.Len(t, cfg.Binds, 1)
+	require.Equal(t, yamlapply.DefaultListenerPort, cfg.Binds[0].Port)
+	require.Len(t, cfg.Binds[0].Listeners, 1)
+
+	routes := cfg.Binds[0].Listeners[0].Routes
+	require.Len(t, routes, 1)
+	require.Equal(t, yamlapply.MusterRouteName, routes[0].Name)
+	require.Equal(t, "/mcp/muster", routes[0].Matches[0].Path.PathPrefix)
+
+	target := routes[0].Backends[0].MCP.Targets[0]
+	require.Equal(t, yamlapply.MusterRouteName, target.Name)
+	require.NotNil(t, target.MCP)
+	require.Equal(t, "127.0.0.1", target.MCP.Host)
+	require.Equal(t, uint16(8090), target.MCP.Port)
+	require.Equal(t, "/mcp", target.MCP.Path)
+
+	require.NotNil(t, routes[0].Policies)
+	require.NotNil(t, routes[0].Policies.BackendAuth)
+	require.NotNil(t, routes[0].Policies.BackendAuth.Passthrough)
+}
+
+func TestApply_WithMusterBackend_BaselinePrependedToMCPServerRoutes(t *testing.T) {
+	dir := t.TempDir()
+	a, err := yamlapply.NewApplier(dir, yamlapply.WithMusterBackend("127.0.0.1", 8090, "/mcp"))
+	require.NoError(t, err)
+
+	require.NoError(t, a.Apply(t.Context(), canonicalConfig()))
+
+	raw := readInDir(t, dir, yamlapply.ConfigFilename)
+	var cfg yamlapply.LocalConfig
+	require.NoError(t, goyaml.Unmarshal(raw, &cfg))
+
+	routes := cfg.Binds[0].Listeners[0].Routes
+	require.Len(t, routes, 2)
+	require.Equal(t, yamlapply.MusterRouteName, routes[0].Name, "muster baseline must come first")
+	require.Equal(t, fixtureGrizzly, routes[1].Name)
+}
+
+func TestApply_WithMusterBackend_RejectsReservedName(t *testing.T) {
+	dir := t.TempDir()
+	a, err := yamlapply.NewApplier(dir, yamlapply.WithMusterBackend("127.0.0.1", 8090, "/mcp"))
+	require.NoError(t, err)
+
+	c := canonicalConfig()
+	c.Name = yamlapply.MusterRouteName
+	c.Backends[0].Name = yamlapply.MusterRouteName
+	c.Routes[0].Name = yamlapply.MusterRouteName
+	c.Routes[0].PathMatch = "/mcp/muster"
+	c.Policies[0].Name = yamlapply.MusterRouteName
+
+	require.ErrorContains(t, a.Apply(t.Context(), c), "reserved")
+}
+
+func TestDelete_KeepsBaselineWhenLastMCPServerRemoved(t *testing.T) {
+	dir := t.TempDir()
+	a, err := yamlapply.NewApplier(dir, yamlapply.WithMusterBackend("127.0.0.1", 8090, "/mcp"))
+	require.NoError(t, err)
+
+	require.NoError(t, a.Apply(t.Context(), canonicalConfig()))
+	require.NoError(t, a.Delete(t.Context(), fixtureGrizzly))
+
+	raw := readInDir(t, dir, yamlapply.ConfigFilename)
+	var cfg yamlapply.LocalConfig
+	require.NoError(t, goyaml.Unmarshal(raw, &cfg))
+
+	routes := cfg.Binds[0].Listeners[0].Routes
+	require.Len(t, routes, 1, "baseline must survive deletion of the last MCPServer route")
+	require.Equal(t, yamlapply.MusterRouteName, routes[0].Name)
+}
+
+func TestApply_WithMusterBackend_MatchesGolden(t *testing.T) {
+	dir := t.TempDir()
+	a, err := yamlapply.NewApplier(dir, yamlapply.WithMusterBackend("127.0.0.1", 8090, "/mcp"))
+	require.NoError(t, err)
+	require.NoError(t, a.Apply(t.Context(), canonicalConfig()))
+
+	assertMatchesGolden(t, dir, "grizzly-with-muster.yaml", yamlapply.ConfigFilename)
+}
+
+func TestNewApplier_BaselineOnlyMatchesGolden(t *testing.T) {
+	dir := t.TempDir()
+	_, err := yamlapply.NewApplier(dir, yamlapply.WithMusterBackend("127.0.0.1", 8090, "/mcp"))
+	require.NoError(t, err)
+
+	assertMatchesGolden(t, dir, "muster-baseline-only.yaml", yamlapply.ConfigFilename)
+}
+
 func TestApply_ConcurrentDistinctNames(t *testing.T) {
 	dir := t.TempDir()
 	a, err := yamlapply.NewApplier(dir)

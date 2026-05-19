@@ -8,14 +8,16 @@ import (
 	"syscall"
 	"time"
 
-	serv "github.com/giantswarm/muster/internal/services"
-
 	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // agentgatewayShutdownTimeout bounds graceful agentgateway shutdown with a
 // fresh context so a cancelled parent doesn't preempt the drain.
 const agentgatewayShutdownTimeout = 15 * time.Second
+
+// aggregatorShutdownTimeout bounds graceful aggregator shutdown with a fresh
+// context so a cancelled parent doesn't preempt the drain.
+const aggregatorShutdownTimeout = 10 * time.Second
 
 // run executes the application in non-interactive command line mode.
 // This mode is designed for automation, scripting, and headless environments
@@ -42,47 +44,29 @@ const agentgatewayShutdownTimeout = 15 * time.Second
 func runOrchestrator(ctx context.Context, services *Services) error {
 	logging.Info("CLI", "--- Setting up orchestrator for service management ---")
 
-	aggregatorFailed := false
-	sigChan := make(chan os.Signal, 1)
-	changeChan := services.Orchestrator.SubscribeToStateChanges()
-	go func() {
-		for change := range changeChan {
-			if change.Name == "mcp-aggregator" && serv.ServiceState(change.NewState) == serv.StateFailed {
-				logging.Info("CLI", "MCP Aggregator failed: %v", change)
-				aggregatorFailed = true
-				sigChan <- nil
-				break
-			}
-		}
-	}()
-
-	// IMPORTANT: Startup order matters for capturing all state change events.
-	//
-	// The StateChangeBridge must subscribe to state changes BEFORE the orchestrator
-	// starts, so it can capture all state transitions (unknown -> starting -> running).
-	// The ReconcileManager must also be ready before the orchestrator starts so that
-	// reconciliation requests triggered by state changes can be processed.
-	//
 	// Startup order:
-	// 1. StateChangeBridge - subscribes to event channel (events buffered until processed)
-	// 2. ReconcileManager - starts workers to process reconcile requests
-	// 3. Orchestrator - starts services, fires state change events
-
-	// Start the state change bridge first to capture all state change events
-	// The bridge subscribes to the orchestrator's event channel (which is already created)
-	// Events will be buffered in the channel until they can be processed
+	// 1. StateChangeBridge — subscribes to the orchestrator's event channel
+	//    before any state transitions fire.
+	// 2. Aggregator — serves muster's /mcp + OAuth endpoints; agentgateway
+	//    federates to it so it must be up first.
+	// 3. agentgateway subprocess (filesystem mode only).
+	// 4. ReconcileManager — workers ready before the orchestrator fires events.
+	// 5. Orchestrator — runs remaining managed services.
 	if services.StateChangeBridge != nil {
 		if err := services.StateChangeBridge.Start(ctx); err != nil {
 			logging.Warn("CLI", "Failed to start state change bridge: %v", err)
-			// Continue without state change bridge - not a critical failure
 		} else {
 			logging.Info("CLI", "State change bridge started - ready to capture state changes")
 		}
 	}
 
-	// Spawn the agentgateway subprocess before the reconciler so the data plane
-	// is up by the time reconciler workers write the first config files. Cluster
-	// mode leaves AgentgatewayConfigDir empty and skips this path entirely.
+	if services.Aggregator != nil {
+		if err := services.Aggregator.Start(ctx); err != nil {
+			return fmt.Errorf("start aggregator: %w", err)
+		}
+		logging.Info("CLI", "Aggregator started directly (out of orchestrator service registry)")
+	}
+
 	if services.AgentgatewayConfigDir != "" {
 		mgr, err := startAgentgatewaySubprocess(ctx, services.AgentgatewayConfigDir)
 		if err != nil {
@@ -91,18 +75,14 @@ func runOrchestrator(ctx context.Context, services *Services) error {
 		services.AgentgatewayManager = mgr
 	}
 
-	// Start the reconciliation manager before the orchestrator so workers are ready
-	// to process reconcile requests triggered by state changes during startup
 	if services.ReconcileManager != nil {
 		if err := services.ReconcileManager.Start(ctx); err != nil {
 			logging.Warn("CLI", "Failed to start reconciliation manager: %v", err)
-			// Continue without reconciliation - not a critical failure
 		} else {
 			logging.Info("CLI", "Reconciliation manager started - watching for configuration changes")
 		}
 	}
 
-	// Start all configured services last - state change events will now be captured
 	if err := services.Orchestrator.Start(ctx); err != nil {
 		logging.Error("CLI", err, "Failed to start orchestrator")
 		return err
@@ -110,36 +90,38 @@ func runOrchestrator(ctx context.Context, services *Services) error {
 
 	logging.Info("CLI", "Services started. Press Ctrl+C to stop all services and exit.")
 
+	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	if !aggregatorFailed {
-		// Wait for interrupt signal or later service startup failure to gracefully shutdown
-		<-sigChan
-	}
+	<-sigChan
 
-	// Graceful shutdown sequence
+	// Graceful shutdown sequence (reverse of startup, with aggregator stopping
+	// before the orchestrator so its API consumers wind down cleanly).
 	logging.Info("CLI", "\n--- Shutting down services ---")
 
-	// Stop state change bridge first to prevent new reconciliation triggers during shutdown
 	if services.StateChangeBridge != nil {
 		if err := services.StateChangeBridge.Stop(); err != nil {
 			logging.Error("CLI", err, "Error stopping state change bridge")
 		}
 	}
 
-	// Stop reconciliation manager next to prevent new reconciliations during shutdown
 	if services.ReconcileManager != nil {
 		if err := services.ReconcileManager.Stop(); err != nil {
 			logging.Error("CLI", err, "Error stopping reconciliation manager")
 		}
 	}
 
-	// Stop the agentgateway subprocess (filesystem mode only). SIGTERMing
-	// agentgateway cascades to its mcp.targets[].stdio children so muster
-	// does not need to clean those up directly.
 	if services.AgentgatewayManager != nil {
 		shutCtx, cancel := context.WithTimeout(context.Background(), agentgatewayShutdownTimeout)
 		if err := services.AgentgatewayManager.Stop(shutCtx); err != nil {
 			logging.Error("CLI", err, "Error stopping agentgateway subprocess")
+		}
+		cancel()
+	}
+
+	if services.Aggregator != nil {
+		shutCtx, cancel := context.WithTimeout(context.Background(), aggregatorShutdownTimeout)
+		if err := services.Aggregator.Stop(shutCtx); err != nil {
+			logging.Error("CLI", err, "Error stopping aggregator")
 		}
 		cancel()
 	}

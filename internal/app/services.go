@@ -4,8 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mcpserverPkg "github.com/giantswarm/muster/internal/mcpserver"
 	aggregatorService "github.com/giantswarm/muster/internal/services/aggregator"
@@ -49,6 +54,24 @@ const defaultGatewayName = "agentgateway"
 // agentgatewayConfigSubdir is the directory under configPath where the YAML
 // applier writes one agw native config file per MCPServer.
 const agentgatewayConfigSubdir = "agentgateway"
+
+// Env-var names sourced from the operator's Deployment for the muster
+// federation baseline (cluster mode only).
+const (
+	envMusterServiceName      = "MUSTER_SERVICE_NAME"
+	envMusterServiceNamespace = "MUSTER_SERVICE_NAMESPACE"
+	envMusterServicePort      = "MUSTER_SERVICE_PORT"
+)
+
+// defaults for the muster federation baseline. Helm renders the env vars
+// above onto the operator pod; these defaults apply only when neither the
+// env var nor an in-cluster override is set.
+const (
+	defaultMusterServiceName = "muster"
+	defaultMusterServicePort = 8090
+	defaultMusterMCPPath     = "/mcp"
+	loopbackHost             = "127.0.0.1"
+)
 
 // Services holds all initialized services and APIs used by the application.
 // This struct serves as the central registry for all core application components,
@@ -114,6 +137,13 @@ type Services struct {
 	// subprocess fails to start. Shutdown calls Stop on it after the
 	// reconciliation manager has drained.
 	AgentgatewayManager *subprocess.Manager
+
+	// Aggregator is the MCP aggregator service muster boots directly (rather
+	// than via the orchestrator service registry) so its lifecycle is decoupled
+	// from the orchestrator's. nil when registryHandler was unavailable at
+	// initialization. runOrchestrator starts it after the StateChangeBridge and
+	// stops it before the orchestrator during shutdown.
+	Aggregator *aggregatorService.AggregatorService
 }
 
 // InitializeServices creates and registers all required services for the application.
@@ -245,6 +275,11 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	// Note: Service creation (including MCPServer services) is handled by the orchestrator
 	// during its Start() method. The orchestrator manages dependencies and lifecycle.
 
+	// aggService is constructed inside the registryHandler block and bound to
+	// the Services struct so runOrchestrator can start/stop it directly,
+	// bypassing the orchestrator service registry.
+	var aggService *aggregatorService.AggregatorService
+
 	// Need to get the service registry handler from the registry adapter
 	registryHandler := api.GetServiceRegistry()
 	if registryHandler != nil {
@@ -319,12 +354,11 @@ func InitializeServices(cfg *Config) (*Services, error) {
 			}
 		}
 
-		aggService := aggregatorService.NewAggregatorService(
+		aggService = aggregatorService.NewAggregatorService(
 			aggConfig,
 			orchestratorAPI,
 			registryHandler,
 		)
-		_ = registry.Register(aggService)
 
 		// Create aggregator API adapter
 		aggAdapter := aggregatorService.NewAPIAdapter(aggService)
@@ -370,6 +404,7 @@ func InitializeServices(cfg *Config) (*Services, error) {
 				musterClient,
 				namespace,
 				cfg.ConfigPath,
+				cfg.MusterConfig.Aggregator.Port,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("build MCPServer reconciler: %w", err)
@@ -414,6 +449,7 @@ func InitializeServices(cfg *Config) (*Services, error) {
 		OrchestratorAPI:       orchestratorAPI,
 		ConfigAPI:             configAPI,
 		AggregatorPort:        cfg.MusterConfig.Aggregator.Port,
+		Aggregator:            aggService,
 		ReconcileManager:      reconcileManager,
 		StateChangeBridge:     stateChangeBridge,
 		AgentgatewayConfigDir: agentgatewayConfigDir,
@@ -493,29 +529,49 @@ func buildMCPServerReconciler(
 	musterClient client.MusterClient,
 	namespace string,
 	configPath string,
+	aggregatorPort int,
 ) (*reconciler.MCPServerReconciler, string, error) {
 	if kubernetesMode {
+		musterBackend := clusterMusterBackend(namespace)
+		k8sCfg := k8sapply.Config{
+			GatewayName:      defaultGatewayName,
+			GatewayNamespace: namespace,
+			MusterBackend:    musterBackend,
+		}
 		r := reconciler.NewMCPServerReconcilerCluster(
 			orchestratorAPI,
 			mcpServerMgr,
 			registryHandler,
 			musterClient,
-			k8sapply.Config{
-				GatewayName:      defaultGatewayName,
-				GatewayNamespace: namespace,
-			},
+			k8sCfg,
 		).WithStatusUpdater(musterClient, namespace)
+		if musterBackend != nil {
+			baselineApplier := k8sapply.NewApplier(musterClient, metav1.OwnerReference{}, k8sCfg)
+			if err := baselineApplier.EnsureMusterBaseline(context.Background()); err != nil {
+				return nil, "", fmt.Errorf("ensure muster baseline: %w", err)
+			}
+			logging.Info("Services", "Ensured muster federation baseline (service=%s/%s:%d)", musterBackend.ServiceNamespace, musterBackend.ServiceName, musterBackend.ServicePort)
+		}
 		return r, "", nil
 	}
 	if configPath == "" {
 		return nil, "", fmt.Errorf("filesystem mode requires a non-empty configPath for the YAML Applier")
 	}
 	dir := filepath.Join(configPath, agentgatewayConfigSubdir)
-	applier, err := yamlapply.NewApplier(dir)
+	port := aggregatorPort
+	if port == 0 {
+		port = defaultMusterServicePort
+	}
+	if port < 1 || port > 65535 {
+		return nil, "", fmt.Errorf("aggregator port %d out of range [1, 65535]", port)
+	}
+	applier, err := yamlapply.NewApplier(dir,
+		yamlapply.WithMusterBackend(loopbackHost, uint16(port), defaultMusterMCPPath),
+	)
 	if err != nil {
 		return nil, "", fmt.Errorf("construct YAML Applier at %s: %w", dir, err)
 	}
-	logging.Info("Services", "Wired YAML Applier writing to %s", dir)
+	logging.Info("Services", "Wired YAML Applier writing to %s (federating muster at %s:%d%s)", dir, loopbackHost, port, defaultMusterMCPPath)
 
 	r := reconciler.NewMCPServerReconcilerFilesystem(
 		orchestratorAPI,
@@ -527,6 +583,35 @@ func buildMCPServerReconciler(
 		WithStatusUpdater(musterClient, namespace).
 		WithDisableLocalSpawn(true)
 	return r, dir, nil
+}
+
+// clusterMusterBackend resolves the muster federation baseline backend values
+// from MUSTER_SERVICE_NAME / MUSTER_SERVICE_NAMESPACE / MUSTER_SERVICE_PORT,
+// falling back to "muster" / namespace / 8090. Helm renders the env vars onto
+// the operator pod from values.muster.service.{name,namespace,port}.
+func clusterMusterBackend(namespace string) *k8sapply.MusterBackendConfig {
+	name := strings.TrimSpace(os.Getenv(envMusterServiceName))
+	if name == "" {
+		name = defaultMusterServiceName
+	}
+	ns := strings.TrimSpace(os.Getenv(envMusterServiceNamespace))
+	if ns == "" {
+		ns = namespace
+	}
+	port := defaultMusterServicePort
+	if raw := strings.TrimSpace(os.Getenv(envMusterServicePort)); raw != "" {
+		if v, err := strconv.Atoi(raw); err == nil && v > 0 && v <= 65535 {
+			port = v
+		} else {
+			logging.Warn("Services", "Invalid %s=%q; falling back to %d", envMusterServicePort, raw, defaultMusterServicePort)
+		}
+	}
+	return &k8sapply.MusterBackendConfig{
+		ServiceName:      name,
+		ServiceNamespace: ns,
+		ServicePort:      port,
+		Path:             defaultMusterMCPPath,
+	}
 }
 
 // startAgentgatewaySubprocess resolves the pinned agentgateway binary, spawns
