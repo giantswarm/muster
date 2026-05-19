@@ -1,4 +1,4 @@
-package instrument
+package aggregator
 
 import (
 	"context"
@@ -21,7 +21,7 @@ const (
 )
 
 // TestMCPServerOptions_HistogramExemplarAttachesToolHandlerSpan exercises the
-// production option chain end-to-end: build an MCPServer with MCPServerOptions,
+// production option chain end-to-end: build an MCPServer with mcpServerOptions,
 // register a tool handler, dispatch a tools/call through mcp-go's HandleMessage,
 // and assert the duration histogram observation carries an exemplar with the
 // tool-handler span's TraceID. The assertion fails if mcpotel.WithServerTracing
@@ -41,7 +41,7 @@ func TestMCPServerOptions_HistogramExemplarAttachesToolHandlerSpan(t *testing.T)
 	otel.SetMeterProvider(mp)
 	t.Cleanup(func() { otel.SetMeterProvider(prevMP) })
 
-	srv := server.NewMCPServer("muster-aggregator-test", "test", MCPServerOptions()...)
+	srv := server.NewMCPServer("muster-aggregator-test", "test", mcpServerOptions()...)
 	srv.AddTool(mcp.Tool{Name: testToolName}, func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		return mcp.NewToolResultText("ok"), nil
 	})
@@ -88,7 +88,7 @@ func TestMCPServerOptions_HistogramExemplarAttachesToolHandlerSpan(t *testing.T)
 	}
 	require.True(t, sawExemplar,
 		"expected histogram exemplar carrying the tool-handler span TraceID — "+
-			"MCPServerOptions must register mcpotel.WithServerTracing so the span is live during histogram.Record")
+			"mcpServerOptions must register mcpotel.WithServerTracing so the span is live during histogram.Record")
 }
 
 func hexTraceID(b []byte) string {

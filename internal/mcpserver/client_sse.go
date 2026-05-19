@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/giantswarm/muster/internal/aggregator/instrument"
 	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/pkg/observability"
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
@@ -55,7 +55,7 @@ func (c *SSEClient) Initialize(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create SSE client: %w", err)
 	}
-	mcpotel.WithClientTracing(otel.Tracer(instrument.TracerName))(mcpClient)
+	mcpotel.WithClientTracing(otel.Tracer(observability.TracerName))(mcpClient)
 
 	if err := mcpClient.Start(ctx); err != nil {
 		// Check if this is a 401 authentication error

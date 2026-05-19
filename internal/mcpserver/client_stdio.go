@@ -6,8 +6,8 @@ import (
 	"io"
 	"time"
 
-	"github.com/giantswarm/muster/internal/aggregator/instrument"
 	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/pkg/observability"
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -59,7 +59,7 @@ func (c *StdioClient) Initialize(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create stdio client: %w", err)
 	}
-	mcpotel.WithClientTracing(otel.Tracer(instrument.TracerName))(mcpClient)
+	mcpotel.WithClientTracing(otel.Tracer(observability.TracerName))(mcpClient)
 
 	logging.Debug("StdioClient", "Stdio client created, initializing MCP protocol for %s", c.command)
 
