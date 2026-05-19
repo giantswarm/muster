@@ -133,7 +133,10 @@ func (a *Applier) Delete(ctx context.Context, name string) error {
 
 	mu := a.lockFor(name)
 	mu.Lock()
-	defer mu.Unlock()
+	defer func() {
+		mu.Unlock()
+		a.dropLock(name, mu)
+	}()
 
 	if err := a.root.Remove(name + fileExt); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("yaml applier: remove %q: %w", name+fileExt, err)
@@ -151,6 +154,18 @@ func (a *Applier) lockFor(name string) *sync.Mutex {
 		a.locks[name] = mu
 	}
 	return mu
+}
+
+// dropLock removes name's entry from a.locks if it still points at mu.
+// A concurrent lockFor that observed mu before Delete entered its critical
+// section will keep using mu safely; once dropLock returns, subsequent
+// lockFor calls install a fresh mutex.
+func (a *Applier) dropLock(name string, mu *sync.Mutex) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.locks[name] == mu {
+		delete(a.locks, name)
+	}
 }
 
 func isSafeName(name string) bool {
