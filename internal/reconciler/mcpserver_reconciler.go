@@ -111,6 +111,26 @@ func (r *MCPServerReconciler) GetResourceType() ResourceType {
 	return ResourceTypeMCPServer
 }
 
+// InitialResources enumerates every MCPServer the manager knows about so the
+// reconcile Manager can queue a first reconcile for each. Filesystem-mode
+// fsnotify watches otherwise miss MCPServer YAMLs that exist before muster
+// starts; before PR 11 the orchestrator's processAutoStartMCPServers
+// covered that gap.
+func (r *MCPServerReconciler) InitialResources(_ context.Context) ([]ReconcileRequest, error) {
+	if r.mcpServerManager == nil {
+		return nil, nil
+	}
+	infos := r.mcpServerManager.ListMCPServers()
+	requests := make([]ReconcileRequest, 0, len(infos))
+	for _, info := range infos {
+		requests = append(requests, ReconcileRequest{
+			Name:      info.Name,
+			Namespace: r.GetNamespace(""),
+		})
+	}
+	return requests, nil
+}
+
 // Reconcile processes a single MCPServer reconciliation request.
 func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileRequest) ReconcileResult {
 	logging.Debug("MCPServerReconciler", "Reconciling MCPServer: %s", req.Name)

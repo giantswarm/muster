@@ -151,8 +151,42 @@ func (m *Manager) Start(ctx context.Context) error {
 		go m.worker(i)
 	}
 
+	m.triggerInitialSync(m.ctx)
+
 	logging.Info("ReconcileManager", "Started with %d workers", m.config.WorkerCount)
 	return nil
+}
+
+// triggerInitialSync drives one reconcile for every resource each registered
+// Reconciler reports through the optional InitialSyncProvider interface.
+// Without this, filesystem-mode fsnotify misses YAMLs that exist before
+// muster starts — the orchestrator's deleted processAutoStartMCPServers
+// used to cover that gap.
+func (m *Manager) triggerInitialSync(ctx context.Context) {
+	m.mu.RLock()
+	reconcilers := make(map[ResourceType]Reconciler, len(m.reconcilers))
+	for resourceType, r := range m.reconcilers {
+		reconcilers[resourceType] = r
+	}
+	m.mu.RUnlock()
+
+	for resourceType, reconciler := range reconcilers {
+		provider, ok := reconciler.(InitialSyncProvider)
+		if !ok {
+			continue
+		}
+		requests, err := provider.InitialResources(ctx)
+		if err != nil {
+			logging.Warn("ReconcileManager", "Initial sync failed for %s: %v", resourceType, err)
+			continue
+		}
+		for _, req := range requests {
+			m.TriggerReconcile(resourceType, req.Name, req.Namespace)
+		}
+		if len(requests) > 0 {
+			logging.Info("ReconcileManager", "Queued %d initial reconciles for %s", len(requests), resourceType)
+		}
+	}
 }
 
 // setupChangeDetector creates the appropriate change detector based on config.

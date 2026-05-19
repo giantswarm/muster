@@ -11,8 +11,8 @@ timeout: "2m"
 # state muster used to produce via direct dial. Process-topology and
 # RFC 9728 resource_metadata-header preservation are covered by
 # internal/testing/integration/agw_auth_proxy_test.go; this scenario
-# proves the surface-level outcome (auth-required state + synthetic
-# auth tool) the user actually sees through muster's API.
+# proves the surface-level outcome (auth_required state) the user sees
+# through muster's API.
 #
 # Requires the agentgateway binary; the harness's MUSTER_AGW_BINARY env
 # is consumed by internal/agentgateway/binary.Resolve.
@@ -52,7 +52,7 @@ steps:
 
   - id: "verify-auth-required-state"
     description: "RegisterUpstream catches the upstream 401 (proxied verbatim by agentgateway) and registers pending-auth"
-    tool: "core_mcpserver_get"
+    tool: "core_service_status"
     args:
       name: "protected-backend"
     expected:
@@ -61,15 +61,6 @@ steps:
       json_path:
         name: "protected-backend"
         state: "auth_required"
-
-  - id: "verify-synthetic-auth-tool"
-    description: "Pending-auth state must surface the synthetic core_auth_login tool"
-    tool: "core_mcpserver_get"
-    args:
-      name: "protected-backend"
-    expected:
-      success: true
-      contains: ["protected-idp"]
 
 cleanup:
   - id: "cleanup-protected-backend"

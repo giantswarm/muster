@@ -88,29 +88,61 @@ func (a *Adapter) SubscribeToStateChanges() <-chan api.ServiceStateChangedEvent 
 
 // GetServiceStatus returns the current status of a service.
 func (a *Adapter) GetServiceStatus(name string) (*api.ServiceStatus, error) {
-	service, exists := a.orchestrator.registry.Get(name)
-	if !exists {
-		return nil, fmt.Errorf("service %s not found", name)
-	}
-
-	status := &api.ServiceStatus{
-		Name:        service.GetName(),
-		ServiceType: string(service.GetType()),
-		State:       api.ServiceState(service.GetState()),
-		Health:      api.HealthStatus(service.GetHealth()),
-	}
-
-	if err := service.GetLastError(); err != nil {
-		status.Error = err.Error()
-	}
-
-	if provider, ok := service.(services.ServiceDataProvider); ok {
-		if data := provider.GetServiceData(); data != nil {
-			status.Metadata = data
+	if service, exists := a.orchestrator.registry.Get(name); exists {
+		status := &api.ServiceStatus{
+			Name:        service.GetName(),
+			ServiceType: string(service.GetType()),
+			State:       api.ServiceState(service.GetState()),
+			Health:      api.HealthStatus(service.GetHealth()),
 		}
+
+		if err := service.GetLastError(); err != nil {
+			status.Error = err.Error()
+		}
+
+		if provider, ok := service.(services.ServiceDataProvider); ok {
+			if data := provider.GetServiceData(); data != nil {
+				status.Metadata = data
+			}
+		}
+
+		return status, nil
 	}
 
-	return status, nil
+	// MCPServers no longer live in the orchestrator's service registry
+	// (PR 11 moved their lifecycle to the aggregator + reconciler). Fall
+	// back to the aggregator's view so core_service_status keeps reporting
+	// state for MCPServer names without resurrecting the deleted
+	// orchestrator-driven service path.
+	if status, ok := mcpServerAPIStatusFromAggregator(name); ok {
+		return status, nil
+	}
+
+	return nil, fmt.Errorf("service %s not found", name)
+}
+
+func mcpServerAPIStatusFromAggregator(name string) (*api.ServiceStatus, bool) {
+	agg := api.GetAggregator()
+	if agg == nil {
+		return nil, false
+	}
+	switch agg.UpstreamServerState(name) {
+	case api.UpstreamServerConnected:
+		return &api.ServiceStatus{
+			Name:        name,
+			ServiceType: string(api.TypeMCPServer),
+			State:       api.StateConnected,
+			Health:      api.HealthHealthy,
+		}, true
+	case api.UpstreamServerAuthRequired:
+		return &api.ServiceStatus{
+			Name:        name,
+			ServiceType: string(api.TypeMCPServer),
+			State:       api.StateAuthRequired,
+			Health:      api.HealthUnknown,
+		}, true
+	}
+	return nil, false
 }
 
 // GetAllServices returns the status of all services.
