@@ -69,6 +69,12 @@ type MCPServerReconciler struct {
 	// persisted state that does not cascade from the MCPServer (yaml file).
 	// Cluster mode leaves this nil — ownerReferences handle deletion.
 	deleter agentgateway.Deleter
+
+	// disableLocalSpawn skips orchestratorAPI.StartService / RestartService.
+	// Set in filesystem mode where agentgateway owns the data plane and spawns
+	// child processes itself via mcp.targets[].stdio; cluster mode leaves it
+	// false so the orchestrator continues to manage local service state.
+	disableLocalSpawn bool
 }
 
 // NewMCPServerReconcilerFilesystem builds a reconciler wired to the
@@ -121,6 +127,16 @@ func NewMCPServerReconcilerCluster(
 // WithStatusUpdater sets the status updater for syncing status back to CRDs.
 func (r *MCPServerReconciler) WithStatusUpdater(updater StatusUpdater, namespace string) *MCPServerReconciler {
 	r.SetStatusUpdater(updater, namespace)
+	return r
+}
+
+// WithDisableLocalSpawn skips orchestratorAPI.StartService / RestartService for
+// every MCPServer the reconciler processes. Filesystem-mode callers set this
+// once agentgateway is the data plane: agentgateway spawns stdio children from
+// mcp.targets[].stdio and connects to streamable-http / sse backends itself,
+// so the orchestrator's local lifecycle path would race it.
+func (r *MCPServerReconciler) WithDisableLocalSpawn(disable bool) *MCPServerReconciler {
+	r.disableLocalSpawn = disable
 	return r
 }
 
@@ -491,6 +507,11 @@ func (r *MCPServerReconciler) reconcileCreate(ctx context.Context, req Reconcile
 		return ReconcileResult{}
 	}
 
+	if r.disableLocalSpawn {
+		logging.Debug("MCPServerReconciler", "Skipping orchestrator StartService for %s: agentgateway owns the data plane", req.Name)
+		return ReconcileResult{}
+	}
+
 	if err := r.orchestratorAPI.StartService(req.Name); err != nil {
 		if api.IsAuthRequiredError(err) {
 			logging.Info("MCPServerReconciler", "MCPServer %s requires authentication (Auth Required)", req.Name)
@@ -532,6 +553,11 @@ func (r *MCPServerReconciler) reconcileUpdate(ctx context.Context, req Reconcile
 		}
 	}
 	logging.Debug("MCPServerReconciler", "Updated configuration for MCPServer %s", req.Name)
+
+	if r.disableLocalSpawn {
+		logging.Debug("MCPServerReconciler", "Skipping orchestrator RestartService for %s: agentgateway owns the data plane", req.Name)
+		return ReconcileResult{}
+	}
 
 	if err := r.orchestratorAPI.RestartService(req.Name); err != nil {
 		if api.IsAuthRequiredError(err) {

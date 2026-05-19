@@ -140,6 +140,16 @@ func (m *Manager) Stop(ctx context.Context) error {
 	return m.shutdown(ctx)
 }
 
+// PID returns the supervised process's pid while it is running, or 0
+// if the manager has no live child (idle, between restarts, or
+// stopped). The supervised process is its own group leader, so the pid
+// equals the group id used by Stop / Reload.
+func (m *Manager) PID() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.pgid
+}
+
 // Reload sends SIGHUP to the supervised process. agentgateway watches
 // its config directory natively, so this is belt-and-suspenders for
 // callers that want to nudge a reload. Returns ErrNotRunning if no

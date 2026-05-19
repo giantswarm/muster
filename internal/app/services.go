@@ -1,12 +1,17 @@
 package app
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
 	"path/filepath"
+	"time"
 
 	mcpserverPkg "github.com/giantswarm/muster/internal/mcpserver"
 	aggregatorService "github.com/giantswarm/muster/internal/services/aggregator"
 
+	"github.com/giantswarm/muster/internal/agentgateway/binary"
+	"github.com/giantswarm/muster/internal/agentgateway/subprocess"
 	"github.com/giantswarm/muster/internal/aggregator"
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/client"
@@ -22,6 +27,19 @@ import (
 	"github.com/giantswarm/muster/internal/workflow"
 	"github.com/giantswarm/muster/pkg/logging"
 )
+
+// agentgatewayReadyURL is the standard agentgateway readiness endpoint the
+// subprocess manager polls before Start returns.
+const agentgatewayReadyURL = "http://localhost:15021/healthz/ready"
+
+// agentgatewayStartupTimeout caps how long Start waits for the readiness probe
+// before failing initialization. 30s is comfortable margin over agw's typical
+// sub-second startup on a warm binary, with headroom for cold downloads.
+const agentgatewayStartupTimeout = 30 * time.Second
+
+// agentgatewayDrainTimeout bounds graceful shutdown before SIGKILL. agw
+// flushes its access log on SIGTERM; 10s is generous.
+const agentgatewayDrainTimeout = 10 * time.Second
 
 // defaultGatewayName is the metadata.name of the Gateway resource HTTPRoutes
 // emitted by the K8s Applier attach to. agentgateway's reference deployments
@@ -84,6 +102,18 @@ type Services struct {
 	// the reconciliation system. This enables status sync when services change
 	// state at runtime (e.g., crash, health check failure, restart).
 	StateChangeBridge *reconciler.StateChangeBridge
+
+	// AgentgatewayConfigDir is the absolute path to the directory the yaml
+	// Applier writes per-MCPServer agentgateway native configs into. Set in
+	// filesystem mode, empty in cluster mode. runOrchestrator uses this to
+	// decide whether to spawn the agentgateway subprocess.
+	AgentgatewayConfigDir string
+
+	// AgentgatewayManager owns the agentgateway subprocess once runOrchestrator
+	// has spawned it. nil before Run, nil in cluster mode, and nil when the
+	// subprocess fails to start. Shutdown calls Stop on it after the
+	// reconciliation manager has drained.
+	AgentgatewayManager *subprocess.Manager
 }
 
 // InitializeServices creates and registers all required services for the application.
@@ -307,6 +337,7 @@ func InitializeServices(cfg *Config) (*Services, error) {
 
 	// Step 5: Initialize reconciliation manager for automatic change detection
 	var reconcileManager *reconciler.Manager
+	var agentgatewayConfigDir string
 	if cfg.ConfigPath != "" {
 		// Determine watch mode based on config - this must match the MusterClient mode
 		// to ensure consistent behavior between the client and the reconciler.
@@ -327,7 +358,7 @@ func InitializeServices(cfg *Config) (*Services, error) {
 		// Get handlers for reconciler dependencies
 		mcpServerMgr := api.GetMCPServerManager()
 		if mcpServerMgr != nil {
-			mcpReconciler, err := buildMCPServerReconciler(
+			mcpReconciler, configDir, err := buildMCPServerReconciler(
 				cfg.MusterConfig.Kubernetes,
 				orchestratorAPI,
 				mcpServerMgr,
@@ -339,6 +370,7 @@ func InitializeServices(cfg *Config) (*Services, error) {
 			if err != nil {
 				return nil, fmt.Errorf("build MCPServer reconciler: %w", err)
 			}
+			agentgatewayConfigDir = configDir
 			if err := reconcileManager.RegisterReconciler(mcpReconciler); err != nil {
 				logging.Warn("Services", "Failed to register MCPServer reconciler: %v", err)
 			}
@@ -374,12 +406,13 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	}
 
 	return &Services{
-		Orchestrator:      orch,
-		OrchestratorAPI:   orchestratorAPI,
-		ConfigAPI:         configAPI,
-		AggregatorPort:    cfg.MusterConfig.Aggregator.Port,
-		ReconcileManager:  reconcileManager,
-		StateChangeBridge: stateChangeBridge,
+		Orchestrator:          orch,
+		OrchestratorAPI:       orchestratorAPI,
+		ConfigAPI:             configAPI,
+		AggregatorPort:        cfg.MusterConfig.Aggregator.Port,
+		ReconcileManager:      reconcileManager,
+		StateChangeBridge:     stateChangeBridge,
+		AgentgatewayConfigDir: agentgatewayConfigDir,
 	}, nil
 }
 
@@ -441,9 +474,13 @@ func mergeOAuthServerConfig(cfg *Config) config.OAuthServerConfig {
 //
 //   - Cluster mode: per-Reconcile k8s.NewApplier(client, ownerRef, cfg) with
 //     ownerRef bound for cascade deletion. No Deleter — K8s owns cleanup via
-//     OwnerReferences.
+//     OwnerReferences. agentgateway runs as a sibling pod; configDir is "".
 //   - Filesystem mode: a single long-lived yaml.NewApplier(dir). The same
 //     instance serves as the Deleter so reconcileDelete can remove the file.
+//     The reconciler is constructed with WithDisableLocalSpawn(true) so the
+//     orchestrator does not race agentgateway over stdio child processes.
+//     configDir is the absolute path the subprocess manager must point agw
+//     at via `-f <configDir>` once runOrchestrator spawns it.
 func buildMCPServerReconciler(
 	kubernetesMode bool,
 	orchestratorAPI api.OrchestratorAPI,
@@ -452,7 +489,7 @@ func buildMCPServerReconciler(
 	musterClient client.MusterClient,
 	namespace string,
 	configPath string,
-) (*reconciler.MCPServerReconciler, error) {
+) (*reconciler.MCPServerReconciler, string, error) {
 	if kubernetesMode {
 		r := reconciler.NewMCPServerReconcilerCluster(
 			orchestratorAPI,
@@ -464,23 +501,56 @@ func buildMCPServerReconciler(
 				GatewayNamespace: namespace,
 			},
 		).WithStatusUpdater(musterClient, namespace)
-		return r, nil
+		return r, "", nil
 	}
 	if configPath == "" {
-		return nil, fmt.Errorf("filesystem mode requires a non-empty configPath for the YAML Applier")
+		return nil, "", fmt.Errorf("filesystem mode requires a non-empty configPath for the YAML Applier")
 	}
 	dir := filepath.Join(configPath, agentgatewayConfigSubdir)
 	applier, err := yamlapply.NewApplier(dir)
 	if err != nil {
-		return nil, fmt.Errorf("construct YAML Applier at %s: %w", dir, err)
+		return nil, "", fmt.Errorf("construct YAML Applier at %s: %w", dir, err)
 	}
 	logging.Info("Services", "Wired YAML Applier writing to %s", dir)
+
 	r := reconciler.NewMCPServerReconcilerFilesystem(
 		orchestratorAPI,
 		mcpServerMgr,
 		registryHandler,
 		applier,
 		applier,
-	).WithStatusUpdater(musterClient, namespace)
-	return r, nil
+	).
+		WithStatusUpdater(musterClient, namespace).
+		WithDisableLocalSpawn(true)
+	return r, dir, nil
+}
+
+// startAgentgatewaySubprocess resolves the pinned agentgateway binary, spawns
+// it with -f <configDir>, and waits for its readiness endpoint to respond
+// before returning. The returned Manager owns the process; the caller stops
+// it during application shutdown.
+func startAgentgatewaySubprocess(ctx context.Context, configDir string) (*subprocess.Manager, error) {
+	startCtx, cancel := context.WithTimeout(ctx, agentgatewayStartupTimeout)
+	defer cancel()
+
+	binaryPath, err := binary.Resolve(startCtx)
+	if err != nil {
+		return nil, fmt.Errorf("resolve agentgateway binary: %w", err)
+	}
+	logging.Info("Services", "Resolved agentgateway binary at %s", binaryPath)
+
+	manager, err := subprocess.New(slog.Default(),
+		subprocess.WithStartupTimeout(agentgatewayStartupTimeout),
+		subprocess.WithDrainTimeout(agentgatewayDrainTimeout),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("construct subprocess manager: %w", err)
+	}
+
+	probe := subprocess.HTTPReadyProbe(agentgatewayReadyURL, 0)
+	if err := manager.Start(startCtx, binaryPath, []string{"-f", configDir}, nil, probe); err != nil {
+		return nil, fmt.Errorf("start agentgateway: %w", err)
+	}
+	logging.Info("Services", "agentgateway subprocess ready (pid=%d, config=%s)", manager.PID(), configDir)
+	return manager, nil
 }

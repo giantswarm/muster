@@ -985,3 +985,99 @@ func TestMCPServerReconciler_SyncStatus_RetriesOnConflict(t *testing.T) {
 		t.Errorf("expected state 'Running', got '%s'", statusUpdater.LastUpdatedMCPServer.Status.State)
 	}
 }
+
+const (
+	disableGateCreateFixture  = "filesystem-stdio"
+	disableGateRestartFixture = "filesystem-http"
+	disableGateDefaultFixture = "default-stdio"
+)
+
+func TestMCPServerReconciler_DisableLocalSpawn_SkipsStartService(t *testing.T) {
+	mgr := NewMockMCPServerManager()
+	orchAPI := NewMockOrchestratorAPI()
+	registry := NewMockServiceRegistry()
+	reconciler := newTestReconciler(orchAPI, mgr, registry).WithDisableLocalSpawn(true)
+
+	mgr.AddMCPServer(&api.MCPServerInfo{
+		Name:      disableGateCreateFixture,
+		Type:      "stdio",
+		Command:   "test-command",
+		AutoStart: true,
+	})
+
+	result := reconciler.Reconcile(context.Background(), ReconcileRequest{
+		Type:    ResourceTypeMCPServer,
+		Name:    disableGateCreateFixture,
+		Attempt: 1,
+	})
+
+	if result.Error != nil {
+		t.Errorf("unexpected error: %v", result.Error)
+	}
+	if orchAPI.StartedServices[disableGateCreateFixture] {
+		t.Error("StartService must not be called when local spawn is disabled")
+	}
+}
+
+func TestMCPServerReconciler_DisableLocalSpawn_SkipsRestartService(t *testing.T) {
+	mgr := NewMockMCPServerManager()
+	orchAPI := NewMockOrchestratorAPI()
+	registry := NewMockServiceRegistry()
+
+	registry.AddService(disableGateRestartFixture, &MockServiceInfo{
+		Name:          disableGateRestartFixture,
+		ServiceType:   api.TypeMCPServer,
+		State:         api.StateRunning,
+		Health:        api.HealthHealthy,
+		ConfigChanged: true,
+	})
+
+	reconciler := newTestReconciler(orchAPI, mgr, registry).WithDisableLocalSpawn(true)
+
+	mgr.AddMCPServer(&api.MCPServerInfo{
+		Name:      disableGateRestartFixture,
+		Type:      "streamable-http",
+		URL:       "https://example.com/mcp",
+		AutoStart: true,
+	})
+
+	result := reconciler.Reconcile(context.Background(), ReconcileRequest{
+		Type:    ResourceTypeMCPServer,
+		Name:    disableGateRestartFixture,
+		Attempt: 1,
+	})
+
+	if result.Error != nil {
+		t.Errorf("unexpected error: %v", result.Error)
+	}
+	if orchAPI.RestartedServices[disableGateRestartFixture] {
+		t.Error("RestartService must not be called when local spawn is disabled")
+	}
+}
+
+func TestMCPServerReconciler_DisableLocalSpawn_DefaultFalsePreservesStart(t *testing.T) {
+	mgr := NewMockMCPServerManager()
+	orchAPI := NewMockOrchestratorAPI()
+	registry := NewMockServiceRegistry()
+	reconciler := newTestReconciler(orchAPI, mgr, registry)
+
+	mgr.AddMCPServer(&api.MCPServerInfo{
+		Name:      disableGateDefaultFixture,
+		Type:      "stdio",
+		Command:   "test-command",
+		AutoStart: true,
+	})
+
+	result := reconciler.Reconcile(context.Background(), ReconcileRequest{
+		Type:    ResourceTypeMCPServer,
+		Name:    disableGateDefaultFixture,
+		Attempt: 1,
+	})
+
+	if result.Error != nil {
+		t.Errorf("unexpected error: %v", result.Error)
+	}
+	if !orchAPI.StartedServices[disableGateDefaultFixture] {
+		t.Error("StartService must still be called when local spawn is not disabled (default)")
+	}
+}

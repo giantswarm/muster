@@ -2,14 +2,20 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	serv "github.com/giantswarm/muster/internal/services"
 
 	"github.com/giantswarm/muster/pkg/logging"
 )
+
+// agentgatewayShutdownTimeout bounds graceful agentgateway shutdown with a
+// fresh context so a cancelled parent doesn't preempt the drain.
+const agentgatewayShutdownTimeout = 15 * time.Second
 
 // run executes the application in non-interactive command line mode.
 // This mode is designed for automation, scripting, and headless environments
@@ -74,6 +80,17 @@ func runOrchestrator(ctx context.Context, services *Services) error {
 		}
 	}
 
+	// Spawn the agentgateway subprocess before the reconciler so the data plane
+	// is up by the time reconciler workers write the first config files. Cluster
+	// mode leaves AgentgatewayConfigDir empty and skips this path entirely.
+	if services.AgentgatewayConfigDir != "" {
+		mgr, err := startAgentgatewaySubprocess(ctx, services.AgentgatewayConfigDir)
+		if err != nil {
+			return fmt.Errorf("start agentgateway subprocess: %w", err)
+		}
+		services.AgentgatewayManager = mgr
+	}
+
 	// Start the reconciliation manager before the orchestrator so workers are ready
 	// to process reconcile requests triggered by state changes during startup
 	if services.ReconcileManager != nil {
@@ -114,6 +131,17 @@ func runOrchestrator(ctx context.Context, services *Services) error {
 		if err := services.ReconcileManager.Stop(); err != nil {
 			logging.Error("CLI", err, "Error stopping reconciliation manager")
 		}
+	}
+
+	// Stop the agentgateway subprocess (filesystem mode only). SIGTERMing
+	// agentgateway cascades to its mcp.targets[].stdio children so muster
+	// does not need to clean those up directly.
+	if services.AgentgatewayManager != nil {
+		shutCtx, cancel := context.WithTimeout(context.Background(), agentgatewayShutdownTimeout)
+		if err := services.AgentgatewayManager.Stop(shutCtx); err != nil {
+			logging.Error("CLI", err, "Error stopping agentgateway subprocess")
+		}
+		cancel()
 	}
 
 	_ = services.Orchestrator.Stop()

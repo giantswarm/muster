@@ -36,15 +36,27 @@ func TestManager_Start_Stop_HappyPath(t *testing.T) {
 
 	require.NoError(t, mgr.Start(t.Context(), os.Args[0], nil, env, fileReadyProbe(readyPath)))
 
-	pid := managerPID(mgr)
+	pid := mgr.PID()
 	require.Greater(t, pid, 0, "child pid must be set after Start")
 	require.True(t, pidExists(pid), "child must be alive after Start returns")
 
 	require.NoError(t, mgr.Stop(t.Context()))
 	require.Eventually(t, func() bool { return !pidExists(pid) },
 		2*time.Second, 20*time.Millisecond, "child must be reaped after Stop")
+	require.Zero(t, mgr.PID(), "PID must clear after Stop reaps the child")
 
 	assert.Contains(t, logs.String(), `"msg":"subprocess: started"`)
+}
+
+func TestManager_PID_LifecycleZeroes(t *testing.T) {
+	logger, _ := captureLogger(t)
+	mgr, err := New(logger)
+	require.NoError(t, err)
+
+	require.Zero(t, mgr.PID(), "PID must be 0 before Start")
+
+	require.NoError(t, mgr.Stop(t.Context()))
+	require.Zero(t, mgr.PID(), "PID must remain 0 after Stop on an idle manager")
 }
 
 func TestManager_Start_BinaryMissing(t *testing.T) {
@@ -192,7 +204,7 @@ func TestManager_Stop_DuringStartup(t *testing.T) {
 		startErr <- mgr.Start(t.Context(), os.Args[0], nil, env, fileReadyProbe(readyPath))
 	}()
 
-	require.Eventually(t, func() bool { return managerPID(mgr) > 0 },
+	require.Eventually(t, func() bool { return mgr.PID() > 0 },
 		2*time.Second, 20*time.Millisecond)
 
 	require.NoError(t, mgr.Stop(t.Context()))
@@ -222,7 +234,7 @@ func TestManager_Stop_SIGKILLFallback(t *testing.T) {
 	})
 	require.NoError(t, mgr.Start(t.Context(), os.Args[0], nil, env, fileReadyProbe(readyPath)))
 
-	pid := managerPID(mgr)
+	pid := mgr.PID()
 	require.NoError(t, mgr.Stop(t.Context()))
 	require.Eventually(t, func() bool { return !pidExists(pid) },
 		3*time.Second, 50*time.Millisecond)
@@ -314,8 +326,3 @@ func newManager(t *testing.T, logger *slog.Logger, opts ...Option) *Manager {
 	return mgr
 }
 
-func managerPID(m *Manager) int {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.pgid
-}

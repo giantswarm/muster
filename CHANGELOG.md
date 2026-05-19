@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Filesystem mode spawns `agentgateway` as a child process against the per-MCPServer YAML configs written under `<configPath>/agentgateway/` and stops it on shutdown. `MCPServerReconciler.WithDisableLocalSpawn(true)` is set in filesystem mode so the orchestrator does not race agentgateway over the same stdio MCP children. `subprocess.Manager.PID()` exposes the live agentgateway pid for diagnostics. agentgateway v1.2.1 pinned via `internal/agentgateway/binary.Resolve`.
 - `muster.oauth.server.trustedPublicRegistrationRedirectURIs` — HTTPS redirect-URI allowlist for unauthenticated dynamic client registration, passed through to mcp-oauth (`Config.TrustedPublicRegistrationRedirectURIs`). Strict exact-match after RFC 3986 normalization. Default: `[]` (opt-in per URI).
 - `oauth-secret` `fail` guard accepts a non-empty `trustedPublicRegistrationRedirectURIs` as a third valid escape valve.
 

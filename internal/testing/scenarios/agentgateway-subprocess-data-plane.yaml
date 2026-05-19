@@ -1,0 +1,77 @@
+name: "agentgateway-subprocess-data-plane"
+description: "Filesystem-mode reconcile against the agentgateway subprocess: writing one yaml per MCPServer must keep tool calls working"
+category: "behavioral"
+concept: "agentgateway"
+tags: ["agentgateway", "subprocess", "filesystem-mode", "tool-call", "translator"]
+timeout: "2m"
+
+# Smoke coverage that PR 9's subprocess wiring and orchestrator gate do not
+# break the existing tool-call path. Process-topology assertions
+# (stdio ppid == agentgateway pid, no leaks after shutdown) live in
+# internal/testing/integration/agw_subprocess_integration_test.go because the
+# BDD runner has no shell-out primitives for /proc inspection.
+#
+# Requires the agentgateway binary; the harness's MUSTER_AGW_BINARY env is
+# consumed by internal/agentgateway/binary.Resolve and surfaces as a startup
+# error if absent.
+
+pre_configuration:
+  mcp_servers:
+    - name: "agw-http-backend"
+      config:
+        type: "streamable-http"
+        tools:
+          - name: "echo"
+            description: "Echo a payload via the agentgateway data plane"
+            input_schema:
+              type: "object"
+              properties:
+                operation: { type: "string" }
+                message:   { type: "string" }
+            responses:
+              - response:
+                  transport: "streamable-http"
+                  operation: "{{ .operation }}"
+                  message:   "{{ .message }}"
+                  server:    "agw-http-backend"
+                  status:    "executed"
+
+steps:
+  - id: "verify-http-backend-connected"
+    description: "The streamable-http MCPServer must reach connected state via the reconcile path"
+    tool: "core_service_status"
+    args:
+      name: "agw-http-backend"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name:  "agw-http-backend"
+        state: "connected"
+
+  - id: "tool-call-streamable-http"
+    description: "Tool call against the streamable-http backend must succeed"
+    tool: "x_agw-http-backend_echo"
+    args:
+      operation: "smoke"
+      message:   "agw-subprocess-data-plane-ok"
+    expected:
+      success: true
+      contains: ["smoke", "agw-subprocess-data-plane-ok", "executed", "streamable-http"]
+
+  - id: "list-mcpservers-includes-fixture"
+    description: "core_mcpserver_list must surface the fixture (reconcile + yaml emitter happy path)"
+    tool: "core_mcpserver_list"
+    expected:
+      success: true
+      contains: ["agw-http-backend"]
+
+cleanup:
+  - id: "cleanup-delete-http-backend"
+    description: "Delete the streamable-http MCPServer so the next scenario starts clean"
+    tool: "core_mcpserver_delete"
+    args:
+      name: "agw-http-backend"
+    expected:
+      success: true
+    continue_on_failure: true
