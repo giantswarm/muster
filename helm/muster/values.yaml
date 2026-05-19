@@ -495,3 +495,11 @@ ciliumNetworkPolicy:
   # are accessed via in-cluster ingress rather than public endpoints.
   # Adds egress to cluster entity on HTTP/HTTPS ports.
   allowClusterIngress: false
+  # Ports allowed on egress to the "world" entity. Extend this when MCPServers
+  # advertised through muster run on non-standard ports — the policy is
+  # default-deny, so any port omitted here silently 503s on tool calls.
+  worldEgressPorts:
+    - port: 80
+      protocol: TCP
+    - port: 443
+      protocol: TCP

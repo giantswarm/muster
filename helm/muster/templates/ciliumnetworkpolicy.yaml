@@ -70,15 +70,17 @@ spec:
               protocol: TCP
     {{- end }}
 
-    # Allow egress to world for remote MCP servers (streamable-http, sse)
+    # Allow egress to world for remote MCP servers (streamable-http, sse).
+    # Ports are operator-configurable — MCPServers running on non-standard
+    # ports (5000, 8000, 8443, …) silently 503 when not allowed.
     - toEntities:
         - world
       toPorts:
         - ports:
-            - port: "80"
-              protocol: TCP
-            - port: "443"
-              protocol: TCP
+            {{- range .Values.ciliumNetworkPolicy.worldEgressPorts }}
+            - port: {{ .port | quote }}
+              protocol: {{ .protocol | default "TCP" }}
+            {{- end }}
 
     # Reach the agentgateway data-plane in the same namespace on the
     # upstream-proxy path. No-op on Cilium when the data-plane is not
