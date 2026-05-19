@@ -121,9 +121,9 @@ func withAggregator(t *testing.T, agg api.AggregatorHandler) {
 }
 
 const (
-	testServerGitHub    = "github"
-	testTypeStreamable  = "streamable-http"
-	testGithubURL       = "https://github.example.com/mcp"
+	testServerGitHub   = "github"
+	testTypeStreamable = "streamable-http"
+	testGithubURL      = "https://github.example.com/mcp"
 )
 
 func newReconcilerForTest(applier *stubApplier, mgr MCPServerManager, upd StatusUpdater) *MCPServerReconciler {
