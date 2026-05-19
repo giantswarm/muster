@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- `internal/reconciler/agentgateway` domain package: typed `Config` / `Backend` / `Authn` / `Policy` / `HTTPTarget` / `StdioTarget` models built from `v1alpha1.MCPServer`. Pure functions only — no Kubernetes client, no filesystem, no `internal/api` dependencies — so downstream emitter adapters (cluster, filesystem) and translation tests can share one source of truth for what a "compiled MCPServer" looks like.
 - `muster.oauth.server.trustedPublicRegistrationRedirectURIs` — HTTPS redirect-URI allowlist for unauthenticated dynamic client registration, passed through to mcp-oauth (`Config.TrustedPublicRegistrationRedirectURIs`). Strict exact-match after RFC 3986 normalization. Default: `[]` (opt-in per URI).
 - `oauth-secret` `fail` guard accepts a non-empty `trustedPublicRegistrationRedirectURIs` as a third valid escape valve.
 
