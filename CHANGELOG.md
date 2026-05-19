@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- `internal/reconciler/agentgateway/k8s` Applier: emits the `AgentgatewayBackend` / `HTTPRoute` / `AgentgatewayPolicy` CRD stack (`agentgateway.dev/v1alpha1`) for each MCPServer in cluster mode, with `OwnerReferences` set so deletion cascades. Stdio MCPServers in cluster mode are rejected with `k8s.ErrStdioNotSupportedInCluster` (per-MCPServer pod isolation deferred).
 - `muster.oauth.server.trustedPublicRegistrationRedirectURIs` — HTTPS redirect-URI allowlist for unauthenticated dynamic client registration, passed through to mcp-oauth (`Config.TrustedPublicRegistrationRedirectURIs`). Strict exact-match after RFC 3986 normalization. Default: `[]` (opt-in per URI).
 - `oauth-secret` `fail` guard accepts a non-empty `trustedPublicRegistrationRedirectURIs` as a third valid escape valve.
 
