@@ -15,6 +15,8 @@ import (
 	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
 )
 
+const testServerName = "test-server"
+
 // TestNewKubernetesDetector tests the creation of a KubernetesDetector.
 func TestNewKubernetesDetector(t *testing.T) {
 	// Create a detector without a rest config (will be used for unit tests)
@@ -151,7 +153,7 @@ func TestKubernetesDetectorEventHandlers(t *testing.T) {
 	// Create a test MCP server
 	mcpServer := &musterv1alpha1.MCPServer{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-server",
+			Name:      testServerName,
 			Namespace: "default",
 		},
 	}
@@ -164,8 +166,8 @@ func TestKubernetesDetectorEventHandlers(t *testing.T) {
 		if event.Operation != OperationCreate {
 			t.Errorf("handleAdd: Operation = %v, want %v", event.Operation, OperationCreate)
 		}
-		if event.Name != "test-server" {
-			t.Errorf("handleAdd: Name = %q, want %q", event.Name, "test-server")
+		if event.Name != testServerName {
+			t.Errorf("handleAdd: Name = %q, want %q", event.Name, testServerName)
 		}
 		if event.Type != ResourceTypeMCPServer {
 			t.Errorf("handleAdd: Type = %v, want %v", event.Type, ResourceTypeMCPServer)
@@ -180,14 +182,14 @@ func TestKubernetesDetectorEventHandlers(t *testing.T) {
 	// Test handleUpdate (with generation change to trigger event)
 	oldServer := &musterv1alpha1.MCPServer{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:       "test-server",
+			Name:       testServerName,
 			Namespace:  "default",
 			Generation: 1,
 		},
 	}
 	newServer := &musterv1alpha1.MCPServer{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:       "test-server",
+			Name:       testServerName,
 			Namespace:  "default",
 			Generation: 2,
 		},
@@ -230,7 +232,7 @@ func TestKubernetesDetectorEventHandlersNotRunning(t *testing.T) {
 
 	mcpServer := &musterv1alpha1.MCPServer{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-server",
+			Name:      testServerName,
 			Namespace: "default",
 		},
 	}
@@ -279,7 +281,7 @@ func TestKubernetesDetectorWithFakeClient(t *testing.T) {
 	// Create an MCP server
 	mcpServer := &musterv1alpha1.MCPServer{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-server",
+			Name:      testServerName,
 			Namespace: "default",
 		},
 		Spec: musterv1alpha1.MCPServerSpec{
@@ -297,12 +299,12 @@ func TestKubernetesDetectorWithFakeClient(t *testing.T) {
 
 	// Verify the server was created
 	var retrieved musterv1alpha1.MCPServer
-	if err := fakeClient.Get(ctx, client.ObjectKey{Name: "test-server", Namespace: "default"}, &retrieved); err != nil {
+	if err := fakeClient.Get(ctx, client.ObjectKey{Name: testServerName, Namespace: "default"}, &retrieved); err != nil {
 		t.Fatalf("failed to get MCP server: %v", err)
 	}
 
-	if retrieved.Name != "test-server" {
-		t.Errorf("retrieved name = %q, want %q", retrieved.Name, "test-server")
+	if retrieved.Name != testServerName {
+		t.Errorf("retrieved name = %q, want %q", retrieved.Name, testServerName)
 	}
 }
 
@@ -320,14 +322,14 @@ func TestKubernetesDetectorHandleUpdateSkipsStatusOnly(t *testing.T) {
 
 	oldServer := &musterv1alpha1.MCPServer{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:       "test-server",
+			Name:       testServerName,
 			Namespace:  "default",
 			Generation: 3,
 		},
 	}
 	newServer := &musterv1alpha1.MCPServer{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:       "test-server",
+			Name:       testServerName,
 			Namespace:  "default",
 			Generation: 3, // Same generation = status-only update
 		},
@@ -357,14 +359,14 @@ func TestKubernetesDetectorHandleUpdateProcessesSpecChange(t *testing.T) {
 
 	oldServer := &musterv1alpha1.MCPServer{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:       "test-server",
+			Name:       testServerName,
 			Namespace:  "default",
 			Generation: 1,
 		},
 	}
 	newServer := &musterv1alpha1.MCPServer{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:       "test-server",
+			Name:       testServerName,
 			Namespace:  "default",
 			Generation: 2, // Different generation = spec change
 		},
@@ -377,8 +379,8 @@ func TestKubernetesDetectorHandleUpdateProcessesSpecChange(t *testing.T) {
 		if event.Operation != OperationUpdate {
 			t.Errorf("Operation = %v, want %v", event.Operation, OperationUpdate)
 		}
-		if event.Name != "test-server" {
-			t.Errorf("Name = %q, want %q", event.Name, "test-server")
+		if event.Name != testServerName {
+			t.Errorf("Name = %q, want %q", event.Name, testServerName)
 		}
 		if event.Namespace != "default" {
 			t.Errorf("Namespace = %q, want %q", event.Namespace, "default")
@@ -441,7 +443,7 @@ func TestSendChangeEventChannelFull(t *testing.T) {
 	// Send another event - should be dropped without blocking
 	event := ChangeEvent{
 		Type:      ResourceTypeMCPServer,
-		Name:      "test-server",
+		Name:      testServerName,
 		Operation: OperationCreate,
 		Timestamp: time.Now(),
 		Source:    SourceKubernetes,
