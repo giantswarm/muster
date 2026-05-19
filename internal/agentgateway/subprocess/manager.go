@@ -35,6 +35,12 @@ type Manager struct {
 	cancel  context.CancelFunc
 	done    chan struct{}
 	readyCh chan error
+	// spawned is closed exactly once after the supervisor has either
+	// recorded the first successful cmd.Start() (m.pgid set) or given
+	// up before any spawn. shutdown waits on it before reading m.pgid
+	// so SIGTERM never races a still-pending assignment.
+	spawned     chan struct{}
+	spawnedOnce sync.Once
 }
 
 type state int
@@ -95,6 +101,8 @@ func (m *Manager) Start(
 	m.cancel = cancel
 	m.done = make(chan struct{})
 	m.readyCh = make(chan error, 1)
+	m.spawned = make(chan struct{})
+	m.spawnedOnce = sync.Once{}
 	m.mu.Unlock()
 
 	envSlice := envToSlice(env)
@@ -143,9 +151,9 @@ func (m *Manager) shutdown(ctx context.Context) error {
 		m.mu.Unlock()
 		return nil
 	}
-	pgid := m.pgid
 	done := m.done
 	cancel := m.cancel
+	spawned := m.spawned
 	m.state = stateStopped
 	m.mu.Unlock()
 
@@ -153,6 +161,21 @@ func (m *Manager) shutdown(ctx context.Context) error {
 	if cancel != nil {
 		cancel()
 	}
+
+	// Wait for the supervisor to either record the spawned pgid or
+	// give up before any spawn — otherwise SIGTERM might race the
+	// assignment in supervise() and miss a live child.
+	if spawned != nil {
+		select {
+		case <-spawned:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
+	m.mu.Lock()
+	pgid := m.pgid
+	m.mu.Unlock()
 
 	if pgid > 0 {
 		if err := signalProcessGroup(pgid, syscall.SIGTERM); err != nil {
@@ -196,6 +219,9 @@ func (m *Manager) supervise(
 	readyProbe func(context.Context) error,
 ) {
 	defer close(m.done)
+	// Guarantees shutdown can never block on spawned even if we exit
+	// before recording a pgid (e.g. first cmd.Start failed).
+	defer m.markSpawned()
 
 	backoff := m.opts.backoffInitial
 	attempt := 0
@@ -240,7 +266,16 @@ func (m *Manager) supervise(
 		m.mu.Lock()
 		m.cmd = cmd
 		m.pgid = pid
+		shuttingDown := ctx.Err() != nil
 		m.mu.Unlock()
+		m.markSpawned()
+
+		// If Stop fired between cmd.Start returning and this assignment,
+		// the parent shutdown saw pgid=0 and didn't signal. Self-signal
+		// to unblock cmd.Wait.
+		if shuttingDown {
+			_ = signalProcessGroup(pid, syscall.SIGTERM)
+		}
 
 		m.logger.Info("subprocess: started",
 			slog.String("binary", binaryPath),
@@ -308,6 +343,10 @@ func (m *Manager) supervise(
 			return
 		}
 	}
+}
+
+func (m *Manager) markSpawned() {
+	m.spawnedOnce.Do(func() { close(m.spawned) })
 }
 
 func (m *Manager) signalReadyOnce(signalled *bool, err error) {

@@ -15,23 +15,21 @@ func configureProcAttr(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 }
 
-// signalProcessGroup delivers sig to the process group rooted at pid.
-// If the group signal fails (e.g. the process already reaped) it falls
-// back to signalling pid directly.
-func signalProcessGroup(pid int, sig syscall.Signal) error {
-	if pid <= 0 {
-		return fmt.Errorf("invalid pid %d", pid)
+// signalProcessGroup delivers sig to the process group identified by
+// pgid. ESRCH (group already reaped) is treated as success; any other
+// errno is returned wrapped so the caller can decide what to do. There
+// is deliberately no single-pid fallback: silently widening to one PID
+// would defeat the whole-group reap guarantee.
+func signalProcessGroup(pgid int, sig syscall.Signal) error {
+	if pgid <= 0 {
+		return fmt.Errorf("invalid pgid %d", pgid)
 	}
-	if err := syscall.Kill(-pid, sig); err != nil {
-		if errors.Is(err, syscall.ESRCH) {
-			return nil
-		}
-		if err2 := syscall.Kill(pid, sig); err2 != nil {
-			if errors.Is(err2, syscall.ESRCH) {
-				return nil
-			}
-			return fmt.Errorf("kill -%d (%s): %w; kill %d: %v", pid, sig, err, pid, err2)
-		}
+	err := syscall.Kill(-pgid, sig)
+	if err == nil {
+		return nil
 	}
-	return nil
+	if errors.Is(err, syscall.ESRCH) {
+		return nil
+	}
+	return fmt.Errorf("kill -%d (%s): %w", pgid, sig, err)
 }

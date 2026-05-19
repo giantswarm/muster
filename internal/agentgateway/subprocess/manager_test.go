@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -272,6 +273,98 @@ func TestNew_RejectsBadOptions(t *testing.T) {
 		_, err := New(nil)
 		require.Error(t, err)
 	})
+}
+
+// TestManager_StopDuringStartup exercises the race between cmd.Start
+// returning and the supervisor recording m.pgid: Stop is invoked before
+// the child has had time to reach readiness. The Manager must still
+// reap the child rather than leak it.
+func TestManager_StopDuringStartup(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("signal model differs on windows")
+	}
+	logger, _ := captureLogger(t)
+	readyPath := tmpFile(t, "ready")
+
+	mgr := newManager(t, logger,
+		WithDrainTimeout(2*time.Second),
+		WithStartupTimeout(5*time.Second),
+	)
+
+	env := fakeEnv(map[string]string{
+		envFakeMode:      fakeModeNormal,
+		envFakeReadyFile: readyPath,
+		// Block the child indefinitely before touching ready — the
+		// readiness probe never completes on its own.
+		envFakeReadyWait: "60000",
+	})
+
+	startErr := make(chan error, 1)
+	go func() {
+		startErr <- mgr.Start(t.Context(), os.Args[0], nil, env, fileReadyProbe(readyPath))
+	}()
+
+	// Give the supervisor goroutine a chance to schedule but try to
+	// land Stop in the cmd.Start → pgid-assignment window.
+	time.Sleep(2 * time.Millisecond)
+
+	require.NoError(t, mgr.Stop(t.Context()))
+
+	select {
+	case err := <-startErr:
+		require.Error(t, err, "Start must surface an error when Stop wins")
+	case <-time.After(5 * time.Second):
+		t.Fatal("Start did not return after Stop")
+	}
+
+	pid := managerPID(mgr)
+	if pid > 0 {
+		require.Eventually(t, func() bool { return !pidExists(pid) },
+			3*time.Second, 20*time.Millisecond, "child must be reaped")
+	}
+}
+
+// TestManager_StopReapsGroup verifies the package-level guarantee that
+// children the supervised process spawned terminate with it.
+func TestManager_StopReapsGroup(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("process-group signalling differs on windows")
+	}
+	logger, _ := captureLogger(t)
+	readyPath := tmpFile(t, "ready")
+	childPIDFile := tmpFile(t, "child.pid")
+
+	mgr := newManager(t, logger,
+		WithDrainTimeout(2*time.Second),
+		WithStartupTimeout(5*time.Second),
+	)
+
+	env := fakeEnv(map[string]string{
+		envFakeMode:         fakeModeNormal + ",spawn_child",
+		envFakeReadyFile:    readyPath,
+		envFakeChildPIDFile: childPIDFile,
+	})
+	require.NoError(t, mgr.Start(t.Context(), os.Args[0], nil, env, fileReadyProbe(readyPath)))
+	t.Cleanup(func() { _ = mgr.Stop(context.Background()) })
+
+	var grandchild int
+	require.Eventually(t, func() bool {
+		data, err := os.ReadFile(childPIDFile) //nolint:gosec // test file in t.TempDir
+		if err != nil || len(data) == 0 {
+			return false
+		}
+		pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+		if err != nil || pid <= 0 {
+			return false
+		}
+		grandchild = pid
+		return pidExists(pid)
+	}, 3*time.Second, 20*time.Millisecond, "grandchild must be spawned and alive")
+
+	require.NoError(t, mgr.Stop(t.Context()))
+
+	require.Eventually(t, func() bool { return !pidExists(grandchild) },
+		3*time.Second, 20*time.Millisecond, "grandchild must be reaped with its group")
 }
 
 func newManager(t *testing.T, logger *slog.Logger, opts ...Option) *Manager {
