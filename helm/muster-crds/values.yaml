@@ -6,3 +6,5 @@
 # running `kubectl apply -f` of the bundled CRDs out-of-band.
 #
 # See helm/muster-crds/UPGRADE.md.
+{}
+

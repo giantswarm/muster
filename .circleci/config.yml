@@ -121,6 +121,10 @@ workflows:
           app_catalog: giantswarm-catalog
           app_catalog_test: giantswarm-test-catalog
           chart: muster-crds
+          # The architect orb requires the chart name to start with the
+          # repo name (`muster` / `muster-app`); `muster-crds` is shipped
+          # from the same repo as a sibling chart, so opt out of the check.
+          explicit_allow_chart_name_mismatch: true
           push_to_appcatalog: false
           push_to_oci_registry: false
           persist_chart_archive: true
@@ -149,6 +153,7 @@ workflows:
           app_catalog: giantswarm-catalog
           app_catalog_test: giantswarm-test-catalog
           chart: muster-crds
+          explicit_allow_chart_name_mismatch: true
           requires:
             - execute muster-crds chart tests
           filters:
@@ -163,6 +168,7 @@ workflows:
           app_catalog: giantswarm-catalog
           app_catalog_test: giantswarm-test-catalog
           chart: muster-crds
+          explicit_allow_chart_name_mismatch: true
           requires:
             - execute muster-crds chart tests
           filters:
