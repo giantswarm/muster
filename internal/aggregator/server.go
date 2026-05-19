@@ -32,10 +32,8 @@ import (
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
 	mcptoolkitlogging "github.com/giantswarm/mcp-toolkit/logging"
 	"github.com/mark3labs/mcp-go/mcp"
-	mcpotel "github.com/mark3labs/mcp-go/otel"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/valkey-io/valkey-go"
-	"go.opentelemetry.io/otel"
 	"golang.org/x/oauth2"
 	"golang.org/x/sync/singleflight"
 
@@ -719,26 +717,18 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	// WithToolFilter enables session-specific tool visibility for OAuth-authenticated servers
 	// (see ADR-006: Session-Scoped Tool Visibility)
 	//
-	// mcp-go's otel adapter installs a server-wide tracer and W3C propagator,
-	// emitting mcp.<method> spans for every JSON-RPC dispatch and tool.<name>
-	// spans around tool handlers. mcp-go applies middleware in reverse
-	// registration order, so the chain below becomes
-	// nativeTracing(Logging(Metrics(handler))) — the tracing span stays active
-	// while Logging emits its line and Metrics records its observation, so log
-	// records pick up trace_id / span_id via the slog ↔ OTel bridge and
-	// histogram exemplars attach the local trace_id.
-	mcpSrv := mcpserver.NewMCPServer(
-		"muster-aggregator",
-		serverVersion,
+	// instrument.MCPServerOptions appends the OTEL chain in the exact order the
+	// SDK requires for histogram exemplars to carry the active tool-handler
+	// span — see the helper's doc comment.
+	opts := []mcpserver.ServerOption{
 		mcpserver.WithToolCapabilities(true),           // Enable tool execution
 		mcpserver.WithResourceCapabilities(true, true), // Enable resources with subscribe and listChanged
 		mcpserver.WithPromptCapabilities(true),         // Enable prompt retrieval
 		mcpserver.WithToolFilter(a.sessionToolFilter),  // Return session-specific tools for OAuth servers
 		mcpserver.WithHooks(hooks),                     // Clean up subject-session mappings on disconnect
-		mcpotel.WithServerTracing(otel.Tracer(instrument.TracerName)),
-		mcpserver.WithToolHandlerMiddleware(instrument.Logging()),
-		mcpserver.WithToolHandlerMiddleware(instrument.Metrics()),
-	)
+	}
+	opts = append(opts, instrument.MCPServerOptions()...)
+	mcpSrv := mcpserver.NewMCPServer("muster-aggregator", serverVersion, opts...)
 
 	a.mcpServer = mcpSrv
 	a.isShuttingDown = false
