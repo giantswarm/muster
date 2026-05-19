@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -25,16 +26,31 @@ const EnvVar = "MUSTER_AGW_BINARY"
 
 // Sentinel errors. Callers use errors.Is to discriminate.
 var (
-	ErrBinaryNotFound      = errors.New("agentgateway binary not found and download disabled")
-	ErrDownloadDisabled    = errors.New("agentgateway binary download disabled by configuration")
-	ErrChecksumMismatch    = errors.New("agentgateway binary checksum mismatch")
-	ErrUnsupportedPlatform = errors.New("agentgateway binary unavailable for this platform")
+	ErrBinaryNotFound        = errors.New("agentgateway binary not found and download disabled")
+	ErrDownloadDisabled      = errors.New("agentgateway binary download disabled by configuration")
+	ErrChecksumMismatch      = errors.New("agentgateway binary checksum mismatch")
+	ErrUnsupportedPlatform   = errors.New("agentgateway binary unavailable for this platform")
+	ErrUnpinnedPlatform      = errors.New("agentgateway binary has no pinned checksum for this platform/version")
+	ErrUntrustedDownloadHost = errors.New("agentgateway download base URL host is not on the trust allowlist")
 )
+
+// allowedDownloadHosts gates WithDownloadBaseURL. Only github.com and
+// loopback (for httptest.Server) may serve the asset.
+var allowedDownloadHosts = map[string]struct{}{
+	"github.com": {},
+	"127.0.0.1":  {},
+	"localhost":  {},
+	"[::1]":      {},
+}
 
 // Resolve returns an absolute path to an executable agentgateway
 // binary of the pinned version. See the package doc for the resolution
 // order.
 func Resolve(ctx context.Context, opts ...Option) (string, error) {
+	return resolveWithChecksums(ctx, pinnedChecksums, opts...)
+}
+
+func resolveWithChecksums(ctx context.Context, checksums map[string]string, opts ...Option) (string, error) {
 	cfg := defaultOptions()
 	for _, opt := range opts {
 		if err := opt(&cfg); err != nil {
@@ -47,6 +63,9 @@ func Resolve(ctx context.Context, opts ...Option) (string, error) {
 			return "", fmt.Errorf("determine user home: %w", err)
 		}
 		cfg.baseDir = filepath.Join(home, ".config", "muster", "bin")
+	}
+	if err := checkDownloadHost(cfg.downloadBaseURL); err != nil {
+		return "", err
 	}
 
 	if envPath := os.Getenv(EnvVar); envPath != "" {
@@ -71,7 +90,11 @@ func Resolve(ctx context.Context, opts ...Option) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := download(ctx, cfg, asset, cachedPath); err != nil {
+	expected, ok := checksums[asset+"/"+PinnedVersion]
+	if !ok {
+		return "", fmt.Errorf("%w: %s v%s", ErrUnpinnedPlatform, asset, PinnedVersion)
+	}
+	if err := download(ctx, cfg, asset, expected, cachedPath); err != nil {
 		return "", err
 	}
 	cfg.logger.Info("resolved agentgateway binary", "source", "download", "path", cachedPath)
@@ -95,19 +118,34 @@ func checkExecutable(path string) error {
 	return nil
 }
 
-func download(ctx context.Context, cfg options, asset, dest string) error {
+// checkDownloadHost rejects download base URLs whose scheme is not
+// http(s) or whose host is not on allowedDownloadHosts. The port is
+// not part of the match.
+func checkDownloadHost(rawURL string) error {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("parse download base URL %q: %w", rawURL, err)
+	}
+	if parsed.Scheme != "https" && parsed.Scheme != "http" {
+		return fmt.Errorf("%w: scheme %q", ErrUntrustedDownloadHost, parsed.Scheme)
+	}
+	host := parsed.Hostname()
+	if _, ok := allowedDownloadHosts[host]; !ok {
+		return fmt.Errorf("%w: %q", ErrUntrustedDownloadHost, host)
+	}
+	return nil
+}
+
+// TODO(security): once agentgateway publishes cosign signatures with
+// per-asset attestations, verify those instead of the in-source pinned
+// checksums and lift WithDownloadBaseURL's host allowlist.
+func download(ctx context.Context, cfg options, asset, expected, dest string) error {
 	if err := os.MkdirAll(cfg.baseDir, 0o755); err != nil { //nolint:gosec // 0o755 lets siblings read/execute the cached binary
 		return fmt.Errorf("create base dir %s: %w", cfg.baseDir, err)
 	}
 	assetURL := fmt.Sprintf("%s/v%s/%s", cfg.downloadBaseURL, PinnedVersion, asset)
-	sumURL := assetURL + ".sha256"
 
 	cfg.logger.Info("downloading agentgateway", "asset", asset, "url", assetURL)
-
-	expected, err := fetchExpectedDigest(ctx, cfg.httpClient, sumURL)
-	if err != nil {
-		return fmt.Errorf("fetch checksum %s: %w", sumURL, err)
-	}
 
 	tmpPath, actual, err := streamToTempFile(ctx, cfg.httpClient, assetURL, cfg.baseDir)
 	if err != nil {
@@ -130,44 +168,42 @@ func download(ctx context.Context, cfg options, asset, dest string) error {
 	return nil
 }
 
-func fetchExpectedDigest(ctx context.Context, client *http.Client, url string) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return "", err
+// parseDigest extracts the SHA-256 hex digest from a sha256sum-format
+// body. The body must contain exactly one non-empty line, that line
+// must carry both a 64-char lowercase hex digest and a filename column
+// (basename-matched against expectedFilename, leading `*` stripped).
+func parseDigest(body, expectedFilename string) (string, error) {
+	var found string
+	for _, raw := range strings.Split(body, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			return "", fmt.Errorf("%w: line missing filename column: %q", ErrChecksumMismatch, line)
+		}
+		digest := strings.ToLower(fields[0])
+		if len(digest) != 64 {
+			return "", fmt.Errorf("%w: digest length %d != 64", ErrChecksumMismatch, len(digest))
+		}
+		if _, err := hex.DecodeString(digest); err != nil {
+			return "", fmt.Errorf("%w: digest not hex: %v", ErrChecksumMismatch, err)
+		}
+		name := strings.TrimPrefix(fields[1], "*")
+		name = filepath.Base(name)
+		if name != expectedFilename {
+			return "", fmt.Errorf("%w: filename %q does not match expected %q", ErrChecksumMismatch, name, expectedFilename)
+		}
+		if found != "" {
+			return "", fmt.Errorf("%w: input contains more than one hash line", ErrChecksumMismatch)
+		}
+		found = digest
 	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
+	if found == "" {
+		return "", fmt.Errorf("%w: no valid hash line for %q", ErrChecksumMismatch, expectedFilename)
 	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("http %d", resp.StatusCode)
-	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	if err != nil {
-		return "", err
-	}
-	return parseDigest(string(body))
-}
-
-// parseDigest extracts the first whitespace-delimited token from a
-// sha256sum-format line and validates it as a 64-char lowercase hex
-// digest. The filename column is deliberately ignored — upstream
-// agentgateway prefixes the filename with a "outputs/" build path that
-// strict matchers reject.
-func parseDigest(line string) (string, error) {
-	fields := strings.Fields(line)
-	if len(fields) == 0 {
-		return "", fmt.Errorf("%w: empty checksum line", ErrChecksumMismatch)
-	}
-	digest := strings.ToLower(fields[0])
-	if len(digest) != 64 {
-		return "", fmt.Errorf("%w: digest length %d != 64", ErrChecksumMismatch, len(digest))
-	}
-	if _, err := hex.DecodeString(digest); err != nil {
-		return "", fmt.Errorf("%w: digest not hex: %v", ErrChecksumMismatch, err)
-	}
-	return digest, nil
+	return found, nil
 }
 
 func streamToTempFile(ctx context.Context, client *http.Client, url, baseDir string) (string, string, error) {

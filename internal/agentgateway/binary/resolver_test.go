@@ -26,7 +26,6 @@ func TestResolve_EnvVarHappy(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, envPath, got)
 	require.Zero(t, srv.AssetHits.Load(), "env path must not trigger download")
-	require.Zero(t, srv.SumHits.Load())
 }
 
 func TestResolve_EnvVarBrokenPath(t *testing.T) {
@@ -65,7 +64,6 @@ func TestResolve_CacheHit(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, cached, got)
 	require.Zero(t, srv.AssetHits.Load(), "cache hit must not trigger download")
-	require.Zero(t, srv.SumHits.Load())
 }
 
 func TestResolve_CacheNonExecutableRedownloads(t *testing.T) {
@@ -78,8 +76,9 @@ func TestResolve_CacheNonExecutableRedownloads(t *testing.T) {
 	require.NoError(t, os.WriteFile(cached, []byte("stale"), 0o644)) //nolint:gosec // stale non-executable forces re-download
 
 	asset := runtimeAsset(t)
-	srv := serveAsset(t, asset, []byte(synthBody))
-	got, err := Resolve(t.Context(),
+	body := []byte(synthBody)
+	srv := serveAsset(t, asset, body)
+	got, err := resolveWithChecksums(t.Context(), testChecksums(asset, body),
 		WithBaseDir(baseDir),
 		WithDownloadBaseURL(srv.URL),
 	)
@@ -128,26 +127,49 @@ func TestResolve_OptionValidation(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestResolve_UntrustedDownloadHost(t *testing.T) {
+	t.Setenv(EnvVar, "")
+	cases := []string{
+		"https://evil.example.com/releases/download",
+		"https://github.com.evil.example/releases/download",
+		"ftp://github.com/releases/download",
+	}
+	for _, raw := range cases {
+		t.Run(raw, func(t *testing.T) {
+			_, err := Resolve(t.Context(),
+				WithBaseDir(t.TempDir()),
+				WithDownloadBaseURL(raw),
+				WithNoDownload(true),
+			)
+			require.Error(t, err)
+			require.True(t, errors.Is(err, ErrUntrustedDownloadHost), "got %v", err)
+		})
+	}
+}
+
 func TestParseDigest(t *testing.T) {
 	good := strings.Repeat("a", 64)
+	const filename = "agentgateway-linux-amd64"
 	cases := []struct {
 		name    string
 		in      string
 		want    string
 		wantErr bool
 	}{
-		{"plain", good, good, false},
-		{"trailing newline", good + "\n", good, false},
-		{"upstream outputs prefix", good + "  outputs/agentgateway-linux-amd64\n", good, false},
-		{"binary mode star", good + " *outputs/agentgateway-linux-amd64\n", good, false},
-		{"uppercase", strings.ToUpper(good) + "  f\n", good, false},
+		{"with filename", good + "  " + filename + "\n", good, false},
+		{"upstream outputs prefix", good + "  outputs/" + filename + "\n", good, false},
+		{"binary mode star", good + " *outputs/" + filename + "\n", good, false},
+		{"uppercase", strings.ToUpper(good) + "  " + filename + "\n", good, false},
 		{"empty", "", "", true},
 		{"short", "deadbeef foo\n", "", true},
-		{"non-hex", strings.Repeat("z", 64) + " f\n", "", true},
+		{"non-hex", strings.Repeat("z", 64) + "  " + filename + "\n", "", true},
+		{"hex only no filename", good + "\n", "", true},
+		{"wrong filename", good + "  other-asset\n", "", true},
+		{"multi line two valid", good + "  " + filename + "\n" + strings.Repeat("b", 64) + "  " + filename + "\n", "", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := parseDigest(tc.in)
+			got, err := parseDigest(tc.in, filename)
 			if tc.wantErr {
 				require.Error(t, err)
 				require.True(t, errors.Is(err, ErrChecksumMismatch), "got %v", err)
@@ -173,5 +195,12 @@ func TestPinnedVersionFormat(t *testing.T) {
 	for _, p := range parts {
 		_, err := fmt.Sscanf(p, "%d", new(int))
 		require.NoError(t, err, "non-numeric component %q in %q", p, PinnedVersion)
+	}
+}
+
+func TestPinnedChecksumsCoverAllPlatforms(t *testing.T) {
+	for plat, asset := range supportedAssets {
+		_, ok := pinnedChecksum(asset, PinnedVersion)
+		require.True(t, ok, "missing pinned checksum for %s/%s asset %q at v%s", plat.os, plat.arch, asset, PinnedVersion)
 	}
 }

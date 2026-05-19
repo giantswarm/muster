@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Security
+
+- Downloaded agentgateway binaries are verified against in-source pinned SHA-256 constants (`internal/agentgateway/binary/checksums.go`) rather than colocated `.sha256` files fetched from the same release host. `WithDownloadBaseURL` rejects hosts outside an allowlist (`github.com`, loopback for tests). Platforms without a pinned constant fail closed with `ErrUnpinnedPlatform`. The `parseDigest` helper now requires the asset filename on the same line and rejects multi-hash input. `make verify-checksums` diffs the pinned constants against upstream.
+
 ### Added
 
 - `muster.oauth.server.trustedPublicRegistrationRedirectURIs` — HTTPS redirect-URI allowlist for unauthenticated dynamic client registration, passed through to mcp-oauth (`Config.TrustedPublicRegistrationRedirectURIs`). Strict exact-match after RFC 3986 normalization. Default: `[]` (opt-in per URI).

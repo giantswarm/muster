@@ -21,35 +21,37 @@ func runtimeAsset(t *testing.T) string {
 	return asset
 }
 
+func bodyChecksum(body []byte) string {
+	sum := sha256.Sum256(body)
+	return hex.EncodeToString(sum[:])
+}
+
+// testChecksums returns a pinned-checksum map containing a single entry
+// for asset@PinnedVersion whose digest matches body.
+func testChecksums(asset string, body []byte) map[string]string {
+	return map[string]string{
+		asset + "/" + PinnedVersion: bodyChecksum(body),
+	}
+}
+
 type fixtureServer struct {
 	URL       string
 	AssetHits *atomic.Int32
-	SumHits   *atomic.Int32
 }
 
 // serveAsset spins up an httptest.Server that responds with body for
-// the asset path and a matching SHA256 (with the upstream "outputs/"
-// filename prefix) for the .sha256 path.
+// the asset path. The legacy `.sha256` companion route is no longer
+// served — the resolver trusts the in-source pinned constants and the
+// production code never fetches it.
 func serveAsset(t *testing.T, asset string, body []byte) *fixtureServer {
 	t.Helper()
-	sum := sha256.Sum256(body)
-	sha := hex.EncodeToString(sum[:]) + "  outputs/" + asset + "\n"
-	return serveAssetCustomSum(t, asset, body, sha)
-}
-
-func serveAssetCustomSum(t *testing.T, asset string, body []byte, sumBody string) *fixtureServer {
-	t.Helper()
-	var assetHits, sumHits atomic.Int32
+	var assetHits atomic.Int32
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v"+PinnedVersion+"/"+asset, func(w http.ResponseWriter, _ *http.Request) {
 		assetHits.Add(1)
 		_, _ = w.Write(body)
 	})
-	mux.HandleFunc("/v"+PinnedVersion+"/"+asset+".sha256", func(w http.ResponseWriter, _ *http.Request) {
-		sumHits.Add(1)
-		_, _ = w.Write([]byte(sumBody))
-	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	return &fixtureServer{URL: srv.URL, AssetHits: &assetHits, SumHits: &sumHits}
+	return &fixtureServer{URL: srv.URL, AssetHits: &assetHits}
 }
