@@ -111,7 +111,7 @@ func TestAdapter_ClearTokenByIssuer(t *testing.T) {
 	adapter := NewAdapter(manager)
 
 	issuer := "https://auth.example.com" //nolint:goconst
-	subject := "user-123"                //nolint:goconst
+	subject := testSubject
 
 	// Store a token directly
 	testToken := &pkgoauth.Token{
