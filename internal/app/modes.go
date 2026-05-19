@@ -68,7 +68,11 @@ func runOrchestrator(ctx context.Context, services *Services) error {
 	}
 
 	if services.AgentgatewayConfigDir != "" {
-		mgr, err := startAgentgatewaySubprocess(ctx, services.AgentgatewayConfigDir)
+		var readinessPort uint16
+		if services.AggregatorManager != nil {
+			_, _, readinessPort = services.AggregatorManager.AgentgatewayManagementPorts()
+		}
+		mgr, err := startAgentgatewaySubprocess(ctx, services.AgentgatewayConfigDir, readinessPort)
 		if err != nil {
 			return fmt.Errorf("start agentgateway subprocess: %w", err)
 		}

@@ -207,7 +207,12 @@ func mcpServerAPIStatusFromAggregator(name string) (*api.ServiceStatus, bool) {
 	}
 }
 
-// GetAllServices returns the status of all services.
+// GetAllServices returns the status of all services. After PR 11
+// MCPServers no longer live in the orchestrator registry, so the result
+// is augmented with a synthetic ServiceStatus per MCPServer CRD derived
+// from the aggregator's UpstreamServerState. Callers (core_service_list,
+// operator dashboards) keep seeing MCPServer entries alongside any
+// remaining static services.
 func (a *Adapter) GetAllServices() []api.ServiceStatus {
 	allServices := a.orchestrator.registry.GetAll()
 	statuses := make([]api.ServiceStatus, 0, len(allServices))
@@ -231,6 +236,14 @@ func (a *Adapter) GetAllServices() []api.ServiceStatus {
 		}
 
 		statuses = append(statuses, status)
+	}
+
+	if mcpServerMgr := api.GetMCPServerManager(); mcpServerMgr != nil {
+		for _, info := range mcpServerMgr.ListMCPServers() {
+			if status, ok := mcpServerAPIStatusFromAggregator(info.Name); ok {
+				statuses = append(statuses, *status)
+			}
+		}
 	}
 
 	return statuses

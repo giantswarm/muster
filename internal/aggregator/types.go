@@ -241,6 +241,14 @@ type AggregatorConfig struct {
 	// UpstreamProxy expects. Zero in cluster mode (agentgateway is
 	// out-of-band).
 	AgentgatewayListenerPort uint16
+
+	// AgentgatewayAdminPort / StatsPort / ReadinessPort are agentgateway's
+	// management ports. Filesystem-mode muster picks per-instance ports so
+	// parallel muster instances don't collide on the agentgateway-default
+	// 15000 / 15020 / 15021. Zero leaves the agentgateway defaults.
+	AgentgatewayAdminPort     uint16
+	AgentgatewayStatsPort     uint16
+	AgentgatewayReadinessPort uint16
 }
 
 // AdminConfig holds admin web UI configuration for the aggregator.

@@ -17,8 +17,29 @@ package yaml
 
 // LocalConfig is the root object of an agentgateway YAML configuration file.
 type LocalConfig struct {
+	// Config holds management-listener overrides (admin / stats / readiness
+	// addresses). Marshalled as an inline pointer so the `config:` block is
+	// omitted entirely when no overrides are set.
+	Config *LocalManagementConfig `yaml:"config,omitempty"`
 	// Binds lists the L4 sockets agentgateway listens on.
 	Binds []LocalBind `yaml:"binds,omitempty"`
+}
+
+// LocalManagementConfig overrides agentgateway's management listeners
+// (admin UI / Prometheus stats / readiness probe). Required for parallel
+// muster instances since the agentgateway defaults (15000/15020/15021) are
+// hardcoded — without overrides, only the first instance's agentgateway
+// binds those ports.
+type LocalManagementConfig struct {
+	// AdminAddr is "host:port" for agentgateway's admin UI listener
+	// (default 127.0.0.1:15000). Empty leaves the agentgateway default.
+	AdminAddr string `yaml:"adminAddr,omitempty"`
+	// StatsAddr is "host:port" for agentgateway's Prometheus listener
+	// (default [::]:15020).
+	StatsAddr string `yaml:"statsAddr,omitempty"`
+	// ReadinessAddr is "host:port" for agentgateway's readiness probe
+	// listener (default [::]:15021).
+	ReadinessAddr string `yaml:"readinessAddr,omitempty"`
 }
 
 // LocalBind binds a set of listeners to a TCP port.

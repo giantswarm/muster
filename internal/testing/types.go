@@ -177,6 +177,10 @@ type MusterInstance struct {
 	ConfigPath string
 	// Port is the port the instance is listening on
 	Port int
+	// AgentgatewayPorts captures every port the harness reserved for the
+	// filesystem-mode agentgateway subprocess (data, admin, stats,
+	// readiness). They are released alongside Port on instance teardown.
+	AgentgatewayPorts []int
 	// Endpoint is the full MCP endpoint URL
 	Endpoint string
 	// Process is the running muster serve process

@@ -57,15 +57,32 @@ func WithListenerName(name string) Option {
 	return func(a *Applier) { a.listenerName = name }
 }
 
+// WithAdminAddr overrides agentgateway's admin / stats / readiness listener
+// addresses written into the combined config. Empty values leave the
+// agentgateway defaults (127.0.0.1:15000, [::]:15020, [::]:15021) in
+// place. Required for parallel muster instances; without per-instance
+// overrides, only the first instance's agentgateway binds the management
+// ports.
+func WithAdminAddr(admin, stats, readiness string) Option {
+	return func(a *Applier) {
+		a.adminAddr = admin
+		a.statsAddr = stats
+		a.readinessAddr = readiness
+	}
+}
+
 // Applier maintains the agentgateway native config as a single combined file
 // at <dir>/agentgateway.yaml. Every Apply replaces the route for that
 // MCPServer, every Delete removes one, and the file is rewritten atomically so
 // agentgateway never observes a half-merged config. The zero value is not
 // usable; construct via NewApplier.
 type Applier struct {
-	root         *os.Root
-	listenerPort uint16
-	listenerName string
+	root          *os.Root
+	listenerPort  uint16
+	listenerName  string
+	adminAddr     string
+	statsAddr     string
+	readinessAddr string
 
 	mu     sync.Mutex
 	routes map[string]LocalRoute
@@ -174,8 +191,16 @@ func (a *Applier) writeLocked() error {
 }
 
 func (a *Applier) buildConfig() *LocalConfig {
+	cfg := &LocalConfig{}
+	if a.adminAddr != "" || a.statsAddr != "" || a.readinessAddr != "" {
+		cfg.Config = &LocalManagementConfig{
+			AdminAddr:     a.adminAddr,
+			StatsAddr:     a.statsAddr,
+			ReadinessAddr: a.readinessAddr,
+		}
+	}
 	if len(a.routes) == 0 {
-		return &LocalConfig{}
+		return cfg
 	}
 	names := make([]string, 0, len(a.routes))
 	for name := range a.routes {
@@ -186,15 +211,14 @@ func (a *Applier) buildConfig() *LocalConfig {
 	for _, name := range names {
 		routes = append(routes, a.routes[name])
 	}
-	return &LocalConfig{
-		Binds: []LocalBind{{
-			Port: a.listenerPort,
-			Listeners: []LocalListener{{
-				Name:   a.listenerName,
-				Routes: routes,
-			}},
+	cfg.Binds = []LocalBind{{
+		Port: a.listenerPort,
+		Listeners: []LocalListener{{
+			Name:   a.listenerName,
+			Routes: routes,
 		}},
-	}
+	}}
+	return cfg
 }
 
 func isSafeName(name string) bool {

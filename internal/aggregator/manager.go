@@ -377,6 +377,16 @@ func (am *AggregatorManager) AgentgatewayListenerPort() uint16 {
 	return am.config.AgentgatewayListenerPort
 }
 
+// AgentgatewayManagementPorts surfaces the filesystem-mode agentgateway
+// admin / stats / readiness ports the yaml.Applier should embed and the
+// subprocess manager should probe. Zero values mean "use the agentgateway
+// defaults (15000 / 15020 / 15021)".
+func (am *AggregatorManager) AgentgatewayManagementPorts() (admin, stats, readiness uint16) {
+	am.mu.RLock()
+	defer am.mu.RUnlock()
+	return am.config.AgentgatewayAdminPort, am.config.AgentgatewayStatsPort, am.config.AgentgatewayReadinessPort
+}
+
 // GetEndpoint returns the aggregator's MCP endpoint URL.
 func (am *AggregatorManager) GetEndpoint() string {
 	am.mu.RLock()

@@ -225,9 +225,33 @@ func (m *musterInstanceManager) CreateInstance(ctx context.Context, scenarioName
 		return nil, fmt.Errorf("failed to start mock HTTP servers: %w", err)
 	}
 
+	// Reserve every port the filesystem-mode agentgateway subprocess
+	// binds (data + admin + stats + readiness) up-front so parallel
+	// muster instances don't collide on agentgateway's hardcoded
+	// :15000 / :15020 / :15021 management defaults. Ports flow through
+	// AggregatorConfig.AgentgatewayAdminPort etc. (released alongside
+	// the muster port on DestroyInstance).
+	agwLabels := []string{"-agentgateway", "-agw-admin", "-agw-stats", "-agw-readiness"}
+	agwPorts := make([]int, 0, len(agwLabels))
+	for _, suffix := range agwLabels {
+		p, perr := m.findAvailablePort(instanceID+suffix, logger)
+		if perr != nil {
+			for _, released := range agwPorts {
+				m.releasePort(released, instanceID, logger)
+			}
+			m.stopMockHTTPServers(ctx, instanceID, logger)
+			m.releasePort(port, instanceID, logger)
+			_ = os.RemoveAll(configPath)
+			return nil, fmt.Errorf("failed to reserve agentgateway%s port: %w", suffix, perr)
+		}
+		agwPorts = append(agwPorts, p)
+	}
+
 	// Generate configuration files (passing mock HTTP server endpoints)
-	if err := m.generateConfigFilesWithMocks(configPath, config, port, mockHTTPServerInfo, instanceID, logger); err != nil {
-		// Clean up mock HTTP servers on failure
+	if err := m.generateConfigFilesWithMocks(configPath, config, port, agwPorts, mockHTTPServerInfo, instanceID, logger); err != nil {
+		for _, agwPort := range agwPorts {
+			m.releasePort(agwPort, instanceID, logger)
+		}
 		m.stopMockHTTPServers(ctx, instanceID, logger)
 		m.releasePort(port, instanceID, logger)
 		_ = os.RemoveAll(configPath)
@@ -266,6 +290,7 @@ func (m *musterInstanceManager) CreateInstance(ctx context.Context, scenarioName
 		ID:                     instanceID,
 		ConfigPath:             configPath,
 		Port:                   port,
+		AgentgatewayPorts:      agwPorts,
 		Endpoint:               fmt.Sprintf("http://localhost:%d/mcp", port),
 		Process:                managedProc.cmd.Process,
 		StartTime:              time.Now(),
@@ -332,6 +357,13 @@ func (m *musterInstanceManager) DestroyInstance(ctx context.Context, instance *M
 
 	// Release the reserved port
 	m.releasePort(instance.Port, instance.ID, logger)
+	// Note: agentgateway ports (data/admin/stats/readiness) are NOT released
+	// back to the harness pool. The kernel's TIME_WAIT keeps them locally
+	// unbindable for ~60s, which interacts badly with findAvailablePort's
+	// retry window. Letting the harness's portOffset just advance avoids
+	// that contention; on long suites the offset is bounded by the
+	// scenario count, not concurrency.
+	_ = instance.AgentgatewayPorts
 
 	// Clean up configuration directory unless keepTempConfig is true
 	if m.keepTempConfig {
@@ -691,7 +723,7 @@ func (m *musterInstanceManager) findAvailablePort(instanceID string, logger Test
 	m.portMu.Lock()
 	defer m.portMu.Unlock()
 
-	for i := 0; i < 100; i++ { // Try up to 100 ports
+	for i := 0; i < 1000; i++ { // Try up to 1000 ports — agentgateway needs 4 ports per instance
 		port := m.basePort + m.portOffset + i
 
 		// Check if already reserved by another instance
@@ -724,7 +756,7 @@ func (m *musterInstanceManager) findAvailablePort(instanceID string, logger Test
 		return port, nil
 	}
 
-	return 0, fmt.Errorf("no available ports found starting from %d (tried 100 ports)", m.basePort)
+	return 0, fmt.Errorf("no available ports found starting from %d (tried 1000 ports)", m.basePort)
 }
 
 // releasePort releases a reserved port back to the available pool
@@ -1119,7 +1151,7 @@ func (m *musterInstanceManager) buildMusterOAuthServerConfig(
 }
 
 // generateConfigFilesWithMocks generates configuration files with mock HTTP server information
-func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, config *MusterPreConfiguration, port int, mockHTTPServers map[string]*MockHTTPServerInfo, instanceID string, logger TestLogger) error {
+func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, config *MusterPreConfiguration, port int, agwPorts []int, mockHTTPServers map[string]*MockHTTPServerInfo, instanceID string, logger TestLogger) error {
 	// Create muster subdirectory - this is where muster serve will look for configs
 	musterConfigPath := filepath.Join(configPath, "muster")
 
@@ -1140,12 +1172,17 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 		}
 	}
 
-	// Generate main config.yaml in muster subdirectory
 	aggregatorConfig := map[string]interface{}{
 		"host":      "localhost",
 		"port":      port,
 		"transport": "streamable-http",
 		"enabled":   true,
+	}
+	if len(agwPorts) >= 4 {
+		aggregatorConfig["agentgatewayPort"] = agwPorts[0]
+		aggregatorConfig["agentgatewayAdminPort"] = agwPorts[1]
+		aggregatorConfig["agentgatewayStatsPort"] = agwPorts[2]
+		aggregatorConfig["agentgatewayReadinessPort"] = agwPorts[3]
 	}
 
 	// Configure OAuth if mock OAuth servers are defined

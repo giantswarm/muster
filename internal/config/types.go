@@ -37,6 +37,23 @@ type AggregatorConfig struct {
 	Transport    string `yaml:"transport,omitempty"`    // Transport to use (default: streamable-http)
 	MusterPrefix string `yaml:"musterPrefix,omitempty"` // Pre-prefix for all tools (default: "x")
 
+	// AgentgatewayPort is the TCP port the filesystem-mode agentgateway
+	// subprocess binds. Zero (the default) tells muster to pick a free
+	// port at startup; explicit values let callers (the BDD test harness,
+	// multi-instance dev sessions) coordinate port assignment so parallel
+	// muster instances don't race for the same port.
+	AgentgatewayPort uint16 `yaml:"agentgatewayPort,omitempty"`
+
+	// AgentgatewayAdminPort overrides agentgateway's admin / stats /
+	// readiness listener ports (defaults 15000 / 15020 / 15021). Required
+	// when running multiple muster instances on one host because those
+	// defaults are hardcoded across agentgateway processes; the BDD test
+	// harness reserves a port per instance. Zero values fall back to
+	// agentgateway defaults.
+	AgentgatewayAdminPort     uint16 `yaml:"agentgatewayAdminPort,omitempty"`
+	AgentgatewayStatsPort     uint16 `yaml:"agentgatewayStatsPort,omitempty"`
+	AgentgatewayReadinessPort uint16 `yaml:"agentgatewayReadinessPort,omitempty"`
+
 	// OAuth contains all OAuth-related configuration with explicit mcpClient/server roles.
 	// - oauth.mcpClient: muster as OAuth client/proxy for authenticating TO remote MCP servers
 	// - oauth.server: muster as OAuth resource server for protecting ITSELF
