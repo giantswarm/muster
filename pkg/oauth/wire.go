@@ -27,7 +27,7 @@ const (
 const (
 	GrantTypeAuthorizationCode = "authorization_code"
 	GrantTypeRefreshToken      = "refresh_token"
-	GrantTypeTokenExchange     = "urn:ietf:params:oauth:grant-type:token-exchange"
+	GrantTypeTokenExchange     = "urn:ietf:params:oauth:grant-type:token-exchange" //nolint:gosec // G101: RFC 8693 grant-type URN, not a credential
 )
 
 // Authorization-request PKCE challenge methods (RFC 7636).
