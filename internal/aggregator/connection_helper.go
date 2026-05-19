@@ -16,6 +16,7 @@ import (
 
 	"github.com/giantswarm/mcp-oauth/providers/dex"
 	"github.com/mark3labs/mcp-go/mcp"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // errMissingSession is the user-facing message returned when a tool call
@@ -122,7 +123,7 @@ func establishConnection(
 			logging.TruncateIdentifier(sessionID), serverName, issuer)
 	} else {
 		headers := map[string]string{
-			"Authorization": "Bearer " + accessToken,
+			pkgoauth.HeaderAuthorization: pkgoauth.SchemeBearer + " " + accessToken,
 		}
 		client = internalmcp.NewStreamableHTTPClientWithHeaders(serverURL, headers)
 		logging.Debug("Connection", "Using static auth headers for session %s, server %s",
@@ -430,8 +431,8 @@ func emitTokenForwardingEvent(serverName, namespace string, success bool, errorM
 
 	// Log when namespace is missing - this indicates a configuration issue
 	if namespace == "" {
-		logging.Warn("Connection", "No namespace set for server %s event, defaulting to 'default' - check MCPServer configuration", serverName)
-		namespace = "default" //nolint:goconst
+		logging.Warn("Connection", "No namespace set for server %s event, defaulting to %q - check MCPServer configuration", serverName, metav1.NamespaceDefault)
+		namespace = metav1.NamespaceDefault
 	}
 
 	objRef := api.ObjectReference{
@@ -685,7 +686,7 @@ func EstablishConnectionWithTokenExchange(
 	// returns 401. In that case, callToolWithTokenExchangeRetry evicts the stale
 	// pool entry, re-exchanges a fresh token, and retries the tool call.
 	headerFunc := func(_ context.Context) map[string]string {
-		return map[string]string{"Authorization": "Bearer " + exchangedToken}
+		return map[string]string{pkgoauth.HeaderAuthorization: pkgoauth.SchemeBearer + " " + exchangedToken}
 	}
 
 	// Create a client with the dynamic header function.
@@ -772,8 +773,8 @@ func emitTokenExchangeEvent(serverName, namespace string, success bool, errorMsg
 
 	// Log when namespace is missing - this indicates a configuration issue
 	if namespace == "" {
-		logging.Warn("Connection", "No namespace set for server %s event, defaulting to 'default' - check MCPServer configuration", serverName)
-		namespace = "default" //nolint:goconst
+		logging.Warn("Connection", "No namespace set for server %s event, defaulting to %q - check MCPServer configuration", serverName, metav1.NamespaceDefault)
+		namespace = metav1.NamespaceDefault
 	}
 
 	objRef := api.ObjectReference{
@@ -889,7 +890,7 @@ func makeTokenForwardingHeaderFunc(
 			}
 		}
 		return map[string]string{
-			"Authorization": "Bearer " + latestToken,
+			pkgoauth.HeaderAuthorization: pkgoauth.SchemeBearer + " " + latestToken,
 		}
 	}
 }
@@ -1025,7 +1026,7 @@ func loadTokenExchangeCredentials(ctx context.Context, serverInfo *ServerInfo) (
 	// Use the server's namespace as the default for the secret
 	defaultNamespace := serverInfo.GetNamespace()
 	if defaultNamespace == "" {
-		defaultNamespace = "default"
+		defaultNamespace = metav1.NamespaceDefault
 	}
 
 	return handler.LoadClientCredentials(ctx, serverInfo.AuthConfig.TokenExchange.ClientCredentialsSecretRef, defaultNamespace)

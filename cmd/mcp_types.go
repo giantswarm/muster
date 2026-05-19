@@ -1,13 +1,15 @@
 package cmd
 
-// mcpPrimitiveTypes maps MCP primitive type aliases to their canonical names.
-// Used by both list and get commands for consistent handling of MCP primitives
-// (tools, resources, prompts) which are handled differently from core resources.
+import "github.com/giantswarm/muster/internal/api"
+
+// mcpPrimitiveTypes maps MCP primitive type aliases (singular and plural)
+// to their canonical singular form. Used by list and get commands to
+// dispatch MCP primitives separately from core resources.
 var mcpPrimitiveTypes = map[string]string{
-	"tool":      "tool",
-	"tools":     "tool",
-	"resource":  "resource",
-	"resources": "resource",
-	"prompt":    "prompt",
-	"prompts":   "prompt",
+	api.MCPPrimitiveTool:      api.MCPPrimitiveTool,
+	api.MCPPrimitiveTools:     api.MCPPrimitiveTool,
+	api.MCPPrimitiveResource:  api.MCPPrimitiveResource,
+	api.MCPPrimitiveResources: api.MCPPrimitiveResource,
+	api.MCPPrimitivePrompt:    api.MCPPrimitivePrompt,
+	api.MCPPrimitivePrompts:   api.MCPPrimitivePrompt,
 }

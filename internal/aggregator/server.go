@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -35,8 +36,6 @@ import (
 	"github.com/valkey-io/valkey-go"
 	"golang.org/x/oauth2"
 	"golang.org/x/sync/singleflight"
-
-	"github.com/giantswarm/muster/internal/aggregator/instrument"
 )
 
 // AggregatorServer implements a comprehensive MCP server that aggregates multiple backend MCP servers.
@@ -517,7 +516,7 @@ func createStores(cfg AggregatorConfig) storeBundle {
 	if ok && oauthCfg.Storage.Type == "valkey" && oauthCfg.Storage.Valkey.URL != "" {
 		keyPrefix := oauthCfg.Storage.Valkey.KeyPrefix
 		if keyPrefix == "" {
-			keyPrefix = "muster:" //nolint:goconst
+			keyPrefix = config.DefaultValkeyKeyPrefix
 		}
 
 		client, err := newValkeyClient(oauthCfg.Storage.Valkey)
@@ -548,7 +547,7 @@ func createStores(cfg AggregatorConfig) storeBundle {
 	return storeBundle{
 		authStore:       NewInMemorySessionAuthStore(DefaultCapabilityStoreTTL),
 		capabilityStore: NewInMemoryCapabilityStore(DefaultCapabilityStoreTTL),
-		keyPrefix:       "muster:",
+		keyPrefix:       config.DefaultValkeyKeyPrefix,
 	}
 }
 
@@ -716,27 +715,18 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	// WithToolFilter enables session-specific tool visibility for OAuth-authenticated servers
 	// (see ADR-006: Session-Scoped Tool Visibility)
 	//
-	// mcp-go applies middleware in reverse registration order, so the
-	// chain below becomes Tracing(Logging(Metrics(handler))). Tracing is
-	// outermost so the span is active while Logging emits its line and
-	// Metrics records its observation — log records pick up trace_id /
-	// span_id via the slog ↔ OTel bridge, and histogram exemplars
-	// attach the local trace_id for Grafana's "click latency bucket →
-	// jump to trace" pivot. The Tracing wrapper still observes the
-	// final outcome through its next(...) return values, so codes.Error
-	// on IsError fires after the inner chain completes.
-	mcpSrv := mcpserver.NewMCPServer(
-		"muster-aggregator",
-		serverVersion,
+	// mcpServerOptions appends the OTEL chain in the exact order the SDK
+	// requires for histogram exemplars to carry the active tool-handler
+	// span — see the helper's doc comment.
+	opts := []mcpserver.ServerOption{
 		mcpserver.WithToolCapabilities(true),           // Enable tool execution
 		mcpserver.WithResourceCapabilities(true, true), // Enable resources with subscribe and listChanged
 		mcpserver.WithPromptCapabilities(true),         // Enable prompt retrieval
 		mcpserver.WithToolFilter(a.sessionToolFilter),  // Return session-specific tools for OAuth servers
 		mcpserver.WithHooks(hooks),                     // Clean up subject-session mappings on disconnect
-		mcpserver.WithToolHandlerMiddleware(instrument.Tracing()),
-		mcpserver.WithToolHandlerMiddleware(instrument.Logging()),
-		mcpserver.WithToolHandlerMiddleware(instrument.Metrics()),
-	)
+	}
+	opts = append(opts, mcpServerOptions()...)
+	mcpSrv := mcpserver.NewMCPServer("muster-aggregator", serverVersion, opts...)
 
 	a.mcpServer = mcpSrv
 	a.isShuttingDown = false
@@ -822,8 +812,9 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		if useSystemdActivation {
 			logging.Info("Aggregator", "Using systemd socket activation for SSE transport")
 			for i, listener := range systemdListeners {
-				server := &http.Server{ //nolint:gosec
-					Handler: handler,
+				server := &http.Server{
+					Handler:           handler,
+					ReadHeaderTimeout: httpReadHeaderTimeout,
 				}
 				a.httpServer = append(a.httpServer, server)
 				go func(s *http.Server, l net.Listener, index int) {
@@ -836,9 +827,10 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		} else {
 			logging.InfoWithAttrs("Aggregator", "Starting MCP aggregator server with SSE transport",
 				slog.String("addr", addr))
-			server := &http.Server{ //nolint:gosec
-				Addr:    addr,
-				Handler: handler,
+			server := &http.Server{
+				Addr:              addr,
+				Handler:           handler,
+				ReadHeaderTimeout: httpReadHeaderTimeout,
 			}
 			a.httpServer = append(a.httpServer, server)
 			go func() {
@@ -885,8 +877,9 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		if useSystemdActivation {
 			logging.Info("Aggregator", "Using systemd socket activation for streamable HTTP transport")
 			for i, listener := range systemdListeners {
-				server := &http.Server{ //nolint:gosec
-					Handler: handler,
+				server := &http.Server{
+					Handler:           handler,
+					ReadHeaderTimeout: httpReadHeaderTimeout,
 				}
 				a.httpServer = append(a.httpServer, server)
 				go func(s *http.Server, l net.Listener, index int) {
@@ -899,9 +892,10 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		} else {
 			logging.InfoWithAttrs("Aggregator", "Starting MCP aggregator server with streamable-http transport",
 				slog.String("addr", addr))
-			server := &http.Server{ //nolint:gosec
-				Addr:    addr,
-				Handler: handler,
+			server := &http.Server{
+				Addr:              addr,
+				Handler:           handler,
+				ReadHeaderTimeout: httpReadHeaderTimeout,
 			}
 			a.httpServer = append(a.httpServer, server)
 			go func() {
@@ -1068,25 +1062,24 @@ func (a *AggregatorServer) Stop(ctx context.Context) error {
 //
 // Args:
 //   - ctx: Context for the registration operation and capability queries
-//   - name: Unique identifier for the server within the aggregator
+//   - registration: Server identification (name, toolPrefix, family)
 //   - client: MCP client interface for communicating with the backend server
-//   - toolPrefix: Server-specific prefix for name collision resolution
 //
 // Returns an error if registration fails due to naming conflicts, client issues,
 // or communication problems with the backend server.
-func (a *AggregatorServer) RegisterServer(ctx context.Context, name string, client MCPClient, toolPrefix string) error {
+func (a *AggregatorServer) RegisterServer(ctx context.Context, registration ServerRegistration, client MCPClient) error {
 	logging.DebugWithAttrs("Aggregator", "RegisterServer called",
-		slog.String("server", name), slog.String("time", time.Now().Format("15:04:05.000")))
+		slog.String("server", registration.Name), slog.String("time", time.Now().Format("15:04:05.000")))
 
 	// Wire the notification handler before registration so Initialize()
 	// (called inside Register) forwards it to the underlying mcp-go client.
 	client.OnNotification(func(notif mcp.JSONRPCNotification) {
 		if isCapabilityNotification(notif.Method) {
-			a.handleNonOAuthCapabilityChanged(name)
+			a.handleNonOAuthCapabilityChanged(registration.Name)
 		}
 	})
 
-	return a.registry.Register(ctx, name, client, toolPrefix)
+	return a.registry.Register(ctx, registration, client)
 }
 
 // wirePoolNotificationCallback sets up a notification callback on the
@@ -1496,7 +1489,10 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 			a.ssoTracker.ClearAllSSOFailed(userID)
 		}
 
-		go a.initSSOForSession(ctx, userID, sessionID, idToken) //nolint:gosec
+		// initSSOForSession is meant to outlive the request that triggered it;
+		// pass a fresh background context so cancellation when the handler
+		// returns does not abort the SSO bootstrap.
+		go a.initSSOForSession(context.Background(), userID, sessionID, idToken) //nolint:gosec // G118: SSO bootstrap must outlive the request handler that triggered it
 	})
 
 	logging.InfoWithAttrs("Aggregator", "OAuth 2.1 server protection enabled",
@@ -1779,55 +1775,47 @@ func (a *AggregatorServer) IsYoloMode() bool {
 //
 // Returns the tool execution result or an error if the tool cannot be found or executed.
 func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string, args map[string]interface{}) (res *mcp.CallToolResult, err error) {
-	ctx, endSpan := instrument.StartToolSpan(ctx, toolName)
-	defer func() { endSpan(res, err) }()
-
 	logging.DebugWithAttrs("Aggregator", "CallToolInternal called",
 		slog.String("tool", toolName))
 
 	sub := getUserSubjectFromContext(ctx)
 	sessionID := getSessionIDFromContext(ctx)
 
+	// Family-grouped tools carry a required routing parameter selecting which
+	// instance handles the call. When the target is family-grouped, strip the
+	// parameter from the forwarded args so the backend sees its native schema
+	// and use it to resolve the routing target precisely (any error here is
+	// surfaced directly — an explicit-but-invalid server must not silently
+	// fall back to legacy single-server resolution). For non-family tools
+	// (including core tools that legitimately accept "server" as a regular
+	// argument), the value is passed through untouched.
+	if a.registry.IsFamilyTool(toolName) {
+		instanceArg := a.registry.FamilyInstanceArgFor(toolName)
+		explicitServer, _ := args[instanceArg].(string)
+		if explicitServer == "" {
+			providers := a.registry.GetToolServerNames(toolName)
+			sort.Strings(providers)
+			return nil, fmt.Errorf("tool %s is provided by a family on servers %s; the %q parameter is required",
+				toolName, strings.Join(providers, ", "), instanceArg)
+		}
+		forwarded := make(map[string]interface{}, len(args)-1)
+		for k, v := range args {
+			if k != instanceArg {
+				forwarded[k] = v
+			}
+		}
+		originalName, resolveErr := a.registry.ResolveToolNameForServer(toolName, explicitServer)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		return a.dispatchResolvedTool(ctx, toolName, explicitServer, originalName, forwarded, sessionID, sub)
+	}
+
 	serverName, originalName, err := a.registry.ResolveToolName(toolName)
 	if err == nil {
 		logging.DebugWithAttrs("Aggregator", "Tool found in registry",
 			slog.String("tool", toolName), slog.String("server", serverName), slog.String("original", originalName))
-		serverInfo, exists := a.registry.GetServerInfo(serverName)
-		if !exists || serverInfo == nil {
-			return nil, fmt.Errorf("server not found: %s", serverName)
-		}
-
-		if !serverInfo.RequiresSessionAuth() && serverInfo.Client != nil {
-			logging.DebugWithAttrs("Aggregator", "Using global client",
-				slog.String("server", serverName))
-			return serverInfo.Client.CallTool(ctx, originalName, args)
-		}
-
-		if serverInfo.RequiresSessionAuth() {
-			if sessionID == "" {
-				logging.WarnWithAttrs("Aggregator", "Tool requires auth but no session ID in context. "+
-					"The OAuth middleware may not have propagated the session — check createAccessTokenInjectorMiddleware.",
-					slog.String("tool", toolName),
-					slog.String("server", serverName))
-				return nil, fmt.Errorf("tool %s requires authentication but no session is available", toolName)
-			}
-			logging.DebugWithAttrs("Aggregator", "Server requires auth, trying on-demand client",
-				slog.String("server", serverName), slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
-			_, sessionOriginalName, sessionErr := a.resolveUserTool(sessionID, toolName)
-			if sessionErr == nil {
-				logging.DebugWithAttrs("Aggregator", "Using on-demand client",
-					slog.String("tool", toolName))
-				return a.callToolWithTokenExchangeRetry(ctx, serverName, sessionOriginalName, args, sessionID, sub)
-			}
-			logging.DebugWithAttrs("Aggregator", "No cached capabilities found",
-				slog.String("tool", toolName), slog.String("error", sessionErr.Error()))
-		}
-
-		if serverInfo.Client == nil {
-			return nil, fmt.Errorf("server not connected: %s (status: %s)", serverName, serverInfo.GetStatus())
-		}
-
-		return serverInfo.Client.CallTool(ctx, originalName, args)
+		return a.dispatchResolvedTool(ctx, toolName, serverName, originalName, args, sessionID, sub)
 	}
 
 	logging.DebugWithAttrs("Aggregator", "Tool not found in registry, checking capability cache",
@@ -1857,6 +1845,43 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 	logging.DebugWithAttrs("Aggregator", "Tool not found in registry, session, or core tools",
 		slog.String("tool", toolName))
 	return nil, fmt.Errorf("tool not found: %s", toolName)
+}
+
+// dispatchResolvedTool routes a tool call to the backend server once the
+// (serverName, originalName) pair has been resolved (either via the registry
+// for solo tools or via ResolveToolNameForServer for family-grouped tools).
+// It encapsulates the global-client vs. session-scoped vs. token-exchange
+// branching that previously lived inline in CallToolInternal.
+func (a *AggregatorServer) dispatchResolvedTool(ctx context.Context, toolName, serverName, originalName string, args map[string]interface{}, sessionID, sub string) (*mcp.CallToolResult, error) {
+	serverInfo, exists := a.registry.GetServerInfo(serverName)
+	if !exists || serverInfo == nil {
+		return nil, fmt.Errorf("server not found: %s", serverName)
+	}
+
+	if !serverInfo.RequiresSessionAuth() && serverInfo.Client != nil {
+		logging.DebugWithAttrs("Aggregator", "Using global client",
+			slog.String("server", serverName))
+		return serverInfo.Client.CallTool(ctx, originalName, args)
+	}
+
+	if serverInfo.RequiresSessionAuth() {
+		if sessionID == "" {
+			logging.WarnWithAttrs("Aggregator", "Tool requires auth but no session ID in context. "+
+				"The OAuth middleware may not have propagated the session — check createAccessTokenInjectorMiddleware.",
+				slog.String("tool", toolName),
+				slog.String("server", serverName))
+			return nil, fmt.Errorf("tool %s requires authentication but no session is available", toolName)
+		}
+		logging.DebugWithAttrs("Aggregator", "Server requires auth, trying on-demand client",
+			slog.String("server", serverName), slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
+		return a.callToolWithTokenExchangeRetry(ctx, serverName, originalName, args, sessionID, sub)
+	}
+
+	if serverInfo.Client == nil {
+		return nil, fmt.Errorf("server not connected: %s (status: %s)", serverName, serverInfo.GetStatus())
+	}
+
+	return serverInfo.Client.CallTool(ctx, originalName, args)
 }
 
 // isCoreToolByName checks if a tool name matches the pattern of core tools
@@ -2660,7 +2685,7 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 	}
 
 	headerFunc := func(_ context.Context) map[string]string {
-		return map[string]string{"Authorization": "Bearer " + exchangedToken}
+		return map[string]string{pkgoauth.HeaderAuthorization: pkgoauth.SchemeBearer + " " + exchangedToken}
 	}
 
 	var client MCPClient
@@ -2774,7 +2799,7 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 			if latestToken == "" {
 				return map[string]string{}
 			}
-			return map[string]string{"Authorization": "Bearer " + latestToken}
+			return map[string]string{pkgoauth.HeaderAuthorization: pkgoauth.SchemeBearer + " " + latestToken}
 		}
 		client = internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
 

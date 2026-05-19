@@ -22,7 +22,7 @@ func TestAgentTokenStore_GetToken_NoToken(t *testing.T) {
 
 func TestAgentTokenStore_GetToken_ReturnsStoredToken(t *testing.T) {
 	store := createTestTokenStore(t)
-	serverURL := "https://example.com" //nolint:goconst
+	serverURL := "https://example.com"
 	issuerURL := "https://issuer.example.com"
 
 	token := &oauth2.Token{

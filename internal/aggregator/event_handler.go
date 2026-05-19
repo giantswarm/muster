@@ -7,6 +7,8 @@ import (
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/events"
 	"github.com/giantswarm/muster/pkg/logging"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // EventHandler manages automatic MCP server registration based on service lifecycle events.
@@ -209,10 +211,9 @@ func (eh *EventHandler) processEvent(event api.ServiceStateChangedEvent) {
 	// Generate events for service state transitions
 	eh.generateServiceStateEvents(event)
 
-	// Only register servers that are BOTH Running/Connected AND Healthy
-	// This ensures that the MCP client is ready and the server is functioning properly
-	// "running" is used for stdio servers, "connected" is used for remote servers
-	isHealthyAndActive := (event.NewState == "running" || event.NewState == "connected") && event.Health == "healthy" //nolint:goconst
+	// Register only servers that are both active (Running for stdio servers or
+	// Connected for remote servers) and healthy.
+	isHealthyAndActive := api.IsActiveState(api.ServiceState(event.NewState)) && api.HealthStatus(event.Health) == api.HealthHealthy
 
 	if isHealthyAndActive {
 		// Skip global registration for SSO-based servers (token forwarding or token exchange).
@@ -244,7 +245,7 @@ func (eh *EventHandler) processEvent(event api.ServiceStateChangedEvent) {
 		// The orchestrator will register them as pending auth servers.
 		// We MUST check the event state directly, not the registry, because there's a race
 		// condition where the event is processed before the Orchestrator registers the server.
-		if event.NewState == "waiting" || event.NewState == "auth_required" {
+		if api.ServiceState(event.NewState) == api.StateWaiting || api.ServiceState(event.NewState) == api.StateAuthRequired {
 			logging.Debug("Aggregator-EventHandler", "Skipping deregistration of %s - server is in %s state (requires authentication)", event.Name, event.NewState)
 			return
 		}
@@ -273,17 +274,16 @@ func (eh *EventHandler) processEvent(event api.ServiceStateChangedEvent) {
 
 // generateServiceStateEvents generates appropriate Kubernetes events based on service state transitions
 func (eh *EventHandler) generateServiceStateEvents(event api.ServiceStateChangedEvent) {
-	// Map service states to appropriate event reasons
-	switch event.NewState {
-	case "starting":
+	switch api.ServiceState(event.NewState) {
+	case api.StateStarting:
 		eh.generateEvent(event.Name, events.ReasonMCPServerStarting, events.EventData{})
-	case "running":
-		if event.Health == "healthy" {
+	case api.StateRunning:
+		if api.HealthStatus(event.Health) == api.HealthHealthy {
 			eh.generateEvent(event.Name, events.ReasonMCPServerStarted, events.EventData{})
 		}
-	case "stopped":
+	case api.StateStopped:
 		eh.generateEvent(event.Name, events.ReasonMCPServerStopped, events.EventData{})
-	case "failed":
+	case api.StateFailed:
 		eventData := events.EventData{}
 		if event.Error != nil {
 			eventData.Error = event.Error.Error()
@@ -291,8 +291,7 @@ func (eh *EventHandler) generateServiceStateEvents(event api.ServiceStateChanged
 		eh.generateEvent(event.Name, events.ReasonMCPServerFailed, eventData)
 	}
 
-	// Generate health-related events
-	if event.NewState == "running" && event.Health == "unhealthy" {
+	if api.ServiceState(event.NewState) == api.StateRunning && api.HealthStatus(event.Health) == api.HealthUnhealthy {
 		eventData := events.EventData{}
 		if event.Error != nil {
 			eventData.Error = event.Error.Error()
@@ -300,8 +299,7 @@ func (eh *EventHandler) generateServiceStateEvents(event api.ServiceStateChanged
 		eh.generateEvent(event.Name, events.ReasonMCPServerHealthCheckFailed, eventData)
 	}
 
-	// Check for restart patterns (stopped -> starting or failed -> starting)
-	if event.NewState == "starting" && (event.OldState == "stopped" || event.OldState == "failed") {
+	if api.ServiceState(event.NewState) == api.StateStarting && (api.ServiceState(event.OldState) == api.StateStopped || api.ServiceState(event.OldState) == api.StateFailed) {
 		eh.generateEvent(event.Name, events.ReasonMCPServerRestarting, events.EventData{})
 	}
 }
@@ -319,13 +317,13 @@ func (eh *EventHandler) generateEvent(serviceName string, reason events.EventRea
 	objectRef := api.ObjectReference{
 		Kind:      "MCPServer",
 		Name:      serviceName,
-		Namespace: "default", // TODO: Make configurable or derive from service
+		Namespace: metav1.NamespaceDefault, // TODO: Make configurable or derive from service
 	}
 
 	// Populate service-specific data
 	data.Name = serviceName
 	if data.Namespace == "" {
-		data.Namespace = "default" //nolint:goconst
+		data.Namespace = metav1.NamespaceDefault
 	}
 
 	err := eventManager.CreateEvent(context.Background(), objectRef, string(reason), "", string(events.EventTypeNormal))

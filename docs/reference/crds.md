@@ -30,6 +30,17 @@ spec:
   # Optional: Tool name prefix (applies to all types)
   toolPrefix: "<prefix>"
 
+  # Optional: Family grouping. When set, the aggregator exposes tools as
+  # x_<family.name>_<toolName> with a required parameter (named by
+  # family.instanceArg) selecting which instance handles the call. Multiple
+  # MCPServer CRs sharing the same family.name (for example, several kubernetes
+  # MCP servers pointed at different clusters) appear to clients as a single
+  # deduplicated tool surface. Both name and instanceArg are required when
+  # family is set.
+  family:
+    name: "<family-name>"
+    instanceArg: "<parameter-name>"  # e.g. management_cluster, country, model
+
   # Optional: Human-readable description
   description: "<description>"
 
@@ -80,7 +91,10 @@ status:
 | Field | Type | Required | Description | Constraints |
 |-------|------|----------|-------------|-------------|
 | `type` | `string` | Yes | Execution method for the MCP server | Must be `stdio`, `streamable-http`, or `sse` |
-| `toolPrefix` | `string` | No | Prefix for all tool names from this server | Pattern: `^[a-zA-Z][a-zA-Z0-9_-]*$` |
+| `toolPrefix` | `string` | No | Per-server tool prefix used when `family` is unset | Pattern: `^[a-zA-Z][a-zA-Z0-9_-]*$` |
+| `family` | `object` | No | Family grouping for equivalent servers under a shared tool surface | `name` and `instanceArg` both required when set |
+| `family.name` | `string` | Yes (in `family`) | Family identifier | Pattern: `^[a-zA-Z][a-zA-Z0-9_-]*$` |
+| `family.instanceArg` | `string` | Yes (in `family`) | Name of the required parameter the LLM uses to select an instance (e.g. `management_cluster`, `country`, `model`) | Pattern: `^[a-zA-Z][a-zA-Z0-9_]*$` |
 | `description` | `string` | No | Human-readable description | Max 500 characters |
 | `autoStart` | `boolean` | No | Auto-start when system initializes | Default: `false`, only for stdio servers |
 | `command` | `string` | Yes* | Executable path for stdio servers | Required when `type` is `stdio` |
