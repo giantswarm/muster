@@ -4,7 +4,6 @@ package subprocess
 
 import (
 	"os/exec"
-	"runtime"
 	"syscall"
 	"testing"
 
@@ -19,9 +18,6 @@ func TestSignalProcessGroup_RejectsNonPositivePgid(t *testing.T) {
 }
 
 func TestSignalProcessGroup_ESRCHIsSuccess(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("process-group signalling differs on windows")
-	}
 	cmd := exec.Command("/bin/true")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	require.NoError(t, cmd.Start())

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"log/slog"
 	"os"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -276,9 +275,6 @@ func TestNew_RejectsBadOptions(t *testing.T) {
 }
 
 func TestManager_StopDuringStartup(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("signal model differs on windows")
-	}
 	logger, _ := captureLogger(t)
 	readyPath := tmpFile(t, "ready")
 
@@ -315,9 +311,6 @@ func TestManager_StopDuringStartup(t *testing.T) {
 }
 
 func TestManager_StopReapsGroup(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("process-group signalling differs on windows")
-	}
 	logger, _ := captureLogger(t)
 	readyPath := tmpFile(t, "ready")
 	childPIDFile := tmpFile(t, "child.pid")
