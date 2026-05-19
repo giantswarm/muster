@@ -176,7 +176,6 @@ func establishConnection(
 	}
 
 	// Sync service state to Connected now that authentication succeeded
-	notifyMCPServerConnected(serverName, "authentication")
 
 	logging.Info("Connection", "User %s connected to %s with %d tools, %d resources, %d prompts",
 		logging.TruncateIdentifier(sub), serverName, len(tools), len(resources), len(prompts))
@@ -410,7 +409,6 @@ func EstablishConnectionWithTokenForwarding(
 	}
 
 	// Sync service state to Connected now that SSO succeeded
-	notifyMCPServerConnected(serverInfo.Name, "SSO token forwarding")
 
 	logging.Info("Connection", "User %s connected to %s via SSO token forwarding with %d tools",
 		logging.TruncateIdentifier(sub), serverInfo.Name, len(tools))
@@ -750,7 +748,6 @@ func EstablishConnectionWithTokenExchange(
 	}
 
 	// Sync service state to Connected now that token exchange succeeded
-	notifyMCPServerConnected(serverInfo.Name, "RFC 8693 token exchange")
 
 	logging.Info("Connection", "User %s connected to %s via RFC 8693 token exchange with %d tools",
 		logging.TruncateIdentifier(sub), serverInfo.Name, len(tools))
@@ -902,20 +899,6 @@ func makeTokenForwardingHeaderFunc(
 // using the old client time to complete before the underlying connection is
 // torn down.
 const deferredCloseDelay = 60 * time.Second
-
-// notifyMCPServerConnected updates the MCPServer service state to Connected after
-// successful authentication. This syncs the session-level connection success to
-// the service-level state, ensuring that `muster list mcpserver` shows the correct
-// connected state.
-//
-// This is a best-effort operation - failures are logged at warn level but don't
-// fail the connection flow.
-func notifyMCPServerConnected(serverName, authMethod string) {
-	if err := api.UpdateMCPServerState(serverName, api.StateConnected, api.HealthHealthy, nil); err != nil {
-		logging.Warn("Connection", "Failed to update MCPServer %s state after %s: %v",
-			serverName, authMethod, err)
-	}
-}
 
 // TeleportClientResult contains the result of getting a Teleport HTTP client.
 // This provides explicit error handling for Teleport configuration issues.

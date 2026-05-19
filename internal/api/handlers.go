@@ -13,7 +13,6 @@ import (
 // Handler registry variables store the registered implementations.
 // These variables are protected by handlerMutex for thread-safe access.
 var (
-	registryHandler         ServiceRegistryHandler
 	serviceManagerHandler   ServiceManagerHandler
 	mcpServerManagerHandler MCPServerManagerHandler
 	aggregatorHandler       AggregatorHandler
@@ -31,28 +30,6 @@ var (
 	// handlerMutex protects all handler registry operations for thread-safe registration and access.
 	handlerMutex sync.RWMutex
 )
-
-// RegisterServiceRegistry registers the service registry handler implementation.
-// This handler provides access to all registered services in the system.
-//
-// The registration is thread-safe and should be called during system initialization.
-// Only one service registry handler can be registered at a time; subsequent
-// registrations will replace the previous handler.
-//
-// Args:
-//   - h: ServiceRegistryHandler implementation that manages service discovery and information
-//
-// Thread-safe: Yes, protected by handlerMutex.
-//
-// Example:
-//
-//	adapter := &myservice.RegistryAdapter{registry: myRegistry}
-//	api.RegisterServiceRegistry(adapter)
-func RegisterServiceRegistry(h ServiceRegistryHandler) {
-	handlerMutex.Lock()
-	defer handlerMutex.Unlock()
-	registryHandler = h
-}
 
 // RegisterServiceManager registers the service manager handler implementation.
 // This handler provides lifecycle management for the static services registered
@@ -122,30 +99,6 @@ func RegisterConfigHandler(h ConfigHandler) {
 	handlerMutex.Lock()
 	defer handlerMutex.Unlock()
 	configHandler = h
-}
-
-// GetServiceRegistry returns the registered service registry handler.
-// This provides access to the service discovery and information interface.
-//
-// Returns nil if no handler has been registered yet. Callers should always
-// check for nil before using the returned handler.
-//
-// Returns:
-//   - ServiceRegistryHandler: The registered handler, or nil if not registered
-//
-// Thread-safe: Yes, protected by handlerMutex read lock.
-//
-// Example:
-//
-//	registry := api.GetServiceRegistry()
-//	if registry == nil {
-//	    return fmt.Errorf("service registry not available")
-//	}
-//	services := registry.GetAll()
-func GetServiceRegistry() ServiceRegistryHandler {
-	handlerMutex.RLock()
-	defer handlerMutex.RUnlock()
-	return registryHandler
 }
 
 // GetServiceManager returns the registered service manager handler.
@@ -541,70 +494,6 @@ func GetReconcileManager() ReconcileManagerHandler {
 	handlerMutex.RLock()
 	defer handlerMutex.RUnlock()
 	return reconcileManagerHandler
-}
-
-// UpdateMCPServerState updates the state of an MCPServer service.
-// This is used when external events (such as SSO authentication success) need to
-// update the service state. The function retrieves the service from the registry,
-// checks if it implements StateUpdater, and updates its state.
-//
-// This function is typically called by the aggregator when:
-// - SSO token forwarding succeeds for a session
-// - SSO token exchange succeeds for a session
-//
-// The state update will trigger the reconciler to sync the new state to the CRD status.
-//
-// Args:
-//   - name: The name of the MCPServer service to update
-//   - state: The new service state (typically StateConnected for SSO success)
-//   - health: The new health status (typically HealthHealthy for SSO success)
-//   - err: Optional error to associate with the state (typically nil for success)
-//
-// Returns:
-//   - error: Error if the service doesn't exist, doesn't support state updates, or update fails
-//
-// Thread-safe: Yes, operations are synchronized appropriately.
-//
-// Example:
-//
-//	// Update MCPServer state after SSO token forwarding succeeds
-//	if err := api.UpdateMCPServerState("gazelle-mcp-kubernetes", api.StateConnected, api.HealthHealthy, nil); err != nil {
-//	    logging.Warn("SSO", "Failed to update MCPServer state: %v", err)
-//	}
-func UpdateMCPServerState(name string, state ServiceState, health HealthStatus, err error) error {
-	registry := GetServiceRegistry()
-	if registry == nil {
-		return fmt.Errorf("service registry not available")
-	}
-
-	service, exists := registry.Get(name)
-	if !exists {
-		// Service not found - this is expected for servers that failed to start
-		// or are configured but not yet registered. Log at debug level.
-		logging.Debug("API", "Cannot update state for MCPServer %s: not found in registry", name)
-		return nil // Not an error - service may not be running yet
-	}
-
-	// Check if the service implements StateUpdater
-	updater, ok := service.(StateUpdater)
-	if !ok {
-		// Service doesn't support external state updates
-		logging.Debug("API", "MCPServer %s does not support external state updates", name)
-		return nil // Not an error - just can't update
-	}
-
-	// Update the state
-	updater.UpdateState(state, health, err)
-	logging.Info("API", "Updated MCPServer %s state to %s (health: %s)", name, state, health)
-
-	// Trigger reconciliation to sync the state to the CRD status.
-	// This ensures that `muster list mcpserver` (which reads from CRD) shows
-	// the updated state, not just `muster list services` (which reads from memory).
-	if reconcileManager := GetReconcileManager(); reconcileManager != nil {
-		reconcileManager.TriggerReconcile("MCPServer", name, "")
-	}
-
-	return nil
 }
 
 // RegisterTeleportClient registers the Teleport client handler implementation.
