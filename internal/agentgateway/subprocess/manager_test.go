@@ -193,6 +193,7 @@ func TestManager_Stop_DuringStartup(t *testing.T) {
 	require.Eventually(t, func() bool { return managerPID(mgr) > 0 },
 		2*time.Second, 20*time.Millisecond)
 
+	stoppedPID := managerPID(mgr)
 	require.NoError(t, mgr.Stop(t.Context()))
 
 	select {
@@ -201,6 +202,10 @@ func TestManager_Stop_DuringStartup(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("Start did not return after Stop")
 	}
+
+	require.Eventually(t, func() bool { return !pidExists(stoppedPID) },
+		3*time.Second, 20*time.Millisecond,
+		"the spawned process must be reaped — Stop-during-startup must not leak a child")
 }
 
 func TestManager_Stop_SIGKILLFallback(t *testing.T) {

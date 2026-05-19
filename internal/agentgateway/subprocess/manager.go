@@ -115,7 +115,11 @@ func (m *Manager) Start(
 	select {
 	case err := <-m.readyCh:
 		if err != nil {
-			_ = m.shutdown(context.Background())
+			// Honor the caller's cancellation on the shutdown leg too —
+			// dropping ctx and using context.Background() would let a
+			// stuck child keep the failing Start blocked past the
+			// caller's lifetime.
+			_ = m.shutdown(ctx)
 			return err
 		}
 		m.mu.Lock()
@@ -131,7 +135,11 @@ func (m *Manager) Start(
 		m.mu.Unlock()
 		return fmt.Errorf("subprocess: supervisor exited before ready")
 	case <-startupCtx.Done():
-		_ = m.shutdown(context.Background())
+		// startupCtx is derived from ctx, so its Done() already implies
+		// ctx is cancelled or the startup timeout fired. Either way pass
+		// ctx (which may still be live if only the timeout fired) so
+		// shutdown respects further caller cancellation.
+		_ = m.shutdown(ctx)
 		return fmt.Errorf("subprocess: startup: %w", startupCtx.Err())
 	}
 }
@@ -395,6 +403,9 @@ func (m *Manager) pumpLines(ctx context.Context, wg *sync.WaitGroup, r io.ReadCl
 	}
 }
 
+// envToSlice flattens env into the KEY=VALUE form exec.Cmd.Env expects.
+// Keys are sorted purely for test stability (process env ordering has no
+// semantic meaning to POSIX); the sort lets golden tests pin the slice.
 func envToSlice(env map[string]string) []string {
 	if len(env) == 0 {
 		return nil
