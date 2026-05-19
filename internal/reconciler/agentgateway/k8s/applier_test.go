@@ -120,6 +120,25 @@ func TestApply_SSEBackend_SetsSSEProtocol(t *testing.T) {
 	require.Equal(t, agw.MCPProtocolSSE, *got.Spec.MCP.Targets[0].Static.Protocol)
 }
 
+func TestApply_UnknownProtocol_ReturnsError(t *testing.T) {
+	t.Parallel()
+
+	c := newClient(t)
+	config := streamableConfig()
+	target := config.Backends[0].Target.(agentgateway.HTTPTarget)
+	target.Protocol = agentgateway.HTTPProtocol("websocket")
+	config.Backends[0].Target = target
+
+	err := newApplier(c).Apply(t.Context(), config)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unknown HTTPProtocol")
+	require.Contains(t, err.Error(), "websocket")
+
+	backends := &agw.AgentgatewayBackendList{}
+	require.NoError(t, c.List(t.Context(), backends))
+	require.Empty(t, backends.Items, "no backend must be persisted when mapProtocol rejects the input")
+}
+
 func TestApply_EmptyConfig_NoObjectsAndNoError(t *testing.T) {
 	t.Parallel()
 
