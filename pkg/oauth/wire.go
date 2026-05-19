@@ -5,7 +5,6 @@ package oauth
 const (
 	HeaderAuthorization = "Authorization"
 	HeaderWWWAuth       = "WWW-Authenticate"
-	HeaderContentType   = "Content-Type"
 
 	SchemeBearer = "Bearer"
 )
