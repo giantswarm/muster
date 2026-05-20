@@ -1,7 +1,8 @@
 package yaml
 
-// Type names mirror the upstream `$defs` entries at
-// https://raw.githubusercontent.com/agentgateway/agentgateway/refs/tags/v1.2.1/schema/config.json.
+// Type names mirror the upstream `$defs` entries at the schema URL
+// derived from the agentgateway version pinned in go.mod (see
+// internal/agentgateway/version and SchemaURL in applier.go).
 // Only the fields the YAML applier emits are modelled. yaml.v3 tags; struct
 // field order is significant for deterministic marshalling.
 
