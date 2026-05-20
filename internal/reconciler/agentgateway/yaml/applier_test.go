@@ -160,6 +160,37 @@ func TestApply_RoundTripUnmarshal(t *testing.T) {
 	require.NotNil(t, route.Policies.BackendAuth.Passthrough)
 }
 
+func TestApply_DeferredAuthnFields_NotEmittedInYAML(t *testing.T) {
+	dir := t.TempDir()
+	a, err := yamlapply.NewApplier(dir)
+	require.NoError(t, err)
+
+	c := canonicalConfig()
+	c.Policies[0].Authn.RequiredAudiences = []string{"dex-k8s", "kube-apiserver"}
+	c.Policies[0].Authn.TokenExchange = &agentgateway.TokenExchange{
+		Enabled:          true,
+		DexTokenEndpoint: "https://dex.example.com/token",
+		ExpectedIssuer:   "https://dex.example.com",
+	}
+	c.Policies[0].Authn.AuthorizationServer = &agentgateway.AuthorizationServer{
+		Issuer: "https://atlassian.example.com",
+		Scopes: "read:mcp",
+	}
+
+	require.NoError(t, a.Apply(t.Context(), c))
+	raw := readInDir(t, dir, "grizzly.yaml")
+	require.NotContains(t, string(raw), "dex-k8s")
+	require.NotContains(t, string(raw), "kube-apiserver")
+	require.NotContains(t, string(raw), "atlassian.example.com")
+	require.NotContains(t, string(raw), "dex.example.com")
+
+	var cfg yamlapply.LocalConfig
+	require.NoError(t, goyaml.Unmarshal(raw, &cfg))
+	policies := cfg.Binds[0].Listeners[0].Routes[0].Policies
+	require.NotNil(t, policies, "ForwardToken Passthrough must still be present")
+	require.NotNil(t, policies.BackendAuth.Passthrough)
+}
+
 func TestApply_SSEProtocol(t *testing.T) {
 	dir := t.TempDir()
 	a, err := yamlapply.NewApplier(dir)
