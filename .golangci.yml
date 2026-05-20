@@ -34,3 +34,23 @@ linters:
         linters:
           - gosec
           - goconst
+      # MCPServerToken* / MCPServerTokenForwarded* are Kubernetes event reason
+      # identifiers (not credentials). Stop gosec G101 from flagging them.
+      - path: internal/events/types\.go
+        linters:
+          - gosec
+        text: "G101"
+      # pkg/oauth/wire.go is a constants-only file holding RFC 6749/6750/8693
+      # vocabulary; G101 heuristically flags the grant-type URN string.
+      - path: pkg/oauth/wire\.go
+        linters:
+          - gosec
+        text: "G101"
+      # internal/testing/mock/* is the mock OAuth server used by BDD tests.
+      # It must honour the OAuth redirect_uri parameter, which gosec flags
+      # as an open redirect; the mock is never bundled into the production
+      # image.
+      - path: internal/testing/mock/.*\.go
+        linters:
+          - gosec
+        text: "G710"

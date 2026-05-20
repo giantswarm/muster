@@ -5,20 +5,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"sync"
 
-	// gopkg.in/yaml.v3 is in maintenance mode. sigs.k8s.io/yaml is the
-	// Kubernetes-ecosystem standard, but it marshals via JSON tags rather
-	// than yaml tags — the LocalConfig types in local_types.go carry yaml
-	// tags only (to match agentgateway's native config field layout), so
-	// staying on yaml.v3 here is the deliberate choice. Revisit if the
-	// upstream schema starts requiring fields whose JSON/yaml names diverge.
 	goyaml "gopkg.in/yaml.v3"
 	"k8s.io/apimachinery/pkg/util/validation"
 
 	"github.com/giantswarm/muster/internal/reconciler/agentgateway"
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // SchemaURL pins the agentgateway native config schema this applier targets.
@@ -98,6 +94,16 @@ func (a *Applier) Apply(ctx context.Context, config agentgateway.Config) error {
 		return fmt.Errorf("yaml applier: %w", err)
 	}
 
+	if len(config.Policies) > 0 {
+		if deferred := deferredAuthnFields(config.Policies[0].Authn); len(deferred) > 0 {
+			logging.InfoWithAttrsCtx(ctx, "agentgateway/yaml",
+				"MCPServer Authn fields handled by muster aggregator, not emitted at gateway",
+				slog.String("policy", config.Policies[0].Name),
+				slog.Any("deferredFields", deferred),
+			)
+		}
+	}
+
 	cfg, err := buildLocalConfig(name, config, a.listenerPort)
 	if err != nil {
 		return fmt.Errorf("yaml applier: build config for %q: %w", name, err)
@@ -112,11 +118,6 @@ func (a *Applier) Apply(ctx context.Context, config agentgateway.Config) error {
 	mu.Lock()
 	defer mu.Unlock()
 
-	// File-size budget assumption: emitted MCPServer configs sit at <2 KB
-	// today (single bind, single listener, single route, single backend).
-	// Reading the whole file to skip an unchanged-write is fine at that
-	// scale. If the schema ever grows multi-MCPServer or multi-route
-	// configs into the hundreds of KB, switch to a hash sidecar.
 	targetName := name + fileExt
 	if existing, err := a.root.ReadFile(targetName); err == nil && bytes.Equal(existing, payload) {
 		return nil
@@ -283,11 +284,13 @@ func httpEndpoint(name string, t agentgateway.HTTPTarget) (*McpTargetEndpoint, e
 }
 
 // policyFor emits the filesystem-mode equivalent of the cluster-mode
-// AgentgatewayPolicy. Today only Authn.ForwardToken maps to a concrete
-// agentgateway construct (Passthrough); RequiredAudiences, TokenExchange,
-// and AuthorizationServer are documented as cluster-only on the domain
-// Authn doc and are silently dropped here. A future filesystem-mode wiring
-// for those features should extend FilterOrPolicy and update this mapper.
+// AgentgatewayPolicy. Only Authn.ForwardToken maps to a concrete
+// agentgateway construct (Passthrough). RequiredAudiences, TokenExchange,
+// and AuthorizationServer are handled by muster's aggregator in front of
+// agentgateway today (audience validation, RFC 8693 swap, AS pinning); the
+// gateway sees a token muster has already vetted and just passes it
+// through. When the topology flips to agentgateway-in-front (Phase 8),
+// these grow into FilterOrPolicy fields and stop being deferred.
 func policyFor(p agentgateway.Policy) *FilterOrPolicy {
 	if !p.Authn.RequiresPolicy() || !p.Authn.ForwardToken {
 		return nil
@@ -295,6 +298,23 @@ func policyFor(p agentgateway.Policy) *FilterOrPolicy {
 	return &FilterOrPolicy{
 		BackendAuth: &BackendAuth{Passthrough: &Passthrough{}},
 	}
+}
+
+// deferredAuthnFields returns the names of Authn fields the yaml emitter
+// does not translate to agentgateway native YAML primitives — muster's
+// aggregator handles them in front of the gateway today.
+func deferredAuthnFields(a agentgateway.Authn) []string {
+	var deferred []string
+	if len(a.RequiredAudiences) > 0 {
+		deferred = append(deferred, "requiredAudiences")
+	}
+	if a.TokenExchange != nil && a.TokenExchange.Enabled {
+		deferred = append(deferred, "tokenExchange")
+	}
+	if a.AuthorizationServer != nil {
+		deferred = append(deferred, "authorizationServer")
+	}
+	return deferred
 }
 
 func marshalConfig(cfg *LocalConfig) ([]byte, error) {

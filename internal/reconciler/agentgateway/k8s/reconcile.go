@@ -3,6 +3,7 @@ package k8s
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -10,6 +11,7 @@ import (
 	agw "github.com/agentgateway/agentgateway/controller/api/v1alpha1/agentgateway"
 
 	"github.com/giantswarm/muster/internal/reconciler/agentgateway"
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 const (
@@ -61,8 +63,8 @@ func (a *Applier) reconcileRoute(ctx context.Context, namespace string, r agentg
 	obj := &gwv1.HTTPRoute{
 		ObjectMeta: metav1.ObjectMeta{Name: r.Name, Namespace: namespace},
 	}
-	parentRef := gwv1.ParentReference{Name: gwv1.ObjectName(a.cfg.GatewayName)}
-	if ns := a.cfg.GatewayNamespace; ns != "" {
+	parentRef := gwv1.ParentReference{Name: gwv1.ObjectName(a.config.GatewayName)}
+	if ns := a.config.GatewayNamespace; ns != "" {
 		parentNS := gwv1.Namespace(ns)
 		parentRef.Namespace = &parentNS
 	}
@@ -101,6 +103,14 @@ func (a *Applier) reconcileRoute(ctx context.Context, namespace string, r agentg
 }
 
 func (a *Applier) reconcilePolicy(ctx context.Context, namespace string, p agentgateway.Policy) error {
+	if deferred := deferredAuthnFields(p.Authn); len(deferred) > 0 {
+		logging.InfoWithAttrsCtx(ctx, "agentgateway/k8s",
+			"MCPServer Authn fields handled by muster aggregator, not emitted at gateway",
+			slog.String("policy", p.Name),
+			slog.String("namespace", namespace),
+			slog.Any("deferredFields", deferred),
+		)
+	}
 	spec, emit := policySpec(p)
 	if !emit {
 		return a.deleteIfExists(ctx, &agw.AgentgatewayPolicy{

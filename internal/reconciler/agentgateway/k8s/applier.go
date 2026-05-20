@@ -45,14 +45,15 @@ type Config struct {
 type Applier struct {
 	client   client.Client
 	ownerRef metav1.OwnerReference
-	cfg      Config
+	config   Config
 }
 
-// NewApplier returns an Applier writing to c, with ownerRef stamped on every
-// emitted object so deletion of the MCPServer cascades to the agentgateway
-// stack. Defaults are applied for Config fields left at the zero value.
-func NewApplier(c client.Client, ownerRef metav1.OwnerReference, cfg Config) *Applier {
-	return &Applier{client: c, ownerRef: ownerRef, cfg: cfg}
+// NewApplier returns an Applier writing through client, with ownerRef
+// stamped on every emitted object so deletion of the MCPServer cascades
+// to the agentgateway stack. Defaults are applied for Config fields left
+// at the zero value.
+func NewApplier(client client.Client, ownerRef metav1.OwnerReference, config Config) *Applier {
+	return &Applier{client: client, ownerRef: ownerRef, config: config}
 }
 
 // Apply reconciles every object derived from config into the cluster. It is

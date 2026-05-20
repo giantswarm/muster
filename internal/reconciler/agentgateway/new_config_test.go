@@ -341,3 +341,47 @@ func TestNewConfig_StdioPreservesArgsAndEnv(t *testing.T) {
 	require.Equal(t, spec.Args, target.Args)
 	require.Equal(t, spec.Env, target.Env)
 }
+
+func TestNewConfig_StdioDeepCopiesArgsAndEnv(t *testing.T) {
+	t.Parallel()
+
+	spec := v1alpha1.MCPServerSpec{
+		Type:    "stdio",
+		Command: "/bin/mcp",
+		Args:    []string{"--workdir", "/data", "--quiet"},
+		Env:     map[string]string{"LOG_LEVEL": "debug", "TOKEN": "secret"},
+	}
+
+	got, err := agentgateway.NewConfig(testName, testNamespace, spec)
+	require.NoError(t, err)
+
+	spec.Args[0] = "--mutated"
+	spec.Env["LOG_LEVEL"] = "mutated"
+
+	target := got.Backends[0].Target.(agentgateway.StdioTarget)
+	require.Equal(t, []string{"--workdir", "/data", "--quiet"}, target.Args)
+	require.Equal(t, "debug", target.Env["LOG_LEVEL"])
+}
+
+func TestNewConfig_RequiredAudiencesDeepCopied(t *testing.T) {
+	t.Parallel()
+
+	audiences := []string{"aud-a", "aud-b"}
+	spec := v1alpha1.MCPServerSpec{
+		Type: "streamable-http",
+		URL:  "https://mcp.example.com/mcp",
+		Auth: &v1alpha1.MCPServerAuth{
+			Type:              "oauth",
+			ForwardToken:      true,
+			RequiredAudiences: audiences,
+		},
+	}
+
+	got, err := agentgateway.NewConfig(testName, testNamespace, spec)
+	require.NoError(t, err)
+
+	audiences[0] = "mutated"
+
+	require.Len(t, got.Policies, 1)
+	require.Equal(t, []string{"aud-a", "aud-b"}, got.Policies[0].Authn.RequiredAudiences)
+}

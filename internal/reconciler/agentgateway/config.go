@@ -97,26 +97,6 @@ const (
 // Authn is the gateway-side view of MCPServerSpec.Auth.
 // TokenExchange and AuthorizationServer are mutually exclusive and
 // only valid when Type is AuthnTypeOAuth.
-//
-// RequiredAudiences is consumer-trusted: NewConfig forwards the CRD slice
-// verbatim with no deduplication, ordering, or emptiness normalization.
-// Callers that need a canonical form must impose it themselves.
-//
-// Trap: leaving MCPServerSpec.Auth.Type empty while populating
-// AuthorizationServer is rejected at NewConfig time — the type discriminator
-// must be set explicitly to AuthnTypeOAuth for AuthorizationServer to take
-// effect. CRD validation does not enforce this today.
-//
-// Adapter-specific support:
-//
-//   - The k8s adapter (cluster mode) materialises Authn into the full
-//     AgentgatewayPolicy stack: ForwardToken → BackendAuth.Passthrough,
-//     plus RequiredAudiences, TokenExchange, and AuthorizationServer
-//     surfacing on the policy where the upstream CRD supports them.
-//   - The yaml adapter (filesystem mode) only maps ForwardToken today;
-//     RequiredAudiences, TokenExchange, and AuthorizationServer are
-//     silently dropped because the agentgateway native config in
-//     filesystem mode does not yet expose those features.
 type Authn struct {
 	Type                AuthnType
 	ForwardToken        bool

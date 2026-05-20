@@ -79,7 +79,20 @@ func mapProtocol(p agentgateway.HTTPProtocol) (agw.MCPProtocol, error) {
 
 // policySpec maps a domain Policy to an AgentgatewayPolicySpec. emit=false
 // means the policy should be deleted rather than written: the no-auth /
-// no-forward case carries no information that the upstream needs.
+// no-forward case carries no information the upstream needs.
+//
+// In the muster-in-front topology, agentgateway sits behind muster's
+// aggregator as a passthrough middleware. muster handles audience
+// validation, RFC 8693 token exchange, and authorization-server pinning
+// before the request is dialed through the gateway. Authn.ForwardToken
+// emits BackendAuth.Passthrough so the gateway re-attaches muster's
+// forwarded token onto the upstream call; the gateway does not validate
+// it. The remaining Authn fields (RequiredAudiences, TokenExchange,
+// AuthorizationServer) are deliberately not translated to gateway-level
+// JWTAuthentication / Authorization rules here — duplicating muster's
+// validation would reject post-exchange tokens whose audiences differ
+// from the original. Once muster's aggregator shrinks (Phase 8), these
+// migrate to AgentgatewayPolicy.JWTAuthentication / .Authorization.
 func policySpec(p agentgateway.Policy) (agw.AgentgatewayPolicySpec, bool) {
 	if p.Authn.Type == agentgateway.AuthnTypeNone && !p.Authn.ForwardToken {
 		return agw.AgentgatewayPolicySpec{}, false
@@ -105,4 +118,21 @@ func policySpec(p agentgateway.Policy) (agw.AgentgatewayPolicySpec, bool) {
 		}
 	}
 	return spec, true
+}
+
+// deferredAuthnFields returns the names of Authn fields the gateway adapter
+// does not translate to AgentgatewayPolicy primitives — muster's aggregator
+// handles them in front of the gateway today.
+func deferredAuthnFields(a agentgateway.Authn) []string {
+	var deferred []string
+	if len(a.RequiredAudiences) > 0 {
+		deferred = append(deferred, "requiredAudiences")
+	}
+	if a.TokenExchange != nil && a.TokenExchange.Enabled {
+		deferred = append(deferred, "tokenExchange")
+	}
+	if a.AuthorizationServer != nil {
+		deferred = append(deferred, "authorizationServer")
+	}
+	return deferred
 }
