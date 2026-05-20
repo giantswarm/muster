@@ -1,16 +1,17 @@
 name: "mcpserver-required-audiences-config"
-description: "MCPServer.spec.auth.requiredAudiences round-trips through create + get + update so the muster-in-front-of-agentgateway topology cannot silently drop it"
+description: "MCPServer.spec.auth.requiredAudiences schema regression: single value, multi-value, and update-replaces-set round-trips through CRUD"
 category: "behavioral"
 concept: "mcpserver"
 tags: ["mcpserver", "create", "oauth", "required-audiences", "regression", "rfc8707"]
 timeout: "1m"
 
-# requiredAudiences is collected by muster's aggregator at user
-# authentication and forwarded as additional `aud` claims on the
-# ID token. Under the muster-in-front-of-agentgateway pivot,
-# muster keeps performing this aggregation before the dial through
-# agentgateway, so the field MUST survive every CRUD path; a
-# dropped value would silently break cross-cluster SSO.
+# Scope: schema field round-trip only — that the requiredAudiences list
+# survives create/get/update with the values preserved in order. The
+# aggregation logic itself (muster collecting these across all configured
+# MCPServers and adding them as `aud` claims at user auth) is unit-tested
+# in TestCollectRequiredAudiences (internal/api/handlers_mcpserver_test.go);
+# cross-cluster SSO using exchanged audiences is locked by
+# oauth-sso-token-exchange-basic.yaml against a real mock Dex + mock backend.
 
 steps:
 - id: "create-with-single-required-audience"

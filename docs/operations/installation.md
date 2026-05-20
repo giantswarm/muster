@@ -139,16 +139,16 @@ Single-host Muster (developer machines, demos, BDD harness, the
     agentgateway spawns the child itself, so the stdio process's parent
     pid is the agentgateway pid, not the muster pid.
 
-* The aggregator's upstream dial URL becomes `http://localhost:<port>`.
-  The BDD harness can override `<port>` via the
-  `aggregator.AgentgatewayPort` config so parallel instances coexist;
-  by default the port is allocated by binding `127.0.0.1:0` at startup.
-  The corresponding YAML applier option is
-  `yamlapply.WithListenerPort(port)`.
+* The aggregator dials agentgateway at `http://localhost:<port>`. By
+  default muster picks an unused port on the loopback interface at
+  startup so multiple muster processes on the same host (parallel BDD
+  runs, side-by-side dev instances) never collide; the chosen port is
+  logged at startup.
 
 * On `SIGTERM`, muster stops the reconciler, then sends `SIGTERM` to
-  agentgateway and waits for it to drain (10s default), then forcibly
-  kills any stragglers. agentgateway cascades to its stdio children.
+  agentgateway and waits up to ten seconds for it to drain before
+  forcibly killing any stragglers. agentgateway cascades to its stdio
+  children.
 
 ### Cluster mode — one MCPServer CRD suffices
 
@@ -214,16 +214,15 @@ spec:
 core_mcpserver_update name=my-server suspended=true
 ```
 
-> `core_service_list` and `core_service_status` still report the live
-> aggregator dial state (`connected` / `auth_required` / `disconnected`
-> / `absent`). They are deprecated and slated for removal once muster's
-> `/mcp` surface goes away in Phase 8 — prefer `core_mcpserver_list` and
-> `core_mcpserver_get` for CRD-level queries, and use
-> `core_mcpserver_reconnect` to force-reconnect after token rotation or
-> sticky transient failure. The cosmetic `core_service_start` /
-> `core_service_stop` / `core_service_restart` tools were removed
-> alongside `spec.suspended`; they only flipped muster's dial intent
-> and did not affect the MCPServer pod or stdio child.
+> Pause/resume is driven by `spec.suspended`; `core_mcpserver_update`
+> flips it from any client. For CRD-level queries prefer
+> `core_mcpserver_list` and `core_mcpserver_get`; to force-reconnect a
+> live MCPServer client after token rotation or a sticky transient
+> failure, call `core_mcpserver_reconnect`. The deprecated
+> `core_service_list` and `core_service_status` aliases still report
+> the aggregator dial state (`connected` / `auth_required` /
+> `disconnected` / `absent`); they are slated for removal once
+> muster's `/mcp` surface goes away in Phase 8.
 
 ## Deployment Configurations
 

@@ -1,15 +1,17 @@
 name: "mcpserver-token-exchange-config"
-description: "MCPServer.spec.auth.tokenExchange (RFC 8693) round-trips through CRUD without Teleport, asserting required fields and mutually-exclusive rejections"
+description: "MCPServer.spec.auth.tokenExchange (RFC 8693) schema regression: required fields, mutually-exclusive rejections, full CRUD round-trip"
 category: "behavioral"
 concept: "mcpserver"
 tags: ["mcpserver", "create", "oauth", "token-exchange", "rfc8693", "regression"]
 timeout: "1m"
 
-# Token exchange used to ship glued to Teleport; PR #687 split them, and the
-# muster-in-front-of-agentgateway pivot means muster's aggregator continues
-# to perform the RFC 8693 exchange before dialing through agentgateway. Lock
-# the standalone (non-Teleport) config shape with CRUD coverage so a future
-# refactor cannot silently drop fields.
+# Scope: schema field round-trip only — that the tokenExchange shape survives
+# create/get/validate exactly as written. On-wire RFC 8693 behaviour (muster's
+# aggregator actually performing the token swap before dialing through
+# agentgateway, exchanged tokens hitting the upstream) is locked by
+# oauth-sso-token-exchange-basic.yaml against a real mock Dex + mock backend.
+# A refactor that drops the swap implementation breaks that scenario; this one
+# catches schema-level field drops.
 
 steps:
 - id: "create-with-token-exchange-minimal"

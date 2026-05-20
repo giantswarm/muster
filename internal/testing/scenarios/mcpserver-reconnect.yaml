@@ -31,7 +31,7 @@ pre_configuration:
 
 steps:
 - id: "verify-connected-before-reconnect"
-  tool: "core_service_status"
+  tool: "core_mcpserver_get"
   args:
     name: "reconnect-target"
   expected:
@@ -39,7 +39,7 @@ steps:
     wait_for_state: "30s"
     json_path:
       name: "reconnect-target"
-      state: "connected"
+      state: "Connected"
 
 - id: "tool-call-before-reconnect"
   tool: "x_reconnect-target_ping"
@@ -60,7 +60,7 @@ steps:
 
 - id: "verify-connected-after-reconnect"
   description: "The reconnect must restore the connected state without manual intervention"
-  tool: "core_service_status"
+  tool: "core_mcpserver_get"
   args:
     name: "reconnect-target"
   expected:
@@ -68,7 +68,7 @@ steps:
     wait_for_state: "30s"
     json_path:
       name: "reconnect-target"
-      state: "connected"
+      state: "Connected"
 
 - id: "tool-call-after-reconnect"
   description: "Tools must remain callable across the reconnect"
@@ -80,13 +80,13 @@ steps:
     contains: ["after-reconnect", "ok"]
 
 - id: "reconnect-non-existent-fails"
-  description: "Reconnecting an unknown MCPServer returns a clear error rather than registering a phantom upstream"
+  description: "Reconnecting an unknown MCPServer returns an error that echoes the input name (asserting the name surfaces, not the English wording)"
   tool: "core_mcpserver_reconnect"
   args:
     name: "no-such-server"
   expected:
     success: false
-    error_contains: ["Failed to reconnect"]
+    contains: ["no-such-server"]
 
 cleanup:
 - id: "cleanup-reconnect-target"
