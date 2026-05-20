@@ -4,18 +4,23 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
-	"regexp"
 	"sort"
+	"strings"
 	"sync"
 
 	goyaml "gopkg.in/yaml.v3"
+	"k8s.io/apimachinery/pkg/util/validation"
 
+	"github.com/giantswarm/muster/internal/agentgateway/version"
 	"github.com/giantswarm/muster/internal/reconciler/agentgateway"
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
-// SchemaURL pins the agentgateway native config schema this applier targets.
-const SchemaURL = "https://raw.githubusercontent.com/agentgateway/agentgateway/refs/tags/v1.2.1/schema/config.json"
+// SchemaURL points at the agentgateway native config schema for the
+// release pinned in go.mod (see internal/agentgateway/version).
+var SchemaURL = "https://raw.githubusercontent.com/agentgateway/agentgateway/refs/tags/" + version.Tag + "/schema/config.json"
 
 // DefaultListenerPort is the TCP port written into the bind block when no
 // override is supplied via WithListenerPort.
@@ -30,19 +35,14 @@ const DefaultListenerName = "muster"
 // at this file.
 const ConfigFilename = "agentgateway.yaml"
 
+var pragma = "# yaml-language-server: $schema=" + SchemaURL + "\n"
+
 const (
-	pragma         = "# yaml-language-server: $schema=" + SchemaURL + "\n"
 	tempFilename   = ConfigFilename + ".tmp"
 	routePathRoot  = "/mcp/"
 	dirPermissions = 0o755
 	filePermission = 0o600
-	maxNameLen     = 253
 )
-
-// nameSafe restricts route identifiers to the Kubernetes DNS subdomain shape
-// (RFC 1123 labels joined by dots) so callers cannot inject yaml or shell
-// metacharacters via MCPServer names.
-var nameSafe = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`)
 
 // Option configures Applier at construction time.
 type Option func(*Applier)
@@ -122,8 +122,18 @@ func (a *Applier) Apply(ctx context.Context, config agentgateway.Config) error {
 	if err != nil {
 		return fmt.Errorf("yaml applier: %w", err)
 	}
-	if !isSafeName(name) {
-		return fmt.Errorf("yaml applier: name %q is not a safe route identifier", name)
+	if err := validateName(name); err != nil {
+		return fmt.Errorf("yaml applier: %w", err)
+	}
+
+	if len(config.Policies) > 0 {
+		if deferred := deferredAuthnFields(config.Policies[0].Authn); len(deferred) > 0 {
+			logging.InfoWithAttrsCtx(ctx, "agentgateway/yaml",
+				"MCPServer Authn fields handled by muster aggregator, not emitted at gateway",
+				slog.String("policy", config.Policies[0].Name),
+				slog.Any("deferredFields", deferred),
+			)
+		}
 	}
 
 	route, err := buildLocalRoute(name, config)
@@ -144,8 +154,8 @@ func (a *Applier) Delete(ctx context.Context, name string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if !isSafeName(name) {
-		return fmt.Errorf("yaml applier: name %q is not a safe route identifier", name)
+	if err := validateName(name); err != nil {
+		return fmt.Errorf("yaml applier: %w", err)
 	}
 
 	a.mu.Lock()
@@ -197,11 +207,11 @@ func (a *Applier) buildConfig() *LocalConfig {
 	}
 }
 
-func isSafeName(name string) bool {
-	if name == "" || len(name) > maxNameLen {
-		return false
+func validateName(name string) error {
+	if errs := validation.IsDNS1123Subdomain(name); len(errs) > 0 {
+		return fmt.Errorf("invalid name %q: %s", name, strings.Join(errs, "; "))
 	}
-	return nameSafe.MatchString(name)
+	return nil
 }
 
 func nameFromConfig(c agentgateway.Config) (string, error) {
@@ -282,8 +292,11 @@ func httpEndpoint(name string, t agentgateway.HTTPTarget) (*McpTargetEndpoint, e
 	if t.Host == "" {
 		return nil, fmt.Errorf("backend %q has unresolved host", name)
 	}
-	if t.Port <= 0 || t.Port > 65535 {
-		return nil, fmt.Errorf("backend %q has out-of-range port %d", name, t.Port)
+	if err := t.Validate(); err != nil {
+		return nil, fmt.Errorf("backend %q: %w", name, err)
+	}
+	if t.Port < 0 || t.Port > 65535 {
+		return nil, fmt.Errorf("backend %q port %d out of range [0, 65535]", name, t.Port)
 	}
 	return &McpTargetEndpoint{
 		Host: t.Host,
@@ -293,12 +306,26 @@ func httpEndpoint(name string, t agentgateway.HTTPTarget) (*McpTargetEndpoint, e
 }
 
 func policyFor(p agentgateway.Policy) *FilterOrPolicy {
-	if !p.Authn.ForwardToken {
+	if !p.Authn.RequiresPolicy() || !p.Authn.ForwardToken {
 		return nil
 	}
 	return &FilterOrPolicy{
 		BackendAuth: &BackendAuth{Passthrough: &Passthrough{}},
 	}
+}
+
+func deferredAuthnFields(a agentgateway.Authn) []string {
+	var deferred []string
+	if len(a.RequiredAudiences) > 0 {
+		deferred = append(deferred, "requiredAudiences")
+	}
+	if a.TokenExchange != nil && a.TokenExchange.Enabled {
+		deferred = append(deferred, "tokenExchange")
+	}
+	if a.AuthorizationServer != nil {
+		deferred = append(deferred, "authorizationServer")
+	}
+	return deferred
 }
 
 func marshalConfig(cfg *LocalConfig) ([]byte, error) {

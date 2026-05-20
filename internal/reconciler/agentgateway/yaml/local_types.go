@@ -1,19 +1,10 @@
 package yaml
 
-// LocalConfig is the root object of an agentgateway standalone YAML
-// configuration file. Type names mirror the upstream `$defs` entries at:
-//
-//	https://raw.githubusercontent.com/agentgateway/agentgateway/refs/tags/v1.2.1/schema/config.json
-//
-// Only the fields the YAML applier emits are modelled. Codegen via
-// github.com/atombender/go-jsonschema was attempted and rejected: the agw
-// schema uses untagged `oneOf` for Rust serde-style enums (BackendAuth:
-// string | {passthrough} | {key} | {gcp} | {aws} | {azure}) which the tool
-// cannot map onto Go without per-variant interface emission. Hand-rolling
-// the muster-relevant subset is leaner anyway — even a working codegen would
-// drag in thousands of lines of AI / cloud-provider surface the applier
-// never serializes. Tags use yaml.v3 conventions; struct field order is
-// significant for deterministic marshalling.
+// Type names mirror the upstream `$defs` entries at the schema URL
+// derived from the agentgateway version pinned in go.mod (see
+// internal/agentgateway/version and SchemaURL in applier.go).
+// Only the fields the YAML applier emits are modelled. yaml.v3 tags; struct
+// field order is significant for deterministic marshalling.
 
 // LocalConfig is the root object of an agentgateway YAML configuration file.
 type LocalConfig struct {

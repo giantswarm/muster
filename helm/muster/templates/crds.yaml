@@ -1,7 +1,10 @@
 {{- if .Values.crds.install }}
-{{- $files := .Files.Glob "crds/*" }}
-{{- range $path, $_ := $files }}
+{{- range $path, $_ := .Files.Glob "files/crds/*.yaml" }}
+{{- $crd := $.Files.Get $path | fromYaml }}
+{{- with $.Values.crds.annotations }}
+{{- $_ := set $crd.metadata "annotations" (merge (default dict $crd.metadata.annotations) .) }}
+{{- end }}
 ---
-{{ $.Files.Get $path }}
+{{ $crd | toYaml }}
 {{- end }}
 {{- end }}

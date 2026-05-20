@@ -14,11 +14,15 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/giantswarm/muster/internal/agentgateway/version"
 )
 
-// PinnedVersion is the agentgateway release this build of muster targets.
-// The subprocess manager and the native-config schema move in lockstep with it.
-const PinnedVersion = "1.2.1"
+// PinnedVersion is the agentgateway release this build of muster
+// targets. It is sourced from go.mod via the version package; bumping
+// is `go get github.com/agentgateway/agentgateway@vX.Y.Z` followed by
+// `make refresh-checksums`.
+var PinnedVersion = version.Pinned
 
 // EnvVar names the override environment variable.
 const EnvVar = "MUSTER_AGW_BINARY"
@@ -89,7 +93,7 @@ func resolveWithChecksums(ctx context.Context, checksums map[string]string, opts
 	if err != nil {
 		return "", err
 	}
-	expected, ok := checksums[asset+"/"+PinnedVersion]
+	expected, ok := checksums[asset]
 	if !ok {
 		return "", fmt.Errorf("%w: %s v%s", ErrUnpinnedPlatform, asset, PinnedVersion)
 	}
