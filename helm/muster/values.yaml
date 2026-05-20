@@ -316,8 +316,6 @@ muster:
         clientSecret: ""
         # Optional connector ID to bypass Dex connector selection
         connectorId: ""
-        # Path to CA certificate file for Dex TLS verification (for private CAs)
-        caFile: ""
 
       # Google OAuth provider configuration (used when provider is "google")
       google:

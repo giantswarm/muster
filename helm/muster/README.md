@@ -67,7 +67,6 @@ A Helm chart for muster - Universal Control Plane for AI Agents built on MCP
 | muster.oauth.server.allowLocalhostRedirectURIs | bool | `true` |  |
 | muster.oauth.server.allowPublicClientRegistration | bool | `false` |  |
 | muster.oauth.server.baseUrl | string | `""` |  |
-| muster.oauth.server.dex.caFile | string | `""` |  |
 | muster.oauth.server.dex.clientId | string | `""` |  |
 | muster.oauth.server.dex.clientSecret | string | `""` |  |
 | muster.oauth.server.dex.connectorId | string | `""` |  |

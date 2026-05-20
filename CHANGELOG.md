@@ -23,6 +23,7 @@ All notable changes to this project will be documented in this file.
 ### Removed
 
 - **Breaking (external consumers of `pkg/oauth`):** `pkg/oauth.IDTokenClaims` struct and `ParseIDTokenClaims` function removed. Replaced by typed accessors in `pkg/oauth/jwt.go` — `Subject`, `Email`, `Expiry`, `Issuer`, `IsExpired` — each returning `(value, error)` so callers can distinguish "missing claim" from "decode failed".
+- Per-config CA-file knobs removed: `OAuthMCPClientConfig.CAFile`, `DexConfig.CAFile` (Go config), and the `muster.oauth.server.dex.caFile` Helm value. These were redundant after `--extra-ca-file` (which augments the system trust pool) and the OAuth one was a footgun: it built a fresh cert pool from a single file, silently dropping system roots and narrowing trust to that one CA. **Operator caveat — trust scope changes:** the removed paths *narrowed* trust to a single CA; the replacement `--extra-ca-file` / `muster.extraCaFile` is *additive* on top of the system pool. Anyone who deliberately relied on the narrower scope no longer has that option here. None of giantswarm's deployed configs set these values, so no migration is required.
 
 ### Changed
 
