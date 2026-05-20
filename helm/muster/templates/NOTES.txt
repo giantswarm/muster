@@ -51,4 +51,25 @@ Muster has been deployed!
     }
   }
 
+{{- if .Values.gatewayAPI.enabled }}
+{{- if not .Values.gatewayAPI.httpRoute.parentRefs }}
+
+6. Public HTTPRoute requires `gatewayAPI.httpRoute.parentRefs` and `.hostnames`.
+   The chart's fail-guard blocks install when either is empty. Typical Giant
+   Swarm shape:
+
+      gatewayAPI:
+        enabled: true
+        httpRoute:
+          parentRefs:
+            - name: giantswarm-default
+              namespace: envoy-gateway-system
+              group: gateway.networking.k8s.io
+              kind: Gateway
+          hostnames:
+            - muster.<cluster>.<base-domain>
+
+{{- end }}
+{{- end }}
+
 For more information, visit: https://github.com/giantswarm/muster

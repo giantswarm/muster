@@ -205,6 +205,45 @@ volumes: []
 # Additional volumeMounts on the output Deployment definition.
 volumeMounts: []
 
+# Extra env vars appended to the muster container. Each item is a corev1.EnvVar.
+# Use this to push feature-flag env vars before a chart helper lands for them
+# (e.g. MUSTER_AGW_UPSTREAM_URL was reachable only via `kubectl set env` before
+# the muster.agentgatewayUpstreamURL helper landed).
+extraEnv: []
+
+# Extra args appended to the muster `serve` invocation. Strings, one per line.
+extraArgs: []
+
+# Liveness probe for the muster container. Defaults to HTTP /health on port
+# `http`. Operators on older muster binaries that don't bind /health early
+# (or at all) should switch to a TCP socket probe — Helm deep-merges values,
+# so the override MUST null out the default `httpGet` block to drop it:
+#   livenessProbe:
+#     httpGet: null
+#     tcpSocket:
+#       port: http
+#     initialDelaySeconds: 10
+#     periodSeconds: 10
+#     timeoutSeconds: 5
+#     failureThreshold: 3
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 3
+
 nodeSelector: {}
 
 tolerations: []

@@ -58,6 +58,9 @@ spec:
             - --oauth-server
             - --oauth-server-base-url={{ .Values.muster.oauth.server.baseUrl }}
             {{- end }}
+            {{- with .Values.extraArgs }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           ports:
             - name: http
               containerPort: {{ .Values.muster.aggregator.port }}
@@ -68,21 +71,9 @@ spec:
               protocol: TCP
             {{- end }}
           livenessProbe:
-            httpGet:
-              path: /health
-              port: http
-            initialDelaySeconds: 10
-            periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 3
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:
-            httpGet:
-              path: /health
-              port: http
-            initialDelaySeconds: 5
-            periodSeconds: 5
-            timeoutSeconds: 3
-            failureThreshold: 3
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
           env:
             - name: K8S_NAMESPACE
               valueFrom:
@@ -120,8 +111,11 @@ spec:
             - name: OTEL_EXPORTER_PROMETHEUS_PORT
               value: {{ .Values.muster.observability.metrics.prometheus.port | quote }}
             {{- end }}
-            # Note: OAuth secrets are loaded from mounted files (per MCP OAuth security recommendations)
-            # See /etc/muster/secrets/ volume mount
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+            # OAuth secrets are loaded from mounted files (per MCP OAuth security
+            # recommendations). See /etc/muster/secrets/ volume mount.
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
