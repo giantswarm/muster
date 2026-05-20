@@ -155,9 +155,9 @@ func TestAggregatorServer_HandlerTracking(t *testing.T) {
 	}
 
 	// Register multiple servers
-	require.NoError(t, server.RegisterServer(ctx, "server1", client1, ""))
+	require.NoError(t, server.RegisterServer(ctx, ServerRegistration{Name: "server1", ToolPrefix: ""}, client1))
 	time.Sleep(100 * time.Millisecond)
-	require.NoError(t, server.RegisterServer(ctx, "server2", client2, ""))
+	require.NoError(t, server.RegisterServer(ctx, ServerRegistration{Name: "server2", ToolPrefix: ""}, client2))
 
 	// Give the registry update a moment to process
 	// This is needed because updateCapabilities runs in a goroutine
@@ -223,7 +223,7 @@ func TestAggregatorServer_InitialRegistration(t *testing.T) {
 	defer func() { _ = server.Stop(ctx) }()
 
 	// Register another server
-	require.NoError(t, server.RegisterServer(ctx, "test-server", client, ""))
+	require.NoError(t, server.RegisterServer(ctx, ServerRegistration{Name: "test-server", ToolPrefix: ""}, client))
 
 	// Wait for the asynchronous update to complete
 	time.Sleep(50 * time.Millisecond)
@@ -273,7 +273,7 @@ func TestAggregatorServer_EmptyStart(t *testing.T) {
 		},
 	}
 
-	err = server.RegisterServer(ctx, "late-server", client, "")
+	err = server.RegisterServer(ctx, ServerRegistration{Name: "late-server", ToolPrefix: ""}, client)
 	assert.NoError(t, err)
 
 	// Tool should now be available
@@ -304,7 +304,7 @@ func TestAggregatorServer_HandlerExecution(t *testing.T) {
 		},
 	}
 
-	err = server.RegisterServer(ctx, "exec-server", client, "")
+	err = server.RegisterServer(ctx, ServerRegistration{Name: "exec-server", ToolPrefix: ""}, client)
 	assert.NoError(t, err)
 
 	// Wait for the asynchronous update to complete
@@ -368,9 +368,9 @@ func TestAggregatorServer_ToolsRemovedOnServerStop(t *testing.T) {
 	}
 
 	// Register servers with clients that return errors
-	require.NoError(t, server.RegisterServer(ctx, "server1", client1, ""))
+	require.NoError(t, server.RegisterServer(ctx, ServerRegistration{Name: "server1", ToolPrefix: ""}, client1))
 	time.Sleep(100 * time.Millisecond)
-	require.NoError(t, server.RegisterServer(ctx, "server2", client2, ""))
+	require.NoError(t, server.RegisterServer(ctx, ServerRegistration{Name: "server2", ToolPrefix: ""}, client2))
 
 	// Wait for updates
 	time.Sleep(50 * time.Millisecond)
@@ -440,7 +440,7 @@ func TestAggregatorServer_DynamicToolManagement(t *testing.T) {
 		},
 	}
 
-	err = server.RegisterServer(ctx, "server1", client1, "")
+	err = server.RegisterServer(ctx, ServerRegistration{Name: "server1", ToolPrefix: ""}, client1)
 	assert.NoError(t, err)
 
 	// Wait for the update to complete
@@ -463,7 +463,7 @@ func TestAggregatorServer_DynamicToolManagement(t *testing.T) {
 		},
 	}
 
-	err = server.RegisterServer(ctx, "server2", client2, "")
+	err = server.RegisterServer(ctx, ServerRegistration{Name: "server2", ToolPrefix: ""}, client2)
 	assert.NoError(t, err)
 
 	// Wait for the update to complete
@@ -531,7 +531,7 @@ func TestAggregatorServer_NoStaleHandlersAfterRestart(t *testing.T) {
 		},
 	}
 
-	err = server.RegisterServer(ctx, "server1", client1, "")
+	err = server.RegisterServer(ctx, ServerRegistration{Name: "server1", ToolPrefix: ""}, client1)
 	assert.NoError(t, err)
 
 	// Wait for registration
@@ -556,7 +556,7 @@ func TestAggregatorServer_NoStaleHandlersAfterRestart(t *testing.T) {
 		},
 	}
 
-	err = server.RegisterServer(ctx, "server2", client2, "")
+	err = server.RegisterServer(ctx, ServerRegistration{Name: "server2", ToolPrefix: ""}, client2)
 	assert.NoError(t, err)
 
 	// Wait for registration

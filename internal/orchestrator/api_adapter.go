@@ -52,17 +52,25 @@ func (a *Adapter) Register() {
 }
 
 // Service lifecycle management. MCPServers no longer live in the
-// orchestrator service registry (PR 11); when the registry has no entry,
-// fall back to driving the aggregator upstream so core_service_start /
-// _stop / _restart keep working against MCPServer names without
-// resurrecting the orchestrator-driven lifecycle path.
+// orchestrator service registry (PR 11) so core_service_start / _stop /
+// _restart on an MCPServer name flips spec.suspended on the CRD. The
+// reconciler's next pass picks up the change and (de)registers the upstream
+// — operator intent lives on the CRD, not in aggregator memory.
 func (a *Adapter) StartService(name string) error {
 	if _, exists := a.orchestrator.registry.Get(name); exists {
 		return a.orchestrator.StartService(name)
 	}
-	if agg := api.GetAggregator(); agg != nil {
-		agg.MarkUserStarted(name)
-		return agg.RegisterUpstream(context.Background(), name)
+	if mgr := api.GetMCPServerManager(); mgr != nil {
+		if _, err := mgr.GetMCPServer(name); err == nil {
+			ctx := context.Background()
+			if err := mgr.SetSuspended(ctx, name, false); err != nil {
+				return err
+			}
+			if agg := api.GetAggregator(); agg != nil {
+				return agg.RegisterUpstream(ctx, name)
+			}
+			return nil
+		}
 	}
 	return a.orchestrator.StartService(name)
 }
@@ -71,9 +79,17 @@ func (a *Adapter) StopService(name string) error {
 	if _, exists := a.orchestrator.registry.Get(name); exists {
 		return a.orchestrator.StopService(name)
 	}
-	if agg := api.GetAggregator(); agg != nil {
-		agg.MarkUserStopped(name)
-		return agg.DeregisterUpstream(context.Background(), name)
+	if mgr := api.GetMCPServerManager(); mgr != nil {
+		if _, err := mgr.GetMCPServer(name); err == nil {
+			ctx := context.Background()
+			if err := mgr.SetSuspended(ctx, name, true); err != nil {
+				return err
+			}
+			if agg := api.GetAggregator(); agg != nil {
+				return agg.DeregisterUpstream(ctx, name)
+			}
+			return nil
+		}
 	}
 	return a.orchestrator.StopService(name)
 }
@@ -82,13 +98,26 @@ func (a *Adapter) RestartService(name string) error {
 	if _, exists := a.orchestrator.registry.Get(name); exists {
 		return a.orchestrator.RestartService(name)
 	}
-	if agg := api.GetAggregator(); agg != nil {
-		ctx := context.Background()
-		agg.MarkUserStarted(name)
-		if err := agg.DeregisterUpstream(ctx, name); err != nil {
-			return err
+	if mgr := api.GetMCPServerManager(); mgr != nil {
+		if _, err := mgr.GetMCPServer(name); err == nil {
+			ctx := context.Background()
+			agg := api.GetAggregator()
+			if err := mgr.SetSuspended(ctx, name, true); err != nil {
+				return err
+			}
+			if agg != nil {
+				if err := agg.DeregisterUpstream(ctx, name); err != nil {
+					return err
+				}
+			}
+			if err := mgr.SetSuspended(ctx, name, false); err != nil {
+				return err
+			}
+			if agg != nil {
+				return agg.RegisterUpstream(ctx, name)
+			}
+			return nil
 		}
-		return agg.RegisterUpstream(ctx, name)
 	}
 	return a.orchestrator.RestartService(name)
 }
@@ -117,6 +146,13 @@ func (a *Adapter) SubscribeToStateChanges() <-chan api.ServiceStateChangedEvent 
 
 // GetServiceStatus returns the current status of a service.
 func (a *Adapter) GetServiceStatus(name string) (*api.ServiceStatus, error) {
+	return a.getServiceStatus(context.Background(), name)
+}
+
+// getServiceStatus is the session-aware implementation: ctx carries the
+// caller's session ID so OAuth servers whose global registry stays in
+// pending-auth surface as Connected once the calling session has authenticated.
+func (a *Adapter) getServiceStatus(ctx context.Context, name string) (*api.ServiceStatus, error) {
 	if service, exists := a.orchestrator.registry.Get(name); exists {
 		status := &api.ServiceStatus{
 			Name:        service.GetName(),
@@ -138,19 +174,14 @@ func (a *Adapter) GetServiceStatus(name string) (*api.ServiceStatus, error) {
 		return status, nil
 	}
 
-	// MCPServers no longer live in the orchestrator's service registry
-	// (PR 11 moved their lifecycle to the aggregator + reconciler). Fall
-	// back to the aggregator's view so core_service_status keeps reporting
-	// state for MCPServer names without resurrecting the deleted
-	// orchestrator-driven service path.
-	if status, ok := mcpServerAPIStatusFromAggregator(name); ok {
+	if status, ok := mcpServerAPIStatusFromAggregator(ctx, name); ok {
 		return status, nil
 	}
 
 	return nil, fmt.Errorf("service %s not found", name)
 }
 
-func mcpServerAPIStatusFromAggregator(name string) (*api.ServiceStatus, bool) {
+func mcpServerAPIStatusFromAggregator(ctx context.Context, name string) (*api.ServiceStatus, bool) {
 	// Confirm this name corresponds to a known MCPServer CRD before
 	// fabricating a synthetic status. Without this, core_service_status
 	// would invent ServiceStatus entries for arbitrary names.
@@ -174,7 +205,7 @@ func mcpServerAPIStatusFromAggregator(name string) (*api.ServiceStatus, bool) {
 	// but BDD scenarios and operator dashboards still key off the legacy
 	// state names per spec.type.
 	isRemote := info.Type != "stdio"
-	switch agg.UpstreamServerState(name) {
+	switch agg.UpstreamServerStateForSession(ctx, name) {
 	case api.UpstreamServerConnected:
 		state := api.StateRunning
 		if isRemote {
@@ -217,6 +248,10 @@ func mcpServerAPIStatusFromAggregator(name string) (*api.ServiceStatus, bool) {
 // operator dashboards) keep seeing MCPServer entries alongside any
 // remaining static services.
 func (a *Adapter) GetAllServices() []api.ServiceStatus {
+	return a.getAllServices(context.Background())
+}
+
+func (a *Adapter) getAllServices(ctx context.Context) []api.ServiceStatus {
 	allServices := a.orchestrator.registry.GetAll()
 	statuses := make([]api.ServiceStatus, 0, len(allServices))
 
@@ -243,7 +278,7 @@ func (a *Adapter) GetAllServices() []api.ServiceStatus {
 
 	if mcpServerMgr := api.GetMCPServerManager(); mcpServerMgr != nil {
 		for _, info := range mcpServerMgr.ListMCPServers() {
-			if status, ok := mcpServerAPIStatusFromAggregator(info.Name); ok {
+			if status, ok := mcpServerAPIStatusFromAggregator(ctx, info.Name); ok {
 				statuses = append(statuses, *status)
 			}
 		}
@@ -294,7 +329,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 func (a *Adapter) ExecuteTool(ctx context.Context, toolName string, args map[string]interface{}) (*api.CallToolResult, error) {
 	switch toolName {
 	case "service_list":
-		return a.handleServiceList()
+		return a.handleServiceList(ctx)
 	case "service_start":
 		return a.handleServiceStart(args)
 	case "service_stop":
@@ -302,14 +337,14 @@ func (a *Adapter) ExecuteTool(ctx context.Context, toolName string, args map[str
 	case "service_restart":
 		return a.handleServiceRestart(args)
 	case "service_status":
-		return a.handleServiceStatus(args)
+		return a.handleServiceStatus(ctx, args)
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", toolName)
 	}
 }
 
-func (a *Adapter) handleServiceList() (*api.CallToolResult, error) {
-	svcs := a.GetAllServices()
+func (a *Adapter) handleServiceList(ctx context.Context) (*api.CallToolResult, error) {
+	svcs := a.getAllServices(ctx)
 
 	result := map[string]interface{}{
 		"services": svcs,
@@ -424,7 +459,7 @@ func (a *Adapter) handleServiceRestart(args map[string]interface{}) (*api.CallTo
 	}, nil
 }
 
-func (a *Adapter) handleServiceStatus(args map[string]interface{}) (*api.CallToolResult, error) {
+func (a *Adapter) handleServiceStatus(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
 	name, ok := args["name"].(string)
 	if !ok {
 		return &api.CallToolResult{
@@ -433,7 +468,7 @@ func (a *Adapter) handleServiceStatus(args map[string]interface{}) (*api.CallToo
 		}, nil
 	}
 
-	status, err := a.GetServiceStatus(name)
+	status, err := a.getServiceStatus(ctx, name)
 	if err != nil {
 		return &api.CallToolResult{
 			Content: []interface{}{fmt.Sprintf("Failed to get service status: %v", err)},

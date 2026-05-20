@@ -3,13 +3,13 @@ package aggregator
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
 	"strings"
 	"syscall"
 	"time"
 
 	internalmcp "github.com/giantswarm/muster/internal/mcpserver"
-
-	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // proxyURLFor returns the dial URL muster's aggregator uses to reach the
@@ -21,47 +21,104 @@ func proxyURLFor(proxy, name string) string {
 	return strings.TrimRight(proxy, "/") + "/mcp/" + name
 }
 
-// upstreamConnectRetryAttempts caps the inner retry loop in
-// initializeWithConnectRetry. Six attempts at 250ms cadence gives ~1.5s of
-// recovery, comfortably longer than agentgateway's observed ~300ms
-// file-watch reload window without dragging out hard failures.
-const upstreamConnectRetryAttempts = 6
+const (
+	agentgatewayReadyPollInterval = 50 * time.Millisecond
+	agentgatewayReadyMaxWait      = 2 * time.Second
+)
 
-// upstreamConnectRetryInterval is the per-attempt wait between Initialize
-// retries while the connection is being refused.
-const upstreamConnectRetryInterval = 250 * time.Millisecond
+// readinessURLFor returns agentgateway's readiness URL for the configured
+// port. Zero readinessPort signals cluster mode where agentgateway runs
+// out-of-band and probing is the caller's responsibility — returns "".
+func readinessURLFor(readinessPort uint16) string {
+	if readinessPort == 0 {
+		return ""
+	}
+	return fmt.Sprintf("http://localhost:%d/healthz/ready", readinessPort)
+}
 
-// initializeWithConnectRetry wraps StreamableHTTPClient.Initialize so we
-// transparently absorb the race between yaml.Applier writing a new route
-// to agentgateway.yaml and agentgateway re-reading the file + binding
-// :8080. Without this, the very first RegisterUpstream for a fresh
-// MCPServer always fails with "connection refused" until the outer
-// reconcile-manager backoff fires (1s+ later).
-//
-// Only transient connect-refused errors are retried; auth/transport errors
-// are returned to the caller verbatim so the AuthRequiredError path keeps
+// upstreamDialRetryAttempts caps the per-route dial loop that runs after
+// the readiness handshake succeeds. agentgateway reports ready before its
+// file-watch reload binds a brand-new /mcp/<name> route — readiness is
+// gateway-level, not route-level — so a connection-refused error after a
+// fresh Apply means "route not bound yet, try again." Four attempts at
+// 100ms gives ~400ms which comfortably covers the observed bind latency.
+const (
+	upstreamDialRetryAttempts = 4
+	upstreamDialRetryInterval = 100 * time.Millisecond
+)
+
+// initializeUpstream runs the readiness + dial handshake the aggregator
+// performs for every new MCPServer. The readiness probe catches the case
+// where agentgateway is restarting; the dial-side retry catches the
+// per-route bind race after a yaml.Applier write. Non-transport errors
+// (auth, protocol) are returned verbatim so the AuthRequiredError path keeps
 // working.
-func initializeWithConnectRetry(ctx context.Context, client internalmcp.MCPClient, dialURL string) error {
+func initializeUpstream(ctx context.Context, client internalmcp.MCPClient, readyURL string) error {
+	if err := waitForAgentgatewayReady(ctx, nil, readyURL); err != nil {
+		// Continue: a readiness failure is best-effort. The dial-side
+		// retry below still gets a chance to succeed.
+		_ = err
+	}
 	var lastErr error
-	for attempt := 0; attempt < upstreamConnectRetryAttempts; attempt++ {
+	for attempt := 0; attempt < upstreamDialRetryAttempts; attempt++ {
 		err := client.Initialize(ctx)
 		if err == nil {
 			return nil
 		}
-		lastErr = err
-		if !isConnectionRefused(err) {
+		if !errors.Is(err, syscall.ECONNREFUSED) {
 			return err
 		}
-		logging.Debug("Aggregator-Manager", "upstream %s connect refused (attempt %d/%d), retrying", dialURL, attempt+1, upstreamConnectRetryAttempts)
+		lastErr = err
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(upstreamConnectRetryInterval):
+		case <-time.After(upstreamDialRetryInterval):
 		}
 	}
 	return lastErr
 }
 
-func isConnectionRefused(err error) bool {
-	return errors.Is(err, syscall.ECONNREFUSED)
+// waitForAgentgatewayReady polls agentgateway's /healthz/ready until the
+// gateway returns 2xx or ctx fires. Returns nil immediately when readyURL
+// is empty (cluster mode — agentgateway runs out-of-band, readiness is the
+// pod owner's responsibility, not muster's).
+func waitForAgentgatewayReady(ctx context.Context, httpClient *http.Client, readyURL string) error {
+	if readyURL == "" {
+		return nil
+	}
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: agentgatewayReadyPollInterval * 4}
+	}
+	deadline := time.Now().Add(agentgatewayReadyMaxWait)
+	probeCtx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+
+	ticker := time.NewTicker(agentgatewayReadyPollInterval)
+	defer ticker.Stop()
+
+	var lastErr error
+	for {
+		req, err := http.NewRequestWithContext(probeCtx, http.MethodGet, readyURL, nil)
+		if err != nil {
+			return fmt.Errorf("build readiness request: %w", err)
+		}
+		resp, err := httpClient.Do(req)
+		if err == nil {
+			_ = resp.Body.Close()
+			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+				return nil
+			}
+			lastErr = fmt.Errorf("agentgateway readiness %s returned status %d", readyURL, resp.StatusCode)
+		} else {
+			lastErr = err
+		}
+		select {
+		case <-probeCtx.Done():
+			if lastErr != nil {
+				return fmt.Errorf("agentgateway readiness wait timed out (last error: %v)", lastErr)
+			}
+			return probeCtx.Err()
+		case <-ticker.C:
+		}
+	}
 }
