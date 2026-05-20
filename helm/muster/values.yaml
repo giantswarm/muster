@@ -483,15 +483,26 @@ crds:
   annotations:
     helm.sh/resource-policy: keep
 
-# Cilium Network Policy configuration
-ciliumNetworkPolicy:
-  # Enable CiliumNetworkPolicy creation
+# NetworkPolicy. flavor selects the kind rendered: CiliumNetworkPolicy
+# (uses entity selectors + FQDN egress) or vanilla networking.k8s.io/v1
+# NetworkPolicy (CIDR-only).
+networkPolicy:
   enabled: false
-  # Additional labels to add to the CiliumNetworkPolicy
+  flavor: cilium
   labels: {}
-  # Additional annotations to add to the CiliumNetworkPolicy
   annotations: {}
-  # Enable for private installations where OIDC providers (e.g. Dex) and MCP servers
-  # are accessed via in-cluster ingress rather than public endpoints.
-  # Adds egress to cluster entity on HTTP/HTTPS ports.
-  allowClusterIngress: false
+  cilium:
+    # Allow egress to the `cluster` entity on 80/443 — needed when Dex /
+    # OIDC / MCP servers are reached via in-cluster ingress IPs.
+    allowClusterIngress: false
+  kubernetes:
+    apiServerCIDR: 0.0.0.0/0
+    # Empty disables the cluster CIDR egress rule. Set to your cluster's
+    # pod/service CIDR to allow in-cluster ingress access on 80/443
+    # (kubernetes-flavor equivalent of cilium's allowClusterIngress).
+    clusterCIDR: ""
+    worldExcludedCIDRs:
+      - 10.0.0.0/8
+      - 172.16.0.0/12
+      - 192.168.0.0/16
+      - 169.254.0.0/16

@@ -564,22 +564,29 @@
         }
       }
     },
-    "ciliumNetworkPolicy": {
+    "networkPolicy": {
       "type": "object",
       "properties": {
-        "enabled": {
-          "type": "boolean",
-          "description": "Enable CiliumNetworkPolicy"
+        "enabled": { "type": "boolean" },
+        "flavor": { "type": "string", "enum": ["cilium", "kubernetes"] },
+        "labels": { "type": "object" },
+        "annotations": { "type": "object" },
+        "cilium": {
+          "type": "object",
+          "properties": {
+            "allowClusterIngress": { "type": "boolean" }
+          }
         },
-        "labels": {
-          "type": "object"
-        },
-        "annotations": {
-          "type": "object"
-        },
-        "allowClusterIngress": {
-          "type": "boolean",
-          "description": "Allow egress to in-cluster services on HTTP/HTTPS ports (e.g. Dex OIDC via ingress LoadBalancer IP)"
+        "kubernetes": {
+          "type": "object",
+          "properties": {
+            "apiServerCIDR": { "type": "string" },
+            "clusterCIDR": { "type": "string" },
+            "worldExcludedCIDRs": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
         }
       }
     }
