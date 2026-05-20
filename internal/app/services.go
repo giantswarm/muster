@@ -216,7 +216,6 @@ func InitializeServices(cfg *Config) (*Services, error) {
 			ClientID:     cfg.OAuthMCPClientID, // serve command flag value (empty if not specified)
 			CallbackPath: cfg.MusterConfig.Aggregator.OAuth.MCPClient.CallbackPath,
 			CIMD:         cfg.MusterConfig.Aggregator.OAuth.MCPClient.CIMD,
-			CAFile:       cfg.MusterConfig.Aggregator.OAuth.MCPClient.CAFile,
 			ExtraCAFile:  cfg.ExtraCAFile, // forwards --extra-ca-file for the token-exchange internal-deployment heuristic
 		}
 		// If serve command flag didn't set ClientID, check config file
@@ -241,7 +240,6 @@ func InitializeServices(cfg *Config) (*Services, error) {
 				PublicURL:    oauthPublicURL,
 				ClientID:     effectiveClientID,
 				CallbackPath: mergedOAuthMCPClientConfig.CallbackPath,
-				CAFile:       mergedOAuthMCPClientConfig.CAFile,
 				ExtraCAFile:  mergedOAuthMCPClientConfig.ExtraCAFile,
 			},
 			OAuthServer: aggregator.OAuthServerConfig{
