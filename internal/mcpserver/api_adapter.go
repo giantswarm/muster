@@ -474,11 +474,8 @@ func (a *Adapter) handleMCPServerReconnect(ctx context.Context, args map[string]
 		return simpleError("aggregator handler not available")
 	}
 
-	if err := aggregator.DeregisterUpstream(ctx, name); err != nil {
-		return simpleError(fmt.Sprintf("Failed to deregister MCPServer %q: %v", name, err))
-	}
-	if err := aggregator.RegisterUpstream(ctx, name); err != nil {
-		return simpleError(fmt.Sprintf("Failed to re-register MCPServer %q: %v", name, err))
+	if err := aggregator.ReconnectUpstream(ctx, name); err != nil {
+		return simpleError(fmt.Sprintf("Failed to reconnect MCPServer %q: %v", name, err))
 	}
 
 	return simpleOK(fmt.Sprintf("MCPServer '%s' reconnected", name))

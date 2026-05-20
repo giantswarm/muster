@@ -18,7 +18,7 @@ var stopResourceTypes = []string{
 
 // Dynamic completion for service names
 func stopServiceNameCompletion(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	if len(args) != 1 || args[0] != api.ResourceTypeService { //nolint:goconst
+	if len(args) != 1 || args[0] != api.ResourceTypeService {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
@@ -54,12 +54,11 @@ Note: The aggregator server must be running (use 'muster serve') before using th
 	RunE:                  runStop,
 }
 
-// Resource type mappings for stop operations.
-// api.ResourceTypeService used to call core_service_stop; that tool was removed when the
-// orchestrator-driven dial loop went away. Pause is now declarative: patch
-// MCPServer.spec.suspended=true through core_mcpserver_update.
+// stopResourceMappings routes `muster stop <resource>` to the MCP tool that
+// implements pause. The service entry patches MCPServer.spec.suspended=true
+// via core_mcpserver_update.
 var stopResourceMappings = map[string]string{
-	"service": "core_mcpserver_update",
+	api.ResourceTypeService: "core_mcpserver_update",
 }
 
 func init() {
@@ -71,7 +70,6 @@ func runStop(cmd *cobra.Command, args []string) error {
 	resourceType := args[0]
 	resourceName := args[1]
 
-	// Validate resource type
 	toolName, exists := stopResourceMappings[resourceType]
 	if !exists {
 		return fmt.Errorf("unknown resource type '%s'. Available types: service", resourceType)
@@ -93,12 +91,20 @@ func runStop(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	toolArgs := map[string]interface{}{
-		"name": resourceName,
-	}
 	if resourceType == api.ResourceTypeService {
-		toolArgs["suspended"] = true
+		suspended, err := mcpServerSuspended(ctx, executor, resourceName)
+		if err != nil {
+			return err
+		}
+		if suspended {
+			fmt.Printf("Service '%s' is already suspended\n", resourceName)
+			return nil
+		}
 	}
 
+	toolArgs := map[string]interface{}{
+		"name":      resourceName,
+		"suspended": true,
+	}
 	return executor.Execute(ctx, toolName, toolArgs)
 }
