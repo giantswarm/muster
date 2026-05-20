@@ -49,7 +49,7 @@ Raw Helm:
 
 ```bash
 helm install muster-crds \
-  oci://giantswarmpublic.azurecr.io/giantswarm-catalog/muster-crds \
+  oci://gsoci.azurecr.io/charts/giantswarm/muster-crds \
   --version <chart-version> \
   --namespace muster --create-namespace
 ```

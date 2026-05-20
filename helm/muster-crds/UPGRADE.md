@@ -56,7 +56,7 @@ pick up (the common case), apply them with `kubectl`:
 
 ```bash
 helm template muster-crds \
-  oci://giantswarmpublic.azurecr.io/giantswarm-catalog/muster-crds \
+  oci://gsoci.azurecr.io/charts/giantswarm/muster-crds \
   --version <new-version> --include-crds \
   | kubectl apply --server-side -f -
 ```
