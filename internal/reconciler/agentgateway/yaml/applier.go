@@ -13,19 +13,22 @@ import (
 	goyaml "gopkg.in/yaml.v3"
 	"k8s.io/apimachinery/pkg/util/validation"
 
+	"github.com/giantswarm/muster/internal/agentgateway/version"
 	"github.com/giantswarm/muster/internal/reconciler/agentgateway"
 	"github.com/giantswarm/muster/pkg/logging"
 )
 
-// SchemaURL pins the agentgateway native config schema this applier targets.
-const SchemaURL = "https://raw.githubusercontent.com/agentgateway/agentgateway/refs/tags/v1.2.1/schema/config.json"
+// SchemaURL points at the agentgateway native config schema for the
+// release pinned in go.mod (see internal/agentgateway/version).
+var SchemaURL = "https://raw.githubusercontent.com/agentgateway/agentgateway/refs/tags/" + version.Tag + "/schema/config.json"
 
 // DefaultListenerPort is the TCP port written into every bind block when no
 // override is supplied via WithListenerPort.
 const DefaultListenerPort uint16 = 8080
 
+var pragma = "# yaml-language-server: $schema=" + SchemaURL + "\n"
+
 const (
-	pragma         = "# yaml-language-server: $schema=" + SchemaURL + "\n"
 	fileExt        = ".yaml"
 	tempExt        = ".yaml.tmp"
 	routePathRoot  = "/mcp/"

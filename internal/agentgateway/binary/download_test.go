@@ -68,7 +68,7 @@ func TestResolve_ConstantChecksumVerification(t *testing.T) {
 		baseDir := t.TempDir()
 		srv := serveAsset(t, asset, body)
 		bogus := map[string]string{
-			asset + "/" + PinnedVersion: strings.Repeat("0", 64),
+			asset: strings.Repeat("0", 64),
 		}
 		_, err := resolveWithChecksums(t.Context(), bogus,
 			WithBaseDir(baseDir),
@@ -104,7 +104,7 @@ func TestResolve_ChecksumMismatch(t *testing.T) {
 	srv := serveAsset(t, asset, []byte(synthBody))
 
 	bogus := map[string]string{
-		asset + "/" + PinnedVersion: strings.Repeat("0", 64),
+		asset: strings.Repeat("0", 64),
 	}
 	_, err := resolveWithChecksums(t.Context(), bogus,
 		WithBaseDir(baseDir),
