@@ -13,6 +13,9 @@ keywords:
   - ai-agents
   - model-context-protocol
   - aggregator
+maintainers:
+  - name: Giant Swarm
+    email: team-bumblebee@giantswarm.io
 annotations:
   io.giantswarm.application.audience: all
   io.giantswarm.application.team: bumblebee
