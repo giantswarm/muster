@@ -356,7 +356,7 @@
           "properties": {
             "upstreamURL": {
               "type": "string",
-              "description": "Base URL muster's aggregator dials for every external MCPServer. The full dial path is <upstreamURL>/mcp/<server-name> regardless of spec.type. Required in cluster mode; muster fails at startup when unset."
+              "description": "Base URL muster's aggregator dials for every external MCPServer. The full dial path is <upstreamURL>/mcp/<server-name> regardless of spec.type. When unset, the chart's muster.agentgatewayUpstreamURL helper falls back to http://agentgateway.<release-namespace>.svc.cluster.local:8080; override for any divergent agentgateway topology."
             }
           }
         },
