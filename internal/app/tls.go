@@ -15,10 +15,9 @@ import (
 // so every outbound HTTP call that uses the default client (MCP backends,
 // token exchange, OAuth proxy) trusts the additional CAs.
 //
-// This is the single place that augments outbound trust at startup. Callers
-// that construct their own *http.Transport (e.g. an OAuth client with a
-// caller-provided caFile) opt out of the augmented pool by design — they have
-// explicit TLS configuration of their own.
+// This is the single place that augments outbound trust at startup. Any
+// caller that constructs its own *http.Transport opts out of the augmented
+// pool by design — it has explicit TLS configuration of its own.
 //
 // A missing/unreadable file or unparseable PEM is fatal: muster's outbound
 // dependencies should never silently fall back to the unaugmented pool when

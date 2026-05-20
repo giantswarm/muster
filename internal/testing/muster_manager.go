@@ -1014,7 +1014,7 @@ func (m *musterInstanceManager) configureOAuthForInstance(
 	// This enables testing of SSO token forwarding with muster's OAuth server protection
 	for _, oauthCfg := range config.MockOAuthServers {
 		if oauthCfg.UseAsMusterOAuthServer {
-			oauthServerConfig := m.buildMusterOAuthServerConfig(oauthCfg, port, instanceID, musterConfigPath, oauthMCPClientConfig, logger)
+			oauthServerConfig := m.buildMusterOAuthServerConfig(oauthCfg, port, instanceID, oauthMCPClientConfig, logger)
 			if oauthServerConfig != nil {
 				oauthConfig["server"] = oauthServerConfig
 			}
@@ -1079,7 +1079,6 @@ func (m *musterInstanceManager) buildMusterOAuthServerConfig(
 	oauthCfg MockOAuthServerConfig,
 	port int,
 	instanceID string,
-	musterConfigPath string,
 	oauthProxyConfig map[string]interface{},
 	logger TestLogger,
 ) map[string]interface{} {
