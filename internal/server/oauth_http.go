@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -11,7 +10,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 
@@ -564,15 +562,6 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 			dexConfig.ConnectorID = cfg.Dex.ConnectorID
 		}
 
-		if cfg.Dex.CAFile != "" {
-			httpClient, err := createHTTPClientWithCA(cfg.Dex.CAFile)
-			if err != nil {
-				return nil, nil, fmt.Errorf("failed to create HTTP client with CA: %w", err)
-			}
-			dexConfig.HTTPClient = httpClient
-			logger.Info("Using custom CA for Dex TLS verification", "caFile", cfg.Dex.CAFile)
-		}
-
 		provider, err = dex.NewProvider(dexConfig)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to create Dex provider: %w", err)
@@ -682,39 +671,6 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 	logEnabledOAuthOptions(cfg, logger)
 
 	return oauthSrv, combinedStore, nil
-}
-
-// createHTTPClientWithCA creates an HTTP client that trusts certificates signed by
-// the CA in the specified file.
-func createHTTPClientWithCA(caFile string) (*http.Client, error) {
-	// #nosec G304 -- caFile is a configuration value from operator, not user input
-	caCert, err := os.ReadFile(caFile)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read CA file %s: %w", caFile, err)
-	}
-
-	caCertPool, err := x509.SystemCertPool()
-	if err != nil {
-		caCertPool = x509.NewCertPool()
-	}
-
-	if !caCertPool.AppendCertsFromPEM(caCert) {
-		return nil, fmt.Errorf("failed to parse CA certificate from %s", caFile)
-	}
-
-	tlsConfig := &tls.Config{
-		RootCAs:    caCertPool,
-		MinVersion: tls.VersionTLS12,
-	}
-
-	transport := &http.Transport{
-		TLSClientConfig: tlsConfig,
-	}
-
-	return &http.Client{
-		Transport: transport,
-		Timeout:   30 * time.Second,
-	}, nil
 }
 
 // validateHTTPSRequirement ensures OAuth 2.1 HTTPS compliance.

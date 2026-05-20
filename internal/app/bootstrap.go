@@ -52,6 +52,14 @@ type Application struct {
 //	    log.Fatalf("Bootstrap failed: %v", err)
 //	}
 func NewApplication(cfg *Config) (*Application, error) {
+	// Augment the system trust pool before any HTTP client is constructed.
+	if cfg.ExtraCAFile != "" {
+		if err := installExtraCAFile(cfg.ExtraCAFile); err != nil {
+			logging.Error("Bootstrap", err, "Failed to install extra CA file")
+			return nil, fmt.Errorf("install extra CA file: %w", err)
+		}
+	}
+
 	// Load environment configuration
 	var musterCfg config.MusterConfig
 	var err error
