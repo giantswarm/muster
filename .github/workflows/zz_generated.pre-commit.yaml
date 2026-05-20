@@ -2,7 +2,7 @@
 #
 #    devctl
 #
-#    https://github.com/giantswarm/devctl/blob/f8c9dbe49225b5327dc3e27f7db99439cb658ea3/pkg/gen/input/precommit/internal/file/pre-commit-action.yaml.template
+#    https://github.com/giantswarm/devctl/blob/de3ea76e49afac49024a3d84901c0184e5019523/pkg/gen/input/precommit/internal/file/pre-commit-action.yaml.template
 #
 name: pre-commit
 
@@ -14,7 +14,7 @@ on:
       - master
 
 env:
-  HELM_VERSION: "3.20.2"
+  HELM_VERSION: "3.21.0"
   HELM_DOCS_VERSION: "1.14.2"
   HELM_VALUES_SCHEMA_JSON_VERSION: "2.4.0"
 
@@ -27,7 +27,7 @@ jobs:
       - name: Set up Python environment
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
       - name: Install helm-docs
-        uses: giantswarm/install-binary-action@e2730babbc89f02ef1559b042d33cbe24f5c3547 # v4.0.2
+        uses: giantswarm/install-binary-action@5bef88f65012037dd836117c8d344b21bb559854 # v4.1.0
         with:
           binary: helm-docs
           version: "${{ env.HELM_DOCS_VERSION }}"
@@ -51,9 +51,9 @@ jobs:
           go-version: "1.26"
       - name: Install goimports
         run: |
-          go install golang.org/x/tools/cmd/goimports@v0.44.0
+          go install golang.org/x/tools/cmd/goimports@v0.45.0
       - name: Install golangci-lint
-        uses: giantswarm/install-binary-action@e2730babbc89f02ef1559b042d33cbe24f5c3547 # v4.0.2
+        uses: giantswarm/install-binary-action@5bef88f65012037dd836117c8d344b21bb559854 # v4.1.0
         with:
           binary: golangci-lint
           version: "2.12.2"
