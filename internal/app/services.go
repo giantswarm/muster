@@ -514,6 +514,7 @@ func buildMCPServerReconciler(
 			return k8sapply.NewApplier(
 				musterClient,
 				reconciler.OwnerRefFor(ctx, musterClient, name, ns),
+				ns,
 				k8sApplierCfg,
 			)
 		}

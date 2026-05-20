@@ -7,6 +7,9 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
+
+	agw "github.com/agentgateway/agentgateway/controller/api/v1alpha1/agentgateway"
 
 	"github.com/giantswarm/muster/internal/reconciler/agentgateway"
 )
@@ -31,21 +34,26 @@ type Config struct {
 }
 
 // Applier persists an agentgateway.Config into a Kubernetes cluster.
-// Each instance is bound to one MCPServer via ownerRef.
+// Each instance is bound to one MCPServer via ownerRef + namespace; the
+// namespace travels on the struct so Delete can scope its tear-down without
+// changing the agentgateway.Applier port signature.
 type Applier struct {
-	client   client.Client
-	ownerRef metav1.OwnerReference
-	cfg      Config
+	client    client.Client
+	ownerRef  metav1.OwnerReference
+	namespace string
+	cfg       Config
 }
 
 // NewApplier returns an Applier writing to c, with ownerRef stamped on every
 // emitted object so deletion of the MCPServer cascades to the agentgateway
-// stack. Defaults are applied for Config fields left at the zero value.
-func NewApplier(c client.Client, ownerRef metav1.OwnerReference, cfg Config) *Applier {
+// stack. namespace scopes Delete (Apply derives namespace from
+// agentgateway.Config.Namespace as before). Defaults are applied for Config
+// fields left at the zero value.
+func NewApplier(c client.Client, ownerRef metav1.OwnerReference, namespace string, cfg Config) *Applier {
 	if cfg.UpdateConflictRetries <= 0 {
 		cfg.UpdateConflictRetries = 3
 	}
-	return &Applier{client: c, ownerRef: ownerRef, cfg: cfg}
+	return &Applier{client: c, ownerRef: ownerRef, namespace: namespace, cfg: cfg}
 }
 
 // Apply reconciles every object derived from config into the cluster. It is
@@ -83,10 +91,32 @@ func (a *Applier) Apply(ctx context.Context, config agentgateway.Config) error {
 	return nil
 }
 
-// Delete is a no-op: emitted objects are owned by the MCPServer via
-// OwnerReferences, so cluster deletion cascades without any work from the
-// applier.
-func (a *Applier) Delete(_ context.Context, _ string) error { return nil }
+// Delete removes the AgentgatewayBackend, AgentgatewayPolicy, and HTTPRoute
+// emitted by Apply for the given MCPServer. Used by the reconciler's
+// spec.suspended short-circuit: suspending the MCPServer without deleting it
+// must tear down the agentgateway stack so traffic stops routing while the
+// CRD persists. OwnerReferences cascade still handles MCPServer deletion;
+// this method handles the live-CRD-suspended case OwnerReferences cannot.
+//
+// Each object is deleted by (name, namespace) — namespace was bound at
+// NewApplier. NotFound is suppressed so repeated reconciles after the
+// first tear-down are no-ops.
+func (a *Applier) Delete(ctx context.Context, name string) error {
+	if a.namespace == "" {
+		return errors.New("k8s applier: namespace is required for Delete")
+	}
+	objs := []client.Object{
+		&agw.AgentgatewayBackend{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: a.namespace}},
+		&agw.AgentgatewayPolicy{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: a.namespace}},
+		&gwv1.HTTPRoute{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: a.namespace}},
+	}
+	for _, obj := range objs {
+		if err := a.deleteIfExists(ctx, obj); err != nil {
+			return fmt.Errorf("k8s applier: delete %T %s/%s: %w", obj, a.namespace, name, err)
+		}
+	}
+	return nil
+}
 
 func (a *Applier) validate(config agentgateway.Config) error {
 	if config.Namespace == "" {
