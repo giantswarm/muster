@@ -6,10 +6,15 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- `networkPolicy.flavor` selects between `cilium` (CiliumNetworkPolicy) and `kubernetes` (`networking.k8s.io/v1 NetworkPolicy`). The kubernetes flavor is best-effort: no entity selectors, no FQDN egress. CIDR replacements live under `networkPolicy.kubernetes.{apiServerCIDR,clusterCIDR,worldExcludedCIDRs}`. `clusterCIDR: ""` disables the in-cluster ingress egress rule (kubernetes-flavor equivalent of cilium `allowClusterIngress`).
 - `crds.annotations` (object) is merged into each CRD's `metadata.annotations` by the loader. Default `{helm.sh/resource-policy: keep}` keeps CRDs (and the `MCPServer` / `Workflow` CRs that depend on them) around on `helm uninstall`.
 - `revisionHistoryLimit` (default `3`) on the muster Deployment.
 - `resources.{requests,limits}.ephemeral-storage` (50Mi / 100Mi) — Kyverno's resource-limits policy on Giant Swarm workload clusters audits / rejects pods without explicit ephemeral-storage when `/tmp` is an emptyDir.
-- `CiliumNetworkPolicy` egress to `app.kubernetes.io/name=agentgateway:8080` in the release namespace so muster can dial the agentgateway data-plane on the upstream-proxy path. No-op when agentgateway isn't deployed.
+- Egress to `app.kubernetes.io/name=agentgateway:8080` in the release namespace so muster can dial the agentgateway data-plane on the upstream-proxy path (both NetworkPolicy flavors). No-op when agentgateway isn't deployed.
+
+### Removed
+
+- `ciliumNetworkPolicy.*` is replaced by `networkPolicy.*`. `ciliumNetworkPolicy.enabled` → `networkPolicy.enabled` + `networkPolicy.flavor: cilium` (default). `ciliumNetworkPolicy.allowClusterIngress` → `networkPolicy.cilium.allowClusterIngress`. `ciliumNetworkPolicy.{labels,annotations}` → `networkPolicy.{labels,annotations}`.
 
 ### Changed
 
