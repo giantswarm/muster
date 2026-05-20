@@ -14,6 +14,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	agw "github.com/agentgateway/agentgateway/controller/api/v1alpha1/agentgateway"
 
@@ -67,7 +68,7 @@ func TestApply_MissingOwnerFields_ReturnsError(t *testing.T) {
 			c := newClient(t)
 			ref := ownerRef()
 			tc.mutate(&ref)
-			a := k8s.NewApplier(c, ref, k8s.Config{GatewayName: gatewayName, GatewayNamespace: gatewayNS})
+			a := k8s.NewApplier(c, ref, ownerNamespace, k8s.Config{GatewayName: gatewayName, GatewayNamespace: gatewayNS})
 			err := a.Apply(t.Context(), streamableConfig())
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "ownerRef."+tc.field)
@@ -102,7 +103,7 @@ func TestApply_ConflictOnUpdate_Retries(t *testing.T) {
 		}).
 		Build()
 
-	a := k8s.NewApplier(c, ownerRef(), k8s.Config{GatewayName: gatewayName, GatewayNamespace: gatewayNS})
+	a := k8s.NewApplier(c, ownerRef(), ownerNamespace, k8s.Config{GatewayName: gatewayName, GatewayNamespace: gatewayNS})
 	require.NoError(t, a.Apply(t.Context(), streamableConfig()))
 
 	mutated := streamableConfig()
@@ -134,7 +135,7 @@ func TestApply_PersistentConflict_FailsWithRetryError(t *testing.T) {
 		}).
 		Build()
 
-	a := k8s.NewApplier(c, ownerRef(), k8s.Config{GatewayName: gatewayName, GatewayNamespace: gatewayNS})
+	a := k8s.NewApplier(c, ownerRef(), ownerNamespace, k8s.Config{GatewayName: gatewayName, GatewayNamespace: gatewayNS})
 	require.NoError(t, a.Apply(t.Context(), streamableConfig()))
 
 	mutated := streamableConfig()
@@ -163,4 +164,42 @@ func TestApply_DeletionCascade_OwnerRefsAreControllerBlocking(t *testing.T) {
 	backend := &agw.AgentgatewayBackend{}
 	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: ownerNamespace, Name: ownerName}, backend))
 	checkRef(backend.OwnerReferences)
+}
+
+// TestDelete_TearsDownAgentgatewayStack covers the spec.suspended path: the
+// reconciler calls Applier.Delete to remove the agentgateway stack while the
+// MCPServer CRD persists. OwnerReferences cascade only fires on owner
+// deletion, so suspend-without-delete must be handled here.
+func TestDelete_TearsDownAgentgatewayStack(t *testing.T) {
+	t.Parallel()
+
+	c := newClient(t)
+	a := newApplier(c)
+	require.NoError(t, a.Apply(t.Context(), streamableConfig()))
+
+	// All three resources exist after Apply.
+	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: ownerNamespace, Name: ownerName}, &agw.AgentgatewayBackend{}))
+	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: ownerNamespace, Name: ownerName}, &agw.AgentgatewayPolicy{}))
+	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: ownerNamespace, Name: ownerName}, &gwv1.HTTPRoute{}))
+
+	require.NoError(t, a.Delete(t.Context(), ownerName))
+
+	// All three are gone.
+	err := c.Get(t.Context(), client.ObjectKey{Namespace: ownerNamespace, Name: ownerName}, &agw.AgentgatewayBackend{})
+	require.True(t, apierrors.IsNotFound(err), "AgentgatewayBackend should be deleted, got %v", err)
+	err = c.Get(t.Context(), client.ObjectKey{Namespace: ownerNamespace, Name: ownerName}, &agw.AgentgatewayPolicy{})
+	require.True(t, apierrors.IsNotFound(err), "AgentgatewayPolicy should be deleted, got %v", err)
+	err = c.Get(t.Context(), client.ObjectKey{Namespace: ownerNamespace, Name: ownerName}, &gwv1.HTTPRoute{})
+	require.True(t, apierrors.IsNotFound(err), "HTTPRoute should be deleted, got %v", err)
+}
+
+// TestDelete_NotFound_IsIdempotent verifies that calling Delete after the
+// resources are already gone (e.g. a second suspend-reconcile) is a no-op.
+func TestDelete_NotFound_IsIdempotent(t *testing.T) {
+	t.Parallel()
+
+	c := newClient(t)
+	a := newApplier(c)
+	require.NoError(t, a.Delete(t.Context(), ownerName))
+	require.NoError(t, a.Delete(t.Context(), ownerName))
 }
