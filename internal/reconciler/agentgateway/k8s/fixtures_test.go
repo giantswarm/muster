@@ -62,7 +62,7 @@ func ownerRef() metav1.OwnerReference {
 }
 
 func newApplier(c client.Client) *k8s.Applier {
-	return k8s.NewApplier(c, ownerRef(), k8s.Config{
+	return k8s.NewApplier(c, ownerRef(), ownerNamespace, k8s.Config{
 		GatewayName:      gatewayName,
 		GatewayNamespace: gatewayNS,
 	})
