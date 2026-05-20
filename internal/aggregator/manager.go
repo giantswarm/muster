@@ -53,7 +53,7 @@ func NewAggregatorManager(config AggregatorConfig, errorCallback func(err error)
 			PublicURL:    config.OAuth.PublicURL,
 			ClientID:     config.OAuth.ClientID,
 			CallbackPath: config.OAuth.CallbackPath,
-			CAFile:       config.OAuth.CAFile,
+			ExtraCAFile:  config.OAuth.ExtraCAFile,
 		}
 
 		var oauthOpts []oauth.ManagerOption
