@@ -1,6 +1,9 @@
 # Custom Makefile targets for muster
 # This file is included by the main Makefile via `include Makefile.*.mk`
 
+# Recipes use `set -euo pipefail`; dash (default /bin/sh on Debian/Ubuntu) rejects it.
+SHELL := /usr/bin/env bash
+
 ##@ Release
 
 .PHONY: release-dry-run
