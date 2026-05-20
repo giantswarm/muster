@@ -4,7 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `crds.annotations` (object) is merged into each CRD's `metadata.annotations` by the loader. Default `{helm.sh/resource-policy: keep}` keeps CRDs (and the `MCPServer` / `Workflow` CRs that depend on them) around on `helm uninstall`.
+- `revisionHistoryLimit` (default `3`) on the muster Deployment.
+- `resources.{requests,limits}.ephemeral-storage` (50Mi / 100Mi) — Kyverno's resource-limits policy on Giant Swarm workload clusters audits / rejects pods without explicit ephemeral-storage when `/tmp` is an emptyDir.
+- `CiliumNetworkPolicy` egress to `app.kubernetes.io/name=agentgateway:8080` in the release namespace so muster can dial the agentgateway data-plane on the upstream-proxy path. No-op when agentgateway isn't deployed.
+
 ### Changed
+
+- CRD source files moved from `helm/muster/crds/` to `helm/muster/files/crds/`. `files/` has no Helm 3 special-case, so the rendering path (`helm/muster/templates/crds.yaml` loader) is identical whether muster is installed standalone or consumed as a sub-chart. `controller-gen` output path updated in `Makefile.crd.mk`; CI drift check in `.github/workflows/ci.yaml` follows the new path.
 
 - Container image build no longer compiles the Go binary inside `docker buildx`. `go-build` now produces both `muster-linux-amd64` and `muster-linux-arm64` in one job (architect-orb `architectures` parameter) and the Dockerfile copies the matching binary from the workspace. Removes the duplicate compile and the QEMU-emulated arm64 cross-build on tag releases; `push-to-registries` auto-derives `--platform` from the workspace `.platforms` file.
 - Build identifiers (`version`, `gitSHA`, `buildTimestamp`) now live in `pkg/project` instead of `main`. Both injection paths populate the same vars: goreleaser writes the semver tag + short commit + date for release archives, architect-orb's `go-build` writes the commit SHA + UTC timestamp for container images. `muster version` prefers the tag, falls back to the SHA, falls back to `dev`, and additionally prints the commit SHA and build timestamp on dedicated lines.

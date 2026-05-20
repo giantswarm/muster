@@ -162,13 +162,23 @@ gatewayAPI:
     # Additional labels for the BackendTrafficPolicy
     labels: {}
 
+# Number of old ReplicaSets retained for rollback. Keep tight so frequent
+# rollouts don't leak zero-replica ReplicaSets across the cluster.
+revisionHistoryLimit: 3
+
 resources:
   limits:
     cpu: 500m
     memory: 512Mi
+    # `/tmp` is an emptyDir on the muster container. Kyverno's
+    # require-resource-limits policy on GS workload clusters warns
+    # (audit) or rejects (enforce) pods without an explicit
+    # ephemeral-storage limit.
+    ephemeral-storage: 100Mi
   requests:
     cpu: 100m
     memory: 128Mi
+    ephemeral-storage: 50Mi
 
 autoscaling:
   enabled: false
@@ -464,10 +474,14 @@ muster:
           # cluster.
           labels: {}
 
-# CRD installation
+# CRD installation. CRDs live in helm/muster/files/crds/ and are rendered
+# by helm/muster/templates/crds.yaml. The loader merges `crds.annotations`
+# into each CRD's metadata.annotations — the default keeps the CRDs around
+# on `helm uninstall` so existing MCPServer / Workflow CRs survive.
 crds:
-  # Install Custom Resource Definitions
   install: true
+  annotations:
+    helm.sh/resource-policy: keep
 
 # Cilium Network Policy configuration
 ciliumNetworkPolicy:
