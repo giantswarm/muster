@@ -137,7 +137,6 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 // Per issue #292, this function uses the CapabilityStore as the primary source
 // of truth for per-user state:
 //   - If user has cached capabilities (tools) -> "connected"
-//   - If server infrastructure is unreachable -> "unreachable" (no auth possible)
 //   - If server requires auth and user hasn't authenticated -> "auth_required"
 //   - If server doesn't require auth and is reachable -> "connected"
 //
@@ -145,11 +144,6 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 //   - Infrastructure state (CRD State: Running/Connected/Failed/etc.)
 //   - Per-user state (this function: connected/auth_required/etc.)
 func (a *AggregatorServer) determineSessionAuthStatus(sub, sessionID, serverName string, info *ServerInfo) pkgoauth.SessionServerStatus {
-	// Handle unreachable servers first - no auth possible
-	if info.GetStatus() == api.StateUnreachable {
-		return pkgoauth.SessionServerStatusUnreachable
-	}
-
 	if a.authStore != nil {
 		authenticated, _ := a.authStore.IsAuthenticated(context.Background(), sessionID, serverName)
 		if authenticated {

@@ -1828,7 +1828,7 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 		}
 
 		if serverInfo.Client == nil {
-			return nil, fmt.Errorf("server not connected: %s (status: %s)", serverName, serverInfo.GetStatus())
+			return nil, fmt.Errorf("server not connected: %s", serverName)
 		}
 
 		return serverInfo.Client.CallTool(ctx, originalName, args)

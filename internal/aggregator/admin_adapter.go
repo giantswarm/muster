@@ -277,11 +277,15 @@ func (a *AggregatorServer) adminGetMCPDetail(_ context.Context, name string) (*a
 
 // mcpSummaryFromServerInfo projects a ServerInfo into the admin summary view.
 func mcpSummaryFromServerInfo(info *ServerInfo) admin.MCPSummary {
+	status := string(api.StateDisconnected)
+	if info.IsConnected() {
+		status = string(api.StateConnected)
+	}
 	summary := admin.MCPSummary{
 		Name:         info.Name,
 		URL:          info.URL,
 		Namespace:    info.GetNamespace(),
-		Status:       string(info.GetStatus()),
+		Status:       status,
 		RequiresAuth: info.RequiresSessionAuth(),
 		LastUpdate:   info.LastUpdate,
 	}
