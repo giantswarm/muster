@@ -53,7 +53,6 @@ All inter-package communication goes through `internal/api`. This is the most cr
 - **`internal/agent/`** — MCP client, interactive REPL, MCP server mode for AI assistants
 - **`internal/mcpserver/`** — MCP server process management and health checking
 - **`internal/workflow/`** — Workflow definitions, execution engine, templating
-- **`internal/orchestrator/`** — Service lifecycle orchestration and state machine
 - **`internal/reconciler/agentgateway/`** — MCPServer→agentgateway Config compiler + Applier port; `k8s/` and `yaml/` adapters
 - **`internal/agentgateway/subprocess/`** — agentgateway process supervisor for filesystem mode
 - **`internal/agentgateway/binary/`** — pinned-release resolver for the agentgateway binary

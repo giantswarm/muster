@@ -134,6 +134,13 @@ type AggregatorHandler interface {
 	// aggregator. Returns nil when no registration exists.
 	DeregisterUpstream(ctx context.Context, name string) error
 
+	// ReconnectUpstream atomically deregisters and re-registers the named
+	// MCPServer under the aggregator's per-name reconnect lock so concurrent
+	// reconnects on the same name serialise. Used by the
+	// core_mcpserver_reconnect tool to refresh the live client without
+	// racing.
+	ReconnectUpstream(ctx context.Context, name string) error
+
 	// UpstreamServerState reports the current registration state of an upstream
 	// MCPServer. The reconciler reads this for CRD status sync.
 	UpstreamServerState(name string) UpstreamServerState

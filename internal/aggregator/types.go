@@ -133,13 +133,6 @@ func (s *ServerInfo) UpdatePrompts(prompts []mcp.Prompt) {
 	s.Prompts = prompts
 }
 
-// GetStatus is preserved for callers that previously read state out of the
-// service registry. The registry is gone; callers rely on IsConnected's
-// fallback path, so this consistently returns StateUnknown.
-func (s *ServerInfo) GetStatus() api.ServiceState {
-	return api.StateUnknown
-}
-
 // RequiresSessionAuth reports whether this server uses per-session authentication.
 // This is a permanent property based on the server's auth configuration,
 // set during RegisterPendingAuth and never changed by connection state transitions.
@@ -147,21 +140,11 @@ func (s *ServerInfo) RequiresSessionAuth() bool {
 	return s.AuthConfig != nil
 }
 
-// IsConnected reports whether the server is in an active (running/connected) state.
-// Falls back to checking for a live client when the service registry
-// has no entry (e.g. servers registered directly via Register).
+// IsConnected reports whether a live MCP client is attached to this server.
 func (s *ServerInfo) IsConnected() bool {
-	status := s.GetStatus()
-	if api.IsActiveState(status) {
-		return true
-	}
 	s.mu.RLock()
-	client := s.Client
-	s.mu.RUnlock()
-	if status == api.StateUnknown && client != nil {
-		return true
-	}
-	return false
+	defer s.mu.RUnlock()
+	return s.Client != nil
 }
 
 // GetNamespace returns the namespace for this server.

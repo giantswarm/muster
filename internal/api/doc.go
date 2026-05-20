@@ -11,7 +11,7 @@
 // **mandatory** for all inter-package communication in muster:
 //
 //  1. **Handler Interfaces** - Define contracts for each service capability
-//     (ServiceRegistryHandler, ServiceManagerHandler, AggregatorHandler, etc.)
+//     (ServiceManagerHandler, AggregatorHandler, MCPServerManagerHandler, etc.)
 //
 //  2. **API Implementations** - Thin wrappers that delegate to registered handlers
 //     (direct handler access through Get* functions)
@@ -32,8 +32,7 @@
 // # Handler Interfaces
 //
 // ## Core Service Handlers
-//   - **ServiceRegistryHandler**: Unified service registry access and discovery
-//   - **ServiceManagerHandler**: Service lifecycle management for all service types
+//   - **ServiceManagerHandler**: MCPServer lifecycle (start, stop, restart, status)
 //   - **AggregatorHandler**: Tool execution and MCP server aggregation
 //   - **ConfigHandler**: Configuration management and runtime settings
 //
@@ -130,19 +129,19 @@
 //
 // # Example Usage
 //
-// ## Service Registration (Service Package)
+// ## Service Adapter Registration
 //
-//	// Service adapter implements handler interface
-//	type RegistryAdapter struct {
-//	    registry *ServiceRegistry
+//	// Adapter implements the handler interface its caller package defines.
+//	type MCPServerAdapter struct {
+//	    manager *Manager
 //	}
 //
-//	func (r *RegistryAdapter) GetService(ctx context.Context, name string) (*ServiceInfo, error) {
-//	    return r.registry.Get(name)
+//	func (a *MCPServerAdapter) GetMCPServer(name string) (*api.MCPServerInfo, error) {
+//	    return a.manager.Get(name)
 //	}
 //
-//	func (r *RegistryAdapter) Register() {
-//	    api.RegisterServiceRegistry(r)
+//	func (a *MCPServerAdapter) Register() {
+//	    api.RegisterMCPServerManager(a)
 //	}
 //
 // ## Tool Provider Registration
@@ -165,7 +164,7 @@
 //	// Access through API layer (correct approach)
 //	serviceManager := api.GetServiceManager()
 //	if serviceManager != nil {
-//	    err := serviceManager.StartService(ctx, "my-service")
+//	    err := serviceManager.StartService("my-mcpserver")
 //	}
 //
 //	// Execute workflows through convenience functions
@@ -198,14 +197,6 @@
 //	    FailureThreshold: 3,
 //	    SuccessThreshold: 1,
 //	}
-//
-// # Orchestrator Integration
-//
-// The API provides orchestrator functionality for unified service operations:
-//
-//	// List all services with unified status
-//	orchestrator := api.GetOrchestrator()
-//	services, err := orchestrator.ListServices(ctx)
 //
 // # Thread Safety
 //

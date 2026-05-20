@@ -30,7 +30,7 @@ const (
 
 const (
 	reasonStdioInClusterMode = "StdioInClusterMode"
-	reasonSuspendedBySpec    = "SuspendedBySpec"
+	reasonSuspended          = "Suspended"
 )
 
 // MCPServerManager is an interface for accessing MCPServer definitions.
@@ -281,7 +281,7 @@ func (r *MCPServerReconciler) setSuspendedCondition(ctx context.Context, name, n
 	cond := metav1.Condition{
 		Type:    musterv1alpha1.ConditionTypeSuspended,
 		Status:  metav1.ConditionTrue,
-		Reason:  reasonSuspendedBySpec,
+		Reason:  reasonSuspended,
 		Message: "spec.suspended is true; agentgateway config removed and aggregator upstream deregistered",
 	}
 	r.mutateMCPServerStatus(ctx, name, namespace, "set Suspended", func(server *musterv1alpha1.MCPServer) bool {

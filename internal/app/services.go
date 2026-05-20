@@ -56,28 +56,11 @@ const defaultGatewayName = "agentgateway"
 // applier writes one agw native config file per MCPServer.
 const agentgatewayConfigSubdir = "agentgateway"
 
-// Services holds all initialized services and APIs used by the application.
-// This struct serves as the central registry for all core application components,
-// providing access to service management, API interfaces, and runtime configuration.
-//
-// The Services struct follows the dependency injection pattern, ensuring that
-// all components are properly initialized and registered before being made
-// available to the application runtime.
-//
-// Field descriptions:
-//   - Orchestrator: Core service orchestrator responsible for service lifecycle management
-//   - OrchestratorAPI: API interface for orchestrator operations (start, stop, status)
-//   - AggregatorPort: Port number where the MCP aggregator service is listening
-//   - ReconcileManager: Reconciliation manager for automatic change detection
-//
-// Service Dependencies:
-// The services are initialized in a specific order to handle dependencies:
-//  1. Storage and tool interfaces (shared dependencies)
-//  2. Service adapters and API registrations
-//  3. Manager instances (Workflow, MCPServer)
-//  4. Concrete service instances
-//  5. Aggregator service (when enabled)
-//  6. Reconciliation manager (for automatic change detection)
+// Services holds the long-lived components a running muster process owns:
+// the aggregator (data plane), the reconciler manager (control loop), the
+// optional agentgateway subprocess (filesystem mode), and the config API
+// surface. The struct is the result of InitializeServices and is consumed
+// by runOrchestrator to wire everything together.
 type Services struct {
 	// ConfigAPI provides programmatic access to configuration management.
 	ConfigAPI api.ConfigAPI
