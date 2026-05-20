@@ -3,7 +3,6 @@ package oauth
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"strings"
 
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
@@ -214,10 +213,4 @@ func (c *Client) GetClientMetadata() *pkgoauth.ClientMetadata {
 // This is exposed for external access to metadata discovery.
 func (c *Client) DiscoverMetadata(ctx context.Context, issuer string) (*pkgoauth.Metadata, error) {
 	return c.oauthClient.DiscoverMetadata(ctx, issuer)
-}
-
-// SetHTTPClient sets a custom HTTP client for the OAuth client.
-// This is useful for testing.
-func (c *Client) SetHTTPClient(httpClient *http.Client) {
-	c.oauthClient = pkgoauth.NewClient(pkgoauth.WithHTTPClient(httpClient))
 }
