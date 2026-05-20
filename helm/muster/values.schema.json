@@ -427,10 +427,6 @@
                 "connectorId": {
                   "type": "string",
                   "description": "Optional connector ID to bypass Dex connector selection"
-                },
-                "caFile": {
-                  "type": "string",
-                  "description": "Path to CA certificate file for Dex TLS verification"
                 }
               }
             },

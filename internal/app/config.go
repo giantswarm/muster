@@ -50,6 +50,15 @@ type Config struct {
 
 	// Events settings
 	EnableEvents bool // Enable Kubernetes event emission (alpha, disabled by default)
+
+	// ExtraCAFile is the path to a PEM file whose certificates are appended to
+	// the system trust pool at startup. The augmented pool becomes the default
+	// for outbound HTTP (MCP backends, token exchange, OAuth proxy) by
+	// overriding http.DefaultTransport.TLSClientConfig.RootCAs.
+	//
+	// Use this when muster talks to internal services served behind a private
+	// CA — e.g. tunnelport's SPIFFE-issued certificates on tunnel pods.
+	ExtraCAFile string
 }
 
 // NewConfig creates a new application configuration with the specified settings.
@@ -137,5 +146,12 @@ func (c *Config) WithEvents(enabled bool) *Config {
 // Returns the modified Config for method chaining.
 func (c *Config) WithVersion(version string) *Config {
 	c.Version = version
+	return c
+}
+
+// WithExtraCAFile sets the path to a PEM file appended to the system trust
+// pool at startup. See Config.ExtraCAFile for the rationale.
+func (c *Config) WithExtraCAFile(path string) *Config {
+	c.ExtraCAFile = path
 	return c
 }
