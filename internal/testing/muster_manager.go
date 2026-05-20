@@ -801,6 +801,16 @@ func (m *musterInstanceManager) startMusterProcess(ctx context.Context, configPa
 		"--debug",
 	}
 
+	// If the test harness collected mock OAuth CA certs into a combined bundle
+	// (see configureOAuthForInstance / collectAndWriteCACertificates), pass it
+	// via --extra-ca-file so muster's process-wide http.DefaultTransport trusts
+	// the self-signed test certs for OAuth proxy, token exchange, and Dex
+	// provider calls.
+	combinedCAFile := filepath.Join(musterConfigPath, "mock-oauth-ca.pem")
+	if _, err := os.Stat(combinedCAFile); err == nil {
+		args = append(args, "--extra-ca-file", combinedCAFile)
+	}
+
 	cmd := exec.CommandContext(ctx, musterPath, args...) //nolint:gosec
 
 	// Configure the process attributes (platform-specific)
@@ -1015,14 +1025,16 @@ func (m *musterInstanceManager) configureOAuthForInstance(
 	}
 
 	// Collect CA certificates from ALL TLS-enabled OAuth servers.
-	// This is needed for token exchange to work, where muster needs to call
-	// remote OAuth servers (e.g., cluster-b-idp) that use self-signed certs.
+	// The combined bundle is written to musterConfigPath and passed to
+	// `muster serve` via --extra-ca-file (wired in startMusterProcess),
+	// which augments http.DefaultTransport process-wide so every outbound
+	// HTTPS call (OAuth proxy, token exchange, Dex provider) trusts these
+	// CAs. This is needed for token exchange to work, where muster needs
+	// to call remote OAuth servers (e.g., cluster-b-idp) that use
+	// self-signed certs.
 	combinedCAFile := m.collectAndWriteCACertificates(instanceID, musterConfigPath, config, logger)
-	if combinedCAFile != "" {
-		oauthMCPClientConfig["caFile"] = combinedCAFile
-		if m.debug {
-			logger.Debug("🔒 Combined CA certificate written to %s\n", combinedCAFile)
-		}
+	if combinedCAFile != "" && m.debug {
+		logger.Debug("🔒 Combined CA certificate written to %s\n", combinedCAFile)
 	}
 
 	// Build the consolidated OAuth config with mcpClient and server sub-sections
@@ -1034,7 +1046,7 @@ func (m *musterInstanceManager) configureOAuthForInstance(
 	// This enables testing of SSO token forwarding with muster's OAuth server protection
 	for _, oauthCfg := range config.MockOAuthServers {
 		if oauthCfg.UseAsMusterOAuthServer {
-			oauthServerConfig := m.buildMusterOAuthServerConfig(oauthCfg, port, instanceID, musterConfigPath, oauthMCPClientConfig, logger)
+			oauthServerConfig := m.buildMusterOAuthServerConfig(oauthCfg, port, instanceID, oauthMCPClientConfig, logger)
 			if oauthServerConfig != nil {
 				oauthConfig["server"] = oauthServerConfig
 			}
@@ -1099,7 +1111,6 @@ func (m *musterInstanceManager) buildMusterOAuthServerConfig(
 	oauthCfg MockOAuthServerConfig,
 	port int,
 	instanceID string,
-	musterConfigPath string,
 	oauthProxyConfig map[string]interface{},
 	logger TestLogger,
 ) map[string]interface{} {
@@ -1126,14 +1137,10 @@ func (m *musterInstanceManager) buildMusterOAuthServerConfig(
 		"clientSecret": oauthCfg.ClientSecret,
 	}
 
-	// Use the combined CA file (already written by configureOAuthForInstance)
-	// if the mock server uses TLS
-	if mockServer.IsTLS() {
-		caFile := filepath.Join(musterConfigPath, "mock-oauth-ca.pem")
-		if _, err := os.Stat(caFile); err == nil {
-			dexConfig["caFile"] = caFile
-		}
-	}
+	// The combined CA bundle (written by configureOAuthForInstance) is passed
+	// to `muster serve` via --extra-ca-file, which augments the process-wide
+	// http.DefaultTransport. The Dex provider inherits that, so no per-config
+	// caFile is required here.
 
 	if m.debug {
 		logger.Debug("🔐 Enabled muster OAuth server with mock provider (issuer: %s)\n", issuerURL)

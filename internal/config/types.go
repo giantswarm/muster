@@ -128,9 +128,12 @@ type OAuthMCPClientConfig struct {
 	// Muster can serve its own CIMD when acting as an OAuth client for MCP servers.
 	CIMD OAuthCIMDConfig `yaml:"cimd,omitempty"`
 
-	// CAFile is the path to a CA certificate file for verifying TLS connections to OAuth servers.
-	// This is useful when connecting to OAuth servers with self-signed certificates.
-	CAFile string `yaml:"caFile,omitempty"`
+	// ExtraCAFile mirrors the process-level --extra-ca-file flag for the
+	// OAuth/token-exchange layer's internal-deployment heuristic. When set,
+	// the token-exchange HTTP client allows resolution to private IP ranges
+	// (e.g. in-cluster Dex via .svc.cluster.local).
+	// Not part of any user-facing config; populated by the serve command.
+	ExtraCAFile string `yaml:"-"`
 }
 
 // OAuthCIMDConfig contains Client ID Metadata Document configuration.
@@ -339,10 +342,6 @@ type DexConfig struct {
 
 	// ConnectorID is the optional Dex connector ID to bypass connector selection.
 	ConnectorID string `yaml:"connectorId,omitempty"`
-
-	// CAFile is the path to a CA certificate file for Dex TLS verification.
-	// Use this when Dex uses a private/internal CA.
-	CAFile string `yaml:"caFile,omitempty"`
 }
 
 // GoogleConfig holds configuration for the Google OAuth provider.
