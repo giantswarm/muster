@@ -14,3 +14,13 @@ linters:
       - path: _test\.go
         linters: [gosec]
         text: G101
+
+      # Kubernetes event reason identifiers and the RFC 8693 grant-type
+      # URN match gosec G101 on the substring "Token" but are protocol
+      # constants, not credentials. Exempt the two files that hold them.
+      - path: internal/events/types\.go
+        linters: [gosec]
+        text: G101
+      - path: pkg/oauth/wire\.go
+        linters: [gosec]
+        text: G101
