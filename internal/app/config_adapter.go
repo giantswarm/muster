@@ -119,7 +119,7 @@ func (a *ConfigAdapter) GetTools() []api.ToolMetadata {
 			Args: []api.ArgMetadata{
 				{
 					Name:        "aggregator",
-					Type:        "object",
+					Type:        api.ArgTypeObject,
 					Required:    true,
 					Description: "Aggregator configuration",
 				},

@@ -251,7 +251,7 @@ func (et *ExecutionTracker) extractStepsFromNewStructure(execution *api.Workflow
 		if conditionEvaluation != nil || conditionResult != nil || conditionTool != "" {
 			// For conditional steps, create a result that includes both the step result and condition info
 			enhancedResult := map[string]interface{}{
-				"status": string(stepStatus),
+				api.FieldStatus: string(stepStatus),
 			}
 
 			// Include condition evaluation (boolean) if present

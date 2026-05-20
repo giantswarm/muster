@@ -12,11 +12,10 @@ keywords:
   - mcp
   - ai-agents
   - model-context-protocol
-  - platform-engineering
   - aggregator
 maintainers:
   - name: Giant Swarm
-    email: team-planeteers@giantswarm.io
+    email: team-bumblebee@giantswarm.io
 annotations:
   io.giantswarm.application.audience: all
-  io.giantswarm.application.team: planeteers
+  io.giantswarm.application.team: bumblebee

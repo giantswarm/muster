@@ -1,0 +1,40 @@
+suite: CRD loader template
+templates:
+  - templates/crds.yaml
+release:
+  name: muster
+tests:
+  - it: renders nothing when crds.install is false
+    set:
+      crds.install: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders both CRDs by default
+    asserts:
+      - hasDocuments:
+          count: 2
+      - isKind:
+          of: CustomResourceDefinition
+
+  - it: injects helm.sh/resource-policy keep annotation by default
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: metadata.annotations
+          value:
+            controller-gen.kubebuilder.io/version: v0.21.0
+            helm.sh/resource-policy: keep
+
+  - it: extra annotations merge into metadata.annotations alongside the default keep
+    set:
+      crds.annotations.owner: team-bumblebee
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: metadata.annotations
+          value:
+            controller-gen.kubebuilder.io/version: v0.21.0
+            helm.sh/resource-policy: keep
+            owner: team-bumblebee

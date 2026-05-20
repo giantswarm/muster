@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/giantswarm/muster/internal/api"
 	pkgstrings "github.com/giantswarm/muster/pkg/strings"
 
 	"gopkg.in/yaml.v3"
@@ -114,9 +115,9 @@ func FormatMCPToolsWithOptions(tools []MCPTool, format OutputFormat, noHeaders b
 	// Wide mode: add SERVER column and show input schema summary
 	isWide := format == OutputFormatWide
 	if isWide {
-		tw.SetHeaders([]string{"NAME", "DESCRIPTION", "SERVER", "ARGS"})
+		tw.SetHeaders([]string{headerName, headerDescription, "SERVER", "ARGS"})
 	} else {
-		tw.SetHeaders([]string{"NAME", "DESCRIPTION"})
+		tw.SetHeaders([]string{headerName, headerDescription})
 	}
 	tw.SetNoHeaders(noHeaders)
 
@@ -213,9 +214,9 @@ func FormatMCPResourcesWithOptions(resources []MCPResource, format OutputFormat,
 	// Wide mode: add NAME column
 	isWide := format == OutputFormatWide
 	if isWide {
-		tw.SetHeaders([]string{"URI", "NAME", "DESCRIPTION", "MIME TYPE"})
+		tw.SetHeaders([]string{"URI", headerName, headerDescription, "MIME TYPE"})
 	} else {
-		tw.SetHeaders([]string{"URI", "DESCRIPTION", "MIME TYPE"})
+		tw.SetHeaders([]string{"URI", headerDescription, "MIME TYPE"})
 	}
 	tw.SetNoHeaders(noHeaders)
 
@@ -291,9 +292,9 @@ func FormatMCPPromptsWithOptions(prompts []MCPPrompt, format OutputFormat, noHea
 	// Wide mode: add ARGS column
 	isWide := format == OutputFormatWide
 	if isWide {
-		tw.SetHeaders([]string{"NAME", "DESCRIPTION", "ARGS"})
+		tw.SetHeaders([]string{headerName, headerDescription, "ARGS"})
 	} else {
-		tw.SetHeaders([]string{"NAME", "DESCRIPTION"})
+		tw.SetHeaders([]string{headerName, headerDescription})
 	}
 	tw.SetNoHeaders(noHeaders)
 
@@ -341,9 +342,9 @@ func countPromptArgs(prompt MCPPrompt) string {
 func FormatMCPToolDetail(tool MCPTool, format OutputFormat) error {
 	if format == OutputFormatJSON || format == OutputFormatYAML {
 		toolInfo := map[string]interface{}{
-			"name":        tool.Name,
-			"description": tool.Description,
-			"inputSchema": tool.InputSchema,
+			api.FieldName:            tool.Name,
+			api.SchemaKeyDescription: tool.Description,
+			api.FieldInputSchema:     tool.InputSchema,
 		}
 		if format == OutputFormatJSON {
 			return outputJSON(toolInfo)
@@ -389,7 +390,7 @@ func renderSchemaProperties(properties map[string]interface{}, required []string
 
 		// Get type
 		propType := "any" //nolint:goconst
-		if t, ok := propMap["type"].(string); ok {
+		if t, ok := propMap[api.SchemaKeyType].(string); ok {
 			propType = t
 		}
 
@@ -403,7 +404,7 @@ func renderSchemaProperties(properties map[string]interface{}, required []string
 		fmt.Printf("%s%s (%s%s)\n", indent, name, propType, requiredStr)
 
 		// Description
-		if desc, ok := propMap["description"].(string); ok && desc != "" {
+		if desc, ok := propMap[api.SchemaKeyDescription].(string); ok && desc != "" {
 			// Wrap long descriptions
 			wrapped := wrapText(desc, 60)
 			for i, line := range wrapped {
@@ -416,7 +417,7 @@ func renderSchemaProperties(properties map[string]interface{}, required []string
 		}
 
 		// Default value
-		if def, ok := propMap["default"]; ok {
+		if def, ok := propMap[api.SchemaKeyDefault]; ok {
 			fmt.Printf("%s  Default: %v\n", indent, def)
 		}
 
@@ -431,9 +432,9 @@ func renderSchemaProperties(properties map[string]interface{}, required []string
 
 		// Handle nested object properties
 		if propType == "object" { //nolint:goconst
-			if nestedProps, ok := propMap["properties"].(map[string]interface{}); ok {
+			if nestedProps, ok := propMap[api.SchemaKeyProperties].(map[string]interface{}); ok {
 				var nestedRequired []string
-				if req, ok := propMap["required"].([]interface{}); ok {
+				if req, ok := propMap[api.SchemaKeyRequired].([]interface{}); ok {
 					for _, r := range req {
 						if s, ok := r.(string); ok {
 							nestedRequired = append(nestedRequired, s)
@@ -444,7 +445,7 @@ func renderSchemaProperties(properties map[string]interface{}, required []string
 				renderSchemaProperties(nestedProps, nestedRequired, indent+"    ")
 			}
 			// Handle additionalProperties for map-like objects
-			if addProps, ok := propMap["additionalProperties"].(map[string]interface{}); ok {
+			if addProps, ok := propMap[api.SchemaKeyAdditionalProperties].(map[string]interface{}); ok {
 				fmt.Printf("%s  Value Schema:\n", indent)
 				renderAdditionalProperties(addProps, indent+"    ")
 			}
@@ -452,7 +453,7 @@ func renderSchemaProperties(properties map[string]interface{}, required []string
 
 		// Handle array items
 		if propType == "array" {
-			if items, ok := propMap["items"].(map[string]interface{}); ok {
+			if items, ok := propMap[api.SchemaKeyItems].(map[string]interface{}); ok {
 				fmt.Printf("%s  Items:\n", indent)
 				renderArrayItems(items, indent+"    ")
 			}
@@ -463,19 +464,19 @@ func renderSchemaProperties(properties map[string]interface{}, required []string
 // renderAdditionalProperties renders the schema for additionalProperties.
 func renderAdditionalProperties(props map[string]interface{}, indent string) {
 	propType := "any"
-	if t, ok := props["type"].(string); ok {
+	if t, ok := props[api.SchemaKeyType].(string); ok {
 		propType = t
 	}
 	fmt.Printf("%sType: %s\n", indent, propType)
 
-	if desc, ok := props["description"].(string); ok && desc != "" {
+	if desc, ok := props[api.SchemaKeyDescription].(string); ok && desc != "" {
 		fmt.Printf("%sDescription: %s\n", indent, desc)
 	}
 
 	if propType == "object" {
-		if nestedProps, ok := props["properties"].(map[string]interface{}); ok {
+		if nestedProps, ok := props[api.SchemaKeyProperties].(map[string]interface{}); ok {
 			var nestedRequired []string
-			if req, ok := props["required"].([]interface{}); ok {
+			if req, ok := props[api.SchemaKeyRequired].([]interface{}); ok {
 				for _, r := range req {
 					if s, ok := r.(string); ok {
 						nestedRequired = append(nestedRequired, s)
@@ -491,19 +492,19 @@ func renderAdditionalProperties(props map[string]interface{}, indent string) {
 // renderArrayItems renders the schema for array items.
 func renderArrayItems(items map[string]interface{}, indent string) {
 	itemType := "any"
-	if t, ok := items["type"].(string); ok {
+	if t, ok := items[api.SchemaKeyType].(string); ok {
 		itemType = t
 	}
 	fmt.Printf("%sType: %s\n", indent, itemType)
 
-	if desc, ok := items["description"].(string); ok && desc != "" {
+	if desc, ok := items[api.SchemaKeyDescription].(string); ok && desc != "" {
 		fmt.Printf("%sDescription: %s\n", indent, desc)
 	}
 
 	if itemType == "object" {
-		if nestedProps, ok := items["properties"].(map[string]interface{}); ok {
+		if nestedProps, ok := items[api.SchemaKeyProperties].(map[string]interface{}); ok {
 			var nestedRequired []string
-			if req, ok := items["required"].([]interface{}); ok {
+			if req, ok := items[api.SchemaKeyRequired].([]interface{}); ok {
 				for _, r := range req {
 					if s, ok := r.(string); ok {
 						nestedRequired = append(nestedRequired, s)
@@ -549,10 +550,10 @@ func wrapText(text string, width int) []string {
 func FormatMCPResourceDetail(resource MCPResource, format OutputFormat) error {
 	if format == OutputFormatJSON || format == OutputFormatYAML {
 		resourceInfo := map[string]interface{}{
-			"uri":         resource.URI,
-			"name":        resource.Name,
-			"description": resource.Description,
-			"mimeType":    resource.MIMEType,
+			api.FieldURI:             resource.URI,
+			api.FieldName:            resource.Name,
+			api.SchemaKeyDescription: resource.Description,
+			api.FieldMimeType:        resource.MIMEType,
 		}
 		if format == OutputFormatJSON {
 			return outputJSON(resourceInfo)
@@ -578,16 +579,16 @@ func FormatMCPResourceDetail(resource MCPResource, format OutputFormat) error {
 func FormatMCPPromptDetail(prompt MCPPrompt, format OutputFormat) error {
 	if format == OutputFormatJSON || format == OutputFormatYAML {
 		promptInfo := map[string]interface{}{
-			"name":        prompt.Name,
-			"description": prompt.Description,
+			api.FieldName:            prompt.Name,
+			api.SchemaKeyDescription: prompt.Description,
 		}
 		if len(prompt.Arguments) > 0 {
 			args := make([]map[string]interface{}, len(prompt.Arguments))
 			for i, arg := range prompt.Arguments {
 				args[i] = map[string]interface{}{
-					"name":        arg.Name,
-					"description": arg.Description,
-					"required":    arg.Required,
+					api.FieldName:            arg.Name,
+					api.SchemaKeyDescription: arg.Description,
+					api.SchemaKeyRequired:    arg.Required,
 				}
 			}
 			promptInfo["arguments"] = args

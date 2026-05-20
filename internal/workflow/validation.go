@@ -45,28 +45,28 @@ func (we *WorkflowExecutor) validateInputs(argsDefinition map[string]api.ArgDefi
 // engine doesn't have a rich type system; this catches obvious shape errors
 // only.
 func (we *WorkflowExecutor) validateType(value interface{}, expectedType string) bool {
-	switch expectedType {
-	case "string":
+	switch api.ArgType(expectedType) {
+	case api.ArgTypeString:
 		_, ok := value.(string)
 		return ok
-	case "number":
+	case api.ArgTypeNumber, api.ArgTypeInteger:
 		switch value.(type) {
 		case int, int32, int64, float32, float64:
 			return true
 		default:
 			return false
 		}
-	case "boolean":
+	case api.ArgTypeBoolean:
 		_, ok := value.(bool)
 		return ok
-	case "array":
+	case api.ArgTypeArray:
 		switch value.(type) {
 		case []interface{}, []string, []int, []float64:
 			return true
 		default:
 			return false
 		}
-	case "object":
+	case api.ArgTypeObject:
 		_, ok := value.(map[string]interface{})
 		return ok
 	default:

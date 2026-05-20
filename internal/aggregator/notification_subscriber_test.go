@@ -183,7 +183,7 @@ func TestRefreshNonOAuthCapabilities_UpdatesTools(t *testing.T) {
 	client := &notifMockClient{tools: initialTools}
 
 	ctx := context.Background()
-	require.NoError(t, registry.Register(ctx, "srv", client, ""))
+	require.NoError(t, registry.Register(ctx, ServerRegistration{Name: "srv"}, client))
 
 	info, _ := registry.GetServerInfo("srv")
 	info.mu.RLock()
@@ -212,7 +212,7 @@ func TestRefreshNonOAuthCapabilities_NoChangeSkipsUpdate(t *testing.T) {
 	client := &notifMockClient{tools: tools}
 
 	ctx := context.Background()
-	require.NoError(t, registry.Register(ctx, "srv", client, ""))
+	require.NoError(t, registry.Register(ctx, ServerRegistration{Name: "srv"}, client))
 
 	// Drain the initial registration update
 	select {
@@ -246,7 +246,7 @@ func TestHandleNonOAuthCapabilityChanged_TriggersRefresh(t *testing.T) {
 	client := &notifMockClient{tools: initialTools}
 
 	ctx := context.Background()
-	require.NoError(t, registry.Register(ctx, "srv", client, ""))
+	require.NoError(t, registry.Register(ctx, ServerRegistration{Name: "srv"}, client))
 
 	client.setTools(updatedTools)
 
@@ -270,7 +270,7 @@ func TestHandleNonOAuthCapabilityChanged_SingleflightDedup(t *testing.T) {
 	client := &notifMockClient{tools: tools}
 
 	ctx := context.Background()
-	require.NoError(t, registry.Register(ctx, "srv", client, ""))
+	require.NoError(t, registry.Register(ctx, ServerRegistration{Name: "srv"}, client))
 
 	baseCount := atomic.LoadInt32(&client.listToolsCalls)
 

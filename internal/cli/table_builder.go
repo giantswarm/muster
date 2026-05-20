@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/giantswarm/muster/internal/api"
 )
 
 // TableBuilder handles cell formatting and styling for table display.
@@ -41,9 +43,9 @@ func (b *TableBuilder) FormatCellValuePlain(column string, value interface{}, ro
 	colLower := strings.ToLower(column)
 
 	switch colLower {
-	case "name", "label", "id", "workflow", "execution_id", "workflow_name", "resource_name":
+	case api.FieldName, "label", "id", api.ResourceTypeWorkflow, "execution_id", "workflow_name", "resource_name":
 		return strValue
-	case "health", "status":
+	case api.FieldHealth, api.FieldStatus:
 		// Return "-" for empty health/status values
 		if strValue == "" {
 			return "-"
@@ -53,7 +55,7 @@ func (b *TableBuilder) FormatCellValuePlain(column string, value interface{}, ro
 		return b.formatAvailableStatusPlain(value)
 	case "autostart":
 		return b.formatAutoStartStatusPlain(value)
-	case "state":
+	case api.FieldState:
 		// State represents infrastructure state for MCPServers and services
 		// MCPServer values are context-appropriate: Running/Connected/Starting/Connecting/Stopped/Disconnected/Failed
 		serverType := b.getServerTypeFromContext(rowContext)
@@ -82,19 +84,19 @@ func (b *TableBuilder) FormatCellValuePlain(column string, value interface{}, ro
 		return b.formatDurationPlain(value)
 	case "metadata":
 		return b.formatMetadataPlain(value)
-	case "requiredtools", "tools":
+	case "requiredtools", api.FieldTools:
 		return b.formatToolsListPlain(value)
-	case "description":
+	case api.SchemaKeyDescription:
 		return b.formatDescriptionPlain(strValue)
-	case "steps":
+	case api.FieldSteps:
 		return b.formatStepsPlain(value)
 	case "timeout":
 		// Format timeout values with "s" suffix for seconds
 		return b.formatTimeoutPlain(value)
-	case "url", "command", "uri", "endpoint":
+	case "url", api.FieldCommand, "uri", "endpoint":
 		// Don't truncate URLs, commands, URIs, or endpoints - show full value
 		return strValue
-	case "type", "service_type", "servicetype", "servertype":
+	case api.SchemaKeyType, "service_type", "servicetype", "servertype":
 		// Type fields are typically short, don't truncate
 		return strValue
 	default:
@@ -575,7 +577,7 @@ func (b *TableBuilder) formatObjectPlain(obj map[string]interface{}) string {
 		return "{}"
 	}
 
-	displayFields := []string{"name", "type", "status", "id"}
+	displayFields := []string{api.FieldName, api.SchemaKeyType, api.FieldStatus, "id"}
 	for _, field := range displayFields {
 		if value, exists := obj[field]; exists && value != nil {
 			return fmt.Sprintf("%v", value)

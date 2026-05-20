@@ -57,7 +57,7 @@ func (s *Storage) Load() (*ContextConfig, error) {
 func (s *Storage) loadLocked() (*ContextConfig, error) {
 	filePath := s.getContextsFilePath()
 
-	data, err := os.ReadFile(filePath) //nolint:gosec
+	data, err := os.ReadFile(filepath.Clean(filePath))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			// Return empty config if file doesn't exist
@@ -78,7 +78,7 @@ func (s *Storage) loadLocked() (*ContextConfig, error) {
 // This is used internally when the caller already holds a lock.
 func (s *Storage) saveLocked(config *ContextConfig) error {
 	// Ensure directory exists
-	if err := os.MkdirAll(s.configPath, 0755); err != nil { //nolint:gosec
+	if err := os.MkdirAll(s.configPath, 0o700); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 
@@ -88,7 +88,7 @@ func (s *Storage) saveLocked(config *ContextConfig) error {
 	}
 
 	filePath := s.getContextsFilePath()
-	if err := os.WriteFile(filePath, data, 0644); err != nil { //nolint:gosec
+	if err := os.WriteFile(filePath, data, 0o600); err != nil {
 		return fmt.Errorf("failed to write contexts file: %w", err)
 	}
 

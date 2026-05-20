@@ -260,25 +260,26 @@ func TestWorkflowExecution(t *testing.T) {
 
 **Integration Testing with BDD Scenarios**
 ```yaml
-# internal/testing/scenarios/service-lifecycle.yaml
-name: "Service Lifecycle Management"
-description: "Test complete service lifecycle from creation to deletion"
+# internal/testing/scenarios/mcpserver-lifecycle.yaml
+name: "MCPServer Lifecycle Management"
+description: "Test complete MCPServer lifecycle from creation to deletion"
 steps:
-  - name: "Create service"
-    tool: "service_create"
+  - name: "Create MCPServer"
+    tool: "core_mcpserver_create"
     args:
-      name: "test-service"
-      serviceClass: "basic-web-server"
+      name: "test-server"
+      type: "stdio"
+      command: ["mcp-test"]
     expect:
       status: "success"
 
-  - name: "Verify service running"
-    tool: "service_get"
+  - name: "Verify MCPServer running"
+    tool: "core_mcpserver_get"
     args:
-      name: "test-service"
+      name: "test-server"
     expect:
       status: "success"
-      result.state: "running"
+      result.state: "Running"
 ```
 
 #### Benefits
