@@ -244,6 +244,18 @@ muster:
   # and service management.
   events: false
 
+  # Append a PEM file to muster's system trust pool at startup. Use this when
+  # muster talks to backends served by an internal CA (for example, the SPIFFE
+  # bundle that tunnelport tunnels on a Giant Swarm MC). The chart mounts the
+  # named Secret read-only at .path and passes --extra-ca-file=.path.
+  #
+  # Leave secret.name empty to disable.
+  extraCaFile:
+    path: /etc/muster/ca/extra-ca.pem
+    secret:
+      name: ""
+      key: ca.pem
+
   # OAuth configuration - consolidated with explicit mcpClient/server sub-sections
   # This structure clearly separates the two distinct OAuth roles:
   #   - oauth.mcpClient: muster authenticating TO remote MCP servers (proxy role)
@@ -326,8 +338,6 @@ muster:
         clientSecret: ""
         # Optional connector ID to bypass Dex connector selection
         connectorId: ""
-        # Path to CA certificate file for Dex TLS verification (for private CAs)
-        caFile: ""
 
       # Google OAuth provider configuration (used when provider is "google")
       google:
