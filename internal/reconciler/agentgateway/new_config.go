@@ -2,7 +2,10 @@ package agentgateway
 
 import (
 	"fmt"
+	"maps"
 	"net/url"
+	"path"
+	"slices"
 	"strconv"
 
 	v1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
@@ -39,7 +42,7 @@ func NewConfig(name, namespace string, spec v1alpha1.MCPServerSpec) (Config, err
 
 	route := Route{
 		Name:       name,
-		PathMatch:  routePathPrefix + "/" + name,
+		PathMatch:  path.Join(routePathPrefix, name),
 		BackendRef: name,
 		PolicyRef:  name,
 	}
@@ -64,8 +67,8 @@ func backendFromSpec(name string, spec v1alpha1.MCPServerSpec) (Backend, error) 
 			Name: name,
 			Target: StdioTarget{
 				Command: spec.Command,
-				Args:    spec.Args,
-				Env:     spec.Env,
+				Args:    cloneStrings(spec.Args),
+				Env:     cloneStringMap(spec.Env),
 			},
 		}, nil
 
@@ -102,7 +105,11 @@ func httpTargetFromURL(raw string, protocol HTTPProtocol) (HTTPTarget, error) {
 	}
 	var port int
 	if p := parsed.Port(); p != "" {
-		port, _ = strconv.Atoi(p)
+		parsedPort, err := strconv.Atoi(p)
+		if err != nil {
+			return HTTPTarget{}, fmt.Errorf("spec.url %q has non-numeric port %q: %w", raw, p, err)
+		}
+		port = parsedPort
 	} else {
 		switch parsed.Scheme {
 		case "http":
@@ -113,7 +120,11 @@ func httpTargetFromURL(raw string, protocol HTTPProtocol) (HTTPTarget, error) {
 			return HTTPTarget{}, fmt.Errorf("unsupported url scheme %q", parsed.Scheme)
 		}
 	}
-	return HTTPTarget{Protocol: protocol, Host: host, Port: port, Path: parsed.Path}, nil
+	target := HTTPTarget{Protocol: protocol, Host: host, Port: port, Path: parsed.Path}
+	if err := target.Validate(); err != nil {
+		return HTTPTarget{}, err
+	}
+	return target, nil
 }
 
 func authFromSpec(auth *v1alpha1.MCPServerAuth) (Authn, error) {
@@ -141,7 +152,7 @@ func authFromSpec(auth *v1alpha1.MCPServerAuth) (Authn, error) {
 	out := Authn{
 		Type:              typ,
 		ForwardToken:      auth.ForwardToken,
-		RequiredAudiences: auth.RequiredAudiences,
+		RequiredAudiences: cloneStrings(auth.RequiredAudiences),
 	}
 	if auth.TokenExchange != nil {
 		out.TokenExchange = tokenExchangeFromSpec(auth.TokenExchange)
@@ -164,6 +175,20 @@ func parseAuthnType(s string) (AuthnType, error) {
 	default:
 		return "", fmt.Errorf("unsupported auth.type %q", s)
 	}
+}
+
+func cloneStrings(in []string) []string {
+	if in == nil {
+		return nil
+	}
+	return slices.Clone(in)
+}
+
+func cloneStringMap(in map[string]string) map[string]string {
+	if in == nil {
+		return nil
+	}
+	return maps.Clone(in)
 }
 
 func tokenExchangeFromSpec(tokenExchange *v1alpha1.TokenExchangeConfig) *TokenExchange {

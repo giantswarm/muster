@@ -138,15 +138,12 @@ type AggregatorHandler interface {
 	// MCPServer. The reconciler reads this for CRD status sync.
 	UpstreamServerState(name string) UpstreamServerState
 
-	// MarkUserStopped records operator intent to keep the named MCPServer
-	// deregistered; RegisterUpstream becomes a no-op until MarkUserStarted
-	// clears the record. Without this, core_service_stop would be undone
-	// by the reconciler's next periodic RegisterUpstream pulse.
-	MarkUserStopped(name string)
-
-	// MarkUserStarted clears any operator-stop record set by MarkUserStopped
-	// so the next reconciler pass actually dials the upstream.
-	MarkUserStarted(name string)
+	// UpstreamServerStateForSession reports the upstream MCPServer state as
+	// seen by the session bound to ctx. OAuth servers whose global registry
+	// entry remains in pending-auth surface as Connected when the caller's
+	// session has a live pooled connection, so core_service_list reflects
+	// post-SSO state.
+	UpstreamServerStateForSession(ctx context.Context, name string) UpstreamServerState
 }
 
 // UpstreamServerState enumerates the aggregator's view of an upstream MCPServer.

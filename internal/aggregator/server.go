@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -1072,25 +1073,24 @@ func (a *AggregatorServer) Stop(ctx context.Context) error {
 //
 // Args:
 //   - ctx: Context for the registration operation and capability queries
-//   - name: Unique identifier for the server within the aggregator
+//   - registration: Server identification (name, toolPrefix, family)
 //   - client: MCP client interface for communicating with the backend server
-//   - toolPrefix: Server-specific prefix for name collision resolution
 //
 // Returns an error if registration fails due to naming conflicts, client issues,
 // or communication problems with the backend server.
-func (a *AggregatorServer) RegisterServer(ctx context.Context, name string, client MCPClient, toolPrefix string) error {
+func (a *AggregatorServer) RegisterServer(ctx context.Context, registration ServerRegistration, client MCPClient) error {
 	logging.DebugWithAttrs("Aggregator", "RegisterServer called",
-		slog.String("server", name), slog.String("time", time.Now().Format("15:04:05.000")))
+		slog.String("server", registration.Name), slog.String("time", time.Now().Format("15:04:05.000")))
 
 	// Wire the notification handler before registration so Initialize()
 	// (called inside Register) forwards it to the underlying mcp-go client.
 	client.OnNotification(func(notif mcp.JSONRPCNotification) {
 		if isCapabilityNotification(notif.Method) {
-			a.handleNonOAuthCapabilityChanged(name)
+			a.handleNonOAuthCapabilityChanged(registration.Name)
 		}
 	})
 
-	return a.registry.Register(ctx, name, client, toolPrefix)
+	return a.registry.Register(ctx, registration, client)
 }
 
 // wirePoolNotificationCallback sets up a notification callback on the
@@ -1160,6 +1160,18 @@ func (a *AggregatorServer) DeregisterServer(name string) error {
 // Returns the ServerRegistry instance managing all backend servers.
 func (a *AggregatorServer) GetRegistry() *ServerRegistry {
 	return a.registry
+}
+
+// HasPooledConnection reports whether the connection pool currently holds a
+// live client for (sessionID, serverName). Used by the session-aware
+// UpstreamServerState path so core_service_list reflects post-SSO connected
+// state for OAuth servers, since the global registry stays in pending-auth.
+func (a *AggregatorServer) HasPooledConnection(sessionID, serverName string) bool {
+	if a.connPool == nil {
+		return false
+	}
+	_, ok := a.connPool.Get(sessionID, serverName)
+	return ok
 }
 
 // monitorRegistryUpdates runs a background monitoring loop for registry changes.
@@ -1792,46 +1804,38 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 	sub := getUserSubjectFromContext(ctx)
 	sessionID := getSessionIDFromContext(ctx)
 
+	// Family-grouped tools carry a required routing parameter selecting which
+	// instance handles the call. When the target is family-grouped, strip the
+	// parameter from the forwarded args so the backend sees its native schema
+	// and use it to resolve the routing target precisely. For non-family
+	// tools the value is passed through untouched.
+	if a.registry.IsFamilyTool(toolName) {
+		instanceArg := a.registry.FamilyInstanceArgFor(toolName)
+		explicitServer, _ := args[instanceArg].(string)
+		if explicitServer == "" {
+			providers := a.registry.GetToolServerNames(toolName)
+			sort.Strings(providers)
+			return nil, fmt.Errorf("tool %s is provided by a family on servers %s; the %q parameter is required",
+				toolName, strings.Join(providers, ", "), instanceArg)
+		}
+		forwarded := make(map[string]interface{}, len(args)-1)
+		for k, v := range args {
+			if k != instanceArg {
+				forwarded[k] = v
+			}
+		}
+		originalName, resolveErr := a.registry.ResolveToolNameForServer(toolName, explicitServer)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		return a.dispatchResolvedTool(ctx, toolName, explicitServer, originalName, forwarded, sessionID, sub)
+	}
+
 	serverName, originalName, err := a.registry.ResolveToolName(toolName)
 	if err == nil {
 		logging.DebugWithAttrs("Aggregator", "Tool found in registry",
 			slog.String("tool", toolName), slog.String("server", serverName), slog.String("original", originalName))
-		serverInfo, exists := a.registry.GetServerInfo(serverName)
-		if !exists || serverInfo == nil {
-			return nil, fmt.Errorf("server not found: %s", serverName)
-		}
-
-		if !serverInfo.RequiresSessionAuth() && serverInfo.Client != nil {
-			logging.DebugWithAttrs("Aggregator", "Using global client",
-				slog.String("server", serverName))
-			return serverInfo.Client.CallTool(ctx, originalName, args)
-		}
-
-		if serverInfo.RequiresSessionAuth() {
-			if sessionID == "" {
-				logging.WarnWithAttrs("Aggregator", "Tool requires auth but no session ID in context. "+
-					"The OAuth middleware may not have propagated the session — check createAccessTokenInjectorMiddleware.",
-					slog.String("tool", toolName),
-					slog.String("server", serverName))
-				return nil, fmt.Errorf("tool %s requires authentication but no session is available", toolName)
-			}
-			logging.DebugWithAttrs("Aggregator", "Server requires auth, trying on-demand client",
-				slog.String("server", serverName), slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
-			_, sessionOriginalName, sessionErr := a.resolveUserTool(sessionID, toolName)
-			if sessionErr == nil {
-				logging.DebugWithAttrs("Aggregator", "Using on-demand client",
-					slog.String("tool", toolName))
-				return a.callToolWithTokenExchangeRetry(ctx, serverName, sessionOriginalName, args, sessionID, sub)
-			}
-			logging.DebugWithAttrs("Aggregator", "No cached capabilities found",
-				slog.String("tool", toolName), slog.String("error", sessionErr.Error()))
-		}
-
-		if serverInfo.Client == nil {
-			return nil, fmt.Errorf("server not connected: %s (status: %s)", serverName, serverInfo.GetStatus())
-		}
-
-		return serverInfo.Client.CallTool(ctx, originalName, args)
+		return a.dispatchResolvedTool(ctx, toolName, serverName, originalName, args, sessionID, sub)
 	}
 
 	logging.DebugWithAttrs("Aggregator", "Tool not found in registry, checking capability cache",
@@ -1861,6 +1865,43 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 	logging.DebugWithAttrs("Aggregator", "Tool not found in registry, session, or core tools",
 		slog.String("tool", toolName))
 	return nil, fmt.Errorf("tool not found: %s", toolName)
+}
+
+// dispatchResolvedTool routes a tool call to the backend server once the
+// (serverName, originalName) pair has been resolved (either via the registry
+// for solo tools or via ResolveToolNameForServer for family-grouped tools).
+// It encapsulates the global-client vs session-scoped vs token-exchange
+// branching that previously lived inline in CallToolInternal.
+func (a *AggregatorServer) dispatchResolvedTool(ctx context.Context, toolName, serverName, originalName string, args map[string]interface{}, sessionID, sub string) (*mcp.CallToolResult, error) {
+	serverInfo, exists := a.registry.GetServerInfo(serverName)
+	if !exists || serverInfo == nil {
+		return nil, fmt.Errorf("server not found: %s", serverName)
+	}
+
+	if !serverInfo.RequiresSessionAuth() && serverInfo.Client != nil {
+		logging.DebugWithAttrs("Aggregator", "Using global client",
+			slog.String("server", serverName))
+		return serverInfo.Client.CallTool(ctx, originalName, args)
+	}
+
+	if serverInfo.RequiresSessionAuth() {
+		if sessionID == "" {
+			logging.WarnWithAttrs("Aggregator", "Tool requires auth but no session ID in context. "+
+				"The OAuth middleware may not have propagated the session — check createAccessTokenInjectorMiddleware.",
+				slog.String("tool", toolName),
+				slog.String("server", serverName))
+			return nil, fmt.Errorf("tool %s requires authentication but no session is available", toolName)
+		}
+		logging.DebugWithAttrs("Aggregator", "Server requires auth, dispatching via session-scoped pool",
+			slog.String("server", serverName), slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
+		return a.callToolWithTokenExchangeRetry(ctx, serverName, originalName, args, sessionID, sub)
+	}
+
+	if serverInfo.Client == nil {
+		return nil, fmt.Errorf("server not connected: %s (status: %s)", serverName, serverInfo.GetStatus())
+	}
+
+	return serverInfo.Client.CallTool(ctx, originalName, args)
 }
 
 // isCoreToolByName checks if a tool name matches the pattern of core tools

@@ -67,6 +67,15 @@ type MCPServerSpec struct {
 	// +kubebuilder:default=false
 	AutoStart bool `json:"autoStart,omitempty" yaml:"autoStart,omitempty"`
 
+	// Suspended, when true, instructs the reconciler to deregister this MCP
+	// server from the aggregator and to skip any further RegisterUpstream
+	// pulses until Suspended returns to false. core_service_stop /
+	// core_service_start mutate this field rather than holding ephemeral
+	// in-memory state on the aggregator, so operator intent survives muster
+	// restarts and concurrent reconciler passes.
+	// +kubebuilder:default=false
+	Suspended bool `json:"suspended,omitempty" yaml:"suspended,omitempty"`
+
 	// Command specifies the executable path for stdio type servers.
 	// This field is required when Type is "stdio".
 	Command string `json:"command,omitempty" yaml:"command,omitempty"`
