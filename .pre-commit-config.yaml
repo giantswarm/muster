@@ -41,3 +41,21 @@ repos:
           - --max-issues-per-linter=0
       - id: go-imports
         args: [ -local, github.com/giantswarm/muster ]
+
+  - repo: local
+    hooks:
+      - id: agentgateway-verify-pin
+        name: agentgateway-verify-pin
+        description: Fail if internal/agentgateway/version/pin.go drifts from go.mod
+        entry: make verify-pin
+        language: system
+        pass_filenames: false
+        files: '^(go\.mod|internal/agentgateway/version/pin\.go)$'
+      - id: agentgateway-verify-checksums
+        name: agentgateway-verify-checksums
+        description: Fail if internal/agentgateway/binary/checksums.go drifts from upstream release .sha256 files (online)
+        entry: make verify-checksums
+        language: system
+        pass_filenames: false
+        stages: [manual]
+        files: '^(go\.mod|internal/agentgateway/binary/checksums\.go)$'

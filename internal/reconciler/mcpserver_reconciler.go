@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/utils/ptr"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -17,6 +19,7 @@ import (
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/reconciler/agentgateway"
 	k8sapply "github.com/giantswarm/muster/internal/reconciler/agentgateway/k8s"
+	"github.com/giantswarm/muster/internal/reconciler/agentgateway/translate"
 	"github.com/giantswarm/muster/pkg/logging"
 )
 
@@ -25,10 +28,11 @@ import (
 // stdio MCPServers).
 const ConditionTypeNotSupportedInCluster = "NotSupportedInCluster"
 
-const (
-	mcpServerAPIVersion = "muster.giantswarm.io/v1alpha1"
-	mcpServerKind       = "MCPServer"
-)
+const mcpServerKind = "MCPServer"
+
+// mcpServerAPIVersion is derived from the canonical GroupVersion on the
+// muster API package so a bump there propagates here.
+var mcpServerAPIVersion = musterv1alpha1.GroupVersion.String()
 
 const reasonStdioInClusterMode = "StdioInClusterMode"
 
@@ -60,6 +64,12 @@ type MCPServerReconciler struct {
 	k8sApplierCfg k8sapply.Config
 
 	deleter agentgateway.Deleter
+
+	// ownerRefs caches OwnerReferences resolved from the live MCPServer in
+	// cluster mode so periodic status-sync requeues don't re-fetch and
+	// re-build the K8s Applier every reconcile.
+	ownerRefMu sync.RWMutex
+	ownerRefs  map[types.NamespacedName]metav1.OwnerReference
 }
 
 // NewMCPServerReconcilerFilesystem builds a reconciler wired to the
@@ -70,6 +80,9 @@ func NewMCPServerReconcilerFilesystem(
 	yamlApplier agentgateway.Applier,
 	deleter agentgateway.Deleter,
 ) *MCPServerReconciler {
+	if mcpServerManager == nil {
+		panic("reconciler: NewMCPServerReconcilerFilesystem requires a non-nil MCPServerManager")
+	}
 	if yamlApplier == nil {
 		panic("reconciler: NewMCPServerReconcilerFilesystem requires a non-nil yaml Applier")
 	}
@@ -83,21 +96,35 @@ func NewMCPServerReconcilerFilesystem(
 
 // NewMCPServerReconcilerCluster builds a reconciler that constructs a fresh
 // k8s.Applier per Reconcile. ownerRef is bound on each construction so emitted
-// objects cascade-delete with the MCPServer.
+// objects cascade-delete with the MCPServer; cleanup is handled by Kubernetes
+// garbage collection, so no Deleter is needed.
+//
+// statusUpdater is required: the K8s Applier rejects empty UID, so
+// resolveOwnerRef MUST be able to fetch the live MCPServer.
 func NewMCPServerReconcilerCluster(
 	mcpServerManager MCPServerManager,
 	k8sClient ctrlclient.Client,
 	k8sApplierCfg k8sapply.Config,
+	statusUpdater StatusUpdater,
+	namespace string,
 ) *MCPServerReconciler {
+	if mcpServerManager == nil {
+		panic("reconciler: NewMCPServerReconcilerCluster requires a non-nil MCPServerManager")
+	}
 	if k8sClient == nil {
 		panic("reconciler: NewMCPServerReconcilerCluster requires a non-nil client")
 	}
-	return &MCPServerReconciler{
+	if statusUpdater == nil {
+		panic("reconciler: NewMCPServerReconcilerCluster requires a non-nil StatusUpdater")
+	}
+	r := &MCPServerReconciler{
 		BaseStatusConfig: BaseStatusConfig{Namespace: DefaultNamespace},
 		mcpServerManager: mcpServerManager,
 		k8sClient:        k8sClient,
 		k8sApplierCfg:    k8sApplierCfg,
 	}
+	r.SetStatusUpdater(statusUpdater, namespace)
+	return r
 }
 
 // WithStatusUpdater sets the status updater for syncing status back to CRDs.
@@ -156,7 +183,7 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileReques
 // applyConfig compiles the MCPServer spec into an agentgateway.Config and
 // hands it to the Applier appropriate for the current mode.
 func (r *MCPServerReconciler) applyConfig(ctx context.Context, req ReconcileRequest, info *api.MCPServerInfo) (ReconcileResult, bool) {
-	spec := infoToMCPServerSpec(info)
+	spec := translate.InfoToMCPServerSpec(info)
 	namespace := r.GetNamespace(req.Namespace)
 	config, err := agentgateway.NewConfig(req.Name, namespace, spec)
 	if err != nil {
@@ -165,7 +192,15 @@ func (r *MCPServerReconciler) applyConfig(ctx context.Context, req ReconcileRequ
 		return ReconcileResult{Error: fmt.Errorf("agentgateway: %w", err)}, true
 	}
 
-	applier := r.applierFor(ctx, req.Name, namespace)
+	applier, err := r.applierFor(ctx, req.Name, namespace)
+	if err != nil {
+		logging.Debug("MCPServerReconciler", "applierFor failed for MCPServer %s: %v", req.Name, err)
+		r.syncStatus(ctx, req.Name, req.Namespace, info.Type, err)
+		return ReconcileResult{
+			Error:   fmt.Errorf("resolve applier: %w", err),
+			Requeue: true,
+		}, true
+	}
 
 	if err := applier.Apply(ctx, config); err != nil {
 		if errors.Is(err, agentgateway.ErrUnsupportedTransport) {
@@ -212,20 +247,32 @@ func (r *MCPServerReconciler) deregisterUpstream(ctx context.Context, name strin
 //
 //   - Filesystem mode: returns the long-lived yamlApplier set at startup.
 //   - Cluster mode: constructs a fresh k8s.Applier bound to the live
-//     MCPServer's ownerRef so emitted objects cascade-delete with it.
-func (r *MCPServerReconciler) applierFor(ctx context.Context, name, namespace string) agentgateway.Applier {
+//     MCPServer's ownerRef so emitted objects cascade-delete with it. The
+//     resolved OwnerReference is cached on the reconciler keyed by
+//     namespaced name; subsequent reconciles reuse it without a fresh GET.
+func (r *MCPServerReconciler) applierFor(ctx context.Context, name, namespace string) (agentgateway.Applier, error) {
 	if r.yamlApplier != nil {
-		return r.yamlApplier
+		return r.yamlApplier, nil
 	}
-	ownerRef := r.resolveOwnerRef(ctx, name, namespace)
-	return k8sapply.NewApplier(r.k8sClient, ownerRef, r.k8sApplierCfg)
+	ownerRef, err := r.resolveOwnerRef(ctx, name, namespace)
+	if err != nil {
+		return nil, err
+	}
+	return k8sapply.NewApplier(r.k8sClient, ownerRef, r.k8sApplierCfg), nil
 }
 
 // resolveOwnerRef builds the metav1.OwnerReference for an MCPServer reconcile
-// request in cluster mode. The K8s applier rejects empty UID/APIVersion/Kind,
-// so cluster-mode callers MUST wire a StatusUpdater that can fetch the live
-// CRD.
-func (r *MCPServerReconciler) resolveOwnerRef(ctx context.Context, name, namespace string) metav1.OwnerReference {
+// request in cluster mode. The K8s applier rejects empty UID, so a failed
+// GetMCPServer propagates as an error and the caller requeues.
+//
+// Filesystem mode never reaches this function (yamlApplier is returned first
+// in applierFor) and tolerates a nil StatusUpdater.
+func (r *MCPServerReconciler) resolveOwnerRef(ctx context.Context, name, namespace string) (metav1.OwnerReference, error) {
+	key := types.NamespacedName{Namespace: namespace, Name: name}
+	if cached, ok := r.loadOwnerRef(key); ok {
+		return cached, nil
+	}
+
 	ref := metav1.OwnerReference{
 		APIVersion:         mcpServerAPIVersion,
 		Kind:               mcpServerKind,
@@ -234,11 +281,14 @@ func (r *MCPServerReconciler) resolveOwnerRef(ctx context.Context, name, namespa
 		BlockOwnerDeletion: ptr.To(true),
 	}
 	if r.StatusUpdater == nil {
-		return ref
+		return metav1.OwnerReference{}, fmt.Errorf("resolveOwnerRef: cluster mode requires a non-nil StatusUpdater")
 	}
 	server, err := r.StatusUpdater.GetMCPServer(ctx, name, namespace)
-	if err != nil || server == nil {
-		return ref
+	if err != nil {
+		return metav1.OwnerReference{}, fmt.Errorf("get MCPServer %s/%s: %w", namespace, name, err)
+	}
+	if server == nil {
+		return metav1.OwnerReference{}, fmt.Errorf("get MCPServer %s/%s: nil server", namespace, name)
 	}
 	if server.APIVersion != "" {
 		ref.APIVersion = server.APIVersion
@@ -247,7 +297,34 @@ func (r *MCPServerReconciler) resolveOwnerRef(ctx context.Context, name, namespa
 		ref.Kind = server.Kind
 	}
 	ref.UID = server.UID
-	return ref
+	if ref.UID == "" {
+		return metav1.OwnerReference{}, fmt.Errorf("get MCPServer %s/%s: UID is empty", namespace, name)
+	}
+
+	r.storeOwnerRef(key, ref)
+	return ref, nil
+}
+
+func (r *MCPServerReconciler) loadOwnerRef(key types.NamespacedName) (metav1.OwnerReference, bool) {
+	r.ownerRefMu.RLock()
+	defer r.ownerRefMu.RUnlock()
+	ref, ok := r.ownerRefs[key]
+	return ref, ok
+}
+
+func (r *MCPServerReconciler) storeOwnerRef(key types.NamespacedName, ref metav1.OwnerReference) {
+	r.ownerRefMu.Lock()
+	defer r.ownerRefMu.Unlock()
+	if r.ownerRefs == nil {
+		r.ownerRefs = make(map[types.NamespacedName]metav1.OwnerReference)
+	}
+	r.ownerRefs[key] = ref
+}
+
+func (r *MCPServerReconciler) invalidateOwnerRef(key types.NamespacedName) {
+	r.ownerRefMu.Lock()
+	defer r.ownerRefMu.Unlock()
+	delete(r.ownerRefs, key)
 }
 
 func (r *MCPServerReconciler) setNotSupportedInClusterCondition(ctx context.Context, name, namespace string, cause error) {
@@ -305,63 +382,6 @@ func (r *MCPServerReconciler) mutateMCPServerStatus(ctx context.Context, name, n
 	if helper.WasSuccessful(retryErr, lastErr) {
 		logging.Debug("MCPServerReconciler", "%s for MCPServer %s", op, name)
 	}
-}
-
-func infoToMCPServerSpec(info *api.MCPServerInfo) musterv1alpha1.MCPServerSpec {
-	spec := musterv1alpha1.MCPServerSpec{
-		Type:        info.Type,
-		ToolPrefix:  info.ToolPrefix,
-		Description: info.Description,
-		AutoStart:   info.AutoStart,
-		Suspended:   info.Suspended,
-		Command:     info.Command,
-		Args:        info.Args,
-		URL:         info.URL,
-		Env:         info.Env,
-		Headers:     info.Headers,
-		Timeout:     info.Timeout,
-	}
-	if info.Auth != nil {
-		spec.Auth = mcpServerAuthFromAPI(info.Auth)
-	}
-	return spec
-}
-
-func mcpServerAuthFromAPI(auth *api.MCPServerAuth) *musterv1alpha1.MCPServerAuth {
-	out := &musterv1alpha1.MCPServerAuth{
-		Type:              auth.Type,
-		ForwardToken:      auth.ForwardToken,
-		RequiredAudiences: auth.RequiredAudiences,
-	}
-	if auth.TokenExchange != nil {
-		out.TokenExchange = tokenExchangeFromAPI(auth.TokenExchange)
-	}
-	if auth.AuthorizationServer != nil {
-		out.AuthorizationServer = &musterv1alpha1.MCPServerAuthAuthorizationServer{
-			Issuer: musterv1alpha1.IssuerURL(auth.AuthorizationServer.Issuer),
-			Scopes: auth.AuthorizationServer.Scopes,
-		}
-	}
-	return out
-}
-
-func tokenExchangeFromAPI(tx *api.TokenExchangeConfig) *musterv1alpha1.TokenExchangeConfig {
-	out := &musterv1alpha1.TokenExchangeConfig{
-		Enabled:          tx.Enabled,
-		DexTokenEndpoint: tx.DexTokenEndpoint,
-		ExpectedIssuer:   tx.ExpectedIssuer,
-		ConnectorID:      tx.ConnectorID,
-		Scopes:           tx.Scopes,
-	}
-	if tx.ClientCredentialsSecretRef != nil {
-		out.ClientCredentialsSecretRef = &musterv1alpha1.ClientCredentialsSecretRef{
-			Name:            tx.ClientCredentialsSecretRef.Name,
-			Namespace:       tx.ClientCredentialsSecretRef.Namespace,
-			ClientIDKey:     tx.ClientCredentialsSecretRef.ClientIDKey,
-			ClientSecretKey: tx.ClientCredentialsSecretRef.ClientSecretKey,
-		}
-	}
-	return out
 }
 
 func (r *MCPServerReconciler) syncStatus(ctx context.Context, name, namespace, serverType string, reconcileErr error) {
@@ -463,6 +483,7 @@ func (r *MCPServerReconciler) reconcileDelete(ctx context.Context, req Reconcile
 	if err := r.deregisterUpstream(ctx, req.Name); err != nil {
 		logging.Debug("MCPServerReconciler", "DeregisterUpstream for %s failed: %v", req.Name, err)
 	}
+	r.invalidateOwnerRef(types.NamespacedName{Namespace: r.GetNamespace(req.Namespace), Name: req.Name})
 
 	if r.deleter != nil {
 		if err := r.deleter.Delete(ctx, req.Name); err != nil {

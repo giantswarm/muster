@@ -27,10 +27,10 @@ func bodyChecksum(body []byte) string {
 }
 
 // testChecksums returns a pinned-checksum map containing a single entry
-// for asset@PinnedVersion whose digest matches body.
+// for asset whose digest matches body.
 func testChecksums(asset string, body []byte) map[string]string {
 	return map[string]string{
-		asset + "/" + PinnedVersion: bodyChecksum(body),
+		asset: bodyChecksum(body),
 	}
 }
 
