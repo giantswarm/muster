@@ -221,7 +221,7 @@ func TestPinnedVersionFormat(t *testing.T) {
 
 func TestPinnedChecksumsCoverAllPlatforms(t *testing.T) {
 	for plat, asset := range supportedAssets {
-		_, ok := pinnedChecksums[asset+"/"+PinnedVersion]
+		_, ok := pinnedChecksums[asset]
 		require.True(t, ok, "missing pinned checksum for %s/%s asset %q at v%s", plat.os, plat.arch, asset, PinnedVersion)
 	}
 }

@@ -44,6 +44,10 @@ func (m *mockMCPServerManager) GetMCPServer(name string) (*api.MCPServerInfo, er
 	return nil, nil
 }
 
+func (m *mockMCPServerManager) SetSuspended(_ context.Context, _ string, _ bool) error {
+	return nil
+}
+
 func (m *mockMCPServerManager) GetTools() []api.ToolMetadata {
 	if m.getToolsFn != nil {
 		return m.getToolsFn()

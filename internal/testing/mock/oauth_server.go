@@ -654,6 +654,7 @@ func (s *OAuthServer) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(os.Stderr, "🔐 Auto-approving and redirecting to: %s\n", redirectURL.String())
 		}
 
+		//nolint:gosec // G710: test-only mock; redirect_uri is intentionally honored as the OAuth spec requires
 		http.Redirect(w, r, redirectURL.String(), http.StatusFound)
 		return
 	}

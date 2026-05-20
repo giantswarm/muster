@@ -303,6 +303,16 @@ spec:
                   Headers contains HTTP headers to send with requests to remote MCP servers.
                   This field is only relevant when Type is "streamable-http" or "sse".
                 type: object
+              suspended:
+                default: false
+                description: |-
+                  Suspended, when true, instructs the reconciler to deregister this MCP
+                  server from the aggregator and to skip any further RegisterUpstream
+                  pulses until Suspended returns to false. core_service_stop /
+                  core_service_start mutate this field rather than holding ephemeral
+                  in-memory state on the aggregator, so operator intent survives muster
+                  restarts and concurrent reconciler passes.
+                type: boolean
               timeout:
                 default: 30
                 description: Timeout specifies the connection timeout for remote operations

@@ -133,6 +133,26 @@ func (a *Adapter) GetMCPServer(name string) (*api.MCPServerInfo, error) {
 	return &info, nil
 }
 
+// SetSuspended toggles spec.suspended on the MCPServer CRD so the reconciler
+// deregisters / re-registers the upstream on its next pass.
+func (a *Adapter) SetSuspended(ctx context.Context, name string, suspended bool) error {
+	server, err := a.client.GetMCPServer(ctx, name, a.namespace)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return api.NewMCPServerNotFoundError(name)
+		}
+		return fmt.Errorf("failed to get MCPServer %s: %w", name, err)
+	}
+	if server.Spec.Suspended == suspended {
+		return nil
+	}
+	server.Spec.Suspended = suspended
+	if err := a.client.UpdateMCPServer(ctx, server); err != nil {
+		return fmt.Errorf("failed to update MCPServer %s suspend flag: %w", name, err)
+	}
+	return nil
+}
+
 // convertCRDToInfo converts a MCPServer CRD to MCPServerInfo
 func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 	info := api.MCPServerInfo{
@@ -142,6 +162,7 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 		ToolPrefix:          server.Spec.ToolPrefix,
 		Family:              convertCRDFamilyToAPI(server.Spec.Family),
 		AutoStart:           server.Spec.AutoStart,
+		Suspended:           server.Spec.Suspended,
 		Command:             server.Spec.Command,
 		Args:                server.Spec.Args,
 		URL:                 server.Spec.URL,

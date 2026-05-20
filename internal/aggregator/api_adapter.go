@@ -158,20 +158,12 @@ func (a *APIAdapter) UpstreamServerState(name string) api.UpstreamServerState {
 	return a.manager.UpstreamServerState(name)
 }
 
-// MarkUserStopped forwards to AggregatorManager.MarkUserStopped.
-func (a *APIAdapter) MarkUserStopped(name string) {
+// UpstreamServerStateForSession forwards to AggregatorManager.UpstreamServerStateForSession.
+func (a *APIAdapter) UpstreamServerStateForSession(ctx context.Context, name string) api.UpstreamServerState {
 	if a.manager == nil {
-		return
+		return api.UpstreamServerAbsent
 	}
-	a.manager.MarkUserStopped(name)
-}
-
-// MarkUserStarted forwards to AggregatorManager.MarkUserStarted.
-func (a *APIAdapter) MarkUserStarted(name string) {
-	if a.manager == nil {
-		return
-	}
-	a.manager.MarkUserStarted(name)
+	return a.manager.UpstreamServerStateForSession(ctx, name)
 }
 
 func (a *APIAdapter) server() (*AggregatorServer, error) {

@@ -1,6 +1,9 @@
 package api
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // MCPServer represents a single MCP (Model Context Protocol) server definition and runtime state.
 // It consolidates MCPServerDefinition, MCPServerInfo, and MCPServerConfig into a unified type
@@ -32,6 +35,11 @@ type MCPServer struct {
 	// AutoStart determines whether this MCP server should be automatically started
 	// when the muster system initializes or when dependencies become available.
 	AutoStart bool `yaml:"autoStart,omitempty" json:"autoStart,omitempty"`
+
+	// Suspended, when true, instructs the reconciler to deregister this MCP
+	// server from the aggregator and skip subsequent RegisterUpstream pulses.
+	// core_service_stop sets this; core_service_start clears it.
+	Suspended bool `yaml:"suspended,omitempty" json:"suspended,omitempty"`
 
 	// Command specifies the executable path for stdio type servers.
 	// This field is required when Type is "stdio".
@@ -282,6 +290,10 @@ type MCPServerInfo struct {
 	// AutoStart determines whether this MCP server should be automatically started
 	AutoStart bool `json:"autoStart,omitempty"`
 
+	// Suspended, when true, signals the reconciler to deregister this MCP
+	// server from the aggregator and skip subsequent RegisterUpstream pulses.
+	Suspended bool `json:"suspended,omitempty"`
+
 	// Command specifies the executable path for stdio type servers.
 	Command string `json:"command,omitempty"`
 
@@ -386,6 +398,13 @@ type MCPServerManagerHandler interface {
 	//   - *MCPServerInfo: Server information, or nil if server not found
 	//   - error: nil on success, or an error if the server could not be retrieved
 	GetMCPServer(name string) (*MCPServerInfo, error)
+
+	// SetSuspended persists the suspend intent on the MCPServer spec so the
+	// reconciler deregisters / re-registers the upstream on its next pass.
+	// core_service_stop and core_service_start surface as SetSuspended(name,
+	// true) / SetSuspended(name, false) — keeping operator intent on the CRD
+	// rather than in aggregator memory so it survives restarts.
+	SetSuspended(ctx context.Context, name string, suspended bool) error
 
 	// ToolProvider interface for exposing MCP server management tools.
 	// This allows MCP server operations to be performed through the aggregator

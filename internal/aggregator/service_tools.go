@@ -30,34 +30,49 @@ func (a *ServiceToolAdapter) Register() {
 }
 
 // StartService re-registers the named MCPServer through the upstream proxy
-// and clears any user-stop record.
+// and clears MCPServer.spec.suspended so subsequent reconciler pulses do
+// not re-deregister it.
 func (a *ServiceToolAdapter) StartService(name string) error {
 	if a.manager == nil {
 		return errMissingAggregatorManager
 	}
-	a.manager.MarkUserStarted(name)
-	return a.manager.RegisterUpstream(context.Background(), name)
+	ctx := context.Background()
+	if mgr := api.GetMCPServerManager(); mgr != nil {
+		if err := mgr.SetSuspended(ctx, name, false); err != nil {
+			return err
+		}
+	}
+	return a.manager.RegisterUpstream(ctx, name)
 }
 
-// StopService deregisters the named MCPServer and remembers the user's
-// stop intent so the next reconciler pass does not silently re-register
-// it.
+// StopService deregisters the named MCPServer and persists the
+// suspend intent on MCPServer.spec.suspended so the next reconciler
+// pass does not silently re-register it.
 func (a *ServiceToolAdapter) StopService(name string) error {
 	if a.manager == nil {
 		return errMissingAggregatorManager
 	}
-	a.manager.MarkUserStopped(name)
-	return a.manager.DeregisterUpstream(context.Background(), name)
+	ctx := context.Background()
+	if mgr := api.GetMCPServerManager(); mgr != nil {
+		if err := mgr.SetSuspended(ctx, name, true); err != nil {
+			return err
+		}
+	}
+	return a.manager.DeregisterUpstream(ctx, name)
 }
 
 // RestartService deregisters then re-registers the named MCPServer,
-// clearing any user-stop intent first.
+// clearing the suspend intent first.
 func (a *ServiceToolAdapter) RestartService(name string) error {
 	if a.manager == nil {
 		return errMissingAggregatorManager
 	}
 	ctx := context.Background()
-	a.manager.MarkUserStarted(name)
+	if mgr := api.GetMCPServerManager(); mgr != nil {
+		if err := mgr.SetSuspended(ctx, name, false); err != nil {
+			return err
+		}
+	}
 	if err := a.manager.DeregisterUpstream(ctx, name); err != nil {
 		return err
 	}
