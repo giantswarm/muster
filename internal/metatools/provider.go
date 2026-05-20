@@ -52,7 +52,7 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
-					Type:        "string",
+					Type:        api.ArgTypeString,
 					Required:    true,
 					Description: "Name of the tool to describe",
 				},
@@ -64,7 +64,7 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 			Args: []api.ArgMetadata{
 				{
 					Name:        "include_schema",
-					Type:        "boolean",
+					Type:        api.ArgTypeBoolean,
 					Required:    false,
 					Description: "Whether to include full tool specifications with input schemas (default: true)",
 					Default:     true,
@@ -77,26 +77,26 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 			Args: []api.ArgMetadata{
 				{
 					Name:        "pattern",
-					Type:        "string",
+					Type:        api.ArgTypeString,
 					Required:    false,
 					Description: "Pattern to match against tool names (supports wildcards like *)",
 				},
 				{
 					Name:        "description_filter",
-					Type:        "string",
+					Type:        api.ArgTypeString,
 					Required:    false,
 					Description: "Filter by description content (case-insensitive substring match)",
 				},
 				{
 					Name:        "case_sensitive",
-					Type:        "boolean",
+					Type:        api.ArgTypeBoolean,
 					Required:    false,
 					Description: "Whether pattern matching should be case-sensitive (default: false)",
 					Default:     false,
 				},
 				{
 					Name:        "include_schema",
-					Type:        "boolean",
+					Type:        api.ArgTypeBoolean,
 					Required:    false,
 					Description: "Whether to include full tool specifications with input schemas (default: true)",
 					Default:     true,
@@ -111,13 +111,13 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
-					Type:        "string",
+					Type:        api.ArgTypeString,
 					Required:    true,
 					Description: "Name of the tool to call",
 				},
 				{
 					Name:        "arguments",
-					Type:        "object",
+					Type:        api.ArgTypeObject,
 					Required:    false,
 					Description: "Arguments to pass to the tool (as JSON object)",
 				},
@@ -136,7 +136,7 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 			Args: []api.ArgMetadata{
 				{
 					Name:        "uri",
-					Type:        "string",
+					Type:        api.ArgTypeString,
 					Required:    true,
 					Description: "URI of the resource to describe",
 				},
@@ -148,7 +148,7 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 			Args: []api.ArgMetadata{
 				{
 					Name:        "uri",
-					Type:        "string",
+					Type:        api.ArgTypeString,
 					Required:    true,
 					Description: "URI of the resource to retrieve",
 				},
@@ -167,7 +167,7 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
-					Type:        "string",
+					Type:        api.ArgTypeString,
 					Required:    true,
 					Description: "Name of the prompt to describe",
 				},
@@ -179,13 +179,13 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
-					Type:        "string",
+					Type:        api.ArgTypeString,
 					Required:    true,
 					Description: "Name of the prompt to get",
 				},
 				{
 					Name:        "arguments",
-					Type:        "object",
+					Type:        api.ArgTypeObject,
 					Required:    false,
 					Description: "Arguments to pass to the prompt (as JSON object with string values)",
 				},

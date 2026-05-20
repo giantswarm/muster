@@ -101,7 +101,7 @@ func TestStorage_Save(t *testing.T) {
 			}
 
 			// Verify file content
-			content, err := os.ReadFile(expectedPath) //nolint:gosec
+			content, err := os.ReadFile(expectedPath)
 			if err != nil {
 				t.Errorf("Failed to read saved file: %v", err)
 			}
@@ -118,14 +118,14 @@ func TestStorage_Load(t *testing.T) {
 
 	// Create test files
 	workflowDir := filepath.Join(tempDir, "workflows")
-	if err := os.MkdirAll(workflowDir, 0755); err != nil { //nolint:gosec
+	if err := os.MkdirAll(workflowDir, 0755); err != nil {
 		t.Fatalf("Failed to create workflow directory: %v", err)
 	}
 
 	// Create test file
 	testContent := []byte("name: test-workflow\nsteps: []")
 	testFilePath := filepath.Join(workflowDir, "test-workflow.yaml")
-	if err := os.WriteFile(testFilePath, testContent, 0644); err != nil { //nolint:gosec
+	if err := os.WriteFile(testFilePath, testContent, 0644); err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
@@ -200,13 +200,13 @@ func TestStorage_Delete(t *testing.T) {
 
 	// Create test files
 	workflowDir := filepath.Join(tempDir, "workflows")
-	if err := os.MkdirAll(workflowDir, 0755); err != nil { //nolint:gosec
+	if err := os.MkdirAll(workflowDir, 0755); err != nil {
 		t.Fatalf("Failed to create workflow directory: %v", err)
 	}
 
 	// Create file to delete
 	testFilePath := filepath.Join(workflowDir, "test-workflow.yaml")
-	if err := os.WriteFile(testFilePath, []byte("test data"), 0644); err != nil { //nolint:gosec
+	if err := os.WriteFile(testFilePath, []byte("test data"), 0644); err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
@@ -284,7 +284,7 @@ func TestStorage_List(t *testing.T) {
 
 	// Create test files
 	workflowDir := filepath.Join(tempDir, "workflows")
-	if err := os.MkdirAll(workflowDir, 0755); err != nil { //nolint:gosec
+	if err := os.MkdirAll(workflowDir, 0755); err != nil {
 		t.Fatalf("Failed to create workflow directory: %v", err)
 	}
 
@@ -292,7 +292,7 @@ func TestStorage_List(t *testing.T) {
 	testFiles := []string{"workflow1.yaml", "workflow2.yaml", "workflow3.yml"}
 	for _, file := range testFiles {
 		filePath := filepath.Join(workflowDir, file)
-		if err := os.WriteFile(filePath, []byte("test data"), 0644); err != nil { //nolint:gosec
+		if err := os.WriteFile(filePath, []byte("test data"), 0644); err != nil {
 			t.Fatalf("Failed to create test file %s: %v", file, err)
 		}
 	}
@@ -364,7 +364,7 @@ func TestStorage_DefaultBehavior(t *testing.T) {
 
 	// Create config directory structure
 	workflowDir := filepath.Join(configDir, "workflows")
-	if err := os.MkdirAll(workflowDir, 0755); err != nil { //nolint:gosec
+	if err := os.MkdirAll(workflowDir, 0755); err != nil {
 		t.Fatalf("Failed to create config directory: %v", err)
 	}
 

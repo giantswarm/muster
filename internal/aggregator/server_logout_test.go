@@ -395,9 +395,9 @@ func (d *deleteCaptureMockHandler) CreateAuthChallenge(_ context.Context, _, _, 
 	return nil, nil
 }
 func (d *deleteCaptureMockHandler) GetHTTPHandler() http.Handler { return nil }
-func (d *deleteCaptureMockHandler) GetCallbackPath() string      { return "/oauth/proxy/callback" } //nolint:goconst
+func (d *deleteCaptureMockHandler) GetCallbackPath() string      { return "/oauth/proxy/callback" }
 func (d *deleteCaptureMockHandler) GetCIMDPath() string {
-	return "/.well-known/oauth-client.json" //nolint:goconst
+	return "/.well-known/oauth-client.json"
 }
 func (d *deleteCaptureMockHandler) ShouldServeCIMD() bool { return true }
 func (d *deleteCaptureMockHandler) GetCIMDHandler() http.HandlerFunc {
@@ -407,9 +407,6 @@ func (d *deleteCaptureMockHandler) RegisterServer(_, _, _ string)               
 func (d *deleteCaptureMockHandler) SetAuthCompletionCallback(_ api.AuthCompletionCallback) {}
 func (d *deleteCaptureMockHandler) Stop()                                                  {}
 func (d *deleteCaptureMockHandler) ExchangeTokenForRemoteCluster(_ context.Context, _, _ string, _ *api.TokenExchangeConfig) (string, error) {
-	return "", nil
-}
-func (d *deleteCaptureMockHandler) ExchangeTokenForRemoteClusterWithClient(_ context.Context, _, _ string, _ *api.TokenExchangeConfig, _ *http.Client) (string, error) {
 	return "", nil
 }
 
@@ -445,7 +442,7 @@ func (c *clearCaptureMockHandler) CreateAuthChallenge(_ context.Context, _, _, _
 	return nil, nil
 }
 func (c *clearCaptureMockHandler) GetHTTPHandler() http.Handler { return nil }
-func (c *clearCaptureMockHandler) GetCallbackPath() string      { return "/oauth/proxy/callback" } //nolint:goconst
+func (c *clearCaptureMockHandler) GetCallbackPath() string      { return "/oauth/proxy/callback" }
 func (c *clearCaptureMockHandler) GetCIMDPath() string {
 	return "/.well-known/oauth-client.json"
 }
@@ -457,8 +454,5 @@ func (c *clearCaptureMockHandler) RegisterServer(_, _, _ string)                
 func (c *clearCaptureMockHandler) SetAuthCompletionCallback(_ api.AuthCompletionCallback) {}
 func (c *clearCaptureMockHandler) Stop()                                                  {}
 func (c *clearCaptureMockHandler) ExchangeTokenForRemoteCluster(_ context.Context, _, _ string, _ *api.TokenExchangeConfig) (string, error) {
-	return "", nil
-}
-func (c *clearCaptureMockHandler) ExchangeTokenForRemoteClusterWithClient(_ context.Context, _, _ string, _ *api.TokenExchangeConfig, _ *http.Client) (string, error) {
 	return "", nil
 }

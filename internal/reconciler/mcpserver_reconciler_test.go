@@ -11,13 +11,26 @@ import (
 	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
 
 	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/reconciler/agentgateway"
 )
+
+// stubApplier is a no-op agentgateway.Applier (and Deleter) used to wire the
+// reconciler in tests that don't exercise the apply path.
+type stubApplier struct{}
+
+func (stubApplier) Apply(context.Context, agentgateway.Config) error { return nil }
+func (stubApplier) Delete(context.Context, string) error             { return nil }
+
+func newTestReconciler(orchAPI api.OrchestratorAPI, mgr MCPServerManager, registry api.ServiceRegistryHandler) *MCPServerReconciler {
+	stub := stubApplier{}
+	return NewMCPServerReconcilerFilesystem(orchAPI, mgr, registry, stub, stub)
+}
 
 func TestMCPServerReconciler_GetResourceType(t *testing.T) {
 	mgr := NewMockMCPServerManager()
 	orchAPI := NewMockOrchestratorAPI()
 	registry := NewMockServiceRegistry()
-	reconciler := NewMCPServerReconciler(orchAPI, mgr, registry)
+	reconciler := newTestReconciler(orchAPI, mgr, registry)
 
 	if reconciler.GetResourceType() != ResourceTypeMCPServer {
 		t.Errorf("expected ResourceTypeMCPServer, got %s", reconciler.GetResourceType())
@@ -28,7 +41,7 @@ func TestMCPServerReconciler_ReconcileCreate(t *testing.T) {
 	mgr := NewMockMCPServerManager()
 	orchAPI := NewMockOrchestratorAPI()
 	registry := NewMockServiceRegistry()
-	reconciler := NewMCPServerReconciler(orchAPI, mgr, registry)
+	reconciler := newTestReconciler(orchAPI, mgr, registry)
 
 	// Add a valid MCPServer with AutoStart enabled
 	mgr.AddMCPServer(&api.MCPServerInfo{
@@ -61,7 +74,7 @@ func TestMCPServerReconciler_ReconcileCreateNoAutoStart(t *testing.T) {
 	mgr := NewMockMCPServerManager()
 	orchAPI := NewMockOrchestratorAPI()
 	registry := NewMockServiceRegistry()
-	reconciler := NewMCPServerReconciler(orchAPI, mgr, registry)
+	reconciler := newTestReconciler(orchAPI, mgr, registry)
 
 	// Add a valid MCPServer with AutoStart disabled
 	mgr.AddMCPServer(&api.MCPServerInfo{
@@ -103,7 +116,7 @@ func TestMCPServerReconciler_ReconcileDelete(t *testing.T) {
 		Health:      api.HealthHealthy,
 	})
 
-	reconciler := NewMCPServerReconciler(orchAPI, mgr, registry)
+	reconciler := newTestReconciler(orchAPI, mgr, registry)
 
 	// Do not add the MCPServer to manager - simulate a delete scenario
 	req := ReconcileRequest{
@@ -129,7 +142,7 @@ func TestMCPServerReconciler_ReconcileDeleteNotFound(t *testing.T) {
 	mgr := NewMockMCPServerManager()
 	orchAPI := NewMockOrchestratorAPI()
 	registry := NewMockServiceRegistry()
-	reconciler := NewMCPServerReconciler(orchAPI, mgr, registry)
+	reconciler := newTestReconciler(orchAPI, mgr, registry)
 
 	// Do not add the MCPServer to manager or registry - nothing to delete
 	req := ReconcileRequest{
@@ -163,7 +176,7 @@ func TestMCPServerReconciler_ReconcileUpdate(t *testing.T) {
 		ConfigChanged: true,
 	})
 
-	reconciler := NewMCPServerReconciler(orchAPI, mgr, registry)
+	reconciler := newTestReconciler(orchAPI, mgr, registry)
 
 	// Add MCPServer with new configuration
 	mgr.AddMCPServer(&api.MCPServerInfo{
@@ -205,7 +218,7 @@ func TestMCPServerReconciler_ReconcileUpdateNoChange(t *testing.T) {
 		Health:      api.HealthHealthy,
 	})
 
-	reconciler := NewMCPServerReconciler(orchAPI, mgr, registry)
+	reconciler := newTestReconciler(orchAPI, mgr, registry)
 
 	// Add MCPServer with same configuration
 	mgr.AddMCPServer(&api.MCPServerInfo{
@@ -242,7 +255,7 @@ func TestMCPServerReconciler_ReconcileCreateAuthRequired(t *testing.T) {
 	// Simulate AuthRequiredError from StartService
 	orchAPI.StartError = fmt.Errorf("failed to start service: %w", &mockAuthRequiredError{msg: "401 Unauthorized"})
 
-	reconciler := NewMCPServerReconciler(orchAPI, mgr, registry)
+	reconciler := newTestReconciler(orchAPI, mgr, registry)
 
 	mgr.AddMCPServer(&api.MCPServerInfo{
 		Name:      "remote-server",
@@ -277,7 +290,7 @@ func TestMCPServerReconciler_ReconcileStartError(t *testing.T) {
 	// Simulate start error
 	orchAPI.StartError = fmt.Errorf("service not found in orchestrator")
 
-	reconciler := NewMCPServerReconciler(orchAPI, mgr, registry)
+	reconciler := newTestReconciler(orchAPI, mgr, registry)
 
 	mgr.AddMCPServer(&api.MCPServerInfo{
 		Name:      "test-server",
@@ -319,7 +332,7 @@ func TestMCPServerReconciler_ReconcileStopError(t *testing.T) {
 	// Simulate stop error
 	orchAPI.StopError = fmt.Errorf("failed to stop service")
 
-	reconciler := NewMCPServerReconciler(orchAPI, mgr, registry)
+	reconciler := newTestReconciler(orchAPI, mgr, registry)
 
 	// Do not add the MCPServer to manager - simulate a delete scenario
 	req := ReconcileRequest{
@@ -356,7 +369,7 @@ func TestMCPServerReconciler_ReconcileUpdateAuthRequired(t *testing.T) {
 	// Simulate AuthRequiredError from RestartService
 	orchAPI.RestartError = fmt.Errorf("failed to restart: %w", &mockAuthRequiredError{msg: "401 Unauthorized"})
 
-	reconciler := NewMCPServerReconciler(orchAPI, mgr, registry)
+	reconciler := newTestReconciler(orchAPI, mgr, registry)
 
 	mgr.AddMCPServer(&api.MCPServerInfo{
 		Name:      "remote-server",
@@ -400,7 +413,7 @@ func TestMCPServerReconciler_ReconcileRestartError(t *testing.T) {
 	// Simulate restart error
 	orchAPI.RestartError = fmt.Errorf("failed to restart service")
 
-	reconciler := NewMCPServerReconciler(orchAPI, mgr, registry)
+	reconciler := newTestReconciler(orchAPI, mgr, registry)
 
 	// Add MCPServer with new configuration to trigger restart
 	mgr.AddMCPServer(&api.MCPServerInfo{
@@ -440,7 +453,7 @@ func TestMCPServerReconciler_PeriodicRequeue(t *testing.T) {
 		Health:      api.HealthHealthy,
 	})
 
-	reconciler := NewMCPServerReconciler(orchAPI, mgr, registry)
+	reconciler := newTestReconciler(orchAPI, mgr, registry)
 
 	mgr.AddMCPServer(&api.MCPServerInfo{
 		Name:      "test-server",
@@ -486,7 +499,7 @@ func TestMCPServerReconciler_ArgsChange(t *testing.T) {
 		ConfigChanged: true,
 	})
 
-	reconciler := NewMCPServerReconciler(orchAPI, mgr, registry)
+	reconciler := newTestReconciler(orchAPI, mgr, registry)
 
 	// Add MCPServer with different args
 	mgr.AddMCPServer(&api.MCPServerInfo{
@@ -534,7 +547,7 @@ func TestMCPServerReconciler_SyncStatus_RunningService(t *testing.T) {
 		Health:      api.HealthHealthy,
 	})
 
-	reconciler := NewMCPServerReconciler(orchAPI, mgr, registry).
+	reconciler := newTestReconciler(orchAPI, mgr, registry).
 		WithStatusUpdater(statusUpdater, "default")
 
 	// Add MCPServer with same config (no restart needed)
@@ -588,7 +601,7 @@ func TestMCPServerReconciler_SyncStatus_ServiceNotFound(t *testing.T) {
 
 	// No service in registry - simulate deleted service
 
-	reconciler := NewMCPServerReconciler(orchAPI, mgr, registry).
+	reconciler := newTestReconciler(orchAPI, mgr, registry).
 		WithStatusUpdater(statusUpdater, "default")
 
 	// MCPServer exists but service doesn't - will be created
@@ -630,7 +643,7 @@ func TestMCPServerReconciler_SyncStatus_WithError(t *testing.T) {
 		LastError:   fmt.Errorf("connection failed"),
 	})
 
-	reconciler := NewMCPServerReconciler(orchAPI, mgr, registry).
+	reconciler := newTestReconciler(orchAPI, mgr, registry).
 		WithStatusUpdater(statusUpdater, "default")
 
 	mgr.AddMCPServer(&api.MCPServerInfo{
@@ -672,7 +685,7 @@ func TestMCPServerReconciler_SyncStatus_NoUpdaterConfigured(t *testing.T) {
 	registry := NewMockServiceRegistry()
 
 	// No status updater configured - should not panic
-	reconciler := NewMCPServerReconciler(orchAPI, mgr, registry)
+	reconciler := newTestReconciler(orchAPI, mgr, registry)
 
 	mgr.AddMCPServer(&api.MCPServerInfo{
 		Name:      "test-server",
@@ -712,7 +725,7 @@ func TestMCPServerReconciler_SyncStatus_GetMCPServerError(t *testing.T) {
 		Health:      api.HealthHealthy,
 	})
 
-	reconciler := NewMCPServerReconciler(orchAPI, mgr, registry).
+	reconciler := newTestReconciler(orchAPI, mgr, registry).
 		WithStatusUpdater(statusUpdater, "default")
 
 	mgr.AddMCPServer(&api.MCPServerInfo{
@@ -762,7 +775,7 @@ func TestMCPServerReconciler_SyncStatus_UpdateError(t *testing.T) {
 		Health:      api.HealthHealthy,
 	})
 
-	reconciler := NewMCPServerReconciler(orchAPI, mgr, registry).
+	reconciler := newTestReconciler(orchAPI, mgr, registry).
 		WithStatusUpdater(statusUpdater, "default")
 
 	mgr.AddMCPServer(&api.MCPServerInfo{
@@ -931,7 +944,7 @@ func TestMCPServerReconciler_SyncStatus_RetriesOnConflict(t *testing.T) {
 		Health:      api.HealthHealthy,
 	})
 
-	reconciler := NewMCPServerReconciler(orchAPI, mgr, registry).
+	reconciler := newTestReconciler(orchAPI, mgr, registry).
 		WithStatusUpdater(statusUpdater, "default")
 
 	// Add MCPServer with same config (no restart needed)

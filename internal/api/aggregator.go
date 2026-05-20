@@ -99,31 +99,41 @@ type AggregatorHandler interface {
 	// This should be called when MCP servers are added, removed, or their tools change.
 	UpdateCapabilities()
 
-	// RegisterServerPendingAuth registers a server that requires OAuth authentication.
-	// This creates a placeholder server in auth_required state with a synthetic
-	// authentication tool that users can call to initiate the OAuth flow.
+	// RegisterServerPendingAuth registers a server that requires OAuth
+	// authentication before its tools can be exposed. Per ADR-008, no
+	// synthetic authentication tools are created — users authenticate via
+	// core_auth_login.
 	//
-	// Args:
-	//   - serverName: Unique name of the server
-	//   - url: The server endpoint URL
-	//   - toolPrefix: Server-specific prefix for tools
-	//   - authInfo: OAuth information from the 401 response
-	//
-	// Returns an error if registration fails.
-	RegisterServerPendingAuth(serverName, url, toolPrefix string, authInfo *AuthInfo) error
+	// AuthConfig within registration may be nil; in either case the server
+	// is flagged as requiring per-session authentication.
+	RegisterServerPendingAuth(registration PendingAuthRegistration) error
+}
 
-	// RegisterServerPendingAuthWithConfig registers a server that requires OAuth authentication
-	// with additional auth configuration for SSO token forwarding.
-	//
-	// Args:
-	//   - serverName: Unique name of the server
-	//   - url: The server endpoint URL
-	//   - toolPrefix: Server-specific prefix for tools
-	//   - authInfo: OAuth information from the 401 response
-	//   - authConfig: Auth configuration for token forwarding (may be nil)
-	//
-	// Returns an error if registration fails.
-	RegisterServerPendingAuthWithConfig(serverName, url, toolPrefix string, authInfo *AuthInfo, authConfig *MCPServerAuth) error
+// PendingAuthRegistration describes a remote MCP server that responded with
+// HTTP 401 during initialisation: muster knows where it is and how to
+// authenticate against it, but no tools can be exposed until the user
+// authenticates.
+type PendingAuthRegistration struct {
+	// Name is the unique identifier for the server within the aggregator.
+	Name string
+
+	// URL is the remote server endpoint.
+	URL string
+
+	// ToolPrefix is the per-server tool prefix used when Family is empty.
+	ToolPrefix string
+
+	// Family declares that this server is an instance of a family of
+	// equivalent servers. When set, tools are exposed as
+	// {musterPrefix}_{family.name}_{toolName} with a required parameter
+	// named by family.instanceArg.
+	Family *MCPServerFamily
+
+	// AuthInfo carries the OAuth metadata returned in the 401 response.
+	AuthInfo *AuthInfo
+
+	// AuthConfig describes how to forward or exchange tokens, when set.
+	AuthConfig *MCPServerAuth
 }
 
 // CallTool implements the ToolCaller interface by delegating to the aggregator handler.

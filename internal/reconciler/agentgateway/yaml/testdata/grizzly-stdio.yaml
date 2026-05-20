@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/agentgateway/agentgateway/refs/tags/v1.2.1/schema/config.json
+binds:
+  - port: 8080
+    listeners:
+      - name: grizzly
+        routes:
+          - name: grizzly
+            matches:
+              - path:
+                  pathPrefix: /mcp/grizzly
+            backends:
+              - mcp:
+                  targets:
+                    - name: grizzly
+                      stdio:
+                        cmd: /usr/local/bin/mcp-kubernetes
+                        args:
+                          - --workdir
+                          - /data
+                        env:
+                          LOG_LEVEL: info
