@@ -92,6 +92,10 @@ func (s *stubAggregator) UpstreamServerState(name string) api.UpstreamServerStat
 	return s.state[name]
 }
 
+func (s *stubAggregator) UpstreamServerStateForSession(_ context.Context, name string) api.UpstreamServerState {
+	return s.UpstreamServerState(name)
+}
+
 func (s *stubAggregator) GetServiceData() map[string]interface{} { return nil }
 func (s *stubAggregator) GetEndpoint() string                    { return "" }
 func (s *stubAggregator) GetPort() int                           { return 0 }
@@ -110,8 +114,6 @@ func (s *stubAggregator) RegisterServerPendingAuth(_, _, _ string, _ *api.AuthIn
 func (s *stubAggregator) RegisterServerPendingAuthWithConfig(_, _, _ string, _ *api.AuthInfo, _ *api.MCPServerAuth) error {
 	return nil
 }
-func (s *stubAggregator) MarkUserStopped(_ string) {}
-func (s *stubAggregator) MarkUserStarted(_ string) {}
 
 // withAggregator swaps the API service-locator aggregator handler for the
 // duration of one test. Use t.Cleanup so parallel tests don't leak state.

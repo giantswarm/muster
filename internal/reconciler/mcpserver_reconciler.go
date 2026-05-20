@@ -126,6 +126,14 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileReques
 		}
 	}
 
+	if mcpServerInfo.Suspended {
+		if err := r.deregisterUpstream(ctx, req.Name); err != nil {
+			logging.Debug("MCPServerReconciler", "DeregisterUpstream for suspended %s failed: %v", req.Name, err)
+		}
+		r.syncStatus(ctx, req.Name, req.Namespace, mcpServerInfo.Type, nil)
+		return ReconcileResult{RequeueAfter: DefaultStatusSyncInterval}
+	}
+
 	if result, stop := r.applyConfig(ctx, req, mcpServerInfo); stop {
 		return result
 	}
@@ -305,6 +313,7 @@ func infoToMCPServerSpec(info *api.MCPServerInfo) musterv1alpha1.MCPServerSpec {
 		ToolPrefix:  info.ToolPrefix,
 		Description: info.Description,
 		AutoStart:   info.AutoStart,
+		Suspended:   info.Suspended,
 		Command:     info.Command,
 		Args:        info.Args,
 		URL:         info.URL,

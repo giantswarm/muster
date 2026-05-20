@@ -31,14 +31,6 @@ type AggregatorManager struct {
 	aggregatorServer *AggregatorServer
 	oauthManager     *oauth.Manager
 
-	// userStopped tracks MCPServers the operator explicitly stopped via
-	// core_service_stop. The reconciler's periodic RegisterUpstream
-	// becomes a no-op for these until core_service_start clears the
-	// entry, so the legacy "stop is sticky" UX survives PR 11's
-	// reconciler-driven federation.
-	userStoppedMu sync.Mutex
-	userStopped   map[string]struct{}
-
 	ctx        context.Context
 	cancelFunc context.CancelFunc
 }
@@ -52,7 +44,6 @@ func NewAggregatorManager(config AggregatorConfig, orchestratorAPI api.Orchestra
 		config:          config,
 		orchestratorAPI: orchestratorAPI,
 		serviceRegistry: serviceRegistry,
-		userStopped:     make(map[string]struct{}),
 	}
 
 	manager.aggregatorServer = NewAggregatorServer(config, errorCallback)
@@ -186,44 +177,12 @@ func (am *AggregatorManager) GetServiceData() map[string]interface{} {
 	return data
 }
 
-// MarkUserStarted clears the operator-stop record for name so the next
-// reconciler-driven RegisterUpstream actually dials the upstream. Called
-// from the orchestrator API adapter when core_service_start fires.
-func (am *AggregatorManager) MarkUserStarted(name string) {
-	am.userStoppedMu.Lock()
-	delete(am.userStopped, name)
-	am.userStoppedMu.Unlock()
-}
-
-// MarkUserStopped records that the operator wants the named MCPServer to
-// stay deregistered. The reconciler still runs every status sync interval
-// but its RegisterUpstream becomes a no-op until MarkUserStarted clears
-// the entry. Without this, core_service_stop is undone by the next
-// reconciler pulse.
-func (am *AggregatorManager) MarkUserStopped(name string) {
-	am.userStoppedMu.Lock()
-	am.userStopped[name] = struct{}{}
-	am.userStoppedMu.Unlock()
-}
-
-func (am *AggregatorManager) isUserStopped(name string) bool {
-	am.userStoppedMu.Lock()
-	defer am.userStoppedMu.Unlock()
-	_, ok := am.userStopped[name]
-	return ok
-}
-
 // RegisterUpstream opens the federated streamable-http connection through
 // UpstreamProxy for the named MCPServer and inserts it into the aggregator
 // registry. On a 401 with WWW-Authenticate the upstream is registered in
 // pending-auth state so the synthetic auth tool can drive the OAuth flow.
 // Idempotent: a second call for an already-registered name returns nil.
-// No-op when the operator has called core_service_stop on this name.
 func (am *AggregatorManager) RegisterUpstream(ctx context.Context, name string) error {
-	if am.isUserStopped(name) {
-		logging.Debug("Aggregator-Manager", "Skipping RegisterUpstream for %s: marked stopped by operator", name)
-		return nil
-	}
 	if name == "" {
 		return fmt.Errorf("aggregator: RegisterUpstream requires a server name")
 	}
@@ -262,10 +221,7 @@ func (am *AggregatorManager) RegisterUpstream(ctx context.Context, name string) 
 	}
 
 	client := internalmcp.NewStreamableHTTPClientWithHeaders(dialURL, headers)
-	// Retry the initial dial on transient connect failures so we ride out
-	// agentgateway's file-watch reload latency (~300ms typical) without
-	// kicking the reconcile manager through a full 1s+ backoff cycle.
-	if err := initializeWithConnectRetry(ctx, client, dialURL); err != nil {
+	if err := initializeUpstream(ctx, client, readinessURLFor(am.config.AgentgatewayReadinessPort)); err != nil {
 		var authErr *internalmcp.AuthRequiredError
 		if errors.As(err, &authErr) {
 			_ = client.Close()
@@ -274,7 +230,7 @@ func (am *AggregatorManager) RegisterUpstream(ctx context.Context, name string) 
 				Scope:               authErr.AuthInfo.Scope,
 				ResourceMetadataURL: authErr.AuthInfo.ResourceMetadataURL,
 			}
-			if regErr := am.RegisterServerPendingAuthWithConfig(name, info.URL, info.ToolPrefix, authInfo, info.Auth); regErr != nil {
+			if regErr := am.registerServerPendingAuthForUpstream(name, info, authInfo); regErr != nil {
 				return fmt.Errorf("register pending-auth %q: %w", name, regErr)
 			}
 			logging.Info("Aggregator-Manager", "Registered MCPServer %s in pending-auth state via upstream proxy", name)
@@ -284,7 +240,12 @@ func (am *AggregatorManager) RegisterUpstream(ctx context.Context, name string) 
 		return fmt.Errorf("initialize upstream %q at %s: %w", name, dialURL, err)
 	}
 
-	if err := server.RegisterServer(ctx, name, client, info.ToolPrefix); err != nil {
+	registration := ServerRegistration{
+		Name:       name,
+		ToolPrefix: info.ToolPrefix,
+		Family:     info.Family,
+	}
+	if err := server.RegisterServer(ctx, registration, client); err != nil {
 		_ = client.Close()
 		return fmt.Errorf("register upstream %q: %w", name, err)
 	}
@@ -298,6 +259,21 @@ func (am *AggregatorManager) RegisterUpstream(ctx context.Context, name string) 
 // pending-auth registration returns AuthRequired; a connected client returns
 // Connected.
 func (am *AggregatorManager) UpstreamServerState(name string) api.UpstreamServerState {
+	return am.upstreamServerStateLocked(name, "")
+}
+
+// UpstreamServerStateForSession reports the aggregator's view of an upstream
+// MCPServer as seen by a specific session. For pending-auth servers it
+// promotes the state to Connected when the session has an active pooled
+// connection — necessary so core_service_list reflects post-SSO state, since
+// the global registry stays in pending-auth (per-session connections live in
+// the connection pool, not the global registry).
+func (am *AggregatorManager) UpstreamServerStateForSession(ctx context.Context, name string) api.UpstreamServerState {
+	sessionID := api.GetSessionIDFromContext(ctx)
+	return am.upstreamServerStateLocked(name, sessionID)
+}
+
+func (am *AggregatorManager) upstreamServerStateLocked(name, sessionID string) api.UpstreamServerState {
 	am.mu.RLock()
 	server := am.aggregatorServer
 	am.mu.RUnlock()
@@ -309,6 +285,9 @@ func (am *AggregatorManager) UpstreamServerState(name string) api.UpstreamServer
 		return api.UpstreamServerAbsent
 	}
 	if info.RequiresSessionAuth() {
+		if sessionID != "" && server.HasPooledConnection(sessionID, name) {
+			return api.UpstreamServerConnected
+		}
 		return api.UpstreamServerAuthRequired
 	}
 	if info.IsConnected() {
@@ -349,6 +328,34 @@ func (am *AggregatorManager) RegisterServerPendingAuth(serverName, url, toolPref
 // own URL (used in the synthetic tool's user-facing description); the dial
 // URL is computed from UpstreamProxy at session-connection time.
 func (am *AggregatorManager) RegisterServerPendingAuthWithConfig(serverName, url, toolPrefix string, authInfo *AuthInfo, authConfig *api.MCPServerAuth) error {
+	return am.registerServerPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{
+			Name:       serverName,
+			ToolPrefix: toolPrefix,
+		},
+		URL:        url,
+		AuthInfo:   authInfo,
+		AuthConfig: authConfig,
+	})
+}
+
+// registerServerPendingAuthForUpstream is the reconciler-driven path: it
+// carries the MCPServer's declared spec.family through into the registry so
+// pending-auth servers participate in family grouping once they connect.
+func (am *AggregatorManager) registerServerPendingAuthForUpstream(serverName string, info *api.MCPServerInfo, authInfo *AuthInfo) error {
+	return am.registerServerPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{
+			Name:       serverName,
+			ToolPrefix: info.ToolPrefix,
+			Family:     info.Family,
+		},
+		URL:        info.URL,
+		AuthInfo:   authInfo,
+		AuthConfig: info.Auth,
+	})
+}
+
+func (am *AggregatorManager) registerServerPendingAuth(registration PendingAuthRegistration) error {
 	am.mu.Lock()
 	defer am.mu.Unlock()
 
@@ -356,12 +363,13 @@ func (am *AggregatorManager) RegisterServerPendingAuthWithConfig(serverName, url
 		return fmt.Errorf("aggregator server not available")
 	}
 
-	if err := am.aggregatorServer.GetRegistry().RegisterPendingAuthWithConfig(serverName, url, toolPrefix, authInfo, authConfig); err != nil {
+	if err := am.aggregatorServer.GetRegistry().RegisterPendingAuthFromRegistration(registration); err != nil {
 		return err
 	}
 
+	authConfig := registration.AuthConfig
 	if authConfig != nil && (authConfig.ForwardToken || (authConfig.TokenExchange != nil && authConfig.TokenExchange.Enabled)) {
-		am.aggregatorServer.wirePoolNotificationCallback(serverName)
+		am.aggregatorServer.wirePoolNotificationCallback(registration.Name)
 	}
 
 	return nil
