@@ -6,6 +6,7 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -17,21 +18,14 @@ import (
 )
 
 func (a *Applier) createOrUpdate(ctx context.Context, obj client.Object, mutate controllerutil.MutateFn) error {
-	var lastErr error
-	for attempt := 0; attempt <= a.cfg.UpdateConflictRetries; attempt++ {
+	err := retry.RetryOnConflict(retry.DefaultBackoff, func() error {
 		_, err := controllerutil.CreateOrUpdate(ctx, a.client, obj, mutate)
-		if err == nil {
-			return nil
-		}
-		if !apierrors.IsConflict(err) {
-			return err
-		}
-		lastErr = err
-		if err := a.client.Get(ctx, client.ObjectKeyFromObject(obj), obj); err != nil && !apierrors.IsNotFound(err) {
-			return fmt.Errorf("refresh after conflict: %w", err)
-		}
+		return err
+	})
+	if apierrors.IsConflict(err) {
+		return fmt.Errorf("conflict retries exhausted: %w", err)
 	}
-	return fmt.Errorf("conflict retries exhausted: %w", lastErr)
+	return err
 }
 
 func (a *Applier) deleteIfExists(ctx context.Context, obj client.Object) error {
@@ -42,13 +36,27 @@ func (a *Applier) deleteIfExists(ctx context.Context, obj client.Object) error {
 }
 
 func (a *Applier) applyOwner(meta *metav1.ObjectMeta) {
+	ref := a.ownerRef
+	// Defensive defaults so a caller that forgot to set Controller or
+	// BlockOwnerDeletion still gets cascade-blocking semantics consistent
+	// with the test fixture. ownerRef passed by future callers may not
+	// carry these.
+	if ref.Controller == nil {
+		t := true
+		ref.Controller = &t
+	}
+	if ref.BlockOwnerDeletion == nil {
+		t := true
+		ref.BlockOwnerDeletion = &t
+	}
 	for i := range meta.OwnerReferences {
-		if meta.OwnerReferences[i].UID == a.ownerRef.UID {
-			meta.OwnerReferences[i] = a.ownerRef
+		existing := &meta.OwnerReferences[i]
+		if existing.Name == ref.Name && existing.Kind == ref.Kind && existing.APIVersion == ref.APIVersion {
+			meta.OwnerReferences[i] = ref
 			return
 		}
 	}
-	meta.OwnerReferences = append(meta.OwnerReferences, a.ownerRef)
+	meta.OwnerReferences = append(meta.OwnerReferences, ref)
 }
 
 func portInt32(p int) (int32, error) {
@@ -58,11 +66,15 @@ func portInt32(p int) (int32, error) {
 	return int32(p), nil
 }
 
-func mapProtocol(p agentgateway.HTTPProtocol) agw.MCPProtocol {
-	if p == agentgateway.SSE {
-		return agw.MCPProtocolSSE
+func mapProtocol(p agentgateway.HTTPProtocol) (agw.MCPProtocol, error) {
+	switch p {
+	case agentgateway.StreamableHTTP:
+		return agw.MCPProtocolStreamableHTTP, nil
+	case agentgateway.SSE:
+		return agw.MCPProtocolSSE, nil
+	default:
+		return "", fmt.Errorf("unknown HTTPProtocol %q", p)
 	}
-	return agw.MCPProtocolStreamableHTTP
 }
 
 func policySpec(p agentgateway.Policy) agw.AgentgatewayPolicySpec {
@@ -87,4 +99,21 @@ func policySpec(p agentgateway.Policy) agw.AgentgatewayPolicySpec {
 		}
 	}
 	return spec
+}
+
+// deferredAuthnFields returns the names of Authn fields the gateway adapter
+// does not translate to AgentgatewayPolicy primitives — muster's aggregator
+// handles them in front of the gateway today.
+func deferredAuthnFields(a agentgateway.Authn) []string {
+	var deferred []string
+	if len(a.RequiredAudiences) > 0 {
+		deferred = append(deferred, "requiredAudiences")
+	}
+	if a.TokenExchange != nil && a.TokenExchange.Enabled {
+		deferred = append(deferred, "tokenExchange")
+	}
+	if a.AuthorizationServer != nil {
+		deferred = append(deferred, "authorizationServer")
+	}
+	return deferred
 }

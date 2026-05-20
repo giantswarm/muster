@@ -120,20 +120,17 @@ steps:
         - "success"
         - "Connection verified"
 
-  # Step 7: Check service state AFTER SSO login.
-  # Under PR 11's aggregator-driven federation, the global service
-  # registry tracks the pending-auth placeholder; per-session SSO
-  # connections live in the session connection pool, not in the global
-  # state. The previous tool call verified SSO actually works.
+  # Step 7: Check service state AFTER SSO login
+  # The service registry should show state = "Connected" or "connected"
   - id: check-service-state-after-auth
-    description: "Verify global registry stays in pending-auth (per-session SSO connections are tracked separately)"
+    description: "Verify service registry shows Connected state after SSO login"
     tool: "core_service_list"
     args: {}
     expected:
       success: true
       contains:
         - "sync-test-server"
-        - "auth_required"
+        - "connected"  # Service state should be "connected" (lowercase from service registry)
 
   # Step 8: Check MCPServer State AFTER SSO login
   # After successful connection, State should be Connected (infrastructure is reachable)

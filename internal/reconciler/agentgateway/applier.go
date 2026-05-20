@@ -18,17 +18,7 @@ import (
 // logs and status messages.
 var ErrUnsupportedTransport = errors.New("agentgateway: backend transport not supported by this applier")
 
-// Applier persists an agentgateway Config to a backend-specific representation:
-// Kubernetes objects in cluster mode, agentgateway native YAML in filesystem
-// mode.
-//
-// Construction conventions differ by mode:
-//
-//   - Filesystem mode: yaml.NewApplier(dir) is called once at startup and the
-//     same instance serves every reconcile.
-//   - Cluster mode: k8s.NewApplier(client, ownerRef, cfg) is called per
-//     reconcile so the K8s adapter can stamp emitted objects with an
-//     ownerReference for cascade deletion. The reconciler builds it inline.
+// Applier persists an agentgateway Config behind an adapter-specific backend.
 //
 // Implementations must:
 //
@@ -48,5 +38,18 @@ var ErrUnsupportedTransport = errors.New("agentgateway: backend transport not su
 // route entry and rewrite the combined file.
 type Applier interface {
 	Apply(ctx context.Context, config Config) error
+	Delete(ctx context.Context, name string) error
+}
+
+// Deleter removes the persisted representation of a Config by its
+// identifying name. Implementations must:
+//
+//   - Be idempotent: Delete of an absent name returns nil.
+//   - Honor context cancellation.
+//   - Wrap returned errors.
+//
+// Held separately from Applier because not every Applier needs an explicit
+// delete path. Callers that don't need it can pass nil.
+type Deleter interface {
 	Delete(ctx context.Context, name string) error
 }

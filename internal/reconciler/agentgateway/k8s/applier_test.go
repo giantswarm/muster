@@ -132,6 +132,51 @@ func TestDelete_NoOp(t *testing.T) {
 	require.Equal(t, before, snapshotResources(t, c), "Delete must leave OwnerReference-managed objects untouched")
 }
 
+func TestApply_UnknownProtocol_ReturnsError(t *testing.T) {
+	t.Parallel()
+
+	c := newClient(t)
+	config := streamableConfig()
+	target := config.Backends[0].Target.(agentgateway.HTTPTarget)
+	target.Protocol = agentgateway.HTTPProtocol("websocket")
+	config.Backends[0].Target = target
+
+	err := newApplier(c).Apply(t.Context(), config)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unknown HTTPProtocol")
+	require.Contains(t, err.Error(), "websocket")
+
+	backends := &agw.AgentgatewayBackendList{}
+	require.NoError(t, c.List(t.Context(), backends))
+	require.Empty(t, backends.Items, "no backend must be persisted when mapProtocol rejects the input")
+}
+
+func TestApply_DeferredAuthnFields_NotEmittedAtGateway(t *testing.T) {
+	t.Parallel()
+
+	c := newClient(t)
+	config := streamableConfig()
+	config.Policies[0].Authn.RequiredAudiences = []string{"dex-k8s", "kube-apiserver"}
+	config.Policies[0].Authn.TokenExchange = &agentgateway.TokenExchange{
+		Enabled:          true,
+		DexTokenEndpoint: "https://dex.example.com/token",
+		ExpectedIssuer:   "https://dex.example.com",
+	}
+	config.Policies[0].Authn.AuthorizationServer = &agentgateway.AuthorizationServer{
+		Issuer: "https://atlassian.example.com",
+		Scopes: "read:mcp",
+	}
+
+	require.NoError(t, newApplier(c).Apply(t.Context(), config))
+
+	policy := &agw.AgentgatewayPolicy{}
+	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: ownerNamespace, Name: ownerName}, policy))
+	require.NotNil(t, policy.Spec.Backend, "ForwardToken Passthrough must still be emitted")
+	require.NotNil(t, policy.Spec.Backend.Auth.Passthrough)
+	require.Nil(t, policy.Spec.Traffic, "RequiredAudiences/AuthorizationServer must not become gateway JWTAuthentication/Authorization — muster validates")
+	require.Nil(t, policy.Spec.Frontend, "Authn must not produce frontend policy")
+}
+
 func TestApply_EmptyConfig_NoObjectsAndNoError(t *testing.T) {
 	t.Parallel()
 
