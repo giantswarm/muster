@@ -61,6 +61,9 @@ var (
 // serveEnableEvents enables Kubernetes event emission (alpha, disabled by default)
 var serveEnableEvents bool
 
+// serveExtraCAFile is a PEM file appended to the system trust pool at startup.
+var serveExtraCAFile string
+
 // serveCmd defines the serve command structure.
 // This is the main command of muster that starts the aggregator server
 // and sets up the necessary MCP servers for development.
@@ -133,7 +136,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 		WithVersion(GetVersion()).
 		WithOAuthMCPClient(serveOAuthMCPClientEnabled, serveOAuthMCPClientPublicURL, serveOAuthMCPClientID).
 		WithOAuthServer(serveOAuthServerEnabled, serveOAuthServerBaseURL).
-		WithEvents(serveEnableEvents)
+		WithEvents(serveEnableEvents).
+		WithExtraCAFile(serveExtraCAFile)
 
 	// Create and initialize the application
 	application, err := app.NewApplication(cfg)
@@ -182,4 +186,8 @@ func init() {
 
 	// Events flags (alpha feature, disabled by default)
 	serveCmd.Flags().BoolVar(&serveEnableEvents, "enable-events", false, "Enable Kubernetes event emission (alpha)")
+
+	// PEM file appended to the system trust pool at startup. Use for internal
+	// CAs (e.g. tunnelport SPIFFE bundle) without a per-MCPServer caFile knob.
+	serveCmd.Flags().StringVar(&serveExtraCAFile, "extra-ca-file", "", "PEM file whose certificates are appended to the system trust pool at startup")
 }
