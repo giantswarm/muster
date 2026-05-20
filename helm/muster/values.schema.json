@@ -235,29 +235,28 @@
         }
       }
     },
+    "revisionHistoryLimit": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Deployment.spec.revisionHistoryLimit."
+    },
     "resources": {
       "type": "object",
       "properties": {
         "limits": {
           "type": "object",
           "properties": {
-            "cpu": {
-              "type": "string"
-            },
-            "memory": {
-              "type": "string"
-            }
+            "cpu": { "type": "string" },
+            "memory": { "type": "string" },
+            "ephemeral-storage": { "type": "string" }
           }
         },
         "requests": {
           "type": "object",
           "properties": {
-            "cpu": {
-              "type": "string"
-            },
-            "memory": {
-              "type": "string"
-            }
+            "cpu": { "type": "string" },
+            "memory": { "type": "string" },
+            "ephemeral-storage": { "type": "string" }
           }
         }
       }
@@ -558,6 +557,10 @@
         "install": {
           "type": "boolean",
           "description": "Install CRDs"
+        },
+        "annotations": {
+          "type": "object",
+          "description": "Annotations merged into each CRD's metadata.annotations. Default `helm.sh/resource-policy: keep` preserves CRDs on `helm uninstall`."
         }
       }
     },
