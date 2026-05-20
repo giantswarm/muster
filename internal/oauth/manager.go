@@ -2,12 +2,8 @@ package oauth
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -89,28 +85,27 @@ func NewManager(cfg config.OAuthMCPClientConfig, opts ...ManagerOption) *Manager
 	cimdScopes := cfg.GetCIMDScopes()
 	client := NewClient(effectiveClientID, cfg.PublicURL, cfg.CallbackPath, cimdScopes, mopts.clientOpts...)
 
-	// Configure custom HTTP client with CA if provided
-	// The same HTTP client is shared with the token exchanger for consistent TLS config
-	var customHTTPClient *http.Client
-	if cfg.CAFile != "" {
-		httpClient, err := createHTTPClientWithCA(cfg.CAFile)
-		if err != nil {
-			logging.Warn("OAuth", "Failed to configure custom CA, using default: %v", err)
-		} else {
-			customHTTPClient = httpClient
-			client.SetHTTPClient(httpClient)
-			logging.Info("OAuth", "Configured OAuth proxy with custom CA from %s", cfg.CAFile)
-		}
-	}
-
 	handler := NewHandler(client)
 
-	// Create token exchanger for RFC 8693 cross-cluster SSO
-	// Use the same HTTP client as the OAuth client for consistent TLS configuration.
-	// This ensures token exchange requests trust the same CA certificates.
+	// Create token exchanger for RFC 8693 cross-cluster SSO.
+	// Outbound TLS is handled by the augmented http.DefaultTransport (see
+	// internal/app/tls.go), so no per-client CA wiring is needed. When
+	// --extra-ca-file is set this muster is talking to in-cluster TLS endpoints,
+	// so allow the token-exchange client to resolve to private/loopback IPs
+	// (otherwise its SSRF guard rejects .svc.cluster.local targets like an
+	// in-cluster Dex). mcp-oauth's NewPrivateIPAllowedHTTPClient builds a fresh
+	// *http.Transport that bypasses the augmented pool, so hand the exchanger
+	// an explicit client backed by the augmented DefaultTransport.
+	var tokenExchangeHTTPClient *http.Client
+	if cfg.ExtraCAFile != "" {
+		tokenExchangeHTTPClient = &http.Client{
+			Transport: http.DefaultTransport,
+			Timeout:   30 * time.Second,
+		}
+	}
 	tokenExchanger := NewTokenExchangerWithOptions(TokenExchangerOptions{
-		AllowPrivateIP: cfg.CAFile != "", // If custom CA is provided, likely internal deployment
-		HTTPClient:     customHTTPClient, // Share the same HTTP client with CA config
+		AllowPrivateIP: cfg.ExtraCAFile != "",
+		HTTPClient:     tokenExchangeHTTPClient,
 	})
 
 	m := &Manager{
@@ -134,31 +129,6 @@ func NewManager(cfg config.OAuthMCPClientConfig, opts ...ManagerOption) *Manager
 	}
 
 	return m
-}
-
-// createHTTPClientWithCA creates an HTTP client that trusts the specified CA certificate.
-func createHTTPClientWithCA(caFile string) (*http.Client, error) {
-	caCert, err := os.ReadFile(filepath.Clean(caFile))
-	if err != nil {
-		return nil, fmt.Errorf("failed to read CA file: %w", err)
-	}
-
-	caCertPool := x509.NewCertPool()
-	if !caCertPool.AppendCertsFromPEM(caCert) {
-		return nil, fmt.Errorf("failed to parse CA certificate")
-	}
-
-	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{
-			RootCAs:    caCertPool,
-			MinVersion: tls.VersionTLS12,
-		},
-	}
-
-	return &http.Client{
-		Transport: transport,
-		Timeout:   30 * time.Second,
-	}, nil
 }
 
 // IsEnabled returns whether OAuth proxy is enabled.
