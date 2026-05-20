@@ -46,6 +46,18 @@ type MCPServerSpec struct {
 	// +kubebuilder:validation:Pattern="^[a-zA-Z][a-zA-Z0-9_-]*$"
 	ToolPrefix string `json:"toolPrefix,omitempty" yaml:"toolPrefix,omitempty"`
 
+	// Family declares that this MCP server is an instance of a family of
+	// equivalent servers (for example, multiple kubernetes MCP servers pointed
+	// at different clusters). When set, the aggregator exposes tools from all
+	// servers in the same family under a single name
+	// ({musterPrefix}_{family.name}_{toolName}) with a required parameter
+	// (named by family.instanceArg) that selects which instance handles the
+	// call. The parameter is always required even for single-instance families
+	// so skills written against the family name remain stable as instances are
+	// added or removed. When unset, the legacy per-server prefixing applies
+	// ({musterPrefix}_{toolPrefix-or-name}_{toolName}).
+	Family *MCPServerFamily `json:"family,omitempty" yaml:"family,omitempty"`
+
 	// Description provides a human-readable description of this MCP server's purpose.
 	// +kubebuilder:validation:MaxLength=500
 	Description string `json:"description,omitempty" yaml:"description,omitempty"`
@@ -89,10 +101,30 @@ type MCPServerSpec struct {
 	Timeout int `json:"timeout,omitempty" yaml:"timeout,omitempty"`
 }
 
+// MCPServerFamily groups equivalent MCP server instances under a shared
+// exposed surface. When MCPServerSpec.Family is set, the aggregator emits a
+// single family-scoped tool per backend tool name with a required parameter
+// (named by InstanceArg) that selects which instance handles the call.
+type MCPServerFamily struct {
+	// Name is the family identifier. Servers sharing the same Name expose
+	// their tools as {musterPrefix}_{Name}_{toolName}.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Pattern="^[a-zA-Z][a-zA-Z0-9_-]*$"
+	Name string `json:"name" yaml:"name"`
+
+	// InstanceArg names the required parameter callers use to select which
+	// family member handles the tool call (for example "management_cluster",
+	// "country", "model"). All servers declaring the same family.name must
+	// agree on InstanceArg; if they diverge, the aggregator falls back to
+	// per-server prefixing for the entire family and logs a warning.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Pattern="^[a-zA-Z][a-zA-Z0-9_]*$"
+	InstanceArg string `json:"instanceArg" yaml:"instanceArg"`
+}
+
 // MCPServerAuth configures authentication behavior for an MCP server.
 // This enables Single Sign-On (SSO) via token forwarding between muster and
-// downstream MCP servers that share the same Identity Provider, or Teleport
-// authentication for private installations.
+// downstream MCP servers that share the same Identity Provider.
 // +kubebuilder:validation:XValidation:rule="!has(self.authorizationServer) || self.type == 'oauth'",message="authorizationServer is only valid when type is oauth"
 // +kubebuilder:validation:XValidation:rule="!(has(self.forwardToken) && self.forwardToken == true && has(self.authorizationServer))",message="forwardToken bypasses per-backend OAuth; set one or the other, not both"
 // +kubebuilder:validation:XValidation:rule="!(has(self.tokenExchange) && has(self.tokenExchange.enabled) && self.tokenExchange.enabled == true && has(self.authorizationServer))",message="tokenExchange has its own issuer/endpoint config; set one or the other, not both"
@@ -100,9 +132,8 @@ type MCPServerAuth struct {
 	// Type specifies the authentication type.
 	// Supported values:
 	//   - "oauth": OAuth 2.0/OIDC authentication
-	//   - "teleport": Teleport Application Access with Machine ID certificates
 	//   - "none": No authentication
-	// +kubebuilder:validation:Enum=oauth;teleport;none
+	// +kubebuilder:validation:Enum=oauth;none
 	// +kubebuilder:default=none
 	Type string `json:"type,omitempty" yaml:"type,omitempty"`
 
@@ -137,13 +168,6 @@ type MCPServerAuth struct {
 	//
 	// Token exchange takes precedence over ForwardToken if both are configured.
 	TokenExchange *TokenExchangeConfig `json:"tokenExchange,omitempty" yaml:"tokenExchange,omitempty"`
-
-	// Teleport configures Teleport authentication for accessing private installations.
-	// This is only used when Type is "teleport".
-	//
-	// When configured, muster uses Teleport Machine ID certificates to establish
-	// mutual TLS connections to MCP servers accessible via Teleport Application Access.
-	Teleport *TeleportAuthConfig `json:"teleport,omitempty" yaml:"teleport,omitempty"`
 
 	// AuthorizationServer is an opt-out for backends that don't publish RFC 9728
 	// Protected Resource Metadata. When set, muster's per-server OAuth login flow
@@ -181,32 +205,6 @@ type MCPServerAuthAuthorizationServer struct {
 	Scopes string `json:"scopes,omitempty" yaml:"scopes,omitempty"`
 }
 
-// TeleportAuthConfig configures Teleport authentication for an MCP server.
-// This enables access to MCP servers on private installations via Teleport
-// Application Access using Machine ID certificates managed by tbot.
-type TeleportAuthConfig struct {
-	// IdentitySecretName is the name of the Kubernetes Secret containing
-	// tbot identity files. The secret should contain: tlscert, key, teleport-application-ca.pem
-	// (matching tbot's application output type).
-	// Required when running in Kubernetes mode.
-	// Example: tbot-identity-output
-	IdentitySecretName string `json:"identitySecretName,omitempty" yaml:"identitySecretName,omitempty"`
-
-	// IdentitySecretNamespace is the Kubernetes namespace where the identity
-	// secret is located. Defaults to the MCPServer's namespace if not specified.
-	IdentitySecretNamespace string `json:"identitySecretNamespace,omitempty" yaml:"identitySecretNamespace,omitempty"`
-
-	// IdentityDir is the directory containing Teleport identity files.
-	// Used in filesystem mode when certificates are mounted directly.
-	// Example: /var/run/tbot/identity
-	IdentityDir string `json:"identityDir,omitempty" yaml:"identityDir,omitempty"`
-
-	// AppName is the Teleport application name for routing.
-	// This is used to identify which Teleport-protected application to connect to.
-	// Example: mcp-kubernetes
-	AppName string `json:"appName,omitempty" yaml:"appName,omitempty"`
-}
-
 // TokenExchangeConfig configures RFC 8693 Token Exchange for cross-cluster SSO.
 // This enables muster to exchange its local token for a token valid on a remote
 // cluster's Identity Provider (typically Dex).
@@ -229,7 +227,7 @@ type TokenExchangeConfig struct {
 	Enabled bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
 
 	// DexTokenEndpoint is the URL used to connect to the remote cluster's Dex token endpoint.
-	// This may differ from the issuer URL when access goes through a proxy (e.g., Teleport).
+	// This may differ from the issuer URL when access goes through a proxy.
 	// Required when Enabled is true.
 	// Example: https://dex.cluster-b.example.com/token (direct)
 	// Example: https://dex-cluster.proxy.example.com/token (via proxy)

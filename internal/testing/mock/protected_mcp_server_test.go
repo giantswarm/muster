@@ -184,7 +184,7 @@ func TestProtectedMCPServer_AllowsAuthenticatedRequests(t *testing.T) {
 	}
 
 	// Get a valid token
-	code := oauthServer.GenerateAuthCode("test", "http://localhost/callback", "openid", "state", "", "")
+	code := oauthServer.GenerateAuthCode("test", "http://localhost/callback", "openid", "state", "", "", "")
 	tokenResp, err := oauthServer.SimulateCallback(code)
 	if err != nil {
 		t.Fatalf("Failed to get token: %v", err)

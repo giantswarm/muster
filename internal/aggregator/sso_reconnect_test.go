@@ -112,7 +112,7 @@ func TestInitSSOForSession_SkipsFailedServers(t *testing.T) {
 	// Verifies the filter logic: initSSOForSession should skip servers
 	// that the ssoTracker has marked as failed (within TTL).
 	tracker := newSSOTracker()
-	userID := "test-user" //nolint:goconst
+	userID := "test-user"
 
 	tracker.MarkSSOFailed(userID, "failed-server")
 
@@ -237,7 +237,7 @@ func TestOnAuthenticated_SkipsSSO_WhenNoIDToken(t *testing.T) {
 		"initSSOForSession should NOT be called when authAlive=false and idToken is empty")
 
 	// Contrast: with a valid idToken the init should proceed
-	idToken = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.valid" //nolint:gosec
+	idToken = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.valid"
 	shouldInitSSO = !authAlive && idToken != ""
 	assert.True(t, shouldInitSSO,
 		"initSSOForSession should be called when authAlive=false and idToken is present")
@@ -383,27 +383,30 @@ func TestHandleUpstreamRefreshFailure_Integration(t *testing.T) {
 	ctx := context.Background()
 
 	// Register SSO and non-SSO servers.
-	err := registry.RegisterPendingAuthWithConfig(
-		"sso-fwd", "https://sso-fwd.example.com", "ssofwd",
-		&AuthInfo{Issuer: "https://dex.example.com"},
-		&api.MCPServerAuth{ForwardToken: true},
-	)
+	err := registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: "sso-fwd", ToolPrefix: "ssofwd"},
+		URL:                "https://sso-fwd.example.com",
+		AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com"},
+		AuthConfig:         &api.MCPServerAuth{ForwardToken: true},
+	})
 	require.NoError(t, err)
-	err = registry.RegisterPendingAuthWithConfig(
-		"sso-exch", "https://sso-exch.example.com", "ssoexch",
-		&AuthInfo{Issuer: "https://dex.example.com"},
-		&api.MCPServerAuth{TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
+	err = registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: "sso-exch", ToolPrefix: "ssoexch"},
+		URL:                "https://sso-exch.example.com",
+		AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com"},
+		AuthConfig: &api.MCPServerAuth{TokenExchange: &api.TokenExchangeConfig{
 			Enabled:          true,
 			DexTokenEndpoint: "https://remote-dex.example.com/token",
 			ConnectorID:      "cluster-a-dex",
 			ClientID:         "test-client",
 		}},
-	)
+	})
 	require.NoError(t, err)
-	err = registry.RegisterPendingAuth(
-		"non-sso", "https://non-sso.example.com", "nonsso",
-		&AuthInfo{Issuer: "https://other.example.com"},
-	)
+	err = registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: "non-sso", ToolPrefix: "nonsso"},
+		URL:                "https://non-sso.example.com",
+		AuthInfo:           &AuthInfo{Issuer: "https://other.example.com"},
+	})
 	require.NoError(t, err)
 
 	// Pre-populate pool and auth store.
@@ -456,11 +459,12 @@ func TestHandleUpstreamRefreshFailure_Idempotent(t *testing.T) {
 	tracker := newSSOTracker()
 	registry := NewServerRegistry("x")
 
-	err := registry.RegisterPendingAuthWithConfig(
-		"sso-server", "https://sso.example.com", "sso",
-		&AuthInfo{Issuer: "https://dex.example.com"},
-		&api.MCPServerAuth{ForwardToken: true},
-	)
+	err := registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: "sso-server", ToolPrefix: "sso"},
+		URL:                "https://sso.example.com",
+		AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com"},
+		AuthConfig:         &api.MCPServerAuth{ForwardToken: true},
+	})
 	require.NoError(t, err)
 
 	aggServer := &AggregatorServer{
@@ -554,11 +558,12 @@ func TestOnAuthenticated_CallsHandleUpstreamRefreshFailure(t *testing.T) {
 	sessionID := "callback-session"
 	userID := "callback-user"
 
-	err := registry.RegisterPendingAuthWithConfig(
-		"sso-server", "https://sso.example.com", "sso",
-		&AuthInfo{Issuer: "https://dex.example.com"},
-		&api.MCPServerAuth{ForwardToken: true},
-	)
+	err := registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: "sso-server", ToolPrefix: "sso"},
+		URL:                "https://sso.example.com",
+		AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com"},
+		AuthConfig:         &api.MCPServerAuth{ForwardToken: true},
+	})
 	require.NoError(t, err)
 
 	// Set up live session with pooled connection.
@@ -618,11 +623,12 @@ func TestTokenRefreshHandler_MissingIDToken_TriggersEviction(t *testing.T) {
 	familyID := "refresh-family"
 	userID := "refresh-user"
 
-	err := registry.RegisterPendingAuthWithConfig(
-		"sso-server", "https://sso.example.com", "sso",
-		&AuthInfo{Issuer: "https://dex.example.com"},
-		&api.MCPServerAuth{ForwardToken: true},
-	)
+	err := registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: "sso-server", ToolPrefix: "sso"},
+		URL:                "https://sso.example.com",
+		AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com"},
+		AuthConfig:         &api.MCPServerAuth{ForwardToken: true},
+	})
 	require.NoError(t, err)
 
 	require.NoError(t, authStore.MarkAuthenticated(ctx, familyID, "sso-server"))

@@ -70,7 +70,7 @@ func TestClient_GetToken(t *testing.T) {
 	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
 
-	subject := "user-123"
+	subject := testSubject
 	issuer := "https://auth.example.com"
 	scope := testScopes
 
@@ -105,7 +105,7 @@ func TestClient_GetToken_SSO_FallbackToIssuer(t *testing.T) {
 	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
 
-	subject := "user-123"
+	subject := testSubject
 	issuer := "https://auth.example.com"
 	scope1 := testScopes
 	scope2 := "openid email" // Different scope
@@ -133,7 +133,7 @@ func TestClient_GetToken_SSO_FallbackToIssuer(t *testing.T) {
 
 func TestClient_DiscoverMetadata(t *testing.T) {
 	// Create a test server that returns OAuth metadata
-	metadata := pkgoauth.Metadata{ //nolint:gosec
+	metadata := pkgoauth.Metadata{
 		Issuer:                "https://auth.example.com",
 		AuthorizationEndpoint: "https://auth.example.com/authorize",
 		TokenEndpoint:         "https://auth.example.com/token",
@@ -183,7 +183,7 @@ func TestClient_DiscoverMetadata(t *testing.T) {
 
 func TestClient_DiscoverMetadata_OpenIDFallback(t *testing.T) {
 	// Create a test server that only supports OpenID Connect discovery
-	metadata := pkgoauth.Metadata{ //nolint:gosec
+	metadata := pkgoauth.Metadata{
 		Issuer:                "https://auth.example.com",
 		AuthorizationEndpoint: "https://auth.example.com/authorize",
 		TokenEndpoint:         "https://auth.example.com/token",
@@ -234,7 +234,7 @@ func TestClient_DiscoverMetadata_Error(t *testing.T) {
 
 func TestClient_GenerateAuthURL(t *testing.T) {
 	// Create a test server that returns OAuth metadata
-	metadata := pkgoauth.Metadata{ //nolint:gosec
+	metadata := pkgoauth.Metadata{
 		Issuer:                        "https://auth.example.com",
 		AuthorizationEndpoint:         "https://auth.example.com/authorize",
 		TokenEndpoint:                 "https://auth.example.com/token",
@@ -255,7 +255,7 @@ func TestClient_GenerateAuthURL(t *testing.T) {
 	defer client.Stop()
 
 	ctx := context.Background()
-	authURL, err := client.GenerateAuthURL(ctx, "user-123", "test-user", testServerName, server.URL, testScopes)
+	authURL, err := client.GenerateAuthURL(ctx, testSubject, "test-user", testServerName, server.URL, testScopes)
 	if err != nil {
 		t.Fatalf("Failed to generate auth URL: %v", err)
 	}
@@ -292,7 +292,7 @@ func TestClient_GenerateAuthURL(t *testing.T) {
 func TestClient_GenerateAuthURL_RefusesWithoutS256PKCE(t *testing.T) {
 	// AS metadata without code_challenge_methods_supported — MCP 2025-11-25
 	// requires the client refuse to proceed.
-	metadata := pkgoauth.Metadata{ //nolint:gosec
+	metadata := pkgoauth.Metadata{
 		Issuer:                "https://auth.example.com",
 		AuthorizationEndpoint: "https://auth.example.com/authorize",
 		TokenEndpoint:         "https://auth.example.com/token",
@@ -311,7 +311,7 @@ func TestClient_GenerateAuthURL_RefusesWithoutS256PKCE(t *testing.T) {
 	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
 
-	_, err := client.GenerateAuthURL(context.Background(), "user-123", "test-user", testServerName, server.URL, testScopes)
+	_, err := client.GenerateAuthURL(context.Background(), testSubject, "test-user", testServerName, server.URL, testScopes)
 	if err == nil {
 		t.Fatal("expected refusal error when AS does not advertise S256 PKCE")
 	}
@@ -347,19 +347,19 @@ func TestClient_ExchangeCode(t *testing.T) {
 			return
 		}
 		// Verify request parameters
-		if err := r.ParseForm(); err != nil { //nolint:gosec
+		if err := r.ParseForm(); err != nil {
 			http.Error(w, "Bad Request", http.StatusBadRequest)
 			return
 		}
-		if r.FormValue("grant_type") != "authorization_code" { //nolint:gosec
+		if r.FormValue("grant_type") != "authorization_code" {
 			http.Error(w, "Invalid grant_type", http.StatusBadRequest)
 			return
 		}
-		if r.FormValue("code") == "" { //nolint:gosec
+		if r.FormValue("code") == "" {
 			http.Error(w, "Missing code", http.StatusBadRequest)
 			return
 		}
-		if r.FormValue("code_verifier") == "" { //nolint:gosec
+		if r.FormValue("code_verifier") == "" {
 			http.Error(w, "Missing code_verifier", http.StatusBadRequest)
 			return
 		}

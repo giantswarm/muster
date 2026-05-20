@@ -15,7 +15,6 @@ import (
 	"github.com/giantswarm/muster/internal/orchestrator"
 	"github.com/giantswarm/muster/internal/reconciler"
 	"github.com/giantswarm/muster/internal/services"
-	"github.com/giantswarm/muster/internal/teleport"
 	"github.com/giantswarm/muster/internal/workflow"
 	"github.com/giantswarm/muster/pkg/logging"
 )
@@ -164,16 +163,6 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	} else {
 		logging.Debug("Services", "Kubernetes event emission disabled (use --enable-events to enable)")
 	}
-
-	// Register Teleport client adapter for private installation access
-	// The adapter uses the muster client for Kubernetes secret access when in K8s mode
-	var teleportAdapter *teleport.Adapter
-	if musterClient.IsKubernetesMode() {
-		teleportAdapter = teleport.NewAdapterWithClient(musterClient)
-	} else {
-		teleportAdapter = teleport.NewAdapter()
-	}
-	teleportAdapter.Register()
 
 	// Create and register Workflow adapter using the muster client
 	workflowAdapter := workflow.NewAdapterWithClient(musterClient, namespace, toolCaller, toolChecker, cfg.ConfigPath)

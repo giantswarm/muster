@@ -129,40 +129,6 @@ spec:
                     items:
                       type: string
                     type: array
-                  teleport:
-                    description: |-
-                      Teleport configures Teleport authentication for accessing private installations.
-                      This is only used when Type is "teleport".
-
-                      When configured, muster uses Teleport Machine ID certificates to establish
-                      mutual TLS connections to MCP servers accessible via Teleport Application Access.
-                    properties:
-                      appName:
-                        description: |-
-                          AppName is the Teleport application name for routing.
-                          This is used to identify which Teleport-protected application to connect to.
-                          Example: mcp-kubernetes
-                        type: string
-                      identityDir:
-                        description: |-
-                          IdentityDir is the directory containing Teleport identity files.
-                          Used in filesystem mode when certificates are mounted directly.
-                          Example: /var/run/tbot/identity
-                        type: string
-                      identitySecretName:
-                        description: |-
-                          IdentitySecretName is the name of the Kubernetes Secret containing
-                          tbot identity files. The secret should contain: tlscert, key, teleport-application-ca.pem
-                          (matching tbot's application output type).
-                          Required when running in Kubernetes mode.
-                          Example: tbot-identity-output
-                        type: string
-                      identitySecretNamespace:
-                        description: |-
-                          IdentitySecretNamespace is the Kubernetes namespace where the identity
-                          secret is located. Defaults to the MCPServer's namespace if not specified.
-                        type: string
-                    type: object
                   tokenExchange:
                     description: |-
                       TokenExchange enables SSO via RFC 8693 Token Exchange for cross-cluster SSO.
@@ -225,7 +191,7 @@ spec:
                       dexTokenEndpoint:
                         description: |-
                           DexTokenEndpoint is the URL used to connect to the remote cluster's Dex token endpoint.
-                          This may differ from the issuer URL when access goes through a proxy (e.g., Teleport).
+                          This may differ from the issuer URL when access goes through a proxy.
                           Required when Enabled is true.
                           Example: https://dex.cluster-b.example.com/token (direct)
                           Example: https://dex-cluster.proxy.example.com/token (via proxy)
@@ -257,11 +223,9 @@ spec:
                       Type specifies the authentication type.
                       Supported values:
                         - "oauth": OAuth 2.0/OIDC authentication
-                        - "teleport": Teleport Application Access with Machine ID certificates
                         - "none": No authentication
                     enum:
                     - oauth
-                    - teleport
                     - none
                     type: string
                 type: object
@@ -299,6 +263,38 @@ spec:
                   Env contains environment variables to set for the MCP server.
                   For stdio servers, these are passed to the process when it is started.
                   For remote servers, these can be used for authentication or configuration.
+                type: object
+              family:
+                description: |-
+                  Family declares that this MCP server is an instance of a family of
+                  equivalent servers (for example, multiple kubernetes MCP servers pointed
+                  at different clusters). When set, the aggregator exposes tools from all
+                  servers in the same family under a single name
+                  ({musterPrefix}_{family.name}_{toolName}) with a required parameter
+                  (named by family.instanceArg) that selects which instance handles the
+                  call. The parameter is always required even for single-instance families
+                  so skills written against the family name remain stable as instances are
+                  added or removed. When unset, the legacy per-server prefixing applies
+                  ({musterPrefix}_{toolPrefix-or-name}_{toolName}).
+                properties:
+                  instanceArg:
+                    description: |-
+                      InstanceArg names the required parameter callers use to select which
+                      family member handles the tool call (for example "management_cluster",
+                      "country", "model"). All servers declaring the same family.name must
+                      agree on InstanceArg; if they diverge, the aggregator falls back to
+                      per-server prefixing for the entire family and logs a warning.
+                    pattern: ^[a-zA-Z][a-zA-Z0-9_]*$
+                    type: string
+                  name:
+                    description: |-
+                      Name is the family identifier. Servers sharing the same Name expose
+                      their tools as {musterPrefix}_{Name}_{toolName}.
+                    pattern: ^[a-zA-Z][a-zA-Z0-9_-]*$
+                    type: string
+                required:
+                - instanceArg
+                - name
                 type: object
               headers:
                 additionalProperties:
