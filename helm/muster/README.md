@@ -29,6 +29,7 @@ A Helm chart for muster - Universal Control Plane for AI Agents built on MCP
 | ciliumNetworkPolicy.annotations | object | `{}` |  |
 | ciliumNetworkPolicy.enabled | bool | `false` |  |
 | ciliumNetworkPolicy.labels | object | `{}` |  |
+| crds.annotations | object | `{"helm.sh/resource-policy":"keep"}` | Annotations merged into each CRD. Default `helm.sh/resource-policy: keep` preserves CRDs on `helm uninstall`. |
 | crds.install | bool | `true` |  |
 | fullnameOverride | string | `""` |  |
 | gatewayAPI.backendTrafficPolicy.annotations | object | `{}` |  |
@@ -113,9 +114,12 @@ A Helm chart for muster - Universal Control Plane for AI Agents built on MCP
 | rbac.create | bool | `true` |  |
 | replicaCount | int | `1` |  |
 | resources.limits.cpu | string | `"500m"` |  |
+| resources.limits.ephemeral-storage | string | `"100Mi"` | Required by Kyverno's resource-limits policy on Giant Swarm workload clusters; `/tmp` is an emptyDir. |
 | resources.limits.memory | string | `"512Mi"` |  |
 | resources.requests.cpu | string | `"100m"` |  |
+| resources.requests.ephemeral-storage | string | `"50Mi"` |  |
 | resources.requests.memory | string | `"128Mi"` |  |
+| revisionHistoryLimit | int | `3` | Deployment.spec.revisionHistoryLimit — keeps frequent rollouts from leaking zero-replica ReplicaSets. |
 | securityContext.allowPrivilegeEscalation | bool | `false` |  |
 | securityContext.capabilities.drop[0] | string | `"ALL"` |  |
 | securityContext.readOnlyRootFilesystem | bool | `true` |  |

@@ -80,6 +80,17 @@ spec:
             - port: "443"
               protocol: TCP
 
+    # Egress to the agentgateway data-plane for the upstream-proxy path.
+    # No-op when agentgateway isn't deployed in the release namespace.
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: agentgateway
+            k8s:io.kubernetes.pod.namespace: {{ .Release.Namespace }}
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+
     {{- if .Values.muster.oauth.server.enabled }}
     {{- if .Values.muster.oauth.server.storage }}
     {{- if eq .Values.muster.oauth.server.storage.type "valkey" }}
