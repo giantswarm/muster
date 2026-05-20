@@ -1,6 +1,15 @@
 package aggregator
 
-import "testing"
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+)
 
 const (
 	testProxyBase = "http://localhost:8080"
@@ -24,4 +33,40 @@ func TestProxyURLFor(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestReadinessURLFor_ZeroPortIsClusterMode(t *testing.T) {
+	require.Empty(t, readinessURLFor(0), "zero port must yield empty URL so cluster mode skips probing")
+}
+
+func TestWaitForAgentgatewayReady_EmptyURLNoop(t *testing.T) {
+	require.NoError(t, waitForAgentgatewayReady(t.Context(), nil, ""))
+}
+
+func TestWaitForAgentgatewayReady_PollsUntilHealthy(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if atomic.AddInt32(&hits, 1) < 3 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+
+	require.NoError(t, waitForAgentgatewayReady(t.Context(), srv.Client(), srv.URL))
+	require.GreaterOrEqual(t, atomic.LoadInt32(&hits), int32(3))
+}
+
+func TestWaitForAgentgatewayReady_DeadlineFires(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(srv.Close)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+
+	err := waitForAgentgatewayReady(ctx, srv.Client(), srv.URL)
+	require.Error(t, err, "must surface the timeout when agentgateway never reports ready")
 }

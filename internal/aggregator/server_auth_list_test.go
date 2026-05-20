@@ -117,7 +117,7 @@ func TestListServersRequiringAuth(t *testing.T) {
 		}
 
 		ctx := context.Background()
-		err := reg.Register(ctx, "connected-server", client, "conn")
+		err := reg.Register(ctx, ServerRegistration{Name: "connected-server", ToolPrefix: "conn"}, client)
 		require.NoError(t, err)
 
 		agg := &AggregatorServer{registry: reg}

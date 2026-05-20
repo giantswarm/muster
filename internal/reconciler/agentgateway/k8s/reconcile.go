@@ -3,6 +3,7 @@ package k8s
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -10,10 +11,10 @@ import (
 	agw "github.com/agentgateway/agentgateway/controller/api/v1alpha1/agentgateway"
 
 	"github.com/giantswarm/muster/internal/reconciler/agentgateway"
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 const (
-	groupAgentgateway   = "agentgateway.dev"
 	kindAgentgatewayBE  = "AgentgatewayBackend"
 	kindHTTPRoute       = "HTTPRoute"
 	gatewayAPIGroupName = gwv1.GroupName
@@ -30,7 +31,10 @@ func (a *Applier) reconcileBackend(ctx context.Context, namespace string, b agen
 	}
 	host := agw.ShortString(target.Host)
 	path := agw.LongString(target.Path)
-	protocol := mapProtocol(target.Protocol)
+	protocol, err := mapProtocol(target.Protocol)
+	if err != nil {
+		return err
+	}
 
 	obj := &agw.AgentgatewayBackend{
 		ObjectMeta: metav1.ObjectMeta{Name: b.Name, Namespace: namespace},
@@ -66,7 +70,7 @@ func (a *Applier) reconcileRoute(ctx context.Context, namespace string, r agentg
 	}
 	pathType := gwv1.PathMatchPathPrefix
 	pathValue := r.PathMatch
-	backendGroup := gwv1.Group(groupAgentgateway)
+	backendGroup := gwv1.Group(agw.GroupName)
 	backendKind := gwv1.Kind(kindAgentgatewayBE)
 	mutate := func() error {
 		a.applyOwner(&obj.ObjectMeta)
@@ -99,6 +103,14 @@ func (a *Applier) reconcileRoute(ctx context.Context, namespace string, r agentg
 }
 
 func (a *Applier) reconcilePolicy(ctx context.Context, namespace string, p agentgateway.Policy) error {
+	if deferred := deferredAuthnFields(p.Authn); len(deferred) > 0 {
+		logging.InfoWithAttrsCtx(ctx, "agentgateway/k8s",
+			"MCPServer Authn fields handled by muster aggregator, not emitted at gateway",
+			slog.String("policy", p.Name),
+			slog.String("namespace", namespace),
+			slog.Any("deferredFields", deferred),
+		)
+	}
 	obj := &agw.AgentgatewayPolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: p.Name, Namespace: namespace},
 	}

@@ -166,6 +166,37 @@ func TestApply_RoundTripUnmarshal(t *testing.T) {
 	require.NotNil(t, route.Policies.BackendAuth.Passthrough)
 }
 
+func TestApply_DeferredAuthnFields_NotEmittedInYAML(t *testing.T) {
+	dir := t.TempDir()
+	a, err := yamlapply.NewApplier(dir)
+	require.NoError(t, err)
+
+	c := canonicalConfig()
+	c.Policies[0].Authn.RequiredAudiences = []string{"dex-k8s", "kube-apiserver"}
+	c.Policies[0].Authn.TokenExchange = &agentgateway.TokenExchange{
+		Enabled:          true,
+		DexTokenEndpoint: "https://dex.example.com/token",
+		ExpectedIssuer:   "https://dex.example.com",
+	}
+	c.Policies[0].Authn.AuthorizationServer = &agentgateway.AuthorizationServer{
+		Issuer: "https://atlassian.example.com",
+		Scopes: "read:mcp",
+	}
+
+	require.NoError(t, a.Apply(t.Context(), c))
+	raw := readInDir(t, dir, yamlapply.ConfigFilename)
+	require.NotContains(t, string(raw), "dex-k8s")
+	require.NotContains(t, string(raw), "kube-apiserver")
+	require.NotContains(t, string(raw), "atlassian.example.com")
+	require.NotContains(t, string(raw), "dex.example.com")
+
+	var cfg yamlapply.LocalConfig
+	require.NoError(t, goyaml.Unmarshal(raw, &cfg))
+	policies := cfg.Binds[0].Listeners[0].Routes[0].Policies
+	require.NotNil(t, policies, "ForwardToken Passthrough must still be present")
+	require.NotNil(t, policies.BackendAuth.Passthrough)
+}
+
 func TestApply_SSEProtocol(t *testing.T) {
 	dir := t.TempDir()
 	a, err := yamlapply.NewApplier(dir)
@@ -527,4 +558,83 @@ func assertMatchesGolden(t *testing.T, dir, goldenName, fileName string) {
 		}
 		t.Fatalf("golden mismatch:\n--- want\n%s\n--- got\n%s", want, got)
 	}
+}
+
+func TestApply_ConcurrentSameName(t *testing.T) {
+	dir := t.TempDir()
+	a, err := yamlapply.NewApplier(dir)
+	require.NoError(t, err)
+
+	const goroutines = 16
+	done := make(chan error, goroutines)
+	for range goroutines {
+		go func() {
+			done <- a.Apply(t.Context(), canonicalConfig())
+		}()
+	}
+	for range goroutines {
+		require.NoError(t, <-done)
+	}
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "concurrent same-name applies must converge to one file")
+	require.Equal(t, yamlapply.ConfigFilename, entries[0].Name())
+}
+
+func TestApply_AfterCloseReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	a, err := yamlapply.NewApplier(dir)
+	require.NoError(t, err)
+
+	require.NoError(t, a.Apply(t.Context(), canonicalConfig()))
+	require.NoError(t, a.Close())
+
+	err = a.Apply(t.Context(), canonicalConfig())
+	require.Error(t, err, "Apply on a Closed applier must surface an error")
+}
+
+func TestApply_StdioMultiEnvSortedDeterministically(t *testing.T) {
+	dir := t.TempDir()
+	a, err := yamlapply.NewApplier(dir)
+	require.NoError(t, err)
+
+	cfg := stdioConfig()
+	stdio := cfg.Backends[0].Target.(agentgateway.StdioTarget)
+	stdio.Env = map[string]string{
+		"ZETA":  "26",
+		"ALPHA": "1",
+		"MIKE":  "13",
+	}
+	cfg.Backends[0].Target = stdio
+
+	require.NoError(t, a.Apply(t.Context(), cfg))
+	first := readInDir(t, dir, yamlapply.ConfigFilename)
+
+	dir2 := t.TempDir()
+	a2, err := yamlapply.NewApplier(dir2)
+	require.NoError(t, err)
+	require.NoError(t, a2.Apply(t.Context(), cfg))
+	second := readInDir(t, dir2, yamlapply.ConfigFilename)
+
+	require.True(t, bytes.Equal(first, second), "stdio multi-env emission must be deterministic across applier instances")
+}
+
+func TestApply_RequiredAudiencesPreservedAndDeterministic(t *testing.T) {
+	cfg := canonicalConfig()
+	cfg.Policies[0].Authn.RequiredAudiences = []string{"dex-k8s", "platform-api", "telemetry"}
+
+	dir := t.TempDir()
+	a, err := yamlapply.NewApplier(dir)
+	require.NoError(t, err)
+	require.NoError(t, a.Apply(t.Context(), cfg))
+	first := readInDir(t, dir, yamlapply.ConfigFilename)
+
+	dir2 := t.TempDir()
+	a2, err := yamlapply.NewApplier(dir2)
+	require.NoError(t, err)
+	require.NoError(t, a2.Apply(t.Context(), cfg))
+	second := readInDir(t, dir2, yamlapply.ConfigFilename)
+
+	require.True(t, bytes.Equal(first, second), "RequiredAudiences must serialise deterministically")
 }

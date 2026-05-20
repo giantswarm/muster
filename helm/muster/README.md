@@ -25,11 +25,16 @@ A Helm chart for muster - Universal Control Plane for AI Agents built on MCP
 | autoscaling.maxReplicas | int | `10` |  |
 | autoscaling.minReplicas | int | `1` |  |
 | autoscaling.targetCPUUtilizationPercentage | int | `80` |  |
-| ciliumNetworkPolicy.allowClusterIngress | bool | `false` |  |
-| ciliumNetworkPolicy.annotations | object | `{}` |  |
-| ciliumNetworkPolicy.enabled | bool | `false` |  |
-| ciliumNetworkPolicy.labels | object | `{}` |  |
+| crds.annotations | object | `{"helm.sh/resource-policy":"keep"}` | Annotations merged into each CRD. Default `helm.sh/resource-policy: keep` preserves CRDs on `helm uninstall`. |
 | crds.install | bool | `true` |  |
+| networkPolicy.annotations | object | `{}` |  |
+| networkPolicy.cilium.allowClusterIngress | bool | `false` | Allow egress to the `cluster` entity on 80/443 — needed when Dex / OIDC / MCP servers are reached via in-cluster ingress IPs. |
+| networkPolicy.enabled | bool | `false` |  |
+| networkPolicy.flavor | string | `"cilium"` | `cilium` renders CiliumNetworkPolicy; `kubernetes` renders vanilla `networking.k8s.io/v1` NetworkPolicy (no entity selectors, no FQDN egress). |
+| networkPolicy.kubernetes.apiServerCIDR | string | `"0.0.0.0/0"` |  |
+| networkPolicy.kubernetes.clusterCIDR | string | `""` | Empty disables the in-cluster ingress egress rule. Set to the cluster pod/service CIDR to enable. |
+| networkPolicy.kubernetes.worldExcludedCIDRs | list | `["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16","169.254.0.0/16"]` |  |
+| networkPolicy.labels | object | `{}` |  |
 | fullnameOverride | string | `""` |  |
 | gatewayAPI.backendTrafficPolicy.annotations | object | `{}` |  |
 | gatewayAPI.backendTrafficPolicy.enabled | bool | `false` |  |
@@ -114,9 +119,12 @@ A Helm chart for muster - Universal Control Plane for AI Agents built on MCP
 | rbac.create | bool | `true` |  |
 | replicaCount | int | `1` |  |
 | resources.limits.cpu | string | `"500m"` |  |
+| resources.limits.ephemeral-storage | string | `"100Mi"` | Required by Kyverno's resource-limits policy on Giant Swarm workload clusters; `/tmp` is an emptyDir. |
 | resources.limits.memory | string | `"512Mi"` |  |
 | resources.requests.cpu | string | `"100m"` |  |
+| resources.requests.ephemeral-storage | string | `"50Mi"` |  |
 | resources.requests.memory | string | `"128Mi"` |  |
+| revisionHistoryLimit | int | `3` | Deployment.spec.revisionHistoryLimit — keeps frequent rollouts from leaking zero-replica ReplicaSets. |
 | securityContext.allowPrivilegeEscalation | bool | `false` |  |
 | securityContext.capabilities.drop[0] | string | `"ALL"` |  |
 | securityContext.readOnlyRootFilesystem | bool | `true` |  |

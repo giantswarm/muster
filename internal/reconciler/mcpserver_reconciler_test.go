@@ -104,6 +104,10 @@ func (s *stubAggregator) UpstreamServerState(name string) api.UpstreamServerStat
 	return s.state[name]
 }
 
+func (s *stubAggregator) UpstreamServerStateForSession(_ context.Context, name string) api.UpstreamServerState {
+	return s.UpstreamServerState(name)
+}
+
 func (s *stubAggregator) GetServiceData() map[string]interface{} { return nil }
 func (s *stubAggregator) GetEndpoint() string                    { return "" }
 func (s *stubAggregator) GetPort() int                           { return 0 }

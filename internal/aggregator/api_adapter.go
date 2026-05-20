@@ -166,6 +166,14 @@ func (a *APIAdapter) UpstreamServerState(name string) api.UpstreamServerState {
 	return a.manager.UpstreamServerState(name)
 }
 
+// UpstreamServerStateForSession forwards to AggregatorManager.UpstreamServerStateForSession.
+func (a *APIAdapter) UpstreamServerStateForSession(ctx context.Context, name string) api.UpstreamServerState {
+	if a.manager == nil {
+		return api.UpstreamServerAbsent
+	}
+	return a.manager.UpstreamServerStateForSession(ctx, name)
+}
+
 func (a *APIAdapter) server() (*AggregatorServer, error) {
 	if a.manager == nil {
 		return nil, fmt.Errorf("aggregator manager not available")

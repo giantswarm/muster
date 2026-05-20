@@ -144,6 +144,13 @@ type AggregatorHandler interface {
 	// UpstreamServerState reports the current registration state of an upstream
 	// MCPServer. The reconciler reads this for CRD status sync.
 	UpstreamServerState(name string) UpstreamServerState
+
+	// UpstreamServerStateForSession reports the upstream MCPServer state as
+	// seen by the session bound to ctx. OAuth servers whose global registry
+	// entry remains in pending-auth surface as Connected when the caller's
+	// session has a live pooled connection, so core_service_list reflects
+	// post-SSO state.
+	UpstreamServerStateForSession(ctx context.Context, name string) UpstreamServerState
 }
 
 // UpstreamServerState enumerates the aggregator's view of an upstream MCPServer.

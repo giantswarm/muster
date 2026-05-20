@@ -47,7 +47,7 @@ func TestSessionToolFilter_ReturnsOnlyMetaTools(t *testing.T) {
 				{Name: "write_file"},
 			},
 		}
-		err := reg.Register(context.Background(), "filesystem", client, "fs")
+		err := reg.Register(context.Background(), ServerRegistration{Name: "filesystem", ToolPrefix: "fs"}, client)
 		require.NoError(t, err)
 
 		agg := &AggregatorServer{
@@ -118,7 +118,7 @@ func TestSessionToolFilter_ReturnsOnlyMetaTools(t *testing.T) {
 			client := &mockMCPClient{
 				tools: makeNTools(10 * (i + 1)),
 			}
-			err := reg.Register(context.Background(), name, client, name)
+			err := reg.Register(context.Background(), ServerRegistration{Name: name, ToolPrefix: name}, client)
 			require.NoError(t, err)
 		}
 
@@ -136,7 +136,7 @@ func TestSessionToolFilter_ReturnsOnlyMetaTools(t *testing.T) {
 				{Name: "connected_tool_2"},
 			},
 		}
-		err := reg.Register(context.Background(), "connected-server", connectedClient, "conn")
+		err := reg.Register(context.Background(), ServerRegistration{Name: "connected-server", ToolPrefix: "conn"}, connectedClient)
 		require.NoError(t, err)
 
 		err = reg.RegisterPendingAuth(
@@ -220,7 +220,7 @@ func TestSessionToolFilter_ReturnsOnlyMetaTools(t *testing.T) {
 		client := &mockMCPClient{
 			tools: []mcp.Tool{{Name: "per_user_tool"}},
 		}
-		err := reg.Register(context.Background(), "shared-server", client, "shared")
+		err := reg.Register(context.Background(), ServerRegistration{Name: "shared-server", ToolPrefix: "shared"}, client)
 		require.NoError(t, err)
 
 		agg := &AggregatorServer{
