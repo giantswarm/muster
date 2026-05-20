@@ -47,7 +47,7 @@ func TestSessionToolFilter_ReturnsOnlyMetaTools(t *testing.T) {
 				{Name: "write_file"},
 			},
 		}
-		err := reg.Register(context.Background(), "filesystem", client, "fs")
+		err := reg.Register(context.Background(), ServerRegistration{Name: "filesystem", ToolPrefix: "fs"}, client)
 		require.NoError(t, err)
 
 		agg := &AggregatorServer{
@@ -71,12 +71,11 @@ func TestSessionToolFilter_ReturnsOnlyMetaTools(t *testing.T) {
 
 	t.Run("does not include OAuth server tools from cache", func(t *testing.T) {
 		reg := NewServerRegistry("x")
-		err := reg.RegisterPendingAuth(
-			"oauth-server",
-			"https://oauth.example.com",
-			"oauth",
-			&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
-		)
+		err := reg.RegisterPendingAuth(PendingAuthRegistration{
+			ServerRegistration: ServerRegistration{Name: "oauth-server", ToolPrefix: "oauth"},
+			URL:                "https://oauth.example.com",
+			AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
+		})
 		require.NoError(t, err)
 
 		store := NewInMemoryCapabilityStore(30 * time.Minute)
@@ -118,7 +117,7 @@ func TestSessionToolFilter_ReturnsOnlyMetaTools(t *testing.T) {
 			client := &mockMCPClient{
 				tools: makeNTools(10 * (i + 1)),
 			}
-			err := reg.Register(context.Background(), name, client, name)
+			err := reg.Register(context.Background(), ServerRegistration{Name: name, ToolPrefix: name}, client)
 			require.NoError(t, err)
 		}
 
@@ -136,15 +135,14 @@ func TestSessionToolFilter_ReturnsOnlyMetaTools(t *testing.T) {
 				{Name: "connected_tool_2"},
 			},
 		}
-		err := reg.Register(context.Background(), "connected-server", connectedClient, "conn")
+		err := reg.Register(context.Background(), ServerRegistration{Name: "connected-server", ToolPrefix: "conn"}, connectedClient)
 		require.NoError(t, err)
 
-		err = reg.RegisterPendingAuth(
-			"auth-server",
-			"https://auth.example.com",
-			"auth",
-			&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
-		)
+		err = reg.RegisterPendingAuth(PendingAuthRegistration{
+			ServerRegistration: ServerRegistration{Name: "auth-server", ToolPrefix: "auth"},
+			URL:                "https://auth.example.com",
+			AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
+		})
 		require.NoError(t, err)
 
 		store := NewInMemoryCapabilityStore(30 * time.Minute)
@@ -220,7 +218,7 @@ func TestSessionToolFilter_ReturnsOnlyMetaTools(t *testing.T) {
 		client := &mockMCPClient{
 			tools: []mcp.Tool{{Name: "per_user_tool"}},
 		}
-		err := reg.Register(context.Background(), "shared-server", client, "shared")
+		err := reg.Register(context.Background(), ServerRegistration{Name: "shared-server", ToolPrefix: "shared"}, client)
 		require.NoError(t, err)
 
 		agg := &AggregatorServer{

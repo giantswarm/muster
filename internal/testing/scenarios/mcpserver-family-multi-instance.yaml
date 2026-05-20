@@ -1,0 +1,120 @@
+name: "mcpserver-family-multi-instance"
+description: "Two MCP servers in the same family collapse to one exposed tool with the instance arg listing both"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "family", "aggregator"]
+timeout: "2m"
+
+# Given: Two MCP servers share spec.family.name = kubernetes
+# When: The aggregator lists tools
+# Then: The shared tool is exposed once under x_kubernetes_<tool>, and the management_cluster
+#       arg routes each call to the matching backend without leaking the routing key.
+
+pre_configuration:
+  mcp_servers:
+    - name: "k8s-graveler"
+      config:
+        family:
+          name: "kubernetes"
+          instanceArg: "management_cluster"
+        tools:
+          - name: "list_pods"
+            description: "List pods"
+            input_schema:
+              type: "object"
+              properties:
+                namespace: { type: "string" }
+            responses:
+              - response:
+                  source: "k8s-graveler"
+                  namespace: "{{ .namespace }}"
+    - name: "k8s-gazelle"
+      config:
+        family:
+          name: "kubernetes"
+          instanceArg: "management_cluster"
+        tools:
+          - name: "list_pods"
+            description: "List pods"
+            input_schema:
+              type: "object"
+              properties:
+                namespace: { type: "string" }
+            responses:
+              - response:
+                  source: "k8s-gazelle"
+                  namespace: "{{ .namespace }}"
+
+steps:
+  - id: "wait-for-graveler"
+    tool: "core_service_status"
+    args:
+      name: "k8s-graveler"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "running"
+
+  - id: "wait-for-gazelle"
+    tool: "core_service_status"
+    args:
+      name: "k8s-gazelle"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "running"
+
+  - id: "route-to-graveler"
+    tool: "x_kubernetes_list_pods"
+    args:
+      management_cluster: "k8s-graveler"
+      namespace: "kube-system"
+    expected:
+      success: true
+      contains: ["k8s-graveler", "kube-system"]
+      not_contains: ["k8s-gazelle"]
+
+  - id: "route-to-gazelle"
+    tool: "x_kubernetes_list_pods"
+    args:
+      management_cluster: "k8s-gazelle"
+      namespace: "monitoring"
+    expected:
+      success: true
+      contains: ["k8s-gazelle", "monitoring"]
+      not_contains: ["k8s-graveler"]
+
+  - id: "missing-instance-arg-rejected"
+    tool: "x_kubernetes_list_pods"
+    args:
+      namespace: "default"
+    expected:
+      success: false
+      error_contains: ["management_cluster"]
+
+  - id: "unknown-instance-rejected"
+    tool: "x_kubernetes_list_pods"
+    args:
+      management_cluster: "k8s-typo"
+      namespace: "default"
+    expected:
+      success: false
+      error_contains: ["not available on server"]
+
+cleanup:
+  - id: "cleanup-stop-graveler"
+    tool: "core_service_stop"
+    args:
+      name: "k8s-graveler"
+    expected:
+      success: true
+    continue_on_failure: true
+  - id: "cleanup-stop-gazelle"
+    tool: "core_service_stop"
+    args:
+      name: "k8s-gazelle"
+    expected:
+      success: true
+    continue_on_failure: true

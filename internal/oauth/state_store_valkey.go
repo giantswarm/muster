@@ -10,6 +10,7 @@ import (
 	"github.com/giantswarm/mcp-oauth/security"
 	"github.com/valkey-io/valkey-go"
 
+	"github.com/giantswarm/muster/internal/config"
 	"github.com/giantswarm/muster/pkg/logging"
 )
 
@@ -50,7 +51,7 @@ type ValkeyStateStore struct {
 // encryptor enables AES-256-GCM encryption at rest; pass nil to disable.
 func NewValkeyStateStore(client valkey.Client, keyPrefix string, encryptor *security.Encryptor) *ValkeyStateStore {
 	if keyPrefix == "" {
-		keyPrefix = "muster:"
+		keyPrefix = config.DefaultValkeyKeyPrefix
 	}
 	return &ValkeyStateStore{
 		valkeyEncryption: valkeyEncryption{encryptor: encryptor},

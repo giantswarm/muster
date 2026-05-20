@@ -1,0 +1,282 @@
+name: "mcpserver-family-cross-session-corruption"
+description: "BUG REPRODUCER: the aggregator's family routing index is process-global but GetAllToolsForSession contributions are session-scoped. When two users are authenticated to different family members, the second user's tools/list overwrites the global routing index and the first user's subsequent family-tool call routes to the wrong provider set."
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "family", "aggregator", "oauth", "multi-user", "session-isolation", "bug-reproducer"]
+timeout: "3m"
+
+# Given: Two OAuth-protected MCP servers k8s-graveler and k8s-gazelle share
+#        spec.family = {name: kubernetes, instanceArg: management_cluster}.
+#        Two users (user-a, user-b) authenticate to disjoint family members:
+#        user-a -> k8s-graveler only; user-b -> k8s-gazelle only.
+# When:  Both users list tools (so the family routing index is rebuilt twice,
+#        once per session), then user-a calls x_kubernetes_list_pods with
+#        management_cluster=k8s-graveler.
+# Then:  user-a's call must succeed and route to k8s-graveler, because
+#        user-a IS authenticated to k8s-graveler and k8s-graveler IS in the
+#        kubernetes family.
+#
+# Today's implementation:
+#   internal/aggregator/registry.go: GetAllToolsForSession calls
+#   assembleExposedTools, which unconditionally resets and rewrites the
+#   GLOBAL r.familyMappings index based on that session's contributions.
+#   After user-b's tools/list runs, familyMappings[x_kubernetes_list_pods].
+#   providers = [k8s-gazelle] (because user-b is only authenticated to
+#   k8s-gazelle). user-a's subsequent CallToolInternal goes through
+#   IsFamilyTool -> ResolveToolNameForServer("x_kubernetes_list_pods",
+#   "k8s-graveler") which returns
+#     "tool x_kubernetes_list_pods is not available on server \"k8s-graveler\" (available: k8s-gazelle)"
+#   even though user-a IS authenticated to k8s-graveler.
+#
+# The fix needs to make routing index lookups session-aware (either by
+# session-keying the index, or by re-deriving providers from the session's
+# authenticated server set inside CallToolInternal rather than reading the
+# cached global index).
+
+pre_configuration:
+  # Shared IdP doubling as muster's OAuth server so test_create_user /
+  # test_muster_auth_login can mint distinct per-user identities.
+  mock_oauth_servers:
+    - name: "shared-idp"
+      scopes: ["openid", "profile", "mcp:read"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "test-client"
+      client_secret: "test-secret"
+      use_as_muster_oauth_server: true
+
+  mcp_servers:
+    - name: "k8s-graveler"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "shared-idp"
+          scope: "mcp:read"
+        family:
+          name: "kubernetes"
+          instanceArg: "management_cluster"
+        tools:
+          - name: "list_pods"
+            description: "List pods"
+            input_schema:
+              type: "object"
+              properties:
+                namespace: { type: "string" }
+            responses:
+              - response:
+                  source: "k8s-graveler"
+                  namespace: "{{ .namespace }}"
+
+    - name: "k8s-gazelle"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "shared-idp"
+          scope: "mcp:read"
+        family:
+          name: "kubernetes"
+          instanceArg: "management_cluster"
+        tools:
+          - name: "list_pods"
+            description: "List pods"
+            input_schema:
+              type: "object"
+              properties:
+                namespace: { type: "string" }
+            responses:
+              - response:
+                  source: "k8s-gazelle"
+                  namespace: "{{ .namespace }}"
+
+steps:
+  # Verify both family members and the IdP are present.
+  - id: "verify-shared-idp"
+    tool: "test_get_oauth_server_info"
+    args:
+      server: "shared-idp"
+    expected:
+      success: true
+      contains: ["shared-idp", "issuer_url"]
+
+  - id: "verify-servers-registered"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["k8s-graveler", "k8s-gazelle"]
+
+  # Create two distinct user sessions.
+  - id: "muster-auth-user-a"
+    description: "Mint a muster ID token under subject user-a"
+    tool: "test_muster_auth_login"
+    args:
+      subject: "user-a"
+    expected:
+      success: true
+      contains: ["success"]
+
+  - id: "create-user-a"
+    tool: "test_create_user"
+    args:
+      name: "user-a"
+    expected:
+      success: true
+      contains: ["user-a"]
+
+  - id: "muster-auth-user-b"
+    description: "Mint a muster ID token under subject user-b"
+    tool: "test_muster_auth_login"
+    args:
+      subject: "user-b"
+    expected:
+      success: true
+      contains: ["success"]
+
+  - id: "create-user-b"
+    tool: "test_create_user"
+    args:
+      name: "user-b"
+    expected:
+      success: true
+      contains: ["user-b"]
+
+  # user-a authenticates to k8s-graveler ONLY.
+  - id: "user-a-auth-graveler"
+    as_user: "user-a"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "k8s-graveler"
+    expected:
+      success: true
+      contains: ["success"]
+
+  - id: "user-a-login-graveler"
+    as_user: "user-a"
+    tool: "core_auth_login"
+    args:
+      server: "k8s-graveler"
+    expected:
+      success: true
+
+  # user-b authenticates to k8s-gazelle ONLY.
+  - id: "user-b-auth-gazelle"
+    as_user: "user-b"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "k8s-gazelle"
+    expected:
+      success: true
+      contains: ["success"]
+
+  - id: "user-b-login-gazelle"
+    as_user: "user-b"
+    tool: "core_auth_login"
+    args:
+      server: "k8s-gazelle"
+    expected:
+      success: true
+
+  # user-a lists tools first: their session contributions = {k8s-graveler}.
+  # This primes the global familyMappings with providers=[k8s-graveler].
+  - id: "user-a-list-tools-first"
+    description: "user-a sees the family tool, populates global familyMappings = [k8s-graveler]"
+    tool: "test_list_tools_for_user"
+    args:
+      name: "user-a"
+    expected:
+      success: true
+      contains: ["x_kubernetes_list_pods"]
+
+  # user-b lists tools next: their session contributions = {k8s-gazelle}.
+  # assembleExposedTools RESETS the global familyMappings and rewrites it to
+  # providers=[k8s-gazelle]. This is the corruption — the index is shared
+  # across sessions but the contributions are session-scoped.
+  - id: "user-b-list-tools-overwrites-global-index"
+    description: "user-b's listing overwrites the GLOBAL familyMappings to [k8s-gazelle]; this is the bug under test"
+    tool: "test_list_tools_for_user"
+    args:
+      name: "user-b"
+    expected:
+      success: true
+      contains: ["x_kubernetes_list_pods"]
+
+  # user-a's call must still route correctly to k8s-graveler. user-a IS
+  # authenticated to k8s-graveler and IS asking for it explicitly via
+  # management_cluster. The expected outcome is success.
+  #
+  # BUG: today CallToolInternal -> IsFamilyTool(true) ->
+  # ResolveToolNameForServer("x_kubernetes_list_pods", "k8s-graveler")
+  # reads the global familyMappings, which now lists only k8s-gazelle, and
+  # returns
+  #   tool x_kubernetes_list_pods is not available on server "k8s-graveler" (available: k8s-gazelle)
+  # The step will fail with that error message until the fix lands.
+  - id: "user-a-calls-graveler-after-cross-session-list"
+    as_user: "user-a"
+    description: "BUG: user-a's authenticated, explicit-instance call must still succeed after user-b listed tools"
+    tool: "x_kubernetes_list_pods"
+    args:
+      management_cluster: "k8s-graveler"
+      namespace: "default"
+    expected:
+      success: true
+      contains: ["k8s-graveler", "default"]
+      not_contains: ["k8s-gazelle"]
+
+  # And the symmetric direction: user-b's call must also route correctly.
+  # (This one happens to work in the bug state because user-b listed last,
+  # so the global index points at k8s-gazelle. After the fix it should
+  # continue to pass.)
+  - id: "user-b-calls-gazelle"
+    as_user: "user-b"
+    description: "user-b's call must route to k8s-gazelle"
+    tool: "x_kubernetes_list_pods"
+    args:
+      management_cluster: "k8s-gazelle"
+      namespace: "monitoring"
+    expected:
+      success: true
+      contains: ["k8s-gazelle", "monitoring"]
+      not_contains: ["k8s-graveler"]
+
+  # Order-reversed variant: user-b lists again, then user-a calls. Same bug,
+  # reproduced from the opposite direction so the test does not silently pass
+  # if the implementation happens to leave the LAST listed providers in place.
+  - id: "user-a-list-again-flips-global-index"
+    description: "user-a relists; global familyMappings is now [k8s-graveler]"
+    tool: "test_list_tools_for_user"
+    args:
+      name: "user-a"
+    expected:
+      success: true
+      contains: ["x_kubernetes_list_pods"]
+
+  - id: "user-b-calls-gazelle-after-flip"
+    as_user: "user-b"
+    description: "BUG: user-b's call after user-a's relisting must still route to k8s-gazelle"
+    tool: "x_kubernetes_list_pods"
+    args:
+      management_cluster: "k8s-gazelle"
+      namespace: "kube-system"
+    expected:
+      success: true
+      contains: ["k8s-gazelle", "kube-system"]
+      not_contains: ["k8s-graveler"]
+
+cleanup:
+  - id: "cleanup-stop-graveler"
+    tool: "core_service_stop"
+    args:
+      name: "k8s-graveler"
+    expected:
+      success: true
+    continue_on_failure: true
+  - id: "cleanup-stop-gazelle"
+    tool: "core_service_stop"
+    args:
+      name: "k8s-gazelle"
+    expected:
+      success: true
+    continue_on_failure: true

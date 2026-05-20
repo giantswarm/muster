@@ -351,6 +351,12 @@ type OAuthStorageConfig struct {
 	Valkey ValkeyConfig `yaml:"valkey,omitempty"`
 }
 
+// DefaultValkeyKeyPrefix is the default prefix prepended to every Valkey key
+// used by muster's backed stores when the operator does not override it via
+// ValkeyConfig.KeyPrefix. Centralised here so the OAuth client/state stores
+// and the aggregator session/capability stores agree on the namespace.
+const DefaultValkeyKeyPrefix = "muster:"
+
 // ValkeyConfig holds configuration for Valkey storage backend.
 type ValkeyConfig struct {
 	// URL is the Valkey server address (e.g., "valkey.namespace.svc:6379").

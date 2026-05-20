@@ -2,7 +2,7 @@
 #
 #    devctl
 #
-#    https://github.com/giantswarm/devctl/blob/db6c4eacba30ff7c3b055094ff7b11d2dadc98b0/pkg/gen/input/precommit/internal/file/pre-commit-action.yaml.template
+#    https://github.com/giantswarm/devctl/blob/f8c9dbe49225b5327dc3e27f7db99439cb658ea3/pkg/gen/input/precommit/internal/file/pre-commit-action.yaml.template
 #
 name: pre-commit
 
@@ -16,7 +16,7 @@ on:
 env:
   HELM_VERSION: "3.20.2"
   HELM_DOCS_VERSION: "1.14.2"
-  HELM_VALUES_SCHEMA_JSON_VERSION: "2.3.1"
+  HELM_VALUES_SCHEMA_JSON_VERSION: "2.4.0"
 
 jobs:
   pre-commit:
@@ -56,7 +56,7 @@ jobs:
         uses: giantswarm/install-binary-action@e2730babbc89f02ef1559b042d33cbe24f5c3547 # v4.0.2
         with:
           binary: golangci-lint
-          version: "2.11.4"
+          version: "2.12.2"
           download_url: "https://github.com/golangci/golangci-lint/releases/download/v${version}/${binary}-${version}-linux-amd64.tar.gz"
       - name: Execute pre-commit hooks
         uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1

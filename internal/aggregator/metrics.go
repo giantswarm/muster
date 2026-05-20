@@ -1,4 +1,4 @@
-package instrument
+package aggregator
 
 import (
 	"context"
@@ -11,12 +11,8 @@ import (
 	"go.opentelemetry.io/otel/metric"
 
 	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/pkg/observability"
 )
-
-// MeterName is the instrumentation scope for metrics emitted from this
-// package. Matches TracerName so dashboards can join span and metric
-// by service.name + scope.
-const MeterName = TracerName
 
 const (
 	// outcomeOK marks a tool call that returned (res, nil) with res
@@ -39,7 +35,7 @@ const (
 // Exported via the Prometheus OTEL exporter these become
 // muster_tool_calls_total and muster_tool_call_duration_seconds.
 func Metrics() server.ToolHandlerMiddleware {
-	m := otel.Meter(MeterName)
+	m := otel.Meter(observability.TracerName)
 	calls, err := m.Int64Counter("muster.tool_calls",
 		metric.WithDescription("Number of MCP tool calls handled by the muster aggregator."),
 		metric.WithUnit("{call}"),
