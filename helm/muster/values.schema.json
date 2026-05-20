@@ -235,29 +235,28 @@
         }
       }
     },
+    "revisionHistoryLimit": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Deployment.spec.revisionHistoryLimit."
+    },
     "resources": {
       "type": "object",
       "properties": {
         "limits": {
           "type": "object",
           "properties": {
-            "cpu": {
-              "type": "string"
-            },
-            "memory": {
-              "type": "string"
-            }
+            "cpu": { "type": "string" },
+            "memory": { "type": "string" },
+            "ephemeral-storage": { "type": "string" }
           }
         },
         "requests": {
           "type": "object",
           "properties": {
-            "cpu": {
-              "type": "string"
-            },
-            "memory": {
-              "type": "string"
-            }
+            "cpu": { "type": "string" },
+            "memory": { "type": "string" },
+            "ephemeral-storage": { "type": "string" }
           }
         }
       }
@@ -558,25 +557,36 @@
         "install": {
           "type": "boolean",
           "description": "Install CRDs"
+        },
+        "annotations": {
+          "type": "object",
+          "description": "Annotations merged into each CRD's metadata.annotations. Default `helm.sh/resource-policy: keep` preserves CRDs on `helm uninstall`."
         }
       }
     },
-    "ciliumNetworkPolicy": {
+    "networkPolicy": {
       "type": "object",
       "properties": {
-        "enabled": {
-          "type": "boolean",
-          "description": "Enable CiliumNetworkPolicy"
+        "enabled": { "type": "boolean" },
+        "flavor": { "type": "string", "enum": ["cilium", "kubernetes"] },
+        "labels": { "type": "object" },
+        "annotations": { "type": "object" },
+        "cilium": {
+          "type": "object",
+          "properties": {
+            "allowClusterIngress": { "type": "boolean" }
+          }
         },
-        "labels": {
-          "type": "object"
-        },
-        "annotations": {
-          "type": "object"
-        },
-        "allowClusterIngress": {
-          "type": "boolean",
-          "description": "Allow egress to in-cluster services on HTTP/HTTPS ports (e.g. Dex OIDC via ingress LoadBalancer IP)"
+        "kubernetes": {
+          "type": "object",
+          "properties": {
+            "apiServerCIDR": { "type": "string" },
+            "clusterCIDR": { "type": "string" },
+            "worldExcludedCIDRs": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
         }
       }
     }
