@@ -1,0 +1,119 @@
+suite: NetworkPolicy flavor switching
+templates:
+  - templates/ciliumnetworkpolicy.yaml
+  - templates/networkpolicy.yaml
+release:
+  name: muster
+tests:
+  - it: renders neither when disabled
+    set:
+      networkPolicy.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: cilium flavor renders CiliumNetworkPolicy
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.flavor: cilium
+    template: templates/ciliumnetworkpolicy.yaml
+    asserts:
+      - isKind:
+          of: CiliumNetworkPolicy
+      - equal:
+          path: spec.endpointSelector.matchLabels
+          value:
+            app.kubernetes.io/name: muster
+            app.kubernetes.io/instance: muster
+
+  - it: cilium flavor does not render vanilla NetworkPolicy
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.flavor: cilium
+    template: templates/networkpolicy.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: kubernetes flavor renders vanilla NetworkPolicy
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.flavor: kubernetes
+    template: templates/networkpolicy.yaml
+    asserts:
+      - isKind:
+          of: NetworkPolicy
+      - equal:
+          path: spec.podSelector.matchLabels
+          value:
+            app.kubernetes.io/name: muster
+            app.kubernetes.io/instance: muster
+      - equal:
+          path: spec.policyTypes
+          value: [Ingress, Egress]
+
+  - it: kubernetes flavor does not render CiliumNetworkPolicy
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.flavor: kubernetes
+    template: templates/ciliumnetworkpolicy.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: cilium allowClusterIngress adds cluster entity egress on 80/443
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.flavor: cilium
+      networkPolicy.cilium.allowClusterIngress: true
+    template: templates/ciliumnetworkpolicy.yaml
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            toEntities:
+              - cluster
+            toPorts:
+              - ports:
+                  - port: "80"
+                    protocol: TCP
+                  - port: "443"
+                    protocol: TCP
+
+  - it: kubernetes clusterCIDR adds an ipBlock egress on 80/443
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.flavor: kubernetes
+      networkPolicy.kubernetes.clusterCIDR: 10.0.0.0/16
+    template: templates/networkpolicy.yaml
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            to:
+              - ipBlock:
+                  cidr: "10.0.0.0/16"
+            ports:
+              - port: 80
+                protocol: TCP
+              - port: 443
+                protocol: TCP
+
+  - it: kubernetes empty clusterCIDR does not add cluster ipBlock egress
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.flavor: kubernetes
+      networkPolicy.kubernetes.clusterCIDR: ""
+    template: templates/networkpolicy.yaml
+    asserts:
+      - notContains:
+          path: spec.egress
+          content:
+            to:
+              - ipBlock:
+                  cidr: ""
+            ports:
+              - port: 80
+                protocol: TCP
+              - port: 443
+                protocol: TCP
