@@ -150,6 +150,14 @@ func (a *APIAdapter) DeregisterUpstream(ctx context.Context, name string) error 
 	return a.manager.DeregisterUpstream(ctx, name)
 }
 
+// ReconnectUpstream forwards to AggregatorManager.ReconnectUpstream.
+func (a *APIAdapter) ReconnectUpstream(ctx context.Context, name string) error {
+	if a.manager == nil {
+		return fmt.Errorf("aggregator manager not available")
+	}
+	return a.manager.ReconnectUpstream(ctx, name)
+}
+
 // UpstreamServerState forwards to AggregatorManager.UpstreamServerState.
 func (a *APIAdapter) UpstreamServerState(name string) api.UpstreamServerState {
 	if a.manager == nil {

@@ -22,7 +22,7 @@ var startResourceTypes = []string{
 
 // Dynamic completion for service names
 func startServiceNameCompletion(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	if len(args) != 1 || args[0] != api.ResourceTypeService { //nolint:goconst
+	if len(args) != 1 || args[0] != api.ResourceTypeService {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
@@ -32,7 +32,7 @@ func startServiceNameCompletion(cmd *cobra.Command, args []string, toComplete st
 
 // Dynamic completion for workflow names
 func startWorkflowNameCompletion(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	if len(args) != 1 || args[0] != api.ResourceTypeWorkflow { //nolint:goconst
+	if len(args) != 1 || args[0] != api.ResourceTypeWorkflow {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
@@ -96,7 +96,7 @@ Note: The aggregator server must be running (use 'muster serve') before using th
 			if args[0] == api.ResourceTypeService {
 				return startServiceNameCompletion(cmd, args, toComplete)
 			}
-			if args[0] == api.ResourceTypeWorkflow { //nolint:goconst
+			if args[0] == api.ResourceTypeWorkflow {
 				return startWorkflowNameCompletion(cmd, args, toComplete)
 			}
 		}
@@ -109,12 +109,11 @@ Note: The aggregator server must be running (use 'muster serve') before using th
 	RunE: runStart,
 }
 
-// Resource type mappings for start operations.
-// api.ResourceTypeService used to call core_service_start; that tool was removed when the
-// orchestrator-driven dial loop went away. Resume is now declarative: patch
-// MCPServer.spec.suspended back to false through core_mcpserver_update.
+// startResourceMappings routes `muster start <resource>` to the MCP tool that
+// implements resume. The service entry patches MCPServer.spec.suspended=false
+// via core_mcpserver_update.
 var startResourceMappings = map[string]string{
-	"service": "core_mcpserver_update",
+	api.ResourceTypeService: "core_mcpserver_update",
 }
 
 func init() {
@@ -215,18 +214,25 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return executor.Execute(ctx, toolName, workflowParams)
 	}
 
-	// Handle other resource types (services)
 	toolName, exists := startResourceMappings[resourceType]
 	if !exists {
 		return fmt.Errorf("unknown resource type '%s'. Available types: service, workflow", resourceType)
 	}
 
-	toolArgs := map[string]interface{}{
-		"name": resourceName,
-	}
 	if resourceType == api.ResourceTypeService {
-		toolArgs["suspended"] = false
+		suspended, err := mcpServerSuspended(ctx, executor, resourceName)
+		if err != nil {
+			return err
+		}
+		if !suspended {
+			fmt.Printf("Service '%s' is already running\n", resourceName)
+			return nil
+		}
 	}
 
+	toolArgs := map[string]interface{}{
+		"name":      resourceName,
+		"suspended": false,
+	}
 	return executor.Execute(ctx, toolName, toolArgs)
 }

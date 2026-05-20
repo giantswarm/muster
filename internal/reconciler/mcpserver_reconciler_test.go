@@ -55,11 +55,12 @@ func (s *stubApplier) appliedNames() []string {
 // from the reconciler hit a recorder instead of nil. Only the upstream
 // methods carry assertions; the rest return zero values.
 type stubAggregator struct {
-	mu           sync.Mutex
-	registered   []string
-	deregistered []string
-	state        map[string]api.UpstreamServerState
-	registerErr  error
+	mu            sync.Mutex
+	registered    []string
+	deregistered  []string
+	state         map[string]api.UpstreamServerState
+	registerErr   error
+	deregisterErr error
 }
 
 func newStubAggregator() *stubAggregator {
@@ -82,9 +83,19 @@ func (s *stubAggregator) RegisterUpstream(_ context.Context, name string) error 
 func (s *stubAggregator) DeregisterUpstream(_ context.Context, name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.deregisterErr != nil {
+		return s.deregisterErr
+	}
 	s.deregistered = append(s.deregistered, name)
 	delete(s.state, name)
 	return nil
+}
+
+func (s *stubAggregator) ReconnectUpstream(ctx context.Context, name string) error {
+	if err := s.DeregisterUpstream(ctx, name); err != nil {
+		return err
+	}
+	return s.RegisterUpstream(ctx, name)
 }
 
 func (s *stubAggregator) UpstreamServerState(name string) api.UpstreamServerState {
@@ -377,6 +388,152 @@ func TestReconcileSuspendThenResumeCycle(t *testing.T) {
 			"Suspended condition must be cleared on resume")
 	}
 	require.Equal(t, musterv1alpha1.MCPServerStateConnected, server.Status.State)
+}
+
+// TestReconcileSuspendedOnNeverEmittedMCPServer reproduces the case the
+// reviewer flagged: an MCPServer arrives at the reconciler already
+// spec.suspended=true so the first applier.Delete targets a name that
+// was never emitted. Both production appliers (yaml, k8s) tolerate this:
+// yaml's Delete returns nil when no route exists, k8s's Delete is a no-op
+// because OwnerReferences cascade deletion. The reconciler must not
+// requeue.
+func TestReconcileSuspendedOnNeverEmittedMCPServer(t *testing.T) {
+	applier := &stubApplier{}
+	mgr := NewMockMCPServerManager()
+	suspended := true
+	mgr.AddMCPServer(&api.MCPServerInfo{
+		Name:      testServerGitHub,
+		Type:      testTypeStreamable,
+		URL:       testGithubURL,
+		AutoStart: true,
+		Suspended: &suspended,
+	})
+
+	updater := NewMockStatusUpdater()
+	agg := newStubAggregator()
+	withAggregator(t, agg)
+
+	r := newReconcilerForTest(applier, mgr, updater)
+	result := r.Reconcile(t.Context(), ReconcileRequest{Name: testServerGitHub, Namespace: DefaultNamespace})
+
+	require.NoError(t, result.Error)
+	require.False(t, result.Requeue, "first reconcile of suspended:true must not error-requeue")
+	require.Equal(t, []string{testServerGitHub}, applier.deleted, "Delete must run even when nothing was emitted yet")
+	require.Empty(t, applier.appliedNames(), "suspended path must not emit config")
+	require.Empty(t, agg.registered, "suspended path must not register upstream")
+}
+
+// TestReconcileSuspendApplierDeleteFailureRequeues confirms that a real
+// applier failure (not just "nothing to delete") surfaces as an error +
+// Requeue so the next reconcile retries. Only one path emits an error
+// from reconcileSuspended; everything else (DeregisterUpstream) is
+// best-effort.
+func TestReconcileSuspendApplierDeleteFailureRequeues(t *testing.T) {
+	applier := &stubApplier{deleteErr: errors.New("boom")}
+	mgr := NewMockMCPServerManager()
+	suspended := true
+	mgr.AddMCPServer(&api.MCPServerInfo{
+		Name:      testServerGitHub,
+		Type:      testTypeStreamable,
+		URL:       testGithubURL,
+		AutoStart: true,
+		Suspended: &suspended,
+	})
+	updater := NewMockStatusUpdater()
+	agg := newStubAggregator()
+	withAggregator(t, agg)
+
+	r := newReconcilerForTest(applier, mgr, updater)
+	result := r.Reconcile(t.Context(), ReconcileRequest{Name: testServerGitHub, Namespace: DefaultNamespace})
+
+	require.Error(t, result.Error)
+	require.True(t, result.Requeue)
+	require.Empty(t, agg.deregistered, "Deregister must not run after Delete fails")
+}
+
+// TestReconcileSuspendDeregisterFailureIsSwallowed pins the deliberate
+// best-effort behaviour: DeregisterUpstream errors are logged at debug
+// and the reconcile still progresses to set the Suspended condition.
+// If this assertion ever flips, the reconciler can no longer recover
+// from transient aggregator failures during pause and the condition
+// will diverge from spec.
+func TestReconcileSuspendDeregisterFailureIsSwallowed(t *testing.T) {
+	applier := &stubApplier{}
+	mgr := NewMockMCPServerManager()
+	suspended := true
+	mgr.AddMCPServer(&api.MCPServerInfo{
+		Name:      testServerGitHub,
+		Type:      testTypeStreamable,
+		URL:       testGithubURL,
+		AutoStart: true,
+		Suspended: &suspended,
+	})
+
+	updater := NewMockStatusUpdater()
+	agg := newStubAggregator()
+	agg.deregisterErr = errors.New("aggregator unavailable")
+	withAggregator(t, agg)
+
+	r := newReconcilerForTest(applier, mgr, updater)
+	result := r.Reconcile(t.Context(), ReconcileRequest{Name: testServerGitHub, Namespace: DefaultNamespace})
+
+	require.NoError(t, result.Error, "DeregisterUpstream failure must not propagate")
+	require.False(t, result.Requeue)
+
+	server := updater.GetLastUpdatedMCPServer()
+	require.NotNil(t, server)
+	var suspendedCond bool
+	for _, c := range server.Status.Conditions {
+		if c.Type == musterv1alpha1.ConditionTypeSuspended {
+			suspendedCond = c.Status == metav1.ConditionTrue
+			break
+		}
+	}
+	require.True(t, suspendedCond, "Suspended condition must still flip True even when Deregister fails")
+}
+
+// TestReconcileResumeAfterSuspendDeleteError covers the recovery path: a
+// transient applier.Delete failure during the first suspend reconcile,
+// followed by a successful retry, followed by resume. The recorded
+// applier history exposes the retry: two Delete entries on the same
+// name, then a fresh Apply on resume.
+func TestReconcileResumeAfterSuspendDeleteError(t *testing.T) {
+	applier := &stubApplier{}
+	mgr := NewMockMCPServerManager()
+	info := &api.MCPServerInfo{
+		Name:      testServerGitHub,
+		Type:      testTypeStreamable,
+		URL:       testGithubURL,
+		AutoStart: true,
+	}
+	mgr.AddMCPServer(info)
+
+	updater := NewMockStatusUpdater()
+	agg := newStubAggregator()
+	withAggregator(t, agg)
+
+	r := newReconcilerForTest(applier, mgr, updater)
+	req := ReconcileRequest{Name: testServerGitHub, Namespace: DefaultNamespace}
+
+	require.NoError(t, r.Reconcile(t.Context(), req).Error)
+	require.Equal(t, []string{testServerGitHub}, applier.appliedNames())
+
+	suspended := true
+	info.Suspended = &suspended
+	applier.deleteErr = errors.New("etcd: leader changed")
+	result := r.Reconcile(t.Context(), req)
+	require.Error(t, result.Error)
+	require.True(t, result.Requeue)
+
+	applier.deleteErr = nil
+	require.NoError(t, r.Reconcile(t.Context(), req).Error, "retry after transient Delete failure must succeed")
+	require.Equal(t, []string{testServerGitHub, testServerGitHub}, applier.deleted)
+
+	resumed := false
+	info.Suspended = &resumed
+	require.NoError(t, r.Reconcile(t.Context(), req).Error)
+	require.Equal(t, []string{testServerGitHub, testServerGitHub}, applier.appliedNames(),
+		"resume re-emits config after a recovered suspend")
 }
 
 func TestReconcileMapsAuthRequiredFromAggregatorState(t *testing.T) {

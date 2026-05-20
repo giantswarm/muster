@@ -8,11 +8,11 @@ import (
 	"github.com/giantswarm/muster/internal/api"
 )
 
-// ServiceToolAdapter implements api.ServiceManagerHandler so the legacy
-// core_service_{list,status} MCP tools keep working against MCPServer
-// names. Both tools surface live aggregator dial state; lifecycle
-// operations (pause/resume, force-reconnect) moved to MCPServer.spec.suspended
-// and core_mcpserver_reconnect respectively. The remaining surface is
+// ServiceToolAdapter implements api.ServiceManagerHandler so the
+// core_service_{list,status} MCP tools surface live aggregator dial
+// state for MCPServer names. Lifecycle operations (pause/resume,
+// force-reconnect) live on MCPServer.spec.suspended and
+// core_mcpserver_reconnect respectively. The remaining surface is
 // slated for removal in Phase 8 when muster's /mcp goes away.
 type ServiceToolAdapter struct {
 	manager *AggregatorManager
@@ -46,6 +46,8 @@ func (a *ServiceToolAdapter) GetServiceStatus(name string) (*api.ServiceStatus, 
 }
 
 // GetAllServices returns a synthetic status for every known MCPServer CRD.
+// The list is purely MCPServer-derived; the service surface is a name-shim
+// over the MCPServer registry.
 func (a *ServiceToolAdapter) GetAllServices() []api.ServiceStatus {
 	if a.manager == nil {
 		return nil
@@ -63,7 +65,7 @@ func (a *ServiceToolAdapter) GetAllServices() []api.ServiceStatus {
 	return statuses
 }
 
-// GetTools advertises the surviving legacy core_service_* tools.
+// GetTools advertises the surviving core_service_* tools.
 func (a *ServiceToolAdapter) GetTools() []api.ToolMetadata {
 	return []api.ToolMetadata{
 		{
@@ -74,7 +76,7 @@ func (a *ServiceToolAdapter) GetTools() []api.ToolMetadata {
 			Name:        "service_status",
 			Description: "Report the upstream-proxy state of the named MCPServer (deprecated; use core_mcpserver_get)",
 			Args: []api.ArgMetadata{
-				{Name: "name", Type: "string", Required: true, Description: "MCPServer name"},
+				{Name: "name", Type: api.ArgTypeString, Required: true, Description: "MCPServer name"},
 			},
 		},
 	}
@@ -130,10 +132,10 @@ func errResult(msg string) *api.CallToolResult {
 // MCPServer CRD by that name exists; the second return value is the
 // status for everything else, including "registered but not yet dialed".
 //
-// The stdio vs remote state-name divergence (Running/Connected,
-// Stopped/Disconnected) is preserved so BDD scenarios and operator
-// dashboards keep matching the legacy convention even though every dial
-// goes through agentgateway over streamable-http internally.
+// State names diverge between stdio (Running/Stopped) and remote
+// (Connected/Disconnected) so BDD scenarios and operator dashboards can
+// tell the two transports apart even though every dial goes through
+// agentgateway over streamable-http internally.
 func mcpServerStatus(manager *AggregatorManager, name string) (*api.ServiceStatus, bool) {
 	mcpServerMgr := api.GetMCPServerManager()
 	if mcpServerMgr == nil {

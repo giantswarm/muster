@@ -145,8 +145,9 @@
 // ## Central API Pattern
 //
 // The aggregator follows the central API pattern for inter-package communication:
-//   - Receives service state events through api.OrchestratorAPI
-//   - Queries service information via api.ServiceRegistryHandler
+//   - Owns the MCPServer upstream-proxy registry directly; the reconciler drives
+//     it via api.GetAggregator().RegisterUpstream / DeregisterUpstream
+//   - Resolves MCPServer CRDs via api.GetMCPServerManager()
 //   - Publishes tool update events via api.PublishToolUpdateEvent
 //   - Integrates with workflow manager through api interfaces
 //
@@ -249,12 +250,10 @@
 //		MusterPrefix: "x",
 //	}
 //
-//	// Initialize dependencies through central API
-//	orchestratorAPI := api.GetOrchestrator()
-//	serviceRegistry := api.GetServiceRegistry()
-//
-//	// Create and start aggregator
-//	manager := NewAggregatorManager(config, orchestratorAPI, serviceRegistry)
+//	// Create and start aggregator. The aggregator pulls MCPServer
+//	// definitions through api.GetMCPServerManager() at registration time;
+//	// no orchestrator wiring is needed.
+//	manager := NewAggregatorManager(config)
 //	if err := manager.Start(ctx); err != nil {
 //		log.Fatal("Failed to start aggregator:", err)
 //	}

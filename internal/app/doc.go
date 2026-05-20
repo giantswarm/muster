@@ -187,10 +187,9 @@
 //
 // **Core Dependencies**:
 //   - `internal/config`: Environment configuration and entity persistence
-//   - `internal/orchestrator`: Service lifecycle management
 //   - `internal/api`: Central API layer and service locator
 //   - `internal/aggregator`: MCP tool aggregation service
-//   - `internal/services`: Service abstractions and registry
+//   - `internal/reconciler`: MCPServer / Workflow reconciliation
 //   - `pkg/logging`: Logging system initialization
 //
 // **Service Components**:

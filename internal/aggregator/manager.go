@@ -28,6 +28,10 @@ type AggregatorManager struct {
 	aggregatorServer *AggregatorServer
 	oauthManager     *oauth.Manager
 
+	// reconnectLocks serialises ReconnectUpstream by name so concurrent
+	// reconnects on the same MCPServer can't interleave Deregister/Register.
+	reconnectLocks sync.Map
+
 	ctx        context.Context
 	cancelFunc context.CancelFunc
 }
@@ -264,6 +268,24 @@ func (am *AggregatorManager) UpstreamServerState(name string) api.UpstreamServer
 		return api.UpstreamServerConnected
 	}
 	return api.UpstreamServerAbsent
+}
+
+// ReconnectUpstream atomically deregisters and re-registers an upstream
+// MCPServer under a per-name lock so concurrent reconnects on the same
+// name serialise and never interleave their Deregister/Register pair.
+func (am *AggregatorManager) ReconnectUpstream(ctx context.Context, name string) error {
+	if name == "" {
+		return fmt.Errorf("aggregator: ReconnectUpstream requires a server name")
+	}
+	lockAny, _ := am.reconnectLocks.LoadOrStore(name, &sync.Mutex{})
+	lock := lockAny.(*sync.Mutex)
+	lock.Lock()
+	defer lock.Unlock()
+
+	if err := am.DeregisterUpstream(ctx, name); err != nil {
+		return err
+	}
+	return am.RegisterUpstream(ctx, name)
 }
 
 // DeregisterUpstream removes a previously registered MCPServer and closes
