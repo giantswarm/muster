@@ -32,7 +32,6 @@ type AggregatorManager struct {
 	// reconnects on the same MCPServer can't interleave Deregister/Register.
 	reconnectLocks sync.Map
 
-
 	ctx        context.Context
 	cancelFunc context.CancelFunc
 }
