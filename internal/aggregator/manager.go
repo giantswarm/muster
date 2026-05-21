@@ -28,13 +28,6 @@ type AggregatorManager struct {
 	aggregatorServer *AggregatorServer
 	oauthManager     *oauth.Manager
 
-	// userStopped tracks MCPServers the operator explicitly stopped via
-	// core_service_stop. The reconciler's periodic RegisterUpstream
-	// becomes a no-op for these until core_service_start clears the
-	// entry.
-	userStoppedMu sync.Mutex
-	userStopped   map[string]struct{}
-
 	ctx        context.Context
 	cancelFunc context.CancelFunc
 }
@@ -44,8 +37,7 @@ type AggregatorManager struct {
 // be logged instead).
 func NewAggregatorManager(config AggregatorConfig, errorCallback func(err error)) *AggregatorManager {
 	manager := &AggregatorManager{
-		config:      config,
-		userStopped: make(map[string]struct{}),
+		config: config,
 	}
 
 	manager.aggregatorServer = NewAggregatorServer(config, errorCallback)
