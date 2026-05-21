@@ -35,7 +35,6 @@ type AggregatorManager struct {
 	userStoppedMu sync.Mutex
 	userStopped   map[string]struct{}
 
-
 	ctx        context.Context
 	cancelFunc context.CancelFunc
 }
