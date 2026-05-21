@@ -1,0 +1,24 @@
+# DO NOT EDIT. Generated with:
+#
+#    devctl
+#
+#    https://github.com/giantswarm/devctl/blob/6f591879b95d03922e2283781cd0ac9d796d5a71/pkg/gen/input/workflows/internal/file/release_please.yaml.template
+#
+name: Release Please
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+permissions: {}
+
+jobs:
+  release_please:
+    uses: giantswarm/github-workflows/.github/workflows/release.yaml@main
+    permissions:
+      contents: write
+      pull-requests: write
+    secrets:
+      TAYLORBOT_GITHUB_ACTION: ${{ secrets.TAYLORBOT_GITHUB_ACTION }}
