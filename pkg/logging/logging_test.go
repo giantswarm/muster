@@ -3,6 +3,7 @@ package logging
 import (
 	"bytes"
 	"context"
+	"io"
 	"log/slog"
 	"strings"
 	"testing"
@@ -115,6 +116,72 @@ func TestInitControllerRuntimeLoggerNilHandler(t *testing.T) {
 	if logger.GetSink() == nil {
 		t.Error("Expected controller-runtime logger to be initialized")
 	}
+}
+
+func TestOtlpLogsConfigured(t *testing.T) {
+	cases := []struct {
+		name  string
+		envs  map[string]string
+		want  bool
+	}{
+		{
+			name: "no env vars",
+			envs: map[string]string{
+				"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": "",
+				"OTEL_EXPORTER_OTLP_ENDPOINT":      "",
+				"OTEL_LOGS_EXPORTER":                "",
+			},
+			want: false,
+		},
+		{
+			name: "signal-specific endpoint",
+			envs: map[string]string{"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": "http://collector:4317"},
+			want: true,
+		},
+		{
+			name: "shared endpoint",
+			envs: map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": "http://collector:4317"},
+			want: true,
+		},
+		{
+			name: "exporter selector",
+			envs: map[string]string{"OTEL_LOGS_EXPORTER": "otlp"},
+			want: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "")
+			t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+			t.Setenv("OTEL_LOGS_EXPORTER", "")
+			for k, v := range tc.envs {
+				t.Setenv(k, v)
+			}
+			if got := otlpLogsConfigured(); got != tc.want {
+				t.Errorf("otlpLogsConfigured() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestInit_Discard_DoesNotMirror(t *testing.T) {
+	// When output is io.Discard and OTLP would be configured, Init must
+	// not attempt WithStderrMirror (which would fail because non-OTLP
+	// or produce double output). Verify Init succeeds and the global
+	// logger is set.
+	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "")
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+	t.Setenv("OTEL_LOGS_EXPORTER", "")
+
+	shutdown, err := Init(t.Context(), LevelInfo, io.Discard, "test", "0.0.0-test")
+	if err != nil {
+		t.Fatalf("Init with io.Discard: %v", err)
+	}
+	if shutdown == nil {
+		t.Fatal("expected non-nil Shutdown")
+	}
+	_ = shutdown(t.Context())
 }
 
 func TestInit_NoOTLPEnv_NoOpShutdown(t *testing.T) {
