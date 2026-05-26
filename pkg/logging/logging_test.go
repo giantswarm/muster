@@ -120,16 +120,16 @@ func TestInitControllerRuntimeLoggerNilHandler(t *testing.T) {
 
 func TestOtlpLogsConfigured(t *testing.T) {
 	cases := []struct {
-		name  string
-		envs  map[string]string
-		want  bool
+		name string
+		envs map[string]string
+		want bool
 	}{
 		{
 			name: "no env vars",
 			envs: map[string]string{
 				"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": "",
 				"OTEL_EXPORTER_OTLP_ENDPOINT":      "",
-				"OTEL_LOGS_EXPORTER":                "",
+				"OTEL_LOGS_EXPORTER":               "",
 			},
 			want: false,
 		},
