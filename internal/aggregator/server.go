@@ -38,6 +38,14 @@ import (
 	"golang.org/x/sync/singleflight"
 )
 
+// oauthServer is the subset of OAuthHTTPServer/LazyOAuthHTTPServer used by the aggregator.
+type oauthServer interface {
+	SetOnAuthenticated(fn func(context.Context, string))
+	ValidateTokenWithSubject(next http.Handler) http.Handler
+	CreateMux() http.Handler
+	Shutdown(ctx context.Context) error
+}
+
 // AggregatorServer implements a comprehensive MCP server that aggregates multiple backend MCP servers.
 //
 // The AggregatorServer is the core component responsible for:
@@ -78,8 +86,11 @@ type AggregatorServer struct {
 	// HTTP servers with socket options (when socket reuse is enabled)
 	httpServer []*http.Server
 
-	// OAuth HTTP server for protecting MCP endpoints (when OAuth server is enabled)
-	oauthHTTPServer *server.OAuthHTTPServer
+	// OAuth HTTP server for protecting MCP endpoints (when OAuth server is enabled).
+	// Holds a *server.LazyOAuthHTTPServer when the Dex provider was unavailable at
+	// startup; the concrete type only matters for Shutdown — all other calls go
+	// through the oauthServer interface.
+	oauthHTTPServer oauthServer
 
 	// Lifecycle management for coordinating startup and shutdown
 	ctx        context.Context    // Context for coordinating shutdown
@@ -1002,6 +1013,15 @@ func (a *AggregatorServer) Stop(ctx context.Context) error {
 		}
 	}
 
+	// Shutdown the OAuth server (stops rate limiters, Valkey connections, and
+	// any background OIDC discovery retry loop).
+	if a.oauthHTTPServer != nil {
+		if err := a.oauthHTTPServer.Shutdown(shutdownCtx); err != nil {
+			logging.WarnWithAttrs("Aggregator", "Error shutting down OAuth HTTP server",
+				slog.String("error", err.Error()))
+		}
+	}
+
 	// Note: Stdio server stops automatically on context cancellation, no explicit shutdown needed
 
 	// Wait for all background routines to complete
@@ -1426,9 +1446,17 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 		return nil, fmt.Errorf("invalid OAuth server config type: expected OAuthServerConfig")
 	}
 
-	oauthHTTPServer, err := server.NewOAuthHTTPServer(cfg, mcpHandler, a.config.Debug, a.ssoLifecycleOptions()...)
+	// Attempt eager construction first. If OIDC discovery fails (Dex unreachable),
+	// fall back to a lazy server that retries in the background so muster can start
+	// in degraded mode while Dex recovers. OAuth endpoints return 503 until ready;
+	// all other paths (MCP aggregation, reconcilers) are unaffected.
+	var oauthHTTPServer oauthServer
+	inner, err := server.NewOAuthHTTPServer(cfg, mcpHandler, a.config.Debug, a.ssoLifecycleOptions()...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create OAuth HTTP server: %w", err)
+		logging.Warn("Aggregator", "OIDC discovery failed at startup, starting in degraded mode (OAuth unavailable until Dex recovers): %v", err)
+		oauthHTTPServer = server.NewLazyOAuthHTTPServer(a.ctx, cfg, mcpHandler, a.config.Debug, a.ssoLifecycleOptions()...)
+	} else {
+		oauthHTTPServer = inner
 	}
 
 	// Store the OAuth HTTP server for cleanup during shutdown
