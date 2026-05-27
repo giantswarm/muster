@@ -124,12 +124,6 @@ func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger) 
 		opts = append(opts, oauthserver.WithTrustedProxyCIDRs(cidrs))
 	}
 
-	dpopCache, err := newDPoPReplayCache(cfg.Storage)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create DPoP replay cache: %w", err)
-	}
-	opts = append(opts, oauthserver.WithDPoPReplayCache(dpopCache))
-
 	return opts, nil
 }
 
@@ -145,9 +139,10 @@ func parseCIDRs(cidrs []string) ([]*net.IPNet, error) {
 	return result, nil
 }
 
-// newDPoPReplayCache returns a Valkey-backed DPoP replay cache when Valkey storage is
-// configured, falling back to an in-memory cache for single-process deployments.
-func newDPoPReplayCache(storageCfg config.OAuthStorageConfig) (oauthserver.DPoPReplayCache, error) {
+// newDPoPReplayCache returns a DPoP replay cache and, when Valkey storage is
+// configured, the underlying valkeygo.Client. The caller must call Close() on
+// the returned client (if non-nil) when the cache is no longer needed.
+func newDPoPReplayCache(storageCfg config.OAuthStorageConfig) (oauthserver.DPoPReplayCache, valkeygo.Client, error) {
 	if storageCfg.Type == storage.BackendValkey && storageCfg.Valkey.URL != "" {
 		clientOpts := valkeygo.ClientOption{
 			InitAddress: []string{storageCfg.Valkey.URL},
@@ -161,15 +156,15 @@ func newDPoPReplayCache(storageCfg config.OAuthStorageConfig) (oauthserver.DPoPR
 		}
 		client, err := valkeygo.NewClient(clientOpts)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create Valkey client for DPoP replay cache: %w", err)
+			return nil, nil, fmt.Errorf("failed to create Valkey client for DPoP replay cache: %w", err)
 		}
 		prefix := storageCfg.Valkey.KeyPrefix
 		if prefix == "" {
 			prefix = "muster:"
 		}
-		return dpopvalkey.New(client, prefix+"dpop:"), nil
+		return dpopvalkey.New(client, prefix+"dpop:"), client, nil
 	}
-	return oauthserver.NewMemoryDPoPReplayCache(), nil
+	return oauthserver.NewMemoryDPoPReplayCache(), nil, nil
 }
 
 // logEnabledOAuthOptions emits operator-facing Info lines confirming which

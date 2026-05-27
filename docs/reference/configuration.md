@@ -132,6 +132,7 @@ estimate.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `enableJWTMode` | `bool` | `false` | Issue RFC 9068 signed JWTs as access tokens. Required when downstream services (e.g. agentgateway) validate tokens locally without calling the introspection endpoint. |
+| `resourceIdentifier` | `string` | `""` | RFC 8707 canonical URI for this muster instance as a resource server. Access tokens carry this value in their `aud` claim; tokens bound to a different resource are rejected, preventing replay across resource servers sharing the same IdP. Defaults to `baseUrl` when empty. |
 
 #### DPoP and Trusted Proxies
 

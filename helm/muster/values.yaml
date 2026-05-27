@@ -460,6 +460,13 @@ muster:
       # Default: false
       enableJWTMode: false
 
+      # Canonical URI identifying this muster instance as an RFC 8707 resource server.
+      # When set, access tokens carry this value in their aud claim and tokens bound
+      # to a different resource are rejected, preventing replay across resource servers
+      # sharing the same IdP. If empty, defaults to baseUrl.
+      # Example: "https://muster.example.com/mcp"
+      resourceIdentifier: ""
+
   # OpenTelemetry observability configuration.
   #
   # When endpoint is empty (the default), muster does not export any

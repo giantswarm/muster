@@ -93,6 +93,9 @@ data:
           {{- if .Values.muster.oauth.server.enableJWTMode }}
           enableJWTMode: true
           {{- end }}
+          {{- with .Values.muster.oauth.server.resourceIdentifier }}
+          resourceIdentifier: {{ . | quote }}
+          {{- end }}
         {{- end }}
     namespace: {{ include "muster.namespace" . | quote }}
     kubernetes: true

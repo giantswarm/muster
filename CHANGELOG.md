@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
-- Bump `giantswarm/mcp-oauth` to `v0.2.151`. Wires DPoP proof validation, Kubernetes ServiceAccount trust (JWKS from the cluster's OIDC discovery endpoint), trusted-issuer allowlists, proxy CIDR ranges, JWT-mode (stateless token validation without session storage), OIDC userinfo endpoint, PII-redacted audit logging, and CIMD metadata-fetch rate limiting into the OAuth server config. Replaces local `DecodeEncryptionKey` with `security.DecodeKey` from the library. New Helm values under `auth.dpop`, `auth.kubernetes`, `auth.trustedIssuers`, `auth.proxyCIDRs`, `auth.jwtMode`, and `auth.resourceIdentifier`; all documented in `docs/reference/configuration.md`.
+- Bump `giantswarm/mcp-oauth` to `v0.2.151`. New Helm values `muster.oauth.server.{kubernetesSATrusts,trustedIssuers,trustedProxyCIDRs,enableJWTMode,resourceIdentifier}` wire Kubernetes ServiceAccount token exchange (RFC 8693), trusted external OIDC issuers, DPoP trusted-proxy CIDRs, RFC 9068 JWT access tokens, and RFC 8707 resource-server audience binding. Also enables the OIDC userinfo endpoint, PII-redacted audit logging, and CIMD metadata-fetch rate limiting. Replaces local `DecodeEncryptionKey` with `security.DecodeKey` from the library.
 
 ### Added
 

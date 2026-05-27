@@ -67,9 +67,10 @@ func TestNewDPoPReplayCache_MemoryFallback(t *testing.T) {
 	storageCfg := config.OAuthStorageConfig{
 		Type: "memory",
 	}
-	cache, err := newDPoPReplayCache(storageCfg)
+	cache, client, err := newDPoPReplayCache(storageCfg)
 	require.NoError(t, err)
 	require.NotNil(t, cache)
+	require.Nil(t, client)
 }
 
 func TestBuildOAuthServerOptions_NoErrorWhenFieldsSet(t *testing.T) {
