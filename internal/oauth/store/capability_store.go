@@ -18,7 +18,8 @@ type Capabilities struct {
 	Prompts   []mcp.Prompt
 }
 
-// DeepCopy returns a shallow copy of each slice (elements are value types).
+// DeepCopy returns a new Capabilities with independent slice backing arrays.
+// Element structs (Tool/Resource/Prompt) are copied by value.
 func (c *Capabilities) DeepCopy() *Capabilities {
 	if c == nil {
 		return nil
@@ -33,14 +34,24 @@ func (c *Capabilities) DeepCopy() *Capabilities {
 // CapabilityStore stores per-session, per-server MCP capabilities.
 // Implementations must be safe for concurrent use.
 type CapabilityStore interface {
+	// Get returns the capabilities for a session+server pair.
+	// Returns nil, nil on cache miss.
 	Get(ctx context.Context, sessionID, serverName string) (*Capabilities, error)
+	// GetAll returns all capabilities for a session, keyed by server name.
 	GetAll(ctx context.Context, sessionID string) (map[string]*Capabilities, error)
+	// Set stores capabilities for a session+server pair and resets the session TTL.
 	Set(ctx context.Context, sessionID, serverName string, caps *Capabilities) error
+	// Delete removes all capabilities for a session (full logout).
 	Delete(ctx context.Context, sessionID string) error
+	// DeleteEntry removes capabilities for a single session+server pair (per-server logout).
 	DeleteEntry(ctx context.Context, sessionID, serverName string) error
+	// DeleteServer removes capabilities for a server across all sessions (deregistration).
 	DeleteServer(ctx context.Context, serverName string) error
+	// Exists reports whether capabilities exist for a session+server pair.
 	Exists(ctx context.Context, sessionID, serverName string) (bool, error)
+	// Touch resets the session TTL. Returns true if the session existed and was touched.
 	Touch(ctx context.Context, sessionID string) (bool, error)
+	// ListSessions returns current sessionIDs; expired sessions are excluded.
 	ListSessions(ctx context.Context) ([]string, error)
 }
 

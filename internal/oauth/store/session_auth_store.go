@@ -7,13 +7,20 @@ import (
 )
 
 // SessionAuthStore tracks per-session, per-server authentication state.
+// It answers: "may this session call tools on this server?"
 // Implementations must be safe for concurrent use.
 type SessionAuthStore interface {
+	// IsAuthenticated reports whether the session has authenticated to the server.
 	IsAuthenticated(ctx context.Context, sessionID, serverName string) (bool, error)
+	// MarkAuthenticated records successful authentication and resets the session TTL.
 	MarkAuthenticated(ctx context.Context, sessionID, serverName string) error
+	// Revoke removes auth state for a single session+server pair (per-server logout).
 	Revoke(ctx context.Context, sessionID, serverName string) error
+	// RevokeSession removes all auth state for a session (full logout / token revocation).
 	RevokeSession(ctx context.Context, sessionID string) error
+	// RevokeServer removes auth state for a server across all sessions (deregistration).
 	RevokeServer(ctx context.Context, serverName string) error
+	// Touch extends the session TTL. Returns true if the session existed and was touched.
 	Touch(ctx context.Context, sessionID string) (bool, error)
 }
 
