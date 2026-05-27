@@ -74,6 +74,8 @@ func TestNewDPoPReplayCache_MemoryFallback(t *testing.T) {
 }
 
 func TestBuildOAuthServerOptions_NoErrorWhenFieldsSet(t *testing.T) {
+	t.Parallel()
+
 	cfg := config.OAuthServerConfig{
 		BaseURL: "https://muster.example.com",
 		KubernetesSATrusts: []config.K8sSATrustConfig{
@@ -86,11 +88,12 @@ func TestBuildOAuthServerOptions_NoErrorWhenFieldsSet(t *testing.T) {
 	}
 	opts, err := buildOAuthServerOptions(cfg, nil)
 	require.NoError(t, err)
-	// DPoP cache option + encryptor-absent + 6 base options + 3 new = at least 7 options.
 	require.NotEmpty(t, opts)
 }
 
 func TestBuildOAuthServerOptions_NoErrorWhenFieldsAbsent(t *testing.T) {
+	t.Parallel()
+
 	cfg := config.OAuthServerConfig{
 		BaseURL: "https://muster.example.com",
 	}
@@ -100,6 +103,8 @@ func TestBuildOAuthServerOptions_NoErrorWhenFieldsAbsent(t *testing.T) {
 }
 
 func TestBuildOAuthServerOptions_InvalidCIDRReturnsError(t *testing.T) {
+	t.Parallel()
+
 	cfg := config.OAuthServerConfig{
 		BaseURL:           "https://muster.example.com",
 		TrustedProxyCIDRs: []string{"not-a-cidr"},

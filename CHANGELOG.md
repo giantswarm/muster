@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
-- Bump `giantswarm/mcp-oauth` to `v0.2.151`. New Helm values `muster.oauth.server.{kubernetesSATrusts,trustedIssuers,trustedProxyCIDRs,enableJWTMode,resourceIdentifier}` wire Kubernetes ServiceAccount token exchange (RFC 8693), trusted external OIDC issuers, DPoP trusted-proxy CIDRs, RFC 9068 JWT access tokens, and RFC 8707 resource-server audience binding. Also enables the OIDC userinfo endpoint, PII-redacted audit logging, and CIMD metadata-fetch rate limiting. Replaces local `DecodeEncryptionKey` with `security.DecodeKey` from the library.
+- Bump `giantswarm/mcp-oauth` to `v0.2.151`. New Helm values `muster.oauth.server.{kubernetesSATrusts,trustedIssuers,trustedProxyCIDRs,enableJWTMode,resourceIdentifier}` wire Kubernetes ServiceAccount token exchange (RFC 8693), trusted external OIDC issuers, DPoP trusted-proxy CIDRs, RFC 9068 JWT access tokens, and RFC 8707 resource-server audience binding. Also enables the OIDC userinfo endpoint, PII-redacted audit logging, and CIMD metadata-fetch rate limiting.
 
 ### Added
 
