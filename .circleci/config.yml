@@ -120,6 +120,9 @@ workflows:
           app_catalog: giantswarm-catalog
           app_catalog_test: giantswarm-test-catalog
           chart: muster-crds
+          # chart name differs from the repo (muster) — required by the orb's
+          # chart-name check to publish a second chart from this repo.
+          explicit_allow_chart_name_mismatch: true
           push_to_appcatalog: false
           push_to_oci_registry: false
           persist_chart_archive: true
@@ -151,6 +154,7 @@ workflows:
           app_catalog: giantswarm-catalog
           app_catalog_test: giantswarm-test-catalog
           chart: muster-crds
+          explicit_allow_chart_name_mismatch: true
           requires:
             - execute muster-crds chart tests
             - push-to-registries
@@ -168,6 +172,7 @@ workflows:
           app_catalog: giantswarm-catalog
           app_catalog_test: giantswarm-test-catalog
           chart: muster-crds
+          explicit_allow_chart_name_mismatch: true
           requires:
             - execute muster-crds chart tests
             - push-to-registries
