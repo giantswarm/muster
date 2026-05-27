@@ -4,9 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-### Fixed
+### Changed
 
-- Fatal boot errors (e.g. OIDC-discovery timeout) now surface in `kubectl logs` even when the OTLP exporter is configured but unreachable. `pkg/logging.Init` adds a direct `slog.JSONHandler` on `os.Stderr` alongside the OTLP handler when OTLP logs are configured and output is not `io.Discard`, so error records are written to the file descriptor before the BatchProcessor attempts (and potentially fails) to flush.
+- Bump `giantswarm/mcp-oauth` to `v0.2.150`. Wires DPoP proof validation, Kubernetes ServiceAccount trust (JWKS from the cluster's OIDC discovery endpoint), trusted-issuer allowlists, proxy CIDR ranges, and JWT-mode (stateless token validation without session storage) into the OAuth server config. New Helm values under `auth.dpop`, `auth.kubernetes`, `auth.trustedIssuers`, `auth.proxyCIDRs`, and `auth.jwtMode`; all documented in `docs/reference/configuration.md`.
 
 ### Added
 

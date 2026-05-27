@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"os"
 	"strings"
 
 	mcptoolkitlogging "github.com/giantswarm/mcp-toolkit/logging"
@@ -87,15 +86,6 @@ func InitForCLI(filterLevel LogLevel, output io.Writer) {
 	initControllerRuntimeLogger(logger.Handler())
 }
 
-// otlpLogsConfigured reports whether any standard OTel env var that
-// enables the OTLP logs pipeline is set. Mirrors the check performed by
-// mcp-toolkit/internal/otel.Configured("logs").
-func otlpLogsConfigured() bool {
-	return os.Getenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT") != "" ||
-		os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != "" ||
-		os.Getenv("OTEL_LOGS_EXPORTER") != ""
-}
-
 // Init initialises the logging system in OpenTelemetry-aware mode and
 // returns a Shutdown that drains the LoggerProvider on graceful exit.
 //
@@ -107,29 +97,18 @@ func otlpLogsConfigured() bool {
 // inside a Kubernetes pod (KUBERNETES_SERVICE_HOST set), text
 // otherwise — and Shutdown is a no-op closure.
 //
-// When OTLP is active and output is not io.Discard, a direct
-// slog.JSONHandler on os.Stderr is installed alongside the OTLP handler
-// (via WithStderrMirror). This ensures that fatal boot errors — such as
-// an OIDC-discovery timeout that makes the OTLP endpoint unreachable —
-// still surface in kubectl logs regardless of whether the BatchProcessor
-// can flush before the process exits.
-//
 // serviceName and serviceVersion become semconv.ServiceName /
 // semconv.ServiceVersion on the OTel LoggerProvider's Resource;
 // standard env overrides (OTEL_SERVICE_NAME, OTEL_RESOURCE_ATTRIBUTES)
 // take precedence.
 func Init(ctx context.Context, filterLevel LogLevel, output io.Writer, serviceName, serviceVersion string) (Shutdown, error) {
-	opts := []mcptoolkitlogging.Option{
+	logger, shutdown, err := mcptoolkitlogging.Init(ctx,
 		mcptoolkitlogging.WithLevel(filterLevel.SlogLevel()),
 		mcptoolkitlogging.WithOutput(output),
 		mcptoolkitlogging.WithLoggerName("github.com/giantswarm/muster"),
 		mcptoolkitlogging.WithServiceName(serviceName),
 		mcptoolkitlogging.WithServiceVersion(serviceVersion),
-	}
-	if otlpLogsConfigured() && output != io.Discard {
-		opts = append(opts, mcptoolkitlogging.WithStderrMirror())
-	}
-	logger, shutdown, err := mcptoolkitlogging.Init(ctx, opts...)
+	)
 	if err != nil {
 		return nil, fmt.Errorf("init toolkit logging: %w", err)
 	}
