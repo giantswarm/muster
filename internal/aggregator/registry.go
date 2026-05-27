@@ -1128,7 +1128,7 @@ func (r *ServerRegistry) RegisterPendingAuth(registration PendingAuthRegistratio
 // ServerInfo.Tools (same as GetAllTools). Family grouping is applied to the
 // resulting union so a user who is authenticated against multiple instances
 // of the same family sees a single deduplicated tool with the "server" enum.
-func (r *ServerRegistry) GetAllToolsForSession(ctx context.Context, store CapabilityStore, sessionID string) []mcp.Tool {
+func (r *ServerRegistry) GetAllToolsForSession(ctx context.Context, store api.CapabilityStore, sessionID string) []mcp.Tool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -1172,7 +1172,7 @@ func (r *ServerRegistry) GetAllToolsForSession(ctx context.Context, store Capabi
 //
 // For OAuth servers, resources are read from the CapabilityStore.
 // For non-OAuth servers, resources are read from ServerInfo.Resources.
-func (r *ServerRegistry) GetAllResourcesForSession(ctx context.Context, store CapabilityStore, sessionID string) []mcp.Resource {
+func (r *ServerRegistry) GetAllResourcesForSession(ctx context.Context, store api.CapabilityStore, sessionID string) []mcp.Resource {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -1215,7 +1215,7 @@ func (r *ServerRegistry) GetAllResourcesForSession(ctx context.Context, store Ca
 //
 // For OAuth servers, prompts are read from the CapabilityStore.
 // For non-OAuth servers, prompts are read from ServerInfo.Prompts.
-func (r *ServerRegistry) GetAllPromptsForSession(ctx context.Context, store CapabilityStore, sessionID string) []mcp.Prompt {
+func (r *ServerRegistry) GetAllPromptsForSession(ctx context.Context, store api.CapabilityStore, sessionID string) []mcp.Prompt {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 

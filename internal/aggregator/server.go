@@ -108,11 +108,11 @@ type AggregatorServer struct {
 	// accidentally revoke authentication (see capability freshness plan).
 	// Always non-nil after NewAggregatorServer; nil checks in methods exist only
 	// for test code that constructs partial AggregatorServer instances.
-	authStore SessionAuthStore
+	authStore api.SessionAuthStore
 
 	// Per-session capability store for OAuth servers (on-demand population).
 	// Always non-nil after NewAggregatorServer.
-	capabilityStore CapabilityStore
+	capabilityStore api.CapabilityStore
 
 	// Per-session connection pool for reusing live MCP clients across tool calls.
 	// Always non-nil after NewAggregatorServer.
@@ -508,8 +508,8 @@ func NewAggregatorServer(aggConfig AggregatorConfig, errorCallback func(error)) 
 
 // storeBundle groups the results of createStores for readability.
 type storeBundle struct {
-	authStore       SessionAuthStore
-	capabilityStore CapabilityStore
+	authStore       api.SessionAuthStore
+	capabilityStore api.CapabilityStore
 	valkeyClient    valkey.Client
 	keyPrefix       string
 	encryptor       *security.Encryptor
@@ -532,8 +532,8 @@ func createStores(cfg AggregatorConfig) storeBundle {
 			logging.WarnWithAttrs("Aggregator", "Failed to create Valkey client for session stores, falling back to in-memory",
 				slog.String("error", err.Error()))
 			return storeBundle{
-				authStore:       NewInMemorySessionAuthStore(DefaultCapabilityStoreTTL),
-				capabilityStore: NewInMemoryCapabilityStore(DefaultCapabilityStoreTTL),
+				authStore:       musteroauth.NewInMemorySessionAuthStore(api.DefaultCapabilityStoreTTL),
+				capabilityStore: musteroauth.NewInMemoryCapabilityStore(api.DefaultCapabilityStoreTTL),
 				keyPrefix:       keyPrefix,
 			}
 		}
@@ -543,8 +543,8 @@ func createStores(cfg AggregatorConfig) storeBundle {
 		logging.InfoWithAttrs("Aggregator", "Using Valkey-backed session auth and capability stores",
 			slog.String("address", mcptoolkitlogging.RedactHost(oauthCfg.Storage.Valkey.URL)))
 		return storeBundle{
-			authStore:       NewValkeySessionAuthStore(client, DefaultCapabilityStoreTTL, keyPrefix),
-			capabilityStore: NewValkeyCapabilityStore(client, DefaultCapabilityStoreTTL, keyPrefix),
+			authStore:       musteroauth.NewValkeySessionAuthStore(client, api.DefaultCapabilityStoreTTL, keyPrefix),
+			capabilityStore: musteroauth.NewValkeyCapabilityStore(client, api.DefaultCapabilityStoreTTL, keyPrefix),
 			valkeyClient:    client,
 			keyPrefix:       keyPrefix,
 			encryptor:       enc,
@@ -553,8 +553,8 @@ func createStores(cfg AggregatorConfig) storeBundle {
 
 	logging.Info("Aggregator", "Using in-memory session auth and capability stores")
 	return storeBundle{
-		authStore:       NewInMemorySessionAuthStore(DefaultCapabilityStoreTTL),
-		capabilityStore: NewInMemoryCapabilityStore(DefaultCapabilityStoreTTL),
+		authStore:       musteroauth.NewInMemorySessionAuthStore(api.DefaultCapabilityStoreTTL),
+		capabilityStore: musteroauth.NewInMemoryCapabilityStore(api.DefaultCapabilityStoreTTL),
 		keyPrefix:       config.DefaultValkeyKeyPrefix,
 	}
 }
@@ -1043,13 +1043,14 @@ func (a *AggregatorServer) Stop(ctx context.Context) error {
 	}
 
 	// Stop auth store (cleans up timers for in-memory impl).
-	if store, ok := a.authStore.(*InMemorySessionAuthStore); ok {
-		store.Stop()
+	type stopper interface{ Stop() }
+	if s, ok := a.authStore.(stopper); ok {
+		s.Stop()
 	}
 
 	// Stop capability store (cleans up timers for in-memory impl).
-	if store, ok := a.capabilityStore.(*InMemoryCapabilityStore); ok {
-		store.Stop()
+	if s, ok := a.capabilityStore.(stopper); ok {
+		s.Stop()
 	}
 
 	// Close shared Valkey client (if Valkey-backed stores were used).

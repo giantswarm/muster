@@ -158,7 +158,7 @@ func establishConnection(
 
 	// Populate the CapabilityStore keyed by session ID for per-login isolation
 	if a.capabilityStore != nil {
-		if err := a.capabilityStore.Set(ctx, sessionID, serverName, &Capabilities{
+		if err := a.capabilityStore.Set(ctx, sessionID, serverName, &api.Capabilities{
 			Tools: tools, Resources: resources, Prompts: prompts,
 		}); err != nil {
 			logging.Warn("Connection", "Failed to store capabilities for %s/%s: %v",
@@ -391,7 +391,7 @@ func EstablishConnectionWithTokenForwarding(
 
 	// Populate the CapabilityStore keyed by session ID for per-login isolation
 	if a.capabilityStore != nil {
-		if err := a.capabilityStore.Set(ctx, sessionID, serverInfo.Name, &Capabilities{
+		if err := a.capabilityStore.Set(ctx, sessionID, serverInfo.Name, &api.Capabilities{
 			Tools: tools, Resources: resources, Prompts: prompts,
 		}); err != nil {
 			logging.Warn("Connection", "Failed to store capabilities for %s/%s: %v",
@@ -700,7 +700,7 @@ func EstablishConnectionWithTokenExchange(
 
 	// Populate the CapabilityStore keyed by session ID for per-login isolation
 	if a.capabilityStore != nil {
-		if storeErr := a.capabilityStore.Set(ctx, sessionID, serverInfo.Name, &Capabilities{
+		if storeErr := a.capabilityStore.Set(ctx, sessionID, serverInfo.Name, &api.Capabilities{
 			Tools: tools, Resources: resources, Prompts: prompts,
 		}); storeErr != nil {
 			logging.Warn("Connection", "Failed to store capabilities for %s/%s: %v",

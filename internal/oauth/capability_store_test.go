@@ -1,4 +1,4 @@
-package aggregator
+package oauth
 
 import (
 	"context"
@@ -9,6 +9,8 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/giantswarm/muster/internal/api"
 )
 
 func TestInMemoryCapabilityStore_GetSetRoundTrip(t *testing.T) {
@@ -16,7 +18,7 @@ func TestInMemoryCapabilityStore_GetSetRoundTrip(t *testing.T) {
 	defer store.Stop()
 	ctx := context.Background()
 
-	caps := &Capabilities{
+	caps := &api.Capabilities{
 		Tools:     []mcp.Tool{{Name: "tool1"}},
 		Resources: []mcp.Resource{{Name: "res1"}},
 		Prompts:   []mcp.Prompt{{Name: "prompt1"}},
@@ -48,8 +50,8 @@ func TestInMemoryCapabilityStore_SetOverwritesPrevious(t *testing.T) {
 	defer store.Stop()
 	ctx := context.Background()
 
-	_ = store.Set(ctx, "session1", "server1", &Capabilities{Tools: []mcp.Tool{{Name: "old"}}})
-	_ = store.Set(ctx, "session1", "server1", &Capabilities{Tools: []mcp.Tool{{Name: "new"}}})
+	_ = store.Set(ctx, "session1", "server1", &api.Capabilities{Tools: []mcp.Tool{{Name: "old"}}})
+	_ = store.Set(ctx, "session1", "server1", &api.Capabilities{Tools: []mcp.Tool{{Name: "new"}}})
 
 	got, err := store.Get(ctx, "session1", "server1")
 	require.NoError(t, err)
@@ -64,7 +66,7 @@ func TestInMemoryCapabilityStore_TTLExpiry(t *testing.T) {
 	defer store.Stop()
 	ctx := context.Background()
 
-	_ = store.Set(ctx, "session1", "server1", &Capabilities{Tools: []mcp.Tool{{Name: "t1"}}})
+	_ = store.Set(ctx, "session1", "server1", &api.Capabilities{Tools: []mcp.Tool{{Name: "t1"}}})
 
 	// Fresh entry
 	got, err := store.Get(ctx, "session1", "server1")
@@ -84,11 +86,11 @@ func TestInMemoryCapabilityStore_TTLResetOnSet(t *testing.T) {
 	defer store.Stop()
 	ctx := context.Background()
 
-	_ = store.Set(ctx, "session1", "server1", &Capabilities{Tools: []mcp.Tool{{Name: "t1"}}})
+	_ = store.Set(ctx, "session1", "server1", &api.Capabilities{Tools: []mcp.Tool{{Name: "t1"}}})
 
 	// Wait 70% of TTL, then set another server for the same session (resets TTL)
 	time.Sleep(70 * time.Millisecond)
-	_ = store.Set(ctx, "session1", "server2", &Capabilities{Tools: []mcp.Tool{{Name: "t2"}}})
+	_ = store.Set(ctx, "session1", "server2", &api.Capabilities{Tools: []mcp.Tool{{Name: "t2"}}})
 
 	// Wait another 70% of original TTL - session should still be alive because
 	// the second Set reset the TTL
@@ -103,9 +105,9 @@ func TestInMemoryCapabilityStore_Delete(t *testing.T) {
 	defer store.Stop()
 	ctx := context.Background()
 
-	_ = store.Set(ctx, "session-A", "server1", &Capabilities{Tools: []mcp.Tool{{Name: "t1"}}})
-	_ = store.Set(ctx, "session-A", "server2", &Capabilities{Tools: []mcp.Tool{{Name: "t2"}}})
-	_ = store.Set(ctx, "session-B", "server1", &Capabilities{Tools: []mcp.Tool{{Name: "t3"}}})
+	_ = store.Set(ctx, "session-A", "server1", &api.Capabilities{Tools: []mcp.Tool{{Name: "t1"}}})
+	_ = store.Set(ctx, "session-A", "server2", &api.Capabilities{Tools: []mcp.Tool{{Name: "t2"}}})
+	_ = store.Set(ctx, "session-B", "server1", &api.Capabilities{Tools: []mcp.Tool{{Name: "t3"}}})
 
 	err := store.Delete(ctx, "session-A")
 	require.NoError(t, err)
@@ -126,8 +128,8 @@ func TestInMemoryCapabilityStore_DeleteEntry(t *testing.T) {
 	defer store.Stop()
 	ctx := context.Background()
 
-	_ = store.Set(ctx, "session-A", "server1", &Capabilities{Tools: []mcp.Tool{{Name: "t1"}}})
-	_ = store.Set(ctx, "session-A", "server2", &Capabilities{Tools: []mcp.Tool{{Name: "t2"}}})
+	_ = store.Set(ctx, "session-A", "server1", &api.Capabilities{Tools: []mcp.Tool{{Name: "t1"}}})
+	_ = store.Set(ctx, "session-A", "server2", &api.Capabilities{Tools: []mcp.Tool{{Name: "t2"}}})
 
 	err := store.DeleteEntry(ctx, "session-A", "server1")
 	require.NoError(t, err)
@@ -144,9 +146,9 @@ func TestInMemoryCapabilityStore_DeleteServer(t *testing.T) {
 	defer store.Stop()
 	ctx := context.Background()
 
-	_ = store.Set(ctx, "session-A", "server1", &Capabilities{Tools: []mcp.Tool{{Name: "t1"}}})
-	_ = store.Set(ctx, "session-B", "server1", &Capabilities{Tools: []mcp.Tool{{Name: "t2"}}})
-	_ = store.Set(ctx, "session-A", "server2", &Capabilities{Tools: []mcp.Tool{{Name: "t3"}}})
+	_ = store.Set(ctx, "session-A", "server1", &api.Capabilities{Tools: []mcp.Tool{{Name: "t1"}}})
+	_ = store.Set(ctx, "session-B", "server1", &api.Capabilities{Tools: []mcp.Tool{{Name: "t2"}}})
+	_ = store.Set(ctx, "session-A", "server2", &api.Capabilities{Tools: []mcp.Tool{{Name: "t3"}}})
 
 	err := store.DeleteServer(ctx, "server1")
 	require.NoError(t, err)
@@ -171,7 +173,7 @@ func TestInMemoryCapabilityStore_Exists(t *testing.T) {
 	assert.NoError(t, err)
 	assert.False(t, exists)
 
-	_ = store.Set(ctx, "session-A", "server1", &Capabilities{})
+	_ = store.Set(ctx, "session-A", "server1", &api.Capabilities{})
 
 	exists, err = store.Exists(ctx, "session-A", "server1")
 	assert.NoError(t, err)
@@ -187,9 +189,9 @@ func TestInMemoryCapabilityStore_ListSessions(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, empty)
 
-	require.NoError(t, store.Set(ctx, "s1", "svr1", &Capabilities{}))
-	require.NoError(t, store.Set(ctx, "s2", "svr1", &Capabilities{}))
-	require.NoError(t, store.Set(ctx, "s2", "svr2", &Capabilities{}))
+	require.NoError(t, store.Set(ctx, "s1", "svr1", &api.Capabilities{}))
+	require.NoError(t, store.Set(ctx, "s2", "svr1", &api.Capabilities{}))
+	require.NoError(t, store.Set(ctx, "s2", "svr2", &api.Capabilities{}))
 
 	got, err := store.ListSessions(ctx)
 	require.NoError(t, err)
@@ -202,11 +204,11 @@ func TestInMemoryCapabilityStore_ListSessions_skipsExpired(t *testing.T) {
 	defer store.Stop()
 	ctx := context.Background()
 
-	require.NoError(t, store.Set(ctx, "fresh", "svr", &Capabilities{}))
+	require.NoError(t, store.Set(ctx, "fresh", "svr", &api.Capabilities{}))
 	// Force an expired entry by rewinding its expireAt.
 	store.mu.Lock()
 	store.sessions["stale"] = &inMemorySession{
-		servers:  map[string]*Capabilities{"svr": {}},
+		servers:  map[string]*api.Capabilities{"svr": {}},
 		expireAt: time.Now().Add(-time.Minute),
 	}
 	store.mu.Unlock()
@@ -222,8 +224,8 @@ func TestInMemoryCapabilityStore_GetAll(t *testing.T) {
 	defer store.Stop()
 	ctx := context.Background()
 
-	_ = store.Set(ctx, "session-A", "server1", &Capabilities{Tools: []mcp.Tool{{Name: "t1"}}})
-	_ = store.Set(ctx, "session-A", "server2", &Capabilities{Tools: []mcp.Tool{{Name: "t2"}}})
+	_ = store.Set(ctx, "session-A", "server1", &api.Capabilities{Tools: []mcp.Tool{{Name: "t1"}}})
+	_ = store.Set(ctx, "session-A", "server2", &api.Capabilities{Tools: []mcp.Tool{{Name: "t2"}}})
 
 	all, err := store.GetAll(ctx, "session-A")
 	require.NoError(t, err)
@@ -255,7 +257,7 @@ func TestInMemoryCapabilityStore_ConcurrentAccess(t *testing.T) {
 				sessionID = "session-B"
 				server = "server2"
 			}
-			_ = store.Set(ctx, sessionID, server, &Capabilities{Tools: []mcp.Tool{{Name: "tool"}}})
+			_ = store.Set(ctx, sessionID, server, &api.Capabilities{Tools: []mcp.Tool{{Name: "tool"}}})
 		}(i)
 	}
 
@@ -285,8 +287,8 @@ func TestInMemoryCapabilityStore_StopCleansTimers(t *testing.T) {
 	store := NewInMemoryCapabilityStore(50 * time.Millisecond)
 	ctx := context.Background()
 
-	_ = store.Set(ctx, "s1", "srv1", &Capabilities{})
-	_ = store.Set(ctx, "s2", "srv2", &Capabilities{})
+	_ = store.Set(ctx, "s1", "srv1", &api.Capabilities{})
+	_ = store.Set(ctx, "s2", "srv2", &api.Capabilities{})
 
 	// Stop should clean up promptly.
 	done := make(chan struct{})
@@ -310,7 +312,7 @@ func TestInMemoryCapabilityStore_NewServerPopulatesAfterExpiry(t *testing.T) {
 	ctx := context.Background()
 
 	// Set initial capabilities
-	_ = store.Set(ctx, "session1", "server1", &Capabilities{Tools: []mcp.Tool{{Name: "t1"}}})
+	_ = store.Set(ctx, "session1", "server1", &api.Capabilities{Tools: []mcp.Tool{{Name: "t1"}}})
 
 	// Wait past TTL
 	require.Eventually(t, func() bool {
@@ -319,7 +321,7 @@ func TestInMemoryCapabilityStore_NewServerPopulatesAfterExpiry(t *testing.T) {
 	}, 5*time.Second, 5*time.Millisecond, "entry should expire")
 
 	// Re-populate after expiry
-	_ = store.Set(ctx, "session1", "server1", &Capabilities{Tools: []mcp.Tool{{Name: "t1-refreshed"}}})
+	_ = store.Set(ctx, "session1", "server1", &api.Capabilities{Tools: []mcp.Tool{{Name: "t1-refreshed"}}})
 
 	got, err := store.Get(ctx, "session1", "server1")
 	require.NoError(t, err)
@@ -333,7 +335,7 @@ func TestInMemoryCapabilityStore_DeepCopyOnSet(t *testing.T) {
 	ctx := context.Background()
 
 	tools := []mcp.Tool{{Name: "original"}}
-	_ = store.Set(ctx, "s1", "srv1", &Capabilities{Tools: tools})
+	_ = store.Set(ctx, "s1", "srv1", &api.Capabilities{Tools: tools})
 
 	// Mutating the original slice should not affect the stored copy
 	tools[0].Name = "mutated"
@@ -349,7 +351,7 @@ func TestInMemoryCapabilityStore_TouchExtendsTTL(t *testing.T) {
 	defer store.Stop()
 	ctx := context.Background()
 
-	_ = store.Set(ctx, "session1", "server1", &Capabilities{Tools: []mcp.Tool{{Name: "t1"}}})
+	_ = store.Set(ctx, "session1", "server1", &api.Capabilities{Tools: []mcp.Tool{{Name: "t1"}}})
 
 	// Wait 70% of TTL, then Touch to extend it
 	time.Sleep(70 * time.Millisecond)
@@ -382,7 +384,7 @@ func TestInMemoryCapabilityStore_TouchExpiredSession(t *testing.T) {
 	defer store.Stop()
 	ctx := context.Background()
 
-	_ = store.Set(ctx, "session1", "server1", &Capabilities{Tools: []mcp.Tool{{Name: "t1"}}})
+	_ = store.Set(ctx, "session1", "server1", &api.Capabilities{Tools: []mcp.Tool{{Name: "t1"}}})
 
 	// Wait past TTL
 	require.Eventually(t, func() bool {
@@ -401,7 +403,7 @@ func TestInMemoryCapabilityStore_DeepCopyOnGet(t *testing.T) {
 	defer store.Stop()
 	ctx := context.Background()
 
-	_ = store.Set(ctx, "s1", "srv1", &Capabilities{Tools: []mcp.Tool{{Name: "original"}}})
+	_ = store.Set(ctx, "s1", "srv1", &api.Capabilities{Tools: []mcp.Tool{{Name: "original"}}})
 
 	// Mutating the returned slice should not affect the stored copy
 	got1, _ := store.Get(ctx, "s1", "srv1")

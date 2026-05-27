@@ -1,4 +1,4 @@
-package aggregator
+package oauth
 
 import (
 	"context"

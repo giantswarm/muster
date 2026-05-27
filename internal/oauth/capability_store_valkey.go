@@ -1,4 +1,4 @@
-package aggregator
+package oauth
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/valkey-io/valkey-go"
 
+	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/config"
 	"github.com/giantswarm/muster/pkg/logging"
 )
@@ -42,7 +43,7 @@ func (s *ValkeyCapabilityStore) key(sessionID string) string {
 	return s.keyPrefix + "cap:" + sessionID
 }
 
-func (s *ValkeyCapabilityStore) Get(ctx context.Context, sessionID, serverName string) (*Capabilities, error) {
+func (s *ValkeyCapabilityStore) Get(ctx context.Context, sessionID, serverName string) (*api.Capabilities, error) {
 	cmd := s.client.B().Hget().Key(s.key(sessionID)).Field(serverName).Build()
 	result := s.client.Do(ctx, cmd)
 	if err := result.Error(); err != nil {
@@ -57,14 +58,14 @@ func (s *ValkeyCapabilityStore) Get(ctx context.Context, sessionID, serverName s
 		return nil, fmt.Errorf("valkey HGET decode: %w", err)
 	}
 
-	var caps Capabilities
+	var caps api.Capabilities
 	if err := json.Unmarshal(data, &caps); err != nil {
 		return nil, fmt.Errorf("unmarshal capabilities: %w", err)
 	}
 	return &caps, nil
 }
 
-func (s *ValkeyCapabilityStore) GetAll(ctx context.Context, sessionID string) (map[string]*Capabilities, error) {
+func (s *ValkeyCapabilityStore) GetAll(ctx context.Context, sessionID string) (map[string]*api.Capabilities, error) {
 	cmd := s.client.B().Hgetall().Key(s.key(sessionID)).Build()
 	result := s.client.Do(ctx, cmd)
 	if err := result.Error(); err != nil {
@@ -82,9 +83,9 @@ func (s *ValkeyCapabilityStore) GetAll(ctx context.Context, sessionID string) (m
 		return nil, nil
 	}
 
-	caps := make(map[string]*Capabilities, len(m))
+	caps := make(map[string]*api.Capabilities, len(m))
 	for serverName, data := range m {
-		var c Capabilities
+		var c api.Capabilities
 		if err := json.Unmarshal([]byte(data), &c); err != nil {
 			logging.Warn("CapabilityStore", "Failed to unmarshal capabilities for %s/%s: %v",
 				sessionID, serverName, err)
@@ -95,7 +96,7 @@ func (s *ValkeyCapabilityStore) GetAll(ctx context.Context, sessionID string) (m
 	return caps, nil
 }
 
-func (s *ValkeyCapabilityStore) Set(ctx context.Context, sessionID, serverName string, caps *Capabilities) error {
+func (s *ValkeyCapabilityStore) Set(ctx context.Context, sessionID, serverName string, caps *api.Capabilities) error {
 	data, err := json.Marshal(caps)
 	if err != nil {
 		return fmt.Errorf("marshal capabilities: %w", err)
@@ -180,8 +181,7 @@ func (s *ValkeyCapabilityStore) Touch(ctx context.Context, sessionID string) (bo
 	return b, nil
 }
 
-// ListSessions returns every sessionID with a capability entry. It SCANs
-// the key prefix so cost is linear in the number of tracked sessions.
+// ListSessions returns every sessionID with a capability entry.
 func (s *ValkeyCapabilityStore) ListSessions(ctx context.Context) ([]string, error) {
 	prefix := s.keyPrefix + "cap:"
 	match := prefix + "*"

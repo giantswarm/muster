@@ -11,6 +11,9 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/giantswarm/muster/internal/api"
+	musteroauth "github.com/giantswarm/muster/internal/oauth"
 )
 
 func TestToolListsEqual_Identical(t *testing.T) {
@@ -302,14 +305,14 @@ func TestHandleNonOAuthCapabilityChanged_SingleflightDedup(t *testing.T) {
 }
 
 func TestRefreshSessionCapabilities_UpdatesStore(t *testing.T) {
-	capStore := NewInMemoryCapabilityStore(time.Hour)
+	capStore := musteroauth.NewInMemoryCapabilityStore(time.Hour)
 
 	a := &AggregatorServer{
 		registry:        NewServerRegistry("x"),
 		capabilityStore: capStore,
 	}
 
-	oldCaps := &Capabilities{
+	oldCaps := &api.Capabilities{
 		Tools: []mcp.Tool{{Name: "old-tool"}},
 	}
 	require.NoError(t, capStore.Set(context.Background(), "session-1", "sso-srv", oldCaps))
@@ -325,7 +328,7 @@ func TestRefreshSessionCapabilities_UpdatesStore(t *testing.T) {
 }
 
 func TestRefreshSessionCapabilities_NoChangeSkipsUpdate(t *testing.T) {
-	capStore := NewInMemoryCapabilityStore(time.Hour)
+	capStore := musteroauth.NewInMemoryCapabilityStore(time.Hour)
 
 	a := &AggregatorServer{
 		registry:        NewServerRegistry("x"),
@@ -333,7 +336,7 @@ func TestRefreshSessionCapabilities_NoChangeSkipsUpdate(t *testing.T) {
 	}
 
 	tools := []mcp.Tool{{Name: "t1"}}
-	require.NoError(t, capStore.Set(context.Background(), "sess", "sso-srv", &Capabilities{Tools: tools}))
+	require.NoError(t, capStore.Set(context.Background(), "sess", "sso-srv", &api.Capabilities{Tools: tools}))
 
 	client := &notifMockClient{tools: tools}
 
@@ -346,14 +349,14 @@ func TestRefreshSessionCapabilities_NoChangeSkipsUpdate(t *testing.T) {
 }
 
 func TestHandleSessionCapabilityChanged_TriggersRefresh(t *testing.T) {
-	capStore := NewInMemoryCapabilityStore(time.Hour)
+	capStore := musteroauth.NewInMemoryCapabilityStore(time.Hour)
 
 	a := &AggregatorServer{
 		registry:        NewServerRegistry("x"),
 		capabilityStore: capStore,
 	}
 
-	oldCaps := &Capabilities{
+	oldCaps := &api.Capabilities{
 		Tools: []mcp.Tool{{Name: "t1"}},
 	}
 	require.NoError(t, capStore.Set(context.Background(), "sess", "sso-srv", oldCaps))
@@ -374,7 +377,7 @@ func TestHandleSessionCapabilityChanged_TriggersRefresh(t *testing.T) {
 }
 
 func TestHandleSessionCapabilityChanged_SingleflightDedup(t *testing.T) {
-	capStore := NewInMemoryCapabilityStore(time.Hour)
+	capStore := musteroauth.NewInMemoryCapabilityStore(time.Hour)
 
 	a := &AggregatorServer{
 		registry:        NewServerRegistry("x"),
@@ -382,7 +385,7 @@ func TestHandleSessionCapabilityChanged_SingleflightDedup(t *testing.T) {
 	}
 
 	tools := []mcp.Tool{{Name: "t1"}}
-	require.NoError(t, capStore.Set(context.Background(), "sess", "sso-srv", &Capabilities{Tools: tools}))
+	require.NoError(t, capStore.Set(context.Background(), "sess", "sso-srv", &api.Capabilities{Tools: tools}))
 
 	gate := make(chan struct{})
 	client := &notifMockClient{tools: tools, listToolsGate: gate}
