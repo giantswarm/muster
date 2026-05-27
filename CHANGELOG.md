@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Degraded-mode startup when the Dex/OIDC issuer is unreachable at boot time. muster now starts immediately and serves MCP aggregation, reconcilers, and all non-OAuth paths regardless of Dex availability. A background goroutine retries OIDC discovery with exponential backoff (1 s → 30 s cap); once discovery succeeds the OAuth server activates transparently. Until then, OAuth and MCP-over-OAuth endpoints return `503 Service Unavailable` with a `Retry-After: 30` header. The `/health` endpoint always returns `200` with `{"status":"degraded","reason":"oidc-discovery-pending"}` during the window. Closes #730.
+
 - `networkPolicy.flavor` selects between `cilium` (CiliumNetworkPolicy) and `kubernetes` (`networking.k8s.io/v1 NetworkPolicy`). The kubernetes flavor is best-effort: no entity selectors, no FQDN egress. CIDR replacements live under `networkPolicy.kubernetes.{apiServerCIDR,clusterCIDR,worldExcludedCIDRs}`. `clusterCIDR: ""` disables the in-cluster ingress egress rule (kubernetes-flavor equivalent of cilium `allowClusterIngress`).
 - `crds.annotations` (object) is merged into each CRD's `metadata.annotations` by the loader. Default `{helm.sh/resource-policy: keep}` keeps CRDs (and the `MCPServer` / `Workflow` CRs that depend on them) around on `helm uninstall`.
 - `revisionHistoryLimit` (default `3`) on the muster Deployment.
