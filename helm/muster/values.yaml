@@ -433,6 +433,33 @@ muster:
       # SECURITY: only list client IDs you fully trust.
       trustedAudiences: []
 
+      # Kubernetes projected ServiceAccount trust entries for RFC 8693 token exchange.
+      # Each entry covers one cluster. When non-empty, SA tokens are accepted as
+      # subject_tokens of type urn:ietf:params:oauth:token-type:jwt.
+      # Example:
+      #   - issuer: "https://kubernetes.default.svc"
+      #     jwksUrl: "https://kubernetes.default.svc/openid/v1/jwks"
+      #     allowedAudiences: ["https://muster.example.com"]
+      kubernetesSATrusts: []
+
+      # Trusted external OIDC issuers for RFC 8693 token exchange.
+      # Tokens from these issuers are accepted as id_token / access_token subject_tokens.
+      # Example:
+      #   - issuer: "https://idp.example.com"
+      #     jwksUrl: "https://idp.example.com/jwks"
+      #     allowedAudiences: ["muster"]
+      trustedIssuers: []
+
+      # CIDRs from which X-Forwarded-Proto and X-Forwarded-Host headers are trusted
+      # for DPoP htu URL reconstruction. Required when muster runs behind a reverse proxy.
+      # Example: ["10.0.0.0/8", "172.16.0.0/12"]
+      trustedProxyCIDRs: []
+
+      # Issue RFC 9068 signed JWTs as access tokens instead of opaque strings.
+      # Required when downstream services need to validate tokens locally.
+      # Default: false
+      enableJWTMode: false
+
   # OpenTelemetry observability configuration.
   #
   # When endpoint is empty (the default), muster does not export any

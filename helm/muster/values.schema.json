@@ -542,6 +542,43 @@
                 "type": "string"
               },
               "description": "OIDC client IDs (audiences) whose JWTs are accepted as bearer tokens"
+            },
+            "kubernetesSATrusts": {
+              "type": "array",
+              "description": "Kubernetes projected SA trust entries for RFC 8693 token exchange",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "issuer": {"type": "string"},
+                  "jwksUrl": {"type": "string"},
+                  "allowedAudiences": {"type": "array", "items": {"type": "string"}},
+                  "allowedScopes": {"type": "array", "items": {"type": "string"}},
+                  "allowedNamespaces": {"type": "array", "items": {"type": "string"}},
+                  "allowedServiceAccounts": {"type": "array", "items": {"type": "string"}}
+                }
+              }
+            },
+            "trustedIssuers": {
+              "type": "array",
+              "description": "Trusted external OIDC issuers for RFC 8693 token exchange",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "issuer": {"type": "string"},
+                  "jwksUrl": {"type": "string"},
+                  "allowedAudiences": {"type": "array", "items": {"type": "string"}},
+                  "allowedScopes": {"type": "array", "items": {"type": "string"}}
+                }
+              }
+            },
+            "trustedProxyCIDRs": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "CIDRs from which X-Forwarded-Proto/Host headers are trusted for DPoP htu reconstruction"
+            },
+            "enableJWTMode": {
+              "type": "boolean",
+              "description": "Issue RFC 9068 signed JWTs as access tokens instead of opaque strings"
             }
           }
         }
