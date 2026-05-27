@@ -75,6 +75,13 @@ const (
 	// DefaultSecurityEventBurst is the burst size for security-event log emission.
 	DefaultSecurityEventBurst = 5
 
+	// DefaultMetadataFetchRate is the per-domain rate for CIMD outbound metadata
+	// fetches (requests/second). Prevents a misbehaving or malicious client from
+	// triggering unbounded outbound HTTP requests to arbitrary domains.
+	DefaultMetadataFetchRate = 1
+	// DefaultMetadataFetchBurst is the burst size for CIMD metadata fetch rate limiting.
+	DefaultMetadataFetchBurst = 3
+
 	// DefaultReadHeaderTimeout is the default timeout for reading request headers.
 	DefaultReadHeaderTimeout = 10 * time.Second
 	// DefaultWriteTimeout is the default timeout for writing responses.
@@ -543,9 +550,9 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 		// Build scopes including any required audiences from MCPServers
 		scopes := buildDexScopes(api.CollectRequiredAudiences())
 		for _, scope := range scopes {
-			if strings.HasPrefix(scope, dex.AudienceScopePrefix) {
+			if audience, ok := strings.CutPrefix(scope, dex.AudienceScopePrefix); ok {
 				logger.Info("Requesting cross-client audience from MCPServer requiredAudiences",
-					"audience", strings.TrimPrefix(scope, dex.AudienceScopePrefix))
+					"audience", audience)
 			}
 		}
 

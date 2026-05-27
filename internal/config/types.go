@@ -325,6 +325,14 @@ type OAuthServerConfig struct {
 	// opaque random strings. Required when downstream services (e.g. agentgateway)
 	// need to validate tokens locally without calling the introspection endpoint.
 	EnableJWTMode bool `yaml:"enableJWTMode,omitempty"`
+
+	// ResourceIdentifier is the canonical URI that identifies this muster instance
+	// as an RFC 8707 resource server. When set, access tokens carry this value in
+	// their aud claim and tokens bound to a different resource are rejected, preventing
+	// replay across resource servers sharing the same IdP.
+	// If empty the library defaults to BaseURL (the issuer URL).
+	// Example: "https://muster.example.com/mcp"
+	ResourceIdentifier string `yaml:"resourceIdentifier,omitempty"`
 }
 
 // K8sSATrustConfig mirrors server.KubernetesSATrust.

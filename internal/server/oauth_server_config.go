@@ -23,6 +23,7 @@ import (
 func newOAuthServerConfig(cfg config.OAuthServerConfig, refreshTokenTTL time.Duration) *oauthserver.Config {
 	result := &oauthserver.Config{
 		Issuer:                                cfg.BaseURL,
+		ResourceIdentifier:                    cfg.ResourceIdentifier,
 		AccessTokenTTL:                        int64(DefaultAccessTokenTTL / time.Second),
 		RefreshTokenTTL:                       int64(refreshTokenTTL / time.Second),
 		AllowRefreshTokenRotation:             true,
@@ -71,6 +72,7 @@ func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger) 
 			security.DefaultMaxRegistrationEntries,
 			logger,
 		)),
+		oauth.WithMetadataFetchRateLimiter(security.NewRateLimiter(DefaultMetadataFetchRate, DefaultMetadataFetchBurst, logger)),
 	}
 
 	// Valkey wires its own encryptor on the store; only memory storage needs WithEncryptor here.
@@ -178,6 +180,7 @@ func logEnabledOAuthOptions(cfg config.OAuthServerConfig, logger *slog.Logger) {
 	logger.Info("User-based rate limiting enabled", "rate", DefaultUserRateLimit, "burst", DefaultUserBurst)
 	logger.Info("Security-event rate limiting enabled", "rate", DefaultSecurityEventRate, "burst", DefaultSecurityEventBurst)
 	logger.Info("Client registration rate limiting enabled", "maxClientsPerIP", DefaultMaxClientsPerIP)
+	logger.Info("CIMD metadata-fetch rate limiting enabled", "rate", DefaultMetadataFetchRate, "burst", DefaultMetadataFetchBurst)
 
 	if cfg.EncryptionKey != "" && cfg.Storage.Type != storage.BackendValkey {
 		logger.Info("Token encryption at rest enabled (AES-256-GCM)")
