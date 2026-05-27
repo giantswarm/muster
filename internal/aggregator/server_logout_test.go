@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/giantswarm/muster/internal/api"
-	musteroauth "github.com/giantswarm/muster/internal/oauth"
+	oauthstore "github.com/giantswarm/muster/internal/oauth/store"
 )
 
 // ---------------------------------------------------------------------------
@@ -271,10 +271,10 @@ func TestHandleAuthServerDeletion(t *testing.T) {
 		api.RegisterOAuthHandler(&issuerMockOAuthHandler{enabled: true})
 		t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
-		store := musteroauth.NewInMemoryCapabilityStore(30 * time.Minute)
+		store := oauthstore.NewInMemoryCapabilityStore(30 * time.Minute)
 		defer store.Stop()
-		_ = store.Set(context.Background(), "session-A", "target-server", &api.Capabilities{})
-		_ = store.Set(context.Background(), "session-B", "target-server", &api.Capabilities{})
+		_ = store.Set(context.Background(), "session-A", "target-server", &oauthstore.Capabilities{})
+		_ = store.Set(context.Background(), "session-B", "target-server", &oauthstore.Capabilities{})
 
 		reg := NewServerRegistry("")
 		reg.mu.Lock()

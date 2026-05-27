@@ -1,10 +1,21 @@
-package oauth
+package store
 
 import (
 	"context"
 	"sync"
 	"time"
 )
+
+// SessionAuthStore tracks per-session, per-server authentication state.
+// Implementations must be safe for concurrent use.
+type SessionAuthStore interface {
+	IsAuthenticated(ctx context.Context, sessionID, serverName string) (bool, error)
+	MarkAuthenticated(ctx context.Context, sessionID, serverName string) error
+	Revoke(ctx context.Context, sessionID, serverName string) error
+	RevokeSession(ctx context.Context, sessionID string) error
+	RevokeServer(ctx context.Context, serverName string) error
+	Touch(ctx context.Context, sessionID string) (bool, error)
+}
 
 // inMemoryAuthSession holds authenticated server names for a single session.
 //

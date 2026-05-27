@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/giantswarm/muster/internal/api"
-	musteroauth "github.com/giantswarm/muster/internal/oauth"
+	oauthstore "github.com/giantswarm/muster/internal/oauth/store"
 
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -613,14 +613,14 @@ func (m *callToolMockClient) OnNotification(func(mcp.JSONRPCNotification)) {}
 // the test finishes.
 func newTestAggregatorWithPool(t *testing.T) *AggregatorServer {
 	t.Helper()
-	pool := NewSessionConnectionPool(api.DefaultCapabilityStoreTTL)
+	pool := NewSessionConnectionPool(oauthstore.DefaultCapabilityStoreTTL)
 	t.Cleanup(pool.Stop)
 
 	return &AggregatorServer{
 		config:          AggregatorConfig{MusterPrefix: "x"},
 		registry:        NewServerRegistry("x"),
-		authStore:       musteroauth.NewInMemorySessionAuthStore(api.DefaultCapabilityStoreTTL),
-		capabilityStore: musteroauth.NewInMemoryCapabilityStore(api.DefaultCapabilityStoreTTL),
+		authStore:       oauthstore.NewInMemorySessionAuthStore(oauthstore.DefaultCapabilityStoreTTL),
+		capabilityStore: oauthstore.NewInMemoryCapabilityStore(oauthstore.DefaultCapabilityStoreTTL),
 		connPool:        pool,
 	}
 }
@@ -646,7 +646,7 @@ func TestCallToolWithTokenExchangeRetry_SuccessNoRetry(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_ = a.capabilityStore.Set(ctx, sessionID, serverName, &api.Capabilities{
+	_ = a.capabilityStore.Set(ctx, sessionID, serverName, &oauthstore.Capabilities{
 		Tools: []mcp.Tool{{Name: "my-tool"}},
 	})
 	_ = a.authStore.MarkAuthenticated(ctx, sessionID, serverName)
@@ -686,7 +686,7 @@ func TestCallToolWithTokenExchangeRetry_EvictsPoolOn401ForTokenExchange(t *testi
 	})
 	require.NoError(t, err)
 
-	_ = a.capabilityStore.Set(ctx, sessionID, serverName, &api.Capabilities{
+	_ = a.capabilityStore.Set(ctx, sessionID, serverName, &oauthstore.Capabilities{
 		Tools: []mcp.Tool{{Name: "my-tool"}},
 	})
 	_ = a.authStore.MarkAuthenticated(ctx, sessionID, serverName)
@@ -722,7 +722,7 @@ func TestCallToolWithTokenExchangeRetry_NoRetryForNonTokenExchange(t *testing.T)
 	})
 	require.NoError(t, err)
 
-	_ = a.capabilityStore.Set(ctx, sessionID, serverName, &api.Capabilities{
+	_ = a.capabilityStore.Set(ctx, sessionID, serverName, &oauthstore.Capabilities{
 		Tools: []mcp.Tool{{Name: "my-tool"}},
 	})
 	_ = a.authStore.MarkAuthenticated(ctx, sessionID, serverName)
@@ -759,7 +759,7 @@ func TestCallToolWithTokenExchangeRetry_NoRetryForNon401Error(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_ = a.capabilityStore.Set(ctx, sessionID, serverName, &api.Capabilities{
+	_ = a.capabilityStore.Set(ctx, sessionID, serverName, &oauthstore.Capabilities{
 		Tools: []mcp.Tool{{Name: "my-tool"}},
 	})
 	_ = a.authStore.MarkAuthenticated(ctx, sessionID, serverName)
@@ -796,7 +796,7 @@ func TestGetOrCreateClientForToolCall_ExpiringSoonReturnsClientAndTriggersBackgr
 	})
 	require.NoError(t, err)
 
-	_ = a.capabilityStore.Set(ctx, sessionID, serverName, &api.Capabilities{
+	_ = a.capabilityStore.Set(ctx, sessionID, serverName, &oauthstore.Capabilities{
 		Tools: []mcp.Tool{{Name: "my-tool"}},
 	})
 	_ = a.authStore.MarkAuthenticated(ctx, sessionID, serverName)
@@ -840,7 +840,7 @@ func TestGetOrCreateClientForToolCall_ExpiredTokenEvictsSynchronously(t *testing
 	})
 	require.NoError(t, err)
 
-	_ = a.capabilityStore.Set(ctx, sessionID, serverName, &api.Capabilities{
+	_ = a.capabilityStore.Set(ctx, sessionID, serverName, &oauthstore.Capabilities{
 		Tools: []mcp.Tool{{Name: "my-tool"}},
 	})
 	_ = a.authStore.MarkAuthenticated(ctx, sessionID, serverName)
@@ -878,7 +878,7 @@ func TestGetOrCreateClientForToolCall_NoEvictionWhenTokenFresh(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_ = a.capabilityStore.Set(ctx, sessionID, serverName, &api.Capabilities{
+	_ = a.capabilityStore.Set(ctx, sessionID, serverName, &oauthstore.Capabilities{
 		Tools: []mcp.Tool{{Name: "my-tool"}},
 	})
 	_ = a.authStore.MarkAuthenticated(ctx, sessionID, serverName)

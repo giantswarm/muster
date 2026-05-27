@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/giantswarm/muster/internal/api"
+	oauthstore "github.com/giantswarm/muster/internal/oauth/store"
 	"github.com/giantswarm/muster/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -150,7 +150,7 @@ func (a *AggregatorServer) refreshSessionCapabilities(ctx context.Context, serve
 		}
 	}
 
-	caps := &api.Capabilities{
+	caps := &oauthstore.Capabilities{
 		Tools:     newTools,
 		Resources: newResources,
 		Prompts:   newPrompts,

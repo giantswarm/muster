@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/giantswarm/muster/internal/api"
-	musteroauth "github.com/giantswarm/muster/internal/oauth"
+	oauthstore "github.com/giantswarm/muster/internal/oauth/store"
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -38,7 +38,7 @@ func TestOnAuthenticated_TriggersSSOReinit_WhenAuthStoreEmpty(t *testing.T) {
 	// After a pod restart the in-memory authStore is empty.
 	// When a user makes a request, Touch returns false and initSSOForSession
 	// should be called.
-	authStore := musteroauth.NewInMemorySessionAuthStore(30 * time.Minute)
+	authStore := oauthstore.NewInMemorySessionAuthStore(30 * time.Minute)
 	defer authStore.Stop()
 
 	sessionID := "session-from-before-restart"
@@ -53,7 +53,7 @@ func TestOnAuthenticated_TriggersSSOReinit_WhenAuthStoreEmpty(t *testing.T) {
 func TestOnAuthenticated_NoSSOReinit_WhenAuthAlive(t *testing.T) {
 	// When the session is known and has authenticated servers, Touch returns true
 	// and initSSOForSession should NOT be called (no redundant SSO work).
-	authStore := musteroauth.NewInMemorySessionAuthStore(30 * time.Minute)
+	authStore := oauthstore.NewInMemorySessionAuthStore(30 * time.Minute)
 	defer authStore.Stop()
 
 	ctx := context.Background()
@@ -71,7 +71,7 @@ func TestOnAuthenticated_TriggersSSOReinit_WhenSessionExpired(t *testing.T) {
 	// When a session exists but has expired, Touch returns false,
 	// triggering initSSOForSession to re-establish SSO connections.
 	ttl := 50 * time.Millisecond
-	authStore := musteroauth.NewInMemorySessionAuthStore(ttl)
+	authStore := oauthstore.NewInMemorySessionAuthStore(ttl)
 	defer authStore.Stop()
 
 	ctx := context.Background()
@@ -91,7 +91,7 @@ func TestOnAuthenticated_TriggersSSOReinit_WhenSessionExpired(t *testing.T) {
 func TestOnAuthenticated_TriggersSSOReinit_WhenNoServers(t *testing.T) {
 	// If a session exists but has no authenticated servers (e.g. all were
 	// revoked), Touch returns false.
-	authStore := musteroauth.NewInMemorySessionAuthStore(30 * time.Minute)
+	authStore := oauthstore.NewInMemorySessionAuthStore(30 * time.Minute)
 	defer authStore.Stop()
 
 	ctx := context.Background()
@@ -184,7 +184,7 @@ func TestOnAuthenticated_ClearsFailuresBeforeReinit(t *testing.T) {
 	// for that user before calling initSSOForSession. This ensures that
 	// servers which previously failed are retried.
 	tracker := newSSOTracker()
-	authStore := musteroauth.NewInMemorySessionAuthStore(30 * time.Minute)
+	authStore := oauthstore.NewInMemorySessionAuthStore(30 * time.Minute)
 	defer authStore.Stop()
 
 	userID := "user-after-restart"
@@ -219,7 +219,7 @@ func TestOnAuthenticated_SkipsSSO_WhenNoIDToken(t *testing.T) {
 	// no ID token in the OAuth store. In this case the onAuthenticated
 	// callback should skip initSSOForSession entirely to avoid downstream
 	// connections that immediately start spamming 403 errors.
-	authStore := musteroauth.NewInMemorySessionAuthStore(30 * time.Minute)
+	authStore := oauthstore.NewInMemorySessionAuthStore(30 * time.Minute)
 	defer authStore.Stop()
 
 	ctx := context.Background()
@@ -249,7 +249,7 @@ func TestOnAuthenticated_EvictsSSO_WhenAuthAliveButNoIDToken(t *testing.T) {
 	// session may still be alive (authStore has entries) but the ID token
 	// disappears. The onAuthenticated callback should detect this and evict
 	// SSO connections.
-	authStore := musteroauth.NewInMemorySessionAuthStore(30 * time.Minute)
+	authStore := oauthstore.NewInMemorySessionAuthStore(30 * time.Minute)
 	defer authStore.Stop()
 
 	ctx := context.Background()
@@ -375,7 +375,7 @@ func TestHandleUpstreamRefreshFailure_Integration(t *testing.T) {
 	defer pool.Stop()
 	defer pool.DrainAll()
 
-	authStore := musteroauth.NewInMemorySessionAuthStore(30 * time.Minute)
+	authStore := oauthstore.NewInMemorySessionAuthStore(30 * time.Minute)
 	defer authStore.Stop()
 
 	tracker := newSSOTracker()
@@ -454,7 +454,7 @@ func TestHandleUpstreamRefreshFailure_Idempotent(t *testing.T) {
 	defer pool.Stop()
 	defer pool.DrainAll()
 
-	authStore := musteroauth.NewInMemorySessionAuthStore(30 * time.Minute)
+	authStore := oauthstore.NewInMemorySessionAuthStore(30 * time.Minute)
 	defer authStore.Stop()
 
 	tracker := newSSOTracker()
@@ -505,7 +505,7 @@ func TestOnStaleToken_EvictsAndRevokes(t *testing.T) {
 	defer pool.Stop()
 	defer pool.DrainAll()
 
-	authStore := musteroauth.NewInMemorySessionAuthStore(30 * time.Minute)
+	authStore := oauthstore.NewInMemorySessionAuthStore(30 * time.Minute)
 	defer authStore.Stop()
 
 	ctx := context.Background()
@@ -545,7 +545,7 @@ func TestOnAuthenticated_CallsHandleUpstreamRefreshFailure(t *testing.T) {
 	// Verifies the onAuthenticated callback logic: when authAlive=true
 	// and idToken="", it should call handleUpstreamRefreshFailure to evict
 	// SSO connections. We test this by simulating the exact code path.
-	authStore := musteroauth.NewInMemorySessionAuthStore(30 * time.Minute)
+	authStore := oauthstore.NewInMemorySessionAuthStore(30 * time.Minute)
 	defer authStore.Stop()
 
 	pool := NewSessionConnectionPool(1 * time.Hour)
@@ -610,7 +610,7 @@ func TestOnAuthenticated_CallsHandleUpstreamRefreshFailure(t *testing.T) {
 func TestTokenRefreshHandler_MissingIDToken_TriggersEviction(t *testing.T) {
 	// Verifies the logic in the TokenRefreshHandler: when the refreshed
 	// token has no ID token, handleUpstreamRefreshFailure should be called.
-	authStore := musteroauth.NewInMemorySessionAuthStore(30 * time.Minute)
+	authStore := oauthstore.NewInMemorySessionAuthStore(30 * time.Minute)
 	defer authStore.Stop()
 
 	pool := NewSessionConnectionPool(1 * time.Hour)

@@ -1,4 +1,4 @@
-package oauth
+package store
 
 import (
 	"context"
@@ -6,13 +6,47 @@ import (
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
-
-	"github.com/giantswarm/muster/internal/api"
 )
+
+// DefaultCapabilityStoreTTL is the session-level TTL for capability entries.
+const DefaultCapabilityStoreTTL = 30 * 24 * time.Hour
+
+// Capabilities holds the MCP capabilities for a session+server pair.
+type Capabilities struct {
+	Tools     []mcp.Tool
+	Resources []mcp.Resource
+	Prompts   []mcp.Prompt
+}
+
+// DeepCopy returns a shallow copy of each slice (elements are value types).
+func (c *Capabilities) DeepCopy() *Capabilities {
+	if c == nil {
+		return nil
+	}
+	return &Capabilities{
+		Tools:     append([]mcp.Tool(nil), c.Tools...),
+		Resources: append([]mcp.Resource(nil), c.Resources...),
+		Prompts:   append([]mcp.Prompt(nil), c.Prompts...),
+	}
+}
+
+// CapabilityStore stores per-session, per-server MCP capabilities.
+// Implementations must be safe for concurrent use.
+type CapabilityStore interface {
+	Get(ctx context.Context, sessionID, serverName string) (*Capabilities, error)
+	GetAll(ctx context.Context, sessionID string) (map[string]*Capabilities, error)
+	Set(ctx context.Context, sessionID, serverName string, caps *Capabilities) error
+	Delete(ctx context.Context, sessionID string) error
+	DeleteEntry(ctx context.Context, sessionID, serverName string) error
+	DeleteServer(ctx context.Context, serverName string) error
+	Exists(ctx context.Context, sessionID, serverName string) (bool, error)
+	Touch(ctx context.Context, sessionID string) (bool, error)
+	ListSessions(ctx context.Context) ([]string, error)
+}
 
 // inMemorySession holds all server capabilities for a single session.
 type inMemorySession struct {
-	servers  map[string]*api.Capabilities
+	servers  map[string]*Capabilities
 	timer    *time.Timer
 	expireAt time.Time
 }
@@ -33,7 +67,7 @@ func NewInMemoryCapabilityStore(ttl time.Duration) *InMemoryCapabilityStore {
 	}
 }
 
-func (s *InMemoryCapabilityStore) Get(_ context.Context, sessionID, serverName string) (*api.Capabilities, error) {
+func (s *InMemoryCapabilityStore) Get(_ context.Context, sessionID, serverName string) (*Capabilities, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -51,7 +85,7 @@ func (s *InMemoryCapabilityStore) Get(_ context.Context, sessionID, serverName s
 	return caps.DeepCopy(), nil
 }
 
-func (s *InMemoryCapabilityStore) GetAll(_ context.Context, sessionID string) (map[string]*api.Capabilities, error) {
+func (s *InMemoryCapabilityStore) GetAll(_ context.Context, sessionID string) (map[string]*Capabilities, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -62,27 +96,27 @@ func (s *InMemoryCapabilityStore) GetAll(_ context.Context, sessionID string) (m
 	if time.Now().After(sess.expireAt) {
 		return nil, nil
 	}
-	result := make(map[string]*api.Capabilities, len(sess.servers))
+	result := make(map[string]*Capabilities, len(sess.servers))
 	for k, v := range sess.servers {
 		result[k] = v.DeepCopy()
 	}
 	return result, nil
 }
 
-func (s *InMemoryCapabilityStore) Set(_ context.Context, sessionID, serverName string, caps *api.Capabilities) error {
+func (s *InMemoryCapabilityStore) Set(_ context.Context, sessionID, serverName string, caps *Capabilities) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	sess, ok := s.sessions[sessionID]
 	if !ok {
 		sess = &inMemorySession{
-			servers: make(map[string]*api.Capabilities),
+			servers: make(map[string]*Capabilities),
 		}
 		s.sessions[sessionID] = sess
 	}
 
 	// Deep copy to prevent mutation by callers.
-	stored := &api.Capabilities{
+	stored := &Capabilities{
 		Tools:     append([]mcp.Tool(nil), caps.Tools...),
 		Resources: append([]mcp.Resource(nil), caps.Resources...),
 		Prompts:   append([]mcp.Prompt(nil), caps.Prompts...),
