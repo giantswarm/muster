@@ -28,7 +28,6 @@ import (
 
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/config"
-	musteroauth "github.com/giantswarm/muster/internal/oauth"
 	"github.com/giantswarm/muster/pkg/logging"
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 )
@@ -620,7 +619,7 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 
 		// Set up encryption if key is provided
 		if cfg.EncryptionKey != "" {
-			keyBytes, err := musteroauth.DecodeEncryptionKey(cfg.EncryptionKey)
+			keyBytes, err := security.DecodeKey(cfg.EncryptionKey)
 			if err != nil {
 				valkeyStore.Close()
 				return nil, nil, fmt.Errorf("failed to decode encryption key: %w", err)

@@ -19,7 +19,6 @@ import (
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/config"
 	internalmcp "github.com/giantswarm/muster/internal/mcpserver"
-	musteroauth "github.com/giantswarm/muster/internal/oauth"
 	oauthstore "github.com/giantswarm/muster/internal/oauth/store"
 	"github.com/giantswarm/muster/internal/server"
 	"github.com/giantswarm/muster/pkg/logging"
@@ -566,7 +565,7 @@ func createEncryptor(oauthCfg config.OAuthServerConfig) *security.Encryptor {
 	if oauthCfg.EncryptionKey == "" {
 		return nil
 	}
-	keyBytes, err := musteroauth.DecodeEncryptionKey(oauthCfg.EncryptionKey)
+	keyBytes, err := security.DecodeKey(oauthCfg.EncryptionKey)
 	if err != nil {
 		logging.WarnWithAttrs("Aggregator", "Failed to decode encryption key for Valkey stores",
 			slog.String("error", err.Error()))

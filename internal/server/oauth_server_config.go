@@ -16,7 +16,6 @@ import (
 	valkeygo "github.com/valkey-io/valkey-go"
 
 	"github.com/giantswarm/muster/internal/config"
-	musteroauth "github.com/giantswarm/muster/internal/oauth"
 )
 
 // newOAuthServerConfig maps the muster OAuth config onto the mcp-oauth Config.
@@ -34,6 +33,7 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, refreshTokenTTL time.Dur
 		MaxClientsPerIP:                       DefaultMaxClientsPerIP,
 		EnableClientIDMetadataDocuments:       cfg.EnableCIMD,
 		EnableIntrospectionEndpoint:           true,
+		EnableUserInfoEndpoint:                true,
 		TrustedPublicRegistrationSchemes:      cfg.TrustedPublicRegistrationSchemes,
 		TrustedPublicRegistrationRedirectURIs: cfg.TrustedPublicRegistrationRedirectURIs,
 		AllowLocalhostRedirectURIs:            cfg.AllowLocalhostRedirectURIs,
@@ -61,7 +61,7 @@ func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger) 
 
 	opts := []oauth.ServerOption{
 		oauth.WithInstrumentation(inst),
-		oauth.WithAuditor(security.NewAuditor(logger, true)),
+		oauth.WithAuditor(security.NewAuditor(logger, true, security.WithPIIRedaction(true))),
 		oauth.WithRateLimiter(security.NewRateLimiter(DefaultIPRateLimit, DefaultIPBurst, logger)),
 		oauth.WithUserRateLimiter(security.NewRateLimiter(DefaultUserRateLimit, DefaultUserBurst, logger)),
 		oauth.WithSecurityEventRateLimiter(security.NewRateLimiter(DefaultSecurityEventRate, DefaultSecurityEventBurst, logger)),
@@ -75,7 +75,7 @@ func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger) 
 
 	// Valkey wires its own encryptor on the store; only memory storage needs WithEncryptor here.
 	if cfg.EncryptionKey != "" && cfg.Storage.Type != storage.BackendValkey {
-		keyBytes, err := musteroauth.DecodeEncryptionKey(cfg.EncryptionKey)
+		keyBytes, err := security.DecodeKey(cfg.EncryptionKey)
 		if err != nil {
 			return nil, fmt.Errorf("failed to decode encryption key: %w", err)
 		}
