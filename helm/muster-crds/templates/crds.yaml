@@ -1,0 +1,8 @@
+{{- range $path, $_ := .Files.Glob "files/crds/*.yaml" }}
+{{- $crd := $.Files.Get $path | fromYaml }}
+{{- with $.Values.crds.annotations }}
+{{- $_ := set $crd.metadata "annotations" (merge (default dict $crd.metadata.annotations) .) }}
+{{- end }}
+---
+{{ $crd | toYaml }}
+{{- end }}

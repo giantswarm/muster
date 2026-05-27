@@ -1,0 +1,13 @@
+# Default values for muster-crds.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# CRD installation. CRDs live in helm/muster-crds/files/crds/ and are rendered
+# by helm/muster-crds/templates/crds.yaml. The loader merges `crds.annotations`
+# into each CRD's metadata.annotations. This chart always installs the CRDs —
+# there is no install toggle, because installing this chart IS how you install
+# the CRDs. The default annotation keeps the CRDs (and the MCPServer / Workflow
+# CRs that depend on them) around on `helm uninstall`.
+crds:
+  annotations:
+    helm.sh/resource-policy: keep
