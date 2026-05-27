@@ -1,4 +1,4 @@
-package aggregator
+package store
 
 import (
 	"context"
@@ -180,8 +180,7 @@ func (s *ValkeyCapabilityStore) Touch(ctx context.Context, sessionID string) (bo
 	return b, nil
 }
 
-// ListSessions returns every sessionID with a capability entry. It SCANs
-// the key prefix so cost is linear in the number of tracked sessions.
+// ListSessions returns every sessionID with a capability entry.
 func (s *ValkeyCapabilityStore) ListSessions(ctx context.Context) ([]string, error) {
 	prefix := s.keyPrefix + "cap:"
 	match := prefix + "*"

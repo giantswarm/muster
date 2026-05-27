@@ -12,6 +12,7 @@ import (
 
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/metatools"
+	oauthstore "github.com/giantswarm/muster/internal/oauth/store"
 )
 
 func TestSessionToolFilter_ReturnsOnlyMetaTools(t *testing.T) {
@@ -78,10 +79,10 @@ func TestSessionToolFilter_ReturnsOnlyMetaTools(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		store := NewInMemoryCapabilityStore(30 * time.Minute)
+		store := oauthstore.NewInMemoryCapabilityStore(30 * time.Minute)
 		defer store.Stop()
 		_ = store.Set(context.Background(), "session-123", "oauth-server",
-			&Capabilities{Tools: []mcp.Tool{{Name: "secret_tool"}}})
+			&oauthstore.Capabilities{Tools: []mcp.Tool{{Name: "secret_tool"}}})
 
 		agg := &AggregatorServer{
 			registry:        reg,
@@ -145,10 +146,10 @@ func TestSessionToolFilter_ReturnsOnlyMetaTools(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		store := NewInMemoryCapabilityStore(30 * time.Minute)
+		store := oauthstore.NewInMemoryCapabilityStore(30 * time.Minute)
 		defer store.Stop()
 		_ = store.Set(context.Background(), "session-abc", "auth-server",
-			&Capabilities{Tools: []mcp.Tool{{Name: "auth_tool_1"}, {Name: "auth_tool_2"}, {Name: "auth_tool_3"}}})
+			&oauthstore.Capabilities{Tools: []mcp.Tool{{Name: "auth_tool_1"}, {Name: "auth_tool_2"}, {Name: "auth_tool_3"}}})
 
 		agg := &AggregatorServer{
 			registry:        reg,

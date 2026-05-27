@@ -304,6 +304,63 @@ type OAuthServerConfig struct {
 	// configured OIDC provider and carrying one of these audiences is treated
 	// as a valid muster bearer token.
 	TrustedAudiences []string `yaml:"trustedAudiences,omitempty"`
+
+	// KubernetesSATrusts configures trust for Kubernetes projected ServiceAccount
+	// tokens. Each entry covers one cluster. When non-empty, the server accepts
+	// SA tokens as RFC 8693 subject_tokens of type
+	// urn:ietf:params:oauth:token-type:jwt.
+	KubernetesSATrusts []K8sSATrustConfig `yaml:"kubernetesSATrusts,omitempty"`
+
+	// TrustedIssuers registers external OIDC issuers for RFC 8693 token exchange.
+	// Tokens from these issuers are accepted as subject_tokens of type
+	// urn:ietf:params:oauth:token-type:id_token and access_token.
+	TrustedIssuers []TrustedIssuerConfig `yaml:"trustedIssuers,omitempty"`
+
+	// TrustedProxyCIDRs lists CIDRs from which X-Forwarded-Proto and
+	// X-Forwarded-Host headers are trusted for DPoP htu URL reconstruction.
+	// Required when muster runs behind a reverse proxy that terminates TLS.
+	TrustedProxyCIDRs []string `yaml:"trustedProxyCIDRs,omitempty"`
+
+	// EnableJWTMode issues signed RFC 9068 JWTs as access tokens instead of
+	// opaque random strings. Required when downstream services (e.g. agentgateway)
+	// need to validate tokens locally without calling the introspection endpoint.
+	EnableJWTMode bool `yaml:"enableJWTMode,omitempty"`
+
+	// ResourceIdentifier is the canonical URI that identifies this muster instance
+	// as an RFC 8707 resource server. When set, access tokens carry this value in
+	// their aud claim and tokens bound to a different resource are rejected, preventing
+	// replay across resource servers sharing the same IdP.
+	// If empty the library defaults to BaseURL (the issuer URL).
+	// Example: "https://muster.example.com/mcp"
+	ResourceIdentifier string `yaml:"resourceIdentifier,omitempty"`
+}
+
+// K8sSATrustConfig mirrors server.KubernetesSATrust.
+type K8sSATrustConfig struct {
+	// Issuer is the cluster OIDC issuer URL (kube-apiserver --service-account-issuer).
+	Issuer string `yaml:"issuer,omitempty"`
+	// JwksURL is the JWKS endpoint. Independent of Issuer so an in-cluster proxy can be used.
+	JwksURL string `yaml:"jwksUrl,omitempty"`
+	// AllowedAudiences lists accepted aud values. Empty accepts any audience.
+	AllowedAudiences []string `yaml:"allowedAudiences,omitempty"`
+	// AllowedScopes caps scopes for exchange tokens from this cluster. Nil means no restriction.
+	AllowedScopes []string `yaml:"allowedScopes,omitempty"`
+	// AllowedNamespaces restricts allowed namespaces. Empty means any.
+	AllowedNamespaces []string `yaml:"allowedNamespaces,omitempty"`
+	// AllowedServiceAccounts restricts allowed SAs in "namespace/name" format. Empty means any.
+	AllowedServiceAccounts []string `yaml:"allowedServiceAccounts,omitempty"`
+}
+
+// TrustedIssuerConfig mirrors server.TrustedIssuer.
+type TrustedIssuerConfig struct {
+	// Issuer is the expected iss claim value.
+	Issuer string `yaml:"issuer,omitempty"`
+	// JwksURL is the JWKS endpoint. Independent of Issuer.
+	JwksURL string `yaml:"jwksUrl,omitempty"`
+	// AllowedAudiences lists accepted aud values. Empty accepts any audience.
+	AllowedAudiences []string `yaml:"allowedAudiences,omitempty"`
+	// AllowedScopes caps scopes for tokens from this issuer. Nil means no restriction.
+	AllowedScopes []string `yaml:"allowedScopes,omitempty"`
 }
 
 // DexConfig holds configuration for the Dex OIDC provider.

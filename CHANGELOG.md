@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Bump `giantswarm/mcp-oauth` to `v0.2.162`. New Helm values `muster.oauth.server.{kubernetesSATrusts,trustedIssuers,trustedProxyCIDRs,enableJWTMode,resourceIdentifier}` wire Kubernetes ServiceAccount token exchange (RFC 8693), trusted external OIDC issuers, DPoP trusted-proxy CIDRs, RFC 9068 JWT access tokens, and RFC 8707 resource-server audience binding. Also enables the OIDC userinfo endpoint, PII-redacted audit logging, and CIMD metadata-fetch rate limiting. Encryption-at-rest is now wired on the store constructor (`valkey.WithEncryptor` / `memory.WithEncryptor`) rather than as a server option.
+
 ### Added
 
 - Degraded-mode startup when the Dex/OIDC issuer is unreachable at boot time. muster now starts immediately and serves MCP aggregation, reconcilers, and all non-OAuth paths regardless of Dex availability. A background goroutine retries OIDC discovery with exponential backoff (1 s → 30 s cap); once discovery succeeds the OAuth server activates transparently. Until then, OAuth and MCP-over-OAuth endpoints return `503 Service Unavailable` with a `Retry-After: 30` header. The `/health` endpoint always returns `200` with `{"status":"degraded","reason":"oidc-discovery-pending"}` during the window. Closes #730.
