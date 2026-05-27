@@ -75,19 +75,6 @@ func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger) 
 		oauth.WithMetadataFetchRateLimiter(security.NewRateLimiter(DefaultMetadataFetchRate, DefaultMetadataFetchBurst, logger)),
 	}
 
-	// Valkey wires its own encryptor on the store; only memory storage needs WithEncryptor here.
-	if cfg.EncryptionKey != "" && cfg.Storage.Type != storage.BackendValkey {
-		keyBytes, err := security.DecodeKey(cfg.EncryptionKey)
-		if err != nil {
-			return nil, fmt.Errorf("failed to decode encryption key: %w", err)
-		}
-		encryptor, err := security.NewEncryptor(keyBytes)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create encryptor: %w", err)
-		}
-		opts = append(opts, oauth.WithEncryptor(encryptor))
-	}
-
 	if len(cfg.KubernetesSATrusts) > 0 {
 		trusts := make([]oauthserver.KubernetesSATrust, len(cfg.KubernetesSATrusts))
 		for i, t := range cfg.KubernetesSATrusts {
@@ -177,7 +164,4 @@ func logEnabledOAuthOptions(cfg config.OAuthServerConfig, logger *slog.Logger) {
 	logger.Info("Client registration rate limiting enabled", "maxClientsPerIP", DefaultMaxClientsPerIP)
 	logger.Info("CIMD metadata-fetch rate limiting enabled", "rate", DefaultMetadataFetchRate, "burst", DefaultMetadataFetchBurst)
 
-	if cfg.EncryptionKey != "" && cfg.Storage.Type != storage.BackendValkey {
-		logger.Info("Token encryption at rest enabled (AES-256-GCM)")
-	}
 }

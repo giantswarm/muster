@@ -629,32 +629,43 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 			valkeyConfig.KeyPrefix = "muster:"
 		}
 
-		valkeyStore, err := valkey.New(valkeyConfig)
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to create Valkey storage: %w", err)
-		}
-
-		// Set up encryption if key is provided
+		var valkeyOpts []valkey.Option
 		if cfg.EncryptionKey != "" {
 			keyBytes, err := security.DecodeKey(cfg.EncryptionKey)
 			if err != nil {
-				valkeyStore.Close()
 				return nil, nil, nil, fmt.Errorf("failed to decode encryption key: %w", err)
 			}
 			encryptor, err := security.NewEncryptor(keyBytes)
 			if err != nil {
-				valkeyStore.Close()
 				return nil, nil, nil, fmt.Errorf("failed to create encryptor: %w", err)
 			}
-			valkeyStore.SetEncryptor(encryptor)
+			valkeyOpts = append(valkeyOpts, valkey.WithEncryptor(encryptor))
 			logger.Info("Token encryption at rest enabled for Valkey storage (AES-256-GCM)")
+		}
+
+		valkeyStore, err := valkey.New(valkeyConfig, valkeyOpts...)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to create Valkey storage: %w", err)
 		}
 
 		combinedStore = valkeyStore
 		logger.Info("Using Valkey storage backend", "address", cfg.Storage.Valkey.URL)
 
 	case storage.BackendMemory, "":
-		combinedStore = memory.New()
+		var memOpts []memory.Option
+		if cfg.EncryptionKey != "" {
+			keyBytes, err := security.DecodeKey(cfg.EncryptionKey)
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("failed to decode encryption key: %w", err)
+			}
+			encryptor, err := security.NewEncryptor(keyBytes)
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("failed to create encryptor: %w", err)
+			}
+			memOpts = append(memOpts, memory.WithEncryptor(encryptor))
+			logger.Info("Token encryption at rest enabled for in-memory storage (AES-256-GCM)")
+		}
+		combinedStore = memory.New(memOpts...)
 		logger.Info("Using in-memory storage backend")
 
 	default:
