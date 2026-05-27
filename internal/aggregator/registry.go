@@ -9,13 +9,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/giantswarm/muster/internal/api"
-	oauthstore "github.com/giantswarm/muster/internal/oauth/store"
-	"github.com/giantswarm/muster/internal/metatools"
-	"github.com/giantswarm/muster/pkg/logging"
-
 	"github.com/mark3labs/mcp-go/mcp"
 	"k8s.io/apimachinery/pkg/runtime"
+
+	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/metatools"
+	oauthstore "github.com/giantswarm/muster/internal/oauth/store"
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // resolvedName stores the reverse mapping from an exposed (prefixed) name
