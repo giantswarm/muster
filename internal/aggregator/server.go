@@ -86,10 +86,7 @@ type AggregatorServer struct {
 	// HTTP servers with socket options (when socket reuse is enabled)
 	httpServer []*http.Server
 
-	// OAuth HTTP server for protecting MCP endpoints (when OAuth server is enabled).
-	// Holds a *server.LazyOAuthHTTPServer when the Dex provider was unavailable at
-	// startup; the concrete type only matters for Shutdown — all other calls go
-	// through the oauthServer interface.
+	// OAuth HTTP server for protecting MCP endpoints (when OAuth is enabled); nil when not configured.
 	oauthHTTPServer oauthServer
 
 	// Lifecycle management for coordinating startup and shutdown
@@ -1013,8 +1010,6 @@ func (a *AggregatorServer) Stop(ctx context.Context) error {
 		}
 	}
 
-	// Shutdown the OAuth server (stops rate limiters, Valkey connections, and
-	// any background OIDC discovery retry loop).
 	if a.oauthHTTPServer != nil {
 		if err := a.oauthHTTPServer.Shutdown(shutdownCtx); err != nil {
 			logging.WarnWithAttrs("Aggregator", "Error shutting down OAuth HTTP server",
@@ -1446,10 +1441,6 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 		return nil, fmt.Errorf("invalid OAuth server config type: expected OAuthServerConfig")
 	}
 
-	// Attempt eager construction first. If OIDC discovery fails (Dex unreachable),
-	// fall back to a lazy server that retries in the background so muster can start
-	// in degraded mode while Dex recovers. OAuth endpoints return 503 until ready;
-	// all other paths (MCP aggregation, reconcilers) are unaffected.
 	var oauthHTTPServer oauthServer
 	inner, err := server.NewOAuthHTTPServer(cfg, mcpHandler, a.config.Debug, a.ssoLifecycleOptions()...)
 	if err != nil {

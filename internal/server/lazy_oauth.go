@@ -32,6 +32,7 @@ type LazyOAuthHTTPServer struct {
 	innerMux http.Handler
 
 	ready  chan struct{}
+	done   chan struct{} // closed when discoveryLoop exits
 	ctx    context.Context
 	cancel context.CancelFunc
 
@@ -49,6 +50,7 @@ func NewLazyOAuthHTTPServer(ctx context.Context, cfg config.OAuthServerConfig, m
 		debug:      debug,
 		serverOpts: opts,
 		ready:      make(chan struct{}),
+		done:       make(chan struct{}),
 		ctx:        lctx,
 		cancel:     cancel,
 	}
@@ -56,9 +58,10 @@ func NewLazyOAuthHTTPServer(ctx context.Context, cfg config.OAuthServerConfig, m
 	return l
 }
 
-// discoveryLoop retries NewOAuthHTTPServer (which calls dex.NewProvider → OIDC discovery)
-// with exponential backoff until it succeeds or the context is cancelled.
+// discoveryLoop retries NewOAuthHTTPServer with exponential backoff until it succeeds
+// or the context is cancelled.
 func (l *LazyOAuthHTTPServer) discoveryLoop() {
+	defer close(l.done)
 	backoff := oidcInitialBackoff
 
 	for {
@@ -144,8 +147,15 @@ func (l *LazyOAuthHTTPServer) CreateMux() http.Handler {
 }
 
 // Shutdown stops the discovery loop and shuts down the inner server if it was created.
+// It waits for the background goroutine to exit so the caller can be sure no new inner
+// server connections will be opened after Shutdown returns.
 func (l *LazyOAuthHTTPServer) Shutdown(ctx context.Context) error {
 	l.cancel()
+	select {
+	case <-l.done:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 	l.mu.RLock()
 	inner := l.inner
 	l.mu.RUnlock()

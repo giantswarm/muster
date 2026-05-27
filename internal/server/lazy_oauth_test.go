@@ -71,11 +71,11 @@ func TestLazyOAuthHTTPServer_WaitReady_ContextCancelled(t *testing.T) {
 	lazy := NewLazyOAuthHTTPServer(t.Context(), cfg, http.NotFoundHandler(), false)
 	defer func() { _ = lazy.Shutdown(context.Background()) }()
 
-	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
-	defer cancel()
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
 
 	err := lazy.WaitReady(ctx)
-	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.ErrorIs(t, err, context.Canceled)
 }
 
 func TestLazyOAuthHTTPServer_SetOnAuthenticated_StoredBeforeReady(t *testing.T) {
@@ -95,8 +95,14 @@ func TestLazyOAuthHTTPServer_SetOnAuthenticated_StoredBeforeReady(t *testing.T) 
 	require.NotNil(t, cb)
 }
 
-func TestLazyOAuthHTTPServer_Ready_AfterDiscoverySucceeds(t *testing.T) {
-	// Spin up a minimal OIDC discovery stub
+// TestLazyOAuthHTTPServer_DegradedWhileRetryingReachableEndpoint verifies that the
+// server stays degraded and shuts down cleanly while the background loop is actively
+// hitting a reachable (but TLS-failing) endpoint. This guards against deadlocks in the
+// retry path.
+func TestLazyOAuthHTTPServer_DegradedWhileRetryingReachableEndpoint(t *testing.T) {
+	// Spin up a minimal OIDC discovery stub. dex.NewProvider rejects self-signed certs
+	// on non-loopback addresses (SSRF protection), so discovery will keep failing even
+	// though the endpoint is reachable — which is exactly the condition we want to test.
 	oidcStub := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/.well-known/openid-configuration" {
 			w.Header().Set("Content-Type", "application/json")
@@ -116,32 +122,20 @@ func TestLazyOAuthHTTPServer_Ready_AfterDiscoverySucceeds(t *testing.T) {
 	}))
 	defer oidcStub.Close()
 
-	// The stub uses a self-signed TLS certificate. dex.NewProvider validates the
-	// issuer URL with SSRF protection that rejects self-signed certs on non-loopback
-	// addresses. We can't easily inject an HTTP client into NewOAuthHTTPServer from
-	// this test, so instead verify the degraded-mode contract (WaitReady times out)
-	// while the background loop is actively retrying a reachable-but-TLS-failing
-	// endpoint to confirm the retry logic itself does not deadlock.
 	cfg := newAlwaysFailingConfig()
 	cfg.Dex.IssuerURL = oidcStub.URL
 
 	lazy := NewLazyOAuthHTTPServer(t.Context(), cfg, http.NotFoundHandler(), false)
-	defer func() { _ = lazy.Shutdown(context.Background()) }()
 
-	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
-	defer cancel()
-
-	// We expect a timeout here because the TLS cert is self-signed and the issuer
-	// URL is not a loopback address, so SSRF validation rejects it. The important
-	// property under test is that the process does not crash or deadlock.
-	err := lazy.WaitReady(ctx)
-	require.ErrorIs(t, err, context.DeadlineExceeded)
-
-	// Even while the background loop is running, /health must remain reachable.
+	// While the loop is running, /health must return degraded.
 	mux := lazy.CreateMux()
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/health", nil))
 	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "degraded")
+
+	// Shutdown must complete without deadlock.
+	require.NoError(t, lazy.Shutdown(context.Background()))
 }
 
 func TestLazyOAuthHTTPServer_RetryAfterHeader(t *testing.T) {
