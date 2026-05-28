@@ -11,15 +11,15 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/go-jose/go-jose/v4"
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
+	"github.com/go-jose/go-jose/v4"
 )
 
 // loadSigningKey reads a PEM-encoded private key from path and returns the key,
 // its RFC 7638 JWK SHA-256 thumbprint (used as kid), and the matching JWS alg.
 // Supported formats: EC PRIVATE KEY (P-256 → ES256), RSA PRIVATE KEY / PRIVATE KEY (PKCS#8).
 func loadSigningKey(path string) (crypto.Signer, string, string, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // path is operator-configured, not user input
 	if err != nil {
 		return nil, "", "", fmt.Errorf("reading JWT signing key: %w", err)
 	}
