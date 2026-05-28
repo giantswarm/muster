@@ -684,6 +684,16 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 
 	serverConfig := newOAuthServerConfig(cfg, refreshTokenTTL)
 
+	if cfg.EnableJWTMode {
+		key, kid, alg, err := loadSigningKey(cfg.JWTSigningKeyFile)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("JWT mode enabled but signing key unavailable: %w", err)
+		}
+		serverConfig.AccessTokenSigningKey = key
+		serverConfig.AccessTokenSigningKeyID = kid
+		serverConfig.AccessTokenSigningAlgorithm = alg
+	}
+
 	builtOpts, err := buildOAuthServerOptions(cfg, logger)
 	if err != nil {
 		return nil, nil, nil, err
