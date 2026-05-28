@@ -457,8 +457,9 @@ muster:
       # PEM-encoded private key for signing RFC 9068 JWT access tokens.
       # Required when enableJWTMode is true. Supported: EC P-256 (ES256) or RSA (RS256).
       # kid is derived from the RFC 7638 JWK thumbprint of the public key.
-      # Use existingSecret to supply the key from an externally managed Secret
-      # (key name must be "jwt-signing-key").
+      # SECURITY: this value ends up in a Kubernetes Secret and in Helm release
+      # history. For production, prefer existingSecret so the key never passes
+      # through Helm values (key name in the external Secret must be "jwt-signing-key").
       jwtSigningKey: ""
 
       # Canonical URI identifying this muster instance as an RFC 8707 resource server.
