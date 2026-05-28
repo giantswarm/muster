@@ -76,33 +76,17 @@ func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger) 
 		oauth.WithMetadataFetchRateLimiter(security.NewRateLimiter(DefaultMetadataFetchRate, DefaultMetadataFetchBurst, logger)),
 	}
 
-	issuers := make([]oauthserver.TrustedIssuer, 0, len(cfg.KubernetesSATrusts)+len(cfg.TrustedIssuers))
-	for _, t := range cfg.KubernetesSATrusts {
-		subPattern, err := k8sSASubPattern(t.AllowedNamespaces, t.AllowedServiceAccounts)
-		if err != nil {
-			return nil, fmt.Errorf("kubernetesSATrust %q: %w", t.Issuer, err)
+	if len(cfg.TrustedIssuers) > 0 {
+		issuers := make([]oauthserver.TrustedIssuer, len(cfg.TrustedIssuers))
+		for i, iss := range cfg.TrustedIssuers {
+			issuers[i] = oauthserver.TrustedIssuer{
+				Issuer:           iss.Issuer,
+				JwksURL:          iss.JwksURL,
+				AllowedAudiences: iss.AllowedAudiences,
+				AllowedScopes:    iss.AllowedScopes,
+				AllowedClaims:    iss.AllowedClaims,
+			}
 		}
-		ti := oauthserver.TrustedIssuer{
-			Issuer:             t.Issuer,
-			JwksURL:            t.JwksURL,
-			AllowedAudiences:   t.AllowedAudiences,
-			AllowedScopes:      t.AllowedScopes,
-			AllowPrivateIPJWKS: true,
-		}
-		if subPattern != "" {
-			ti.AllowedClaims = map[string]string{"sub": subPattern}
-		}
-		issuers = append(issuers, ti)
-	}
-	for _, iss := range cfg.TrustedIssuers {
-		issuers = append(issuers, oauthserver.TrustedIssuer{
-			Issuer:           iss.Issuer,
-			JwksURL:          iss.JwksURL,
-			AllowedAudiences: iss.AllowedAudiences,
-			AllowedScopes:    iss.AllowedScopes,
-		})
-	}
-	if len(issuers) > 0 {
 		opts = append(opts, oauthserver.WithTrustedIssuers(issuers))
 	}
 
@@ -187,7 +171,7 @@ func newDPoPReplayCache(storageCfg config.OAuthStorageConfig) (oauthserver.DPoPR
 
 // logEnabledOAuthOptions emits operator-facing Info lines confirming which
 // security subsystems came up. Call only after the constructor succeeded.
-func logEnabledOAuthOptions(cfg config.OAuthServerConfig, logger *slog.Logger) {
+func logEnabledOAuthOptions(logger *slog.Logger) {
 	logger.Info("Security audit logging enabled")
 	logger.Info("IP-based rate limiting enabled", "rate", DefaultIPRateLimit, "burst", DefaultIPBurst)
 	logger.Info("User-based rate limiting enabled", "rate", DefaultUserRateLimit, "burst", DefaultUserBurst)

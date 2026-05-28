@@ -707,7 +707,7 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 		return nil, nil, nil, fmt.Errorf("failed to create OAuth server: %w", err)
 	}
 
-	logEnabledOAuthOptions(cfg, logger)
+	logEnabledOAuthOptions(logger)
 
 	return oauthSrv, combinedStore, dpopClient, nil
 }

@@ -78,11 +78,12 @@ func TestBuildOAuthServerOptions_NoErrorWhenFieldsSet(t *testing.T) {
 
 	cfg := config.OAuthServerConfig{
 		BaseURL: "https://muster.example.com",
-		KubernetesSATrusts: []config.K8sSATrustConfig{
-			{Issuer: "https://k8s.example.com", JwksURL: "https://k8s.example.com/jwks"},
-		},
 		TrustedIssuers: []config.TrustedIssuerConfig{
-			{Issuer: "https://idp.example.com", JwksURL: "https://idp.example.com/jwks"},
+			{
+				Issuer:        "https://idp.example.com",
+				JwksURL:       "https://idp.example.com/jwks",
+				AllowedClaims: map[string]string{"sub": "system:serviceaccount:ai-platform:*"},
+			},
 		},
 		TrustedProxyCIDRs: []string{"127.0.0.1/32"},
 	}
