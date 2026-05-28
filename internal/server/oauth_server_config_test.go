@@ -117,6 +117,8 @@ func TestBuildOAuthServerOptions_AllowedClaimsPropagated(t *testing.T) {
 }
 
 func TestBuildOAuthServerOptions_NoErrorWhenFieldsAbsent(t *testing.T) {
+	t.Parallel()
+
 	cfg := config.OAuthServerConfig{
 		BaseURL: "https://muster.example.com",
 	}
@@ -126,6 +128,8 @@ func TestBuildOAuthServerOptions_NoErrorWhenFieldsAbsent(t *testing.T) {
 }
 
 func TestBuildOAuthServerOptions_InvalidCIDRReturnsError(t *testing.T) {
+	t.Parallel()
+
 	cfg := config.OAuthServerConfig{
 		BaseURL:           "https://muster.example.com",
 		TrustedProxyCIDRs: []string{"not-a-cidr"},
