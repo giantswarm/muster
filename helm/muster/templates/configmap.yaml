@@ -88,6 +88,7 @@ data:
           {{- end }}
           {{- if .Values.muster.oauth.server.enableJWTMode }}
           enableJWTMode: true
+          jwtSigningKeyFile: {{ printf "%s/jwt-signing-key" $secretsPath | quote }}
           {{- end }}
           {{- with .Values.muster.oauth.server.resourceIdentifier }}
           resourceIdentifier: {{ . | quote }}

@@ -317,7 +317,14 @@ type OAuthServerConfig struct {
 	// EnableJWTMode issues signed RFC 9068 JWTs as access tokens instead of
 	// opaque random strings. Required when downstream services (e.g. agentgateway)
 	// need to validate tokens locally without calling the introspection endpoint.
+	// JWTSigningKeyFile must be set when this is true.
 	EnableJWTMode bool `yaml:"enableJWTMode,omitempty"`
+
+	// JWTSigningKeyFile is the path to a PEM-encoded private key used to sign
+	// access tokens in JWT mode. Supported formats: EC PRIVATE KEY (P-256, ES256),
+	// RSA PRIVATE KEY / PRIVATE KEY (PKCS#8, RS256). kid is derived from the
+	// RFC 7638 JWK thumbprint of the public key. Required when EnableJWTMode is true.
+	JWTSigningKeyFile string `yaml:"jwtSigningKeyFile,omitempty"`
 
 	// ResourceIdentifier is the canonical URI that identifies this muster instance
 	// as an RFC 8707 resource server. When set, access tokens carry this value in

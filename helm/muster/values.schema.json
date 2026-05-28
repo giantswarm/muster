@@ -566,6 +566,10 @@
               "type": "boolean",
               "description": "Issue RFC 9068 signed JWTs as access tokens instead of opaque strings"
             },
+            "jwtSigningKey": {
+              "type": "string",
+              "description": "PEM-encoded private key (EC P-256 or RSA) for signing JWT access tokens. Required when enableJWTMode is true. Use existingSecret to supply externally (key name: jwt-signing-key)."
+            },
             "resourceIdentifier": {
               "type": "string",
               "description": "RFC 8707 resource server URI. Access tokens carry this in their aud claim; tokens bound to a different resource are rejected. Defaults to baseUrl when empty."
