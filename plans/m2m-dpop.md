@@ -8,6 +8,52 @@ playing the role of a transitional machine IdP until Dex (or a Dex replacement
 like Zitadel) ships CIMD support and claude-code's OAuth client can talk to it
 directly.
 
+**CIMD** = Client-Initiated Metadata Discovery, the OAuth metadata-fetch
+extension that claude-code's MCP OAuth client requires. Muster's embedded
+`mcp-oauth` AS implements it today; stock Dex does not. Replacing muster as
+the M2M AS is blocked on CIMD landing in whichever IdP we migrate to.
+
+---
+
+## Why muster as machine IdP today (not Dex / not Zitadel)
+
+| | Muster broker (MVP) | Extend Dex | Switch to Zitadel |
+|---|---|---|---|
+| claude-code CIMD | supported | would have to add | would have to add |
+| Per-MC config churn | Per-customer muster only | 20+ per-MC dex configs | Migration of the whole IdP layer |
+| Trust config blast radius | Muster outage = M2M outage | Dex outage = SSO **and** M2M outage | Same |
+| Code already in flight | mcp-oauth #409 landing now | Custom connector / fork TBD | Migration project TBD |
+| Long-term shape | Transitional | Right shape eventually | Right shape eventually |
+
+Muster-first ships SRE-agent autonomy in weeks, not quarters. The MVP uses the
+same `trustedIssuers` mechanism on downstream MCPs that a future Dex / Zitadel
+deployment would also need, so we are not painting ourselves into a corner:
+only the muster-broker piece gets replaced when CIMD lands upstream.
+
+---
+
+## Work order (MVP critical path)
+
+```
+PR mcp-oauth#409 (multi-issuer ValidateToken)  ──┐
+                                                  ├──►  tag mcp-oauth release
+PR mcp-oauth: ExchangeSubjectToken extra claims ─┘                │
+                                                                   ▼
+                       muster PR #757 ──► bump mcp-oauth, add machinePrincipals
+                       kubernetes-mcp PR ──► bump mcp-oauth, add muster to WithTrustedIssuers
+                                                                   │
+                                                                   ▼
+                                  glean fixtures (klaus-sre SA + RoleBinding)
+                                                                   │
+                                                                   ▼
+                                            MVP smoke test on glean
+```
+
+Glean fixtures (the `klaus-sre` SA + `ClusterRoleBinding` for
+`User: klaus-sre@machine.giantswarm.io`) have **zero code dependencies** and
+should land first in parallel. Both `muster PR #757` and the `kubernetes-mcp`
+bump are parallelisable once a new mcp-oauth tag exists.
+
 ---
 
 ## Two flows, not one
