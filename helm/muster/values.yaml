@@ -435,7 +435,7 @@ muster:
 
       # Trusted external OIDC issuers for RFC 8693 token exchange. Tokens are accepted
       # as id_token / access_token / jwt subject_tokens. Optional allowedClaims requires
-      # named claims to match exact strings or globs (* spans any chars incl. '/'),
+      # named claims to match exact strings or globs (* spans any chars incl. '/', ? one char),
       # e.g. to trust a Kubernetes ServiceAccount:
       #   - issuer: https://kubernetes.default.svc
       #     jwksUrl: https://kubernetes.default.svc/openid/v1/jwks

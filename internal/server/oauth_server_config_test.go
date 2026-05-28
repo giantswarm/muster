@@ -92,6 +92,28 @@ func TestBuildOAuthServerOptions_NoErrorWhenFieldsSet(t *testing.T) {
 	require.NotEmpty(t, opts)
 }
 
+func TestBuildOAuthServerOptions_AllowedClaimsPropagated(t *testing.T) {
+	t.Parallel()
+
+	base := config.OAuthServerConfig{BaseURL: "https://muster.example.com"}
+	baseOpts, err := buildOAuthServerOptions(base, nil)
+	require.NoError(t, err)
+
+	withClaims := config.OAuthServerConfig{
+		BaseURL: "https://muster.example.com",
+		TrustedIssuers: []config.TrustedIssuerConfig{
+			{
+				Issuer:        "https://idp.example.com",
+				JwksURL:       "https://idp.example.com/jwks",
+				AllowedClaims: map[string]string{"sub": "system:serviceaccount:ai-platform:*"},
+			},
+		},
+	}
+	claimsOpts, err := buildOAuthServerOptions(withClaims, nil)
+	require.NoError(t, err)
+	require.Greater(t, len(claimsOpts), len(baseOpts), "TrustedIssuers with AllowedClaims should add a server option")
+}
+
 func TestBuildOAuthServerOptions_NoErrorWhenFieldsAbsent(t *testing.T) {
 	t.Parallel()
 
