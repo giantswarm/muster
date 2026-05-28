@@ -82,6 +82,10 @@ data:
           trustedIssuers:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          {{- with .Values.muster.oauth.server.machinePrincipals }}
+          machinePrincipals:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           {{- with .Values.muster.oauth.server.trustedProxyCIDRs }}
           trustedProxyCIDRs:
             {{- toYaml . | nindent 12 }}

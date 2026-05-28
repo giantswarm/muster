@@ -215,6 +215,14 @@ func (s *OAuthHTTPServer) CreateMux() http.Handler {
 	// Setup MCP endpoint with OAuth protection
 	s.setupMCPRoutes(mux)
 
+	if len(s.config.MachinePrincipals) > 0 {
+		return &machinePrincipalExchangeMiddleware{
+			next:              mux,
+			oauthServer:       s.oauthServer,
+			machinePrincipals: s.config.MachinePrincipals,
+		}
+	}
+
 	return mux
 }
 
