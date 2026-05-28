@@ -78,6 +78,24 @@ data:
           trustedAudiences:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          {{- with .Values.muster.oauth.server.kubernetesSATrusts }}
+          kubernetesSATrusts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.muster.oauth.server.trustedIssuers }}
+          trustedIssuers:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.muster.oauth.server.trustedProxyCIDRs }}
+          trustedProxyCIDRs:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if .Values.muster.oauth.server.enableJWTMode }}
+          enableJWTMode: true
+          {{- end }}
+          {{- with .Values.muster.oauth.server.resourceIdentifier }}
+          resourceIdentifier: {{ . | quote }}
+          {{- end }}
         {{- end }}
     namespace: {{ include "muster.namespace" . | quote }}
     kubernetes: true

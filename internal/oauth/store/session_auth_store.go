@@ -1,4 +1,4 @@
-package aggregator
+package store
 
 import (
 	"context"
@@ -6,49 +6,29 @@ import (
 	"time"
 )
 
-// SessionAuthStore is the interface for tracking per-session, per-server
-// authentication state. It answers the single question: "may this session
-// call tools on this server?" Implementations must be safe for concurrent use.
-//
-// This is deliberately separate from CapabilityStore so that auth state and
-// cached capabilities can evolve independently -- clearing stale capabilities
-// (e.g. on tool-change detection or server health transitions) does not
-// accidentally revoke a user's authentication.
+// SessionAuthStore tracks per-session, per-server authentication state.
+// It answers: "may this session call tools on this server?"
+// Implementations must be safe for concurrent use.
 type SessionAuthStore interface {
-	// IsAuthenticated returns true if the session has authenticated to the server.
+	// IsAuthenticated reports whether the session has authenticated to the server.
 	IsAuthenticated(ctx context.Context, sessionID, serverName string) (bool, error)
-
-	// MarkAuthenticated records successful authentication for a session+server pair
-	// and resets the session-level TTL.
+	// MarkAuthenticated records successful authentication and resets the session TTL.
 	MarkAuthenticated(ctx context.Context, sessionID, serverName string) error
-
 	// Revoke removes auth state for a single session+server pair (per-server logout).
 	Revoke(ctx context.Context, sessionID, serverName string) error
-
 	// RevokeSession removes all auth state for a session (full logout / token revocation).
 	RevokeSession(ctx context.Context, sessionID string) error
-
 	// RevokeServer removes auth state for a server across all sessions (deregistration).
 	RevokeServer(ctx context.Context, serverName string) error
-
-	// Touch extends the session-level TTL without modifying auth state.
-	// Returns true if the session existed (with at least one authenticated server)
-	// and was touched.
+	// Touch extends the session TTL. Returns true if the session existed and was touched.
 	Touch(ctx context.Context, sessionID string) (bool, error)
 }
-
-// --- In-memory implementation ---
 
 // inMemoryAuthSession holds authenticated server names for a single session.
 //
 // Expiry uses two complementary mechanisms:
 //   - expireAt: a soft deadline checked in IsAuthenticated (under RLock).
-//     This provides immediate correctness without waiting for the timer.
-//   - timer: a hard cleanup that fires after the TTL to delete the session
-//     from the map, preventing unbounded memory growth from abandoned sessions.
-//
-// Both are needed: the soft check is fast and lock-friendly; the hard timer
-// is the actual garbage collector.
+//   - timer: a hard cleanup that fires after the TTL to delete the session.
 type inMemoryAuthSession struct {
 	servers  map[string]bool
 	timer    *time.Timer
@@ -157,7 +137,7 @@ func (s *InMemorySessionAuthStore) Touch(_ context.Context, sessionID string) (b
 }
 
 // resetSessionTTL updates the soft expireAt deadline and restarts the hard
-// cleanup timer for the given session. The caller must hold s.mu (write lock).
+// cleanup timer. The caller must hold s.mu (write lock).
 func (s *InMemorySessionAuthStore) resetSessionTTL(sessionID string, sess *inMemoryAuthSession) {
 	sess.expireAt = time.Now().Add(s.ttl)
 	if sess.timer != nil {
@@ -175,7 +155,7 @@ func (s *InMemorySessionAuthStore) resetSessionTTL(sessionID string, sess *inMem
 	})
 }
 
-// Stop cleans up all timers. Should be called when the store is no longer needed.
+// Stop cleans up all timers. Call when the store is no longer needed.
 func (s *InMemorySessionAuthStore) Stop() {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -1,4 +1,4 @@
-package aggregator
+package store
 
 import (
 	"context"
@@ -8,6 +8,9 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
+// DefaultCapabilityStoreTTL is the session-level TTL for capability entries.
+const DefaultCapabilityStoreTTL = 30 * 24 * time.Hour
+
 // Capabilities holds the MCP capabilities for a session+server pair.
 type Capabilities struct {
 	Tools     []mcp.Tool
@@ -15,7 +18,9 @@ type Capabilities struct {
 	Prompts   []mcp.Prompt
 }
 
-func (c *Capabilities) deepCopy() *Capabilities {
+// DeepCopy returns a new Capabilities with independent slice backing arrays.
+// Element structs (Tool/Resource/Prompt) are copied by value.
+func (c *Capabilities) DeepCopy() *Capabilities {
 	if c == nil {
 		return nil
 	}
@@ -26,52 +31,29 @@ func (c *Capabilities) deepCopy() *Capabilities {
 	}
 }
 
-// CapabilityStore is the interface for storing per-session, per-server MCP
-// capabilities. Implementations must be safe for concurrent use.
+// CapabilityStore stores per-session, per-server MCP capabilities.
+// Implementations must be safe for concurrent use.
 type CapabilityStore interface {
 	// Get returns the capabilities for a session+server pair.
-	// Returns nil and no error on cache miss.
+	// Returns nil, nil on cache miss.
 	Get(ctx context.Context, sessionID, serverName string) (*Capabilities, error)
-
 	// GetAll returns all capabilities for a session, keyed by server name.
 	GetAll(ctx context.Context, sessionID string) (map[string]*Capabilities, error)
-
-	// Set stores capabilities for a session+server pair and resets the
-	// session-level TTL.
+	// Set stores capabilities for a session+server pair and resets the session TTL.
 	Set(ctx context.Context, sessionID, serverName string, caps *Capabilities) error
-
-	// Delete removes all capabilities for a session (e.g., on full logout).
+	// Delete removes all capabilities for a session (full logout).
 	Delete(ctx context.Context, sessionID string) error
-
-	// DeleteEntry removes capabilities for a single session+server pair
-	// (e.g., on per-server logout).
+	// DeleteEntry removes capabilities for a single session+server pair (per-server logout).
 	DeleteEntry(ctx context.Context, sessionID, serverName string) error
-
-	// DeleteServer removes capabilities for a server across all sessions
-	// (e.g., on deregistration).
+	// DeleteServer removes capabilities for a server across all sessions (deregistration).
 	DeleteServer(ctx context.Context, serverName string) error
-
-	// Exists checks whether capabilities exist for a session+server pair.
+	// Exists reports whether capabilities exist for a session+server pair.
 	Exists(ctx context.Context, sessionID, serverName string) (bool, error)
-
-	// Touch resets the session-level TTL without modifying stored capabilities.
-	// This keeps the cache alive as long as the user is actively making requests.
-	// Returns true if the session existed and was touched.
+	// Touch resets the session TTL. Returns true if the session existed and was touched.
 	Touch(ctx context.Context, sessionID string) (bool, error)
-
-	// ListSessions returns the sessionIDs currently held by the store. Intended
-	// for admin/inspection paths; the order is not guaranteed and expired
-	// sessions (in-memory impls) must be filtered out before returning.
+	// ListSessions returns current sessionIDs; expired sessions are excluded.
 	ListSessions(ctx context.Context) ([]string, error)
 }
-
-// DefaultCapabilityStoreTTL is the session-level TTL for capability entries.
-// Set to 30 days so that cached capabilities survive normal inactivity,
-// weekends, and vacations. The cache is explicitly cleared on logout via
-// the SessionRevocationHandler, so stale entries are not a concern.
-const DefaultCapabilityStoreTTL = 30 * 24 * time.Hour
-
-// --- In-memory implementation ---
 
 // inMemorySession holds all server capabilities for a single session.
 type inMemorySession struct {
@@ -111,7 +93,7 @@ func (s *InMemoryCapabilityStore) Get(_ context.Context, sessionID, serverName s
 	if !ok {
 		return nil, nil
 	}
-	return caps.deepCopy(), nil
+	return caps.DeepCopy(), nil
 }
 
 func (s *InMemoryCapabilityStore) GetAll(_ context.Context, sessionID string) (map[string]*Capabilities, error) {
@@ -127,7 +109,7 @@ func (s *InMemoryCapabilityStore) GetAll(_ context.Context, sessionID string) (m
 	}
 	result := make(map[string]*Capabilities, len(sess.servers))
 	for k, v := range sess.servers {
-		result[k] = v.deepCopy()
+		result[k] = v.DeepCopy()
 	}
 	return result, nil
 }
@@ -144,7 +126,7 @@ func (s *InMemoryCapabilityStore) Set(_ context.Context, sessionID, serverName s
 		s.sessions[sessionID] = sess
 	}
 
-	// Deep copy the capabilities to prevent mutation by callers.
+	// Deep copy to prevent mutation by callers.
 	stored := &Capabilities{
 		Tools:     append([]mcp.Tool(nil), caps.Tools...),
 		Resources: append([]mcp.Resource(nil), caps.Resources...),
@@ -152,7 +134,6 @@ func (s *InMemoryCapabilityStore) Set(_ context.Context, sessionID, serverName s
 	}
 	sess.servers[serverName] = stored
 
-	// Reset session-level TTL.
 	sess.expireAt = time.Now().Add(s.ttl)
 	if sess.timer != nil {
 		sess.timer.Stop()
@@ -160,7 +141,6 @@ func (s *InMemoryCapabilityStore) Set(_ context.Context, sessionID, serverName s
 	sess.timer = time.AfterFunc(s.ttl, func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		// Only delete if the session hasn't been renewed since the timer was set.
 		if sess2, exists := s.sessions[sessionID]; exists && time.Now().After(sess2.expireAt) {
 			if sess2.timer != nil {
 				sess2.timer.Stop()
@@ -268,7 +248,7 @@ func (s *InMemoryCapabilityStore) ListSessions(_ context.Context) ([]string, err
 	return out, nil
 }
 
-// Stop cleans up all timers. Should be called when the store is no longer needed.
+// Stop cleans up all timers. Call when the store is no longer needed.
 func (s *InMemoryCapabilityStore) Stop() {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/giantswarm/muster/internal/api"
+	oauthstore "github.com/giantswarm/muster/internal/oauth/store"
 )
 
 func TestListServersRequiringAuth(t *testing.T) {
@@ -130,7 +131,7 @@ func TestListServersRequiringAuth(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		authStore := NewInMemorySessionAuthStore(30 * time.Minute)
+		authStore := oauthstore.NewInMemorySessionAuthStore(30 * time.Minute)
 		defer authStore.Stop()
 		_ = authStore.MarkAuthenticated(context.Background(), "test-session", "cached-server")
 

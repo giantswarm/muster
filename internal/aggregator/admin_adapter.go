@@ -9,6 +9,7 @@ import (
 
 	"github.com/giantswarm/muster/internal/admin"
 	"github.com/giantswarm/muster/internal/api"
+	oauthstore "github.com/giantswarm/muster/internal/oauth/store"
 	"github.com/giantswarm/muster/internal/server"
 	"github.com/giantswarm/muster/pkg/logging"
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
@@ -108,7 +109,7 @@ const unknownSubject = "unknown"
 // the connection pool (live transport/expiry metadata), the server registry
 // (issuer info), and the OAuth handler (raw JWTs, never the signature).
 func (a *AggregatorServer) adminGetSessionDetail(ctx context.Context, sessionID string) (*admin.SessionDetail, bool, error) {
-	var caps map[string]*Capabilities
+	var caps map[string]*oauthstore.Capabilities
 	if a.capabilityStore != nil {
 		got, err := a.capabilityStore.GetAll(ctx, sessionID)
 		if err != nil {

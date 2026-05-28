@@ -9,6 +9,7 @@ import (
 
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/events"
+	oauthstore "github.com/giantswarm/muster/internal/oauth/store"
 	"github.com/giantswarm/muster/internal/server"
 	"github.com/giantswarm/muster/pkg/logging"
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
@@ -158,7 +159,7 @@ func establishConnection(
 
 	// Populate the CapabilityStore keyed by session ID for per-login isolation
 	if a.capabilityStore != nil {
-		if err := a.capabilityStore.Set(ctx, sessionID, serverName, &Capabilities{
+		if err := a.capabilityStore.Set(ctx, sessionID, serverName, &oauthstore.Capabilities{
 			Tools: tools, Resources: resources, Prompts: prompts,
 		}); err != nil {
 			logging.Warn("Connection", "Failed to store capabilities for %s/%s: %v",
@@ -391,7 +392,7 @@ func EstablishConnectionWithTokenForwarding(
 
 	// Populate the CapabilityStore keyed by session ID for per-login isolation
 	if a.capabilityStore != nil {
-		if err := a.capabilityStore.Set(ctx, sessionID, serverInfo.Name, &Capabilities{
+		if err := a.capabilityStore.Set(ctx, sessionID, serverInfo.Name, &oauthstore.Capabilities{
 			Tools: tools, Resources: resources, Prompts: prompts,
 		}); err != nil {
 			logging.Warn("Connection", "Failed to store capabilities for %s/%s: %v",
@@ -700,7 +701,7 @@ func EstablishConnectionWithTokenExchange(
 
 	// Populate the CapabilityStore keyed by session ID for per-login isolation
 	if a.capabilityStore != nil {
-		if storeErr := a.capabilityStore.Set(ctx, sessionID, serverInfo.Name, &Capabilities{
+		if storeErr := a.capabilityStore.Set(ctx, sessionID, serverInfo.Name, &oauthstore.Capabilities{
 			Tools: tools, Resources: resources, Prompts: prompts,
 		}); storeErr != nil {
 			logging.Warn("Connection", "Failed to store capabilities for %s/%s: %v",

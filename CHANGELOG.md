@@ -4,9 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Bump `giantswarm/mcp-oauth` to `v0.2.162`. New Helm values `muster.oauth.server.{kubernetesSATrusts,trustedIssuers,trustedProxyCIDRs,enableJWTMode,resourceIdentifier}` wire Kubernetes ServiceAccount token exchange (RFC 8693), trusted external OIDC issuers, DPoP trusted-proxy CIDRs, RFC 9068 JWT access tokens, and RFC 8707 resource-server audience binding. Also enables the OIDC userinfo endpoint, PII-redacted audit logging, and CIMD metadata-fetch rate limiting. Encryption-at-rest is now wired on the store constructor (`valkey.WithEncryptor` / `memory.WithEncryptor`) rather than as a server option.
+
 ### Added
 
 - New standalone `muster-crds` Helm chart (`helm/muster-crds`) shipping the `MCPServer` and `Workflow` CustomResourceDefinitions. The CRDs are loaded from `files/crds/*.yaml` by `templates/crds.yaml` (regular chart templates, not the Helm 3 `crds/` directory), so they remain upgradable on `helm upgrade` and keep the `helm.sh/resource-policy: keep` annotation. This decouples the CRD lifecycle from the application chart so a downstream `agentic-platform-crds` umbrella can own it independently. Install or upgrade `muster-crds` **before** `muster`.
+- Degraded-mode startup when the Dex/OIDC issuer is unreachable at boot time. muster now starts immediately and serves MCP aggregation, reconcilers, and all non-OAuth paths regardless of Dex availability. A background goroutine retries OIDC discovery with exponential backoff (1 s → 30 s cap); once discovery succeeds the OAuth server activates transparently. Until then, OAuth and MCP-over-OAuth endpoints return `503 Service Unavailable` with a `Retry-After: 30` header. The `/health` endpoint always returns `200` with `{"status":"degraded","reason":"oidc-discovery-pending"}` during the window. Closes #730.
 - `networkPolicy.flavor` selects between `cilium` (CiliumNetworkPolicy) and `kubernetes` (`networking.k8s.io/v1 NetworkPolicy`). The kubernetes flavor is best-effort: no entity selectors, no FQDN egress. CIDR replacements live under `networkPolicy.kubernetes.{apiServerCIDR,clusterCIDR,worldExcludedCIDRs}`. `clusterCIDR: ""` disables the in-cluster ingress egress rule (kubernetes-flavor equivalent of cilium `allowClusterIngress`).
 - `crds.annotations` (object) is merged into each CRD's `metadata.annotations` by the loader. Default `{helm.sh/resource-policy: keep}` keeps CRDs (and the `MCPServer` / `Workflow` CRs that depend on them) around on `helm uninstall`.
 - `revisionHistoryLimit` (default `3`) on the muster Deployment.

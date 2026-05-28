@@ -25,10 +25,10 @@ import (
 	"github.com/giantswarm/mcp-oauth/storage"
 	"github.com/giantswarm/mcp-oauth/storage/memory"
 	"github.com/giantswarm/mcp-oauth/storage/valkey"
+	valkeygo "github.com/valkey-io/valkey-go"
 
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/config"
-	musteroauth "github.com/giantswarm/muster/internal/oauth"
 	"github.com/giantswarm/muster/pkg/logging"
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 )
@@ -75,6 +75,13 @@ const (
 	DefaultSecurityEventRate = 1
 	// DefaultSecurityEventBurst is the burst size for security-event log emission.
 	DefaultSecurityEventBurst = 5
+
+	// DefaultMetadataFetchRate is the per-domain rate for CIMD outbound metadata
+	// fetches (requests/second). Prevents a misbehaving or malicious client from
+	// triggering unbounded outbound HTTP requests to arbitrary domains.
+	DefaultMetadataFetchRate = 1
+	// DefaultMetadataFetchBurst is the burst size for CIMD metadata fetch rate limiting.
+	DefaultMetadataFetchBurst = 3
 
 	// DefaultReadHeaderTimeout is the default timeout for reading request headers.
 	DefaultReadHeaderTimeout = 10 * time.Second
@@ -135,14 +142,15 @@ func buildDexScopes(requiredAudiences []string) []string {
 // It provides both OAuth server functionality (authorization, token issuance)
 // and resource server protection (token validation middleware).
 type OAuthHTTPServer struct {
-	config          config.OAuthServerConfig
-	oauthServer     *oauth.Server
-	oauthHandler    *oauthhandler.Handler
-	tokenStore      storage.TokenStore
-	httpServer      *http.Server
-	mcpHandler      http.Handler
-	debug           bool
-	onAuthenticated func(ctx context.Context, sessionID string)
+	config           config.OAuthServerConfig
+	oauthServer      *oauth.Server
+	oauthHandler     *oauthhandler.Handler
+	tokenStore       storage.TokenStore
+	httpServer       *http.Server
+	mcpHandler       http.Handler
+	debug            bool
+	onAuthenticated  func(ctx context.Context, sessionID string)
+	dpopValkeyClient valkeygo.Client // non-nil only when DPoP uses Valkey-backed replay cache
 }
 
 // NewOAuthHTTPServer creates a new OAuth-enabled HTTP server that wraps
@@ -158,7 +166,7 @@ func NewOAuthHTTPServer(cfg config.OAuthServerConfig, mcpHandler http.Handler, d
 		return nil, err
 	}
 
-	oauthServer, tokenStore, err := createOAuthServer(cfg, opts)
+	oauthServer, tokenStore, dpopClient, err := createOAuthServer(cfg, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OAuth server: %w", err)
 	}
@@ -166,12 +174,13 @@ func NewOAuthHTTPServer(cfg config.OAuthServerConfig, mcpHandler http.Handler, d
 	oauthHandler := oauthhandler.New(oauthServer, oauthServer.Logger)
 
 	server := &OAuthHTTPServer{
-		config:       cfg,
-		oauthServer:  oauthServer,
-		oauthHandler: oauthHandler,
-		tokenStore:   tokenStore,
-		mcpHandler:   mcpHandler,
-		debug:        debug,
+		config:           cfg,
+		oauthServer:      oauthServer,
+		oauthHandler:     oauthHandler,
+		tokenStore:       tokenStore,
+		mcpHandler:       mcpHandler,
+		debug:            debug,
+		dpopValkeyClient: dpopClient,
 	}
 
 	return server, nil
@@ -524,6 +533,11 @@ func (s *OAuthHTTPServer) Shutdown(ctx context.Context) error {
 		}
 	}
 
+	// Close the DPoP replay-cache Valkey client if one was created.
+	if s.dpopValkeyClient != nil {
+		s.dpopValkeyClient.Close()
+	}
+
 	// Shutdown HTTP server if we started one
 	if s.httpServer != nil {
 		return s.httpServer.Shutdown(ctx)
@@ -532,7 +546,9 @@ func (s *OAuthHTTPServer) Shutdown(ctx context.Context) error {
 }
 
 // createOAuthServer creates an OAuth server using mcp-oauth library.
-func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) (*oauth.Server, storage.TokenStore, error) {
+// The returned valkeygo.Client is non-nil only when a Valkey-backed DPoP replay
+// cache is created; the caller must call Close() on it when done.
+func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) (*oauth.Server, storage.TokenStore, valkeygo.Client, error) {
 	logger := slog.Default()
 
 	redirectURL := cfg.BaseURL + "/oauth/callback"
@@ -544,9 +560,9 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 		// Build scopes including any required audiences from MCPServers
 		scopes := buildDexScopes(api.CollectRequiredAudiences())
 		for _, scope := range scopes {
-			if strings.HasPrefix(scope, dex.AudienceScopePrefix) {
+			if audience, ok := strings.CutPrefix(scope, dex.AudienceScopePrefix); ok {
 				logger.Info("Requesting cross-client audience from MCPServer requiredAudiences",
-					"audience", strings.TrimPrefix(scope, dex.AudienceScopePrefix))
+					"audience", audience)
 			}
 		}
 
@@ -564,7 +580,7 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 
 		provider, err = dex.NewProvider(dexConfig)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to create Dex provider: %w", err)
+			return nil, nil, nil, fmt.Errorf("failed to create Dex provider: %w", err)
 		}
 		logger.Info("Using Dex OIDC provider", "issuer", cfg.Dex.IssuerURL)
 
@@ -576,12 +592,12 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 			Scopes:       googleOAuthScopes,
 		})
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to create Google provider: %w", err)
+			return nil, nil, nil, fmt.Errorf("failed to create Google provider: %w", err)
 		}
 		logger.Info("Using Google OAuth provider")
 
 	default:
-		return nil, nil, fmt.Errorf("unsupported OAuth provider: %s (supported: %s, %s)", cfg.Provider, OAuthProviderDex, OAuthProviderGoogle)
+		return nil, nil, nil, fmt.Errorf("unsupported OAuth provider: %s (supported: %s, %s)", cfg.Provider, OAuthProviderDex, OAuthProviderGoogle)
 	}
 
 	// Create storage backend based on configuration. Both memory.Store and
@@ -592,7 +608,7 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 	switch cfg.Storage.Type {
 	case storage.BackendValkey:
 		if cfg.Storage.Valkey.URL == "" {
-			return nil, nil, fmt.Errorf("valkey URL is required when using valkey storage")
+			return nil, nil, nil, fmt.Errorf("valkey URL is required when using valkey storage")
 		}
 
 		valkeyConfig := valkey.Config{
@@ -613,43 +629,54 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 			valkeyConfig.KeyPrefix = "muster:"
 		}
 
-		valkeyStore, err := valkey.New(valkeyConfig)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to create Valkey storage: %w", err)
-		}
-
-		// Set up encryption if key is provided
+		var valkeyOpts []valkey.Option
 		if cfg.EncryptionKey != "" {
-			keyBytes, err := musteroauth.DecodeEncryptionKey(cfg.EncryptionKey)
+			keyBytes, err := security.DecodeKey(cfg.EncryptionKey)
 			if err != nil {
-				valkeyStore.Close()
-				return nil, nil, fmt.Errorf("failed to decode encryption key: %w", err)
+				return nil, nil, nil, fmt.Errorf("failed to decode encryption key: %w", err)
 			}
 			encryptor, err := security.NewEncryptor(keyBytes)
 			if err != nil {
-				valkeyStore.Close()
-				return nil, nil, fmt.Errorf("failed to create encryptor: %w", err)
+				return nil, nil, nil, fmt.Errorf("failed to create encryptor: %w", err)
 			}
-			valkeyStore.SetEncryptor(encryptor)
+			valkeyOpts = append(valkeyOpts, valkey.WithEncryptor(encryptor))
 			logger.Info("Token encryption at rest enabled for Valkey storage (AES-256-GCM)")
+		}
+
+		valkeyStore, err := valkey.New(valkeyConfig, valkeyOpts...)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to create Valkey storage: %w", err)
 		}
 
 		combinedStore = valkeyStore
 		logger.Info("Using Valkey storage backend", "address", cfg.Storage.Valkey.URL)
 
 	case storage.BackendMemory, "":
-		combinedStore = memory.New()
+		var memOpts []memory.Option
+		if cfg.EncryptionKey != "" {
+			keyBytes, err := security.DecodeKey(cfg.EncryptionKey)
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("failed to decode encryption key: %w", err)
+			}
+			encryptor, err := security.NewEncryptor(keyBytes)
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("failed to create encryptor: %w", err)
+			}
+			memOpts = append(memOpts, memory.WithEncryptor(encryptor))
+			logger.Info("Token encryption at rest enabled for in-memory storage (AES-256-GCM)")
+		}
+		combinedStore = memory.New(memOpts...)
 		logger.Info("Using in-memory storage backend")
 
 	default:
-		return nil, nil, fmt.Errorf("unsupported OAuth storage type: %s (supported: %s, %s)", cfg.Storage.Type, storage.BackendMemory, storage.BackendValkey)
+		return nil, nil, nil, fmt.Errorf("unsupported OAuth storage type: %s (supported: %s, %s)", cfg.Storage.Type, storage.BackendMemory, storage.BackendValkey)
 	}
 
 	refreshTokenTTL := DefaultRefreshTokenTTL
 	if cfg.SessionDuration != "" {
 		parsed, err := time.ParseDuration(cfg.SessionDuration)
 		if err != nil {
-			return nil, nil, fmt.Errorf("invalid sessionDuration %q: %w", cfg.SessionDuration, err)
+			return nil, nil, nil, fmt.Errorf("invalid sessionDuration %q: %w", cfg.SessionDuration, err)
 		}
 		refreshTokenTTL = parsed
 		logger.Info("Using custom session duration", "duration", parsed)
@@ -659,18 +686,30 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 
 	builtOpts, err := buildOAuthServerOptions(cfg, logger)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
+
+	// DPoP replay cache is created here (not inside buildOAuthServerOptions) so
+	// that the Valkey client it may create is owned by this function and returned
+	// to the caller for proper lifecycle management.
+	dpopCache, dpopClient, err := newDPoPReplayCache(cfg.Storage)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to create DPoP replay cache: %w", err)
+	}
+	builtOpts = append(builtOpts, oauthserver.WithDPoPReplayCache(dpopCache))
 	builtOpts = append(builtOpts, opts...)
 
 	oauthSrv, err := oauth.NewServerWithCombined(provider, combinedStore, serverConfig, logger, builtOpts...)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create OAuth server: %w", err)
+		if dpopClient != nil {
+			dpopClient.Close()
+		}
+		return nil, nil, nil, fmt.Errorf("failed to create OAuth server: %w", err)
 	}
 
 	logEnabledOAuthOptions(cfg, logger)
 
-	return oauthSrv, combinedStore, nil
+	return oauthSrv, combinedStore, dpopClient, nil
 }
 
 // validateHTTPSRequirement ensures OAuth 2.1 HTTPS compliance.
