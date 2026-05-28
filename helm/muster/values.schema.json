@@ -543,9 +543,9 @@
               },
               "description": "OIDC client IDs (audiences) whose JWTs are accepted as bearer tokens"
             },
-            "kubernetesSATrusts": {
+            "trustedIssuers": {
               "type": "array",
-              "description": "Kubernetes projected SA trust entries for RFC 8693 token exchange",
+              "description": "Trusted external OIDC issuers for RFC 8693 token exchange (id_token / access_token / jwt)",
               "items": {
                 "type": "object",
                 "properties": {
@@ -553,21 +553,7 @@
                   "jwksUrl": {"type": "string"},
                   "allowedAudiences": {"type": "array", "items": {"type": "string"}},
                   "allowedScopes": {"type": "array", "items": {"type": "string"}},
-                  "allowedNamespaces": {"type": "array", "items": {"type": "string"}},
-                  "allowedServiceAccounts": {"type": "array", "items": {"type": "string"}}
-                }
-              }
-            },
-            "trustedIssuers": {
-              "type": "array",
-              "description": "Trusted external OIDC issuers for RFC 8693 token exchange",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "issuer": {"type": "string"},
-                  "jwksUrl": {"type": "string"},
-                  "allowedAudiences": {"type": "array", "items": {"type": "string"}},
-                  "allowedScopes": {"type": "array", "items": {"type": "string"}}
+                  "allowedClaims": {"type": "object", "additionalProperties": {"type": "string"}}
                 }
               }
             },

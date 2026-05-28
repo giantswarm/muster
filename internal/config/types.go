@@ -305,15 +305,8 @@ type OAuthServerConfig struct {
 	// as a valid muster bearer token.
 	TrustedAudiences []string `yaml:"trustedAudiences,omitempty"`
 
-	// KubernetesSATrusts configures trust for Kubernetes projected ServiceAccount
-	// tokens. Each entry covers one cluster. When non-empty, the server accepts
-	// SA tokens as RFC 8693 subject_tokens of type
-	// urn:ietf:params:oauth:token-type:jwt.
-	KubernetesSATrusts []K8sSATrustConfig `yaml:"kubernetesSATrusts,omitempty"`
-
 	// TrustedIssuers registers external OIDC issuers for RFC 8693 token exchange.
-	// Tokens from these issuers are accepted as subject_tokens of type
-	// urn:ietf:params:oauth:token-type:id_token and access_token.
+	// Tokens are accepted as subject_tokens of type id_token, access_token, or jwt.
 	TrustedIssuers []TrustedIssuerConfig `yaml:"trustedIssuers,omitempty"`
 
 	// TrustedProxyCIDRs lists CIDRs from which X-Forwarded-Proto and
@@ -335,22 +328,6 @@ type OAuthServerConfig struct {
 	ResourceIdentifier string `yaml:"resourceIdentifier,omitempty"`
 }
 
-// K8sSATrustConfig mirrors server.KubernetesSATrust.
-type K8sSATrustConfig struct {
-	// Issuer is the cluster OIDC issuer URL (kube-apiserver --service-account-issuer).
-	Issuer string `yaml:"issuer,omitempty"`
-	// JwksURL is the JWKS endpoint. Independent of Issuer so an in-cluster proxy can be used.
-	JwksURL string `yaml:"jwksUrl,omitempty"`
-	// AllowedAudiences lists accepted aud values. Empty accepts any audience.
-	AllowedAudiences []string `yaml:"allowedAudiences,omitempty"`
-	// AllowedScopes caps scopes for exchange tokens from this cluster. Nil means no restriction.
-	AllowedScopes []string `yaml:"allowedScopes,omitempty"`
-	// AllowedNamespaces restricts allowed namespaces. Empty means any.
-	AllowedNamespaces []string `yaml:"allowedNamespaces,omitempty"`
-	// AllowedServiceAccounts restricts allowed SAs in "namespace/name" format. Empty means any.
-	AllowedServiceAccounts []string `yaml:"allowedServiceAccounts,omitempty"`
-}
-
 // TrustedIssuerConfig mirrors server.TrustedIssuer.
 type TrustedIssuerConfig struct {
 	// Issuer is the expected iss claim value.
@@ -361,6 +338,12 @@ type TrustedIssuerConfig struct {
 	AllowedAudiences []string `yaml:"allowedAudiences,omitempty"`
 	// AllowedScopes caps scopes for tokens from this issuer. Nil means no restriction.
 	AllowedScopes []string `yaml:"allowedScopes,omitempty"`
+	// AllowedClaims requires each named claim to match its pattern. Keys are JWT
+	// claim names; values are exact strings or globs ('*' spans any chars incl. '/',
+	// '?' one char). Absent or non-string claims are rejected. Empty means no
+	// restriction. Use to express K8s SA trust via sub, e.g.
+	// "system:serviceaccount:<namespace>:*".
+	AllowedClaims map[string]string `yaml:"allowedClaims,omitempty"`
 }
 
 // DexConfig holds configuration for the Dex OIDC provider.

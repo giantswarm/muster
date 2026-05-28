@@ -144,19 +144,7 @@ estimate.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `kubernetesSATrusts` | `[]K8sSATrustConfig` | `[]` | Trust entries for Kubernetes projected ServiceAccount tokens. Each entry covers one cluster. SA tokens are accepted as `subject_tokens` of type `urn:ietf:params:oauth:token-type:jwt`. |
-| `trustedIssuers` | `[]TrustedIssuerConfig` | `[]` | Trusted external OIDC issuers. Tokens from these issuers are accepted as `id_token` and `access_token` subject_tokens. |
-
-**K8sSATrustConfig fields:**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `issuer` | `string` | Cluster OIDC issuer URL (`kube-apiserver --service-account-issuer`). |
-| `jwksUrl` | `string` | JWKS endpoint. Independent of `issuer`, so an in-cluster proxy can be used. |
-| `allowedAudiences` | `[]string` | Accepted `aud` values. Empty accepts any audience. |
-| `allowedScopes` | `[]string` | Scope ceiling for exchange tokens from this cluster. Nil means no restriction. |
-| `allowedNamespaces` | `[]string` | Allowed namespaces. Empty means any. |
-| `allowedServiceAccounts` | `[]string` | Allowed SAs in `namespace/name` format. Empty means any. |
+| `trustedIssuers` | `[]TrustedIssuerConfig` | `[]` | Trusted external OIDC issuers. Tokens are accepted as `id_token`, `access_token`, or `jwt` subject_tokens. Use `allowedClaims` to express Kubernetes ServiceAccount or GitHub Actions trust. |
 
 **TrustedIssuerConfig fields:**
 
@@ -166,6 +154,7 @@ estimate.
 | `jwksUrl` | `string` | JWKS endpoint. Independent of `issuer`. |
 | `allowedAudiences` | `[]string` | Accepted `aud` values. Empty accepts any audience. |
 | `allowedScopes` | `[]string` | Scope ceiling for tokens from this issuer. Nil means no restriction. |
+| `allowedClaims` | `map[string]string` | Required claim name→pattern pairs. Keys are JWT claim names; values are exact strings or globs where `*` spans any chars including `/` and `?` matches one char. Absent or non-string claims are rejected. Empty means no restriction. |
 
 #### Silent Re-Authentication (CLI Flag)
 

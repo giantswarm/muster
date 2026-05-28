@@ -8,11 +8,11 @@ import (
 	"time"
 
 	oauth "github.com/giantswarm/mcp-oauth"
-	dpopvalkey "github.com/giantswarm/mcp-oauth/dpop/valkey"
 	"github.com/giantswarm/mcp-oauth/instrumentation"
 	"github.com/giantswarm/mcp-oauth/security"
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
 	"github.com/giantswarm/mcp-oauth/storage"
+	dpopvalkey "github.com/giantswarm/mcp-oauth/storage/valkey"
 	valkeygo "github.com/valkey-io/valkey-go"
 
 	"github.com/giantswarm/muster/internal/config"
@@ -75,21 +75,6 @@ func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger) 
 		oauth.WithMetadataFetchRateLimiter(security.NewRateLimiter(DefaultMetadataFetchRate, DefaultMetadataFetchBurst, logger)),
 	}
 
-	if len(cfg.KubernetesSATrusts) > 0 {
-		trusts := make([]oauthserver.KubernetesSATrust, len(cfg.KubernetesSATrusts))
-		for i, t := range cfg.KubernetesSATrusts {
-			trusts[i] = oauthserver.KubernetesSATrust{
-				Issuer:                 t.Issuer,
-				JwksURL:                t.JwksURL,
-				AllowedAudiences:       t.AllowedAudiences,
-				AllowedScopes:          t.AllowedScopes,
-				AllowedNamespaces:      t.AllowedNamespaces,
-				AllowedServiceAccounts: t.AllowedServiceAccounts,
-			}
-		}
-		opts = append(opts, oauthserver.WithKubernetesSATrust(trusts))
-	}
-
 	if len(cfg.TrustedIssuers) > 0 {
 		issuers := make([]oauthserver.TrustedIssuer, len(cfg.TrustedIssuers))
 		for i, iss := range cfg.TrustedIssuers {
@@ -98,6 +83,7 @@ func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger) 
 				JwksURL:          iss.JwksURL,
 				AllowedAudiences: iss.AllowedAudiences,
 				AllowedScopes:    iss.AllowedScopes,
+				AllowedClaims:    iss.AllowedClaims,
 			}
 		}
 		opts = append(opts, oauthserver.WithTrustedIssuers(issuers))
@@ -149,14 +135,14 @@ func newDPoPReplayCache(storageCfg config.OAuthStorageConfig) (oauthserver.DPoPR
 		if prefix == "" {
 			prefix = "muster:"
 		}
-		return dpopvalkey.New(client, prefix+"dpop:"), client, nil
+		return dpopvalkey.NewDPoPReplayCache(client, prefix+"dpop:"), client, nil
 	}
 	return oauthserver.NewMemoryDPoPReplayCache(), nil, nil
 }
 
 // logEnabledOAuthOptions emits operator-facing Info lines confirming which
 // security subsystems came up. Call only after the constructor succeeded.
-func logEnabledOAuthOptions(cfg config.OAuthServerConfig, logger *slog.Logger) {
+func logEnabledOAuthOptions(logger *slog.Logger) {
 	logger.Info("Security audit logging enabled")
 	logger.Info("IP-based rate limiting enabled", "rate", DefaultIPRateLimit, "burst", DefaultIPBurst)
 	logger.Info("User-based rate limiting enabled", "rate", DefaultUserRateLimit, "burst", DefaultUserBurst)
