@@ -444,6 +444,16 @@ muster:
       #       sub: "system:serviceaccount:ai-platform:*"
       trustedIssuers: []
 
+      # Maps K8s ServiceAccount sub claim values to synthetic user identities injected
+      # into muster-issued JWTs during RFC 8693 token exchange. Key is the exact sub
+      # string from the SA JWT. The email and groups values are written into the issued
+      # access token so downstream MCPs can impersonate the synthetic user.
+      # Example:
+      #   "system:serviceaccount:muster-m2m-test:klaus-sre":
+      #     email: "klaus-sre@machine.giantswarm.io"
+      #     groups: ["klaus-sre"]
+      machinePrincipals: {}
+
       # CIDRs from which X-Forwarded-Proto and X-Forwarded-Host headers are trusted
       # for DPoP htu URL reconstruction. Required when muster runs behind a reverse proxy.
       # Example: ["10.0.0.0/8", "172.16.0.0/12"]

@@ -557,6 +557,18 @@
                 }
               }
             },
+            "machinePrincipals": {
+              "type": "object",
+              "description": "Maps K8s ServiceAccount sub claim values to synthetic user identities injected into muster-issued JWTs during RFC 8693 token exchange",
+              "additionalProperties": {
+                "type": "object",
+                "properties": {
+                  "email": {"type": "string", "description": "Synthetic email claim written into the issued JWT"},
+                  "groups": {"type": "array", "items": {"type": "string"}, "description": "Synthetic groups claim written into the issued JWT"}
+                },
+                "required": ["email"]
+              }
+            },
             "trustedProxyCIDRs": {
               "type": "array",
               "items": {"type": "string"},

@@ -309,6 +309,14 @@ type OAuthServerConfig struct {
 	// Tokens are accepted as subject_tokens of type id_token, access_token, or jwt.
 	TrustedIssuers []TrustedIssuerConfig `yaml:"trustedIssuers,omitempty"`
 
+	// MachinePrincipals maps K8s ServiceAccount sub claim values to synthetic
+	// user identities injected into the muster-issued JWT during RFC 8693 token
+	// exchange. Key is the exact sub string from the SA JWT (e.g.
+	// "system:serviceaccount:<namespace>:<name>"). The resulting email and groups
+	// are written into the issued access token so downstream MCPs can impersonate
+	// the synthetic user without further IdP lookup.
+	MachinePrincipals map[string]MachinePrincipalConfig `yaml:"machinePrincipals,omitempty"`
+
 	// TrustedProxyCIDRs lists CIDRs from which X-Forwarded-Proto and
 	// X-Forwarded-Host headers are trusted for DPoP htu URL reconstruction.
 	// Required when muster runs behind a reverse proxy that terminates TLS.
@@ -351,6 +359,16 @@ type TrustedIssuerConfig struct {
 	// restriction. Use to express K8s SA trust via sub, e.g.
 	// "system:serviceaccount:<namespace>:*".
 	AllowedClaims map[string]string `yaml:"allowedClaims,omitempty"`
+}
+
+// MachinePrincipalConfig defines the synthetic identity injected into a muster JWT
+// when the exchange subject_token's sub matches the parent MachinePrincipals map key.
+type MachinePrincipalConfig struct {
+	// Email is written as the email claim in the issued JWT.
+	// Downstream MCPs use this for Impersonate-User when forwarding to the K8s API.
+	Email string `yaml:"email"`
+	// Groups is written as the groups claim in the issued JWT.
+	Groups []string `yaml:"groups,omitempty"`
 }
 
 // DexConfig holds configuration for the Dex OIDC provider.
