@@ -264,6 +264,20 @@ func TestNewOAuthHTTPServer_MissingDexIssuerReturnsError(t *testing.T) {
 	// The Dex provider will fail to initialize without issuer URL
 }
 
+func TestNewOAuthHTTPServer_JWTModeWithoutKeyFileReturnsError(t *testing.T) {
+	cfg := config.OAuthServerConfig{
+		Enabled:       true,
+		BaseURL:       "http://localhost:8080",
+		Provider:      OAuthProviderGoogle,
+		EnableJWTMode: true,
+		// JWTSigningKeyFile intentionally empty
+	}
+
+	_, err := NewOAuthHTTPServer(cfg, http.DefaultServeMux, false)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "jwtSigningKeyFile")
+}
+
 func TestValidateHTTPSRequirement(t *testing.T) {
 	tests := []struct {
 		name    string
