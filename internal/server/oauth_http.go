@@ -549,6 +549,10 @@ func (s *OAuthHTTPServer) Shutdown(ctx context.Context) error {
 // The returned valkeygo.Client is non-nil only when a Valkey-backed DPoP replay
 // cache is created; the caller must call Close() on it when done.
 func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) (*oauth.Server, storage.TokenStore, valkeygo.Client, error) {
+	if cfg.EnableJWTMode && cfg.JWTSigningKeyFile == "" {
+		return nil, nil, nil, fmt.Errorf("enableJWTMode requires jwtSigningKeyFile to be set")
+	}
+
 	logger := slog.Default()
 
 	redirectURL := cfg.BaseURL + "/oauth/callback"
