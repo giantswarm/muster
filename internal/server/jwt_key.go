@@ -18,6 +18,7 @@ import (
 // loadSigningKey reads a PEM-encoded private key from path and returns the key,
 // its RFC 7638 JWK SHA-256 thumbprint (used as kid), and the matching JWS alg.
 // Supported formats: EC PRIVATE KEY (P-256 → ES256), RSA PRIVATE KEY / PRIVATE KEY (PKCS#8).
+// Only the first PEM block in the file is used.
 func loadSigningKey(path string) (crypto.Signer, string, string, error) {
 	data, err := os.ReadFile(path) //nolint:gosec // path is operator-configured, not user input
 	if err != nil {
@@ -57,6 +58,9 @@ func parseSigningKeyBlock(block *pem.Block) (crypto.Signer, string, error) {
 		if err != nil {
 			return nil, "", fmt.Errorf("parsing RSA PKCS#1 private key: %w", err)
 		}
+		if key.N.BitLen() < 2048 {
+			return nil, "", fmt.Errorf("RSA key is %d bits; minimum 2048 required for RS256", key.N.BitLen())
+		}
 		return key, oauthserver.SigningAlgorithmRS256, nil
 
 	case "PRIVATE KEY":
@@ -71,6 +75,9 @@ func parseSigningKeyBlock(block *pem.Block) (crypto.Signer, string, error) {
 			}
 			return k, oauthserver.SigningAlgorithmES256, nil
 		case *rsa.PrivateKey:
+			if k.N.BitLen() < 2048 {
+				return nil, "", fmt.Errorf("RSA key is %d bits; minimum 2048 required for RS256", k.N.BitLen())
+			}
 			return k, oauthserver.SigningAlgorithmRS256, nil
 		default:
 			return nil, "", fmt.Errorf("unsupported PKCS#8 key type %T", raw)

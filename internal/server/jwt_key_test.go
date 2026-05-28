@@ -62,6 +62,26 @@ func TestLoadSigningKey_RSA(t *testing.T) {
 	require.Equal(t, "RS256", alg)
 }
 
+func TestLoadSigningKey_RSA_TooSmall(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 1024)
+	require.NoError(t, err)
+	path := writePEM(t, "RSA PRIVATE KEY", x509.MarshalPKCS1PrivateKey(key))
+
+	_, _, _, err = loadSigningKey(path)
+	require.ErrorContains(t, err, "2048")
+}
+
+func TestLoadSigningKey_PKCS8_RSA_TooSmall(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 1024)
+	require.NoError(t, err)
+	der, err := x509.MarshalPKCS8PrivateKey(key)
+	require.NoError(t, err)
+	path := writePEM(t, "PRIVATE KEY", der)
+
+	_, _, _, err = loadSigningKey(path)
+	require.ErrorContains(t, err, "2048")
+}
+
 func TestLoadSigningKey_WrongCurve(t *testing.T) {
 	key, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
 	require.NoError(t, err)
