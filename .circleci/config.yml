@@ -109,3 +109,75 @@ workflows:
               only: /^v.*/
             branches:
               ignore: /.*/
+
+      # muster-crds: the standalone CRD-only chart. Versioned in lockstep with
+      # muster off the same git tag (.abs replace-chart-version-with-git). The
+      # same four-job shape as muster: build, ATS tests, branch push, tag push.
+      - architect/push-to-app-catalog:
+          executor: app-build-suite
+          context: architect
+          name: build-muster-crds-chart
+          app_catalog: giantswarm-catalog
+          app_catalog_test: giantswarm-test-catalog
+          chart: muster-crds
+          # chart name differs from the repo (muster) — required by the orb's
+          # chart-name check to publish a second chart from this repo.
+          explicit_allow_chart_name_mismatch: true
+          push_to_appcatalog: false
+          push_to_oci_registry: false
+          persist_chart_archive: true
+          requires:
+            - go-build
+          filters:
+            tags:
+              only: /^v.*/
+            branches:
+              ignore:
+                - main
+
+      - architect/run-tests-with-ats:
+          name: execute muster-crds chart tests
+          requires:
+            - build-muster-crds-chart
+          filters:
+            tags:
+              only: /^v.*/
+            branches:
+              ignore:
+                - main
+
+      # Branch: push CRD chart after tests + amd64 image
+      - architect/push-to-app-catalog:
+          executor: app-build-suite
+          context: architect
+          name: push-muster-crds-to-giantswarm-app-catalog
+          app_catalog: giantswarm-catalog
+          app_catalog_test: giantswarm-test-catalog
+          chart: muster-crds
+          explicit_allow_chart_name_mismatch: true
+          requires:
+            - execute muster-crds chart tests
+            - push-to-registries
+          filters:
+            branches:
+              ignore:
+                - main
+
+      # Tag: push CRD chart after tests + the gsoci image. Same gating as the
+      # muster release push; does NOT depend on sync-china-registry.
+      - architect/push-to-app-catalog:
+          executor: app-build-suite
+          context: architect
+          name: push-muster-crds-to-giantswarm-app-catalog-release
+          app_catalog: giantswarm-catalog
+          app_catalog_test: giantswarm-test-catalog
+          chart: muster-crds
+          explicit_allow_chart_name_mismatch: true
+          requires:
+            - execute muster-crds chart tests
+            - push-to-registries
+          filters:
+            tags:
+              only: /^v.*/
+            branches:
+              ignore: /.*/

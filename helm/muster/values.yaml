@@ -518,12 +518,19 @@ muster:
           # cluster.
           labels: {}
 
-# CRD installation. CRDs live in helm/muster/files/crds/ and are rendered
-# by helm/muster/templates/crds.yaml. The loader merges `crds.annotations`
-# into each CRD's metadata.annotations — the default keeps the CRDs around
-# on `helm uninstall` so existing MCPServer / Workflow CRs survive.
+# DEPRECATED. The muster application chart no longer ships the CRDs — they now
+# live in the standalone `muster-crds` chart (helm/muster-crds), so the CRD
+# lifecycle can be owned independently by a downstream `agentic-platform-crds`
+# umbrella. This block is retained only as a compatibility shim and will be
+# removed in the next release:
+#   - `crds.install` defaults to `false` and the app chart renders no CRDs at
+#     all (templates/crds.yaml was removed). It is kept so the (strict-ish)
+#     values schema still accepts a downstream that explicitly sets
+#     `muster.crds.install: false`.
+#   - `crds.annotations` is inert and carried only for the same compatibility.
+# Install or upgrade `muster-crds` BEFORE `muster`.
 crds:
-  install: true
+  install: false
   annotations:
     helm.sh/resource-policy: keep
 
