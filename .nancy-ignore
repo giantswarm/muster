@@ -1,3 +1,5 @@
-# Affects all versions of archiver which is required by vault.
-# Taken from: https://github.com/giantswarm/opsctl/pull/1072/files#diff-bbe4a7fb12c43622bce7c6840c770e9995be614626a219942ca138403629cb69R1
-CVE-2019-10743 until=2021-10-17
+CVE-2026-25680 until=2026-06-27 # golang.org/x/net@v0.54.0
+CVE-2026-25681 until=2026-06-27 # golang.org/x/net@v0.54.0
+CVE-2026-27136 until=2026-06-27 # golang.org/x/net@v0.54.0
+CVE-2026-42502 until=2026-06-27 # golang.org/x/net@v0.54.0
+CVE-2026-42506 until=2026-06-27 # golang.org/x/net@v0.54.0
