@@ -1,7 +1,14 @@
 ---
+# yamllint configuration for muster.
+#
+# Renovate pins GitHub Actions to full commit SHAs with a trailing
+# `# vN` version comment (e.g. `uses: foo/bar@<40-char-sha> # v7`).
+# Those lines exceed yamllint's 80-char default and use a single space
+# before the comment, so we relax both rules to match that style.
 extends: default
+
 rules:
   line-length:
-    max: 200
+    max: 120
   comments:
     min-spaces-from-content: 1

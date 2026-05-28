@@ -1,0 +1,22 @@
+apiVersion: v2
+name: muster-crds
+description: CRD-only Helm chart for muster - ships the MCPServer and Workflow CustomResourceDefinitions
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/giantswarm/muster
+icon: https://s.giantswarm.io/app-icons/muster/1/light.svg
+sources:
+  - https://github.com/giantswarm/muster
+keywords:
+  - mcp
+  - ai-agents
+  - model-context-protocol
+  - aggregator
+  - crds
+maintainers:
+  - name: Giant Swarm
+    email: team-bumblebee@giantswarm.io
+annotations:
+  io.giantswarm.application.audience: all
+  io.giantswarm.application.team: bumblebee

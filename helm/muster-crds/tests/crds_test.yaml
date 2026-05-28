@@ -2,15 +2,8 @@ suite: CRD loader template
 templates:
   - templates/crds.yaml
 release:
-  name: muster
+  name: muster-crds
 tests:
-  - it: renders nothing when crds.install is false
-    set:
-      crds.install: false
-    asserts:
-      - hasDocuments:
-          count: 0
-
   - it: renders both CRDs by default
     asserts:
       - hasDocuments:

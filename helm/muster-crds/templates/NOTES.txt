@@ -1,0 +1,19 @@
+muster CRDs have been installed.
+
+The following CustomResourceDefinitions are now available in the cluster:
+
+  - mcpservers.muster.giantswarm.io  (kind: MCPServer)
+  - workflows.muster.giantswarm.io   (kind: Workflow)
+
+The CRDs carry `helm.sh/resource-policy: keep`, so they (and any
+MCPServer / Workflow custom resources) survive `helm uninstall {{ .Release.Name }}`.
+
+IMPORTANT: install or upgrade muster-crds BEFORE the muster application chart.
+The muster app chart no longer ships these CRDs (`muster.crds.install` is
+disabled by default); it expects them to already exist in the cluster.
+
+Verify the CRDs are registered:
+
+  kubectl get crds mcpservers.muster.giantswarm.io workflows.muster.giantswarm.io
+
+For more information, visit: https://github.com/giantswarm/muster

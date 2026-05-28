@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "crds": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "annotations": {
+          "type": "object",
+          "description": "Annotations merged into each CRD's metadata.annotations. Default `helm.sh/resource-policy: keep` preserves CRDs on `helm uninstall`."
+        }
+      }
+    }
+  }
+}
