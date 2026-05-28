@@ -32,6 +32,8 @@ All notable changes to this project will be documented in this file.
 
 ### Removed
 
+- `muster.oauth.server.kubernetesSATrusts` Helm value and `K8sSATrustConfig` Go type are removed. Kubernetes ServiceAccount trust is now expressed via `trustedIssuers` with an `allowedClaims` entry, e.g. `sub: "system:serviceaccount:<namespace>:*"`. The `jwt` subject_token_type covers projected SA tokens without a separate trust list.
+
 - `ciliumNetworkPolicy.*` is replaced by `networkPolicy.*`. `ciliumNetworkPolicy.enabled` → `networkPolicy.enabled` + `networkPolicy.flavor: cilium` (default). `ciliumNetworkPolicy.allowClusterIngress` → `networkPolicy.cilium.allowClusterIngress`. `ciliumNetworkPolicy.{labels,annotations}` → `networkPolicy.{labels,annotations}`.
 
 ### Changed
