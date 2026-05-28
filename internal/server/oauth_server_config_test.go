@@ -111,7 +111,8 @@ func TestBuildOAuthServerOptions_AllowedClaimsPropagated(t *testing.T) {
 	claimsOpts, err := buildOAuthServerOptions(withClaims, nil)
 	require.NoError(t, err)
 
-	// AllowedClaims is a field on TrustedIssuer, not a separate server option.
+	// AllowedClaims is wired as a struct field on TrustedIssuer, not as a
+	// separate WithX option, so option count must be identical.
 	require.Equal(t, len(noClaimsOpts), len(claimsOpts))
 }
 
