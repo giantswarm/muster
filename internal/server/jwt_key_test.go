@@ -104,6 +104,19 @@ func TestLoadSigningKey_PKCS8_WrongCurve(t *testing.T) {
 	require.ErrorContains(t, err, "P-256")
 }
 
+func TestLoadSigningKey_PKCS8_RSA(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	der, err := x509.MarshalPKCS8PrivateKey(key)
+	require.NoError(t, err)
+	path := writePEM(t, "PRIVATE KEY", der)
+
+	_, kid, alg, err := loadSigningKey(path)
+	require.NoError(t, err)
+	require.NotEmpty(t, kid)
+	require.Equal(t, "RS256", alg)
+}
+
 func TestLoadSigningKey_MissingFile(t *testing.T) {
 	_, _, _, err := loadSigningKey("/nonexistent/key.pem")
 	require.ErrorContains(t, err, "reading JWT signing key")
