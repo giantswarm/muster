@@ -74,8 +74,6 @@ func TestNewDPoPReplayCache_MemoryFallback(t *testing.T) {
 }
 
 func TestBuildOAuthServerOptions_NoErrorWhenFieldsSet(t *testing.T) {
-	t.Parallel()
-
 	cfg := config.OAuthServerConfig{
 		BaseURL: "https://muster.example.com",
 		TrustedIssuers: []config.TrustedIssuerConfig{
@@ -93,30 +91,31 @@ func TestBuildOAuthServerOptions_NoErrorWhenFieldsSet(t *testing.T) {
 }
 
 func TestBuildOAuthServerOptions_AllowedClaimsPropagated(t *testing.T) {
-	t.Parallel()
-
-	base := config.OAuthServerConfig{BaseURL: "https://muster.example.com"}
-	baseOpts, err := buildOAuthServerOptions(base, nil)
+	issuer := config.TrustedIssuerConfig{
+		Issuer:  "https://idp.example.com",
+		JwksURL: "https://idp.example.com/jwks",
+	}
+	withoutClaims := config.OAuthServerConfig{
+		BaseURL:        "https://muster.example.com",
+		TrustedIssuers: []config.TrustedIssuerConfig{issuer},
+	}
+	noClaimsOpts, err := buildOAuthServerOptions(withoutClaims, nil)
 	require.NoError(t, err)
 
+	issuerWithClaims := issuer
+	issuerWithClaims.AllowedClaims = map[string]string{"sub": "system:serviceaccount:ai-platform:*"}
 	withClaims := config.OAuthServerConfig{
-		BaseURL: "https://muster.example.com",
-		TrustedIssuers: []config.TrustedIssuerConfig{
-			{
-				Issuer:        "https://idp.example.com",
-				JwksURL:       "https://idp.example.com/jwks",
-				AllowedClaims: map[string]string{"sub": "system:serviceaccount:ai-platform:*"},
-			},
-		},
+		BaseURL:        "https://muster.example.com",
+		TrustedIssuers: []config.TrustedIssuerConfig{issuerWithClaims},
 	}
 	claimsOpts, err := buildOAuthServerOptions(withClaims, nil)
 	require.NoError(t, err)
-	require.Greater(t, len(claimsOpts), len(baseOpts), "TrustedIssuers with AllowedClaims should add a server option")
+
+	// AllowedClaims is a field on TrustedIssuer, not a separate server option.
+	require.Equal(t, len(noClaimsOpts), len(claimsOpts))
 }
 
 func TestBuildOAuthServerOptions_NoErrorWhenFieldsAbsent(t *testing.T) {
-	t.Parallel()
-
 	cfg := config.OAuthServerConfig{
 		BaseURL: "https://muster.example.com",
 	}
@@ -204,8 +203,6 @@ func TestK8sSASubPattern(t *testing.T) {
 }
 
 func TestBuildOAuthServerOptions_InvalidCIDRReturnsError(t *testing.T) {
-	t.Parallel()
-
 	cfg := config.OAuthServerConfig{
 		BaseURL:           "https://muster.example.com",
 		TrustedProxyCIDRs: []string{"not-a-cidr"},
