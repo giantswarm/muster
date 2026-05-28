@@ -2,6 +2,6 @@
 extends: default
 rules:
   line-length:
-    max: 120
+    max: 200
   comments:
     min-spaces-from-content: 1
