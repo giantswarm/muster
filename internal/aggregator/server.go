@@ -2111,6 +2111,15 @@ func (a *AggregatorServer) IsToolAvailable(toolName string) bool {
 		return true // Found in registry
 	}
 
+	// Family-grouped tools with more than one provider intentionally make
+	// ResolveToolName return an ambiguity error: the instance-selector arg is
+	// required only to route a call, not to determine that the tool exists.
+	// Such a tool is still available as long as its family has >= 1 provider.
+	// Treating the ambiguity error as "missing" is the #761 regression.
+	if a.registry.FamilyProviderCount(toolName) > 0 {
+		return true // Family tool with at least one provider
+	}
+
 	// Check if it's a core tool by name pattern (avoid deadlock)
 	if a.isCoreToolByName(toolName) {
 		return true // Found in core tools

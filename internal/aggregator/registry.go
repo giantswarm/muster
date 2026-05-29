@@ -897,6 +897,24 @@ func (r *ServerRegistry) IsFamilyTool(exposedName string) bool {
 	return ok
 }
 
+// FamilyProviderCount returns the number of servers currently providing the
+// given family-grouped exposed tool name. Returns 0 for solo tools, core
+// tools, and unknown names.
+//
+// This exists so callers can decide that a family tool *exists* (the family
+// has at least one provider) independently of whether a single call can be
+// routed without the instance-selector arg. ResolveToolName intentionally
+// returns an ambiguity error once a family has more than one provider, which
+// must not be conflated with "tool does not exist" (see #761).
+func (r *ServerRegistry) FamilyProviderCount(exposedName string) int {
+	r.nameMu.RLock()
+	defer r.nameMu.RUnlock()
+	if bucket, ok := r.familyMappings[exposedName]; ok {
+		return len(bucket.providers)
+	}
+	return 0
+}
+
 // FamilyInstanceArgFor returns the required instance-selector arg name for a
 // family-grouped exposed tool, or empty string if the name is not family-
 // grouped or unknown.

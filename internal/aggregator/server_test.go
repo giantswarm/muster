@@ -1138,3 +1138,58 @@ func TestAggregatorServer_CallToolInternal_FamilyRouting(t *testing.T) {
 		assert.Contains(t, err.Error(), `"management_cluster" parameter is required`)
 	})
 }
+
+// TestAggregatorServer_IsToolAvailable_FamilyTools is the regression guard for
+// #761: a family-grouped tool backed by more than one provider must still be
+// reported as available even though ResolveToolName intentionally returns an
+// ambiguity error for it (the instance-selector arg is required only to route
+// a call, not to prove existence).
+func TestAggregatorServer_IsToolAvailable_FamilyTools(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("family tool with two providers is available despite ambiguity error", func(t *testing.T) {
+		reg := NewServerRegistry("x")
+		require.NoError(t, reg.Register(ctx, ServerRegistration{
+			Name:   "mc1-mcp-kubernetes",
+			Family: family("kubernetes", "management_cluster"),
+		}, &mockMCPClient{tools: []mcp.Tool{{Name: "list", Description: "List"}}}))
+		require.NoError(t, reg.Register(ctx, ServerRegistration{
+			Name:   "mc2-mcp-kubernetes",
+			Family: family("kubernetes", "management_cluster"),
+		}, &mockMCPClient{tools: []mcp.Tool{{Name: "list", Description: "List"}}}))
+		_ = reg.GetAllTools() // prime familyMappings
+
+		// Sanity: the call-time resolver is still ambiguous without a selector.
+		_, _, err := reg.ResolveToolName("x_kubernetes_list")
+		require.Error(t, err)
+
+		a := &AggregatorServer{registry: reg}
+		assert.True(t, a.IsToolAvailable("x_kubernetes_list"),
+			"a family tool with >= 1 provider must be reported available")
+	})
+
+	t.Run("family tool with a single provider is available", func(t *testing.T) {
+		reg := NewServerRegistry("x")
+		require.NoError(t, reg.Register(ctx, ServerRegistration{
+			Name:   "mc1-mcp-kubernetes",
+			Family: family("kubernetes", "management_cluster"),
+		}, &mockMCPClient{tools: []mcp.Tool{{Name: "list", Description: "List"}}}))
+		_ = reg.GetAllTools()
+
+		a := &AggregatorServer{registry: reg}
+		assert.True(t, a.IsToolAvailable("x_kubernetes_list"))
+	})
+
+	t.Run("genuinely absent tool is not available", func(t *testing.T) {
+		reg := NewServerRegistry("x")
+		require.NoError(t, reg.Register(ctx, ServerRegistration{
+			Name:   "mc1-mcp-kubernetes",
+			Family: family("kubernetes", "management_cluster"),
+		}, &mockMCPClient{tools: []mcp.Tool{{Name: "list", Description: "List"}}}))
+		_ = reg.GetAllTools()
+
+		a := &AggregatorServer{registry: reg}
+		assert.False(t, a.IsToolAvailable("x_kubernetes_does_not_exist"))
+		assert.False(t, a.IsToolAvailable("x_nonexistent_tool"))
+	})
+}

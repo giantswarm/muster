@@ -1,0 +1,231 @@
+name: "workflow-family-tool-availability"
+description: "A workflow that references family-grouped tools backed by more than one provider is reported available and executes (regression #761)"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "family", "aggregator", "availability", "regression"]
+timeout: "5m"
+
+# Regression coverage for #761 (a regression from #670):
+#
+# Given: Two MCP servers share spec.family.name = prometheus and two more share
+#        spec.family.name = kubernetes, so each family tool has > 1 provider.
+#        ResolveToolName intentionally returns an ambiguity error for those tools
+#        unless the instance-selector arg is supplied.
+# And:   A workflow references the bare family tools (x_prometheus_execute_query,
+#        x_kubernetes_list) and supplies the instance selector as a templated
+#        step arg resolved only at execution time.
+# When:  Availability is checked and the workflow is executed.
+# Then:  The workflow is reported available (>= 1 provider per family) and runs,
+#        routing each step to the backend selected by the template — it must NOT
+#        be rejected by the Execute availability precheck.
+
+pre_configuration:
+  mcp_servers:
+    - name: "mc1-mcp-prometheus"
+      config:
+        family:
+          name: "prometheus"
+          instanceArg: "management_cluster"
+        tools:
+          - name: "execute_query"
+            description: "Execute a PromQL query"
+            input_schema:
+              type: "object"
+              properties:
+                query: { type: "string" }
+            responses:
+              - response:
+                  source: "mc1-mcp-prometheus"
+                  query: "{{ .query }}"
+    - name: "mc2-mcp-prometheus"
+      config:
+        family:
+          name: "prometheus"
+          instanceArg: "management_cluster"
+        tools:
+          - name: "execute_query"
+            description: "Execute a PromQL query"
+            input_schema:
+              type: "object"
+              properties:
+                query: { type: "string" }
+            responses:
+              - response:
+                  source: "mc2-mcp-prometheus"
+                  query: "{{ .query }}"
+    - name: "mc1-mcp-kubernetes"
+      config:
+        family:
+          name: "kubernetes"
+          instanceArg: "management_cluster"
+        tools:
+          - name: "list"
+            description: "List resources"
+            input_schema:
+              type: "object"
+              properties:
+                namespace: { type: "string" }
+            responses:
+              - response:
+                  source: "mc1-mcp-kubernetes"
+                  namespace: "{{ .namespace }}"
+    - name: "mc2-mcp-kubernetes"
+      config:
+        family:
+          name: "kubernetes"
+          instanceArg: "management_cluster"
+        tools:
+          - name: "list"
+            description: "List resources"
+            input_schema:
+              type: "object"
+              properties:
+                namespace: { type: "string" }
+            responses:
+              - response:
+                  source: "mc2-mcp-kubernetes"
+                  namespace: "{{ .namespace }}"
+
+  workflows:
+    - name: "alert-runbook"
+      config:
+        name: "alert-runbook"
+        input_schema:
+          type: object
+          args:
+            mc:
+              type: "string"
+          required:
+            - mc
+        steps:
+          - id: "query-prometheus"
+            tool: "x_prometheus_execute_query"
+            args:
+              management_cluster: "{{ .input.mc }}-mcp-prometheus"
+              query: "up"
+            store: true
+          - id: "list-kubernetes"
+            tool: "x_kubernetes_list"
+            args:
+              management_cluster: "{{ .input.mc }}-mcp-kubernetes"
+              namespace: "kube-system"
+            store: true
+
+steps:
+  - id: "wait-for-prometheus-mc1"
+    tool: "core_service_status"
+    args:
+      name: "mc1-mcp-prometheus"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "running"
+
+  - id: "wait-for-prometheus-mc2"
+    tool: "core_service_status"
+    args:
+      name: "mc2-mcp-prometheus"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "running"
+
+  - id: "wait-for-kubernetes-mc1"
+    tool: "core_service_status"
+    args:
+      name: "mc1-mcp-kubernetes"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "running"
+
+  - id: "wait-for-kubernetes-mc2"
+    tool: "core_service_status"
+    args:
+      name: "mc2-mcp-kubernetes"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "running"
+
+  # Core of the regression: with > 1 provider per family the workflow must still
+  # report available, because the family has >= 1 provider. Pre-fix this returns
+  # available: false because the ambiguity error is treated as "tool missing".
+  - id: "workflow-reported-available"
+    tool: "core_workflow_available"
+    args:
+      name: "alert-runbook"
+    expected:
+      success: true
+      json_path:
+        available: true
+
+  - id: "workflow-listed"
+    tool: "core_workflow_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["alert-runbook"]
+
+  # Execution must not be refused by the availability precheck and must route
+  # each step to the backend selected by the templated instance arg.
+  - id: "execute-runbook-mc1"
+    tool: "workflow_alert-runbook"
+    args:
+      mc: "mc1"
+    expected:
+      success: true
+      contains: ["mc1-mcp-prometheus", "mc1-mcp-kubernetes"]
+      not_contains: ["mc2-mcp-prometheus", "mc2-mcp-kubernetes"]
+    timeout: "1m"
+
+  - id: "execute-runbook-mc2"
+    tool: "workflow_alert-runbook"
+    args:
+      mc: "mc2"
+    expected:
+      success: true
+      contains: ["mc2-mcp-prometheus", "mc2-mcp-kubernetes"]
+      not_contains: ["mc1-mcp-prometheus", "mc1-mcp-kubernetes"]
+    timeout: "1m"
+
+cleanup:
+  - id: "cleanup-workflow"
+    tool: "core_workflow_delete"
+    args:
+      name: "alert-runbook"
+    expected:
+      success: true
+    continue_on_failure: true
+  - id: "cleanup-prometheus-mc1"
+    tool: "core_service_stop"
+    args:
+      name: "mc1-mcp-prometheus"
+    expected:
+      success: true
+    continue_on_failure: true
+  - id: "cleanup-prometheus-mc2"
+    tool: "core_service_stop"
+    args:
+      name: "mc2-mcp-prometheus"
+    expected:
+      success: true
+    continue_on_failure: true
+  - id: "cleanup-kubernetes-mc1"
+    tool: "core_service_stop"
+    args:
+      name: "mc1-mcp-kubernetes"
+    expected:
+      success: true
+    continue_on_failure: true
+  - id: "cleanup-kubernetes-mc2"
+    tool: "core_service_stop"
+    args:
+      name: "mc2-mcp-kubernetes"
+    expected:
+      success: true
+    continue_on_failure: true
