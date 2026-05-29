@@ -5,14 +5,15 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"strings"
 	"time"
 
 	oauth "github.com/giantswarm/mcp-oauth"
-	dpopvalkey "github.com/giantswarm/mcp-oauth/dpop/valkey"
 	"github.com/giantswarm/mcp-oauth/instrumentation"
 	"github.com/giantswarm/mcp-oauth/security"
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
 	"github.com/giantswarm/mcp-oauth/storage"
+	storagevalkey "github.com/giantswarm/mcp-oauth/storage/valkey"
 	valkeygo "github.com/valkey-io/valkey-go"
 
 	"github.com/giantswarm/muster/internal/config"
@@ -75,31 +76,33 @@ func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger) 
 		oauth.WithMetadataFetchRateLimiter(security.NewRateLimiter(DefaultMetadataFetchRate, DefaultMetadataFetchBurst, logger)),
 	}
 
-	if len(cfg.KubernetesSATrusts) > 0 {
-		trusts := make([]oauthserver.KubernetesSATrust, len(cfg.KubernetesSATrusts))
-		for i, t := range cfg.KubernetesSATrusts {
-			trusts[i] = oauthserver.KubernetesSATrust{
-				Issuer:                 t.Issuer,
-				JwksURL:                t.JwksURL,
-				AllowedAudiences:       t.AllowedAudiences,
-				AllowedScopes:          t.AllowedScopes,
-				AllowedNamespaces:      t.AllowedNamespaces,
-				AllowedServiceAccounts: t.AllowedServiceAccounts,
-			}
+	issuers := make([]oauthserver.TrustedIssuer, 0, len(cfg.KubernetesSATrusts)+len(cfg.TrustedIssuers))
+	for _, t := range cfg.KubernetesSATrusts {
+		subPattern, err := k8sSASubPattern(t.AllowedNamespaces, t.AllowedServiceAccounts)
+		if err != nil {
+			return nil, fmt.Errorf("kubernetesSATrust %q: %w", t.Issuer, err)
 		}
-		opts = append(opts, oauthserver.WithKubernetesSATrust(trusts))
+		ti := oauthserver.TrustedIssuer{
+			Issuer:             t.Issuer,
+			JwksURL:            t.JwksURL,
+			AllowedAudiences:   t.AllowedAudiences,
+			AllowedScopes:      t.AllowedScopes,
+			AllowPrivateIPJWKS: true,
+		}
+		if subPattern != "" {
+			ti.AllowedClaims = map[string]string{"sub": subPattern}
+		}
+		issuers = append(issuers, ti)
 	}
-
-	if len(cfg.TrustedIssuers) > 0 {
-		issuers := make([]oauthserver.TrustedIssuer, len(cfg.TrustedIssuers))
-		for i, iss := range cfg.TrustedIssuers {
-			issuers[i] = oauthserver.TrustedIssuer{
-				Issuer:           iss.Issuer,
-				JwksURL:          iss.JwksURL,
-				AllowedAudiences: iss.AllowedAudiences,
-				AllowedScopes:    iss.AllowedScopes,
-			}
-		}
+	for _, iss := range cfg.TrustedIssuers {
+		issuers = append(issuers, oauthserver.TrustedIssuer{
+			Issuer:           iss.Issuer,
+			JwksURL:          iss.JwksURL,
+			AllowedAudiences: iss.AllowedAudiences,
+			AllowedScopes:    iss.AllowedScopes,
+		})
+	}
+	if len(issuers) > 0 {
 		opts = append(opts, oauthserver.WithTrustedIssuers(issuers))
 	}
 
@@ -112,6 +115,34 @@ func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger) 
 	}
 
 	return opts, nil
+}
+
+// k8sSASubPattern encodes namespace and service-account allow-lists as a glob
+// pattern on the K8s SA token "sub" claim
+// (system:serviceaccount:<namespace>:<name>). Returns "" when no restrictions
+// apply. Returns an error for multi-entry allow-lists because TrustedIssuer
+// AllowedClaims accepts only a single pattern per claim.
+func k8sSASubPattern(allowedNamespaces, allowedServiceAccounts []string) (string, error) {
+	if len(allowedServiceAccounts) > 1 {
+		return "", fmt.Errorf("allowedServiceAccounts supports at most one entry (got %d)", len(allowedServiceAccounts))
+	}
+	if len(allowedNamespaces) > 1 {
+		return "", fmt.Errorf("allowedNamespaces supports at most one entry (got %d)", len(allowedNamespaces))
+	}
+	if len(allowedServiceAccounts) == 1 {
+		ns, name, ok := strings.Cut(allowedServiceAccounts[0], "/")
+		if !ok || ns == "" || name == "" {
+			return "", fmt.Errorf("allowedServiceAccounts entry %q must be in namespace/name format", allowedServiceAccounts[0])
+		}
+		if len(allowedNamespaces) == 1 && allowedNamespaces[0] != ns {
+			return "", fmt.Errorf("allowedServiceAccounts namespace %q conflicts with allowedNamespaces %q", ns, allowedNamespaces[0])
+		}
+		return "system:serviceaccount:" + ns + ":" + name, nil
+	}
+	if len(allowedNamespaces) == 1 {
+		return "system:serviceaccount:" + allowedNamespaces[0] + ":*", nil
+	}
+	return "", nil
 }
 
 func parseCIDRs(cidrs []string) ([]*net.IPNet, error) {
@@ -149,7 +180,7 @@ func newDPoPReplayCache(storageCfg config.OAuthStorageConfig) (oauthserver.DPoPR
 		if prefix == "" {
 			prefix = "muster:"
 		}
-		return dpopvalkey.New(client, prefix+"dpop:"), client, nil
+		return storagevalkey.NewDPoPReplayCache(client, prefix+"dpop:"), client, nil
 	}
 	return oauthserver.NewMemoryDPoPReplayCache(), nil, nil
 }
