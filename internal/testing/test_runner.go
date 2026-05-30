@@ -376,6 +376,9 @@ func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, con
 			close(done)
 		}()
 
+		// Waiting on done is the actual synchronization: scenarioClient.Close()
+		// closes the connection synchronously, so once done is signaled the
+		// teardown is complete. No blind delay is needed afterwards.
 		select {
 		case <-done:
 			if r.debug {
@@ -386,9 +389,6 @@ func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, con
 				logger.Debug("⏰ Isolated MCP client close timeout - connection may have been reset\n")
 			}
 		}
-
-		// Give a small delay to ensure close request is processed
-		time.Sleep(100 * time.Millisecond)
 	}()
 
 	if r.debug {
