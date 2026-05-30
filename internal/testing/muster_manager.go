@@ -477,11 +477,7 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 			// immediately (with captured output) rather than waiting out the
 			// full deadline, which also frees the worker slot and avoids
 			// starving other parallel scenarios.
-			if m.debug {
-				m.showLogs(instance, logger)
-			}
-			return fmt.Errorf("muster instance process exited before becoming ready: %w%s",
-				managedProc.waitErr, capturedLogTail(managedProc))
+			return m.processExitedError(instance, managedProc, logger)
 		case <-ticker.C:
 			// Check if port is accepting connections
 			conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", instance.Port), 1*time.Second)
@@ -522,6 +518,11 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 			// If we can't connect to MCP, fall back to the old behavior
 			time.Sleep(3 * time.Second)
 			return nil
+		case <-procExited:
+			// The process crashed after binding its port but before the
+			// aggregator was reachable — fail fast instead of retrying until
+			// the connect deadline.
+			return m.processExitedError(instance, managedProc, logger)
 		case <-time.After(100 * time.Millisecond):
 			var err error
 			if instance.MusterOAuthAccessToken != "" {
@@ -593,6 +594,11 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 				}
 			}
 			return fmt.Errorf("timeout waiting for all expected resources to be available")
+		case <-procExited:
+			// The process died while we were waiting for its resources to
+			// register — surface the crash immediately rather than polling a
+			// dead aggregator until the resource deadline.
+			return m.processExitedError(instance, managedProc, logger)
 		case <-resourceTicker.C:
 			allReady := true
 			var notReadyReasons []string
@@ -755,6 +761,19 @@ func capturedLogTail(mp *managedProcess) string {
 		out = "..." + out[len(out)-maxTail:]
 	}
 	return "\n--- captured muster output ---\n" + out
+}
+
+// processExitedError builds the standard error returned from WaitForReady when
+// the muster serve process terminates before the instance becomes ready. It
+// surfaces the wait result and a bounded tail of the captured output, and shows
+// the full logs in debug mode. Reading managedProc.waitErr here is safe because
+// callers reach this path only after observing the closed exited channel.
+func (m *musterInstanceManager) processExitedError(instance *MusterInstance, managedProc *managedProcess, logger TestLogger) error {
+	if m.debug {
+		m.showLogs(instance, logger)
+	}
+	return fmt.Errorf("muster instance process exited before becoming ready: %w%s",
+		managedProc.waitErr, capturedLogTail(managedProc))
 }
 
 // findAvailablePort finds an available port starting from the base port with atomic reservation
