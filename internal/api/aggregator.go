@@ -14,11 +14,10 @@ import (
 // to call tools through the aggregator without directly coupling to the aggregator implementation.
 // This follows the service locator pattern to maintain architectural boundaries.
 //
-// It embeds ToolChecker so the tool-availability wrappers (IsToolAvailable,
-// MissingToolsForSession, GetAvailableTools) are shared rather than duplicated.
-type ToolCaller struct {
-	ToolChecker
-}
+// It exposes only tool execution (CallTool / CallToolInternal). Tool-availability
+// checks live on ToolChecker; consumers that need them depend on ToolChecker
+// directly.
+type ToolCaller struct{}
 
 // NewToolCaller creates a new API-based tool caller instance.
 // The returned ToolCaller uses the API service locator pattern to access

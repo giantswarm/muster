@@ -1276,6 +1276,25 @@ func TestAggregatorServer_MissingToolsForSession(t *testing.T) {
 			"without a session the auth family tool is not globally seeded and must report unavailable")
 	})
 
+	t.Run("global index seeded by another session does not leak across the session boundary", func(t *testing.T) {
+		a, stop := newAggWithSSOFamily(t)
+		defer stop()
+
+		// A session that DID list tools unions the family providers into the
+		// process-global familyMappings, flipping IsToolAvailable true
+		// process-wide (the #764 false-positive source).
+		a.GetToolsForSession(context.Background(), sessionID)
+		require.True(t, a.IsToolAvailable("x_kubernetes_list"),
+			"precondition: a prior list_tools seeds the global family index process-wide")
+
+		// A different session that never authenticated to the family (no caps in
+		// the store) must still report the tool unavailable — the global entry
+		// must not leak across the session boundary.
+		ctx := api.WithSessionID(context.Background(), "session-without-access")
+		assert.False(t, available(a, ctx, "x_kubernetes_list"),
+			"session-aware check must not inherit another session's global family entry")
+	})
+
 	t.Run("core tools are available regardless of session", func(t *testing.T) {
 		a, stop := newAggWithSSOFamily(t)
 		defer stop()
