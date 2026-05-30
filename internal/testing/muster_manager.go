@@ -122,10 +122,17 @@ func (lc *logCapture) getLogs() *InstanceLogs {
 	}
 }
 
-// managedProcess represents a managed muster process with its command and log capture
+// managedProcess represents a managed muster process with its command and log capture.
+//
+// A single goroutine owns cmd.Wait(): it stores the result in waitErr and closes
+// exited. Other goroutines (WaitForReady, gracefulShutdown) observe termination
+// by selecting on exited instead of calling cmd.Wait() themselves, which would
+// panic with "Wait was already called".
 type managedProcess struct {
 	cmd        *exec.Cmd
 	logCapture *logCapture
+	exited     chan struct{} // closed once the process has exited
+	waitErr    error         // result of cmd.Wait(); read only after exited is closed
 }
 
 // musterInstanceManager implements the MusterInstanceManager interface
@@ -142,6 +149,13 @@ type musterInstanceManager struct {
 	// Port reservation system for thread-safe parallel execution
 	portMu        sync.Mutex     // Protects port allocation
 	reservedPorts map[int]string // port -> instanceID mapping
+
+	// reservedListeners holds the probe listener for each reserved port open
+	// until muster serve is about to bind it. Keeping the socket bound prevents
+	// the OS from handing the freed port to an ephemeral listener (e.g. a mock
+	// server's net.Listen(":0")) while the instance finishes its setup, which
+	// would otherwise make muster serve fail to bind. Protected by portMu.
+	reservedListeners map[int]net.Listener
 
 	// Mock HTTP server tracking for URL-based mock MCP servers
 	mockHTTPServers map[string]map[string]*mock.HTTPServer // instanceID -> serverName -> server
@@ -174,6 +188,7 @@ func NewMusterInstanceManagerWithConfig(debug bool, basePort int, logger TestLog
 		logger:              logger,
 		keepTempConfig:      keepTempConfig,
 		reservedPorts:       make(map[int]string),
+		reservedListeners:   make(map[int]net.Listener),
 		mockHTTPServers:     make(map[string]map[string]*mock.HTTPServer),
 		mockOAuthServers:    make(map[string]map[string]*mock.OAuthServer),
 		protectedMCPServers: make(map[string]map[string]*mock.ProtectedMCPServer),
@@ -235,7 +250,7 @@ func (m *musterInstanceManager) CreateInstance(ctx context.Context, scenarioName
 	}
 
 	// Start muster serve process with log capture
-	managedProc, err := m.startMusterProcess(ctx, configPath, logger)
+	managedProc, err := m.startMusterProcess(ctx, configPath, port, logger)
 	if err != nil {
 		// Clean up on failure: stop mock servers, release port and remove config directory
 		m.stopMockHTTPServers(ctx, instanceID, logger)
@@ -373,19 +388,15 @@ func (m *musterInstanceManager) gracefulShutdown(managedProc *managedProcess, in
 		}
 	}
 
-	// Wait for graceful shutdown with timeout
+	// Wait for graceful shutdown with timeout. cmd.Wait() is owned by the
+	// goroutine started in startMusterProcess; observe termination via the
+	// exited channel instead of calling Wait() again.
 	shutdownTimeout := 10 * time.Second
-	done := make(chan error, 1)
-
-	go func() {
-		err := managedProc.cmd.Wait()
-		done <- err
-	}()
 
 	select {
-	case err := <-done:
+	case <-managedProc.exited:
 		if m.debug {
-			if err != nil {
+			if err := managedProc.waitErr; err != nil {
 				logger.Debug("✅ Process %s exited with: %v\n", instanceID, err)
 			} else {
 				logger.Debug("✅ Process %s exited gracefully\n", instanceID)
@@ -426,6 +437,17 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
+	// Look up the managed process so we can detect an early exit (e.g. a failed
+	// port bind) instead of polling a dead port until the deadline. A nil
+	// channel blocks forever, so the select degrades gracefully if absent.
+	m.mu.RLock()
+	managedProc := m.processes[instance.ID]
+	m.mu.RUnlock()
+	var procExited <-chan struct{}
+	if managedProc != nil {
+		procExited = managedProc.exited
+	}
+
 	// First wait for port to be available
 	portReady := false
 	for !portReady {
@@ -435,6 +457,16 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 				m.showLogs(instance, logger)
 			}
 			return fmt.Errorf("timeout waiting for muster instance port to be ready")
+		case <-procExited:
+			// The process died before its port came up — surface this
+			// immediately (with captured output) rather than waiting out the
+			// full deadline, which also frees the worker slot and avoids
+			// starving other parallel scenarios.
+			if m.debug {
+				m.showLogs(instance, logger)
+			}
+			return fmt.Errorf("muster instance process exited before becoming ready: %w%s",
+				managedProc.waitErr, capturedLogTail(managedProc))
 		case <-ticker.C:
 			// Check if port is accepting connections
 			conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", instance.Port), 1*time.Second)
@@ -686,6 +718,30 @@ func (m *musterInstanceManager) showLogs(instance *MusterInstance, logger TestLo
 	}
 }
 
+// capturedLogTail returns a short, human-readable tail of the process's captured
+// stderr (falling back to stdout) for embedding in error messages. Returns an
+// empty string when no output was captured. The tail is bounded so error
+// messages stay readable.
+func capturedLogTail(mp *managedProcess) string {
+	if mp == nil || mp.logCapture == nil {
+		return ""
+	}
+	logs := mp.logCapture.getLogs()
+	out := logs.Stderr
+	if strings.TrimSpace(out) == "" {
+		out = logs.Stdout
+	}
+	out = strings.TrimSpace(out)
+	if out == "" {
+		return ""
+	}
+	const maxTail = 1000
+	if len(out) > maxTail {
+		out = "..." + out[len(out)-maxTail:]
+	}
+	return "\n--- captured muster output ---\n" + out
+}
+
 // findAvailablePort finds an available port starting from the base port with atomic reservation
 func (m *musterInstanceManager) findAvailablePort(instanceID string, logger TestLogger) (int, error) {
 	m.portMu.Lock()
@@ -711,10 +767,12 @@ func (m *musterInstanceManager) findAvailablePort(instanceID string, logger Test
 			continue // Port not available, try next
 		}
 
-		_ = ln.Close() // Close immediately to free the port
-
-		// ATOMIC: Reserve the port and update offset
+		// Keep the listener open (do NOT close here). Closing it now would free
+		// the port at the OS level, letting an ephemeral net.Listen(":0") from a
+		// mock server steal it before muster serve binds. startMusterProcess
+		// closes it immediately before exec to minimize the bind race window.
 		m.reservedPorts[port] = instanceID
+		m.reservedListeners[port] = ln
 		m.portOffset = i + 1 // Next search starts from next port
 
 		if m.debug {
@@ -727,10 +785,32 @@ func (m *musterInstanceManager) findAvailablePort(instanceID string, logger Test
 	return 0, fmt.Errorf("no available ports found starting from %d (tried 100 ports)", m.basePort)
 }
 
+// closeReservedListener closes and forgets the probe listener held open for the
+// given port. It is called immediately before muster serve binds the port so the
+// child process can take it over. Safe to call multiple times.
+func (m *musterInstanceManager) closeReservedListener(port int) {
+	m.portMu.Lock()
+	defer m.portMu.Unlock()
+	m.releaseReservedListenerLocked(port)
+}
+
+// releaseReservedListenerLocked closes and removes the held probe listener for
+// the given port. Caller must hold portMu.
+func (m *musterInstanceManager) releaseReservedListenerLocked(port int) {
+	if ln, ok := m.reservedListeners[port]; ok {
+		_ = ln.Close()
+		delete(m.reservedListeners, port)
+	}
+}
+
 // releasePort releases a reserved port back to the available pool
 func (m *musterInstanceManager) releasePort(port int, instanceID string, logger TestLogger) {
 	m.portMu.Lock()
 	defer m.portMu.Unlock()
+
+	// Close any probe listener still held for this port (e.g. when setup failed
+	// before muster serve was started). Idempotent if already closed.
+	m.releaseReservedListenerLocked(port)
 
 	// Check if the port is actually reserved by this instance
 	if existingInstanceID, reserved := m.reservedPorts[port]; reserved {
@@ -751,8 +831,12 @@ func (m *musterInstanceManager) releasePort(port int, instanceID string, logger 
 	}
 }
 
-// startMusterProcess starts an muster serve process
-func (m *musterInstanceManager) startMusterProcess(ctx context.Context, configPath string, logger TestLogger) (*managedProcess, error) {
+// startMusterProcess starts an muster serve process.
+//
+// port is the reserved port muster serve will bind. The probe listener held open
+// for it (see findAvailablePort) is closed immediately before exec so the child
+// can take the port over with a near-zero race window.
+func (m *musterInstanceManager) startMusterProcess(ctx context.Context, configPath string, port int, logger TestLogger) (*managedProcess, error) {
 	// Get the path to the muster binary
 	musterPath, err := m.getMusterBinaryPath()
 	if err != nil {
@@ -795,6 +879,12 @@ func (m *musterInstanceManager) startMusterProcess(ctx context.Context, configPa
 	cmd.Stdout = logCapture.stdoutWriter
 	cmd.Stderr = logCapture.stderrWriter
 
+	// Release the OS-level port reservation just before exec: the held listener
+	// kept ephemeral listeners from stealing the port during setup, and now
+	// muster serve binds it immediately, leaving only a process-startup-sized
+	// race window.
+	m.closeReservedListener(port)
+
 	// Start the process
 	if err := cmd.Start(); err != nil {
 		logCapture.close()
@@ -804,7 +894,15 @@ func (m *musterInstanceManager) startMusterProcess(ctx context.Context, configPa
 	managedProc := &managedProcess{
 		cmd:        cmd,
 		logCapture: logCapture,
+		exited:     make(chan struct{}),
 	}
+
+	// A single goroutine owns cmd.Wait() so termination can be observed via the
+	// exited channel from multiple places without calling Wait() twice.
+	go func() {
+		managedProc.waitErr = cmd.Wait()
+		close(managedProc.exited)
+	}()
 
 	return managedProc, nil
 }
