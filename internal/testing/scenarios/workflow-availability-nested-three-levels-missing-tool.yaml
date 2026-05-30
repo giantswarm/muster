@@ -1,0 +1,139 @@
+name: "workflow-availability-nested-three-levels-missing-tool"
+description: "Workflow availability is transitive down to backend tools: in a top -> mid -> deep chain where every workflow exists but the deepest workflow's backend tool is not available, the unavailability must propagate up. deep-runbook references an unregistered backend tool, so deep-runbook is Unavailable, and both mid-runbook and top-runbook must therefore also be Unavailable."
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "availability", "nested-workflow", "transitive", "bug-reproducer", "regression"]
+timeout: "1m"
+
+# Given: A chain top -> mid -> deep where all three workflows exist, but
+#        deep-runbook's only step calls a backend tool that is NOT registered.
+# When:  core_workflow_available is evaluated for each level.
+# Then:  deep-runbook reports available: false (missing backend tool), and the
+#        unavailability propagates so mid-runbook and top-runbook also report
+#        available: false. A check that descended into nested workflows only to
+#        confirm existence (not availability) would wrongly report all three
+#        available.
+
+pre_configuration:
+  mcp_servers:
+    # A connected server used only by the control workflow, to prove the suite
+    # can report available: true. deep-runbook deliberately does NOT use it.
+    - name: "echo-provider"
+      config:
+        tools:
+          - name: "echo"
+            description: "Echo the given text"
+            input_schema:
+              type: object
+              args:
+                text:
+                  type: "string"
+              required:
+                - text
+            responses:
+              - response:
+                  said: "{{ .text }}"
+
+  workflows:
+    # Level 3 (deepest): references a backend tool from a server that is NOT
+    # registered, so the tool is unavailable.
+    - name: "deep-runbook"
+      config:
+        name: "deep-runbook"
+        input_schema:
+          type: object
+        steps:
+          - id: "call-absent-tool"
+            tool: "x_absent-server_do_something"
+            args: {}
+            store: true
+
+    # Level 2: calls the deepest workflow, which is transitively broken.
+    - name: "mid-runbook"
+      config:
+        name: "mid-runbook"
+        input_schema:
+          type: object
+        steps:
+          - id: "call-deep"
+            tool: "workflow_deep-runbook"
+            args: {}
+            store: true
+
+    # Level 1 (top): calls the mid-level workflow.
+    - name: "top-runbook"
+      config:
+        name: "top-runbook"
+        input_schema:
+          type: object
+        steps:
+          - id: "call-mid"
+            tool: "workflow_mid-runbook"
+            args: {}
+            store: true
+
+    # Control: a self-contained workflow whose only tool is connected.
+    - name: "control-runbook"
+      config:
+        name: "control-runbook"
+        input_schema:
+          type: object
+          args:
+            message:
+              type: "string"
+          required:
+            - message
+        steps:
+          - id: "echo"
+            tool: "x_echo-provider_echo"
+            args:
+              text: "{{ .input.message }}"
+            store: true
+
+steps:
+  - id: "verify-workflows-registered"
+    tool: "core_workflow_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["deep-runbook", "mid-runbook", "top-runbook", "control-runbook"]
+
+  - id: "control-available"
+    description: "A genuinely available workflow reports available: true"
+    tool: "core_workflow_available"
+    args:
+      name: "control-runbook"
+    expected:
+      success: true
+      json_path:
+        available: true
+
+  - id: "deep-unavailable"
+    description: "The deepest workflow's backend tool is not available -> unavailable"
+    tool: "core_workflow_available"
+    args:
+      name: "deep-runbook"
+    expected:
+      success: true
+      json_path:
+        available: false
+
+  - id: "mid-unavailable-transitively"
+    description: "The mid workflow is unavailable because deep-runbook is unavailable"
+    tool: "core_workflow_available"
+    args:
+      name: "mid-runbook"
+    expected:
+      success: true
+      json_path:
+        available: false
+
+  - id: "top-unavailable-transitively"
+    description: "The top workflow is unavailable because the deepest backend tool is missing"
+    tool: "core_workflow_available"
+    args:
+      name: "top-runbook"
+    expected:
+      success: true
+      json_path:
+        available: false

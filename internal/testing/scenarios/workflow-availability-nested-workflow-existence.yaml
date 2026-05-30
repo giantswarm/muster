@@ -1,0 +1,132 @@
+name: "workflow-availability-nested-workflow-existence"
+description: "BUG REPRODUCER (review finding 3): workflow availability treats every step tool whose name starts with workflow_ as available, because AggregatorServer.isCoreToolByName matches the workflow_ prefix without checking that the referenced nested workflow actually exists. A parent workflow whose step calls workflow_<name> for a workflow that does not exist is therefore wrongly reported Available, even though executing it would fail at the nested step. Availability must verify that a referenced nested workflow exists."
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "availability", "nested-workflow", "aggregator", "bug-reproducer", "regression"]
+timeout: "1m"
+
+# Background:
+#
+# Workflows can call other workflows: a step references the nested workflow's
+# execution tool, named workflow_<nested-name> (see
+# workflow-run-nested-workflow.yaml). Availability of a workflow is computed by
+# AggregatorServer over each step tool. For workflow_ tools the resolution path
+# is isCoreToolByName -> matches the "workflow_" prefix -> "available", WITHOUT
+# consulting whether a workflow of that name is actually registered.
+#
+# Consequence: a parent workflow that references a non-existent nested workflow
+# is reported Available, then fails at execution time when the nested step
+# cannot be routed. The check should instead report such a parent Unavailable
+# and surface the missing workflow_<name> tool, exactly as it does for a missing
+# x_<server>_<tool>.
+#
+# Given: A parent workflow whose single step calls workflow_<name> for a nested
+#        workflow that is NOT registered.
+# When:  core_workflow_available is evaluated for that parent.
+# Then:  It must report available: false (pre-fix it reports available: true,
+#        because the workflow_ prefix is treated as a core tool by name).
+
+pre_configuration:
+  mcp_servers:
+    - name: "echo-provider"
+      config:
+        tools:
+          - name: "echo"
+            description: "Echo the given text"
+            input_schema:
+              type: object
+              args:
+                text:
+                  type: "string"
+              required:
+                - text
+            responses:
+              - response:
+                  said: "{{ .text }}"
+
+  workflows:
+    # A genuinely-registered nested workflow whose own step tool is available.
+    - name: "child-workflow"
+      config:
+        name: "child-workflow"
+        input_schema:
+          type: object
+          args:
+            message:
+              type: "string"
+          required:
+            - message
+        steps:
+          - id: "echo"
+            tool: "x_echo-provider_echo"
+            args:
+              text: "{{ .input.message }}"
+            store: true
+
+    # Control: references the REGISTERED nested workflow. Must be Available.
+    - name: "parent-valid-nested"
+      config:
+        name: "parent-valid-nested"
+        input_schema:
+          type: object
+          args:
+            message:
+              type: "string"
+          required:
+            - message
+        steps:
+          - id: "call-child"
+            tool: "workflow_child-workflow"
+            args:
+              message: "{{ .input.message }}"
+            store: true
+
+    # Bug reproducer: references a nested workflow that does NOT exist. The
+    # workflow_ prefix makes isCoreToolByName report it available, so the parent
+    # is wrongly reported Available today.
+    - name: "parent-missing-nested"
+      config:
+        name: "parent-missing-nested"
+        input_schema:
+          type: object
+        steps:
+          - id: "call-missing-child"
+            tool: "workflow_this_nested_workflow_does_not_exist"
+            args: {}
+            store: true
+
+steps:
+  - id: "verify-workflows-registered"
+    tool: "core_workflow_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["child-workflow", "parent-valid-nested", "parent-missing-nested"]
+
+  # Control: a parent calling a registered nested workflow is Available. Placed
+  # first so it is exercised even while the bug step below is red; passes before
+  # and after the fix.
+  - id: "parent-valid-nested-available"
+    description: "A parent that calls a registered nested workflow is available"
+    tool: "core_workflow_available"
+    args:
+      name: "parent-valid-nested"
+    expected:
+      success: true
+      json_path:
+        available: true
+
+  - id: "parent-missing-nested-unavailable"
+    description: "A parent referencing a non-existent nested workflow must be unavailable"
+    tool: "core_workflow_available"
+    args:
+      name: "parent-missing-nested"
+    expected:
+      success: true
+      json_path:
+        # CORE OF THE BUG (finding 3): the referenced nested workflow
+        # workflow_this_nested_workflow_does_not_exist is NOT registered, so the
+        # parent cannot execute and must be reported Unavailable. Pre-fix this
+        # returns available: true because isCoreToolByName matches the
+        # "workflow_" prefix without verifying the workflow exists.
+        available: false

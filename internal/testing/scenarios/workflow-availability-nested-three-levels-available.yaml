@@ -1,0 +1,123 @@
+name: "workflow-availability-nested-three-levels-available"
+description: "Workflow availability is transitive across three nesting levels: top-runbook calls workflow_mid-runbook, mid-runbook calls workflow_deep-runbook, and deep-runbook calls a connected backend tool. When every workflow in the chain exists and the deepest backend tool is available, every level — including the top — must report Available."
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "availability", "nested-workflow", "transitive", "core-api"]
+timeout: "1m"
+
+# Given: A three-level workflow chain top -> mid -> deep, where deep calls a
+#        connected (available) backend tool.
+# When:  core_workflow_available is evaluated for each level.
+# Then:  Every level reports available: true (the happy path that the
+#        missing-workflow / missing-tool variants contrast against).
+
+pre_configuration:
+  mcp_servers:
+    - name: "echo-provider"
+      config:
+        tools:
+          - name: "echo"
+            description: "Echo the given text"
+            input_schema:
+              type: object
+              args:
+                text:
+                  type: "string"
+              required:
+                - text
+            responses:
+              - response:
+                  said: "{{ .text }}"
+
+  workflows:
+    # Level 3 (deepest): calls a connected backend tool.
+    - name: "deep-runbook"
+      config:
+        name: "deep-runbook"
+        input_schema:
+          type: object
+          args:
+            message:
+              type: "string"
+          required:
+            - message
+        steps:
+          - id: "echo"
+            tool: "x_echo-provider_echo"
+            args:
+              text: "{{ .input.message }}"
+            store: true
+
+    # Level 2: calls the deepest workflow.
+    - name: "mid-runbook"
+      config:
+        name: "mid-runbook"
+        input_schema:
+          type: object
+          args:
+            message:
+              type: "string"
+          required:
+            - message
+        steps:
+          - id: "call-deep"
+            tool: "workflow_deep-runbook"
+            args:
+              message: "{{ .input.message }}"
+            store: true
+
+    # Level 1 (top): calls the mid-level workflow.
+    - name: "top-runbook"
+      config:
+        name: "top-runbook"
+        input_schema:
+          type: object
+          args:
+            message:
+              type: "string"
+          required:
+            - message
+        steps:
+          - id: "call-mid"
+            tool: "workflow_mid-runbook"
+            args:
+              message: "{{ .input.message }}"
+            store: true
+
+steps:
+  - id: "verify-workflows-registered"
+    tool: "core_workflow_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["deep-runbook", "mid-runbook", "top-runbook"]
+
+  - id: "deep-available"
+    description: "The deepest workflow's backend tool is connected, so it is available"
+    tool: "core_workflow_available"
+    args:
+      name: "deep-runbook"
+    expected:
+      success: true
+      json_path:
+        available: true
+
+  - id: "mid-available"
+    description: "The mid workflow is available because deep-runbook is available"
+    tool: "core_workflow_available"
+    args:
+      name: "mid-runbook"
+    expected:
+      success: true
+      json_path:
+        available: true
+
+  - id: "top-available"
+    description: "The top workflow is available because the whole chain is available"
+    tool: "core_workflow_available"
+    args:
+      name: "top-runbook"
+    expected:
+      success: true
+      json_path:
+        available: true
