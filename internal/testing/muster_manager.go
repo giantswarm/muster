@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -157,6 +158,16 @@ type musterInstanceManager struct {
 	// would otherwise make muster serve fail to bind. Protected by portMu.
 	reservedListeners map[int]net.Listener
 
+	// ephemeralLow/ephemeralHigh describe the OS ephemeral port range. Ports in
+	// this range are preferred-against when allocating instance ports: there is
+	// an unavoidable sub-millisecond window between closing the reserved probe
+	// listener and muster serve binding the port (see startMusterProcess), and
+	// during it a concurrent mock server's net.Listen(":0") can be handed that
+	// exact port by the OS. Allocating muster ports outside the ephemeral range
+	// makes that collision impossible regardless of the configured base port.
+	ephemeralLow  int
+	ephemeralHigh int
+
 	// Mock HTTP server tracking for URL-based mock MCP servers
 	mockHTTPServers map[string]map[string]*mock.HTTPServer // instanceID -> serverName -> server
 
@@ -180,6 +191,8 @@ func NewMusterInstanceManagerWithConfig(debug bool, basePort int, logger TestLog
 		return nil, fmt.Errorf("failed to create temp directory: %w", err)
 	}
 
+	ephemeralLow, ephemeralHigh := detectEphemeralPortRange()
+
 	return &musterInstanceManager{
 		debug:               debug,
 		basePort:            basePort,
@@ -189,6 +202,8 @@ func NewMusterInstanceManagerWithConfig(debug bool, basePort int, logger TestLog
 		keepTempConfig:      keepTempConfig,
 		reservedPorts:       make(map[int]string),
 		reservedListeners:   make(map[int]net.Listener),
+		ephemeralLow:        ephemeralLow,
+		ephemeralHigh:       ephemeralHigh,
 		mockHTTPServers:     make(map[string]map[string]*mock.HTTPServer),
 		mockOAuthServers:    make(map[string]map[string]*mock.OAuthServer),
 		protectedMCPServers: make(map[string]map[string]*mock.ProtectedMCPServer),
@@ -747,6 +762,32 @@ func (m *musterInstanceManager) findAvailablePort(instanceID string, logger Test
 	m.portMu.Lock()
 	defer m.portMu.Unlock()
 
+	// First pass: prefer ports outside the OS ephemeral range. Such ports can
+	// never be handed to a mock server's net.Listen(":0"), so muster serve is
+	// guaranteed to bind the reserved port even though the probe listener is
+	// briefly closed before exec (see reservedListeners / startMusterProcess).
+	if port, ok := m.reservePortLocked(instanceID, logger, true); ok {
+		return port, nil
+	}
+
+	// Fallback: the whole configured window lies inside the ephemeral range, so
+	// no safe port is available. Allocate inside it anyway to preserve behavior,
+	// but warn: ephemeral collisions can cause rare setup flakes. Choosing a
+	// base port below the ephemeral range avoids this entirely.
+	logger.Info("⚠️  base port window [%d, %d] falls inside the OS ephemeral range [%d, %d]; "+
+		"instance ports may rarely be stolen by mock servers. Use a base port below %d to avoid this.\n",
+		m.basePort, m.basePort+99, m.ephemeralLow, m.ephemeralHigh, m.ephemeralLow)
+	if port, ok := m.reservePortLocked(instanceID, logger, false); ok {
+		return port, nil
+	}
+
+	return 0, fmt.Errorf("no available ports found starting from %d (tried 100 ports)", m.basePort)
+}
+
+// reservePortLocked scans up to 100 ports from the current offset and reserves
+// the first available one, returning it. When skipEphemeral is true, ports that
+// fall inside the OS ephemeral range are skipped. Caller must hold portMu.
+func (m *musterInstanceManager) reservePortLocked(instanceID string, logger TestLogger, skipEphemeral bool) (int, bool) {
 	for i := 0; i < 100; i++ { // Try up to 100 ports
 		port := m.basePort + m.portOffset + i
 
@@ -754,6 +795,14 @@ func (m *musterInstanceManager) findAvailablePort(instanceID string, logger Test
 		if existingInstanceID, reserved := m.reservedPorts[port]; reserved {
 			if m.debug {
 				logger.Debug("🔒 Port %d already reserved by instance %s, skipping\n", port, existingInstanceID)
+			}
+			continue
+		}
+
+		// Skip ephemeral-range ports on the preferred pass.
+		if skipEphemeral && m.isEphemeralPort(port) {
+			if m.debug {
+				logger.Debug("🚫 Port %d is in the OS ephemeral range [%d, %d], skipping\n", port, m.ephemeralLow, m.ephemeralHigh)
 			}
 			continue
 		}
@@ -779,10 +828,42 @@ func (m *musterInstanceManager) findAvailablePort(instanceID string, logger Test
 			logger.Debug("✅ Reserved port %d for instance %s\n", port, instanceID)
 		}
 
-		return port, nil
+		return port, true
 	}
 
-	return 0, fmt.Errorf("no available ports found starting from %d (tried 100 ports)", m.basePort)
+	return 0, false
+}
+
+// isEphemeralPort reports whether port lies within the OS ephemeral port range.
+func (m *musterInstanceManager) isEphemeralPort(port int) bool {
+	return port >= m.ephemeralLow && port <= m.ephemeralHigh
+}
+
+// detectEphemeralPortRange returns the OS ephemeral (local) port range. On Linux
+// it reads /proc/sys/net/ipv4/ip_local_port_range; on other platforms, or if the
+// value cannot be read, it falls back to the common 32768-60999 range. The
+// range is used to keep test instance ports away from ports the OS may hand out
+// to net.Listen(":0") callers (see musterInstanceManager.ephemeralLow).
+func detectEphemeralPortRange() (int, int) {
+	const fallbackLow, fallbackHigh = 32768, 60999
+
+	data, err := os.ReadFile("/proc/sys/net/ipv4/ip_local_port_range")
+	if err != nil {
+		return fallbackLow, fallbackHigh
+	}
+
+	fields := strings.Fields(string(data))
+	if len(fields) != 2 {
+		return fallbackLow, fallbackHigh
+	}
+
+	low, errLow := strconv.Atoi(fields[0])
+	high, errHigh := strconv.Atoi(fields[1])
+	if errLow != nil || errHigh != nil || low <= 0 || high < low {
+		return fallbackLow, fallbackHigh
+	}
+
+	return low, high
 }
 
 // closeReservedListener closes and forgets the probe listener held open for the
