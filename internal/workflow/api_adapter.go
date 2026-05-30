@@ -37,7 +37,12 @@ type Adapter struct {
 
 // ToolAvailabilityChecker interface for checking tool availability
 type ToolAvailabilityChecker interface {
-	IsToolAvailable(toolName string) bool
+	// MissingToolsForSession returns the subset of toolNames that is unavailable
+	// for the calling session. Availability is resolved against the session's
+	// accessible tools, so SSO family tools are considered even without a prior
+	// list_tools call (see #764). The session tool set is resolved once, so
+	// checking all of a workflow's step tools is a single pass.
+	MissingToolsForSession(ctx context.Context, toolNames []string) []string
 }
 
 // NewAdapterWithClient creates a new workflow adapter with a pre-configured client
@@ -82,9 +87,8 @@ func (a *Adapter) ExecuteWorkflow(ctx context.Context, workflowName string, args
 	workflow := a.convertCRDToWorkflow(workflowCRD)
 
 	// Check if workflow is available before execution
-	if !a.isWorkflowAvailable(workflow) {
+	if missingTools := a.findMissingTools(ctx, workflow); len(missingTools) > 0 {
 		// Generate workflow unavailable event with missing tools
-		missingTools := a.findMissingTools(workflow)
 		a.generateCRDEvent(workflowName, events.ReasonWorkflowUnavailable, events.EventData{
 			Operation: opExecute,
 			ToolNames: missingTools,
@@ -190,9 +194,18 @@ func (a *Adapter) ExecuteWorkflow(ctx context.Context, workflowName string, args
 	}, nil
 }
 
-// GetWorkflows returns information about all workflows
+// GetWorkflows returns information about all workflows.
+//
+// Availability is computed against the process-global tool view (no session
+// context). Session-aware availability is computed in the tool-dispatch path
+// (handleList) via getWorkflows.
 func (a *Adapter) GetWorkflows() []api.Workflow {
-	ctx := context.Background()
+	return a.getWorkflows(context.Background())
+}
+
+// getWorkflows returns all workflows with availability evaluated for the
+// calling session carried by ctx.
+func (a *Adapter) getWorkflows(ctx context.Context) []api.Workflow {
 	workflowCRDs, err := a.client.ListWorkflows(ctx, a.namespace)
 	if err != nil {
 		logging.Error("WorkflowAdapter", err, "Failed to list workflows")
@@ -202,23 +215,32 @@ func (a *Adapter) GetWorkflows() []api.Workflow {
 	workflows := make([]api.Workflow, 0, len(workflowCRDs))
 	for _, workflowCRD := range workflowCRDs {
 		workflow := a.convertCRDToWorkflow(&workflowCRD)
-		workflow.Available = a.isWorkflowAvailable(workflow)
+		workflow.Available = a.isWorkflowAvailable(ctx, workflow)
 		workflows = append(workflows, *workflow)
 	}
 
 	return workflows
 }
 
-// GetWorkflow returns a specific workflow definition
+// GetWorkflow returns a specific workflow definition.
+//
+// Availability is computed against the process-global tool view (no session
+// context). Session-aware availability is computed in the tool-dispatch path
+// (handleGet / handleWorkflowAvailable) via getWorkflow.
 func (a *Adapter) GetWorkflow(name string) (*api.Workflow, error) {
-	ctx := context.Background()
+	return a.getWorkflow(context.Background(), name)
+}
+
+// getWorkflow returns a specific workflow with availability evaluated for the
+// calling session carried by ctx.
+func (a *Adapter) getWorkflow(ctx context.Context, name string) (*api.Workflow, error) {
 	workflowCRD, err := a.client.GetWorkflow(ctx, name, a.namespace)
 	if err != nil {
 		return nil, api.NewWorkflowNotFoundError(name)
 	}
 
 	workflow := a.convertCRDToWorkflow(workflowCRD)
-	workflow.Available = a.isWorkflowAvailable(workflow)
+	workflow.Available = a.isWorkflowAvailable(ctx, workflow)
 	return workflow, nil
 }
 
@@ -724,61 +746,160 @@ func (a *Adapter) convertToRawExtensionMap(valueMap map[string]interface{}) map[
 	return result
 }
 
-// isWorkflowAvailable checks if a workflow has all required tools available
-func (a *Adapter) isWorkflowAvailable(workflow *api.Workflow) bool {
-	a.mu.RLock()
-	if a.generatingTools {
-		a.mu.RUnlock()
-		// If we're in the middle of generating tools, assume available to avoid circular dependency
-		return true
-	}
-	a.mu.RUnlock()
-
-	if a.toolChecker == nil {
-		return true // Assume available if no tool checker
-	}
-
-	// Check each step's tool availability
-	for _, step := range workflow.Steps {
-		if !a.toolChecker.IsToolAvailable(step.Tool) {
-			return false
-		}
-	}
-
-	return true
+// isWorkflowAvailable checks if a workflow has all required tools available.
+//
+// Availability is evaluated session-aware and transitively via findMissingTools:
+// each step tool is resolved against the calling session's accessible tools
+// (carried by ctx), so SSO / auth-protected family tools are considered even
+// when the session has not called list_tools yet (#764), and nested workflow
+// steps require the referenced workflow to exist and be itself available. When
+// ctx carries no session, the checker falls back to the process-global view.
+func (a *Adapter) isWorkflowAvailable(ctx context.Context, workflow *api.Workflow) bool {
+	return len(a.findMissingTools(ctx, workflow)) == 0
 }
 
-// findMissingTools returns a list of tools that are not available for a workflow
-func (a *Adapter) findMissingTools(workflow *api.Workflow) []string {
-	a.mu.RLock()
-	if a.generatingTools {
-		a.mu.RUnlock()
-		return []string{} // No missing tools during tool generation
+// workflowManagementTools are the meta-tools exposed under the workflow_
+// prefix. They are provided by muster itself and are always available, so they
+// must not be treated as nested workflow execution tools.
+var workflowManagementTools = map[string]struct{}{
+	"workflow_list":           {},
+	"workflow_get":            {},
+	"workflow_create":         {},
+	"workflow_update":         {},
+	"workflow_delete":         {},
+	"workflow_validate":       {},
+	"workflow_available":      {},
+	"workflow_execution_list": {},
+	"workflow_execution_get":  {},
+}
+
+// nestedWorkflowName reports whether toolName is a nested workflow execution
+// tool (workflow_<name>) and, if so, returns the referenced workflow name. The
+// workflow_ management meta-tools (workflow_list, workflow_get, ...) are not
+// nested workflows and resolve as ordinary core tools.
+func nestedWorkflowName(toolName string) (string, bool) {
+	const prefix = "workflow_"
+	if !strings.HasPrefix(toolName, prefix) {
+		return "", false
 	}
+	if _, isManagement := workflowManagementTools[toolName]; isManagement {
+		return "", false
+	}
+	return strings.TrimPrefix(toolName, prefix), true
+}
+
+// findMissingTools returns the deduplicated step tools that are not available
+// for the workflow in the calling session.
+//
+// Availability is transitive across nested workflows. Step tools are resolved
+// by kind:
+//   - Nested workflow execution tools (workflow_<name>) require that the
+//     referenced workflow exists AND is itself available: the check descends
+//     into it and reports its missing tools. The aggregator's by-prefix
+//     core-tool shortcut would otherwise report any workflow_<name> available
+//     even when the referenced workflow is missing or transitively broken.
+//   - All other step tools are resolved against the calling session's accessible
+//     tools. The whole tree's external tools are gathered first and checked in a
+//     single MissingToolsForSession call, so the session's (potentially
+//     store-backed) tool set is resolved exactly once per check regardless of
+//     nesting depth (#764), and SSO / auth-protected family tools are considered
+//     even without a prior list_tools call.
+//
+// Reported names are the actual unavailable tools (a deep backend tool or a
+// missing workflow_<name>), so the cause surfaces at the top level.
+func (a *Adapter) findMissingTools(ctx context.Context, workflow *api.Workflow) []string {
+	a.mu.RLock()
+	generating := a.generatingTools
 	a.mu.RUnlock()
 
-	if a.toolChecker == nil {
-		return []string{} // No missing tools if no tool checker
+	// During tool generation, assume everything is available to avoid a
+	// circular dependency. Same when no checker is wired (e.g. in tests).
+	if generating || a.toolChecker == nil {
+		return nil
 	}
 
-	var missingTools []string
-	for _, step := range workflow.Steps {
-		if !a.toolChecker.IsToolAvailable(step.Tool) {
-			// Avoid duplicates
-			found := false
-			for _, tool := range missingTools {
-				if tool == step.Tool {
-					found = true
-					break
-				}
-			}
-			if !found {
-				missingTools = append(missingTools, step.Tool)
-			}
+	// Walk the whole nested-workflow tree once, recording in discovery order
+	// every tool whose availability decides the result: external (non-nested)
+	// step tools, plus nested workflow_<name> steps whose referenced workflow
+	// does not exist (already known unavailable).
+	var ordered []string
+	knownMissing := make(map[string]struct{})
+	a.walkStepTools(ctx, workflow, map[string]struct{}{}, make(map[string]struct{}), &ordered, knownMissing)
+
+	// Resolve every external tool's availability in a single session-scoped
+	// check, so the session tool set is built once for the entire tree.
+	externalNames := make([]string, 0, len(ordered))
+	for _, name := range ordered {
+		if _, known := knownMissing[name]; !known {
+			externalNames = append(externalNames, name)
 		}
 	}
+	externalMissing := make(map[string]struct{})
+	for _, name := range a.toolChecker.MissingToolsForSession(ctx, externalNames) {
+		externalMissing[name] = struct{}{}
+	}
 
-	return missingTools
+	// Emit the unavailable tools in discovery order.
+	var missing []string
+	for _, name := range ordered {
+		if _, known := knownMissing[name]; known {
+			missing = append(missing, name)
+			continue
+		}
+		if _, ok := externalMissing[name]; ok {
+			missing = append(missing, name)
+		}
+	}
+	return missing
+}
+
+// walkStepTools appends, in discovery order, the step tools of workflow (and of
+// the nested workflows reachable from it) whose availability decides the
+// workflow's availability:
+//   - every external (non-nested) step tool, and
+//   - every nested workflow_<name> whose referenced workflow does not exist,
+//     also recorded in knownMissing because a missing nested workflow is itself
+//     an unavailable tool.
+//
+// Nested workflows that exist are descended into. path holds the workflow names
+// currently on the recursion stack so cycles (A -> B -> A) stop descending
+// instead of looping forever; seen deduplicates the recorded tool names across
+// the whole tree.
+func (a *Adapter) walkStepTools(ctx context.Context, workflow *api.Workflow, path, seen map[string]struct{}, ordered *[]string, knownMissing map[string]struct{}) {
+	for _, step := range workflow.Steps {
+		tool := step.Tool
+
+		name, isNested := nestedWorkflowName(tool)
+		if !isNested {
+			if _, dup := seen[tool]; dup {
+				continue
+			}
+			seen[tool] = struct{}{}
+			*ordered = append(*ordered, tool)
+			continue
+		}
+
+		// A referenced workflow that does not exist is itself a missing tool.
+		nestedCRD, err := a.client.GetWorkflow(ctx, name, a.namespace)
+		if err != nil {
+			if _, dup := seen[tool]; dup {
+				continue
+			}
+			seen[tool] = struct{}{}
+			knownMissing[tool] = struct{}{}
+			*ordered = append(*ordered, tool)
+			continue
+		}
+
+		// Stop descending on a cycle; the offending edge is left to whichever
+		// level first detected a missing tool (if any).
+		if _, onPath := path[name]; onPath {
+			continue
+		}
+		path[name] = struct{}{}
+		a.walkStepTools(ctx, a.convertCRDToWorkflow(nestedCRD), path, seen, ordered, knownMissing)
+		delete(path, name)
+	}
 }
 
 // enhanceResultWithExecutionID modifies the workflow execution result to include the execution_id
@@ -1045,9 +1166,9 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 func (a *Adapter) ExecuteTool(ctx context.Context, toolName string, args map[string]interface{}) (*api.CallToolResult, error) {
 	switch {
 	case toolName == "workflow_list":
-		return a.handleList(args)
+		return a.handleList(ctx, args)
 	case toolName == "workflow_get":
-		return a.handleGet(args)
+		return a.handleGet(ctx, args)
 	case toolName == "workflow_create":
 		return a.handleCreate(args)
 	case toolName == "workflow_update":
@@ -1057,7 +1178,7 @@ func (a *Adapter) ExecuteTool(ctx context.Context, toolName string, args map[str
 	case toolName == "workflow_validate":
 		return a.handleValidate(args)
 	case toolName == "workflow_available":
-		return a.handleWorkflowAvailable(args)
+		return a.handleWorkflowAvailable(ctx, args)
 	case toolName == "workflow_execution_list":
 		return a.handleExecutionList(ctx, args)
 	case toolName == "workflow_execution_get":
@@ -1098,8 +1219,8 @@ func (a *Adapter) convertWorkflowArgs(workflowName string) []api.ArgMetadata {
 }
 
 // Helper methods for handling management operations
-func (a *Adapter) handleList(args map[string]interface{}) (*api.CallToolResult, error) {
-	workflows := a.GetWorkflows()
+func (a *Adapter) handleList(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
+	workflows := a.getWorkflows(ctx)
 
 	var result []map[string]interface{}
 	for _, wf := range workflows {
@@ -1132,7 +1253,7 @@ func (a *Adapter) handleList(args map[string]interface{}) (*api.CallToolResult, 
 	}, nil
 }
 
-func (a *Adapter) handleGet(args map[string]interface{}) (*api.CallToolResult, error) {
+func (a *Adapter) handleGet(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
 	name, ok := args["name"].(string)
 	if !ok {
 		return &api.CallToolResult{
@@ -1141,7 +1262,7 @@ func (a *Adapter) handleGet(args map[string]interface{}) (*api.CallToolResult, e
 		}, nil
 	}
 
-	workflow, err := a.GetWorkflow(name)
+	workflow, err := a.getWorkflow(ctx, name)
 	if err != nil {
 		return api.HandleErrorWithPrefix(err, "Failed to get workflow"), nil
 	}
@@ -1267,7 +1388,7 @@ func (a *Adapter) handleValidate(args map[string]interface{}) (*api.CallToolResu
 	}, nil
 }
 
-func (a *Adapter) handleWorkflowAvailable(args map[string]interface{}) (*api.CallToolResult, error) {
+func (a *Adapter) handleWorkflowAvailable(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
 	name, ok := args["name"].(string)
 	if !ok {
 		return &api.CallToolResult{
@@ -1276,14 +1397,14 @@ func (a *Adapter) handleWorkflowAvailable(args map[string]interface{}) (*api.Cal
 		}, nil
 	}
 
-	workflow, err := a.GetWorkflow(name)
+	workflow, err := a.getWorkflow(ctx, name)
 	if err != nil {
 		return &api.CallToolResult{
 			Content: []interface{}{err.Error()},
 			IsError: true,
 		}, nil
 	}
-	available := a.isWorkflowAvailable(workflow)
+	available := a.isWorkflowAvailable(ctx, workflow)
 
 	result := map[string]interface{}{
 		api.FieldName: name,

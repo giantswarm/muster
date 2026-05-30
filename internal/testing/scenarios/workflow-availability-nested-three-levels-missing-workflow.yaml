@@ -1,0 +1,125 @@
+name: "workflow-availability-nested-three-levels-missing-workflow"
+description: "Workflow availability is transitive: when the deepest workflow in a top -> mid -> deep chain does not exist, the unavailability must propagate up. mid-runbook references workflow_deep-runbook which is NOT registered, so mid-runbook is Unavailable, and top-runbook (which calls mid-runbook) must therefore also be Unavailable — not just the immediate parent."
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "availability", "nested-workflow", "transitive", "bug-reproducer", "regression"]
+timeout: "1m"
+
+# Given: A chain top -> mid -> deep where deep-runbook is NOT registered.
+# When:  core_workflow_available is evaluated for each existing level.
+# Then:  mid-runbook reports available: false (references a missing workflow),
+#        and top-runbook also reports available: false (transitive). A
+#        non-transitive, immediate-only check would wrongly report top-runbook
+#        available because workflow_mid-runbook exists.
+
+pre_configuration:
+  mcp_servers:
+    - name: "echo-provider"
+      config:
+        tools:
+          - name: "echo"
+            description: "Echo the given text"
+            input_schema:
+              type: object
+              args:
+                text:
+                  type: "string"
+              required:
+                - text
+            responses:
+              - response:
+                  said: "{{ .text }}"
+
+  workflows:
+    # Level 2: references a deepest workflow that is intentionally NOT defined.
+    - name: "mid-runbook"
+      config:
+        name: "mid-runbook"
+        input_schema:
+          type: object
+          args:
+            message:
+              type: "string"
+          required:
+            - message
+        steps:
+          - id: "call-deep"
+            tool: "workflow_deep-runbook"
+            args:
+              message: "{{ .input.message }}"
+            store: true
+
+    # Level 1 (top): calls the mid-level workflow, which is transitively broken.
+    - name: "top-runbook"
+      config:
+        name: "top-runbook"
+        input_schema:
+          type: object
+          args:
+            message:
+              type: "string"
+          required:
+            - message
+        steps:
+          - id: "call-mid"
+            tool: "workflow_mid-runbook"
+            args:
+              message: "{{ .input.message }}"
+            store: true
+
+    # Control: a self-contained workflow whose only tool is connected. Confirms
+    # the suite reports available: true for a genuinely available workflow.
+    - name: "control-runbook"
+      config:
+        name: "control-runbook"
+        input_schema:
+          type: object
+          args:
+            message:
+              type: "string"
+          required:
+            - message
+        steps:
+          - id: "echo"
+            tool: "x_echo-provider_echo"
+            args:
+              text: "{{ .input.message }}"
+            store: true
+
+steps:
+  - id: "verify-workflows-registered"
+    tool: "core_workflow_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["mid-runbook", "top-runbook", "control-runbook"]
+
+  - id: "control-available"
+    description: "A genuinely available workflow reports available: true"
+    tool: "core_workflow_available"
+    args:
+      name: "control-runbook"
+    expected:
+      success: true
+      json_path:
+        available: true
+
+  - id: "mid-unavailable"
+    description: "The mid workflow references a workflow that does not exist -> unavailable"
+    tool: "core_workflow_available"
+    args:
+      name: "mid-runbook"
+    expected:
+      success: true
+      json_path:
+        available: false
+
+  - id: "top-unavailable-transitively"
+    description: "The top workflow is unavailable because the deepest workflow is missing"
+    tool: "core_workflow_available"
+    args:
+      name: "top-runbook"
+    expected:
+      success: true
+      json_path:
+        available: false

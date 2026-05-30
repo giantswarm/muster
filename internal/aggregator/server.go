@@ -2093,8 +2093,11 @@ func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName st
 //
 // The check process:
 //  1. Attempts to resolve the tool through the server registry
-//  2. If not found, checks if it matches core tool naming patterns
-//  3. Returns true if found in either location
+//  2. If unresolved because the tool is a family backed by more than one
+//     provider (an intentional ambiguity error), treats it as available since
+//     the family still exists; routing only needs the instance-selector arg
+//  3. If still not found, checks if it matches core tool naming patterns
+//  4. Returns true if found in any of these
 //
 // This method is used by:
 //   - Workflow manager for validating workflow step tools
@@ -2111,12 +2114,110 @@ func (a *AggregatorServer) IsToolAvailable(toolName string) bool {
 		return true // Found in registry
 	}
 
+	// Family-grouped tools with more than one provider intentionally make
+	// ResolveToolName return an ambiguity error: the instance-selector arg is
+	// required only to route a call, not to determine that the tool exists.
+	// The tool is still available as long as the family is registered (a family
+	// bucket always has >= 1 provider). Treating the ambiguity error as
+	// "missing" is the #761 regression.
+	if a.registry.IsFamilyTool(toolName) {
+		return true // Family tool with at least one provider
+	}
+
 	// Check if it's a core tool by name pattern (avoid deadlock)
 	if a.isCoreToolByName(toolName) {
 		return true // Found in core tools
 	}
 
 	return false // Not found anywhere
+}
+
+// MissingToolsForSession returns, from toolNames, the (deduplicated,
+// input-ordered) subset that is not available for the calling session.
+//
+// Availability of family tools provided by SSO / auth-protected servers must be
+// scoped to the calling session and must not depend on call ordering (#764):
+//
+//   - False negative: such servers are skipped by GetAllTools(), so their family
+//     routing entries land in the process-global familyMappings index only as a
+//     side effect of a prior GetAllToolsForSession() call. A check against that
+//     index reported the tool missing until some session listed tools.
+//   - False positive: that index is unioned across sessions and keyed only by
+//     exposed tool name. Once any session lists tools, registry.IsFamilyTool
+//     flips true process-wide, so a global check then reported the tool
+//     available for every session — including ones that never authenticated to
+//     the family.
+//
+// Both stem from resolving session-scoped tools against the process-global
+// view. So when the context carries a session, that session's accessible tool
+// set — hydrated from the CapabilityStore (keyed by subject / session) via
+// GetToolsForSession — is authoritative for downstream (non-core) tools. The
+// session set already includes every non-auth connected server's tools plus the
+// family tools the caller has authenticated to, so it neither under- nor
+// over-reports. Core / meta tools (core_*, workflow_*) are never session-scoped
+// and resolve by name. Only when there is no session does availability fall
+// back to the process-global view.
+//
+// The session tool set is resolved at most once per call (lazily, on the first
+// non-core tool), so checking many tools does not rebuild it repeatedly.
+func (a *AggregatorServer) MissingToolsForSession(ctx context.Context, toolNames []string) []string {
+	sessionID := getSessionIDFromContext(ctx)
+	hasSession := sessionID != ""
+
+	var (
+		sessionTools    map[string]struct{}
+		sessionResolved bool
+	)
+	// resolveSessionTools lazily builds the session-scoped tool set so the
+	// (potentially store-backed) rebuild happens at most once per call, and
+	// only when a non-core tool actually needs it.
+	resolveSessionTools := func() map[string]struct{} {
+		if sessionResolved {
+			return sessionTools
+		}
+		sessionResolved = true
+		tools := a.GetToolsForSession(ctx, sessionID)
+		sessionTools = make(map[string]struct{}, len(tools))
+		for _, tool := range tools {
+			sessionTools[tool.Name] = struct{}{}
+		}
+		return sessionTools
+	}
+
+	var missing []string
+	seen := make(map[string]struct{}, len(toolNames))
+	for _, name := range toolNames {
+		if _, dup := seen[name]; dup {
+			continue
+		}
+		seen[name] = struct{}{}
+
+		// Core / meta tools are provided by muster itself and are available to
+		// every session regardless of downstream auth, so they resolve by name
+		// without consulting any session or backend state.
+		if a.isCoreToolByName(name) {
+			continue
+		}
+
+		if hasSession {
+			// The session's accessible tool set is authoritative for downstream
+			// tools: it neither depends on a prior list_tools (false negative)
+			// nor leaks other sessions' family providers (false positive).
+			if _, ok := resolveSessionTools()[name]; ok {
+				continue
+			}
+			missing = append(missing, name)
+			continue
+		}
+
+		// No session in context: fall back to the process-global view.
+		if a.IsToolAvailable(name) {
+			continue
+		}
+		missing = append(missing, name)
+	}
+
+	return missing
 }
 
 // GetAvailableTools implements the ToolAvailabilityChecker interface.

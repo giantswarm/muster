@@ -13,6 +13,10 @@ import (
 // It serves as an adapter that allows different subsystems (e.g. workflows)
 // to call tools through the aggregator without directly coupling to the aggregator implementation.
 // This follows the service locator pattern to maintain architectural boundaries.
+//
+// It exposes only tool execution (CallTool / CallToolInternal). Tool-availability
+// checks live on ToolChecker; consumers that need them depend on ToolChecker
+// directly.
 type ToolCaller struct{}
 
 // NewToolCaller creates a new API-based tool caller instance.
@@ -87,6 +91,21 @@ type AggregatorHandler interface {
 	// Returns:
 	//   - bool: true if the tool is available, false otherwise
 	IsToolAvailable(toolName string) bool
+
+	// MissingToolsForSession returns, from toolNames, the subset that is not
+	// available for the calling session. Unlike IsToolAvailable, it resolves
+	// SSO / auth-protected family tools against the session's accessible tool
+	// set (the per-subject capabilities in the CapabilityStore), so availability
+	// does not depend on whether the session called list_tools first. The
+	// session tool set is resolved once, so checking many tools is cheap.
+	//
+	// Args:
+	//   - ctx: Context carrying the session identity
+	//   - toolNames: The names of the tools to check
+	//
+	// Returns:
+	//   - []string: The deduplicated, input-ordered tool names that are unavailable
+	MissingToolsForSession(ctx context.Context, toolNames []string) []string
 
 	// GetAvailableTools returns a list of all currently available tool names.
 	// This is used for tool discovery and validation.
@@ -219,28 +238,6 @@ func (atc *ToolCaller) CallToolInternal(ctx context.Context, toolName string, ar
 	return result, nil
 }
 
-// IsToolAvailable checks if a tool is available through the aggregator.
-// This method provides a convenient way to validate tool availability without
-// attempting to execute the tool, which is useful for validation and UI purposes.
-func (atc *ToolCaller) IsToolAvailable(toolName string) bool {
-	aggregatorHandler := GetAggregator()
-	if aggregatorHandler == nil {
-		return false
-	}
-	return aggregatorHandler.IsToolAvailable(toolName)
-}
-
-// GetAvailableTools returns all available tools from the aggregator.
-// This method provides tool discovery functionality for clients that need to
-// understand what tools are currently available in the system.
-func (atc *ToolCaller) GetAvailableTools() []string {
-	aggregatorHandler := GetAggregator()
-	if aggregatorHandler == nil {
-		return []string{}
-	}
-	return aggregatorHandler.GetAvailableTools()
-}
-
 // ToolChecker implements config.ToolAvailabilityChecker using the API layer.
 // It provides a way for the configuration system to validate tool availability
 // without direct coupling to the aggregator implementation.
@@ -265,6 +262,19 @@ func (atc *ToolChecker) IsToolAvailable(toolName string) bool {
 		return false
 	}
 	return aggregatorHandler.IsToolAvailable(toolName)
+}
+
+// MissingToolsForSession returns the subset of toolNames that is unavailable
+// for the calling session, using the aggregator API handler. This lets
+// consumers validate availability of SSO family tools without depending on a
+// prior list_tools call in the session. When the aggregator is unavailable, all
+// requested tools are reported missing.
+func (atc *ToolChecker) MissingToolsForSession(ctx context.Context, toolNames []string) []string {
+	aggregatorHandler := GetAggregator()
+	if aggregatorHandler == nil {
+		return toolNames
+	}
+	return aggregatorHandler.MissingToolsForSession(ctx, toolNames)
 }
 
 // GetAvailableTools returns all available tools using the aggregator API handler.
