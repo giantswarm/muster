@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -121,11 +122,7 @@ func writeExchangeError(w http.ResponseWriter, err error) {
 }
 
 func isTokenExchangeUnsupportedTypeError(err error, target **oauthserver.TokenExchangeUnsupportedTypeError) bool {
-	if e, ok := err.(*oauthserver.TokenExchangeUnsupportedTypeError); ok {
-		*target = e
-		return true
-	}
-	return false
+	return errors.As(err, target)
 }
 
 func writeJSONError(w http.ResponseWriter, code, description string, status int) {

@@ -278,6 +278,22 @@ func TestNewOAuthHTTPServer_JWTModeWithoutKeyFileReturnsError(t *testing.T) {
 	require.ErrorContains(t, err, "jwtSigningKeyFile")
 }
 
+func TestNewOAuthHTTPServer_MachinePrincipalsWithoutJWTModeReturnsError(t *testing.T) {
+	cfg := config.OAuthServerConfig{
+		Enabled:  true,
+		BaseURL:  "http://localhost:8080",
+		Provider: OAuthProviderGoogle,
+		MachinePrincipals: map[string]config.MachinePrincipalConfig{
+			"system:serviceaccount:ai-platform:agent": {Email: "agent@example.com"},
+		},
+		// EnableJWTMode intentionally false
+	}
+
+	_, err := NewOAuthHTTPServer(cfg, http.DefaultServeMux, false)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "machinePrincipals")
+}
+
 func TestValidateHTTPSRequirement(t *testing.T) {
 	tests := []struct {
 		name    string
