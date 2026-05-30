@@ -560,6 +560,9 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 	if cfg.EnableJWTMode && cfg.JWTSigningKeyFile == "" {
 		return nil, nil, nil, fmt.Errorf("enableJWTMode requires jwtSigningKeyFile to be set")
 	}
+	if len(cfg.MachinePrincipals) > 0 && !cfg.EnableJWTMode {
+		return nil, nil, nil, fmt.Errorf("machinePrincipals requires enableJWTMode: true (token exchange only works in JWT mode)")
+	}
 
 	logger := slog.Default()
 

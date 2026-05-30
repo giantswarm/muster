@@ -448,6 +448,7 @@ muster:
       # into muster-issued JWTs during RFC 8693 token exchange. Key is the exact sub
       # string from the SA JWT. The email and groups values are written into the issued
       # access token so downstream MCPs can impersonate the synthetic user.
+      # Requires enableJWTMode: true (token exchange only works in JWT mode).
       # Example:
       #   "system:serviceaccount:muster-m2m-test:klaus-sre":
       #     email: "klaus-sre@machine.giantswarm.io"

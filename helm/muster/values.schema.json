@@ -563,7 +563,7 @@
               "additionalProperties": {
                 "type": "object",
                 "properties": {
-                  "email": {"type": "string", "description": "Synthetic email claim written into the issued JWT"},
+                  "email": {"type": "string", "minLength": 1, "description": "Synthetic email claim written into the issued JWT"},
                   "groups": {"type": "array", "items": {"type": "string"}, "description": "Synthetic groups claim written into the issued JWT"}
                 },
                 "required": ["email"]
