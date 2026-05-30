@@ -37,11 +37,12 @@ type Adapter struct {
 
 // ToolAvailabilityChecker interface for checking tool availability
 type ToolAvailabilityChecker interface {
-	IsToolAvailable(toolName string) bool
-	// IsToolAvailableForSession resolves availability against the calling
-	// session's accessible tools, so SSO family tools are considered even
-	// without a prior list_tools call (see #764).
-	IsToolAvailableForSession(ctx context.Context, toolName string) bool
+	// MissingToolsForSession returns the subset of toolNames that is unavailable
+	// for the calling session. Availability is resolved against the session's
+	// accessible tools, so SSO family tools are considered even without a prior
+	// list_tools call (see #764). The session tool set is resolved once, so
+	// checking all of a workflow's step tools is a single pass.
+	MissingToolsForSession(ctx context.Context, toolNames []string) []string
 }
 
 // NewAdapterWithClient creates a new workflow adapter with a pre-configured client
@@ -86,9 +87,8 @@ func (a *Adapter) ExecuteWorkflow(ctx context.Context, workflowName string, args
 	workflow := a.convertCRDToWorkflow(workflowCRD)
 
 	// Check if workflow is available before execution
-	if !a.isWorkflowAvailable(ctx, workflow) {
+	if missingTools := a.findMissingTools(ctx, workflow); len(missingTools) > 0 {
 		// Generate workflow unavailable event with missing tools
-		missingTools := a.findMissingTools(ctx, workflow)
 		a.generateCRDEvent(workflowName, events.ReasonWorkflowUnavailable, events.EventData{
 			Operation: opExecute,
 			ToolNames: missingTools,
@@ -748,65 +748,35 @@ func (a *Adapter) convertToRawExtensionMap(valueMap map[string]interface{}) map[
 
 // isWorkflowAvailable checks if a workflow has all required tools available.
 //
-// Availability is evaluated session-aware: each step tool is resolved against
-// the calling session's accessible tools (carried by ctx), so SSO / auth-protected
-// family tools are considered even when the session has not called list_tools
-// yet (#764). When ctx carries no session, the checker falls back to the
-// process-global view.
+// Availability is evaluated session-aware via findMissingTools: each step tool
+// is resolved against the calling session's accessible tools (carried by ctx),
+// so SSO / auth-protected family tools are considered even when the session has
+// not called list_tools yet (#764). When ctx carries no session, the checker
+// falls back to the process-global view.
 func (a *Adapter) isWorkflowAvailable(ctx context.Context, workflow *api.Workflow) bool {
-	a.mu.RLock()
-	if a.generatingTools {
-		a.mu.RUnlock()
-		// If we're in the middle of generating tools, assume available to avoid circular dependency
-		return true
-	}
-	a.mu.RUnlock()
-
-	if a.toolChecker == nil {
-		return true // Assume available if no tool checker
-	}
-
-	// Check each step's tool availability
-	for _, step := range workflow.Steps {
-		if !a.toolChecker.IsToolAvailableForSession(ctx, step.Tool) {
-			return false
-		}
-	}
-
-	return true
+	return len(a.findMissingTools(ctx, workflow)) == 0
 }
 
-// findMissingTools returns a list of tools that are not available for a workflow
+// findMissingTools returns the deduplicated tools that are not available for the
+// workflow in the calling session. The whole step list is checked in a single
+// pass so the session's tool set is resolved at most once (#764).
 func (a *Adapter) findMissingTools(ctx context.Context, workflow *api.Workflow) []string {
 	a.mu.RLock()
-	if a.generatingTools {
-		a.mu.RUnlock()
-		return []string{} // No missing tools during tool generation
-	}
+	generating := a.generatingTools
 	a.mu.RUnlock()
 
-	if a.toolChecker == nil {
-		return []string{} // No missing tools if no tool checker
+	// During tool generation, assume everything is available to avoid a
+	// circular dependency. Same when no checker is wired (e.g. in tests).
+	if generating || a.toolChecker == nil {
+		return nil
 	}
 
-	var missingTools []string
+	toolNames := make([]string, 0, len(workflow.Steps))
 	for _, step := range workflow.Steps {
-		if !a.toolChecker.IsToolAvailableForSession(ctx, step.Tool) {
-			// Avoid duplicates
-			found := false
-			for _, tool := range missingTools {
-				if tool == step.Tool {
-					found = true
-					break
-				}
-			}
-			if !found {
-				missingTools = append(missingTools, step.Tool)
-			}
-		}
+		toolNames = append(toolNames, step.Tool)
 	}
 
-	return missingTools
+	return a.toolChecker.MissingToolsForSession(ctx, toolNames)
 }
 
 // enhanceResultWithExecutionID modifies the workflow execution result to include the execution_id

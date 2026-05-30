@@ -126,26 +126,27 @@ func (a *APIAdapter) IsToolAvailable(toolName string) bool {
 	return server.IsToolAvailable(toolName)
 }
 
-// IsToolAvailableForSession checks if a tool is available for the calling
-// session, resolving SSO family tools against the session's accessible tool
-// set (CapabilityStore) so availability is not order-dependent on a prior
-// list_tools call.
-func (a *APIAdapter) IsToolAvailableForSession(ctx context.Context, toolName string) bool {
+// MissingToolsForSession returns the subset of toolNames that is unavailable
+// for the calling session, resolving SSO family tools against the session's
+// accessible tool set (CapabilityStore) so availability is not order-dependent
+// on a prior list_tools call. When the aggregator is unavailable, all requested
+// tools are reported missing.
+func (a *APIAdapter) MissingToolsForSession(ctx context.Context, toolNames []string) []string {
 	if a.service == nil {
-		return false
+		return toolNames
 	}
 
 	manager := a.service.GetManager()
 	if manager == nil {
-		return false
+		return toolNames
 	}
 
 	server := manager.GetAggregatorServer()
 	if server == nil {
-		return false
+		return toolNames
 	}
 
-	return server.IsToolAvailableForSession(ctx, toolName)
+	return server.MissingToolsForSession(ctx, toolNames)
 }
 
 // GetAvailableTools returns all available tools

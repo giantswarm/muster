@@ -2132,7 +2132,8 @@ func (a *AggregatorServer) IsToolAvailable(toolName string) bool {
 	return false // Not found anywhere
 }
 
-// IsToolAvailableForSession implements the session-aware availability check.
+// MissingToolsForSession returns, from toolNames, the (deduplicated,
+// input-ordered) subset that is not available for the calling session.
 //
 // Availability of family tools provided by SSO / auth-protected servers must
 // not depend on whether the calling session happened to call list_tools first.
@@ -2142,33 +2143,54 @@ func (a *AggregatorServer) IsToolAvailable(toolName string) bool {
 // (core_workflow_available / core_workflow_list) order-dependent and not
 // session-scoped (#764).
 //
-// This method first consults the global, order-independent check (core tools
-// and non-auth families already seeded in the global index). If that does not
-// resolve the tool, it resolves the name against the calling session's
-// accessible tool set — hydrated from the CapabilityStore (keyed by subject /
-// session) via GetToolsForSession — so SSO family tools the caller can access
-// are considered even without a prior list_tools.
-func (a *AggregatorServer) IsToolAvailableForSession(ctx context.Context, toolName string) bool {
-	// Order-independent check: core tools and families already present in the
-	// process-global routing index.
-	if a.IsToolAvailable(toolName) {
-		return true
-	}
-
-	// Session-scoped resolution: consult the tools the calling session can
-	// actually access, including SSO capabilities from the CapabilityStore.
-	sessionID := getSessionIDFromContext(ctx)
-	if sessionID == "" {
-		return false
-	}
-
-	for _, tool := range a.GetToolsForSession(ctx, sessionID) {
-		if tool.Name == toolName {
-			return true
+// Each name is first checked against the global, order-independent view (core
+// tools and families already seeded in the global index). Names unresolved
+// there are matched against the calling session's accessible tool set —
+// hydrated from the CapabilityStore (keyed by subject / session) via
+// GetToolsForSession — so SSO family tools the caller can access are considered
+// even without a prior list_tools. The session tool set is resolved at most
+// once per call, so checking many tools does not rebuild it repeatedly.
+func (a *AggregatorServer) MissingToolsForSession(ctx context.Context, toolNames []string) []string {
+	var (
+		sessionTools    map[string]struct{}
+		sessionResolved bool
+	)
+	// resolveSessionTools lazily builds the session-scoped tool set so the
+	// (potentially store-backed) rebuild happens at most once per call, and
+	// only when the cheap global check leaves a tool unresolved.
+	resolveSessionTools := func() map[string]struct{} {
+		if sessionResolved {
+			return sessionTools
 		}
+		sessionResolved = true
+		if sessionID := getSessionIDFromContext(ctx); sessionID != "" {
+			tools := a.GetToolsForSession(ctx, sessionID)
+			sessionTools = make(map[string]struct{}, len(tools))
+			for _, tool := range tools {
+				sessionTools[tool.Name] = struct{}{}
+			}
+		}
+		return sessionTools
 	}
 
-	return false
+	var missing []string
+	seen := make(map[string]struct{}, len(toolNames))
+	for _, name := range toolNames {
+		if _, dup := seen[name]; dup {
+			continue
+		}
+		seen[name] = struct{}{}
+
+		if a.IsToolAvailable(name) {
+			continue
+		}
+		if _, ok := resolveSessionTools()[name]; ok {
+			continue
+		}
+		missing = append(missing, name)
+	}
+
+	return missing
 }
 
 // GetAvailableTools implements the ToolAvailabilityChecker interface.

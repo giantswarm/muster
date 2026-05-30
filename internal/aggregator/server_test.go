@@ -1209,7 +1209,7 @@ func registerAuthFamilyMember(t *testing.T, reg *ServerRegistry, name, familyNam
 	}))
 }
 
-// TestAggregatorServer_IsToolAvailableForSession is the regression guard for
+// TestAggregatorServer_MissingToolsForSession is the regression guard for
 // #764: availability of SSO / auth-protected family tools must be session-aware
 // and must not depend on whether the session called list_tools first.
 //
@@ -1217,10 +1217,15 @@ func registerAuthFamilyMember(t *testing.T, reg *ServerRegistry, name, familyNam
 // is x_kubernetes_list. GetAllTools() skips auth-protected servers, so the
 // process-global familyMappings index has no provider for x_kubernetes_list
 // until some session lists tools. With the caller's capabilities present in the
-// CapabilityStore, IsToolAvailableForSession must report the tool available even
+// CapabilityStore, MissingToolsForSession must report the tool available even
 // though the non-session-aware IsToolAvailable still reports it missing.
-func TestAggregatorServer_IsToolAvailableForSession(t *testing.T) {
+func TestAggregatorServer_MissingToolsForSession(t *testing.T) {
 	const sessionID = "session-764"
+
+	// available reports whether the single tool is available for the session.
+	available := func(a *AggregatorServer, ctx context.Context, toolName string) bool {
+		return len(a.MissingToolsForSession(ctx, []string{toolName})) == 0
+	}
 
 	newAggWithSSOFamily := func(t *testing.T) (*AggregatorServer, func()) {
 		t.Helper()
@@ -1250,7 +1255,7 @@ func TestAggregatorServer_IsToolAvailableForSession(t *testing.T) {
 			"precondition: global check must miss the SSO family tool before any list_tools")
 
 		ctx := api.WithSessionID(context.Background(), sessionID)
-		assert.True(t, a.IsToolAvailableForSession(ctx, "x_kubernetes_list"),
+		assert.True(t, available(a, ctx, "x_kubernetes_list"),
 			"session-aware check must report the SSO family tool available from the CapabilityStore")
 	})
 
@@ -1259,7 +1264,7 @@ func TestAggregatorServer_IsToolAvailableForSession(t *testing.T) {
 		defer stop()
 
 		ctx := api.WithSessionID(context.Background(), sessionID)
-		assert.False(t, a.IsToolAvailableForSession(ctx, "x_this_tool_does_not_exist"),
+		assert.False(t, available(a, ctx, "x_this_tool_does_not_exist"),
 			"a tool with no provider in the session must stay unavailable")
 	})
 
@@ -1267,7 +1272,7 @@ func TestAggregatorServer_IsToolAvailableForSession(t *testing.T) {
 		a, stop := newAggWithSSOFamily(t)
 		defer stop()
 
-		assert.False(t, a.IsToolAvailableForSession(context.Background(), "x_kubernetes_list"),
+		assert.False(t, available(a, context.Background(), "x_kubernetes_list"),
 			"without a session the auth family tool is not globally seeded and must report unavailable")
 	})
 
@@ -1275,7 +1280,22 @@ func TestAggregatorServer_IsToolAvailableForSession(t *testing.T) {
 		a, stop := newAggWithSSOFamily(t)
 		defer stop()
 
-		assert.True(t, a.IsToolAvailableForSession(context.Background(), "core_workflow_list"),
+		assert.True(t, available(a, context.Background(), "core_workflow_list"),
 			"core tools resolve via the global, order-independent check")
+	})
+
+	t.Run("mixed batch resolves the session set once and preserves order", func(t *testing.T) {
+		a, stop := newAggWithSSOFamily(t)
+		defer stop()
+
+		ctx := api.WithSessionID(context.Background(), sessionID)
+		missing := a.MissingToolsForSession(ctx, []string{
+			"core_workflow_list",         // core, globally available
+			"x_kubernetes_list",          // SSO family, available via session
+			"x_this_tool_does_not_exist", // unavailable
+			"x_this_tool_does_not_exist", // duplicate, must be collapsed
+		})
+		assert.Equal(t, []string{"x_this_tool_does_not_exist"}, missing,
+			"only the genuinely missing tool is returned, deduplicated and in input order")
 	})
 }
