@@ -87,17 +87,6 @@ func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger) 
 				AllowedClaims:    iss.AllowedClaims,
 			}
 		}
-		issuers = append(issuers, ti)
-	}
-	for _, iss := range cfg.TrustedIssuers {
-		issuers = append(issuers, oauthserver.TrustedIssuer{
-			Issuer:           iss.Issuer,
-			JwksURL:          iss.JwksURL,
-			AllowedAudiences: iss.AllowedAudiences,
-			AllowedScopes:    iss.AllowedScopes,
-		})
-	}
-	if len(issuers) > 0 {
 		opts = append(opts, oauthserver.WithTrustedIssuers(issuers))
 	}
 
