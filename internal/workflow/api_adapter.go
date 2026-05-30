@@ -748,18 +748,63 @@ func (a *Adapter) convertToRawExtensionMap(valueMap map[string]interface{}) map[
 
 // isWorkflowAvailable checks if a workflow has all required tools available.
 //
-// Availability is evaluated session-aware via findMissingTools: each step tool
-// is resolved against the calling session's accessible tools (carried by ctx),
-// so SSO / auth-protected family tools are considered even when the session has
-// not called list_tools yet (#764). When ctx carries no session, the checker
-// falls back to the process-global view.
+// Availability is evaluated session-aware and transitively via findMissingTools:
+// each step tool is resolved against the calling session's accessible tools
+// (carried by ctx), so SSO / auth-protected family tools are considered even
+// when the session has not called list_tools yet (#764), and nested workflow
+// steps require the referenced workflow to exist and be itself available. When
+// ctx carries no session, the checker falls back to the process-global view.
 func (a *Adapter) isWorkflowAvailable(ctx context.Context, workflow *api.Workflow) bool {
 	return len(a.findMissingTools(ctx, workflow)) == 0
 }
 
-// findMissingTools returns the deduplicated tools that are not available for the
-// workflow in the calling session. The whole step list is checked in a single
-// pass so the session's tool set is resolved at most once (#764).
+// workflowManagementTools are the meta-tools exposed under the workflow_
+// prefix. They are provided by muster itself and are always available, so they
+// must not be treated as nested workflow execution tools.
+var workflowManagementTools = map[string]struct{}{
+	"workflow_list":           {},
+	"workflow_get":            {},
+	"workflow_create":         {},
+	"workflow_update":         {},
+	"workflow_delete":         {},
+	"workflow_validate":       {},
+	"workflow_available":      {},
+	"workflow_execution_list": {},
+	"workflow_execution_get":  {},
+}
+
+// nestedWorkflowName reports whether toolName is a nested workflow execution
+// tool (workflow_<name>) and, if so, returns the referenced workflow name. The
+// workflow_ management meta-tools (workflow_list, workflow_get, ...) are not
+// nested workflows and resolve as ordinary core tools.
+func nestedWorkflowName(toolName string) (string, bool) {
+	const prefix = "workflow_"
+	if !strings.HasPrefix(toolName, prefix) {
+		return "", false
+	}
+	if _, isManagement := workflowManagementTools[toolName]; isManagement {
+		return "", false
+	}
+	return strings.TrimPrefix(toolName, prefix), true
+}
+
+// findMissingTools returns the deduplicated step tools that are not available
+// for the workflow in the calling session.
+//
+// Availability is transitive across nested workflows. Step tools are resolved
+// by kind:
+//   - Nested workflow execution tools (workflow_<name>) require that the
+//     referenced workflow exists AND is itself available: the check descends
+//     into it and reports its missing tools. The aggregator's by-prefix
+//     core-tool shortcut would otherwise report any workflow_<name> available
+//     even when the referenced workflow is missing or transitively broken.
+//   - All other step tools are resolved against the calling session's accessible
+//     tools in a single batch per workflow level, so the session's tool set is
+//     resolved at most once per level (#764) and SSO / auth-protected family
+//     tools are considered even without a prior list_tools call.
+//
+// Reported names are the actual unavailable tools (a deep backend tool or a
+// missing workflow_<name>), so the cause surfaces at the top level.
 func (a *Adapter) findMissingTools(ctx context.Context, workflow *api.Workflow) []string {
 	a.mu.RLock()
 	generating := a.generatingTools
@@ -771,12 +816,67 @@ func (a *Adapter) findMissingTools(ctx context.Context, workflow *api.Workflow) 
 		return nil
 	}
 
-	toolNames := make([]string, 0, len(workflow.Steps))
+	seen := make(map[string]struct{})
+	return a.collectMissingTools(ctx, workflow, map[string]struct{}{}, seen, nil)
+}
+
+// collectMissingTools appends the unavailable step tools of workflow (including
+// those reached through nested workflows) to missing and returns the result.
+//
+// path holds the workflow names currently on the recursion stack so cycles
+// (A -> B -> A) stop descending instead of looping forever; seen deduplicates
+// the reported tool names across the whole tree.
+func (a *Adapter) collectMissingTools(ctx context.Context, workflow *api.Workflow, path, seen map[string]struct{}, missing []string) []string {
+	// Batch this level's non-nested step tools through the session-aware
+	// checker so its (potentially store-backed) tool set is built at most once.
+	externalNames := make([]string, 0, len(workflow.Steps))
 	for _, step := range workflow.Steps {
-		toolNames = append(toolNames, step.Tool)
+		if _, ok := nestedWorkflowName(step.Tool); !ok {
+			externalNames = append(externalNames, step.Tool)
+		}
+	}
+	externalMissing := make(map[string]struct{})
+	for _, name := range a.toolChecker.MissingToolsForSession(ctx, externalNames) {
+		externalMissing[name] = struct{}{}
 	}
 
-	return a.toolChecker.MissingToolsForSession(ctx, toolNames)
+	addMissing := func(tool string) []string {
+		if _, dup := seen[tool]; dup {
+			return missing
+		}
+		seen[tool] = struct{}{}
+		return append(missing, tool)
+	}
+
+	for _, step := range workflow.Steps {
+		tool := step.Tool
+
+		name, isNested := nestedWorkflowName(tool)
+		if !isNested {
+			if _, ok := externalMissing[tool]; ok {
+				missing = addMissing(tool)
+			}
+			continue
+		}
+
+		// A referenced workflow that does not exist is itself a missing tool.
+		nestedCRD, err := a.client.GetWorkflow(ctx, name, a.namespace)
+		if err != nil {
+			missing = addMissing(tool)
+			continue
+		}
+
+		// Stop descending on a cycle; the offending edge is left to whichever
+		// level first detected the missing tool (if any).
+		if _, onPath := path[name]; onPath {
+			continue
+		}
+		path[name] = struct{}{}
+		missing = a.collectMissingTools(ctx, a.convertCRDToWorkflow(nestedCRD), path, seen, missing)
+		delete(path, name)
+	}
+
+	return missing
 }
 
 // enhanceResultWithExecutionID modifies the workflow execution result to include the execution_id
