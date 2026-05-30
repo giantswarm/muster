@@ -799,9 +799,11 @@ func nestedWorkflowName(toolName string) (string, bool) {
 //     core-tool shortcut would otherwise report any workflow_<name> available
 //     even when the referenced workflow is missing or transitively broken.
 //   - All other step tools are resolved against the calling session's accessible
-//     tools in a single batch per workflow level, so the session's tool set is
-//     resolved at most once per level (#764) and SSO / auth-protected family
-//     tools are considered even without a prior list_tools call.
+//     tools. The whole tree's external tools are gathered first and checked in a
+//     single MissingToolsForSession call, so the session's (potentially
+//     store-backed) tool set is resolved exactly once per check regardless of
+//     nesting depth (#764), and SSO / auth-protected family tools are considered
+//     even without a prior list_tools call.
 //
 // Reported names are the actual unavailable tools (a deep backend tool or a
 // missing workflow_<name>), so the cause surfaces at the top level.
@@ -816,23 +818,20 @@ func (a *Adapter) findMissingTools(ctx context.Context, workflow *api.Workflow) 
 		return nil
 	}
 
-	seen := make(map[string]struct{})
-	return a.collectMissingTools(ctx, workflow, map[string]struct{}{}, seen, nil)
-}
+	// Walk the whole nested-workflow tree once, recording in discovery order
+	// every tool whose availability decides the result: external (non-nested)
+	// step tools, plus nested workflow_<name> steps whose referenced workflow
+	// does not exist (already known unavailable).
+	var ordered []string
+	knownMissing := make(map[string]struct{})
+	a.walkStepTools(ctx, workflow, map[string]struct{}{}, make(map[string]struct{}), &ordered, knownMissing)
 
-// collectMissingTools appends the unavailable step tools of workflow (including
-// those reached through nested workflows) to missing and returns the result.
-//
-// path holds the workflow names currently on the recursion stack so cycles
-// (A -> B -> A) stop descending instead of looping forever; seen deduplicates
-// the reported tool names across the whole tree.
-func (a *Adapter) collectMissingTools(ctx context.Context, workflow *api.Workflow, path, seen map[string]struct{}, missing []string) []string {
-	// Batch this level's non-nested step tools through the session-aware
-	// checker so its (potentially store-backed) tool set is built at most once.
-	externalNames := make([]string, 0, len(workflow.Steps))
-	for _, step := range workflow.Steps {
-		if _, ok := nestedWorkflowName(step.Tool); !ok {
-			externalNames = append(externalNames, step.Tool)
+	// Resolve every external tool's availability in a single session-scoped
+	// check, so the session tool set is built once for the entire tree.
+	externalNames := make([]string, 0, len(ordered))
+	for _, name := range ordered {
+		if _, known := knownMissing[name]; !known {
+			externalNames = append(externalNames, name)
 		}
 	}
 	externalMissing := make(map[string]struct{})
@@ -840,43 +839,67 @@ func (a *Adapter) collectMissingTools(ctx context.Context, workflow *api.Workflo
 		externalMissing[name] = struct{}{}
 	}
 
-	addMissing := func(tool string) []string {
-		if _, dup := seen[tool]; dup {
-			return missing
+	// Emit the unavailable tools in discovery order.
+	var missing []string
+	for _, name := range ordered {
+		if _, known := knownMissing[name]; known {
+			missing = append(missing, name)
+			continue
 		}
-		seen[tool] = struct{}{}
-		return append(missing, tool)
+		if _, ok := externalMissing[name]; ok {
+			missing = append(missing, name)
+		}
 	}
+	return missing
+}
 
+// walkStepTools appends, in discovery order, the step tools of workflow (and of
+// the nested workflows reachable from it) whose availability decides the
+// workflow's availability:
+//   - every external (non-nested) step tool, and
+//   - every nested workflow_<name> whose referenced workflow does not exist,
+//     also recorded in knownMissing because a missing nested workflow is itself
+//     an unavailable tool.
+//
+// Nested workflows that exist are descended into. path holds the workflow names
+// currently on the recursion stack so cycles (A -> B -> A) stop descending
+// instead of looping forever; seen deduplicates the recorded tool names across
+// the whole tree.
+func (a *Adapter) walkStepTools(ctx context.Context, workflow *api.Workflow, path, seen map[string]struct{}, ordered *[]string, knownMissing map[string]struct{}) {
 	for _, step := range workflow.Steps {
 		tool := step.Tool
 
 		name, isNested := nestedWorkflowName(tool)
 		if !isNested {
-			if _, ok := externalMissing[tool]; ok {
-				missing = addMissing(tool)
+			if _, dup := seen[tool]; dup {
+				continue
 			}
+			seen[tool] = struct{}{}
+			*ordered = append(*ordered, tool)
 			continue
 		}
 
 		// A referenced workflow that does not exist is itself a missing tool.
 		nestedCRD, err := a.client.GetWorkflow(ctx, name, a.namespace)
 		if err != nil {
-			missing = addMissing(tool)
+			if _, dup := seen[tool]; dup {
+				continue
+			}
+			seen[tool] = struct{}{}
+			knownMissing[tool] = struct{}{}
+			*ordered = append(*ordered, tool)
 			continue
 		}
 
 		// Stop descending on a cycle; the offending edge is left to whichever
-		// level first detected the missing tool (if any).
+		// level first detected a missing tool (if any).
 		if _, onPath := path[name]; onPath {
 			continue
 		}
 		path[name] = struct{}{}
-		missing = a.collectMissingTools(ctx, a.convertCRDToWorkflow(nestedCRD), path, seen, missing)
+		a.walkStepTools(ctx, a.convertCRDToWorkflow(nestedCRD), path, seen, ordered, knownMissing)
 		delete(path, name)
 	}
-
-	return missing
 }
 
 // enhanceResultWithExecutionID modifies the workflow execution result to include the execution_id
