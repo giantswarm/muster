@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Workflow availability (`core_workflow_available` / `core_workflow_list` / `workflow_available`) is now session-aware. Previously, availability for SSO / auth-protected family tools (e.g. multi-instance `kubernetes` / `prometheus` servers) was computed from the process-global family routing index, which is only populated as a side effect of a prior `list_tools` call in some session. As a result `muster list workflows` / `muster get workflow` reported workflows `Unavailable` while `muster agent` (which lists tools on connect) reported them available — same identity, same aggregator, answer dependent on call ordering. Availability now resolves each step tool against the calling session's accessible tools (hydrated from the `CapabilityStore`), so it no longer depends on a prior `list_tools`. Closes #764.
+
 ### Changed
 
 - Bump `giantswarm/mcp-oauth` to `v0.2.162`. New Helm values `muster.oauth.server.{kubernetesSATrusts,trustedIssuers,trustedProxyCIDRs,enableJWTMode,resourceIdentifier}` wire Kubernetes ServiceAccount token exchange (RFC 8693), trusted external OIDC issuers, DPoP trusted-proxy CIDRs, RFC 9068 JWT access tokens, and RFC 8707 resource-server audience binding. Also enables the OIDC userinfo endpoint, PII-redacted audit logging, and CIMD metadata-fetch rate limiting. Encryption-at-rest is now wired on the store constructor (`valkey.WithEncryptor` / `memory.WithEncryptor`) rather than as a server option.

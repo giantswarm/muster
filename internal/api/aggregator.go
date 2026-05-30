@@ -88,6 +88,20 @@ type AggregatorHandler interface {
 	//   - bool: true if the tool is available, false otherwise
 	IsToolAvailable(toolName string) bool
 
+	// IsToolAvailableForSession checks whether a specific tool is available for
+	// the calling session. Unlike IsToolAvailable, it resolves SSO / auth-protected
+	// family tools against the session's accessible tool set (the per-subject
+	// capabilities in the CapabilityStore), so availability does not depend on
+	// whether the session called list_tools first.
+	//
+	// Args:
+	//   - ctx: Context carrying the session identity
+	//   - toolName: The name of the tool to check
+	//
+	// Returns:
+	//   - bool: true if the tool is available for the session, false otherwise
+	IsToolAvailableForSession(ctx context.Context, toolName string) bool
+
 	// GetAvailableTools returns a list of all currently available tool names.
 	// This is used for tool discovery and validation.
 	//
@@ -230,6 +244,18 @@ func (atc *ToolCaller) IsToolAvailable(toolName string) bool {
 	return aggregatorHandler.IsToolAvailable(toolName)
 }
 
+// IsToolAvailableForSession checks if a tool is available for the calling
+// session through the aggregator. SSO family tools are resolved against the
+// session's accessible tool set so availability is not order-dependent on a
+// prior list_tools call.
+func (atc *ToolCaller) IsToolAvailableForSession(ctx context.Context, toolName string) bool {
+	aggregatorHandler := GetAggregator()
+	if aggregatorHandler == nil {
+		return false
+	}
+	return aggregatorHandler.IsToolAvailableForSession(ctx, toolName)
+}
+
 // GetAvailableTools returns all available tools from the aggregator.
 // This method provides tool discovery functionality for clients that need to
 // understand what tools are currently available in the system.
@@ -265,6 +291,18 @@ func (atc *ToolChecker) IsToolAvailable(toolName string) bool {
 		return false
 	}
 	return aggregatorHandler.IsToolAvailable(toolName)
+}
+
+// IsToolAvailableForSession checks if a tool is available for the calling
+// session using the aggregator API handler. This lets consumers validate
+// availability of SSO family tools without depending on a prior list_tools
+// call in the session.
+func (atc *ToolChecker) IsToolAvailableForSession(ctx context.Context, toolName string) bool {
+	aggregatorHandler := GetAggregator()
+	if aggregatorHandler == nil {
+		return false
+	}
+	return aggregatorHandler.IsToolAvailableForSession(ctx, toolName)
 }
 
 // GetAvailableTools returns all available tools using the aggregator API handler.

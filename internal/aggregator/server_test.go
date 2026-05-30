@@ -1193,3 +1193,89 @@ func TestAggregatorServer_IsToolAvailable_FamilyTools(t *testing.T) {
 		assert.False(t, a.IsToolAvailable("x_nonexistent_tool"))
 	})
 }
+
+// registerAuthFamilyMember registers an SSO / auth-protected family member.
+// Such servers are skipped by GetAllTools(), so their family tools never enter
+// the process-global routing index through the global path.
+func registerAuthFamilyMember(t *testing.T, reg *ServerRegistry, name, familyName, instanceArg string) {
+	t.Helper()
+	require.NoError(t, reg.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{
+			Name:   name,
+			Family: family(familyName, instanceArg),
+		},
+		URL:      "https://" + name + ".example.com",
+		AuthInfo: &AuthInfo{Issuer: "https://idp.example.com", Scope: "openid"},
+	}))
+}
+
+// TestAggregatorServer_IsToolAvailableForSession is the regression guard for
+// #764: availability of SSO / auth-protected family tools must be session-aware
+// and must not depend on whether the session called list_tools first.
+//
+// Two auth-protected servers share family "kubernetes", so the bare family tool
+// is x_kubernetes_list. GetAllTools() skips auth-protected servers, so the
+// process-global familyMappings index has no provider for x_kubernetes_list
+// until some session lists tools. With the caller's capabilities present in the
+// CapabilityStore, IsToolAvailableForSession must report the tool available even
+// though the non-session-aware IsToolAvailable still reports it missing.
+func TestAggregatorServer_IsToolAvailableForSession(t *testing.T) {
+	const sessionID = "session-764"
+
+	newAggWithSSOFamily := func(t *testing.T) (*AggregatorServer, func()) {
+		t.Helper()
+		reg := NewServerRegistry("x")
+		registerAuthFamilyMember(t, reg, "mc1-mcp-kubernetes", "kubernetes", "management_cluster")
+		registerAuthFamilyMember(t, reg, "mc2-mcp-kubernetes", "kubernetes", "management_cluster")
+
+		store := oauthstore.NewInMemoryCapabilityStore(30 * time.Minute)
+		ctx := context.Background()
+		require.NoError(t, store.Set(ctx, sessionID, "mc1-mcp-kubernetes",
+			&oauthstore.Capabilities{Tools: []mcp.Tool{{Name: "list", Description: "List resources"}}}))
+		require.NoError(t, store.Set(ctx, sessionID, "mc2-mcp-kubernetes",
+			&oauthstore.Capabilities{Tools: []mcp.Tool{{Name: "list", Description: "List resources"}}}))
+
+		a := &AggregatorServer{registry: reg, capabilityStore: store}
+		return a, store.Stop
+	}
+
+	t.Run("session with caps but no prior list_tools sees the family tool", func(t *testing.T) {
+		a, stop := newAggWithSSOFamily(t)
+		defer stop()
+
+		// Pre-condition (the #764 bug): without a prior list_tools the global
+		// index has no provider for the auth family, so the non-session-aware
+		// check reports the tool missing.
+		require.False(t, a.IsToolAvailable("x_kubernetes_list"),
+			"precondition: global check must miss the SSO family tool before any list_tools")
+
+		ctx := api.WithSessionID(context.Background(), sessionID)
+		assert.True(t, a.IsToolAvailableForSession(ctx, "x_kubernetes_list"),
+			"session-aware check must report the SSO family tool available from the CapabilityStore")
+	})
+
+	t.Run("genuinely inaccessible tool stays unavailable for the session", func(t *testing.T) {
+		a, stop := newAggWithSSOFamily(t)
+		defer stop()
+
+		ctx := api.WithSessionID(context.Background(), sessionID)
+		assert.False(t, a.IsToolAvailableForSession(ctx, "x_this_tool_does_not_exist"),
+			"a tool with no provider in the session must stay unavailable")
+	})
+
+	t.Run("no session context falls back to the global view", func(t *testing.T) {
+		a, stop := newAggWithSSOFamily(t)
+		defer stop()
+
+		assert.False(t, a.IsToolAvailableForSession(context.Background(), "x_kubernetes_list"),
+			"without a session the auth family tool is not globally seeded and must report unavailable")
+	})
+
+	t.Run("core tools are available regardless of session", func(t *testing.T) {
+		a, stop := newAggWithSSOFamily(t)
+		defer stop()
+
+		assert.True(t, a.IsToolAvailableForSession(context.Background(), "core_workflow_list"),
+			"core tools resolve via the global, order-independent check")
+	})
+}

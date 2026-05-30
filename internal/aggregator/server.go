@@ -2132,6 +2132,45 @@ func (a *AggregatorServer) IsToolAvailable(toolName string) bool {
 	return false // Not found anywhere
 }
 
+// IsToolAvailableForSession implements the session-aware availability check.
+//
+// Availability of family tools provided by SSO / auth-protected servers must
+// not depend on whether the calling session happened to call list_tools first.
+// Such servers are skipped by GetAllTools(), so their family routing entries
+// land in the process-global index only as a side effect of a prior
+// GetAllToolsForSession() call. This made workflow availability
+// (core_workflow_available / core_workflow_list) order-dependent and not
+// session-scoped (#764).
+//
+// This method first consults the global, order-independent check (core tools
+// and non-auth families already seeded in the global index). If that does not
+// resolve the tool, it resolves the name against the calling session's
+// accessible tool set — hydrated from the CapabilityStore (keyed by subject /
+// session) via GetToolsForSession — so SSO family tools the caller can access
+// are considered even without a prior list_tools.
+func (a *AggregatorServer) IsToolAvailableForSession(ctx context.Context, toolName string) bool {
+	// Order-independent check: core tools and families already present in the
+	// process-global routing index.
+	if a.IsToolAvailable(toolName) {
+		return true
+	}
+
+	// Session-scoped resolution: consult the tools the calling session can
+	// actually access, including SSO capabilities from the CapabilityStore.
+	sessionID := getSessionIDFromContext(ctx)
+	if sessionID == "" {
+		return false
+	}
+
+	for _, tool := range a.GetToolsForSession(ctx, sessionID) {
+		if tool.Name == toolName {
+			return true
+		}
+	}
+
+	return false
+}
+
 // GetAvailableTools implements the ToolAvailabilityChecker interface.
 //
 // This method returns a comprehensive list of all tools currently available
