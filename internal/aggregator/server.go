@@ -2093,8 +2093,11 @@ func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName st
 //
 // The check process:
 //  1. Attempts to resolve the tool through the server registry
-//  2. If not found, checks if it matches core tool naming patterns
-//  3. Returns true if found in either location
+//  2. If unresolved because the tool is a family backed by more than one
+//     provider (an intentional ambiguity error), treats it as available since
+//     the family still exists; routing only needs the instance-selector arg
+//  3. If still not found, checks if it matches core tool naming patterns
+//  4. Returns true if found in any of these
 //
 // This method is used by:
 //   - Workflow manager for validating workflow step tools
@@ -2109,6 +2112,16 @@ func (a *AggregatorServer) IsToolAvailable(toolName string) bool {
 	_, _, err := a.registry.ResolveToolName(toolName)
 	if err == nil {
 		return true // Found in registry
+	}
+
+	// Family-grouped tools with more than one provider intentionally make
+	// ResolveToolName return an ambiguity error: the instance-selector arg is
+	// required only to route a call, not to determine that the tool exists.
+	// The tool is still available as long as the family is registered (a family
+	// bucket always has >= 1 provider). Treating the ambiguity error as
+	// "missing" is the #761 regression.
+	if a.registry.IsFamilyTool(toolName) {
+		return true // Family tool with at least one provider
 	}
 
 	// Check if it's a core tool by name pattern (avoid deadlock)
