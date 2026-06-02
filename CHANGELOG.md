@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.224](https://github.com/giantswarm/muster/compare/v0.1.223...v0.1.224) (2026-06-02)
+
+
+### Changed
+
+* **deps:** update actions/checkout action to v6.0.3 ([#774](https://github.com/giantswarm/muster/issues/774)) ([59a91dc](https://github.com/giantswarm/muster/commit/59a91dc9fa4940afbf2041ad452a9647f723c17d))
+* **main:** release 0.1.223 ([#771](https://github.com/giantswarm/muster/issues/771)) ([4b20779](https://github.com/giantswarm/muster/commit/4b20779e3bcc882c8398d44cbbf1b8826e793003))
+
 ## [0.1.223](https://github.com/giantswarm/muster/compare/v0.1.222...v0.1.223) (2026-06-02)
 
 
