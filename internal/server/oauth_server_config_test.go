@@ -121,6 +121,26 @@ func TestBuildOAuthServerOptions_NoErrorWhenFieldsAbsent(t *testing.T) {
 	require.NotEmpty(t, opts)
 }
 
+func TestToTrustedIssuer_MapsAllFields(t *testing.T) {
+	t.Parallel()
+
+	in := config.TrustedIssuerConfig{
+		Issuer:             "https://idp.example.com",
+		JwksURL:            "https://idp.example.com/jwks",
+		AllowedAudiences:   []string{"aud1", "aud2"},
+		AllowedScopes:      []string{"read", "write"},
+		AllowedClaims:      map[string]string{"sub": "system:serviceaccount:ns:*"},
+		AllowPrivateIPJWKS: true,
+	}
+	got := toTrustedIssuer(in)
+	require.Equal(t, in.Issuer, got.Issuer)
+	require.Equal(t, in.JwksURL, got.JwksURL)
+	require.Equal(t, in.AllowedAudiences, got.AllowedAudiences)
+	require.Equal(t, in.AllowedScopes, got.AllowedScopes)
+	require.Equal(t, in.AllowedClaims, got.AllowedClaims)
+	require.True(t, got.AllowPrivateIPJWKS)
+}
+
 func TestBuildOAuthServerOptions_InvalidCIDRReturnsError(t *testing.T) {
 	t.Parallel()
 

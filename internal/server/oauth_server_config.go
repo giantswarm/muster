@@ -78,14 +78,7 @@ func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger) 
 	if len(cfg.TrustedIssuers) > 0 {
 		issuers := make([]oauthserver.TrustedIssuer, len(cfg.TrustedIssuers))
 		for i, iss := range cfg.TrustedIssuers {
-			issuers[i] = oauthserver.TrustedIssuer{
-				Issuer:             iss.Issuer,
-				JwksURL:            iss.JwksURL,
-				AllowedAudiences:   iss.AllowedAudiences,
-				AllowedScopes:      iss.AllowedScopes,
-				AllowedClaims:      iss.AllowedClaims,
-				AllowPrivateIPJWKS: iss.AllowPrivateIPJWKS,
-			}
+			issuers[i] = toTrustedIssuer(iss)
 		}
 		opts = append(opts, oauthserver.WithTrustedIssuers(issuers))
 	}
@@ -99,6 +92,17 @@ func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger) 
 	}
 
 	return opts, nil
+}
+
+func toTrustedIssuer(iss config.TrustedIssuerConfig) oauthserver.TrustedIssuer {
+	return oauthserver.TrustedIssuer{
+		Issuer:             iss.Issuer,
+		JwksURL:            iss.JwksURL,
+		AllowedAudiences:   iss.AllowedAudiences,
+		AllowedScopes:      iss.AllowedScopes,
+		AllowedClaims:      iss.AllowedClaims,
+		AllowPrivateIPJWKS: iss.AllowPrivateIPJWKS,
+	}
 }
 
 func parseCIDRs(cidrs []string) ([]*net.IPNet, error) {
