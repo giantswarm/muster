@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -79,23 +80,22 @@ func TestInMemoryCapabilityStore_TTLExpiry(t *testing.T) {
 }
 
 func TestInMemoryCapabilityStore_TTLResetOnSet(t *testing.T) {
-	ttl := 100 * time.Millisecond
-	store := NewInMemoryCapabilityStore(ttl)
-	defer store.Stop()
-	ctx := context.Background()
+	synctest.Test(t, func(t *testing.T) {
+		ttl := 100 * time.Millisecond
+		store := NewInMemoryCapabilityStore(ttl)
+		defer store.Stop()
+		ctx := t.Context()
 
-	_ = store.Set(ctx, "session1", "server1", &Capabilities{Tools: []mcp.Tool{{Name: "t1"}}})
+		_ = store.Set(ctx, "session1", "server1", &Capabilities{Tools: []mcp.Tool{{Name: "t1"}}})
 
-	// Wait 70% of TTL, then set another server for the same session (resets TTL)
-	time.Sleep(70 * time.Millisecond)
-	_ = store.Set(ctx, "session1", "server2", &Capabilities{Tools: []mcp.Tool{{Name: "t2"}}})
+		time.Sleep(70 * time.Millisecond)
+		_ = store.Set(ctx, "session1", "server2", &Capabilities{Tools: []mcp.Tool{{Name: "t2"}}})
 
-	// Wait another 70% of original TTL - session should still be alive because
-	// the second Set reset the TTL
-	time.Sleep(70 * time.Millisecond)
-	got, err := store.Get(ctx, "session1", "server1")
-	require.NoError(t, err)
-	require.NotNil(t, got, "server1 should still be alive after TTL reset by server2 Set")
+		time.Sleep(70 * time.Millisecond)
+		got, err := store.Get(ctx, "session1", "server1")
+		require.NoError(t, err)
+		require.NotNil(t, got, "server1 should still be alive after TTL reset by server2 Set")
+	})
 }
 
 func TestInMemoryCapabilityStore_Delete(t *testing.T) {
@@ -344,26 +344,25 @@ func TestInMemoryCapabilityStore_DeepCopyOnSet(t *testing.T) {
 }
 
 func TestInMemoryCapabilityStore_TouchExtendsTTL(t *testing.T) {
-	ttl := 100 * time.Millisecond
-	store := NewInMemoryCapabilityStore(ttl)
-	defer store.Stop()
-	ctx := context.Background()
+	synctest.Test(t, func(t *testing.T) {
+		ttl := 100 * time.Millisecond
+		store := NewInMemoryCapabilityStore(ttl)
+		defer store.Stop()
+		ctx := t.Context()
 
-	_ = store.Set(ctx, "session1", "server1", &Capabilities{Tools: []mcp.Tool{{Name: "t1"}}})
+		_ = store.Set(ctx, "session1", "server1", &Capabilities{Tools: []mcp.Tool{{Name: "t1"}}})
 
-	// Wait 70% of TTL, then Touch to extend it
-	time.Sleep(70 * time.Millisecond)
-	touched, err := store.Touch(ctx, "session1")
-	require.NoError(t, err)
-	assert.True(t, touched, "Touch should return true for existing session")
+		time.Sleep(70 * time.Millisecond)
+		touched, err := store.Touch(ctx, "session1")
+		require.NoError(t, err)
+		assert.True(t, touched, "Touch should return true for existing session")
 
-	// Wait another 70% of original TTL - session should still be alive
-	// because Touch reset the TTL
-	time.Sleep(70 * time.Millisecond)
-	got, err := store.Get(ctx, "session1", "server1")
-	require.NoError(t, err)
-	require.NotNil(t, got, "entry should still be alive after Touch")
-	assert.Equal(t, "t1", got.Tools[0].Name)
+		time.Sleep(70 * time.Millisecond)
+		got, err := store.Get(ctx, "session1", "server1")
+		require.NoError(t, err)
+		require.NotNil(t, got, "entry should still be alive after Touch")
+		assert.Equal(t, "t1", got.Tools[0].Name)
+	})
 }
 
 func TestInMemoryCapabilityStore_TouchNonexistent(t *testing.T) {
