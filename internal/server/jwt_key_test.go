@@ -143,3 +143,21 @@ func TestLoadSigningKey_KidIsDeterministic(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, kid1, kid2)
 }
+
+func TestLoadSigningKey_MultipleBlocks(t *testing.T) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	der, err := x509.MarshalECPrivateKey(key)
+	require.NoError(t, err)
+
+	path := filepath.Join(t.TempDir(), "multi.pem")
+	f, err := os.Create(path)
+	require.NoError(t, err)
+	block := &pem.Block{Type: "EC PRIVATE KEY", Bytes: der}
+	require.NoError(t, pem.Encode(f, block))
+	require.NoError(t, pem.Encode(f, block))
+	require.NoError(t, f.Close())
+
+	_, _, _, err = loadSigningKey(path)
+	require.ErrorContains(t, err, "multiple PEM blocks")
+}

@@ -10,7 +10,6 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"fmt"
-	"log/slog"
 	"os"
 
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
@@ -31,7 +30,7 @@ func loadSigningKey(path string) (crypto.Signer, string, string, error) {
 		return nil, "", "", fmt.Errorf("JWT signing key at %q contains no valid PEM block", path)
 	}
 	if len(bytes.TrimSpace(rest)) > 0 {
-		slog.Warn("JWT signing key file contains multiple PEM blocks; only the first is used", "path", path)
+		return nil, "", "", fmt.Errorf("JWT signing key at %q contains multiple PEM blocks; expected exactly one private key", path)
 	}
 
 	key, alg, err := parseSigningKeyBlock(block)
