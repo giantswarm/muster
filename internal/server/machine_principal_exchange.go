@@ -59,7 +59,7 @@ func (m *machinePrincipalExchangeMiddleware) ServeHTTP(w http.ResponseWriter, r 
 			Email:  mp.Email,
 			Groups: mp.Groups,
 		})
-		logging.Info("MachinePrincipal", "token exchange: injecting machine principal claims for sub=%s email=%s", sub, mp.Email)
+		logging.Info("MachinePrincipal", "token exchange: injecting machine principal claims for sub=%s email=%s", sub, truncateEmail(mp.Email))
 	}
 
 	// dpopJKT is intentionally empty: M2M clients do not use DPoP in the MVP.
