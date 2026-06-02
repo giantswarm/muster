@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.223](https://github.com/giantswarm/muster/compare/v0.1.222...v0.1.223) (2026-06-02)
+
+
+### Changed
+
+* align files according to platform standards ([#767](https://github.com/giantswarm/muster/issues/767)) ([d7b7c9a](https://github.com/giantswarm/muster/commit/d7b7c9a7a63a809e644d6991e3806095a53ed938))
+
 ## [Unreleased]
 
 ### Fixed
