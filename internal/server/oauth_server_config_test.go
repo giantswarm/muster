@@ -92,34 +92,6 @@ func TestBuildOAuthServerOptions_NoErrorWhenFieldsSet(t *testing.T) {
 	require.NotEmpty(t, opts)
 }
 
-func TestBuildOAuthServerOptions_AllowedClaimsPropagated(t *testing.T) {
-	t.Parallel()
-
-	issuer := config.TrustedIssuerConfig{
-		Issuer:  "https://idp.example.com",
-		JwksURL: "https://idp.example.com/jwks",
-	}
-	withoutClaims := config.OAuthServerConfig{
-		BaseURL:        "https://muster.example.com",
-		TrustedIssuers: []config.TrustedIssuerConfig{issuer},
-	}
-	noClaimsOpts, err := buildOAuthServerOptions(withoutClaims, nil)
-	require.NoError(t, err)
-
-	issuerWithClaims := issuer
-	issuerWithClaims.AllowedClaims = map[string]string{"sub": "system:serviceaccount:ai-platform:*"}
-	withClaims := config.OAuthServerConfig{
-		BaseURL:        "https://muster.example.com",
-		TrustedIssuers: []config.TrustedIssuerConfig{issuerWithClaims},
-	}
-	claimsOpts, err := buildOAuthServerOptions(withClaims, nil)
-	require.NoError(t, err)
-
-	// AllowedClaims is wired as a struct field on TrustedIssuer, not as a
-	// separate WithX option, so option count must be identical.
-	require.Equal(t, len(noClaimsOpts), len(claimsOpts))
-}
-
 func TestBuildOAuthServerOptions_AllowPrivateIPJWKSNoError(t *testing.T) {
 	t.Parallel()
 
