@@ -2,6 +2,7 @@ package server
 
 import (
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
@@ -142,6 +143,17 @@ func TestLoadSigningKey_KidIsDeterministic(t *testing.T) {
 	_, kid2, _, err := loadSigningKey(path)
 	require.NoError(t, err)
 	require.Equal(t, kid1, kid2)
+}
+
+func TestLoadSigningKey_PKCS8_UnsupportedKeyType(t *testing.T) {
+	_, privKey, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	der, err := x509.MarshalPKCS8PrivateKey(privKey)
+	require.NoError(t, err)
+	path := writePEM(t, "PRIVATE KEY", der)
+
+	_, _, _, err = loadSigningKey(path)
+	require.ErrorContains(t, err, "unsupported PKCS#8 key type")
 }
 
 func TestLoadSigningKey_MultipleBlocks(t *testing.T) {

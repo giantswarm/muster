@@ -120,7 +120,7 @@ func TestBuildOAuthServerOptions_AllowedClaimsPropagated(t *testing.T) {
 	require.Equal(t, len(noClaimsOpts), len(claimsOpts))
 }
 
-func TestBuildOAuthServerOptions_AllowPrivateIPJWKSPropagated(t *testing.T) {
+func TestBuildOAuthServerOptions_AllowPrivateIPJWKSNoError(t *testing.T) {
 	t.Parallel()
 
 	cfg := config.OAuthServerConfig{

@@ -270,7 +270,6 @@ func TestNewOAuthHTTPServer_JWTModeWithoutKeyFileReturnsError(t *testing.T) {
 		BaseURL:       "http://localhost:8080",
 		Provider:      OAuthProviderGoogle,
 		EnableJWTMode: true,
-		// JWTSigningKeyFile intentionally empty
 	}
 
 	_, err := NewOAuthHTTPServer(cfg, http.DefaultServeMux, false)
