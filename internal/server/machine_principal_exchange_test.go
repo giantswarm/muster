@@ -94,6 +94,79 @@ func TestServeHTTPFallThrough(t *testing.T) {
 	}
 }
 
+// jwtWithSub is a header.payload.sig token whose payload is
+// {"sub":"system:serviceaccount:ns:sa"}. Only the payload is decoded by
+// extractJWTSub; the signature is never verified at this layer.
+const jwtWithSub = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJzeXN0ZW06c2VydmljZWFjY291bnQ6bnM6c2EiLCJpc3MiOiJodHRwczovL2V4YW1wbGUuY29tIn0.sig"
+
+// jwtNoSub is a token whose payload has no sub claim, so extractJWTSub returns "".
+const jwtNoSub = "eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJodHRwczovL2V4YW1wbGUuY29tIn0.sig"
+
+// TestServeHTTPNonMatchingSubjectFallsThrough verifies that a token-exchange
+// request whose subject is NOT a configured machine principal is handed to the
+// wrapped library handler rather than diverted to the reduced exchange path.
+func TestServeHTTPNonMatchingSubjectFallsThrough(t *testing.T) {
+	sentinel := &sentinelHandler{}
+	m := &machinePrincipalExchangeMiddleware{
+		next:        sentinel,
+		oauthServer: nil, // fall-through happens before any oauthServer deref
+		machinePrincipals: map[string]config.MachinePrincipalConfig{
+			"system:serviceaccount:ns:sa": {Email: "sa@machine.example.com"},
+		},
+	}
+
+	form := url.Values{
+		"grant_type":         {grantTypeTokenExchange},
+		"subject_token":      {jwtNoSub}, // sub is empty → not in the principals map
+		"subject_token_type": {"urn:ietf:params:oauth:token-type:jwt"},
+		"resource":           {"https://muster.example.com"},
+	}.Encode()
+
+	req := httptest.NewRequest(http.MethodPost, oauthserver.EndpointPathToken, strings.NewReader(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+
+	m.ServeHTTP(rec, req)
+
+	require.True(t, sentinel.called, "non-principal exchange must fall through to the library handler")
+	require.Equal(t, http.StatusTeapot, rec.Code)
+}
+
+// TestServeHTTPMatchedPrincipalRequiresResource verifies the matched-principal
+// path enforces RFC 8707 (resource required) and emits security headers, matching
+// the library token handler's contract.
+func TestServeHTTPMatchedPrincipalRequiresResource(t *testing.T) {
+	sentinel := &sentinelHandler{}
+	m := &machinePrincipalExchangeMiddleware{
+		next:        sentinel,
+		oauthServer: &oauthserver.Server{Config: &oauthserver.Config{Issuer: "https://muster.example.com"}},
+		machinePrincipals: map[string]config.MachinePrincipalConfig{
+			"system:serviceaccount:ns:sa": {Email: "sa@machine.example.com"},
+		},
+	}
+
+	form := url.Values{
+		"grant_type":         {grantTypeTokenExchange},
+		"subject_token":      {jwtWithSub},
+		"subject_token_type": {"urn:ietf:params:oauth:token-type:jwt"},
+		// resource intentionally omitted
+	}.Encode()
+
+	req := httptest.NewRequest(http.MethodPost, oauthserver.EndpointPathToken, strings.NewReader(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+
+	m.ServeHTTP(rec, req)
+
+	require.False(t, sentinel.called, "matched principal must not fall through")
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.JSONEq(t,
+		`{"error":"invalid_request","error_description":"resource is required (RFC 8707)"}`,
+		rec.Body.String())
+	require.Equal(t, "no-store, no-cache, must-revalidate, private", rec.Header().Get("Cache-Control"),
+		"security headers must be set on machine-principal responses")
+}
+
 func TestWriteExchangeErrorGeneric(t *testing.T) {
 	rec := httptest.NewRecorder()
 
