@@ -19,7 +19,6 @@ workflows:
       # tags. Safe on branches: registries-data marks Aliyun push_dev_image=false.
       - architect/push-to-registries:
           context: architect
-          multiarch: true
           name: push-to-registries
           split-china-push: true
           requires:
