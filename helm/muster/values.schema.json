@@ -548,12 +548,14 @@
               "description": "Trusted external OIDC issuers for RFC 8693 token exchange (id_token / access_token / jwt)",
               "items": {
                 "type": "object",
+                "required": ["issuer", "jwksUrl"],
                 "properties": {
                   "issuer": {"type": "string"},
                   "jwksUrl": {"type": "string"},
                   "allowedAudiences": {"type": "array", "items": {"type": "string"}},
                   "allowedScopes": {"type": "array", "items": {"type": "string"}},
-                  "allowedClaims": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Required JWT claim name→pattern pairs. Values are exact strings or globs ('*' any chars incl. '/', '?' one char). Absent or non-string claims are rejected. Empty means no restriction."}
+                  "allowedClaims": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Required JWT claim name→pattern pairs. Values are exact strings or globs ('*' any chars incl. '/', '?' one char). Absent or non-string claims are rejected. Empty means no restriction."},
+                  "allowPrivateIPJWKS": {"type": "boolean", "description": "Allow jwksUrl to resolve to a private/loopback IP. Required for in-cluster Kubernetes SA trust (https://kubernetes.default.svc/openid/v1/jwks). Emits a startup warning when set."}
                 }
               }
             },

@@ -155,6 +155,7 @@ estimate.
 | `allowedAudiences` | `[]string` | Accepted `aud` values. Empty accepts any audience. |
 | `allowedScopes` | `[]string` | Scope ceiling for tokens from this issuer. Nil means no restriction. |
 | `allowedClaims` | `map[string]string` | Required claim name→pattern pairs. Keys are JWT claim names; values are exact strings or globs where `*` spans any chars including `/` and `?` matches one char. Absent or non-string claims are rejected. Empty means no restriction. |
+| `allowPrivateIPJWKS` | `bool` | Allow `jwksUrl` to resolve to a private or loopback address. Required for in-cluster Kubernetes SA trust where the JWKS endpoint is `https://kubernetes.default.svc/openid/v1/jwks`. Emits a startup warning when set. Default: `false`. |
 
 #### Silent Re-Authentication (CLI Flag)
 

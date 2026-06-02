@@ -351,6 +351,11 @@ type TrustedIssuerConfig struct {
 	// restriction. Use to express K8s SA trust via sub, e.g.
 	// "system:serviceaccount:<namespace>:*".
 	AllowedClaims map[string]string `yaml:"allowedClaims,omitempty"`
+	// AllowPrivateIPJWKS allows the JwksURL to resolve to a private or loopback
+	// address. Required for in-cluster Kubernetes SA trust where the JWKS endpoint
+	// is https://kubernetes.default.svc/openid/v1/jwks. Emits a startup warning
+	// when set (mcp-oauth dev-override flag). Default: false.
+	AllowPrivateIPJWKS bool `yaml:"allowPrivateIPJWKS,omitempty"`
 }
 
 // DexConfig holds configuration for the Dex OIDC provider.

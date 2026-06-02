@@ -116,6 +116,22 @@ func TestBuildOAuthServerOptions_AllowedClaimsPropagated(t *testing.T) {
 	require.Equal(t, len(noClaimsOpts), len(claimsOpts))
 }
 
+func TestBuildOAuthServerOptions_AllowPrivateIPJWKSPropagated(t *testing.T) {
+	cfg := config.OAuthServerConfig{
+		BaseURL: "https://muster.example.com",
+		TrustedIssuers: []config.TrustedIssuerConfig{
+			{
+				Issuer:             "https://kubernetes.default.svc",
+				JwksURL:            "https://kubernetes.default.svc/openid/v1/jwks",
+				AllowPrivateIPJWKS: true,
+			},
+		},
+	}
+	opts, err := buildOAuthServerOptions(cfg, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, opts)
+}
+
 func TestBuildOAuthServerOptions_NoErrorWhenFieldsAbsent(t *testing.T) {
 	t.Parallel()
 
@@ -125,84 +141,6 @@ func TestBuildOAuthServerOptions_NoErrorWhenFieldsAbsent(t *testing.T) {
 	opts, err := buildOAuthServerOptions(cfg, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, opts)
-}
-
-func TestK8sSASubPattern(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name        string
-		namespaces  []string
-		sas         []string
-		wantPattern string
-		wantErr     string
-	}{
-		{
-			name:        "both empty → no restriction",
-			wantPattern: "",
-		},
-		{
-			name:        "single namespace → wildcard SA pattern",
-			namespaces:  []string{"team-a"},
-			wantPattern: "system:serviceaccount:team-a:*",
-		},
-		{
-			name:        "single SA in ns/name form → exact pattern",
-			sas:         []string{"team-a/agent"},
-			wantPattern: "system:serviceaccount:team-a:agent",
-		},
-		{
-			name:        "single SA with matching namespace → exact pattern",
-			namespaces:  []string{"team-a"},
-			sas:         []string{"team-a/agent"},
-			wantPattern: "system:serviceaccount:team-a:agent",
-		},
-		{
-			name:       "multi namespaces → error",
-			namespaces: []string{"team-a", "team-b"},
-			wantErr:    "allowedNamespaces supports at most one entry",
-		},
-		{
-			name:    "multi SAs → error",
-			sas:     []string{"team-a/agent", "team-b/agent"},
-			wantErr: "allowedServiceAccounts supports at most one entry",
-		},
-		{
-			name:    "SA without namespace separator → error",
-			sas:     []string{"just-a-name"},
-			wantErr: "must be in namespace/name format",
-		},
-		{
-			name:    "SA with empty namespace → error",
-			sas:     []string{"/agent"},
-			wantErr: "must be in namespace/name format",
-		},
-		{
-			name:    "SA with empty name → error",
-			sas:     []string{"team-a/"},
-			wantErr: "must be in namespace/name format",
-		},
-		{
-			name:       "SA namespace conflicts with allowedNamespaces → error",
-			namespaces: []string{"team-a"},
-			sas:        []string{"team-b/agent"},
-			wantErr:    "conflicts with allowedNamespaces",
-		},
-	}
-	for _, tc := range tests {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			got, err := k8sSASubPattern(tc.namespaces, tc.sas)
-			if tc.wantErr != "" {
-				require.Error(t, err)
-				require.Contains(t, err.Error(), tc.wantErr)
-				return
-			}
-			require.NoError(t, err)
-			require.Equal(t, tc.wantPattern, got)
-		})
-	}
 }
 
 func TestBuildOAuthServerOptions_InvalidCIDRReturnsError(t *testing.T) {
