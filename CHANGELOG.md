@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.225](https://github.com/giantswarm/muster/compare/v0.1.224...v0.1.225) (2026-06-02)
+
+
+### Fixed
+
+* **deps:** update module github.com/giantswarm/mcp-toolkit to v0.2.3 ([#770](https://github.com/giantswarm/muster/issues/770)) ([7649ee8](https://github.com/giantswarm/muster/commit/7649ee8236a56ca88d076dedb7470bdddc2203a7))
+
+
+### Changed
+
+* **deps:** update actions/checkout action to v6.0.3 ([#774](https://github.com/giantswarm/muster/issues/774)) ([59a91dc](https://github.com/giantswarm/muster/commit/59a91dc9fa4940afbf2041ad452a9647f723c17d))
+* **main:** release 0.1.224 ([#775](https://github.com/giantswarm/muster/issues/775)) ([311f7b5](https://github.com/giantswarm/muster/commit/311f7b5e40f98fcd7b0e73ac29538eff38fee42f))
+
+## [0.1.224](https://github.com/giantswarm/muster/compare/v0.1.223...v0.1.224) (2026-06-02)
+
+
+### Changed
+
+* **deps:** update actions/checkout action to v6.0.3 ([#774](https://github.com/giantswarm/muster/issues/774)) ([59a91dc](https://github.com/giantswarm/muster/commit/59a91dc9fa4940afbf2041ad452a9647f723c17d))
+* **main:** release 0.1.223 ([#771](https://github.com/giantswarm/muster/issues/771)) ([4b20779](https://github.com/giantswarm/muster/commit/4b20779e3bcc882c8398d44cbbf1b8826e793003))
+
 ## [0.1.223](https://github.com/giantswarm/muster/compare/v0.1.222...v0.1.223) (2026-06-02)
 
 
