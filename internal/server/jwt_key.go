@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -9,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"fmt"
+	"log/slog"
 	"os"
 
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
@@ -24,9 +26,12 @@ func loadSigningKey(path string) (crypto.Signer, string, string, error) {
 	if err != nil {
 		return nil, "", "", fmt.Errorf("reading JWT signing key: %w", err)
 	}
-	block, _ := pem.Decode(data)
+	block, rest := pem.Decode(data)
 	if block == nil {
 		return nil, "", "", fmt.Errorf("JWT signing key at %q contains no valid PEM block", path)
+	}
+	if len(bytes.TrimSpace(rest)) > 0 {
+		slog.Warn("JWT signing key file contains multiple PEM blocks; only the first is used", "path", path)
 	}
 
 	key, alg, err := parseSigningKeyBlock(block)

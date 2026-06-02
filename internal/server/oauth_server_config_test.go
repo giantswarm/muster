@@ -74,6 +74,8 @@ func TestNewDPoPReplayCache_MemoryFallback(t *testing.T) {
 }
 
 func TestBuildOAuthServerOptions_NoErrorWhenFieldsSet(t *testing.T) {
+	t.Parallel()
+
 	cfg := config.OAuthServerConfig{
 		BaseURL: "https://muster.example.com",
 		TrustedIssuers: []config.TrustedIssuerConfig{
@@ -91,6 +93,8 @@ func TestBuildOAuthServerOptions_NoErrorWhenFieldsSet(t *testing.T) {
 }
 
 func TestBuildOAuthServerOptions_AllowedClaimsPropagated(t *testing.T) {
+	t.Parallel()
+
 	issuer := config.TrustedIssuerConfig{
 		Issuer:  "https://idp.example.com",
 		JwksURL: "https://idp.example.com/jwks",
@@ -117,6 +121,8 @@ func TestBuildOAuthServerOptions_AllowedClaimsPropagated(t *testing.T) {
 }
 
 func TestBuildOAuthServerOptions_AllowPrivateIPJWKSPropagated(t *testing.T) {
+	t.Parallel()
+
 	cfg := config.OAuthServerConfig{
 		BaseURL: "https://muster.example.com",
 		TrustedIssuers: []config.TrustedIssuerConfig{
