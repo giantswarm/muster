@@ -1,0 +1,7 @@
+title = "gitleaks config"
+
+[allowlist]
+  description = "Fake keys in Helm chart test fixtures"
+  commits = [
+    "d4e952640830da8784252f5ea8e125e4f04aad83",
+  ]
