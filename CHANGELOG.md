@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Release binaries now include darwin/amd64, darwin/arm64, windows/amd64, and windows/arm64 alongside the existing linux targets. Windows binaries are named `muster-windows-<arch>.exe`.
+
 ### Added
 
 * AllowedClaims in TrustedIssuer, drop KubernetesSATrusts, fix JWT signing key wiring ([#772](https://github.com/giantswarm/muster/issues/772)) ([04b5bd2](https://github.com/giantswarm/muster/commit/04b5bd2e1bdfe9b982d778f14f700893b96f0e7f))
