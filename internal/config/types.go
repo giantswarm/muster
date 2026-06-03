@@ -377,6 +377,13 @@ type DexConfig struct {
 
 	// ConnectorID is the optional Dex connector ID to bypass connector selection.
 	ConnectorID string `yaml:"connectorId,omitempty"`
+
+	// AllowPrivateIPOIDC allows the Dex issuer URL to resolve to a private or
+	// loopback IP address during OIDC discovery. Required when Dex is fronted by
+	// an internal-only load balancer (e.g. Azure internal LB, air-gapped clusters)
+	// where the public hostname resolves to an RFC 1918 address.
+	// Emits a CWE-918 startup warning when set.
+	AllowPrivateIPOIDC bool `yaml:"allowPrivateIPOIDC,omitempty"`
 }
 
 // GoogleConfig holds configuration for the Google OAuth provider.

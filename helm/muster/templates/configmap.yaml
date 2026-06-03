@@ -47,6 +47,9 @@ data:
             {{- if .Values.muster.oauth.server.dex.connectorId }}
             connectorId: {{ .Values.muster.oauth.server.dex.connectorId | quote }}
             {{- end }}
+            {{- if .Values.muster.oauth.server.dex.allowPrivateIPOIDC }}
+            allowPrivateIPOIDC: true
+            {{- end }}
           {{- else if eq .Values.muster.oauth.server.provider "google" }}
           google:
             clientId: {{ .Values.muster.oauth.server.google.clientId | quote }}

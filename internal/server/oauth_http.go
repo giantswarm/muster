@@ -571,11 +571,12 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 		}
 
 		dexConfig := &dex.Config{
-			IssuerURL:    cfg.Dex.IssuerURL,
-			ClientID:     cfg.Dex.ClientID,
-			ClientSecret: cfg.Dex.ClientSecret,
-			RedirectURL:  redirectURL,
-			Scopes:       scopes,
+			IssuerURL:      cfg.Dex.IssuerURL,
+			ClientID:       cfg.Dex.ClientID,
+			ClientSecret:   cfg.Dex.ClientSecret,
+			RedirectURL:    redirectURL,
+			Scopes:         scopes,
+			AllowPrivateIP: cfg.Dex.AllowPrivateIPOIDC,
 		}
 
 		if cfg.Dex.ConnectorID != "" {

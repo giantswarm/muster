@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- `muster.oauth.server.dex.allowPrivateIPOIDC`: allows Dex OIDC discovery to reach issuer URLs that resolve to private/loopback IPs (e.g. Azure internal load balancers). Requires mcp-oauth#427. Emits a CWE-918 startup warning.
+
+### Changed
+
+- Bumped `mcp-oauth` to `v0.2.186-0.20260603090158-f04cb89c270b` (adds `dex.Config.AllowPrivateIP`).
+
 ## [0.1.228](https://github.com/giantswarm/muster/compare/v0.1.227...v0.1.228) (2026-06-02)
 
 
