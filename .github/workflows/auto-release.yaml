@@ -90,7 +90,7 @@ jobs:
           # history in JSON and the render below would concatenate every
           # past release into each new release's notes (the #13 → #15 bug).
           git-cliff --unreleased --bump --context > cliff-context.json
-          NEXT=$(jq -r '.[0].version' cliff-context.json)
+          NEXT=$(jq -r '.[0].version // empty' cliff-context.json)
           echo "next computed: ${NEXT:-<empty>}"
           echo "version=${NEXT}" >> "$GITHUB_OUTPUT"
           # Cheap render from the cached context — no API calls, no git walk.
