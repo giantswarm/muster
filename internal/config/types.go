@@ -305,15 +305,8 @@ type OAuthServerConfig struct {
 	// as a valid muster bearer token.
 	TrustedAudiences []string `yaml:"trustedAudiences,omitempty"`
 
-	// KubernetesSATrusts configures trust for Kubernetes projected ServiceAccount
-	// tokens. Each entry covers one cluster. When non-empty, the server accepts
-	// SA tokens as RFC 8693 subject_tokens of type
-	// urn:ietf:params:oauth:token-type:jwt.
-	KubernetesSATrusts []K8sSATrustConfig `yaml:"kubernetesSATrusts,omitempty"`
-
 	// TrustedIssuers registers external OIDC issuers for RFC 8693 token exchange.
-	// Tokens from these issuers are accepted as subject_tokens of type
-	// urn:ietf:params:oauth:token-type:id_token and access_token.
+	// Tokens are accepted as subject_tokens of type id_token, access_token, or jwt.
 	TrustedIssuers []TrustedIssuerConfig `yaml:"trustedIssuers,omitempty"`
 
 	// TrustedProxyCIDRs lists CIDRs from which X-Forwarded-Proto and
@@ -324,7 +317,14 @@ type OAuthServerConfig struct {
 	// EnableJWTMode issues signed RFC 9068 JWTs as access tokens instead of
 	// opaque random strings. Required when downstream services (e.g. agentgateway)
 	// need to validate tokens locally without calling the introspection endpoint.
+	// JWTSigningKeyFile must be set when this is true.
 	EnableJWTMode bool `yaml:"enableJWTMode,omitempty"`
+
+	// JWTSigningKeyFile is the path to a PEM-encoded private key used to sign
+	// access tokens in JWT mode. Supported formats: EC PRIVATE KEY (P-256, ES256),
+	// RSA PRIVATE KEY / PRIVATE KEY (PKCS#8, RS256). kid is derived from the
+	// RFC 7638 JWK thumbprint of the public key. Required when EnableJWTMode is true.
+	JWTSigningKeyFile string `yaml:"jwtSigningKeyFile,omitempty"`
 
 	// ResourceIdentifier is the canonical URI that identifies this muster instance
 	// as an RFC 8707 resource server. When set, access tokens carry this value in
@@ -333,22 +333,6 @@ type OAuthServerConfig struct {
 	// If empty the library defaults to BaseURL (the issuer URL).
 	// Example: "https://muster.example.com/mcp"
 	ResourceIdentifier string `yaml:"resourceIdentifier,omitempty"`
-}
-
-// K8sSATrustConfig mirrors server.KubernetesSATrust.
-type K8sSATrustConfig struct {
-	// Issuer is the cluster OIDC issuer URL (kube-apiserver --service-account-issuer).
-	Issuer string `yaml:"issuer,omitempty"`
-	// JwksURL is the JWKS endpoint. Independent of Issuer so an in-cluster proxy can be used.
-	JwksURL string `yaml:"jwksUrl,omitempty"`
-	// AllowedAudiences lists accepted aud values. Empty accepts any audience.
-	AllowedAudiences []string `yaml:"allowedAudiences,omitempty"`
-	// AllowedScopes caps scopes for exchange tokens from this cluster. Nil means no restriction.
-	AllowedScopes []string `yaml:"allowedScopes,omitempty"`
-	// AllowedNamespaces restricts allowed namespaces. Empty means any.
-	AllowedNamespaces []string `yaml:"allowedNamespaces,omitempty"`
-	// AllowedServiceAccounts restricts allowed SAs in "namespace/name" format. Empty means any.
-	AllowedServiceAccounts []string `yaml:"allowedServiceAccounts,omitempty"`
 }
 
 // TrustedIssuerConfig mirrors server.TrustedIssuer.
@@ -361,6 +345,17 @@ type TrustedIssuerConfig struct {
 	AllowedAudiences []string `yaml:"allowedAudiences,omitempty"`
 	// AllowedScopes caps scopes for tokens from this issuer. Nil means no restriction.
 	AllowedScopes []string `yaml:"allowedScopes,omitempty"`
+	// AllowedClaims requires each named claim to match its pattern. Keys are JWT
+	// claim names; values are exact strings or globs ('*' spans any chars incl. '/',
+	// '?' one char). Absent or non-string claims are rejected. Empty means no
+	// restriction. Use to express K8s SA trust via sub, e.g.
+	// "system:serviceaccount:<namespace>:*".
+	AllowedClaims map[string]string `yaml:"allowedClaims,omitempty"`
+	// AllowPrivateIPJWKS allows the JwksURL to resolve to a private or loopback
+	// address. Required for in-cluster Kubernetes SA trust where the JWKS endpoint
+	// is https://kubernetes.default.svc/openid/v1/jwks. Emits a startup warning
+	// when set (mcp-oauth dev-override flag). Default: false.
+	AllowPrivateIPJWKS bool `yaml:"allowPrivateIPJWKS,omitempty"`
 }
 
 // DexConfig holds configuration for the Dex OIDC provider.
@@ -382,6 +377,13 @@ type DexConfig struct {
 
 	// ConnectorID is the optional Dex connector ID to bypass connector selection.
 	ConnectorID string `yaml:"connectorId,omitempty"`
+
+	// AllowPrivateIPOIDC allows the Dex issuer URL to resolve to a private or
+	// loopback IP address during OIDC discovery. Required when Dex is fronted by
+	// an internal-only load balancer (e.g. Azure internal LB, air-gapped clusters)
+	// where the public hostname resolves to an RFC 1918 address.
+	// Emits a CWE-918 startup warning when set.
+	AllowPrivateIPOIDC bool `yaml:"allowPrivateIPOIDC,omitempty"`
 }
 
 // GoogleConfig holds configuration for the Google OAuth provider.

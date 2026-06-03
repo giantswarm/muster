@@ -78,13 +78,32 @@ func TestBuildOAuthServerOptions_NoErrorWhenFieldsSet(t *testing.T) {
 
 	cfg := config.OAuthServerConfig{
 		BaseURL: "https://muster.example.com",
-		KubernetesSATrusts: []config.K8sSATrustConfig{
-			{Issuer: "https://k8s.example.com", JwksURL: "https://k8s.example.com/jwks"},
-		},
 		TrustedIssuers: []config.TrustedIssuerConfig{
-			{Issuer: "https://idp.example.com", JwksURL: "https://idp.example.com/jwks"},
+			{
+				Issuer:        "https://idp.example.com",
+				JwksURL:       "https://idp.example.com/jwks",
+				AllowedClaims: map[string]string{"sub": "system:serviceaccount:ai-platform:*"},
+			},
 		},
 		TrustedProxyCIDRs: []string{"127.0.0.1/32"},
+	}
+	opts, err := buildOAuthServerOptions(cfg, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, opts)
+}
+
+func TestBuildOAuthServerOptions_AllowPrivateIPJWKSNoError(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.OAuthServerConfig{
+		BaseURL: "https://muster.example.com",
+		TrustedIssuers: []config.TrustedIssuerConfig{
+			{
+				Issuer:             "https://kubernetes.default.svc",
+				JwksURL:            "https://kubernetes.default.svc/openid/v1/jwks",
+				AllowPrivateIPJWKS: true,
+			},
+		},
 	}
 	opts, err := buildOAuthServerOptions(cfg, nil)
 	require.NoError(t, err)
@@ -102,82 +121,24 @@ func TestBuildOAuthServerOptions_NoErrorWhenFieldsAbsent(t *testing.T) {
 	require.NotEmpty(t, opts)
 }
 
-func TestK8sSASubPattern(t *testing.T) {
+func TestToTrustedIssuer_MapsAllFields(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name        string
-		namespaces  []string
-		sas         []string
-		wantPattern string
-		wantErr     string
-	}{
-		{
-			name:        "both empty → no restriction",
-			wantPattern: "",
-		},
-		{
-			name:        "single namespace → wildcard SA pattern",
-			namespaces:  []string{"team-a"},
-			wantPattern: "system:serviceaccount:team-a:*",
-		},
-		{
-			name:        "single SA in ns/name form → exact pattern",
-			sas:         []string{"team-a/agent"},
-			wantPattern: "system:serviceaccount:team-a:agent",
-		},
-		{
-			name:        "single SA with matching namespace → exact pattern",
-			namespaces:  []string{"team-a"},
-			sas:         []string{"team-a/agent"},
-			wantPattern: "system:serviceaccount:team-a:agent",
-		},
-		{
-			name:       "multi namespaces → error",
-			namespaces: []string{"team-a", "team-b"},
-			wantErr:    "allowedNamespaces supports at most one entry",
-		},
-		{
-			name:    "multi SAs → error",
-			sas:     []string{"team-a/agent", "team-b/agent"},
-			wantErr: "allowedServiceAccounts supports at most one entry",
-		},
-		{
-			name:    "SA without namespace separator → error",
-			sas:     []string{"just-a-name"},
-			wantErr: "must be in namespace/name format",
-		},
-		{
-			name:    "SA with empty namespace → error",
-			sas:     []string{"/agent"},
-			wantErr: "must be in namespace/name format",
-		},
-		{
-			name:    "SA with empty name → error",
-			sas:     []string{"team-a/"},
-			wantErr: "must be in namespace/name format",
-		},
-		{
-			name:       "SA namespace conflicts with allowedNamespaces → error",
-			namespaces: []string{"team-a"},
-			sas:        []string{"team-b/agent"},
-			wantErr:    "conflicts with allowedNamespaces",
-		},
+	in := config.TrustedIssuerConfig{
+		Issuer:             "https://idp.example.com",
+		JwksURL:            "https://idp.example.com/jwks",
+		AllowedAudiences:   []string{"aud1", "aud2"},
+		AllowedScopes:      []string{"read", "write"},
+		AllowedClaims:      map[string]string{"sub": "system:serviceaccount:ns:*"},
+		AllowPrivateIPJWKS: true,
 	}
-	for _, tc := range tests {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			got, err := k8sSASubPattern(tc.namespaces, tc.sas)
-			if tc.wantErr != "" {
-				require.Error(t, err)
-				require.Contains(t, err.Error(), tc.wantErr)
-				return
-			}
-			require.NoError(t, err)
-			require.Equal(t, tc.wantPattern, got)
-		})
-	}
+	got := toTrustedIssuer(in)
+	require.Equal(t, in.Issuer, got.Issuer)
+	require.Equal(t, in.JwksURL, got.JwksURL)
+	require.Equal(t, in.AllowedAudiences, got.AllowedAudiences)
+	require.Equal(t, in.AllowedScopes, got.AllowedScopes)
+	require.Equal(t, in.AllowedClaims, got.AllowedClaims)
+	require.True(t, got.AllowPrivateIPJWKS)
 }
 
 func TestBuildOAuthServerOptions_InvalidCIDRReturnsError(t *testing.T) {
