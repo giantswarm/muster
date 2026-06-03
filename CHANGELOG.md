@@ -10,7 +10,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
-- Bumped `mcp-oauth` to `v0.2.186-0.20260603090158-f04cb89c270b` (adds `dex.Config.AllowPrivateIP`).
+- Bumped `mcp-oauth` to `v0.2.186` (adds `dex.Config.AllowPrivateIP`).
 
 ## [0.1.228](https://github.com/giantswarm/muster/compare/v0.1.227...v0.1.228) (2026-06-02)
 
