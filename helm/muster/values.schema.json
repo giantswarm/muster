@@ -427,6 +427,10 @@
                 "connectorId": {
                   "type": "string",
                   "description": "Optional connector ID to bypass Dex connector selection"
+                },
+                "allowPrivateIPOIDC": {
+                  "type": "boolean",
+                  "description": "Allow the Dex issuer URL to resolve to a private/loopback IP during OIDC discovery. Required when Dex is fronted by an internal-only load balancer (e.g. Azure internal LB). Emits a CWE-918 startup warning when set."
                 }
               }
             },
@@ -543,31 +547,19 @@
               },
               "description": "OIDC client IDs (audiences) whose JWTs are accepted as bearer tokens"
             },
-            "kubernetesSATrusts": {
+            "trustedIssuers": {
               "type": "array",
-              "description": "Kubernetes projected SA trust entries for RFC 8693 token exchange",
+              "description": "Trusted external OIDC issuers for RFC 8693 token exchange (id_token / access_token / jwt)",
               "items": {
                 "type": "object",
+                "required": ["issuer", "jwksUrl"],
                 "properties": {
                   "issuer": {"type": "string"},
                   "jwksUrl": {"type": "string"},
                   "allowedAudiences": {"type": "array", "items": {"type": "string"}},
                   "allowedScopes": {"type": "array", "items": {"type": "string"}},
-                  "allowedNamespaces": {"type": "array", "items": {"type": "string"}},
-                  "allowedServiceAccounts": {"type": "array", "items": {"type": "string"}}
-                }
-              }
-            },
-            "trustedIssuers": {
-              "type": "array",
-              "description": "Trusted external OIDC issuers for RFC 8693 token exchange",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "issuer": {"type": "string"},
-                  "jwksUrl": {"type": "string"},
-                  "allowedAudiences": {"type": "array", "items": {"type": "string"}},
-                  "allowedScopes": {"type": "array", "items": {"type": "string"}}
+                  "allowedClaims": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Required JWT claim name→pattern pairs. Values are exact strings or globs ('*' any chars incl. '/', '?' one char). Absent or non-string claims are rejected. Empty means no restriction."},
+                  "allowPrivateIPJWKS": {"type": "boolean", "description": "Allow jwksUrl to resolve to a private/loopback IP. Required for in-cluster Kubernetes SA trust (https://kubernetes.default.svc/openid/v1/jwks). Emits a startup warning when set."}
                 }
               }
             },
@@ -579,6 +571,10 @@
             "enableJWTMode": {
               "type": "boolean",
               "description": "Issue RFC 9068 signed JWTs as access tokens instead of opaque strings"
+            },
+            "jwtSigningKey": {
+              "type": "string",
+              "description": "PEM-encoded private key (EC P-256 or RSA) for signing JWT access tokens. Required when enableJWTMode is true. Use existingSecret to supply externally (key name: jwt-signing-key)."
             },
             "resourceIdentifier": {
               "type": "string",

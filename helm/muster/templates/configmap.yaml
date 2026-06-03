@@ -47,6 +47,9 @@ data:
             {{- if .Values.muster.oauth.server.dex.connectorId }}
             connectorId: {{ .Values.muster.oauth.server.dex.connectorId | quote }}
             {{- end }}
+            {{- if .Values.muster.oauth.server.dex.allowPrivateIPOIDC }}
+            allowPrivateIPOIDC: true
+            {{- end }}
           {{- else if eq .Values.muster.oauth.server.provider "google" }}
           google:
             clientId: {{ .Values.muster.oauth.server.google.clientId | quote }}
@@ -78,10 +81,6 @@ data:
           trustedAudiences:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          {{- with .Values.muster.oauth.server.kubernetesSATrusts }}
-          kubernetesSATrusts:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
           {{- with .Values.muster.oauth.server.trustedIssuers }}
           trustedIssuers:
             {{- toYaml . | nindent 12 }}
@@ -92,6 +91,9 @@ data:
           {{- end }}
           {{- if .Values.muster.oauth.server.enableJWTMode }}
           enableJWTMode: true
+          {{- if or .Values.muster.oauth.server.jwtSigningKey .Values.muster.oauth.server.existingSecret }}
+          jwtSigningKeyFile: {{ printf "%s/jwt-signing-key" $secretsPath | quote }}
+          {{- end }}
           {{- end }}
           {{- with .Values.muster.oauth.server.resourceIdentifier }}
           resourceIdentifier: {{ . | quote }}

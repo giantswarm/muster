@@ -7,6 +7,23 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - Release binaries now include darwin/amd64, darwin/arm64, windows/amd64, and windows/arm64 alongside the existing linux targets. Windows binaries are named `muster-windows-<arch>.exe`.
+
+### Added
+
+* AllowedClaims in TrustedIssuer, drop KubernetesSATrusts, fix JWT signing key wiring ([#772](https://github.com/giantswarm/muster/issues/772)) ([04b5bd2](https://github.com/giantswarm/muster/commit/04b5bd2e1bdfe9b982d778f14f700893b96f0e7f))
+- `muster.oauth.server.dex.allowPrivateIPOIDC`: allows Dex OIDC discovery to reach issuer URLs that resolve to private/loopback IPs (e.g. Azure internal load balancers). Requires mcp-oauth#427. Emits a CWE-918 startup warning.
+
+### Fixed
+
+* **deps:** update module github.com/giantswarm/mcp-oauth to v0.2.186 ([ca46984](https://github.com/giantswarm/muster/commit/ca469849a428d1f94de6740179aa1766932f63fa))
+* **deps:** update module github.com/giantswarm/mcp-toolkit to v0.2.5 ([#780](https://github.com/giantswarm/muster/issues/780)) ([bcce33a](https://github.com/giantswarm/muster/commit/bcce33a1a4affd2cc156dc39a009f6bd2d95e52b))
+- CiliumNetworkPolicy egress now reaches an OIDC issuer (Dex) / HTTP MCP server fronted by a Cilium-managed ingress gateway VIP (LB-IPAM / L2, typical on-prem). New `networkPolicy.cilium.ingressGateway` rule allows egress to the gateway backend endpoints on their target ports (default: `10080`/`10443`, selector: `app.kubernetes.io/name=envoy` in `envoy-gateway-system`).
+
+### Changed
+
+* attach release binaries to GitHub releases ([#785](https://github.com/giantswarm/muster/issues/785)) ([77dbb0f](https://github.com/giantswarm/muster/commit/77dbb0ffa67e3d8d36a8aa0abfd907c401ee2123))
+* **deps:** update go toolchain directive to v1.26.4 ([#783](https://github.com/giantswarm/muster/issues/783)) ([ba9c3fd](https://github.com/giantswarm/muster/commit/ba9c3fd49e6159c1535daa6753646d46f5bd5ac4))
+
 ## [0.1.231](https://github.com/giantswarm/muster/compare/v0.1.230...v0.1.231) (2026-06-03)
 
 
@@ -138,12 +155,14 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- `enableJWTMode: true` now issues RFC 9068 signed JWT access tokens. Set `muster.oauth.server.jwtSigningKey` (PEM-encoded EC P-256 or RSA key) or `existingSecret` with key `jwt-signing-key`; `helm template` fails if neither is provided when `enableJWTMode: true`.
+- CiliumNetworkPolicy egress now reaches an OIDC issuer (Dex) / HTTP MCP server that is fronted by a **Cilium-managed ingress gateway VIP** (LB-IPAM / L2, typical on-prem). With `kube-proxy-replacement`, Cilium DNATs the LoadBalancer VIP to the gateway backend pod on its *target* port (e.g. `443`→`10443`) **before** egress policy is evaluated, so neither `toEntities: world` nor `toEntities: cluster` on `443` matched and OIDC discovery failed with `context deadline exceeded`. A new `networkPolicy.cilium.ingressGateway` rule allows egress to the gateway backend endpoints on their target ports (default: Giant Swarm `envoy-gateway` proxies on `10080`/`10443`). Clusters whose gateway VIP is an external cloud LB (e.g. AWS ELB) were already covered by the `world` rule and are unaffected (the new rule is a no-op there); set `ingressGateway: null` to disable. Fixes the OAuth/`OIDC discovery failed` startup warning on affected clusters.
 - Workflow availability (`core_workflow_available` / `core_workflow_list` / `workflow_available`) is now session-aware. Previously, availability for SSO / auth-protected family tools (e.g. multi-instance `kubernetes` / `prometheus` servers) was computed from the process-global family routing index, which is unioned across sessions and only populated as a side effect of a prior `list_tools` call. This produced two symmetric defects: a **false negative** — `muster list workflows` / `muster get workflow` reported workflows `Unavailable` until some session listed tools, while `muster agent` (which lists tools on connect) reported them available, so the answer depended on call ordering; and a **false positive** — once any session listed tools, the family entry leaked process-wide, so a session that never authenticated to the family still saw the workflow as available. When the request carries a session, availability now resolves each step tool against that session's own accessible tools (hydrated from the `CapabilityStore`); core / meta tools resolve by name, and only session-less calls fall back to the process-global view. Closes #764.
 - Workflow availability is now transitive across nested workflows. A workflow step that calls another workflow (`workflow_<name>`) was always treated as available because the availability check matched the `workflow_` prefix without consulting the registry, so a workflow referencing a non-existent or transitively broken nested workflow was wrongly reported `Available` and only failed at execution time. Nested workflow steps now require the referenced workflow to exist and to be itself available; the check descends through the whole chain (with cycle detection) and reports the actual unavailable tool. The `workflow_` management meta-tools (`workflow_list`, `workflow_available`, ...) are unaffected.
 
 ### Changed
 
-- Bump `giantswarm/mcp-oauth` to `v0.2.162`. New Helm values `muster.oauth.server.{kubernetesSATrusts,trustedIssuers,trustedProxyCIDRs,enableJWTMode,resourceIdentifier}` wire Kubernetes ServiceAccount token exchange (RFC 8693), trusted external OIDC issuers, DPoP trusted-proxy CIDRs, RFC 9068 JWT access tokens, and RFC 8707 resource-server audience binding. Also enables the OIDC userinfo endpoint, PII-redacted audit logging, and CIMD metadata-fetch rate limiting. Encryption-at-rest is now wired on the store constructor (`valkey.WithEncryptor` / `memory.WithEncryptor`) rather than as a server option.
+- Bump `giantswarm/mcp-oauth` to `v0.2.184`. New Helm values `muster.oauth.server.{trustedIssuers,trustedProxyCIDRs,enableJWTMode,resourceIdentifier}` wire trusted external OIDC issuers for RFC 8693 token exchange (id_token / access_token / jwt), DPoP trusted-proxy CIDRs, RFC 9068 JWT access tokens, and RFC 8707 resource-server audience binding. `trustedIssuers` entries now support `allowedClaims` (claim name to glob-pattern map) for Kubernetes ServiceAccount and GitHub Actions trust. Also enables the OIDC userinfo endpoint, PII-redacted audit logging, and CIMD metadata-fetch rate limiting. Encryption-at-rest is now wired on the store constructor (`valkey.WithEncryptor` / `memory.WithEncryptor`) rather than as a server option.
 
 ### Added
 
@@ -156,6 +175,8 @@ All notable changes to this project will be documented in this file.
 - Egress to `app.kubernetes.io/name=agentgateway:8080` in the release namespace so muster can dial the agentgateway data-plane on the upstream-proxy path (both NetworkPolicy flavors). No-op when agentgateway isn't deployed.
 
 ### Removed
+
+- `muster.oauth.server.kubernetesSATrusts` Helm value and `K8sSATrustConfig` Go type are removed. Kubernetes ServiceAccount trust is now expressed via `trustedIssuers` with an `allowedClaims` entry (`sub: "system:serviceaccount:<namespace>:*"`) and `allowPrivateIPJWKS: true` when the JWKS endpoint is in-cluster. The `jwt` subject_token_type covers projected SA tokens without a separate trust list.
 
 - `ciliumNetworkPolicy.*` is replaced by `networkPolicy.*`. `ciliumNetworkPolicy.enabled` → `networkPolicy.enabled` + `networkPolicy.flavor: cilium` (default). `ciliumNetworkPolicy.allowClusterIngress` → `networkPolicy.cilium.allowClusterIngress`. `ciliumNetworkPolicy.{labels,annotations}` → `networkPolicy.{labels,annotations}`.
 

@@ -54,8 +54,10 @@ spec:
         - kube-apiserver
 
     {{- if .Values.networkPolicy.cilium.allowClusterIngress }}
-    # In-cluster ingress for OIDC providers (Dex) and MCP servers reached
-    # via LoadBalancer / ClusterIP IPs that Cilium classifies as `cluster`.
+    # In-cluster services (Dex / OIDC / MCP servers) reached via a ClusterIP
+    # whose backend pod listens directly on 80/443. This does NOT cover an
+    # ingress gateway that listens on different target ports — see the
+    # `ingressGateway` rule below.
     - toEntities:
         - cluster
       toPorts:
@@ -64,6 +66,29 @@ spec:
               protocol: TCP
             - port: "443"
               protocol: TCP
+    {{- end }}
+
+    {{- with .Values.networkPolicy.cilium.ingressGateway }}
+    # Egress to the in-cluster ingress gateway that fronts Dex/OIDC and HTTP
+    # MCP servers (their public URLs resolve to the gateway LoadBalancer VIP).
+    #
+    # Required when that VIP is a Cilium-managed service IP (LB-IPAM / L2,
+    # typical on-prem): with kube-proxy-replacement, Cilium DNATs VIP:443 to the
+    # gateway backend pod on its target port (e.g. 10443) BEFORE egress policy
+    # is evaluated, so the policy must allow the backend endpoint on that target
+    # port — `world`/`cluster` on 443 do not match. When the gateway VIP is an
+    # external cloud LB (e.g. AWS ELB), traffic egresses as `world` (covered by
+    # the rule below) and this is a harmless no-op; likewise where the selector
+    # matches no pods (non-envoy-gateway ingress).
+    - toEndpoints:
+        - matchLabels:
+            {{- toYaml .endpointSelector | nindent 12 }}
+      toPorts:
+        - ports:
+            {{- range .ports }}
+            - port: "{{ . }}"
+              protocol: TCP
+            {{- end }}
     {{- end }}
 
     # Allow egress to world for remote MCP servers (streamable-http, sse)

@@ -326,6 +326,11 @@ muster:
         clientSecret: ""
         # Optional connector ID to bypass Dex connector selection
         connectorId: ""
+        # Allow the Dex issuer URL to resolve to a private/loopback IP during
+        # OIDC discovery. Required when Dex is fronted by an internal-only load
+        # balancer (e.g. Azure internal LB) where the public hostname resolves to
+        # an RFC 1918 address. Emits a CWE-918 startup warning when set.
+        allowPrivateIPOIDC: false
 
       # Google OAuth provider configuration (used when provider is "google")
       google:
@@ -433,21 +438,18 @@ muster:
       # SECURITY: only list client IDs you fully trust.
       trustedAudiences: []
 
-      # Kubernetes projected ServiceAccount trust entries for RFC 8693 token exchange.
-      # Each entry covers one cluster. When non-empty, SA tokens are accepted as
-      # subject_tokens of type urn:ietf:params:oauth:token-type:jwt.
-      # Example:
-      #   - issuer: "https://kubernetes.default.svc"
-      #     jwksUrl: "https://kubernetes.default.svc/openid/v1/jwks"
-      #     allowedAudiences: ["https://muster.example.com"]
-      kubernetesSATrusts: []
-
-      # Trusted external OIDC issuers for RFC 8693 token exchange.
-      # Tokens from these issuers are accepted as id_token / access_token subject_tokens.
-      # Example:
-      #   - issuer: "https://idp.example.com"
-      #     jwksUrl: "https://idp.example.com/jwks"
+      # Trusted external OIDC issuers for RFC 8693 token exchange. Tokens are accepted
+      # as id_token / access_token / jwt subject_tokens. Optional allowedClaims requires
+      # named claims to match exact strings or globs (* spans any chars incl. '/', ? one char).
+      # Set allowPrivateIPJWKS: true when the JWKS endpoint resolves to a private IP
+      # (e.g. in-cluster Kubernetes SA trust via https://kubernetes.default.svc/openid/v1/jwks).
+      # Example — trust a Kubernetes ServiceAccount:
+      #   - issuer: https://kubernetes.default.svc
+      #     jwksUrl: https://kubernetes.default.svc/openid/v1/jwks
       #     allowedAudiences: ["muster"]
+      #     allowedClaims:
+      #       sub: "system:serviceaccount:ai-platform:*"
+      #     allowPrivateIPJWKS: true
       trustedIssuers: []
 
       # CIDRs from which X-Forwarded-Proto and X-Forwarded-Host headers are trusted
@@ -459,6 +461,14 @@ muster:
       # Required when downstream services need to validate tokens locally.
       # Default: false
       enableJWTMode: false
+
+      # PEM-encoded private key for signing RFC 9068 JWT access tokens.
+      # Required when enableJWTMode is true. Supported: EC P-256 (ES256) or RSA (RS256).
+      # kid is derived from the RFC 7638 JWK thumbprint of the public key.
+      # SECURITY: this value ends up in a Kubernetes Secret and in Helm release
+      # history. For production, prefer existingSecret so the key never passes
+      # through Helm values (key name in the external Secret must be "jwt-signing-key").
+      jwtSigningKey: ""
 
       # Canonical URI identifying this muster instance as an RFC 8707 resource server.
       # When set, access tokens carry this value in their aud claim and tokens bound
@@ -543,9 +553,26 @@ networkPolicy:
   labels: {}
   annotations: {}
   cilium:
-    # Allow egress to the `cluster` entity on 80/443 — needed when Dex /
-    # OIDC / MCP servers are reached via in-cluster ingress IPs.
+    # Allow egress to the `cluster` entity on 80/443 — for Dex / OIDC / MCP
+    # servers reached via a ClusterIP whose backend listens directly on 80/443.
+    # Does NOT cover an ingress gateway (different target ports) — see
+    # `ingressGateway` below.
     allowClusterIngress: false
+    # Egress to the in-cluster ingress gateway that fronts Dex/OIDC and HTTP
+    # MCP servers. Needed when the gateway LoadBalancer VIP is a Cilium-managed
+    # service IP (LB-IPAM / L2, typical on-prem): kube-proxy-replacement DNATs
+    # the VIP to the gateway backend pod on its TARGET port before egress policy
+    # runs, so `ports` must be the gateway's target ports, not 80/443. Harmless
+    # no-op for external cloud LBs (AWS ELB → `world`) and non-matching ingress.
+    # Defaults target the standard Giant Swarm envoy-gateway proxies; set to
+    # null to disable, or override the selector for a different ingress.
+    ingressGateway:
+      endpointSelector:
+        k8s:io.kubernetes.pod.namespace: envoy-gateway-system
+        app.kubernetes.io/name: envoy
+      ports:
+        - 10080
+        - 10443
   kubernetes:
     apiServerCIDR: 0.0.0.0/0
     # Empty disables the cluster CIDR egress rule. Set to your cluster's

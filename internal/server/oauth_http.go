@@ -549,6 +549,10 @@ func (s *OAuthHTTPServer) Shutdown(ctx context.Context) error {
 // The returned valkeygo.Client is non-nil only when a Valkey-backed DPoP replay
 // cache is created; the caller must call Close() on it when done.
 func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) (*oauth.Server, storage.TokenStore, valkeygo.Client, error) {
+	if cfg.EnableJWTMode && cfg.JWTSigningKeyFile == "" {
+		return nil, nil, nil, fmt.Errorf("enableJWTMode requires jwtSigningKeyFile to be set")
+	}
+
 	logger := slog.Default()
 
 	redirectURL := cfg.BaseURL + "/oauth/callback"
@@ -567,11 +571,12 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 		}
 
 		dexConfig := &dex.Config{
-			IssuerURL:    cfg.Dex.IssuerURL,
-			ClientID:     cfg.Dex.ClientID,
-			ClientSecret: cfg.Dex.ClientSecret,
-			RedirectURL:  redirectURL,
-			Scopes:       scopes,
+			IssuerURL:      cfg.Dex.IssuerURL,
+			ClientID:       cfg.Dex.ClientID,
+			ClientSecret:   cfg.Dex.ClientSecret,
+			RedirectURL:    redirectURL,
+			Scopes:         scopes,
+			AllowPrivateIP: cfg.Dex.AllowPrivateIPOIDC,
 		}
 
 		if cfg.Dex.ConnectorID != "" {
@@ -684,6 +689,17 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 
 	serverConfig := newOAuthServerConfig(cfg, refreshTokenTTL)
 
+	if cfg.EnableJWTMode {
+		key, kid, alg, err := loadSigningKey(cfg.JWTSigningKeyFile)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("JWT mode enabled but signing key unavailable: %w", err)
+		}
+		serverConfig.AccessTokenSigningKey = key
+		serverConfig.AccessTokenSigningKeyID = kid
+		serverConfig.AccessTokenSigningAlgorithm = alg
+		logger.Info("JWT mode enabled", "alg", alg, "kid", kid)
+	}
+
 	builtOpts, err := buildOAuthServerOptions(cfg, logger)
 	if err != nil {
 		return nil, nil, nil, err
@@ -707,7 +723,7 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 		return nil, nil, nil, fmt.Errorf("failed to create OAuth server: %w", err)
 	}
 
-	logEnabledOAuthOptions(cfg, logger)
+	logEnabledOAuthOptions(logger)
 
 	return oauthSrv, combinedStore, dpopClient, nil
 }
