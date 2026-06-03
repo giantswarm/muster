@@ -27,9 +27,10 @@ on:
       - 'release-*'   # maintenance branches for backports, e.g. release-2.x
 
 permissions:
-  contents: write       # needed to push tags and create the GitHub Release
-  pull-requests: read   # needed for git-cliff's GitHub API lookups
-                        # (commit.github.pr_number / username in release notes)
+  contents: write       # push tags and create the GitHub Release
+  # git-cliff's GitHub API lookups (commit.remote.pr_number / username
+  # in release notes) need PR read access via GITHUB_TOKEN.
+  pull-requests: read
 
 # Scope the concurrency lock per branch so a backport tag on release-2.x
 # doesn't block (or get blocked by) a main release, and vice versa. A second
@@ -59,6 +60,7 @@ jobs:
         with:
           binary: git-cliff
           version: "2.13.1"
+          # yamllint disable-line rule:line-length
           download_url: 'https://github.com/orhun/git-cliff/releases/download/v${version}/git-cliff-${version}-x86_64-unknown-linux-gnu.tar.gz'
           tarball_binary_path: 'git-cliff-${version}/git-cliff'
           smoke_test: '${binary} --version'
