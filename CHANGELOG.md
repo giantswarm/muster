@@ -2,6 +2,8 @@
 
 All notable changes to this project will be documented in this file.
 
+<!-- auto-release: insert below -->
+
 ## [Unreleased]
 
 ### Added

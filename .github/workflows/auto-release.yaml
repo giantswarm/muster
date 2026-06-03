@@ -144,3 +144,89 @@ jobs:
             --title "$TAG" \
             --notes-file release-notes.md \
             --target "$GITHUB_SHA"
+
+      # Splice the newly-rendered release-notes.md into CHANGELOG.md and
+      # push the resulting commit back to the branch. The release tag and
+      # GitHub Release already exist at this point (previous step) — this
+      # step is best-effort historical record-keeping. If it fails (branch
+      # protection rejects the push, race with a human commit, etc.) the
+      # release itself is unaffected; the file falls one release behind and
+      # self-heals on the next successful run.
+      #
+      # The splice uses a sentinel comment `<!-- auto-release: insert below -->`
+      # in CHANGELOG.md as the insertion point. Pre-conventional-commit
+      # history above the marker is preserved verbatim. New sections are
+      # inserted ABOVE older auto-generated ones, so reading top-to-bottom
+      # walks releases newest -> oldest, matching the existing file's order.
+      - name: Update CHANGELOG.md and commit back
+        if: steps.decide.outputs.tag != ''
+        env:
+          TAG: ${{ steps.decide.outputs.tag }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          MARKER='<!-- auto-release: insert below -->'
+          if ! grep -qF "$MARKER" CHANGELOG.md; then
+            echo "Marker '$MARKER' not found in CHANGELOG.md - skipping update."
+            echo "(The release itself succeeded; CHANGELOG.md will self-heal once the marker is restored.)"
+            exit 0
+          fi
+
+          # Previous reachable tag for the compare URL. Empty on the first
+          # release of a repo, in which case we drop the compare link.
+          PREV=$(git describe --tags --abbrev=0 --match='v*.*.*' "${TAG}^" 2>/dev/null || echo "")
+          DATE=$(date -u +%Y-%m-%d)
+          REPO_URL="https://github.com/${REPO}"
+
+          if [ -n "$PREV" ]; then
+            HEADER="## [${TAG}](${REPO_URL}/compare/${PREV}...${TAG}) - ${DATE}"
+          else
+            HEADER="## [${TAG}] - ${DATE}"
+          fi
+
+          # Build the new section. release-notes.md (from the earlier cliff
+          # step) already contains the Added/Fixed/Changed/Security bullet
+          # groups for this release - the only thing missing is the version
+          # header above them.
+          {
+            echo "$HEADER"
+            echo
+            cat release-notes.md
+          } > /tmp/new-section.md
+
+          # awk-splice: print every line, and after the marker line, emit a
+          # blank separator followed by the new section verbatim.
+          awk -v marker="$MARKER" '
+            { print }
+            $0 == marker {
+              print ""
+              while ((getline line < "/tmp/new-section.md") > 0) print line
+              close("/tmp/new-section.md")
+            }
+          ' CHANGELOG.md > CHANGELOG.new
+          mv CHANGELOG.new CHANGELOG.md
+
+          if git diff --quiet -- CHANGELOG.md; then
+            echo "CHANGELOG.md unchanged after splice - nothing to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          # `[skip ci]` keeps GitHub Actions (and CircleCI) from running on
+          # this commit. Combined with the cliff.toml skip rule for
+          # `^chore: update CHANGELOG.md`, future releases also exclude it
+          # from bump computation and rendered notes.
+          git commit -m "chore: update CHANGELOG.md for ${TAG} [skip ci]"
+
+          # Pull-rebase guards the narrow window between job start and push
+          # where a human could have merged something else to the branch.
+          # The concurrency group serializes auto-release jobs against each
+          # other, but not against human pushes. If rebase fails (genuine
+          # conflict on CHANGELOG.md, exotic), the job errors out - the
+          # release is already shipped, and the next release re-splices.
+          git pull --rebase origin "$BRANCH"
+          git push origin "HEAD:$BRANCH"

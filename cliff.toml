@@ -46,6 +46,17 @@ commit_preprocessors = [
 # include it anywhere either. Bump decision is unaffected by these group
 # names: git-cliff only bumps on feat / fix / breaking regardless.
 commit_parsers = [
+  # The auto-release workflow commits a "chore: update CHANGELOG.md for vX.Y.Z"
+  # commit back to the branch after each release (see .github/workflows/auto-
+  # release.yaml). `[skip ci]` in that commit message prevents the workflow
+  # itself from re-running on it, but a *subsequent* feature push would still
+  # see the chore in the --unreleased range and: (a) potentially trigger a
+  # patch bump on its own, (b) show up in the next release's "Changed"
+  # section as noise. Skipping this specific message via commit_parsers
+  # filters it out of both bump computation and the rendered notes. Must be
+  # listed BEFORE the general `^chore` rule — parsers are evaluated in order
+  # and first match wins.
+  { message = "^chore: update CHANGELOG\\.md", skip = true },
   { message = "^feat",     group = "Added" },
   { message = "^fix",      group = "Fixed" },
   { message = "^refactor", group = "Changed" },
