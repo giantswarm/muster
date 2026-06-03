@@ -12,6 +12,60 @@ All notable changes to this project will be documented in this file.
 
 - Bumped `mcp-oauth` to `v0.2.186` (adds `dex.Config.AllowPrivateIP`).
 
+## [0.1.231](https://github.com/giantswarm/muster/compare/v0.1.230...v0.1.231) (2026-06-03)
+
+
+### Fixed
+
+* **deps:** update module github.com/giantswarm/mcp-oauth to v0.2.185 ([#769](https://github.com/giantswarm/muster/issues/769)) ([ca46984](https://github.com/giantswarm/muster/commit/ca469849a428d1f94de6740179aa1766932f63fa))
+* **deps:** update module github.com/giantswarm/mcp-toolkit to v0.2.5 ([#780](https://github.com/giantswarm/muster/issues/780)) ([bcce33a](https://github.com/giantswarm/muster/commit/bcce33a1a4affd2cc156dc39a009f6bd2d95e52b))
+
+
+### Changed
+
+* attach release binaries to GitHub releases ([#785](https://github.com/giantswarm/muster/issues/785)) ([77dbb0f](https://github.com/giantswarm/muster/commit/77dbb0ffa67e3d8d36a8aa0abfd907c401ee2123))
+* **deps:** update dependency architect to v9 ([#768](https://github.com/giantswarm/muster/issues/768)) ([a4c790a](https://github.com/giantswarm/muster/commit/a4c790a370f8b3378795fd648864157cf7cbbd72))
+* **deps:** update go toolchain directive to v1.26.4 ([#783](https://github.com/giantswarm/muster/issues/783)) ([ba9c3fd](https://github.com/giantswarm/muster/commit/ba9c3fd49e6159c1535daa6753646d46f5bd5ac4))
+* **main:** release 0.1.227 ([#779](https://github.com/giantswarm/muster/issues/779)) ([84fca35](https://github.com/giantswarm/muster/commit/84fca350bcf73f6b282f47427a29d17a5d8421df))
+* **main:** release 0.1.228 ([#781](https://github.com/giantswarm/muster/issues/781)) ([05f5aeb](https://github.com/giantswarm/muster/commit/05f5aeb5e1569a8a9d8a8a7e9be9bedccdceca80))
+* **main:** release 0.1.229 ([#782](https://github.com/giantswarm/muster/issues/782)) ([3cf5800](https://github.com/giantswarm/muster/commit/3cf5800622719a2eb25d973c3fbf420ba7c06a19))
+* **main:** release 0.1.230 ([#784](https://github.com/giantswarm/muster/issues/784)) ([7975401](https://github.com/giantswarm/muster/commit/797540104e3cfe47be37c677e01c84833b2ba3d5))
+
+## [0.1.230](https://github.com/giantswarm/muster/compare/v0.1.229...v0.1.230) (2026-06-03)
+
+
+### Fixed
+
+* **deps:** update module github.com/giantswarm/mcp-oauth to v0.2.185 ([#769](https://github.com/giantswarm/muster/issues/769)) ([ca46984](https://github.com/giantswarm/muster/commit/ca469849a428d1f94de6740179aa1766932f63fa))
+* **deps:** update module github.com/giantswarm/mcp-toolkit to v0.2.5 ([#780](https://github.com/giantswarm/muster/issues/780)) ([bcce33a](https://github.com/giantswarm/muster/commit/bcce33a1a4affd2cc156dc39a009f6bd2d95e52b))
+
+
+### Changed
+
+* **deps:** update dependency architect to v9 ([#768](https://github.com/giantswarm/muster/issues/768)) ([a4c790a](https://github.com/giantswarm/muster/commit/a4c790a370f8b3378795fd648864157cf7cbbd72))
+* **deps:** update go toolchain directive to v1.26.4 ([#783](https://github.com/giantswarm/muster/issues/783)) ([ba9c3fd](https://github.com/giantswarm/muster/commit/ba9c3fd49e6159c1535daa6753646d46f5bd5ac4))
+* **main:** release 0.1.226 ([#778](https://github.com/giantswarm/muster/issues/778)) ([a0ea312](https://github.com/giantswarm/muster/commit/a0ea312a4389e5293f9d52e1f42d26081a3ea981))
+* **main:** release 0.1.227 ([#779](https://github.com/giantswarm/muster/issues/779)) ([84fca35](https://github.com/giantswarm/muster/commit/84fca350bcf73f6b282f47427a29d17a5d8421df))
+* **main:** release 0.1.228 ([#781](https://github.com/giantswarm/muster/issues/781)) ([05f5aeb](https://github.com/giantswarm/muster/commit/05f5aeb5e1569a8a9d8a8a7e9be9bedccdceca80))
+* **main:** release 0.1.229 ([#782](https://github.com/giantswarm/muster/issues/782)) ([3cf5800](https://github.com/giantswarm/muster/commit/3cf5800622719a2eb25d973c3fbf420ba7c06a19))
+
+## [0.1.229](https://github.com/giantswarm/muster/compare/v0.1.228...v0.1.229) (2026-06-02)
+
+
+### Fixed
+
+* **deps:** update module github.com/giantswarm/mcp-oauth to v0.2.185 ([#769](https://github.com/giantswarm/muster/issues/769)) ([ca46984](https://github.com/giantswarm/muster/commit/ca469849a428d1f94de6740179aa1766932f63fa))
+* **deps:** update module github.com/giantswarm/mcp-toolkit to v0.2.4 ([#777](https://github.com/giantswarm/muster/issues/777)) ([9f915d6](https://github.com/giantswarm/muster/commit/9f915d6f80ec31496eb3014d643683caa5164730))
+* **deps:** update module github.com/giantswarm/mcp-toolkit to v0.2.5 ([#780](https://github.com/giantswarm/muster/issues/780)) ([bcce33a](https://github.com/giantswarm/muster/commit/bcce33a1a4affd2cc156dc39a009f6bd2d95e52b))
+
+
+### Changed
+
+* **deps:** update dependency architect to v9 ([#768](https://github.com/giantswarm/muster/issues/768)) ([a4c790a](https://github.com/giantswarm/muster/commit/a4c790a370f8b3378795fd648864157cf7cbbd72))
+* **main:** release 0.1.226 ([#778](https://github.com/giantswarm/muster/issues/778)) ([a0ea312](https://github.com/giantswarm/muster/commit/a0ea312a4389e5293f9d52e1f42d26081a3ea981))
+* **main:** release 0.1.227 ([#779](https://github.com/giantswarm/muster/issues/779)) ([84fca35](https://github.com/giantswarm/muster/commit/84fca350bcf73f6b282f47427a29d17a5d8421df))
+* **main:** release 0.1.228 ([#781](https://github.com/giantswarm/muster/issues/781)) ([05f5aeb](https://github.com/giantswarm/muster/commit/05f5aeb5e1569a8a9d8a8a7e9be9bedccdceca80))
+
 ## [0.1.228](https://github.com/giantswarm/muster/compare/v0.1.227...v0.1.228) (2026-06-02)
 
 
