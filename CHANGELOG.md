@@ -2,39 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.2.0](https://github.com/giantswarm/muster/compare/v0.1.231...v0.2.0) (2026-06-03)
-
+## [Unreleased]
 
 ### Added
 
 * AllowedClaims in TrustedIssuer, drop KubernetesSATrusts, fix JWT signing key wiring ([#772](https://github.com/giantswarm/muster/issues/772)) ([04b5bd2](https://github.com/giantswarm/muster/commit/04b5bd2e1bdfe9b982d778f14f700893b96f0e7f))
-
+- `muster.oauth.server.dex.allowPrivateIPOIDC`: allows Dex OIDC discovery to reach issuer URLs that resolve to private/loopback IPs (e.g. Azure internal load balancers). Requires mcp-oauth#427. Emits a CWE-918 startup warning.
 
 ### Fixed
 
-* **deps:** update module github.com/giantswarm/mcp-oauth to v0.2.185 ([#769](https://github.com/giantswarm/muster/issues/769)) ([ca46984](https://github.com/giantswarm/muster/commit/ca469849a428d1f94de6740179aa1766932f63fa))
+* **deps:** update module github.com/giantswarm/mcp-oauth to v0.2.186 ([ca46984](https://github.com/giantswarm/muster/commit/ca469849a428d1f94de6740179aa1766932f63fa))
 * **deps:** update module github.com/giantswarm/mcp-toolkit to v0.2.5 ([#780](https://github.com/giantswarm/muster/issues/780)) ([bcce33a](https://github.com/giantswarm/muster/commit/bcce33a1a4affd2cc156dc39a009f6bd2d95e52b))
-
+- CiliumNetworkPolicy egress now reaches an OIDC issuer (Dex) / HTTP MCP server fronted by a Cilium-managed ingress gateway VIP (LB-IPAM / L2, typical on-prem). New `networkPolicy.cilium.ingressGateway` rule allows egress to the gateway backend endpoints on their target ports (default: `10080`/`10443`, selector: `app.kubernetes.io/name=envoy` in `envoy-gateway-system`).
 
 ### Changed
 
 * attach release binaries to GitHub releases ([#785](https://github.com/giantswarm/muster/issues/785)) ([77dbb0f](https://github.com/giantswarm/muster/commit/77dbb0ffa67e3d8d36a8aa0abfd907c401ee2123))
 * **deps:** update go toolchain directive to v1.26.4 ([#783](https://github.com/giantswarm/muster/issues/783)) ([ba9c3fd](https://github.com/giantswarm/muster/commit/ba9c3fd49e6159c1535daa6753646d46f5bd5ac4))
-* **main:** release 0.1.227 ([#779](https://github.com/giantswarm/muster/issues/779)) ([84fca35](https://github.com/giantswarm/muster/commit/84fca350bcf73f6b282f47427a29d17a5d8421df))
-* **main:** release 0.1.228 ([#781](https://github.com/giantswarm/muster/issues/781)) ([05f5aeb](https://github.com/giantswarm/muster/commit/05f5aeb5e1569a8a9d8a8a7e9be9bedccdceca80))
-* **main:** release 0.1.229 ([#782](https://github.com/giantswarm/muster/issues/782)) ([3cf5800](https://github.com/giantswarm/muster/commit/3cf5800622719a2eb25d973c3fbf420ba7c06a19))
-* **main:** release 0.1.230 ([#784](https://github.com/giantswarm/muster/issues/784)) ([7975401](https://github.com/giantswarm/muster/commit/797540104e3cfe47be37c677e01c84833b2ba3d5))
-* **main:** release 0.1.231 ([#786](https://github.com/giantswarm/muster/issues/786)) ([254a8a3](https://github.com/giantswarm/muster/commit/254a8a364f896d213054ebba50be4f11e36ba013))
-
-## [Unreleased]
-
-### Added
-
-- `muster.oauth.server.dex.allowPrivateIPOIDC`: allows Dex OIDC discovery to reach issuer URLs that resolve to private/loopback IPs (e.g. Azure internal load balancers). Requires mcp-oauth#427. Emits a CWE-918 startup warning.
-
-### Changed
-
-- Bumped `mcp-oauth` to `v0.2.186` (adds `dex.Config.AllowPrivateIP`).
 
 ## [0.1.231](https://github.com/giantswarm/muster/compare/v0.1.230...v0.1.231) (2026-06-03)
 
@@ -168,6 +152,7 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 - `enableJWTMode: true` now issues RFC 9068 signed JWT access tokens. Set `muster.oauth.server.jwtSigningKey` (PEM-encoded EC P-256 or RSA key) or `existingSecret` with key `jwt-signing-key`; `helm template` fails if neither is provided when `enableJWTMode: true`.
+- CiliumNetworkPolicy egress now reaches an OIDC issuer (Dex) / HTTP MCP server that is fronted by a **Cilium-managed ingress gateway VIP** (LB-IPAM / L2, typical on-prem). With `kube-proxy-replacement`, Cilium DNATs the LoadBalancer VIP to the gateway backend pod on its *target* port (e.g. `443`→`10443`) **before** egress policy is evaluated, so neither `toEntities: world` nor `toEntities: cluster` on `443` matched and OIDC discovery failed with `context deadline exceeded`. A new `networkPolicy.cilium.ingressGateway` rule allows egress to the gateway backend endpoints on their target ports (default: Giant Swarm `envoy-gateway` proxies on `10080`/`10443`). Clusters whose gateway VIP is an external cloud LB (e.g. AWS ELB) were already covered by the `world` rule and are unaffected (the new rule is a no-op there); set `ingressGateway: null` to disable. Fixes the OAuth/`OIDC discovery failed` startup warning on affected clusters.
 - Workflow availability (`core_workflow_available` / `core_workflow_list` / `workflow_available`) is now session-aware. Previously, availability for SSO / auth-protected family tools (e.g. multi-instance `kubernetes` / `prometheus` servers) was computed from the process-global family routing index, which is unioned across sessions and only populated as a side effect of a prior `list_tools` call. This produced two symmetric defects: a **false negative** — `muster list workflows` / `muster get workflow` reported workflows `Unavailable` until some session listed tools, while `muster agent` (which lists tools on connect) reported them available, so the answer depended on call ordering; and a **false positive** — once any session listed tools, the family entry leaked process-wide, so a session that never authenticated to the family still saw the workflow as available. When the request carries a session, availability now resolves each step tool against that session's own accessible tools (hydrated from the `CapabilityStore`); core / meta tools resolve by name, and only session-less calls fall back to the process-global view. Closes #764.
 - Workflow availability is now transitive across nested workflows. A workflow step that calls another workflow (`workflow_<name>`) was always treated as available because the availability check matched the `workflow_` prefix without consulting the registry, so a workflow referencing a non-existent or transitively broken nested workflow was wrongly reported `Available` and only failed at execution time. Nested workflow steps now require the referenced workflow to exist and to be itself available; the check descends through the whole chain (with cycle detection) and reports the actual unavailable tool. The `workflow_` management meta-tools (`workflow_list`, `workflow_available`, ...) are unaffected.
 

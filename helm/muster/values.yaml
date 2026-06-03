@@ -553,9 +553,26 @@ networkPolicy:
   labels: {}
   annotations: {}
   cilium:
-    # Allow egress to the `cluster` entity on 80/443 — needed when Dex /
-    # OIDC / MCP servers are reached via in-cluster ingress IPs.
+    # Allow egress to the `cluster` entity on 80/443 — for Dex / OIDC / MCP
+    # servers reached via a ClusterIP whose backend listens directly on 80/443.
+    # Does NOT cover an ingress gateway (different target ports) — see
+    # `ingressGateway` below.
     allowClusterIngress: false
+    # Egress to the in-cluster ingress gateway that fronts Dex/OIDC and HTTP
+    # MCP servers. Needed when the gateway LoadBalancer VIP is a Cilium-managed
+    # service IP (LB-IPAM / L2, typical on-prem): kube-proxy-replacement DNATs
+    # the VIP to the gateway backend pod on its TARGET port before egress policy
+    # runs, so `ports` must be the gateway's target ports, not 80/443. Harmless
+    # no-op for external cloud LBs (AWS ELB → `world`) and non-matching ingress.
+    # Defaults target the standard Giant Swarm envoy-gateway proxies; set to
+    # null to disable, or override the selector for a different ingress.
+    ingressGateway:
+      endpointSelector:
+        k8s:io.kubernetes.pod.namespace: envoy-gateway-system
+        app.kubernetes.io/name: envoy
+      ports:
+        - 10080
+        - 10443
   kubernetes:
     apiServerCIDR: 0.0.0.0/0
     # Empty disables the cluster CIDR egress rule. Set to your cluster's
