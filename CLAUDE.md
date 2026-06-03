@@ -27,9 +27,6 @@ make vet                          # go vet
 # Helm
 make helm-lint                    # Lint Helm chart
 make helm-test                    # Helm unit tests
-
-# Release
-make release-dry-run-fast         # Quick release test (linux/amd64 only)
 ```
 
 ## Architecture
