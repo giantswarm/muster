@@ -573,6 +573,20 @@ networkPolicy:
       ports:
         - 10080
         - 10443
+    # Additional egress rules appended to muster's egress allowlist. Each entry
+    # is a raw Cilium egress rule (toEndpoints / toEntities / toCIDR / toFQDNs +
+    # optional toPorts). Use this for in-cluster MCP servers that listen on
+    # non-80/443 ports — `allowClusterIngress` only opens 80/443. Example:
+    #   additionalEgress:
+    #     - toEndpoints:
+    #         - matchLabels:
+    #             k8s:io.kubernetes.pod.namespace: mcp-runbooks
+    #             app.kubernetes.io/name: mcp-runbooks
+    #       toPorts:
+    #         - ports:
+    #             - port: "8080"
+    #               protocol: TCP
+    additionalEgress: []
   kubernetes:
     apiServerCIDR: 0.0.0.0/0
     # Empty disables the cluster CIDR egress rule. Set to your cluster's
@@ -584,3 +598,18 @@ networkPolicy:
       - 172.16.0.0/12
       - 192.168.0.0/16
       - 169.254.0.0/16
+    # Additional egress rules appended to muster's egress allowlist. Vanilla
+    # NetworkPolicy syntax — each entry uses `to:` (with podSelector /
+    # namespaceSelector / ipBlock) and optional `ports`. Example:
+    #   additionalEgress:
+    #     - to:
+    #         - namespaceSelector:
+    #             matchLabels:
+    #               kubernetes.io/metadata.name: mcp-runbooks
+    #           podSelector:
+    #             matchLabels:
+    #               app.kubernetes.io/name: mcp-runbooks
+    #       ports:
+    #         - port: 8080
+    #           protocol: TCP
+    additionalEgress: []
