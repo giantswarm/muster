@@ -607,7 +607,11 @@
         "cilium": {
           "type": "object",
           "properties": {
-            "allowClusterIngress": { "type": "boolean" }
+            "allowClusterIngress": { "type": "boolean" },
+            "additionalEgress": {
+              "type": "array",
+              "items": { "type": "object" }
+            }
           }
         },
         "kubernetes": {
@@ -618,6 +622,10 @@
             "worldExcludedCIDRs": {
               "type": "array",
               "items": { "type": "string" }
+            },
+            "additionalEgress": {
+              "type": "array",
+              "items": { "type": "object" }
             }
           }
         }
