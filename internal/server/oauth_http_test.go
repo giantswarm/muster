@@ -13,6 +13,7 @@ import (
 	"time"
 
 	oauth "github.com/giantswarm/mcp-oauth"
+	oauthhandler "github.com/giantswarm/mcp-oauth/handler"
 	"github.com/giantswarm/mcp-oauth/providers"
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
 	"github.com/stretchr/testify/assert"
@@ -435,6 +436,59 @@ func TestCreateAccessTokenInjectorMiddleware(t *testing.T) {
 		// but we can verify the pattern works
 		require.NotNil(t, next)
 		assert.False(t, called) // Not called yet
+	})
+
+	// A Kubernetes ServiceAccount identity carries a `sub` but no email. The
+	// forwarded-token (TrustedAudiences) path authenticates on `sub`, so an
+	// emailless UserInfo must still attempt injectExternalIDToken rather than
+	// being dropped outright.
+	t.Run("emailless identity attempts forwarded ID token injection", func(t *testing.T) {
+		token := fakeJWT(t, map[string]interface{}{"sub": "system:serviceaccount:ns:sa"})
+		defer stubAcceptForwardedIDToken(func(_ context.Context, bearer string) (*oauthserver.ForwardedIDTokenAcceptance, error) {
+			return acceptanceFor(bearer, "system:serviceaccount:ns:sa", ""), nil
+		})()
+
+		s := &OAuthHTTPServer{config: config.OAuthServerConfig{BaseURL: "https://muster.test"}}
+
+		var capturedCtx context.Context
+		next := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+			capturedCtx = r.Context()
+		})
+
+		r := requestWithBearer(token)
+		r = r.WithContext(oauthhandler.ContextWithUserInfo(r.Context(), &providers.UserInfo{ID: "system:serviceaccount:ns:sa"}))
+
+		s.createAccessTokenInjectorMiddleware(next).ServeHTTP(httptest.NewRecorder(), r)
+
+		require.NotNil(t, capturedCtx, "next must be invoked with the enriched context")
+		idToken, ok := GetIDTokenFromContext(capturedCtx)
+		require.True(t, ok, "forwarded ID token should be injected for the emailless identity")
+		assert.Equal(t, token, idToken)
+	})
+
+	// When the bearer is not an acceptable forwarded ID token, the emailless
+	// path must fall through unchanged: next is still called, but no ID token
+	// is injected.
+	t.Run("emailless identity falls through when forwarded token rejected", func(t *testing.T) {
+		defer stubAcceptForwardedIDToken(func(context.Context, string) (*oauthserver.ForwardedIDTokenAcceptance, error) {
+			return nil, oauth.ErrTrustedAudienceMismatch
+		})()
+
+		s := &OAuthHTTPServer{config: config.OAuthServerConfig{BaseURL: "https://muster.test"}}
+
+		var capturedCtx context.Context
+		next := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+			capturedCtx = r.Context()
+		})
+
+		r := requestWithBearer("opaque-or-wrong-aud")
+		r = r.WithContext(oauthhandler.ContextWithUserInfo(r.Context(), &providers.UserInfo{ID: "system:serviceaccount:ns:sa"}))
+
+		s.createAccessTokenInjectorMiddleware(next).ServeHTTP(httptest.NewRecorder(), r)
+
+		require.NotNil(t, capturedCtx, "next must still be called when the bearer is not a forwarded ID token")
+		_, ok := GetIDTokenFromContext(capturedCtx)
+		assert.False(t, ok, "no ID token should be injected when the forwarded token is rejected")
 	})
 }
 
