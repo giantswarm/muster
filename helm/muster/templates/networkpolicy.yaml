@@ -96,4 +96,10 @@ spec:
     {{- end }}
     {{- end }}
     {{- end }}
+
+    {{- with .Values.networkPolicy.kubernetes.additionalEgress }}
+    # Additional in-cluster egress entries supplied via values (e.g. MCP servers
+    # on non-80/443 ports). Each item is appended verbatim to the egress list.
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
 {{- end }}
