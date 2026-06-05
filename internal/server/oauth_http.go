@@ -303,6 +303,15 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		}
 
 		if userInfo.Email == "" {
+			// An emailless identity can still be a valid forwarded ID token
+			// (e.g. a Kubernetes ServiceAccount identity pre-exchanged at Dex —
+			// SA tokens carry a `sub` but no email). The TrustedAudiences
+			// forwarded-token path authenticates on `sub`, not email, so try
+			// it before giving up. Falls through unchanged when the bearer is
+			// not an acceptable forwarded ID token.
+			if s.injectExternalIDToken(w, r, ctx, next) {
+				return
+			}
 			if s.debug {
 				logging.Debug("OAuth", "User info has no email, proceeding without token injection")
 			}
