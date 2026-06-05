@@ -39,6 +39,13 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, refreshTokenTTL time.Dur
 		TrustedPublicRegistrationRedirectURIs: cfg.TrustedPublicRegistrationRedirectURIs,
 		AllowLocalhostRedirectURIs:            cfg.AllowLocalhostRedirectURIs,
 		TrustedAudiences:                      cfg.TrustedAudiences,
+		// The forwarded-ID-token (TrustedAudiences) JWKS validation in
+		// mcp-oauth is gated on this top-level flag. Mirror the provider-side
+		// intent: when the operator has opted into a private-IP Dex via
+		// Dex.AllowPrivateIPOIDC, the forwarded-token JWKS client must accept
+		// the same private-IP issuer instead of rejecting it as a DNS-rebinding
+		// attack. Public-hostname Dex deployments are unaffected.
+		AllowPrivateIPJWKS: cfg.Dex.AllowPrivateIPOIDC,
 	}
 	if cfg.EnableJWTMode {
 		result.AccessTokenFormat = oauthserver.AccessTokenFormatJWT
