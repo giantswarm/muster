@@ -204,6 +204,10 @@ func (o *Orchestrator) handleAuthRequiredServer(mcpServerInfo api.MCPServerInfo,
 		AuthInfo:   authInfo,
 		AuthConfig: mcpServerInfo.Auth,
 	}); err != nil {
+		if errors.Is(err, api.ErrServerAlreadyRegistered) {
+			logging.Debug("Orchestrator", "MCPServer %s already registered as pending auth, skipping", mcpServerInfo.Name)
+			return
+		}
 		logging.Error("Orchestrator", err, "Failed to register pending auth server: %s", mcpServerInfo.Name)
 		return
 	}
@@ -323,6 +327,18 @@ func (o *Orchestrator) attemptReconnectFailedServers() {
 			}
 
 			if err := service.Restart(o.ctx); err != nil {
+				var authErr *mcpserverPkg.AuthRequiredError
+				if errors.As(err, &authErr) {
+					mcpManager := api.GetMCPServerManager()
+					if mcpManager == nil {
+						logging.Warn("Orchestrator", "MCPServer %s requires authentication but MCPServerManager not available", service.GetName())
+					} else if info, getErr := mcpManager.GetMCPServer(service.GetName()); getErr == nil {
+						o.handleAuthRequiredServer(*info, authErr)
+					} else {
+						logging.Warn("Orchestrator", "MCPServer %s requires authentication but failed to fetch server info: %v", service.GetName(), getErr)
+					}
+					return
+				}
 				logging.Warn("Orchestrator", "Failed to reconnect MCPServer %s: %v (will retry after backoff)", service.GetName(), err)
 			} else {
 				logging.Info("Orchestrator", "Successfully reconnected MCPServer: %s", service.GetName())

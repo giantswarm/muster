@@ -170,6 +170,10 @@ var (
 	//
 	// Deprecated: Use NewWorkflowNotFoundError(name) instead for better error context.
 	ErrWorkflowNotFound = errors.New("workflow not found")
+
+	// ErrServerAlreadyRegistered is returned when a server is registered in the aggregator
+	// registry more than once. Callers in retry loops should treat this as a no-op.
+	ErrServerAlreadyRegistered = errors.New("server already registered")
 )
 
 // authRequiredError is a marker interface for errors that indicate a service
