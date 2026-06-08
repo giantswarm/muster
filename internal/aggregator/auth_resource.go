@@ -418,6 +418,28 @@ func (a *AggregatorServer) initSSOForSession(ctx context.Context, userID, sessio
 	}
 }
 
+// hasSSOPoolMiss reports whether any token-exchange server registered as
+// requiring session auth has no live entry in the conn pool for sessionID.
+// Used by onAuthenticated to detect the post-restart case where Valkey still
+// has auth state but the in-memory pool is empty.
+func (a *AggregatorServer) hasSSOPoolMiss(sessionID string) bool {
+	if a.connPool == nil || a.registry == nil {
+		return false
+	}
+	for _, info := range a.registry.GetAllServers() {
+		if !info.RequiresSessionAuth() {
+			continue
+		}
+		if !ShouldUseTokenExchange(info) {
+			continue
+		}
+		if _, ok := a.connPool.Get(sessionID, info.Name); !ok {
+			return true
+		}
+	}
+	return false
+}
+
 // establishSSOConnection attempts to establish an SSO connection to a single server.
 // This is called on demand when a cache miss is detected for an SSO-enabled server
 // (token forwarding or token exchange). Manual-auth servers use core_auth_login instead.
@@ -441,9 +463,28 @@ func (a *AggregatorServer) establishSSOConnection(
 	if a.authStore != nil {
 		authenticated, _ := a.authStore.IsAuthenticated(ctx, sessionID, serverInfo.Name)
 		if authenticated {
-			logging.Debug("Aggregator", "SSO: Session %s already authenticated to %s, skipping SSO",
-				logging.TruncateIdentifier(sessionID), serverInfo.Name)
-			return
+			// For token-exchange servers, also verify the conn pool has a live client.
+			// After a pod restart the auth store persists "authenticated" in Valkey while
+			// the in-memory pool is empty. In that case, clear the stale auth entry so
+			// the exchange proceeds and the pool is repopulated.
+			if ShouldUseTokenExchange(serverInfo) && a.connPool != nil {
+				if _, poolHit := a.connPool.Get(sessionID, serverInfo.Name); !poolHit {
+					logging.Info("Aggregator", "SSO: Session %s authenticated to %s in auth store but pool miss — clearing stale state",
+						logging.TruncateIdentifier(sessionID), serverInfo.Name)
+					if err := a.authStore.Revoke(ctx, sessionID, serverInfo.Name); err != nil {
+						logging.Warn("Aggregator", "SSO: Failed to revoke stale auth state for %s: %v", serverInfo.Name, err)
+					}
+					// Fall through to re-exchange.
+				} else {
+					logging.Debug("Aggregator", "SSO: Session %s already authenticated to %s with live pool entry, skipping SSO",
+						logging.TruncateIdentifier(sessionID), serverInfo.Name)
+					return
+				}
+			} else {
+				logging.Debug("Aggregator", "SSO: Session %s already authenticated to %s, skipping SSO",
+					logging.TruncateIdentifier(sessionID), serverInfo.Name)
+				return
+			}
 		}
 	}
 

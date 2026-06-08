@@ -1486,6 +1486,18 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 				// Evict stale SSO connections to stop mcp-go's infinite
 				// 1-second retry loop.
 				a.handleUpstreamRefreshFailure(sessionID, userID, "onAuthenticated: ID token missing for active session")
+				return
+			}
+			// After a pod restart the auth store survives in Valkey but the
+			// in-memory conn pool is empty. Trigger SSO re-init if any
+			// token-exchange server is registered but has no pooled client.
+			if a.hasSSOPoolMiss(sessionID) {
+				logging.InfoWithAttrs("Aggregator", "SSO: pool miss on live session — triggering SSO re-init",
+					slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
+				if a.ssoTracker != nil && userID != "" {
+					a.ssoTracker.ClearAllSSOFailed(userID)
+				}
+				go a.initSSOForSession(context.Background(), userID, sessionID, idToken) //nolint:gosec // G118: SSO bootstrap must outlive the request handler that triggered it
 			}
 			return
 		}

@@ -662,6 +662,178 @@ func TestTokenRefreshHandler_MissingIDToken_TriggersEviction(t *testing.T) {
 		"sso-server should be marked as failed")
 }
 
+func TestHasSSOPoolMiss_TokenExchangeWithEmptyPool(t *testing.T) {
+	// After a pod restart the auth store persists "authenticated" but the
+	// pool is empty. hasSSOPoolMiss should return true so onAuthenticated
+	// triggers SSO re-init even when authAlive is true.
+	pool := NewSessionConnectionPool(1 * time.Hour)
+	defer pool.Stop()
+	defer pool.DrainAll()
+
+	authStore := oauthstore.NewInMemorySessionAuthStore(30 * time.Minute)
+	defer authStore.Stop()
+
+	registry := NewServerRegistry("x")
+	err := registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: "grizzly-mcp-kubernetes", ToolPrefix: "grizzly"},
+		URL:                "https://mcp.grizzly.example.com",
+		AuthInfo:           &AuthInfo{Issuer: "https://dex.grizzly.example.com"},
+		AuthConfig: &api.MCPServerAuth{TokenExchange: &api.TokenExchangeConfig{
+			Enabled:          true,
+			DexTokenEndpoint: "https://dex.grizzly.example.com/token",
+			ConnectorID:      "giantswarm-simple-oidc",
+		}},
+	})
+	require.NoError(t, err)
+
+	ctx := t.Context()
+	sessionID := "persistent-session"
+
+	// Auth store says authenticated (Valkey survived restart), but pool is empty.
+	require.NoError(t, authStore.MarkAuthenticated(ctx, sessionID, "grizzly-mcp-kubernetes"))
+
+	aggServer := &AggregatorServer{
+		registry:  registry,
+		connPool:  pool,
+		authStore: authStore,
+	}
+
+	assert.True(t, aggServer.hasSSOPoolMiss(sessionID),
+		"should detect pool miss when auth store has server but conn pool is empty")
+}
+
+func TestHasSSOPoolMiss_ReturnsFalseWithLivePoolEntry(t *testing.T) {
+	// When the pool has a live entry for the token-exchange server, no re-init needed.
+	pool := NewSessionConnectionPool(1 * time.Hour)
+	defer pool.Stop()
+	defer pool.DrainAll()
+
+	authStore := oauthstore.NewInMemorySessionAuthStore(30 * time.Minute)
+	defer authStore.Stop()
+
+	registry := NewServerRegistry("x")
+	err := registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: "grizzly-mcp-kubernetes", ToolPrefix: "grizzly"},
+		URL:                "https://mcp.grizzly.example.com",
+		AuthInfo:           &AuthInfo{Issuer: "https://dex.grizzly.example.com"},
+		AuthConfig: &api.MCPServerAuth{TokenExchange: &api.TokenExchangeConfig{
+			Enabled:          true,
+			DexTokenEndpoint: "https://dex.grizzly.example.com/token",
+			ConnectorID:      "giantswarm-simple-oidc",
+		}},
+	})
+	require.NoError(t, err)
+
+	ctx := t.Context()
+	sessionID := "live-session"
+
+	require.NoError(t, authStore.MarkAuthenticated(ctx, sessionID, "grizzly-mcp-kubernetes"))
+	pool.Put(sessionID, "grizzly-mcp-kubernetes", &noopMCPClient{})
+
+	aggServer := &AggregatorServer{
+		registry:  registry,
+		connPool:  pool,
+		authStore: authStore,
+	}
+
+	assert.False(t, aggServer.hasSSOPoolMiss(sessionID),
+		"should not detect pool miss when conn pool has a live entry")
+}
+
+func TestHasSSOPoolMiss_IgnoresForwardTokenServers(t *testing.T) {
+	// hasSSOPoolMiss only checks token-exchange servers; forward-token servers
+	// recreate their clients on demand and don't need the pool to trigger re-init.
+	pool := NewSessionConnectionPool(1 * time.Hour)
+	defer pool.Stop()
+	defer pool.DrainAll()
+
+	authStore := oauthstore.NewInMemorySessionAuthStore(30 * time.Minute)
+	defer authStore.Stop()
+
+	registry := NewServerRegistry("x")
+	err := registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: "gazelle-mcp-kubernetes", ToolPrefix: "gazelle"},
+		URL:                "https://mcp.gazelle.example.com",
+		AuthInfo:           &AuthInfo{Issuer: "https://dex.gazelle.example.com"},
+		AuthConfig:         &api.MCPServerAuth{ForwardToken: true},
+	})
+	require.NoError(t, err)
+
+	ctx := t.Context()
+	sessionID := "fwd-session"
+
+	// Auth store says authenticated, pool is empty — but it's a forward-token server.
+	require.NoError(t, authStore.MarkAuthenticated(ctx, sessionID, "gazelle-mcp-kubernetes"))
+
+	aggServer := &AggregatorServer{
+		registry:  registry,
+		connPool:  pool,
+		authStore: authStore,
+	}
+
+	assert.False(t, aggServer.hasSSOPoolMiss(sessionID),
+		"forward-token server with empty pool should not trigger hasSSOPoolMiss")
+}
+
+func TestEstablishSSOConnection_RevokesStaleAuthOnPoolMiss(t *testing.T) {
+	// When auth store says "authenticated" but pool is empty for a token-exchange
+	// server, establishSSOConnection must revoke the stale auth entry before
+	// attempting the exchange. This simulates the post-restart scenario where
+	// Valkey state outlives the process.
+	pool := NewSessionConnectionPool(1 * time.Hour)
+	defer pool.Stop()
+	defer pool.DrainAll()
+
+	authStore := oauthstore.NewInMemorySessionAuthStore(30 * time.Minute)
+	defer authStore.Stop()
+
+	registry := NewServerRegistry("x")
+	err := registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: "remote-k8s", ToolPrefix: "rk8s"},
+		URL:                "https://mcp.remote.example.com",
+		AuthInfo:           &AuthInfo{Issuer: "https://dex.remote.example.com"},
+		AuthConfig: &api.MCPServerAuth{TokenExchange: &api.TokenExchangeConfig{
+			Enabled:          true,
+			DexTokenEndpoint: "https://dex.remote.example.com/token",
+			ConnectorID:      "cluster-a-dex",
+		}},
+	})
+	require.NoError(t, err)
+
+	ctx := t.Context()
+	sessionID := "stale-auth-session"
+
+	// Pre-condition: Valkey says authenticated but pool is empty.
+	require.NoError(t, authStore.MarkAuthenticated(ctx, sessionID, "remote-k8s"))
+
+	authed, _ := authStore.IsAuthenticated(ctx, sessionID, "remote-k8s")
+	require.True(t, authed, "pre-condition: auth store must say authenticated")
+
+	_, poolHit := pool.Get(sessionID, "remote-k8s")
+	require.False(t, poolHit, "pre-condition: pool must be empty")
+
+	info, ok := registry.GetServerInfo("remote-k8s")
+	require.True(t, ok)
+
+	aggServer := &AggregatorServer{
+		registry:  registry,
+		connPool:  pool,
+		authStore: authStore,
+	}
+
+	ssoCtx := api.WithSubject(ctx, "test-subject")
+	ssoCtx = api.WithSessionID(ssoCtx, sessionID)
+
+	// establishSSOConnection will clear the stale state then attempt the exchange.
+	// The exchange will fail (no real server), but the stale auth state must be
+	// gone before the attempt.
+	aggServer.establishSSOConnection(ssoCtx, info, "https://muster.example.com")
+
+	authed, _ = authStore.IsAuthenticated(ctx, sessionID, "remote-k8s")
+	assert.False(t, authed,
+		"stale auth entry must be revoked before the exchange attempt")
+}
+
 func TestSSOTracker_ConcurrentAccess(t *testing.T) {
 	// The ssoTracker must be safe for concurrent access since
 	// initSSOForSession, establishSSOConnection, and the cleanup goroutine
