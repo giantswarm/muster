@@ -329,14 +329,19 @@ func (o *Orchestrator) attemptReconnectFailedServers() {
 			if err := service.Restart(o.ctx); err != nil {
 				var authErr *mcpserverPkg.AuthRequiredError
 				if errors.As(err, &authErr) {
-					mcpManager := api.GetMCPServerManager()
-					if mcpManager == nil {
-						logging.Warn("Orchestrator", "MCPServer %s requires authentication but MCPServerManager not available", service.GetName())
-					} else if info, getErr := mcpManager.GetMCPServer(service.GetName()); getErr == nil {
-						o.handleAuthRequiredServer(*info, authErr)
-					} else {
-						logging.Warn("Orchestrator", "MCPServer %s requires authentication but failed to fetch server info: %v", service.GetName(), getErr)
+					svc, ok := service.(*mcpserver.Service)
+					if !ok {
+						logging.Error("Orchestrator", nil, "MCPServer %s requires authentication but has unexpected service type", service.GetName())
+						return
 					}
+					def := svc.Definition()
+					o.handleAuthRequiredServer(api.MCPServerInfo{
+						Name:       def.Name,
+						URL:        def.URL,
+						ToolPrefix: def.ToolPrefix,
+						Family:     def.Family,
+						Auth:       def.Auth,
+					}, authErr)
 					return
 				}
 				logging.Warn("Orchestrator", "Failed to reconnect MCPServer %s: %v (will retry after backoff)", service.GetName(), err)

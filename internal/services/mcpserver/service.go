@@ -277,6 +277,11 @@ func (s *Service) GetConfiguration() interface{} {
 	return s.definition
 }
 
+// Definition returns the typed API definition for this service.
+func (s *Service) Definition() *api.MCPServer {
+	return s.definition
+}
+
 // ValidateConfiguration validates the MCP server configuration
 func (s *Service) ValidateConfiguration() error {
 	if s.definition == nil {
