@@ -339,7 +339,6 @@ func newSSOTracker() *ssoTracker {
 	}
 }
 
-
 // IsSSOPendingWithinTimeout returns true if SSO is pending AND the pending
 // duration has not exceeded ssoTrackerPendingTimeout.
 func (s *ssoTracker) IsSSOPendingWithinTimeout(sub, serverName string) bool {
