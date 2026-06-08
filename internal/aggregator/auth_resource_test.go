@@ -316,7 +316,7 @@ func TestDetermineSessionAuthStatus_SSOServers(t *testing.T) {
 			t.Fatalf("failed to register server: %v", err)
 		}
 
-		tracker.MarkSSOPending(sub, "sso-server")
+		tracker.MarkSSOPendingIfNotPending(sub, "sso-server")
 
 		info := getServerInfo(t, aggServer.registry, "sso-server")
 		status := aggServer.determineSessionAuthStatus(sub, sessionID, "sso-server", info)
@@ -349,7 +349,7 @@ func TestDetermineSessionAuthStatus_SSOServers(t *testing.T) {
 			t.Fatalf("failed to register server: %v", err)
 		}
 
-		tracker.MarkSSOPending(sub, "exchange-server")
+		tracker.MarkSSOPendingIfNotPending(sub, "exchange-server")
 
 		info := getServerInfo(t, aggServer.registry, "exchange-server")
 		status := aggServer.determineSessionAuthStatus(sub, sessionID, "exchange-server", info)
@@ -434,25 +434,25 @@ func TestDetermineSessionAuthStatus_SSOServers(t *testing.T) {
 func TestSSOTracker_PendingTimeout(t *testing.T) {
 	tracker := newSSOTracker()
 
-	t.Run("MarkSSOPending and IsSSOPendingWithinTimeout", func(t *testing.T) {
-		tracker.MarkSSOPending("user1", "server1")
+	t.Run("MarkSSOPendingIfNotPending and IsSSOPendingWithinTimeout", func(t *testing.T) {
+		assert.True(t, tracker.MarkSSOPendingIfNotPending("user1", "server1"))
 		assert.True(t, tracker.IsSSOPendingWithinTimeout("user1", "server1"))
 		assert.False(t, tracker.IsSSOPendingWithinTimeout("user1", "server2"))
 		assert.False(t, tracker.IsSSOPendingWithinTimeout("user2", "server1"))
 	})
 
 	t.Run("ClearSSOPending removes pending state", func(t *testing.T) {
-		tracker.MarkSSOPending("user2", "serverA")
+		tracker.MarkSSOPendingIfNotPending("user2", "serverA")
 		assert.True(t, tracker.IsSSOPendingWithinTimeout("user2", "serverA"))
 
 		tracker.ClearSSOPending("user2", "serverA")
 		assert.False(t, tracker.IsSSOPendingWithinTimeout("user2", "serverA"))
 	})
 
-	t.Run("MarkSSOPending preserves first timestamp", func(t *testing.T) {
-		tracker.MarkSSOPending("user3", "serverB")
-		// Calling again should not reset the timestamp
-		tracker.MarkSSOPending("user3", "serverB")
+	t.Run("MarkSSOPendingIfNotPending preserves first timestamp", func(t *testing.T) {
+		assert.True(t, tracker.MarkSSOPendingIfNotPending("user3", "serverB"))
+		// Second call returns false but does not reset the timestamp.
+		assert.False(t, tracker.MarkSSOPendingIfNotPending("user3", "serverB"))
 		assert.True(t, tracker.IsSSOPendingWithinTimeout("user3", "serverB"))
 	})
 }
@@ -478,17 +478,17 @@ func TestDetermineSessionAuthStatus_SSOPendingTimeout(t *testing.T) {
 	}
 	info := getServerInfo(t, aggServer.registry, "sso-server")
 
-	// Before MarkSSOPending: should return auth_required (not stuck as sso_pending)
+	// Before marking pending: should return auth_required (not stuck as sso_pending)
 	status := aggServer.determineSessionAuthStatus(sub, sessionID, "sso-server", info)
 	if status != pkgoauth.SessionServerStatusAuthRequired {
 		t.Errorf("expected auth_required before pending, got %q", status)
 	}
 
-	// After MarkSSOPending: should return sso_pending
-	tracker.MarkSSOPending(sub, "sso-server")
+	// After marking pending: should return sso_pending
+	tracker.MarkSSOPendingIfNotPending(sub, "sso-server")
 	status = aggServer.determineSessionAuthStatus(sub, sessionID, "sso-server", info)
 	if status != pkgoauth.SessionServerStatusSSOPending {
-		t.Errorf("expected sso_pending after MarkSSOPending, got %q", status)
+		t.Errorf("expected sso_pending after MarkSSOPendingIfNotPending, got %q", status)
 	}
 
 	// After ClearSSOPending: should return auth_required again

@@ -897,7 +897,7 @@ func TestSSOTracker_ConcurrentAccess(t *testing.T) {
 		defer func() { done <- struct{}{} }()
 		for i := 0; i < 100; i++ {
 			tracker.MarkSSOFailed("user1", "serverA")
-			tracker.MarkSSOPending("user1", "serverB")
+			tracker.MarkSSOPendingIfNotPending("user1", "serverB")
 		}
 	}()
 

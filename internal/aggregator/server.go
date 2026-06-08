@@ -339,19 +339,6 @@ func newSSOTracker() *ssoTracker {
 	}
 }
 
-// MarkSSOPending records that an SSO connection attempt has been triggered for
-// a user/server pair. Only records the first occurrence; subsequent calls for the
-// same pair are no-ops so the original timestamp is preserved.
-func (s *ssoTracker) MarkSSOPending(sub, serverName string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.pendingServers[sub] == nil {
-		s.pendingServers[sub] = make(map[string]time.Time)
-	}
-	if _, exists := s.pendingServers[sub][serverName]; !exists {
-		s.pendingServers[sub][serverName] = time.Now()
-	}
-}
 
 // IsSSOPendingWithinTimeout returns true if SSO is pending AND the pending
 // duration has not exceeded ssoTrackerPendingTimeout.

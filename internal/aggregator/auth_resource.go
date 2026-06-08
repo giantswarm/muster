@@ -486,11 +486,17 @@ func (a *AggregatorServer) establishSSOConnection(
 				} else {
 					logging.Debug("Aggregator", "SSO: Session %s already authenticated to %s with live pool entry, skipping SSO",
 						logging.TruncateIdentifier(sessionID), serverInfo.Name)
+					if a.ssoTracker != nil {
+						a.ssoTracker.ClearSSOPending(sub, serverInfo.Name)
+					}
 					return
 				}
 			} else {
 				logging.Debug("Aggregator", "SSO: Session %s already authenticated to %s, skipping SSO",
 					logging.TruncateIdentifier(sessionID), serverInfo.Name)
+				if a.ssoTracker != nil {
+					a.ssoTracker.ClearSSOPending(sub, serverInfo.Name)
+				}
 				return
 			}
 		}
