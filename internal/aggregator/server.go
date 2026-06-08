@@ -366,6 +366,30 @@ func (s *ssoTracker) IsSSOPendingWithinTimeout(sub, serverName string) bool {
 	return false
 }
 
+// MarkSSOPendingIfNotPending atomically marks SSO as pending for a user/server
+// pair if no unexpired pending record already exists. Returns true when the
+// record was newly created — the caller should spawn the exchange. Returns false
+// when an exchange is already in-flight — the caller should skip.
+func (s *ssoTracker) MarkSSOPendingIfNotPending(sub, serverName string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if m, ok := s.pendingServers[sub]; ok {
+		if firstSeen, exists := m[serverName]; exists {
+			if time.Since(firstSeen) < ssoTrackerPendingTimeout {
+				return false
+			}
+			// Previous pending record expired — reset so a fresh exchange can run.
+			m[serverName] = time.Now()
+			return true
+		}
+	}
+	if s.pendingServers[sub] == nil {
+		s.pendingServers[sub] = make(map[string]time.Time)
+	}
+	s.pendingServers[sub][serverName] = time.Now()
+	return true
+}
+
 // ClearSSOPending removes the pending record for a user/server pair.
 // Called when SSO completes (success or failure).
 func (s *ssoTracker) ClearSSOPending(sub, serverName string) {
@@ -1491,7 +1515,7 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 			// After a pod restart the auth store survives in Valkey but the
 			// in-memory conn pool is empty. Trigger SSO re-init if any
 			// token-exchange server is registered but has no pooled client.
-			if a.hasSSOPoolMiss(sessionID) {
+			if a.ssoPoolMissNeedingInit(userID, sessionID) {
 				logging.InfoWithAttrs("Aggregator", "SSO: pool miss on live session — triggering SSO re-init",
 					slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
 				if a.ssoTracker != nil && userID != "" {

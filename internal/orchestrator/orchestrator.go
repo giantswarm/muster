@@ -334,7 +334,11 @@ func (o *Orchestrator) attemptReconnectFailedServers() {
 						logging.Error("Orchestrator", nil, "MCPServer %s requires authentication but has unexpected service type", service.GetName())
 						return
 					}
-					def := svc.Definition()
+					def, ok := svc.GetConfiguration().(*api.MCPServer)
+					if !ok {
+						logging.Error("Orchestrator", nil, "MCPServer %s has unexpected configuration type", service.GetName())
+						return
+					}
 					o.handleAuthRequiredServer(api.MCPServerInfo{
 						Name:       def.Name,
 						URL:        def.URL,

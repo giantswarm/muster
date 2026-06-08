@@ -418,14 +418,16 @@ func (a *AggregatorServer) initSSOForSession(ctx context.Context, userID, sessio
 	}
 }
 
-// hasSSOPoolMiss reports whether any token-exchange server registered as
-// requiring session auth has no live entry in the conn pool for sessionID.
-// Used by onAuthenticated to detect the post-restart case where Valkey still
-// has auth state but the in-memory pool is empty.
-func (a *AggregatorServer) hasSSOPoolMiss(sessionID string) bool {
+// ssoPoolMissNeedingInit reports whether any token-exchange server has a pool
+// miss for sessionID that is not already covered by an in-flight exchange.
+// For each qualifying server it atomically claims the pending slot via
+// MarkSSOPendingIfNotPending, so concurrent onAuthenticated calls for the same
+// session do not spawn redundant initSSOForSession goroutines.
+func (a *AggregatorServer) ssoPoolMissNeedingInit(userID, sessionID string) bool {
 	if a.connPool == nil || a.registry == nil {
 		return false
 	}
+	found := false
 	for _, info := range a.registry.GetAllServers() {
 		if !info.RequiresSessionAuth() {
 			continue
@@ -433,11 +435,17 @@ func (a *AggregatorServer) hasSSOPoolMiss(sessionID string) bool {
 		if !ShouldUseTokenExchange(info) {
 			continue
 		}
-		if _, ok := a.connPool.Get(sessionID, info.Name); !ok {
-			return true
+		if _, ok := a.connPool.Get(sessionID, info.Name); ok {
+			continue
 		}
+		if a.ssoTracker != nil {
+			if !a.ssoTracker.MarkSSOPendingIfNotPending(userID, info.Name) {
+				continue
+			}
+		}
+		found = true
 	}
-	return false
+	return found
 }
 
 // establishSSOConnection attempts to establish an SSO connection to a single server.

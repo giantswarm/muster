@@ -662,9 +662,9 @@ func TestTokenRefreshHandler_MissingIDToken_TriggersEviction(t *testing.T) {
 		"sso-server should be marked as failed")
 }
 
-func TestHasSSOPoolMiss_TokenExchangeWithEmptyPool(t *testing.T) {
+func TestSSOPoolMissNeedingInit_TokenExchangeWithEmptyPool(t *testing.T) {
 	// After a pod restart the auth store persists "authenticated" but the
-	// pool is empty. hasSSOPoolMiss should return true so onAuthenticated
+	// pool is empty. ssoPoolMissNeedingInit should return true so onAuthenticated
 	// triggers SSO re-init even when authAlive is true.
 	pool := NewSessionConnectionPool(1 * time.Hour)
 	defer pool.Stop()
@@ -698,11 +698,11 @@ func TestHasSSOPoolMiss_TokenExchangeWithEmptyPool(t *testing.T) {
 		authStore: authStore,
 	}
 
-	assert.True(t, aggServer.hasSSOPoolMiss(sessionID),
+	assert.True(t, aggServer.ssoPoolMissNeedingInit("user1", sessionID),
 		"should detect pool miss when auth store has server but conn pool is empty")
 }
 
-func TestHasSSOPoolMiss_ReturnsFalseWithLivePoolEntry(t *testing.T) {
+func TestSSOPoolMissNeedingInit_ReturnsFalseWithLivePoolEntry(t *testing.T) {
 	// When the pool has a live entry for the token-exchange server, no re-init needed.
 	pool := NewSessionConnectionPool(1 * time.Hour)
 	defer pool.Stop()
@@ -736,13 +736,13 @@ func TestHasSSOPoolMiss_ReturnsFalseWithLivePoolEntry(t *testing.T) {
 		authStore: authStore,
 	}
 
-	assert.False(t, aggServer.hasSSOPoolMiss(sessionID),
+	assert.False(t, aggServer.ssoPoolMissNeedingInit("user1", sessionID),
 		"should not detect pool miss when conn pool has a live entry")
 }
 
-func TestHasSSOPoolMiss_IgnoresForwardTokenServers(t *testing.T) {
-	// hasSSOPoolMiss only checks token-exchange servers; forward-token servers
-	// recreate their clients on demand and don't need the pool to trigger re-init.
+func TestSSOPoolMissNeedingInit_IgnoresForwardTokenServers(t *testing.T) {
+	// ssoPoolMissNeedingInit only checks token-exchange servers; forward-token
+	// servers recreate their clients on demand and don't need this trigger.
 	pool := NewSessionConnectionPool(1 * time.Hour)
 	defer pool.Stop()
 	defer pool.DrainAll()
@@ -771,8 +771,60 @@ func TestHasSSOPoolMiss_IgnoresForwardTokenServers(t *testing.T) {
 		authStore: authStore,
 	}
 
-	assert.False(t, aggServer.hasSSOPoolMiss(sessionID),
-		"forward-token server with empty pool should not trigger hasSSOPoolMiss")
+	assert.False(t, aggServer.ssoPoolMissNeedingInit("user1", sessionID),
+		"forward-token server with empty pool should not trigger ssoPoolMissNeedingInit")
+}
+
+func TestSSOPoolMissNeedingInit_DeduplicatesConcurrentCalls(t *testing.T) {
+	// The first call with a pool miss claims the pending slot and returns true.
+	// A second call before the exchange completes finds the slot taken and returns false,
+	// preventing a second initSSOForSession goroutine from being spawned.
+	pool := NewSessionConnectionPool(1 * time.Hour)
+	defer pool.Stop()
+	defer pool.DrainAll()
+
+	authStore := oauthstore.NewInMemorySessionAuthStore(30 * time.Minute)
+	defer authStore.Stop()
+
+	registry := NewServerRegistry("x")
+	err := registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: "grizzly-mcp-kubernetes", ToolPrefix: "grizzly"},
+		URL:                "https://mcp.grizzly.example.com",
+		AuthInfo:           &AuthInfo{Issuer: "https://dex.grizzly.example.com"},
+		AuthConfig: &api.MCPServerAuth{TokenExchange: &api.TokenExchangeConfig{
+			Enabled:          true,
+			DexTokenEndpoint: "https://dex.grizzly.example.com/token",
+			ConnectorID:      "giantswarm-simple-oidc",
+		}},
+	})
+	require.NoError(t, err)
+
+	ctx := t.Context()
+	sessionID := "concurrent-session"
+	userID := "user-concurrent"
+
+	require.NoError(t, authStore.MarkAuthenticated(ctx, sessionID, "grizzly-mcp-kubernetes"))
+
+	tracker := newSSOTracker()
+	aggServer := &AggregatorServer{
+		registry:   registry,
+		connPool:   pool,
+		authStore:  authStore,
+		ssoTracker: tracker,
+	}
+
+	// First call claims the slot.
+	assert.True(t, aggServer.ssoPoolMissNeedingInit(userID, sessionID),
+		"first call should return true and claim the pending slot")
+
+	// Second call (exchange still in-flight, pool still empty) should be suppressed.
+	assert.False(t, aggServer.ssoPoolMissNeedingInit(userID, sessionID),
+		"second call while exchange is in-flight should return false")
+
+	// After ClearSSOPending (exchange done), a third call can trigger again if pool still empty.
+	tracker.ClearSSOPending(userID, "grizzly-mcp-kubernetes")
+	assert.True(t, aggServer.ssoPoolMissNeedingInit(userID, sessionID),
+		"after pending cleared, pool miss should be detectable again")
 }
 
 func TestEstablishSSOConnection_RevokesStaleAuthOnPoolMiss(t *testing.T) {
