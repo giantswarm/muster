@@ -12,7 +12,7 @@ require (
 	github.com/creativeprojects/go-selfupdate v1.5.2
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/giantswarm/mcp-oauth v0.2.197
-	github.com/giantswarm/mcp-toolkit v0.2.8
+	github.com/giantswarm/mcp-toolkit v0.2.9
 	github.com/go-jose/go-jose/v4 v4.1.4
 	github.com/go-logr/logr v1.4.3
 	github.com/golang-jwt/jwt/v5 v5.3.1
