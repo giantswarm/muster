@@ -503,11 +503,11 @@
             },
             "registrationToken": {
               "type": "string",
-              "description": "Registration token for dynamic client registration"
+              "description": "Shared secret a client must present at the DCR endpoint to register. Supply via existingSecret (key: registration-token) in production."
             },
             "allowPublicClientRegistration": {
               "type": "boolean",
-              "description": "Allow unauthenticated dynamic client registration"
+              "description": "Open registration: any client may register without a token. Rate-limited but still a DoS surface — avoid in production. Default: false."
             },
             "encryptionKey": {
               "type": "boolean",
@@ -522,7 +522,7 @@
               "items": {
                 "type": "string"
               },
-              "description": "URI schemes allowed for unauthenticated client registration"
+              "description": "Custom URI schemes accepted without a registration token. Use for native desktop apps (e.g. cursor, vscode) that register a protocol handler as their OAuth redirect target."
             },
             "trustedPublicRegistrationRedirectURIs": {
               "type": "array",
@@ -530,26 +530,26 @@
                 "type": "string",
                 "pattern": "^https://[A-Za-z0-9._~%-]+(:[0-9]+)?(/\\S*)?$"
               },
-              "description": "HTTPS redirect URIs allowed for unauthenticated client registration (exact match after RFC 3986 normalization)"
+              "description": "HTTPS redirect URIs accepted without a registration token. Use for SaaS or hosted MCP clients with a stable callback URL (e.g. Claude.ai, AWS Bedrock AgentCore). Each entry grants DCR access — list only URIs you control. Exact match after RFC 3986 normalization."
             },
             "enableCIMD": {
               "type": "boolean",
-              "description": "Enable Client ID Metadata Documents"
+              "description": "Enable Client ID Metadata Documents (CIMD) per MCP 2025-11-25 spec"
             },
             "allowLocalhostRedirectURIs": {
               "type": "boolean",
-              "description": "Allow localhost/loopback redirect URIs for native apps (RFC 8252)"
+              "description": "Allow localhost/loopback redirect URIs for native apps (RFC 8252). Required for muster agent and other local OAuth clients. Default: true."
             },
             "trustedAudiences": {
               "type": "array",
               "items": {
                 "type": "string"
               },
-              "description": "OIDC client IDs (audiences) whose JWTs are accepted as bearer tokens"
+              "description": "OIDC client IDs (audiences) whose JWTs muster accepts directly as bearer tokens, bypassing the authorization-code flow. The token aud claim must match and the signature must validate against the provider JWKS. Use for server-to-server calls where a browser redirect is impractical."
             },
             "trustedIssuers": {
               "type": "array",
-              "description": "Trusted external OIDC issuers for RFC 8693 token exchange (id_token / access_token / jwt)",
+              "description": "Trusted external OIDC issuers for RFC 8693 token exchange. A client exchanges a token from another issuer (e.g. a Kubernetes ServiceAccount JWT) and receives a muster access token. Tokens are accepted as id_token / access_token / jwt subject_tokens.",
               "items": {
                 "type": "object",
                 "required": ["issuer", "jwksUrl"],
@@ -566,7 +566,7 @@
             "trustedProxyCIDRs": {
               "type": "array",
               "items": {"type": "string"},
-              "description": "CIDRs from which X-Forwarded-Proto/Host headers are trusted for DPoP htu reconstruction"
+              "description": "CIDRs from which X-Forwarded-Proto and X-Forwarded-Host headers are trusted for DPoP htu URL reconstruction. Required when muster runs behind a reverse proxy."
             },
             "enableJWTMode": {
               "type": "boolean",
