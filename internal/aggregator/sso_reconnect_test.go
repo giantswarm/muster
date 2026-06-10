@@ -886,6 +886,92 @@ func TestEstablishSSOConnection_RevokesStaleAuthOnPoolMiss(t *testing.T) {
 		"stale auth entry must be revoked before the exchange attempt")
 }
 
+func TestSSOPoolMissNeedingInit_RespectsFailureBackoff(t *testing.T) {
+	// A server whose last exchange failed must not retrigger re-init until its
+	// backoff window expires. Without this, a down remote would be retried on
+	// every authenticated request instead of on the tracker's backoff schedule.
+	pool := NewSessionConnectionPool(1 * time.Hour)
+	defer pool.Stop()
+	defer pool.DrainAll()
+
+	registry := NewServerRegistry("x")
+	err := registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: "grizzly-mcp-kubernetes", ToolPrefix: "grizzly"},
+		URL:                "https://mcp.grizzly.example.com",
+		AuthInfo:           &AuthInfo{Issuer: "https://dex.grizzly.example.com"},
+		AuthConfig: &api.MCPServerAuth{TokenExchange: &api.TokenExchangeConfig{
+			Enabled:          true,
+			DexTokenEndpoint: "https://dex.grizzly.example.com/token",
+			ConnectorID:      "giantswarm-simple-oidc",
+		}},
+	})
+	require.NoError(t, err)
+
+	sessionID := "backoff-session"
+	userID := "user-backoff"
+
+	tracker := newSSOTracker()
+	aggServer := &AggregatorServer{
+		registry:   registry,
+		connPool:   pool,
+		ssoTracker: tracker,
+	}
+
+	tracker.MarkSSOFailed(userID, "grizzly-mcp-kubernetes")
+
+	assert.False(t, aggServer.ssoPoolMissNeedingInit(userID, sessionID),
+		"pool miss within the failure backoff window must not trigger re-init")
+
+	tracker.ClearSSOFailed(userID, "grizzly-mcp-kubernetes")
+	assert.True(t, aggServer.ssoPoolMissNeedingInit(userID, sessionID),
+		"pool miss after the failure record is cleared should trigger re-init")
+}
+
+func TestSSOPoolMissNeedingInit_NoRetryStormOnPersistentFailure(t *testing.T) {
+	// Full loop regression: claim slot -> exchange fails (establishSSOConnection
+	// clears pending and marks failed) -> the next request must NOT retrigger.
+	pool := NewSessionConnectionPool(1 * time.Hour)
+	defer pool.Stop()
+	defer pool.DrainAll()
+
+	registry := NewServerRegistry("x")
+	err := registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: "grizzly-mcp-kubernetes", ToolPrefix: "grizzly"},
+		URL:                "https://mcp.grizzly.example.com",
+		AuthInfo:           &AuthInfo{Issuer: "https://dex.grizzly.example.com"},
+		AuthConfig: &api.MCPServerAuth{TokenExchange: &api.TokenExchangeConfig{
+			Enabled:          true,
+			DexTokenEndpoint: "https://dex.grizzly.example.com/token",
+			ConnectorID:      "giantswarm-simple-oidc",
+		}},
+	})
+	require.NoError(t, err)
+
+	sessionID := "storm-session"
+	userID := "user-storm"
+
+	tracker := newSSOTracker()
+	aggServer := &AggregatorServer{
+		registry:   registry,
+		connPool:   pool,
+		ssoTracker: tracker,
+	}
+
+	// Request 1: pool miss claims the slot and triggers re-init.
+	assert.True(t, aggServer.ssoPoolMissNeedingInit(userID, sessionID),
+		"first pool miss should trigger re-init")
+
+	// The exchange fails: establishSSOConnection clears pending and marks failed.
+	tracker.ClearSSOPending(userID, "grizzly-mcp-kubernetes")
+	tracker.MarkSSOFailed(userID, "grizzly-mcp-kubernetes")
+
+	// Requests 2..n while the remote stays down: suppressed by the backoff.
+	for range 3 {
+		assert.False(t, aggServer.ssoPoolMissNeedingInit(userID, sessionID),
+			"pool miss after a failed exchange must wait for the backoff, not retry per request")
+	}
+}
+
 func TestSSOTracker_ConcurrentAccess(t *testing.T) {
 	// The ssoTracker must be safe for concurrent access since
 	// initSSOForSession, establishSSOConnection, and the cleanup goroutine

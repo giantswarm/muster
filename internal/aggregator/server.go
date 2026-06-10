@@ -1501,12 +1501,15 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 			// After a pod restart the auth store survives in Valkey but the
 			// in-memory conn pool is empty. Trigger SSO re-init if any
 			// token-exchange server is registered but has no pooled client.
-			if a.ssoPoolMissNeedingInit(userID, sessionID) {
-				logging.InfoWithAttrs("Aggregator", "SSO: pool miss on live session — triggering SSO re-init",
+			// Failure backoff is intentionally NOT cleared here: the tracker is
+			// in-memory, so after a restart there are no stale failures, and
+			// clearing it on every request would retry a persistently failing
+			// exchange per-request instead of on the backoff schedule.
+			// The issuer check mirrors initSSOForSession's early return so
+			// pending slots are not claimed when no exchange can run.
+			if a.getMusterIssuer() != "" && a.ssoPoolMissNeedingInit(userID, sessionID) {
+				logging.InfoWithAttrs("Aggregator", "SSO: pool miss on live session, triggering SSO re-init",
 					slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
-				if a.ssoTracker != nil && userID != "" {
-					a.ssoTracker.ClearAllSSOFailed(userID)
-				}
 				go a.initSSOForSession(context.Background(), userID, sessionID, idToken) //nolint:gosec // G118: SSO bootstrap must outlive the request handler that triggered it
 			}
 			return
