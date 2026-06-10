@@ -390,13 +390,37 @@ muster:
           # Key in the secret containing the Valkey password
           secretKeyPassword: "valkey-password"
 
-      # Registration token for dynamic client registration
-      # Required if allowPublicClientRegistration is false
-      # Should be set via existingSecret for production security
+      # ---------------------------------------------------------------------------
+      # Dynamic Client Registration (DCR) gate
+      #
+      # MCP clients register with muster before they can obtain access tokens.
+      # Exactly one of the four mechanisms below must satisfy the gate; they
+      # are evaluated in the order listed.  Pick the one that fits the client:
+      #
+      #   registrationToken            — shared secret; suits server-side or
+      #                                  managed clients that can store it
+      #                                  (e.g. a CI runner, an operator)
+      #   allowPublicClientRegistration — open to anyone; avoid in production,
+      #                                  use only in air-gapped dev clusters
+      #   trustedPublicRegistrationSchemes — for native desktop apps that use
+      #                                  a custom URI scheme as redirect target
+      #                                  (e.g. cursor://, vscode://)
+      #   trustedPublicRegistrationRedirectURIs — for SaaS / hosted MCP clients
+      #                                  with a stable HTTPS callback URL
+      #                                  (e.g. Claude.ai, AWS Bedrock AgentCore)
+      #
+      # Multiple mechanisms can be active simultaneously; a client satisfies
+      # the gate when any one of them matches.
+      # ---------------------------------------------------------------------------
+
+      # Shared secret a client must present at the DCR endpoint to register.
+      # Supply via existingSecret (key: registration-token) in production so
+      # the value never appears in Helm release history.
       registrationToken: ""
 
-      # Allow unauthenticated dynamic client registration
-      # WARNING: Can lead to DoS attacks. Default: false
+      # Open registration: any client may register without a token.
+      # Exposes the DCR endpoint to unauthenticated callers — rate-limited
+      # but still a DoS surface. Default: false.
       allowPublicClientRegistration: false
 
       # Enable token encryption at rest
@@ -408,41 +432,63 @@ muster:
       # SECURITY: Use existingSecret for production deployments
       encryptionKeyValue: ""
 
-      # URI schemes allowed for unauthenticated client registration
-      # Enables Cursor/VSCode without registration tokens
+      # Custom URI schemes whose redirect URIs are accepted without a
+      # registration token. Use for native desktop apps that register a
+      # protocol handler (e.g. Cursor, VS Code).
       # Example: ["cursor", "vscode"]
       trustedPublicRegistrationSchemes: []
 
-      # HTTPS redirect URIs pre-attested by the operator for unauthenticated
-      # client registration. SECURITY: every entry here is a client that can
-      # complete DCR without a registration token. Use only for SaaS MCP
-      # clients whose redirect URI you fully control or operationally trust.
-      # Matching is exact after RFC 3986 normalization.
-      # Example (uncomment to allow the Claude.ai connector):
+      # HTTPS redirect URIs accepted without a registration token.
+      # Use for SaaS or hosted MCP clients whose callback URL is stable and
+      # operator-controlled (e.g. Claude.ai, AWS Bedrock AgentCore).
+      # SECURITY: each entry grants that client DCR access — only list URIs
+      # you fully control or operationally trust. Matching is exact after
+      # RFC 3986 normalization.
+      # Examples:
       #   - https://claude.ai/api/mcp/auth_callback
+      #   - https://bedrock-agentcore.<region>.amazonaws.com/identities/oauth2/callback/<id>
       trustedPublicRegistrationRedirectURIs: []
 
       # Enable Client ID Metadata Documents (CIMD) per MCP 2025-11-25 spec
       enableCIMD: true
 
-      # Allow localhost/loopback redirect URIs for native apps (RFC 8252)
-      # Required for muster agent and other native OAuth clients
-      # Default: true
+      # Allow localhost/loopback redirect URIs for native apps (RFC 8252).
+      # Required for muster agent and other local OAuth clients. Default: true.
       allowLocalhostRedirectURIs: true
 
-      # OIDC client IDs (audiences) whose JWTs muster will accept directly
-      # as bearer tokens, without the client completing muster's own OAuth
-      # flow. The token's `aud` claim must match one of these values and
-      # the signature must validate against the provider's JWKS.
+      # ---------------------------------------------------------------------------
+      # Token acceptance: skip muster's own OAuth flow
       #
+      # The two fields below let clients bypass the authorization-code flow and
+      # present tokens they already hold.  Use only when the client cannot or
+      # should not go through a browser-based redirect.
+      #
+      #   trustedAudiences — client presents a JWT already issued by the upstream
+      #                      IdP (Dex, etc.) with a matching aud claim; muster
+      #                      validates the signature and accepts it directly.
+      #                      Typical use: server-to-server calls where a human
+      #                      login redirect is impractical.
+      #
+      #   trustedIssuers   — client exchanges a token from a different issuer
+      #                      (RFC 8693); muster validates it against the issuer's
+      #                      JWKS and issues its own access token in return.
+      #                      Typical use: Kubernetes ServiceAccount tokens,
+      #                      cross-cluster trust.
+      # ---------------------------------------------------------------------------
+
+      # OIDC client IDs (audiences) whose JWTs muster accepts directly as bearer
+      # tokens without the client completing muster's own OAuth flow.  The
+      # token's aud claim must match one of these values and the signature must
+      # validate against the provider's JWKS.
       # SECURITY: only list client IDs you fully trust.
       trustedAudiences: []
 
-      # Trusted external OIDC issuers for RFC 8693 token exchange. Tokens are accepted
-      # as id_token / access_token / jwt subject_tokens. Optional allowedClaims requires
-      # named claims to match exact strings or globs (* spans any chars incl. '/', ? one char).
-      # Set allowPrivateIPJWKS: true when the JWKS endpoint resolves to a private IP
-      # (e.g. in-cluster Kubernetes SA trust via https://kubernetes.default.svc/openid/v1/jwks).
+      # Trusted external OIDC issuers for RFC 8693 token exchange. Tokens are
+      # accepted as id_token / access_token / jwt subject_tokens. Optional
+      # allowedClaims requires named claims to match exact strings or globs
+      # (* spans any chars incl. '/', ? one char). Set allowPrivateIPJWKS: true
+      # when the JWKS endpoint resolves to a private IP (e.g. in-cluster
+      # Kubernetes SA trust via https://kubernetes.default.svc/openid/v1/jwks).
       # Example — trust a Kubernetes ServiceAccount:
       #   - issuer: https://kubernetes.default.svc
       #     jwksUrl: https://kubernetes.default.svc/openid/v1/jwks
@@ -452,9 +498,9 @@ muster:
       #     allowPrivateIPJWKS: true
       trustedIssuers: []
 
-      # CIDRs from which X-Forwarded-Proto and X-Forwarded-Host headers are trusted
-      # for DPoP htu URL reconstruction. Required when muster runs behind a reverse proxy.
-      # Example: ["10.0.0.0/8", "172.16.0.0/12"]
+      # CIDRs from which X-Forwarded-Proto and X-Forwarded-Host headers are
+      # trusted for DPoP htu URL reconstruction. Required when muster runs
+      # behind a reverse proxy. Example: ["10.0.0.0/8", "172.16.0.0/12"]
       trustedProxyCIDRs: []
 
       # Issue RFC 9068 signed JWTs as access tokens instead of opaque strings.
