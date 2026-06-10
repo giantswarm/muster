@@ -1092,7 +1092,7 @@ func (r *ServerRegistry) RegisterPendingAuth(registration PendingAuthRegistratio
 	defer r.mu.Unlock()
 
 	if _, exists := r.servers[registration.Name]; exists {
-		return fmt.Errorf("server %s already registered", registration.Name)
+		return fmt.Errorf("%w: %s", api.ErrServerAlreadyRegistered, registration.Name)
 	}
 
 	authConfig := registration.AuthConfig
