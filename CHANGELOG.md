@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.12] - 2026-06-10
+
 ### Changed
 
 - Release binaries now include darwin/amd64, darwin/arm64, windows/amd64, and windows/arm64 alongside the existing linux targets. Windows binaries are named `muster-windows-<arch>.exe`.
@@ -655,5 +657,6 @@ See [ADR-010](docs/explanation/decisions/010-server-side-meta-tools.md) for desi
 
 ## [0.6.0] - 2025-01-15
 
-[Unreleased]: https://github.com/giantswarm/muster/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/giantswarm/muster/compare/v0.3.12...HEAD
+[0.3.12]: https://github.com/giantswarm/muster/compare/v0.1.0...v0.3.12
 [0.1.0]: https://github.com/giantswarm/muster/compare/v0.0.236...v0.1.0
