@@ -14,7 +14,7 @@ const dev = "dev"
 //     gitsemver, `gitSHA` to `CIRCLE_SHA1`, and `buildTimestamp` to the UTC
 //     build time.
 var (
-	version        = "0.3.12"
+	version        = "0.3.13-dev"
 	gitSHA         = dev
 	buildTimestamp = "unknown"
 )
