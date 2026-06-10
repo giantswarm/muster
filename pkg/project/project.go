@@ -4,24 +4,26 @@ package project
 // invocations without ldflags keep this so `muster version` stays printable.
 const dev = "dev"
 
-// Populated at link time via `-X` ldflags. Two injection paths:
+// version holds the current release version as a literal so the devctl
+// release flow can rewrite it on each release. Build pipelines additionally
+// override these at link time via `-X` ldflags:
 //
 //   - goreleaser (release archives) sets `version` to the semver tag,
 //     `gitSHA` to the short commit, `buildTimestamp` to the build date.
-//   - architect-orb's `go-build` job (container images) sets `gitSHA` to
-//     `CIRCLE_SHA1` and `buildTimestamp` to the UTC build time; `version`
-//     stays at its default because no tag is plumbed through.
+//   - architect-orb's `go-build` job (container images) sets `version` via
+//     gitsemver, `gitSHA` to `CIRCLE_SHA1`, and `buildTimestamp` to the UTC
+//     build time.
 var (
-	version        = dev
+	version        = "0.3.12"
 	gitSHA         = dev
 	buildTimestamp = "unknown"
 )
 
 // Version returns the best human-readable build identifier available: the
-// release tag if goreleaser injected one, otherwise the commit SHA if CI
+// injected or literal release version, otherwise the commit SHA if CI
 // injected one, otherwise the placeholder "dev".
 func Version() string {
-	if version != dev {
+	if version != dev && version != "" {
 		return version
 	}
 	if gitSHA != dev {
