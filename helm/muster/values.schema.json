@@ -507,7 +507,7 @@
             },
             "allowPublicClientRegistration": {
               "type": "boolean",
-              "description": "Open registration: any client may register without a token. Rate-limited but still a DoS surface — avoid in production. Default: false."
+              "description": "Open registration: any client may register without a token. Rate-limited but still a DoS surface. Default: false."
             },
             "encryptionKey": {
               "type": "boolean",
