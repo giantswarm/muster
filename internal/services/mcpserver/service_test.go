@@ -3,10 +3,14 @@ package mcpserver
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/mcpserver"
 	"github.com/giantswarm/muster/internal/services"
 
 	"github.com/stretchr/testify/assert"
@@ -1128,4 +1132,75 @@ func TestIsUnreachable(t *testing.T) {
 	// Change to running state
 	svc.UpdateState(services.StateRunning, services.HealthHealthy, nil)
 	assert.False(t, svc.IsUnreachable())
+}
+
+func TestStartAuthRequiredHookRunsBeforeStateChange(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("WWW-Authenticate", `Bearer realm="test"`)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	var authRequiredPublished atomic.Bool
+	var hookRanBeforePublish atomic.Bool
+	var hookCalled atomic.Bool
+
+	def := &api.MCPServer{
+		Name: "auth-server",
+		Type: api.MCPServerTypeStreamableHTTP,
+		URL:  server.URL,
+	}
+	svc, err := NewService(def, WithAuthRequiredHook(func(*api.MCPServer, *mcpserver.AuthRequiredError) {
+		hookCalled.Store(true)
+		hookRanBeforePublish.Store(!authRequiredPublished.Load())
+	}))
+	require.NoError(t, err)
+
+	svc.SetStateChangeCallback(func(_ string, _, newState services.ServiceState, _ services.HealthStatus, _ error) {
+		if newState == services.StateAuthRequired {
+			authRequiredPublished.Store(true)
+		}
+	})
+
+	err = svc.Start(t.Context())
+	var authErr *mcpserver.AuthRequiredError
+	require.ErrorAs(t, err, &authErr)
+
+	require.True(t, hookCalled.Load(), "auth-required hook must run when Start hits a 401")
+	require.True(t, authRequiredPublished.Load(), "state change to StateAuthRequired must be published")
+	require.True(t, hookRanBeforePublish.Load(), "hook must run before the StateAuthRequired state change is published")
+}
+
+func TestStartAuthRequiredHookReceivesCurrentDefinition(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("WWW-Authenticate", `Bearer realm="test"`)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	var hookDefinition atomic.Pointer[api.MCPServer]
+	svc, err := NewService(&api.MCPServer{
+		Name:       "auth-server",
+		Type:       api.MCPServerTypeStreamableHTTP,
+		URL:        server.URL,
+		ToolPrefix: "before-update",
+	}, WithAuthRequiredHook(func(definition *api.MCPServer, _ *mcpserver.AuthRequiredError) {
+		hookDefinition.Store(definition)
+	}))
+	require.NoError(t, err)
+
+	require.NoError(t, svc.UpdateConfiguration(&api.MCPServer{
+		Name:       "auth-server",
+		Type:       api.MCPServerTypeStreamableHTTP,
+		URL:        server.URL,
+		ToolPrefix: "after-update",
+	}))
+
+	err = svc.Start(t.Context())
+	var authErr *mcpserver.AuthRequiredError
+	require.ErrorAs(t, err, &authErr)
+
+	require.NotNil(t, hookDefinition.Load())
+	require.Equal(t, "after-update", hookDefinition.Load().ToolPrefix,
+		"hook must receive the current definition, not a creation-time snapshot")
 }

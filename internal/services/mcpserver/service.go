@@ -59,27 +59,38 @@ type Service struct {
 	lastAttempt         *time.Time // When the last connection attempt was made (preserved after success for diagnostics)
 	nextRetryAfter      *time.Time // When the next retry should be attempted (cleared on success)
 
-	// onAuthRequired is called just before UpdateState(StateAuthRequired) when Start
-	// encounters a 401.  Callers must complete any work that must happen before the state
-	// change event (e.g. RegisterPendingAuth in the aggregator) inside this hook.
-	onAuthRequired func(authErr *mcpserver.AuthRequiredError)
+	// onAuthRequired runs synchronously before the StateAuthRequired transition.
+	// Immutable after construction; set via WithAuthRequiredHook.
+	onAuthRequired func(definition *api.MCPServer, authErr *mcpserver.AuthRequiredError)
 }
 
-// SetAuthRequiredHook registers a function that is called synchronously before
-// UpdateState(StateAuthRequired).  The hook runs before the state-change event is
-// published, so any work done inside it (e.g. registering the server in the aggregator)
-// is visible to all subscribers before the event reaches them.
-func (s *Service) SetAuthRequiredHook(fn func(*mcpserver.AuthRequiredError)) {
-	s.onAuthRequired = fn
+// Option configures a Service at construction time.
+type Option func(*Service)
+
+// WithAuthRequiredHook registers a function that Start calls synchronously when it
+// encounters a 401, before UpdateState(StateAuthRequired) publishes the state-change
+// event. Work done inside the hook (e.g. registering the server in the aggregator)
+// is therefore visible to all subscribers before the event reaches them.
+//
+// The hook receives the service's current definition rather than a creation-time
+// snapshot, so registrations reflect configuration updates applied before a restart.
+func WithAuthRequiredHook(fn func(*api.MCPServer, *mcpserver.AuthRequiredError)) Option {
+	return func(s *Service) {
+		s.onAuthRequired = fn
+	}
 }
 
 // NewService creates a new MCP server service
-func NewService(definition *api.MCPServer) (*Service, error) {
+func NewService(definition *api.MCPServer, opts ...Option) (*Service, error) {
 	baseService := services.NewBaseService(definition.Name, services.TypeMCPServer, []string{})
 
 	service := &Service{
 		BaseService: baseService,
 		definition:  definition,
+	}
+
+	for _, opt := range opts {
+		opt(service)
 	}
 
 	return service, nil
@@ -121,7 +132,7 @@ func (s *Service) Start(ctx context.Context) error {
 			// This maps to CRD state "Auth Required" per issue #337 - a 401 response proves
 			// the server is reachable at the network level, but authentication is needed.
 			if s.onAuthRequired != nil {
-				s.onAuthRequired(authErr)
+				s.onAuthRequired(s.definition, authErr)
 			}
 			s.UpdateState(services.StateAuthRequired, services.HealthUnknown, nil)
 			s.LogInfo("MCP server requires authentication")

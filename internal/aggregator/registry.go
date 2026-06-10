@@ -1087,12 +1087,19 @@ func (r *ServerRegistry) refreshServerCapabilities(ctx context.Context, info *Se
 //
 // AuthConfig in the registration may be nil; in either case the server is
 // flagged as requiring per-session authentication.
+//
+// Registering a server that is already pending auth is a no-op: restart paths
+// re-trigger the auth-required hook while the previous entry is still present.
+// Registering over an active (non-auth) entry returns an error.
 func (r *ServerRegistry) RegisterPendingAuth(registration PendingAuthRegistration) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if _, exists := r.servers[registration.Name]; exists {
-		return fmt.Errorf("%w: %s", api.ErrServerAlreadyRegistered, registration.Name)
+	if existing, exists := r.servers[registration.Name]; exists {
+		if existing.RequiresSessionAuth() {
+			return nil
+		}
+		return fmt.Errorf("server %s already registered", registration.Name)
 	}
 
 	authConfig := registration.AuthConfig

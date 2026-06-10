@@ -599,3 +599,32 @@ func TestServerRegistry_FamilyGrouping(t *testing.T) {
 		}
 	})
 }
+
+func TestServerRegistry_RegisterPendingAuthIdempotent(t *testing.T) {
+	t.Run("re-registering a pending auth server is a no-op", func(t *testing.T) {
+		registry := NewServerRegistry("x")
+		registration := PendingAuthRegistration{
+			ServerRegistration: ServerRegistration{Name: "oauth-server", ToolPrefix: "oauth"},
+			URL:                "https://oauth.example.com",
+			AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
+		}
+
+		require.NoError(t, registry.RegisterPendingAuth(registration))
+		require.NoError(t, registry.RegisterPendingAuth(registration))
+
+		info, exists := registry.servers["oauth-server"]
+		require.True(t, exists)
+		require.True(t, info.RequiresSessionAuth())
+	})
+
+	t.Run("registering over an active server returns an error", func(t *testing.T) {
+		registry := NewServerRegistry("x")
+		registry.servers["active-server"] = &ServerInfo{Name: "active-server"}
+
+		err := registry.RegisterPendingAuth(PendingAuthRegistration{
+			ServerRegistration: ServerRegistration{Name: "active-server"},
+			URL:                "https://active.example.com",
+		})
+		require.ErrorContains(t, err, "already registered")
+	})
+}
