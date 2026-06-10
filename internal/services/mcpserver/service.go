@@ -58,6 +58,19 @@ type Service struct {
 	consecutiveFailures int        // Number of consecutive connection failures
 	lastAttempt         *time.Time // When the last connection attempt was made (preserved after success for diagnostics)
 	nextRetryAfter      *time.Time // When the next retry should be attempted (cleared on success)
+
+	// onAuthRequired is called just before UpdateState(StateAuthRequired) when Start
+	// encounters a 401.  Callers must complete any work that must happen before the state
+	// change event (e.g. RegisterPendingAuth in the aggregator) inside this hook.
+	onAuthRequired func(authErr *mcpserver.AuthRequiredError)
+}
+
+// SetAuthRequiredHook registers a function that is called synchronously before
+// UpdateState(StateAuthRequired).  The hook runs before the state-change event is
+// published, so any work done inside it (e.g. registering the server in the aggregator)
+// is visible to all subscribers before the event reaches them.
+func (s *Service) SetAuthRequiredHook(fn func(*mcpserver.AuthRequiredError)) {
+	s.onAuthRequired = fn
 }
 
 // NewService creates a new MCP server service
@@ -107,6 +120,9 @@ func (s *Service) Start(ctx context.Context) error {
 			// Use StateAuthRequired to indicate the server IS reachable but needs authentication.
 			// This maps to CRD state "Auth Required" per issue #337 - a 401 response proves
 			// the server is reachable at the network level, but authentication is needed.
+			if s.onAuthRequired != nil {
+				s.onAuthRequired(authErr)
+			}
 			s.UpdateState(services.StateAuthRequired, services.HealthUnknown, nil)
 			s.LogInfo("MCP server requires authentication")
 			// Generate auth required event

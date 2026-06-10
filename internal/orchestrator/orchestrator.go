@@ -155,6 +155,13 @@ func (o *Orchestrator) createMCPServerService(ctx context.Context, mcpServerInfo
 		return fmt.Errorf("failed to create MCPServer service: %w", err)
 	}
 
+	// Register pending auth before the state-change event is published so that
+	// the aggregator registry is populated before any subscriber (e.g. the
+	// reconciler or the test readiness check) observes the Auth Required state.
+	mcpService.SetAuthRequiredHook(func(authErr *mcpserverPkg.AuthRequiredError) {
+		logging.Info("Orchestrator", "MCPServer %s requires authentication, registering pending auth", mcpServerInfo.Name)
+		o.handleAuthRequiredServer(mcpServerInfo, authErr)
+	})
 	mcpService.SetStateChangeCallback(o.createStateChangeCallback())
 
 	if err := o.registry.Register(mcpService); err != nil {
@@ -167,8 +174,7 @@ func (o *Orchestrator) createMCPServerService(ctx context.Context, mcpServerInfo
 		if err := mcpService.Start(ctx); err != nil {
 			var authErr *mcpserverPkg.AuthRequiredError
 			if errors.As(err, &authErr) {
-				logging.Info("Orchestrator", "MCPServer %s requires authentication, registering pending auth", mcpServerInfo.Name)
-				o.handleAuthRequiredServer(mcpServerInfo, authErr)
+				// Auth registration was already handled synchronously in SetAuthRequiredHook.
 				return
 			}
 			logging.Error("Orchestrator", err, "Failed to start MCPServer service: %s", mcpServerInfo.Name)
