@@ -155,7 +155,7 @@ All notable changes to this project will be documented in this file.
 
 * align files according to platform standards ([#767](https://github.com/giantswarm/muster/issues/767)) ([d7b7c9a](https://github.com/giantswarm/muster/commit/d7b7c9a7a63a809e644d6991e3806095a53ed938))
 
-## [Unreleased]
+## Shipped between v0.1.223 and v0.3.11 (previously misfiled as Unreleased)
 
 ### Fixed
 
