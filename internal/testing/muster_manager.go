@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/giantswarm/muster/internal/testing/mock"
+	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
 
 	"gopkg.in/yaml.v3"
 )
@@ -587,8 +588,8 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 					}
 				}
 				if len(expectedMCPServers) > 0 {
-					if registeredServers, err := m.checkMCPServersAvailability(mcpClient, context.Background(), expectedMCPServers); err == nil {
-						logger.Debug("🔌 Registered MCP servers: %v\n", registeredServers)
+					if serverStates, err := m.checkMCPServersAvailability(mcpClient, context.Background()); err == nil {
+						logger.Debug("🔌 Registered MCP server states: %v\n", serverStates)
 						logger.Debug("🎯 Expected MCP servers: %v\n", expectedMCPServers)
 					}
 				}
@@ -653,7 +654,7 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 			// This is critical for OAuth-protected servers which must be registered
 			// before tests can call core_auth_login
 			if len(expectedMCPServers) > 0 {
-				registeredServers, err := m.checkMCPServersAvailability(mcpClient, resourceCtx, expectedMCPServers)
+				serverStates, err := m.checkMCPServersAvailability(mcpClient, resourceCtx)
 				if err != nil {
 					if m.debug {
 						logger.Debug("🔍 Failed to list MCP servers: %v\n", err)
@@ -661,7 +662,7 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 					allReady = false
 					notReadyReasons = append(notReadyReasons, "MCP servers check failed")
 				} else {
-					missingServers := m.findMissingMCPServers(expectedMCPServers, registeredServers)
+					missingServers := m.findMissingMCPServers(expectedMCPServers, serverStates)
 					if len(missingServers) > 0 {
 						allReady = false
 						notReadyReasons = append(notReadyReasons, fmt.Sprintf("missing MCP servers: %v", missingServers))
@@ -1804,15 +1805,15 @@ func (m *musterInstanceManager) extractExpectedWorkflowsFromInstance(_ *MusterIn
 	return []string{}
 }
 
-// checkMCPServersAvailability returns a map of server name → state for all registered servers.
-// This includes servers in "Auth Required" state (OAuth-protected servers).
-func (m *musterInstanceManager) checkMCPServersAvailability(client MCPTestClient, ctx context.Context, expectedServers []string) (map[string]string, error) {
-	if len(expectedServers) == 0 {
-		return nil, nil
-	}
-
-	// Use core_mcpserver_list to get all registered servers
-	result, err := client.CallTool(ctx, "core_mcpserver_list", map[string]interface{}{})
+// checkMCPServersAvailability returns a map of server name to state for all
+// registered servers, including servers in "Auth Required" state
+// (OAuth-protected servers).
+func (m *musterInstanceManager) checkMCPServersAvailability(client MCPTestClient, ctx context.Context) (map[string]string, error) {
+	// showAll includes servers in "Failed" state, which core_mcpserver_list hides
+	// by default; without it a failed server is indistinguishable from one that
+	// has not registered yet, and the readiness loop waits out the full timeout
+	// with no state to report.
+	result, err := client.CallTool(ctx, "core_mcpserver_list", map[string]interface{}{"showAll": true})
 	if err != nil {
 		return nil, fmt.Errorf("failed to call core_mcpserver_list: %w", err)
 	}
@@ -1887,28 +1888,40 @@ func (m *musterInstanceManager) checkMCPServersAvailability(client MCPTestClient
 	return serverStates, nil
 }
 
-// mcpServerStateIsStable returns true when a server has left its transient startup states.
-// A server in a transient state ("", "Starting", "Connecting") has not yet been fully
-// processed by the orchestrator — in particular, RegisterPendingAuth may not have run yet
-// for OAuth-protected servers, causing core_auth_login to return "Server not found".
-func mcpServerStateIsStable(state string) bool {
-	switch state {
-	case "", "Starting", "Connecting":
-		return false
-	default:
+// mcpServerStateIsReady returns true when a server has been fully processed by
+// the orchestrator. Pre-configured servers are always written with autoStart
+// enabled, so each one must reach a post-start state before tests can rely on
+// it: until then RegisterPendingAuth may not have run for OAuth-protected
+// servers, causing core_auth_login to return "Server not found". This is an
+// allowlist rather than a transient-state denylist because the reconciler also
+// writes "Disconnected"/"Stopped" for a registered-but-not-yet-started service,
+// and any future state should fail closed (wait, then time out with the state
+// visible) instead of silently counting as ready.
+func mcpServerStateIsReady(state string) bool {
+	switch musterv1alpha1.MCPServerStateValue(state) {
+	case musterv1alpha1.MCPServerStateRunning,
+		musterv1alpha1.MCPServerStateConnected,
+		musterv1alpha1.MCPServerStateAuthRequired:
 		return true
+	default:
+		return false
 	}
 }
 
-// findMissingMCPServers returns MCP servers that are expected but either absent or still
-// in a transient state (not yet processed by the orchestrator).
+// findMissingMCPServers returns MCP servers that are expected but either absent
+// or not yet in a ready state. Servers that are present but not ready are
+// annotated with their current state so timeout reports show why they were
+// not counted as ready.
 func (m *musterInstanceManager) findMissingMCPServers(expectedServers []string, serverStates map[string]string) []string {
 	var missing []string
 
 	for _, expected := range expectedServers {
 		state, found := serverStates[expected]
-		if !found || !mcpServerStateIsStable(state) {
+		switch {
+		case !found || state == "":
 			missing = append(missing, expected)
+		case !mcpServerStateIsReady(state):
+			missing = append(missing, fmt.Sprintf("%s (state: %s)", expected, state))
 		}
 	}
 
