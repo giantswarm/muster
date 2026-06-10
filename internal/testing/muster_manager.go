@@ -1804,10 +1804,9 @@ func (m *musterInstanceManager) extractExpectedWorkflowsFromInstance(_ *MusterIn
 	return []string{}
 }
 
-// checkMCPServersAvailability checks if the expected MCP servers are registered.
-// This includes servers in "auth_required" state (OAuth-protected servers).
-// Returns the list of registered server names and any error.
-func (m *musterInstanceManager) checkMCPServersAvailability(client MCPTestClient, ctx context.Context, expectedServers []string) ([]string, error) {
+// checkMCPServersAvailability returns a map of server name → state for all registered servers.
+// This includes servers in "Auth Required" state (OAuth-protected servers).
+func (m *musterInstanceManager) checkMCPServersAvailability(client MCPTestClient, ctx context.Context, expectedServers []string) (map[string]string, error) {
 	if len(expectedServers) == 0 {
 		return nil, nil
 	}
@@ -1818,9 +1817,9 @@ func (m *musterInstanceManager) checkMCPServersAvailability(client MCPTestClient
 		return nil, fmt.Errorf("failed to call core_mcpserver_list: %w", err)
 	}
 
-	var registeredServers []string
+	serverStates := make(map[string]string)
 
-	// Parse the response to extract server names
+	// Parse the response to extract server names and states.
 	// The response structure is: {"mcpServers": [...]}
 	jsonStr := ""
 
@@ -1871,10 +1870,10 @@ func (m *musterInstanceManager) checkMCPServersAvailability(client MCPTestClient
 				if serverArray, ok := mcpServers.([]interface{}); ok {
 					for _, server := range serverArray {
 						if serverMap, ok := server.(map[string]interface{}); ok {
-							if name, exists := serverMap["name"]; exists {
-								if nameStr, ok := name.(string); ok {
-									registeredServers = append(registeredServers, nameStr)
-								}
+							name, _ := serverMap["name"].(string)
+							state, _ := serverMap["state"].(string)
+							if name != "" {
+								serverStates[name] = state
 							}
 						}
 					}
@@ -1885,22 +1884,30 @@ func (m *musterInstanceManager) checkMCPServersAvailability(client MCPTestClient
 		}
 	}
 
-	return registeredServers, nil
+	return serverStates, nil
 }
 
-// findMissingMCPServers returns MCP servers that are expected but not found in registered servers
-func (m *musterInstanceManager) findMissingMCPServers(expectedServers, registeredServers []string) []string {
+// mcpServerStateIsStable returns true when a server has left its transient startup states.
+// A server in a transient state ("", "Starting", "Connecting") has not yet been fully
+// processed by the orchestrator — in particular, RegisterPendingAuth may not have run yet
+// for OAuth-protected servers, causing core_auth_login to return "Server not found".
+func mcpServerStateIsStable(state string) bool {
+	switch state {
+	case "", "Starting", "Connecting":
+		return false
+	default:
+		return true
+	}
+}
+
+// findMissingMCPServers returns MCP servers that are expected but either absent or still
+// in a transient state (not yet processed by the orchestrator).
+func (m *musterInstanceManager) findMissingMCPServers(expectedServers []string, serverStates map[string]string) []string {
 	var missing []string
 
 	for _, expected := range expectedServers {
-		found := false
-		for _, registered := range registeredServers {
-			if registered == expected {
-				found = true
-				break
-			}
-		}
-		if !found {
+		state, found := serverStates[expected]
+		if !found || !mcpServerStateIsStable(state) {
 			missing = append(missing, expected)
 		}
 	}
