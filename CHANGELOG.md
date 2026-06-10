@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Drop the removed `.github/workflows/auto-release.yaml` from the `lint-yaml` make target.
 - Release binaries now include darwin/amd64, darwin/arm64, windows/amd64, and windows/arm64 alongside the existing linux targets. Windows binaries are named `muster-windows-<arch>.exe`.
 
 ### Added
