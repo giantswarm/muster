@@ -1088,18 +1088,25 @@ func (r *ServerRegistry) refreshServerCapabilities(ctx context.Context, info *Se
 // AuthConfig in the registration may be nil; in either case the server is
 // flagged as requiring per-session authentication.
 //
-// Registering a server that is already pending auth is a no-op: restart paths
-// re-trigger the auth-required hook while the previous entry is still present.
-// Registering over an active (non-auth) entry returns an error.
+// Registering over an existing entry (pending-auth or active) is an upsert:
+// the entry's URL, ToolPrefix, Family, AuthInfo, and AuthConfig are replaced
+// with the new registration values. This covers two cases:
+//   - Restart after config update: the hook re-fires with the updated definition
+//     while the old pending entry is still present (event_handler skips deregistration
+//     for auth-required servers); the upsert propagates the new URL/issuer/prefix.
+//   - Active→auth-required transition: a previously-connected server restarts into
+//     a 401 before the Disconnected event deregisters the old active entry; replacing
+//     it now means the event handler will skip deregistration (RequiresSessionAuth
+//     will be true), keeping the pending-auth entry intact.
 func (r *ServerRegistry) RegisterPendingAuth(registration PendingAuthRegistration) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	if existing, exists := r.servers[registration.Name]; exists {
-		if existing.RequiresSessionAuth() {
-			return nil
+		if !existing.RequiresSessionAuth() {
+			logging.Debug("Aggregator", "Replacing active registry entry for %s with pending-auth entry", registration.Name)
 		}
-		return fmt.Errorf("server %s already registered", registration.Name)
+		// Fall through to upsert in both cases.
 	}
 
 	authConfig := registration.AuthConfig

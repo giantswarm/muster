@@ -1888,15 +1888,18 @@ func (m *musterInstanceManager) checkMCPServersAvailability(client MCPTestClient
 	return serverStates, nil
 }
 
-// mcpServerStateIsReady returns true when a server has been fully processed by
-// the orchestrator. Pre-configured servers are always written with autoStart
-// enabled, so each one must reach a post-start state before tests can rely on
-// it: until then RegisterPendingAuth may not have run for OAuth-protected
-// servers, causing core_auth_login to return "Server not found". This is an
-// allowlist rather than a transient-state denylist because the reconciler also
-// writes "Disconnected"/"Stopped" for a registered-but-not-yet-started service,
-// and any future state should fail closed (wait, then time out with the state
-// visible) instead of silently counting as ready.
+// mcpServerStateIsReady returns true when a server has reached a stable
+// post-start state and tests can rely on it. Until then RegisterPendingAuth may
+// not have run for OAuth-protected servers, causing core_auth_login to return
+// "Server not found". This is an allowlist rather than a transient-state denylist:
+// the reconciler writes "Disconnected"/"Stopped" for a registered-but-not-yet-started
+// service, so a denylist would pass readiness inside the startup window, and any
+// unknown future state fails closed (wait, then time out with the state visible)
+// instead of silently counting as ready.
+//
+// Note: mock pre-configured servers hardcode autoStart=true and will always reach
+// one of these states. Regular pre-configured servers without autoStart=true
+// (autoStart defaults to false) will never start and readiness will time out.
 func mcpServerStateIsReady(state string) bool {
 	switch musterv1alpha1.MCPServerStateValue(state) {
 	case musterv1alpha1.MCPServerStateRunning,
@@ -1918,8 +1921,10 @@ func (m *musterInstanceManager) findMissingMCPServers(expectedServers []string, 
 	for _, expected := range expectedServers {
 		state, found := serverStates[expected]
 		switch {
-		case !found || state == "":
+		case !found:
 			missing = append(missing, expected)
+		case state == "":
+			missing = append(missing, fmt.Sprintf("%s (no state reported)", expected))
 		case !mcpServerStateIsReady(state):
 			missing = append(missing, fmt.Sprintf("%s (state: %s)", expected, state))
 		}

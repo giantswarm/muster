@@ -243,7 +243,7 @@ func (eh *EventHandler) processEvent(event api.ServiceStateChangedEvent) {
 		// Skip deregistration for servers in "waiting" or "auth_required" state.
 		// These servers require OAuth authentication before they can connect.
 		// The orchestrator registers them as pending auth before the state-change
-		// event is published (see mcpserver.Service.SetAuthRequiredHook), so by the
+		// event is published (see mcpserver.WithAuthRequiredHook), so by the
 		// time this event arrives the registry entry already exists. The event-state
 		// check stays as defense in depth alongside the registry fallback below.
 		if api.ServiceState(event.NewState) == api.StateWaiting || api.ServiceState(event.NewState) == api.StateAuthRequired {

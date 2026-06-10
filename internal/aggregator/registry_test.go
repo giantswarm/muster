@@ -600,31 +600,44 @@ func TestServerRegistry_FamilyGrouping(t *testing.T) {
 	})
 }
 
-func TestServerRegistry_RegisterPendingAuthIdempotent(t *testing.T) {
-	t.Run("re-registering a pending auth server is a no-op", func(t *testing.T) {
+func TestServerRegistry_RegisterPendingAuthUpsert(t *testing.T) {
+	t.Run("re-registering a pending auth server updates the entry", func(t *testing.T) {
 		registry := NewServerRegistry("x")
-		registration := PendingAuthRegistration{
-			ServerRegistration: ServerRegistration{Name: "oauth-server", ToolPrefix: "oauth"},
-			URL:                "https://oauth.example.com",
-			AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
+		first := PendingAuthRegistration{
+			ServerRegistration: ServerRegistration{Name: "oauth-server", ToolPrefix: "old-prefix"},
+			URL:                "https://old.example.com",
+			AuthInfo:           &AuthInfo{Issuer: "https://old-dex.example.com", Scope: "openid"},
+		}
+		updated := PendingAuthRegistration{
+			ServerRegistration: ServerRegistration{Name: "oauth-server", ToolPrefix: "new-prefix"},
+			URL:                "https://new.example.com",
+			AuthInfo:           &AuthInfo{Issuer: "https://new-dex.example.com", Scope: "openid profile"},
 		}
 
-		require.NoError(t, registry.RegisterPendingAuth(registration))
-		require.NoError(t, registry.RegisterPendingAuth(registration))
+		require.NoError(t, registry.RegisterPendingAuth(first))
+		require.NoError(t, registry.RegisterPendingAuth(updated))
 
 		info, exists := registry.servers["oauth-server"]
 		require.True(t, exists)
 		require.True(t, info.RequiresSessionAuth())
+		require.Equal(t, "https://new.example.com", info.URL)
+		require.Equal(t, "https://new-dex.example.com", info.AuthInfo.Issuer)
 	})
 
-	t.Run("registering over an active server returns an error", func(t *testing.T) {
+	t.Run("registering over an active server replaces it with pending-auth", func(t *testing.T) {
 		registry := NewServerRegistry("x")
 		registry.servers["active-server"] = &ServerInfo{Name: "active-server"}
 
 		err := registry.RegisterPendingAuth(PendingAuthRegistration{
 			ServerRegistration: ServerRegistration{Name: "active-server"},
 			URL:                "https://active.example.com",
+			AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com"},
 		})
-		require.ErrorContains(t, err, "already registered")
+		require.NoError(t, err)
+
+		info, exists := registry.servers["active-server"]
+		require.True(t, exists)
+		require.True(t, info.RequiresSessionAuth())
+		require.Equal(t, "https://active.example.com", info.URL)
 	})
 }

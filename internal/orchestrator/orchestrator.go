@@ -2,7 +2,6 @@ package orchestrator
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -328,19 +327,8 @@ func (o *Orchestrator) attemptReconnectFailedServers() {
 			}
 
 			if err := service.Restart(o.ctx); err != nil {
-				var authErr *mcpserverPkg.AuthRequiredError
-				if errors.As(err, &authErr) {
-					svc, ok := service.(*mcpserver.Service)
-					if !ok {
-						logging.Error("Orchestrator", nil, "MCPServer %s requires authentication but has unexpected service type", service.GetName())
-						return
-					}
-					def, ok := svc.GetConfiguration().(*api.MCPServer)
-					if !ok {
-						logging.Error("Orchestrator", nil, "MCPServer %s has unexpected configuration type", service.GetName())
-						return
-					}
-					o.handleAuthRequiredServer(def, authErr)
+				if api.IsAuthRequiredError(err) {
+					// Pending auth registration happens in the auth-required hook inside Start.
 					return
 				}
 				logging.Warn("Orchestrator", "Failed to reconnect MCPServer %s: %v (will retry after backoff)", service.GetName(), err)
