@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- `oauth.server.trustedIssuers[].acceptedTypHeaders`: accepted JWT `typ` header values for Bearer tokens from a trusted issuer. Empty keeps the RFC 9068 default (`at+jwt`). Kubernetes ServiceAccount tokens carry no `typ` header; use `[""]` to accept them.
+
 - Brokered RFC 8693 token exchange ([#831](https://github.com/giantswarm/muster/issues/831)): external confidential clients can POST a token-exchange request with an `audience` parameter to `/oauth/token` and receive a token minted by the audience's downstream Dex. New `oauth.server.tokenExchangeBroker` config block (per-client audience allowlist, audience → downstream Dex target mapping with per-target scopes and credential secret refs). Requires mcp-oauth >= v0.3.0; subject tokens are validated against `trustedIssuers`.
 
 ### Changed
