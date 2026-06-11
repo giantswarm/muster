@@ -402,6 +402,11 @@ func mergeOAuthServerConfig(cfg *Config) config.OAuthServerConfig {
 		serverCfg.Enabled = true
 	}
 
+	// Broker target secret refs without an explicit namespace resolve against
+	// the muster namespace (same default the per-MCPServer tokenExchange
+	// secret refs use via the MCPServer's own namespace).
+	serverCfg.TokenExchangeBroker.DefaultSecretNamespace = cfg.MusterConfig.Namespace
+
 	return serverCfg
 }
 

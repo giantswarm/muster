@@ -568,6 +568,46 @@
               "items": {"type": "string"},
               "description": "CIDRs from which X-Forwarded-Proto and X-Forwarded-Host headers are trusted for DPoP htu URL reconstruction. Required when muster runs behind a reverse proxy."
             },
+            "tokenExchangeBroker": {
+              "type": "object",
+              "description": "Brokered RFC 8693 token exchange: external confidential clients exchange a subject token plus an audience name for a token minted by the audience's downstream Dex. Subject tokens are validated against trustedIssuers.",
+              "properties": {
+                "clientAudiences": {
+                  "type": "object",
+                  "additionalProperties": {"type": "array", "items": {"type": "string"}},
+                  "description": "Per-client audience allowlist: broker client ID → audiences it may request. Requests outside the list get invalid_target."
+                },
+                "targets": {
+                  "type": "object",
+                  "description": "Audience name → downstream Dex exchange target.",
+                  "additionalProperties": {
+                    "type": "object",
+                    "required": ["dexTokenEndpoint", "connectorId"],
+                    "properties": {
+                      "dexTokenEndpoint": {"type": "string", "pattern": "^https://", "description": "Downstream Dex token endpoint URL (HTTPS)."},
+                      "expectedIssuer": {"type": "string", "description": "Expected iss claim of the exchanged token. Derived from dexTokenEndpoint when empty."},
+                      "connectorId": {"type": "string", "description": "Downstream Dex OIDC connector that trusts the subject token's issuer."},
+                      "scopes": {"type": "string", "description": "Space-separated downstream scopes (default: openid profile email groups). Kubernetes-bound audiences must include the Dex cross-client scope, e.g. audience:server:client_id:dex-k8s-authenticator."},
+                      "clientCredentialsSecretRef": {
+                        "type": "object",
+                        "required": ["name"],
+                        "properties": {
+                          "name": {"type": "string"},
+                          "namespace": {"type": "string", "description": "Defaults to the muster namespace."},
+                          "clientIdKey": {"type": "string", "description": "Defaults to client-id."},
+                          "clientSecretKey": {"type": "string", "description": "Defaults to client-secret."}
+                        },
+                        "description": "Kubernetes Secret holding the downstream exchange client credentials (same secrets the per-MCPServer tokenExchange config uses)."
+                      }
+                    }
+                  }
+                },
+                "allowPrivateIP": {
+                  "type": "boolean",
+                  "description": "Allow downstream token endpoints to resolve to private/loopback IPs. Reduces SSRF protection; internal deployments only."
+                }
+              }
+            },
             "enableJWTMode": {
               "type": "boolean",
               "description": "Issue RFC 9068 signed JWTs as access tokens instead of opaque strings"

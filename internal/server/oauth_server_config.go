@@ -16,6 +16,7 @@ import (
 	valkeygo "github.com/valkey-io/valkey-go"
 
 	"github.com/giantswarm/muster/internal/config"
+	musteroauth "github.com/giantswarm/muster/internal/oauth"
 )
 
 // newOAuthServerConfig maps the muster OAuth config onto the mcp-oauth Config.
@@ -46,6 +47,10 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, refreshTokenTTL time.Dur
 		// the same private-IP issuer instead of rejecting it as a DNS-rebinding
 		// attack. Public-hostname Dex deployments are unaffected.
 		AllowPrivateIPJWKS: cfg.Dex.AllowPrivateIPOIDC,
+		// Per-client audience allowlist for brokered RFC 8693 token exchange.
+		// Only consulted when an Exchanger is registered (see
+		// buildOAuthServerOptions); a miss returns invalid_target.
+		TokenExchangeClientAudiences: cfg.TokenExchangeBroker.ClientAudiences,
 	}
 	if cfg.EnableJWTMode {
 		result.AccessTokenFormat = oauthserver.AccessTokenFormatJWT
@@ -88,6 +93,20 @@ func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger) 
 			issuers[i] = toTrustedIssuer(iss)
 		}
 		opts = append(opts, oauthserver.WithTrustedIssuers(issuers))
+	}
+
+	if cfg.TokenExchangeBroker.Enabled() {
+		if len(cfg.TrustedIssuers) == 0 {
+			return nil, fmt.Errorf("tokenExchangeBroker requires at least one trustedIssuers entry to validate subject tokens")
+		}
+		opts = append(opts, oauthserver.WithExchanger(musteroauth.NewBrokerExchanger(cfg.TokenExchangeBroker)))
+		brokerLogger := logger
+		if brokerLogger == nil {
+			brokerLogger = slog.Default()
+		}
+		brokerLogger.Info("Brokered RFC 8693 token exchange enabled",
+			"targets", len(cfg.TokenExchangeBroker.Targets),
+			"brokerClients", len(cfg.TokenExchangeBroker.ClientAudiences))
 	}
 
 	if len(cfg.TrustedProxyCIDRs) > 0 {

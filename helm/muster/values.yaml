@@ -498,6 +498,30 @@ muster:
       #     allowPrivateIPJWKS: true
       trustedIssuers: []
 
+      # Brokered RFC 8693 token exchange: muster as a shared token broker.
+      # An external confidential client POSTs a token-exchange request with an
+      # `audience` parameter to /oauth/token and receives a token minted by the
+      # audience's downstream Dex (instead of a muster-issued JWT). Subject
+      # tokens are validated against trustedIssuers, so at least one issuer
+      # entry covering the broker client's tokens is required.
+      # Policy enforced by mcp-oauth: confidential clients only, per-client
+      # audience allowlist, no refresh tokens, expires_in bounded by the
+      # downstream token's expiry, DPoP rejected.
+      # Example:
+      #   clientAudiences:
+      #     portal-backend: ["cluster-a", "cluster-b"]
+      #   targets:
+      #     cluster-a:
+      #       dexTokenEndpoint: https://dex.cluster-a.example.com/token
+      #       connectorId: main-dex
+      #       # k8s-bound audiences need the Dex cross-client scope, otherwise
+      #       # the exchanged token's aud is the exchange client only and the
+      #       # kube-apiserver rejects it:
+      #       scopes: "openid profile email groups audience:server:client_id:dex-k8s-authenticator"
+      #       clientCredentialsSecretRef:
+      #         name: muster-token-exchange-cluster-a
+      tokenExchangeBroker: {}
+
       # CIDRs from which X-Forwarded-Proto and X-Forwarded-Host headers are
       # trusted for DPoP htu URL reconstruction. Required when muster runs
       # behind a reverse proxy. Example: ["10.0.0.0/8", "172.16.0.0/12"]

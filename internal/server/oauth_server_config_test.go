@@ -141,6 +141,52 @@ func TestToTrustedIssuer_MapsAllFields(t *testing.T) {
 	require.True(t, got.AllowPrivateIPJWKS)
 }
 
+func TestNewOAuthServerConfig_MapsTokenExchangeClientAudiences(t *testing.T) {
+	t.Parallel()
+
+	allowlist := map[string][]string{
+		"portal-backend": {"cluster-a", "cluster-b"},
+	}
+	cfg := config.OAuthServerConfig{
+		BaseURL: "https://muster.example.com",
+		TokenExchangeBroker: config.TokenExchangeBrokerConfig{
+			ClientAudiences: allowlist,
+		},
+	}
+	got := newOAuthServerConfig(cfg, time.Hour)
+	require.Equal(t, allowlist, got.TokenExchangeClientAudiences)
+}
+
+func TestBuildOAuthServerOptions_BrokerRequiresTrustedIssuers(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.OAuthServerConfig{
+		BaseURL: "https://muster.example.com",
+		TokenExchangeBroker: config.TokenExchangeBrokerConfig{
+			Targets: map[string]config.BrokerTargetConfig{
+				"cluster-a": {
+					DexTokenEndpoint: "https://dex.cluster-a.example.com/token",
+					ConnectorID:      "main-dex",
+				},
+			},
+		},
+	}
+	_, err := buildOAuthServerOptions(cfg, nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "trustedIssuers")
+
+	cfg.TrustedIssuers = []config.TrustedIssuerConfig{
+		{
+			Issuer:           "https://dex.main.example.com",
+			JwksURL:          "https://dex.main.example.com/keys",
+			AllowedAudiences: []string{"portal-frontend"},
+		},
+	}
+	opts, err := buildOAuthServerOptions(cfg, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, opts)
+}
+
 func TestBuildOAuthServerOptions_InvalidCIDRReturnsError(t *testing.T) {
 	t.Parallel()
 

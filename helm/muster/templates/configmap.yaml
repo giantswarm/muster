@@ -106,6 +106,10 @@ data:
           {{- with .Values.muster.oauth.server.resourceIdentifier }}
           resourceIdentifier: {{ . | quote }}
           {{- end }}
+          {{- with .Values.muster.oauth.server.tokenExchangeBroker }}
+          tokenExchangeBroker:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
         {{- end }}
     namespace: {{ include "muster.namespace" . | quote }}
     kubernetes: true
