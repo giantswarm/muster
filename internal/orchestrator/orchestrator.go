@@ -2,7 +2,6 @@ package orchestrator
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -140,6 +139,7 @@ func (o *Orchestrator) createMCPServerService(ctx context.Context, mcpServerInfo
 		Type:        api.MCPServerType(mcpServerInfo.Type),
 		Description: mcpServerInfo.Description,
 		ToolPrefix:  mcpServerInfo.ToolPrefix,
+		Family:      mcpServerInfo.Family,
 		AutoStart:   mcpServerInfo.AutoStart,
 		Command:     mcpServerInfo.Command,
 		Args:        mcpServerInfo.Args,
@@ -150,7 +150,11 @@ func (o *Orchestrator) createMCPServerService(ctx context.Context, mcpServerInfo
 		Auth:        mcpServerInfo.Auth,
 	}
 
-	mcpService, err := mcpserver.NewService(apiDef)
+	// The auth-required hook registers pending auth before the state-change event
+	// is published so that the aggregator registry is populated before any
+	// subscriber (e.g. the reconciler or the test readiness check) observes the
+	// Auth Required state.
+	mcpService, err := mcpserver.NewService(apiDef, mcpserver.WithAuthRequiredHook(o.handleAuthRequiredServer))
 	if err != nil {
 		return fmt.Errorf("failed to create MCPServer service: %w", err)
 	}
@@ -165,10 +169,8 @@ func (o *Orchestrator) createMCPServerService(ctx context.Context, mcpServerInfo
 	// has already started static services and won't start newly registered ones
 	go func() {
 		if err := mcpService.Start(ctx); err != nil {
-			var authErr *mcpserverPkg.AuthRequiredError
-			if errors.As(err, &authErr) {
-				logging.Info("Orchestrator", "MCPServer %s requires authentication, registering pending auth", mcpServerInfo.Name)
-				o.handleAuthRequiredServer(mcpServerInfo, authErr)
+			if api.IsAuthRequiredError(err) {
+				// Pending auth registration happens in the auth-required hook.
 				return
 			}
 			logging.Error("Orchestrator", err, "Failed to start MCPServer service: %s", mcpServerInfo.Name)
@@ -182,11 +184,13 @@ func (o *Orchestrator) createMCPServerService(ctx context.Context, mcpServerInfo
 }
 
 // handleAuthRequiredServer registers a server that requires OAuth authentication
-// with the aggregator in pending auth state.
-func (o *Orchestrator) handleAuthRequiredServer(mcpServerInfo api.MCPServerInfo, authErr *mcpserverPkg.AuthRequiredError) {
+// with the aggregator in pending auth state. It receives the service's current
+// definition so that registrations after a configuration update and restart
+// carry the updated URL, tool prefix, family, and auth settings.
+func (o *Orchestrator) handleAuthRequiredServer(definition *api.MCPServer, authErr *mcpserverPkg.AuthRequiredError) {
 	aggregator := api.GetAggregator()
 	if aggregator == nil {
-		logging.Error("Orchestrator", nil, "Aggregator not available to register pending auth server: %s", mcpServerInfo.Name)
+		logging.Error("Orchestrator", nil, "Aggregator not available to register pending auth server: %s", definition.Name)
 		return
 	}
 
@@ -197,25 +201,21 @@ func (o *Orchestrator) handleAuthRequiredServer(mcpServerInfo api.MCPServerInfo,
 	}
 
 	if err := aggregator.RegisterServerPendingAuth(api.PendingAuthRegistration{
-		Name:       mcpServerInfo.Name,
-		URL:        mcpServerInfo.URL,
-		ToolPrefix: mcpServerInfo.ToolPrefix,
-		Family:     mcpServerInfo.Family,
+		Name:       definition.Name,
+		URL:        definition.URL,
+		ToolPrefix: definition.ToolPrefix,
+		Family:     definition.Family,
 		AuthInfo:   authInfo,
-		AuthConfig: mcpServerInfo.Auth,
+		AuthConfig: definition.Auth,
 	}); err != nil {
-		if errors.Is(err, api.ErrServerAlreadyRegistered) {
-			logging.Debug("Orchestrator", "MCPServer %s already registered as pending auth, skipping", mcpServerInfo.Name)
-			return
-		}
-		logging.Error("Orchestrator", err, "Failed to register pending auth server: %s", mcpServerInfo.Name)
+		logging.Error("Orchestrator", err, "Failed to register pending auth server: %s", definition.Name)
 		return
 	}
 
-	if mcpServerInfo.Auth != nil && mcpServerInfo.Auth.ForwardToken {
-		logging.Info("Orchestrator", "Registered MCPServer %s in pending auth state (SSO token forwarding enabled)", mcpServerInfo.Name)
+	if definition.Auth != nil && definition.Auth.ForwardToken {
+		logging.Info("Orchestrator", "Registered MCPServer %s in pending auth state (SSO token forwarding enabled)", definition.Name)
 	} else {
-		logging.Info("Orchestrator", "Registered MCPServer %s in pending auth state with synthetic auth tool", mcpServerInfo.Name)
+		logging.Info("Orchestrator", "Registered MCPServer %s in pending auth state with synthetic auth tool", definition.Name)
 	}
 }
 
@@ -327,25 +327,8 @@ func (o *Orchestrator) attemptReconnectFailedServers() {
 			}
 
 			if err := service.Restart(o.ctx); err != nil {
-				var authErr *mcpserverPkg.AuthRequiredError
-				if errors.As(err, &authErr) {
-					svc, ok := service.(*mcpserver.Service)
-					if !ok {
-						logging.Error("Orchestrator", nil, "MCPServer %s requires authentication but has unexpected service type", service.GetName())
-						return
-					}
-					def, ok := svc.GetConfiguration().(*api.MCPServer)
-					if !ok {
-						logging.Error("Orchestrator", nil, "MCPServer %s has unexpected configuration type", service.GetName())
-						return
-					}
-					o.handleAuthRequiredServer(api.MCPServerInfo{
-						Name:       def.Name,
-						URL:        def.URL,
-						ToolPrefix: def.ToolPrefix,
-						Family:     def.Family,
-						Auth:       def.Auth,
-					}, authErr)
+				if api.IsAuthRequiredError(err) {
+					// Pending auth registration happens in the auth-required hook inside Start.
 					return
 				}
 				logging.Warn("Orchestrator", "Failed to reconnect MCPServer %s: %v (will retry after backoff)", service.GetName(), err)
