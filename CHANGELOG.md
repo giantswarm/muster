@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- `ssoPoolMissNeedingInit` now detects pool misses for token-forwarding servers in addition to token-exchange servers, so warm sessions (authAlive=true after pod restart) trigger `initSSOForSession` for forwarding servers with empty connection pools. Previously, forwarding servers registered during a restart were inaccessible until the user manually re-authenticated to muster.
+- `establishSSOConnection` now treats a pool miss as stale state for token-forwarding servers (clearing the Valkey auth entry and re-establishing the connection), matching the existing behaviour for token-exchange servers.
+
 ### Added
 
 - `GET /health` now responds 200 on the aggregator port regardless of OAuth configuration, so Kubernetes liveness/readiness probes work without patching the chart.
