@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Update mcp-oauth to v0.4.0.
 - Update mcp-oauth to v0.3.1: forwarded ID tokens (`trustedAudiences`) are no longer hard-rejected by the trusted-issuer Bearer branch when the same issuer is also configured in `trustedIssuers` — fixes Backstage AI-chat SSO token forwarding returning 401 (`typ header is "", expected "at+jwt"`) on deployments with the token-exchange broker enabled.
 - Update mcp-oauth to v0.3.0 (server-side RFC 8693 token-exchange grant with pluggable `Exchanger`).
 
