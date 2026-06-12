@@ -489,6 +489,15 @@ func (s *OAuthHTTPServer) GetOAuthServer() *oauth.Server {
 	return s.oauthServer
 }
 
+// RefreshSession forces an in-process upstream provider token refresh for the given
+// token family. Delegates to the underlying mcp-oauth Server.RefreshSession so that
+// TokenRefreshHandler fires and the SSO proxy store is updated before the caller
+// re-reads the ID token.
+func (s *OAuthHTTPServer) RefreshSession(ctx context.Context, familyID string) error {
+	_, err := s.oauthServer.RefreshSession(ctx, familyID)
+	return err
+}
+
 // GetOAuthHandler returns the OAuth handler for testing or direct access.
 func (s *OAuthHTTPServer) GetOAuthHandler() *oauthhandler.Handler {
 	return s.oauthHandler
