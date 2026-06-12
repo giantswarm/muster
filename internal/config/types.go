@@ -333,6 +333,87 @@ type OAuthServerConfig struct {
 	// If empty the library defaults to BaseURL (the issuer URL).
 	// Example: "https://muster.example.com/mcp"
 	ResourceIdentifier string `yaml:"resourceIdentifier,omitempty"`
+
+	// TokenExchangeBroker exposes muster's RFC 8693 token exchange to external
+	// confidential clients: a broker client POSTs a token-exchange request with
+	// an `audience` parameter to /oauth/token and receives a token minted by
+	// the audience's downstream Dex (not a muster-issued JWT). Subject tokens
+	// are validated against TrustedIssuers; the per-client allowlist below
+	// gates which audiences each client may request.
+	TokenExchangeBroker TokenExchangeBrokerConfig `yaml:"tokenExchangeBroker,omitempty"`
+}
+
+// TokenExchangeBrokerConfig configures brokered RFC 8693 token exchange
+// (muster as a shared token broker for external clients).
+type TokenExchangeBrokerConfig struct {
+	// ClientAudiences maps an authenticated confidential broker client ID to
+	// the audiences it may request. Requests for audiences outside the
+	// client's list are rejected with invalid_target. Maps to mcp-oauth's
+	// Config.TokenExchangeClientAudiences.
+	ClientAudiences map[string][]string `yaml:"clientAudiences,omitempty"`
+
+	// Targets maps an RFC 8693 audience name (e.g. a management cluster name)
+	// to the downstream Dex exchange target.
+	Targets map[string]BrokerTargetConfig `yaml:"targets,omitempty"`
+
+	// AllowPrivateIP allows downstream token endpoints to resolve to private
+	// or loopback IP addresses. WARNING: reduces SSRF protection; only enable
+	// for internal/VPN deployments where the target Dex is reachable via a
+	// private address.
+	AllowPrivateIP bool `yaml:"allowPrivateIP,omitempty"`
+
+	// DefaultSecretNamespace is the namespace used for target credential
+	// secret refs that do not set an explicit namespace. Populated from the
+	// muster namespace by the serve command; not user-facing config.
+	DefaultSecretNamespace string `yaml:"-"`
+}
+
+// Enabled reports whether brokered token exchange is configured.
+func (c TokenExchangeBrokerConfig) Enabled() bool {
+	return len(c.Targets) > 0
+}
+
+// BrokerTargetConfig describes one downstream Dex target of the token broker.
+type BrokerTargetConfig struct {
+	// DexTokenEndpoint is the downstream Dex token endpoint URL (HTTPS).
+	// Example: https://dex.cluster-b.example.com/token
+	DexTokenEndpoint string `yaml:"dexTokenEndpoint"`
+
+	// ExpectedIssuer is the expected iss claim of the exchanged token. If
+	// empty, it is derived from DexTokenEndpoint (strip /token suffix).
+	ExpectedIssuer string `yaml:"expectedIssuer,omitempty"`
+
+	// ConnectorID is the downstream Dex OIDC connector that trusts the
+	// subject token's issuer.
+	ConnectorID string `yaml:"connectorId"`
+
+	// Scopes is the space-separated scope set requested downstream. Defaults
+	// to "openid profile email groups". For Kubernetes-bound audiences this
+	// must include the Dex cross-client scope for the apiserver's client,
+	// e.g. "audience:server:client_id:dex-k8s-authenticator" — without it
+	// the exchanged token's aud is the exchange client only, which mcp-*
+	// servers accept but kube-apiserver rejects.
+	Scopes string `yaml:"scopes,omitempty"`
+
+	// ClientCredentialsSecretRef references the Kubernetes Secret holding the
+	// downstream exchange client credentials (same secrets the per-MCPServer
+	// tokenExchange config uses; no duplication).
+	ClientCredentialsSecretRef *BrokerSecretRefConfig `yaml:"clientCredentialsSecretRef,omitempty"`
+}
+
+// BrokerSecretRefConfig references a Kubernetes Secret with OAuth client
+// credentials. Mirrors api.ClientCredentialsSecretRef (kept separate to avoid
+// an import cycle between config and api).
+type BrokerSecretRefConfig struct {
+	// Name is the secret name. Required.
+	Name string `yaml:"name"`
+	// Namespace defaults to the broker's DefaultSecretNamespace (the muster
+	// namespace) when empty.
+	Namespace string `yaml:"namespace,omitempty"`
+	// ClientIDKey defaults to "client-id".
+	ClientIDKey string `yaml:"clientIdKey,omitempty"`
+	// ClientSecretKey defaults to "client-secret".
+	ClientSecretKey string `yaml:"clientSecretKey,omitempty"`
 }
 
 // TrustedIssuerConfig mirrors server.TrustedIssuer.
