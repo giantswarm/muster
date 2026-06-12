@@ -135,6 +135,7 @@ func toTrustedIssuer(iss config.TrustedIssuerConfig) oauthserver.TrustedIssuer {
 		AllowedScopes:      iss.AllowedScopes,
 		AllowedClaims:      iss.AllowedClaims,
 		AllowPrivateIPJWKS: iss.AllowPrivateIPJWKS,
+		AcceptedTypHeaders: iss.AcceptedTypHeaders,
 	}
 }
 

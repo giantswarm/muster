@@ -559,7 +559,8 @@
                   "allowedAudiences": {"type": "array", "items": {"type": "string"}},
                   "allowedScopes": {"type": "array", "items": {"type": "string"}},
                   "allowedClaims": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Required JWT claim name→pattern pairs. Values are exact strings or globs ('*' any chars incl. '/', '?' one char). Absent or non-string claims are rejected. Empty means no restriction."},
-                  "allowPrivateIPJWKS": {"type": "boolean", "description": "Allow jwksUrl to resolve to a private/loopback IP. Required for in-cluster Kubernetes SA trust (https://kubernetes.default.svc/openid/v1/jwks). Emits a startup warning when set."}
+                  "allowPrivateIPJWKS": {"type": "boolean", "description": "Allow jwksUrl to resolve to a private/loopback IP. Required for in-cluster Kubernetes SA trust (https://kubernetes.default.svc/openid/v1/jwks). Emits a startup warning when set."},
+                  "acceptedTypHeaders": {"type": "array", "items": {"type": "string"}, "description": "Accepted JWT typ header values for Bearer tokens from this issuer. Empty keeps the RFC 9068 default (at+jwt). Kubernetes ServiceAccount tokens carry no typ header; use [\"\"] to accept them."}
                 }
               }
             },
