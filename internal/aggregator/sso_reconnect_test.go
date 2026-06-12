@@ -740,9 +740,10 @@ func TestSSOPoolMissNeedingInit_ReturnsFalseWithLivePoolEntry(t *testing.T) {
 		"should not detect pool miss when conn pool has a live entry")
 }
 
-func TestSSOPoolMissNeedingInit_IgnoresForwardTokenServers(t *testing.T) {
-	// ssoPoolMissNeedingInit only checks token-exchange servers; forward-token
-	// servers recreate their clients on demand and don't need this trigger.
+func TestSSOPoolMissNeedingInit_ForwardTokenServerWithEmptyPool(t *testing.T) {
+	// After a pod restart the auth store persists "authenticated" but the pool
+	// is empty. ssoPoolMissNeedingInit must also detect pool misses for
+	// forward-token servers so onAuthenticated triggers SSO re-init for them.
 	pool := NewSessionConnectionPool(1 * time.Hour)
 	defer pool.Stop()
 	defer pool.DrainAll()
@@ -762,7 +763,6 @@ func TestSSOPoolMissNeedingInit_IgnoresForwardTokenServers(t *testing.T) {
 	ctx := t.Context()
 	sessionID := "fwd-session"
 
-	// Auth store says authenticated, pool is empty — but it's a forward-token server.
 	require.NoError(t, authStore.MarkAuthenticated(ctx, sessionID, "gazelle-mcp-kubernetes"))
 
 	aggServer := &AggregatorServer{
@@ -771,8 +771,62 @@ func TestSSOPoolMissNeedingInit_IgnoresForwardTokenServers(t *testing.T) {
 		authStore: authStore,
 	}
 
+	assert.True(t, aggServer.ssoPoolMissNeedingInit("user1", sessionID),
+		"forward-token server with empty pool should trigger ssoPoolMissNeedingInit")
+}
+
+func TestSSOPoolMissNeedingInit_ForwardTokenServerNeverAuthenticated(t *testing.T) {
+	// A new forward-token server registered after a pod restart. The session
+	// (authAlive=true via Valkey) has never authenticated to this server so
+	// auth store has no entry and pool is empty. Must trigger re-init so
+	// initSSOForSession connects the session to the new server.
+	pool := NewSessionConnectionPool(1 * time.Hour)
+	defer pool.Stop()
+	defer pool.DrainAll()
+
+	registry := NewServerRegistry("x")
+	err := registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: "new-fwd-server", ToolPrefix: "new"},
+		URL:                "https://mcp.new.example.com",
+		AuthInfo:           &AuthInfo{Issuer: "https://dex.new.example.com"},
+		AuthConfig:         &api.MCPServerAuth{ForwardToken: true},
+	})
+	require.NoError(t, err)
+
+	aggServer := &AggregatorServer{
+		registry: registry,
+		connPool: pool,
+	}
+
+	assert.True(t, aggServer.ssoPoolMissNeedingInit("user1", "session-never-seen"),
+		"new forward-token server should trigger ssoPoolMissNeedingInit when session has no auth entry")
+}
+
+func TestSSOPoolMissNeedingInit_ForwardTokenServerWithLivePoolEntry(t *testing.T) {
+	// When the pool already has a live entry, no re-init is needed.
+	pool := NewSessionConnectionPool(1 * time.Hour)
+	defer pool.Stop()
+	defer pool.DrainAll()
+
+	registry := NewServerRegistry("x")
+	err := registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: "gazelle-mcp-kubernetes", ToolPrefix: "gazelle"},
+		URL:                "https://mcp.gazelle.example.com",
+		AuthInfo:           &AuthInfo{Issuer: "https://dex.gazelle.example.com"},
+		AuthConfig:         &api.MCPServerAuth{ForwardToken: true},
+	})
+	require.NoError(t, err)
+
+	sessionID := "live-fwd-session"
+	pool.Put(sessionID, "gazelle-mcp-kubernetes", &noopMCPClient{})
+
+	aggServer := &AggregatorServer{
+		registry: registry,
+		connPool: pool,
+	}
+
 	assert.False(t, aggServer.ssoPoolMissNeedingInit("user1", sessionID),
-		"forward-token server with empty pool should not trigger ssoPoolMissNeedingInit")
+		"forward-token server with live pool entry should not trigger ssoPoolMissNeedingInit")
 }
 
 func TestSSOPoolMissNeedingInit_DeduplicatesConcurrentCalls(t *testing.T) {

@@ -1,0 +1,105 @@
+name: "oauth-sso-forwarding-warm-reconnect"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  Regression test for issue #682: forwarding-server tools accessible after warm reconnect.
+
+  When a session reconnects with authAlive=true (same token family, Valkey auth state
+  survives), ssoPoolMissNeedingInit must detect pool misses for forward-token servers
+  and trigger initSSOForSession — not just for token-exchange servers.
+
+  This scenario exercises the onAuthenticated → authAlive=true path by using
+  test_simulate_muster_reauth (refresh-grant, same token family) and verifying that
+  a forward-token server's tools remain accessible. A regression in the fix would cause
+  the forwarding server to appear inaccessible after the warm reconnect.
+tags: ["oauth", "sso", "token-forwarding", "reconnect", "warm-session", "issue-682", "regression"]
+timeout: "2m"
+
+pre_configuration:
+  mock_oauth_servers:
+    - name: "warm-reconnect-idp"
+      scopes: ["openid", "profile", "mcp:admin"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "warm-reconnect-client"
+      client_secret: "warm-reconnect-secret"
+      use_as_muster_oauth_server: true
+
+  mcp_servers:
+    - name: "warm-fwd-server"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "warm-reconnect-idp"
+          forward_token: true
+        tools:
+          - name: "fwd_op"
+            description: "Operation on a forward-token SSO server"
+            responses:
+              - response:
+                  status: "ok"
+                  source: "warm-fwd-server"
+
+steps:
+  - id: muster-auth-login
+    description: "Initial login — creates session, fires SessionCreationHandler + initSSOForSession"
+    tool: "test_muster_auth_login"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "success"
+        - "ID token stored"
+
+  - id: verify-server-connected
+    description: "Verify the forwarding server is connected after initial login"
+    tool: "test_read_auth_status"
+    args:
+      server: "warm-fwd-server"
+    expected:
+      success: true
+      contains:
+        - "warm-fwd-server"
+        - "connected"
+
+  - id: call-tool-before-reconnect
+    description: "Forwarding server tool works on the initial session"
+    tool: "x_warm-fwd-server_fwd_op"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "ok"
+        - "warm-fwd-server"
+
+  - id: warm-reconnect
+    description: "Simulate warm reconnect (refresh grant, same token family — authAlive=true on next request)"
+    tool: "test_simulate_muster_reauth"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  - id: call-tool-after-reconnect
+    description: "Forwarding server tool must still be accessible after warm reconnect"
+    tool: "x_warm-fwd-server_fwd_op"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "ok"
+        - "warm-fwd-server"
+
+  - id: verify-auth-status-after-reconnect
+    description: "Auth status shows connected after warm reconnect"
+    tool: "test_read_auth_status"
+    args:
+      server: "warm-fwd-server"
+    expected:
+      success: true
+      contains:
+        - "warm-fwd-server"
+        - "connected"

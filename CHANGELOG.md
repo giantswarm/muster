@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- `ssoPoolMissNeedingInit` now detects pool misses for token-forwarding servers in addition to token-exchange servers, so warm sessions (authAlive=true after pod restart) trigger `initSSOForSession` for forwarding servers with empty connection pools. Previously, forwarding servers registered during a restart were inaccessible until the user manually re-authenticated to muster.
+- `establishSSOConnection` now treats a pool miss as stale state for token-forwarding servers (clearing the Valkey auth entry and re-establishing the connection), matching the existing behaviour for token-exchange servers.
+
 ### Added
 
 - Brokered RFC 8693 token exchange ([#831](https://github.com/giantswarm/muster/issues/831)): external confidential clients can POST a token-exchange request with an `audience` parameter to `/oauth/token` and receive a token minted by the audience's downstream Dex. New `oauth.server.tokenExchangeBroker` config block (per-client audience allowlist, audience → downstream Dex target mapping with per-target scopes and credential secret refs). Requires mcp-oauth >= v0.3.0; subject tokens are validated against `trustedIssuers`.

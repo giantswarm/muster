@@ -418,14 +418,15 @@ func (a *AggregatorServer) initSSOForSession(ctx context.Context, userID, sessio
 	}
 }
 
-// ssoPoolMissNeedingInit reports whether any token-exchange server has a pool
-// miss for sessionID that is not already covered by an in-flight exchange or
-// an unexpired failure backoff window. For each qualifying server it atomically
-// claims the pending slot via MarkSSOPendingIfNotPending, so concurrent
-// onAuthenticated calls for the same session do not spawn redundant
-// initSSOForSession goroutines. Servers whose last exchange failed are skipped
-// until their backoff expires, so a persistently failing exchange retries on
-// the tracker's backoff schedule instead of on every request.
+// ssoPoolMissNeedingInit reports whether any SSO server (token-exchange or
+// token-forwarding) has a pool miss for sessionID that is not already covered
+// by an in-flight exchange or an unexpired failure backoff window. For each
+// qualifying server it atomically claims the pending slot via
+// MarkSSOPendingIfNotPending, so concurrent onAuthenticated calls for the same
+// session do not spawn redundant initSSOForSession goroutines. Servers whose
+// last exchange failed are skipped until their backoff expires, so a
+// persistently failing exchange retries on the tracker's backoff schedule
+// instead of on every request.
 //
 // Pending slots are keyed by user subject while the connection pool is keyed
 // by session: when two sessions of the same user both have a pool miss, the
@@ -440,7 +441,7 @@ func (a *AggregatorServer) ssoPoolMissNeedingInit(userID, sessionID string) bool
 		if !info.RequiresSessionAuth() {
 			continue
 		}
-		if !ShouldUseTokenExchange(info) {
+		if !ShouldUseTokenExchange(info) && !ShouldUseTokenForwarding(info) {
 			continue
 		}
 		if _, ok := a.connPool.Get(sessionID, info.Name); ok {
@@ -482,12 +483,12 @@ func (a *AggregatorServer) establishSSOConnection(
 	if a.authStore != nil {
 		authenticated, _ := a.authStore.IsAuthenticated(ctx, sessionID, serverInfo.Name)
 		if authenticated {
-			// For token-exchange servers, also verify the conn pool has a live client.
+			// For SSO servers, verify the conn pool has a live client.
 			// After a pod restart the auth store persists "authenticated" in Valkey while
 			// the in-memory pool is empty. In that case, clear the stale auth entry so
-			// the exchange proceeds and the pool is repopulated.
+			// the connection is re-established and the pool is repopulated.
 			stalePoolMiss := false
-			if ShouldUseTokenExchange(serverInfo) && a.connPool != nil {
+			if (ShouldUseTokenExchange(serverInfo) || ShouldUseTokenForwarding(serverInfo)) && a.connPool != nil {
 				_, poolHit := a.connPool.Get(sessionID, serverInfo.Name)
 				stalePoolMiss = !poolHit
 			}
