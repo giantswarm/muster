@@ -58,15 +58,39 @@ type Service struct {
 	consecutiveFailures int        // Number of consecutive connection failures
 	lastAttempt         *time.Time // When the last connection attempt was made (preserved after success for diagnostics)
 	nextRetryAfter      *time.Time // When the next retry should be attempted (cleared on success)
+
+	// onAuthRequired runs synchronously before the StateAuthRequired transition.
+	// Immutable after construction; set via WithAuthRequiredHook.
+	onAuthRequired func(definition *api.MCPServer, authErr *mcpserver.AuthRequiredError)
+}
+
+// Option configures a Service at construction time.
+type Option func(*Service)
+
+// WithAuthRequiredHook registers a function that Start calls synchronously when it
+// encounters a 401, before UpdateState(StateAuthRequired) publishes the state-change
+// event. Work done inside the hook (e.g. registering the server in the aggregator)
+// is therefore visible to all subscribers before the event reaches them.
+//
+// The hook receives the service's current definition rather than a creation-time
+// snapshot, so registrations reflect configuration updates applied before a restart.
+func WithAuthRequiredHook(fn func(*api.MCPServer, *mcpserver.AuthRequiredError)) Option {
+	return func(s *Service) {
+		s.onAuthRequired = fn
+	}
 }
 
 // NewService creates a new MCP server service
-func NewService(definition *api.MCPServer) (*Service, error) {
+func NewService(definition *api.MCPServer, opts ...Option) (*Service, error) {
 	baseService := services.NewBaseService(definition.Name, services.TypeMCPServer, []string{})
 
 	service := &Service{
 		BaseService: baseService,
 		definition:  definition,
+	}
+
+	for _, opt := range opts {
+		opt(service)
 	}
 
 	return service, nil
@@ -107,6 +131,9 @@ func (s *Service) Start(ctx context.Context) error {
 			// Use StateAuthRequired to indicate the server IS reachable but needs authentication.
 			// This maps to CRD state "Auth Required" per issue #337 - a 401 response proves
 			// the server is reachable at the network level, but authentication is needed.
+			if s.onAuthRequired != nil {
+				s.onAuthRequired(s.definition, authErr)
+			}
 			s.UpdateState(services.StateAuthRequired, services.HealthUnknown, nil)
 			s.LogInfo("MCP server requires authentication")
 			// Generate auth required event
