@@ -5,7 +5,7 @@
 # workflow in .circleci/config.yml merges into this file at pipeline runtime.
 version: 2.1
 orbs:
-  architect: giantswarm/architect@9.3.0
+  architect: giantswarm/architect@9.4.0
 
 workflows:
   build:
@@ -36,6 +36,25 @@ workflows:
             only: /^v.*/
           branches:
             ignore: /.*/
+
+    # Branches: validate the image build without pushing anything (push: false
+    # keeps the buildx result in the BuildKit cache). Same hadolint lint and
+    # multi-arch build as the release job, so Dockerfile regressions surface
+    # on the PR instead of at tag time.
+    - architect/push-to-registries:
+        context: architect
+        name: build-image
+        push: false
+        # Same platform cap as the release job: go-build's six-target
+        # architectures matrix writes all of them to .platforms, and buildx
+        # must not attempt the darwin/windows manifests under QEMU.
+        platforms: "linux/amd64,linux/arm64"
+        requires:
+        - go-build
+        filters:
+          branches:
+            ignore:
+            - main
 
     # Tag builds: push multi-arch image to gsoci + gsociprivate. Aliyun is
     # handled by the sync-china-registry job below (orb's split-china-push
