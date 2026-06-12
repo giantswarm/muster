@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/pkg/logging"
@@ -120,6 +121,11 @@ type ExchangeResult struct {
 	// IssuedTokenType is the type of the issued token.
 	IssuedTokenType string
 
+	// ExpiresAt is the exchanged token's expiry. Derived from the token
+	// endpoint's expires_in (or, failing that, the token's exp claim).
+	// Zero when neither is available.
+	ExpiresAt time.Time
+
 	// FromCache indicates whether the token was served from cache.
 	FromCache bool
 }
@@ -200,6 +206,7 @@ func (e *TokenExchanger) Exchange(ctx context.Context, req *ExchangeRequest) (*E
 		return &ExchangeResult{
 			AccessToken:     cached.AccessToken,
 			IssuedTokenType: cached.IssuedTokenType,
+			ExpiresAt:       cached.ExpiresAt,
 			FromCache:       true,
 		}, nil
 	}
@@ -255,9 +262,17 @@ func (e *TokenExchanger) Exchange(ctx context.Context, req *ExchangeRequest) (*E
 	logging.Info("TokenExchange", "Successfully exchanged token for user=%s endpoint=%s",
 		logging.TruncateIdentifier(req.UserID), req.Config.DexTokenEndpoint)
 
+	var expiresAt time.Time
+	if resp.ExpiresIn > 0 {
+		expiresAt = time.Now().Add(time.Duration(resp.ExpiresIn) * time.Second)
+	} else if exp, err := pkgoauth.Expiry(resp.AccessToken); err == nil {
+		expiresAt = exp
+	}
+
 	return &ExchangeResult{
 		AccessToken:     resp.AccessToken,
 		IssuedTokenType: resp.IssuedTokenType,
+		ExpiresAt:       expiresAt,
 		FromCache:       false,
 	}, nil
 }
