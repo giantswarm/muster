@@ -8,10 +8,12 @@ All notable changes to this project will be documented in this file.
 
 - `GET /health` now responds 200 on the aggregator port regardless of OAuth configuration, so Kubernetes liveness/readiness probes work without patching the chart.
 - `RegisterServer` and `DeregisterServer` aggregator events and MCPServer reconcile entry are now logged at Info level, making freshly-restarted pod lifecycle visible without `--debug`.
+- `oauth.server.allowedOrigins` (comma-separated) is now wired into the mcp-oauth CORS `AllowedOrigins` list. Previously declared but never read; empty value keeps CORS disabled (default).
 
 ### Removed
 
 - `MCPServer.status.consecutiveFailures`, `.lastAttempt`, and `.nextRetryAfter` are no longer updated by the reconciler; the retry state machine that drove them was removed in a prior release. The fields remain on the CRD for forward compatibility.
+- `oauth.server.enableHSTS`, `oauth.server.tlsCertFile`, and `oauth.server.tlsKeyFile` config fields removed; they were declared and YAML-parsed but never read anywhere in the codebase.
 
 ### Added
 
