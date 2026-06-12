@@ -11,10 +11,13 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- `oauth.server.trustedIssuers[].acceptedTypHeaders`: accepted JWT `typ` header values for Bearer tokens from a trusted issuer. Empty keeps the RFC 9068 default (`at+jwt`). Kubernetes ServiceAccount tokens carry no `typ` header; use `[""]` to accept them.
+
 - Brokered RFC 8693 token exchange ([#831](https://github.com/giantswarm/muster/issues/831)): external confidential clients can POST a token-exchange request with an `audience` parameter to `/oauth/token` and receive a token minted by the audience's downstream Dex. New `oauth.server.tokenExchangeBroker` config block (per-client audience allowlist, audience → downstream Dex target mapping with per-target scopes and credential secret refs). Requires mcp-oauth >= v0.3.0; subject tokens are validated against `trustedIssuers`.
 
 ### Changed
 
+- Update mcp-oauth to v0.4.0.
 - Update mcp-oauth to v0.3.1: forwarded ID tokens (`trustedAudiences`) are no longer hard-rejected by the trusted-issuer Bearer branch when the same issuer is also configured in `trustedIssuers` — fixes Backstage AI-chat SSO token forwarding returning 401 (`typ header is "", expected "at+jwt"`) on deployments with the token-exchange broker enabled.
 - Update mcp-oauth to v0.3.0 (server-side RFC 8693 token-exchange grant with pluggable `Exchanger`).
 

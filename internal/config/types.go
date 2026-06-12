@@ -437,6 +437,11 @@ type TrustedIssuerConfig struct {
 	// is https://kubernetes.default.svc/openid/v1/jwks. Emits a startup warning
 	// when set (mcp-oauth dev-override flag). Default: false.
 	AllowPrivateIPJWKS bool `yaml:"allowPrivateIPJWKS,omitempty"`
+	// AcceptedTypHeaders lists the JWT typ header values accepted for Bearer
+	// tokens from this issuer. Empty keeps the RFC 9068 default ("at+jwt").
+	// Kubernetes ServiceAccount tokens carry no typ header; use [""] to
+	// accept them.
+	AcceptedTypHeaders []string `yaml:"acceptedTypHeaders,omitempty"`
 }
 
 // DexConfig holds configuration for the Dex OIDC provider.
