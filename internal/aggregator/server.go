@@ -1094,8 +1094,8 @@ func (a *AggregatorServer) Stop(ctx context.Context) error {
 // Returns an error if registration fails due to naming conflicts, client issues,
 // or communication problems with the backend server.
 func (a *AggregatorServer) RegisterServer(ctx context.Context, registration ServerRegistration, client MCPClient) error {
-	logging.DebugWithAttrs("Aggregator", "RegisterServer called",
-		slog.String("server", registration.Name), slog.String("time", time.Now().Format("15:04:05.000")))
+	logging.InfoWithAttrs("Aggregator", "RegisterServer called",
+		slog.String("server", registration.Name))
 
 	// Wire the notification handler before registration so Initialize()
 	// (called inside Register) forwards it to the underlying mcp-go client.
@@ -1140,8 +1140,8 @@ func (a *AggregatorServer) wirePoolNotificationCallback(serverName string) {
 //
 // Returns an error if the server is not found or deregistration fails.
 func (a *AggregatorServer) DeregisterServer(name string) error {
-	logging.DebugWithAttrs("Aggregator", "DeregisterServer called",
-		slog.String("server", name), slog.String("time", time.Now().Format("15:04:05.000")))
+	logging.InfoWithAttrs("Aggregator", "DeregisterServer called",
+		slog.String("server", name))
 
 	// Remove auth state and capabilities for this server across all sessions.
 	if a.authStore != nil {
@@ -1548,6 +1548,14 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 
 	// Authenticated logout endpoints (behind ValidateToken middleware).
 	// These require a valid Bearer token and extract the user's subject from context.
+	// Unauthenticated health check so Kubernetes liveness/readiness probes work
+	// regardless of OAuth configuration.
+	outerMux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
+
 	outerMux.Handle("DELETE /user-tokens", oauthHTTPServer.ValidateTokenWithSubject(
 		http.HandlerFunc(a.handleUserTokensDeletion)))
 	outerMux.Handle("DELETE /auth/{server}", oauthHTTPServer.ValidateTokenWithSubject(

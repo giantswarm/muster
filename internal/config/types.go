@@ -279,18 +279,9 @@ type OAuthServerConfig struct {
 	// Format: Go duration string (e.g., "720h", "30d" is NOT valid, use hours).
 	SessionDuration string `yaml:"sessionDuration,omitempty"`
 
-	// AllowedOrigins is a comma-separated list of allowed CORS origins.
+	// AllowedOrigins is a comma-separated list of allowed CORS origins for
+	// browser-based MCP clients. Empty disables CORS (default, secure).
 	AllowedOrigins string `yaml:"allowedOrigins,omitempty"`
-
-	// EnableHSTS enables HSTS header (for reverse proxy scenarios).
-	EnableHSTS bool `yaml:"enableHSTS,omitempty"`
-
-	// TLSCertFile is the path to the TLS certificate file (PEM format).
-	// If both TLSCertFile and TLSKeyFile are provided, the server will use HTTPS.
-	TLSCertFile string `yaml:"tlsCertFile,omitempty"`
-
-	// TLSKeyFile is the path to the TLS private key file (PEM format).
-	TLSKeyFile string `yaml:"tlsKeyFile,omitempty"`
 
 	// TrustedAudiences lists additional OAuth client IDs (audiences) whose
 	// JWT ID tokens are accepted directly as bearer tokens, without requiring

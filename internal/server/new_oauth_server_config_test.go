@@ -89,6 +89,36 @@ func TestNewOAuthServerConfig_PreservesAdjacentFields(t *testing.T) {
 	require.Equal(t, int64(time.Hour/time.Second), got.RefreshTokenTTL)
 }
 
+func TestNewOAuthServerConfig_AllowedOriginsSplitAndTrimmed(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		in   string
+		want []string
+	}{
+		{name: "empty disables CORS", in: "", want: nil},
+		{name: "single origin", in: "https://app.example.com", want: []string{"https://app.example.com"}},
+		{name: "multiple origins split on comma", in: "https://a.example.com,https://b.example.com", want: []string{"https://a.example.com", "https://b.example.com"}},
+		{name: "spaces around commas trimmed", in: "https://a.example.com, https://b.example.com", want: []string{"https://a.example.com", "https://b.example.com"}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := config.OAuthServerConfig{
+				BaseURL:        "https://muster.example.com",
+				AllowedOrigins: tc.in,
+			}
+
+			got := newOAuthServerConfig(cfg, time.Hour)
+
+			require.Equal(t, tc.want, got.CORS.AllowedOrigins)
+		})
+	}
+}
+
 func TestNewOAuthServerConfig_AllowPrivateIPJWKSMirrorsDexFlag(t *testing.T) {
 	t.Parallel()
 

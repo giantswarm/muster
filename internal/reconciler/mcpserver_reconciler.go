@@ -78,7 +78,7 @@ func (r *MCPServerReconciler) GetResourceType() ResourceType {
 // check failures, etc.) are eventually reflected in the CRD status even if
 // state change events are missed.
 func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileRequest) ReconcileResult {
-	logging.Debug("MCPServerReconciler", "Reconciling MCPServer: %s", req.Name)
+	logging.Info("MCPServerReconciler", "Reconciling MCPServer: %s", req.Name)
 
 	// Fetch the desired state from the definition source
 	mcpServerInfo, err := r.mcpServerManager.GetMCPServer(req.Name)
@@ -203,21 +203,6 @@ func (r *MCPServerReconciler) applyStatusFromService(server *musterv1alpha1.MCPS
 			server.Status.LastConnected = &now
 		}
 
-		// Sync failure tracking fields for unreachable server detection
-		serviceData := service.GetServiceData()
-		if serviceData != nil {
-			if failures, ok := serviceData["consecutiveFailures"].(int); ok {
-				server.Status.ConsecutiveFailures = failures
-			}
-			if lastAttempt, ok := serviceData["lastAttempt"].(time.Time); ok {
-				t := metav1.NewTime(lastAttempt)
-				server.Status.LastAttempt = &t
-			}
-			if nextRetry, ok := serviceData["nextRetryAfter"].(time.Time); ok {
-				t := metav1.NewTime(nextRetry)
-				server.Status.NextRetryAfter = &t
-			}
-		}
 	} else {
 		// Service doesn't exist - use appropriate initial state based on server type
 		isRemote := server.Spec.Type == "streamable-http" || server.Spec.Type == "sse"

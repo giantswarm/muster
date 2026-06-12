@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"strings"
 	"time"
 
 	oauth "github.com/giantswarm/mcp-oauth"
@@ -51,6 +52,12 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, refreshTokenTTL time.Dur
 		// Only consulted when an Exchanger is registered (see
 		// buildOAuthServerOptions); a miss returns invalid_target.
 		TokenExchangeClientAudiences: cfg.TokenExchangeBroker.ClientAudiences,
+	}
+	if cfg.AllowedOrigins != "" {
+		result.CORS.AllowedOrigins = strings.Split(cfg.AllowedOrigins, ",")
+		for i, o := range result.CORS.AllowedOrigins {
+			result.CORS.AllowedOrigins[i] = strings.TrimSpace(o)
+		}
 	}
 	if cfg.EnableJWTMode {
 		result.AccessTokenFormat = oauthserver.AccessTokenFormatJWT
