@@ -25,8 +25,8 @@ A Helm chart for muster - Universal Control Plane for AI Agents built on MCP
 | autoscaling.maxReplicas | int | `10` |  |
 | autoscaling.minReplicas | int | `1` |  |
 | autoscaling.targetCPUUtilizationPercentage | int | `80` |  |
-| crds.annotations | object | `{"helm.sh/resource-policy":"keep"}` | Annotations merged into each CRD. Default `helm.sh/resource-policy: keep` preserves CRDs on `helm uninstall`. |
-| crds.install | bool | `true` |  |
+| crds.annotations | object | `{"helm.sh/resource-policy":"keep"}` | DEPRECATED. Inert compatibility shim; CRDs now ship in the `muster-crds` chart. |
+| crds.install | bool | `false` | DEPRECATED. The app chart no longer renders CRDs; install the `muster-crds` chart first. Removed next release. |
 | networkPolicy.annotations | object | `{}` |  |
 | networkPolicy.cilium.allowClusterIngress | bool | `false` | Allow egress to the `cluster` entity on 80/443 — needed when Dex / OIDC / MCP servers are reached via in-cluster ingress IPs. |
 | networkPolicy.enabled | bool | `false` |  |

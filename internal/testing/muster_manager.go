@@ -12,12 +12,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/giantswarm/muster/internal/testing/mock"
+	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
 
 	"gopkg.in/yaml.v3"
 )
@@ -122,10 +124,17 @@ func (lc *logCapture) getLogs() *InstanceLogs {
 	}
 }
 
-// managedProcess represents a managed muster process with its command and log capture
+// managedProcess represents a managed muster process with its command and log capture.
+//
+// A single goroutine owns cmd.Wait(): it stores the result in waitErr and closes
+// exited. Other goroutines (WaitForReady, gracefulShutdown) observe termination
+// by selecting on exited instead of calling cmd.Wait() themselves, which would
+// panic with "Wait was already called".
 type managedProcess struct {
 	cmd        *exec.Cmd
 	logCapture *logCapture
+	exited     chan struct{} // closed once the process has exited
+	waitErr    error         // result of cmd.Wait(); read only after exited is closed
 }
 
 // musterInstanceManager implements the MusterInstanceManager interface
@@ -142,6 +151,23 @@ type musterInstanceManager struct {
 	// Port reservation system for thread-safe parallel execution
 	portMu        sync.Mutex     // Protects port allocation
 	reservedPorts map[int]string // port -> instanceID mapping
+
+	// reservedListeners holds the probe listener for each reserved port open
+	// until muster serve is about to bind it. Keeping the socket bound prevents
+	// the OS from handing the freed port to an ephemeral listener (e.g. a mock
+	// server's net.Listen(":0")) while the instance finishes its setup, which
+	// would otherwise make muster serve fail to bind. Protected by portMu.
+	reservedListeners map[int]net.Listener
+
+	// ephemeralLow/ephemeralHigh describe the OS ephemeral port range. Ports in
+	// this range are preferred-against when allocating instance ports: there is
+	// an unavoidable sub-millisecond window between closing the reserved probe
+	// listener and muster serve binding the port (see startMusterProcess), and
+	// during it a concurrent mock server's net.Listen(":0") can be handed that
+	// exact port by the OS. Allocating muster ports outside the ephemeral range
+	// makes that collision impossible regardless of the configured base port.
+	ephemeralLow  int
+	ephemeralHigh int
 
 	// Mock HTTP server tracking for URL-based mock MCP servers
 	mockHTTPServers map[string]map[string]*mock.HTTPServer // instanceID -> serverName -> server
@@ -166,6 +192,8 @@ func NewMusterInstanceManagerWithConfig(debug bool, basePort int, logger TestLog
 		return nil, fmt.Errorf("failed to create temp directory: %w", err)
 	}
 
+	ephemeralLow, ephemeralHigh := detectEphemeralPortRange()
+
 	return &musterInstanceManager{
 		debug:               debug,
 		basePort:            basePort,
@@ -174,6 +202,9 @@ func NewMusterInstanceManagerWithConfig(debug bool, basePort int, logger TestLog
 		logger:              logger,
 		keepTempConfig:      keepTempConfig,
 		reservedPorts:       make(map[int]string),
+		reservedListeners:   make(map[int]net.Listener),
+		ephemeralLow:        ephemeralLow,
+		ephemeralHigh:       ephemeralHigh,
 		mockHTTPServers:     make(map[string]map[string]*mock.HTTPServer),
 		mockOAuthServers:    make(map[string]map[string]*mock.OAuthServer),
 		protectedMCPServers: make(map[string]map[string]*mock.ProtectedMCPServer),
@@ -235,7 +266,7 @@ func (m *musterInstanceManager) CreateInstance(ctx context.Context, scenarioName
 	}
 
 	// Start muster serve process with log capture
-	managedProc, err := m.startMusterProcess(ctx, configPath, logger)
+	managedProc, err := m.startMusterProcess(ctx, configPath, port, logger)
 	if err != nil {
 		// Clean up on failure: stop mock servers, release port and remove config directory
 		m.stopMockHTTPServers(ctx, instanceID, logger)
@@ -373,19 +404,15 @@ func (m *musterInstanceManager) gracefulShutdown(managedProc *managedProcess, in
 		}
 	}
 
-	// Wait for graceful shutdown with timeout
+	// Wait for graceful shutdown with timeout. cmd.Wait() is owned by the
+	// goroutine started in startMusterProcess; observe termination via the
+	// exited channel instead of calling Wait() again.
 	shutdownTimeout := 10 * time.Second
-	done := make(chan error, 1)
-
-	go func() {
-		err := managedProc.cmd.Wait()
-		done <- err
-	}()
 
 	select {
-	case err := <-done:
+	case <-managedProc.exited:
 		if m.debug {
-			if err != nil {
+			if err := managedProc.waitErr; err != nil {
 				logger.Debug("✅ Process %s exited with: %v\n", instanceID, err)
 			} else {
 				logger.Debug("✅ Process %s exited gracefully\n", instanceID)
@@ -426,6 +453,17 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
+	// Look up the managed process so we can detect an early exit (e.g. a failed
+	// port bind) instead of polling a dead port until the deadline. A nil
+	// channel blocks forever, so the select degrades gracefully if absent.
+	m.mu.RLock()
+	managedProc := m.processes[instance.ID]
+	m.mu.RUnlock()
+	var procExited <-chan struct{}
+	if managedProc != nil {
+		procExited = managedProc.exited
+	}
+
 	// First wait for port to be available
 	portReady := false
 	for !portReady {
@@ -435,6 +473,12 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 				m.showLogs(instance, logger)
 			}
 			return fmt.Errorf("timeout waiting for muster instance port to be ready")
+		case <-procExited:
+			// The process died before its port came up — surface this
+			// immediately (with captured output) rather than waiting out the
+			// full deadline, which also frees the worker slot and avoids
+			// starving other parallel scenarios.
+			return m.processExitedError(instance, managedProc, logger)
 		case <-ticker.C:
 			// Check if port is accepting connections
 			conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", instance.Port), 1*time.Second)
@@ -475,6 +519,11 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 			// If we can't connect to MCP, fall back to the old behavior
 			time.Sleep(3 * time.Second)
 			return nil
+		case <-procExited:
+			// The process crashed after binding its port but before the
+			// aggregator was reachable — fail fast instead of retrying until
+			// the connect deadline.
+			return m.processExitedError(instance, managedProc, logger)
 		case <-time.After(100 * time.Millisecond):
 			var err error
 			if instance.MusterOAuthAccessToken != "" {
@@ -539,13 +588,18 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 					}
 				}
 				if len(expectedMCPServers) > 0 {
-					if registeredServers, err := m.checkMCPServersAvailability(mcpClient, context.Background(), expectedMCPServers); err == nil {
-						logger.Debug("🔌 Registered MCP servers: %v\n", registeredServers)
+					if serverStates, err := m.checkMCPServersAvailability(mcpClient, context.Background()); err == nil {
+						logger.Debug("🔌 Registered MCP server states: %v\n", serverStates)
 						logger.Debug("🎯 Expected MCP servers: %v\n", expectedMCPServers)
 					}
 				}
 			}
 			return fmt.Errorf("timeout waiting for all expected resources to be available")
+		case <-procExited:
+			// The process died while we were waiting for its resources to
+			// register — surface the crash immediately rather than polling a
+			// dead aggregator until the resource deadline.
+			return m.processExitedError(instance, managedProc, logger)
 		case <-resourceTicker.C:
 			allReady := true
 			var notReadyReasons []string
@@ -600,7 +654,7 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 			// This is critical for OAuth-protected servers which must be registered
 			// before tests can call core_auth_login
 			if len(expectedMCPServers) > 0 {
-				registeredServers, err := m.checkMCPServersAvailability(mcpClient, resourceCtx, expectedMCPServers)
+				serverStates, err := m.checkMCPServersAvailability(mcpClient, resourceCtx)
 				if err != nil {
 					if m.debug {
 						logger.Debug("🔍 Failed to list MCP servers: %v\n", err)
@@ -608,7 +662,7 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 					allReady = false
 					notReadyReasons = append(notReadyReasons, "MCP servers check failed")
 				} else {
-					missingServers := m.findMissingMCPServers(expectedMCPServers, registeredServers)
+					missingServers := m.findMissingMCPServers(expectedMCPServers, serverStates)
 					if len(missingServers) > 0 {
 						allReady = false
 						notReadyReasons = append(notReadyReasons, fmt.Sprintf("missing MCP servers: %v", missingServers))
@@ -686,11 +740,74 @@ func (m *musterInstanceManager) showLogs(instance *MusterInstance, logger TestLo
 	}
 }
 
+// capturedLogTail returns a short, human-readable tail of the process's captured
+// stderr (falling back to stdout) for embedding in error messages. Returns an
+// empty string when no output was captured. The tail is bounded so error
+// messages stay readable.
+func capturedLogTail(mp *managedProcess) string {
+	if mp == nil || mp.logCapture == nil {
+		return ""
+	}
+	logs := mp.logCapture.getLogs()
+	out := logs.Stderr
+	if strings.TrimSpace(out) == "" {
+		out = logs.Stdout
+	}
+	out = strings.TrimSpace(out)
+	if out == "" {
+		return ""
+	}
+	const maxTail = 1000
+	if len(out) > maxTail {
+		out = "..." + out[len(out)-maxTail:]
+	}
+	return "\n--- captured muster output ---\n" + out
+}
+
+// processExitedError builds the standard error returned from WaitForReady when
+// the muster serve process terminates before the instance becomes ready. It
+// surfaces the wait result and a bounded tail of the captured output, and shows
+// the full logs in debug mode. Reading managedProc.waitErr here is safe because
+// callers reach this path only after observing the closed exited channel.
+func (m *musterInstanceManager) processExitedError(instance *MusterInstance, managedProc *managedProcess, logger TestLogger) error {
+	if m.debug {
+		m.showLogs(instance, logger)
+	}
+	return fmt.Errorf("muster instance process exited before becoming ready: %w%s",
+		managedProc.waitErr, capturedLogTail(managedProc))
+}
+
 // findAvailablePort finds an available port starting from the base port with atomic reservation
 func (m *musterInstanceManager) findAvailablePort(instanceID string, logger TestLogger) (int, error) {
 	m.portMu.Lock()
 	defer m.portMu.Unlock()
 
+	// First pass: prefer ports outside the OS ephemeral range. Such ports can
+	// never be handed to a mock server's net.Listen(":0"), so muster serve is
+	// guaranteed to bind the reserved port even though the probe listener is
+	// briefly closed before exec (see reservedListeners / startMusterProcess).
+	if port, ok := m.reservePortLocked(instanceID, logger, true); ok {
+		return port, nil
+	}
+
+	// Fallback: the whole configured window lies inside the ephemeral range, so
+	// no safe port is available. Allocate inside it anyway to preserve behavior,
+	// but warn: ephemeral collisions can cause rare setup flakes. Choosing a
+	// base port below the ephemeral range avoids this entirely.
+	logger.Info("⚠️  base port window [%d, %d] falls inside the OS ephemeral range [%d, %d]; "+
+		"instance ports may rarely be stolen by mock servers. Use a base port below %d to avoid this.\n",
+		m.basePort, m.basePort+99, m.ephemeralLow, m.ephemeralHigh, m.ephemeralLow)
+	if port, ok := m.reservePortLocked(instanceID, logger, false); ok {
+		return port, nil
+	}
+
+	return 0, fmt.Errorf("no available ports found starting from %d (tried 100 ports)", m.basePort)
+}
+
+// reservePortLocked scans up to 100 ports from the current offset and reserves
+// the first available one, returning it. When skipEphemeral is true, ports that
+// fall inside the OS ephemeral range are skipped. Caller must hold portMu.
+func (m *musterInstanceManager) reservePortLocked(instanceID string, logger TestLogger, skipEphemeral bool) (int, bool) {
 	for i := 0; i < 100; i++ { // Try up to 100 ports
 		port := m.basePort + m.portOffset + i
 
@@ -698,6 +815,14 @@ func (m *musterInstanceManager) findAvailablePort(instanceID string, logger Test
 		if existingInstanceID, reserved := m.reservedPorts[port]; reserved {
 			if m.debug {
 				logger.Debug("🔒 Port %d already reserved by instance %s, skipping\n", port, existingInstanceID)
+			}
+			continue
+		}
+
+		// Skip ephemeral-range ports on the preferred pass.
+		if skipEphemeral && m.isEphemeralPort(port) {
+			if m.debug {
+				logger.Debug("🚫 Port %d is in the OS ephemeral range [%d, %d], skipping\n", port, m.ephemeralLow, m.ephemeralHigh)
 			}
 			continue
 		}
@@ -711,26 +836,82 @@ func (m *musterInstanceManager) findAvailablePort(instanceID string, logger Test
 			continue // Port not available, try next
 		}
 
-		_ = ln.Close() // Close immediately to free the port
-
-		// ATOMIC: Reserve the port and update offset
+		// Keep the listener open (do NOT close here). Closing it now would free
+		// the port at the OS level, letting an ephemeral net.Listen(":0") from a
+		// mock server steal it before muster serve binds. startMusterProcess
+		// closes it immediately before exec to minimize the bind race window.
 		m.reservedPorts[port] = instanceID
+		m.reservedListeners[port] = ln
 		m.portOffset = i + 1 // Next search starts from next port
 
 		if m.debug {
 			logger.Debug("✅ Reserved port %d for instance %s\n", port, instanceID)
 		}
 
-		return port, nil
+		return port, true
 	}
 
-	return 0, fmt.Errorf("no available ports found starting from %d (tried 100 ports)", m.basePort)
+	return 0, false
+}
+
+// isEphemeralPort reports whether port lies within the OS ephemeral port range.
+func (m *musterInstanceManager) isEphemeralPort(port int) bool {
+	return port >= m.ephemeralLow && port <= m.ephemeralHigh
+}
+
+// detectEphemeralPortRange returns the OS ephemeral (local) port range. On Linux
+// it reads /proc/sys/net/ipv4/ip_local_port_range; on other platforms, or if the
+// value cannot be read, it falls back to the common 32768-60999 range. The
+// range is used to keep test instance ports away from ports the OS may hand out
+// to net.Listen(":0") callers (see musterInstanceManager.ephemeralLow).
+func detectEphemeralPortRange() (int, int) {
+	const fallbackLow, fallbackHigh = 32768, 60999
+
+	data, err := os.ReadFile("/proc/sys/net/ipv4/ip_local_port_range")
+	if err != nil {
+		return fallbackLow, fallbackHigh
+	}
+
+	fields := strings.Fields(string(data))
+	if len(fields) != 2 {
+		return fallbackLow, fallbackHigh
+	}
+
+	low, errLow := strconv.Atoi(fields[0])
+	high, errHigh := strconv.Atoi(fields[1])
+	if errLow != nil || errHigh != nil || low <= 0 || high < low {
+		return fallbackLow, fallbackHigh
+	}
+
+	return low, high
+}
+
+// closeReservedListener closes and forgets the probe listener held open for the
+// given port. It is called immediately before muster serve binds the port so the
+// child process can take it over. Safe to call multiple times.
+func (m *musterInstanceManager) closeReservedListener(port int) {
+	m.portMu.Lock()
+	defer m.portMu.Unlock()
+	m.releaseReservedListenerLocked(port)
+}
+
+// releaseReservedListenerLocked closes and removes the held probe listener for
+// the given port. Caller must hold portMu.
+func (m *musterInstanceManager) releaseReservedListenerLocked(port int) {
+	if ln, ok := m.reservedListeners[port]; ok {
+		_ = ln.Close()
+		delete(m.reservedListeners, port)
+	}
 }
 
 // releasePort releases a reserved port back to the available pool
 func (m *musterInstanceManager) releasePort(port int, instanceID string, logger TestLogger) {
 	m.portMu.Lock()
 	defer m.portMu.Unlock()
+
+	// Close any probe listener still held for this port (e.g. when setup failed
+	// before muster serve was started). Idempotent if already closed.
+	m.releaseReservedListenerLocked(port)
 
 	// Check if the port is actually reserved by this instance
 	if existingInstanceID, reserved := m.reservedPorts[port]; reserved {
@@ -751,8 +932,12 @@ func (m *musterInstanceManager) releasePort(port int, instanceID string, logger 
 	}
 }
 
-// startMusterProcess starts an muster serve process
-func (m *musterInstanceManager) startMusterProcess(ctx context.Context, configPath string, logger TestLogger) (*managedProcess, error) {
+// startMusterProcess starts an muster serve process.
+//
+// port is the reserved port muster serve will bind. The probe listener held open
+// for it (see findAvailablePort) is closed immediately before exec so the child
+// can take the port over with a near-zero race window.
+func (m *musterInstanceManager) startMusterProcess(ctx context.Context, configPath string, port int, logger TestLogger) (*managedProcess, error) {
 	// Get the path to the muster binary
 	musterPath, err := m.getMusterBinaryPath()
 	if err != nil {
@@ -795,6 +980,12 @@ func (m *musterInstanceManager) startMusterProcess(ctx context.Context, configPa
 	cmd.Stdout = logCapture.stdoutWriter
 	cmd.Stderr = logCapture.stderrWriter
 
+	// Release the OS-level port reservation just before exec: the held listener
+	// kept ephemeral listeners from stealing the port during setup, and now
+	// muster serve binds it immediately, leaving only a process-startup-sized
+	// race window.
+	m.closeReservedListener(port)
+
 	// Start the process
 	if err := cmd.Start(); err != nil {
 		logCapture.close()
@@ -804,7 +995,15 @@ func (m *musterInstanceManager) startMusterProcess(ctx context.Context, configPa
 	managedProc := &managedProcess{
 		cmd:        cmd,
 		logCapture: logCapture,
+		exited:     make(chan struct{}),
 	}
+
+	// A single goroutine owns cmd.Wait() so termination can be observed via the
+	// exited channel from multiple places without calling Wait() twice.
+	go func() {
+		managedProc.waitErr = cmd.Wait()
+		close(managedProc.exited)
+	}()
 
 	return managedProc, nil
 }
@@ -1606,23 +1805,22 @@ func (m *musterInstanceManager) extractExpectedWorkflowsFromInstance(_ *MusterIn
 	return []string{}
 }
 
-// checkMCPServersAvailability checks if the expected MCP servers are registered.
-// This includes servers in "auth_required" state (OAuth-protected servers).
-// Returns the list of registered server names and any error.
-func (m *musterInstanceManager) checkMCPServersAvailability(client MCPTestClient, ctx context.Context, expectedServers []string) ([]string, error) {
-	if len(expectedServers) == 0 {
-		return nil, nil
-	}
-
-	// Use core_mcpserver_list to get all registered servers
-	result, err := client.CallTool(ctx, "core_mcpserver_list", map[string]interface{}{})
+// checkMCPServersAvailability returns a map of server name to state for all
+// registered servers, including servers in "Auth Required" state
+// (OAuth-protected servers).
+func (m *musterInstanceManager) checkMCPServersAvailability(client MCPTestClient, ctx context.Context) (map[string]string, error) {
+	// showAll includes servers in "Failed" state, which core_mcpserver_list hides
+	// by default; without it a failed server is indistinguishable from one that
+	// has not registered yet, and the readiness loop waits out the full timeout
+	// with no state to report.
+	result, err := client.CallTool(ctx, "core_mcpserver_list", map[string]interface{}{"showAll": true})
 	if err != nil {
 		return nil, fmt.Errorf("failed to call core_mcpserver_list: %w", err)
 	}
 
-	var registeredServers []string
+	serverStates := make(map[string]string)
 
-	// Parse the response to extract server names
+	// Parse the response to extract server names and states.
 	// The response structure is: {"mcpServers": [...]}
 	jsonStr := ""
 
@@ -1673,10 +1871,10 @@ func (m *musterInstanceManager) checkMCPServersAvailability(client MCPTestClient
 				if serverArray, ok := mcpServers.([]interface{}); ok {
 					for _, server := range serverArray {
 						if serverMap, ok := server.(map[string]interface{}); ok {
-							if name, exists := serverMap["name"]; exists {
-								if nameStr, ok := name.(string); ok {
-									registeredServers = append(registeredServers, nameStr)
-								}
+							name, _ := serverMap["name"].(string)
+							state, _ := serverMap["state"].(string)
+							if name != "" {
+								serverStates[name] = state
 							}
 						}
 					}
@@ -1687,23 +1885,48 @@ func (m *musterInstanceManager) checkMCPServersAvailability(client MCPTestClient
 		}
 	}
 
-	return registeredServers, nil
+	return serverStates, nil
 }
 
-// findMissingMCPServers returns MCP servers that are expected but not found in registered servers
-func (m *musterInstanceManager) findMissingMCPServers(expectedServers, registeredServers []string) []string {
+// mcpServerStateIsReady returns true when a server has reached a stable
+// post-start state and tests can rely on it. Until then RegisterPendingAuth may
+// not have run for OAuth-protected servers, causing core_auth_login to return
+// "Server not found". This is an allowlist rather than a transient-state denylist:
+// the reconciler writes "Disconnected"/"Stopped" for a registered-but-not-yet-started
+// service, so a denylist would pass readiness inside the startup window, and any
+// unknown future state fails closed (wait, then time out with the state visible)
+// instead of silently counting as ready.
+//
+// Note: mock pre-configured servers hardcode autoStart=true and will always reach
+// one of these states. Regular pre-configured servers without autoStart=true
+// (autoStart defaults to false) will never start and readiness will time out.
+func mcpServerStateIsReady(state string) bool {
+	switch musterv1alpha1.MCPServerStateValue(state) {
+	case musterv1alpha1.MCPServerStateRunning,
+		musterv1alpha1.MCPServerStateConnected,
+		musterv1alpha1.MCPServerStateAuthRequired:
+		return true
+	default:
+		return false
+	}
+}
+
+// findMissingMCPServers returns MCP servers that are expected but either absent
+// or not yet in a ready state. Servers that are present but not ready are
+// annotated with their current state so timeout reports show why they were
+// not counted as ready.
+func (m *musterInstanceManager) findMissingMCPServers(expectedServers []string, serverStates map[string]string) []string {
 	var missing []string
 
 	for _, expected := range expectedServers {
-		found := false
-		for _, registered := range registeredServers {
-			if registered == expected {
-				found = true
-				break
-			}
-		}
-		if !found {
+		state, found := serverStates[expected]
+		switch {
+		case !found:
 			missing = append(missing, expected)
+		case state == "":
+			missing = append(missing, fmt.Sprintf("%s (no state reported)", expected))
+		case !mcpServerStateIsReady(state):
+			missing = append(missing, fmt.Sprintf("%s (state: %s)", expected, state))
 		}
 	}
 

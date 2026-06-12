@@ -279,18 +279,9 @@ type OAuthServerConfig struct {
 	// Format: Go duration string (e.g., "720h", "30d" is NOT valid, use hours).
 	SessionDuration string `yaml:"sessionDuration,omitempty"`
 
-	// AllowedOrigins is a comma-separated list of allowed CORS origins.
+	// AllowedOrigins is a comma-separated list of allowed CORS origins for
+	// browser-based MCP clients. Empty disables CORS (default, secure).
 	AllowedOrigins string `yaml:"allowedOrigins,omitempty"`
-
-	// EnableHSTS enables HSTS header (for reverse proxy scenarios).
-	EnableHSTS bool `yaml:"enableHSTS,omitempty"`
-
-	// TLSCertFile is the path to the TLS certificate file (PEM format).
-	// If both TLSCertFile and TLSKeyFile are provided, the server will use HTTPS.
-	TLSCertFile string `yaml:"tlsCertFile,omitempty"`
-
-	// TLSKeyFile is the path to the TLS private key file (PEM format).
-	TLSKeyFile string `yaml:"tlsKeyFile,omitempty"`
 
 	// TrustedAudiences lists additional OAuth client IDs (audiences) whose
 	// JWT ID tokens are accepted directly as bearer tokens, without requiring
@@ -305,15 +296,8 @@ type OAuthServerConfig struct {
 	// as a valid muster bearer token.
 	TrustedAudiences []string `yaml:"trustedAudiences,omitempty"`
 
-	// KubernetesSATrusts configures trust for Kubernetes projected ServiceAccount
-	// tokens. Each entry covers one cluster. When non-empty, the server accepts
-	// SA tokens as RFC 8693 subject_tokens of type
-	// urn:ietf:params:oauth:token-type:jwt.
-	KubernetesSATrusts []K8sSATrustConfig `yaml:"kubernetesSATrusts,omitempty"`
-
 	// TrustedIssuers registers external OIDC issuers for RFC 8693 token exchange.
-	// Tokens from these issuers are accepted as subject_tokens of type
-	// urn:ietf:params:oauth:token-type:id_token and access_token.
+	// Tokens are accepted as subject_tokens of type id_token, access_token, or jwt.
 	TrustedIssuers []TrustedIssuerConfig `yaml:"trustedIssuers,omitempty"`
 
 	// TrustedProxyCIDRs lists CIDRs from which X-Forwarded-Proto and
@@ -324,7 +308,14 @@ type OAuthServerConfig struct {
 	// EnableJWTMode issues signed RFC 9068 JWTs as access tokens instead of
 	// opaque random strings. Required when downstream services (e.g. agentgateway)
 	// need to validate tokens locally without calling the introspection endpoint.
+	// JWTSigningKeyFile must be set when this is true.
 	EnableJWTMode bool `yaml:"enableJWTMode,omitempty"`
+
+	// JWTSigningKeyFile is the path to a PEM-encoded private key used to sign
+	// access tokens in JWT mode. Supported formats: EC PRIVATE KEY (P-256, ES256),
+	// RSA PRIVATE KEY / PRIVATE KEY (PKCS#8, RS256). kid is derived from the
+	// RFC 7638 JWK thumbprint of the public key. Required when EnableJWTMode is true.
+	JWTSigningKeyFile string `yaml:"jwtSigningKeyFile,omitempty"`
 
 	// ResourceIdentifier is the canonical URI that identifies this muster instance
 	// as an RFC 8707 resource server. When set, access tokens carry this value in
@@ -333,22 +324,87 @@ type OAuthServerConfig struct {
 	// If empty the library defaults to BaseURL (the issuer URL).
 	// Example: "https://muster.example.com/mcp"
 	ResourceIdentifier string `yaml:"resourceIdentifier,omitempty"`
+
+	// TokenExchangeBroker exposes muster's RFC 8693 token exchange to external
+	// confidential clients: a broker client POSTs a token-exchange request with
+	// an `audience` parameter to /oauth/token and receives a token minted by
+	// the audience's downstream Dex (not a muster-issued JWT). Subject tokens
+	// are validated against TrustedIssuers; the per-client allowlist below
+	// gates which audiences each client may request.
+	TokenExchangeBroker TokenExchangeBrokerConfig `yaml:"tokenExchangeBroker,omitempty"`
 }
 
-// K8sSATrustConfig mirrors server.KubernetesSATrust.
-type K8sSATrustConfig struct {
-	// Issuer is the cluster OIDC issuer URL (kube-apiserver --service-account-issuer).
-	Issuer string `yaml:"issuer,omitempty"`
-	// JwksURL is the JWKS endpoint. Independent of Issuer so an in-cluster proxy can be used.
-	JwksURL string `yaml:"jwksUrl,omitempty"`
-	// AllowedAudiences lists accepted aud values. Empty accepts any audience.
-	AllowedAudiences []string `yaml:"allowedAudiences,omitempty"`
-	// AllowedScopes caps scopes for exchange tokens from this cluster. Nil means no restriction.
-	AllowedScopes []string `yaml:"allowedScopes,omitempty"`
-	// AllowedNamespaces restricts allowed namespaces. Empty means any.
-	AllowedNamespaces []string `yaml:"allowedNamespaces,omitempty"`
-	// AllowedServiceAccounts restricts allowed SAs in "namespace/name" format. Empty means any.
-	AllowedServiceAccounts []string `yaml:"allowedServiceAccounts,omitempty"`
+// TokenExchangeBrokerConfig configures brokered RFC 8693 token exchange
+// (muster as a shared token broker for external clients).
+type TokenExchangeBrokerConfig struct {
+	// ClientAudiences maps an authenticated confidential broker client ID to
+	// the audiences it may request. Requests for audiences outside the
+	// client's list are rejected with invalid_target. Maps to mcp-oauth's
+	// Config.TokenExchangeClientAudiences.
+	ClientAudiences map[string][]string `yaml:"clientAudiences,omitempty"`
+
+	// Targets maps an RFC 8693 audience name (e.g. a management cluster name)
+	// to the downstream Dex exchange target.
+	Targets map[string]BrokerTargetConfig `yaml:"targets,omitempty"`
+
+	// AllowPrivateIP allows downstream token endpoints to resolve to private
+	// or loopback IP addresses. WARNING: reduces SSRF protection; only enable
+	// for internal/VPN deployments where the target Dex is reachable via a
+	// private address.
+	AllowPrivateIP bool `yaml:"allowPrivateIP,omitempty"`
+
+	// DefaultSecretNamespace is the namespace used for target credential
+	// secret refs that do not set an explicit namespace. Populated from the
+	// muster namespace by the serve command; not user-facing config.
+	DefaultSecretNamespace string `yaml:"-"`
+}
+
+// Enabled reports whether brokered token exchange is configured.
+func (c TokenExchangeBrokerConfig) Enabled() bool {
+	return len(c.Targets) > 0
+}
+
+// BrokerTargetConfig describes one downstream Dex target of the token broker.
+type BrokerTargetConfig struct {
+	// DexTokenEndpoint is the downstream Dex token endpoint URL (HTTPS).
+	// Example: https://dex.cluster-b.example.com/token
+	DexTokenEndpoint string `yaml:"dexTokenEndpoint"`
+
+	// ExpectedIssuer is the expected iss claim of the exchanged token. If
+	// empty, it is derived from DexTokenEndpoint (strip /token suffix).
+	ExpectedIssuer string `yaml:"expectedIssuer,omitempty"`
+
+	// ConnectorID is the downstream Dex OIDC connector that trusts the
+	// subject token's issuer.
+	ConnectorID string `yaml:"connectorId"`
+
+	// Scopes is the space-separated scope set requested downstream. Defaults
+	// to "openid profile email groups". For Kubernetes-bound audiences this
+	// must include the Dex cross-client scope for the apiserver's client,
+	// e.g. "audience:server:client_id:dex-k8s-authenticator" — without it
+	// the exchanged token's aud is the exchange client only, which mcp-*
+	// servers accept but kube-apiserver rejects.
+	Scopes string `yaml:"scopes,omitempty"`
+
+	// ClientCredentialsSecretRef references the Kubernetes Secret holding the
+	// downstream exchange client credentials (same secrets the per-MCPServer
+	// tokenExchange config uses; no duplication).
+	ClientCredentialsSecretRef *BrokerSecretRefConfig `yaml:"clientCredentialsSecretRef,omitempty"`
+}
+
+// BrokerSecretRefConfig references a Kubernetes Secret with OAuth client
+// credentials. Mirrors api.ClientCredentialsSecretRef (kept separate to avoid
+// an import cycle between config and api).
+type BrokerSecretRefConfig struct {
+	// Name is the secret name. Required.
+	Name string `yaml:"name"`
+	// Namespace defaults to the broker's DefaultSecretNamespace (the muster
+	// namespace) when empty.
+	Namespace string `yaml:"namespace,omitempty"`
+	// ClientIDKey defaults to "client-id".
+	ClientIDKey string `yaml:"clientIdKey,omitempty"`
+	// ClientSecretKey defaults to "client-secret".
+	ClientSecretKey string `yaml:"clientSecretKey,omitempty"`
 }
 
 // TrustedIssuerConfig mirrors server.TrustedIssuer.
@@ -361,6 +417,22 @@ type TrustedIssuerConfig struct {
 	AllowedAudiences []string `yaml:"allowedAudiences,omitempty"`
 	// AllowedScopes caps scopes for tokens from this issuer. Nil means no restriction.
 	AllowedScopes []string `yaml:"allowedScopes,omitempty"`
+	// AllowedClaims requires each named claim to match its pattern. Keys are JWT
+	// claim names; values are exact strings or globs ('*' spans any chars incl. '/',
+	// '?' one char). Absent or non-string claims are rejected. Empty means no
+	// restriction. Use to express K8s SA trust via sub, e.g.
+	// "system:serviceaccount:<namespace>:*".
+	AllowedClaims map[string]string `yaml:"allowedClaims,omitempty"`
+	// AllowPrivateIPJWKS allows the JwksURL to resolve to a private or loopback
+	// address. Required for in-cluster Kubernetes SA trust where the JWKS endpoint
+	// is https://kubernetes.default.svc/openid/v1/jwks. Emits a startup warning
+	// when set (mcp-oauth dev-override flag). Default: false.
+	AllowPrivateIPJWKS bool `yaml:"allowPrivateIPJWKS,omitempty"`
+	// AcceptedTypHeaders lists the JWT typ header values accepted for Bearer
+	// tokens from this issuer. Empty keeps the RFC 9068 default ("at+jwt").
+	// Kubernetes ServiceAccount tokens carry no typ header; use [""] to
+	// accept them.
+	AcceptedTypHeaders []string `yaml:"acceptedTypHeaders,omitempty"`
 }
 
 // DexConfig holds configuration for the Dex OIDC provider.
@@ -382,6 +454,13 @@ type DexConfig struct {
 
 	// ConnectorID is the optional Dex connector ID to bypass connector selection.
 	ConnectorID string `yaml:"connectorId,omitempty"`
+
+	// AllowPrivateIPOIDC allows the Dex issuer URL to resolve to a private or
+	// loopback IP address during OIDC discovery. Required when Dex is fronted by
+	// an internal-only load balancer (e.g. Azure internal LB, air-gapped clusters)
+	// where the public hostname resolves to an RFC 1918 address.
+	// Emits a CWE-918 startup warning when set.
+	AllowPrivateIPOIDC bool `yaml:"allowPrivateIPOIDC,omitempty"`
 }
 
 // GoogleConfig holds configuration for the Google OAuth provider.

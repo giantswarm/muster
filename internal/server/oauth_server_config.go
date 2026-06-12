@@ -5,17 +5,19 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"strings"
 	"time"
 
 	oauth "github.com/giantswarm/mcp-oauth"
-	dpopvalkey "github.com/giantswarm/mcp-oauth/dpop/valkey"
 	"github.com/giantswarm/mcp-oauth/instrumentation"
 	"github.com/giantswarm/mcp-oauth/security"
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
 	"github.com/giantswarm/mcp-oauth/storage"
+	"github.com/giantswarm/mcp-oauth/storage/valkey"
 	valkeygo "github.com/valkey-io/valkey-go"
 
 	"github.com/giantswarm/muster/internal/config"
+	musteroauth "github.com/giantswarm/muster/internal/oauth"
 )
 
 // newOAuthServerConfig maps the muster OAuth config onto the mcp-oauth Config.
@@ -39,6 +41,23 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, refreshTokenTTL time.Dur
 		TrustedPublicRegistrationRedirectURIs: cfg.TrustedPublicRegistrationRedirectURIs,
 		AllowLocalhostRedirectURIs:            cfg.AllowLocalhostRedirectURIs,
 		TrustedAudiences:                      cfg.TrustedAudiences,
+		// The forwarded-ID-token (TrustedAudiences) JWKS validation in
+		// mcp-oauth is gated on this top-level flag. Mirror the provider-side
+		// intent: when the operator has opted into a private-IP Dex via
+		// Dex.AllowPrivateIPOIDC, the forwarded-token JWKS client must accept
+		// the same private-IP issuer instead of rejecting it as a DNS-rebinding
+		// attack. Public-hostname Dex deployments are unaffected.
+		AllowPrivateIPJWKS: cfg.Dex.AllowPrivateIPOIDC,
+		// Per-client audience allowlist for brokered RFC 8693 token exchange.
+		// Only consulted when an Exchanger is registered (see
+		// buildOAuthServerOptions); a miss returns invalid_target.
+		TokenExchangeClientAudiences: cfg.TokenExchangeBroker.ClientAudiences,
+	}
+	if cfg.AllowedOrigins != "" {
+		result.CORS.AllowedOrigins = strings.Split(cfg.AllowedOrigins, ",")
+		for i, o := range result.CORS.AllowedOrigins {
+			result.CORS.AllowedOrigins[i] = strings.TrimSpace(o)
+		}
 	}
 	if cfg.EnableJWTMode {
 		result.AccessTokenFormat = oauthserver.AccessTokenFormatJWT
@@ -75,32 +94,26 @@ func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger) 
 		oauth.WithMetadataFetchRateLimiter(security.NewRateLimiter(DefaultMetadataFetchRate, DefaultMetadataFetchBurst, logger)),
 	}
 
-	if len(cfg.KubernetesSATrusts) > 0 {
-		trusts := make([]oauthserver.KubernetesSATrust, len(cfg.KubernetesSATrusts))
-		for i, t := range cfg.KubernetesSATrusts {
-			trusts[i] = oauthserver.KubernetesSATrust{
-				Issuer:                 t.Issuer,
-				JwksURL:                t.JwksURL,
-				AllowedAudiences:       t.AllowedAudiences,
-				AllowedScopes:          t.AllowedScopes,
-				AllowedNamespaces:      t.AllowedNamespaces,
-				AllowedServiceAccounts: t.AllowedServiceAccounts,
-			}
-		}
-		opts = append(opts, oauthserver.WithKubernetesSATrust(trusts))
-	}
-
 	if len(cfg.TrustedIssuers) > 0 {
 		issuers := make([]oauthserver.TrustedIssuer, len(cfg.TrustedIssuers))
 		for i, iss := range cfg.TrustedIssuers {
-			issuers[i] = oauthserver.TrustedIssuer{
-				Issuer:           iss.Issuer,
-				JwksURL:          iss.JwksURL,
-				AllowedAudiences: iss.AllowedAudiences,
-				AllowedScopes:    iss.AllowedScopes,
-			}
+			issuers[i] = toTrustedIssuer(iss)
 		}
 		opts = append(opts, oauthserver.WithTrustedIssuers(issuers))
+	}
+
+	if cfg.TokenExchangeBroker.Enabled() {
+		if len(cfg.TrustedIssuers) == 0 {
+			return nil, fmt.Errorf("tokenExchangeBroker requires at least one trustedIssuers entry to validate subject tokens")
+		}
+		opts = append(opts, oauthserver.WithExchanger(musteroauth.NewBrokerExchanger(cfg.TokenExchangeBroker)))
+		brokerLogger := logger
+		if brokerLogger == nil {
+			brokerLogger = slog.Default()
+		}
+		brokerLogger.Info("Brokered RFC 8693 token exchange enabled",
+			"targets", len(cfg.TokenExchangeBroker.Targets),
+			"brokerClients", len(cfg.TokenExchangeBroker.ClientAudiences))
 	}
 
 	if len(cfg.TrustedProxyCIDRs) > 0 {
@@ -112,6 +125,18 @@ func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger) 
 	}
 
 	return opts, nil
+}
+
+func toTrustedIssuer(iss config.TrustedIssuerConfig) oauthserver.TrustedIssuer {
+	return oauthserver.TrustedIssuer{
+		Issuer:             iss.Issuer,
+		JwksURL:            iss.JwksURL,
+		AllowedAudiences:   iss.AllowedAudiences,
+		AllowedScopes:      iss.AllowedScopes,
+		AllowedClaims:      iss.AllowedClaims,
+		AllowPrivateIPJWKS: iss.AllowPrivateIPJWKS,
+		AcceptedTypHeaders: iss.AcceptedTypHeaders,
+	}
 }
 
 func parseCIDRs(cidrs []string) ([]*net.IPNet, error) {
@@ -149,14 +174,14 @@ func newDPoPReplayCache(storageCfg config.OAuthStorageConfig) (oauthserver.DPoPR
 		if prefix == "" {
 			prefix = "muster:"
 		}
-		return dpopvalkey.New(client, prefix+"dpop:"), client, nil
+		return valkey.NewDPoPReplayCache(client, prefix+"dpop:"), client, nil
 	}
 	return oauthserver.NewMemoryDPoPReplayCache(), nil, nil
 }
 
 // logEnabledOAuthOptions emits operator-facing Info lines confirming which
 // security subsystems came up. Call only after the constructor succeeded.
-func logEnabledOAuthOptions(cfg config.OAuthServerConfig, logger *slog.Logger) {
+func logEnabledOAuthOptions(logger *slog.Logger) {
 	logger.Info("Security audit logging enabled")
 	logger.Info("IP-based rate limiting enabled", "rate", DefaultIPRateLimit, "burst", DefaultIPBurst)
 	logger.Info("User-based rate limiting enabled", "rate", DefaultUserRateLimit, "burst", DefaultUserBurst)

@@ -326,6 +326,11 @@ muster:
         clientSecret: ""
         # Optional connector ID to bypass Dex connector selection
         connectorId: ""
+        # Allow the Dex issuer URL to resolve to a private/loopback IP during
+        # OIDC discovery. Required when Dex is fronted by an internal-only load
+        # balancer (e.g. Azure internal LB) where the public hostname resolves to
+        # an RFC 1918 address. Emits a CWE-918 startup warning when set.
+        allowPrivateIPOIDC: false
 
       # Google OAuth provider configuration (used when provider is "google")
       google:
@@ -385,13 +390,37 @@ muster:
           # Key in the secret containing the Valkey password
           secretKeyPassword: "valkey-password"
 
-      # Registration token for dynamic client registration
-      # Required if allowPublicClientRegistration is false
-      # Should be set via existingSecret for production security
+      # ---------------------------------------------------------------------------
+      # Dynamic Client Registration (DCR) gate
+      #
+      # MCP clients register with muster before they can obtain access tokens.
+      # Exactly one of the four mechanisms below must satisfy the gate; they
+      # are evaluated in the order listed.  Pick the one that fits the client:
+      #
+      #   registrationToken            — shared secret; suits server-side or
+      #                                  managed clients that can store it
+      #                                  (e.g. a CI runner, an operator)
+      #   allowPublicClientRegistration — open to anyone; avoid in production,
+      #                                  use only in air-gapped dev clusters
+      #   trustedPublicRegistrationSchemes — for native desktop apps that use
+      #                                  a custom URI scheme as redirect target
+      #                                  (e.g. cursor://, vscode://)
+      #   trustedPublicRegistrationRedirectURIs — for SaaS / hosted MCP clients
+      #                                  with a stable HTTPS callback URL
+      #                                  (e.g. Claude.ai, AWS Bedrock AgentCore)
+      #
+      # Multiple mechanisms can be active simultaneously; a client satisfies
+      # the gate when any one of them matches.
+      # ---------------------------------------------------------------------------
+
+      # Shared secret a client must present at the DCR endpoint to register.
+      # Supply via existingSecret (key: registration-token) in production so
+      # the value never appears in Helm release history.
       registrationToken: ""
 
-      # Allow unauthenticated dynamic client registration
-      # WARNING: Can lead to DoS attacks. Default: false
+      # Open registration: any client may register without a token.
+      # Exposes the DCR endpoint to unauthenticated callers — rate-limited
+      # but still a DoS surface. Default: false.
       allowPublicClientRegistration: false
 
       # Enable token encryption at rest
@@ -403,62 +432,113 @@ muster:
       # SECURITY: Use existingSecret for production deployments
       encryptionKeyValue: ""
 
-      # URI schemes allowed for unauthenticated client registration
-      # Enables Cursor/VSCode without registration tokens
+      # Custom URI schemes whose redirect URIs are accepted without a
+      # registration token. Use for native desktop apps that register a
+      # protocol handler (e.g. Cursor, VS Code).
       # Example: ["cursor", "vscode"]
       trustedPublicRegistrationSchemes: []
 
-      # HTTPS redirect URIs pre-attested by the operator for unauthenticated
-      # client registration. SECURITY: every entry here is a client that can
-      # complete DCR without a registration token. Use only for SaaS MCP
-      # clients whose redirect URI you fully control or operationally trust.
-      # Matching is exact after RFC 3986 normalization.
-      # Example (uncomment to allow the Claude.ai connector):
+      # HTTPS redirect URIs accepted without a registration token.
+      # Use for SaaS or hosted MCP clients whose callback URL is stable and
+      # operator-controlled (e.g. Claude.ai, AWS Bedrock AgentCore).
+      # SECURITY: each entry grants that client DCR access — only list URIs
+      # you fully control or operationally trust. Matching is exact after
+      # RFC 3986 normalization.
+      # Examples:
       #   - https://claude.ai/api/mcp/auth_callback
+      #   - https://bedrock-agentcore.<region>.amazonaws.com/identities/oauth2/callback/<id>
       trustedPublicRegistrationRedirectURIs: []
 
       # Enable Client ID Metadata Documents (CIMD) per MCP 2025-11-25 spec
       enableCIMD: true
 
-      # Allow localhost/loopback redirect URIs for native apps (RFC 8252)
-      # Required for muster agent and other native OAuth clients
-      # Default: true
+      # Allow localhost/loopback redirect URIs for native apps (RFC 8252).
+      # Required for muster agent and other local OAuth clients. Default: true.
       allowLocalhostRedirectURIs: true
 
-      # OIDC client IDs (audiences) whose JWTs muster will accept directly
-      # as bearer tokens, without the client completing muster's own OAuth
-      # flow. The token's `aud` claim must match one of these values and
-      # the signature must validate against the provider's JWKS.
+      # ---------------------------------------------------------------------------
+      # Token acceptance: skip muster's own OAuth flow
       #
+      # The two fields below let clients bypass the authorization-code flow and
+      # present tokens they already hold.  Use only when the client cannot or
+      # should not go through a browser-based redirect.
+      #
+      #   trustedAudiences — client presents a JWT already issued by the upstream
+      #                      IdP (Dex, etc.) with a matching aud claim; muster
+      #                      validates the signature and accepts it directly.
+      #                      Typical use: server-to-server calls where a human
+      #                      login redirect is impractical.
+      #
+      #   trustedIssuers   — client exchanges a token from a different issuer
+      #                      (RFC 8693); muster validates it against the issuer's
+      #                      JWKS and issues its own access token in return.
+      #                      Typical use: Kubernetes ServiceAccount tokens,
+      #                      cross-cluster trust.
+      # ---------------------------------------------------------------------------
+
+      # OIDC client IDs (audiences) whose JWTs muster accepts directly as bearer
+      # tokens without the client completing muster's own OAuth flow.  The
+      # token's aud claim must match one of these values and the signature must
+      # validate against the provider's JWKS.
       # SECURITY: only list client IDs you fully trust.
       trustedAudiences: []
 
-      # Kubernetes projected ServiceAccount trust entries for RFC 8693 token exchange.
-      # Each entry covers one cluster. When non-empty, SA tokens are accepted as
-      # subject_tokens of type urn:ietf:params:oauth:token-type:jwt.
-      # Example:
-      #   - issuer: "https://kubernetes.default.svc"
-      #     jwksUrl: "https://kubernetes.default.svc/openid/v1/jwks"
-      #     allowedAudiences: ["https://muster.example.com"]
-      kubernetesSATrusts: []
-
-      # Trusted external OIDC issuers for RFC 8693 token exchange.
-      # Tokens from these issuers are accepted as id_token / access_token subject_tokens.
-      # Example:
-      #   - issuer: "https://idp.example.com"
-      #     jwksUrl: "https://idp.example.com/jwks"
+      # Trusted external OIDC issuers for RFC 8693 token exchange. Tokens are
+      # accepted as id_token / access_token / jwt subject_tokens. Optional
+      # allowedClaims requires named claims to match exact strings or globs
+      # (* spans any chars incl. '/', ? one char). Set allowPrivateIPJWKS: true
+      # when the JWKS endpoint resolves to a private IP (e.g. in-cluster
+      # Kubernetes SA trust via https://kubernetes.default.svc/openid/v1/jwks).
+      # Example — trust a Kubernetes ServiceAccount:
+      #   - issuer: https://kubernetes.default.svc
+      #     jwksUrl: https://kubernetes.default.svc/openid/v1/jwks
       #     allowedAudiences: ["muster"]
+      #     allowedClaims:
+      #       sub: "system:serviceaccount:ai-platform:*"
+      #     allowPrivateIPJWKS: true
       trustedIssuers: []
 
-      # CIDRs from which X-Forwarded-Proto and X-Forwarded-Host headers are trusted
-      # for DPoP htu URL reconstruction. Required when muster runs behind a reverse proxy.
-      # Example: ["10.0.0.0/8", "172.16.0.0/12"]
+      # Brokered RFC 8693 token exchange: muster as a shared token broker.
+      # An external confidential client POSTs a token-exchange request with an
+      # `audience` parameter to /oauth/token and receives a token minted by the
+      # audience's downstream Dex (instead of a muster-issued JWT). Subject
+      # tokens are validated against trustedIssuers, so at least one issuer
+      # entry covering the broker client's tokens is required.
+      # Policy enforced by mcp-oauth: confidential clients only, per-client
+      # audience allowlist, no refresh tokens, expires_in bounded by the
+      # downstream token's expiry, DPoP rejected.
+      # Example:
+      #   clientAudiences:
+      #     portal-backend: ["cluster-a", "cluster-b"]
+      #   targets:
+      #     cluster-a:
+      #       dexTokenEndpoint: https://dex.cluster-a.example.com/token
+      #       connectorId: main-dex
+      #       # k8s-bound audiences need the Dex cross-client scope, otherwise
+      #       # the exchanged token's aud is the exchange client only and the
+      #       # kube-apiserver rejects it:
+      #       scopes: "openid profile email groups audience:server:client_id:dex-k8s-authenticator"
+      #       clientCredentialsSecretRef:
+      #         name: muster-token-exchange-cluster-a
+      tokenExchangeBroker: {}
+
+      # CIDRs from which X-Forwarded-Proto and X-Forwarded-Host headers are
+      # trusted for DPoP htu URL reconstruction. Required when muster runs
+      # behind a reverse proxy. Example: ["10.0.0.0/8", "172.16.0.0/12"]
       trustedProxyCIDRs: []
 
       # Issue RFC 9068 signed JWTs as access tokens instead of opaque strings.
       # Required when downstream services need to validate tokens locally.
       # Default: false
       enableJWTMode: false
+
+      # PEM-encoded private key for signing RFC 9068 JWT access tokens.
+      # Required when enableJWTMode is true. Supported: EC P-256 (ES256) or RSA (RS256).
+      # kid is derived from the RFC 7638 JWK thumbprint of the public key.
+      # SECURITY: this value ends up in a Kubernetes Secret and in Helm release
+      # history. For production, prefer existingSecret so the key never passes
+      # through Helm values (key name in the external Secret must be "jwt-signing-key").
+      jwtSigningKey: ""
 
       # Canonical URI identifying this muster instance as an RFC 8707 resource server.
       # When set, access tokens carry this value in their aud claim and tokens bound
@@ -518,12 +598,19 @@ muster:
           # cluster.
           labels: {}
 
-# CRD installation. CRDs live in helm/muster/files/crds/ and are rendered
-# by helm/muster/templates/crds.yaml. The loader merges `crds.annotations`
-# into each CRD's metadata.annotations — the default keeps the CRDs around
-# on `helm uninstall` so existing MCPServer / Workflow CRs survive.
+# DEPRECATED. The muster application chart no longer ships the CRDs — they now
+# live in the standalone `muster-crds` chart (helm/muster-crds), so the CRD
+# lifecycle can be owned independently by a downstream `agentic-platform-crds`
+# umbrella. This block is retained only as a compatibility shim and will be
+# removed in the next release:
+#   - `crds.install` defaults to `false` and the app chart renders no CRDs at
+#     all (templates/crds.yaml was removed). It is kept so the (strict-ish)
+#     values schema still accepts a downstream that explicitly sets
+#     `muster.crds.install: false`.
+#   - `crds.annotations` is inert and carried only for the same compatibility.
+# Install or upgrade `muster-crds` BEFORE `muster`.
 crds:
-  install: true
+  install: false
   annotations:
     helm.sh/resource-policy: keep
 
@@ -536,9 +623,40 @@ networkPolicy:
   labels: {}
   annotations: {}
   cilium:
-    # Allow egress to the `cluster` entity on 80/443 — needed when Dex /
-    # OIDC / MCP servers are reached via in-cluster ingress IPs.
+    # Allow egress to the `cluster` entity on 80/443 — for Dex / OIDC / MCP
+    # servers reached via a ClusterIP whose backend listens directly on 80/443.
+    # Does NOT cover an ingress gateway (different target ports) — see
+    # `ingressGateway` below.
     allowClusterIngress: false
+    # Egress to the in-cluster ingress gateway that fronts Dex/OIDC and HTTP
+    # MCP servers. Needed when the gateway LoadBalancer VIP is a Cilium-managed
+    # service IP (LB-IPAM / L2, typical on-prem): kube-proxy-replacement DNATs
+    # the VIP to the gateway backend pod on its TARGET port before egress policy
+    # runs, so `ports` must be the gateway's target ports, not 80/443. Harmless
+    # no-op for external cloud LBs (AWS ELB → `world`) and non-matching ingress.
+    # Defaults target the standard Giant Swarm envoy-gateway proxies; set to
+    # null to disable, or override the selector for a different ingress.
+    ingressGateway:
+      endpointSelector:
+        k8s:io.kubernetes.pod.namespace: envoy-gateway-system
+        app.kubernetes.io/name: envoy
+      ports:
+        - 10080
+        - 10443
+    # Additional egress rules appended to muster's egress allowlist. Each entry
+    # is a raw Cilium egress rule (toEndpoints / toEntities / toCIDR / toFQDNs +
+    # optional toPorts). Use this for in-cluster MCP servers that listen on
+    # non-80/443 ports — `allowClusterIngress` only opens 80/443. Example:
+    #   additionalEgress:
+    #     - toEndpoints:
+    #         - matchLabels:
+    #             k8s:io.kubernetes.pod.namespace: mcp-runbooks
+    #             app.kubernetes.io/name: mcp-runbooks
+    #       toPorts:
+    #         - ports:
+    #             - port: "8080"
+    #               protocol: TCP
+    additionalEgress: []
   kubernetes:
     apiServerCIDR: 0.0.0.0/0
     # Empty disables the cluster CIDR egress rule. Set to your cluster's
@@ -550,3 +668,18 @@ networkPolicy:
       - 172.16.0.0/12
       - 192.168.0.0/16
       - 169.254.0.0/16
+    # Additional egress rules appended to muster's egress allowlist. Vanilla
+    # NetworkPolicy syntax — each entry uses `to:` (with podSelector /
+    # namespaceSelector / ipBlock) and optional `ports`. Example:
+    #   additionalEgress:
+    #     - to:
+    #         - namespaceSelector:
+    #             matchLabels:
+    #               kubernetes.io/metadata.name: mcp-runbooks
+    #           podSelector:
+    #             matchLabels:
+    #               app.kubernetes.io/name: mcp-runbooks
+    #       ports:
+    #         - port: 8080
+    #           protocol: TCP
+    additionalEgress: []

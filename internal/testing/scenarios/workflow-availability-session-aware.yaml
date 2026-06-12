@@ -1,0 +1,308 @@
+name: "workflow-availability-session-aware"
+description: "BUG REPRODUCER (#764): workflow availability (core_workflow_available / core_workflow_list) for SSO/auth-protected family tools is computed from the process-global family routing index, which is only populated as a side effect of a prior list_tools in a session that has the family members connected. For an authenticated session that has NOT listed tools yet, every family step tool resolves as missing and the workflow is wrongly reported Unavailable — even though the caller can access those tools. Availability must be session-aware."
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "family", "aggregator", "availability", "oauth", "session-isolation", "bug-reproducer", "regression"]
+timeout: "3m"
+
+# Background (follow-up to #761 / #762):
+#
+# #762 made AggregatorServer.IsToolAvailable family-aware: when
+# registry.IsFamilyTool(name) is true (the family bucket has >= 1 provider) the
+# family tool counts as available even though ResolveToolName returns an
+# ambiguity error for >1 provider. That fix is correct and necessary for
+# NON-auth families, because GetAllTools() (the process-global listing that
+# runs during normal operation) includes connected non-auth servers and so
+# seeds the global familyMappings index. Coverage for that case already exists
+# in workflow-family-tool-availability.yaml.
+#
+# #764 is the remaining, separate defect for SSO / auth-protected families:
+#   - GetAllTools() SKIPS servers where RequiresSessionAuth() is true
+#     (internal/aggregator/registry.go), so auth-protected family tools are
+#     NEVER added to the global familyMappings via the global path.
+#   - The family index entry for such tools is created only as a side effect of
+#     GetAllToolsForSession() -> assembleExposedTools() -> upsertFamilyTool(),
+#     i.e. only when SOME session calls list_tools while connected to the
+#     family members.
+#   - core_workflow_available -> isWorkflowAvailable -> IsToolAvailable reads
+#     that global index and is NOT session-scoped (handleWorkflowAvailable does
+#     not even receive a context). So before any list_tools has run, every
+#     auth-family step tool resolves as "unknown name" and the workflow is
+#     reported Unavailable.
+#
+# This is why users on multi-instance SSO kubernetes/prometheus deployments saw
+# `muster list workflows` / `muster get workflow` report all workflows
+# Unavailable (CLI calls core_workflow_list directly after Connect, with NO
+# preceding list_tools), while `muster agent` (which lists tools on connect,
+# seeding the global index) reported them available — same identity, same
+# aggregator, different answer purely due to call ordering.
+#
+# Given: Two auth-protected MCP servers share spec.family = {name: kubernetes,
+#        instanceArg: management_cluster}, so x_kubernetes_list has 2 providers.
+#        A workflow references the bare family tool and supplies the instance
+#        selector as a templated step arg (resolved only at execution time).
+# And:   A user authenticates to BOTH family members (their session can access
+#        both providers) but has NOT called list_tools.
+# When:  core_workflow_available is evaluated for that authenticated session.
+# Then:  It must report available: true, because the caller can access the
+#        family tools. (Pre-fix it reports available: false because the global
+#        familyMappings has no providers for this auth family yet.)
+
+pre_configuration:
+  # Shared IdP doubling as muster's OAuth server so test_create_user /
+  # test_muster_auth_login can mint a per-user identity that then authenticates
+  # to the auth-protected family members.
+  mock_oauth_servers:
+    - name: "shared-idp"
+      scopes: ["openid", "profile", "mcp:read"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "test-client"
+      client_secret: "test-secret"
+      use_as_muster_oauth_server: true
+
+  mcp_servers:
+    - name: "mc1-mcp-kubernetes"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "shared-idp"
+          scope: "mcp:read"
+        family:
+          name: "kubernetes"
+          instanceArg: "management_cluster"
+        tools:
+          - name: "list"
+            description: "List resources"
+            input_schema:
+              type: "object"
+              properties:
+                namespace: { type: "string" }
+            responses:
+              - response:
+                  source: "mc1-mcp-kubernetes"
+                  namespace: "{{ .namespace }}"
+
+    - name: "mc2-mcp-kubernetes"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "shared-idp"
+          scope: "mcp:read"
+        family:
+          name: "kubernetes"
+          instanceArg: "management_cluster"
+        tools:
+          - name: "list"
+            description: "List resources"
+            input_schema:
+              type: "object"
+              properties:
+                namespace: { type: "string" }
+            responses:
+              - response:
+                  source: "mc2-mcp-kubernetes"
+                  namespace: "{{ .namespace }}"
+
+  workflows:
+    # References the bare family tool. The instance selector is a template
+    # resolved only at execution time, exactly like the real alert-runbook
+    # workflows.
+    - name: "sso-runbook"
+      config:
+        name: "sso-runbook"
+        input_schema:
+          type: object
+          args:
+            mc:
+              type: "string"
+          required:
+            - mc
+        steps:
+          - id: "list-kubernetes"
+            tool: "x_kubernetes_list"
+            args:
+              management_cluster: "{{ .input.mc }}-mcp-kubernetes"
+              namespace: "kube-system"
+            store: true
+
+    # Negative control: references a tool that genuinely does not exist for any
+    # caller. Must report Unavailable both before and after the fix.
+    - name: "needs-missing-tool"
+      config:
+        name: "needs-missing-tool"
+        input_schema:
+          type: object
+        steps:
+          - id: "call-missing"
+            tool: "x_this_tool_does_not_exist"
+            args: {}
+            store: true
+
+steps:
+  - id: "verify-shared-idp"
+    tool: "test_get_oauth_server_info"
+    args:
+      server: "shared-idp"
+    expected:
+      success: true
+      contains: ["shared-idp", "issuer_url"]
+
+  - id: "verify-servers-registered"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["mc1-mcp-kubernetes", "mc2-mcp-kubernetes"]
+
+  # Create one user session (user-a).
+  - id: "muster-auth-user-a"
+    description: "Mint a muster ID token under subject user-a"
+    tool: "test_muster_auth_login"
+    args:
+      subject: "user-a"
+    expected:
+      success: true
+      contains: ["success"]
+
+  - id: "create-user-a"
+    tool: "test_create_user"
+    args:
+      name: "user-a"
+    expected:
+      success: true
+      contains: ["user-a"]
+
+  # user-a authenticates to BOTH family members, so their session can access
+  # x_kubernetes_list on both providers.
+  - id: "user-a-auth-mc1"
+    as_user: "user-a"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "mc1-mcp-kubernetes"
+    expected:
+      success: true
+      contains: ["success"]
+
+  - id: "user-a-login-mc1"
+    as_user: "user-a"
+    tool: "core_auth_login"
+    args:
+      server: "mc1-mcp-kubernetes"
+    expected:
+      success: true
+
+  - id: "user-a-auth-mc2"
+    as_user: "user-a"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "mc2-mcp-kubernetes"
+    expected:
+      success: true
+      contains: ["success"]
+
+  - id: "user-a-login-mc2"
+    as_user: "user-a"
+    tool: "core_auth_login"
+    args:
+      server: "mc2-mcp-kubernetes"
+    expected:
+      success: true
+
+  # Negative control: a workflow whose step tool is genuinely inaccessible must
+  # stay Unavailable. Placed before the bug step so it is exercised even while
+  # the bug step is red (passes before and after the fix).
+  - id: "missing-tool-workflow-unavailable"
+    as_user: "user-a"
+    description: "A workflow referencing a non-existent tool stays unavailable"
+    tool: "core_workflow_available"
+    args:
+      name: "needs-missing-tool"
+    expected:
+      success: true
+      json_path:
+        available: false
+
+  # CORE OF THE BUG (#764): user-a is authenticated to both kubernetes family
+  # members but has NOT listed tools yet, so the process-global familyMappings
+  # has no providers for x_kubernetes_list. core_workflow_available is not
+  # session-aware, so it reports the workflow Unavailable.
+  #
+  # Expected (correct) behaviour: available == true, because user-a can access
+  # x_kubernetes_list. This step FAILS until availability is made session-aware.
+  - id: "workflow-available-without-prior-list"
+    as_user: "user-a"
+    description: "BUG #764: authenticated session, no prior list_tools -> must still report available"
+    tool: "core_workflow_available"
+    args:
+      name: "sso-runbook"
+    expected:
+      success: true
+      json_path:
+        available: true
+
+  # Demonstrate the order-dependence: after user-a lists tools, the global
+  # familyMappings is seeded with the kubernetes family providers, so the same
+  # query now reports available even with the (current) non-session-aware
+  # check. This step passes both before and after the fix; it documents that
+  # availability today depends on an incidental prior list_tools.
+  - id: "user-a-list-tools-seeds-global-index"
+    description: "user-a lists tools, seeding the process-global familyMappings for the kubernetes family"
+    tool: "test_list_tools_for_user"
+    args:
+      name: "user-a"
+    expected:
+      success: true
+      contains: ["x_kubernetes_list"]
+
+  - id: "workflow-available-after-list"
+    as_user: "user-a"
+    description: "After a list_tools seeded the global index, availability reports true (order-dependent today)"
+    tool: "core_workflow_available"
+    args:
+      name: "sso-runbook"
+    expected:
+      success: true
+      json_path:
+        available: true
+
+  - id: "workflow-listed-after-list"
+    as_user: "user-a"
+    tool: "core_workflow_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["sso-runbook"]
+
+cleanup:
+  - id: "cleanup-workflow"
+    tool: "core_workflow_delete"
+    args:
+      name: "sso-runbook"
+    expected:
+      success: true
+    continue_on_failure: true
+  - id: "cleanup-workflow-missing"
+    tool: "core_workflow_delete"
+    args:
+      name: "needs-missing-tool"
+    expected:
+      success: true
+    continue_on_failure: true
+  - id: "cleanup-stop-mc1"
+    tool: "core_service_stop"
+    args:
+      name: "mc1-mcp-kubernetes"
+    expected:
+      success: true
+    continue_on_failure: true
+  - id: "cleanup-stop-mc2"
+    tool: "core_service_stop"
+    args:
+      name: "mc2-mcp-kubernetes"
+    expected:
+      success: true
+    continue_on_failure: true

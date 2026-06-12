@@ -117,3 +117,61 @@ tests:
                 protocol: TCP
               - port: 443
                 protocol: TCP
+
+  - it: cilium additionalEgress appends raw rules to spec.egress
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.flavor: cilium
+      networkPolicy.cilium.additionalEgress:
+        - toEndpoints:
+            - matchLabels:
+                k8s:io.kubernetes.pod.namespace: mcp-runbooks
+                app.kubernetes.io/name: mcp-runbooks
+          toPorts:
+            - ports:
+                - port: "8080"
+                  protocol: TCP
+    template: templates/ciliumnetworkpolicy.yaml
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            toEndpoints:
+              - matchLabels:
+                  k8s:io.kubernetes.pod.namespace: mcp-runbooks
+                  app.kubernetes.io/name: mcp-runbooks
+            toPorts:
+              - ports:
+                  - port: "8080"
+                    protocol: TCP
+
+  - it: kubernetes additionalEgress appends raw rules to spec.egress
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.flavor: kubernetes
+      networkPolicy.kubernetes.additionalEgress:
+        - to:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: mcp-runbooks
+              podSelector:
+                matchLabels:
+                  app.kubernetes.io/name: mcp-runbooks
+          ports:
+            - port: 8080
+              protocol: TCP
+    template: templates/networkpolicy.yaml
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            to:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: mcp-runbooks
+                podSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: mcp-runbooks
+            ports:
+              - port: 8080
+                protocol: TCP

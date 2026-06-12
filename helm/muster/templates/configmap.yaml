@@ -47,6 +47,9 @@ data:
             {{- if .Values.muster.oauth.server.dex.connectorId }}
             connectorId: {{ .Values.muster.oauth.server.dex.connectorId | quote }}
             {{- end }}
+            {{- if .Values.muster.oauth.server.dex.allowPrivateIPOIDC }}
+            allowPrivateIPOIDC: true
+            {{- end }}
           {{- else if eq .Values.muster.oauth.server.provider "google" }}
           google:
             clientId: {{ .Values.muster.oauth.server.google.clientId | quote }}
@@ -74,12 +77,16 @@ data:
           {{- if .Values.muster.oauth.server.allowLocalhostRedirectURIs }}
           allowLocalhostRedirectURIs: true
           {{- end }}
-          {{- with .Values.muster.oauth.server.trustedAudiences }}
-          trustedAudiences:
+          {{- with .Values.muster.oauth.server.trustedPublicRegistrationRedirectURIs }}
+          trustedPublicRegistrationRedirectURIs:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          {{- with .Values.muster.oauth.server.kubernetesSATrusts }}
-          kubernetesSATrusts:
+          {{- with .Values.muster.oauth.server.trustedPublicRegistrationSchemes }}
+          trustedPublicRegistrationSchemes:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.muster.oauth.server.trustedAudiences }}
+          trustedAudiences:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           {{- with .Values.muster.oauth.server.trustedIssuers }}
@@ -92,9 +99,16 @@ data:
           {{- end }}
           {{- if .Values.muster.oauth.server.enableJWTMode }}
           enableJWTMode: true
+          {{- if or .Values.muster.oauth.server.jwtSigningKey .Values.muster.oauth.server.existingSecret }}
+          jwtSigningKeyFile: {{ printf "%s/jwt-signing-key" $secretsPath | quote }}
+          {{- end }}
           {{- end }}
           {{- with .Values.muster.oauth.server.resourceIdentifier }}
           resourceIdentifier: {{ . | quote }}
+          {{- end }}
+          {{- with .Values.muster.oauth.server.tokenExchangeBroker }}
+          tokenExchangeBroker:
+            {{- toYaml . | nindent 12 }}
           {{- end }}
         {{- end }}
     namespace: {{ include "muster.namespace" . | quote }}

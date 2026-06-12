@@ -132,6 +132,7 @@ estimate.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `enableJWTMode` | `bool` | `false` | Issue RFC 9068 signed JWTs as access tokens. Required when downstream services (e.g. agentgateway) validate tokens locally without calling the introspection endpoint. |
+| `jwtSigningKeyFile` | `string` | `""` | Path to a PEM-encoded private key (EC P-256 → ES256, or RSA ≥2048 → RS256) used to sign JWT access tokens. **Required when `enableJWTMode` is true** — the server refuses to start otherwise. `kid` is derived from the RFC 7638 JWK thumbprint of the public key. In Helm, set the key contents via `muster.oauth.server.jwtSigningKey` (or supply it through `existingSecret` under key `jwt-signing-key` for production, so it never passes through Helm values/release history); the chart mounts it and wires this field automatically. `helm template` fails if neither is provided when JWT mode is on. |
 | `resourceIdentifier` | `string` | `""` | RFC 8707 canonical URI for this muster instance as a resource server. Access tokens carry this value in their `aud` claim; tokens bound to a different resource are rejected, preventing replay across resource servers sharing the same IdP. Defaults to `baseUrl` when empty. |
 
 #### DPoP and Trusted Proxies
@@ -144,19 +145,7 @@ estimate.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `kubernetesSATrusts` | `[]K8sSATrustConfig` | `[]` | Trust entries for Kubernetes projected ServiceAccount tokens. Each entry covers one cluster. SA tokens are accepted as `subject_tokens` of type `urn:ietf:params:oauth:token-type:jwt`. |
-| `trustedIssuers` | `[]TrustedIssuerConfig` | `[]` | Trusted external OIDC issuers. Tokens from these issuers are accepted as `id_token` and `access_token` subject_tokens. |
-
-**K8sSATrustConfig fields:**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `issuer` | `string` | Cluster OIDC issuer URL (`kube-apiserver --service-account-issuer`). |
-| `jwksUrl` | `string` | JWKS endpoint. Independent of `issuer`, so an in-cluster proxy can be used. |
-| `allowedAudiences` | `[]string` | Accepted `aud` values. Empty accepts any audience. |
-| `allowedScopes` | `[]string` | Scope ceiling for exchange tokens from this cluster. Nil means no restriction. |
-| `allowedNamespaces` | `[]string` | Allowed namespaces. Empty means any. |
-| `allowedServiceAccounts` | `[]string` | Allowed SAs in `namespace/name` format. Empty means any. |
+| `trustedIssuers` | `[]TrustedIssuerConfig` | `[]` | Trusted external OIDC issuers. Tokens are accepted as `id_token`, `access_token`, or `jwt` subject_tokens. Use `allowedClaims` to express Kubernetes ServiceAccount or GitHub Actions trust. |
 
 **TrustedIssuerConfig fields:**
 
@@ -166,6 +155,60 @@ estimate.
 | `jwksUrl` | `string` | JWKS endpoint. Independent of `issuer`. |
 | `allowedAudiences` | `[]string` | Accepted `aud` values. Empty accepts any audience. |
 | `allowedScopes` | `[]string` | Scope ceiling for tokens from this issuer. Nil means no restriction. |
+| `allowedClaims` | `map[string]string` | Required claim name→pattern pairs. Keys are JWT claim names; values are exact strings or globs where `*` spans any chars including `/` and `?` matches one char. Absent or non-string claims are rejected. Empty means no restriction. |
+| `allowPrivateIPJWKS` | `bool` | Allow `jwksUrl` to resolve to a private or loopback address. Required for in-cluster Kubernetes SA trust where the JWKS endpoint is `https://kubernetes.default.svc/openid/v1/jwks`. Emits a startup warning when set. Default: `false`. |
+
+#### Brokered Token Exchange (`tokenExchangeBroker`)
+
+Exposes muster's RFC 8693 token exchange to external confidential clients: a broker client POSTs a token-exchange request with an `audience` parameter to `/oauth/token` and receives a token minted by the audience's downstream Dex (instead of a muster-issued JWT). Subject tokens are validated against `trustedIssuers`, so at least one issuer entry covering the broker client's tokens is required.
+
+Policy enforced by the broker path (mcp-oauth): client authentication is mandatory and only confidential clients are accepted; audiences are gated by the per-client allowlist; no refresh tokens are issued (`expires_in` is bounded by the downstream token's expiry — clients re-exchange); DPoP is rejected.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `clientAudiences` | `map[string][]string` | `{}` | Per-client audience allowlist: broker client ID → audiences it may request. A miss returns `invalid_target`. |
+| `targets` | `map[string]BrokerTargetConfig` | `{}` | Audience name (e.g. a cluster name) → downstream Dex exchange target. |
+| `allowPrivateIP` | `bool` | `false` | Allow downstream token endpoints to resolve to private/loopback IPs. Reduces SSRF protection; internal deployments only. |
+
+**BrokerTargetConfig fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `dexTokenEndpoint` | `string` | Downstream Dex token endpoint URL (HTTPS). Required. |
+| `expectedIssuer` | `string` | Expected `iss` claim of the exchanged token. Derived from `dexTokenEndpoint` when empty. |
+| `connectorId` | `string` | Downstream Dex OIDC connector that trusts the subject token's issuer. Required. |
+| `scopes` | `string` | Space-separated downstream scopes (default: `openid profile email groups`). Kubernetes-bound audiences must include the Dex cross-client scope for the apiserver's client, e.g. `audience:server:client_id:dex-k8s-authenticator` — without it the exchanged token's `aud` is the exchange client only, which the kube-apiserver rejects. The client-supplied RFC 8693 `scope` parameter is intentionally ignored. |
+| `clientCredentialsSecretRef` | `object` | Kubernetes Secret with the downstream exchange client credentials: `name` (required), `namespace` (defaults to the muster namespace), `clientIdKey` (default `client-id`), `clientSecretKey` (default `client-secret`). |
+
+Example:
+
+```yaml
+aggregator:
+  oauth:
+    server:
+      trustedIssuers:
+        - issuer: https://dex.main.example.com
+          jwksUrl: https://dex.main.example.com/keys
+          allowedAudiences: ["portal-frontend"]
+      tokenExchangeBroker:
+        clientAudiences:
+          portal-backend: ["cluster-a"]
+        targets:
+          cluster-a:
+            dexTokenEndpoint: https://dex.cluster-a.example.com/token
+            connectorId: main-dex
+            scopes: "openid profile email groups audience:server:client_id:dex-k8s-authenticator"
+            clientCredentialsSecretRef:
+              name: muster-token-exchange-cluster-a
+```
+
+#### Private-IP OIDC Discovery (Dex)
+
+By default the SSRF guard rejects an OIDC issuer URL that resolves to a private or loopback address. On clusters where the public Dex hostname resolves to an RFC 1918 address (e.g. an Azure internal load balancer, or air-gapped environments), discovery fails with `context deadline exceeded` and the server starts in degraded mode.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `dex.allowPrivateIPOIDC` | `bool` | `false` | Allow the Dex issuer URL to resolve to a private/loopback IP during OIDC discovery. This is the discovery-path counterpart to `allowPrivateIPJWKS`. Emits a CWE-918 startup warning when set; only enable it when the issuer is genuinely fronted by an internal-only load balancer. |
 
 #### Silent Re-Authentication (CLI Flag)
 

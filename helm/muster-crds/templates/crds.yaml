@@ -1,4 +1,3 @@
-{{- if .Values.crds.install }}
 {{- range $path, $_ := .Files.Glob "files/crds/*.yaml" }}
 {{- $crd := $.Files.Get $path | fromYaml }}
 {{- with $.Values.crds.annotations }}
@@ -6,5 +5,4 @@
 {{- end }}
 ---
 {{ $crd | toYaml }}
-{{- end }}
 {{- end }}

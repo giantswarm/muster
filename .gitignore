@@ -30,3 +30,6 @@ logs
 stress-test-results/
 .klaus/
 muster-v-*
+
+# graphify knowledge graph (regenerable, rebuilt by the post-commit hook)
+graphify-out/

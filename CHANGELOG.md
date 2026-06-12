@@ -4,9 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-### Changed
+### Fixed
 
-- Bump `giantswarm/mcp-oauth` to `v0.2.162`. New Helm values `muster.oauth.server.{kubernetesSATrusts,trustedIssuers,trustedProxyCIDRs,enableJWTMode,resourceIdentifier}` wire Kubernetes ServiceAccount token exchange (RFC 8693), trusted external OIDC issuers, DPoP trusted-proxy CIDRs, RFC 9068 JWT access tokens, and RFC 8707 resource-server audience binding. Also enables the OIDC userinfo endpoint, PII-redacted audit logging, and CIMD metadata-fetch rate limiting. Encryption-at-rest is now wired on the store constructor (`valkey.WithEncryptor` / `memory.WithEncryptor`) rather than as a server option.
+- `ssoPoolMissNeedingInit` now detects pool misses for token-forwarding servers in addition to token-exchange servers, so warm sessions (authAlive=true after pod restart) trigger `initSSOForSession` for forwarding servers with empty connection pools. Previously, forwarding servers registered during a restart were inaccessible until the user manually re-authenticated to muster.
+- `establishSSOConnection` now treats a pool miss as stale state for token-forwarding servers (clearing the Valkey auth entry and re-establishing the connection), matching the existing behaviour for token-exchange servers.
 
 ### Fixed
 
@@ -14,8 +15,197 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- Degraded-mode startup when the Dex/OIDC issuer is unreachable at boot time. muster now starts immediately and serves MCP aggregation, reconcilers, and all non-OAuth paths regardless of Dex availability. A background goroutine retries OIDC discovery with exponential backoff (1 s → 30 s cap); once discovery succeeds the OAuth server activates transparently. Until then, OAuth and MCP-over-OAuth endpoints return `503 Service Unavailable` with a `Retry-After: 30` header. The `/health` endpoint always returns `200` with `{"status":"degraded","reason":"oidc-discovery-pending"}` during the window. Closes #730.
+- `GET /health` now responds 200 on the aggregator port regardless of OAuth configuration, so Kubernetes liveness/readiness probes work without patching the chart.
+- `RegisterServer` and `DeregisterServer` aggregator events and MCPServer reconcile entry are now logged at Info level, making freshly-restarted pod lifecycle visible without `--debug`.
+- `oauth.server.allowedOrigins` (comma-separated) is now wired into the mcp-oauth CORS `AllowedOrigins` list. Previously declared but never read; empty value keeps CORS disabled (default).
 
+### Removed
+
+- `MCPServer.status.consecutiveFailures`, `.lastAttempt`, and `.nextRetryAfter` are no longer updated by the reconciler; the retry state machine that drove them was removed in a prior release. The fields remain on the CRD for forward compatibility.
+- `oauth.server.enableHSTS`, `oauth.server.tlsCertFile`, and `oauth.server.tlsKeyFile` config fields removed; they were declared and YAML-parsed but never read anywhere in the codebase.
+
+### Added
+
+- `oauth.server.trustedIssuers[].acceptedTypHeaders`: accepted JWT `typ` header values for Bearer tokens from a trusted issuer. Empty keeps the RFC 9068 default (`at+jwt`). Kubernetes ServiceAccount tokens carry no `typ` header; use `[""]` to accept them.
+
+- Brokered RFC 8693 token exchange ([#831](https://github.com/giantswarm/muster/issues/831)): external confidential clients can POST a token-exchange request with an `audience` parameter to `/oauth/token` and receive a token minted by the audience's downstream Dex. New `oauth.server.tokenExchangeBroker` config block (per-client audience allowlist, audience → downstream Dex target mapping with per-target scopes and credential secret refs). Requires mcp-oauth >= v0.3.0; subject tokens are validated against `trustedIssuers`.
+
+### Changed
+
+- Update mcp-oauth to v0.4.0.
+- Update mcp-oauth to v0.3.1: forwarded ID tokens (`trustedAudiences`) are no longer hard-rejected by the trusted-issuer Bearer branch when the same issuer is also configured in `trustedIssuers` — fixes Backstage AI-chat SSO token forwarding returning 401 (`typ header is "", expected "at+jwt"`) on deployments with the token-exchange broker enabled.
+- Update mcp-oauth to v0.3.0 (server-side RFC 8693 token-exchange grant with pluggable `Exchanger`).
+
+## [0.3.12] - 2026-06-10
+
+### Changed
+
+- Release binaries now include darwin/amd64, darwin/arm64, windows/amd64, and windows/arm64 alongside the existing linux targets. Windows binaries are named `muster-windows-<arch>.exe`.
+
+### Fixed
+
+- Update mcp-oauth to v0.2.199: JWT access tokens issued for grants without an RFC 8707 `resource` parameter now carry an `aud` claim defaulting to the server's resource identifier (RFC 9068 §2.2), instead of an empty audience that JWT-validating gateways (e.g. agentgateway) reject with `401 InvalidAudience`. Existing grants self-heal on their next token refresh.
+
+### Added
+
+* AllowedClaims in TrustedIssuer, drop KubernetesSATrusts, fix JWT signing key wiring ([#772](https://github.com/giantswarm/muster/issues/772)) ([04b5bd2](https://github.com/giantswarm/muster/commit/04b5bd2e1bdfe9b982d778f14f700893b96f0e7f))
+- `muster.oauth.server.dex.allowPrivateIPOIDC`: allows Dex OIDC discovery to reach issuer URLs that resolve to private/loopback IPs (e.g. Azure internal load balancers). Requires mcp-oauth#427. Emits a CWE-918 startup warning.
+
+### Fixed
+
+* **deps:** update module github.com/giantswarm/mcp-oauth to v0.2.186 ([ca46984](https://github.com/giantswarm/muster/commit/ca469849a428d1f94de6740179aa1766932f63fa))
+* **deps:** update module github.com/giantswarm/mcp-toolkit to v0.2.5 ([#780](https://github.com/giantswarm/muster/issues/780)) ([bcce33a](https://github.com/giantswarm/muster/commit/bcce33a1a4affd2cc156dc39a009f6bd2d95e52b))
+- CiliumNetworkPolicy egress now reaches an OIDC issuer (Dex) / HTTP MCP server fronted by a Cilium-managed ingress gateway VIP (LB-IPAM / L2, typical on-prem). New `networkPolicy.cilium.ingressGateway` rule allows egress to the gateway backend endpoints on their target ports (default: `10080`/`10443`, selector: `app.kubernetes.io/name=envoy` in `envoy-gateway-system`).
+
+### Changed
+
+* attach release binaries to GitHub releases ([#785](https://github.com/giantswarm/muster/issues/785)) ([77dbb0f](https://github.com/giantswarm/muster/commit/77dbb0ffa67e3d8d36a8aa0abfd907c401ee2123))
+* **deps:** update go toolchain directive to v1.26.4 ([#783](https://github.com/giantswarm/muster/issues/783)) ([ba9c3fd](https://github.com/giantswarm/muster/commit/ba9c3fd49e6159c1535daa6753646d46f5bd5ac4))
+
+## [0.1.231](https://github.com/giantswarm/muster/compare/v0.1.230...v0.1.231) (2026-06-03)
+
+
+### Fixed
+
+* **deps:** update module github.com/giantswarm/mcp-oauth to v0.2.185 ([#769](https://github.com/giantswarm/muster/issues/769)) ([ca46984](https://github.com/giantswarm/muster/commit/ca469849a428d1f94de6740179aa1766932f63fa))
+* **deps:** update module github.com/giantswarm/mcp-toolkit to v0.2.5 ([#780](https://github.com/giantswarm/muster/issues/780)) ([bcce33a](https://github.com/giantswarm/muster/commit/bcce33a1a4affd2cc156dc39a009f6bd2d95e52b))
+
+
+### Changed
+
+* attach release binaries to GitHub releases ([#785](https://github.com/giantswarm/muster/issues/785)) ([77dbb0f](https://github.com/giantswarm/muster/commit/77dbb0ffa67e3d8d36a8aa0abfd907c401ee2123))
+* **deps:** update dependency architect to v9 ([#768](https://github.com/giantswarm/muster/issues/768)) ([a4c790a](https://github.com/giantswarm/muster/commit/a4c790a370f8b3378795fd648864157cf7cbbd72))
+* **deps:** update go toolchain directive to v1.26.4 ([#783](https://github.com/giantswarm/muster/issues/783)) ([ba9c3fd](https://github.com/giantswarm/muster/commit/ba9c3fd49e6159c1535daa6753646d46f5bd5ac4))
+* **main:** release 0.1.227 ([#779](https://github.com/giantswarm/muster/issues/779)) ([84fca35](https://github.com/giantswarm/muster/commit/84fca350bcf73f6b282f47427a29d17a5d8421df))
+* **main:** release 0.1.228 ([#781](https://github.com/giantswarm/muster/issues/781)) ([05f5aeb](https://github.com/giantswarm/muster/commit/05f5aeb5e1569a8a9d8a8a7e9be9bedccdceca80))
+* **main:** release 0.1.229 ([#782](https://github.com/giantswarm/muster/issues/782)) ([3cf5800](https://github.com/giantswarm/muster/commit/3cf5800622719a2eb25d973c3fbf420ba7c06a19))
+* **main:** release 0.1.230 ([#784](https://github.com/giantswarm/muster/issues/784)) ([7975401](https://github.com/giantswarm/muster/commit/797540104e3cfe47be37c677e01c84833b2ba3d5))
+
+## [0.1.230](https://github.com/giantswarm/muster/compare/v0.1.229...v0.1.230) (2026-06-03)
+
+
+### Fixed
+
+* **deps:** update module github.com/giantswarm/mcp-oauth to v0.2.185 ([#769](https://github.com/giantswarm/muster/issues/769)) ([ca46984](https://github.com/giantswarm/muster/commit/ca469849a428d1f94de6740179aa1766932f63fa))
+* **deps:** update module github.com/giantswarm/mcp-toolkit to v0.2.5 ([#780](https://github.com/giantswarm/muster/issues/780)) ([bcce33a](https://github.com/giantswarm/muster/commit/bcce33a1a4affd2cc156dc39a009f6bd2d95e52b))
+
+
+### Changed
+
+* **deps:** update dependency architect to v9 ([#768](https://github.com/giantswarm/muster/issues/768)) ([a4c790a](https://github.com/giantswarm/muster/commit/a4c790a370f8b3378795fd648864157cf7cbbd72))
+* **deps:** update go toolchain directive to v1.26.4 ([#783](https://github.com/giantswarm/muster/issues/783)) ([ba9c3fd](https://github.com/giantswarm/muster/commit/ba9c3fd49e6159c1535daa6753646d46f5bd5ac4))
+* **main:** release 0.1.226 ([#778](https://github.com/giantswarm/muster/issues/778)) ([a0ea312](https://github.com/giantswarm/muster/commit/a0ea312a4389e5293f9d52e1f42d26081a3ea981))
+* **main:** release 0.1.227 ([#779](https://github.com/giantswarm/muster/issues/779)) ([84fca35](https://github.com/giantswarm/muster/commit/84fca350bcf73f6b282f47427a29d17a5d8421df))
+* **main:** release 0.1.228 ([#781](https://github.com/giantswarm/muster/issues/781)) ([05f5aeb](https://github.com/giantswarm/muster/commit/05f5aeb5e1569a8a9d8a8a7e9be9bedccdceca80))
+* **main:** release 0.1.229 ([#782](https://github.com/giantswarm/muster/issues/782)) ([3cf5800](https://github.com/giantswarm/muster/commit/3cf5800622719a2eb25d973c3fbf420ba7c06a19))
+
+## [0.1.229](https://github.com/giantswarm/muster/compare/v0.1.228...v0.1.229) (2026-06-02)
+
+
+### Fixed
+
+* **deps:** update module github.com/giantswarm/mcp-oauth to v0.2.185 ([#769](https://github.com/giantswarm/muster/issues/769)) ([ca46984](https://github.com/giantswarm/muster/commit/ca469849a428d1f94de6740179aa1766932f63fa))
+* **deps:** update module github.com/giantswarm/mcp-toolkit to v0.2.4 ([#777](https://github.com/giantswarm/muster/issues/777)) ([9f915d6](https://github.com/giantswarm/muster/commit/9f915d6f80ec31496eb3014d643683caa5164730))
+* **deps:** update module github.com/giantswarm/mcp-toolkit to v0.2.5 ([#780](https://github.com/giantswarm/muster/issues/780)) ([bcce33a](https://github.com/giantswarm/muster/commit/bcce33a1a4affd2cc156dc39a009f6bd2d95e52b))
+
+
+### Changed
+
+* **deps:** update dependency architect to v9 ([#768](https://github.com/giantswarm/muster/issues/768)) ([a4c790a](https://github.com/giantswarm/muster/commit/a4c790a370f8b3378795fd648864157cf7cbbd72))
+* **main:** release 0.1.226 ([#778](https://github.com/giantswarm/muster/issues/778)) ([a0ea312](https://github.com/giantswarm/muster/commit/a0ea312a4389e5293f9d52e1f42d26081a3ea981))
+* **main:** release 0.1.227 ([#779](https://github.com/giantswarm/muster/issues/779)) ([84fca35](https://github.com/giantswarm/muster/commit/84fca350bcf73f6b282f47427a29d17a5d8421df))
+* **main:** release 0.1.228 ([#781](https://github.com/giantswarm/muster/issues/781)) ([05f5aeb](https://github.com/giantswarm/muster/commit/05f5aeb5e1569a8a9d8a8a7e9be9bedccdceca80))
+
+## [0.1.228](https://github.com/giantswarm/muster/compare/v0.1.227...v0.1.228) (2026-06-02)
+
+
+### Fixed
+
+* **deps:** update module github.com/giantswarm/mcp-oauth to v0.2.185 ([#769](https://github.com/giantswarm/muster/issues/769)) ([ca46984](https://github.com/giantswarm/muster/commit/ca469849a428d1f94de6740179aa1766932f63fa))
+* **deps:** update module github.com/giantswarm/mcp-toolkit to v0.2.4 ([#777](https://github.com/giantswarm/muster/issues/777)) ([9f915d6](https://github.com/giantswarm/muster/commit/9f915d6f80ec31496eb3014d643683caa5164730))
+
+
+### Changed
+
+* **deps:** update dependency architect to v9 ([#768](https://github.com/giantswarm/muster/issues/768)) ([a4c790a](https://github.com/giantswarm/muster/commit/a4c790a370f8b3378795fd648864157cf7cbbd72))
+* **main:** release 0.1.225 ([#776](https://github.com/giantswarm/muster/issues/776)) ([d00cc90](https://github.com/giantswarm/muster/commit/d00cc903219512cecdac4fba10ddc9688a81093d))
+* **main:** release 0.1.226 ([#778](https://github.com/giantswarm/muster/issues/778)) ([a0ea312](https://github.com/giantswarm/muster/commit/a0ea312a4389e5293f9d52e1f42d26081a3ea981))
+* **main:** release 0.1.227 ([#779](https://github.com/giantswarm/muster/issues/779)) ([84fca35](https://github.com/giantswarm/muster/commit/84fca350bcf73f6b282f47427a29d17a5d8421df))
+
+## [0.1.227](https://github.com/giantswarm/muster/compare/v0.1.226...v0.1.227) (2026-06-02)
+
+
+### Fixed
+
+* **deps:** update module github.com/giantswarm/mcp-toolkit to v0.2.3 ([#770](https://github.com/giantswarm/muster/issues/770)) ([7649ee8](https://github.com/giantswarm/muster/commit/7649ee8236a56ca88d076dedb7470bdddc2203a7))
+* **deps:** update module github.com/giantswarm/mcp-toolkit to v0.2.4 ([#777](https://github.com/giantswarm/muster/issues/777)) ([9f915d6](https://github.com/giantswarm/muster/commit/9f915d6f80ec31496eb3014d643683caa5164730))
+
+
+### Changed
+
+* **deps:** update dependency architect to v9 ([#768](https://github.com/giantswarm/muster/issues/768)) ([a4c790a](https://github.com/giantswarm/muster/commit/a4c790a370f8b3378795fd648864157cf7cbbd72))
+* **main:** release 0.1.225 ([#776](https://github.com/giantswarm/muster/issues/776)) ([d00cc90](https://github.com/giantswarm/muster/commit/d00cc903219512cecdac4fba10ddc9688a81093d))
+* **main:** release 0.1.226 ([#778](https://github.com/giantswarm/muster/issues/778)) ([a0ea312](https://github.com/giantswarm/muster/commit/a0ea312a4389e5293f9d52e1f42d26081a3ea981))
+
+## [0.1.226](https://github.com/giantswarm/muster/compare/v0.1.225...v0.1.226) (2026-06-02)
+
+
+### Fixed
+
+* **deps:** update module github.com/giantswarm/mcp-toolkit to v0.2.3 ([#770](https://github.com/giantswarm/muster/issues/770)) ([7649ee8](https://github.com/giantswarm/muster/commit/7649ee8236a56ca88d076dedb7470bdddc2203a7))
+* **deps:** update module github.com/giantswarm/mcp-toolkit to v0.2.4 ([#777](https://github.com/giantswarm/muster/issues/777)) ([9f915d6](https://github.com/giantswarm/muster/commit/9f915d6f80ec31496eb3014d643683caa5164730))
+
+
+### Changed
+
+* **main:** release 0.1.224 ([#775](https://github.com/giantswarm/muster/issues/775)) ([311f7b5](https://github.com/giantswarm/muster/commit/311f7b5e40f98fcd7b0e73ac29538eff38fee42f))
+* **main:** release 0.1.225 ([#776](https://github.com/giantswarm/muster/issues/776)) ([d00cc90](https://github.com/giantswarm/muster/commit/d00cc903219512cecdac4fba10ddc9688a81093d))
+
+## [0.1.225](https://github.com/giantswarm/muster/compare/v0.1.224...v0.1.225) (2026-06-02)
+
+
+### Fixed
+
+* **deps:** update module github.com/giantswarm/mcp-toolkit to v0.2.3 ([#770](https://github.com/giantswarm/muster/issues/770)) ([7649ee8](https://github.com/giantswarm/muster/commit/7649ee8236a56ca88d076dedb7470bdddc2203a7))
+
+
+### Changed
+
+* **deps:** update actions/checkout action to v6.0.3 ([#774](https://github.com/giantswarm/muster/issues/774)) ([59a91dc](https://github.com/giantswarm/muster/commit/59a91dc9fa4940afbf2041ad452a9647f723c17d))
+* **main:** release 0.1.224 ([#775](https://github.com/giantswarm/muster/issues/775)) ([311f7b5](https://github.com/giantswarm/muster/commit/311f7b5e40f98fcd7b0e73ac29538eff38fee42f))
+
+## [0.1.224](https://github.com/giantswarm/muster/compare/v0.1.223...v0.1.224) (2026-06-02)
+
+
+### Changed
+
+* **deps:** update actions/checkout action to v6.0.3 ([#774](https://github.com/giantswarm/muster/issues/774)) ([59a91dc](https://github.com/giantswarm/muster/commit/59a91dc9fa4940afbf2041ad452a9647f723c17d))
+* **main:** release 0.1.223 ([#771](https://github.com/giantswarm/muster/issues/771)) ([4b20779](https://github.com/giantswarm/muster/commit/4b20779e3bcc882c8398d44cbbf1b8826e793003))
+
+## [0.1.223](https://github.com/giantswarm/muster/compare/v0.1.222...v0.1.223) (2026-06-02)
+
+
+### Changed
+
+* align files according to platform standards ([#767](https://github.com/giantswarm/muster/issues/767)) ([d7b7c9a](https://github.com/giantswarm/muster/commit/d7b7c9a7a63a809e644d6991e3806095a53ed938))
+
+## Shipped between v0.1.223 and v0.3.11 (previously misfiled as Unreleased)
+
+### Fixed
+
+- `enableJWTMode: true` now issues RFC 9068 signed JWT access tokens. Set `muster.oauth.server.jwtSigningKey` (PEM-encoded EC P-256 or RSA key) or `existingSecret` with key `jwt-signing-key`; `helm template` fails if neither is provided when `enableJWTMode: true`.
+- CiliumNetworkPolicy egress now reaches an OIDC issuer (Dex) / HTTP MCP server that is fronted by a **Cilium-managed ingress gateway VIP** (LB-IPAM / L2, typical on-prem). With `kube-proxy-replacement`, Cilium DNATs the LoadBalancer VIP to the gateway backend pod on its *target* port (e.g. `443`→`10443`) **before** egress policy is evaluated, so neither `toEntities: world` nor `toEntities: cluster` on `443` matched and OIDC discovery failed with `context deadline exceeded`. A new `networkPolicy.cilium.ingressGateway` rule allows egress to the gateway backend endpoints on their target ports (default: Giant Swarm `envoy-gateway` proxies on `10080`/`10443`). Clusters whose gateway VIP is an external cloud LB (e.g. AWS ELB) were already covered by the `world` rule and are unaffected (the new rule is a no-op there); set `ingressGateway: null` to disable. Fixes the OAuth/`OIDC discovery failed` startup warning on affected clusters.
+- Workflow availability (`core_workflow_available` / `core_workflow_list` / `workflow_available`) is now session-aware. Previously, availability for SSO / auth-protected family tools (e.g. multi-instance `kubernetes` / `prometheus` servers) was computed from the process-global family routing index, which is unioned across sessions and only populated as a side effect of a prior `list_tools` call. This produced two symmetric defects: a **false negative** — `muster list workflows` / `muster get workflow` reported workflows `Unavailable` until some session listed tools, while `muster agent` (which lists tools on connect) reported them available, so the answer depended on call ordering; and a **false positive** — once any session listed tools, the family entry leaked process-wide, so a session that never authenticated to the family still saw the workflow as available. When the request carries a session, availability now resolves each step tool against that session's own accessible tools (hydrated from the `CapabilityStore`); core / meta tools resolve by name, and only session-less calls fall back to the process-global view. Closes #764.
+- Workflow availability is now transitive across nested workflows. A workflow step that calls another workflow (`workflow_<name>`) was always treated as available because the availability check matched the `workflow_` prefix without consulting the registry, so a workflow referencing a non-existent or transitively broken nested workflow was wrongly reported `Available` and only failed at execution time. Nested workflow steps now require the referenced workflow to exist and to be itself available; the check descends through the whole chain (with cycle detection) and reports the actual unavailable tool. The `workflow_` management meta-tools (`workflow_list`, `workflow_available`, ...) are unaffected.
+
+### Changed
+
+- Bump `giantswarm/mcp-oauth` to `v0.2.184`. New Helm values `muster.oauth.server.{trustedIssuers,trustedProxyCIDRs,enableJWTMode,resourceIdentifier}` wire trusted external OIDC issuers for RFC 8693 token exchange (id_token / access_token / jwt), DPoP trusted-proxy CIDRs, RFC 9068 JWT access tokens, and RFC 8707 resource-server audience binding. `trustedIssuers` entries now support `allowedClaims` (claim name to glob-pattern map) for Kubernetes ServiceAccount and GitHub Actions trust. Also enables the OIDC userinfo endpoint, PII-redacted audit logging, and CIMD metadata-fetch rate limiting. Encryption-at-rest is now wired on the store constructor (`valkey.WithEncryptor` / `memory.WithEncryptor`) rather than as a server option.
+
+### Added
+
+- New standalone `muster-crds` Helm chart (`helm/muster-crds`) shipping the `MCPServer` and `Workflow` CustomResourceDefinitions. The CRDs are loaded from `files/crds/*.yaml` by `templates/crds.yaml` (regular chart templates, not the Helm 3 `crds/` directory), so they remain upgradable on `helm upgrade` and keep the `helm.sh/resource-policy: keep` annotation. This decouples the CRD lifecycle from the application chart so a downstream `agentic-platform-crds` umbrella can own it independently. Install or upgrade `muster-crds` **before** `muster`.
+- Degraded-mode startup when the Dex/OIDC issuer is unreachable at boot time. muster now starts immediately and serves MCP aggregation, reconcilers, and all non-OAuth paths regardless of Dex availability. A background goroutine retries OIDC discovery with exponential backoff (1 s → 30 s cap); once discovery succeeds the OAuth server activates transparently. Until then, OAuth and MCP-over-OAuth endpoints return `503 Service Unavailable` with a `Retry-After: 30` header. The `/health` endpoint always returns `200` with `{"status":"degraded","reason":"oidc-discovery-pending"}` during the window. Closes #730.
 - `networkPolicy.flavor` selects between `cilium` (CiliumNetworkPolicy) and `kubernetes` (`networking.k8s.io/v1 NetworkPolicy`). The kubernetes flavor is best-effort: no entity selectors, no FQDN egress. CIDR replacements live under `networkPolicy.kubernetes.{apiServerCIDR,clusterCIDR,worldExcludedCIDRs}`. `clusterCIDR: ""` disables the in-cluster ingress egress rule (kubernetes-flavor equivalent of cilium `allowClusterIngress`).
 - `crds.annotations` (object) is merged into each CRD's `metadata.annotations` by the loader. Default `{helm.sh/resource-policy: keep}` keeps CRDs (and the `MCPServer` / `Workflow` CRs that depend on them) around on `helm uninstall`.
 - `revisionHistoryLimit` (default `3`) on the muster Deployment.
@@ -24,11 +214,14 @@ All notable changes to this project will be documented in this file.
 
 ### Removed
 
+- `muster.oauth.server.kubernetesSATrusts` Helm value and `K8sSATrustConfig` Go type are removed. Kubernetes ServiceAccount trust is now expressed via `trustedIssuers` with an `allowedClaims` entry (`sub: "system:serviceaccount:<namespace>:*"`) and `allowPrivateIPJWKS: true` when the JWKS endpoint is in-cluster. The `jwt` subject_token_type covers projected SA tokens without a separate trust list.
+
 - `ciliumNetworkPolicy.*` is replaced by `networkPolicy.*`. `ciliumNetworkPolicy.enabled` → `networkPolicy.enabled` + `networkPolicy.flavor: cilium` (default). `ciliumNetworkPolicy.allowClusterIngress` → `networkPolicy.cilium.allowClusterIngress`. `ciliumNetworkPolicy.{labels,annotations}` → `networkPolicy.{labels,annotations}`.
 
 ### Changed
 
-- CRD source files moved from `helm/muster/crds/` to `helm/muster/files/crds/`. `files/` has no Helm 3 special-case, so the rendering path (`helm/muster/templates/crds.yaml` loader) is identical whether muster is installed standalone or consumed as a sub-chart. `controller-gen` output path updated in `Makefile.crd.mk`; CI drift check in `.github/workflows/ci.yaml` follows the new path.
+- The muster application chart no longer renders the CRDs. `helm/muster/templates/crds.yaml` was removed and the CRDs moved to the new `muster-crds` chart. `crds.install` now defaults to `false` and the whole `crds` block is deprecated (inert compatibility shim, removed next release) — it is kept only so a downstream that explicitly sets `muster.crds.install: false` still validates. Operators must install/upgrade `muster-crds` before `muster`.
+- CRD source files moved from `helm/muster/files/crds/` to `helm/muster-crds/files/crds/`. `files/` has no Helm 3 special-case, so the CRDs stay upgradable on `helm upgrade`. `controller-gen` output path updated in `Makefile.crd.mk`; CI drift check in `.github/workflows/ci.yaml` follows the new path.
 
 - Container image build no longer compiles the Go binary inside `docker buildx`. `go-build` now produces both `muster-linux-amd64` and `muster-linux-arm64` in one job (architect-orb `architectures` parameter) and the Dockerfile copies the matching binary from the workspace. Removes the duplicate compile and the QEMU-emulated arm64 cross-build on tag releases; `push-to-registries` auto-derives `--platform` from the workspace `.platforms` file.
 - Build identifiers (`version`, `gitSHA`, `buildTimestamp`) now live in `pkg/project` instead of `main`. Both injection paths populate the same vars: goreleaser writes the semver tag + short commit + date for release archives, architect-orb's `go-build` writes the commit SHA + UTC timestamp for container images. `muster version` prefers the tag, falls back to the SHA, falls back to `dev`, and additionally prints the commit SHA and build timestamp on dedicated lines.
@@ -496,5 +689,6 @@ See [ADR-010](docs/explanation/decisions/010-server-side-meta-tools.md) for desi
 
 ## [0.6.0] - 2025-01-15
 
-[Unreleased]: https://github.com/giantswarm/muster/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/giantswarm/muster/compare/v0.3.12...HEAD
+[0.3.12]: https://github.com/giantswarm/muster/compare/v0.1.0...v0.3.12
 [0.1.0]: https://github.com/giantswarm/muster/compare/v0.0.236...v0.1.0
