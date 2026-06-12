@@ -4,9 +4,24 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Brokered RFC 8693 token exchange ([#831](https://github.com/giantswarm/muster/issues/831)): external confidential clients can POST a token-exchange request with an `audience` parameter to `/oauth/token` and receive a token minted by the audience's downstream Dex. New `oauth.server.tokenExchangeBroker` config block (per-client audience allowlist, audience → downstream Dex target mapping with per-target scopes and credential secret refs). Requires mcp-oauth >= v0.3.0; subject tokens are validated against `trustedIssuers`.
+
+### Changed
+
+- Update mcp-oauth to v0.3.1: forwarded ID tokens (`trustedAudiences`) are no longer hard-rejected by the trusted-issuer Bearer branch when the same issuer is also configured in `trustedIssuers` — fixes Backstage AI-chat SSO token forwarding returning 401 (`typ header is "", expected "at+jwt"`) on deployments with the token-exchange broker enabled.
+- Update mcp-oauth to v0.3.0 (server-side RFC 8693 token-exchange grant with pluggable `Exchanger`).
+
+## [0.3.12] - 2026-06-10
+
 ### Changed
 
 - Release binaries now include darwin/amd64, darwin/arm64, windows/amd64, and windows/arm64 alongside the existing linux targets. Windows binaries are named `muster-windows-<arch>.exe`.
+
+### Fixed
+
+- Update mcp-oauth to v0.2.199: JWT access tokens issued for grants without an RFC 8707 `resource` parameter now carry an `aud` claim defaulting to the server's resource identifier (RFC 9068 §2.2), instead of an empty audience that JWT-validating gateways (e.g. agentgateway) reject with `401 InvalidAudience`. Existing grants self-heal on their next token refresh.
 
 ### Added
 
@@ -151,7 +166,7 @@ All notable changes to this project will be documented in this file.
 
 * align files according to platform standards ([#767](https://github.com/giantswarm/muster/issues/767)) ([d7b7c9a](https://github.com/giantswarm/muster/commit/d7b7c9a7a63a809e644d6991e3806095a53ed938))
 
-## [Unreleased]
+## Shipped between v0.1.223 and v0.3.11 (previously misfiled as Unreleased)
 
 ### Fixed
 
@@ -651,5 +666,6 @@ See [ADR-010](docs/explanation/decisions/010-server-side-meta-tools.md) for desi
 
 ## [0.6.0] - 2025-01-15
 
-[Unreleased]: https://github.com/giantswarm/muster/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/giantswarm/muster/compare/v0.3.12...HEAD
+[0.3.12]: https://github.com/giantswarm/muster/compare/v0.1.0...v0.3.12
 [0.1.0]: https://github.com/giantswarm/muster/compare/v0.0.236...v0.1.0

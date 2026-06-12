@@ -503,11 +503,11 @@
             },
             "registrationToken": {
               "type": "string",
-              "description": "Registration token for dynamic client registration"
+              "description": "Shared secret a client must present at the DCR endpoint to register. Supply via existingSecret (key: registration-token) in production."
             },
             "allowPublicClientRegistration": {
               "type": "boolean",
-              "description": "Allow unauthenticated dynamic client registration"
+              "description": "Open registration: any client may register without a token. Rate-limited but still a DoS surface. Default: false."
             },
             "encryptionKey": {
               "type": "boolean",
@@ -522,7 +522,7 @@
               "items": {
                 "type": "string"
               },
-              "description": "URI schemes allowed for unauthenticated client registration"
+              "description": "Custom URI schemes accepted without a registration token. Use for native desktop apps (e.g. cursor, vscode) that register a protocol handler as their OAuth redirect target."
             },
             "trustedPublicRegistrationRedirectURIs": {
               "type": "array",
@@ -530,26 +530,26 @@
                 "type": "string",
                 "pattern": "^https://[A-Za-z0-9._~%-]+(:[0-9]+)?(/\\S*)?$"
               },
-              "description": "HTTPS redirect URIs allowed for unauthenticated client registration (exact match after RFC 3986 normalization)"
+              "description": "HTTPS redirect URIs accepted without a registration token. Use for SaaS or hosted MCP clients with a stable callback URL (e.g. Claude.ai, AWS Bedrock AgentCore). Each entry grants DCR access — list only URIs you control. Exact match after RFC 3986 normalization."
             },
             "enableCIMD": {
               "type": "boolean",
-              "description": "Enable Client ID Metadata Documents"
+              "description": "Enable Client ID Metadata Documents (CIMD) per MCP 2025-11-25 spec"
             },
             "allowLocalhostRedirectURIs": {
               "type": "boolean",
-              "description": "Allow localhost/loopback redirect URIs for native apps (RFC 8252)"
+              "description": "Allow localhost/loopback redirect URIs for native apps (RFC 8252). Required for muster agent and other local OAuth clients. Default: true."
             },
             "trustedAudiences": {
               "type": "array",
               "items": {
                 "type": "string"
               },
-              "description": "OIDC client IDs (audiences) whose JWTs are accepted as bearer tokens"
+              "description": "OIDC client IDs (audiences) whose JWTs muster accepts directly as bearer tokens, bypassing the authorization-code flow. The token aud claim must match and the signature must validate against the provider JWKS. Use for server-to-server calls where a browser redirect is impractical."
             },
             "trustedIssuers": {
               "type": "array",
-              "description": "Trusted external OIDC issuers for RFC 8693 token exchange (id_token / access_token / jwt)",
+              "description": "Trusted external OIDC issuers for RFC 8693 token exchange. A client exchanges a token from another issuer (e.g. a Kubernetes ServiceAccount JWT) and receives a muster access token. Tokens are accepted as id_token / access_token / jwt subject_tokens.",
               "items": {
                 "type": "object",
                 "required": ["issuer", "jwksUrl"],
@@ -566,7 +566,47 @@
             "trustedProxyCIDRs": {
               "type": "array",
               "items": {"type": "string"},
-              "description": "CIDRs from which X-Forwarded-Proto/Host headers are trusted for DPoP htu reconstruction"
+              "description": "CIDRs from which X-Forwarded-Proto and X-Forwarded-Host headers are trusted for DPoP htu URL reconstruction. Required when muster runs behind a reverse proxy."
+            },
+            "tokenExchangeBroker": {
+              "type": "object",
+              "description": "Brokered RFC 8693 token exchange: external confidential clients exchange a subject token plus an audience name for a token minted by the audience's downstream Dex. Subject tokens are validated against trustedIssuers.",
+              "properties": {
+                "clientAudiences": {
+                  "type": "object",
+                  "additionalProperties": {"type": "array", "items": {"type": "string"}},
+                  "description": "Per-client audience allowlist: broker client ID → audiences it may request. Requests outside the list get invalid_target."
+                },
+                "targets": {
+                  "type": "object",
+                  "description": "Audience name → downstream Dex exchange target.",
+                  "additionalProperties": {
+                    "type": "object",
+                    "required": ["dexTokenEndpoint", "connectorId"],
+                    "properties": {
+                      "dexTokenEndpoint": {"type": "string", "pattern": "^https://", "description": "Downstream Dex token endpoint URL (HTTPS)."},
+                      "expectedIssuer": {"type": "string", "description": "Expected iss claim of the exchanged token. Derived from dexTokenEndpoint when empty."},
+                      "connectorId": {"type": "string", "description": "Downstream Dex OIDC connector that trusts the subject token's issuer."},
+                      "scopes": {"type": "string", "description": "Space-separated downstream scopes (default: openid profile email groups). Kubernetes-bound audiences must include the Dex cross-client scope, e.g. audience:server:client_id:dex-k8s-authenticator."},
+                      "clientCredentialsSecretRef": {
+                        "type": "object",
+                        "required": ["name"],
+                        "properties": {
+                          "name": {"type": "string"},
+                          "namespace": {"type": "string", "description": "Defaults to the muster namespace."},
+                          "clientIdKey": {"type": "string", "description": "Defaults to client-id."},
+                          "clientSecretKey": {"type": "string", "description": "Defaults to client-secret."}
+                        },
+                        "description": "Kubernetes Secret holding the downstream exchange client credentials (same secrets the per-MCPServer tokenExchange config uses)."
+                      }
+                    }
+                  }
+                },
+                "allowPrivateIP": {
+                  "type": "boolean",
+                  "description": "Allow downstream token endpoints to resolve to private/loopback IPs. Reduces SSRF protection; internal deployments only."
+                }
+              }
             },
             "enableJWTMode": {
               "type": "boolean",

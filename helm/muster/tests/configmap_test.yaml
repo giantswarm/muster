@@ -1,0 +1,114 @@
+suite: ConfigMap template tests
+templates:
+  - templates/configmap.yaml
+
+tests:
+  - it: renders trustedPublicRegistrationRedirectURIs into config.yaml
+    set:
+      muster.oauth.server.enabled: true
+      muster.oauth.server.baseUrl: "https://muster.example.com"
+      muster.oauth.server.existingSecret: "muster-oauth"
+      muster.oauth.server.dex.issuerUrl: "https://dex.example.com"
+      muster.oauth.server.dex.clientId: "muster"
+      muster.oauth.server.trustedPublicRegistrationRedirectURIs:
+        - "https://bedrock-agentcore.example.com/identities/oauth2/callback/abc123"
+        - "https://claude.ai/api/mcp/auth_callback"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "trustedPublicRegistrationRedirectURIs:"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "bedrock-agentcore.example.com"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "claude.ai"
+
+  - it: renders trustedPublicRegistrationSchemes into config.yaml
+    set:
+      muster.oauth.server.enabled: true
+      muster.oauth.server.baseUrl: "https://muster.example.com"
+      muster.oauth.server.existingSecret: "muster-oauth"
+      muster.oauth.server.dex.issuerUrl: "https://dex.example.com"
+      muster.oauth.server.dex.clientId: "muster"
+      muster.oauth.server.trustedPublicRegistrationSchemes:
+        - "cursor"
+        - "vscode"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "trustedPublicRegistrationSchemes:"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "cursor"
+
+  - it: omits trustedPublicRegistrationRedirectURIs when empty
+    set:
+      muster.oauth.server.enabled: true
+      muster.oauth.server.baseUrl: "https://muster.example.com"
+      muster.oauth.server.existingSecret: "muster-oauth"
+      muster.oauth.server.dex.issuerUrl: "https://dex.example.com"
+      muster.oauth.server.dex.clientId: "muster"
+      muster.oauth.server.trustedPublicRegistrationRedirectURIs: []
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "trustedPublicRegistrationRedirectURIs:"
+
+  - it: omits trustedPublicRegistrationSchemes when empty
+    set:
+      muster.oauth.server.enabled: true
+      muster.oauth.server.baseUrl: "https://muster.example.com"
+      muster.oauth.server.existingSecret: "muster-oauth"
+      muster.oauth.server.dex.issuerUrl: "https://dex.example.com"
+      muster.oauth.server.dex.clientId: "muster"
+      muster.oauth.server.trustedPublicRegistrationSchemes: []
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "trustedPublicRegistrationSchemes:"
+
+  - it: renders tokenExchangeBroker into config.yaml
+    set:
+      muster.oauth.server.enabled: true
+      muster.oauth.server.baseUrl: "https://muster.example.com"
+      muster.oauth.server.existingSecret: "muster-oauth"
+      muster.oauth.server.dex.issuerUrl: "https://dex.example.com"
+      muster.oauth.server.dex.clientId: "muster"
+      muster.oauth.server.tokenExchangeBroker:
+        clientAudiences:
+          portal-backend:
+            - cluster-a
+        targets:
+          cluster-a:
+            dexTokenEndpoint: "https://dex.cluster-a.example.com/token"
+            connectorId: "main-dex"
+            scopes: "openid profile email groups audience:server:client_id:dex-k8s-authenticator"
+            clientCredentialsSecretRef:
+              name: "muster-token-exchange-cluster-a"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "tokenExchangeBroker:"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "portal-backend"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "dexTokenEndpoint: https://dex.cluster-a.example.com/token"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "muster-token-exchange-cluster-a"
+
+  - it: omits tokenExchangeBroker when empty
+    set:
+      muster.oauth.server.enabled: true
+      muster.oauth.server.baseUrl: "https://muster.example.com"
+      muster.oauth.server.existingSecret: "muster-oauth"
+      muster.oauth.server.dex.issuerUrl: "https://dex.example.com"
+      muster.oauth.server.dex.clientId: "muster"
+      muster.oauth.server.tokenExchangeBroker: {}
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "tokenExchangeBroker:"

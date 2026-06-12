@@ -418,6 +418,47 @@ func (a *AggregatorServer) initSSOForSession(ctx context.Context, userID, sessio
 	}
 }
 
+// ssoPoolMissNeedingInit reports whether any token-exchange server has a pool
+// miss for sessionID that is not already covered by an in-flight exchange or
+// an unexpired failure backoff window. For each qualifying server it atomically
+// claims the pending slot via MarkSSOPendingIfNotPending, so concurrent
+// onAuthenticated calls for the same session do not spawn redundant
+// initSSOForSession goroutines. Servers whose last exchange failed are skipped
+// until their backoff expires, so a persistently failing exchange retries on
+// the tracker's backoff schedule instead of on every request.
+//
+// Pending slots are keyed by user subject while the connection pool is keyed
+// by session: when two sessions of the same user both have a pool miss, the
+// second session's re-init is deferred until the first exchange clears the
+// slot or the pending timeout expires.
+func (a *AggregatorServer) ssoPoolMissNeedingInit(userID, sessionID string) bool {
+	if a.connPool == nil || a.registry == nil {
+		return false
+	}
+	found := false
+	for _, info := range a.registry.GetAllServers() {
+		if !info.RequiresSessionAuth() {
+			continue
+		}
+		if !ShouldUseTokenExchange(info) {
+			continue
+		}
+		if _, ok := a.connPool.Get(sessionID, info.Name); ok {
+			continue
+		}
+		if a.ssoTracker != nil {
+			if a.ssoTracker.HasSSOFailed(userID, info.Name) {
+				continue
+			}
+			if !a.ssoTracker.MarkSSOPendingIfNotPending(userID, info.Name) {
+				continue
+			}
+		}
+		found = true
+	}
+	return found
+}
+
 // establishSSOConnection attempts to establish an SSO connection to a single server.
 // This is called on demand when a cache miss is detected for an SSO-enabled server
 // (token forwarding or token exchange). Manual-auth servers use core_auth_login instead.
@@ -441,9 +482,28 @@ func (a *AggregatorServer) establishSSOConnection(
 	if a.authStore != nil {
 		authenticated, _ := a.authStore.IsAuthenticated(ctx, sessionID, serverInfo.Name)
 		if authenticated {
-			logging.Debug("Aggregator", "SSO: Session %s already authenticated to %s, skipping SSO",
+			// For token-exchange servers, also verify the conn pool has a live client.
+			// After a pod restart the auth store persists "authenticated" in Valkey while
+			// the in-memory pool is empty. In that case, clear the stale auth entry so
+			// the exchange proceeds and the pool is repopulated.
+			stalePoolMiss := false
+			if ShouldUseTokenExchange(serverInfo) && a.connPool != nil {
+				_, poolHit := a.connPool.Get(sessionID, serverInfo.Name)
+				stalePoolMiss = !poolHit
+			}
+			if !stalePoolMiss {
+				logging.Debug("Aggregator", "SSO: Session %s already authenticated to %s, skipping SSO",
+					logging.TruncateIdentifier(sessionID), serverInfo.Name)
+				if a.ssoTracker != nil {
+					a.ssoTracker.ClearSSOPending(sub, serverInfo.Name)
+				}
+				return
+			}
+			logging.Info("Aggregator", "SSO: Session %s authenticated to %s in auth store but pool miss, clearing stale state",
 				logging.TruncateIdentifier(sessionID), serverInfo.Name)
-			return
+			if err := a.authStore.Revoke(ctx, sessionID, serverInfo.Name); err != nil {
+				logging.Warn("Aggregator", "SSO: Failed to revoke stale auth state for %s: %v", serverInfo.Name, err)
+			}
 		}
 	}
 

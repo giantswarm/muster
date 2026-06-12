@@ -2,7 +2,7 @@
 #
 #    devctl
 #
-#    https://github.com/giantswarm/devctl/blob/de3ea76e49afac49024a3d84901c0184e5019523/pkg/gen/input/precommit/internal/file/pre-commit-action.yaml.template
+#    https://github.com/giantswarm/devctl/blob/883181362e906aaf611f16c0f528ed8f34fa4cdb/pkg/gen/input/precommit/internal/file/pre-commit-action.yaml.template
 #
 name: pre-commit
 
@@ -16,14 +16,14 @@ on:
 env:
   HELM_VERSION: "3.21.0"
   HELM_DOCS_VERSION: "1.14.2"
-  HELM_VALUES_SCHEMA_JSON_VERSION: "2.4.0"
+  HELM_VALUES_SCHEMA_JSON_VERSION: "2.5.0"
 
 jobs:
   pre-commit:
     runs-on: ubuntu-24.04
     steps:
       - name: Check out code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - name: Set up Python environment
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
       - name: Install helm-docs

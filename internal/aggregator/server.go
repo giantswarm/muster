@@ -339,20 +339,6 @@ func newSSOTracker() *ssoTracker {
 	}
 }
 
-// MarkSSOPending records that an SSO connection attempt has been triggered for
-// a user/server pair. Only records the first occurrence; subsequent calls for the
-// same pair are no-ops so the original timestamp is preserved.
-func (s *ssoTracker) MarkSSOPending(sub, serverName string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.pendingServers[sub] == nil {
-		s.pendingServers[sub] = make(map[string]time.Time)
-	}
-	if _, exists := s.pendingServers[sub][serverName]; !exists {
-		s.pendingServers[sub][serverName] = time.Now()
-	}
-}
-
 // IsSSOPendingWithinTimeout returns true if SSO is pending AND the pending
 // duration has not exceeded ssoTrackerPendingTimeout.
 func (s *ssoTracker) IsSSOPendingWithinTimeout(sub, serverName string) bool {
@@ -364,6 +350,30 @@ func (s *ssoTracker) IsSSOPendingWithinTimeout(sub, serverName string) bool {
 		}
 	}
 	return false
+}
+
+// MarkSSOPendingIfNotPending atomically marks SSO as pending for a user/server
+// pair if no unexpired pending record already exists. Returns true when the
+// record was newly created — the caller should spawn the exchange. Returns false
+// when an exchange is already in-flight — the caller should skip.
+func (s *ssoTracker) MarkSSOPendingIfNotPending(sub, serverName string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if m, ok := s.pendingServers[sub]; ok {
+		if firstSeen, exists := m[serverName]; exists {
+			if time.Since(firstSeen) < ssoTrackerPendingTimeout {
+				return false
+			}
+			// Previous pending record expired — reset so a fresh exchange can run.
+			m[serverName] = time.Now()
+			return true
+		}
+	}
+	if s.pendingServers[sub] == nil {
+		s.pendingServers[sub] = make(map[string]time.Time)
+	}
+	s.pendingServers[sub][serverName] = time.Now()
+	return true
 }
 
 // ClearSSOPending removes the pending record for a user/server pair.
@@ -1486,6 +1496,21 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 				// Evict stale SSO connections to stop mcp-go's infinite
 				// 1-second retry loop.
 				a.handleUpstreamRefreshFailure(sessionID, userID, "onAuthenticated: ID token missing for active session")
+				return
+			}
+			// After a pod restart the auth store survives in Valkey but the
+			// in-memory conn pool is empty. Trigger SSO re-init if any
+			// token-exchange server is registered but has no pooled client.
+			// Failure backoff is intentionally NOT cleared here: the tracker is
+			// in-memory, so after a restart there are no stale failures, and
+			// clearing it on every request would retry a persistently failing
+			// exchange per-request instead of on the backoff schedule.
+			// The issuer check mirrors initSSOForSession's early return so
+			// pending slots are not claimed when no exchange can run.
+			if a.getMusterIssuer() != "" && a.ssoPoolMissNeedingInit(userID, sessionID) {
+				logging.InfoWithAttrs("Aggregator", "SSO: pool miss on live session, triggering SSO re-init",
+					slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
+				go a.initSSOForSession(context.Background(), userID, sessionID, idToken) //nolint:gosec // G118: SSO bootstrap must outlive the request handler that triggered it
 			}
 			return
 		}

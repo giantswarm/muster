@@ -1,0 +1,94 @@
+name: "oauth-restart-preserves-pending-auth"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  Verify that restarting an OAuth-protected MCP server preserves its
+  pending-auth registration in the aggregator.
+
+  A restart drives the server through stop -> start -> 401, which re-triggers
+  the auth-required hook. The aggregator must keep (or idempotently re-create)
+  the pending-auth entry so that core_auth_login keeps working after the
+  restart instead of failing with "Server not found".
+tags: ["oauth", "authentication", "mcpserver", "restart"]
+timeout: "2m"
+
+pre_configuration:
+  mock_oauth_servers:
+    - name: "restart-idp"
+      scopes: ["openid", "profile"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "restart-client"
+
+  mcp_servers:
+    - name: "restart-server"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "restart-idp"
+        tools:
+          - name: "get_secret"
+            description: "Returns a secret value that requires authentication"
+            responses:
+              - response:
+                  secret: "restart-secret"
+                  message: "You are authenticated!"
+
+steps:
+  # Step 1: Server is registered (readiness already waited for a ready state)
+  - id: verify-server-registered
+    description: "Verify the protected server is registered before the restart"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "restart-server"
+
+  # Step 2: Restart the OAuth-protected server. The restart cycles the service
+  # through stop/start and the new start hits the 401 again. The tool itself
+  # returns the OAuth guidance error because session-scoped auth cannot be
+  # established by a restart.
+  - id: restart-protected-server
+    description: "Restart the OAuth-protected server"
+    tool: "core_service_restart"
+    args:
+      name: "restart-server"
+    expected:
+      success: false
+      contains:
+        - "requires OAuth authentication"
+
+  # Step 3: The server must still be registered for authentication. If the
+  # restart lost the pending-auth registration, the OAuth flow below fails
+  # with "Server not found".
+  - id: authenticate-after-restart
+    description: "Complete the OAuth flow after the restart"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "restart-server"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  # Step 4: Establish the session connection (per ADR-008)
+  - id: login-after-restart
+    description: "core_auth_login still finds the server after the restart"
+    tool: "core_auth_login"
+    args:
+      server: "restart-server"
+    expected:
+      success: true
+
+  # Step 5: The protected tool works after post-restart authentication
+  - id: call-protected-tool
+    description: "Protected tool is reachable after post-restart authentication"
+    tool: "x_restart-server_get_secret"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "restart-secret"

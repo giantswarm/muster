@@ -77,6 +77,14 @@ data:
           {{- if .Values.muster.oauth.server.allowLocalhostRedirectURIs }}
           allowLocalhostRedirectURIs: true
           {{- end }}
+          {{- with .Values.muster.oauth.server.trustedPublicRegistrationRedirectURIs }}
+          trustedPublicRegistrationRedirectURIs:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.muster.oauth.server.trustedPublicRegistrationSchemes }}
+          trustedPublicRegistrationSchemes:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           {{- with .Values.muster.oauth.server.trustedAudiences }}
           trustedAudiences:
             {{- toYaml . | nindent 12 }}
@@ -97,6 +105,10 @@ data:
           {{- end }}
           {{- with .Values.muster.oauth.server.resourceIdentifier }}
           resourceIdentifier: {{ . | quote }}
+          {{- end }}
+          {{- with .Values.muster.oauth.server.tokenExchangeBroker }}
+          tokenExchangeBroker:
+            {{- toYaml . | nindent 12 }}
           {{- end }}
         {{- end }}
     namespace: {{ include "muster.namespace" . | quote }}

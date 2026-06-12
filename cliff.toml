@@ -1,10 +1,17 @@
-# git-cliff config for the push-based PoC.
+# DO NOT EDIT. Generated with:
 #
-# Two jobs:
-#   1. Decide the next semver from conventional commits (`--bumped-version`,
-#      used by .github/workflows/auto-tag.yaml).
-#   2. Render the release notes posted on the GitHub Release (`--latest`,
-#      also used by auto-tag.yaml after the tag is pushed).
+#    devctl
+#
+#    https://github.com/giantswarm/devctl/blob/44bc44044fa7af78dbf25377fa8a080cf3143c70/pkg/gen/input/workflows/internal/file/cliff.toml.template
+#
+# git-cliff config for the push-based auto-release flow.
+#
+# A single git-cliff invocation in .github/workflows/auto-release.yaml runs
+# `--unreleased --bump --context` to compute the next semver from conventional
+# commits AND emit the JSON context that the same workflow then re-renders
+# with `--from-context --strip all` for the release-notes body posted on the
+# GitHub Release. One commit walk, one set of GitHub API PR lookups, two
+# cheap outputs.
 
 [bump]
 # `feat:` always bumps minor (not patch). Matches conventional-commits spec.
@@ -15,7 +22,7 @@ breaking_always_bump_major = true
 [git]
 conventional_commits = true
 # Drop non-conventional commits silently rather than counting them as
-# unclassified work — the bump-decider should only act on intent-bearing
+# unclassified work -- the bump-decider should only act on intent-bearing
 # commits.
 filter_unconventional = true
 # Highest-version tag (not creation date) is the baseline when computing what
@@ -25,26 +32,25 @@ sort_commits = "oldest"
 
 # Strip the trailing " (#N)" that GitHub appends to squash-merge commit
 # messages. Our template renders the PR link explicitly via cliff's GitHub
-# integration (commit.remote.pr_number — see [changelog].body), so the
+# integration (commit.remote.pr_number -- see [changelog].body), so the
 # auto-appended reference would duplicate it.
 #
 # `(?m)` enables multi-line mode so `$` matches end-of-line (the squash
 # `(#N)` lives at the end of the subject line, not the end of the full
-# commit text — git-cliff's default regex mode is single-line). This
+# commit text -- git-cliff's default regex mode is single-line). This
 # anchoring keeps `(#N)` references that appear inside commit bodies
 # untouched.
 commit_preprocessors = [
   { pattern = '(?m) \(#\d+\)$', replace = "" },
 ]
 
-# Map commit types to changelog groups. Mirrors the section structure from
-# the old release-please-config.json (Keep-a-Changelog convention): feat →
-# Added, fix → Fixed, all "internal change" types → Changed, security →
-# Security.
+# Map commit types to changelog groups (Keep-a-Changelog convention):
+# feat -> Added, fix -> Fixed, all "internal change" types -> Changed,
+# security -> Security.
 #
-# `style` is the only type marked skip — release-please-config.json didn't
-# include it anywhere either. Bump decision is unaffected by these group
-# names: git-cliff only bumps on feat / fix / breaking regardless.
+# `style` is the only type marked skip.
+# Bump decision is unaffected by these group names: git-cliff only bumps on
+# feat / fix / breaking regardless.
 commit_parsers = [
   { message = "^feat",     group = "Added" },
   { message = "^fix",      group = "Fixed" },
@@ -59,13 +65,9 @@ commit_parsers = [
   { message = "^style",    skip = true },
 ]
 
-# GitHub repo coordinates — required for the API lookups that populate
-# `commit.github.pr_number` and `commit.github.username` in the template
-# below. The token is passed automatically by git-cliff-action from the
-# workflow's GITHUB_TOKEN.
-#
-# Note for devctl when templating this file: owner / repo need to come from
-# the consuming repo's identity, not be hard-coded.
+# GitHub repo coordinates -- required for the API lookups that populate
+# `commit.remote.pr_number` and `commit.remote.username` in the template
+# below. The token is passed automatically via the workflow's GITHUB_TOKEN.
 [remote.github]
 owner = "giantswarm"
 repo = "muster"
@@ -77,7 +79,7 @@ repo = "muster"
 # Each bullet ends with " in [#N](pr-url) by [@user](user-url)" when
 # git-cliff successfully resolves the PR for the commit via the GitHub API.
 # `commit.remote` is the post-2.x replacement for the per-platform fields
-# (commit.github / commit.gitlab / etc.) — using it future-proofs the
+# (commit.github / commit.gitlab / etc.) -- using it future-proofs the
 # template against git-cliff dropping the old names.
 # Backslashes at line ends escape the newline so the bullet stays on one
 # line in the rendered Markdown.
