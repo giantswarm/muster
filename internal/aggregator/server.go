@@ -44,6 +44,10 @@ type oauthServer interface {
 	ValidateTokenWithSubject(next http.Handler) http.Handler
 	CreateMux() http.Handler
 	Shutdown(ctx context.Context) error
+	// RefreshSession forces an in-process upstream provider token refresh for the
+	// given token family. Used by getIDTokenForForwarding to recover from idle-period
+	// expiry without requiring the user to re-authenticate.
+	RefreshSession(ctx context.Context, familyID string) error
 }
 
 // AggregatorServer implements a comprehensive MCP server that aggregates multiple backend MCP servers.
@@ -155,6 +159,16 @@ type AggregatorServer struct {
 // client with the OAuth token/state stores.
 func (a *AggregatorServer) getValkeyClient() valkey.Client {
 	return a.valkeyClient
+}
+
+// sessionRefresher returns a callback that delegates to the OAuth HTTP server's
+// RefreshSession, or nil when OAuth is not configured. Callers pass this into
+// getIDTokenForForwarding so idle-expired tokens are recovered in-process.
+func (a *AggregatorServer) sessionRefresher() func(context.Context, string) error {
+	if a.oauthHTTPServer == nil {
+		return nil
+	}
+	return a.oauthHTTPServer.RefreshSession
 }
 
 // getValkeyKeyPrefix returns the configured key prefix for Valkey stores.
@@ -2776,7 +2790,7 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 		return nil, time.Time{}, "", fmt.Errorf("OAuth handler not available for token exchange to %s", serverName)
 	}
 
-	idToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer)
+	idToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer, a.sessionRefresher())
 	if idToken == "" {
 		return nil, time.Time{}, "", fmt.Errorf("no ID token available for token exchange to %s", serverName)
 	}
@@ -2918,7 +2932,8 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 
 	} else if ShouldUseTokenForwarding(serverInfo) {
 		musterIssuer := a.getMusterIssuer()
-		idToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer)
+		refresher := a.sessionRefresher()
+		idToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer, refresher)
 		if idToken == "" {
 			return nil, nil, fmt.Errorf("no ID token available for forwarding to %s", serverName)
 		}
@@ -2928,7 +2943,7 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 		}
 
 		headerFunc := func(_ context.Context) map[string]string {
-			latestToken := getIDTokenForForwarding(context.Background(), sessionID, musterIssuer)
+			latestToken := getIDTokenForForwarding(context.Background(), sessionID, musterIssuer, refresher)
 			if latestToken == "" {
 				latestToken = idToken
 			}
