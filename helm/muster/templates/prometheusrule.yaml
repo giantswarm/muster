@@ -23,6 +23,7 @@ spec:
           labels:
             severity: warning
           annotations:
+            runbook_url: "https://github.com/giantswarm/muster/blob/main/docs/runbooks/MusterServiceDown.md"
             summary: "Muster MCP service {{ "{{" }} $labels.service_name {{ "}}" }} is down"
             description: >
               MCP service {{ "{{" }} $labels.service_name {{ "}}" }} (type: {{ "{{" }} $labels.service_type {{ "}}" }})
@@ -31,10 +32,11 @@ spec:
         - alert: MusterServiceFlapping
           expr: |
             increase(muster_service_state_transitions_total[10m]) > 4
-          for: 0m
+          for: 1m
           labels:
             severity: warning
           annotations:
+            runbook_url: "https://github.com/giantswarm/muster/blob/main/docs/runbooks/MusterServiceFlapping.md"
             summary: "Muster MCP service {{ "{{" }} $labels.service_name {{ "}}" }} is flapping"
             description: >
               MCP service {{ "{{" }} $labels.service_name {{ "}}" }} has transitioned state more than
@@ -53,6 +55,7 @@ spec:
           labels:
             severity: warning
           annotations:
+            runbook_url: "https://github.com/giantswarm/muster/blob/main/docs/runbooks/MusterHighToolErrorRate.md"
             summary: "High error rate for MCP tool {{ "{{" }} $labels.tool {{ "}}" }}"
             description: >
               MCP tool {{ "{{" }} $labels.tool {{ "}}" }} has an error rate above 10%

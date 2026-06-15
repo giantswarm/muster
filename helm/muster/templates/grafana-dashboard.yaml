@@ -69,19 +69,19 @@ data:
         {
           "datasource": { "type": "prometheus", "uid": "$datasource" },
           "fieldConfig": {
-            "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" },
+            "defaults": { "color": { "mode": "palette-classic" }, "unit": "ops" },
             "overrides": []
           },
-          "gridPos": { "h": 7, "w": 12, "x": 0, "y": 7 },
+          "gridPos": { "h": 7, "w": 24, "x": 0, "y": 7 },
           "id": 2,
           "options": {
-            "legend": { "calcs": ["sum"], "displayMode": "list", "placement": "bottom" },
+            "legend": { "calcs": ["mean"], "displayMode": "list", "placement": "bottom" },
             "tooltip": { "mode": "multi", "sort": "none" }
           },
           "targets": [
             {
               "datasource": { "type": "prometheus", "uid": "$datasource" },
-              "expr": "sum by (service_name, to_state) (increase(muster_service_state_transitions_total{namespace=\"$namespace\",pod=~\"$pod\"}[$__rate_interval]))",
+              "expr": "sum by (service_name, to_state) (rate(muster_service_state_transitions_total{namespace=\"$namespace\",pod=~\"$pod\"}[$__rate_interval]))",
               "legendFormat": "{{ "{{" }}service_name{{ "}}" }} → {{ "{{" }}to_state{{ "}}" }}",
               "refId": "A"
             }
@@ -153,25 +153,22 @@ data:
           "fieldConfig": {
             "defaults": {
               "color": { "mode": "thresholds" },
+              "custom": { "lineWidth": 2, "fillOpacity": 10 },
               "mappings": [],
               "thresholds": { "mode": "absolute", "steps": [
-                { "color": "green", "value": null },
+                { "color": "green",  "value": null },
                 { "color": "yellow", "value": 0.05 },
-                { "color": "red",   "value": 0.1  }
+                { "color": "red",    "value": 0.1  }
               ]},
               "unit": "percentunit"
             },
             "overrides": []
           },
-          "gridPos": { "h": 7, "w": 12, "x": 0, "y": 22 },
+          "gridPos": { "h": 7, "w": 24, "x": 0, "y": 22 },
           "id": 5,
           "options": {
-            "colorMode": "background",
-            "graphMode": "area",
-            "justifyMode": "auto",
-            "orientation": "auto",
-            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
-            "textMode": "auto"
+            "legend": { "calcs": ["mean", "max"], "displayMode": "list", "placement": "bottom" },
+            "tooltip": { "mode": "multi", "sort": "desc" }
           },
           "targets": [
             {
@@ -182,7 +179,7 @@ data:
             }
           ],
           "title": "Tool Error Rate by Tool",
-          "type": "stat"
+          "type": "timeseries"
         }
       ],
       "refresh": "30s",
@@ -234,7 +231,7 @@ data:
       "timepicker": {},
       "timezone": "browser",
       "title": "Muster",
-      "uid": "muster-overview",
+      "uid": "{{ include "muster.fullname" . | trunc 40 | trimSuffix "-" }}",
       "version": 1
     }
 {{- end }}
