@@ -16,12 +16,26 @@ spec:
   groups:
     - name: muster.service
       rules:
+        - alert: MusterDown
+          expr: |
+            absent(muster_service_up)
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            runbook_url: "https://github.com/giantswarm/muster/blob/main/docs/runbooks/MusterDown.md"
+            summary: "Muster is not reporting metrics"
+            description: >
+              No muster_service_up series found for 2 minutes. The muster process is likely
+              down or the scrape target is unreachable. Also fires if muster has no services
+              configured.
+
         - alert: MusterServiceDown
           expr: |
             muster_service_up == 0
           for: 5m
           labels:
-            severity: warning
+            severity: critical
           annotations:
             runbook_url: "https://github.com/giantswarm/muster/blob/main/docs/runbooks/MusterServiceDown.md"
             summary: "Muster MCP service {{ "{{" }} $labels.service_name {{ "}}" }} is down"
@@ -31,7 +45,7 @@ spec:
 
         - alert: MusterServiceFlapping
           expr: |
-            increase(muster_service_state_transitions_total[10m]) > 4
+            increase(muster_service_state_transitions_total[10m]) > 8
           for: 1m
           labels:
             severity: warning
@@ -40,7 +54,7 @@ spec:
             summary: "Muster MCP service {{ "{{" }} $labels.service_name {{ "}}" }} is flapping"
             description: >
               MCP service {{ "{{" }} $labels.service_name {{ "}}" }} has transitioned state more than
-              4 times in the last 10 minutes, indicating instability.
+              8 times in the last 10 minutes, indicating instability.
 
     - name: muster.tools
       rules:
@@ -51,6 +65,8 @@ spec:
               /
               sum by (tool) (rate(muster_tool_calls_total[5m]))
             ) > 0.1
+            and
+            sum by (tool) (rate(muster_tool_calls_total[5m])) > 0.05
           for: 5m
           labels:
             severity: warning
