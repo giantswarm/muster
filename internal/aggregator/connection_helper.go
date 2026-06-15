@@ -234,6 +234,9 @@ func (r *ConnectionResult) FormatAsMCPResult() *mcp.CallToolResult {
 //     and SetTokenRefreshHandler, looked up by (sessionID, musterIssuer). This is the primary
 //     source for background closures (headerFunc) that run outside the HTTP request lifecycle
 //     with context.Background().
+//  3. If the store yields no valid token and refresher is non-nil, an in-process upstream
+//     provider refresh is attempted via refresher(ctx, sessionID). On success, TokenRefreshHandler
+//     fires synchronously, the proxy store is updated, and the store is re-read.
 //
 // The context token takes priority because it's the freshest, directly from the current request.
 //
@@ -241,9 +244,10 @@ func (r *ConnectionResult) FormatAsMCPResult() *mcp.CallToolResult {
 //   - ctx: Request context that may contain an injected ID token
 //   - sessionID: The session ID (token family ID) for token store lookups
 //   - musterIssuer: The issuer URL to look up in the OAuth proxy store
+//   - refresher: Optional callback to refresh the upstream session (may be nil)
 //
 // Returns the ID token string, or empty string if no token is available.
-func getIDTokenForForwarding(ctx context.Context, sessionID, musterIssuer string) string {
+func getIDTokenForForwarding(ctx context.Context, sessionID, musterIssuer string, refresher func(context.Context, string) error) string {
 	if idToken, ok := server.GetIDTokenFromContext(ctx); ok && idToken != "" {
 		logging.Debug("Connection", "Found ID token in request context for session %s",
 			logging.TruncateIdentifier(sessionID))
@@ -257,6 +261,22 @@ func getIDTokenForForwarding(ctx context.Context, sessionID, musterIssuer string
 			logging.Debug("Connection", "Found ID token in OAuth proxy store for session %s, issuer %s",
 				logging.TruncateIdentifier(sessionID), musterIssuer)
 			return fullToken.IDToken
+		}
+
+		// No valid token in the store (expired or never set). Attempt an in-process
+		// upstream refresh so that TokenRefreshHandler fires and repopulates the store.
+		if refresher != nil {
+			if err := refresher(ctx, sessionID); err != nil {
+				logging.Debug("Connection", "Session refresh failed for %s: %v",
+					logging.TruncateIdentifier(sessionID), err)
+			} else {
+				fullToken = oauthHandler.GetFullTokenByIssuer(sessionID, musterIssuer)
+				if fullToken != nil && fullToken.IDToken != "" {
+					logging.Info("Connection", "Recovered ID token via session refresh for session %s",
+						logging.TruncateIdentifier(sessionID))
+					return fullToken.IDToken
+				}
+			}
 		}
 	}
 
@@ -304,7 +324,8 @@ func EstablishConnectionWithTokenForwarding(
 		}
 	}
 
-	idToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer)
+	refresher := a.sessionRefresher()
+	idToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer, refresher)
 	if idToken == "" {
 		logging.Debug("Connection", "No ID token available for user %s",
 			logging.TruncateIdentifier(sub))
@@ -539,7 +560,7 @@ func EstablishConnectionWithTokenExchange(
 	// Get ID token from multiple sources (in priority order):
 	// 1. Request context (for tokens from muster's OAuth server protection)
 	// 2. OAuth proxy token store (for tokens from muster's own OAuth session)
-	idToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer)
+	idToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer, a.sessionRefresher())
 	if idToken == "" {
 		logging.Debug("Connection", "No ID token available for user %s",
 			logging.TruncateIdentifier(sub))
@@ -814,7 +835,7 @@ func makeTokenForwardingHeaderFunc(
 	var staleEvicted bool
 	hadToken := true
 	return func(_ context.Context) map[string]string {
-		latestToken := getIDTokenForForwarding(context.Background(), sessionID, musterIssuer)
+		latestToken := getIDTokenForForwarding(context.Background(), sessionID, musterIssuer, nil)
 		if latestToken == "" {
 			consecutiveFailures++
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -14,6 +15,7 @@ import (
 	"github.com/giantswarm/muster/pkg/logging"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // mockOAuthHandler implements api.OAuthHandler for testing getIDTokenForForwarding.
@@ -72,7 +74,7 @@ func TestGetIDTokenForForwarding(t *testing.T) {
 		ctx := context.Background()
 		ctx = server.ContextWithIDToken(ctx, validToken)
 
-		token := getIDTokenForForwarding(ctx, "test-user", "https://accounts.google.com")
+		token := getIDTokenForForwarding(ctx, "test-user", "https://accounts.google.com", nil)
 
 		assert.Equal(t, validToken, token)
 	})
@@ -80,7 +82,7 @@ func TestGetIDTokenForForwarding(t *testing.T) {
 	t.Run("returns empty when no token in context and no OAuth handler", func(t *testing.T) {
 		ctx := context.Background()
 
-		token := getIDTokenForForwarding(ctx, "test-user", "https://accounts.google.com")
+		token := getIDTokenForForwarding(ctx, "test-user", "https://accounts.google.com", nil)
 
 		assert.Empty(t, token)
 	})
@@ -89,7 +91,7 @@ func TestGetIDTokenForForwarding(t *testing.T) {
 		ctx := context.Background()
 		ctx = server.ContextWithIDToken(ctx, validToken)
 
-		token := getIDTokenForForwarding(ctx, "test-user", "")
+		token := getIDTokenForForwarding(ctx, "test-user", "", nil)
 
 		assert.Equal(t, validToken, token)
 	})
@@ -98,7 +100,7 @@ func TestGetIDTokenForForwarding(t *testing.T) {
 		ctx := context.Background()
 		ctx = server.ContextWithIDToken(ctx, "")
 
-		token := getIDTokenForForwarding(ctx, "test-user", "https://accounts.google.com")
+		token := getIDTokenForForwarding(ctx, "test-user", "https://accounts.google.com", nil)
 
 		assert.Empty(t, token)
 	})
@@ -110,7 +112,7 @@ func TestGetIDTokenForForwarding(t *testing.T) {
 		defer api.RegisterOAuthHandler(nil)
 
 		ctx := context.Background()
-		token := getIDTokenForForwarding(ctx, "session-abc", "https://accounts.google.com")
+		token := getIDTokenForForwarding(ctx, "session-abc", "https://accounts.google.com", nil)
 
 		assert.Equal(t, validToken, token)
 	})
@@ -125,7 +127,7 @@ func TestGetIDTokenForForwarding(t *testing.T) {
 		ctx := context.Background()
 		ctx = server.ContextWithIDToken(ctx, validToken)
 
-		token := getIDTokenForForwarding(ctx, "session-abc", "https://accounts.google.com")
+		token := getIDTokenForForwarding(ctx, "session-abc", "https://accounts.google.com", nil)
 		assert.Equal(t, validToken, token)
 	})
 
@@ -135,7 +137,7 @@ func TestGetIDTokenForForwarding(t *testing.T) {
 		defer api.RegisterOAuthHandler(nil)
 
 		ctx := context.Background()
-		token := getIDTokenForForwarding(ctx, "unknown-session", "https://accounts.google.com")
+		token := getIDTokenForForwarding(ctx, "unknown-session", "https://accounts.google.com", nil)
 
 		assert.Empty(t, token)
 	})
@@ -146,9 +148,81 @@ func TestGetIDTokenForForwarding(t *testing.T) {
 		defer api.RegisterOAuthHandler(nil)
 
 		ctx := context.Background()
-		token := getIDTokenForForwarding(ctx, "session-abc", "https://accounts.google.com")
+		token := getIDTokenForForwarding(ctx, "session-abc", "https://accounts.google.com", nil)
 
 		assert.Empty(t, token)
+	})
+
+	t.Run("calls refresher and re-reads store when no valid token found", func(t *testing.T) {
+		mock := newMockOAuthHandler(true)
+		api.RegisterOAuthHandler(mock)
+		defer api.RegisterOAuthHandler(nil)
+
+		sessionID := "session-refresh-test"
+		issuer := "https://dex.example.com"
+
+		refreshCalled := false
+		refresher := func(_ context.Context, familyID string) error {
+			refreshCalled = true
+			// Simulate TokenRefreshHandler firing: populate the proxy store.
+			mock.StoreToken(familyID, "user1", issuer, &api.OAuthToken{IDToken: validToken})
+			return nil
+		}
+
+		ctx := context.Background()
+		token := getIDTokenForForwarding(ctx, sessionID, issuer, refresher)
+
+		require.True(t, refreshCalled, "refresher must be called when no valid token exists")
+		assert.Equal(t, validToken, token)
+	})
+
+	t.Run("returns empty when refresher is called but store still empty", func(t *testing.T) {
+		mock := newMockOAuthHandler(true)
+		api.RegisterOAuthHandler(mock)
+		defer api.RegisterOAuthHandler(nil)
+
+		refreshCalled := false
+		refresher := func(_ context.Context, _ string) error {
+			refreshCalled = true
+			return nil // refresh succeeded but nothing stored (e.g. no id_token in response)
+		}
+
+		ctx := context.Background()
+		token := getIDTokenForForwarding(ctx, "session-no-id-token", "https://dex.example.com", refresher)
+
+		require.True(t, refreshCalled)
+		assert.Empty(t, token)
+	})
+
+	t.Run("returns empty when refresher errors", func(t *testing.T) {
+		mock := newMockOAuthHandler(true)
+		api.RegisterOAuthHandler(mock)
+		defer api.RegisterOAuthHandler(nil)
+
+		refresher := func(_ context.Context, _ string) error {
+			return fmt.Errorf("upstream refresh failed")
+		}
+
+		ctx := context.Background()
+		token := getIDTokenForForwarding(ctx, "session-refresh-err", "https://dex.example.com", refresher)
+
+		assert.Empty(t, token)
+	})
+
+	t.Run("skips refresher when context already has a token", func(t *testing.T) {
+		ctx := context.Background()
+		ctx = server.ContextWithIDToken(ctx, validToken)
+
+		refreshCalled := false
+		refresher := func(_ context.Context, _ string) error {
+			refreshCalled = true
+			return nil
+		}
+
+		token := getIDTokenForForwarding(ctx, "any-session", "https://dex.example.com", refresher)
+
+		assert.False(t, refreshCalled, "refresher must not be called when context token is present")
+		assert.Equal(t, validToken, token)
 	})
 }
 
