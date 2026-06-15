@@ -608,7 +608,7 @@ func TestHeaderFunc_RateLimitsWarning(t *testing.T) {
 	// No OAuth handler registered means getIDTokenForForwarding always returns "".
 	api.RegisterOAuthHandler(nil)
 
-	headerFunc := makeTokenForwardingHeaderFunc(sessionID, sub, musterIssuer, serverName, fallbackToken, nil, nil)
+	headerFunc := makeTokenForwardingHeaderFunc(sessionID, sub, musterIssuer, serverName, fallbackToken, nil)
 
 	// First call: should produce a WARN (interval has not been hit yet).
 	logBuf.Reset()
@@ -671,7 +671,7 @@ func TestHeaderFunc_EvictsAfterConsecutiveFailures(t *testing.T) {
 		}
 	}
 
-	headerFunc := makeTokenForwardingHeaderFunc(sessionID, sub, musterIssuer, serverName, fallbackToken, onStaleToken, nil)
+	headerFunc := makeTokenForwardingHeaderFunc(sessionID, sub, musterIssuer, serverName, fallbackToken, onStaleToken)
 
 	// Call fewer than maxConsecutiveTokenFailures times — callback should NOT fire.
 	for i := 0; i < maxConsecutiveTokenFailures-1; i++ {
@@ -719,7 +719,7 @@ func TestHeaderFunc_ResetsFailureCountOnRecovery(t *testing.T) {
 		evictCount.Add(1)
 	}
 
-	headerFunc := makeTokenForwardingHeaderFunc(sessionID, sub, musterIssuer, serverName, fallbackToken, onStaleToken, nil)
+	headerFunc := makeTokenForwardingHeaderFunc(sessionID, sub, musterIssuer, serverName, fallbackToken, onStaleToken)
 
 	// Accumulate failures just below the threshold.
 	for i := 0; i < maxConsecutiveTokenFailures-1; i++ {
@@ -754,7 +754,7 @@ func TestHeaderFunc_NilCallback(t *testing.T) {
 	api.RegisterOAuthHandler(nil)
 	defer api.RegisterOAuthHandler(nil)
 
-	headerFunc := makeTokenForwardingHeaderFunc("s", "u", "iss", "srv", "tok", nil, nil)
+	headerFunc := makeTokenForwardingHeaderFunc("s", "u", "iss", "srv", "tok", nil)
 
 	// Should not panic even after many failures with nil callback.
 	for i := 0; i < maxConsecutiveTokenFailures+5; i++ {

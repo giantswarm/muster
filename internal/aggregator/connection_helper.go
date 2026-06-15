@@ -368,7 +368,7 @@ func EstablishConnectionWithTokenForwarding(
 			}
 		}
 	}
-	headerFunc := makeTokenForwardingHeaderFunc(sessionID, sub, musterIssuer, serverInfo.Name, idToken, onStaleToken, refresher)
+	headerFunc := makeTokenForwardingHeaderFunc(sessionID, sub, musterIssuer, serverInfo.Name, idToken, onStaleToken)
 	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
 
 	// Try to initialize the client with the forwarded token
@@ -829,14 +829,13 @@ const maxConsecutiveTokenFailures = 3
 func makeTokenForwardingHeaderFunc(
 	sessionID, sub, musterIssuer, serverName, fallbackToken string,
 	onStaleToken func(),
-	refresher func(context.Context, string) error,
 ) func(context.Context) map[string]string {
 	var lastWarnTime time.Time
 	var consecutiveFailures int
 	var staleEvicted bool
 	hadToken := true
 	return func(_ context.Context) map[string]string {
-		latestToken := getIDTokenForForwarding(context.Background(), sessionID, musterIssuer, refresher)
+		latestToken := getIDTokenForForwarding(context.Background(), sessionID, musterIssuer, nil)
 		if latestToken == "" {
 			consecutiveFailures++
 
