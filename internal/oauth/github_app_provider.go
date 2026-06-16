@@ -30,8 +30,9 @@ const (
 	githubAppPrivateKeyDefault = "private-key"
 
 	// appJWTExpiry is the lifetime of the App JWT sent to the GitHub API.
-	// GitHub requires exp - iat <= 10 minutes.
-	appJWTExpiry = 9 * time.Minute
+	// GitHub requires exp - iat <= 10 minutes; 8 minutes leaves headroom for
+	// clock skew between muster and the GitHub API.
+	appJWTExpiry = 8 * time.Minute
 
 	// appJWTBackdate is applied to iat to tolerate minor clock skew.
 	appJWTBackdate = 60 * time.Second
@@ -312,13 +313,19 @@ func (p *githubAppProvider) mintInstallationToken(
 }
 
 // githubAppCacheKey returns a stable cache key for the given GitHub App config.
-// Keyed on installationID (or owner/repo for auto-discovery) plus a hash of
-// the requested repositories and permissions so distinct scope sets get
-// independent cache entries.
+// Keyed on AppID + BaseURL + installationID (or owner/repo for auto-discovery)
+// plus a hash of the requested repositories and permissions. AppID and BaseURL
+// are included so that two distinct GitHub Apps targeting the same owner/repo
+// (or coincidentally sharing an installation ID) never share a cache entry.
 func githubAppCacheKey(cfg *config.GithubAppTargetConfig) (string, error) {
 	installRef := cfg.InstallationID
 	if installRef == "" {
 		installRef = cfg.Owner + "/" + cfg.Repo
+	}
+
+	baseURL := cfg.BaseURL
+	if baseURL == "" {
+		baseURL = githubAPIBaseURL
 	}
 
 	// Stable JSON of scope — marshaling map[string]string is deterministic in
@@ -335,5 +342,5 @@ func githubAppCacheKey(cfg *config.GithubAppTargetConfig) (string, error) {
 		return "", err
 	}
 	h := sha256.Sum256(scopeJSON)
-	return fmt.Sprintf("github-app:%s:%x", installRef, h), nil
+	return fmt.Sprintf("github-app:%s:%s:%s:%x", cfg.AppID, baseURL, installRef, h), nil
 }
