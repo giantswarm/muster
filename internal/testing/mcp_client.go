@@ -354,10 +354,7 @@ func (c *mcpTestClient) ReadResource(ctx context.Context, uri string) (*mcp.Read
 
 	// Create the request
 	request := mcp.ReadResourceRequest{
-		Params: struct {
-			URI       string         `json:"uri"`
-			Arguments map[string]any `json:"arguments,omitempty"`
-		}{
+		Params: mcp.ReadResourceParams{
 			URI: uri,
 		},
 	}
