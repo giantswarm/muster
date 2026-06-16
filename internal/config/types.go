@@ -334,9 +334,19 @@ type OAuthServerConfig struct {
 	TokenExchangeBroker TokenExchangeBrokerConfig `yaml:"tokenExchangeBroker,omitempty"`
 }
 
-// TargetTypeOIDCExchange is the target type for downstream Dex/OIDC RFC 8693
-// exchange. It is the default when BrokerTargetConfig.Type is empty.
-const TargetTypeOIDCExchange = "oidc-exchange"
+// BrokerTargetType identifies the credential provider for a broker target.
+type BrokerTargetType string
+
+const (
+	// TargetTypeOIDCExchange selects the downstream Dex/OIDC RFC 8693 exchange
+	// provider. It is the default when BrokerTargetConfig.Type is empty.
+	TargetTypeOIDCExchange BrokerTargetType = "oidc-exchange"
+
+	// TargetTypeGithubApp selects the GitHub App installation token provider.
+	// The provider builds an RS256 App JWT and exchanges it for a short-lived
+	// installation token scoped to the configured repositories and permissions.
+	TargetTypeGithubApp BrokerTargetType = "github-app"
+)
 
 // TokenExchangeBrokerConfig configures brokered RFC 8693 token exchange
 // (muster as a shared token broker for external clients).
@@ -373,14 +383,14 @@ type TokenExchangeBrokerConfig struct {
 
 // Enabled reports whether brokered token exchange is configured.
 func (c TokenExchangeBrokerConfig) Enabled() bool {
-	return len(c.Targets) > 0
+	return len(c.Targets) > 0 || len(c.WorkloadAudiences) > 0
 }
 
 // BrokerTargetConfig describes one downstream target of the token broker.
 type BrokerTargetConfig struct {
 	// Type selects the credential provider. Defaults to TargetTypeOIDCExchange
-	// ("oidc-exchange") when empty.
-	Type string `yaml:"type,omitempty"`
+	// when empty.
+	Type BrokerTargetType `yaml:"type,omitempty"`
 
 	// DexTokenEndpoint is the downstream Dex token endpoint URL (HTTPS).
 	// Example: https://dex.cluster-b.example.com/token
@@ -406,6 +416,49 @@ type BrokerTargetConfig struct {
 	// downstream exchange client credentials (same secrets the per-MCPServer
 	// tokenExchange config uses; no duplication).
 	ClientCredentialsSecretRef *BrokerSecretRefConfig `yaml:"clientCredentialsSecretRef,omitempty"`
+
+	// GithubApp contains configuration for the github-app provider type.
+	// Required when Type is "github-app"; ignored otherwise.
+	GithubApp *GithubAppTargetConfig `yaml:"githubApp,omitempty"`
+}
+
+// GithubAppTargetConfig configures the github-app credential provider.
+// The provider mints short-lived GitHub App installation tokens by building an
+// RS256 App JWT and exchanging it at the GitHub API.
+type GithubAppTargetConfig struct {
+	// AppID is the numeric GitHub App ID, used as the JWT iss claim.
+	AppID string `yaml:"appId"`
+
+	// InstallationID is the numeric installation ID. When empty, it is
+	// auto-discovered via GET /repos/{Owner}/{Repo}/installation using the App JWT.
+	// Either InstallationID or both Owner and Repo must be set.
+	InstallationID string `yaml:"installationId,omitempty"`
+
+	// Owner is the GitHub organization or user that installed the App.
+	// Required for auto-discovery when InstallationID is empty.
+	Owner string `yaml:"owner,omitempty"`
+
+	// Repo is the repository name (without owner) used for auto-discovery.
+	// Required for auto-discovery when InstallationID is empty.
+	Repo string `yaml:"repo,omitempty"`
+
+	// PrivateKeyRef references the Kubernetes Secret containing the RSA private
+	// key PEM. The key within the secret defaults to "private-key".
+	// Name and Namespace follow the same semantics as BrokerSecretRefConfig.
+	PrivateKeyRef *BrokerSecretRefConfig `yaml:"privateKeyRef"`
+
+	// Repositories limits the installation token to specific repositories.
+	// When empty, the token covers all repositories the installation can access.
+	Repositories []string `yaml:"repositories,omitempty"`
+
+	// Permissions further restricts the installation token permissions.
+	// Keys are permission names (e.g. "contents", "issues"); values are
+	// "read" or "write". When empty, the installation's full permissions apply.
+	Permissions map[string]string `yaml:"permissions,omitempty"`
+
+	// BaseURL overrides the GitHub API base URL. Defaults to
+	// https://api.github.com. Set for GitHub Enterprise Server or test stubs.
+	BaseURL string `yaml:"baseUrl,omitempty"`
 }
 
 // BrokerSecretRefConfig references a Kubernetes Secret with OAuth client

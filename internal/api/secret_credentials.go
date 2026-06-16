@@ -41,6 +41,20 @@ type SecretCredentialsHandler interface {
 	//   - *ClientCredentials: The loaded credentials
 	//   - error: Error if the secret cannot be found or is missing required keys
 	LoadClientCredentials(ctx context.Context, secretRef *ClientCredentialsSecretRef, defaultNamespace string) (*ClientCredentials, error)
+
+	// LoadSecretKey loads raw bytes for a single named key from a Kubernetes secret.
+	// Callers are responsible for not logging the returned value.
+	//
+	// Args:
+	//   - ctx: Context for Kubernetes API calls
+	//   - secretRef: Secret name and namespace (ClientIDKey/ClientSecretKey are ignored)
+	//   - key: Key name within the secret's data map
+	//   - defaultNamespace: Namespace to use if not specified in secretRef
+	//
+	// Returns:
+	//   - []byte: The raw secret data for the key
+	//   - error: Error if the secret cannot be found or is missing the key
+	LoadSecretKey(ctx context.Context, secretRef *ClientCredentialsSecretRef, key, defaultNamespace string) ([]byte, error)
 }
 
 // secretCredentialsHandler stores the registered handler implementation.

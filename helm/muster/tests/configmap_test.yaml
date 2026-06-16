@@ -112,3 +112,42 @@ tests:
       - notMatchRegex:
           path: data["config.yaml"]
           pattern: "tokenExchangeBroker:"
+
+  - it: renders github-app typed broker target into config.yaml
+    set:
+      muster.oauth.server.enabled: true
+      muster.oauth.server.baseUrl: "https://muster.example.com"
+      muster.oauth.server.existingSecret: "muster-oauth"
+      muster.oauth.server.dex.issuerUrl: "https://dex.example.com"
+      muster.oauth.server.dex.clientId: "muster"
+      muster.oauth.server.tokenExchangeBroker:
+        workloadAudiences:
+          "system:serviceaccount:ai-platform:kagent": ["github-infra"]
+        targets:
+          github-infra:
+            type: github-app
+            githubApp:
+              appId: "123456"
+              installationId: "78901234"
+              privateKeyRef:
+                name: github-app-pem
+              repositories:
+                - infra
+              permissions:
+                contents: read
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "tokenExchangeBroker:"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "github-app"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "appId: \"123456\""
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "github-app-pem"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "workloadAudiences:"

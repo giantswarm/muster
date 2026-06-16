@@ -37,6 +37,10 @@ func (s *stubCredentialsHandler) LoadClientCredentials(_ context.Context, ref *a
 	return s.creds, nil
 }
 
+func (s *stubCredentialsHandler) LoadSecretKey(_ context.Context, _ *api.ClientCredentialsSecretRef, _ string, _ string) ([]byte, error) {
+	return nil, fmt.Errorf("LoadSecretKey not implemented in stubCredentialsHandler")
+}
+
 // withCredentialsHandler registers h for the duration of the test and restores
 // the previous handler afterwards (the registry is a package-level global).
 func withCredentialsHandler(t *testing.T, h api.SecretCredentialsHandler) {
@@ -47,13 +51,14 @@ func withCredentialsHandler(t *testing.T, h api.SecretCredentialsHandler) {
 }
 
 func newTestBroker(cfg config.TokenExchangeBrokerConfig, httpClient *http.Client) *BrokerExchanger {
-	return &BrokerExchanger{
-		cfg: cfg,
-		exchanger: NewTokenExchangerWithOptions(TokenExchangerOptions{
-			AllowPrivateIP: true, // httptest servers listen on 127.0.0.1
+	b := NewBrokerExchanger(cfg)
+	if httpClient != nil {
+		b.exchanger = NewTokenExchangerWithOptions(TokenExchangerOptions{
+			AllowPrivateIP: true,
 			HTTPClient:     httpClient,
-		}),
+		})
 	}
+	return b
 }
 
 func subjectIdentity(sub string) *oauthserver.SubjectIdentity {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	oidcpkg "github.com/giantswarm/mcp-oauth/providers/oidc"
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -34,8 +35,8 @@ func TestProviderRegistry_Dispatch(t *testing.T) {
 	}
 
 	reg := &providerRegistry{
-		factories: map[string]providerFactory{
-			"stub-provider": func(_ config.BrokerTargetConfig, _ *TokenExchanger, _ string) CredentialProvider {
+		factories: map[config.BrokerTargetType]providerFactory{
+			"stub-provider": func(_ config.BrokerTargetConfig, _ providerDeps) CredentialProvider {
 				return stub
 			},
 		},
@@ -79,6 +80,8 @@ func TestProviderRegistry_UnknownType(t *testing.T) {
 				"cluster-a": {Type: "mystery-provider"},
 			},
 		},
+		registry:    defaultProviderRegistry(),
+		githubCache: oidcpkg.NewTokenExchangeCache(),
 	}
 
 	_, err := broker.Exchange(t.Context(), &oauthserver.ExchangerRequest{

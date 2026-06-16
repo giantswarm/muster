@@ -52,14 +52,8 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, refreshTokenTTL time.Dur
 		// Only consulted when an Exchanger is registered (see
 		// buildOAuthServerOptions); a miss returns invalid_target.
 		TokenExchangeClientAudiences: cfg.TokenExchangeBroker.ClientAudiences,
-		// Workload-authenticated token exchange (no confidential-client credentials).
-		// WorkloadAudiences maps workload subjects to allowed audiences; enforcement
-		// is performed by mcp-oauth's WorkloadExchangeSubjectToken before the
-		// Exchanger is invoked. EnableWorkloadTokenExchange is set whenever
-		// workload audiences are configured so the handler routes credential-less
-		// requests to the workload path instead of rejecting them as invalid_client.
-		WorkloadAudiences:           cfg.TokenExchangeBroker.WorkloadAudiences,
-		EnableWorkloadTokenExchange: len(cfg.TokenExchangeBroker.WorkloadAudiences) > 0,
+		WorkloadAudiences:            cfg.TokenExchangeBroker.WorkloadAudiences,
+		EnableWorkloadTokenExchange:  len(cfg.TokenExchangeBroker.WorkloadAudiences) > 0,
 	}
 	if cfg.AllowedOrigins != "" {
 		result.CORS.AllowedOrigins = strings.Split(cfg.AllowedOrigins, ",")

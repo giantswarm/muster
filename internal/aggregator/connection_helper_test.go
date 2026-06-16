@@ -399,6 +399,10 @@ func (m *mockSecretCredentialsHandler) LoadClientCredentials(
 	return m.credentials, nil
 }
 
+func (m *mockSecretCredentialsHandler) LoadSecretKey(_ context.Context, _ *api.ClientCredentialsSecretRef, _ string, _ string) ([]byte, error) {
+	return nil, fmt.Errorf("LoadSecretKey not implemented in mockSecretCredentialsHandler")
+}
+
 func TestLoadTokenExchangeCredentials(t *testing.T) {
 	ctx := context.Background()
 

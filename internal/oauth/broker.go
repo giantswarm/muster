@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	oidcpkg "github.com/giantswarm/mcp-oauth/providers/oidc"
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
 
 	"github.com/giantswarm/muster/internal/config"
@@ -32,10 +33,11 @@ import (
 //
 // Thread-safe: Yes.
 type BrokerExchanger struct {
-	cfg       config.TokenExchangeBrokerConfig
-	exchanger *TokenExchanger
-	// registry overrides the default provider registry. Nil uses defaultProviderRegistry.
-	registry *providerRegistry
+	cfg         config.TokenExchangeBrokerConfig
+	exchanger   *TokenExchanger
+	githubCache *oidcpkg.TokenExchangeCache
+	httpClient  *http.Client // shared HTTP client for downstream calls
+	registry    *providerRegistry
 }
 
 // NewBrokerExchanger creates a BrokerExchanger for the configured targets.
@@ -57,18 +59,10 @@ func NewBrokerExchanger(cfg config.TokenExchangeBrokerConfig) *BrokerExchanger {
 			AllowPrivateIP: cfg.AllowPrivateIP,
 			HTTPClient:     httpClient,
 		}),
+		githubCache: oidcpkg.NewTokenExchangeCache(),
+		httpClient:  httpClient,
+		registry:    defaultProviderRegistry(),
 	}
-}
-
-// effectiveRegistry returns the configured registry, falling back to the default
-// when none is set. Callers constructed via struct literal (e.g. in tests) that
-// do not set registry receive the default oidc-exchange registry built from
-// b.exchanger.
-func (b *BrokerExchanger) effectiveRegistry() *providerRegistry {
-	if b.registry != nil {
-		return b.registry
-	}
-	return defaultProviderRegistry()
 }
 
 // Exchange maps the requested audience to a downstream credential provider and
@@ -81,7 +75,13 @@ func (b *BrokerExchanger) Exchange(ctx context.Context, req *oauthserver.Exchang
 		return nil, fmt.Errorf("%w: no broker target configured for audience %q", oauthserver.ErrInvalidTarget, req.Audience)
 	}
 
-	provider, err := b.effectiveRegistry().forTarget(req.Audience, target, b.exchanger, b.cfg.DefaultSecretNamespace)
+	deps := providerDeps{
+		exchanger:   b.exchanger,
+		githubCache: b.githubCache,
+		httpClient:  b.httpClient,
+		defaultNS:   b.cfg.DefaultSecretNamespace,
+	}
+	provider, err := b.registry.forTarget(req.Audience, target, deps)
 	if err != nil {
 		return nil, err
 	}

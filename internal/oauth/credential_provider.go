@@ -3,8 +3,10 @@ package oauth
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"time"
 
+	oidcpkg "github.com/giantswarm/mcp-oauth/providers/oidc"
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
 
 	"github.com/giantswarm/muster/internal/api"
@@ -49,21 +51,39 @@ type MintResult struct {
 	FromCache bool
 }
 
+// providerDeps holds the long-lived dependencies shared across provider instances
+// constructed per Exchange call. The broker builds this once in NewBrokerExchanger
+// and threads it through the factory so caches survive individual Mint calls.
+type providerDeps struct {
+	exchanger   *TokenExchanger
+	githubCache *oidcpkg.TokenExchangeCache
+	// httpClient is the broker's shared HTTP client; nil falls back to http.DefaultClient.
+	httpClient *http.Client
+	defaultNS  string
+}
+
 // providerFactory constructs a CredentialProvider for a single broker target.
-type providerFactory func(target config.BrokerTargetConfig, exchanger *TokenExchanger, defaultNS string) CredentialProvider
+type providerFactory func(target config.BrokerTargetConfig, deps providerDeps) CredentialProvider
 
 // providerRegistry dispatches to CredentialProvider implementations by target type.
-// Factories are keyed on the target Type string (BrokerTargetConfig.Type); an
-// empty type defaults to config.TargetTypeOIDCExchange.
+// Factories are keyed on BrokerTargetType; an empty type defaults to
+// config.TargetTypeOIDCExchange.
 type providerRegistry struct {
-	factories map[string]providerFactory
+	factories map[config.BrokerTargetType]providerFactory
 }
 
 // defaultProviderRegistry returns a registry pre-loaded with the built-in providers.
 func defaultProviderRegistry() *providerRegistry {
-	r := &providerRegistry{factories: make(map[string]providerFactory)}
-	r.factories[config.TargetTypeOIDCExchange] = func(target config.BrokerTargetConfig, exchanger *TokenExchanger, defaultNS string) CredentialProvider {
-		return &oidcExchangeProvider{target: target, exchanger: exchanger, defaultNS: defaultNS}
+	r := &providerRegistry{factories: make(map[config.BrokerTargetType]providerFactory)}
+	r.factories[config.TargetTypeOIDCExchange] = func(target config.BrokerTargetConfig, deps providerDeps) CredentialProvider {
+		return &oidcExchangeProvider{target: target, exchanger: deps.exchanger, defaultNS: deps.defaultNS}
+	}
+	r.factories[config.TargetTypeGithubApp] = func(target config.BrokerTargetConfig, deps providerDeps) CredentialProvider {
+		httpClient := deps.httpClient
+		if httpClient == nil {
+			httpClient = http.DefaultClient
+		}
+		return &githubAppProvider{target: target, cache: deps.githubCache, defaultNS: deps.defaultNS, httpClient: httpClient}
 	}
 	return r
 }
@@ -71,7 +91,7 @@ func defaultProviderRegistry() *providerRegistry {
 // forTarget resolves the CredentialProvider for the given target.
 // An empty target Type defaults to config.TargetTypeOIDCExchange.
 // An unregistered type returns an error wrapping oauthserver.ErrInvalidTarget.
-func (r *providerRegistry) forTarget(audience string, target config.BrokerTargetConfig, exchanger *TokenExchanger, defaultNS string) (CredentialProvider, error) {
+func (r *providerRegistry) forTarget(audience string, target config.BrokerTargetConfig, deps providerDeps) (CredentialProvider, error) {
 	targetType := target.Type
 	if targetType == "" {
 		targetType = config.TargetTypeOIDCExchange
@@ -80,7 +100,7 @@ func (r *providerRegistry) forTarget(audience string, target config.BrokerTarget
 	if !ok {
 		return nil, fmt.Errorf("%w: unsupported target type %q for audience %q", oauthserver.ErrInvalidTarget, targetType, audience)
 	}
-	return factory(target, exchanger, defaultNS), nil
+	return factory(target, deps), nil
 }
 
 // oidcExchangeProvider implements CredentialProvider via downstream RFC 8693
