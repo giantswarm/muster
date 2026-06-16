@@ -149,10 +149,7 @@ func (b *baseMCPClient) readResource(ctx context.Context, uri string) (*mcp.Read
 	}
 
 	result, err := b.client.ReadResource(ctx, mcp.ReadResourceRequest{
-		Params: struct {
-			URI       string         `json:"uri"`
-			Arguments map[string]any `json:"arguments,omitempty"`
-		}{
+		Params: mcp.ReadResourceParams{
 			URI: uri,
 		},
 	})
@@ -200,10 +197,7 @@ func (b *baseMCPClient) getPrompt(ctx context.Context, name string, args map[str
 	}
 
 	result, err := b.client.GetPrompt(ctx, mcp.GetPromptRequest{
-		Params: struct {
-			Name      string            `json:"name"`
-			Arguments map[string]string `json:"arguments,omitempty"`
-		}{
+		Params: mcp.GetPromptParams{
 			Name:      name,
 			Arguments: stringArgs,
 		},

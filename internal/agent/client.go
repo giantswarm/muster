@@ -1057,10 +1057,7 @@ func (c *Client) GetResource(ctx context.Context, uri string) (*mcp.ReadResource
 
 	// Construct the MCP resource read request
 	req := mcp.ReadResourceRequest{
-		Params: struct {
-			URI       string         `json:"uri"`
-			Arguments map[string]any `json:"arguments,omitempty"`
-		}{
+		Params: mcp.ReadResourceParams{
 			URI: uri,
 		},
 	}
@@ -1134,10 +1131,7 @@ func (c *Client) GetPrompt(ctx context.Context, name string, args map[string]str
 
 	// Construct the MCP prompt request
 	req := mcp.GetPromptRequest{
-		Params: struct {
-			Name      string            `json:"name"`
-			Arguments map[string]string `json:"arguments,omitempty"`
-		}{
+		Params: mcp.GetPromptParams{
 			Name:      name,
 			Arguments: args,
 		},
