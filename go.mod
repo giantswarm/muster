@@ -4,8 +4,6 @@ go 1.26.0
 
 toolchain go1.26.4
 
-replace github.com/giantswarm/mcp-oauth => /home/quentin/dev/mcp-oauth
-
 require (
 	github.com/Masterminds/sprig/v3 v3.3.0
 	github.com/briandowns/spinner v1.23.2
@@ -13,7 +11,7 @@ require (
 	github.com/coreos/go-systemd/v22 v22.7.0
 	github.com/creativeprojects/go-selfupdate v1.5.2
 	github.com/fsnotify/fsnotify v1.10.1
-	github.com/giantswarm/mcp-oauth v0.4.2
+	github.com/giantswarm/mcp-oauth v0.4.3-0.20260616194026-753e5d4497f0
 	github.com/giantswarm/mcp-toolkit v0.2.9
 	github.com/go-jose/go-jose/v4 v4.1.4
 	github.com/go-logr/logr v1.4.3
