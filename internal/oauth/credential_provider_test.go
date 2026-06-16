@@ -14,10 +14,10 @@ import (
 
 // stubCredentialProvider is a CredentialProvider test double that records calls.
 type stubCredentialProvider struct {
-	result       *MintResult
-	err          error
-	mintCalled   bool
-	lastMintReq  MintRequest
+	result      *MintResult
+	err         error
+	mintCalled  bool
+	lastMintReq MintRequest
 }
 
 func (s *stubCredentialProvider) Mint(_ context.Context, req MintRequest) (*MintResult, error) {
@@ -90,4 +90,3 @@ func TestProviderRegistry_UnknownType(t *testing.T) {
 	assert.True(t, errors.Is(err, oauthserver.ErrInvalidTarget),
 		"unknown provider type must wrap ErrInvalidTarget, got: %v", err)
 }
-

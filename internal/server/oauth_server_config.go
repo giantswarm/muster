@@ -58,7 +58,7 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, refreshTokenTTL time.Dur
 		// Exchanger is invoked. EnableWorkloadTokenExchange is set whenever
 		// workload audiences are configured so the handler routes credential-less
 		// requests to the workload path instead of rejecting them as invalid_client.
-		WorkloadAudiences:          cfg.TokenExchangeBroker.WorkloadAudiences,
+		WorkloadAudiences:           cfg.TokenExchangeBroker.WorkloadAudiences,
 		EnableWorkloadTokenExchange: len(cfg.TokenExchangeBroker.WorkloadAudiences) > 0,
 	}
 	if cfg.AllowedOrigins != "" {

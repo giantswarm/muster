@@ -32,7 +32,7 @@ import (
 //
 // Thread-safe: Yes.
 type BrokerExchanger struct {
-	cfg      config.TokenExchangeBrokerConfig
+	cfg       config.TokenExchangeBrokerConfig
 	exchanger *TokenExchanger
 	// registry overrides the default provider registry. Nil uses defaultProviderRegistry.
 	registry *providerRegistry
