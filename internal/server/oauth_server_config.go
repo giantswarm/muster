@@ -52,7 +52,7 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, refreshTokenTTL time.Dur
 		// Only consulted when an Exchanger is registered (see
 		// buildOAuthServerOptions); a miss returns invalid_target.
 		TokenExchangeClientAudiences: cfg.TokenExchangeBroker.ClientAudiences,
-		WorkloadAudiences:            cfg.TokenExchangeBroker.WorkloadAudiences,
+		WorkloadAudiences:            workloadGrantsFromConfig(cfg.TokenExchangeBroker.WorkloadAudiences),
 		EnableWorkloadTokenExchange:  len(cfg.TokenExchangeBroker.WorkloadAudiences) > 0,
 	}
 	if cfg.AllowedOrigins != "" {
@@ -183,6 +183,21 @@ func newDPoPReplayCache(storageCfg config.OAuthStorageConfig) (oauthserver.DPoPR
 }
 
 // logEnabledOAuthOptions emits operator-facing Info lines confirming which
+// workloadGrantsFromConfig converts the muster config map (subject → audiences)
+// to the mcp-oauth WorkloadGrant slice. An empty Issuer field on each grant
+// means any trusted issuer matches (the most permissive setting compatible with
+// the previous map-based config schema).
+func workloadGrantsFromConfig(m map[string][]string) []oauthserver.WorkloadGrant {
+	grants := make([]oauthserver.WorkloadGrant, 0, len(m))
+	for subject, audiences := range m {
+		grants = append(grants, oauthserver.WorkloadGrant{
+			Subject:   subject,
+			Audiences: audiences,
+		})
+	}
+	return grants
+}
+
 // security subsystems came up. Call only after the constructor succeeded.
 func logEnabledOAuthOptions(logger *slog.Logger) {
 	logger.Info("Security audit logging enabled")

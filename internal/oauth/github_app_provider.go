@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/giantswarm/mcp-oauth/providers/oidc"
+	"github.com/giantswarm/mcp-oauth/providers/tokencache"
 	"github.com/go-jose/go-jose/v4"
 	josejwt "github.com/go-jose/go-jose/v4/jwt"
 
@@ -54,7 +54,7 @@ type githubAppProvider struct {
 	// cache holds minted installation tokens, keyed on (installationID, permissions-hash).
 	// Shared across Mint calls via the BrokerExchanger lifetime — providers are
 	// reconstructed per request so a provider-local cache would never hit.
-	cache      *oidc.TokenExchangeCache
+	cache      *tokencache.Cache
 	defaultNS  string
 	httpClient *http.Client
 }

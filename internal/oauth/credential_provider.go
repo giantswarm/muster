@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	oidcpkg "github.com/giantswarm/mcp-oauth/providers/oidc"
+	"github.com/giantswarm/mcp-oauth/providers/tokencache"
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
 
 	"github.com/giantswarm/muster/internal/api"
@@ -56,7 +56,7 @@ type MintResult struct {
 // and threads it through the factory so caches survive individual Mint calls.
 type providerDeps struct {
 	exchanger   *TokenExchanger
-	githubCache *oidcpkg.TokenExchangeCache
+	githubCache *tokencache.Cache
 	// httpClient is the broker's shared HTTP client; nil falls back to http.DefaultClient.
 	httpClient *http.Client
 	defaultNS  string

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	oidcpkg "github.com/giantswarm/mcp-oauth/providers/oidc"
+	"github.com/giantswarm/mcp-oauth/providers/tokencache"
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -81,7 +81,7 @@ func TestProviderRegistry_UnknownType(t *testing.T) {
 			},
 		},
 		registry:    defaultProviderRegistry(),
-		githubCache: oidcpkg.NewTokenExchangeCache(),
+		githubCache: tokencache.New(),
 	}
 
 	_, err := broker.Exchange(t.Context(), &oauthserver.ExchangerRequest{

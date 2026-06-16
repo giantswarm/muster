@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	oidcpkg "github.com/giantswarm/mcp-oauth/providers/oidc"
+	"github.com/giantswarm/mcp-oauth/providers/tokencache"
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -77,7 +77,7 @@ func newGithubTestProvider(t *testing.T, cfg *config.GithubAppTargetConfig, serv
 	withCredentialsHandler(t, &stubSecretKeyHandler{pemBytes: pemBytes})
 	return &githubAppProvider{
 		target:     config.BrokerTargetConfig{GithubApp: cfg},
-		cache:      oidcpkg.NewTokenExchangeCache(),
+		cache:      tokencache.New(),
 		defaultNS:  "muster-system",
 		httpClient: &http.Client{},
 	}
@@ -271,7 +271,7 @@ func TestGithubAppProvider_NoSecretHandler(t *testing.T) {
 				BaseURL:        "https://api.github.com",
 			},
 		},
-		cache:      oidcpkg.NewTokenExchangeCache(),
+		cache:      tokencache.New(),
 		defaultNS:  "muster-system",
 		httpClient: http.DefaultClient,
 	}
@@ -286,7 +286,7 @@ func TestGithubAppProvider_NoSecretHandler(t *testing.T) {
 func TestGithubAppProvider_MissingConfig(t *testing.T) {
 	provider := &githubAppProvider{
 		target:     config.BrokerTargetConfig{},
-		cache:      oidcpkg.NewTokenExchangeCache(),
+		cache:      tokencache.New(),
 		defaultNS:  "muster-system",
 		httpClient: http.DefaultClient,
 	}
@@ -316,7 +316,7 @@ func TestProviderRegistry_GithubAppType(t *testing.T) {
 			},
 		},
 		registry:    defaultProviderRegistry(),
-		githubCache: oidcpkg.NewTokenExchangeCache(),
+		githubCache: tokencache.New(),
 		httpClient:  http.DefaultClient,
 	}
 

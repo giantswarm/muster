@@ -165,7 +165,14 @@ func TestNewOAuthServerConfig_WorkloadAudiences(t *testing.T) {
 
 			require.Equal(t, tc.wantEnableWorkload, got.EnableWorkloadTokenExchange)
 			if tc.wantWorkloadAudienceSubject != "" {
-				require.Equal(t, tc.wantWorkloadAudienceAuds, got.WorkloadAudiences[tc.wantWorkloadAudienceSubject])
+				var found []string
+				for _, g := range got.WorkloadAudiences {
+					if g.Subject == tc.wantWorkloadAudienceSubject {
+						found = g.Audiences
+						break
+					}
+				}
+				require.Equal(t, tc.wantWorkloadAudienceAuds, found)
 			}
 		})
 	}

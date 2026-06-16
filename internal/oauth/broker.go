@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	oidcpkg "github.com/giantswarm/mcp-oauth/providers/oidc"
+	"github.com/giantswarm/mcp-oauth/providers/tokencache"
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
 
 	"github.com/giantswarm/muster/internal/config"
@@ -35,7 +35,7 @@ import (
 type BrokerExchanger struct {
 	cfg         config.TokenExchangeBrokerConfig
 	exchanger   *TokenExchanger
-	githubCache *oidcpkg.TokenExchangeCache
+	githubCache *tokencache.Cache
 	httpClient  *http.Client // shared HTTP client for downstream calls
 	registry    *providerRegistry
 }
@@ -59,7 +59,7 @@ func NewBrokerExchanger(cfg config.TokenExchangeBrokerConfig) *BrokerExchanger {
 			AllowPrivateIP: cfg.AllowPrivateIP,
 			HTTPClient:     httpClient,
 		}),
-		githubCache: oidcpkg.NewTokenExchangeCache(),
+		githubCache: tokencache.New(),
 		httpClient:  httpClient,
 		registry:    defaultProviderRegistry(),
 	}
