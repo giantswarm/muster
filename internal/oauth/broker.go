@@ -8,7 +8,6 @@ import (
 
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
 
-	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/config"
 	"github.com/giantswarm/muster/pkg/logging"
 )
@@ -17,13 +16,13 @@ import (
 // TokenExchanger, turning muster into a shared RFC 8693 token broker: an
 // external confidential client (e.g. a developer-portal backend) presents a
 // subject token plus an audience name and receives a token minted by the
-// audience's downstream Dex.
+// audience's downstream credential provider.
 //
 // mcp-oauth owns subject-token validation (TrustedIssuers), client
 // authentication, the per-client audience allowlist
-// (Config.TokenExchangeClientAudiences), and audit. BrokerExchanger owns the
-// audience -> downstream-Dex mapping and the actual downstream exchange,
-// reusing the per-(endpoint, connector, user) token cache of TokenExchanger.
+// (Config.TokenExchangeClientAudiences), workload-audience authorization
+// (Config.WorkloadAudiences), and audit. BrokerExchanger owns the audience →
+// provider dispatch and delegates minting to the registered CredentialProvider.
 //
 // The exchanger instance is deliberately separate from the OAuth manager's
 // internal SSO exchanger: broker targets carry their own scope sets (e.g. the
@@ -33,8 +32,10 @@ import (
 //
 // Thread-safe: Yes.
 type BrokerExchanger struct {
-	cfg       config.TokenExchangeBrokerConfig
+	cfg      config.TokenExchangeBrokerConfig
 	exchanger *TokenExchanger
+	// registry overrides the default provider registry. Nil uses defaultProviderRegistry.
+	registry *providerRegistry
 }
 
 // NewBrokerExchanger creates a BrokerExchanger for the configured targets.
@@ -59,9 +60,20 @@ func NewBrokerExchanger(cfg config.TokenExchangeBrokerConfig) *BrokerExchanger {
 	}
 }
 
-// Exchange maps the requested audience to a downstream Dex target and performs
-// the downstream RFC 8693 exchange, forwarding the (already validated) subject
-// token verbatim. Unknown audiences return an error wrapping
+// effectiveRegistry returns the configured registry, falling back to the default
+// when none is set. Callers constructed via struct literal (e.g. in tests) that
+// do not set registry receive the default oidc-exchange registry built from
+// b.exchanger.
+func (b *BrokerExchanger) effectiveRegistry() *providerRegistry {
+	if b.registry != nil {
+		return b.registry
+	}
+	return defaultProviderRegistry()
+}
+
+// Exchange maps the requested audience to a downstream credential provider and
+// mints a token, forwarding the (already validated) subject token verbatim.
+// Unknown audiences or unsupported target types return errors wrapping
 // server.ErrInvalidTarget so the client receives invalid_target.
 func (b *BrokerExchanger) Exchange(ctx context.Context, req *oauthserver.ExchangerRequest) (*oauthserver.ExchangerResult, error) {
 	target, ok := b.cfg.Targets[req.Audience]
@@ -69,33 +81,16 @@ func (b *BrokerExchanger) Exchange(ctx context.Context, req *oauthserver.Exchang
 		return nil, fmt.Errorf("%w: no broker target configured for audience %q", oauthserver.ErrInvalidTarget, req.Audience)
 	}
 
-	exchangeConfig := &api.TokenExchangeConfig{
-		Enabled:          true,
-		DexTokenEndpoint: target.DexTokenEndpoint,
-		ExpectedIssuer:   target.ExpectedIssuer,
-		ConnectorID:      target.ConnectorID,
-		// Scopes are operator-controlled per target (the RFC 8693 scope
-		// parameter from the client is intentionally ignored): k8s-bound
-		// audiences need the Dex cross-client scope and clients must not be
-		// able to drop or extend it.
-		Scopes: target.Scopes,
+	provider, err := b.effectiveRegistry().forTarget(req.Audience, target, b.exchanger, b.cfg.DefaultSecretNamespace)
+	if err != nil {
+		return nil, err
 	}
 
-	if target.ClientCredentialsSecretRef != nil {
-		creds, err := b.loadCredentials(ctx, target.ClientCredentialsSecretRef)
-		if err != nil {
-			logging.Warn("TokenBroker", "Failed to load credentials for audience=%s: %v", req.Audience, err)
-			return nil, fmt.Errorf("load broker credentials for audience %q: %w", req.Audience, err)
-		}
-		exchangeConfig.ClientID = creds.ClientID
-		exchangeConfig.ClientSecret = creds.ClientSecret
-	}
-
-	result, err := b.exchanger.Exchange(ctx, &ExchangeRequest{
-		Config:           exchangeConfig,
+	result, err := provider.Mint(ctx, MintRequest{
+		Subject:          req.Subject.Subject,
 		SubjectToken:     req.SubjectToken,
 		SubjectTokenType: req.SubjectTokenType,
-		UserID:           req.Subject.Subject,
+		Target:           req.Audience,
 	})
 	if err != nil {
 		return nil, err
@@ -109,20 +104,4 @@ func (b *BrokerExchanger) Exchange(ctx context.Context, req *oauthserver.Exchang
 		IssuedTokenType: result.IssuedTokenType,
 		ExpiresAt:       result.ExpiresAt,
 	}, nil
-}
-
-// loadCredentials resolves the downstream exchange client credentials from the
-// referenced Kubernetes Secret via the registered SecretCredentialsHandler
-// (the same mechanism the per-MCPServer tokenExchange config uses).
-func (b *BrokerExchanger) loadCredentials(ctx context.Context, ref *config.BrokerSecretRefConfig) (*api.ClientCredentials, error) {
-	handler := api.GetSecretCredentialsHandler()
-	if handler == nil {
-		return nil, fmt.Errorf("no secret credentials handler registered (broker secret refs require Kubernetes mode)")
-	}
-	return handler.LoadClientCredentials(ctx, &api.ClientCredentialsSecretRef{
-		Name:            ref.Name,
-		Namespace:       ref.Namespace,
-		ClientIDKey:     ref.ClientIDKey,
-		ClientSecretKey: ref.ClientSecretKey,
-	}, b.cfg.DefaultSecretNamespace)
 }
