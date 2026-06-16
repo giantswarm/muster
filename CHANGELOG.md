@@ -32,8 +32,14 @@ All notable changes to this project will be documented in this file.
 
 - Brokered RFC 8693 token exchange ([#831](https://github.com/giantswarm/muster/issues/831)): external confidential clients can POST a token-exchange request with an `audience` parameter to `/oauth/token` and receive a token minted by the audience's downstream Dex. New `oauth.server.tokenExchangeBroker` config block (per-client audience allowlist, audience → downstream Dex target mapping with per-target scopes and credential secret refs). Requires mcp-oauth >= v0.3.0; subject tokens are validated against `trustedIssuers`.
 
+### Added
+
+- `oauth.server.tokenExchangeBroker.workloadAudiences`: per-workload allowlist for workload-authenticated RFC 8693 token exchange (no confidential-client credentials). Keys are workload subjects (`system:serviceaccount:<ns>:<name>`; globs supported), values are the audiences each workload may request. Delegation uses the actor subject; impersonation uses the subject token's sub claim. Enforcement is performed by mcp-oauth before the credential provider is invoked.
+- `oauth.server.tokenExchangeBroker.targets[].type`: credential provider discriminator for broker targets. Defaults to `oidc-exchange` (downstream Dex RFC 8693 exchange) when omitted; additional provider types will be added in future releases.
+
 ### Changed
 
+- Broker credential minting extracted behind a `CredentialProvider` interface and an `oidc-exchange` provider dispatched through a registry (`internal/oauth`). No behaviour change; the oidc-exchange provider preserves per-(endpoint, connector, user) token caching.
 - Update mcp-oauth to v0.4.0.
 - Update mcp-oauth to v0.3.1: forwarded ID tokens (`trustedAudiences`) are no longer hard-rejected by the trusted-issuer Bearer branch when the same issuer is also configured in `trustedIssuers` — fixes Backstage AI-chat SSO token forwarding returning 401 (`typ header is "", expected "at+jwt"`) on deployments with the token-exchange broker enabled.
 - Update mcp-oauth to v0.3.0 (server-side RFC 8693 token-exchange grant with pluggable `Exchanger`).

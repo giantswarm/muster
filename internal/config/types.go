@@ -334,6 +334,10 @@ type OAuthServerConfig struct {
 	TokenExchangeBroker TokenExchangeBrokerConfig `yaml:"tokenExchangeBroker,omitempty"`
 }
 
+// TargetTypeOIDCExchange is the target type for downstream Dex/OIDC RFC 8693
+// exchange. It is the default when BrokerTargetConfig.Type is empty.
+const TargetTypeOIDCExchange = "oidc-exchange"
+
 // TokenExchangeBrokerConfig configures brokered RFC 8693 token exchange
 // (muster as a shared token broker for external clients).
 type TokenExchangeBrokerConfig struct {
@@ -344,8 +348,16 @@ type TokenExchangeBrokerConfig struct {
 	ClientAudiences map[string][]string `yaml:"clientAudiences,omitempty"`
 
 	// Targets maps an RFC 8693 audience name (e.g. a management cluster name)
-	// to the downstream Dex exchange target.
+	// to the downstream credential provider target.
 	Targets map[string]BrokerTargetConfig `yaml:"targets,omitempty"`
+
+	// WorkloadAudiences maps a workload subject (the sub claim of a validated
+	// SA token, e.g. system:serviceaccount:<ns>:<name>; globs supported) to
+	// the audiences it may request. Enables workload-authenticated token
+	// exchange (no confidential-client credentials required). Maps to
+	// mcp-oauth's Config.WorkloadAudiences; enforcement is performed upstream
+	// by mcp-oauth before the provider is invoked.
+	WorkloadAudiences map[string][]string `yaml:"workloadAudiences,omitempty"`
 
 	// AllowPrivateIP allows downstream token endpoints to resolve to private
 	// or loopback IP addresses. WARNING: reduces SSRF protection; only enable
@@ -364,8 +376,12 @@ func (c TokenExchangeBrokerConfig) Enabled() bool {
 	return len(c.Targets) > 0
 }
 
-// BrokerTargetConfig describes one downstream Dex target of the token broker.
+// BrokerTargetConfig describes one downstream target of the token broker.
 type BrokerTargetConfig struct {
+	// Type selects the credential provider. Defaults to TargetTypeOIDCExchange
+	// ("oidc-exchange") when empty.
+	Type string `yaml:"type,omitempty"`
+
 	// DexTokenEndpoint is the downstream Dex token endpoint URL (HTTPS).
 	// Example: https://dex.cluster-b.example.com/token
 	DexTokenEndpoint string `yaml:"dexTokenEndpoint"`
