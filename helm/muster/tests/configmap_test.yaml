@@ -151,3 +151,31 @@ tests:
       - matchRegex:
           path: data["config.yaml"]
           pattern: "workloadAudiences:"
+
+  - it: renders local-mint typed broker target and actorDelegationPolicy into config.yaml
+    set:
+      muster.oauth.server.enabled: true
+      muster.oauth.server.baseUrl: "https://muster.example.com"
+      muster.oauth.server.existingSecret: "muster-oauth"
+      muster.oauth.server.dex.issuerUrl: "https://dex.example.com"
+      muster.oauth.server.dex.clientId: "muster"
+      muster.oauth.server.enableJWTMode: true
+      muster.oauth.server.tokenExchangeBroker:
+        targets:
+          mcp-kubernetes:
+            type: local-mint
+        actorDelegationPolicy:
+          - actorIssuer: "https://kubernetes.default.svc"
+            actorSubject: "system:serviceaccount:agent-ns:kagent"
+            subjectIssuer: "*"
+            subjectSubject: "*"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "local-mint"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "actorDelegationPolicy:"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "actorIssuer: https://kubernetes.default.svc"

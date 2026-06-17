@@ -346,6 +346,14 @@ const (
 	// The provider builds an RS256 App JWT and exchanges it for a short-lived
 	// installation token scoped to the configured repositories and permissions.
 	TargetTypeGithubApp BrokerTargetType = "github-app"
+
+	// TargetTypeLocalMint selects the local-mint provider. The provider mints an
+	// RFC 9068 JWT signed by muster's own access-token signing key, with sub set
+	// to the validated human subject and act set to the validated agent actor.
+	// Requires enableJWTMode to be true; no downstream token endpoint is needed.
+	// mcp-oauth enforces ActorDelegationPolicy before the provider is invoked;
+	// a nil/empty policy denies all delegated exchanges.
+	TargetTypeLocalMint BrokerTargetType = "local-mint"
 )
 
 // TokenExchangeBrokerConfig configures brokered RFC 8693 token exchange
@@ -375,10 +383,36 @@ type TokenExchangeBrokerConfig struct {
 	// private address.
 	AllowPrivateIP bool `yaml:"allowPrivateIP,omitempty"`
 
+	// ActorDelegationPolicy lists the (actor, subject) pairs that muster accepts
+	// for RFC 8693 delegated exchange. An actor is the agent service account; a
+	// subject is the human on whose behalf the token is minted. Both ActorIssuer
+	// and SubjectIssuer accept an exact issuer URL or "*" (any issuer); ActorSubject
+	// and SubjectSubject are matched as globs against the token sub claim.
+	//
+	// A nil or empty policy denies all delegated exchanges (mcp-oauth default).
+	// This field is only consulted for brokered exchanges that carry an actor_token;
+	// plain workload exchanges are unaffected.
+	ActorDelegationPolicy []DelegationGrantConfig `yaml:"actorDelegationPolicy,omitempty"`
+
 	// DefaultSecretNamespace is the namespace used for target credential
 	// secret refs that do not set an explicit namespace. Populated from the
 	// muster namespace by the serve command; not user-facing config.
 	DefaultSecretNamespace string `yaml:"-"`
+}
+
+// DelegationGrantConfig mirrors oauthserver.DelegationGrant: a single (actor, subject)
+// allowlist entry for RFC 8693 delegated token exchange.
+type DelegationGrantConfig struct {
+	// ActorIssuer is the exact issuer URL of the actor token, or "*" to match any.
+	ActorIssuer string `yaml:"actorIssuer"`
+	// ActorSubject is a glob matched against the actor token sub claim.
+	// Use "*" to match any subject from the given issuer.
+	ActorSubject string `yaml:"actorSubject"`
+	// SubjectIssuer is the exact issuer URL of the subject token, or "*" to match any.
+	SubjectIssuer string `yaml:"subjectIssuer"`
+	// SubjectSubject is a glob matched against the subject token sub claim.
+	// Use "*" to match any subject from the given issuer.
+	SubjectSubject string `yaml:"subjectSubject"`
 }
 
 // Enabled reports whether brokered token exchange is configured.

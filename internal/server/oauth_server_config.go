@@ -64,13 +64,19 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, refreshTokenTTL time.Dur
 	if cfg.EnableJWTMode {
 		result.AccessTokenFormat = oauthserver.AccessTokenFormatJWT
 	}
+	if len(cfg.TokenExchangeBroker.ActorDelegationPolicy) > 0 {
+		result.ActorDelegationPolicy = delegationGrantsFromConfig(cfg.TokenExchangeBroker.ActorDelegationPolicy)
+	}
 	return result
 }
 
 // buildOAuthServerOptions assembles the functional options for the mcp-oauth server.
 // instrumentation.New registers a Prometheus collector on the OTel global
 // provider, so a second call in the same process will race or duplicate-register.
-func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger) ([]oauth.ServerOption, error) {
+// localMint is non-nil only when JWT mode is enabled; it is forwarded into
+// NewBrokerExchanger so that local-mint broker targets can sign tokens with
+// muster's own access-token key.
+func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger, localMint *oauthserver.LocalMintExchanger) ([]oauth.ServerOption, error) {
 	inst, err := instrumentation.New(instrumentation.Config{
 		Enabled:         true,
 		ServiceName:     "muster",
@@ -108,7 +114,7 @@ func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger) 
 		if len(cfg.TrustedIssuers) == 0 {
 			return nil, fmt.Errorf("tokenExchangeBroker requires at least one trustedIssuers entry to validate subject tokens")
 		}
-		opts = append(opts, oauthserver.WithExchanger(musteroauth.NewBrokerExchanger(cfg.TokenExchangeBroker)))
+		opts = append(opts, oauthserver.WithExchanger(musteroauth.NewBrokerExchanger(cfg.TokenExchangeBroker, localMint)))
 		brokerLogger := logger
 		if brokerLogger == nil {
 			brokerLogger = slog.Default()
@@ -197,6 +203,21 @@ func workloadGrantsFromConfig(m map[string][]string) []oauthserver.WorkloadGrant
 		})
 	}
 	return grants
+}
+
+// delegationGrantsFromConfig converts the muster ActorDelegationPolicy config
+// slice to the mcp-oauth DelegationGrant slice.
+func delegationGrantsFromConfig(grants []config.DelegationGrantConfig) []oauthserver.DelegationGrant {
+	result := make([]oauthserver.DelegationGrant, len(grants))
+	for i, g := range grants {
+		result[i] = oauthserver.DelegationGrant{
+			ActorIssuer:    g.ActorIssuer,
+			ActorSubject:   g.ActorSubject,
+			SubjectIssuer:  g.SubjectIssuer,
+			SubjectSubject: g.SubjectSubject,
+		}
+	}
+	return result
 }
 
 // logEnabledOAuthOptions emits operator-facing Info lines confirming which

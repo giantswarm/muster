@@ -206,3 +206,44 @@ func TestNewOAuthServerConfig_AllowPrivateIPJWKSMirrorsDexFlag(t *testing.T) {
 		})
 	}
 }
+
+func TestNewOAuthServerConfig_ActorDelegationPolicyMapsThrough(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.OAuthServerConfig{
+		BaseURL: "https://muster.example.com",
+		TokenExchangeBroker: config.TokenExchangeBrokerConfig{
+			ActorDelegationPolicy: []config.DelegationGrantConfig{
+				{
+					ActorIssuer:    "https://kubernetes.default.svc",
+					ActorSubject:   "system:serviceaccount:agent-ns:kagent",
+					SubjectIssuer:  "https://dex.example.com",
+					SubjectSubject: "*",
+				},
+			},
+		},
+	}
+
+	got := newOAuthServerConfig(cfg, time.Hour)
+
+	require.Len(t, got.ActorDelegationPolicy, 1)
+	require.Equal(t, "https://kubernetes.default.svc", got.ActorDelegationPolicy[0].ActorIssuer)
+	require.Equal(t, "system:serviceaccount:agent-ns:kagent", got.ActorDelegationPolicy[0].ActorSubject)
+	require.Equal(t, "https://dex.example.com", got.ActorDelegationPolicy[0].SubjectIssuer)
+	require.Equal(t, "*", got.ActorDelegationPolicy[0].SubjectSubject)
+}
+
+func TestNewOAuthServerConfig_EmptyDelegationPolicyYieldsNil(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.OAuthServerConfig{
+		BaseURL: "https://muster.example.com",
+		TokenExchangeBroker: config.TokenExchangeBrokerConfig{
+			ActorDelegationPolicy: nil,
+		},
+	}
+
+	got := newOAuthServerConfig(cfg, time.Hour)
+
+	require.Nil(t, got.ActorDelegationPolicy, "nil policy must not be mapped to an empty slice")
+}

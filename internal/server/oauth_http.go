@@ -707,6 +707,7 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 
 	serverConfig := newOAuthServerConfig(cfg, refreshTokenTTL)
 
+	var localMint *oauthserver.LocalMintExchanger
 	if cfg.EnableJWTMode {
 		key, kid, alg, err := loadSigningKey(cfg.JWTSigningKeyFile)
 		if err != nil {
@@ -716,9 +717,24 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 		serverConfig.AccessTokenSigningKeyID = kid
 		serverConfig.AccessTokenSigningAlgorithm = alg
 		logger.Info("JWT mode enabled", "alg", alg, "kid", kid)
+
+		// Construct a LocalMintExchanger from the same signing material so that
+		// local-mint broker targets sign tokens with muster's own access-token key.
+		mintCfg := &oauthserver.Config{
+			Issuer:                      cfg.BaseURL,
+			AccessTokenFormat:           oauthserver.AccessTokenFormatJWT,
+			AccessTokenSigningKey:       key,
+			AccessTokenSigningKeyID:     kid,
+			AccessTokenSigningAlgorithm: alg,
+			AccessTokenTTL:              int64(DefaultAccessTokenTTL / time.Second),
+		}
+		localMint, err = oauthserver.NewLocalMintExchanger(mintCfg)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to create local mint exchanger: %w", err)
+		}
 	}
 
-	builtOpts, err := buildOAuthServerOptions(cfg, logger)
+	builtOpts, err := buildOAuthServerOptions(cfg, logger, localMint)
 	if err != nil {
 		return nil, nil, nil, err
 	}

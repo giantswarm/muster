@@ -70,6 +70,9 @@ type providerDeps struct {
 	// httpClient is the broker's shared HTTP client; nil falls back to http.DefaultClient.
 	httpClient *http.Client
 	defaultNS  string
+	// localMint is the mcp-oauth local JWT signer used by TargetTypeLocalMint.
+	// Nil when JWT mode is disabled; the localMintProvider returns an error in that case.
+	localMint *oauthserver.LocalMintExchanger
 }
 
 // providerFactory constructs a CredentialProvider for a single broker target.
@@ -94,6 +97,9 @@ func defaultProviderRegistry() *providerRegistry {
 			httpClient = http.DefaultClient
 		}
 		return &githubAppProvider{target: target, cache: deps.githubCache, defaultNS: deps.defaultNS, httpClient: httpClient}
+	}
+	r.factories[config.TargetTypeLocalMint] = func(_ config.BrokerTargetConfig, deps providerDeps) CredentialProvider {
+		return &localMintProvider{exchanger: deps.localMint}
 	}
 	return r
 }
