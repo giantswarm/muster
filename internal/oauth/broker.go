@@ -37,11 +37,14 @@ type BrokerExchanger struct {
 	exchanger   *TokenExchanger
 	githubCache *tokencache.Cache
 	httpClient  *http.Client // shared HTTP client for downstream calls
+	localMint   *oauthserver.LocalMintExchanger
 	registry    *providerRegistry
 }
 
 // NewBrokerExchanger creates a BrokerExchanger for the configured targets.
-func NewBrokerExchanger(cfg config.TokenExchangeBrokerConfig) *BrokerExchanger {
+// localMint may be nil when JWT mode is disabled; local-mint targets will
+// return a configuration error at Mint time in that case.
+func NewBrokerExchanger(cfg config.TokenExchangeBrokerConfig, localMint *oauthserver.LocalMintExchanger) *BrokerExchanger {
 	// Mirror the OAuth manager's internal-deployment handling: mcp-oauth's
 	// private-IP-allowed client bypasses the process-wide augmented transport
 	// (--extra-ca-file), so hand the exchanger an explicit client backed by
@@ -59,6 +62,7 @@ func NewBrokerExchanger(cfg config.TokenExchangeBrokerConfig) *BrokerExchanger {
 		}),
 		githubCache: tokencache.New(),
 		httpClient:  httpClient,
+		localMint:   localMint,
 		registry:    defaultProviderRegistry(),
 	}
 }
@@ -78,6 +82,7 @@ func (b *BrokerExchanger) Exchange(ctx context.Context, req *oauthserver.Exchang
 		githubCache: b.githubCache,
 		httpClient:  b.httpClient,
 		defaultNS:   b.cfg.DefaultSecretNamespace,
+		localMint:   b.localMint,
 	}
 	provider, err := b.registry.forTarget(req.Audience, target, deps)
 	if err != nil {
@@ -89,6 +94,7 @@ func (b *BrokerExchanger) Exchange(ctx context.Context, req *oauthserver.Exchang
 		SubjectToken:     req.SubjectToken,
 		SubjectTokenType: req.SubjectTokenType,
 		Target:           req.Audience,
+		Actor:            req.Actor,
 	})
 	if err != nil {
 		return nil, err

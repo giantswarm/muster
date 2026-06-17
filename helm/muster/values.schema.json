@@ -589,7 +589,7 @@
                   "additionalProperties": {
                     "type": "object",
                     "properties": {
-                      "type": {"type": "string", "enum": ["oidc-exchange", "github-app"], "description": "Credential provider type. Defaults to oidc-exchange when omitted."},
+                      "type": {"type": "string", "enum": ["oidc-exchange", "github-app", "local-mint"], "description": "Credential provider type. Defaults to oidc-exchange when omitted. local-mint mints a muster-signed RFC 9068 JWT locally; requires enableJWTMode."},
                       "dexTokenEndpoint": {"type": "string", "pattern": "^https://", "description": "oidc-exchange: downstream Dex token endpoint URL (HTTPS)."},
                       "expectedIssuer": {"type": "string", "description": "oidc-exchange: expected iss claim of the exchanged token. Derived from dexTokenEndpoint when empty."},
                       "connectorId": {"type": "string", "description": "oidc-exchange: downstream Dex OIDC connector that trusts the subject token's issuer."},
@@ -650,6 +650,20 @@
                 "allowPrivateIP": {
                   "type": "boolean",
                   "description": "Allow downstream token endpoints to resolve to private/loopback IPs. Reduces SSRF protection; internal deployments only."
+                },
+                "actorDelegationPolicy": {
+                  "type": "array",
+                  "description": "Allowlist of (actor, subject) pairs for RFC 8693 delegated token exchange. An actor is the agent service account; a subject is the human on whose behalf the token is minted. A nil/empty policy denies all delegated exchanges (mcp-oauth default). Required when any target uses type: local-mint.",
+                  "items": {
+                    "type": "object",
+                    "required": ["actorIssuer", "actorSubject", "subjectIssuer", "subjectSubject"],
+                    "properties": {
+                      "actorIssuer": {"type": "string", "description": "Exact issuer URL of the actor token, or * to match any issuer."},
+                      "actorSubject": {"type": "string", "description": "Glob matched against the actor token sub claim. Use * to match any."},
+                      "subjectIssuer": {"type": "string", "description": "Exact issuer URL of the subject token, or * to match any issuer."},
+                      "subjectSubject": {"type": "string", "description": "Glob matched against the subject token sub claim. Use * to match any."}
+                    }
+                  }
                 }
               }
             },

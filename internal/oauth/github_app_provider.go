@@ -278,7 +278,7 @@ func (p *githubAppProvider) mintInstallationToken(
 	cfg *config.GithubAppTargetConfig,
 	baseURL, appJWT, installationID string,
 ) (string, time.Time, error) {
-	url := fmt.Sprintf("%s/app/installations/%s/access_tokens", baseURL, installationID)
+	apiURL := fmt.Sprintf("%s/app/installations/%s/access_tokens", baseURL, installationID)
 
 	body := githubInstallationTokenRequest{
 		Repositories: cfg.Repositories,
@@ -289,7 +289,7 @@ func (p *githubAppProvider) mintInstallationToken(
 		return "", time.Time{}, fmt.Errorf("marshaling token request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("building token request: %w", err)
 	}
@@ -300,13 +300,13 @@ func (p *githubAppProvider) mintInstallationToken(
 
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
-		return "", time.Time{}, fmt.Errorf("POST %s: %w", url, err)
+		return "", time.Time{}, fmt.Errorf("POST %s: %w", apiURL, err)
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != http.StatusCreated {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return "", time.Time{}, fmt.Errorf("POST %s returned %d: %s", url, resp.StatusCode, body)
+		return "", time.Time{}, fmt.Errorf("POST %s returned %d: %s", apiURL, resp.StatusCode, body)
 	}
 
 	var tokenResp githubInstallationTokenResponse

@@ -40,6 +40,16 @@ type MintRequest struct {
 
 	// Target is the audience / target name, used for logging and error messages.
 	Target string
+
+	// Actor is the RFC 8693 §4.4 acting party, already validated by mcp-oauth
+	// (signature, issuer, audience, expiry). Nil when no actor_token was
+	// presented (non-delegated exchange). Providers are not responsible for
+	// validating it; authorization is enforced upstream before Mint is called.
+	//
+	// Note: ExchangerRequest also carries ActorToken (the raw actor JWT) and
+	// ActorTokenType, which are intentionally not forwarded here. Add them when
+	// a provider needs to re-present the raw actor JWT to a downstream endpoint.
+	Actor *oauthserver.SubjectIdentity
 }
 
 // MintResult is the result of a successful credential exchange.
@@ -60,6 +70,9 @@ type providerDeps struct {
 	// httpClient is the broker's shared HTTP client; nil falls back to http.DefaultClient.
 	httpClient *http.Client
 	defaultNS  string
+	// localMint is the mcp-oauth local JWT signer used by TargetTypeLocalMint.
+	// Nil when JWT mode is disabled; the localMintProvider returns an error in that case.
+	localMint *oauthserver.LocalMintExchanger
 }
 
 // providerFactory constructs a CredentialProvider for a single broker target.
@@ -84,6 +97,9 @@ func defaultProviderRegistry() *providerRegistry {
 			httpClient = http.DefaultClient
 		}
 		return &githubAppProvider{target: target, cache: deps.githubCache, defaultNS: deps.defaultNS, httpClient: httpClient}
+	}
+	r.factories[config.TargetTypeLocalMint] = func(_ config.BrokerTargetConfig, deps providerDeps) CredentialProvider {
+		return &localMintProvider{exchanger: deps.localMint}
 	}
 	return r
 }
