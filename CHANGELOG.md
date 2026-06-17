@@ -14,6 +14,7 @@ All notable changes to this project will be documented in this file.
 - `oauth.server.tokenExchangeBroker.workloadAudiences`: per-workload allowlist for workload-authenticated RFC 8693 token exchange (no confidential-client credentials). Keys are workload subjects (`system:serviceaccount:<ns>:<name>`; globs supported), values are the audiences each workload may request. Delegation uses the actor subject; impersonation uses the subject token's sub claim. Enforcement is performed by mcp-oauth before the credential provider is invoked.
 - `oauth.server.tokenExchangeBroker.targets[].type`: credential provider discriminator for broker targets. Defaults to `oidc-exchange` (downstream Dex RFC 8693 exchange) when omitted; additional provider types will be added in future releases.
 - `oauth.server.tokenExchangeBroker.targets[].type: github-app` mints GitHub App installation tokens. Configure via `githubApp.appId`, `githubApp.installationId` (or `githubApp.owner` + `githubApp.repo` for auto-discovery), `githubApp.privateKeyRef` (RSA PEM in a Kubernetes Secret), and optional `githubApp.repositories` / `githubApp.permissions` scope restriction.
+- `MintRequest.Actor` carries the validated RFC 8693 §4.4 acting party through the broker dispatch. `BrokerExchanger.Exchange` now populates it from `ExchangerRequest.Actor` (the agent SA identity already validated by mcp-oauth). Providers that mint locally (future `local-mint` type) use it to set the `act` claim; existing `oidc-exchange` and `github-app` providers ignore it.
 
 ### Changed
 

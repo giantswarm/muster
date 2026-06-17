@@ -40,6 +40,13 @@ type MintRequest struct {
 
 	// Target is the audience / target name, used for logging and error messages.
 	Target string
+
+	// Actor is the RFC 8693 §4.4 acting party, already validated by mcp-oauth
+	// (signature, issuer, audience, expiry). Nil when no actor_token was
+	// presented (non-delegated exchange). Providers that perform local minting
+	// use this to set the act claim; Dex-delegation and GitHub App providers
+	// ignore it — authorization is enforced upstream before Mint is called.
+	Actor *oauthserver.SubjectIdentity
 }
 
 // MintResult is the result of a successful credential exchange.
