@@ -231,6 +231,55 @@ func TestBrokerExchanger_DownstreamError(t *testing.T) {
 	assert.False(t, errors.Is(err, oauthserver.ErrInvalidTarget))
 }
 
+// funcProvider is a CredentialProvider backed by a function, used in tests to
+// capture or stub Mint calls without a full provider implementation.
+type funcProvider struct {
+	fn func(context.Context, MintRequest) (*MintResult, error)
+}
+
+func (p *funcProvider) Mint(ctx context.Context, req MintRequest) (*MintResult, error) {
+	return p.fn(ctx, req)
+}
+
+// TestBrokerExchanger_DelegatedExchange_ActorThreaded verifies that the RFC 8693
+// §4.4 acting party (ExchangerRequest.Actor) is forwarded to MintRequest.Actor
+// without modification through the broker dispatch.
+func TestBrokerExchanger_DelegatedExchange_ActorThreaded(t *testing.T) {
+	var capturedReq MintRequest
+
+	broker := newTestBroker(config.TokenExchangeBrokerConfig{
+		Targets: map[string]config.BrokerTargetConfig{
+			"cluster-a": {Type: config.TargetTypeOIDCExchange},
+		},
+	}, nil)
+	broker.registry.factories[config.TargetTypeOIDCExchange] = func(_ config.BrokerTargetConfig, _ providerDeps) CredentialProvider {
+		return &funcProvider{fn: func(_ context.Context, req MintRequest) (*MintResult, error) {
+			capturedReq = req
+			return &MintResult{
+				AccessToken:     "delegated-token",
+				IssuedTokenType: issuedTokenType,
+				ExpiresAt:       time.Now().Add(time.Hour),
+			}, nil
+		}}
+	}
+
+	actor := subjectIdentity("system:serviceaccount:default:agent-sa")
+	result, err := broker.Exchange(t.Context(), &oauthserver.ExchangerRequest{
+		Audience:         "cluster-a",
+		Subject:          subjectIdentity("user-1"),
+		SubjectToken:     "subject-token",
+		SubjectTokenType: "urn:ietf:params:oauth:token-type:id_token",
+		Actor:            actor,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "delegated-token", result.AccessToken)
+
+	require.NotNil(t, capturedReq.Actor, "Actor must be threaded through broker dispatch")
+	assert.Equal(t, actor.Subject, capturedReq.Actor.Subject)
+	assert.Equal(t, actor.Issuer, capturedReq.Actor.Issuer)
+	assert.Equal(t, "user-1", capturedReq.Subject)
+}
+
 func TestTokenExchangeBrokerConfig_Enabled(t *testing.T) {
 	assert.False(t, config.TokenExchangeBrokerConfig{}.Enabled())
 	assert.True(t, config.TokenExchangeBrokerConfig{

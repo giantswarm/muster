@@ -43,9 +43,12 @@ type MintRequest struct {
 
 	// Actor is the RFC 8693 §4.4 acting party, already validated by mcp-oauth
 	// (signature, issuer, audience, expiry). Nil when no actor_token was
-	// presented (non-delegated exchange). Providers that perform local minting
-	// use this to set the act claim; Dex-delegation and GitHub App providers
-	// ignore it — authorization is enforced upstream before Mint is called.
+	// presented (non-delegated exchange). Providers are not responsible for
+	// validating it; authorization is enforced upstream before Mint is called.
+	//
+	// Note: ExchangerRequest also carries ActorToken (the raw actor JWT) and
+	// ActorTokenType, which are intentionally not forwarded here. Add them when
+	// a provider needs to re-present the raw actor JWT to a downstream endpoint.
 	Actor *oauthserver.SubjectIdentity
 }
 
