@@ -6,6 +6,11 @@ Muster needs access to:
   - CRD discovery
   - Events (for core_events tool)
   - Secrets (for reading credentials: token exchange, OAuth)
+
+Secrets access is intentionally scoped to namespaced Roles, not a ClusterRole,
+to limit blast radius. By default a Role is created in the release namespace.
+Broker target secrets or githubApp.privateKeyRef secrets in other namespaces
+require listing those namespaces in rbac.additionalSecretNamespaces.
 */}}
 
 {{- if and .Values.serviceAccount.create .Values.rbac.create -}}
@@ -36,11 +41,6 @@ rules:
     resources: ["events"]
     verbs: ["get", "list", "watch", "create"]
 
-  # Secrets - required for reading credentials (token exchange, OAuth)
-  - apiGroups: [""]
-    resources: ["secrets"]
-    verbs: ["get"]
-
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -56,4 +56,66 @@ subjects:
   - kind: ServiceAccount
     name: {{ include "muster.serviceAccountName" . }}
     namespace: {{ .Release.Namespace }}
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "muster.fullname" . }}-secrets
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "muster.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "muster.fullname" . }}-secrets
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "muster.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "muster.fullname" . }}-secrets
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "muster.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+
+{{- range .Values.rbac.additionalSecretNamespaces }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "muster.fullname" $ }}-secrets
+  namespace: {{ . }}
+  labels:
+    {{- include "muster.labels" $ | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "muster.fullname" $ }}-secrets
+  namespace: {{ . }}
+  labels:
+    {{- include "muster.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "muster.fullname" $ }}-secrets
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "muster.serviceAccountName" $ }}
+    namespace: {{ $.Release.Namespace }}
+{{- end }}
 {{- end }}

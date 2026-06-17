@@ -15,6 +15,7 @@ import (
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
 	"github.com/giantswarm/mcp-oauth/providers/oidc"
+	"github.com/giantswarm/mcp-oauth/providers/tokencache"
 )
 
 // TokenExchanger performs RFC 8693 OAuth 2.0 Token Exchange for cross-cluster SSO.
@@ -31,7 +32,7 @@ import (
 // Thread-safe: Yes, the underlying TokenExchangeClient is thread-safe.
 type TokenExchanger struct {
 	client *oidc.TokenExchangeClient
-	cache  *oidc.TokenExchangeCache
+	cache  *tokencache.Cache
 	logger *slog.Logger
 
 	// allowPrivateIP allows token endpoints on private IP addresses.
@@ -77,9 +78,9 @@ func NewTokenExchangerWithOptions(opts TokenExchangerOptions) *TokenExchanger {
 
 	maxEntries := opts.CacheMaxEntries
 	if maxEntries <= 0 {
-		maxEntries = oidc.DefaultCacheMaxEntries
+		maxEntries = tokencache.DefaultMaxEntries
 	}
-	cache := oidc.NewTokenExchangeCacheWithMaxEntries(maxEntries)
+	cache := tokencache.NewWithMaxEntries(maxEntries)
 
 	if opts.AllowPrivateIP {
 		logging.Warn("TokenExchange", "Token exchanger created with AllowPrivateIP=true, SSRF protection is reduced")
@@ -199,7 +200,7 @@ func (e *TokenExchanger) Exchange(ctx context.Context, req *ExchangeRequest) (*E
 	tokenType, scopes := getExchangeDefaults(req)
 
 	// Check cache first
-	cacheKey := oidc.GenerateCacheKey(req.Config.DexTokenEndpoint, req.Config.ConnectorID, req.UserID)
+	cacheKey := tokencache.GenerateCacheKey(req.Config.DexTokenEndpoint, req.Config.ConnectorID, req.UserID)
 	if cached := e.cache.Get(cacheKey); cached != nil {
 		logging.Debug("TokenExchange", "Cache hit for user=%s endpoint=%s",
 			logging.TruncateIdentifier(req.UserID), req.Config.DexTokenEndpoint)
@@ -280,7 +281,7 @@ func (e *TokenExchanger) Exchange(ctx context.Context, req *ExchangeRequest) (*E
 // ClearCache removes a cached token for the given parameters.
 // This is useful when a cached token is rejected by the remote server.
 func (e *TokenExchanger) ClearCache(tokenEndpoint, connectorID, userID string) {
-	cacheKey := oidc.GenerateCacheKey(tokenEndpoint, connectorID, userID)
+	cacheKey := tokencache.GenerateCacheKey(tokenEndpoint, connectorID, userID)
 	e.cache.Delete(cacheKey)
 	logging.Debug("TokenExchange", "Cleared cache for user=%s endpoint=%s",
 		logging.TruncateIdentifier(userID), tokenEndpoint)
@@ -293,7 +294,7 @@ func (e *TokenExchanger) ClearAllCache() {
 }
 
 // GetCacheStats returns statistics about the token exchange cache.
-func (e *TokenExchanger) GetCacheStats() oidc.TokenExchangeCacheStats {
+func (e *TokenExchanger) GetCacheStats() tokencache.Stats {
 	return e.cache.GetStats()
 }
 

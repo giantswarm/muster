@@ -134,3 +134,52 @@ func (a *CredentialsAdapter) LoadClientCredentials(
 		ClientSecret: clientSecret,
 	}, nil
 }
+
+// LoadSecretKey loads raw bytes for a single named key from a Kubernetes secret.
+func (a *CredentialsAdapter) LoadSecretKey(
+	ctx context.Context,
+	secretRef *api.ClientCredentialsSecretRef,
+	key string,
+	defaultNamespace string,
+) ([]byte, error) {
+	if secretRef == nil {
+		return nil, fmt.Errorf("secret reference is nil")
+	}
+	if secretRef.Name == "" {
+		return nil, fmt.Errorf("secret name is required")
+	}
+
+	namespace := secretRef.Namespace
+	if namespace == "" {
+		namespace = defaultNamespace
+	}
+	if namespace == "" {
+		namespace = "default"
+	}
+
+	logging.Debug("SecretCredentials", "Loading secret key %q from secret %s/%s", key, namespace, secretRef.Name)
+
+	if secretRef.Namespace != "" && secretRef.Namespace != defaultNamespace {
+		logging.Warn("SecretCredentials", "Cross-namespace secret access: reading secret %s/%s from namespace %s. "+
+			"Ensure RBAC policies permit this access and review security implications.",
+			namespace, secretRef.Name, defaultNamespace)
+	}
+
+	secret := &corev1.Secret{}
+	if err := a.client.Get(ctx, client.ObjectKey{
+		Name:      secretRef.Name,
+		Namespace: namespace,
+	}, secret); err != nil {
+		return nil, fmt.Errorf("failed to get secret %s/%s: %w", namespace, secretRef.Name, err)
+	}
+
+	data, ok := secret.Data[key]
+	if !ok {
+		return nil, fmt.Errorf("secret %s/%s missing required key %q", namespace, secretRef.Name, key)
+	}
+	if len(data) == 0 {
+		return nil, fmt.Errorf("secret %s/%s has empty value for key %q", namespace, secretRef.Name, key)
+	}
+
+	return data, nil
+}

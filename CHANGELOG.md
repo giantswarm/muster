@@ -4,39 +4,36 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-### Fixed
-
-- Bump `mcp-oauth` to v0.4.2, which makes the trusted-issuer JWKS cache rotation-safe: a subject token presenting a `kid` absent from the cached JWKS now triggers a single bounded refetch (rate-limited per JWKS URI) and retries verification before rejecting. Previously, a Dex signing-key rotation made the token-exchange broker reject **every** current user token with `subject_token_validation_failed` until the muster pod was restarted (the shared broker took down all downstream audiences at once). Closes #847.
-- Bump `mcp-oauth` to v0.4.1, which RFC 6749 §2.3.1-encodes client credentials in token-exchange Basic auth. Cross-cluster SSO token exchange previously failed with `invalid_client` for downstream clusters whose `muster-token-exchange-*` Dex client secret contained `+` (decoded to a space on the wire); base64-std secrets with only `/` and `=` were unaffected, which is why some clusters worked and others did not.
-- `ssoPoolMissNeedingInit` now detects pool misses for token-forwarding servers in addition to token-exchange servers, so warm sessions (authAlive=true after pod restart) trigger `initSSOForSession` for forwarding servers with empty connection pools. Previously, forwarding servers registered during a restart were inaccessible until the user manually re-authenticated to muster.
-- `establishSSOConnection` now treats a pool miss as stale state for token-forwarding servers (clearing the Valkey auth entry and re-establishing the connection), matching the existing behaviour for token-exchange servers.
-
-### Fixed
-
-- After an idle period, `getIDTokenForForwarding` now attempts an in-process upstream provider refresh (`Server.RefreshSession`) when the proxy store has no valid ID token. On success the store is repopulated by `TokenRefreshHandler` and the fresh token is forwarded, avoiding `401 Unauthorized` errors without requiring re-authentication. Closes #549.
-
 ### Added
 
 - `GET /health` now responds 200 on the aggregator port regardless of OAuth configuration, so Kubernetes liveness/readiness probes work without patching the chart.
 - `RegisterServer` and `DeregisterServer` aggregator events and MCPServer reconcile entry are now logged at Info level, making freshly-restarted pod lifecycle visible without `--debug`.
 - `oauth.server.allowedOrigins` (comma-separated) is now wired into the mcp-oauth CORS `AllowedOrigins` list. Previously declared but never read; empty value keeps CORS disabled (default).
+- `oauth.server.trustedIssuers[].acceptedTypHeaders`: accepted JWT `typ` header values for Bearer tokens from a trusted issuer. Empty keeps the RFC 9068 default (`at+jwt`). Kubernetes ServiceAccount tokens carry no `typ` header; use `[""]` to accept them.
+- Brokered RFC 8693 token exchange ([#831](https://github.com/giantswarm/muster/issues/831)): external confidential clients can POST a token-exchange request with an `audience` parameter to `/oauth/token` and receive a token minted by the audience's downstream Dex. New `oauth.server.tokenExchangeBroker` config block (per-client audience allowlist, audience → downstream Dex target mapping with per-target scopes and credential secret refs). Requires mcp-oauth >= v0.3.0; subject tokens are validated against `trustedIssuers`.
+- `oauth.server.tokenExchangeBroker.workloadAudiences`: per-workload allowlist for workload-authenticated RFC 8693 token exchange (no confidential-client credentials). Keys are workload subjects (`system:serviceaccount:<ns>:<name>`; globs supported), values are the audiences each workload may request. Delegation uses the actor subject; impersonation uses the subject token's sub claim. Enforcement is performed by mcp-oauth before the credential provider is invoked.
+- `oauth.server.tokenExchangeBroker.targets[].type`: credential provider discriminator for broker targets. Defaults to `oidc-exchange` (downstream Dex RFC 8693 exchange) when omitted; additional provider types will be added in future releases.
+- `oauth.server.tokenExchangeBroker.targets[].type: github-app` mints GitHub App installation tokens. Configure via `githubApp.appId`, `githubApp.installationId` (or `githubApp.owner` + `githubApp.repo` for auto-discovery), `githubApp.privateKeyRef` (RSA PEM in a Kubernetes Secret), and optional `githubApp.repositories` / `githubApp.permissions` scope restriction.
+
+### Changed
+
+- Broker credential minting extracted behind a `CredentialProvider` interface and an `oidc-exchange` provider dispatched through a registry (`internal/oauth`). No behaviour change; the oidc-exchange provider preserves per-(endpoint, connector, user) token caching.
+- Update mcp-oauth to v0.4.0.
+- Update mcp-oauth to v0.3.1: forwarded ID tokens (`trustedAudiences`) are no longer hard-rejected by the trusted-issuer Bearer branch when the same issuer is also configured in `trustedIssuers` — fixes Backstage AI-chat SSO token forwarding returning 401 (`typ header is "", expected "at+jwt"`) on deployments with the token-exchange broker enabled.
+- Update mcp-oauth to v0.3.0 (server-side RFC 8693 token-exchange grant with pluggable `Exchanger`).
 
 ### Removed
 
 - `MCPServer.status.consecutiveFailures`, `.lastAttempt`, and `.nextRetryAfter` are no longer updated by the reconciler; the retry state machine that drove them was removed in a prior release. The fields remain on the CRD for forward compatibility.
 - `oauth.server.enableHSTS`, `oauth.server.tlsCertFile`, and `oauth.server.tlsKeyFile` config fields removed; they were declared and YAML-parsed but never read anywhere in the codebase.
 
-### Added
+### Fixed
 
-- `oauth.server.trustedIssuers[].acceptedTypHeaders`: accepted JWT `typ` header values for Bearer tokens from a trusted issuer. Empty keeps the RFC 9068 default (`at+jwt`). Kubernetes ServiceAccount tokens carry no `typ` header; use `[""]` to accept them.
-
-- Brokered RFC 8693 token exchange ([#831](https://github.com/giantswarm/muster/issues/831)): external confidential clients can POST a token-exchange request with an `audience` parameter to `/oauth/token` and receive a token minted by the audience's downstream Dex. New `oauth.server.tokenExchangeBroker` config block (per-client audience allowlist, audience → downstream Dex target mapping with per-target scopes and credential secret refs). Requires mcp-oauth >= v0.3.0; subject tokens are validated against `trustedIssuers`.
-
-### Changed
-
-- Update mcp-oauth to v0.4.0.
-- Update mcp-oauth to v0.3.1: forwarded ID tokens (`trustedAudiences`) are no longer hard-rejected by the trusted-issuer Bearer branch when the same issuer is also configured in `trustedIssuers` — fixes Backstage AI-chat SSO token forwarding returning 401 (`typ header is "", expected "at+jwt"`) on deployments with the token-exchange broker enabled.
-- Update mcp-oauth to v0.3.0 (server-side RFC 8693 token-exchange grant with pluggable `Exchanger`).
+- Bump `mcp-oauth` to v0.4.2, which makes the trusted-issuer JWKS cache rotation-safe: a subject token presenting a `kid` absent from the cached JWKS now triggers a single bounded refetch (rate-limited per JWKS URI) and retries verification before rejecting. Previously, a Dex signing-key rotation made the token-exchange broker reject **every** current user token with `subject_token_validation_failed` until the muster pod was restarted (the shared broker took down all downstream audiences at once). Closes #847.
+- Bump `mcp-oauth` to v0.4.1, which RFC 6749 §2.3.1-encodes client credentials in token-exchange Basic auth. Cross-cluster SSO token exchange previously failed with `invalid_client` for downstream clusters whose `muster-token-exchange-*` Dex client secret contained `+` (decoded to a space on the wire); base64-std secrets with only `/` and `=` were unaffected, which is why some clusters worked and others did not.
+- `ssoPoolMissNeedingInit` now detects pool misses for token-forwarding servers in addition to token-exchange servers, so warm sessions (authAlive=true after pod restart) trigger `initSSOForSession` for forwarding servers with empty connection pools. Previously, forwarding servers registered during a restart were inaccessible until the user manually re-authenticated to muster.
+- `establishSSOConnection` now treats a pool miss as stale state for token-forwarding servers (clearing the Valkey auth entry and re-establishing the connection), matching the existing behaviour for token-exchange servers.
+- After an idle period, `getIDTokenForForwarding` now attempts an in-process upstream provider refresh (`Server.RefreshSession`) when the proxy store has no valid ID token. On success the store is repopulated by `TokenRefreshHandler` and the fresh token is forwarded, avoiding `401 Unauthorized` errors without requiring re-authentication. Closes #549.
 
 ## [0.3.12] - 2026-06-10
 

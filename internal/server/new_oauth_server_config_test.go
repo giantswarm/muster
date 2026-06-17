@@ -119,6 +119,65 @@ func TestNewOAuthServerConfig_AllowedOriginsSplitAndTrimmed(t *testing.T) {
 	}
 }
 
+func TestNewOAuthServerConfig_WorkloadAudiences(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name                        string
+		workloadAudiences           map[string][]string
+		wantEnableWorkload          bool
+		wantWorkloadAudienceSubject string
+		wantWorkloadAudienceAuds    []string
+	}{
+		{
+			name:               "nil workloadAudiences disables workload exchange",
+			workloadAudiences:  nil,
+			wantEnableWorkload: false,
+		},
+		{
+			name:               "empty workloadAudiences disables workload exchange",
+			workloadAudiences:  map[string][]string{},
+			wantEnableWorkload: false,
+		},
+		{
+			name: "non-empty workloadAudiences enables workload exchange",
+			workloadAudiences: map[string][]string{
+				"system:serviceaccount:agent-ns:kagent": {"cluster-a"},
+			},
+			wantEnableWorkload:          true,
+			wantWorkloadAudienceSubject: "system:serviceaccount:agent-ns:kagent",
+			wantWorkloadAudienceAuds:    []string{"cluster-a"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := config.OAuthServerConfig{
+				BaseURL: "https://muster.example.com",
+				TokenExchangeBroker: config.TokenExchangeBrokerConfig{
+					WorkloadAudiences: tc.workloadAudiences,
+				},
+			}
+
+			got := newOAuthServerConfig(cfg, time.Hour)
+
+			require.Equal(t, tc.wantEnableWorkload, got.EnableWorkloadTokenExchange)
+			if tc.wantWorkloadAudienceSubject != "" {
+				var found []string
+				for _, g := range got.WorkloadAudiences {
+					if g.Subject == tc.wantWorkloadAudienceSubject {
+						found = g.Audiences
+						break
+					}
+				}
+				require.Equal(t, tc.wantWorkloadAudienceAuds, found)
+			}
+		})
+	}
+}
+
 func TestNewOAuthServerConfig_AllowPrivateIPJWKSMirrorsDexFlag(t *testing.T) {
 	t.Parallel()
 

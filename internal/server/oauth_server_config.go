@@ -52,6 +52,8 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, refreshTokenTTL time.Dur
 		// Only consulted when an Exchanger is registered (see
 		// buildOAuthServerOptions); a miss returns invalid_target.
 		TokenExchangeClientAudiences: cfg.TokenExchangeBroker.ClientAudiences,
+		WorkloadAudiences:            workloadGrantsFromConfig(cfg.TokenExchangeBroker.WorkloadAudiences),
+		EnableWorkloadTokenExchange:  len(cfg.TokenExchangeBroker.WorkloadAudiences) > 0,
 	}
 	if cfg.AllowedOrigins != "" {
 		result.CORS.AllowedOrigins = strings.Split(cfg.AllowedOrigins, ",")
@@ -113,7 +115,8 @@ func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger) 
 		}
 		brokerLogger.Info("Brokered RFC 8693 token exchange enabled",
 			"targets", len(cfg.TokenExchangeBroker.Targets),
-			"brokerClients", len(cfg.TokenExchangeBroker.ClientAudiences))
+			"brokerClients", len(cfg.TokenExchangeBroker.ClientAudiences),
+			"workloadSubjects", len(cfg.TokenExchangeBroker.WorkloadAudiences))
 	}
 
 	if len(cfg.TrustedProxyCIDRs) > 0 {
@@ -179,7 +182,23 @@ func newDPoPReplayCache(storageCfg config.OAuthStorageConfig) (oauthserver.DPoPR
 	return oauthserver.NewMemoryDPoPReplayCache(), nil, nil
 }
 
-// logEnabledOAuthOptions emits operator-facing Info lines confirming which
+// workloadGrantsFromConfig converts the muster config map (subject → audiences)
+// to the mcp-oauth WorkloadGrant slice. An empty Issuer field on each grant
+// means any trusted issuer matches. In single-issuer deployments this is safe;
+// with multiple TrustedIssuers a workload SA token from any of them satisfies
+// any grant. Add an optional issuer field to WorkloadAudiences config entries
+// and propagate it here before deploying with more than one trusted issuer.
+func workloadGrantsFromConfig(m map[string][]string) []oauthserver.WorkloadGrant {
+	grants := make([]oauthserver.WorkloadGrant, 0, len(m))
+	for subject, audiences := range m {
+		grants = append(grants, oauthserver.WorkloadGrant{
+			Subject:   subject,
+			Audiences: audiences,
+		})
+	}
+	return grants
+}
+
 // security subsystems came up. Call only after the constructor succeeded.
 func logEnabledOAuthOptions(logger *slog.Logger) {
 	logger.Info("Security audit logging enabled")

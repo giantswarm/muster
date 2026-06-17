@@ -35,8 +35,12 @@ serviceAccount:
 #   - Events (for core_events tool)
 #   - Secrets (for reading credentials: token exchange, OAuth)
 rbac:
-  # Create RBAC resources (ClusterRole and ClusterRoleBinding)
+  # Create RBAC resources (ClusterRole, ClusterRoleBinding, and per-namespace Roles for secrets).
   create: true
+  # additionalSecretNamespaces lists namespaces beyond the release namespace where
+  # broker target secrets or githubApp.privateKeyRef secrets may reside.
+  # A Role/RoleBinding granting `get` on secrets is created in each listed namespace.
+  additionalSecretNamespaces: []
 
 podAnnotations: {}
 podLabels: {}
@@ -501,13 +505,14 @@ muster:
       # Brokered RFC 8693 token exchange: muster as a shared token broker.
       # An external confidential client POSTs a token-exchange request with an
       # `audience` parameter to /oauth/token and receives a token minted by the
-      # audience's downstream Dex (instead of a muster-issued JWT). Subject
-      # tokens are validated against trustedIssuers, so at least one issuer
-      # entry covering the broker client's tokens is required.
+      # audience's downstream credential provider (Dex exchange or GitHub App
+      # installation token). Subject tokens are validated against trustedIssuers,
+      # so at least one issuer entry covering the broker client's tokens is required.
       # Policy enforced by mcp-oauth: confidential clients only, per-client
       # audience allowlist, no refresh tokens, expires_in bounded by the
       # downstream token's expiry, DPoP rejected.
-      # Example:
+      #
+      # oidc-exchange target (default): downstream Dex RFC 8693 exchange
       #   clientAudiences:
       #     portal-backend: ["cluster-a", "cluster-b"]
       #   targets:
@@ -520,6 +525,27 @@ muster:
       #       scopes: "openid profile email groups audience:server:client_id:dex-k8s-authenticator"
       #       clientCredentialsSecretRef:
       #         name: muster-token-exchange-cluster-a
+      #
+      # github-app target: mints GitHub App installation tokens
+      #   targets:
+      #     github-infra:
+      #       type: github-app
+      #       githubApp:
+      #         appId: "123456"
+      #         # Either a static installationId:
+      #         installationId: "78901234"
+      #         # Or auto-discover via the repository installation:
+      #         # owner: my-org
+      #         # repo: infra
+      #         privateKeyRef:
+      #           name: github-app-pem       # Kubernetes Secret, key defaults to "private-key"
+      #         repositories: ["infra"]      # optional: restrict to specific repos
+      #         permissions:                 # optional: restrict granted permissions
+      #           contents: read
+      #
+      # workload-authenticated exchange (no confidential-client credentials):
+      #   workloadAudiences:
+      #     "system:serviceaccount:ai-platform:*": ["github-infra", "cluster-a"]
       tokenExchangeBroker: {}
 
       # CIDRs from which X-Forwarded-Proto and X-Forwarded-Host headers are

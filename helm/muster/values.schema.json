@@ -72,7 +72,12 @@
       "properties": {
         "create": {
           "type": "boolean",
-          "description": "Create RBAC resources (ClusterRole and ClusterRoleBinding)"
+          "description": "Create RBAC resources (ClusterRole, ClusterRoleBinding, and per-namespace Roles for secrets)."
+        },
+        "additionalSecretNamespaces": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Additional namespaces where broker target secrets or githubApp.privateKeyRef secrets reside. A Role/RoleBinding granting get on secrets is created in each."
         }
       }
     },
@@ -580,15 +585,15 @@
                 },
                 "targets": {
                   "type": "object",
-                  "description": "Audience name → downstream Dex exchange target.",
+                  "description": "Audience name → credential provider target. Set type to select the provider (default: oidc-exchange).",
                   "additionalProperties": {
                     "type": "object",
-                    "required": ["dexTokenEndpoint", "connectorId"],
                     "properties": {
-                      "dexTokenEndpoint": {"type": "string", "pattern": "^https://", "description": "Downstream Dex token endpoint URL (HTTPS)."},
-                      "expectedIssuer": {"type": "string", "description": "Expected iss claim of the exchanged token. Derived from dexTokenEndpoint when empty."},
-                      "connectorId": {"type": "string", "description": "Downstream Dex OIDC connector that trusts the subject token's issuer."},
-                      "scopes": {"type": "string", "description": "Space-separated downstream scopes (default: openid profile email groups). Kubernetes-bound audiences must include the Dex cross-client scope, e.g. audience:server:client_id:dex-k8s-authenticator."},
+                      "type": {"type": "string", "enum": ["oidc-exchange", "github-app"], "description": "Credential provider type. Defaults to oidc-exchange when omitted."},
+                      "dexTokenEndpoint": {"type": "string", "pattern": "^https://", "description": "oidc-exchange: downstream Dex token endpoint URL (HTTPS)."},
+                      "expectedIssuer": {"type": "string", "description": "oidc-exchange: expected iss claim of the exchanged token. Derived from dexTokenEndpoint when empty."},
+                      "connectorId": {"type": "string", "description": "oidc-exchange: downstream Dex OIDC connector that trusts the subject token's issuer."},
+                      "scopes": {"type": "string", "description": "oidc-exchange: space-separated downstream scopes (default: openid profile email groups). Kubernetes-bound audiences must include the Dex cross-client scope, e.g. audience:server:client_id:dex-k8s-authenticator."},
                       "clientCredentialsSecretRef": {
                         "type": "object",
                         "required": ["name"],
@@ -598,10 +603,49 @@
                           "clientIdKey": {"type": "string", "description": "Defaults to client-id."},
                           "clientSecretKey": {"type": "string", "description": "Defaults to client-secret."}
                         },
-                        "description": "Kubernetes Secret holding the downstream exchange client credentials (same secrets the per-MCPServer tokenExchange config uses)."
+                        "description": "oidc-exchange: Kubernetes Secret holding the downstream exchange client credentials."
+                      },
+                      "githubApp": {
+                        "type": "object",
+                        "required": ["appId", "privateKeyRef"],
+                        "properties": {
+                          "appId": {"type": "string", "pattern": "^[0-9]+$", "description": "GitHub App numeric ID (iss claim in the App JWT)."},
+                          "installationId": {"type": "string", "description": "Installation ID. Omit to auto-discover via owner+repo."},
+                          "owner": {"type": "string", "description": "GitHub org or user for installation auto-discovery. Required when installationId is empty."},
+                          "repo": {"type": "string", "description": "Repository name for installation auto-discovery. Required when installationId is empty."},
+                          "privateKeyRef": {
+                            "type": "object",
+                            "required": ["name"],
+                            "properties": {
+                              "name": {"type": "string", "description": "Kubernetes Secret name holding the RSA private key PEM."},
+                              "namespace": {"type": "string", "description": "Defaults to the muster namespace."},
+                              "key": {"type": "string", "description": "Key within the Secret data map. Defaults to private-key."}
+                            }
+                          },
+                          "repositories": {"type": "array", "items": {"type": "string"}, "description": "Restrict the installation token to these repositories. Empty means all repositories the installation can access."},
+                          "permissions": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Restrict the installation token to these permissions, e.g. {contents: read, pull_requests: write}."},
+                          "baseUrl": {"type": "string", "pattern": "^https://", "description": "Override the GitHub API base URL (HTTPS only). Defaults to https://api.github.com. Set for GitHub Enterprise Server."}
+                        },
+                        "description": "github-app: GitHub App installation token config."
                       }
+                    },
+                    "if": {
+                      "properties": {"type": {"const": "github-app"}},
+                      "required": ["type"]
+                    },
+                    "then": {
+                      "required": ["githubApp"]
                     }
                   }
+                },
+                "workloadAudiences": {
+                  "type": "object",
+                  "description": "Per-workload audience allowlist for workload-authenticated RFC 8693 token exchange (no confidential-client credentials). Keys are workload subjects (system:serviceaccount:<ns>:<name>; globs supported), values are the audiences the workload may request.",
+                  "additionalProperties": {"type": "array", "items": {"type": "string"}}
+                },
+                "defaultSecretNamespace": {
+                  "type": "string",
+                  "description": "Default namespace for clientCredentialsSecretRef and githubApp.privateKeyRef lookups when namespace is omitted. Defaults to the muster pod's namespace."
                 },
                 "allowPrivateIP": {
                   "type": "boolean",
