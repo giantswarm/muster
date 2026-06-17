@@ -70,16 +70,19 @@ func jwtPayloadClaims(t *testing.T, compact string) map[string]any {
 }
 
 // newGithubTestProvider builds a githubAppProvider pointing at the given test
-// server URL.
-func newGithubTestProvider(t *testing.T, cfg *config.GithubAppTargetConfig, serverURL string, pemBytes []byte) *githubAppProvider {
+// server URL. httpClient must be the TLS-aware client from a TLS test server.
+func newGithubTestProvider(t *testing.T, cfg *config.GithubAppTargetConfig, serverURL string, pemBytes []byte, httpClient *http.Client) *githubAppProvider {
 	t.Helper()
 	cfg.BaseURL = serverURL
 	withCredentialsHandler(t, &stubSecretKeyHandler{pemBytes: pemBytes})
+	if httpClient == nil {
+		httpClient = &http.Client{}
+	}
 	return &githubAppProvider{
 		target:     config.BrokerTargetConfig{GithubApp: cfg},
 		cache:      tokencache.New(),
 		defaultNS:  "muster-system",
-		httpClient: &http.Client{},
+		httpClient: httpClient,
 	}
 }
 
@@ -105,7 +108,7 @@ func TestGithubAppProvider_AppJWTClaims(t *testing.T) {
 	_, pemBytes := testRSAKey(t)
 
 	var gotAuthHeader string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuthHeader = r.Header.Get("Authorization")
 		if r.Method == http.MethodGet {
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": 42})
@@ -123,8 +126,8 @@ func TestGithubAppProvider_AppJWTClaims(t *testing.T) {
 		AppID:         "99999",
 		Owner:         "my-org",
 		Repo:          "my-repo",
-		PrivateKeyRef: &config.BrokerSecretRefConfig{Name: "pem"},
-	}, server.URL, pemBytes)
+		PrivateKeyRef: &config.GithubAppSecretKeyRef{Name: "pem"},
+	}, server.URL, pemBytes, server.Client())
 
 	_, err := provider.Mint(t.Context(), MintRequest{Target: "t"})
 	require.NoError(t, err)
@@ -149,7 +152,7 @@ func TestGithubAppProvider_AppJWTClaims(t *testing.T) {
 func TestGithubAppProvider_RequestBody(t *testing.T) {
 	_, pemBytes := testRSAKey(t)
 	var gotBody githubInstallationTokenRequest
-	server := httptest.NewServer(okTokenHandler(t, "ghs_scoped", &gotBody))
+	server := httptest.NewTLSServer(okTokenHandler(t, "ghs_scoped", &gotBody))
 	t.Cleanup(server.Close)
 
 	provider := newGithubTestProvider(t, &config.GithubAppTargetConfig{
@@ -157,8 +160,8 @@ func TestGithubAppProvider_RequestBody(t *testing.T) {
 		InstallationID: "12345",
 		Repositories:   []string{"infra"},
 		Permissions:    map[string]string{"contents": "read"},
-		PrivateKeyRef:  &config.BrokerSecretRefConfig{Name: "pem"},
-	}, server.URL, pemBytes)
+		PrivateKeyRef:  &config.GithubAppSecretKeyRef{Name: "pem"},
+	}, server.URL, pemBytes, server.Client())
 
 	_, err := provider.Mint(t.Context(), MintRequest{Target: "scoped"})
 	require.NoError(t, err)
@@ -171,14 +174,14 @@ func TestGithubAppProvider_RequestBody(t *testing.T) {
 func TestGithubAppProvider_EmptyReposPermissions(t *testing.T) {
 	_, pemBytes := testRSAKey(t)
 	var gotBody githubInstallationTokenRequest
-	server := httptest.NewServer(okTokenHandler(t, "ghs_wide", &gotBody))
+	server := httptest.NewTLSServer(okTokenHandler(t, "ghs_wide", &gotBody))
 	t.Cleanup(server.Close)
 
 	provider := newGithubTestProvider(t, &config.GithubAppTargetConfig{
 		AppID:          "99999",
 		InstallationID: "12345",
-		PrivateKeyRef:  &config.BrokerSecretRefConfig{Name: "pem"},
-	}, server.URL, pemBytes)
+		PrivateKeyRef:  &config.GithubAppSecretKeyRef{Name: "pem"},
+	}, server.URL, pemBytes, server.Client())
 
 	_, err := provider.Mint(t.Context(), MintRequest{Target: "wide"})
 	require.NoError(t, err)
@@ -193,7 +196,7 @@ func TestGithubAppProvider_InstallationDiscovery(t *testing.T) {
 	_, pemBytes := testRSAKey(t)
 	var discoveryPath, tokenPath string
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			discoveryPath = r.URL.Path
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": 777})
@@ -212,8 +215,8 @@ func TestGithubAppProvider_InstallationDiscovery(t *testing.T) {
 		AppID:         "99999",
 		Owner:         "acme-org",
 		Repo:          "platform",
-		PrivateKeyRef: &config.BrokerSecretRefConfig{Name: "pem"},
-	}, server.URL, pemBytes)
+		PrivateKeyRef: &config.GithubAppSecretKeyRef{Name: "pem"},
+	}, server.URL, pemBytes, server.Client())
 
 	result, err := provider.Mint(t.Context(), MintRequest{Target: "disc"})
 	require.NoError(t, err)
@@ -228,7 +231,7 @@ func TestGithubAppProvider_Cache(t *testing.T) {
 	_, pemBytes := testRSAKey(t)
 	var callCount atomic.Int32
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
 			callCount.Add(1)
 			w.WriteHeader(http.StatusCreated)
@@ -243,8 +246,8 @@ func TestGithubAppProvider_Cache(t *testing.T) {
 	provider := newGithubTestProvider(t, &config.GithubAppTargetConfig{
 		AppID:          "99999",
 		InstallationID: "42",
-		PrivateKeyRef:  &config.BrokerSecretRefConfig{Name: "pem"},
-	}, server.URL, pemBytes)
+		PrivateKeyRef:  &config.GithubAppSecretKeyRef{Name: "pem"},
+	}, server.URL, pemBytes, server.Client())
 
 	first, err := provider.Mint(t.Context(), MintRequest{Target: "t"})
 	require.NoError(t, err)
@@ -267,7 +270,7 @@ func TestGithubAppProvider_NoSecretHandler(t *testing.T) {
 			GithubApp: &config.GithubAppTargetConfig{
 				AppID:          "99999",
 				InstallationID: "42",
-				PrivateKeyRef:  &config.BrokerSecretRefConfig{Name: "pem"},
+				PrivateKeyRef:  &config.GithubAppSecretKeyRef{Name: "pem"},
 				BaseURL:        "https://api.github.com",
 			},
 		},
@@ -309,7 +312,7 @@ func TestProviderRegistry_GithubAppType(t *testing.T) {
 					GithubApp: &config.GithubAppTargetConfig{
 						AppID:          "99999",
 						InstallationID: "42",
-						PrivateKeyRef:  &config.BrokerSecretRefConfig{Name: "pem"},
+						PrivateKeyRef:  &config.GithubAppSecretKeyRef{Name: "pem"},
 						BaseURL:        "https://api.github.com",
 					},
 				},
@@ -328,4 +331,83 @@ func TestProviderRegistry_GithubAppType(t *testing.T) {
 	require.Error(t, err)
 	assert.False(t, errors.Is(err, oauthserver.ErrInvalidTarget),
 		"github-app type must resolve to a provider, not ErrInvalidTarget, got: %v", err)
+}
+
+// testRSAKeyPKCS8 generates a throwaway 2048-bit RSA key encoded as PKCS#8 PEM.
+func testRSAKeyPKCS8(t *testing.T) (*rsa.PrivateKey, []byte) {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	der, err := x509.MarshalPKCS8PrivateKey(key)
+	require.NoError(t, err)
+	pemBytes := pem.EncodeToMemory(&pem.Block{
+		Type:  "PRIVATE KEY",
+		Bytes: der,
+	})
+	return key, pemBytes
+}
+
+// TestParseRSAPrivateKey_PKCS8 verifies that parseRSAPrivateKey accepts PKCS#8
+// PEM blocks in addition to the PKCS#1 form used by github.com key downloads.
+func TestParseRSAPrivateKey_PKCS8(t *testing.T) {
+	_, pemBytes := testRSAKeyPKCS8(t)
+	got, err := parseRSAPrivateKey(pemBytes)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+}
+
+// TestGithubAppProvider_HTTPSEnforcement verifies that a non-HTTPS baseUrl is
+// rejected with a clear error before any network call is made.
+func TestGithubAppProvider_HTTPSEnforcement(t *testing.T) {
+	_, pemBytes := testRSAKey(t)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("provider must not reach the network when baseUrl is http://")
+	}))
+	t.Cleanup(srv.Close)
+
+	withCredentialsHandler(t, &stubSecretKeyHandler{pemBytes: pemBytes})
+	provider := &githubAppProvider{
+		target: config.BrokerTargetConfig{GithubApp: &config.GithubAppTargetConfig{
+			AppID:          "99999",
+			InstallationID: "42",
+			PrivateKeyRef:  &config.GithubAppSecretKeyRef{Name: "pem"},
+			BaseURL:        srv.URL, // http://
+		}},
+		cache:      tokencache.New(),
+		defaultNS:  "muster-system",
+		httpClient: srv.Client(),
+	}
+
+	_, err := provider.Mint(t.Context(), MintRequest{Target: "t"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "https scheme")
+}
+
+// TestGithubAppProvider_NonNumericAppID verifies that a non-numeric appId is
+// rejected before a JWT is built (GitHub rejects non-numeric iss at runtime).
+func TestGithubAppProvider_NonNumericAppID(t *testing.T) {
+	_, pemBytes := testRSAKey(t)
+
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("provider must not reach the network when appId is non-numeric")
+	}))
+	t.Cleanup(srv.Close)
+
+	withCredentialsHandler(t, &stubSecretKeyHandler{pemBytes: pemBytes})
+	provider := &githubAppProvider{
+		target: config.BrokerTargetConfig{GithubApp: &config.GithubAppTargetConfig{
+			AppID:          "not-a-number",
+			InstallationID: "42",
+			PrivateKeyRef:  &config.GithubAppSecretKeyRef{Name: "pem"},
+			BaseURL:        srv.URL, // https://
+		}},
+		cache:      tokencache.New(),
+		defaultNS:  "muster-system",
+		httpClient: srv.Client(),
+	}
+
+	_, err := provider.Mint(t.Context(), MintRequest{Target: "t"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "numeric")
 }

@@ -70,7 +70,7 @@ func TestBrokerExchanger_UnknownAudience(t *testing.T) {
 		Targets: map[string]config.BrokerTargetConfig{},
 	}, nil)
 
-	_, err := broker.Exchange(context.Background(), &oauthserver.ExchangerRequest{
+	_, err := broker.Exchange(t.Context(), &oauthserver.ExchangerRequest{
 		Audience:     "unmapped",
 		Subject:      subjectIdentity("user-1"),
 		SubjectToken: "subject-token",
@@ -121,7 +121,7 @@ func TestBrokerExchanger_Exchange(t *testing.T) {
 		DefaultSecretNamespace: "muster-system",
 	}, downstream.Client())
 
-	result, err := broker.Exchange(context.Background(), &oauthserver.ExchangerRequest{
+	result, err := broker.Exchange(t.Context(), &oauthserver.ExchangerRequest{
 		Audience:         "cluster-a",
 		ClientID:         "portal-backend",
 		Subject:          subjectIdentity("user-1"),
@@ -155,7 +155,7 @@ func TestBrokerExchanger_Exchange(t *testing.T) {
 
 	// Second exchange for the same user is served from the per-(endpoint,
 	// connector, user) cache and keeps a usable expiry.
-	cached, err := broker.Exchange(context.Background(), &oauthserver.ExchangerRequest{
+	cached, err := broker.Exchange(t.Context(), &oauthserver.ExchangerRequest{
 		Audience:         "cluster-a",
 		ClientID:         "portal-backend",
 		Subject:          subjectIdentity("user-1"),
@@ -188,7 +188,7 @@ func TestBrokerExchanger_CredentialsErrors(t *testing.T) {
 
 	t.Run("no handler registered", func(t *testing.T) {
 		withCredentialsHandler(t, nil)
-		_, err := newTestBroker(cfg, nil).Exchange(context.Background(), req)
+		_, err := newTestBroker(cfg, nil).Exchange(t.Context(), req)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no secret credentials handler registered")
 		assert.False(t, errors.Is(err, oauthserver.ErrInvalidTarget))
@@ -196,7 +196,7 @@ func TestBrokerExchanger_CredentialsErrors(t *testing.T) {
 
 	t.Run("secret load failure", func(t *testing.T) {
 		withCredentialsHandler(t, &stubCredentialsHandler{err: fmt.Errorf("secret not found")})
-		_, err := newTestBroker(cfg, nil).Exchange(context.Background(), req)
+		_, err := newTestBroker(cfg, nil).Exchange(t.Context(), req)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "secret not found")
 		assert.False(t, errors.Is(err, oauthserver.ErrInvalidTarget))
@@ -220,7 +220,7 @@ func TestBrokerExchanger_DownstreamError(t *testing.T) {
 		},
 	}, downstream.Client())
 
-	_, err := broker.Exchange(context.Background(), &oauthserver.ExchangerRequest{
+	_, err := broker.Exchange(t.Context(), &oauthserver.ExchangerRequest{
 		Audience:     "cluster-a",
 		Subject:      subjectIdentity("user-1"),
 		SubjectToken: "subject-token",

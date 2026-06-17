@@ -182,11 +182,12 @@ func newDPoPReplayCache(storageCfg config.OAuthStorageConfig) (oauthserver.DPoPR
 	return oauthserver.NewMemoryDPoPReplayCache(), nil, nil
 }
 
-// logEnabledOAuthOptions emits operator-facing Info lines confirming which
 // workloadGrantsFromConfig converts the muster config map (subject → audiences)
 // to the mcp-oauth WorkloadGrant slice. An empty Issuer field on each grant
-// means any trusted issuer matches (the most permissive setting compatible with
-// the previous map-based config schema).
+// means any trusted issuer matches. In single-issuer deployments this is safe;
+// with multiple TrustedIssuers a workload SA token from any of them satisfies
+// any grant. Add an optional issuer field to WorkloadAudiences config entries
+// and propagate it here before deploying with more than one trusted issuer.
 func workloadGrantsFromConfig(m map[string][]string) []oauthserver.WorkloadGrant {
 	grants := make([]oauthserver.WorkloadGrant, 0, len(m))
 	for subject, audiences := range m {

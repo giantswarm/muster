@@ -45,13 +45,11 @@ func NewBrokerExchanger(cfg config.TokenExchangeBrokerConfig) *BrokerExchanger {
 	// Mirror the OAuth manager's internal-deployment handling: mcp-oauth's
 	// private-IP-allowed client bypasses the process-wide augmented transport
 	// (--extra-ca-file), so hand the exchanger an explicit client backed by
-	// http.DefaultTransport when private IPs are allowed.
-	var httpClient *http.Client
+	// http.DefaultTransport when private IPs are allowed. The timeout is
+	// unconditional: downstream API calls must not block indefinitely.
+	httpClient := &http.Client{Timeout: 30 * time.Second}
 	if cfg.AllowPrivateIP {
-		httpClient = &http.Client{
-			Transport: http.DefaultTransport,
-			Timeout:   30 * time.Second,
-		}
+		httpClient.Transport = http.DefaultTransport
 	}
 	return &BrokerExchanger{
 		cfg: cfg,

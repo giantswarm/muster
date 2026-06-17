@@ -1,6 +1,7 @@
 package oauth
 
 import (
+	"bytes"
 	"context"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -10,6 +11,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -89,6 +92,16 @@ func (p *githubAppProvider) Mint(ctx context.Context, req MintRequest) (*MintRes
 	}
 	baseURL = strings.TrimRight(baseURL, "/")
 
+	// B1: Reject non-HTTPS to prevent plaintext transmission of the App JWT and installation token.
+	if parsedURL, err := url.Parse(baseURL); err != nil || parsedURL.Scheme != "https" {
+		return nil, fmt.Errorf("githubApp.baseUrl must use https scheme, got %q", baseURL)
+	}
+
+	// NB3: A non-numeric AppID produces an invalid JWT iss that GitHub rejects.
+	if _, err := strconv.ParseInt(cfg.AppID, 10, 64); err != nil {
+		return nil, fmt.Errorf("githubApp.appId must be a numeric GitHub App ID, got %q", cfg.AppID)
+	}
+
 	// Cache key encodes the installation scope so separate permission sets get
 	// separate entries.
 	cacheKey, err := githubAppCacheKey(cfg)
@@ -147,7 +160,7 @@ func (p *githubAppProvider) loadPrivateKey(ctx context.Context, cfg *config.Gith
 		return nil, fmt.Errorf("no secret credentials handler registered (github-app private key requires Kubernetes mode)")
 	}
 
-	keyName := cfg.PrivateKeyRef.ClientIDKey
+	keyName := cfg.PrivateKeyRef.Key
 	if keyName == "" {
 		keyName = githubAppPrivateKeyDefault
 	}
@@ -228,8 +241,8 @@ func (p *githubAppProvider) resolveInstallationID(ctx context.Context, cfg *conf
 		return "", fmt.Errorf("either installationId or both owner and repo must be set")
 	}
 
-	url := fmt.Sprintf("%s/repos/%s/%s/installation", baseURL, cfg.Owner, cfg.Repo)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	apiURL := fmt.Sprintf("%s/repos/%s/%s/installation", baseURL, url.PathEscape(cfg.Owner), url.PathEscape(cfg.Repo))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("building installation discovery request: %w", err)
 	}
@@ -239,13 +252,13 @@ func (p *githubAppProvider) resolveInstallationID(ctx context.Context, cfg *conf
 
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("GET %s: %w", url, err)
+		return "", fmt.Errorf("GET %s: %w", apiURL, err)
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return "", fmt.Errorf("GET %s returned %d: %s", url, resp.StatusCode, body)
+		return "", fmt.Errorf("GET %s returned %d: %s", apiURL, resp.StatusCode, body)
 	}
 
 	var installation githubInstallationResponse
@@ -276,7 +289,7 @@ func (p *githubAppProvider) mintInstallationToken(
 		return "", time.Time{}, fmt.Errorf("marshaling token request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(string(bodyBytes)))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("building token request: %w", err)
 	}

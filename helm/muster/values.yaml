@@ -35,8 +35,12 @@ serviceAccount:
 #   - Events (for core_events tool)
 #   - Secrets (for reading credentials: token exchange, OAuth)
 rbac:
-  # Create RBAC resources (ClusterRole and ClusterRoleBinding)
+  # Create RBAC resources (ClusterRole, ClusterRoleBinding, and per-namespace Roles for secrets).
   create: true
+  # additionalSecretNamespaces lists namespaces beyond the release namespace where
+  # broker target secrets or githubApp.privateKeyRef secrets may reside.
+  # A Role/RoleBinding granting `get` on secrets is created in each listed namespace.
+  additionalSecretNamespaces: []
 
 podAnnotations: {}
 podLabels: {}

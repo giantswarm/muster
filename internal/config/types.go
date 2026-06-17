@@ -443,9 +443,8 @@ type GithubAppTargetConfig struct {
 	Repo string `yaml:"repo,omitempty"`
 
 	// PrivateKeyRef references the Kubernetes Secret containing the RSA private
-	// key PEM. The key within the secret defaults to "private-key".
-	// Name and Namespace follow the same semantics as BrokerSecretRefConfig.
-	PrivateKeyRef *BrokerSecretRefConfig `yaml:"privateKeyRef"`
+	// key PEM. Key defaults to "private-key" when empty.
+	PrivateKeyRef *GithubAppSecretKeyRef `yaml:"privateKeyRef"`
 
 	// Repositories limits the installation token to specific repositories.
 	// When empty, the token covers all repositories the installation can access.
@@ -456,9 +455,20 @@ type GithubAppTargetConfig struct {
 	// "read" or "write". When empty, the installation's full permissions apply.
 	Permissions map[string]string `yaml:"permissions,omitempty"`
 
-	// BaseURL overrides the GitHub API base URL. Defaults to
+	// BaseURL overrides the GitHub API base URL. Must use HTTPS. Defaults to
 	// https://api.github.com. Set for GitHub Enterprise Server or test stubs.
 	BaseURL string `yaml:"baseUrl,omitempty"`
+}
+
+// GithubAppSecretKeyRef references a Kubernetes Secret by name, namespace, and
+// key within the secret data map. Used for the GitHub App RSA private key PEM.
+type GithubAppSecretKeyRef struct {
+	// Name is the Kubernetes Secret name. Required.
+	Name string `yaml:"name"`
+	// Namespace defaults to the broker's DefaultSecretNamespace when empty.
+	Namespace string `yaml:"namespace,omitempty"`
+	// Key is the data key within the Secret. Defaults to "private-key".
+	Key string `yaml:"key,omitempty"`
 }
 
 // BrokerSecretRefConfig references a Kubernetes Secret with OAuth client
