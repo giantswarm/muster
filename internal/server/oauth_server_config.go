@@ -199,6 +199,7 @@ func workloadGrantsFromConfig(m map[string][]string) []oauthserver.WorkloadGrant
 	return grants
 }
 
+// logEnabledOAuthOptions emits operator-facing Info lines confirming which
 // security subsystems came up. Call only after the constructor succeeded.
 func logEnabledOAuthOptions(logger *slog.Logger) {
 	logger.Info("Security audit logging enabled")
