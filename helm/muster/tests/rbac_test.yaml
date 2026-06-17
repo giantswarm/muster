@@ -23,13 +23,19 @@ tests:
       rbac.create: true
     asserts:
       - hasDocuments:
-          count: 2
+          count: 4
       - isKind:
           of: ClusterRole
         documentIndex: 0
       - isKind:
           of: ClusterRoleBinding
         documentIndex: 1
+      - isKind:
+          of: Role
+        documentIndex: 2
+      - isKind:
+          of: RoleBinding
+        documentIndex: 3
 
   - it: should not create any RBAC when serviceAccount.create is false
     set:
@@ -125,7 +131,7 @@ tests:
             apiGroups: [""]
             resources: ["secrets"]
             verbs: ["get"]
-        documentIndex: 0
+        documentIndex: 2
 
   # ==========================================
   # ClusterRoleBinding Tests
