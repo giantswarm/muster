@@ -1,9 +1,8 @@
-app-tests-app-config-file: tests/test-values.yaml
 app-tests-deploy-namespace: muster
+app-tests-pre-deploy-script: tests/ats/pre-deploy.sh
 
 smoke-tests-cluster-type: kind
-
+functional-tests-cluster-type: kind
+integration-tests-cluster-type: kind
 upgrade-tests-cluster-type: kind
 upgrade-tests-app-catalog-url: https://giantswarm.github.io/giantswarm-catalog
-
-skip-steps: [smoke,functional,upgrade]

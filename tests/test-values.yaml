@@ -1,8 +1,6 @@
-# Test values for ATS smoke tests
-# Minimal configuration for deployment testing
+# Test values for ATS smoke tests — not used by ct install directly.
+# For future use: create helm/muster/ci/test-values.yaml if values overrides are needed.
 
-ciliumNetworkPolicy:
+# networkPolicy is disabled by default in values.yaml, listed here for reference.
+networkPolicy:
   enabled: false
-
-crds:
-  install: true
