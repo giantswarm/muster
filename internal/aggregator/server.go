@@ -959,15 +959,15 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		// HTTP listener to validate against (e.g. stdio transport), the admin
 		// plane cannot be protected and is not served unauthenticated.
 		startAdmin := true
-		switch {
-		case a.oauthHTTPServer != nil:
+		switch decideAdminAuth(a.oauthHTTPServer != nil, a.config.OAuthServer.Enabled) {
+		case adminAuthOAuth:
 			adminCfg.AuthMiddleware = a.oauthHTTPServer.ValidateTokenWithSubject
-		case a.config.OAuthServer.Enabled:
+		case adminAuthUnavailable:
 			logging.Error("Aggregator",
 				fmt.Errorf("OAuth server enabled but unavailable on transport %q", a.config.Transport),
 				"Admin UI not started: cannot protect the admin plane and will not serve it unauthenticated")
 			startAdmin = false
-		default:
+		case adminAuthLoopbackOnly:
 			logging.WarnWithAttrs("Aggregator",
 				"Admin UI is unauthenticated; enable the OAuth server to protect it. A non-loopback bind is refused.",
 				slog.String("bindAddress", adminCfg.BindAddress))
@@ -990,6 +990,36 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// adminAuthMode classifies how the admin listener is guarded.
+type adminAuthMode int
+
+const (
+	// adminAuthOAuth wraps every admin route with the OAuth server's token
+	// validation.
+	adminAuthOAuth adminAuthMode = iota
+	// adminAuthLoopbackOnly serves the admin plane unauthenticated; admin.NewServer
+	// refuses any non-loopback bind in this mode.
+	adminAuthLoopbackOnly
+	// adminAuthUnavailable means OAuth is enabled but no HTTP listener exists to
+	// validate against (e.g. stdio transport), so the admin plane must not start.
+	adminAuthUnavailable
+)
+
+// decideAdminAuth chooses how to guard the admin listener. hasOAuthListener is
+// true when an OAuth HTTP server exists to validate requests; oauthEnabled is
+// true when oauth.server is configured. When OAuth is enabled but no listener
+// exists, the admin plane cannot be protected and must not be served.
+func decideAdminAuth(hasOAuthListener, oauthEnabled bool) adminAuthMode {
+	switch {
+	case hasOAuthListener:
+		return adminAuthOAuth
+	case oauthEnabled:
+		return adminAuthUnavailable
+	default:
+		return adminAuthLoopbackOnly
+	}
 }
 
 // Stop gracefully shuts down the aggregator server and all its components.

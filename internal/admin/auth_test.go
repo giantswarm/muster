@@ -59,16 +59,39 @@ func TestRoutes_authMiddlewareGatesEveryRoute(t *testing.T) {
 	ts := httptest.NewServer(srv.routes())
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/sessions")
-	if err != nil {
-		t.Fatalf("GET: %v", err)
+	routes := []struct {
+		method, path string
+	}{
+		{"GET", "/"},
+		{"GET", "/sessions"},
+		{"GET", "/sessions/abc"},
+		{"POST", "/sessions/abc/delete"},
+		{"POST", "/sessions/abc/servers/github/reconnect"},
+		{"GET", "/mcps"},
+		{"GET", "/mcps/github"},
+		{"GET", "/static/app.css"},
 	}
-	_, _ = io.Copy(io.Discard, resp.Body)
-	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("expected 401 for unauthenticated request, got %d", resp.StatusCode)
+
+	client := &http.Client{
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
-	if wrapped == 0 {
-		t.Fatal("AuthMiddleware was not invoked")
+	for _, route := range routes {
+		req, err := http.NewRequest(route.method, ts.URL+route.path, nil)
+		if err != nil {
+			t.Fatalf("%s %s: new request: %v", route.method, route.path, err)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("%s %s: %v", route.method, route.path, err)
+		}
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("%s %s: expected 401 for unauthenticated request, got %d",
+				route.method, route.path, resp.StatusCode)
+		}
+	}
+	if wrapped < len(routes) {
+		t.Fatalf("AuthMiddleware invoked %d times, want %d (every route gated)", wrapped, len(routes))
 	}
 }
