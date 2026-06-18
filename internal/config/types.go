@@ -536,6 +536,12 @@ type TrustedIssuerConfig struct {
 	// restriction. Use to express K8s SA trust via sub, e.g.
 	// "system:serviceaccount:<namespace>:*".
 	AllowedClaims map[string]string `yaml:"allowedClaims,omitempty"`
+	// SubjectClaim names the verified claim whose value becomes the canonical
+	// subject (the sub of any token minted from this identity, and the value
+	// matched by actorDelegationPolicy). Empty keeps the standard sub claim. Set
+	// it to "email" for Dex, whose sub is opaque, when the downstream trusts the
+	// email. Fail-closed: a token whose claim is absent or non-string is rejected.
+	SubjectClaim string `yaml:"subjectClaim,omitempty"`
 	// AllowPrivateIPJWKS allows the JwksURL to resolve to a private or loopback
 	// address. Required for in-cluster Kubernetes SA trust where the JWKS endpoint
 	// is https://kubernetes.default.svc/openid/v1/jwks. Emits a startup warning
