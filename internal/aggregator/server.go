@@ -1530,7 +1530,7 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 			if a.getMusterIssuer() != "" && a.ssoPoolMissNeedingInit(userID, sessionID) {
 				logging.InfoWithAttrs("Aggregator", "SSO: pool miss on live session, triggering SSO re-init",
 					slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
-				go a.initSSOForSession(userID, sessionID, idToken)
+				go a.initSSOForSession(userID, sessionID, idToken) //nolint:gosec // G118: SSO re-init goroutine must outlive the request that triggered it
 			}
 			return
 		}
