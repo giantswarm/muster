@@ -6,7 +6,7 @@ set -euo pipefail
 helm package helm/muster-crds/ -d /tmp/muster-crds-pkg
 
 helm install muster-crds /tmp/muster-crds-pkg/muster-crds-*.tgz \
-  --namespace "${ATS_DEPLOY_NAMESPACE}" \
+  --namespace "${ATS_DEPLOY_NAMESPACE:-muster}" \
   --create-namespace \
   --wait \
   --timeout 120s
