@@ -337,17 +337,14 @@ const initSSOTimeout = 15 * time.Second
 // authentication is marked and the per-session capability store is populated
 // before the request that triggered it reaches its MCP handler.
 //
-// Browser callers reach this state ahead of time via the synchronous
-// SessionCreationHandler during the auth-code exchange. M2M callers (a forwarded
-// ServiceAccount token, no auth-code flow) have no such hook: their first
-// tools/list and call_tool would otherwise race an asynchronous bootstrap and
-// observe no tools — and because agents discover tools once at startup, losing
-// that race leaves the backend unusable for the agent's lifetime.
+// M2M callers (a forwarded ServiceAccount token, no auth-code flow) have no
+// synchronous SessionCreationHandler hook. Because agents discover tools once at
+// startup, a first tools/list racing an asynchronous bootstrap would see no
+// tools and leave the backend unusable for the agent's lifetime.
 //
 // initSSOForSession detaches its own timeout-bounded context internally, so
 // blocking here does not tie the bootstrap to request cancellation. singleflight
-// collapses concurrent first requests for the same session into a single
-// bootstrap.
+// collapses concurrent first requests for the same session into one bootstrap.
 func (a *AggregatorServer) bootstrapNewSessionSSO(userID, sessionID, idToken string) {
 	_, _, _ = a.ssoInitGroup.Do(sessionID, func() (any, error) {
 		a.initSSOForSession(userID, sessionID, idToken)
