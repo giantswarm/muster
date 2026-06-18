@@ -954,6 +954,16 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 			BindAddress: a.config.Admin.BindAddress,
 			Port:        a.config.Admin.Port,
 		}
+		// Protect the admin plane with the same OAuth validation muster uses
+		// for its own endpoints when the OAuth server is enabled. Without it,
+		// admin.NewServer refuses any non-loopback bind.
+		if a.oauthHTTPServer != nil {
+			adminCfg.AuthMiddleware = a.oauthHTTPServer.ValidateTokenWithSubject
+		} else {
+			logging.WarnWithAttrs("Aggregator",
+				"Admin UI is unauthenticated; enable the OAuth server to protect it. Reachable only via loopback.",
+				slog.String("bindAddress", adminCfg.BindAddress))
+		}
 		adminSrv, err := admin.NewServer(adminCfg, a.adminDeps())
 		if err != nil {
 			logging.Error("Aggregator", err, "Failed to construct admin server (port %d)", adminCfg.Port)

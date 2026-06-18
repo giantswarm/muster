@@ -68,10 +68,13 @@ func (s *Server) handleDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if wantsJSON(r) {
-		writeJSON(w, http.StatusOK, struct {
-			*SessionDetail
-			DecodedTokens []*DecodedJWT `json:"decodedTokens"`
-		}{SessionDetail: detail, DecodedTokens: decoded})
+		writeJSON(w, http.StatusOK, sessionDetailDTO{
+			SessionID:     detail.SessionID,
+			Subject:       detail.Subject,
+			Email:         detail.Email,
+			Servers:       detail.Servers,
+			DecodedTokens: decoded,
+		})
 		return
 	}
 

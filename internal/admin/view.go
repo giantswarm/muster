@@ -24,6 +24,18 @@ type SessionDetail struct {
 	Tokens    []SessionToken // Raw JWTs to be decoded; never rendered raw.
 }
 
+// sessionDetailDTO is the JSON representation of a session detail. It mirrors
+// SessionDetail minus the Tokens field, exposing only the redacted
+// header+payload of each token via DecodedTokens so no signed bearer leaves
+// the server.
+type sessionDetailDTO struct {
+	SessionID     string        `json:"sessionID"`
+	Subject       string        `json:"subject"`
+	Email         string        `json:"email,omitempty"`
+	Servers       []ServerEntry `json:"servers"`
+	DecodedTokens []*DecodedJWT `json:"decodedTokens"`
+}
+
 // ServerEntry describes one authenticated server for a session.
 type ServerEntry struct {
 	Name        string
@@ -64,8 +76,8 @@ type MCPDetail struct {
 // SessionToken pairs a raw JWT with a display label. The admin package
 // decodes the payload for rendering; the raw value never leaves the server.
 type SessionToken struct {
-	Label string // e.g. "muster → github"
-	Raw   string // Compact JWT. Never rendered to the client.
+	Label string `json:"label"`
+	Raw   string `json:"-"` // Compact JWT. Decoded server-side; never serialized.
 }
 
 // DecodedJWT is the header+payload view of a JWT. The signature segment is
