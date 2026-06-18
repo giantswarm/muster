@@ -131,6 +131,12 @@ type AggregatorServer struct {
 	// triggered by server-pushed notifications/tools/list_changed.
 	notifRefreshGroup singleflight.Group
 
+	// ssoInitGroup deduplicates concurrent synchronous SSO bootstraps for the
+	// same new session. M2M callers have no auth-code flow, so their first
+	// request drives initSSOForSession inline; collapsing concurrent first
+	// requests for one session prevents duplicate backend connects.
+	ssoInitGroup singleflight.Group
+
 	// SSO tracking for proactive SSO initialization (replaces SessionRegistry SSO methods)
 	ssoTracker *ssoTracker
 
@@ -1524,7 +1530,7 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 			if a.getMusterIssuer() != "" && a.ssoPoolMissNeedingInit(userID, sessionID) {
 				logging.InfoWithAttrs("Aggregator", "SSO: pool miss on live session, triggering SSO re-init",
 					slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
-				go a.initSSOForSession(context.Background(), userID, sessionID, idToken) //nolint:gosec // G118: SSO bootstrap must outlive the request handler that triggered it
+				go a.initSSOForSession(userID, sessionID, idToken) //nolint:gosec // G118: SSO re-init goroutine must outlive the request that triggered it
 			}
 			return
 		}
@@ -1548,10 +1554,7 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 			a.ssoTracker.ClearAllSSOFailed(userID)
 		}
 
-		// initSSOForSession is meant to outlive the request that triggered it;
-		// pass a fresh background context so cancellation when the handler
-		// returns does not abort the SSO bootstrap.
-		go a.initSSOForSession(context.Background(), userID, sessionID, idToken) //nolint:gosec // G118: SSO bootstrap must outlive the request handler that triggered it
+		a.bootstrapNewSessionSSO(userID, sessionID, idToken)
 	})
 
 	logging.InfoWithAttrs("Aggregator", "OAuth 2.1 server protection enabled",
@@ -1593,7 +1596,7 @@ func (a *AggregatorServer) ssoLifecycleOptions() []oauth.ServerOption {
 				slog.String("familyID", logging.TruncateIdentifier(familyID)),
 				slog.Bool("hasIDToken", idToken != ""),
 				slog.Int("idTokenLen", len(idToken)))
-			a.initSSOForSession(ctx, userID, familyID, idToken)
+			a.initSSOForSession(userID, familyID, idToken)
 			a.storeIDTokenForSSO(familyID, userID, idToken)
 		}),
 		// An upstream refresh with no ID token signals a broken refresh chain
