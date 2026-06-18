@@ -18,6 +18,10 @@ All notable changes to this project will be documented in this file.
 - `oauth.server.tokenExchangeBroker.targets[].type: local-mint` mints a muster-signed RFC 9068 JWT locally. Requires `enableJWTMode: true`. The issued token carries `sub` = the validated human subject and `act` = the validated agent SA (issuer + subject), signed by muster's own access-token key. Downstream services that trust muster as an issuer receive the full delegation chain without a separate Dex exchange.
 - `oauth.server.tokenExchangeBroker.actorDelegationPolicy`: allowlist of `(actorIssuer, actorSubject, subjectIssuer, subjectSubject)` entries that permit RFC 8693 delegated token exchange. An empty or absent list denies all delegated exchanges (mcp-oauth default). Required when any broker target uses `type: local-mint` and the exchange carries an `actor_token`.
 
+### Fixed
+
+- Cross-cluster RFC 8693 token exchange now requests an `id_token` (was `access_token`). The exchanged token is forwarded as the downstream bearer and must serve as the user's OIDC identity; Dex's default access token is opaque, so `mcp-kubernetes` (strict `--downstream-oauth`) could not use it for Kubernetes OIDC and denied tool calls with `authentication required: please log in to access this resource`, even though the connection reported `Connected [SSO: Exchanged]`. Requesting an `id_token` yields a JWT whose `aud` carries the configured `requiredAudiences`, so `mcp-oauth` accepts it via the forwarded-ID-token (SSO) path — mirroring the token-forwarding behaviour. `mcp-prometheus` and other identity-only downstreams were unaffected and keep working.
+
 ### Changed
 
 - Broker credential minting extracted behind a `CredentialProvider` interface and an `oidc-exchange` provider dispatched through a registry (`internal/oauth`). No behaviour change; the oidc-exchange provider preserves per-(endpoint, connector, user) token caching.
