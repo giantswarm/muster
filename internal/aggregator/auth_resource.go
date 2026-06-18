@@ -333,6 +333,25 @@ func (a *AggregatorServer) getMusterIssuerWithFallback(sessionID string) string 
 // login flow. Individual servers that exceed this deadline are skipped.
 const initSSOTimeout = 15 * time.Second
 
+// bootstrapNewSessionSSO connects a new session's SSO backends synchronously so
+// authentication is marked and the per-session capability store is populated
+// before the request that triggered it reaches its MCP handler.
+//
+// M2M callers (a forwarded ServiceAccount token, no auth-code flow) have no
+// synchronous SessionCreationHandler hook. Because agents discover tools once at
+// startup, a first tools/list racing an asynchronous bootstrap would see no
+// tools and leave the backend unusable for the agent's lifetime.
+//
+// initSSOForSession detaches its own timeout-bounded context internally, so
+// blocking here does not tie the bootstrap to request cancellation. singleflight
+// collapses concurrent first requests for the same session into one bootstrap.
+func (a *AggregatorServer) bootstrapNewSessionSSO(userID, sessionID, idToken string) {
+	_, _, _ = a.ssoInitGroup.Do(sessionID, func() (any, error) {
+		a.initSSOForSession(userID, sessionID, idToken)
+		return nil, nil
+	})
+}
+
 // initSSOForSession is called synchronously during token issuance
 // (SessionCreationHandler) to establish SSO connections for a new session.
 //
@@ -340,7 +359,7 @@ const initSSOTimeout = 15 * time.Second
 // fully connected before the client receives its access token.
 // Connections to individual servers run in parallel with a shared timeout
 // so that a single slow server cannot block the entire login flow.
-func (a *AggregatorServer) initSSOForSession(ctx context.Context, userID, sessionID, idToken string) {
+func (a *AggregatorServer) initSSOForSession(userID, sessionID, idToken string) {
 	musterIssuer := a.getMusterIssuer()
 
 	logging.Info("Aggregator", "SSO: initSSOForSession called (userID=%s, sessionID=%s, idTokenLen=%d, musterIssuer=%s)",

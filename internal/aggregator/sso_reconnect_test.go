@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/config"
 	oauthstore "github.com/giantswarm/muster/internal/oauth/store"
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
@@ -1024,6 +1025,58 @@ func TestSSOPoolMissNeedingInit_NoRetryStormOnPersistentFailure(t *testing.T) {
 		assert.False(t, aggServer.ssoPoolMissNeedingInit(userID, sessionID),
 			"pool miss after a failed exchange must wait for the backoff, not retry per request")
 	}
+}
+
+func TestBootstrapNewSessionSSO_ConnectsForwardTokenSynchronously(t *testing.T) {
+	// M2M callers (forwarded SA token, no auth-code flow) reach onAuthenticated
+	// for a brand-new session. bootstrapNewSessionSSO must connect the session's
+	// forward-token backends synchronously so auth state and capabilities are
+	// ready before the same request's MCP handler runs — otherwise the agent's
+	// first (and typically only) tools/list races the bootstrap and sees no tools.
+	registry := NewServerRegistry("x")
+	require.NoError(t, registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: "glean-mcp-kubernetes", ToolPrefix: "glean"},
+		URL:                "https://unreachable.invalid",
+		AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com"},
+		AuthConfig:         &api.MCPServerAuth{ForwardToken: true},
+	}))
+
+	authStore := oauthstore.NewInMemorySessionAuthStore(30 * time.Minute)
+	defer authStore.Stop()
+	capStore := oauthstore.NewInMemoryCapabilityStore(oauthstore.DefaultCapabilityStoreTTL)
+	pool := NewSessionConnectionPool(1 * time.Hour)
+	defer pool.Stop()
+	defer pool.DrainAll()
+	tracker := newSSOTracker()
+
+	agg := &AggregatorServer{
+		registry:        registry,
+		authStore:       authStore,
+		capabilityStore: capStore,
+		connPool:        pool,
+		ssoTracker:      tracker,
+		config: AggregatorConfig{
+			OAuthServer: OAuthServerConfig{
+				Enabled: true,
+				Config:  config.OAuthServerConfig{BaseURL: "https://muster.example.com"},
+			},
+		},
+	}
+
+	userID := "m2m-subject"
+	sessionID := "m2m-deterministic-session"
+
+	// No ID token is resolvable (none in context, no usable OAuth proxy entry),
+	// so the forward-token connect fails fast without a network round-trip.
+	agg.bootstrapNewSessionSSO(userID, sessionID, "")
+
+	// Synchronous contract: the connect outcome is recorded by the time the call
+	// returns. An asynchronous bootstrap would not have this observable yet.
+	assert.True(t, tracker.HasSSOFailed(userID, "glean-mcp-kubernetes"),
+		"forward-token connect must run to completion before bootstrapNewSessionSSO returns")
+
+	authed, _ := authStore.IsAuthenticated(t.Context(), sessionID, "glean-mcp-kubernetes")
+	assert.False(t, authed, "a failed connect must not mark the session authenticated")
 }
 
 func TestSSOTracker_ConcurrentAccess(t *testing.T) {
