@@ -8,7 +8,7 @@ replace github.com/imdario/mergo => github.com/imdario/mergo v0.3.16
 // Needed because module declares its path as: al.essio.dev/pkg/shellescape
 replace github.com/alessio/shellescape => al.essio.dev/pkg/shellescape v1.6.0
 
-require github.com/giantswarm/apptest-framework/v5 v5.1.0
+require github.com/giantswarm/apptest-framework/v5 v5.2.0
 
 require (
 	dario.cat/mergo v1.0.2 // indirect
@@ -40,9 +40,9 @@ require (
 	github.com/extism/go-sdk v1.7.1 // indirect
 	github.com/fatih/color v1.19.0 // indirect
 	github.com/fluxcd/cli-utils v1.2.0 // indirect
-	github.com/fluxcd/helm-controller/api v1.5.5 // indirect
+	github.com/fluxcd/helm-controller/api v1.6.0 // indirect
 	github.com/fluxcd/pkg/apis/acl v0.10.0 // indirect
-	github.com/fluxcd/pkg/apis/kustomize v1.18.0 // indirect
+	github.com/fluxcd/pkg/apis/kustomize v1.19.0 // indirect
 	github.com/fluxcd/pkg/apis/meta v1.30.0 // indirect
 	github.com/fluxcd/source-controller/api v1.9.0 // indirect
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
