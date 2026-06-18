@@ -130,7 +130,9 @@ func TestToTrustedIssuer_MapsAllFields(t *testing.T) {
 		AllowedAudiences:   []string{"aud1", "aud2"},
 		AllowedScopes:      []string{"read", "write"},
 		AllowedClaims:      map[string]string{"sub": "system:serviceaccount:ns:*"},
+		SubjectClaim:       "email",
 		AllowPrivateIPJWKS: true,
+		AcceptedTypHeaders: []string{""},
 	}
 	got := toTrustedIssuer(in)
 	require.Equal(t, in.Issuer, got.Issuer)
@@ -138,7 +140,44 @@ func TestToTrustedIssuer_MapsAllFields(t *testing.T) {
 	require.Equal(t, in.AllowedAudiences, got.AllowedAudiences)
 	require.Equal(t, in.AllowedScopes, got.AllowedScopes)
 	require.Equal(t, in.AllowedClaims, got.AllowedClaims)
+	require.Equal(t, in.SubjectClaim, got.SubjectClaim)
 	require.True(t, got.AllowPrivateIPJWKS)
+	require.Equal(t, in.AcceptedTypHeaders, got.AcceptedTypHeaders)
+}
+
+func TestWorkloadGrantsFromConfig_SetsWildcardIssuer(t *testing.T) {
+	t.Parallel()
+
+	grants := workloadGrantsFromConfig(map[string][]string{
+		"system:serviceaccount:ai-platform:kagent": {"github-infra"},
+	})
+	require.Len(t, grants, 1)
+	require.Equal(t, "*", grants[0].Issuer)
+	require.Equal(t, "system:serviceaccount:ai-platform:kagent", grants[0].Subject)
+	require.Equal(t, []string{"github-infra"}, grants[0].Audiences)
+}
+
+// A workloadAudiences config must not produce WorkloadGrants with an empty
+// Issuer: mcp-oauth's Config.Validate fails closed on that, which previously
+// took the OAuth server down with a 503.
+func TestNewOAuthServerConfig_WorkloadAudiences_PassesValidate(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.OAuthServerConfig{
+		BaseURL: "https://muster.example.com",
+		TokenExchangeBroker: config.TokenExchangeBrokerConfig{
+			WorkloadAudiences: map[string][]string{
+				"system:serviceaccount:ai-platform:kagent": {"github-infra"},
+			},
+		},
+	}
+	got := newOAuthServerConfig(cfg, time.Hour)
+	require.True(t, got.EnableWorkloadTokenExchange)
+	require.NotEmpty(t, got.WorkloadAudiences)
+	for _, g := range got.WorkloadAudiences {
+		require.Equal(t, "*", g.Issuer)
+	}
+	require.NoError(t, got.Validate())
 }
 
 func TestNewOAuthServerConfig_MapsTokenExchangeClientAudiences(t *testing.T) {
