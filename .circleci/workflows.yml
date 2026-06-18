@@ -118,7 +118,7 @@ workflows:
     # push avoids an ImagePullBackOff race.
     - architect/run-tests-with-ats:
         name: execute-chart-tests
-        app-test-suite_container_tag: "0.15.1-dev.phase-4-drop-apptestctl.2026-06-17.21-54-52.h6f48a76"
+        app-test-suite_container_tag: "0.15.1-dev.phase-4-drop-apptestctl.2026-06-17.23-59-53.h1078a0a"
         requires:
         - build-chart
         filters:
