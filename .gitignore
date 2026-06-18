@@ -30,10 +30,13 @@ logs
 stress-test-results/
 .klaus/
 muster-v-*
-# Per-arch release binaries written into the worktree by architect's go-build.
-# Ignored so an already-built sibling binary doesn't mark the next arch's build
-# +dirty in the version embedded via runtime/debug build info.
+# Scratch files architect's go-build/go-test write into the worktree (the
+# per-arch binaries, the .ldflags it builds with, and the .platforms list).
+# Ignored so an untracked artifact doesn't mark the build +dirty in the version
+# embedded via runtime/debug build info.
 /muster-*
+.ldflags
+.platforms
 
 # graphify knowledge graph (regenerable, rebuilt by the post-commit hook)
 graphify-out/
