@@ -27,12 +27,13 @@ type SessionDetail struct {
 // sessionDetailDTO is the JSON representation of a session detail. It mirrors
 // SessionDetail minus the Tokens field, exposing only the redacted
 // header+payload of each token via DecodedTokens so no signed bearer leaves
-// the server.
+// the server. Field names match the pre-redaction response so existing
+// consumers keep working; only the raw-token field is dropped.
 type sessionDetailDTO struct {
-	SessionID     string        `json:"sessionID"`
-	Subject       string        `json:"subject"`
-	Email         string        `json:"email,omitempty"`
-	Servers       []ServerEntry `json:"servers"`
+	SessionID     string
+	Subject       string
+	Email         string
+	Servers       []ServerEntry
 	DecodedTokens []*DecodedJWT `json:"decodedTokens"`
 }
 

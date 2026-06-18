@@ -955,26 +955,37 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 			Port:        a.config.Admin.Port,
 		}
 		// Protect the admin plane with the same OAuth validation muster uses
-		// for its own endpoints when the OAuth server is enabled. Without it,
-		// admin.NewServer refuses any non-loopback bind.
-		if a.oauthHTTPServer != nil {
+		// for its own endpoints. When the OAuth server is enabled but has no
+		// HTTP listener to validate against (e.g. stdio transport), the admin
+		// plane cannot be protected and is not served unauthenticated.
+		startAdmin := true
+		switch {
+		case a.oauthHTTPServer != nil:
 			adminCfg.AuthMiddleware = a.oauthHTTPServer.ValidateTokenWithSubject
-		} else {
+		case a.config.OAuthServer.Enabled:
+			logging.Error("Aggregator",
+				fmt.Errorf("OAuth server enabled but unavailable on transport %q", a.config.Transport),
+				"Admin UI not started: cannot protect the admin plane and will not serve it unauthenticated")
+			startAdmin = false
+		default:
 			logging.WarnWithAttrs("Aggregator",
-				"Admin UI is unauthenticated; enable the OAuth server to protect it. Reachable only via loopback.",
+				"Admin UI is unauthenticated; enable the OAuth server to protect it. A non-loopback bind is refused.",
 				slog.String("bindAddress", adminCfg.BindAddress))
 		}
-		adminSrv, err := admin.NewServer(adminCfg, a.adminDeps())
-		if err != nil {
-			logging.Error("Aggregator", err, "Failed to construct admin server (port %d)", adminCfg.Port)
-		} else if err := adminSrv.Start(); err != nil {
-			logging.Error("Aggregator", err, "Failed to start admin server on %s", adminSrv.Addr())
-		} else {
-			a.mu.Lock()
-			a.adminServer = adminSrv
-			a.mu.Unlock()
-			logging.InfoWithAttrs("Aggregator", "Admin UI listening",
-				slog.String("addr", adminSrv.Addr()))
+
+		if startAdmin {
+			adminSrv, err := admin.NewServer(adminCfg, a.adminDeps())
+			if err != nil {
+				logging.Error("Aggregator", err, "Failed to construct admin server (port %d)", adminCfg.Port)
+			} else if err := adminSrv.Start(); err != nil {
+				logging.Error("Aggregator", err, "Failed to start admin server on %s", adminSrv.Addr())
+			} else {
+				a.mu.Lock()
+				a.adminServer = adminSrv
+				a.mu.Unlock()
+				logging.InfoWithAttrs("Aggregator", "Admin UI listening",
+					slog.String("addr", adminSrv.Addr()))
+			}
 		}
 	}
 
