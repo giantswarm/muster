@@ -402,21 +402,30 @@ var acceptForwardedIDToken = func(s *oauth.Server, ctx context.Context, bearerTo
 	return s.AcceptForwardedIDToken(ctx, bearerToken)
 }
 
+// acceptTrustedIssuerToken is a test seam around (*oauth.Server).AcceptTrustedIssuerToken.
+// Used as a fallback when acceptForwardedIDToken returns ErrTrustedAudienceMismatch.
+var acceptTrustedIssuerToken = func(s *oauth.Server, ctx context.Context, bearerToken string) (*oauthserver.ForwardedIDTokenAcceptance, error) {
+	return s.AcceptTrustedIssuerToken(ctx, bearerToken)
+}
+
 // injectExternalIDToken handles the case where the bearer token was validated
-// by mcp-oauth but muster's token store has no entry for it — i.e. a JWT
-// issued directly by the upstream OIDC provider (typically a Dex ID token
-// accepted via TrustedAudiences). The bearer token IS the ID token, so we
-// delegate JWT parsing, JWKS signature verification, issuer/audience checks
-// and session-ID derivation to mcp-oauth's AcceptForwardedIDToken, then
-// inject the verified subject and ID token into the request context and
-// mirror the token into the OAuth proxy store so downstream SSO forwarding
-// can resolve it later.
+// by mcp-oauth but muster's token store has no entry for it. Two paths are tried:
 //
-// Returns true if the request was handled as an external token (in which
-// case next.ServeHTTP has already been called and the caller must return);
-// returns false when AcceptForwardedIDToken rejects the token (audience
-// mismatch, signature failure, not a JWT, etc.) and the caller should fall
-// back to the existing "no token stored" path.
+//  1. TrustedAudiences (AcceptForwardedIDToken): a Dex ID token forwarded
+//     cross-client whose aud is listed in TrustedAudiences.
+//  2. TrustedIssuers (AcceptTrustedIssuerToken): a raw JWT from an external OIDC
+//     issuer (e.g. a Kubernetes ServiceAccount projected token) whose aud is
+//     muster's own resource identifier. AcceptForwardedIDToken returns
+//     ErrTrustedAudienceMismatch for these; the TrustedIssuers path is tried
+//     before giving up.
+//
+// On success the bearer is injected as the ID token, the verified subject and a
+// deterministic session ID land in context, and the token is mirrored into the
+// OAuth proxy store so downstream SSO forwarding can resolve it later.
+//
+// Returns true when the request was handled (next.ServeHTTP already called);
+// returns false when both paths reject the token and the caller should fall
+// through to the existing "no token stored" path.
 func (s *OAuthHTTPServer) injectExternalIDToken(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -430,14 +439,21 @@ func (s *OAuthHTTPServer) injectExternalIDToken(
 
 	acceptance, err := acceptForwardedIDToken(s.oauthServer, ctx, bearerToken)
 	if err != nil {
-		if s.debug {
-			if errors.Is(err, oauth.ErrTrustedAudienceMismatch) {
-				logging.Debug("OAuth", "SSO: forwarded ID token audience mismatch, falling back: %v", err)
-			} else {
-				logging.Debug("OAuth", "SSO: forwarded ID token rejected, falling back: %v", err)
+		if errors.Is(err, oauth.ErrTrustedAudienceMismatch) {
+			// The bearer is not a TrustedAudiences token. Try the TrustedIssuers
+			// path — e.g. a raw Kubernetes SA projected token whose aud is
+			// muster's own resource identifier.
+			if s.debug {
+				logging.Debug("OAuth", "SSO: forwarded ID token audience mismatch, trying TrustedIssuers path")
 			}
+			acceptance, err = acceptTrustedIssuerToken(s.oauthServer, ctx, bearerToken)
 		}
-		return false
+		if err != nil {
+			if s.debug {
+				logging.Debug("OAuth", "SSO: external token rejected, falling back: %v", err)
+			}
+			return false
+		}
 	}
 
 	ctx = api.WithSessionID(ctx, acceptance.SessionID)

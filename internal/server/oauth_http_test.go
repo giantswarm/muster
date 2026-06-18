@@ -473,6 +473,9 @@ func TestCreateAccessTokenInjectorMiddleware(t *testing.T) {
 		defer stubAcceptForwardedIDToken(func(context.Context, string) (*oauthserver.ForwardedIDTokenAcceptance, error) {
 			return nil, oauth.ErrTrustedAudienceMismatch
 		})()
+		defer stubAcceptTrustedIssuerToken(func(context.Context, string) (*oauthserver.ForwardedIDTokenAcceptance, error) {
+			return nil, oauthserver.ErrIssuerNotTrusted
+		})()
 
 		s := &OAuthHTTPServer{config: config.OAuthServerConfig{BaseURL: "https://muster.test"}}
 
@@ -597,6 +600,19 @@ func stubAcceptForwardedIDToken(
 	return func() { acceptForwardedIDToken = prev }
 }
 
+// stubAcceptTrustedIssuerToken overrides the package-level test seam around
+// (*oauth.Server).AcceptTrustedIssuerToken for the duration of a subtest. It
+// returns a restore function that callers must defer.
+func stubAcceptTrustedIssuerToken(
+	fn func(ctx context.Context, bearerToken string) (*oauthserver.ForwardedIDTokenAcceptance, error),
+) func() {
+	prev := acceptTrustedIssuerToken
+	acceptTrustedIssuerToken = func(_ *oauth.Server, ctx context.Context, bearerToken string) (*oauthserver.ForwardedIDTokenAcceptance, error) {
+		return fn(ctx, bearerToken)
+	}
+	return func() { acceptTrustedIssuerToken = prev }
+}
+
 // acceptanceFor builds a ForwardedIDTokenAcceptance that mirrors the library's
 // shape closely enough for the muster-side tests: a deterministic session ID
 // derived from the full bearer token (so "same token same session, different
@@ -633,9 +649,12 @@ func TestInjectExternalIDToken(t *testing.T) {
 		assert.False(t, nextCalled, "next should not be called when unhandled")
 	})
 
-	t.Run("returns false when library rejects audience mismatch", func(t *testing.T) {
+	t.Run("returns false when both paths reject audience mismatch", func(t *testing.T) {
 		defer stubAcceptForwardedIDToken(func(context.Context, string) (*oauthserver.ForwardedIDTokenAcceptance, error) {
 			return nil, oauth.ErrTrustedAudienceMismatch
+		})()
+		defer stubAcceptTrustedIssuerToken(func(context.Context, string) (*oauthserver.ForwardedIDTokenAcceptance, error) {
+			return nil, oauthserver.ErrIssuerNotTrusted
 		})()
 
 		s := &OAuthHTTPServer{config: config.OAuthServerConfig{BaseURL: baseURL}}
@@ -875,5 +894,55 @@ func TestInjectExternalIDToken(t *testing.T) {
 		require.True(t, s.injectExternalIDToken(httptest.NewRecorder(), r, r.Context(), next))
 		assert.Empty(t, handler.stored,
 			"StoreToken should not be invoked without an issuer to key by")
+	})
+
+	t.Run("falls back to TrustedIssuers path on audience mismatch and injects session", func(t *testing.T) {
+		// Simulates a raw Kubernetes SA projected token: AcceptForwardedIDToken
+		// returns ErrTrustedAudienceMismatch (SA aud is muster's resource ID, not
+		// in TrustedAudiences), then AcceptTrustedIssuerToken succeeds.
+		token := fakeJWT(t, map[string]interface{}{"sub": "system:serviceaccount:ai-platform:my-svc"})
+		defer stubAcceptForwardedIDToken(func(context.Context, string) (*oauthserver.ForwardedIDTokenAcceptance, error) {
+			return nil, oauth.ErrTrustedAudienceMismatch
+		})()
+		defer stubAcceptTrustedIssuerToken(func(_ context.Context, bearer string) (*oauthserver.ForwardedIDTokenAcceptance, error) {
+			return acceptanceFor(bearer, "system:serviceaccount:ai-platform:my-svc", ""), nil
+		})()
+
+		s := &OAuthHTTPServer{config: config.OAuthServerConfig{BaseURL: baseURL}}
+		var capturedCtx context.Context
+		next := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+			capturedCtx = r.Context()
+		})
+
+		r := requestWithBearer(token)
+		handled := s.injectExternalIDToken(httptest.NewRecorder(), r, r.Context(), next)
+		require.True(t, handled, "TrustedIssuers fallback must handle the request")
+		require.NotNil(t, capturedCtx)
+
+		assert.Equal(t, "system:serviceaccount:ai-platform:my-svc", api.GetSubjectFromContext(capturedCtx))
+		assert.Regexp(t, `^ext-[0-9a-f]{16}$`, api.GetSessionIDFromContext(capturedCtx))
+
+		idToken, ok := GetIDTokenFromContext(capturedCtx)
+		require.True(t, ok)
+		assert.Equal(t, token, idToken, "bearer token must be injected as ID token for downstream exchange")
+	})
+
+	t.Run("returns false when TrustedIssuers path also rejects", func(t *testing.T) {
+		// Both paths fail: forwarded mismatch then issuer not recognised.
+		defer stubAcceptForwardedIDToken(func(context.Context, string) (*oauthserver.ForwardedIDTokenAcceptance, error) {
+			return nil, oauth.ErrTrustedAudienceMismatch
+		})()
+		defer stubAcceptTrustedIssuerToken(func(context.Context, string) (*oauthserver.ForwardedIDTokenAcceptance, error) {
+			return nil, errors.New("issuer not in TrustedIssuers")
+		})()
+
+		s := &OAuthHTTPServer{config: config.OAuthServerConfig{BaseURL: baseURL}}
+		nextCalled := false
+		next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) { nextCalled = true })
+
+		r := requestWithBearer("raw-sa-token-unknown-issuer")
+		handled := s.injectExternalIDToken(httptest.NewRecorder(), r, r.Context(), next)
+		assert.False(t, handled)
+		assert.False(t, nextCalled)
 	})
 }
