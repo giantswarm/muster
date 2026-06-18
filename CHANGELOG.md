@@ -20,6 +20,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- `muster version` now derives its version from the Go build info (`runtime/debug`) stamped from the VCS tag, instead of a hand-maintained literal in `pkg/project`. Release builds run on the tagged commit, so the binaries report the clean tag version; off-tag builds report a pseudo-version and tag-less builds report `dev`. `gitSHA`/`buildTimestamp` are still injected by architect's `go-build` ldflags. Removes the need to bump the version literal on every release. The per-arch release binaries (`muster-<os>-<arch>`) are now gitignored so a sibling binary already written into the worktree doesn't mark the next architecture's build `+dirty`.
 - Broker credential minting extracted behind a `CredentialProvider` interface and an `oidc-exchange` provider dispatched through a registry (`internal/oauth`). No behaviour change; the oidc-exchange provider preserves per-(endpoint, connector, user) token caching.
 - Update mcp-oauth to v0.9.0: `server.TrustedIssuer.SubjectClaim` sources the canonical subject from a configurable claim, wired through `oauth.server.trustedIssuers[].subjectClaim`.
 - Update mcp-oauth to v0.8.0: `server.AcceptTrustedIssuerToken` for accepting a TrustedIssuers-validated bearer as a forwarded credential with the same `ext-<hex>` session-ID derivation as `AcceptForwardedIDToken`.

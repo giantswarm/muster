@@ -4,24 +4,27 @@ import "testing"
 
 func TestVersionFallback(t *testing.T) {
 	tests := []struct {
-		name    string
-		version string
-		gitSHA  string
-		want    string
+		name      string
+		version   string
+		buildInfo string
+		gitSHA    string
+		want      string
 	}{
-		{"no injection", "dev", "dev", "dev"},
-		{"goreleaser only", "v1.2.3", "dev", "v1.2.3"},
-		{"orb only", "dev", "abc1234", "abc1234"},
-		{"both injected; tag wins", "v1.2.3", "abc1234", "v1.2.3"},
+		{"nothing available", "dev", "", "dev", "dev"},
+		{"explicit version ldflag wins", "v1.2.3", "v0.9.0", "abc1234", "v1.2.3"},
+		{"build info supplies version", "dev", "v1.2.3", "abc1234", "v1.2.3"},
+		{"build info absent; sha fallback", "dev", "", "abc1234", "abc1234"},
+		{"build info beats sha", "dev", "v1.2.3", "abc1234", "v1.2.3"},
 	}
 
-	origVersion, origSHA := version, gitSHA
-	t.Cleanup(func() { version, gitSHA = origVersion, origSHA })
+	origVersion, origSHA, origBuildInfo := version, gitSHA, buildInfoVersion
+	t.Cleanup(func() { version, gitSHA, buildInfoVersion = origVersion, origSHA, origBuildInfo })
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			version = tc.version
 			gitSHA = tc.gitSHA
+			buildInfoVersion = func() string { return tc.buildInfo }
 			if got := Version(); got != tc.want {
 				t.Errorf("Version() = %q, want %q", got, tc.want)
 			}
