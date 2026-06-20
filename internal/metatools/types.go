@@ -86,13 +86,20 @@ type ServerRequiringAuth struct {
 // refine the query or page further. TotalTools and FilteredCount are retained
 // for backward compatibility: TotalTools is the size of the full catalogue and
 // FilteredCount is the number of tools returned in this page.
+//
+// Note the FilteredCount semantics changed with the discovery tier: before
+// pagination it meant "tools matching the filters" (now carried by Total), and
+// it now equals len(Tools), i.e. the page size capped by limit. New callers
+// should prefer Total for the match count and Truncated to detect more pages.
 type FilterToolsResponse struct {
-	Filters       FilterCriteria `json:"filters"`
-	TotalTools    int            `json:"total_tools"`
-	FilteredCount int            `json:"filtered_count"`
-	Total         int            `json:"total"`
-	Truncated     bool           `json:"truncated"`
-	Tools         []ToolInfo     `json:"tools"`
+	Filters    FilterCriteria `json:"filters"`
+	TotalTools int            `json:"total_tools"`
+	// FilteredCount equals len(Tools) (the current page size). Deprecated: use
+	// Total for the number of matches across the catalogue.
+	FilteredCount int        `json:"filtered_count"`
+	Total         int        `json:"total"`
+	Truncated     bool       `json:"truncated"`
+	Tools         []ToolInfo `json:"tools"`
 }
 
 // FilterCriteria describes the filter parameters applied.

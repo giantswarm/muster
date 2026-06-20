@@ -39,3 +39,11 @@ func TestRankBM25_EmptyInputs(t *testing.T) {
 	assert.Nil(t, rankBM25("", []string{"a b"}))
 	assert.Nil(t, rankBM25("a", nil))
 }
+
+func TestRoundScore_KeepsTinyPositiveScorePresent(t *testing.T) {
+	// A score that would round to 0 must not collapse to 0, otherwise the
+	// Score field's omitempty tag would drop it from a ranked result.
+	assert.Equal(t, 0.0001, roundScore(1e-9))
+	assert.Equal(t, 0.0, roundScore(0), "an unscored result stays 0 (and is omitted)")
+	assert.Equal(t, 0.1235, roundScore(0.12345))
+}

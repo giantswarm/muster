@@ -426,27 +426,32 @@ func toolLabels(tool mcp.Tool) map[string]string {
 	}
 }
 
-// summarizeText returns the first line of desc, trimmed, and capped to max
-// runes (max <= 0 means no cap). It is the cheap one-line excerpt the discovery
-// tier returns in place of a full description.
-func summarizeText(desc string, max int) string {
+// summarizeText returns the first line of desc, trimmed, and capped to maxRunes
+// runes (maxRunes <= 0 means no cap). It is the cheap one-line excerpt the
+// discovery tier returns in place of a full description.
+func summarizeText(desc string, maxRunes int) string {
 	s := desc
 	if i := strings.IndexByte(s, '\n'); i >= 0 {
 		s = s[:i]
 	}
 	s = strings.TrimSpace(s)
-	if max > 0 {
-		if r := []rune(s); len(r) > max {
-			s = strings.TrimSpace(string(r[:max])) + "..."
+	if maxRunes > 0 {
+		if r := []rune(s); len(r) > maxRunes {
+			s = strings.TrimSpace(string(r[:maxRunes])) + "..."
 		}
 	}
 	return s
 }
 
 // roundScore rounds a relevance score to 4 decimal places for stable, compact
-// output.
+// output. A positive score never collapses to exactly 0, so a ranked result
+// always serialises a non-zero score despite the Score field's omitempty tag.
 func roundScore(s float64) float64 {
-	return math.Round(s*10000) / 10000
+	r := math.Round(s*10000) / 10000
+	if r == 0 && s > 0 {
+		r = 0.0001 // smallest value at this precision; keeps the score present
+	}
+	return r
 }
 
 // toInt coerces a JSON-decoded numeric value (float64) or a native int to int.

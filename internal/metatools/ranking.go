@@ -36,6 +36,9 @@ func rankBM25(query string, docs []string) []rankedDoc {
 	if len(queryTerms) == 0 || len(docs) == 0 {
 		return nil
 	}
+	// The set of distinct query terms is invariant across documents, so compute
+	// it once and reuse it for both the IDF precompute and per-document scoring.
+	queryTermSet := uniqueTerms(queryTerms)
 
 	docTerms := make([][]string, len(docs))
 	docFreq := make(map[string]int) // documents containing a term
@@ -56,8 +59,8 @@ func rankBM25(query string, docs []string) []rankedDoc {
 	n := float64(len(docs))
 
 	// Precompute IDF per query term.
-	idf := make(map[string]float64, len(queryTerms))
-	for term := range uniqueTerms(queryTerms) {
+	idf := make(map[string]float64, len(queryTermSet))
+	for term := range queryTermSet {
 		df := float64(docFreq[term])
 		// Okapi BM25 IDF with +1 to keep it non-negative for common terms.
 		idf[term] = math.Log(1 + (n-df+0.5)/(df+0.5))
@@ -71,7 +74,7 @@ func rankBM25(query string, docs []string) []rankedDoc {
 		}
 		dl := float64(len(terms))
 		var score float64
-		for term := range uniqueTerms(queryTerms) {
+		for term := range queryTermSet {
 			f := float64(tf[term])
 			if f == 0 {
 				continue
