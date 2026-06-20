@@ -1,0 +1,57 @@
+name: "workflow-output-projection-non-finite"
+description: "An output projection whose computed (non-bare-path) template leaves render to the non-finite numeric strings 'NaN' and 'Inf' keeps them as strings instead of coercing them to float NaN/Inf, which would otherwise break JSON marshalling of the whole projection. Finite numeric strings are still coerced to numbers, proving the guard is narrow (issue #874 regression guard)"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "output", "projection", "types", "regression", "core-api"]
+timeout: "2m"
+
+pre_configuration:
+  mcp_servers:
+  - name: "signals"
+    config:
+      tools:
+      - name: "emit"
+        responses: [ { response: { nan: "NaN", inf: "Inf", num: "42" } } ]
+
+steps:
+- id: "create-projection-non-finite"
+  tool: "core_workflow_create"
+  args:
+    name: "projection-non-finite"
+    steps:
+      - id: "emit"
+        tool: "x_signals_emit"
+    # printf forces the computed-template path (not a bare reference), so each
+    # leaf goes through coerceScalar. "NaN"/"Inf" must survive as strings; the
+    # finite "42" must still become a number.
+    output:
+      nanText: '{{ printf "%s" .results.emit.nan }}'
+      infText: '{{ printf "%s" .results.emit.inf }}'
+      coercedNum: '{{ printf "%s" .results.emit.num }}'
+      computedSum: "{{ add 40 2 }}"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "projection-non-finite" }
+
+# Without the non-finite guard this run fails: coerceScalar would turn "NaN"/"Inf"
+# into float NaN/+Inf and json.Marshal of the projection would error. With the
+# guard the run succeeds and the strings are preserved verbatim, while the finite
+# values stay coerced numbers.
+- id: "run-projection-non-finite"
+  tool: "workflow_projection-non-finite"
+  expected:
+    success: true
+    json_path:
+      nanText: "NaN"
+      infText: "Inf"
+      coercedNum: 42
+      computedSum: 42
+
+cleanup:
+- id: "delete-projection-non-finite"
+  tool: "core_workflow_delete"
+  args: { name: "projection-non-finite" }
+  expected:
+    success: true
