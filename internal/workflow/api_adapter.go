@@ -22,6 +22,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// fieldOutput is the argument/field name for both the per-step output flag and
+// the workflow-level output projection.
+const fieldOutput = "output"
+
 // Adapter provides the API adapter for workflow management
 type Adapter struct {
 	client           client.MusterClient
@@ -412,6 +416,8 @@ func (a *Adapter) ValidateWorkflowFromStructured(args map[string]interface{}) er
 		return fail(err)
 	}
 
+	logAuthoringWarnings(&wf)
+
 	// Generate validation success event
 	a.generateCRDEvent(wf.Name, events.ReasonWorkflowValidationSucceeded, events.EventData{
 		Operation: opValidate,
@@ -419,6 +425,16 @@ func (a *Adapter) ValidateWorkflowFromStructured(args map[string]interface{}) er
 	})
 
 	return nil
+}
+
+// logAuthoringWarnings emits the workflow's non-fatal authoring lint warnings
+// (deprecated `store` usage, per-step output flags rendered inert by an output
+// projection) at the structured create/validate path. The detection lives in
+// the api package so the CRD reconciler emits the same nudges.
+func logAuthoringWarnings(wf *api.Workflow) {
+	for _, w := range api.AuthoringWarnings(wf) {
+		logging.Warn("WorkflowExecutor", "Workflow %q %s", wf.Name, w)
+	}
 }
 
 // validateWorkflowCondition checks the structural constraint the executor
@@ -544,6 +560,10 @@ func (a *Adapter) convertCRDToWorkflow(workflowCRD *musterv1alpha1.Workflow) *ap
 		LastModified: workflowCRD.CreationTimestamp.Time,
 	}
 
+	if len(workflowCRD.Spec.Output) > 0 {
+		workflow.Output = a.convertRawExtensionMap(workflowCRD.Spec.Output)
+	}
+
 	// Use modification time if available
 	if workflowCRD.Status.Conditions != nil {
 		for _, condition := range workflowCRD.Status.Conditions {
@@ -568,8 +588,18 @@ func (a *Adapter) convertWorkflowToCRD(workflow *api.Workflow) *musterv1alpha1.W
 			Args:        a.convertArgDefinitionsToCRD(workflow.Args),
 			Steps:       a.convertWorkflowStepsToCRD(workflow.Steps),
 			OnFailure:   a.convertSubStepsToCRD(workflow.OnFailure),
+			Output:      a.workflowOutputToCRD(workflow.Output),
 		},
 	}
+}
+
+// workflowOutputToCRD converts an internal output projection to CRD raw-JSON
+// form, returning nil when no projection is declared.
+func (a *Adapter) workflowOutputToCRD(output map[string]interface{}) map[string]apiextensionsv1.JSON {
+	if len(output) == 0 {
+		return nil
+	}
+	return a.convertToRawExtensionMap(output)
 }
 
 // convertArgDefinitions converts CRD ArgDefinitions to internal format
@@ -608,6 +638,7 @@ func (a *Adapter) convertWorkflowSteps(crdSteps []musterv1alpha1.WorkflowStep) [
 			ID:           crdStep.ID,
 			Tool:         crdStep.Tool,
 			Args:         a.convertRawExtensionMap(crdStep.Args),
+			Output:       crdStep.Output,
 			Store:        crdStep.Store,
 			AllowFailure: crdStep.AllowFailure,
 			Parallel:     a.convertSubSteps(crdStep.Parallel),
@@ -639,6 +670,7 @@ func (a *Adapter) convertWorkflowStepsToCRD(steps []api.WorkflowStep) []musterv1
 			ID:           step.ID,
 			Tool:         step.Tool,
 			Args:         a.convertToRawExtensionMap(step.Args),
+			Output:       step.Output,
 			Store:        step.Store,
 			AllowFailure: step.AllowFailure,
 			Parallel:     a.convertSubStepsToCRD(step.Parallel),
@@ -673,6 +705,7 @@ func (a *Adapter) convertSubSteps(crdSubSteps []musterv1alpha1.WorkflowSubStep) 
 			ID:           crdSub.ID,
 			Tool:         crdSub.Tool,
 			Args:         a.convertRawExtensionMap(crdSub.Args),
+			Output:       crdSub.Output,
 			Store:        crdSub.Store,
 			AllowFailure: crdSub.AllowFailure,
 			Description:  crdSub.Description,
@@ -696,6 +729,7 @@ func (a *Adapter) convertSubStepsToCRD(subSteps []api.WorkflowSubStep) []musterv
 			ID:           sub.ID,
 			Tool:         sub.Tool,
 			Args:         a.convertToRawExtensionMap(sub.Args),
+			Output:       sub.Output,
 			Store:        sub.Store,
 			AllowFailure: sub.AllowFailure,
 			Description:  sub.Description,
@@ -1128,6 +1162,13 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 					Description: "Cleanup/rollback steps run when the workflow fails",
 					Schema:      getWorkflowOnFailureSchema(),
 				},
+				{
+					Name:        fieldOutput,
+					Type:        api.ArgTypeObject,
+					Required:    false,
+					Description: "Optional templated output projection that shapes the returned document",
+					Schema:      getWorkflowOutputSchema(),
+				},
 			},
 		},
 		{
@@ -1166,6 +1207,13 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 					Required:    false,
 					Description: "Cleanup/rollback steps run when the workflow fails",
 					Schema:      getWorkflowOnFailureSchema(),
+				},
+				{
+					Name:        fieldOutput,
+					Type:        api.ArgTypeObject,
+					Required:    false,
+					Description: "Optional templated output projection that shapes the returned document",
+					Schema:      getWorkflowOutputSchema(),
 				},
 			},
 		},
@@ -1217,6 +1265,13 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 					Required:    false,
 					Description: "Cleanup/rollback steps run when the workflow fails",
 					Schema:      getWorkflowOnFailureSchema(),
+				},
+				{
+					Name:        fieldOutput,
+					Type:        api.ArgTypeObject,
+					Required:    false,
+					Description: "Optional templated output projection that shapes the returned document",
+					Schema:      getWorkflowOutputSchema(),
 				},
 			},
 		},
@@ -1840,6 +1895,11 @@ func convertToWorkflow(args map[string]interface{}) (api.Workflow, error) {
 		wf.OnFailure = subSteps
 	}
 
+	// Convert output projection (optional)
+	if outputParam, ok := args[fieldOutput].(map[string]interface{}); ok {
+		wf.Output = outputParam
+	}
+
 	// Set timestamps
 	wf.CreatedAt = time.Now()
 	wf.LastModified = time.Now()
@@ -1958,7 +2018,12 @@ func convertWorkflowSteps(stepsParam []interface{}) ([]api.WorkflowStep, error) 
 			step.Args = args
 		}
 
-		// Store (optional)
+		// Output (optional) — include this step's result in the returned document.
+		if output, ok := stepMap[fieldOutput].(bool); ok {
+			step.Output = &output
+		}
+
+		// Store (optional, deprecated alias for output)
 		if store, ok := stepMap["store"].(bool); ok {
 			step.Store = store
 		}
@@ -2041,6 +2106,9 @@ func convertWorkflowSubSteps(subStepsParam []interface{}) ([]api.WorkflowSubStep
 
 		if args, ok := subStepMap["args"].(map[string]interface{}); ok {
 			sub.Args = args
+		}
+		if output, ok := subStepMap[fieldOutput].(bool); ok {
+			sub.Output = &output
 		}
 		if store, ok := subStepMap["store"].(bool); ok {
 			sub.Store = store
@@ -2283,7 +2351,8 @@ func getWorkflowSubStepSchema() map[string]interface{} {
 			},
 			"condition":    getWorkflowConditionSchema(),
 			"allowFailure": map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeBoolean), api.SchemaKeyDescription: "Whether this sub-step is allowed to fail"},
-			"store":        map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeBoolean), api.SchemaKeyDescription: "Whether the sub-step result should be stored"},
+			"output":       map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeBoolean), api.SchemaKeyDescription: "Whether this sub-step's result is included in the returned document. Results are always referenceable by later steps regardless of this flag."},
+			"store":        map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeBoolean), api.SchemaKeyDescription: "Deprecated alias for output; kept for backwards compatibility"},
 			api.SchemaKeyDescription: map[string]interface{}{
 				api.SchemaKeyType:        string(api.ArgTypeString),
 				api.SchemaKeyDescription: "Human-readable documentation for this sub-step",
@@ -2348,9 +2417,13 @@ func getWorkflowStepsSchema() map[string]interface{} {
 					api.SchemaKeyType:        string(api.ArgTypeBoolean),
 					api.SchemaKeyDescription: "Whether this step is allowed to fail without failing the workflow. On a forEach or parallel step this tolerates a failure of the whole group.",
 				},
+				"output": map[string]interface{}{
+					api.SchemaKeyType:        string(api.ArgTypeBoolean),
+					api.SchemaKeyDescription: "Whether this step's result is included in the workflow's returned document. Every step result is always referenceable by later steps via {{.results.stepId.field}} regardless of this flag.",
+				},
 				"store": map[string]interface{}{
 					api.SchemaKeyType:        string(api.ArgTypeBoolean),
-					api.SchemaKeyDescription: "Whether the step result should be stored in workflow results",
+					api.SchemaKeyDescription: "Deprecated alias for output; kept for backwards compatibility",
 				},
 				api.SchemaKeyDescription: map[string]interface{}{
 					api.SchemaKeyType:        string(api.ArgTypeString),
@@ -2369,6 +2442,17 @@ func getWorkflowOnFailureSchema() map[string]interface{} {
 		api.SchemaKeyType:        string(api.ArgTypeArray),
 		api.SchemaKeyDescription: "Best-effort cleanup/rollback sub-steps run when the workflow fails on a non-allowFailure step",
 		api.SchemaKeyItems:       getWorkflowSubStepSchema(),
+	}
+}
+
+// getWorkflowOutputSchema returns the schema for the workflow-level output
+// projection: an object whose leaves are templated expressions rendered against
+// .input/.results/.vars to shape the returned document.
+func getWorkflowOutputSchema() map[string]interface{} {
+	return map[string]interface{}{
+		api.SchemaKeyType:                 string(api.ArgTypeObject),
+		api.SchemaKeyDescription:          "Optional templated projection rendered once after all steps complete and returned in place of the default envelope. Each leaf is a Go-template/sprig expression evaluated against .input/.results/.vars, e.g. \"{{ .results.pods.items }}\" or \"{{ len .results.events.items }}\". JSON structure is preserved (numbers stay numbers, arrays stay arrays). A leaf's type comes from the value it evaluates to, not from how its text looks: a single-action leaf keeps its real type (\"{{ len .x }}\" is a number) and a computed string keeps its exact string form, so values whose form matters (leading zeros, versions, IDs like \"08\" or \"1.20\") are preserved with no coercion or workaround. Declaring this projection replaces the envelope, so per-step output/store flags no longer affect the returned document; every step result is still referenceable here regardless of those flags.",
+		api.SchemaKeyAdditionalProperties: true,
 	}
 }
 

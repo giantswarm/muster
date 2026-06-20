@@ -1,0 +1,70 @@
+name: "workflow-output-flag-precedence"
+description: "The output flag controls only document visibility, independently of referenceability: an explicit output:false hides a step from the returned document even when the deprecated store:true is also set (output wins), yet that hidden step's result is still referenceable by a later step (issue #873)"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "output", "store", "precedence", "core-api"]
+timeout: "2m"
+
+pre_configuration:
+  mcp_servers:
+  - name: "echo-provider"
+    config:
+      tools:
+      - name: "echo"
+        responses: [ { response: { said: "{{ .text }}" } } ]
+
+steps:
+- id: "create-precedence-workflow"
+  tool: "core_workflow_create"
+  args:
+    name: "output-precedence"
+    steps:
+      # output:false explicitly overrides store:true — the result must NOT appear
+      # in the returned document, proving output takes precedence over the alias.
+      - id: "hidden"
+        tool: "x_echo-provider_echo"
+        args: { text: "HIDDEN_MARKER" }
+        output: false
+        store: true
+      # An ordinary output step is visible in the document.
+      - id: "visible"
+        tool: "x_echo-provider_echo"
+        args: { text: "VISIBLE_MARKER" }
+        output: true
+      # Consumer references the hidden step but transforms it to a length, so the
+      # raw HIDDEN_MARKER never leaks into the document; a non-zero length proves
+      # the hidden step's result was referenceable despite output:false.
+      - id: "consumer"
+        tool: "x_echo-provider_echo"
+        args: { text: "hiddenLen={{ len .results.hidden.said }}" }
+        output: true
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "output-precedence" }
+
+# hidden (output:false, store:true) is excluded from the document; visible and
+# consumer are present; the consumer proves hidden was still referenceable.
+- id: "run-precedence-workflow"
+  tool: "workflow_output-precedence"
+  expected:
+    success: true
+    json_path:
+      status: "completed"
+      steps.0.id: "hidden"
+      steps.0.status: "completed"
+      steps.1.id: "visible"
+      steps.1.status: "completed"
+      steps.1.result.said: "VISIBLE_MARKER"
+      steps.2.id: "consumer"
+      steps.2.result.said: "hiddenLen=13"
+    contains: ["VISIBLE_MARKER"]
+    not_contains: ["HIDDEN_MARKER"]
+
+cleanup:
+- id: "delete-precedence-workflow"
+  tool: "core_workflow_delete"
+  args: { name: "output-precedence" }
+  expected:
+    success: true

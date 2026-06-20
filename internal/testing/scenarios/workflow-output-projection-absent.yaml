@@ -1,0 +1,56 @@
+name: "workflow-output-projection-absent"
+description: "When no output projection is declared the workflow returns the default envelope unchanged — execution_id, workflow, status, input, steps[] and template_vars are all present and the output-flag-driven steps[].result behavior is preserved (issue #874 back-compat)"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "output", "projection", "back-compat", "core-api"]
+timeout: "2m"
+
+pre_configuration:
+  mcp_servers:
+  - name: "echo-provider"
+    config:
+      tools:
+      - name: "echo"
+        responses: [ { response: { said: "{{ .text }}" } } ]
+
+steps:
+- id: "create-no-projection"
+  tool: "core_workflow_create"
+  args:
+    name: "no-projection"
+    args:
+      who: { type: "string", required: true }
+    steps:
+      - id: "greet"
+        tool: "x_echo-provider_echo"
+        args: { text: "hello {{ .input.who }}" }
+        output: true
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "no-projection" }
+
+# No spec.output: the full default envelope is returned, including the echoed
+# input and the output step's result inside steps[].
+- id: "run-no-projection"
+  tool: "workflow_no-projection"
+  args:
+    who: "world"
+  expected:
+    success: true
+    json_path:
+      workflow: "no-projection"
+      status: "completed"
+      input.who: "world"
+      steps.0.id: "greet"
+      steps.0.status: "completed"
+      steps.0.result.said: "hello world"
+    contains: ["execution_id", "template_vars"]
+
+cleanup:
+- id: "delete-no-projection"
+  tool: "core_workflow_delete"
+  args: { name: "no-projection" }
+  expected:
+    success: true

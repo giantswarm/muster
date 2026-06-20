@@ -42,7 +42,7 @@ const (
 type stepMetadata struct {
 	ID                  string      // Original step ID from workflow definition
 	Tool                string      // Tool name used in the step
-	Store               bool        // Whether the step result was stored in workflow results
+	Output              bool        // Whether the step result is included in the returned document
 	Status              string      // Step execution status: "completed", "skipped", "failed"
 	AllowFailure        bool        // Whether this step is allowed to fail without failing the workflow
 	ConditionEvaluation *bool       // Boolean result of condition evaluation (nil if no condition)
@@ -138,6 +138,27 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 		}
 	}
 
+	// When the workflow declares an output projection, render it once against the
+	// completed step results and return it in place of the default envelope. This
+	// lets a workflow return a small, shaped document instead of dumping every
+	// step result. Referencing here works for every step regardless of its output
+	// flag (see #873).
+	if len(workflow.Output) > 0 {
+		projected, err := we.renderOutputProjection(workflow.Output, execCtx)
+		if err != nil {
+			logging.Error("WorkflowExecutor", err, "Failed to render output projection")
+			return nil, fmt.Errorf("failed to render output projection: %w", err)
+		}
+		projectedJSON, err := json.Marshal(projected)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal projected output: %w", err)
+		}
+		logging.Debug("WorkflowExecutor", "Projected output JSON: %s", string(projectedJSON))
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{mcp.NewTextContent(string(projectedJSON))},
+		}, nil
+	}
+
 	// Build clean final result with consolidated step information
 	steps := we.buildStepsArray(execCtx.stepMetadata, execCtx.results, "", "")
 
@@ -150,13 +171,13 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 		"template_vars": execCtx.templateVars,
 	}
 
-	// If the last step wasn't stored, merge its result into the top level.
+	// If the last step isn't an output step, merge its result into the top level.
 	// Only applies to plain tool steps; forEach/parallel steps produce no single
 	// result to merge.
 	if lastStepResult != nil && len(workflow.Steps) > 0 {
 		lastStep := workflow.Steps[len(workflow.Steps)-1]
-		if !lastStep.Store && lastStep.Tool != "" {
-			logging.Debug("WorkflowExecutor", "Last step %s has no store, merging result into top level", lastStep.ID)
+		if !api.OutputEnabled(lastStep.Output, lastStep.Store) && lastStep.Tool != "" {
+			logging.Debug("WorkflowExecutor", "Last step %s is not an output step, merging result into top level", lastStep.ID)
 			// Parse the last step's result and merge it
 			if len(lastStepResult.Content) > 0 {
 				if textContent, ok := lastStepResult.Content[0].(mcp.TextContent); ok {
@@ -218,8 +239,9 @@ func (we *WorkflowExecutor) buildStepsArray(stepMetadata []stepMetadata, results
 			step["allow_failure"] = stepMeta.AllowFailure
 		}
 
-		// Add result if available
-		if stepMeta.Store && results[stepMeta.ID] != nil {
+		// Add result only for output steps (the returned document). Results are
+		// always recorded for referencing, but only surfaced here when requested.
+		if stepMeta.Output && results[stepMeta.ID] != nil {
 			step["result"] = results[stepMeta.ID]
 		}
 
@@ -241,7 +263,7 @@ type subStepView struct {
 	Tool         string
 	Args         map[string]interface{}
 	Condition    *api.WorkflowCondition
-	Store        bool
+	Output       bool
 	AllowFailure bool
 }
 
@@ -251,7 +273,7 @@ func plainStepView(step api.WorkflowStep) subStepView {
 		Tool:         step.Tool,
 		Args:         step.Args,
 		Condition:    step.Condition,
-		Store:        step.Store,
+		Output:       api.OutputEnabled(step.Output, step.Store),
 		AllowFailure: step.AllowFailure,
 	}
 }
@@ -262,7 +284,7 @@ func subStepViewFrom(ss api.WorkflowSubStep) subStepView {
 		Tool:         ss.Tool,
 		Args:         ss.Args,
 		Condition:    ss.Condition,
-		Store:        ss.Store,
+		Output:       api.OutputEnabled(ss.Output, ss.Store),
 		AllowFailure: ss.AllowFailure,
 	}
 }
@@ -333,7 +355,7 @@ func (we *WorkflowExecutor) runStep(ctx context.Context, workflowName string, s 
 			execCtx.stepMetadata = append(execCtx.stepMetadata, stepMetadata{
 				ID:                  s.ID,
 				Tool:                s.Tool,
-				Store:               s.Store,
+				Output:              s.Output,
 				Status:              statusSkipped,
 				AllowFailure:        s.AllowFailure,
 				ConditionEvaluation: conditionEvaluation,
@@ -366,19 +388,19 @@ func (we *WorkflowExecutor) runStep(ctx context.Context, workflowName string, s 
 		execCtx.stepMetadata = append(execCtx.stepMetadata, stepMetadata{
 			ID:                  s.ID,
 			Tool:                s.Tool,
-			Store:               s.Store,
+			Output:              s.Output,
 			Status:              statusFailed,
 			AllowFailure:        s.AllowFailure,
 			ConditionEvaluation: conditionEvaluation,
 			ConditionResult:     conditionResult,
 			ConditionTool:       conditionTool,
 		})
-		if s.Store {
-			execCtx.results[s.ID] = map[string]interface{}{
-				api.FieldError:   err.Error(),
-				api.FieldSuccess: false,
-				"isError":        true,
-			}
+		// Always record a result for the failed step so later steps and the
+		// output projection can reference it, regardless of the output flag.
+		execCtx.results[s.ID] = map[string]interface{}{
+			api.FieldError:   err.Error(),
+			api.FieldSuccess: false,
+			"isError":        true,
 		}
 		if s.AllowFailure {
 			logging.Debug("WorkflowExecutor", "Step %s failed but allow_failure is true, continuing", s.ID)
@@ -387,26 +409,26 @@ func (we *WorkflowExecutor) runStep(ctx context.Context, workflowName string, s 
 		return stepOutcome{stop: true, fatalErr: err, failedStepID: s.ID, errorMessage: err.Error()}, nil
 	}
 
-	// Store result if requested.
-	if s.Store {
-		var resultData interface{}
-		if len(result.Content) > 0 {
-			if textContent, ok := result.Content[0].(mcp.TextContent); ok {
-				if err := json.Unmarshal([]byte(textContent.Text), &resultData); err != nil {
-					resultData = textContent.Text
-				}
+	// Always record the step result so later steps and the output projection can
+	// reference it via {{ .results.<id>.<field> }}, regardless of the output
+	// flag. The output flag only controls visibility in the returned document.
+	var resultData interface{}
+	if len(result.Content) > 0 {
+		if textContent, ok := result.Content[0].(mcp.TextContent); ok {
+			if err := json.Unmarshal([]byte(textContent.Text), &resultData); err != nil {
+				resultData = textContent.Text
 			}
 		}
-		execCtx.results[s.ID] = resultData
-		logging.Debug("WorkflowExecutor", "Stored result from step %s: %+v", s.ID, resultData)
 	}
+	execCtx.results[s.ID] = resultData
+	logging.Debug("WorkflowExecutor", "Recorded result from step %s: %+v", s.ID, resultData)
 
 	we.eventCallback.GenerateStepEvent(workflowName, s.ID, "step_completed", map[string]interface{}{"tool": s.Tool})
 
 	execCtx.stepMetadata = append(execCtx.stepMetadata, stepMetadata{
 		ID:                  s.ID,
 		Tool:                s.Tool,
-		Store:               s.Store,
+		Output:              s.Output,
 		Status:              statusCompleted,
 		AllowFailure:        s.AllowFailure,
 		ConditionEvaluation: conditionEvaluation,
@@ -425,18 +447,16 @@ func (we *WorkflowExecutor) runStep(ctx context.Context, workflowName string, s 
 			if len(execCtx.stepMetadata) > 0 {
 				execCtx.stepMetadata[len(execCtx.stepMetadata)-1].Status = statusFailed
 			}
-			if s.Store {
-				var errorMessage string
-				if len(result.Content) > 0 {
-					if textContent, ok := result.Content[0].(mcp.TextContent); ok {
-						errorMessage = textContent.Text
-					}
+			var errorMessage string
+			if len(result.Content) > 0 {
+				if textContent, ok := result.Content[0].(mcp.TextContent); ok {
+					errorMessage = textContent.Text
 				}
-				execCtx.results[s.ID] = map[string]interface{}{
-					api.FieldSuccess: false,
-					"isError":        true,
-					api.FieldError:   errorMessage,
-				}
+			}
+			execCtx.results[s.ID] = map[string]interface{}{
+				api.FieldSuccess: false,
+				"isError":        true,
+				api.FieldError:   errorMessage,
 			}
 			return stepOutcome{result: result}, nil
 		}
@@ -478,7 +498,7 @@ func (we *WorkflowExecutor) evaluateStepCondition(ctx context.Context, workflowN
 
 		for _, stepMeta := range execCtx.stepMetadata {
 			if stepMeta.ID == cond.FromStep {
-				if stepMeta.Store && execCtx.results[stepMeta.ID] != nil {
+				if execCtx.results[stepMeta.ID] != nil {
 					referencedStepResult = execCtx.results[stepMeta.ID]
 					found = true
 					break
@@ -623,11 +643,12 @@ func (we *WorkflowExecutor) runForEach(ctx context.Context, workflowName string,
 	}
 	idxKey := as + "_index"
 
-	// A stored sub-step's result lives under its plain ID (so later sub-steps in
-	// the same iteration can chain off it) and is also copied to an
-	// index-suffixed key "<id>_<index>" after each iteration, so every
-	// iteration stays addressable after the loop (the plain ID keeps the last
-	// iteration's result for convenience).
+	// Each sub-step's result lives under its plain ID (so later sub-steps in the
+	// same iteration can chain off it) and is also copied to an index-suffixed
+	// key "<id>_<index>" after each iteration, so every iteration stays
+	// addressable after the loop (the plain ID keeps the last iteration's result
+	// for convenience). Results are recorded for every sub-step regardless of its
+	// output flag.
 	prev, hadPrev := execCtx.variables[as]
 	defer func() {
 		if hadPrev {
@@ -653,10 +674,8 @@ func (we *WorkflowExecutor) runForEach(ctx context.Context, workflowName string,
 				}
 				return outcome, nil
 			}
-			if ss.Store {
-				if v, ok := execCtx.results[ss.ID]; ok {
-					execCtx.results[fmt.Sprintf("%s_%d", ss.ID, idx)] = v
-				}
+			if v, ok := execCtx.results[ss.ID]; ok {
+				execCtx.results[fmt.Sprintf("%s_%d", ss.ID, idx)] = v
 			}
 		}
 	}

@@ -3,9 +3,12 @@ package template
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"regexp"
+	"strconv"
 	"strings"
 	"text/template"
+	"text/template/parse"
 
 	"github.com/Masterminds/sprig/v3"
 )
@@ -182,42 +185,91 @@ func (e *Engine) ValidateContext(value interface{}, context map[string]interface
 }
 
 // resolvePath resolves a dot-notation path like "variable_name.property.subproperty"
+// against the context map. It delegates to ResolvePath, treating the context map
+// itself as the navigation root.
 func (e *Engine) resolvePath(path string, context map[string]interface{}) (interface{}, error) {
-	parts := strings.Split(path, ".")
-	if len(parts) == 0 {
-		return nil, fmt.Errorf("empty template path")
-	}
-
-	// Get root variable from context
-	rootName := parts[0]
-	currentValue, exists := context[rootName]
-	if !exists {
-		return nil, fmt.Errorf("variable '%s' not found in context", rootName)
-	}
-
-	// Navigate nested properties
-	for i, part := range parts[1:] {
-		var err error
-		currentValue, err = e.getProperty(currentValue, part)
-		if err != nil {
-			return nil, fmt.Errorf("failed to access property '%s' at position %d in path '%s': %w", part, i+1, path, err)
-		}
-	}
-
-	return currentValue, nil
+	return e.ResolvePath(context, path)
 }
 
-// getProperty extracts a property from an object
-func (e *Engine) getProperty(obj interface{}, property string) (interface{}, error) {
-	switch v := obj.(type) {
-	case map[string]interface{}:
-		if value, exists := v[property]; exists {
-			return value, nil
+// ResolvePath navigates a dotted path with optional array indexing against an
+// arbitrary root value and returns the typed value found there. It is the single
+// path navigator shared by template variable substitution, workflow output
+// projections, and condition jsonPath expectations.
+//
+// Supported syntax:
+//   - object navigation: "data.field.subfield"
+//   - array indexing: "items[0]", "data.items[2].name"
+//   - chained indices: "matrix[0][1]"
+//
+// The root may be the template context map (first segment is then a top-level
+// variable name) or any nested value (e.g. a tool result object).
+func (e *Engine) ResolvePath(root interface{}, path string) (interface{}, error) {
+	current := root
+	for _, segment := range strings.Split(path, ".") {
+		if segment == "" {
+			continue
 		}
-		return nil, fmt.Errorf("property '%s' not found in object", property)
-	default:
-		return nil, fmt.Errorf("cannot access property '%s' on non-object type %T", property, obj)
+
+		name, indices, err := parsePathSegment(segment, path)
+		if err != nil {
+			return nil, err
+		}
+
+		if name != "" {
+			obj, ok := current.(map[string]interface{})
+			if !ok {
+				return nil, fmt.Errorf("cannot access '%s' in path '%s': not an object", name, path)
+			}
+			value, exists := obj[name]
+			if !exists {
+				return nil, fmt.Errorf("path '%s' not found", path)
+			}
+			current = value
+		}
+
+		for _, idx := range indices {
+			arr, ok := current.([]interface{})
+			if !ok {
+				return nil, fmt.Errorf("cannot index '%s' in path '%s': not an array", segment, path)
+			}
+			if idx < 0 || idx >= len(arr) {
+				return nil, fmt.Errorf("index %d out of range in path '%s'", idx, path)
+			}
+			current = arr[idx]
+		}
 	}
+
+	return current, nil
+}
+
+// parsePathSegment splits a single path segment into its property name and any
+// trailing array indices, e.g. "items[0][1]" -> ("items", [0, 1]).
+func parsePathSegment(segment, path string) (string, []int, error) {
+	bracket := strings.IndexByte(segment, '[')
+	if bracket < 0 {
+		return segment, nil, nil
+	}
+
+	name := segment[:bracket]
+	rest := segment[bracket:]
+	var indices []int
+	for len(rest) > 0 {
+		if rest[0] != '[' {
+			return "", nil, fmt.Errorf("invalid index syntax in path '%s'", path)
+		}
+		end := strings.IndexByte(rest, ']')
+		if end < 0 {
+			return "", nil, fmt.Errorf("unterminated index in path '%s'", path)
+		}
+		idx, err := strconv.Atoi(rest[1:end])
+		if err != nil {
+			return "", nil, fmt.Errorf("invalid array index %q in path '%s'", rest[1:end], path)
+		}
+		indices = append(indices, idx)
+		rest = rest[end+1:]
+	}
+
+	return name, indices, nil
 }
 
 // RenderGoTemplate renders a full Go template with Sprig template functions
@@ -245,4 +297,71 @@ func (e *Engine) RenderGoTemplate(templateStr string, context map[string]interfa
 
 	// Return as string for other results
 	return result, nil
+}
+
+// RenderGoTemplateTyped renders a template while preserving the actual Go type
+// of its result, used where structured JSON output matters (workflow output
+// projections and jsonPath expectations).
+//
+// When the template body is a single output action it is evaluated for its
+// typed value rather than its rendered text: "{{ len .x }}" yields the number
+// 3, "{{ eq .a .b }}" a bool, "{{ .v }}" the value's own type, and
+// "{{ printf \"%02d\" .n }}" the string "08". Templates that mix literal text
+// with actions, or contain several actions, render to a string because their
+// concatenated form is inherently textual.
+//
+// Crucially this never inspects the rendered text to guess a type, so a
+// numeric-looking string such as a version "1.20" or a zero-padded "08" is
+// preserved exactly instead of being silently coerced to a number. That guess
+// was the source of lossy numeric coercion in earlier versions.
+func (e *Engine) RenderGoTemplateTyped(templateStr string, context map[string]interface{}) (interface{}, error) {
+	probe, err := template.New("template").Funcs(sprig.TxtFuncMap()).Option("missingkey=error").Parse(templateStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid template: %w", err)
+	}
+
+	if pipe := singleActionPipe(probe); pipe != nil {
+		return renderCapturedPipe(pipe.String(), context)
+	}
+
+	var buf bytes.Buffer
+	if err := probe.Execute(&buf, context); err != nil {
+		return nil, fmt.Errorf("template execution failed: %w", err)
+	}
+	return buf.String(), nil
+}
+
+// singleActionPipe returns the pipeline of a template whose body is exactly one
+// output action — no surrounding text, no additional nodes and no variable
+// declaration ("{{ $x := ... }}") — or nil for anything else. Only such a
+// pipeline can be meaningfully evaluated for a single typed value.
+func singleActionPipe(t *template.Template) *parse.PipeNode {
+	if t.Tree == nil || t.Root == nil || len(t.Root.Nodes) != 1 {
+		return nil
+	}
+	action, ok := t.Root.Nodes[0].(*parse.ActionNode)
+	if !ok || action.Pipe == nil || len(action.Pipe.Decl) > 0 {
+		return nil
+	}
+	return action.Pipe
+}
+
+// renderCapturedPipe evaluates a single pipeline and returns the typed value it
+// produced, by piping it into a capture function whose argument keeps its
+// concrete Go type. The rendered text itself is discarded.
+func renderCapturedPipe(pipeText string, context map[string]interface{}) (interface{}, error) {
+	var captured interface{}
+	funcs := sprig.TxtFuncMap()
+	funcs["__capture"] = func(v interface{}) string {
+		captured = v
+		return ""
+	}
+	tmpl, err := template.New("template").Funcs(funcs).Option("missingkey=error").Parse("{{ " + pipeText + " | __capture }}")
+	if err != nil {
+		return nil, fmt.Errorf("invalid template: %w", err)
+	}
+	if err := tmpl.Execute(io.Discard, context); err != nil {
+		return nil, fmt.Errorf("template execution failed: %w", err)
+	}
+	return captured, nil
 }

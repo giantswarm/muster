@@ -198,6 +198,13 @@ func (r *WorkflowReconciler) reconcileCreateOrUpdate(ctx context.Context, req Re
 		}
 	}
 
+	// Surface non-fatal authoring nudges (deprecated `store`, inert per-step
+	// output flags under an output projection) for workflows applied directly as
+	// CRDs, which never pass through the structured create/validate path.
+	for _, w := range api.AuthoringWarnings(wf) {
+		logging.Warn("WorkflowReconciler", "Workflow %q %s", req.Name, w)
+	}
+
 	// Workflow definitions are primarily static - they define execution templates.
 	// The main reconciliation is ensuring the definition is valid and registered.
 	// Tool availability is checked dynamically when workflows are executed.

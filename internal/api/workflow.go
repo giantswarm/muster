@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -40,6 +42,13 @@ type Workflow struct {
 	// fails on a step that does not allow failure. Their own failures are tolerated.
 	OnFailure []WorkflowSubStep `yaml:"onFailure,omitempty" json:"onFailure,omitempty"`
 
+	// Output is an optional templated projection that shapes the returned document.
+	// It is rendered once after the steps complete, against .input / .results /
+	// .vars, and replaces the default envelope. Each leaf is a Go-template/sprig
+	// expression and JSON structure is preserved. When nil, the default envelope
+	// is returned.
+	Output map[string]interface{} `yaml:"output,omitempty" json:"output,omitempty"`
+
 	// Runtime state fields (for API responses only) - Dynamic runtime information
 
 	// Available indicates whether this workflow is currently available for execution
@@ -52,6 +61,77 @@ type Workflow struct {
 
 	// LastModified indicates when this workflow was last updated
 	LastModified time.Time `yaml:"lastModified,omitempty" json:"lastModified"`
+}
+
+// OutputEnabled resolves the effective "include in returned result" flag for a
+// step from its Output pointer and the deprecated Store alias. Output takes
+// precedence when set; otherwise Store is used for backwards compatibility.
+func OutputEnabled(output *bool, store bool) bool {
+	if output != nil {
+		return *output
+	}
+	return store
+}
+
+// AuthoringWarnings returns non-fatal authoring lint messages for a workflow.
+// Each string is a complete, log-ready sentence describing the workflow itself
+// (the caller prefixes it with the workflow name). It is the single source of
+// truth shared by the structured create/validate path and the CRD reconciler so
+// the same nudge is emitted regardless of how a workflow is authored. Returns an
+// empty slice when there is nothing to warn about.
+func AuthoringWarnings(wf *Workflow) []string {
+	if wf == nil {
+		return nil
+	}
+	var warnings []string
+	if ids := deprecatedStoreIDs(wf); len(ids) > 0 {
+		warnings = append(warnings, fmt.Sprintf("uses the deprecated 'store' flag on: %s. 'store' is a backwards-compatible alias for 'output' and now only controls result visibility; referencing a step result no longer requires it. Prefer 'output'.", strings.Join(ids, ", ")))
+	}
+	if len(wf.Output) > 0 {
+		if ids := outputFlaggedIDs(wf); len(ids) > 0 {
+			warnings = append(warnings, fmt.Sprintf("declares a workflow-level 'output' projection, which replaces the default envelope, so the per-step 'output'/'store' flags on these steps have no effect on the returned document: %s. Remove them or drop the projection.", strings.Join(ids, ", ")))
+		}
+	}
+	return warnings
+}
+
+// deprecatedStoreIDs returns the IDs of every step and sub-step that still uses
+// the deprecated `store` flag, i.e. store is set while the superseding `output`
+// flag is not. Sub-steps are qualified by their parent step and group.
+func deprecatedStoreIDs(wf *Workflow) []string {
+	usesStore := func(output *bool, store bool) bool { return store && output == nil }
+	return collectStepIDs(wf, func(output *bool, store bool) bool { return usesStore(output, store) })
+}
+
+// outputFlaggedIDs returns the IDs of every step and sub-step that sets an
+// effective output/store flag. It is used to flag flags rendered inert by a
+// workflow-level output projection.
+func outputFlaggedIDs(wf *Workflow) []string {
+	return collectStepIDs(wf, OutputEnabled)
+}
+
+// collectStepIDs walks every step, forEach/parallel sub-step, and onFailure
+// handler, returning the (qualified) IDs for which match reports true.
+func collectStepIDs(wf *Workflow, match func(output *bool, store bool) bool) []string {
+	var ids []string
+	collect := func(label string, subs []WorkflowSubStep) {
+		for _, sub := range subs {
+			if match(sub.Output, sub.Store) {
+				ids = append(ids, label+sub.ID)
+			}
+		}
+	}
+	for _, step := range wf.Steps {
+		if match(step.Output, step.Store) {
+			ids = append(ids, step.ID)
+		}
+		if step.ForEach != nil {
+			collect(step.ID+".forEach.", step.ForEach.Steps)
+		}
+		collect(step.ID+".parallel.", step.Parallel)
+	}
+	collect("onFailure.", wf.OnFailure)
+	return ids
 }
 
 // Arg defines an argument for operations and workflows.
@@ -174,8 +254,15 @@ type WorkflowStep struct {
 	// The step result will be available for subsequent step conditions to reference.
 	AllowFailure bool `yaml:"allow_failure,omitempty" json:"allow_failure,omitempty"`
 
-	// Store indicates whether the step result should be stored in workflow results.
-	// When true, the step result is stored and accessible in subsequent steps and conditions.
+	// Output indicates whether this step's result is included in the workflow's
+	// returned document. Every step result is always referenceable by later steps
+	// regardless of this flag; Output only controls visibility in the returned
+	// result. When nil, the deprecated Store flag is used as a fallback.
+	Output *bool `yaml:"output,omitempty" json:"output,omitempty"`
+
+	// Store is a deprecated alias for Output, kept for backwards compatibility.
+	// Referencing a step result no longer requires Store; it now only affects
+	// result visibility. Prefer Output.
 	Store bool `yaml:"store,omitempty" json:"store,omitempty"`
 
 	// Description provides human-readable documentation for this step's purpose
@@ -215,7 +302,14 @@ type WorkflowSubStep struct {
 	// AllowFailure indicates whether this sub-step is allowed to fail without failing execution.
 	AllowFailure bool `yaml:"allow_failure,omitempty" json:"allow_failure,omitempty"`
 
-	// Store indicates whether the sub-step result should be stored in workflow results.
+	// Output indicates whether this sub-step's result is included in the
+	// workflow's returned document. The result is always referenceable by later
+	// steps regardless of this flag. When nil, the deprecated Store flag is used
+	// as a fallback.
+	Output *bool `yaml:"output,omitempty" json:"output,omitempty"`
+
+	// Store is a deprecated alias for Output, kept for backwards compatibility.
+	// Prefer Output.
 	Store bool `yaml:"store,omitempty" json:"store,omitempty"`
 
 	// Description provides human-readable documentation for this sub-step's purpose.
