@@ -236,11 +236,11 @@ func (et *ExecutionTracker) extractStepsFromNewStructure(execution *api.Workflow
 			stepID, stepStatusRaw, conditionEvaluation)
 
 		switch stepStatusRaw {
-		case "skipped":
-			stepStatus = "skipped" // Custom status for skipped steps
-		case "failed": //nolint:goconst
+		case statusSkipped:
+			stepStatus = statusSkipped // Custom status for skipped steps
+		case statusFailed:
 			stepStatus = api.WorkflowExecutionFailed
-		case "completed": //nolint:goconst
+		case statusCompleted:
 			stepStatus = api.WorkflowExecutionCompleted
 		default:
 			stepStatus = api.WorkflowExecutionCompleted
@@ -474,7 +474,7 @@ func (et *ExecutionTracker) filterStepDataFromResult(result interface{}) interfa
 		filteredResult := make(map[string]interface{})
 		for key, value := range resultMap {
 			// For summary mode, exclude step-related fields (keeping only workflow metadata)
-			if key != "steps" && key != "template_vars" {
+			if key != api.FieldSteps && key != "template_vars" {
 				filteredResult[key] = value
 			}
 		}

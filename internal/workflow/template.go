@@ -94,12 +94,7 @@ func (we *WorkflowExecutor) resolveTemplate(templateStr string, ctx *executionCo
 		}
 	}
 
-	templateCtx := map[string]interface{}{
-		"input":   ctx.input,
-		"vars":    ctx.variables,
-		"results": ctx.results,
-		"context": ctx.results, // Alias for results to support .context.variable syntax
-	}
+	templateCtx := we.templateContext(ctx)
 
 	logging.Debug("WorkflowExecutor", "Template context results (raw): %v", templateCtx["results"])
 

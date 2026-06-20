@@ -6,6 +6,11 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Workflow control flow ([#865](https://github.com/giantswarm/muster/issues/865)): four genuinely useful constructs are now implemented end to end (CRD types, internal API types, executor, structured create/validate path, and step JSON schema):
+  - `condition.template` — a boolean Go-template gate evaluated in-process (e.g. `condition: {template: "{{ eq .input.env \"production\" }}"}`).
+  - `forEach` — a sequential loop that runs a flat body of sub-steps once per item of a list, binding the current item to `{{ .vars.<as> }}` (default `item`) and the index to `{{ .vars.<as>_index }}`.
+  - `parallel` — a group of sub-steps executed concurrently; siblings are independent (each resolves arguments from the pre-group state).
+  - `spec.onFailure` — best-effort cleanup/rollback sub-steps run when the workflow fails on a step that does not allow failure.
 - `GET /health` now responds 200 on the aggregator port regardless of OAuth configuration, so Kubernetes liveness/readiness probes work without patching the chart.
 - `RegisterServer` and `DeregisterServer` aggregator events and MCPServer reconcile entry are now logged at Info level, making freshly-restarted pod lifecycle visible without `--debug`.
 - `oauth.server.allowedOrigins` (comma-separated) is now wired into the mcp-oauth CORS `AllowedOrigins` list. Previously declared but never read; empty value keeps CORS disabled (default).
@@ -20,6 +25,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Workflow documentation ([#865](https://github.com/giantswarm/muster/issues/865)): `docs/how-to/workflow-creation.md` and `docs/how-to/ai-workflow-optimization.md` were rewritten to describe only features the engine implements; all example templates now use the correct `{{ .input.<arg> }}` context (the engine renders with `missingkey=error`, so the previously documented `{{ .<arg> }}` form errored at runtime). `docs/reference/crds.md` template syntax was corrected, the stray `spec.name` removed from examples, and the dead `outputs` field replaced with `store: true` guidance.
 - Cross-cluster RFC 8693 token exchange now requests an `id_token` (was `access_token`). The exchanged token is forwarded as the downstream bearer and must serve as the user's OIDC identity; Dex's default access token is opaque, so `mcp-kubernetes` (strict `--downstream-oauth`) could not use it for Kubernetes OIDC and denied tool calls with `authentication required: please log in to access this resource`, even though the connection reported `Connected [SSO: Exchanged]`. Requesting an `id_token` yields a JWT whose `aud` carries the configured `requiredAudiences`, so `mcp-oauth` accepts it via the forwarded-ID-token (SSO) path — mirroring the token-forwarding behaviour. `mcp-prometheus` and other identity-only downstreams were unaffected and keep working.
 
 ### Changed
@@ -34,6 +40,7 @@ All notable changes to this project will be documented in this file.
 
 ### Removed
 
+- `WorkflowStep.outputs` ([#865](https://github.com/giantswarm/muster/issues/865)): the field was present on the CRD and copied by the adapter but never read by the executor (dead code). Removed from the CRD, internal types, conversion, and step JSON schema. Use `store: true` and reference the result as `{{ .results.<step_id> }}` instead.
 - `MCPServer.status.consecutiveFailures`, `.lastAttempt`, and `.nextRetryAfter` are no longer updated by the reconciler; the retry state machine that drove them was removed in a prior release. The fields remain on the CRD for forward compatibility.
 - `oauth.server.enableHSTS`, `oauth.server.tlsCertFile`, and `oauth.server.tlsKeyFile` config fields removed; they were declared and YAML-parsed but never read anywhere in the codebase.
 

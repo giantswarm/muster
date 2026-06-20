@@ -30,6 +30,10 @@ type Workflow struct {
 	// Each step represents a tool call with its arguments and processing logic.
 	Steps []WorkflowStep `yaml:"steps" json:"steps"`
 
+	// OnFailure defines best-effort cleanup/rollback steps run when the workflow
+	// fails on a step that does not allow failure. Their own failures are tolerated.
+	OnFailure []WorkflowSubStep `yaml:"onFailure,omitempty" json:"onFailure,omitempty"`
+
 	// Runtime state fields (for API responses only) - Dynamic runtime information
 
 	// Available indicates whether this workflow is currently available for execution
@@ -81,9 +85,14 @@ type OperationDefinition struct {
 // WorkflowCondition defines a condition that determines whether a workflow step should execute.
 // Conditions allow for dynamic workflow execution based on runtime state evaluation.
 type WorkflowCondition struct {
+	// Template is a boolean Go-template gate. When set, the step executes only
+	// if the template renders to a truthy value (e.g. "{{ eq .input.env \"production\" }}").
+	// Mutually exclusive with Tool/FromStep; when present, Expect/ExpectNot are ignored.
+	Template string `yaml:"template,omitempty" json:"template,omitempty"`
+
 	// Tool specifies the name of the tool to execute for condition evaluation.
 	// Must correspond to an available tool in the aggregator.
-	// Optional when FromStep is used.
+	// Optional when FromStep or Template is used.
 	Tool string `yaml:"tool,omitempty" json:"tool,omitempty"`
 
 	// Args provides the arguments to pass to the condition tool.
@@ -146,20 +155,64 @@ type WorkflowStep struct {
 	// Can include templated values that are resolved at runtime using previous step results.
 	Args map[string]interface{} `yaml:"args,omitempty" json:"args,omitempty"`
 
+	// ForEach executes a body of sub-steps once per item of a list.
+	// Mutually exclusive with Tool and Parallel.
+	ForEach *WorkflowForEach `yaml:"forEach,omitempty" json:"forEach,omitempty"`
+
+	// Parallel executes a group of sub-steps concurrently.
+	// Mutually exclusive with Tool and ForEach.
+	Parallel []WorkflowSubStep `yaml:"parallel,omitempty" json:"parallel,omitempty"`
+
 	// AllowFailure indicates whether this step is allowed to fail without failing the workflow.
 	// When true, step failures are recorded but the workflow continues execution.
 	// The step result will be available for subsequent step conditions to reference.
 	AllowFailure bool `yaml:"allow_failure,omitempty" json:"allow_failure,omitempty"`
-
-	// Outputs defines how step results should be stored and made available to subsequent steps.
-	// Maps output variable names to result field paths.
-	Outputs map[string]interface{} `yaml:"outputs,omitempty" json:"outputs,omitempty"`
 
 	// Store indicates whether the step result should be stored in workflow results.
 	// When true, the step result is stored and accessible in subsequent steps and conditions.
 	Store bool `yaml:"store,omitempty" json:"store,omitempty"`
 
 	// Description provides human-readable documentation for this step's purpose
+	Description string `yaml:"description,omitempty" json:"description,omitempty"`
+}
+
+// WorkflowForEach describes a sequential loop over a list of items.
+// The body is a flat list of sub-steps executed once per item.
+type WorkflowForEach struct {
+	// Items is a template expression that must resolve to an array,
+	// e.g. "{{ .input.clusters }}".
+	Items string `yaml:"items" json:"items"`
+
+	// As is the loop variable name made available to the body as
+	// "{{ .vars.<as> }}". Defaults to "item".
+	As string `yaml:"as,omitempty" json:"as,omitempty"`
+
+	// Steps is the body executed for each item.
+	Steps []WorkflowSubStep `yaml:"steps" json:"steps"`
+}
+
+// WorkflowSubStep is a tool-call step used inside forEach bodies, parallel
+// groups, and onFailure handlers. It cannot itself contain forEach or parallel.
+type WorkflowSubStep struct {
+	// ID is a unique identifier for this sub-step.
+	ID string `yaml:"id" json:"id"`
+
+	// Condition defines an optional condition that determines whether this sub-step should execute.
+	Condition *WorkflowCondition `yaml:"condition,omitempty" json:"condition,omitempty"`
+
+	// Tool specifies the name of the tool to execute.
+	Tool string `yaml:"tool" json:"tool"`
+
+	// Args provides the arguments to pass to the tool (supports templating).
+	Args map[string]interface{} `yaml:"args,omitempty" json:"args,omitempty"`
+
+	// AllowFailure indicates whether this sub-step is allowed to fail without failing execution.
+	AllowFailure bool `yaml:"allow_failure,omitempty" json:"allow_failure,omitempty"`
+
+	// Store indicates whether the sub-step result should be stored in workflow results.
+	Store bool `yaml:"store,omitempty" json:"store,omitempty"`
+
+	// Description provides human-readable documentation for this sub-step's purpose.
 	Description string `yaml:"description,omitempty" json:"description,omitempty"`
 }
 

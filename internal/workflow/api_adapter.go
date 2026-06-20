@@ -257,61 +257,11 @@ func (a *Adapter) CreateWorkflowFromStructured(args map[string]interface{}) erro
 		return err
 	}
 
-	// Create a simplified CRD for filesystem storage that avoids complex conversion
-	workflowCRD := &musterv1alpha1.Workflow{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: "muster.giantswarm.io/v1alpha1",
-			Kind:       "Workflow",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      wf.Name,
-			Namespace: a.namespace,
-		},
-		Spec: musterv1alpha1.WorkflowSpec{
-			Description: wf.Description,
-			Args:        make(map[string]musterv1alpha1.ArgDefinition),
-			Steps:       make([]musterv1alpha1.WorkflowStep, len(wf.Steps)),
-		},
-	}
-
-	// Convert args safely
-	for key, argDef := range wf.Args {
-		crdArgDef := musterv1alpha1.ArgDefinition{
-			Type:        argDef.Type,
-			Required:    argDef.Required,
-			Description: argDef.Description,
-		}
-		// Convert default value if present
-		if argDef.Default != nil {
-			crdArgDef.Default = a.convertToRawExtension(argDef.Default)
-		}
-		workflowCRD.Spec.Args[key] = crdArgDef
-	}
-
-	// Convert steps safely
-	for i, step := range wf.Steps {
-		crdStep := musterv1alpha1.WorkflowStep{
-			ID:           step.ID,
-			Tool:         step.Tool,
-			Store:        step.Store,
-			AllowFailure: step.AllowFailure,
-			Description:  step.Description,
-			Args:         make(map[string]apiextensionsv1.JSON),
-		}
-
-		// Convert condition if present
-		if step.Condition != nil {
-			crdStep.Condition = a.convertWorkflowConditionToCRD(step.Condition)
-		}
-
-		// Convert args safely without causing recursion
-		for key, value := range step.Args {
-			if jsonBytes, err := json.Marshal(value); err == nil {
-				crdStep.Args[key] = apiextensionsv1.JSON{Raw: jsonBytes}
-			}
-		}
-
-		workflowCRD.Spec.Steps[i] = crdStep
+	// Build the CRD from the internal workflow representation.
+	workflowCRD := a.convertWorkflowToCRD(&wf)
+	workflowCRD.TypeMeta = metav1.TypeMeta{
+		APIVersion: "muster.giantswarm.io/v1alpha1",
+		Kind:       "Workflow",
 	}
 
 	// Create the CRD
@@ -404,39 +354,62 @@ func (a *Adapter) ValidateWorkflowFromStructured(args map[string]interface{}) er
 		return err
 	}
 
+	// fail records a validation failure event and returns the error.
+	fail := func(err error) error {
+		a.generateCRDEvent(wf.Name, events.ReasonWorkflowValidationFailed, events.EventData{
+			Error:     err.Error(),
+			Operation: opValidate,
+		})
+		return err
+	}
+
 	// Step validation
 	stepIDs := make(map[string]bool)
 	for i, step := range wf.Steps {
-		// Check for empty step ID
 		if step.ID == "" {
-			err := fmt.Errorf("step %d: step ID cannot be empty", i)
-			a.generateCRDEvent(wf.Name, events.ReasonWorkflowValidationFailed, events.EventData{
-				Error:     err.Error(),
-				Operation: opValidate,
-			})
-			return err
+			return fail(fmt.Errorf("step %d: step ID cannot be empty", i))
 		}
-
-		// Check for duplicate step IDs
 		if stepIDs[step.ID] {
-			err := fmt.Errorf("duplicate step ID '%s' found", step.ID)
-			a.generateCRDEvent(wf.Name, events.ReasonWorkflowValidationFailed, events.EventData{
-				Error:     err.Error(),
-				Operation: opValidate,
-			})
-			return err
+			return fail(fmt.Errorf("duplicate step ID '%s' found", step.ID))
 		}
 		stepIDs[step.ID] = true
 
-		// Check for empty tool
-		if step.Tool == "" {
-			err := fmt.Errorf("step %d (%s): tool cannot be empty", i, step.ID)
-			a.generateCRDEvent(wf.Name, events.ReasonWorkflowValidationFailed, events.EventData{
-				Error:     err.Error(),
-				Operation: opValidate,
-			})
-			return err
+		// A step must be exactly one of: tool call, forEach loop, or parallel group.
+		composite := step.ForEach != nil || len(step.Parallel) > 0
+		switch {
+		case step.Tool == "" && !composite:
+			return fail(fmt.Errorf("step %d (%s): one of tool, forEach, or parallel is required", i, step.ID))
+		case step.Tool != "" && composite:
+			return fail(fmt.Errorf("step %d (%s): tool is mutually exclusive with forEach/parallel", i, step.ID))
+		case step.ForEach != nil && len(step.Parallel) > 0:
+			return fail(fmt.Errorf("step %d (%s): forEach and parallel are mutually exclusive", i, step.ID))
 		}
+
+		if err := validateWorkflowCondition(step.Condition); err != nil {
+			return fail(fmt.Errorf("step %s: %w", step.ID, err))
+		}
+
+		if step.ForEach != nil {
+			if step.ForEach.Items == "" {
+				return fail(fmt.Errorf("step %s: forEach.items is required", step.ID))
+			}
+			if len(step.ForEach.Steps) == 0 {
+				return fail(fmt.Errorf("step %s: forEach.steps must contain at least one sub-step", step.ID))
+			}
+			if err := validateWorkflowSubSteps(fmt.Sprintf("step %s forEach", step.ID), step.ForEach.Steps); err != nil {
+				return fail(err)
+			}
+		}
+
+		if len(step.Parallel) > 0 {
+			if err := validateWorkflowSubSteps(fmt.Sprintf("step %s parallel", step.ID), step.Parallel); err != nil {
+				return fail(err)
+			}
+		}
+	}
+
+	if err := validateWorkflowSubSteps("onFailure", wf.OnFailure); err != nil {
+		return fail(err)
 	}
 
 	// Generate validation success event
@@ -445,6 +418,43 @@ func (a *Adapter) ValidateWorkflowFromStructured(args map[string]interface{}) er
 		StepCount: len(wf.Steps),
 	})
 
+	return nil
+}
+
+// validateWorkflowCondition checks the structural constraint the executor
+// relies on: a boolean template gate is mutually exclusive with a tool/fromStep
+// condition (when a template is set, Tool/FromStep/Expect are ignored).
+func validateWorkflowCondition(c *api.WorkflowCondition) error {
+	if c == nil {
+		return nil
+	}
+	if c.Template != "" && (c.Tool != "" || c.FromStep != "") {
+		return fmt.Errorf("condition.template is mutually exclusive with tool/fromStep")
+	}
+	return nil
+}
+
+// validateWorkflowSubSteps validates the sub-steps used inside forEach bodies,
+// parallel groups, and onFailure handlers. Sub-step IDs must be present and
+// unique within the group, every sub-step must name a tool, and any condition
+// must be structurally valid. label identifies the group in error messages.
+func validateWorkflowSubSteps(label string, subs []api.WorkflowSubStep) error {
+	ids := make(map[string]bool, len(subs))
+	for j, sub := range subs {
+		if sub.ID == "" {
+			return fmt.Errorf("%s sub-step %d: id cannot be empty", label, j)
+		}
+		if ids[sub.ID] {
+			return fmt.Errorf("%s: duplicate sub-step id '%s'", label, sub.ID)
+		}
+		ids[sub.ID] = true
+		if sub.Tool == "" {
+			return fmt.Errorf("%s sub-step %s: tool cannot be empty", label, sub.ID)
+		}
+		if err := validateWorkflowCondition(sub.Condition); err != nil {
+			return fmt.Errorf("%s sub-step %s: %w", label, sub.ID, err)
+		}
+	}
 	return nil
 }
 
@@ -508,6 +518,7 @@ func (a *Adapter) convertCRDToWorkflow(workflowCRD *musterv1alpha1.Workflow) *ap
 		Description:  workflowCRD.Spec.Description,
 		Args:         a.convertArgDefinitions(workflowCRD.Spec.Args),
 		Steps:        a.convertWorkflowSteps(workflowCRD.Spec.Steps),
+		OnFailure:    a.convertSubSteps(workflowCRD.Spec.OnFailure),
 		CreatedAt:    workflowCRD.CreationTimestamp.Time,
 		LastModified: workflowCRD.CreationTimestamp.Time,
 	}
@@ -535,6 +546,7 @@ func (a *Adapter) convertWorkflowToCRD(workflow *api.Workflow) *musterv1alpha1.W
 			Description: workflow.Description,
 			Args:        a.convertArgDefinitionsToCRD(workflow.Args),
 			Steps:       a.convertWorkflowStepsToCRD(workflow.Steps),
+			OnFailure:   a.convertSubStepsToCRD(workflow.OnFailure),
 		},
 	}
 }
@@ -577,12 +589,20 @@ func (a *Adapter) convertWorkflowSteps(crdSteps []musterv1alpha1.WorkflowStep) [
 			Args:         a.convertRawExtensionMap(crdStep.Args),
 			Store:        crdStep.Store,
 			AllowFailure: crdStep.AllowFailure,
-			Outputs:      a.convertRawExtensionMap(crdStep.Outputs),
+			Parallel:     a.convertSubSteps(crdStep.Parallel),
 			Description:  crdStep.Description,
 		}
 
 		if crdStep.Condition != nil {
 			step.Condition = a.convertWorkflowCondition(crdStep.Condition)
+		}
+
+		if crdStep.ForEach != nil {
+			step.ForEach = &api.WorkflowForEach{
+				Items: crdStep.ForEach.Items,
+				As:    crdStep.ForEach.As,
+				Steps: a.convertSubSteps(crdStep.ForEach.Steps),
+			}
 		}
 
 		steps = append(steps, step)
@@ -600,7 +620,7 @@ func (a *Adapter) convertWorkflowStepsToCRD(steps []api.WorkflowStep) []musterv1
 			Args:         a.convertToRawExtensionMap(step.Args),
 			Store:        step.Store,
 			AllowFailure: step.AllowFailure,
-			Outputs:      a.convertToRawExtensionMap(step.Outputs),
+			Parallel:     a.convertSubStepsToCRD(step.Parallel),
 			Description:  step.Description,
 		}
 
@@ -608,14 +628,69 @@ func (a *Adapter) convertWorkflowStepsToCRD(steps []api.WorkflowStep) []musterv1
 			crdStep.Condition = a.convertWorkflowConditionToCRD(step.Condition)
 		}
 
+		if step.ForEach != nil {
+			crdStep.ForEach = &musterv1alpha1.WorkflowForEach{
+				Items: step.ForEach.Items,
+				As:    step.ForEach.As,
+				Steps: a.convertSubStepsToCRD(step.ForEach.Steps),
+			}
+		}
+
 		crdSteps = append(crdSteps, crdStep)
 	}
 	return crdSteps
 }
 
+// convertSubSteps converts CRD WorkflowSubSteps to internal format
+func (a *Adapter) convertSubSteps(crdSubSteps []musterv1alpha1.WorkflowSubStep) []api.WorkflowSubStep {
+	if len(crdSubSteps) == 0 {
+		return nil
+	}
+	subSteps := make([]api.WorkflowSubStep, 0, len(crdSubSteps))
+	for _, crdSub := range crdSubSteps {
+		sub := api.WorkflowSubStep{
+			ID:           crdSub.ID,
+			Tool:         crdSub.Tool,
+			Args:         a.convertRawExtensionMap(crdSub.Args),
+			Store:        crdSub.Store,
+			AllowFailure: crdSub.AllowFailure,
+			Description:  crdSub.Description,
+		}
+		if crdSub.Condition != nil {
+			sub.Condition = a.convertWorkflowCondition(crdSub.Condition)
+		}
+		subSteps = append(subSteps, sub)
+	}
+	return subSteps
+}
+
+// convertSubStepsToCRD converts internal WorkflowSubSteps to CRD format
+func (a *Adapter) convertSubStepsToCRD(subSteps []api.WorkflowSubStep) []musterv1alpha1.WorkflowSubStep {
+	if len(subSteps) == 0 {
+		return nil
+	}
+	crdSubSteps := make([]musterv1alpha1.WorkflowSubStep, 0, len(subSteps))
+	for _, sub := range subSteps {
+		crdSub := musterv1alpha1.WorkflowSubStep{
+			ID:           sub.ID,
+			Tool:         sub.Tool,
+			Args:         a.convertToRawExtensionMap(sub.Args),
+			Store:        sub.Store,
+			AllowFailure: sub.AllowFailure,
+			Description:  sub.Description,
+		}
+		if sub.Condition != nil {
+			crdSub.Condition = a.convertWorkflowConditionToCRD(sub.Condition)
+		}
+		crdSubSteps = append(crdSubSteps, crdSub)
+	}
+	return crdSubSteps
+}
+
 // convertWorkflowCondition converts CRD WorkflowCondition to internal format
 func (a *Adapter) convertWorkflowCondition(crdCondition *musterv1alpha1.WorkflowCondition) *api.WorkflowCondition {
 	condition := &api.WorkflowCondition{
+		Template: crdCondition.Template,
 		Tool:     crdCondition.Tool,
 		Args:     a.convertRawExtensionMap(crdCondition.Args),
 		FromStep: crdCondition.FromStep,
@@ -635,6 +710,7 @@ func (a *Adapter) convertWorkflowCondition(crdCondition *musterv1alpha1.Workflow
 // convertWorkflowConditionToCRD converts internal WorkflowCondition to CRD format
 func (a *Adapter) convertWorkflowConditionToCRD(condition *api.WorkflowCondition) *musterv1alpha1.WorkflowCondition {
 	crdCondition := &musterv1alpha1.WorkflowCondition{
+		Template: condition.Template,
 		Tool:     condition.Tool,
 		Args:     a.convertToRawExtensionMap(condition.Args),
 		FromStep: condition.FromStep,
@@ -866,9 +942,33 @@ func (a *Adapter) findMissingTools(ctx context.Context, workflow *api.Workflow) 
 // instead of looping forever; seen deduplicates the recorded tool names across
 // the whole tree.
 func (a *Adapter) walkStepTools(ctx context.Context, workflow *api.Workflow, path, seen map[string]struct{}, ordered *[]string, knownMissing map[string]struct{}) {
+	// Gather every tool whose availability matters: top-level step tools, the
+	// tools of forEach/parallel sub-steps, and onFailure handler tools.
+	var tools []string
 	for _, step := range workflow.Steps {
-		tool := step.Tool
+		if step.Tool != "" {
+			tools = append(tools, step.Tool)
+		}
+		if step.ForEach != nil {
+			for _, sub := range step.ForEach.Steps {
+				if sub.Tool != "" {
+					tools = append(tools, sub.Tool)
+				}
+			}
+		}
+		for _, sub := range step.Parallel {
+			if sub.Tool != "" {
+				tools = append(tools, sub.Tool)
+			}
+		}
+	}
+	for _, sub := range workflow.OnFailure {
+		if sub.Tool != "" {
+			tools = append(tools, sub.Tool)
+		}
+	}
 
+	for _, tool := range tools {
 		name, isNested := nestedWorkflowName(tool)
 		if !isNested {
 			if _, dup := seen[tool]; dup {
@@ -994,11 +1094,18 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 					Schema:      getWorkflowArgsSchema(),
 				},
 				{
-					Name:        "steps",
+					Name:        api.FieldSteps,
 					Type:        api.ArgTypeArray,
 					Required:    true,
 					Description: "Workflow steps",
 					Schema:      getWorkflowStepsSchema(),
+				},
+				{
+					Name:        "onFailure",
+					Type:        api.ArgTypeArray,
+					Required:    false,
+					Description: "Cleanup/rollback steps run when the workflow fails",
+					Schema:      getWorkflowOnFailureSchema(),
 				},
 			},
 		},
@@ -1026,11 +1133,18 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 					Schema:      getWorkflowArgsSchema(),
 				},
 				{
-					Name:        "steps",
+					Name:        api.FieldSteps,
 					Type:        api.ArgTypeArray,
 					Required:    true,
 					Description: "Workflow steps",
 					Schema:      getWorkflowStepsSchema(),
+				},
+				{
+					Name:        "onFailure",
+					Type:        api.ArgTypeArray,
+					Required:    false,
+					Description: "Cleanup/rollback steps run when the workflow fails",
+					Schema:      getWorkflowOnFailureSchema(),
 				},
 			},
 		},
@@ -1070,11 +1184,18 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 					Schema:      getWorkflowArgsSchema(),
 				},
 				{
-					Name:        "steps",
+					Name:        api.FieldSteps,
 					Type:        api.ArgTypeArray,
 					Required:    true,
 					Description: "Workflow steps",
 					Schema:      getWorkflowStepsSchema(),
+				},
+				{
+					Name:        "onFailure",
+					Type:        api.ArgTypeArray,
+					Required:    false,
+					Description: "Cleanup/rollback steps run when the workflow fails",
+					Schema:      getWorkflowOnFailureSchema(),
 				},
 			},
 		},
@@ -1643,7 +1764,7 @@ func convertToWorkflow(args map[string]interface{}) (api.Workflow, error) {
 	// Args are optional, so no error if not provided
 
 	// Convert steps
-	if stepsParam, ok := args["steps"].([]interface{}); ok {
+	if stepsParam, ok := args[api.FieldSteps].([]interface{}); ok {
 		steps, err := convertWorkflowSteps(stepsParam)
 		if err != nil {
 			return wf, fmt.Errorf("validation failed: steps: %v", err)
@@ -1651,6 +1772,15 @@ func convertToWorkflow(args map[string]interface{}) (api.Workflow, error) {
 		wf.Steps = steps
 	} else {
 		return wf, fmt.Errorf("steps argument is required")
+	}
+
+	// Convert onFailure handlers (optional)
+	if onFailureParam, ok := args["onFailure"].([]interface{}); ok {
+		subSteps, err := convertWorkflowSubSteps(onFailureParam)
+		if err != nil {
+			return wf, fmt.Errorf("validation failed: onFailure: %v", err)
+		}
+		wf.OnFailure = subSteps
 	}
 
 	// Set timestamps
@@ -1722,14 +1852,39 @@ func convertWorkflowSteps(stepsParam []interface{}) ([]api.WorkflowStep, error) 
 			return nil, fmt.Errorf("step %d: id is required", i)
 		}
 
-		// Tool is required
+		// forEach (optional, mutually exclusive with tool/parallel)
+		if forEachParam, ok := stepMap["forEach"].(map[string]interface{}); ok {
+			forEach, err := convertWorkflowForEach(forEachParam)
+			if err != nil {
+				return nil, fmt.Errorf("step %d (%s): invalid forEach: %v", i, step.ID, err)
+			}
+			step.ForEach = &forEach
+		}
+
+		// parallel (optional, mutually exclusive with tool/forEach)
+		if parallelParam, ok := stepMap["parallel"].([]interface{}); ok {
+			subSteps, err := convertWorkflowSubSteps(parallelParam)
+			if err != nil {
+				return nil, fmt.Errorf("step %d (%s): invalid parallel: %v", i, step.ID, err)
+			}
+			step.Parallel = subSteps
+		}
+
+		// Tool (optional when forEach or parallel is provided)
+		composite := step.ForEach != nil || len(step.Parallel) > 0
 		if tool, ok := stepMap["tool"].(string); ok {
 			if tool == "" {
-				return nil, fmt.Errorf("step %d: tool cannot be empty", i)
+				return nil, fmt.Errorf("step %d (%s): tool cannot be empty", i, step.ID)
 			}
 			step.Tool = tool
-		} else {
-			return nil, fmt.Errorf("step %d: tool is required", i)
+		} else if !composite {
+			return nil, fmt.Errorf("step %d (%s): one of tool, forEach, or parallel is required", i, step.ID)
+		}
+		if step.Tool != "" && composite {
+			return nil, fmt.Errorf("step %d (%s): tool is mutually exclusive with forEach/parallel", i, step.ID)
+		}
+		if step.ForEach != nil && len(step.Parallel) > 0 {
+			return nil, fmt.Errorf("step %d (%s): forEach and parallel are mutually exclusive", i, step.ID)
 		}
 
 		// Condition (optional)
@@ -1767,11 +1922,94 @@ func convertWorkflowSteps(stepsParam []interface{}) ([]api.WorkflowStep, error) 
 	return steps, nil
 }
 
+// convertWorkflowForEach converts a forEach map to api.WorkflowForEach
+func convertWorkflowForEach(forEachParam map[string]interface{}) (api.WorkflowForEach, error) {
+	var forEach api.WorkflowForEach
+
+	items, ok := forEachParam["items"].(string)
+	if !ok || items == "" {
+		return forEach, fmt.Errorf("items is required and must be a template string")
+	}
+	forEach.Items = items
+
+	if as, ok := forEachParam["as"].(string); ok {
+		forEach.As = as
+	}
+
+	stepsParam, ok := forEachParam[api.FieldSteps].([]interface{})
+	if !ok || len(stepsParam) == 0 {
+		return forEach, fmt.Errorf("steps is required and must contain at least one sub-step")
+	}
+	subSteps, err := convertWorkflowSubSteps(stepsParam)
+	if err != nil {
+		return forEach, err
+	}
+	forEach.Steps = subSteps
+
+	return forEach, nil
+}
+
+// convertWorkflowSubSteps converts []interface{} to []api.WorkflowSubStep
+func convertWorkflowSubSteps(subStepsParam []interface{}) ([]api.WorkflowSubStep, error) {
+	var subSteps []api.WorkflowSubStep
+
+	for i, subStepParam := range subStepsParam {
+		subStepMap, ok := subStepParam.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("sub-step %d is not a valid object", i)
+		}
+
+		var sub api.WorkflowSubStep
+
+		if id, ok := subStepMap["id"].(string); ok && id != "" {
+			sub.ID = id
+		} else {
+			return nil, fmt.Errorf("sub-step %d: id is required", i)
+		}
+
+		if tool, ok := subStepMap["tool"].(string); ok && tool != "" {
+			sub.Tool = tool
+		} else {
+			return nil, fmt.Errorf("sub-step %d (%s): tool is required", i, sub.ID)
+		}
+
+		if conditionParam, ok := subStepMap["condition"].(map[string]interface{}); ok {
+			condition, err := convertWorkflowCondition(conditionParam)
+			if err != nil {
+				return nil, fmt.Errorf("sub-step %d (%s): invalid condition: %v", i, sub.ID, err)
+			}
+			sub.Condition = &condition
+		}
+
+		if args, ok := subStepMap["args"].(map[string]interface{}); ok {
+			sub.Args = args
+		}
+		if store, ok := subStepMap["store"].(bool); ok {
+			sub.Store = store
+		}
+		if description, ok := subStepMap["description"].(string); ok {
+			sub.Description = description
+		}
+		if allowFailure, ok := subStepMap["allow_failure"].(bool); ok {
+			sub.AllowFailure = allowFailure
+		}
+
+		subSteps = append(subSteps, sub)
+	}
+
+	return subSteps, nil
+}
+
 // convertWorkflowCondition converts a condition map to api.WorkflowCondition
 func convertWorkflowCondition(conditionParam map[string]interface{}) (api.WorkflowCondition, error) {
 	var condition api.WorkflowCondition
 
-	// Tool (optional when from_step is used)
+	// Template (optional boolean Go-template gate)
+	if template, ok := conditionParam["template"].(string); ok {
+		condition.Template = template
+	}
+
+	// Tool (optional when from_step or template is used)
 	if tool, ok := conditionParam["tool"].(string); ok {
 		condition.Tool = tool
 	}
@@ -1781,9 +2019,14 @@ func convertWorkflowCondition(conditionParam map[string]interface{}) (api.Workfl
 		condition.FromStep = fromStep
 	}
 
+	// A template gate stands alone: no tool/from_step or expectations needed.
+	if condition.Template != "" {
+		return condition, nil
+	}
+
 	// Either tool or from_step must be provided
 	if condition.Tool == "" && condition.FromStep == "" {
-		return condition, fmt.Errorf("either tool or from_step is required")
+		return condition, fmt.Errorf("either template, tool, or from_step is required")
 	}
 
 	// Args (optional)
@@ -1892,11 +2135,92 @@ func getWorkflowArgsSchema() map[string]interface{} {
 	}
 }
 
+// getWorkflowConditionSchema returns the schema for a step/sub-step condition.
+func getWorkflowConditionSchema() map[string]interface{} {
+	return map[string]interface{}{
+		api.SchemaKeyType:                 string(api.ArgTypeObject),
+		api.SchemaKeyDescription:          "Optional condition that determines whether this step should execute",
+		api.SchemaKeyAdditionalProperties: false,
+		api.SchemaKeyProperties: map[string]interface{}{
+			"template": map[string]interface{}{
+				api.SchemaKeyType:        string(api.ArgTypeString),
+				api.SchemaKeyDescription: "Boolean Go-template gate, e.g. \"{{ eq .input.env \\\"production\\\" }}\"",
+			},
+			"tool": map[string]interface{}{
+				api.SchemaKeyType:        string(api.ArgTypeString),
+				api.SchemaKeyDescription: "Tool to call for condition evaluation",
+			},
+			"from_step": map[string]interface{}{
+				api.SchemaKeyType:        string(api.ArgTypeString),
+				api.SchemaKeyDescription: "Reference a previous step's result for condition evaluation",
+			},
+			"args": map[string]interface{}{
+				api.SchemaKeyType:        string(api.ArgTypeObject),
+				api.SchemaKeyDescription: "Arguments for the condition tool",
+			},
+			"expect": map[string]interface{}{
+				api.SchemaKeyType:        string(api.ArgTypeObject),
+				api.SchemaKeyDescription: "Expected results for condition evaluation",
+				api.SchemaKeyProperties: map[string]interface{}{
+					api.FieldSuccess: map[string]interface{}{
+						api.SchemaKeyType:        string(api.ArgTypeBoolean),
+						api.SchemaKeyDescription: "Whether the tool call should succeed",
+					},
+					"json_path": map[string]interface{}{
+						api.SchemaKeyType:        string(api.ArgTypeObject),
+						api.SchemaKeyDescription: "JSON path expressions to evaluate against tool result",
+						api.SchemaKeyAdditionalProperties: map[string]interface{}{
+							api.SchemaKeyDescription: "Expected value for the JSON path",
+						},
+					},
+				},
+			},
+			"expect_not": map[string]interface{}{
+				api.SchemaKeyType:        string(api.ArgTypeObject),
+				api.SchemaKeyDescription: "Negated expected results for condition evaluation",
+			},
+		},
+	}
+}
+
+// getWorkflowSubStepSchema returns the schema for a sub-step used inside
+// forEach bodies, parallel groups, and onFailure handlers. Sub-steps are plain
+// tool calls and cannot themselves contain forEach or parallel.
+func getWorkflowSubStepSchema() map[string]interface{} {
+	return map[string]interface{}{
+		api.SchemaKeyType:                 string(api.ArgTypeObject),
+		api.SchemaKeyDescription:          "A tool-call sub-step",
+		api.SchemaKeyAdditionalProperties: false,
+		api.SchemaKeyProperties: map[string]interface{}{
+			"id": map[string]interface{}{
+				api.SchemaKeyType:        string(api.ArgTypeString),
+				api.SchemaKeyDescription: "Unique identifier for this sub-step",
+			},
+			"tool": map[string]interface{}{
+				api.SchemaKeyType:        string(api.ArgTypeString),
+				api.SchemaKeyDescription: "Name of the tool to execute",
+			},
+			"args": map[string]interface{}{
+				api.SchemaKeyType:        string(api.ArgTypeObject),
+				api.SchemaKeyDescription: "Arguments to pass to the tool (supports templating)",
+			},
+			"condition":     getWorkflowConditionSchema(),
+			"allow_failure": map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeBoolean), api.SchemaKeyDescription: "Whether this sub-step is allowed to fail"},
+			"store":         map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeBoolean), api.SchemaKeyDescription: "Whether the sub-step result should be stored"},
+			api.SchemaKeyDescription: map[string]interface{}{
+				api.SchemaKeyType:        string(api.ArgTypeString),
+				api.SchemaKeyDescription: "Human-readable documentation for this sub-step",
+			},
+		},
+		api.SchemaKeyRequired: []string{"id", "tool"},
+	}
+}
+
 // getWorkflowStepsSchema returns the detailed schema definition for workflow steps
 func getWorkflowStepsSchema() map[string]interface{} {
 	return map[string]interface{}{
 		api.SchemaKeyType:        string(api.ArgTypeArray),
-		api.SchemaKeyDescription: "Workflow steps defining the sequence of operations",
+		api.SchemaKeyDescription: "Workflow steps defining the sequence of operations. Each step is exactly one of: a tool call, a forEach loop, or a parallel group.",
 		api.SchemaKeyItems: map[string]interface{}{
 			api.SchemaKeyType:                 string(api.ArgTypeObject),
 			api.SchemaKeyDescription:          "Individual workflow step configuration",
@@ -1908,55 +2232,44 @@ func getWorkflowStepsSchema() map[string]interface{} {
 				},
 				"tool": map[string]interface{}{
 					api.SchemaKeyType:        string(api.ArgTypeString),
-					api.SchemaKeyDescription: "Name of the tool to execute for this step",
+					api.SchemaKeyDescription: "Name of the tool to execute for this step (mutually exclusive with forEach/parallel)",
 				},
 				"args": map[string]interface{}{
 					api.SchemaKeyType:        string(api.ArgTypeObject),
-					api.SchemaKeyDescription: "Arguments to pass to the tool, supporting templating with {{.argName}} for workflow args and {{stepId.field}} for step outputs",
+					api.SchemaKeyDescription: "Arguments to pass to the tool, supporting templating with {{.input.argName}} for workflow args and {{.results.stepId.field}} for stored step results",
 				},
-				"condition": map[string]interface{}{
+				"condition": getWorkflowConditionSchema(),
+				"forEach": map[string]interface{}{
 					api.SchemaKeyType:                 string(api.ArgTypeObject),
-					api.SchemaKeyDescription:          "Optional condition that determines whether this step should execute",
+					api.SchemaKeyDescription:          "Run a body of sub-steps once per item of a list",
 					api.SchemaKeyAdditionalProperties: false,
 					api.SchemaKeyProperties: map[string]interface{}{
-						"tool": map[string]interface{}{
+						"items": map[string]interface{}{
 							api.SchemaKeyType:        string(api.ArgTypeString),
-							api.SchemaKeyDescription: "Tool to call for condition evaluation",
+							api.SchemaKeyDescription: "Template expression resolving to a list, e.g. \"{{ .input.clusters }}\"",
 						},
-						"args": map[string]interface{}{
-							api.SchemaKeyType:        string(api.ArgTypeObject),
-							api.SchemaKeyDescription: "Arguments for the condition tool",
+						"as": map[string]interface{}{
+							api.SchemaKeyType:        string(api.ArgTypeString),
+							api.SchemaKeyDescription: "Loop variable name exposed as {{ .vars.<as> }} (default \"item\")",
 						},
-						"expect": map[string]interface{}{
-							api.SchemaKeyType:        string(api.ArgTypeObject),
-							api.SchemaKeyDescription: "Expected results for condition evaluation",
-							api.SchemaKeyProperties: map[string]interface{}{
-								api.FieldSuccess: map[string]interface{}{
-									api.SchemaKeyType:        string(api.ArgTypeBoolean),
-									api.SchemaKeyDescription: "Whether the tool call should succeed",
-								},
-								"json_path": map[string]interface{}{
-									api.SchemaKeyType:        string(api.ArgTypeObject),
-									api.SchemaKeyDescription: "JSON path expressions to evaluate against tool result",
-									api.SchemaKeyAdditionalProperties: map[string]interface{}{
-										api.SchemaKeyDescription: "Expected value for the JSON path",
-									},
-								},
-							},
+						"steps": map[string]interface{}{
+							api.SchemaKeyType:        string(api.ArgTypeArray),
+							api.SchemaKeyDescription: "Body executed for each item",
+							api.SchemaKeyItems:       getWorkflowSubStepSchema(),
+							"minItems":               1,
 						},
 					},
-					api.SchemaKeyRequired: []string{"tool"},
+					api.SchemaKeyRequired: []string{"items", "steps"},
+				},
+				"parallel": map[string]interface{}{
+					api.SchemaKeyType:        string(api.ArgTypeArray),
+					api.SchemaKeyDescription: "Sub-steps to execute concurrently (mutually exclusive with tool/forEach)",
+					api.SchemaKeyItems:       getWorkflowSubStepSchema(),
+					"minItems":               1,
 				},
 				"allow_failure": map[string]interface{}{
 					api.SchemaKeyType:        string(api.ArgTypeBoolean),
 					api.SchemaKeyDescription: "Whether this step is allowed to fail without failing the workflow",
-				},
-				"outputs": map[string]interface{}{
-					api.SchemaKeyType:        string(api.ArgTypeObject),
-					api.SchemaKeyDescription: "Defines how step results should be stored and made available to subsequent steps",
-					api.SchemaKeyAdditionalProperties: map[string]interface{}{
-						api.SchemaKeyDescription: "Output variable assignment, can be a static value or template expression",
-					},
 				},
 				"store": map[string]interface{}{
 					api.SchemaKeyType:        string(api.ArgTypeBoolean),
@@ -1967,9 +2280,18 @@ func getWorkflowStepsSchema() map[string]interface{} {
 					api.SchemaKeyDescription: "Human-readable documentation for this step's purpose",
 				},
 			},
-			api.SchemaKeyRequired: []string{"id", "tool"},
+			api.SchemaKeyRequired: []string{"id"},
 		},
 		"minItems": 1,
+	}
+}
+
+// getWorkflowOnFailureSchema returns the schema for the onFailure handlers list.
+func getWorkflowOnFailureSchema() map[string]interface{} {
+	return map[string]interface{}{
+		api.SchemaKeyType:        string(api.ArgTypeArray),
+		api.SchemaKeyDescription: "Best-effort cleanup/rollback sub-steps run when the workflow fails on a non-allowFailure step",
+		api.SchemaKeyItems:       getWorkflowSubStepSchema(),
 	}
 }
 
