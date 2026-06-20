@@ -1,5 +1,5 @@
 name: "workflow-output-projection-non-finite"
-description: "An output projection whose computed (non-bare-path) template leaves render to the non-finite numeric strings 'NaN' and 'Inf' keeps them as strings instead of coercing them to float NaN/Inf, which would otherwise break JSON marshalling of the whole projection. Finite numeric strings are still coerced to numbers, proving the guard is narrow (issue #874 regression guard)"
+description: "An output projection whose computed (non-bare-path) template leaves render to numeric-looking strings keeps them as strings: the non-finite 'NaN'/'Inf' and the finite '42' alike, because computed leaves are never coerced from text into numbers (which would lose the string form and, for NaN/Inf, break JSON marshalling). A genuinely numeric expression like '{{ add 40 2 }}' still yields a number, proving type comes from the value, not from how the text looks (issue #874 regression guard)"
 category: "behavioral"
 concept: "workflow"
 tags: ["workflow", "output", "projection", "types", "regression", "core-api"]
@@ -21,13 +21,14 @@ steps:
     steps:
       - id: "emit"
         tool: "x_signals_emit"
-    # printf forces the computed-template path (not a bare reference), so each
-    # leaf goes through coerceScalar. "NaN"/"Inf" must survive as strings; the
-    # finite "42" must still become a number.
+    # printf forces the computed-template path (not a bare reference). Its
+    # result is a string, so each leaf keeps its exact text: "NaN"/"Inf" and the
+    # finite "42" alike. computedSum uses arithmetic, whose value is a real
+    # number and stays one.
     output:
       nanText: '{{ printf "%s" .results.emit.nan }}'
       infText: '{{ printf "%s" .results.emit.inf }}'
-      coercedNum: '{{ printf "%s" .results.emit.num }}'
+      numText: '{{ printf "%s" .results.emit.num }}'
       computedSum: "{{ add 40 2 }}"
   expected:
     success: true
@@ -35,10 +36,9 @@ steps:
     - tool: "core_workflow_delete"
       args: { name: "projection-non-finite" }
 
-# Without the non-finite guard this run fails: coerceScalar would turn "NaN"/"Inf"
-# into float NaN/+Inf and json.Marshal of the projection would error. With the
-# guard the run succeeds and the strings are preserved verbatim, while the finite
-# values stay coerced numbers.
+# Because computed leaves are never coerced from text to numbers, "NaN"/"Inf"
+# and "42" are all preserved verbatim as strings (so json.Marshal never sees a
+# non-finite float), while the arithmetic leaf stays a real number.
 - id: "run-projection-non-finite"
   tool: "workflow_projection-non-finite"
   expected:
@@ -46,7 +46,7 @@ steps:
     json_path:
       nanText: "NaN"
       infText: "Inf"
-      coercedNum: 42
+      numText: "42"
       computedSum: 42
 
 cleanup:

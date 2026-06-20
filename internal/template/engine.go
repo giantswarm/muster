@@ -3,10 +3,12 @@ package template
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"regexp"
 	"strconv"
 	"strings"
 	"text/template"
+	"text/template/parse"
 
 	"github.com/Masterminds/sprig/v3"
 )
@@ -295,4 +297,71 @@ func (e *Engine) RenderGoTemplate(templateStr string, context map[string]interfa
 
 	// Return as string for other results
 	return result, nil
+}
+
+// RenderGoTemplateTyped renders a template while preserving the actual Go type
+// of its result, used where structured JSON output matters (workflow output
+// projections and jsonPath expectations).
+//
+// When the template body is a single output action it is evaluated for its
+// typed value rather than its rendered text: "{{ len .x }}" yields the number
+// 3, "{{ eq .a .b }}" a bool, "{{ .v }}" the value's own type, and
+// "{{ printf \"%02d\" .n }}" the string "08". Templates that mix literal text
+// with actions, or contain several actions, render to a string because their
+// concatenated form is inherently textual.
+//
+// Crucially this never inspects the rendered text to guess a type, so a
+// numeric-looking string such as a version "1.20" or a zero-padded "08" is
+// preserved exactly instead of being silently coerced to a number. That guess
+// was the source of lossy numeric coercion in earlier versions.
+func (e *Engine) RenderGoTemplateTyped(templateStr string, context map[string]interface{}) (interface{}, error) {
+	probe, err := template.New("template").Funcs(sprig.TxtFuncMap()).Option("missingkey=error").Parse(templateStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid template: %w", err)
+	}
+
+	if pipe := singleActionPipe(probe); pipe != nil {
+		return renderCapturedPipe(pipe.String(), context)
+	}
+
+	var buf bytes.Buffer
+	if err := probe.Execute(&buf, context); err != nil {
+		return nil, fmt.Errorf("template execution failed: %w", err)
+	}
+	return buf.String(), nil
+}
+
+// singleActionPipe returns the pipeline of a template whose body is exactly one
+// output action — no surrounding text, no additional nodes and no variable
+// declaration ("{{ $x := ... }}") — or nil for anything else. Only such a
+// pipeline can be meaningfully evaluated for a single typed value.
+func singleActionPipe(t *template.Template) *parse.PipeNode {
+	if t.Tree == nil || t.Root == nil || len(t.Root.Nodes) != 1 {
+		return nil
+	}
+	action, ok := t.Root.Nodes[0].(*parse.ActionNode)
+	if !ok || action.Pipe == nil || len(action.Pipe.Decl) > 0 {
+		return nil
+	}
+	return action.Pipe
+}
+
+// renderCapturedPipe evaluates a single pipeline and returns the typed value it
+// produced, by piping it into a capture function whose argument keeps its
+// concrete Go type. The rendered text itself is discarded.
+func renderCapturedPipe(pipeText string, context map[string]interface{}) (interface{}, error) {
+	var captured interface{}
+	funcs := sprig.TxtFuncMap()
+	funcs["__capture"] = func(v interface{}) string {
+		captured = v
+		return ""
+	}
+	tmpl, err := template.New("template").Funcs(funcs).Option("missingkey=error").Parse("{{ " + pipeText + " | __capture }}")
+	if err != nil {
+		return nil, fmt.Errorf("invalid template: %w", err)
+	}
+	if err := tmpl.Execute(io.Discard, context); err != nil {
+		return nil, fmt.Errorf("template execution failed: %w", err)
+	}
+	return captured, nil
 }

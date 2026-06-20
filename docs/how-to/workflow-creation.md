@@ -143,31 +143,33 @@ projection regardless of those flags). Authoring a projection while leaving
 per-step `output` flags set is harmless but redundant; the create/validate path
 and the CRD reconciler log a one-line warning naming the inert flags.
 
-### Type preservation and the coercion escape hatch
+### Type preservation
 
-Type handling depends on the **shape** of the leaf:
+A leaf's type comes from the **value it evaluates to**, never from how its
+rendered text happens to look — so there is no lossy numeric coercion and no
+workaround to remember:
 
 - A **bare reference path** — `"{{ .results.pods.items }}"`, dots and array
   indices only — is resolved directly and keeps its exact JSON type (object,
   array, number, string, boolean) at any depth.
-- Any **computed leaf** — anything using a function or composing values, e.g.
-  `"{{ len .results.events.items }}"` — is rendered to a string and then, as a
-  convenience, coerced back to a number when it looks numeric (so `len` yields
-  `3`, not `"3"`).
+- A **single-action computed leaf** keeps the real type of its result: a numeric
+  expression stays a number (so `"{{ len .results.events.items }}"` yields `3`,
+  not `"3"`), and a computed string keeps its exact string form.
+- A leaf that **mixes literal text with actions** (e.g. `"v{{ .v }}"`) renders to
+  a string, since its concatenated form is inherently textual.
 
-That coercion is occasionally unwanted: a computed value whose *string form*
-matters — a version (`"1.20"`), a zero-padded value (`"08"`), or a long numeric
-ID — would otherwise be silently turned into a number (`1.2`, `8`). To force a
-computed leaf to stay a string, pipe it through sprig's `quote`:
+This means a computed value whose *string form* matters — a version (`"1.20"`),
+a zero-padded value (`"08"`), or a long numeric ID — is preserved as-is:
 
 ```yaml
   output:
-    version: '{{ printf "%d.%d" (int .results.r.major) (int .results.r.minor) | quote }}'  # stays "1.20"
-    backoffCount: "{{ len .results.events.items }}"                                         # number 3
+    version: '{{ printf "%d.%d" (int .results.r.major) (int .results.r.minor) }}'  # stays "1.20"
+    padded: '{{ printf "%02d" (int .results.r.build) }}'                            # stays "08"
+    backoffCount: "{{ len .results.events.items }}"                                 # number 3
 ```
 
-A leaf referenced as a bare path never needs `quote`; it already keeps its type.
-Non-finite results (`NaN`, `Inf`) are always kept as strings.
+Non-finite results (`NaN`, `Inf`) are kept as strings — they are produced by
+text-rendering functions like `printf`, never by coercion.
 
 ## Conditions
 

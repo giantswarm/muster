@@ -2,10 +2,8 @@ package workflow
 
 import (
 	"fmt"
-	"math"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/giantswarm/muster/pkg/logging"
@@ -126,10 +124,12 @@ func (we *WorkflowExecutor) resolveTemplate(templateStr string, ctx *executionCo
 // renderTypedTemplate renders a single template string while preserving JSON
 // types. A pure reference path (e.g. "{{ .results.pods.items }}") is resolved
 // through the shared path navigator so objects, arrays and numbers keep their
-// type at any depth. Any other expression goes through the full text/template +
-// sprig engine; its string output is then coerced back to a number or boolean
-// where possible (e.g. "{{ len .results.events.items }}" -> 3) so the result is
-// structured rather than stringly-typed.
+// type at any depth. Any other expression goes through the typed template
+// engine, which evaluates a single action for its real Go value (e.g.
+// "{{ len .results.events.items }}" -> 3, "{{ printf \"%02d\" .n }}" -> "08")
+// so the result is structured rather than stringly-typed — without ever
+// guessing a type from the rendered text, which previously caused lossy numeric
+// coercion of strings like versions and zero-padded values.
 func (we *WorkflowExecutor) renderTypedTemplate(templateStr string, tctx map[string]interface{}) (interface{}, error) {
 	if m := purePathPattern.FindStringSubmatch(strings.TrimSpace(templateStr)); m != nil {
 		if v, err := we.template.ResolvePath(tctx, m[1]); err == nil {
@@ -139,14 +139,7 @@ func (we *WorkflowExecutor) renderTypedTemplate(templateStr string, tctx map[str
 		// missing-key handling and any sprig defaulting still apply.
 	}
 
-	rendered, err := we.template.RenderGoTemplate(templateStr, tctx)
-	if err != nil {
-		return nil, err
-	}
-	if s, ok := rendered.(string); ok {
-		return coerceScalar(s), nil
-	}
-	return rendered, nil
+	return we.template.RenderGoTemplateTyped(templateStr, tctx)
 }
 
 // renderOutputProjection renders a workflow-level output projection into a
@@ -202,34 +195,6 @@ func (we *WorkflowExecutor) renderProjectionValue(value interface{}, tctx map[st
 	default:
 		return value, nil
 	}
-}
-
-// coerceScalar converts a template-rendered string back to a number when it
-// cleanly represents one, so projections and expectations stay structured JSON.
-// Booleans are already handled by RenderGoTemplate. Non-numeric strings are
-// returned unchanged. Non-finite floats ("NaN", "Inf", "infinity") are kept as
-// strings because they cannot be marshalled to JSON and the literal text is
-// almost always what the workflow author meant.
-//
-// Escape hatch: a result that is an explicitly quoted Go string literal (e.g.
-// produced with the sprig `quote` function, "{{ .v | quote }}") is treated as a
-// deliberate opt-out of numeric coercion — the surrounding quotes are stripped
-// and the literal text is kept as a string. This lets a *computed* leaf whose
-// string form matters (versions, IDs, zero-padded values like "08" or "1.20")
-// survive without being silently turned into a number.
-func coerceScalar(s string) interface{} {
-	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
-		if unquoted, err := strconv.Unquote(s); err == nil {
-			return unquoted
-		}
-	}
-	if i, err := strconv.ParseInt(s, 10, 64); err == nil {
-		return i
-	}
-	if f, err := strconv.ParseFloat(s, 64); err == nil && !math.IsInf(f, 0) && !math.IsNaN(f) {
-		return f
-	}
-	return s
 }
 
 // isSimpleVariableAccess reports whether the template is a single-variable

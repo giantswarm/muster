@@ -51,13 +51,13 @@ type WorkflowSpec struct {
 	// {execution_id, workflow, status, input, steps[], ...} envelope. Each leaf
 	// is a Go-template/sprig expression; JSON structure is preserved so numbers
 	// stay numbers and arrays stay arrays (e.g. "{{ .results.pods.items }}" or
-	// "{{ len .results.events.items }}"). A bare reference-path leaf keeps its
-	// original type; any other (computed) expression that renders to a
-	// numeric-looking string is coerced to a number, so a computed string value
-	// whose form must be kept (leading zeros, versions, IDs) should either be
-	// referenced as a bare path or piped through sprig `quote` to opt out of the
-	// coercion (e.g. "{{ .v | quote }}"). Every step result is referenceable here
-	// regardless of its output flag. When omitted, the default envelope is
+	// "{{ len .results.events.items }}"). A leaf's type comes from the value it
+	// evaluates to, not from how its rendered text looks: a single-action leaf
+	// keeps its real type (a number stays a number, "{{ len .x }}" is a number),
+	// and a computed string keeps its exact string form, so values whose form
+	// matters (leading zeros, versions, IDs like "08" or "1.20") are preserved
+	// without any coercion or workaround. Every step result is referenceable
+	// here regardless of its output flag. When omitted, the default envelope is
 	// returned unchanged.
 	// +kubebuilder:validation:XPreserveUnknownFields
 	Output map[string]apiextensionsv1.JSON `json:"output,omitempty" yaml:"output,omitempty"`

@@ -741,14 +741,15 @@ spec:
   projection is declared it replaces the envelope, so per-step `output`/`store`
   flags no longer affect the returned document (the create/validate path and the
   reconciler warn when such flags are left set and become inert).
-- **Type coercion + escape hatch**: a *bare reference path* leaf
-  (`"{{ .results.pods.items }}"`) keeps its exact JSON type. A *computed* leaf
-  (e.g. `"{{ len .results.events.items }}"`) renders to a string and is then
-  coerced to a number when it looks numeric. To keep a computed string whose form
-  matters (versions, IDs, zero-padded values like `"08"`/`"1.20"`), reference it
-  as a bare path or pipe it through sprig `quote`
-  (`'{{ printf "%02d" .n | quote }}'`). Non-finite values (`NaN`/`Inf`) stay
-  strings.
+- **Type preservation (no lossy coercion)**: a leaf's type comes from the value
+  it evaluates to, never from how its rendered text looks. A *bare reference path*
+  leaf (`"{{ .results.pods.items }}"`) keeps its exact JSON type. A single-action
+  *computed* leaf keeps its real type too: `"{{ len .results.events.items }}"` is
+  a number, while a computed string keeps its exact string form — so values whose
+  form matters (versions, IDs, zero-padded values like `"08"`/`"1.20"`) are
+  preserved with no workaround. Non-finite values (`NaN`/`Inf`) stay strings.
+  Templates that mix literal text with actions (e.g. `"v{{ .v }}"`) render to a
+  string.
 - When `output` is omitted, the default envelope is returned unchanged.
 
 #### Status Fields

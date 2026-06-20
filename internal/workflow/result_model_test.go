@@ -163,10 +163,12 @@ func TestWorkflowExecutor_OutputProjection(t *testing.T) {
 	assert.Equal(t, "a", nested["first"])
 }
 
-// #874: a computed projection leaf whose string form matters (versions, IDs,
-// zero-padded values) can opt out of numeric coercion via the sprig `quote`
-// function, while an unquoted computed leaf still coerces to a number.
-func TestWorkflowExecutor_OutputProjection_QuoteEscapeHatch(t *testing.T) {
+// #874: a computed projection leaf keeps the exact string it renders to —
+// versions, zero-padded values and other numeric-looking strings are never
+// silently coerced to a number — while genuinely numeric expressions (bare
+// reference paths, arithmetic) keep their numeric type. No sprig `quote`
+// workaround is required.
+func TestWorkflowExecutor_OutputProjection_ComputedLeafKeepsType(t *testing.T) {
 	mock := jsonResponder(map[string]string{
 		"release": `{"major": 1, "minor": 20, "build": 8}`,
 	})
@@ -176,12 +178,14 @@ func TestWorkflowExecutor_OutputProjection_QuoteEscapeHatch(t *testing.T) {
 		Name:  "versions",
 		Steps: []api.WorkflowStep{{ID: "release", Tool: "release"}},
 		Output: map[string]interface{}{
-			// Quoted: keeps the literal string form (JSON numbers decode to
+			// Computed strings keep their textual form (JSON numbers decode to
 			// float64, so int-convert before %d formatting).
-			"version": `{{ printf "%d.%d" (int .results.release.major) (int .results.release.minor) | quote }}`,
-			"padded":  `{{ printf "%02d" (int .results.release.build) | quote }}`,
-			// Bare reference path: keeps its original numeric type.
+			"version": `{{ printf "%d.%d" (int .results.release.major) (int .results.release.minor) }}`,
+			"padded":  `{{ printf "%02d" (int .results.release.build) }}`,
+			// Bare reference path keeps its original numeric type.
 			"buildNum": "{{ .results.release.build }}",
+			// A genuinely numeric computed expression stays a number.
+			"nextMajor": "{{ add (int .results.release.major) 1 }}",
 		},
 	}
 
@@ -189,41 +193,10 @@ func TestWorkflowExecutor_OutputProjection_QuoteEscapeHatch(t *testing.T) {
 	require.NoError(t, err)
 
 	decoded := decodeResult(t, result)
-	assert.Equal(t, "1.20", decoded["version"], "quoted computed leaf must stay a string")
-	assert.Equal(t, "08", decoded["padded"], "zero-padded quoted leaf must keep leading zero")
+	assert.Equal(t, "1.20", decoded["version"], "computed string leaf must keep its form")
+	assert.Equal(t, "08", decoded["padded"], "zero-padded computed leaf must keep leading zero")
 	assert.Equal(t, float64(8), decoded["buildNum"], "bare reference path stays numeric")
-}
-
-// coerceScalar turns numeric strings into numbers but must keep non-finite
-// floats ("NaN", "Inf", ...) as strings, otherwise json.Marshal of a projection
-// containing such a leaf would fail.
-func TestCoerceScalar(t *testing.T) {
-	cases := []struct {
-		in   string
-		want interface{}
-	}{
-		{"42", int64(42)},
-		{"3.14", float64(3.14)},
-		{"hello", "hello"},
-		{"NaN", "NaN"},
-		{"Inf", "Inf"},
-		{"+Inf", "+Inf"},
-		{"infinity", "infinity"},
-		// Escape hatch: an explicitly quoted result (e.g. via sprig `quote`)
-		// keeps its string form and is not coerced to a number.
-		{`"08"`, "08"},
-		{`"1.20"`, "1.20"},
-		{`"42"`, "42"},
-		{`""`, ""},
-	}
-	for _, tc := range cases {
-		t.Run(tc.in, func(t *testing.T) {
-			got := coerceScalar(tc.in)
-			assert.Equal(t, tc.want, got)
-			_, err := json.Marshal(got)
-			require.NoError(t, err, "coerced value must be JSON-marshalable")
-		})
-	}
+	assert.Equal(t, float64(2), decoded["nextMajor"], "numeric computed leaf stays a number")
 }
 
 // #875: condition jsonPath supports array indexing and template forms in
