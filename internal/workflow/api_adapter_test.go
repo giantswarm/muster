@@ -1,6 +1,10 @@
 package workflow
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/giantswarm/muster/internal/api"
+)
 
 // TestNestedWorkflowName guards the classification at the heart of the
 // nested-workflow availability fix: a workflow_<name> step tool is a nested
@@ -60,6 +64,115 @@ func TestNestedWorkflowName(t *testing.T) {
 			}
 			if gotOK && gotName != tt.wantName {
 				t.Fatalf("nestedWorkflowName(%q) name = %q, want %q", tt.toolName, gotName, tt.wantName)
+			}
+		})
+	}
+}
+
+// TestValidateWorkflowCondition guards the template-vs-tool/fromStep mutual
+// exclusivity the executor relies on.
+func TestValidateWorkflowCondition(t *testing.T) {
+	tests := []struct {
+		name      string
+		condition *api.WorkflowCondition
+		wantErr   bool
+	}{
+		{name: "nil condition", condition: nil, wantErr: false},
+		{name: "template only", condition: &api.WorkflowCondition{Template: "{{ true }}"}, wantErr: false},
+		{name: "tool only", condition: &api.WorkflowCondition{Tool: "check"}, wantErr: false},
+		{name: "fromStep only", condition: &api.WorkflowCondition{FromStep: "prev"}, wantErr: false},
+		{name: "template and tool", condition: &api.WorkflowCondition{Template: "{{ true }}", Tool: "check"}, wantErr: true},
+		{name: "template and fromStep", condition: &api.WorkflowCondition{Template: "{{ true }}", FromStep: "prev"}, wantErr: true},
+		{name: "tool and fromStep", condition: &api.WorkflowCondition{Tool: "check", FromStep: "prev"}, wantErr: true},
+		{name: "no source", condition: &api.WorkflowCondition{}, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := validateWorkflowCondition(tt.condition); (err != nil) != tt.wantErr {
+				t.Fatalf("validateWorkflowCondition() err = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestValidateWorkflowSubSteps covers the sub-step rules enforced for forEach
+// bodies, parallel groups, and onFailure handlers.
+func TestValidateWorkflowSubSteps(t *testing.T) {
+	tests := []struct {
+		name    string
+		subs    []api.WorkflowSubStep
+		wantErr bool
+	}{
+		{name: "empty list", subs: nil, wantErr: false},
+		{name: "valid", subs: []api.WorkflowSubStep{{ID: "a", Tool: "t1"}, {ID: "b", Tool: "t2"}}, wantErr: false},
+		{name: "missing id", subs: []api.WorkflowSubStep{{Tool: "t1"}}, wantErr: true},
+		{name: "duplicate id", subs: []api.WorkflowSubStep{{ID: "a", Tool: "t1"}, {ID: "a", Tool: "t2"}}, wantErr: true},
+		{name: "missing tool", subs: []api.WorkflowSubStep{{ID: "a"}}, wantErr: true},
+		{name: "invalid condition", subs: []api.WorkflowSubStep{{ID: "a", Tool: "t1", Condition: &api.WorkflowCondition{Template: "{{ true }}", Tool: "x"}}}, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := validateWorkflowSubSteps("group", tt.subs); (err != nil) != tt.wantErr {
+				t.Fatalf("validateWorkflowSubSteps() err = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestConvertWorkflowStepsFieldCasing verifies the structured create path
+// accepts the canonical camelCase field names (matching the CRD and the docs)
+// as well as the previously released snake_case aliases. A workflow authored
+// from the documentation (camelCase) must not be silently mis-parsed, and
+// existing snake_case callers must keep working.
+func TestConvertWorkflowStepsFieldCasing(t *testing.T) {
+	cases := map[string]map[string]interface{}{
+		"camelCase": {
+			"id":           "rollback",
+			"tool":         "x_rollback",
+			"allowFailure": true,
+			"condition": map[string]interface{}{
+				"fromStep": "deploy",
+				"expectNot": map[string]interface{}{
+					"jsonPath": map[string]interface{}{"status": "ok"},
+				},
+			},
+		},
+		"snake_case": {
+			"id":            "rollback",
+			"tool":          "x_rollback",
+			"allow_failure": true,
+			"condition": map[string]interface{}{
+				"from_step": "deploy",
+				"expect_not": map[string]interface{}{
+					"json_path": map[string]interface{}{"status": "ok"},
+				},
+			},
+		},
+	}
+
+	for name, stepMap := range cases {
+		t.Run(name, func(t *testing.T) {
+			steps, err := convertWorkflowSteps([]interface{}{stepMap})
+			if err != nil {
+				t.Fatalf("convertWorkflowSteps() unexpected error: %v", err)
+			}
+			if len(steps) != 1 {
+				t.Fatalf("expected 1 step, got %d", len(steps))
+			}
+			s := steps[0]
+			if !s.AllowFailure {
+				t.Error("allowFailure was not honoured")
+			}
+			if s.Condition == nil {
+				t.Fatal("condition was not parsed")
+			}
+			if s.Condition.FromStep != "deploy" {
+				t.Errorf("fromStep = %q, want %q", s.Condition.FromStep, "deploy")
+			}
+			if len(s.Condition.ExpectNot.JsonPath) == 0 {
+				t.Error("expectNot/jsonPath was not honoured")
 			}
 		})
 	}

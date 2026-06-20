@@ -1,0 +1,63 @@
+name: "workflow-foreach-indexed-results"
+description: "A stored forEach sub-step is addressable per iteration after the loop as {{ .results.<id>_<index> }}, while the plain {{ .results.<id> }} keeps the last iteration; sub-steps can also chain off an earlier sub-step's result within the same iteration"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "foreach", "control-flow", "results", "core-api"]
+timeout: "2m"
+
+pre_configuration:
+  mcp_servers:
+  - name: "echo-provider"
+    config:
+      tools:
+      - name: "echo"
+        responses: [ { response: { said: "{{ .text }}" } } ]
+
+steps:
+- id: "create-foreach-indexed"
+  tool: "core_workflow_create"
+  args:
+    name: "foreach-indexed"
+    args:
+      items: { type: "array", required: true }
+    steps:
+      - id: "loop"
+        forEach:
+          items: "{{ .input.items }}"
+          as: "it"
+          steps:
+            # First sub-step stores a per-item result.
+            - id: "make"
+              tool: "x_echo-provider_echo"
+              args: { text: "made-{{ .vars.it }}" }
+              store: true
+            # Second sub-step chains off "make" within the SAME iteration; if
+            # within-iteration chaining works, confirm_0 must carry made-a.
+            - id: "confirm"
+              tool: "x_echo-provider_echo"
+              args: { text: "confirm {{ .results.make.said }}" }
+              store: true
+      # After the loop, reference each iteration by index and the plain (last) key.
+      - id: "summary"
+        tool: "x_echo-provider_echo"
+        args:
+          text: "first={{ .results.make_0.said }} confirm0={{ .results.confirm_0.said }} second={{ .results.make_1.said }} last={{ .results.make.said }}"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "foreach-indexed" }
+
+# items ["a","b"] yields make_0=made-a, make_1=made-b (plain make=made-b), and
+# confirm_0=confirm made-a proves the in-iteration chain saw the right item.
+- id: "run-foreach-indexed"
+  tool: "workflow_foreach-indexed"
+  args:
+    items: ["a", "b"]
+  expected:
+    success: true
+    json_path:
+      status: "completed"
+      workflow: "foreach-indexed"
+      # The unstored final step merges its result to the top level.
+      said: "first=made-a confirm0=confirm made-a second=made-b last=made-b"

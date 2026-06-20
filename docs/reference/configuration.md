@@ -348,17 +348,17 @@ spec:
     - id: "build"
       tool: "build_application"
       args:
-        name: "{{.appName}}"
-        env: "{{.environment}}"
+        name: "{{ .input.appName }}"
+        env: "{{ .input.environment }}"
       store: true
       description: "Build the application"
 
     - id: "deploy"
       tool: "deploy_application"
       args:
-        name: "{{.appName}}"
-        image: "{{.build.image}}"
-        env: "{{.environment}}"
+        name: "{{ .input.appName }}"
+        image: "{{ .results.build.image }}"
+        env: "{{ .input.environment }}"
       condition:
         fromStep: "build"
         expect:
@@ -368,7 +368,7 @@ spec:
     - id: "health-check"
       tool: "health_check"
       args:
-        url: "{{.deploy.url}}"
+        url: "{{ .results.deploy.url }}"
       allowFailure: false
       description: "Verify deployment health"
 ```
@@ -467,23 +467,26 @@ muster check workflow deploy-app
 
 ### Template Syntax
 
-Use Go template syntax for dynamic values:
+Use Go template syntax for dynamic values. Workflow inputs are under `.input`,
+stored step results under `.results` (the engine renders with `missingkey=error`,
+so a bare `{{ .environment }}` errors at runtime):
 
 ```yaml
 args:
-  url: "https://{{.environment}}.example.com"
-  replicas: "{{.replicas}}"
-  config: "{{.baseConfig}}/{{.serviceName}}"
+  url: "https://{{ .input.environment }}.example.com"
+  replicas: "{{ .input.replicas }}"
+  config: "{{ .input.baseConfig }}/{{ .input.serviceName }}"
 ```
 
 ### Available Variables
 
-In resource templates, these variables are available:
+In workflow templates, these context roots are available:
 
-| Context | Variables | Description |
+| Context | Reference | Description |
 |---------|-----------|-------------|
-| Workflow | `.args.*`, `.stepResults.*` | Workflow args and step outputs |
-| Service | `.name`, `.args.*` | Service context |
+| Workflow inputs | `.input.<arg>` | Values passed to the workflow |
+| Step results | `.results.<step-id>` | Output of a previous `store: true` step (`.context.<step-id>` is an alias) |
+| Loop/user variables | `.vars.<name>` | `forEach` item/index and other bound variables |
 
 ## CLI Commands
 

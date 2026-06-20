@@ -1,0 +1,115 @@
+name: "workflow-onfailure-cleanup"
+description: "onFailure handlers run best-effort when a workflow fails on a non-tolerated step, tolerate their own failures, and never run when the workflow succeeds"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "onfailure", "control-flow", "cleanup", "rollback", "core-api"]
+timeout: "3m"
+
+pre_configuration:
+  mcp_servers:
+  - name: "echo-provider"
+    config:
+      tools:
+      - name: "echo"
+        responses: [ { response: { said: "{{ .text }}" } } ]
+      - name: "boom"
+        responses: [ { error: "main step exploded" } ]
+      - name: "boom2"
+        responses: [ { error: "cleanup step exploded" } ]
+
+steps:
+# Failure path: every onFailure handler runs, in order, after the failing step.
+- id: "create-cleanup-on-fail"
+  tool: "core_workflow_create"
+  args:
+    name: "cleanup-on-fail"
+    steps:
+      - id: "explode"
+        tool: "x_echo-provider_boom"
+    onFailure:
+      - id: "cleanup_a"
+        tool: "x_echo-provider_echo"
+        args: { text: "rollback A" }
+      - id: "cleanup_b"
+        tool: "x_echo-provider_echo"
+        args: { text: "rollback B" }
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "cleanup-on-fail" }
+
+- id: "run-cleanup-on-fail"
+  tool: "workflow_cleanup-on-fail"
+  args: {}
+  expected:
+    success: false
+    error_contains: ["main step exploded"]
+    json_path:
+      status: "failed"
+      steps.0.id: "explode"
+      steps.0.status: "failed"
+      steps.1.id: "cleanup_a"
+      steps.1.status: "completed"
+      steps.2.id: "cleanup_b"
+      steps.2.status: "completed"
+
+# A failing onFailure handler is tolerated, so later handlers still run.
+- id: "create-cleanup-tolerates-errors"
+  tool: "core_workflow_create"
+  args:
+    name: "cleanup-tolerates-errors"
+    steps:
+      - id: "explode"
+        tool: "x_echo-provider_boom"
+    onFailure:
+      - id: "bad_cleanup"
+        tool: "x_echo-provider_boom2"
+      - id: "good_cleanup"
+        tool: "x_echo-provider_echo"
+        args: { text: "still cleaned up" }
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "cleanup-tolerates-errors" }
+
+- id: "run-cleanup-tolerates-errors"
+  tool: "workflow_cleanup-tolerates-errors"
+  args: {}
+  expected:
+    success: false
+    json_path:
+      status: "failed"
+      steps.1.id: "bad_cleanup"
+      steps.1.status: "failed"
+      steps.2.id: "good_cleanup"
+      steps.2.status: "completed"
+
+# Success path: onFailure handlers must not run.
+- id: "create-cleanup-not-on-success"
+  tool: "core_workflow_create"
+  args:
+    name: "cleanup-not-on-success"
+    steps:
+      - id: "ok"
+        tool: "x_echo-provider_echo"
+        args: { text: "all good" }
+    onFailure:
+      - id: "cleanup_noop"
+        tool: "x_echo-provider_echo"
+        args: { text: "should never run" }
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "cleanup-not-on-success" }
+
+- id: "run-cleanup-not-on-success"
+  tool: "workflow_cleanup-not-on-success"
+  args: {}
+  expected:
+    success: true
+    json_path:
+      status: "completed"
+    not_contains: ["cleanup_noop", "should never run"]

@@ -538,8 +538,11 @@ muster list mcpserver
 muster agent --repl
 # > list tools
 
-# 4. Restart affected servers
-muster restart mcpserver <affected-server>
+# 4. Recover affected servers. Muster reconciles MCP servers from their
+#    definitions and retries unreachable ones automatically. To force a
+#    reconnect, re-apply the definition (kubectl apply / muster create) or
+#    restart the aggregator. There is no `muster restart`.
+muster get mcpserver <affected-server> -o yaml
 ```
 
 ## Best Practices

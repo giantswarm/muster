@@ -649,8 +649,7 @@ Create a new workflow definition with advanced step configuration.
   - `id` (string, required) - Unique step identifier within workflow
   - `tool` (string, required) - Tool name to execute for this step
   - `description` (string, optional) - Human-readable step documentation
-  - `args` (object, optional) - Tool arguments with templating support (`{{.argName}}`, `{{stepId.field}}`)
-  - `outputs` (object, optional) - Output variable assignments for subsequent steps
+  - `args` (object, optional) - Tool arguments with templating support (inputs as `{{ .input.<arg> }}`, prior results as `{{ .results.<step-id>.<field> }}`)
   - `condition` (object, optional) - Conditional execution configuration:
     - `tool` (string, required) - Tool to call for condition evaluation
     - `args` (object, optional) - Arguments for condition tool
@@ -694,7 +693,7 @@ Create a new workflow definition with advanced step configuration.
         "tool": "x_kubernetes_apply",
         "description": "Deploy the application",
         "args": {
-          "manifest": "{{.manifest}}"
+          "manifest": "{{ .input.manifest }}"
         }
       },
       {
@@ -704,7 +703,7 @@ Create a new workflow definition with advanced step configuration.
         "condition": {
           "tool": "echo",
           "args": {
-            "value": "{{.health_check}}"
+            "value": "{{ .input.health_check }}"
           },
           "expect": {
             "json_path": {
@@ -713,7 +712,7 @@ Create a new workflow definition with advanced step configuration.
           }
         },
         "args": {
-          "name": "{{create_service.service_name}}"
+          "name": "{{ .results.create_service.service_name }}"
         },
         "store": true
       }
@@ -798,7 +797,7 @@ Update an existing workflow definition. Only provided fields are updated.
         "tool": "x_kubernetes_apply",
         "description": "Deploy the application",
         "args": {
-          "manifest": "{{.manifest}}"
+          "manifest": "{{ .input.manifest }}"
         }
       }
     ]
@@ -858,7 +857,7 @@ Validate a workflow definition without creating it.
         "id": "invalid_step",
         "tool": "nonexistent_tool",
         "args": {
-          "invalid_template": "{{.nonexistent_arg}}"
+          "invalid_template": "{{ .input.nonexistent_arg }}"
         }
       }
     ]
@@ -962,7 +961,7 @@ steps:
   - id: deploy
     tool: x_kubernetes_apply
     args:
-      manifest: "{{.manifest}}"
+      manifest: "{{ .input.app_name }}-manifest.yaml"
 ```
 
 This generates a `workflow_deploy-webapp` tool that you execute via:

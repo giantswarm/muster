@@ -1,0 +1,155 @@
+name: "workflow-control-flow-validation"
+description: "Structural validation of control-flow workflows: a step is exactly one of tool/forEach/parallel, forEach and sub-steps are well-formed, sub-step ids are unique, and a template condition cannot be combined with tool/fromStep"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "validate", "control-flow", "error-handling", "core-api"]
+timeout: "2m"
+
+steps:
+# tool and forEach are mutually exclusive.
+- id: "validate-tool-and-foreach"
+  tool: "core_workflow_validate"
+  args:
+    name: "bad-tool-and-foreach"
+    steps:
+      - id: "conflict"
+        tool: "x_echo_echo"
+        forEach:
+          items: "{{ .input.items }}"
+          steps:
+            - id: "sub"
+              tool: "x_echo_echo"
+  expected:
+    success: false
+    error_contains: ["mutually exclusive"]
+
+# forEach and parallel are mutually exclusive.
+- id: "validate-foreach-and-parallel"
+  tool: "core_workflow_validate"
+  args:
+    name: "bad-foreach-and-parallel"
+    steps:
+      - id: "conflict"
+        forEach:
+          items: "{{ .input.items }}"
+          steps:
+            - id: "sub"
+              tool: "x_echo_echo"
+        parallel:
+          - id: "p"
+            tool: "x_echo_echo"
+  expected:
+    success: false
+    error_contains: ["mutually exclusive"]
+
+# A step must specify one of tool, forEach, or parallel.
+- id: "validate-empty-step"
+  tool: "core_workflow_validate"
+  args:
+    name: "bad-empty-step"
+    steps:
+      - id: "nothing"
+  expected:
+    success: false
+    error_contains: ["one of tool, forEach, or parallel is required"]
+
+# forEach requires an items expression.
+- id: "validate-foreach-missing-items"
+  tool: "core_workflow_validate"
+  args:
+    name: "bad-foreach-items"
+    steps:
+      - id: "loop"
+        forEach:
+          steps:
+            - id: "sub"
+              tool: "x_echo_echo"
+  expected:
+    success: false
+    error_contains: ["items is required"]
+
+# forEach requires at least one body sub-step.
+- id: "validate-foreach-empty-body"
+  tool: "core_workflow_validate"
+  args:
+    name: "bad-foreach-body"
+    steps:
+      - id: "loop"
+        forEach:
+          items: "{{ .input.items }}"
+          steps: []
+  expected:
+    success: false
+    error_contains: ["at least one sub-step"]
+
+# Sub-steps must name a tool.
+- id: "validate-substep-missing-tool"
+  tool: "core_workflow_validate"
+  args:
+    name: "bad-substep-tool"
+    steps:
+      - id: "fan"
+        parallel:
+          - id: "sub"
+  expected:
+    success: false
+    error_contains: ["tool is required"]
+
+# Sub-step ids must be unique within a group.
+- id: "validate-duplicate-substep-ids"
+  tool: "core_workflow_validate"
+  args:
+    name: "bad-duplicate-substeps"
+    steps:
+      - id: "fan"
+        parallel:
+          - id: "dup"
+            tool: "x_echo_echo"
+          - id: "dup"
+            tool: "x_echo_echo"
+  expected:
+    success: false
+    error_contains: ["duplicate sub-step id"]
+
+# A template condition cannot be combined with a tool/fromStep condition.
+- id: "validate-condition-template-and-tool"
+  tool: "core_workflow_validate"
+  args:
+    name: "bad-condition-template"
+    steps:
+      - id: "gated"
+        condition:
+          template: "{{ eq .input.env \"prod\" }}"
+          tool: "x_echo_echo"
+        tool: "x_echo_echo"
+  expected:
+    success: false
+    error_contains: ["mutually exclusive with tool/fromStep"]
+
+# A well-formed control-flow workflow validates successfully.
+- id: "validate-valid-control-flow"
+  tool: "core_workflow_validate"
+  args:
+    name: "good-control-flow"
+    args:
+      items: { type: "array", required: true }
+    steps:
+      - id: "loop"
+        forEach:
+          items: "{{ .input.items }}"
+          as: "it"
+          steps:
+            - id: "sub"
+              tool: "x_echo_echo"
+              args: { text: "{{ .vars.it }}" }
+      - id: "fan"
+        parallel:
+          - id: "p1"
+            tool: "x_echo_echo"
+          - id: "p2"
+            tool: "x_echo_echo"
+    onFailure:
+      - id: "cleanup"
+        tool: "x_echo_echo"
+  expected:
+    success: true

@@ -1,0 +1,134 @@
+name: "workflow-control-flow-availability"
+description: "Workflow availability accounts for tools referenced inside forEach bodies, parallel groups, and onFailure handlers; a missing tool in any of these makes the workflow unavailable"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "availability", "control-flow", "core-api"]
+timeout: "3m"
+
+pre_configuration:
+  mcp_servers:
+  - name: "echo-provider"
+    config:
+      tools:
+      - name: "echo"
+        responses: [ { response: { said: "{{ .text }}" } } ]
+
+steps:
+# A missing tool inside a forEach body makes the workflow unavailable.
+- id: "create-foreach-missing-tool"
+  tool: "core_workflow_create"
+  args:
+    name: "foreach-missing-tool"
+    args:
+      items: { type: "array", required: true }
+    steps:
+      - id: "loop"
+        forEach:
+          items: "{{ .input.items }}"
+          steps:
+            - id: "sub"
+              tool: "x_echo-provider_doesnotexist"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "foreach-missing-tool" }
+
+- id: "run-foreach-missing-tool"
+  tool: "workflow_foreach-missing-tool"
+  args:
+    items: ["a"]
+  expected:
+    success: false
+    error_contains: ["not available", "missing required tools"]
+
+# A missing tool inside a parallel group makes the workflow unavailable.
+- id: "create-parallel-missing-tool"
+  tool: "core_workflow_create"
+  args:
+    name: "parallel-missing-tool"
+    steps:
+      - id: "fan"
+        parallel:
+          - id: "present"
+            tool: "x_echo-provider_echo"
+            args: { text: "ok" }
+          - id: "absent"
+            tool: "x_echo-provider_doesnotexist"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "parallel-missing-tool" }
+
+- id: "run-parallel-missing-tool"
+  tool: "workflow_parallel-missing-tool"
+  args: {}
+  expected:
+    success: false
+    error_contains: ["not available", "missing required tools"]
+
+# A missing tool inside an onFailure handler makes the workflow unavailable.
+- id: "create-onfailure-missing-tool"
+  tool: "core_workflow_create"
+  args:
+    name: "onfailure-missing-tool"
+    steps:
+      - id: "ok"
+        tool: "x_echo-provider_echo"
+        args: { text: "ok" }
+    onFailure:
+      - id: "cleanup"
+        tool: "x_echo-provider_doesnotexist"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "onfailure-missing-tool" }
+
+- id: "run-onfailure-missing-tool"
+  tool: "workflow_onfailure-missing-tool"
+  args: {}
+  expected:
+    success: false
+    error_contains: ["not available", "missing required tools"]
+
+# When every referenced tool exists, the workflow is available and runs.
+- id: "create-all-present"
+  tool: "core_workflow_create"
+  args:
+    name: "control-flow-all-present"
+    args:
+      items: { type: "array", required: true }
+    steps:
+      - id: "loop"
+        forEach:
+          items: "{{ .input.items }}"
+          steps:
+            - id: "sub"
+              tool: "x_echo-provider_echo"
+              args: { text: "{{ .vars.item }}" }
+      - id: "fan"
+        parallel:
+          - id: "p1"
+            tool: "x_echo-provider_echo"
+            args: { text: "one" }
+    onFailure:
+      - id: "cleanup"
+        tool: "x_echo-provider_echo"
+        args: { text: "cleanup" }
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "control-flow-all-present" }
+
+- id: "run-all-present"
+  tool: "workflow_control-flow-all-present"
+  args:
+    items: ["a", "b"]
+  expected:
+    success: true
+    json_path:
+      status: "completed"
+      workflow: "control-flow-all-present"

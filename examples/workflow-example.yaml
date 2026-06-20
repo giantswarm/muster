@@ -23,16 +23,16 @@ spec:
     - id: build_image
       tool: docker_build
       args:
-        name: "{{.app_name}}"
-        tag: "{{.environment}}-latest"
+        name: "{{.input.app_name}}"
+        tag: "{{.input.environment}}-latest"
       store: true
 
     - id: deploy_service
       tool: kubectl_apply
       args:
-        name: "{{.app_name}}-{{.environment}}"
+        name: "{{.input.app_name}}-{{.input.environment}}"
         image: "{{.results.build_image.image_id}}"
-        replicas: "{{.replicas}}"
+        replicas: "{{.input.replicas}}"
       store: true
 
     - id: verify_deployment

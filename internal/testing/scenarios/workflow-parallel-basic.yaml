@@ -1,0 +1,66 @@
+name: "workflow-parallel-basic"
+description: "A parallel group runs its sub-steps concurrently against a snapshot of prior results, then merges each sub-step result back so later steps can consume them"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "parallel", "control-flow", "concurrency", "core-api"]
+timeout: "2m"
+
+pre_configuration:
+  mcp_servers:
+  - name: "echo-provider"
+    config:
+      tools:
+      - name: "echo"
+        responses: [ { response: { said: "{{ .text }}" } } ]
+
+steps:
+- id: "create-parallel"
+  tool: "core_workflow_create"
+  args:
+    name: "parallel-basic"
+    steps:
+      # A plain step seeds a result before the group; both branches must be able
+      # to read it from their snapshot of the results map.
+      - id: "seed"
+        tool: "x_echo-provider_echo"
+        args: { text: "base-value" }
+        store: true
+      - id: "fan"
+        parallel:
+          - id: "p1"
+            tool: "x_echo-provider_echo"
+            args: { text: "p1 saw {{ .results.seed.said }}" }
+            store: true
+          - id: "p2"
+            tool: "x_echo-provider_echo"
+            args: { text: "p2 saw {{ .results.seed.said }}" }
+            store: true
+      # After the group joins, both branch results are merged back and readable.
+      - id: "combine"
+        tool: "x_echo-provider_echo"
+        args: { text: "{{ .results.p1.said }} | {{ .results.p2.said }}" }
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "parallel-basic" }
+
+- id: "run-parallel"
+  tool: "workflow_parallel-basic"
+  args: {}
+  expected:
+    success: true
+    json_path:
+      status: "completed"
+      workflow: "parallel-basic"
+      steps.0.id: "seed"
+      steps.0.status: "completed"
+      steps.1.id: "p1"
+      steps.1.status: "completed"
+      steps.2.id: "p2"
+      steps.2.status: "completed"
+      steps.3.id: "combine"
+      steps.3.status: "completed"
+    # The final step is not stored, so its merged result surfaces at top level,
+    # proving both branch results were visible after the join.
+    contains: ["p1 saw base-value | p2 saw base-value"]

@@ -1,0 +1,116 @@
+name: "workflow-parallel-failure"
+description: "A failing branch fails the whole parallel group unless tolerated by sub-step allow_failure or by allow_failure on the parallel step itself"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "parallel", "control-flow", "allow-failure", "core-api"]
+timeout: "3m"
+
+pre_configuration:
+  mcp_servers:
+  - name: "echo-provider"
+    config:
+      tools:
+      - name: "echo"
+        responses: [ { response: { said: "{{ .text }}" } } ]
+      - name: "boom"
+        responses: [ { error: "parallel branch exploded" } ]
+
+steps:
+# A branch failure with no tolerance fails the workflow.
+- id: "create-parallel-fail"
+  tool: "core_workflow_create"
+  args:
+    name: "parallel-fail"
+    steps:
+      - id: "fan"
+        parallel:
+          - id: "ok"
+            tool: "x_echo-provider_echo"
+            args: { text: "fine" }
+            store: true
+          - id: "bad"
+            tool: "x_echo-provider_boom"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "parallel-fail" }
+
+- id: "run-parallel-fail"
+  tool: "workflow_parallel-fail"
+  args: {}
+  expected:
+    success: false
+    error_contains: ["parallel branch exploded"]
+
+# A branch marked allow_failure is tolerated; the group and workflow complete.
+- id: "create-parallel-substep-tolerated"
+  tool: "core_workflow_create"
+  args:
+    name: "parallel-substep-tolerated"
+    steps:
+      - id: "fan"
+        parallel:
+          - id: "ok"
+            tool: "x_echo-provider_echo"
+            args: { text: "fine" }
+            store: true
+          - id: "bad"
+            tool: "x_echo-provider_boom"
+            allow_failure: true
+      - id: "after"
+        tool: "x_echo-provider_echo"
+        args: { text: "continued past parallel" }
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "parallel-substep-tolerated" }
+
+- id: "run-parallel-substep-tolerated"
+  tool: "workflow_parallel-substep-tolerated"
+  args: {}
+  expected:
+    success: true
+    json_path:
+      status: "completed"
+      steps.0.id: "ok"
+      steps.0.status: "completed"
+      steps.1.id: "bad"
+      steps.1.status: "failed"
+      steps.2.id: "after"
+      steps.2.status: "completed"
+    contains: ["continued past parallel"]
+
+# allow_failure on the parallel step tolerates any branch failure.
+- id: "create-parallel-step-tolerated"
+  tool: "core_workflow_create"
+  args:
+    name: "parallel-step-tolerated"
+    steps:
+      - id: "fan"
+        allow_failure: true
+        parallel:
+          - id: "ok"
+            tool: "x_echo-provider_echo"
+            args: { text: "fine" }
+            store: true
+          - id: "bad"
+            tool: "x_echo-provider_boom"
+      - id: "after"
+        tool: "x_echo-provider_echo"
+        args: { text: "still going" }
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "parallel-step-tolerated" }
+
+- id: "run-parallel-step-tolerated"
+  tool: "workflow_parallel-step-tolerated"
+  args: {}
+  expected:
+    success: true
+    json_path:
+      status: "completed"
+    contains: ["still going"]

@@ -1,842 +1,231 @@
 # AI Agent Troubleshooting Guide
 
-Diagnose and resolve AI agent issues for reliable infrastructure automation with Muster.
+Diagnose and resolve AI agent issues when using Muster for infrastructure automation.
+
+> This guide uses only commands and configuration that Muster actually
+> implements. The full CLI is `muster serve | agent | standalone | list | get |
+> check | call | create | auth | context | events | test | version |
+> self-update | start | stop`. There is no `muster configure`, `muster cache`,
+> `muster status`, `muster restart`, `muster logs`, `muster metrics`, or
+> `muster diagnostics` command. Configuration is file-based.
 
 ## Quick Diagnostics
 
-### TL;DR Issue Resolution
-
 ```bash
-# Quick health check
-muster status --verbose
-muster agent --test-connection
-muster list tools --verify
+# Is the binary working and which version?
+muster version
 
-# Common fixes
-muster restart
-muster cache clear
-muster config validate
+# Is the aggregator reachable? (default endpoint http://localhost:8090/mcp)
+curl -fsS http://localhost:8090/health && echo OK
 
-# Get help
-muster troubleshoot --guided
+# What does the aggregator expose?
+muster list mcpserver
+muster list tools
+
+# Authentication state (for remote/protected aggregators)
+muster auth status
 ```
+
+`muster list`, `muster check`, `muster call`, and `muster get` all require a
+running aggregator (`muster serve`). They connect to the endpoint from your
+config or `--endpoint` / `MUSTER_ENDPOINT`.
 
 ## Common Issues and Solutions
 
 ### Agent Connection Problems
 
-#### Issue: "No MCP servers available" or "Agent not responding"
+**Symptoms:** the AI agent shows no tools, "connection timeout", or "MCP server not found".
 
-**Symptoms:**
-- AI agent shows no available tools
-- "Connection timeout" errors
-- "MCP server not found" messages
-
-**Diagnostic Steps:**
+**Diagnose:**
 ```bash
-# 1. Check if Muster is running
-ps aux | grep muster
-systemctl status muster  # if using systemd
+# 1. Is a muster process running?
+ps aux | grep '[m]uster'
 
-# 2. Test Muster directly
+# 2. Does the binary run?
 muster version
-muster status
 
-# 3. Test agent mode specifically
-muster agent --test
+# 3. Is the aggregator answering on its port?
+curl -fsS http://localhost:8090/health
 
-# 4. Check configuration
-cat ~/.cursor/settings.json | jq '.mcpServers'
-# or for other agents
-cat ~/.claude/mcp-servers.json | jq '.mcpServers'
-
-# 5. Check logs
-muster logs --tail 50
-muster logs --component agent
+# 4. Check your IDE's MCP configuration
+cat ~/.cursor/mcp.json | jq '.mcpServers'   # Cursor
 ```
 
-**Solutions:**
-
-**Fix 1: Restart Muster**
+**Fix 1 — start (or restart) the server:**
 ```bash
-# If running standalone mode, restart it
-# Kill existing process and restart
+# Standalone mode runs the aggregator and the stdio agent in one process
 muster standalone
 
-# Or if using separate server mode:
+# Or run the aggregator on its own
 muster serve
 ```
+muster has no `restart` subcommand — stop the existing process (Ctrl+C, or
+`muster stop`) and start it again, or restart your service manager unit.
 
-**Fix 2: Reset Configuration**
+**Fix 2 — reset configuration:**
+
+Configuration is a file, not a CLI. The defaults live in
+`~/.config/muster/config.yaml` (or `.muster/config.yaml` for a project, or the
+directory passed to `--config-path`). To reset, move it aside so muster
+recreates defaults:
 ```bash
-# Backup current config
-cp ~/.config/muster/config.yaml ~/.config/muster/config.yaml.backup
-
-# Reset to defaults
-muster configure reset
-
-# Reconfigure for your setup
-muster configure --interactive
+mv ~/.config/muster/config.yaml ~/.config/muster/config.yaml.backup
 ```
 
-**Fix 3: Check Network Issues**
+**Fix 3 — check the port:**
 ```bash
-# Test if port is available
-netstat -tlnp | grep 3000  # or your configured port
+# Is something listening on the aggregator port?
+ss -tlnp | grep 8090
 
-# Check firewall
-sudo ufw status
-sudo iptables -L
-
-# Test local connection
-curl -v http://localhost:3000/health
+curl -v http://localhost:8090/health
 ```
 
-#### Issue: "Authentication failed" or "Unauthorized"
+### Authentication Problems
 
-**Symptoms:**
-- Tools visible but execution fails
-- "401 Unauthorized" errors
-- "Invalid credentials" messages
+**Symptoms:** tools are visible but execution fails with "authentication required", 401/Unauthorized, or the IDE reports the muster server as needing login.
 
-**Diagnostic Steps:**
+Muster CLI commands return exit code `2` when authentication is required and `3`
+when an OAuth flow fails (`0` success, `1` general error).
+
+**Diagnose:**
 ```bash
-# Check authentication status
-muster auth status
-
-# Verify credentials
-muster auth test
-
-# Check token expiration
-muster auth info --show-expiry
-
-# Test with fresh token
-muster auth login
+muster auth status                 # all known endpoints + per-MCP-server SSO state
+muster auth status --server <name> # one downstream MCP server
+muster auth whoami                 # current identity, issuer, token expiry
 ```
 
-**Solutions:**
-
-**Fix 1: Re-authenticate**
+**Fix — (re)authenticate:**
 ```bash
-# Re-authenticate
-muster auth login
+muster auth login                       # configured aggregator
+muster auth login --endpoint <url>      # a specific remote endpoint
+muster auth login --server <name>       # a downstream MCP server that needs SSO
 
-# Test authentication
-muster auth test
+# Clear tokens and start over
+muster auth logout            # configured aggregator
+muster auth logout --all      # every stored token
 ```
 
-**Fix 2: Reset Authentication**
-```bash
-# Clear stored credentials
-muster auth reset
-
-# Re-authenticate
-muster auth login --interactive
-
-# Verify authentication works
-muster auth test
-```
+Downstream MCP servers usually authenticate via SSO (token forwarding or RFC 8693
+token exchange) off your muster login — `muster auth status` shows `[SSO: Forwarded]`
+or `[SSO: Exchanged]`. If it shows `[SSO: Failed]`, the downstream server's OAuth
+configuration is the thing to check, not your login.
 
 ### Tool Discovery and Execution Issues
 
-#### Issue: "Tools not showing up" or "Limited tool availability"
+**Symptoms:** expected tools are missing, or a tool is found but fails.
 
-**Symptoms:**
-- Expected tools missing from agent
-- Only basic tools available
-- Tool list incomplete
-
-**Diagnostic Steps:**
+**Diagnose:**
 ```bash
-# Check tool discovery
-muster list tools --all
-muster list tools --available
-muster list tools --filtered
+# What is actually aggregated, and from which server?
+muster list tools
+muster list tools --server github          # filter by server prefix
+muster list tools --filter "*deploy*"      # filter by name pattern
+muster list mcpserver --all --verbose      # include unreachable servers + errors
 
-# Check MCP server status
-muster list mcpserver
+# Is a specific MCP server / workflow available?
+muster check mcpserver kubernetes
+muster check workflow deploy-webapp
 
-# Test specific tool
-muster check tool workflow_deploy_webapp
-
-# Check filters
-muster config show | grep -A 10 filters
+# Run a tool directly to see the raw result
+muster call core_service_list
+muster call core_service_status --name=prometheus
+muster call workflow_deploy_webapp --json '{"app_name":"test","environment":"development"}'
 ```
 
-**Solutions:**
-
-**Fix 1: Clear Tool Cache**
-```bash
-# Clear tool cache
-muster cache clear --tools
-
-# Reload tools
-muster tools reload
-
-# Verify tools available
-muster list tools --count
-```
-
-**Fix 2: Check MCP Server Status**
-```bash
-# Check all MCP servers
-muster list mcpserver
-
-# Restart specific MCP server
-muster restart mcpserver kubernetes-tools
-
-# Check server logs
-muster logs mcpserver kubernetes-tools
-```
-
-**Fix 3: Review Tool Filters**
-```bash
-# Check current filters
-muster config show filters
-
-# Temporarily disable filters
-muster configure filters --disable
-
-# Test tool availability
-muster list tools --all
-
-# Re-enable with adjusted filters
-muster configure filters --enable
-```
-
-#### Issue: "Tool execution fails" or "Tool timeout"
-
-**Symptoms:**
-- Tools found but fail to execute
-- "Execution timeout" errors
-- Partial results or errors
-
-**Diagnostic Steps:**
-```bash
-# Test tool directly
-muster call tool workflow_deploy_webapp \
-  --args '{"app_name": "test", "environment": "development"}'
-
-# Check tool health
-muster check tool workflow_deploy_webapp --verbose
-
-# Check resource usage
-muster metrics --tools
-muster metrics --performance
-
-# Review execution logs
-muster logs tool workflow_deploy_webapp --recent
-```
-
-**Solutions:**
-
-**Fix 1: Increase Timeouts**
-```yaml
-# ~/.config/muster/config.yaml
-timeouts:
-  tool_execution: 300s  # 5 minutes
-  workflow_execution: 1800s  # 30 minutes
-  agent_response: 60s  # 1 minute
-```
-
-**Fix 2: Check Resource Limits**
-```bash
-# Check system resources
-free -h
-df -h
-top -p $(pgrep muster)
-
-# Check Muster limits
-muster config show | grep -A 5 limits
-
-# Adjust limits if needed
-muster configure limits --memory 2GB --cpu 2
-```
-
-**Fix 3: Verify Dependencies**
-```bash
-# Check tool dependencies
-muster check dependencies workflow_deploy_webapp
-
-# Test underlying services
-kubectl version  # for Kubernetes tools
-docker version   # for Docker tools
-terraform version  # for Terraform tools
-```
+**Fixes:**
+- A missing MCP server: inspect it with `muster get mcpserver <name>` and check
+  its definition under `{config-path}/mcpservers/`. A server that fails to start
+  shows up in `muster list mcpserver --all --verbose` with its error.
+- Tools missing because the backing server is down: fix the server command/URL in
+  its definition and restart `muster serve`.
+- A workflow reported unavailable: `muster check workflow <name>` lists the tools
+  it needs; an unavailable workflow is missing at least one of them.
 
 ### Performance Issues
 
-#### Issue: "Slow AI responses" or "Agent lag"
+**Symptoms:** slow agent responses, high CPU/memory.
 
-**Symptoms:**
-- Long delays in agent responses
-- Timeouts during conversations
-- High CPU/memory usage
-
-**Diagnostic Steps:**
+**Diagnose:**
 ```bash
-# Check performance metrics
-muster metrics --performance
-muster metrics --detailed
-
-# Check system resources
-htop
-iotop
-nethogs
-
-# Profile Muster performance
-muster profile --duration 60s
-
-# Check cache efficiency
-muster cache stats
+# System view of the muster process
+top -p "$(pgrep -d, muster)"
+free -h
 ```
 
-**Solutions:**
+Muster emits logs, traces, and metrics via OpenTelemetry (OTLP). Point the
+standard `OTEL_EXPORTER_OTLP_*` environment variables at your collector to get
+real metrics and traces; there is no `muster metrics` or `muster profile`
+command. To silence console logs while keeping OTLP, run `muster serve --silent`.
 
-**Fix 1: Optimize Configuration**
-```yaml
-# ~/.config/muster/config.yaml
-performance:
-  cache:
-    tool_discovery: 600s  # 10 minutes
-    result_cache: 300s   # 5 minutes
-    max_cache_size: 1GB
-
-  concurrency:
-    max_parallel_tools: 5
-    worker_pool_size: 10
-
-  optimization:
-    preload_frequent_tools: true
-    background_tool_loading: true
-    smart_context_management: true
-```
-
-**Fix 2: Reduce Context Size**
-```yaml
-# Limit context in AI configuration
-agent:
-  context:
-    max_files: 10
-    max_lines_per_file: 500
-    prioritize_recent: true
-    exclude_patterns:
-      - "*.log"
-      - "node_modules/**"
-      - ".git/**"
-```
-
-**Fix 3: Enable Smart Caching**
-```bash
-# Enable aggressive caching
-muster configure cache --aggressive
-
-# Preload frequently used tools
-muster cache preload --popular-tools
-
-# Clean up old cache
-muster cache cleanup --older-than 7d
-```
-
-#### Issue: "Memory leaks" or "High memory usage"
-
-**Symptoms:**
-- Gradually increasing memory usage
-- Out of memory errors
-- System becomes slow over time
-
-**Diagnostic Steps:**
-```bash
-# Monitor memory usage over time
-watch -n 5 'ps aux | grep muster | grep -v grep'
-
-# Check for memory leaks
-muster diagnostics memory --profile 300s
-
-# Review log files for patterns
-muster logs --search "memory" --recent 1h
-
-# Check cache sizes
-muster cache stats --detailed
-```
-
-**Solutions:**
-
-**Fix 1: Restart Periodically**
-```bash
-# Set up automatic restart
-crontab -e
-# Add: 0 2 * * * /usr/local/bin/muster restart
-
-# Or use systemd timer
-muster configure restart-schedule --daily 2:00
-```
-
-**Fix 2: Tune Memory Settings**
-```yaml
-# ~/.config/muster/config.yaml
-memory:
-  max_heap_size: 2GB
-  garbage_collection: aggressive
-  cache_limits:
-    max_total_cache: 512MB
-    max_tool_cache: 256MB
-    max_result_cache: 256MB
-```
-
-**Fix 3: Enable Memory Monitoring**
-```bash
-# Enable memory alerts
-muster configure alerts \
-  --memory-threshold 80% \
-  --action restart \
-  --cooldown 1h
-```
+**Reduce agent context size** in your AI assistant's settings (number of files,
+lines per file, exclude patterns) — this is configured in the assistant, not in
+muster.
 
 ### Configuration Issues
 
-#### Issue: "Invalid configuration" or "Config errors"
+**Symptoms:** muster fails to start, or behaves unexpectedly after a config change.
 
-**Symptoms:**
-- Muster fails to start
-- "Configuration validation failed" errors
-- Unexpected behavior
-
-**Diagnostic Steps:**
+Configuration is YAML on disk. There is no config-validation subcommand; muster
+reports configuration errors on startup. To bisect a bad change:
 ```bash
-# Validate configuration
-muster config validate
+# Move the current config aside (keeping a copy) to fall back to defaults
+mv ~/.config/muster/config.yaml ~/.config/muster/config.yaml.broken
 
-# Check syntax
-muster config check --syntax
-
-# Show effective configuration
-muster config show --effective
-
-# Compare with defaults
-muster config diff --with-defaults
+# Add entities back one at a time and check after each
+muster create mcpserver kubernetes --command "..."
+muster check mcpserver kubernetes
 ```
+Entity definitions live under `{config-path}/{mcpservers,workflows}/` and can
+also be managed as Kubernetes CRDs (`kubectl get mcpservers,workflows`).
 
-**Solutions:**
+### Wrong-Environment / Context Confusion
 
-**Fix 1: Reset to Known Good Configuration**
+**Symptoms:** actions hit the wrong cluster/environment.
+
+Muster selects the target aggregator via *contexts*:
 ```bash
-# Backup current config
-cp ~/.config/muster/config.yaml ~/.config/muster/config.yaml.broken
-
-# Reset to defaults
-muster configure reset
-
-# Apply minimal working config
-muster configure --minimal
-
-# Test basic functionality
-muster status
+muster context list        # available contexts
+muster context current     # the active one
+muster context use <name>  # switch
 ```
-
-**Fix 2: Incremental Configuration**
-```bash
-# Start with minimal config
-muster configure reset
-
-# Add components one by one
-muster configure add mcpserver kubernetes-tools
-muster test
-
-muster configure add workflow deploy-webapp
-muster test
-
-# Continue until you find the problematic config
-```
-
-**Fix 3: Use Configuration Wizard**
-```bash
-# Interactive configuration
-muster configure --wizard
-
-# Guided setup for specific use case
-muster configure --guided --use-case infrastructure
-
-# Validate each step
-muster configure --validate-each-step
-```
-
-### Environment-Specific Issues
-
-#### Issue: "Production deployment failures"
-
-**Symptoms:**
-- Deployments work in dev/staging but fail in production
-- Permission denied in production
-- Production-specific errors
-
-**Diagnostic Steps:**
-```bash
-# Check production context
-muster check context production
-
-# Verify production credentials
-muster auth test --environment production
-
-# Check production-specific configuration
-muster config show --environment production
-
-# Test production connectivity
-muster test connectivity --environment production
-```
-
-**Solutions:**
-
-**Fix 1: Environment Isolation**
-```yaml
-# ~/.config/muster/config.yaml
-environments:
-  production:
-    safety_level: high
-    require_approval: true
-    audit_all: true
-    restricted_operations:
-      - delete
-      - scale_down
-      - modify_secrets
-```
-
-**Fix 2: Production-Specific Authentication**
-```bash
-# Set up production-specific auth
-muster auth configure --environment production \
-  --method certificate \
-  --cert-path /etc/ssl/muster/prod.crt \
-  --key-path /etc/ssl/muster/prod.key
-
-# Test production authentication
-muster auth test --environment production
-```
-
-#### Issue: "Multi-environment confusion"
-
-**Symptoms:**
-- Actions executed in wrong environment
-- Context switching problems
-- Unexpected environment targeting
-
-**Diagnostic Steps:**
-```bash
-# Check current context
-muster context current
-
-# List available contexts
-muster context list
-
-# Check context history
-muster context history
-
-# Verify environment mapping
-muster config show environments
-```
-
-**Solutions:**
-
-**Fix 1: Explicit Environment Specification**
-```bash
-# Always specify environment in prompts
-# Good: "Deploy user-service v1.2.3 to staging environment"
-# Bad: "Deploy user-service v1.2.3"
-
-# Configure environment warnings
-muster configure warnings --environment-required
-```
-
-**Fix 2: Environment Safety Guards**
-```yaml
-# ~/.config/muster/config.yaml
-safety:
-  environment_confirmation:
-    production: always
-    staging: on_destructive_operations
-
-  dangerous_operations:
-    require_double_confirmation: true
-    log_all_attempts: true
-```
-
-### Network and Connectivity Issues
-
-#### Issue: "Connection timeouts" or "Network errors"
-
-**Symptoms:**
-- Intermittent connection failures
-- "Connection refused" errors
-- Network timeout errors
-
-**Diagnostic Steps:**
-```bash
-# Test network connectivity
-ping muster-server.company.com
-telnet muster-server.company.com 3000
-
-# Check DNS resolution
-nslookup muster-server.company.com
-dig muster-server.company.com
-
-# Test with different protocols
-curl -v http://muster-server.company.com:3000/health
-curl -v https://muster-server.company.com:3000/health
-
-# Check proxy settings
-echo $HTTP_PROXY
-echo $HTTPS_PROXY
-```
-
-**Solutions:**
-
-**Fix 1: Configure Network Settings**
-```yaml
-# ~/.config/muster/config.yaml
-network:
-  connection_timeout: 30s
-  read_timeout: 60s
-  retry_attempts: 3
-  retry_delay: 5s
-
-  proxy:
-    http_proxy: "http://proxy.company.com:8080"
-    https_proxy: "https://proxy.company.com:8080"
-    no_proxy: "localhost,127.0.0.1,.company.com"
-```
-
-**Fix 2: Use Connection Pooling**
-```yaml
-# ~/.config/muster/config.yaml
-connection_pool:
-  max_connections: 10
-  keep_alive: true
-  keep_alive_timeout: 300s
-  idle_timeout: 60s
-```
+You can also pin a context per command with `--context <name>` or the
+`MUSTER_CONTEXT` environment variable, and target an explicit endpoint with
+`--endpoint <url>` / `MUSTER_ENDPOINT`.
 
 ## Debugging Tools and Techniques
 
-### Enable Debug Mode
-
 ```bash
-# Enable debug logging
-muster configure logging --level debug
+# Verbose aggregator logs on stderr
+muster serve --debug
 
-# Start with verbose output
-muster serve --verbose --debug
+# Capture them to a file
+muster serve --debug > /tmp/muster-debug.log 2>&1
 
-# Enable specific debug categories
-muster configure debug \
-  --categories agent,tools,auth,network
+# Inspect MCP protocol traffic from the client side
+muster agent --repl --json-rpc      # interactive REPL with raw JSON-RPC logging
+muster agent --verbose              # show keepalives and connection detail
 
-# Save debug logs
-muster logs --debug --output /tmp/muster-debug.log
+# CLI commands that connect to the aggregator accept --debug too
+muster list tools --debug
 ```
 
-### Use Built-in Diagnostics
-
+For the stdio agent used by IDEs:
 ```bash
-# Run full diagnostics
-muster diagnostics --comprehensive
-
-# Test specific components
-muster diagnostics agent
-muster diagnostics mcpservers
-muster diagnostics network
-muster diagnostics auth
-
-# Generate diagnostic report
-muster diagnostics --report --output /tmp/muster-diagnostics.html
-```
-
-### Performance Profiling
-
-```bash
-# Profile performance
-muster profile --duration 120s --output /tmp/muster-profile.json
-
-# Monitor in real-time
-muster monitor --real-time
-
-# Analyze performance bottlenecks
-muster analyze performance --recent 1h
-```
-
-### Advanced Debugging
-
-#### Debug AI Agent Communication
-
-```bash
-# Enable MCP debugging
-export MCP_DEBUG=1
-
-# Trace agent messages
-muster agent --trace-messages
-
-# Log all agent interactions
-muster configure agent-logging --all-interactions
-
-# Analyze agent conversation patterns
-muster analyze conversations --recent 24h
-```
-
-#### Debug Tool Execution
-
-```bash
-# Trace tool execution
-muster trace tool workflow_deploy_webapp \
-  --args '{"app_name": "test", "environment": "dev"}'
-
-# Debug workflow steps
-muster debug workflow workflow_deploy_webapp \
-  --step-by-step \
-  --pause-on-error
-
-# Mock tool execution for testing
-muster mock tool workflow_deploy_webapp \
-  --simulate-success \
-  --response-delay 5s
-```
-
-## Recovery Procedures
-
-### Emergency Recovery
-
-```bash
-# Emergency mode (minimal functionality)
-muster emergency-mode
-
-# Safe mode (disabled dangerous operations)
-muster safe-mode
-
-# Recovery mode (attempt automatic fixes)
-muster recovery-mode --auto-fix
-```
-
-### Backup and Restore
-
-```bash
-# Backup configuration
-muster backup config --output /backup/muster-config-$(date +%Y%m%d).tar.gz
-
-# Backup workflows
-muster backup workflows --output /backup/muster-workflows-$(date +%Y%m%d).tar.gz
-
-# Restore from backup
-muster restore --from /backup/muster-config-20240115.tar.gz
-
-# Test after restore
-muster test --comprehensive
-```
-
-### Reset Procedures
-
-```bash
-# Soft reset (clear cache, reload config)
-muster reset --soft
-
-# Hard reset (reset to defaults, keep user data)
-muster reset --hard
-
-# Factory reset (complete reset, lose all data)
-muster reset --factory --confirm-data-loss
-```
-
-## Prevention Strategies
-
-### Health Monitoring
-
-```yaml
-# ~/.config/muster/config.yaml
-monitoring:
-  health_checks:
-    interval: 30s
-    timeout: 10s
-    failure_threshold: 3
-
-  alerts:
-    email: admin@company.com
-    slack: "#platform-alerts"
-    webhooks:
-      - "https://monitoring.company.com/webhook/muster"
-
-  metrics:
-    enabled: true
-    export_interval: 60s
-    retention: 30d
-```
-
-### Automated Maintenance
-
-```bash
-# Set up automated maintenance
-muster configure maintenance \
-  --schedule "0 2 * * SUN" \
-  --tasks "cache-cleanup,log-rotation,health-check"
-
-# Configure automatic updates
-muster configure auto-update \
-  --channel stable \
-  --backup-before-update \
-  --test-after-update
-```
-
-### Proactive Monitoring
-
-```bash
-# Set up monitoring
-muster monitor setup \
-  --prometheus-endpoint http://prometheus:9090 \
-  --grafana-dashboard \
-  --alert-manager
-
-# Configure log aggregation
-muster logs configure \
-  --forwarding elk-stack.company.com:5044 \
-  --format json \
-  --include-metadata
+muster agent --mcp-server   # what your IDE launches; logs are suppressed in this mode
 ```
 
 ## Getting Additional Help
 
-### Built-in Help
-
 ```bash
-# Interactive troubleshooting
-muster troubleshoot --interactive
-
-# Get help for specific issues
-muster help troubleshoot connection-issues
-muster help troubleshoot performance-issues
-
-# Generate support bundle
-muster support-bundle --output /tmp/muster-support.zip
+muster --help
+muster <command> --help     # e.g. muster auth --help, muster list --help
 ```
-
-### Community Resources
 
 - **GitHub Issues**: [Report bugs and get help](https://github.com/giantswarm/muster/issues)
-- **Documentation**: [Complete troubleshooting reference](../reference/troubleshooting/)
-- **Discussions**: [Community troubleshooting forum](https://github.com/giantswarm/muster/discussions)
-
-### Enterprise Support
-
-```bash
-# Contact enterprise support
-muster support contact \
-  --priority high \
-  --include-diagnostics \
-  --include-logs
-
-# Schedule support session
-muster support schedule \
-  --type troubleshooting \
-  --duration 1h
-```
+- **Discussions**: [Community forum](https://github.com/giantswarm/muster/discussions)
 
 ## Related Documentation
 
 - [AI Agent Integration Guide](ai-agent-integration.md)
-- [Configuration Reference](../reference/configuration.md)
+- [Workflow Creation](workflow-creation.md)
 - [General Troubleshooting](troubleshooting.md)

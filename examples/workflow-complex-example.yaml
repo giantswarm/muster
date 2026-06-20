@@ -26,22 +26,22 @@ spec:
     - id: backup_database
       tool: db_backup
       args:
-        backup_name: "pre-migration-{{.migration_version}}"
-        retention: "{{.backup_retention}}"
+        backup_name: "pre-migration-{{.input.migration_version}}"
+        retention: "{{.input.backup_retention}}"
       store: true
 
     - id: validate_migration
       tool: db_validate_migration
       args:
-        version: "{{.migration_version}}"
-        dry_run: "{{.dry_run}}"
+        version: "{{.input.migration_version}}"
+        dry_run: "{{.input.dry_run}}"
       store: true
 
     - id: apply_migration
       tool: db_apply_migration
       args:
-        version: "{{.migration_version}}"
-        dry_run: "{{.dry_run}}"
+        version: "{{.input.migration_version}}"
+        dry_run: "{{.input.dry_run}}"
       store: true
       allowFailure: true
 

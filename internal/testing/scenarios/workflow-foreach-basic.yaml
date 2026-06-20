@@ -1,0 +1,106 @@
+name: "workflow-foreach-basic"
+description: "forEach loop executes its body once per list item, binding each item to the loop variable, and records one step entry per iteration"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "foreach", "control-flow", "loop", "core-api"]
+timeout: "2m"
+
+pre_configuration:
+  mcp_servers:
+  - name: "echo-provider"
+    config:
+      tools:
+      - name: "echo"
+        responses: [ { response: { said: "{{ .text }}" } } ]
+
+steps:
+# A forEach over a single-element list lets us assert the exact rendered value
+# of the loop variable for that one iteration.
+- id: "create-foreach-single"
+  tool: "core_workflow_create"
+  args:
+    name: "foreach-single"
+    args:
+      names: { type: "array", required: true }
+    steps:
+      - id: "loop"
+        forEach:
+          items: "{{ .input.names }}"
+          as: "name"
+          steps:
+            - id: "process"
+              tool: "x_echo-provider_echo"
+              args: { text: "processed: {{ .vars.name }}" }
+              store: true
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "foreach-single" }
+
+- id: "run-foreach-single"
+  tool: "workflow_foreach-single"
+  args:
+    names: ["solo"]
+  expected:
+    success: true
+    json_path:
+      status: "completed"
+      workflow: "foreach-single"
+      steps.0.id: "process"
+      steps.0.status: "completed"
+      steps.0.result.said: "processed: solo"
+
+# A forEach over a three-element list produces exactly three completed step
+# entries (one per iteration), and the loop variable tracks each item.
+- id: "create-foreach-multi"
+  tool: "core_workflow_create"
+  args:
+    name: "foreach-multi"
+    args:
+      names: { type: "array", required: true }
+    steps:
+      - id: "loop"
+        forEach:
+          items: "{{ .input.names }}"
+          as: "name"
+          steps:
+            - id: "process"
+              tool: "x_echo-provider_echo"
+              args: { text: "item={{ .vars.name }}" }
+              store: true
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "foreach-multi" }
+
+- id: "run-foreach-multi"
+  tool: "workflow_foreach-multi"
+  args:
+    names: ["alpha", "beta", "gamma"]
+  expected:
+    success: true
+    json_path:
+      status: "completed"
+      steps.0.id: "process"
+      steps.0.status: "completed"
+      steps.1.id: "process"
+      steps.1.status: "completed"
+      steps.2.id: "process"
+      steps.2.status: "completed"
+    # The loop bound every item; the final iteration rendered "gamma".
+    contains: ["item=gamma"]
+
+# An empty list yields zero iterations: the workflow completes with no
+# iteration step entries.
+- id: "run-foreach-empty"
+  tool: "workflow_foreach-multi"
+  args:
+    names: []
+  expected:
+    success: true
+    json_path:
+      status: "completed"
+      workflow: "foreach-multi"
+    not_contains: ["\"id\":\"process\""]

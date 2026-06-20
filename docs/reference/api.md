@@ -507,7 +507,7 @@ Create a new workflow definition.
           "tool": "core_service_start",
           "description": "Start the service",
           "args": {
-            "name": "{{.service_name}}"
+            "name": "{{ .input.service_name }}"
           }
         },
         {
@@ -515,7 +515,7 @@ Create a new workflow definition.
           "tool": "core_service_status",
           "description": "Verify service is healthy",
           "args": {
-            "name": "{{.service_name}}"
+            "name": "{{ .input.service_name }}"
           }
         }
       ]
