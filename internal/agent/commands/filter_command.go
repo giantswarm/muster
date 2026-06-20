@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -25,7 +26,12 @@ func NewFilterCommand(client ClientInterface, output OutputLogger, transport Tra
 	}
 }
 
-// Execute filters tools based on patterns
+// Execute filters tools based on the discovery-tier options.
+//
+// After the "tools" target, options are given as key=value pairs (pattern,
+// description, query, labels, case_sensitive, detailed, limit, offset). A bare
+// argument with no "=" is treated as the name pattern, so the common
+// "filter tools core_*" shorthand keeps working.
 func (f *FilterCommand) Execute(ctx context.Context, args []string) error {
 	parsed, err := f.parseArgs(args, 1, f.Usage())
 	if err != nil {
@@ -37,42 +43,100 @@ func (f *FilterCommand) Execute(ctx context.Context, args []string) error {
 		return f.validateTarget(target, []string{api.FieldTools})
 	}
 
-	// Get pattern and description filter from args
-	var pattern, descriptionFilter string
-	var caseSensitive, detailed bool
-
-	if len(parsed) > 1 {
-		pattern = parsed[1]
-	}
-	if len(parsed) > 2 {
-		descriptionFilter = parsed[2]
-	}
-	if len(parsed) > 3 {
-		caseSensitive, _ = strconv.ParseBool(parsed[3])
-	}
-	if len(parsed) > 4 {
-		detailed, _ = strconv.ParseBool(parsed[4])
+	toolArgs, detailed, err := f.buildFilterArgs(parsed[1:])
+	if err != nil {
+		return err
 	}
 
-	return f.filterTools(ctx, pattern, descriptionFilter, caseSensitive, detailed)
+	return f.filterTools(ctx, toolArgs, detailed)
 }
 
-// filterTools filters tools by calling the filter_tools meta-tool.
-// This returns actual tools (core_*, x_*, workflow_*) rather than meta-tools.
-func (f *FilterCommand) filterTools(ctx context.Context, pattern, descriptionFilter string, caseSensitive bool, detailed bool) error {
-	// Build args for the filter_tools meta-tool
-	toolArgs := map[string]interface{}{
-		"case_sensitive": caseSensitive,
-		"include_schema": detailed,
-	}
-	if pattern != "" {
-		toolArgs["pattern"] = pattern
-	}
-	if descriptionFilter != "" {
-		toolArgs["description_filter"] = descriptionFilter
+// buildFilterArgs translates REPL key=value options into filter_tools arguments.
+// It returns the argument map, whether full detail (schemas) was requested, and
+// any parse error. A bare token (no "=") is treated as the name pattern.
+func (f *FilterCommand) buildFilterArgs(rest []string) (map[string]interface{}, bool, error) {
+	toolArgs := make(map[string]interface{})
+	detailed := false
+
+	for _, arg := range rest {
+		key, value, hasEq := strings.Cut(arg, "=")
+		if !hasEq {
+			if _, ok := toolArgs["pattern"]; !ok {
+				toolArgs["pattern"] = arg
+			}
+			continue
+		}
+		value = stripQuotes(value)
+
+		switch strings.ToLower(key) {
+		case "pattern":
+			toolArgs["pattern"] = value
+		case "description", "description_filter":
+			toolArgs["description_filter"] = value
+		case "query":
+			toolArgs["query"] = value
+		case "labels":
+			labels, err := parseLabelSelector(value)
+			if err != nil {
+				return nil, false, err
+			}
+			toolArgs["labels"] = labels
+		case "case_sensitive", "case":
+			b, err := strconv.ParseBool(value)
+			if err != nil {
+				return nil, false, fmt.Errorf("case_sensitive must be true or false: %w", err)
+			}
+			toolArgs["case_sensitive"] = b
+		case "detailed", "include_schema":
+			b, err := strconv.ParseBool(value)
+			if err != nil {
+				return nil, false, fmt.Errorf("%s must be true or false: %w", key, err)
+			}
+			toolArgs["include_schema"] = b
+			detailed = b
+		case "limit":
+			n, err := strconv.Atoi(value)
+			if err != nil {
+				return nil, false, fmt.Errorf("limit must be a number: %w", err)
+			}
+			toolArgs["limit"] = n
+		case "offset":
+			n, err := strconv.Atoi(value)
+			if err != nil {
+				return nil, false, fmt.Errorf("offset must be a number: %w", err)
+			}
+			toolArgs["offset"] = n
+		default:
+			f.output.Debug("Ignoring unknown filter option: %s", key)
+		}
 	}
 
-	// Call the filter_tools meta-tool
+	return toolArgs, detailed, nil
+}
+
+// parseLabelSelector parses a "key=value,key2=value2" label selector into a map.
+func parseLabelSelector(s string) (map[string]string, error) {
+	labels := make(map[string]string)
+	for _, pair := range strings.Split(s, ",") {
+		pair = strings.TrimSpace(pair)
+		if pair == "" {
+			continue
+		}
+		k, v, ok := strings.Cut(pair, "=")
+		if !ok {
+			return nil, fmt.Errorf("label %q must be key=value", pair)
+		}
+		labels[strings.TrimSpace(k)] = strings.TrimSpace(v)
+	}
+	if len(labels) == 0 {
+		return nil, fmt.Errorf("labels must contain at least one key=value pair")
+	}
+	return labels, nil
+}
+
+// filterTools calls the filter_tools meta-tool and renders the response.
+// This returns actual tools (core_*, x_*, workflow_*) rather than meta-tools.
+func (f *FilterCommand) filterTools(ctx context.Context, toolArgs map[string]interface{}, detailed bool) error {
 	result, err := f.client.CallTool(ctx, metatools.ToolFilterTools, toolArgs)
 	if err != nil {
 		return fmt.Errorf("failed to filter tools: %w", err)
@@ -88,67 +152,99 @@ func (f *FilterCommand) filterTools(ctx context.Context, pattern, descriptionFil
 		return nil
 	}
 
-	// Parse the JSON response from filter_tools
 	for _, content := range result.Content {
-		if textContent, ok := mcp.AsTextContent(content); ok {
-			var response metatools.FilterToolsResponse
+		textContent, ok := mcp.AsTextContent(content)
+		if !ok {
+			continue
+		}
 
-			if err := json.Unmarshal([]byte(textContent.Text), &response); err != nil {
-				// Not JSON, just output the raw text
-				f.output.OutputLine("%s", textContent.Text)
-				return nil
-			}
-
-			// Show filter details
-			if pattern != "" || descriptionFilter != "" {
-				f.output.Info("Filtering tools with:")
-				if pattern != "" {
-					f.output.Info("  Pattern: %s", pattern)
-				}
-				if descriptionFilter != "" {
-					f.output.Info("  Description filter: %s", descriptionFilter)
-				}
-				f.output.Info("  Case sensitive: %t", caseSensitive)
-				f.output.Info("Results: %d of %d tools match", response.FilteredCount, response.TotalTools)
-			}
-
-			if len(response.Tools) == 0 {
-				f.output.OutputLine("No tools match the specified filters.")
-				return nil
-			}
-
-			// Display matching tools - brief mode by default for better CLI UX
-			if detailed {
-				// Detailed mode - show full specifications (optional)
-				f.output.OutputLine("\nFiltered Tools with Full Specifications:")
-				f.output.OutputLine("%s", strings.Repeat("=", 60))
-
-				for i, tool := range response.Tools {
-					f.output.OutputLine("\n%d. %s", i+1, tool.Name)
-					f.output.OutputLine("   Description: %s", toolText(tool))
-					if tool.InputSchema != nil {
-						if schemaJSON, err := json.MarshalIndent(tool.InputSchema, "  ", "  "); err == nil {
-							f.output.OutputLine("   Schema: %s", string(schemaJSON))
-						}
-					}
-					if i < len(response.Tools)-1 {
-						f.output.OutputLine("%s", strings.Repeat("-", 40))
-					}
-				}
-			} else {
-				// Brief mode - show simple list (default for good CLI UX)
-				f.output.OutputLine("\nMatching tools:")
-				for i, tool := range response.Tools {
-					f.output.OutputLine("  %d. %-30s - %s", i+1, tool.Name, toolText(tool))
-				}
-			}
-
+		var response metatools.FilterToolsResponse
+		if err := json.Unmarshal([]byte(textContent.Text), &response); err != nil {
+			// Not JSON, just output the raw text
+			f.output.OutputLine("%s", textContent.Text)
 			return nil
 		}
+
+		f.renderResponse(response, detailed)
+		return nil
 	}
 
 	f.output.OutputLine("No tools available to filter")
 	return nil
+}
+
+// renderResponse prints the applied filters, the match/page counts, and the
+// matching tools (brief by default, full specifications when detailed).
+func (f *FilterCommand) renderResponse(response metatools.FilterToolsResponse, detailed bool) {
+	f.printFilterSummary(response)
+
+	if len(response.Tools) == 0 {
+		f.output.OutputLine("No tools match the specified filters.")
+		return
+	}
+
+	if detailed {
+		f.output.OutputLine("\nFiltered Tools with Full Specifications:")
+		f.output.OutputLine("%s", strings.Repeat("=", 60))
+
+		for i, tool := range response.Tools {
+			f.output.OutputLine("\n%d. %s", i+1, tool.Name)
+			f.output.OutputLine("   Description: %s", toolText(tool))
+			if len(tool.Labels) > 0 {
+				f.output.OutputLine("   Labels: %s", formatLabels(tool.Labels))
+			}
+			if tool.InputSchema != nil {
+				if schemaJSON, err := json.MarshalIndent(tool.InputSchema, "  ", "  "); err == nil {
+					f.output.OutputLine("   Schema: %s", string(schemaJSON))
+				}
+			}
+			if i < len(response.Tools)-1 {
+				f.output.OutputLine("%s", strings.Repeat("-", 40))
+			}
+		}
+		return
+	}
+
+	f.output.OutputLine("\nMatching tools:")
+	for i, tool := range response.Tools {
+		line := fmt.Sprintf("  %d. %-30s - %s", i+1, tool.Name, toolText(tool))
+		if tool.Score > 0 {
+			line += fmt.Sprintf("  [score %.2f]", tool.Score)
+		}
+		if len(tool.Labels) > 0 {
+			line += fmt.Sprintf("  {%s}", formatLabels(tool.Labels))
+		}
+		f.output.OutputLine("%s", line)
+	}
+}
+
+// printFilterSummary reports the applied filters and an accurate match/page
+// count. The page (len(Tools)) is shown against Total (matches across the whole
+// catalogue) and TotalTools (catalogue size); when more matches exist beyond the
+// page, it prints how to fetch them.
+func (f *FilterCommand) printFilterSummary(response metatools.FilterToolsResponse) {
+	filters := response.Filters
+	if filters.Pattern != "" || filters.DescriptionFilter != "" || filters.Query != "" || len(filters.Labels) > 0 {
+		f.output.Info("Filtering tools with:")
+		if filters.Pattern != "" {
+			f.output.Info("  Pattern: %s", filters.Pattern)
+		}
+		if filters.DescriptionFilter != "" {
+			f.output.Info("  Description filter: %s", filters.DescriptionFilter)
+		}
+		if filters.Query != "" {
+			f.output.Info("  Query: %s", filters.Query)
+		}
+		if len(filters.Labels) > 0 {
+			f.output.Info("  Labels: %s", formatLabels(filters.Labels))
+		}
+		f.output.Info("  Case sensitive: %t", filters.CaseSensitive)
+	}
+
+	f.output.Info("Showing %d of %d matching tool(s) (catalogue: %d)", len(response.Tools), response.Total, response.TotalTools)
+	if response.Truncated {
+		f.output.Info("More matches available — narrow the filters or page with offset=%d", filters.Offset+len(response.Tools))
+	}
 }
 
 // toolText returns the human-readable line for a filtered tool, preferring the
@@ -160,25 +256,41 @@ func toolText(tool metatools.ToolInfo) string {
 	return tool.Summary
 }
 
+// formatLabels renders a label map as a stable, comma-separated key=value list.
+func formatLabels(labels map[string]string) string {
+	pairs := make([]string, 0, len(labels))
+	for k, v := range labels {
+		pairs = append(pairs, fmt.Sprintf("%s=%s", k, v))
+	}
+	sort.Strings(pairs)
+	return strings.Join(pairs, ", ")
+}
+
 // Usage returns the usage string
 func (f *FilterCommand) Usage() string {
-	return "filter tools [pattern] [description-filter] [case-sensitive] [detailed]"
+	return "filter tools [pattern] [key=value ...] - keys: pattern, description, query, labels (k=v,k2=v2), case_sensitive, detailed, limit, offset"
 }
 
 // Description returns the command description
 func (f *FilterCommand) Description() string {
-	return "Filter tools by name pattern or description"
+	return "Discover tools by name pattern, description, labels, or a ranked query"
+}
+
+// filterOptionKeys are the key=value option names offered as REPL completions.
+var filterOptionKeys = []string{
+	"pattern=", "description=", "query=", "labels=",
+	"case_sensitive=", "detailed=", "limit=", "offset=",
 }
 
 // Completions returns possible completions
 func (f *FilterCommand) Completions(input string) []string {
 	parts := strings.Fields(input)
 
-	if len(parts) == 1 {
+	if len(parts) <= 1 {
 		return []string{api.FieldTools}
 	}
 
-	return []string{}
+	return filterOptionKeys
 }
 
 // Aliases returns command aliases
