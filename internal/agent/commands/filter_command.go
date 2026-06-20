@@ -61,9 +61,10 @@ func (f *FilterCommand) buildFilterArgs(rest []string) (map[string]interface{}, 
 	for _, arg := range rest {
 		key, value, hasEq := strings.Cut(arg, "=")
 		if !hasEq {
-			if _, ok := toolArgs["pattern"]; !ok {
-				toolArgs["pattern"] = arg
+			if _, ok := toolArgs["pattern"]; ok {
+				return nil, false, fmt.Errorf("unexpected argument %q: options are now key=value pairs (%s); only the name pattern may be given without a key", arg, strings.Join(filterOptionKeys, ", "))
 			}
+			toolArgs["pattern"] = arg
 			continue
 		}
 		value = stripQuotes(value)
@@ -107,7 +108,7 @@ func (f *FilterCommand) buildFilterArgs(rest []string) (map[string]interface{}, 
 			}
 			toolArgs["offset"] = n
 		default:
-			f.output.Debug("Ignoring unknown filter option: %s", key)
+			return nil, false, fmt.Errorf("unknown filter option %q: valid options are %s", key, strings.Join(filterOptionKeys, ", "))
 		}
 	}
 
@@ -205,17 +206,35 @@ func (f *FilterCommand) renderResponse(response metatools.FilterToolsResponse, d
 		return
 	}
 
+	// Tools are already returned best-first when ranked, so the order conveys
+	// relevance; we omit the raw BM25 score here as it is unbounded and not
+	// meaningful to a human (it stays in the JSON response for programmatic use).
+	width := nameColumnWidth(response.Tools)
 	f.output.OutputLine("\nMatching tools:")
 	for i, tool := range response.Tools {
-		line := fmt.Sprintf("  %d. %-30s - %s", i+1, tool.Name, toolText(tool))
-		if tool.Score > 0 {
-			line += fmt.Sprintf("  [score %.2f]", tool.Score)
-		}
+		line := fmt.Sprintf("  %d. %-*s - %s", i+1, width, tool.Name, toolText(tool))
 		if len(tool.Labels) > 0 {
 			line += fmt.Sprintf("  {%s}", formatLabels(tool.Labels))
 		}
 		f.output.OutputLine("%s", line)
 	}
+}
+
+// nameColumnWidth returns the column width for tool names in brief mode: the
+// longest name on the page, capped so a single very long name cannot push the
+// description column off the screen.
+func nameColumnWidth(tools []metatools.ToolInfo) int {
+	const maxWidth = 50
+	width := 0
+	for _, tool := range tools {
+		if n := len(tool.Name); n > width {
+			width = n
+		}
+	}
+	if width > maxWidth {
+		return maxWidth
+	}
+	return width
 }
 
 // printFilterSummary reports the applied filters and an accurate match/page
@@ -276,10 +295,11 @@ func (f *FilterCommand) Description() string {
 	return "Discover tools by name pattern, description, labels, or a ranked query"
 }
 
-// filterOptionKeys are the key=value option names offered as REPL completions.
+// filterOptionKeys are the canonical key=value option names. They are the single
+// source of truth for error messages and REPL completions.
 var filterOptionKeys = []string{
-	"pattern=", "description=", "query=", "labels=",
-	"case_sensitive=", "detailed=", "limit=", "offset=",
+	"pattern", "description", "query", "labels",
+	"case_sensitive", "detailed", "limit", "offset",
 }
 
 // Completions returns possible completions
@@ -290,7 +310,21 @@ func (f *FilterCommand) Completions(input string) []string {
 		return []string{api.FieldTools}
 	}
 
-	return filterOptionKeys
+	// Offer only option keys that have not been supplied yet.
+	used := make(map[string]struct{})
+	for _, part := range parts[1:] {
+		if key, _, ok := strings.Cut(part, "="); ok {
+			used[strings.ToLower(key)] = struct{}{}
+		}
+	}
+
+	completions := make([]string, 0, len(filterOptionKeys))
+	for _, key := range filterOptionKeys {
+		if _, seen := used[key]; !seen {
+			completions = append(completions, key+"=")
+		}
+	}
+	return completions
 }
 
 // Aliases returns command aliases

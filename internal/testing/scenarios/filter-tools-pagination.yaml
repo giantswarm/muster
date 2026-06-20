@@ -1,0 +1,98 @@
+name: "filter-tools-pagination"
+description: "filter_tools paginates discovery with limit/offset and reports total matches across the catalogue plus a truncated flag signalling more pages (#868)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["metatools", "filter_tools", "discovery", "pagination", "limit", "offset"]
+timeout: "5m"
+
+# Pagination acceptance for #868:
+#
+# Given: A server exposes six tools that all match a single name pattern.
+# When:  filter_tools is paged with limit/offset.
+# Then:  `total` always reports the six catalogue-wide matches, `filtered_count`
+#        equals the returned page size, and `truncated` is true only while more
+#        matches exist beyond the returned page.
+
+pre_configuration:
+  mcp_servers:
+    - name: "pageserver"
+      config:
+        tools:
+          - name: "page_a"
+            description: "Paged discovery tool A."
+            responses: [{ response: { ok: true } }]
+          - name: "page_b"
+            description: "Paged discovery tool B."
+            responses: [{ response: { ok: true } }]
+          - name: "page_c"
+            description: "Paged discovery tool C."
+            responses: [{ response: { ok: true } }]
+          - name: "page_d"
+            description: "Paged discovery tool D."
+            responses: [{ response: { ok: true } }]
+          - name: "page_e"
+            description: "Paged discovery tool E."
+            responses: [{ response: { ok: true } }]
+          - name: "page_f"
+            description: "Paged discovery tool F."
+            responses: [{ response: { ok: true } }]
+
+steps:
+  - id: "wait-for-mock-server"
+    description: "Ensure all six tools are registered before paging"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["pageserver"]
+
+  # First page: two of six, more remain -> truncated.
+  - id: "first-page-truncated"
+    description: "limit=2 offset=0 returns the first page and flags more pages"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_tools"
+      arguments:
+        pattern: "x_pageserver_*"
+        limit: 2
+        offset: 0
+    expected:
+      success: true
+      json_path:
+        total: 6
+        filtered_count: 2
+        truncated: true
+
+  # Final page: offset 4 leaves exactly two, nothing beyond -> not truncated.
+  - id: "final-page-not-truncated"
+    description: "limit=2 offset=4 returns the last page with no further matches"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_tools"
+      arguments:
+        pattern: "x_pageserver_*"
+        limit: 2
+        offset: 4
+    expected:
+      success: true
+      json_path:
+        total: 6
+        filtered_count: 2
+        truncated: false
+
+  # A page large enough to hold every match is never truncated.
+  - id: "whole-catalogue-page"
+    description: "A limit above the match count returns all matches, untruncated"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_tools"
+      arguments:
+        pattern: "x_pageserver_*"
+        limit: 50
+    expected:
+      success: true
+      json_path:
+        total: 6
+        filtered_count: 6
+        truncated: false

@@ -151,6 +151,10 @@ type MCPServerConfig struct {
 type WorkflowConfig struct {
 	// Name is the unique identifier for the workflow
 	Name string `yaml:"name"`
+	// Labels are written to the Workflow CRD's metadata.labels. They are
+	// propagated onto the workflow's execution tool and are filterable by the
+	// discovery tier (filter_tools labels facet).
+	Labels map[string]string `yaml:"labels,omitempty"`
 	// Config contains the workflow definition
 	Config map[string]interface{} `yaml:"config"`
 }

@@ -1,0 +1,66 @@
+name: "filter-tools-query-ranking"
+description: "filter_tools query mode relevance-ranks matches with a lexical BM25 ranker, returns them best-first with a score, and drops tools that match no query term (#868)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["metatools", "filter_tools", "discovery", "ranking", "query", "bm25"]
+timeout: "5m"
+
+# Ranked-query acceptance for #868:
+#
+# Given: A server exposes tools of mixed relevance to a query.
+# When:  filter_tools is called with a natural-language `query`.
+# Then:  Tools matching at least one query term are returned best-first with a
+#        score, the most relevant tool ranks first, and tools matching no query
+#        term are dropped (the query narrows, it does not merely reorder).
+
+pre_configuration:
+  mcp_servers:
+    - name: "rank"
+      config:
+        tools:
+          - name: "prometheus_query_range"
+            description: "Query Prometheus metrics over a time range."
+            responses: [{ response: { ok: true } }]
+          - name: "metrics_overview"
+            description: "Show a metrics summary."
+            responses: [{ response: { ok: true } }]
+          - name: "service_restart"
+            description: "Restart a running service."
+            responses: [{ response: { ok: true } }]
+          - name: "grafana_dashboard"
+            description: "Fetch a Grafana monitoring dashboard."
+            responses: [{ response: { ok: true } }]
+
+steps:
+  - id: "wait-for-mock-server"
+    description: "Ensure the ranking corpus is registered before querying"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["rank"]
+
+  - id: "ranked-query"
+    description: "A query ranks the strongest match first, scores results, and drops non-matches"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_tools"
+      arguments:
+        query: "prometheus metrics query"
+        pattern: "x_rank_*"
+    expected:
+      success: true
+      # Strongest match (3 query terms) ranks ahead of the weak one (1 term).
+      json_path:
+        total: 2
+        filtered_count: 2
+        truncated: false
+        tools.0.name: "x_rank_prometheus_query_range"
+        tools.1.name: "x_rank_metrics_overview"
+      # Ranked results carry a score; tools matching no query term are dropped.
+      contains:
+        - "score"
+      not_contains:
+        - "x_rank_service_restart"
+        - "x_rank_grafana_dashboard"

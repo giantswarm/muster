@@ -1592,14 +1592,22 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 
 			for _, workflow := range config.Workflows {
 				// Create Workflow CRD structure with proper conversion
+				metadata := map[string]interface{}{
+					"name":      workflow.Name,
+					"namespace": "default",
+				}
+				if len(workflow.Labels) > 0 {
+					labels := make(map[string]interface{}, len(workflow.Labels))
+					for k, v := range workflow.Labels {
+						labels[k] = v
+					}
+					metadata["labels"] = labels
+				}
 				workflowCRD := map[string]interface{}{
 					"apiVersion": "muster.giantswarm.io/v1alpha1",
 					"kind":       "Workflow",
-					"metadata": map[string]interface{}{
-						"name":      workflow.Name,
-						"namespace": "default",
-					},
-					"spec": m.convertWorkflowConfigToCRDSpec(workflow.Config),
+					"metadata":   metadata,
+					"spec":       m.convertWorkflowConfigToCRDSpec(workflow.Config),
 				}
 
 				filename := filepath.Join(crdDir, workflow.Name+".yaml")
