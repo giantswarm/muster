@@ -2,7 +2,7 @@
 #
 #    devctl
 #
-#    https://github.com/giantswarm/devctl/blob/44bc44044fa7af78dbf25377fa8a080cf3143c70/pkg/gen/input/workflows/internal/file/cliff.toml.template
+#    https://github.com/giantswarm/devctl/blob/d8ce2f1314947fcce5168f4d2d23d826a6c47311/pkg/gen/input/workflows/internal/file/cliff.toml.template
 #
 # git-cliff config for the push-based auto-release flow.
 #
@@ -18,6 +18,13 @@
 features_always_bump_minor = true
 # `feat!:`/`BREAKING CHANGE` always bumps major.
 breaking_always_bump_major = true
+# First release in a repo with no tags yet. git-cliff defaults this to
+# "0.1.0" (no prefix); we pin it to "v0.1.0" because the whole giantswarm
+# stack (architect's /^v.*/ tag filter, the auto-release workflow's
+# `--match='v*.*.*'` describe, gitsemver) expects the leading `v`. Once any
+# v*.*.* tag exists, git-cliff carries that prefix forward on every bump, so
+# this only governs the inception release.
+initial_tag = "v0.1.0"
 
 [git]
 conventional_commits = true
@@ -25,10 +32,38 @@ conventional_commits = true
 # unclassified work -- the bump-decider should only act on intent-bearing
 # commits.
 filter_unconventional = true
-# Highest-version tag (not creation date) is the baseline when computing what
-# changed since last release.
+# Changelog presentation order. `topo_order = false` orders releases
+# chronologically (by tag date); `sort_commits = "oldest"` lists the commits
+# within each release oldest-first.
 topo_order = false
 sort_commits = "oldest"
+
+# Scope `--bump`'s baseline to the current branch. This is load-bearing for
+# two reasons:
+#
+#   1. Backports. The auto-release workflow also fires on `release-*`
+#      maintenance branches. Without this, git-cliff's `--bump` picks the
+#      GLOBALLY highest-semver tag in the repo regardless of reachability --
+#      so a fix on `release-2.x` would bump from v3.1.0 (latest on main) and
+#      tag v3.1.1 ON the 2.x line instead of the intended v2.8.1. With
+#      `use_branch_tags`, git-cliff only considers tags reachable from the
+#      checked-out branch, so the 2.x line correctly bumps from v2.8.0.
+#
+#   2. Stray tags on side branches. A pre-release/preview tag created on an
+#      unmerged branch (e.g. someone tags v1.2.9-dev.0 on a `bump/*` branch)
+#      is the global semver max but is NOT reachable from main. Without this,
+#      it silently becomes the baseline for every subsequent main release and,
+#      because bumping a pre-release only increments the pre-release counter,
+#      a real `feat:` on main produces v1.2.9-dev.1 instead of v1.3.0.
+#      Branch-scoped tags exclude it.
+use_branch_tags = true
+
+# Belt-and-suspenders for the pre-release case above: drop `-dev`/`-rc`/etc.
+# tags from `--bump`'s consideration entirely. `use_branch_tags` only excludes
+# a stray pre-release tag when it lives on a SIDE branch; if one is ever
+# created directly on a release branch it would be reachable, and only this
+# filter keeps it from poisoning the version line.
+ignore_tags = '.*-(dev|rc|alpha|beta)\..*'
 
 # Strip the trailing " (#N)" that GitHub appends to squash-merge commit
 # messages. Our template renders the PR link explicitly via cliff's GitHub
