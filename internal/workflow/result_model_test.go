@@ -163,6 +163,32 @@ func TestWorkflowExecutor_OutputProjection(t *testing.T) {
 	assert.Equal(t, "a", nested["first"])
 }
 
+// coerceScalar turns numeric strings into numbers but must keep non-finite
+// floats ("NaN", "Inf", ...) as strings, otherwise json.Marshal of a projection
+// containing such a leaf would fail.
+func TestCoerceScalar(t *testing.T) {
+	cases := []struct {
+		in   string
+		want interface{}
+	}{
+		{"42", int64(42)},
+		{"3.14", float64(3.14)},
+		{"hello", "hello"},
+		{"NaN", "NaN"},
+		{"Inf", "Inf"},
+		{"+Inf", "+Inf"},
+		{"infinity", "infinity"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.in, func(t *testing.T) {
+			got := coerceScalar(tc.in)
+			assert.Equal(t, tc.want, got)
+			_, err := json.Marshal(got)
+			require.NoError(t, err, "coerced value must be JSON-marshalable")
+		})
+	}
+}
+
 // #875: condition jsonPath supports array indexing and template forms in
 // addition to legacy dotted paths.
 func TestWorkflowExecutor_JsonPathArrayIndexing(t *testing.T) {

@@ -2439,7 +2439,7 @@ func getWorkflowOnFailureSchema() map[string]interface{} {
 func getWorkflowOutputSchema() map[string]interface{} {
 	return map[string]interface{}{
 		api.SchemaKeyType:                 string(api.ArgTypeObject),
-		api.SchemaKeyDescription:          "Optional templated projection rendered once after all steps complete and returned in place of the default envelope. Each leaf is a Go-template/sprig expression evaluated against .input/.results/.vars, e.g. \"{{ .results.pods.items }}\" or \"{{ len .results.events.items }}\". JSON structure is preserved (numbers stay numbers, arrays stay arrays). Every step result is referenceable here regardless of its output flag.",
+		api.SchemaKeyDescription:          "Optional templated projection rendered once after all steps complete and returned in place of the default envelope. Each leaf is a Go-template/sprig expression evaluated against .input/.results/.vars, e.g. \"{{ .results.pods.items }}\" or \"{{ len .results.events.items }}\". JSON structure is preserved (numbers stay numbers, arrays stay arrays). A leaf that is a bare reference path keeps its original type; any other expression that renders to a numeric-looking string is coerced to a number, so wrap values whose string form must be preserved (leading zeros, versions, IDs) accordingly. Every step result is referenceable here regardless of its output flag.",
 		api.SchemaKeyAdditionalProperties: true,
 	}
 }

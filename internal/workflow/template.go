@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"fmt"
+	"math"
 	"regexp"
 	"slices"
 	"strconv"
@@ -206,12 +207,14 @@ func (we *WorkflowExecutor) renderProjectionValue(value interface{}, tctx map[st
 // coerceScalar converts a template-rendered string back to a number when it
 // cleanly represents one, so projections and expectations stay structured JSON.
 // Booleans are already handled by RenderGoTemplate. Non-numeric strings are
-// returned unchanged.
+// returned unchanged. Non-finite floats ("NaN", "Inf", "infinity") are kept as
+// strings because they cannot be marshalled to JSON and the literal text is
+// almost always what the workflow author meant.
 func coerceScalar(s string) interface{} {
 	if i, err := strconv.ParseInt(s, 10, 64); err == nil {
 		return i
 	}
-	if f, err := strconv.ParseFloat(s, 64); err == nil {
+	if f, err := strconv.ParseFloat(s, 64); err == nil && !math.IsInf(f, 0) && !math.IsNaN(f) {
 		return f
 	}
 	return s
