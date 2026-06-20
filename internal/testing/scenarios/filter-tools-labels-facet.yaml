@@ -1,0 +1,157 @@
+name: "filter-tools-labels-facet"
+description: "Workflow CRD metadata.labels are propagated onto the workflow execution tool and filter_tools scopes discovery to a labelled subset; a tool must carry every requested label to match (#868)"
+category: "behavioral"
+concept: "workflow"
+tags: ["metatools", "filter_tools", "discovery", "labels", "facet", "workflow"]
+timeout: "5m"
+
+# Label-facet acceptance for #868:
+#
+# Given: Workflows carry metadata.labels, propagated onto their execution tools.
+# When:  filter_tools is given a `labels` facet.
+# Then:  Only tools carrying every requested label match, the matched labels are
+#        surfaced on each result, and unlabelled / differently-labelled tools
+#        (including the backing MCP tool) are excluded.
+
+pre_configuration:
+  mcp_servers:
+    - name: "lbl"
+      config:
+        tools:
+          - name: "noop"
+            description: "A no-op tool the labelled workflows call."
+            responses: [{ response: { ok: true } }]
+
+  workflows:
+    - name: "wf-alpha"
+      labels:
+        category: "observability"
+      config:
+        name: "wf-alpha"
+        description: "Observability workflow alpha."
+        input_schema:
+          type: object
+          args: {}
+        steps:
+          - id: "s1"
+            tool: "x_lbl_noop"
+            args: {}
+    - name: "wf-beta"
+      labels:
+        category: "observability"
+        env: "prod"
+      config:
+        name: "wf-beta"
+        description: "Observability workflow beta, production-scoped."
+        input_schema:
+          type: object
+          args: {}
+        steps:
+          - id: "s1"
+            tool: "x_lbl_noop"
+            args: {}
+    - name: "wf-gamma"
+      labels:
+        category: "delivery"
+      config:
+        name: "wf-gamma"
+        description: "Delivery workflow gamma."
+        input_schema:
+          type: object
+          args: {}
+        steps:
+          - id: "s1"
+            tool: "x_lbl_noop"
+            args: {}
+
+steps:
+  - id: "wait-for-workflows"
+    description: "Ensure all three workflow execution tools are registered"
+    tool: "core_workflow_list"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["wf-alpha", "wf-beta", "wf-gamma"]
+
+  # Single label facet: matches every workflow carrying category=observability.
+  - id: "facet-single-label"
+    description: "A single label facet scopes discovery to the labelled subset"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_tools"
+      arguments:
+        labels:
+          category: "observability"
+    expected:
+      success: true
+      json_path:
+        total: 2
+      contains:
+        - "workflow_wf-alpha"
+        - "workflow_wf-beta"
+      not_contains:
+        - "workflow_wf-gamma"
+        - "x_lbl_noop"
+
+  # Multiple label facets: a tool must carry EVERY requested label.
+  - id: "facet-all-labels-required"
+    description: "A tool must carry all requested labels to match (AND semantics)"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_tools"
+      arguments:
+        labels:
+          category: "observability"
+          env: "prod"
+    expected:
+      success: true
+      json_path:
+        total: 1
+        tools.0.name: "workflow_wf-beta"
+        tools.0.labels.category: "observability"
+        tools.0.labels.env: "prod"
+      not_contains:
+        - "workflow_wf-alpha"
+        - "workflow_wf-gamma"
+
+  # A different facet value scopes to the other subset.
+  - id: "facet-other-value"
+    description: "A different label value scopes discovery to the delivery subset"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_tools"
+      arguments:
+        labels:
+          category: "delivery"
+    expected:
+      success: true
+      json_path:
+        total: 1
+        tools.0.name: "workflow_wf-gamma"
+      not_contains:
+        - "workflow_wf-alpha"
+        - "workflow_wf-beta"
+
+cleanup:
+  - id: "cleanup-wf-alpha"
+    tool: "core_workflow_delete"
+    args:
+      name: "wf-alpha"
+    expected:
+      success: true
+    continue_on_failure: true
+  - id: "cleanup-wf-beta"
+    tool: "core_workflow_delete"
+    args:
+      name: "wf-beta"
+    expected:
+      success: true
+    continue_on_failure: true
+  - id: "cleanup-wf-gamma"
+    tool: "core_workflow_delete"
+    args:
+      name: "wf-gamma"
+    expected:
+      success: true
+    continue_on_failure: true

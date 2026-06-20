@@ -73,7 +73,7 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 		},
 		{
 			Name:        "filter_tools",
-			Description: "Filter available tools based on name patterns or descriptions with full specifications",
+			Description: "Discover tools cheaply: filter by name pattern, description, or labels, optionally rank by a natural-language query, and get a bounded, summarised page. Full descriptions and schemas are omitted by default — use describe_tool for the authoritative detail of a chosen tool.",
 			Args: []api.ArgMetadata{
 				{
 					Name:        "pattern",
@@ -88,6 +88,18 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 					Description: "Filter by description content (case-insensitive substring match)",
 				},
 				{
+					Name:        "query",
+					Type:        api.ArgTypeString,
+					Required:    false,
+					Description: "Natural-language query. When set, matching tools are relevance-ranked (lexical BM25 over name + summary) and returned best-first with a score; non-matching tools are dropped.",
+				},
+				{
+					Name:        "labels",
+					Type:        api.ArgTypeObject,
+					Required:    false,
+					Description: "Label facets to scope discovery, as key=value pairs. A tool must carry every given label to match (e.g. {\"category\": \"observability\"}).",
+				},
+				{
 					Name:        "case_sensitive",
 					Type:        api.ArgTypeBoolean,
 					Required:    false,
@@ -98,8 +110,22 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 					Name:        "include_schema",
 					Type:        api.ArgTypeBoolean,
 					Required:    false,
-					Description: "Whether to include full tool specifications with input schemas (default: true)",
-					Default:     true,
+					Description: "Whether to include full input schemas and full descriptions instead of one-line summaries (default: false for cheap discovery)",
+					Default:     false,
+				},
+				{
+					Name:        "limit",
+					Type:        api.ArgTypeNumber,
+					Required:    false,
+					Description: "Maximum number of tools to return in this page (default: 25)",
+					Default:     defaultFilterLimit,
+				},
+				{
+					Name:        "offset",
+					Type:        api.ArgTypeNumber,
+					Required:    false,
+					Description: "Number of matching tools to skip before this page (default: 0)",
+					Default:     0,
 				},
 			},
 		},

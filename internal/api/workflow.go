@@ -21,6 +21,12 @@ type Workflow struct {
 	// Description provides human-readable documentation for the workflow's purpose
 	Description string `yaml:"description" json:"description"`
 
+	// Labels mirrors the Workflow CRD's metadata.labels. They are exposed as
+	// discovery facets on the workflow's execution tool so a client can scope a
+	// tool lookup to a labelled subset (e.g. by category) instead of dumping the
+	// whole catalogue.
+	Labels map[string]string `yaml:"labels,omitempty" json:"labels,omitempty"`
+
 	// Args defines the validation rules and metadata for workflow execution arguments.
 	// These definitions are used to validate arguments when executing workflows
 	// and to provide documentation for the workflow execution API.

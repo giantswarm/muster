@@ -59,6 +59,13 @@ const (
 	// TestToolRemoveMockTool dynamically removes a tool from a running mock MCP server.
 	// This triggers a notifications/tools/list_changed notification to all connected clients.
 	TestToolRemoveMockTool = "test_remove_mock_tool"
+	// TestToolCallMetaTool invokes a meta-tool (e.g. filter_tools, describe_tool,
+	// list_core_tools) directly on the aggregator MCP server. Meta-tools are
+	// registered as first-class MCP tools and are NOT reachable through the
+	// call_tool wrapper that the standard scenario path uses, so discovery-tier
+	// scenarios need this direct path. The meta-tool's JSON result is parsed and
+	// returned so scenarios can assert on it with json_path / contains.
+	TestToolCallMetaTool = "test_call_meta_tool"
 )
 
 // TestToolsHandler handles test-specific tools that operate on mock infrastructure.
@@ -171,7 +178,8 @@ func IsTestTool(toolName string) bool {
 		TestToolSimulateMusterReauth,
 		TestToolMusterAuthLogin,
 		TestToolAddMockTool,
-		TestToolRemoveMockTool:
+		TestToolRemoveMockTool,
+		TestToolCallMetaTool:
 		return true
 	}
 	return false
@@ -212,6 +220,8 @@ func (h *TestToolsHandler) HandleTestTool(ctx context.Context, toolName string, 
 		return h.handleAddMockTool(ctx, args)
 	case TestToolRemoveMockTool:
 		return h.handleRemoveMockTool(ctx, args)
+	case TestToolCallMetaTool:
+		return h.handleCallMetaTool(ctx, args)
 	default:
 		return nil, fmt.Errorf("unknown test tool: %s", toolName)
 	}
@@ -1646,4 +1656,63 @@ func (h *TestToolsHandler) handleRemoveMockTool(ctx context.Context, args map[st
 		api.FieldServer:  serverName,
 		"tool":           toolName,
 	}, nil
+}
+
+// handleCallMetaTool invokes a meta-tool directly on the aggregator MCP server,
+// bypassing the call_tool wrapper that the standard scenario path uses. This is
+// required because meta-tools (list_tools, describe_tool, filter_tools,
+// list_core_tools, ...) are registered as first-class MCP tools and are not
+// routed through call_tool / CallToolInternal.
+//
+// The meta-tool's JSON text result is parsed into a map so scenarios can assert
+// on structured fields (e.g. total, truncated, tools.0.name) via json_path, and
+// on raw substrings via contains / not_contains. When the meta-tool reports an
+// error, it is surfaced as a Go error so `expected.success: false` and
+// `error_contains` assertions work.
+//
+// Args:
+//   - tool: Required. Name of the meta-tool to invoke (e.g. "filter_tools").
+//   - arguments: Optional. Arguments object passed to the meta-tool.
+func (h *TestToolsHandler) handleCallMetaTool(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+	toolName, ok := args["tool"].(string)
+	if !ok || toolName == "" {
+		return nil, fmt.Errorf("tool argument is required")
+	}
+
+	var toolArgs map[string]interface{}
+	if raw, ok := args["arguments"].(map[string]interface{}); ok {
+		toolArgs = raw
+	}
+
+	client := h.GetCurrentClient()
+	if client == nil {
+		return nil, fmt.Errorf("no MCP client available")
+	}
+
+	result, err := client.CallToolDirect(ctx, toolName, toolArgs)
+	if err != nil {
+		return nil, fmt.Errorf("meta-tool %s call failed: %w", toolName, err)
+	}
+
+	var text strings.Builder
+	for _, content := range result.Content {
+		if tc, ok := mcp.AsTextContent(content); ok {
+			text.WriteString(tc.Text)
+		}
+	}
+
+	if result.IsError {
+		return nil, fmt.Errorf("meta-tool %s returned error: %s", toolName, text.String())
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(text.String()), &parsed); err != nil {
+		return nil, fmt.Errorf("meta-tool %s response is not a JSON object: %w (body: %s)", toolName, err, text.String())
+	}
+
+	if h.debug {
+		h.logger.Debug("🧪 meta-tool %s returned: %s\n", toolName, text.String())
+	}
+
+	return parsed, nil
 }

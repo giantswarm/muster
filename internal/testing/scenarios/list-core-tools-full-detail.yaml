@@ -1,0 +1,82 @@
+name: "list-core-tools-full-detail"
+description: "list_core_tools keeps its legacy full-detail listing (full descriptions and input schemas, no result cap) and is unaffected by the filter_tools discovery-tier defaults; it lists only core_* tools, not workflow execution tools (#868)"
+category: "behavioral"
+concept: "workflow"
+tags: ["metatools", "list_core_tools", "discovery", "regression"]
+timeout: "5m"
+
+# Backward-compatibility acceptance for #868:
+#
+# Given: The discovery tier changed filter_tools defaults (summaries, no schema,
+#        capped pages).
+# When:  list_core_tools is called.
+# Then:  It still returns full descriptions and input schemas with no result cap
+#        (legacy behaviour), scoped to core_* tools only; include_schema=false is
+#        honoured as a passthrough.
+
+pre_configuration:
+  workflows:
+    - name: "lct-sample"
+      config:
+        name: "lct-sample"
+        description: "A sample workflow that must NOT appear in list_core_tools."
+        input_schema:
+          type: object
+          args: {}
+        steps:
+          - id: "s1"
+            tool: "core_service_list"
+            args: {}
+
+steps:
+  - id: "wait-for-workflow"
+    description: "Ensure the sample workflow tool is registered"
+    tool: "core_workflow_list"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["lct-sample"]
+
+  # Default list_core_tools: full descriptions + schemas, no cap, core_* only.
+  - id: "list-core-full-detail"
+    description: "list_core_tools returns full schemas, is uncapped, and excludes workflow execution tools"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "list_core_tools"
+      arguments: {}
+    expected:
+      success: true
+      json_path:
+        truncated: false
+      contains:
+        - "core_workflow_list"
+        - "core_service_list"
+        - "core_mcpserver_list"
+        - "inputSchema"
+      not_contains:
+        - "workflow_lct-sample"
+
+  # include_schema=false is honoured as a passthrough (no schemas in the output).
+  - id: "list-core-without-schema"
+    description: "include_schema=false drops the input schemas while keeping the core tool listing"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "list_core_tools"
+      arguments:
+        include_schema: false
+    expected:
+      success: true
+      contains:
+        - "core_workflow_list"
+      not_contains:
+        - "inputSchema"
+
+cleanup:
+  - id: "cleanup-workflow"
+    tool: "core_workflow_delete"
+    args:
+      name: "lct-sample"
+    expected:
+      success: true
+    continue_on_failure: true

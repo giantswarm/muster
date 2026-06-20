@@ -36,3 +36,10 @@ const (
 	FieldLabel       = "label"
 	FieldID          = "id"
 )
+
+// MetaKeyLabels is the mcp.Tool._meta.AdditionalFields key under which muster
+// stashes a tool's discovery labels (currently sourced from Workflow CRD
+// labels). It is read in-process by the discovery tier (filter_tools) and is
+// never surfaced by list_tools / describe_tool, so existing callers are
+// unaffected.
+const MetaKeyLabels = "muster.giantswarm.io/labels"

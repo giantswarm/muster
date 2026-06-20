@@ -1,0 +1,100 @@
+name: "filter-tools-discovery-summary"
+description: "filter_tools is a cheap discovery tier: by default it returns bounded, summarised entries (one-line summary, no full description, no schema); include_schema=true and describe_tool restore the authoritative full detail (#868)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["metatools", "filter_tools", "discovery", "summary", "describe_tool"]
+timeout: "5m"
+
+# Discovery tier acceptance for #868:
+#
+# Given: An MCP server exposes tools with verbose, multi-line descriptions.
+# When:  filter_tools is called with the default (discovery) options.
+# Then:  Each tool is projected to a one-line, length-capped `summary` with the
+#        full description and input schema omitted, keeping the payload cheap.
+# And:   Opting into include_schema=true (or calling describe_tool) restores the
+#        authoritative full description and schema.
+
+pre_configuration:
+  mcp_servers:
+    - name: "discovery-obs"
+      config:
+        tools:
+          - name: "query_metrics"
+            description: "Query metrics from a Prometheus-style backend.\nFULLDETAILONLY this second line documents every edge case and must never leak into a discovery summary."
+            input_schema:
+              type: "object"
+              properties:
+                range: { type: "string" }
+            responses:
+              - response:
+                  ok: true
+          - name: "long_summary"
+            description: "This is a deliberately long single-line tool description written specifically to verify that the discovery tier truncates the one-line summary at its configured rune cap before the marker TAILMARKER appears."
+            input_schema:
+              type: "object"
+              properties:
+                value: { type: "string" }
+            responses:
+              - response:
+                  ok: true
+
+steps:
+  - id: "wait-for-mock-server"
+    description: "Ensure the mock server's tools are registered before discovery"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["discovery-obs"]
+
+  # Default discovery: summaries only, no full descriptions, no schema.
+  - id: "discover-summarised"
+    description: "Default filter_tools returns one-line summaries, no full description, no schema"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_tools"
+      arguments:
+        pattern: "x_discovery-obs_*"
+    expected:
+      success: true
+      json_path:
+        total: 2
+        filtered_count: 2
+        truncated: false
+      contains:
+        - "Query metrics from a Prometheus-style backend."
+        - "..."
+      not_contains:
+        - "FULLDETAILONLY"
+        - "TAILMARKER"
+        - "inputSchema"
+
+  # Opting into schema restores the full description and input schema.
+  - id: "discover-with-schema"
+    description: "include_schema=true restores full descriptions and input schemas"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_tools"
+      arguments:
+        pattern: "x_discovery-obs_*"
+        include_schema: true
+    expected:
+      success: true
+      contains:
+        - "FULLDETAILONLY"
+        - "TAILMARKER"
+        - "inputSchema"
+
+  # describe_tool remains the authoritative source of full detail for one tool.
+  - id: "describe-tool-authoritative"
+    description: "describe_tool still returns the full description for a chosen tool"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "describe_tool"
+      arguments:
+        name: "x_discovery-obs_query_metrics"
+    expected:
+      success: true
+      contains:
+        - "FULLDETAILONLY"
