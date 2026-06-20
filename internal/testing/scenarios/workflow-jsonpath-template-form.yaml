@@ -1,0 +1,93 @@
+name: "workflow-jsonpath-template-form"
+description: "Condition jsonPath expectations use the same unified expression language as step args: the full Go-template form with the condition result exposed as .result and array indexing via index, the bracketed bare-path form, expectation values templated from .input, and array indexing inside expectNot (issue #875)"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "condition", "jsonpath", "expression", "expectnot", "core-api"]
+timeout: "2m"
+
+pre_configuration:
+  mcp_servers:
+  - name: "list-mock"
+    config:
+      tools:
+      - name: "list"
+        responses: [ { response: { items: [ { name: "alpha" }, { name: "beta" } ] } } ]
+  - name: "echo-provider"
+    config:
+      tools:
+      - name: "echo"
+        responses: [ { response: { said: "{{ .text }}" } } ]
+
+steps:
+- id: "create-template-form-workflow"
+  tool: "core_workflow_create"
+  args:
+    name: "jsonpath-template-form"
+    args:
+      want: { type: "string", required: true }
+    steps:
+      # Full Go-template path form with index over the condition result (.result),
+      # exactly the syntax that works in step args. Matches -> runs.
+      - id: "template-index-match"
+        condition:
+          tool: "x_list-mock_list"
+          expect:
+            success: true
+            json_path:
+              "{{ (index .result.items 1).name }}": "beta"
+        tool: "x_echo-provider_echo"
+        args: { text: "template index ran" }
+        output: true
+      # Expectation value is templated from workflow input (cross-root access),
+      # asserted against a bracketed bare path. want=alpha -> matches -> runs.
+      - id: "value-from-input"
+        condition:
+          tool: "x_list-mock_list"
+          expect:
+            success: true
+            json_path:
+              "items[0].name": "{{ .input.want }}"
+        tool: "x_echo-provider_echo"
+        args: { text: "value-from-input ran" }
+        output: true
+      # expectNot with array indexing: items[0].name IS alpha, so the negative
+      # expectation matches and the step is skipped.
+      - id: "expectnot-skip"
+        condition:
+          tool: "x_list-mock_list"
+          expect_not:
+            success: true
+            json_path:
+              "items[0].name": "alpha"
+        tool: "x_echo-provider_echo"
+        args: { text: "should not run" }
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "jsonpath-template-form" }
+
+- id: "run-template-form-workflow"
+  tool: "workflow_jsonpath-template-form"
+  args:
+    want: "alpha"
+  expected:
+    success: true
+    json_path:
+      status: "completed"
+      steps.0.id: "template-index-match"
+      steps.0.status: "completed"
+      steps.0.condition_evaluation: true
+      steps.1.id: "value-from-input"
+      steps.1.status: "completed"
+      steps.1.condition_evaluation: true
+      steps.2.id: "expectnot-skip"
+      steps.2.status: "skipped"
+      steps.2.condition_evaluation: false
+
+cleanup:
+- id: "delete-template-form-workflow"
+  tool: "core_workflow_delete"
+  args: { name: "jsonpath-template-form" }
+  expected:
+    success: true

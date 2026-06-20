@@ -1,0 +1,78 @@
+name: "workflow-referenceable-composite"
+description: "forEach and parallel sub-step results are referenceable by later steps without any output/store flag: indexed forEach results (<id>_<index> and the plain last-iteration id) and parallel sibling results all flow into downstream steps purely by being recorded (issue #873)"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "foreach", "parallel", "output", "chaining", "core-api"]
+timeout: "3m"
+
+pre_configuration:
+  mcp_servers:
+  - name: "echo-provider"
+    config:
+      tools:
+      - name: "echo"
+        responses: [ { response: { said: "{{ .text }}" } } ]
+
+steps:
+- id: "create-composite-ref-workflow"
+  tool: "core_workflow_create"
+  args:
+    name: "composite-ref"
+    args:
+      items: { type: "array", required: true }
+    steps:
+      # forEach sub-step with NO output/store flag — results must still be
+      # recorded per iteration for later reference.
+      - id: "loop"
+        forEach:
+          items: "{{ .input.items }}"
+          as: "it"
+          steps:
+            - id: "make"
+              tool: "x_echo-provider_echo"
+              args: { text: "made-{{ .vars.it }}" }
+      # parallel siblings with NO output/store flag — merged results must be
+      # recorded after the join for later reference.
+      - id: "fan"
+        parallel:
+          - id: "pa"
+            tool: "x_echo-provider_echo"
+            args: { text: "branch-A" }
+          - id: "pb"
+            tool: "x_echo-provider_echo"
+            args: { text: "branch-B" }
+      # References indexed forEach results, the plain last-iteration result, and
+      # both parallel branch results — none of which set output/store.
+      - id: "summary"
+        tool: "x_echo-provider_echo"
+        args:
+          text: "i0={{ .results.make_0.said }} i1={{ .results.make_1.said }} last={{ .results.make.said }} a={{ .results.pa.said }} b={{ .results.pb.said }}"
+        output: true
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "composite-ref" }
+
+- id: "run-composite-ref-workflow"
+  tool: "workflow_composite-ref"
+  args:
+    items: ["x", "y"]
+  expected:
+    success: true
+    json_path:
+      # steps[] flattens to: make(0), make(1), pa, pb, summary.
+      status: "completed"
+      steps.0.id: "make"
+      steps.1.id: "make"
+      steps.2.id: "pa"
+      steps.3.id: "pb"
+      steps.4.id: "summary"
+      steps.4.result.said: "i0=made-x i1=made-y last=made-y a=branch-A b=branch-B"
+
+cleanup:
+- id: "delete-composite-ref-workflow"
+  tool: "core_workflow_delete"
+  args: { name: "composite-ref" }
+  expected:
+    success: true
