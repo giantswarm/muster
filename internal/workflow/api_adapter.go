@@ -416,6 +416,8 @@ func (a *Adapter) ValidateWorkflowFromStructured(args map[string]interface{}) er
 		return fail(err)
 	}
 
+	warnDeprecatedStore(&wf)
+
 	// Generate validation success event
 	a.generateCRDEvent(wf.Name, events.ReasonWorkflowValidationSucceeded, events.EventData{
 		Operation: opValidate,
@@ -423,6 +425,41 @@ func (a *Adapter) ValidateWorkflowFromStructured(args map[string]interface{}) er
 	})
 
 	return nil
+}
+
+// warnDeprecatedStore logs a one-line migration warning when a workflow still
+// uses the deprecated `store` flag. It is a non-fatal authoring nudge toward
+// `output`; referencing no longer depends on either flag.
+func warnDeprecatedStore(wf *api.Workflow) {
+	if ids := deprecatedStoreIDs(wf); len(ids) > 0 {
+		logging.Warn("WorkflowExecutor", "Workflow %q uses the deprecated 'store' flag on: %s. 'store' is a backwards-compatible alias for 'output' and now only controls result visibility; referencing a step result no longer requires it. Prefer 'output'.", wf.Name, strings.Join(ids, ", "))
+	}
+}
+
+// deprecatedStoreIDs returns the IDs of every step and sub-step that still uses
+// the deprecated `store` flag, i.e. store is set while the superseding `output`
+// flag is not. Sub-steps are qualified by their parent step and group.
+func deprecatedStoreIDs(wf *api.Workflow) []string {
+	var ids []string
+	usesStore := func(output *bool, store bool) bool { return store && output == nil }
+	collect := func(label string, subs []api.WorkflowSubStep) {
+		for _, sub := range subs {
+			if usesStore(sub.Output, sub.Store) {
+				ids = append(ids, label+sub.ID)
+			}
+		}
+	}
+	for _, step := range wf.Steps {
+		if usesStore(step.Output, step.Store) {
+			ids = append(ids, step.ID)
+		}
+		if step.ForEach != nil {
+			collect(step.ID+".forEach.", step.ForEach.Steps)
+		}
+		collect(step.ID+".parallel.", step.Parallel)
+	}
+	collect("onFailure.", wf.OnFailure)
+	return ids
 }
 
 // validateWorkflowCondition checks the structural constraint the executor

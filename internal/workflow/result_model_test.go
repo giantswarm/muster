@@ -224,3 +224,29 @@ func TestWorkflowExecutor_JsonPathArrayIndexing(t *testing.T) {
 		})
 	}
 }
+
+func TestDeprecatedStoreIDs(t *testing.T) {
+	wf := &api.Workflow{
+		Steps: []api.WorkflowStep{
+			{ID: "uses-store", Store: true},                         // deprecated
+			{ID: "uses-output", Output: boolPtr(true)},              // not deprecated
+			{ID: "output-wins", Store: true, Output: boolPtr(true)}, // output set => store ignored
+			{ID: "neither"}, // not deprecated
+			{ID: "loop", ForEach: &api.WorkflowForEach{Steps: []api.WorkflowSubStep{
+				{ID: "sub-store", Store: true},
+				{ID: "sub-output", Output: boolPtr(false)},
+			}}},
+			{ID: "group", Parallel: []api.WorkflowSubStep{{ID: "par-store", Store: true}}},
+		},
+		OnFailure: []api.WorkflowSubStep{{ID: "cleanup", Store: true}},
+	}
+
+	assert.ElementsMatch(t, []string{
+		"uses-store",
+		"loop.forEach.sub-store",
+		"group.parallel.par-store",
+		"onFailure.cleanup",
+	}, deprecatedStoreIDs(wf))
+
+	assert.Empty(t, deprecatedStoreIDs(&api.Workflow{Steps: []api.WorkflowStep{{ID: "x", Output: boolPtr(true)}}}))
+}
