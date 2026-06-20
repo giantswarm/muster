@@ -1,0 +1,63 @@
+name: "workflow-output-projection"
+description: "A workflow-level output projection shapes the returned payload: it selects and combines values across steps, preserves JSON structure (arrays stay arrays, numbers stay numbers), and replaces the default steps[] envelope (issue #874)"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "output", "projection", "core-api"]
+timeout: "2m"
+
+pre_configuration:
+  mcp_servers:
+  - name: "k8s-mock"
+    config:
+      tools:
+      - name: "list_pods"
+        responses: [ { response: { items: [ { name: "pod-a" }, { name: "pod-b" } ] } } ]
+      - name: "list_events"
+        responses: [ { response: { items: [ 1, 2, 3 ] } } ]
+
+steps:
+- id: "create-shaped-workflow"
+  tool: "core_workflow_create"
+  args:
+    name: "shaped-output"
+    args:
+      cluster: { type: "string", required: true }
+    steps:
+      # Neither step sets output/store; the projection references them anyway.
+      - id: "pods"
+        tool: "x_k8s-mock_list_pods"
+      - id: "events"
+        tool: "x_k8s-mock_list_events"
+    output:
+      cluster: "{{ .input.cluster }}"
+      notRunning: "{{ .results.pods.items }}"
+      backoffCount: "{{ len .results.events.items }}"
+      firstPod: "{{ (index .results.pods.items 0).name }}"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "shaped-output" }
+
+# The returned payload is the projection: input value, a preserved array, a
+# computed number, and a cross-field selection. The default envelope (workflow,
+# status, steps[]) is omitted.
+- id: "run-shaped-workflow"
+  tool: "workflow_shaped-output"
+  args:
+    cluster: "prod"
+  expected:
+    success: true
+    json_path:
+      cluster: "prod"
+      notRunning.0.name: "pod-a"
+      notRunning.1.name: "pod-b"
+      backoffCount: 3
+      firstPod: "pod-a"
+
+cleanup:
+- id: "delete-shaped-workflow"
+  tool: "core_workflow_delete"
+  args: { name: "shaped-output" }
+  expected:
+    success: true

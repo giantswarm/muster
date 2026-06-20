@@ -13,10 +13,13 @@ one of:
 - a **sequential loop** (`forEach`), or
 - a **concurrent group** (`parallel`).
 
-A step may be gated by a `condition`. A step that sets `store: true` makes its
-result available to later steps as `{{ .results.<step_id> }}`. If a step fails
-and is not marked `allowFailure`, the workflow stops and its `onFailure`
-handlers run.
+A step may be gated by a `condition`. **Every** step's result is available to
+later steps as `{{ .results.<step_id> }}` — referencing no longer requires any
+flag. The `output: true` flag only controls whether a step's result is included
+in the document returned to the caller (see
+[Referencing vs. returning results](#referencing-vs-returning-results)). If a
+step fails and is not marked `allowFailure`, the workflow stops and its
+`onFailure` handlers run.
 
 ## Templating
 
@@ -27,7 +30,7 @@ top-level keys:
 | Key | Description |
 |-----|-------------|
 | `.input.<arg>` | Workflow arguments |
-| `.results.<step_id>` | Result of an earlier step that set `store: true` |
+| `.results.<step_id>` | Result of any earlier step (no flag required) |
 | `.vars.<name>` | Loop variables inside `forEach` (`.vars.item`, `.vars.item_index`) |
 | `.context.<step_id>` | Legacy alias for `.results`; prefer `.results` |
 
@@ -57,10 +60,21 @@ spec:
         env: "{{ .input.environment }}"
 ```
 
-## Storing and reusing step results
+## Referencing vs. returning results
 
-Set `store: true` to keep a step's result. Subsequent steps reference fields of
-the parsed JSON result by step ID:
+Two independent concerns used to be conflated into the single `store` flag; they
+are now separate:
+
+- **Referencing** — every step's result is always available to later steps and
+  to the [output projection](#shaping-the-returned-result-output-projection) as
+  `{{ .results.<step_id>.<field> }}`. No flag is needed. This makes the common
+  "take one value out of step 1 and feed it into step 2" pattern cheap.
+- **Returning** — `output: true` includes a step's result in the document
+  returned to the caller (the LLM-facing payload). Use it only for the few steps
+  whose results the caller actually needs, to keep responses small.
+
+`store: true` is a **deprecated alias** for `output: true` and keeps working for
+backwards compatibility; prefer `output`.
 
 ```yaml
 steps:
@@ -68,14 +82,44 @@ steps:
     tool: get_kubernetes_cluster_info
     args:
       cluster: "{{ .input.target_cluster }}"
-    store: true
+    # No flag needed — the result is referenceable below.
 
   - id: deploy_to_cluster
     tool: deploy_application
     args:
       cluster_endpoint: "{{ .results.get_cluster_info.endpoint }}"
       cluster_version: "{{ .results.get_cluster_info.version }}"
+    output: true   # include this step's result in the returned document
 ```
+
+## Shaping the returned result (output projection)
+
+By default a workflow returns a fixed envelope
+(`{execution_id, workflow, status, input, steps[], ...}`) where each `output`
+step contributes its whole result. To return a small, shaped document instead,
+declare a workflow-level `output` projection. It is rendered once after all
+steps complete, against `.input` / `.results` / `.vars`, and replaces the
+envelope:
+
+```yaml
+spec:
+  steps:
+    - id: pods
+      tool: x_kubernetes_list
+      args: { kind: Pod }
+    - id: events
+      tool: x_kubernetes_list
+      args: { kind: Event }
+  output:
+    cluster: "{{ .input.management_cluster }}"
+    notRunning: "{{ .results.pods.items }}"
+    backoffCount: "{{ len .results.events.items }}"
+```
+
+Each leaf is a Go-template/sprig expression. JSON structure is preserved:
+`notRunning` stays an array and `backoffCount` stays a number. Nested objects and
+arrays in the projection are rendered recursively. When `output` is omitted, the
+default envelope is returned unchanged.
 
 ## Conditions
 
@@ -120,6 +164,19 @@ Run a tool and check its outcome against `expect` / `expectNot`:
         status: "healthy"
 ```
 
+`jsonPath` keys use the same expression language as step args. A key may be a
+dotted/bracketed path navigated from the tool result (now including array
+indexing, e.g. `items[0].name`), or a full Go-template expression where the
+result is exposed as `.result`:
+
+```yaml
+    expect:
+      success: true
+      jsonPath:
+        "items[0].state": "running"                       # bracketed path
+        "{{ (index .result.items 0).name }}": "primary"   # template form
+```
+
 ### Referencing an earlier step
 
 `fromStep` evaluates the stored result of a previous step:
@@ -162,9 +219,9 @@ spec:
 ```
 
 The body is non-recursive: sub-steps are plain tool calls and cannot themselves
-contain `forEach` or `parallel`. A sub-step that sets `store: true` is available
-within the same iteration as `{{ .results.<sub_step_id> }}`, and each iteration
-is also addressable after the loop by zero-based index as
+contain `forEach` or `parallel`. A sub-step's result is available within the same
+iteration as `{{ .results.<sub_step_id> }}`, and each iteration is also
+addressable after the loop by zero-based index as
 `{{ .results.<sub_step_id>_<index> }}` (e.g. `{{ .results.deploy_0 }}`). The
 plain `{{ .results.<sub_step_id> }}` key keeps the last iteration's result.
 
@@ -199,8 +256,7 @@ steps:
     tool: verify_deployment
 ```
 
-Sub-step results that set `store: true` are available to later steps after the
-group completes.
+Sub-step results are available to later steps after the group completes.
 
 ## Error handling
 
@@ -209,8 +265,9 @@ group completes.
 `allowFailure: true` records the failure but continues the workflow. On a
 `forEach` or `parallel` step it tolerates a failure of the **whole group** (it
 cannot tolerate one iteration or branch while failing the rest — put
-`allowFailure` on the individual sub-step for that). The step's error is
-available to later `fromStep` conditions when combined with `store: true`:
+`allowFailure` on the individual sub-step for that). The step's error is recorded
+as its result and is available to later `fromStep` conditions and the output
+projection without any extra flag:
 
 ```yaml
 - id: optional_migration
@@ -218,7 +275,6 @@ available to later `fromStep` conditions when combined with `store: true`:
   args:
     version: "{{ .input.version }}"
   allowFailure: true
-  store: true
 ```
 
 ### Rollback with `onFailure`
@@ -283,7 +339,8 @@ per-step status (`completed`, `skipped`, `failed`).
 - Use `condition.template` to skip work that an environment does not need.
 - Use `parallel` for independent steps; keep dependent steps sequential.
 - Use `forEach` for fan-out over a list (clusters, namespaces, services).
-- Only `store` results you actually reference later.
+- Reference any step's result freely with `{{ .results.<id> }}`; reserve
+  `output: true` (or an `output` projection) for what the caller actually needs.
 - Add `onFailure` rollback steps for workflows that mutate external state.
 - Keep workflows focused; compose larger flows by calling one workflow's
   `action_<name>` tool from another.

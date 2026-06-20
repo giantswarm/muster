@@ -44,6 +44,18 @@ type WorkflowSpec struct {
 	// workflow fails on a step that does not allow failure. The steps execute
 	// sequentially and their own failures are tolerated.
 	OnFailure []WorkflowSubStep `json:"onFailure,omitempty" yaml:"onFailure,omitempty"`
+
+	// Output is an optional templated projection that shapes the workflow's
+	// returned payload. It is rendered once after all steps complete, against
+	// .input / .results / .vars, and replaces the default
+	// {execution_id, workflow, status, input, steps[], ...} envelope. Each leaf
+	// is a Go-template/sprig expression; JSON structure is preserved so numbers
+	// stay numbers and arrays stay arrays (e.g. "{{ .results.pods.items }}" or
+	// "{{ len .results.events.items }}"). Every step result is referenceable
+	// here regardless of its output flag. When omitted, the default envelope is
+	// returned unchanged.
+	// +kubebuilder:validation:XPreserveUnknownFields
+	Output map[string]apiextensionsv1.JSON `json:"output,omitempty" yaml:"output,omitempty"`
 }
 
 // WorkflowStep defines a single step in the workflow execution.
@@ -82,7 +94,17 @@ type WorkflowStep struct {
 	// +kubebuilder:validation:MinItems=1
 	Parallel []WorkflowSubStep `json:"parallel,omitempty" yaml:"parallel,omitempty"`
 
-	// Store indicates whether to store the step result for use in later steps.
+	// Output indicates whether this step's result is included in the workflow's
+	// returned document (the LLM-facing payload). Every step result is always
+	// referenceable by later steps via {{ .results.<id>.<field> }} regardless of
+	// this flag; Output only controls visibility in the returned result. When
+	// unset, the deprecated Store flag is used as a fallback.
+	Output *bool `json:"output,omitempty" yaml:"output,omitempty"`
+
+	// Store is a deprecated alias for Output. It originally also controlled
+	// whether a step result was referenceable by later steps, but referencing
+	// is now always available; Store now only affects result visibility and is
+	// kept for backwards compatibility. Prefer Output.
 	// +kubebuilder:default=false
 	Store bool `json:"store,omitempty" yaml:"store,omitempty"`
 
@@ -137,7 +159,14 @@ type WorkflowSubStep struct {
 	// Condition defines an optional condition that determines whether this sub-step should execute.
 	Condition *WorkflowCondition `json:"condition,omitempty" yaml:"condition,omitempty"`
 
-	// Store indicates whether to store the sub-step result for use in later steps.
+	// Output indicates whether this sub-step's result is included in the
+	// workflow's returned document. The result is always referenceable by later
+	// steps regardless of this flag. When unset, the deprecated Store flag is
+	// used as a fallback.
+	Output *bool `json:"output,omitempty" yaml:"output,omitempty"`
+
+	// Store is a deprecated alias for Output, kept for backwards compatibility.
+	// Prefer Output.
 	// +kubebuilder:default=false
 	Store bool `json:"store,omitempty" yaml:"store,omitempty"`
 

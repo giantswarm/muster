@@ -1,0 +1,73 @@
+name: "workflow-jsonpath-array-index"
+description: "Condition jsonPath expectations support array indexing using the unified expression language: a bare bracketed path asserts on an element of a list, gating a step on a match and skipping it on a mismatch (issue #875)"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "condition", "jsonpath", "expression", "core-api"]
+timeout: "2m"
+
+pre_configuration:
+  mcp_servers:
+  - name: "list-mock"
+    config:
+      tools:
+      - name: "list"
+        responses: [ { response: { items: [ { name: "alpha" }, { name: "beta" } ] } } ]
+  - name: "echo-provider"
+    config:
+      tools:
+      - name: "echo"
+        responses: [ { response: { said: "{{ .text }}" } } ]
+
+steps:
+- id: "create-indexed-condition-workflow"
+  tool: "core_workflow_create"
+  args:
+    name: "indexed-condition"
+    steps:
+      # Asserts on the second element of an array — impossible with the old
+      # dotted-only navigator. Matches, so the step runs.
+      - id: "match"
+        condition:
+          tool: "x_list-mock_list"
+          expect:
+            success: true
+            json_path:
+              "items[1].name": "beta"
+        tool: "x_echo-provider_echo"
+        args: { text: "indexed match ran" }
+        output: true
+      # Same array but an index whose value does not match — the step is skipped.
+      - id: "mismatch"
+        condition:
+          tool: "x_list-mock_list"
+          expect:
+            success: true
+            json_path:
+              "items[0].name": "beta"
+        tool: "x_echo-provider_echo"
+        args: { text: "should not run" }
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "indexed-condition" }
+
+- id: "run-indexed-condition"
+  tool: "workflow_indexed-condition"
+  expected:
+    success: true
+    json_path:
+      status: "completed"
+      steps.0.id: "match"
+      steps.0.status: "completed"
+      steps.0.condition_evaluation: true
+      steps.1.id: "mismatch"
+      steps.1.status: "skipped"
+      steps.1.condition_evaluation: false
+
+cleanup:
+- id: "delete-indexed-condition-workflow"
+  tool: "core_workflow_delete"
+  args: { name: "indexed-condition" }
+  expected:
+    success: true

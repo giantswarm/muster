@@ -581,7 +581,8 @@ spec:
           success: true|false
           jsonPath:
             <path>: <unexpected_value>
-      store: true|false               # store result as {{.results.<step_id>}}
+      output: true|false              # include this step's result in the returned document
+      store: true|false               # deprecated alias for output
       allowFailure: true|false
       description: "<step_description>"
 
@@ -610,6 +611,13 @@ spec:
     - id: "<sub_step_id>"
       tool: "<rollback_tool>"
 
+  # Optional: a templated projection rendered once after all steps complete and
+  # returned in place of the default envelope. Each leaf is a Go-template/sprig
+  # expression evaluated against .input/.results/.vars; JSON structure (objects,
+  # arrays, numbers) is preserved.
+  output:
+    <key>: "{{ .results.<step_id>.<field> }}"
+
 # Status is managed automatically by muster (via reconciliation)
 status:
   valid: true|false                  # Spec passes structural validation
@@ -629,6 +637,7 @@ status:
 | `args` | `map[string]ArgDefinition` | No | Argument schema for execution validation | - |
 | `steps` | `[]WorkflowStep` | Yes | Sequence of workflow steps | Min 1 item |
 | `onFailure` | `[]WorkflowSubStep` | No | Cleanup/rollback steps run when the workflow fails on a non-`allowFailure` step | - |
+| `output` | `map[string]any` | No | Templated projection rendered after all steps complete, returned in place of the default envelope. Each leaf is evaluated against `.input`/`.results`/`.vars` with JSON structure preserved | - |
 
 #### WorkflowStep Fields
 
@@ -642,15 +651,22 @@ A step is exactly one of: a tool call (`tool`), a sequential loop (`forEach`), o
 | `condition` | `WorkflowCondition` | No | Optional execution condition | - |
 | `forEach` | `WorkflowForEach` | No* | Run a body of sub-steps once per list item | Mutually exclusive with `tool`/`parallel` |
 | `parallel` | `[]WorkflowSubStep` | No* | Sub-steps executed concurrently | Mutually exclusive with `tool`/`forEach` |
-| `store` | `boolean` | No | Store step result for later steps (`{{.results.<id>}}`) | Default: `false` |
+| `output` | `boolean` | No | Include this step's result in the returned document. Every step result is referenceable by later steps (`{{.results.<id>}}`) regardless of this flag | Default: `false` |
+| `store` | `boolean` | No | Deprecated alias for `output`; kept for backwards compatibility | Default: `false` |
 | `allowFailure` | `boolean` | No | Continue on step failure | Default: `false` |
 | `description` | `string` | No | Human-readable step documentation | Max 500 characters |
 
 *Exactly one of `tool`, `forEach`, or `parallel` must be set. This is enforced by the CRD at apply time (a CEL validation rule), so `kubectl apply` rejects a step that sets none or more than one.
 
-> **Note**: There is no `outputs` field. To make a step's result available to later steps, set `store: true` and reference it as `{{.results.<step_id>}}`.
+> **Referencing vs. returning**: Every step's result is referenceable by later
+> steps as `{{.results.<step_id>}}` without any flag. The `output` flag (and its
+> deprecated `store` alias) only controls whether the step's result is included
+> in the document returned to the caller. To shape that document further, use the
+> workflow-level [`output` projection](#workflow-output-projection).
 >
-> **Migration**: A previously documented `outputs:` field never did anything (it was read by no part of the engine). It has been removed from the CRD. Any `outputs:` block in an existing workflow definition was already inert; delete it and use `store: true` instead.
+> **Migration**: A previously documented `outputs:` field never did anything and
+> has been removed. The `store` flag still works as a backwards-compatible alias
+> for `output`; prefer `output`.
 
 #### WorkflowForEach Fields
 
@@ -670,7 +686,8 @@ Used by `forEach.steps`, `parallel`, and `onFailure`. A sub-step is a plain tool
 | `tool` | `string` | Yes | Name of the tool to execute |
 | `args` | `map[string]any` | No | Arguments for tool execution (supports templating) |
 | `condition` | `WorkflowCondition` | No | Optional execution condition |
-| `store` | `boolean` | No | Store sub-step result (default `false`). Inside `forEach`, each iteration is also addressable as `{{.results.<id>_<index>}}` (the plain `{{.results.<id>}}` keeps the last iteration). |
+| `output` | `boolean` | No | Include this sub-step's result in the returned document (default `false`). The result is referenceable by later steps regardless of this flag. Inside `forEach`, each iteration is also addressable as `{{.results.<id>_<index>}}` (the plain `{{.results.<id>}}` keeps the last iteration). |
+| `store` | `boolean` | No | Deprecated alias for `output`; kept for backwards compatibility (default `false`) |
 | `allowFailure` | `boolean` | No | Continue on failure (default `false`) |
 | `description` | `string` | No | Human-readable documentation |
 
@@ -692,7 +709,36 @@ Used by `forEach.steps`, `parallel`, and `onFailure`. A sub-step is a plain tool
 | Field | Type | Description |
 |-------|------|-------------|
 | `success` | `boolean` | Whether the tool call should succeed |
-| `jsonPath` | `map[string]any` | JSON path conditions to check |
+| `jsonPath` | `map[string]any` | Path conditions to check against the result. Each key uses the workflow's expression language: a dotted/bracketed path navigated from the result (with array indexing, e.g. `items[0].name`), or a full Go-template expression where the result is exposed as `.result` (e.g. `"{{ (index .result.items 0).name }}"`). |
+
+#### Workflow Output Projection
+
+The optional workflow-level `output` field shapes the document returned to the
+caller. It is a templated object rendered once after all steps complete, against
+the same `.input` / `.results` / `.vars` context used by step args, and returned
+in place of the default `{execution_id, workflow, status, input, steps[], ...}`
+envelope.
+
+```yaml
+spec:
+  steps:
+    - id: pods
+      tool: x_kubernetes_list
+      args: { kind: Pod }
+    - id: events
+      tool: x_kubernetes_list
+      args: { kind: Event }
+  output:
+    cluster: "{{ .input.management_cluster }}"
+    notRunning: "{{ .results.pods.items }}"
+    backoffCount: "{{ len .results.events.items }}"
+```
+
+- Each leaf is a Go-template/sprig expression. JSON structure is preserved:
+  `notRunning` stays an array and `backoffCount` stays a number.
+- Nested objects and arrays in the projection are rendered recursively.
+- Every step result is referenceable here regardless of its `output` flag.
+- When `output` is omitted, the default envelope is returned unchanged.
 
 #### Status Fields
 
@@ -812,7 +858,7 @@ The template context exposes exactly these top-level keys:
 | Key | Description |
 |-----|-------------|
 | `.input.<arg_name>` | Arguments passed during workflow execution |
-| `.results.<step_id>` | Result of a previous step that set `store: true` (navigate fields with `.results.<step_id>.<field>`) |
+| `.results.<step_id>` | Result of any previous step (navigate fields with `.results.<step_id>.<field>`; no flag required) |
 | `.vars.<name>` | Loop variables inside `forEach` (e.g. `.vars.item`, `.vars.item_index`) |
 | `.context.<step_id>` | Alias for `.results` |
 

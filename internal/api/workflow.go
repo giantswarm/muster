@@ -40,6 +40,13 @@ type Workflow struct {
 	// fails on a step that does not allow failure. Their own failures are tolerated.
 	OnFailure []WorkflowSubStep `yaml:"onFailure,omitempty" json:"onFailure,omitempty"`
 
+	// Output is an optional templated projection that shapes the returned payload.
+	// It is rendered once after the steps complete, against .input / .results /
+	// .vars, and replaces the default envelope. Each leaf is a Go-template/sprig
+	// expression and JSON structure is preserved. When nil, the default envelope
+	// is returned.
+	Output map[string]interface{} `yaml:"output,omitempty" json:"output,omitempty"`
+
 	// Runtime state fields (for API responses only) - Dynamic runtime information
 
 	// Available indicates whether this workflow is currently available for execution
@@ -52,6 +59,16 @@ type Workflow struct {
 
 	// LastModified indicates when this workflow was last updated
 	LastModified time.Time `yaml:"lastModified,omitempty" json:"lastModified"`
+}
+
+// OutputEnabled resolves the effective "include in returned result" flag for a
+// step from its Output pointer and the deprecated Store alias. Output takes
+// precedence when set; otherwise Store is used for backwards compatibility.
+func OutputEnabled(output *bool, store bool) bool {
+	if output != nil {
+		return *output
+	}
+	return store
 }
 
 // Arg defines an argument for operations and workflows.
@@ -174,8 +191,15 @@ type WorkflowStep struct {
 	// The step result will be available for subsequent step conditions to reference.
 	AllowFailure bool `yaml:"allow_failure,omitempty" json:"allow_failure,omitempty"`
 
-	// Store indicates whether the step result should be stored in workflow results.
-	// When true, the step result is stored and accessible in subsequent steps and conditions.
+	// Output indicates whether this step's result is included in the workflow's
+	// returned document. Every step result is always referenceable by later steps
+	// regardless of this flag; Output only controls visibility in the returned
+	// result. When nil, the deprecated Store flag is used as a fallback.
+	Output *bool `yaml:"output,omitempty" json:"output,omitempty"`
+
+	// Store is a deprecated alias for Output, kept for backwards compatibility.
+	// Referencing a step result no longer requires Store; it now only affects
+	// result visibility. Prefer Output.
 	Store bool `yaml:"store,omitempty" json:"store,omitempty"`
 
 	// Description provides human-readable documentation for this step's purpose
@@ -215,7 +239,14 @@ type WorkflowSubStep struct {
 	// AllowFailure indicates whether this sub-step is allowed to fail without failing execution.
 	AllowFailure bool `yaml:"allow_failure,omitempty" json:"allow_failure,omitempty"`
 
-	// Store indicates whether the sub-step result should be stored in workflow results.
+	// Output indicates whether this sub-step's result is included in the
+	// workflow's returned document. The result is always referenceable by later
+	// steps regardless of this flag. When nil, the deprecated Store flag is used
+	// as a fallback.
+	Output *bool `yaml:"output,omitempty" json:"output,omitempty"`
+
+	// Store is a deprecated alias for Output, kept for backwards compatibility.
+	// Prefer Output.
 	Store bool `yaml:"store,omitempty" json:"store,omitempty"`
 
 	// Description provides human-readable documentation for this sub-step's purpose.

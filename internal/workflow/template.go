@@ -2,11 +2,20 @@ package workflow
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/giantswarm/muster/pkg/logging"
 )
+
+// purePathPattern matches a single template that is a bare reference path —
+// dots, array indices and identifier characters only, no functions or spaces —
+// such as "{{ .results.pods.items }}" or "{{ .result.items[0].name }}". Such
+// references can be resolved to their typed value via the shared path navigator
+// instead of being stringified by text/template.
+var purePathPattern = regexp.MustCompile(`^\{\{\s*\.([A-Za-z0-9_][A-Za-z0-9_.\[\]-]*)\s*\}\}$`)
 
 // resolveArguments resolves template variables in step arguments.
 func (we *WorkflowExecutor) resolveArguments(args map[string]interface{}, ctx *executionContext) (map[string]interface{}, error) {
@@ -111,6 +120,101 @@ func (we *WorkflowExecutor) resolveTemplate(templateStr string, ctx *executionCo
 
 	logging.Debug("WorkflowExecutor", "Template result: %v", result)
 	return result, nil
+}
+
+// renderTypedTemplate renders a single template string while preserving JSON
+// types. A pure reference path (e.g. "{{ .results.pods.items }}") is resolved
+// through the shared path navigator so objects, arrays and numbers keep their
+// type at any depth. Any other expression goes through the full text/template +
+// sprig engine; its string output is then coerced back to a number or boolean
+// where possible (e.g. "{{ len .results.events.items }}" -> 3) so the result is
+// structured rather than stringly-typed.
+func (we *WorkflowExecutor) renderTypedTemplate(templateStr string, tctx map[string]interface{}) (interface{}, error) {
+	if m := purePathPattern.FindStringSubmatch(strings.TrimSpace(templateStr)); m != nil {
+		if v, err := we.template.ResolvePath(tctx, m[1]); err == nil {
+			return v, nil
+		}
+		// On a navigation error fall through to the template engine so that
+		// missing-key handling and any sprig defaulting still apply.
+	}
+
+	rendered, err := we.template.RenderGoTemplate(templateStr, tctx)
+	if err != nil {
+		return nil, err
+	}
+	if s, ok := rendered.(string); ok {
+		return coerceScalar(s), nil
+	}
+	return rendered, nil
+}
+
+// renderOutputProjection renders a workflow-level output projection into a
+// structured map, recursively resolving every templated leaf while preserving
+// JSON types. It is evaluated once after all steps complete and used as the
+// returned payload in place of the default envelope.
+func (we *WorkflowExecutor) renderOutputProjection(output map[string]interface{}, execCtx *executionContext) (map[string]interface{}, error) {
+	tctx := we.templateContext(execCtx)
+	rendered, err := we.renderProjectionValue(output, tctx)
+	if err != nil {
+		return nil, err
+	}
+	projected, ok := rendered.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("output projection must render to an object")
+	}
+	return projected, nil
+}
+
+// renderProjectionValue recursively renders a projection value: maps and slices
+// are traversed, strings are rendered as typed templates, and other primitives
+// are returned unchanged.
+func (we *WorkflowExecutor) renderProjectionValue(value interface{}, tctx map[string]interface{}) (interface{}, error) {
+	switch v := value.(type) {
+	case string:
+		if !strings.Contains(v, "{{") {
+			return v, nil
+		}
+		return we.renderTypedTemplate(v, tctx)
+
+	case map[string]interface{}:
+		out := make(map[string]interface{}, len(v))
+		for k, val := range v {
+			rendered, err := we.renderProjectionValue(val, tctx)
+			if err != nil {
+				return nil, fmt.Errorf("output.%s: %w", k, err)
+			}
+			out[k] = rendered
+		}
+		return out, nil
+
+	case []interface{}:
+		out := make([]interface{}, len(v))
+		for i, val := range v {
+			rendered, err := we.renderProjectionValue(val, tctx)
+			if err != nil {
+				return nil, fmt.Errorf("output[%d]: %w", i, err)
+			}
+			out[i] = rendered
+		}
+		return out, nil
+
+	default:
+		return value, nil
+	}
+}
+
+// coerceScalar converts a template-rendered string back to a number when it
+// cleanly represents one, so projections and expectations stay structured JSON.
+// Booleans are already handled by RenderGoTemplate. Non-numeric strings are
+// returned unchanged.
+func coerceScalar(s string) interface{} {
+	if i, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return i
+	}
+	if f, err := strconv.ParseFloat(s, 64); err == nil {
+		return f
+	}
+	return s
 }
 
 // isSimpleVariableAccess reports whether the template is a single-variable
