@@ -150,7 +150,13 @@ type WorkflowSubStep struct {
 	Description string `json:"description,omitempty" yaml:"description,omitempty"`
 }
 
-// WorkflowCondition defines execution conditions for workflow steps
+// WorkflowCondition defines execution conditions for workflow steps.
+// A condition selects its evaluation source with exactly one of Template, Tool,
+// or FromStep. A tool/fromStep condition must declare an Expect or ExpectNot:
+// without one the executor falls back to expecting the call to fail, which is
+// rarely intended.
+// +kubebuilder:validation:XValidation:rule="[has(self.template), has(self.tool), has(self.fromStep)].filter(x, x).size() == 1",message="exactly one of template, tool, or fromStep must be set"
+// +kubebuilder:validation:XValidation:rule="has(self.template) || has(self.expect) || has(self.expectNot)",message="a tool or fromStep condition requires expect or expectNot"
 type WorkflowCondition struct {
 	// Template is a boolean Go-template gate. When set, the step executes only
 	// if the template renders to "true" (e.g. "{{ eq .input.env \"production\" }}").

@@ -170,6 +170,13 @@ spec:
                             Optional when FromStep or Template is used.
                           type: string
                       type: object
+                      x-kubernetes-validations:
+                      - message: exactly one of template, tool, or fromStep must be
+                          set
+                        rule: '[has(self.template), has(self.tool), has(self.fromStep)].filter(x,
+                          x).size() == 1'
+                      - message: a tool or fromStep condition requires expect or expectNot
+                        rule: has(self.template) || has(self.expect) || has(self.expectNot)
                     description:
                       description: Description provides human-readable documentation
                         for this sub-step's purpose.
@@ -275,6 +282,13 @@ spec:
                             Optional when FromStep or Template is used.
                           type: string
                       type: object
+                      x-kubernetes-validations:
+                      - message: exactly one of template, tool, or fromStep must be
+                          set
+                        rule: '[has(self.template), has(self.tool), has(self.fromStep)].filter(x,
+                          x).size() == 1'
+                      - message: a tool or fromStep condition requires expect or expectNot
+                        rule: has(self.template) || has(self.expect) || has(self.expectNot)
                     description:
                       description: Description provides human-readable documentation
                         for this step's purpose.
@@ -376,6 +390,15 @@ spec:
                                       Optional when FromStep or Template is used.
                                     type: string
                                 type: object
+                                x-kubernetes-validations:
+                                - message: exactly one of template, tool, or fromStep
+                                    must be set
+                                  rule: '[has(self.template), has(self.tool), has(self.fromStep)].filter(x,
+                                    x).size() == 1'
+                                - message: a tool or fromStep condition requires expect
+                                    or expectNot
+                                  rule: has(self.template) || has(self.expect) ||
+                                    has(self.expectNot)
                               description:
                                 description: Description provides human-readable documentation
                                   for this sub-step's purpose.
@@ -495,6 +518,14 @@ spec:
                                   Optional when FromStep or Template is used.
                                 type: string
                             type: object
+                            x-kubernetes-validations:
+                            - message: exactly one of template, tool, or fromStep
+                                must be set
+                              rule: '[has(self.template), has(self.tool), has(self.fromStep)].filter(x,
+                                x).size() == 1'
+                            - message: a tool or fromStep condition requires expect
+                                or expectNot
+                              rule: has(self.template) || has(self.expect) || has(self.expectNot)
                           description:
                             description: Description provides human-readable documentation
                               for this sub-step's purpose.

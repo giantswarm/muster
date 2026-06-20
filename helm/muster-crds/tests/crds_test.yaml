@@ -49,3 +49,21 @@ tests:
       - equal:
           path: spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.steps.items.properties.parallel.minItems
           value: 1
+
+  # Backs the apply-time guard for step conditions: a condition must select its
+  # source with exactly one of template/tool/fromStep, and a tool/fromStep
+  # condition must declare expect or expectNot, independently of the structured
+  # create/validate path.
+  - it: workflows CRD enforces condition source exclusivity and expectation
+    documentIndex: 1
+    asserts:
+      - contains:
+          path: spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.steps.items.properties.condition.x-kubernetes-validations
+          content:
+            message: exactly one of template, tool, or fromStep must be set
+            rule: "[has(self.template), has(self.tool), has(self.fromStep)].filter(x, x).size() == 1"
+      - contains:
+          path: spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.steps.items.properties.condition.x-kubernetes-validations
+          content:
+            message: a tool or fromStep condition requires expect or expectNot
+            rule: has(self.template) || has(self.expect) || has(self.expectNot)

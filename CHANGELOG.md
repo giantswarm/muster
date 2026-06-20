@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
   - `parallel` — a group of sub-steps executed concurrently; siblings are independent (each resolves arguments from the pre-group state).
   - `spec.onFailure` — best-effort cleanup/rollback sub-steps run when the workflow fails on a step that does not allow failure.
   - The "exactly one of `tool`, `forEach`, or `parallel`" rule is enforced by the CRD itself via a CEL validation rule, so a malformed step is rejected at `kubectl apply` time, not only through the structured create path.
+  - Step/sub-step conditions are now validated structurally on every authoring path: a condition must set **exactly one** of `template`, `tool`, or `fromStep`, and a `tool`/`fromStep` condition must declare `expect` or `expectNot`. Both rules are enforced at `kubectl apply` time via CEL on the `Workflow` CRD and in the structured `workflow_create`/`workflow_validate` path. Previously a `tool`/`fromStep` condition without an expectation silently fell back to "expect the call to fail", and a kubectl-applied condition was not checked at all.
 - `GET /health` now responds 200 on the aggregator port regardless of OAuth configuration, so Kubernetes liveness/readiness probes work without patching the chart.
 - `RegisterServer` and `DeregisterServer` aggregator events and MCPServer reconcile entry are now logged at Info level, making freshly-restarted pod lifecycle visible without `--debug`.
 - `oauth.server.allowedOrigins` (comma-separated) is now wired into the mcp-oauth CORS `AllowedOrigins` list. Previously declared but never read; empty value keeps CORS disabled (default).
@@ -32,6 +33,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Workflow field-name casing is now consistent across authoring surfaces ([#865](https://github.com/giantswarm/muster/issues/865)): the structured `workflow_create`/`workflow_update`/`workflow_validate` tool path now accepts the canonical camelCase names used by the CRD and the documentation (`allowFailure`, `fromStep`, `expectNot`, `jsonPath`) in addition to the previously released snake_case aliases (`allow_failure`, `from_step`, `expect_not`, `json_path`), and the advertised tool JSON schema now lists the camelCase names. Previously a workflow authored from the (camelCase) documentation was silently mis-parsed through the MCP tool path — e.g. `allowFailure` was dropped, so a step meant to tolerate failure halted the workflow.
 - Broker credential minting extracted behind a `CredentialProvider` interface and an `oidc-exchange` provider dispatched through a registry (`internal/oauth`). No behaviour change; the oidc-exchange provider preserves per-(endpoint, connector, user) token caching.
 - Update mcp-oauth to v0.9.0: `server.TrustedIssuer.SubjectClaim` sources the canonical subject from a configurable claim, wired through `oauth.server.trustedIssuers[].subjectClaim`.
 - Update mcp-oauth to v0.8.0: `server.AcceptTrustedIssuerToken` for accepting a TrustedIssuers-validated bearer as a forwarded credential with the same `ext-<hex>` session-ID derivation as `AcceptForwardedIDToken`.

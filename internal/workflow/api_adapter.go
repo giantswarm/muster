@@ -422,14 +422,34 @@ func (a *Adapter) ValidateWorkflowFromStructured(args map[string]interface{}) er
 }
 
 // validateWorkflowCondition checks the structural constraint the executor
-// relies on: a boolean template gate is mutually exclusive with a tool/fromStep
-// condition (when a template is set, Tool/FromStep/Expect are ignored).
+// relies on: a condition selects its evaluation source with exactly one of
+// template, tool, or fromStep. A boolean template gate is mutually exclusive
+// with a tool/fromStep condition (when a template is set, Tool/FromStep/Expect
+// are ignored), and tool and fromStep cannot be combined.
 func validateWorkflowCondition(c *api.WorkflowCondition) error {
 	if c == nil {
 		return nil
 	}
+	set := 0
+	if c.Template != "" {
+		set++
+	}
+	if c.Tool != "" {
+		set++
+	}
+	if c.FromStep != "" {
+		set++
+	}
+	// Surface the template combination explicitly so the message names the
+	// offending fields (and matches the documented/validated behaviour).
 	if c.Template != "" && (c.Tool != "" || c.FromStep != "") {
 		return fmt.Errorf("condition.template is mutually exclusive with tool/fromStep")
+	}
+	if set == 0 {
+		return fmt.Errorf("condition requires exactly one of template, tool, or fromStep")
+	}
+	if set > 1 {
+		return fmt.Errorf("condition: tool and fromStep are mutually exclusive (set exactly one of template, tool, or fromStep)")
 	}
 	return nil
 }
@@ -1737,6 +1757,41 @@ func (a *Adapter) handleExecutionGet(ctx context.Context, args map[string]interf
 	}, nil
 }
 
+// pickString returns the string value of the first present key. It lets the
+// structured create/update/validate path accept the canonical camelCase field
+// name (matching the CRD and the documentation) while still honouring the
+// legacy snake_case alias, e.g. pickString(m, "fromStep", "from_step").
+func pickString(m map[string]interface{}, keys ...string) (string, bool) {
+	for _, k := range keys {
+		if v, ok := m[k].(string); ok {
+			return v, true
+		}
+	}
+	return "", false
+}
+
+// pickBool mirrors pickString for boolean fields (e.g. "allowFailure" /
+// "allow_failure").
+func pickBool(m map[string]interface{}, keys ...string) (bool, bool) {
+	for _, k := range keys {
+		if v, ok := m[k].(bool); ok {
+			return v, true
+		}
+	}
+	return false, false
+}
+
+// pickMap mirrors pickString for nested object fields (e.g. "expectNot" /
+// "expect_not", "jsonPath" / "json_path").
+func pickMap(m map[string]interface{}, keys ...string) (map[string]interface{}, bool) {
+	for _, k := range keys {
+		if v, ok := m[k].(map[string]interface{}); ok {
+			return v, true
+		}
+	}
+	return nil, false
+}
+
 // convertToWorkflow converts structured arguments to api.Workflow
 func convertToWorkflow(args map[string]interface{}) (api.Workflow, error) {
 	var wf api.Workflow
@@ -1911,8 +1966,9 @@ func convertWorkflowSteps(stepsParam []interface{}) ([]api.WorkflowStep, error) 
 			step.Description = description
 		}
 
-		// AllowFailure (optional)
-		if allowFailure, ok := stepMap["allow_failure"].(bool); ok {
+		// AllowFailure (optional). Accept the canonical camelCase name and the
+		// legacy snake_case alias.
+		if allowFailure, ok := pickBool(stepMap, "allowFailure", "allow_failure"); ok {
 			step.AllowFailure = allowFailure
 		}
 
@@ -1990,7 +2046,7 @@ func convertWorkflowSubSteps(subStepsParam []interface{}) ([]api.WorkflowSubStep
 		if description, ok := subStepMap["description"].(string); ok {
 			sub.Description = description
 		}
-		if allowFailure, ok := subStepMap["allow_failure"].(bool); ok {
+		if allowFailure, ok := pickBool(subStepMap, "allowFailure", "allow_failure"); ok {
 			sub.AllowFailure = allowFailure
 		}
 
@@ -2009,24 +2065,41 @@ func convertWorkflowCondition(conditionParam map[string]interface{}) (api.Workfl
 		condition.Template = template
 	}
 
-	// Tool (optional when from_step or template is used)
+	// Tool (optional when fromStep or template is used)
 	if tool, ok := conditionParam["tool"].(string); ok {
 		condition.Tool = tool
 	}
 
-	// FromStep (optional)
-	if fromStep, ok := conditionParam["from_step"].(string); ok {
+	// FromStep (optional). Accept canonical camelCase and legacy snake_case.
+	if fromStep, ok := pickString(conditionParam, "fromStep", "from_step"); ok {
 		condition.FromStep = fromStep
 	}
 
-	// A template gate stands alone: no tool/from_step or expectations needed.
+	// A condition selects its evaluation source with exactly one of template,
+	// tool, or fromStep.
+	set := 0
 	if condition.Template != "" {
-		return condition, nil
+		set++
+	}
+	if condition.Tool != "" {
+		set++
+	}
+	if condition.FromStep != "" {
+		set++
+	}
+	if condition.Template != "" && (condition.Tool != "" || condition.FromStep != "") {
+		return condition, fmt.Errorf("condition.template is mutually exclusive with tool/fromStep")
+	}
+	if set == 0 {
+		return condition, fmt.Errorf("condition requires exactly one of template, tool, or fromStep")
+	}
+	if set > 1 {
+		return condition, fmt.Errorf("condition: tool and fromStep are mutually exclusive (set exactly one of template, tool, or fromStep)")
 	}
 
-	// Either tool or from_step must be provided
-	if condition.Tool == "" && condition.FromStep == "" {
-		return condition, fmt.Errorf("either template, tool, or from_step is required")
+	// A template gate stands alone: no tool/fromStep or expectations needed.
+	if condition.Template != "" {
+		return condition, nil
 	}
 
 	// Args (optional)
@@ -2039,7 +2112,7 @@ func convertWorkflowCondition(conditionParam map[string]interface{}) (api.Workfl
 	hasExpectNot := false
 
 	// Expect (optional)
-	if expectParam, ok := conditionParam["expect"].(map[string]interface{}); ok {
+	if expectParam, ok := pickMap(conditionParam, "expect"); ok {
 		expect, err := convertWorkflowConditionExpectation(expectParam)
 		if err != nil {
 			return condition, fmt.Errorf("invalid expect: %v", err)
@@ -2048,19 +2121,21 @@ func convertWorkflowCondition(conditionParam map[string]interface{}) (api.Workfl
 		hasExpect = true
 	}
 
-	// ExpectNot (optional)
-	if expectNotParam, ok := conditionParam["expect_not"].(map[string]interface{}); ok {
+	// ExpectNot (optional). Accept canonical camelCase and legacy snake_case.
+	if expectNotParam, ok := pickMap(conditionParam, "expectNot", "expect_not"); ok {
 		expectNot, err := convertWorkflowConditionExpectation(expectNotParam)
 		if err != nil {
-			return condition, fmt.Errorf("invalid expect_not: %v", err)
+			return condition, fmt.Errorf("invalid expectNot: %v", err)
 		}
 		condition.ExpectNot = expectNot
 		hasExpectNot = true
 	}
 
-	// At least one of expect or expect_not must be provided
+	// A tool/fromStep condition needs an explicit expectation: without one the
+	// executor falls back to "expect the call to fail", which is rarely what a
+	// user means. The CRD enforces the same rule via a CEL validation.
 	if !hasExpect && !hasExpectNot {
-		return condition, fmt.Errorf("either expect or expect_not is required")
+		return condition, fmt.Errorf("a tool or fromStep condition requires expect or expectNot")
 	}
 
 	return condition, nil
@@ -2075,12 +2150,12 @@ func convertWorkflowConditionExpectation(expectParam map[string]interface{}) (ap
 		expect.Success = success
 	}
 
-	// JsonPath (optional)
-	if jsonPathParam, ok := expectParam["json_path"].(map[string]interface{}); ok {
+	// JsonPath (optional). Accept canonical camelCase and legacy snake_case.
+	if jsonPathParam, ok := pickMap(expectParam, "jsonPath", "json_path"); ok {
 		expect.JsonPath = jsonPathParam
 	}
 
-	// At least one of success or json_path must be provided
+	// At least one of success or jsonPath must be provided
 	if !expect.Success && len(expect.JsonPath) == 0 {
 		// If success was explicitly set to false, that's okay
 		if successVal, exists := expectParam["success"]; exists {
@@ -2089,8 +2164,8 @@ func convertWorkflowConditionExpectation(expectParam map[string]interface{}) (ap
 				return expect, nil
 			}
 		}
-		// Neither success nor json_path provided
-		return expect, fmt.Errorf("either success field or json_path must be provided")
+		// Neither success nor jsonPath provided
+		return expect, fmt.Errorf("either success or jsonPath must be provided")
 	}
 
 	return expect, nil
@@ -2139,7 +2214,7 @@ func getWorkflowArgsSchema() map[string]interface{} {
 func getWorkflowConditionSchema() map[string]interface{} {
 	return map[string]interface{}{
 		api.SchemaKeyType:                 string(api.ArgTypeObject),
-		api.SchemaKeyDescription:          "Optional condition that determines whether this step should execute",
+		api.SchemaKeyDescription:          "Optional condition that determines whether this step should execute. Set exactly one of template, tool, or fromStep; a tool/fromStep condition requires expect or expectNot.",
 		api.SchemaKeyAdditionalProperties: false,
 		api.SchemaKeyProperties: map[string]interface{}{
 			"template": map[string]interface{}{
@@ -2150,7 +2225,7 @@ func getWorkflowConditionSchema() map[string]interface{} {
 				api.SchemaKeyType:        string(api.ArgTypeString),
 				api.SchemaKeyDescription: "Tool to call for condition evaluation",
 			},
-			"from_step": map[string]interface{}{
+			"fromStep": map[string]interface{}{
 				api.SchemaKeyType:        string(api.ArgTypeString),
 				api.SchemaKeyDescription: "Reference a previous step's result for condition evaluation",
 			},
@@ -2166,7 +2241,7 @@ func getWorkflowConditionSchema() map[string]interface{} {
 						api.SchemaKeyType:        string(api.ArgTypeBoolean),
 						api.SchemaKeyDescription: "Whether the tool call should succeed",
 					},
-					"json_path": map[string]interface{}{
+					"jsonPath": map[string]interface{}{
 						api.SchemaKeyType:        string(api.ArgTypeObject),
 						api.SchemaKeyDescription: "JSON path expressions to evaluate against tool result",
 						api.SchemaKeyAdditionalProperties: map[string]interface{}{
@@ -2175,7 +2250,7 @@ func getWorkflowConditionSchema() map[string]interface{} {
 					},
 				},
 			},
-			"expect_not": map[string]interface{}{
+			"expectNot": map[string]interface{}{
 				api.SchemaKeyType:        string(api.ArgTypeObject),
 				api.SchemaKeyDescription: "Negated expected results for condition evaluation",
 			},
@@ -2204,9 +2279,9 @@ func getWorkflowSubStepSchema() map[string]interface{} {
 				api.SchemaKeyType:        string(api.ArgTypeObject),
 				api.SchemaKeyDescription: "Arguments to pass to the tool (supports templating)",
 			},
-			"condition":     getWorkflowConditionSchema(),
-			"allow_failure": map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeBoolean), api.SchemaKeyDescription: "Whether this sub-step is allowed to fail"},
-			"store":         map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeBoolean), api.SchemaKeyDescription: "Whether the sub-step result should be stored"},
+			"condition":    getWorkflowConditionSchema(),
+			"allowFailure": map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeBoolean), api.SchemaKeyDescription: "Whether this sub-step is allowed to fail"},
+			"store":        map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeBoolean), api.SchemaKeyDescription: "Whether the sub-step result should be stored"},
 			api.SchemaKeyDescription: map[string]interface{}{
 				api.SchemaKeyType:        string(api.ArgTypeString),
 				api.SchemaKeyDescription: "Human-readable documentation for this sub-step",
@@ -2267,9 +2342,9 @@ func getWorkflowStepsSchema() map[string]interface{} {
 					api.SchemaKeyItems:       getWorkflowSubStepSchema(),
 					"minItems":               1,
 				},
-				"allow_failure": map[string]interface{}{
+				"allowFailure": map[string]interface{}{
 					api.SchemaKeyType:        string(api.ArgTypeBoolean),
-					api.SchemaKeyDescription: "Whether this step is allowed to fail without failing the workflow",
+					api.SchemaKeyDescription: "Whether this step is allowed to fail without failing the workflow. On a forEach or parallel step this tolerates a failure of the whole group.",
 				},
 				"store": map[string]interface{}{
 					api.SchemaKeyType:        string(api.ArgTypeBoolean),

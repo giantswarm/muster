@@ -565,8 +565,10 @@ spec:
       args:
         <key>: <value_template>      # e.g. "{{.input.namespace}}"
       condition:
-        # Use exactly one of: template, tool, or fromStep.
-        template: "{{ eq .input.env \"production\" }}"  # boolean Go-template gate
+        # Catalog of fields — set exactly ONE source (template, tool, or fromStep).
+        # template: a boolean Go-template gate, stands alone:
+        template: "{{ eq .input.env \"production\" }}"
+        # ...or tool/fromStep, which REQUIRE an expect or expectNot block:
         tool: "<condition_tool>"
         args:
           <key>: <value>
@@ -683,7 +685,7 @@ Used by `forEach.steps`, `parallel`, and `onFailure`. A sub-step is a plain tool
 | `expect` | `WorkflowConditionExpectation` | No | Positive expectations (with `tool`/`fromStep`) |
 | `expectNot` | `WorkflowConditionExpectation` | No | Negative expectations (with `tool`/`fromStep`) |
 
-*Note: Specify exactly one of `template`, `tool`, or `fromStep`. With `template`, `expect`/`expectNot` are ignored. There are no `and`/`or` combinators.
+*Note: Specify exactly one of `template`, `tool`, or `fromStep`. A `tool`/`fromStep` condition must declare `expect` or `expectNot` (without one, the engine defaults to expecting the call to fail). With `template`, `expect`/`expectNot` are ignored. Both rules are enforced at `kubectl apply` time via CEL. There are no `and`/`or` combinators.
 
 #### WorkflowConditionExpectation Fields
 

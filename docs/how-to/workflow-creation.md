@@ -29,7 +29,7 @@ top-level keys:
 | `.input.<arg>` | Workflow arguments |
 | `.results.<step_id>` | Result of an earlier step that set `store: true` |
 | `.vars.<name>` | Loop variables inside `forEach` (`.vars.item`, `.vars.item_index`) |
-| `.context.<step_id>` | Alias for `.results` |
+| `.context.<step_id>` | Legacy alias for `.results`; prefer `.results` |
 
 > Always use `{{ .input.<arg> }}` — there is no bare `{{ .<arg> }}`. Rendering
 > uses `missingkey=error`, so a reference to an undefined key fails the step.
@@ -80,7 +80,10 @@ steps:
 ## Conditions
 
 A `condition` decides whether a step runs. Specify **exactly one** of
-`template`, `tool`, or `fromStep`.
+`template`, `tool`, or `fromStep`. A `tool` or `fromStep` condition must also
+declare an `expect` or `expectNot` block — without one the engine falls back to
+"expect the call to fail", which is rarely what you mean. Both rules are
+enforced at `kubectl apply` time (CEL) and by `workflow_create`/`workflow_validate`.
 
 ### Template gate
 
@@ -165,6 +168,10 @@ is also addressable after the loop by zero-based index as
 `{{ .results.<sub_step_id>_<index> }}` (e.g. `{{ .results.deploy_0 }}`). The
 plain `{{ .results.<sub_step_id> }}` key keeps the last iteration's result.
 
+> The indexed key is a literal `<id>_<index>` string, so avoid a sub-step id
+> that already ends in `_<number>` (e.g. `deploy_0`) inside a `forEach` to keep
+> the per-iteration keys unambiguous.
+
 ## Concurrency with `parallel`
 
 Run a group of sub-steps concurrently to cut total latency. Each sub-step
@@ -199,9 +206,11 @@ group completes.
 
 ### Tolerate a failing step
 
-`allowFailure: true` records the failure but continues the workflow. The step's
-error is available to later `fromStep` conditions when combined with
-`store: true`:
+`allowFailure: true` records the failure but continues the workflow. On a
+`forEach` or `parallel` step it tolerates a failure of the **whole group** (it
+cannot tolerate one iteration or branch while failing the rest — put
+`allowFailure` on the individual sub-step for that). The step's error is
+available to later `fromStep` conditions when combined with `store: true`:
 
 ```yaml
 - id: optional_migration
