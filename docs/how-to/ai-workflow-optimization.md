@@ -5,9 +5,9 @@ guide covers only features the workflow engine actually implements; see
 [Workflow Creation](workflow-creation.md) and the
 [Workflow CRD reference](../reference/crds.md#workflow) for full details.
 
-> There is no separate "AI optimization" engine, ML caching layer, or
-> `muster configure ...` CLI. Optimization is about how you structure the
-> workflow itself.
+> Optimization is purely about how you structure the workflow — composing
+> steps, conditions, and concurrency. There is no separate optimization engine,
+> caching layer, or tuning CLI to configure.
 
 ## Cut latency with `parallel`
 

@@ -1,0 +1,82 @@
+name: "workflow-condition-template"
+description: "A boolean Go-template condition gates step execution: the step runs only when the template renders truthy, on plain tool steps and on composite (parallel/forEach) steps alike"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "condition", "template", "control-flow", "core-api"]
+timeout: "2m"
+
+pre_configuration:
+  mcp_servers:
+  - name: "echo-provider"
+    config:
+      tools:
+      - name: "echo"
+        responses: [ { response: { said: "{{ .text }}" } } ]
+
+steps:
+- id: "create-template-gate"
+  tool: "core_workflow_create"
+  args:
+    name: "template-gate"
+    args:
+      env: { type: "string", required: true }
+    steps:
+      - id: "prod-only"
+        condition:
+          template: "{{ eq .input.env \"production\" }}"
+        tool: "x_echo-provider_echo"
+        args: { text: "deploying to {{ .input.env }}" }
+        store: true
+      - id: "always"
+        tool: "x_echo-provider_echo"
+        args: { text: "post step" }
+      # A composite step gated by the same kind of template condition.
+      - id: "prod-fanout"
+        condition:
+          template: "{{ eq .input.env \"production\" }}"
+        parallel:
+          - id: "warm-cache"
+            tool: "x_echo-provider_echo"
+            args: { text: "warming cache" }
+            store: true
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "template-gate" }
+
+# Truthy template: the gated plain step and the gated composite both run.
+- id: "run-production"
+  tool: "workflow_template-gate"
+  args:
+    env: "production"
+  expected:
+    success: true
+    json_path:
+      status: "completed"
+      steps.0.id: "prod-only"
+      steps.0.status: "completed"
+      steps.0.condition_evaluation: true
+      steps.1.id: "always"
+      steps.1.status: "completed"
+      steps.2.id: "warm-cache"
+      steps.2.status: "completed"
+
+# Falsy template: the gated plain step is skipped, the ungated step still runs,
+# and the gated composite is skipped as a single entry under its step id.
+- id: "run-staging"
+  tool: "workflow_template-gate"
+  args:
+    env: "staging"
+  expected:
+    success: true
+    json_path:
+      status: "completed"
+      steps.0.id: "prod-only"
+      steps.0.status: "skipped"
+      steps.0.condition_evaluation: false
+      steps.1.id: "always"
+      steps.1.status: "completed"
+      steps.2.id: "prod-fanout"
+      steps.2.status: "skipped"
+      steps.2.condition_evaluation: false

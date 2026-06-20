@@ -1,0 +1,86 @@
+name: "workflow-foreach-loop-vars"
+description: "forEach exposes the current item via the loop variable (default 'item', or a custom name) plus a '<as>_index' counter to the body"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "foreach", "control-flow", "loop-variable", "core-api"]
+timeout: "2m"
+
+pre_configuration:
+  mcp_servers:
+  - name: "echo-provider"
+    config:
+      tools:
+      - name: "echo"
+        responses: [ { response: { said: "{{ .text }}" } } ]
+
+steps:
+# Without an explicit "as", the loop variable defaults to "item" and the index
+# is exposed as "item_index".
+- id: "create-default-var"
+  tool: "core_workflow_create"
+  args:
+    name: "foreach-default-var"
+    args:
+      values: { type: "array", required: true }
+    steps:
+      - id: "loop"
+        forEach:
+          items: "{{ .input.values }}"
+          steps:
+            - id: "emit"
+              tool: "x_echo-provider_echo"
+              args: { text: "{{ .vars.item }}@{{ .vars.item_index }}" }
+              store: true
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "foreach-default-var" }
+
+- id: "run-default-var"
+  tool: "workflow_foreach-default-var"
+  args:
+    values: ["x", "y", "z"]
+  expected:
+    success: true
+    json_path:
+      status: "completed"
+      steps.0.status: "completed"
+      steps.2.status: "completed"
+    # First iteration index 0, last iteration index 2.
+    contains: ["z@2"]
+
+# A custom loop variable name "cluster" exposes "cluster" and "cluster_index".
+- id: "create-custom-var"
+  tool: "core_workflow_create"
+  args:
+    name: "foreach-custom-var"
+    args:
+      clusters: { type: "array", required: true }
+    steps:
+      - id: "loop"
+        forEach:
+          items: "{{ .input.clusters }}"
+          as: "cluster"
+          steps:
+            - id: "emit"
+              tool: "x_echo-provider_echo"
+              args: { text: "cluster {{ .vars.cluster }} is number {{ .vars.cluster_index }}" }
+              store: true
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "foreach-custom-var" }
+
+- id: "run-custom-var"
+  tool: "workflow_foreach-custom-var"
+  args:
+    clusters: ["prod-eu", "prod-us"]
+  expected:
+    success: true
+    json_path:
+      status: "completed"
+      steps.0.status: "completed"
+      steps.1.status: "completed"
+    contains: ["cluster prod-us is number 1"]

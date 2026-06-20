@@ -31,3 +31,21 @@ tests:
             controller-gen.kubebuilder.io/version: v0.21.0
             helm.sh/resource-policy: keep
             owner: team-bumblebee
+
+  # Backs the apply-time guard for workflow control flow: the API server itself
+  # must reject a step that is not exactly one of tool/forEach/parallel, and an
+  # empty parallel group, independently of the structured create/validate path.
+  - it: workflows CRD enforces step mutual-exclusivity and non-empty parallel
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: metadata.name
+          value: workflows.muster.giantswarm.io
+      - contains:
+          path: spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.steps.items.x-kubernetes-validations
+          content:
+            message: exactly one of tool, forEach, or parallel must be set
+            rule: "[has(self.tool), has(self.forEach), has(self.parallel)].filter(x, x).size() == 1"
+      - equal:
+          path: spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.steps.items.properties.parallel.minItems
+          value: 1

@@ -644,9 +644,11 @@ A step is exactly one of: a tool call (`tool`), a sequential loop (`forEach`), o
 | `allowFailure` | `boolean` | No | Continue on step failure | Default: `false` |
 | `description` | `string` | No | Human-readable step documentation | Max 500 characters |
 
-*Exactly one of `tool`, `forEach`, or `parallel` must be set.
+*Exactly one of `tool`, `forEach`, or `parallel` must be set. This is enforced by the CRD at apply time (a CEL validation rule), so `kubectl apply` rejects a step that sets none or more than one.
 
 > **Note**: There is no `outputs` field. To make a step's result available to later steps, set `store: true` and reference it as `{{.results.<step_id>}}`.
+>
+> **Migration**: A previously documented `outputs:` field never did anything (it was read by no part of the engine). It has been removed from the CRD. Any `outputs:` block in an existing workflow definition was already inert; delete it and use `store: true` instead.
 
 #### WorkflowForEach Fields
 
@@ -666,7 +668,7 @@ Used by `forEach.steps`, `parallel`, and `onFailure`. A sub-step is a plain tool
 | `tool` | `string` | Yes | Name of the tool to execute |
 | `args` | `map[string]any` | No | Arguments for tool execution (supports templating) |
 | `condition` | `WorkflowCondition` | No | Optional execution condition |
-| `store` | `boolean` | No | Store sub-step result (default `false`) |
+| `store` | `boolean` | No | Store sub-step result (default `false`). Inside `forEach`, each iteration is also addressable as `{{.results.<id>_<index>}}` (the plain `{{.results.<id>}}` keeps the last iteration). |
 | `allowFailure` | `boolean` | No | Continue on failure (default `false`) |
 | `description` | `string` | No | Human-readable documentation |
 

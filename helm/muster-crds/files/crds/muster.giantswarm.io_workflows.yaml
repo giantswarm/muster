@@ -518,6 +518,7 @@ spec:
                         - id
                         - tool
                         type: object
+                      minItems: 1
                       type: array
                     store:
                       default: false
@@ -532,6 +533,10 @@ spec:
                   required:
                   - id
                   type: object
+                  x-kubernetes-validations:
+                  - message: exactly one of tool, forEach, or parallel must be set
+                    rule: '[has(self.tool), has(self.forEach), has(self.parallel)].filter(x,
+                      x).size() == 1'
                 minItems: 1
                 type: array
             required:

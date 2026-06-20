@@ -1,0 +1,151 @@
+name: "workflow-foreach-conditional-and-failure"
+description: "forEach honors per-iteration sub-step conditions, propagates sub-step failures, can tolerate them via step-level allow_failure, and rejects a non-list items expression"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "foreach", "control-flow", "condition", "allow-failure", "core-api"]
+timeout: "3m"
+
+pre_configuration:
+  mcp_servers:
+  - name: "echo-provider"
+    config:
+      tools:
+      - name: "echo"
+        responses: [ { response: { said: "{{ .text }}" } } ]
+      - name: "boom"
+        responses: [ { error: "forEach body exploded" } ]
+
+steps:
+# A template condition on the body sub-step skips iterations whose item is not
+# "keep", recording one skipped entry per skipped iteration.
+- id: "create-foreach-conditional"
+  tool: "core_workflow_create"
+  args:
+    name: "foreach-conditional"
+    args:
+      items: { type: "array", required: true }
+    steps:
+      - id: "loop"
+        forEach:
+          items: "{{ .input.items }}"
+          as: "entry"
+          steps:
+            - id: "act"
+              condition:
+                template: "{{ eq .vars.entry \"keep\" }}"
+              tool: "x_echo-provider_echo"
+              args: { text: "kept {{ .vars.entry }}" }
+              store: true
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "foreach-conditional" }
+
+- id: "run-foreach-conditional"
+  tool: "workflow_foreach-conditional"
+  args:
+    items: ["keep", "drop", "keep"]
+  expected:
+    success: true
+    json_path:
+      status: "completed"
+      steps.0.status: "completed"
+      steps.0.condition_evaluation: true
+      steps.1.status: "skipped"
+      steps.1.condition_evaluation: false
+      steps.2.status: "completed"
+      steps.2.condition_evaluation: true
+
+# A sub-step failure inside forEach, with no allow_failure, fails the workflow.
+- id: "create-foreach-fail"
+  tool: "core_workflow_create"
+  args:
+    name: "foreach-fail"
+    steps:
+      - id: "loop"
+        forEach:
+          items: "{{ .input.items }}"
+          steps:
+            - id: "explode"
+              tool: "x_echo-provider_boom"
+        args: {}
+    args:
+      items: { type: "array", required: true }
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "foreach-fail" }
+
+- id: "run-foreach-fail"
+  tool: "workflow_foreach-fail"
+  args:
+    items: ["one", "two"]
+  expected:
+    success: false
+    error_contains: ["forEach body exploded"]
+
+# The same failure, but with allow_failure on the forEach step, is tolerated and
+# the workflow completes.
+- id: "create-foreach-fail-tolerated"
+  tool: "core_workflow_create"
+  args:
+    name: "foreach-fail-tolerated"
+    args:
+      items: { type: "array", required: true }
+    steps:
+      - id: "loop"
+        allow_failure: true
+        forEach:
+          items: "{{ .input.items }}"
+          steps:
+            - id: "explode"
+              tool: "x_echo-provider_boom"
+      - id: "after"
+        tool: "x_echo-provider_echo"
+        args: { text: "reached the end" }
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "foreach-fail-tolerated" }
+
+- id: "run-foreach-fail-tolerated"
+  tool: "workflow_foreach-fail-tolerated"
+  args:
+    items: ["one", "two"]
+  expected:
+    success: true
+    json_path:
+      status: "completed"
+    contains: ["reached the end"]
+
+# An items expression that does not resolve to a list is a hard error.
+- id: "create-foreach-bad-items"
+  tool: "core_workflow_create"
+  args:
+    name: "foreach-bad-items"
+    args:
+      value: { type: "string", required: true }
+    steps:
+      - id: "loop"
+        forEach:
+          items: "{{ .input.value }}"
+          steps:
+            - id: "noop"
+              tool: "x_echo-provider_echo"
+              args: { text: "never" }
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "foreach-bad-items" }
+
+- id: "run-foreach-bad-items"
+  tool: "workflow_foreach-bad-items"
+  args:
+    value: "not-a-list"
+  expected:
+    success: false
+    error_contains: ["expected a list"]

@@ -332,6 +332,69 @@ func TestWorkflowExecutor_ForEach(t *testing.T) {
 	assert.Equal(t, "beta", mock.calls[1].args["name"])
 }
 
+// TestWorkflowExecutor_ForEachIndexedResults verifies that a stored sub-step is
+// addressable per iteration via "{{ .results.<id>_<index> }}" after the loop,
+// not just by its plain ID (which keeps only the last iteration's result).
+func TestWorkflowExecutor_ForEachIndexedResults(t *testing.T) {
+	mock := &scriptedToolCaller{
+		responder: func(toolName string, args map[string]interface{}) (*mcp.CallToolResult, error) {
+			if toolName == "deploy_tool" {
+				name, _ := args["name"].(string)
+				return &mcp.CallToolResult{
+					Content: []mcp.Content{mcp.NewTextContent(fmt.Sprintf(`{"id": %q}`, name))},
+				}, nil
+			}
+			return &mcp.CallToolResult{Content: []mcp.Content{mcp.NewTextContent(`{}`)}}, nil
+		},
+	}
+	executor := NewWorkflowExecutor(mock, nil)
+
+	workflow := &api.Workflow{
+		Name: "foreach_indexed",
+		Args: map[string]api.ArgDefinition{"clusters": {Type: "array", Required: true}},
+		Steps: []api.WorkflowStep{
+			{
+				ID: "fanout",
+				ForEach: &api.WorkflowForEach{
+					Items: "{{ .input.clusters }}",
+					As:    "item",
+					Steps: []api.WorkflowSubStep{
+						{
+							ID:    "deploy",
+							Tool:  "deploy_tool",
+							Args:  map[string]interface{}{"name": "{{ .vars.item.name }}"},
+							Store: true,
+						},
+					},
+				},
+			},
+			{
+				ID:   "summary",
+				Tool: "summary_tool",
+				Args: map[string]interface{}{
+					"first":  "{{ .results.deploy_0.id }}",
+					"second": "{{ .results.deploy_1.id }}",
+					"last":   "{{ .results.deploy.id }}",
+				},
+			},
+		},
+	}
+
+	clusters := []interface{}{
+		map[string]interface{}{"name": "alpha"},
+		map[string]interface{}{"name": "beta"},
+	}
+
+	_, err := executor.ExecuteWorkflow(context.Background(), workflow, map[string]interface{}{"clusters": clusters})
+	require.NoError(t, err)
+
+	require.Len(t, mock.calls, 3)
+	summary := mock.calls[2].args
+	assert.Equal(t, "alpha", summary["first"], "first iteration must be addressable as deploy_0")
+	assert.Equal(t, "beta", summary["second"], "second iteration must be addressable as deploy_1")
+	assert.Equal(t, "beta", summary["last"], "plain id keeps the last iteration's result")
+}
+
 func TestWorkflowExecutor_ForEachFailureStops(t *testing.T) {
 	mock := &scriptedToolCaller{
 		responder: func(toolName string, args map[string]interface{}) (*mcp.CallToolResult, error) {

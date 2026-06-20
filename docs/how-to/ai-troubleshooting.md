@@ -68,15 +68,13 @@ muster serve
 ```
 
 **Fix 2: Reset Configuration**
+
+muster has no configuration CLI — configuration lives in `~/.config/muster/config.yaml`
+(or `.muster/config.yaml` for a project). To reset, move the file aside so muster
+falls back to defaults, then edit it back to your setup:
+
 ```bash
-# Backup current config
-cp ~/.config/muster/config.yaml ~/.config/muster/config.yaml.backup
-
-# Reset to defaults
-muster configure reset
-
-# Reconfigure for your setup
-muster configure --interactive
+mv ~/.config/muster/config.yaml ~/.config/muster/config.yaml.backup
 ```
 
 **Fix 3: Check Network Issues**
@@ -190,18 +188,12 @@ muster logs mcpserver kubernetes-tools
 ```
 
 **Fix 3: Review Tool Filters**
+
+Tool filtering is defined in `~/.config/muster/config.yaml`. Edit the file to
+adjust or temporarily remove filters, restart `muster serve`, then re-list:
+
 ```bash
-# Check current filters
-muster config show filters
-
-# Temporarily disable filters
-muster configure filters --disable
-
-# Test tool availability
-muster list tools --all
-
-# Re-enable with adjusted filters
-muster configure filters --enable
+muster list tools
 ```
 
 #### Issue: "Tool execution fails" or "Tool timeout"
@@ -245,12 +237,6 @@ timeouts:
 free -h
 df -h
 top -p $(pgrep muster)
-
-# Check Muster limits
-muster config show | grep -A 5 limits
-
-# Adjust limits if needed
-muster configure limits --memory 2GB --cpu 2
 ```
 
 **Fix 3: Verify Dependencies**
@@ -326,18 +312,6 @@ agent:
       - ".git/**"
 ```
 
-**Fix 3: Enable Smart Caching**
-```bash
-# Enable aggressive caching
-muster configure cache --aggressive
-
-# Preload frequently used tools
-muster cache preload --popular-tools
-
-# Clean up old cache
-muster cache cleanup --older-than 7d
-```
-
 #### Issue: "Memory leaks" or "High memory usage"
 
 **Symptoms:**
@@ -364,12 +338,9 @@ muster cache stats --detailed
 
 **Fix 1: Restart Periodically**
 ```bash
-# Set up automatic restart
+# Restart muster on a schedule with cron (muster has no built-in scheduler)
 crontab -e
-# Add: 0 2 * * * /usr/local/bin/muster restart
-
-# Or use systemd timer
-muster configure restart-schedule --daily 2:00
+# Add, e.g.: 0 2 * * * systemctl restart muster
 ```
 
 **Fix 2: Tune Memory Settings**
@@ -382,15 +353,6 @@ memory:
     max_total_cache: 512MB
     max_tool_cache: 256MB
     max_result_cache: 256MB
-```
-
-**Fix 3: Enable Memory Monitoring**
-```bash
-# Enable memory alerts
-muster configure alerts \
-  --memory-threshold 80% \
-  --action restart \
-  --cooldown 1h
 ```
 
 ### Configuration Issues
@@ -421,44 +383,22 @@ muster config diff --with-defaults
 
 **Fix 1: Reset to Known Good Configuration**
 ```bash
-# Backup current config
-cp ~/.config/muster/config.yaml ~/.config/muster/config.yaml.broken
-
-# Reset to defaults
-muster configure reset
-
-# Apply minimal working config
-muster configure --minimal
-
-# Test basic functionality
-muster status
+# Move the current config aside (keeping a copy) to fall back to defaults
+mv ~/.config/muster/config.yaml ~/.config/muster/config.yaml.broken
 ```
 
 **Fix 2: Incremental Configuration**
+
+Build the configuration up from a minimal `config.yaml` and add entities one at a
+time, checking after each. Entities are created with `muster create` and stored
+under `{configPath}/{mcpservers,workflows}/`:
+
 ```bash
-# Start with minimal config
-muster configure reset
+muster create mcpserver kubernetes-tools --command "..."
+muster check
 
-# Add components one by one
-muster configure add mcpserver kubernetes-tools
-muster test
-
-muster configure add workflow deploy-webapp
-muster test
-
-# Continue until you find the problematic config
-```
-
-**Fix 3: Use Configuration Wizard**
-```bash
-# Interactive configuration
-muster configure --wizard
-
-# Guided setup for specific use case
-muster configure --guided --use-case infrastructure
-
-# Validate each step
-muster configure --validate-each-step
+muster create workflow deploy-webapp --from-file deploy-webapp.yaml
+muster check
 ```
 
 ### Environment-Specific Issues
@@ -542,9 +482,6 @@ muster config show environments
 # Always specify environment in prompts
 # Good: "Deploy user-service v1.2.3 to staging environment"
 # Bad: "Deploy user-service v1.2.3"
-
-# Configure environment warnings
-muster configure warnings --environment-required
 ```
 
 **Fix 2: Environment Safety Guards**
@@ -620,18 +557,11 @@ connection_pool:
 ### Enable Debug Mode
 
 ```bash
-# Enable debug logging
-muster configure logging --level debug
-
-# Start with verbose output
+# Start muster with verbose and debug output
 muster serve --verbose --debug
 
-# Enable specific debug categories
-muster configure debug \
-  --categories agent,tools,auth,network
-
-# Save debug logs
-muster logs --debug --output /tmp/muster-debug.log
+# Capture the output to a file
+muster serve --verbose --debug > /tmp/muster-debug.log 2>&1
 ```
 
 ### Use Built-in Diagnostics
@@ -673,12 +603,6 @@ export MCP_DEBUG=1
 
 # Trace agent messages
 muster agent --trace-messages
-
-# Log all agent interactions
-muster configure agent-logging --all-interactions
-
-# Analyze agent conversation patterns
-muster analyze conversations --recent 24h
 ```
 
 #### Debug Tool Execution
@@ -769,18 +693,9 @@ monitoring:
 
 ### Automated Maintenance
 
-```bash
-# Set up automated maintenance
-muster configure maintenance \
-  --schedule "0 2 * * SUN" \
-  --tasks "cache-cleanup,log-rotation,health-check"
-
-# Configure automatic updates
-muster configure auto-update \
-  --channel stable \
-  --backup-before-update \
-  --test-after-update
-```
+Schedule maintenance with the tools you already run muster under — for example a
+cron entry or systemd timer to restart the service and rotate logs. Update the
+binary with `muster self-update`.
 
 ### Proactive Monitoring
 

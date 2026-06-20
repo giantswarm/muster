@@ -623,10 +623,11 @@ func (we *WorkflowExecutor) runForEach(ctx context.Context, workflowName string,
 	}
 	idxKey := as + "_index"
 
-	// ponytail: forEach sub-step results are keyed by their plain sub-step ID in
-	// the shared results map, so a stored sub-step keeps only the last
-	// iteration's result. Fan-out workflows that don't need per-iteration
-	// addressable results are unaffected; upgrade path is index-suffixed keys.
+	// A stored sub-step's result lives under its plain ID (so later sub-steps in
+	// the same iteration can chain off it) and is also copied to an
+	// index-suffixed key "<id>_<index>" after each iteration, so every
+	// iteration stays addressable after the loop (the plain ID keeps the last
+	// iteration's result for convenience).
 	prev, hadPrev := execCtx.variables[as]
 	defer func() {
 		if hadPrev {
@@ -651,6 +652,11 @@ func (we *WorkflowExecutor) runForEach(ctx context.Context, workflowName string,
 					return stepOutcome{}, nil
 				}
 				return outcome, nil
+			}
+			if ss.Store {
+				if v, ok := execCtx.results[ss.ID]; ok {
+					execCtx.results[fmt.Sprintf("%s_%d", ss.ID, idx)] = v
+				}
 			}
 		}
 	}

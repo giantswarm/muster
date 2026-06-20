@@ -49,6 +49,7 @@ type WorkflowSpec struct {
 // WorkflowStep defines a single step in the workflow execution.
 // A step is exactly one of: a tool call (tool), a sequential loop (forEach),
 // or a concurrent group (parallel).
+// +kubebuilder:validation:XValidation:rule="[has(self.tool), has(self.forEach), has(self.parallel)].filter(x, x).size() == 1",message="exactly one of tool, forEach, or parallel must be set"
 type WorkflowStep struct {
 	// ID is the unique identifier for this step within the workflow.
 	// +kubebuilder:validation:Required
@@ -78,6 +79,7 @@ type WorkflowStep struct {
 	// resolves its arguments from the workflow state as it was before the
 	// group started; siblings cannot reference each other's results. Mutually
 	// exclusive with tool and forEach.
+	// +kubebuilder:validation:MinItems=1
 	Parallel []WorkflowSubStep `json:"parallel,omitempty" yaml:"parallel,omitempty"`
 
 	// Store indicates whether to store the step result for use in later steps.

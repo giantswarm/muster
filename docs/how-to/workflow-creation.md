@@ -159,8 +159,11 @@ spec:
 ```
 
 The body is non-recursive: sub-steps are plain tool calls and cannot themselves
-contain `forEach` or `parallel`. Sub-step results are keyed by their sub-step
-ID, so storing a sub-step keeps only the last iteration's result.
+contain `forEach` or `parallel`. A sub-step that sets `store: true` is available
+within the same iteration as `{{ .results.<sub_step_id> }}`, and each iteration
+is also addressable after the loop by zero-based index as
+`{{ .results.<sub_step_id>_<index> }}` (e.g. `{{ .results.deploy_0 }}`). The
+plain `{{ .results.<sub_step_id> }}` key keeps the last iteration's result.
 
 ## Concurrency with `parallel`
 

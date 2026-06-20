@@ -14,7 +14,6 @@ Advanced integration patterns for using Muster with AI agents effectively.
 ### Optimization and Workflows
 - [Optimize tool discovery for AI agents](#tool-discovery-optimization)
 - [Create AI-friendly workflows](#ai-friendly-workflows)
-- [Set up context-aware tooling](#context-aware-tooling)
 
 ### Advanced Integration
 - [Custom prompt engineering](#prompt-engineering)
@@ -183,52 +182,6 @@ metadata:
 
       Production deployment:
         call_tool(name="workflow_ai_deploy_webapp", arguments={"app_name": "critical-service", "environment": "production", "image_tag": "v2.0.1"})
-```
-
-## Context-Aware Tooling
-
-### Set Up Environment Context
-
-Help AI agents understand your environment:
-
-```bash
-# Configure environment-specific contexts
-muster configure context \
-  --name "production" \
-  --description "Production environment - requires approval for changes" \
-  --tools "kubectl-prod,helm-prod,monitoring-prod" \
-  --safety-level "high"
-
-muster configure context \
-  --name "development" \
-  --description "Development environment - full access for experimentation" \
-  --tools "kubectl-dev,helm-dev,testing-tools" \
-  --safety-level "low"
-```
-
-### Smart Tool Suggestions
-
-Configure intelligent tool recommendations:
-
-```yaml
-# tool-suggestions.yaml
-suggestions:
-  deployment_context:
-    triggers:
-      - keywords: ["deploy", "release", "update"]
-      - file_patterns: ["*.yaml", "*.yml", "Dockerfile"]
-    suggested_tools:
-      - "workflow_deploy_webapp"
-      - "x_kubernetes_apply_manifest"
-
-  debugging_context:
-    triggers:
-      - keywords: ["debug", "troubleshoot", "error", "failed"]
-      - error_patterns: ["pod.*failed", "service.*unavailable"]
-    suggested_tools:
-      - "x_kubernetes_get_logs"
-      - "x_kubernetes_describe_pod"
-      - "workflow_debug_service"
 ```
 
 ## Prompt Engineering for Infrastructure
