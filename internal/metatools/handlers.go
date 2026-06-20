@@ -135,9 +135,12 @@ func (p *Provider) handleDescribeTool(ctx context.Context, args map[string]inter
 }
 
 // defaultFilterLimit caps how many tools the discovery tier returns per
-// filter_tools call when the caller does not specify a limit. It keeps a broad
-// lookup against a large fleet bounded instead of dumping the whole catalogue.
-const defaultFilterLimit = 25
+// filter_tools call when the caller does not specify a limit. Discovery is a
+// "find the right tool" step, not a listing: a small ranked top-K is enough for
+// a caller (typically an LLM) to pick from, and a small default keeps the page
+// — which then rides in the model's context for every following step — cheap.
+// Callers that want more can page explicitly with limit/offset.
+const defaultFilterLimit = 5
 
 // summaryMaxLen caps the length (in runes) of the one-line summary the
 // discovery tier emits in place of a tool's full description.
