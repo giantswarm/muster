@@ -97,6 +97,13 @@ type ToolMetadata struct {
 	// Args defines the input arguments accepted by this tool,
 	// including validation rules and documentation
 	Args []ArgMetadata
+
+	// Labels carries free-form facets used by the discovery tier (filter_tools)
+	// to scope a lookup to a labelled subset of tools. For workflow execution
+	// tools these are propagated from the Workflow CRD's metadata.labels. They
+	// are not part of the MCP tool schema and do not appear in list_tools /
+	// describe_tool output.
+	Labels map[string]string
 }
 
 // ArgType is the JSON-Schema-style type of an ArgMetadata. The valid set is

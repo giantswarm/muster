@@ -228,11 +228,25 @@ func (a *AggregatorServer) getAllCoreToolsAsMCPTools() []mcp.Tool {
 				if remap != nil {
 					name = remap(toolMeta.Name)
 				}
-				tools = append(tools, mcp.Tool{
+				tool := mcp.Tool{
 					Name:        name,
 					Description: toolMeta.Description,
 					InputSchema: convertToMCPSchema(toolMeta.Args),
-				})
+				}
+				// Stash discovery labels (e.g. Workflow CRD labels) in _meta so
+				// the filter_tools discovery tier can facet on them in-process.
+				// list_tools / describe_tool ignore _meta, so this is invisible
+				// to callers that do not opt into label-faceted discovery.
+				if len(toolMeta.Labels) > 0 {
+					labels := make(map[string]string, len(toolMeta.Labels))
+					for k, v := range toolMeta.Labels {
+						labels[k] = v
+					}
+					tool.Meta = &mcp.Meta{
+						AdditionalFields: map[string]any{api.MetaKeyLabels: labels},
+					}
+				}
+				tools = append(tools, tool)
 			}
 		}
 	}

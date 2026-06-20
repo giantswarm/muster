@@ -125,7 +125,7 @@ func (f *FilterCommand) filterTools(ctx context.Context, pattern, descriptionFil
 
 				for i, tool := range response.Tools {
 					f.output.OutputLine("\n%d. %s", i+1, tool.Name)
-					f.output.OutputLine("   Description: %s", tool.Description)
+					f.output.OutputLine("   Description: %s", toolText(tool))
 					if tool.InputSchema != nil {
 						if schemaJSON, err := json.MarshalIndent(tool.InputSchema, "  ", "  "); err == nil {
 							f.output.OutputLine("   Schema: %s", string(schemaJSON))
@@ -139,7 +139,7 @@ func (f *FilterCommand) filterTools(ctx context.Context, pattern, descriptionFil
 				// Brief mode - show simple list (default for good CLI UX)
 				f.output.OutputLine("\nMatching tools:")
 				for i, tool := range response.Tools {
-					f.output.OutputLine("  %d. %-30s - %s", i+1, tool.Name, tool.Description)
+					f.output.OutputLine("  %d. %-30s - %s", i+1, tool.Name, toolText(tool))
 				}
 			}
 
@@ -149,6 +149,15 @@ func (f *FilterCommand) filterTools(ctx context.Context, pattern, descriptionFil
 
 	f.output.OutputLine("No tools available to filter")
 	return nil
+}
+
+// toolText returns the human-readable line for a filtered tool, preferring the
+// full description and falling back to the discovery-tier one-line summary.
+func toolText(tool metatools.ToolInfo) string {
+	if tool.Description != "" {
+		return tool.Description
+	}
+	return tool.Summary
 }
 
 // Usage returns the usage string

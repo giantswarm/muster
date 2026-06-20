@@ -536,6 +536,7 @@ func (a *Adapter) convertCRDToWorkflow(workflowCRD *musterv1alpha1.Workflow) *ap
 	workflow := &api.Workflow{
 		Name:         workflowCRD.Name,
 		Description:  workflowCRD.Spec.Description,
+		Labels:       workflowCRD.Labels,
 		Args:         a.convertArgDefinitions(workflowCRD.Spec.Args),
 		Steps:        a.convertWorkflowSteps(workflowCRD.Spec.Steps),
 		OnFailure:    a.convertSubSteps(workflowCRD.Spec.OnFailure),
@@ -1297,6 +1298,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Name:        "action_" + workflow.Name,
 			Description: workflow.Description,
 			Args:        a.convertWorkflowArgs(workflow.Name),
+			Labels:      workflow.Labels,
 		})
 	}
 

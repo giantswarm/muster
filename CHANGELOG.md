@@ -6,6 +6,12 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Cheap, ranked, faceted tool discovery tier ([#868](https://github.com/giantswarm/muster/issues/868)): `filter_tools` is now a discovery tier distinct from execution, so finding a tool no longer scales with the full descriptive weight of every candidate. Against a ~280-workflow fleet a broad `filter_tools(pattern="*workflow*")` call returns a bounded summary page (~3 KB) instead of the full-catalogue dump (~330 KB) — measured ~100x smaller.
+  - **Bounded + summarised pages.** `filter_tools` gains `limit` (default 25) and `offset`, and the response carries `total` and a `truncated` flag. Discovery now defaults to a one-line `summary` per tool with no input schema; the authoritative full description and schema remain available via `describe_tool`, or by passing `include_schema=true`.
+  - **Ranked query mode.** A new `query` argument relevance-ranks matches with a dependency-free lexical ranker (Okapi BM25 over name + summary) and returns them best-first with a `score`, dropping non-matching tools. Lexical ranking needs no embedding index; embeddings can be a later upgrade.
+  - **Label facets.** `Workflow` CRD `metadata.labels` are now propagated onto the workflow's execution tool and can be filtered in discovery via a `labels` facet (key=value; all must match), letting clients scope a lookup to a labelled subset.
+  - Existing `list_tools` / `call_tool` / `describe_tool` behaviour is unchanged, as is `list_core_tools` (which keeps full descriptions and schemas).
+
 - Workflow control flow ([#865](https://github.com/giantswarm/muster/issues/865)): four genuinely useful constructs are now implemented end to end (CRD types, internal API types, executor, structured create/validate path, and step JSON schema):
   - `condition.template` — a boolean Go-template gate evaluated in-process (e.g. `condition: {template: "{{ eq .input.env \"production\" }}"}`).
   - `forEach` — a sequential loop that runs a flat body of sub-steps once per item of a list, binding the current item to `{{ .vars.<as> }}` (default `item`) and the index to `{{ .vars.<as>_index }}`. A stored sub-step is addressable per iteration as `{{ .results.<id>_<index> }}` (the plain `{{ .results.<id> }}` keeps the last iteration's result).

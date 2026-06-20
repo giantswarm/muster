@@ -12,8 +12,36 @@ Reference guide for AI agents and MCP clients working with Muster's tools. This 
 |-----------|-------------|-----------|
 | `list_tools` | List all available tools for the session | `{}` |
 | `describe_tool` | Get detailed schema for a specific tool | `{"name": "tool_name"}` |
-| `filter_tools` | Search tools by pattern | `{"pattern": "...", "description": "..."}` |
+| `filter_tools` | Discover tools cheaply (ranked, faceted, paginated) | `{"pattern": "...", "query": "...", "labels": {...}, "limit": 25}` |
 | `list_core_tools` | List only Muster core tools | `{}` |
+
+#### `filter_tools` — the discovery tier
+
+`filter_tools` is a cheap discovery tier, distinct from execution. Against a large fleet (hundreds of workflows) it returns a **bounded, summarised, optionally ranked** page rather than the full catalogue, so finding a tool costs a few hundred tokens instead of a full-catalogue dump.
+
+| Argument | Type | Default | Purpose |
+|----------|------|---------|---------|
+| `pattern` | string | — | Glob match on the tool name (e.g. `x_kubernetes_*`). |
+| `description_filter` | string | — | Case-insensitive substring match on the full description. |
+| `query` | string | — | Natural-language query. When set, matches are relevance-ranked (lexical BM25 over name + summary), returned best-first with a `score`; non-matching tools are dropped. |
+| `labels` | object | — | Label facets as key=value pairs. A tool must carry every given label to match. Workflow tools inherit the `Workflow` CRD's `metadata.labels`. |
+| `case_sensitive` | bool | `false` | Case-sensitive name matching. |
+| `include_schema` | bool | `false` | Return full descriptions **and** input schemas instead of one-line summaries. |
+| `limit` | number | `25` | Max tools per page. |
+| `offset` | number | `0` | Tools to skip before this page. |
+
+The response carries `total` (matches across the whole catalogue), `truncated` (more matches exist beyond this page), and per-tool a one-line `summary` (plus `score` when ranked and `labels` when present). Get the authoritative full schema of a chosen tool with `describe_tool` before executing it.
+
+```bash
+# Rank workflows by intent instead of guessing a pattern
+filter_tools(query="deploy an app to a cluster", limit=5)
+
+# Scope discovery to a labelled subset
+filter_tools(labels={"category": "observability"})
+
+# Page through a broad match
+filter_tools(pattern="*workflow*", limit=25, offset=25)
+```
 
 ### Tool Execution
 

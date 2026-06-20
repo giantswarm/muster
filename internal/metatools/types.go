@@ -50,10 +50,19 @@ const (
 func (k ItemKind) String() string { return string(k) }
 
 // ToolInfo represents basic tool information returned by list_tools and filter_tools.
+//
+// In discovery mode filter_tools populates Summary (a one-line, length-capped
+// excerpt) and omits the full Description and InputSchema to keep the payload
+// cheap; the authoritative full text and schema remain available via
+// describe_tool. Score is set only when results were relevance-ranked by a
+// query, and Labels are included only when the tool carries discovery facets.
 type ToolInfo struct {
-	Name        string      `json:"name"`
-	Description string      `json:"description"`
-	InputSchema interface{} `json:"inputSchema,omitempty"`
+	Name        string            `json:"name"`
+	Description string            `json:"description,omitempty"`
+	Summary     string            `json:"summary,omitempty"`
+	Score       float64           `json:"score,omitempty"`
+	Labels      map[string]string `json:"labels,omitempty"`
+	InputSchema interface{}       `json:"inputSchema,omitempty"`
 }
 
 // ListToolsResponse is the response structure from the list_tools meta-tool.
@@ -70,19 +79,32 @@ type ServerRequiringAuth struct {
 }
 
 // FilterToolsResponse is the response structure from the filter_tools meta-tool.
+//
+// Total is the number of tools matching the filters across the whole catalogue;
+// Tools holds only the current page (bounded by limit/offset). Truncated is true
+// when more matches exist beyond the returned page, signalling the client to
+// refine the query or page further. TotalTools and FilteredCount are retained
+// for backward compatibility: TotalTools is the size of the full catalogue and
+// FilteredCount is the number of tools returned in this page.
 type FilterToolsResponse struct {
 	Filters       FilterCriteria `json:"filters"`
 	TotalTools    int            `json:"total_tools"`
 	FilteredCount int            `json:"filtered_count"`
+	Total         int            `json:"total"`
+	Truncated     bool           `json:"truncated"`
 	Tools         []ToolInfo     `json:"tools"`
 }
 
 // FilterCriteria describes the filter parameters applied.
 type FilterCriteria struct {
-	Pattern           string `json:"pattern,omitempty"`
-	DescriptionFilter string `json:"description_filter,omitempty"`
-	CaseSensitive     bool   `json:"case_sensitive"`
-	IncludeSchema     bool   `json:"include_schema"`
+	Pattern           string            `json:"pattern,omitempty"`
+	DescriptionFilter string            `json:"description_filter,omitempty"`
+	Query             string            `json:"query,omitempty"`
+	Labels            map[string]string `json:"labels,omitempty"`
+	CaseSensitive     bool              `json:"case_sensitive"`
+	IncludeSchema     bool              `json:"include_schema"`
+	Limit             int               `json:"limit"`
+	Offset            int               `json:"offset"`
 }
 
 // DescribeToolResponse is the response structure from the describe_tool meta-tool.
