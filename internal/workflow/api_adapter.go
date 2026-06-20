@@ -416,7 +416,7 @@ func (a *Adapter) ValidateWorkflowFromStructured(args map[string]interface{}) er
 		return fail(err)
 	}
 
-	warnDeprecatedStore(&wf)
+	logAuthoringWarnings(&wf)
 
 	// Generate validation success event
 	a.generateCRDEvent(wf.Name, events.ReasonWorkflowValidationSucceeded, events.EventData{
@@ -427,39 +427,14 @@ func (a *Adapter) ValidateWorkflowFromStructured(args map[string]interface{}) er
 	return nil
 }
 
-// warnDeprecatedStore logs a one-line migration warning when a workflow still
-// uses the deprecated `store` flag. It is a non-fatal authoring nudge toward
-// `output`; referencing no longer depends on either flag.
-func warnDeprecatedStore(wf *api.Workflow) {
-	if ids := deprecatedStoreIDs(wf); len(ids) > 0 {
-		logging.Warn("WorkflowExecutor", "Workflow %q uses the deprecated 'store' flag on: %s. 'store' is a backwards-compatible alias for 'output' and now only controls result visibility; referencing a step result no longer requires it. Prefer 'output'.", wf.Name, strings.Join(ids, ", "))
+// logAuthoringWarnings emits the workflow's non-fatal authoring lint warnings
+// (deprecated `store` usage, per-step output flags rendered inert by an output
+// projection) at the structured create/validate path. The detection lives in
+// the api package so the CRD reconciler emits the same nudges.
+func logAuthoringWarnings(wf *api.Workflow) {
+	for _, w := range api.AuthoringWarnings(wf) {
+		logging.Warn("WorkflowExecutor", "Workflow %q %s", wf.Name, w)
 	}
-}
-
-// deprecatedStoreIDs returns the IDs of every step and sub-step that still uses
-// the deprecated `store` flag, i.e. store is set while the superseding `output`
-// flag is not. Sub-steps are qualified by their parent step and group.
-func deprecatedStoreIDs(wf *api.Workflow) []string {
-	var ids []string
-	usesStore := func(output *bool, store bool) bool { return store && output == nil }
-	collect := func(label string, subs []api.WorkflowSubStep) {
-		for _, sub := range subs {
-			if usesStore(sub.Output, sub.Store) {
-				ids = append(ids, label+sub.ID)
-			}
-		}
-	}
-	for _, step := range wf.Steps {
-		if usesStore(step.Output, step.Store) {
-			ids = append(ids, step.ID)
-		}
-		if step.ForEach != nil {
-			collect(step.ID+".forEach.", step.ForEach.Steps)
-		}
-		collect(step.ID+".parallel.", step.Parallel)
-	}
-	collect("onFailure.", wf.OnFailure)
-	return ids
 }
 
 // validateWorkflowCondition checks the structural constraint the executor
@@ -1191,7 +1166,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 					Name:        fieldOutput,
 					Type:        api.ArgTypeObject,
 					Required:    false,
-					Description: "Optional templated output projection that shapes the returned payload",
+					Description: "Optional templated output projection that shapes the returned document",
 					Schema:      getWorkflowOutputSchema(),
 				},
 			},
@@ -1237,7 +1212,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 					Name:        fieldOutput,
 					Type:        api.ArgTypeObject,
 					Required:    false,
-					Description: "Optional templated output projection that shapes the returned payload",
+					Description: "Optional templated output projection that shapes the returned document",
 					Schema:      getWorkflowOutputSchema(),
 				},
 			},
@@ -1295,7 +1270,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 					Name:        fieldOutput,
 					Type:        api.ArgTypeObject,
 					Required:    false,
-					Description: "Optional templated output projection that shapes the returned payload",
+					Description: "Optional templated output projection that shapes the returned document",
 					Schema:      getWorkflowOutputSchema(),
 				},
 			},
@@ -2472,11 +2447,11 @@ func getWorkflowOnFailureSchema() map[string]interface{} {
 
 // getWorkflowOutputSchema returns the schema for the workflow-level output
 // projection: an object whose leaves are templated expressions rendered against
-// .input/.results/.vars to shape the returned payload.
+// .input/.results/.vars to shape the returned document.
 func getWorkflowOutputSchema() map[string]interface{} {
 	return map[string]interface{}{
 		api.SchemaKeyType:                 string(api.ArgTypeObject),
-		api.SchemaKeyDescription:          "Optional templated projection rendered once after all steps complete and returned in place of the default envelope. Each leaf is a Go-template/sprig expression evaluated against .input/.results/.vars, e.g. \"{{ .results.pods.items }}\" or \"{{ len .results.events.items }}\". JSON structure is preserved (numbers stay numbers, arrays stay arrays). A leaf that is a bare reference path keeps its original type; any other expression that renders to a numeric-looking string is coerced to a number, so wrap values whose string form must be preserved (leading zeros, versions, IDs) accordingly. Every step result is referenceable here regardless of its output flag.",
+		api.SchemaKeyDescription:          "Optional templated projection rendered once after all steps complete and returned in place of the default envelope. Each leaf is a Go-template/sprig expression evaluated against .input/.results/.vars, e.g. \"{{ .results.pods.items }}\" or \"{{ len .results.events.items }}\". JSON structure is preserved (numbers stay numbers, arrays stay arrays). A leaf that is a bare reference path keeps its original type; any other (computed) expression that renders to a numeric-looking string is coerced to a number, so to preserve a computed string whose form matters (leading zeros, versions, IDs) reference it as a bare path or pipe it through sprig `quote` (e.g. \"{{ .v | quote }}\"). Declaring this projection replaces the envelope, so per-step output/store flags no longer affect the returned document; every step result is still referenceable here regardless of those flags.",
 		api.SchemaKeyAdditionalProperties: true,
 	}
 }

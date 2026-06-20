@@ -69,9 +69,9 @@ are now separate:
   to the [output projection](#shaping-the-returned-result-output-projection) as
   `{{ .results.<step_id>.<field> }}`. No flag is needed. This makes the common
   "take one value out of step 1 and feed it into step 2" pattern cheap.
-- **Returning** — `output: true` includes a step's result in the document
-  returned to the caller (the LLM-facing payload). Use it only for the few steps
-  whose results the caller actually needs, to keep responses small.
+- **Returning** — `output: true` includes a step's result in the returned
+  document (what the caller, e.g. an LLM, receives). Use it only for the few
+  steps whose results the caller actually needs, to keep responses small.
 
 `store: true` is a **deprecated alias** for `output: true` and keeps working for
 backwards compatibility; prefer `output`.
@@ -91,6 +91,21 @@ steps:
       cluster_version: "{{ .results.get_cluster_info.version }}"
     output: true   # include this step's result in the returned document
 ```
+
+### What the caller receives
+
+Without an [`output` projection](#shaping-the-returned-result-output-projection),
+a workflow returns the default envelope
+(`{execution_id, workflow, status, input, steps[], ...}`), and the exact shape
+depends on the last step:
+
+- each step marked `output: true` contributes its result under `steps[]`; and
+- if the **last** step is a plain tool step that is *not* an `output` step, its
+  result is additionally merged onto the top level of the envelope (a
+  convenience so a trailing call's output is easy to read).
+
+If you want a predictable, minimal response, declare an `output` projection — it
+replaces the envelope entirely (see below).
 
 ## Shaping the returned result (output projection)
 
@@ -120,6 +135,39 @@ Each leaf is a Go-template/sprig expression. JSON structure is preserved:
 `notRunning` stays an array and `backoffCount` stays a number. Nested objects and
 arrays in the projection are rendered recursively. When `output` is omitted, the
 default envelope is returned unchanged.
+
+When a workflow declares an `output` projection, it **replaces** the envelope
+entirely, so the per-step `output: true` / `store: true` flags no longer affect
+the returned document (every step result is still referenceable in the
+projection regardless of those flags). Authoring a projection while leaving
+per-step `output` flags set is harmless but redundant; the create/validate path
+and the CRD reconciler log a one-line warning naming the inert flags.
+
+### Type preservation and the coercion escape hatch
+
+Type handling depends on the **shape** of the leaf:
+
+- A **bare reference path** — `"{{ .results.pods.items }}"`, dots and array
+  indices only — is resolved directly and keeps its exact JSON type (object,
+  array, number, string, boolean) at any depth.
+- Any **computed leaf** — anything using a function or composing values, e.g.
+  `"{{ len .results.events.items }}"` — is rendered to a string and then, as a
+  convenience, coerced back to a number when it looks numeric (so `len` yields
+  `3`, not `"3"`).
+
+That coercion is occasionally unwanted: a computed value whose *string form*
+matters — a version (`"1.20"`), a zero-padded value (`"08"`), or a long numeric
+ID — would otherwise be silently turned into a number (`1.2`, `8`). To force a
+computed leaf to stay a string, pipe it through sprig's `quote`:
+
+```yaml
+  output:
+    version: '{{ printf "%d.%d" (int .results.r.major) (int .results.r.minor) | quote }}'  # stays "1.20"
+    backoffCount: "{{ len .results.events.items }}"                                         # number 3
+```
+
+A leaf referenced as a bare path never needs `quote`; it already keeps its type.
+Non-finite results (`NaN`, `Inf`) are always kept as strings.
 
 ## Conditions
 

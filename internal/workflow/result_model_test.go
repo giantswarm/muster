@@ -111,7 +111,7 @@ func TestWorkflowExecutor_StoreAliasEmitsResult(t *testing.T) {
 	assert.True(t, hasResult, "store:true must still surface the result")
 }
 
-// #874: a workflow output projection shapes the returned payload, preserving
+// #874: a workflow output projection shapes the returned document, preserving
 // JSON structure across steps and omitting the default envelope.
 func TestWorkflowExecutor_OutputProjection(t *testing.T) {
 	mock := jsonResponder(map[string]string{
@@ -163,6 +163,37 @@ func TestWorkflowExecutor_OutputProjection(t *testing.T) {
 	assert.Equal(t, "a", nested["first"])
 }
 
+// #874: a computed projection leaf whose string form matters (versions, IDs,
+// zero-padded values) can opt out of numeric coercion via the sprig `quote`
+// function, while an unquoted computed leaf still coerces to a number.
+func TestWorkflowExecutor_OutputProjection_QuoteEscapeHatch(t *testing.T) {
+	mock := jsonResponder(map[string]string{
+		"release": `{"major": 1, "minor": 20, "build": 8}`,
+	})
+	executor := NewWorkflowExecutor(mock, nil)
+
+	workflow := &api.Workflow{
+		Name:  "versions",
+		Steps: []api.WorkflowStep{{ID: "release", Tool: "release"}},
+		Output: map[string]interface{}{
+			// Quoted: keeps the literal string form (JSON numbers decode to
+			// float64, so int-convert before %d formatting).
+			"version": `{{ printf "%d.%d" (int .results.release.major) (int .results.release.minor) | quote }}`,
+			"padded":  `{{ printf "%02d" (int .results.release.build) | quote }}`,
+			// Bare reference path: keeps its original numeric type.
+			"buildNum": "{{ .results.release.build }}",
+		},
+	}
+
+	result, err := executor.ExecuteWorkflow(context.Background(), workflow, map[string]interface{}{})
+	require.NoError(t, err)
+
+	decoded := decodeResult(t, result)
+	assert.Equal(t, "1.20", decoded["version"], "quoted computed leaf must stay a string")
+	assert.Equal(t, "08", decoded["padded"], "zero-padded quoted leaf must keep leading zero")
+	assert.Equal(t, float64(8), decoded["buildNum"], "bare reference path stays numeric")
+}
+
 // coerceScalar turns numeric strings into numbers but must keep non-finite
 // floats ("NaN", "Inf", ...) as strings, otherwise json.Marshal of a projection
 // containing such a leaf would fail.
@@ -178,6 +209,12 @@ func TestCoerceScalar(t *testing.T) {
 		{"Inf", "Inf"},
 		{"+Inf", "+Inf"},
 		{"infinity", "infinity"},
+		// Escape hatch: an explicitly quoted result (e.g. via sprig `quote`)
+		// keeps its string form and is not coerced to a number.
+		{`"08"`, "08"},
+		{`"1.20"`, "1.20"},
+		{`"42"`, "42"},
+		{`""`, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.in, func(t *testing.T) {
@@ -223,30 +260,4 @@ func TestWorkflowExecutor_JsonPathArrayIndexing(t *testing.T) {
 			assert.Equal(t, tc.want, got)
 		})
 	}
-}
-
-func TestDeprecatedStoreIDs(t *testing.T) {
-	wf := &api.Workflow{
-		Steps: []api.WorkflowStep{
-			{ID: "uses-store", Store: true},                         // deprecated
-			{ID: "uses-output", Output: boolPtr(true)},              // not deprecated
-			{ID: "output-wins", Store: true, Output: boolPtr(true)}, // output set => store ignored
-			{ID: "neither"}, // not deprecated
-			{ID: "loop", ForEach: &api.WorkflowForEach{Steps: []api.WorkflowSubStep{
-				{ID: "sub-store", Store: true},
-				{ID: "sub-output", Output: boolPtr(false)},
-			}}},
-			{ID: "group", Parallel: []api.WorkflowSubStep{{ID: "par-store", Store: true}}},
-		},
-		OnFailure: []api.WorkflowSubStep{{ID: "cleanup", Store: true}},
-	}
-
-	assert.ElementsMatch(t, []string{
-		"uses-store",
-		"loop.forEach.sub-store",
-		"group.parallel.par-store",
-		"onFailure.cleanup",
-	}, deprecatedStoreIDs(wf))
-
-	assert.Empty(t, deprecatedStoreIDs(&api.Workflow{Steps: []api.WorkflowStep{{ID: "x", Output: boolPtr(true)}}}))
 }

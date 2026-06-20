@@ -1,0 +1,50 @@
+name: "workflow-output-projection-quote-escape"
+description: "A computed output projection leaf whose string form matters (a version, a zero-padded value) can opt out of numeric coercion by piping through sprig 'quote', staying a string instead of being silently turned into a number. An unquoted computed numeric leaf still coerces to a number, proving the escape hatch is opt-in (issue #874)"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "output", "projection", "types", "quote", "core-api"]
+timeout: "2m"
+
+pre_configuration:
+  mcp_servers:
+  - name: "release"
+    config:
+      tools:
+      - name: "info"
+        responses: [ { response: { major: 1, minor: 20, build: 8 } } ]
+
+steps:
+- id: "create-projection-quote"
+  tool: "core_workflow_create"
+  args:
+    name: "projection-quote"
+    steps:
+      - id: "info"
+        tool: "x_release_info"
+    # 'quote' opts a computed leaf out of numeric coercion so its string form is
+    # preserved; the unquoted computed leaf still coerces to a number.
+    output:
+      version: '{{ printf "%d.%d" (int .results.info.major) (int .results.info.minor) | quote }}'
+      padded: '{{ printf "%02d" (int .results.info.build) | quote }}'
+      buildNum: "{{ .results.info.build }}"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "projection-quote" }
+
+- id: "run-projection-quote"
+  tool: "workflow_projection-quote"
+  expected:
+    success: true
+    json_path:
+      version: "1.20"
+      padded: "08"
+      buildNum: 8
+
+cleanup:
+- id: "delete-projection-quote"
+  tool: "core_workflow_delete"
+  args: { name: "projection-quote" }
+  expected:
+    success: true

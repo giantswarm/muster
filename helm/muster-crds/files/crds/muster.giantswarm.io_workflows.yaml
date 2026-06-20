@@ -214,17 +214,19 @@ spec:
                   x-kubernetes-preserve-unknown-fields: true
                 description: |-
                   Output is an optional templated projection that shapes the workflow's
-                  returned payload. It is rendered once after all steps complete, against
+                  returned document. It is rendered once after all steps complete, against
                   .input / .results / .vars, and replaces the default
                   {execution_id, workflow, status, input, steps[], ...} envelope. Each leaf
                   is a Go-template/sprig expression; JSON structure is preserved so numbers
                   stay numbers and arrays stay arrays (e.g. "{{ .results.pods.items }}" or
                   "{{ len .results.events.items }}"). A bare reference-path leaf keeps its
-                  original type; any other expression that renders to a numeric-looking
-                  string is coerced to a number, so string values whose form must be kept
-                  (leading zeros, versions, IDs) should be referenced as a bare path. Every
-                  step result is referenceable here regardless of its output flag. When
-                  omitted, the default envelope is returned unchanged.
+                  original type; any other (computed) expression that renders to a
+                  numeric-looking string is coerced to a number, so a computed string value
+                  whose form must be kept (leading zeros, versions, IDs) should either be
+                  referenced as a bare path or piped through sprig `quote` to opt out of the
+                  coercion (e.g. "{{ .v | quote }}"). Every step result is referenceable here
+                  regardless of its output flag. When omitted, the default envelope is
+                  returned unchanged.
                 type: object
                 x-kubernetes-preserve-unknown-fields: true
               steps:
@@ -473,7 +475,7 @@ spec:
                     output:
                       description: |-
                         Output indicates whether this step's result is included in the workflow's
-                        returned document (the LLM-facing payload). Every step result is always
+                        returned document (what the caller receives). Every step result is always
                         referenceable by later steps via {{ .results.<id>.<field> }} regardless of
                         this flag; Output only controls visibility in the returned result. When
                         unset, the deprecated Store flag is used as a fallback.

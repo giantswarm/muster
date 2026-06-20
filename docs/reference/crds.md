@@ -737,7 +737,18 @@ spec:
 - Each leaf is a Go-template/sprig expression. JSON structure is preserved:
   `notRunning` stays an array and `backoffCount` stays a number.
 - Nested objects and arrays in the projection are rendered recursively.
-- Every step result is referenceable here regardless of its `output` flag.
+- Every step result is referenceable here regardless of its `output` flag. When a
+  projection is declared it replaces the envelope, so per-step `output`/`store`
+  flags no longer affect the returned document (the create/validate path and the
+  reconciler warn when such flags are left set and become inert).
+- **Type coercion + escape hatch**: a *bare reference path* leaf
+  (`"{{ .results.pods.items }}"`) keeps its exact JSON type. A *computed* leaf
+  (e.g. `"{{ len .results.events.items }}"`) renders to a string and is then
+  coerced to a number when it looks numeric. To keep a computed string whose form
+  matters (versions, IDs, zero-padded values like `"08"`/`"1.20"`), reference it
+  as a bare path or pipe it through sprig `quote`
+  (`'{{ printf "%02d" .n | quote }}'`). Non-finite values (`NaN`/`Inf`) stay
+  strings.
 - When `output` is omitted, the default envelope is returned unchanged.
 
 #### Status Fields

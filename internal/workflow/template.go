@@ -152,7 +152,7 @@ func (we *WorkflowExecutor) renderTypedTemplate(templateStr string, tctx map[str
 // renderOutputProjection renders a workflow-level output projection into a
 // structured map, recursively resolving every templated leaf while preserving
 // JSON types. It is evaluated once after all steps complete and used as the
-// returned payload in place of the default envelope.
+// returned document in place of the default envelope.
 func (we *WorkflowExecutor) renderOutputProjection(output map[string]interface{}, execCtx *executionContext) (map[string]interface{}, error) {
 	tctx := we.templateContext(execCtx)
 	rendered, err := we.renderProjectionValue(output, tctx)
@@ -210,7 +210,19 @@ func (we *WorkflowExecutor) renderProjectionValue(value interface{}, tctx map[st
 // returned unchanged. Non-finite floats ("NaN", "Inf", "infinity") are kept as
 // strings because they cannot be marshalled to JSON and the literal text is
 // almost always what the workflow author meant.
+//
+// Escape hatch: a result that is an explicitly quoted Go string literal (e.g.
+// produced with the sprig `quote` function, "{{ .v | quote }}") is treated as a
+// deliberate opt-out of numeric coercion — the surrounding quotes are stripped
+// and the literal text is kept as a string. This lets a *computed* leaf whose
+// string form matters (versions, IDs, zero-padded values like "08" or "1.20")
+// survive without being silently turned into a number.
 func coerceScalar(s string) interface{} {
+	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
+		if unquoted, err := strconv.Unquote(s); err == nil {
+			return unquoted
+		}
+	}
 	if i, err := strconv.ParseInt(s, 10, 64); err == nil {
 		return i
 	}

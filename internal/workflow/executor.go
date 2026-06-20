@@ -239,7 +239,7 @@ func (we *WorkflowExecutor) buildStepsArray(stepMetadata []stepMetadata, results
 			step["allow_failure"] = stepMeta.AllowFailure
 		}
 
-		// Add result only for output steps (the LLM-facing document). Results are
+		// Add result only for output steps (the returned document). Results are
 		// always recorded for referencing, but only surfaced here when requested.
 		if stepMeta.Output && results[stepMeta.ID] != nil {
 			step["result"] = results[stepMeta.ID]

@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -40,7 +42,7 @@ type Workflow struct {
 	// fails on a step that does not allow failure. Their own failures are tolerated.
 	OnFailure []WorkflowSubStep `yaml:"onFailure,omitempty" json:"onFailure,omitempty"`
 
-	// Output is an optional templated projection that shapes the returned payload.
+	// Output is an optional templated projection that shapes the returned document.
 	// It is rendered once after the steps complete, against .input / .results /
 	// .vars, and replaces the default envelope. Each leaf is a Go-template/sprig
 	// expression and JSON structure is preserved. When nil, the default envelope
@@ -69,6 +71,67 @@ func OutputEnabled(output *bool, store bool) bool {
 		return *output
 	}
 	return store
+}
+
+// AuthoringWarnings returns non-fatal authoring lint messages for a workflow.
+// Each string is a complete, log-ready sentence describing the workflow itself
+// (the caller prefixes it with the workflow name). It is the single source of
+// truth shared by the structured create/validate path and the CRD reconciler so
+// the same nudge is emitted regardless of how a workflow is authored. Returns an
+// empty slice when there is nothing to warn about.
+func AuthoringWarnings(wf *Workflow) []string {
+	if wf == nil {
+		return nil
+	}
+	var warnings []string
+	if ids := deprecatedStoreIDs(wf); len(ids) > 0 {
+		warnings = append(warnings, fmt.Sprintf("uses the deprecated 'store' flag on: %s. 'store' is a backwards-compatible alias for 'output' and now only controls result visibility; referencing a step result no longer requires it. Prefer 'output'.", strings.Join(ids, ", ")))
+	}
+	if len(wf.Output) > 0 {
+		if ids := outputFlaggedIDs(wf); len(ids) > 0 {
+			warnings = append(warnings, fmt.Sprintf("declares a workflow-level 'output' projection, which replaces the default envelope, so the per-step 'output'/'store' flags on these steps have no effect on the returned document: %s. Remove them or drop the projection.", strings.Join(ids, ", ")))
+		}
+	}
+	return warnings
+}
+
+// deprecatedStoreIDs returns the IDs of every step and sub-step that still uses
+// the deprecated `store` flag, i.e. store is set while the superseding `output`
+// flag is not. Sub-steps are qualified by their parent step and group.
+func deprecatedStoreIDs(wf *Workflow) []string {
+	usesStore := func(output *bool, store bool) bool { return store && output == nil }
+	return collectStepIDs(wf, func(output *bool, store bool) bool { return usesStore(output, store) })
+}
+
+// outputFlaggedIDs returns the IDs of every step and sub-step that sets an
+// effective output/store flag. It is used to flag flags rendered inert by a
+// workflow-level output projection.
+func outputFlaggedIDs(wf *Workflow) []string {
+	return collectStepIDs(wf, OutputEnabled)
+}
+
+// collectStepIDs walks every step, forEach/parallel sub-step, and onFailure
+// handler, returning the (qualified) IDs for which match reports true.
+func collectStepIDs(wf *Workflow, match func(output *bool, store bool) bool) []string {
+	var ids []string
+	collect := func(label string, subs []WorkflowSubStep) {
+		for _, sub := range subs {
+			if match(sub.Output, sub.Store) {
+				ids = append(ids, label+sub.ID)
+			}
+		}
+	}
+	for _, step := range wf.Steps {
+		if match(step.Output, step.Store) {
+			ids = append(ids, step.ID)
+		}
+		if step.ForEach != nil {
+			collect(step.ID+".forEach.", step.ForEach.Steps)
+		}
+		collect(step.ID+".parallel.", step.Parallel)
+	}
+	collect("onFailure.", wf.OnFailure)
+	return ids
 }
 
 // Arg defines an argument for operations and workflows.
