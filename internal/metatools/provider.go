@@ -117,7 +117,7 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 					Name:        "limit",
 					Type:        api.ArgTypeNumber,
 					Required:    false,
-					Description: "Maximum number of tools to return in this page (default: 25)",
+					Description: "Maximum number of tools to return in this page (default: 5). Increase to page through more matches.",
 					Default:     defaultFilterLimit,
 				},
 				{
