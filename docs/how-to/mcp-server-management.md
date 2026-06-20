@@ -171,10 +171,9 @@ Set up monitoring and health checks for MCP servers.
 
 4. **Configure alerting** (if monitoring system available)
 
-   ```bash
-   # Export server metrics
-   muster metrics mcpserver --format prometheus
-   ```
+   Muster exports logs, traces, and metrics via OpenTelemetry (OTLP). Point the
+   standard `OTEL_EXPORTER_OTLP_*` environment variables at your collector and
+   build alerts there; there is no `muster metrics` command.
 
 ## Troubleshoot Server Startup Issues
 
@@ -529,10 +528,14 @@ muster get mcpserver <server-name>
 muster check mcpserver <server-name>
 ```
 
-Monitor logs:
+Inspect server state and logs:
 ```bash
-# View server logs (when available)
-muster logs mcpserver <server-name>
+# Server status and any startup error
+muster get mcpserver <server-name> -o yaml
+muster list mcpserver --all --verbose
+
+# Aggregator logs (servers log through it) — there is no `muster logs`
+muster serve --debug
 ```
 
 ## Integration Examples
@@ -543,9 +546,9 @@ Configure Cursor to use muster MCP servers:
 ```json
 {
   "mcpServers": {
-    "muster-aggregator": {
-      "command": "curl",
-      "args": ["-N", "http://localhost:8090/sse"]
+    "muster": {
+      "command": "muster",
+      "args": ["standalone"]
     }
   }
 }

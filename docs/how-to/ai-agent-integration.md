@@ -6,24 +6,12 @@ Advanced integration patterns for using Muster with AI agents effectively.
 
 ## Quick Navigation
 
-### Setup and Configuration
 - [Advanced IDE configuration](#advanced-ide-configuration)
-- [Multi-environment agent setup](#multi-environment-setup)
-- [Team configuration standards](#team-configuration)
-
-### Optimization and Workflows
-- [Optimize tool discovery for AI agents](#tool-discovery-optimization)
 - [Create AI-friendly workflows](#ai-friendly-workflows)
+- [Prompt engineering for infrastructure](#prompt-engineering-for-infrastructure)
+- [Documentation for AI agents](#documentation-for-ai-agents)
 
-### Advanced Integration
-- [Custom prompt engineering](#prompt-engineering)
-- [Workflow automation via agents](#workflow-automation)
-- [Integration with development workflows](#development-integration)
-
-### Troubleshooting
-- [Debug agent-tool communication](#debugging-communication)
-- [Resolve performance issues](#performance-issues)
-- [Handle authentication problems](#authentication-issues)
+For troubleshooting, see the [AI Agent Troubleshooting Guide](ai-troubleshooting.md).
 
 ## Advanced IDE Configuration
 
@@ -110,79 +98,62 @@ metadata:
   name: ai-deploy-webapp
 spec:
   description: "Deploy web application with AI agent assistance"
-  # Clear, descriptive args that AI can understand
+  # Clear names and descriptions help an agent pick the right arguments.
+  # Supported arg keys are: type, required, default, description.
   args:
     app_name:
       type: string
       required: true
-      description: "Name of the web application to deploy"
-      examples: ["my-webapp", "user-service", "api-gateway"]
+      description: "Name of the web application to deploy (e.g. user-service)"
     environment:
       type: string
       required: true
-      description: "Target environment"
-      enum: ["development", "staging", "production"]
       default: "development"
+      description: "Target environment: development, staging, or production"
     image_tag:
       type: string
       required: true
-      description: "Container image tag to deploy"
-      pattern: "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
-      examples: ["v1.2.3", "v2.0.1"]
+      description: "Container image tag to deploy in semver form (e.g. v1.2.3)"
 
-  # Steps with clear descriptions for AI understanding
+  # Reference workflow inputs as {{ .input.<arg> }} (the engine renders with
+  # missingkey=error, so a bare {{ .app_name }} would fail at runtime).
   steps:
     - id: validate_prerequisites
       description: "Ensure deployment prerequisites are met"
       tool: validate_deployment_readiness
       args:
-        app_name: "{{.app_name}}"
-        environment: "{{.environment}}"
+        app_name: "{{ .input.app_name }}"
+        environment: "{{ .input.environment }}"
       store: true
 
     - id: wait_for_deployment
       description: "Wait for deployment to become ready"
       tool: wait_for_service_ready
       args:
-        service_name: "{{.app_name}}-{{.environment}}"
+        service_name: "{{ .input.app_name }}-{{ .input.environment }}"
         timeout: "300s"
 
     - id: verify_health
       description: "Verify application health and readiness"
       tool: verify_application_health
       args:
-        app_name: "{{.app_name}}"
-        environment: "{{.environment}}"
+        app_name: "{{ .input.app_name }}"
+        environment: "{{ .input.environment }}"
         expected_status: 200
 
     - id: notify_completion
       description: "Notify team of successful deployment"
       tool: send_notification
       args:
-        message: "✅ {{.app_name}} {{.image_tag}} deployed to {{.environment}}"
-        channels: ["#deployments", "#{{.environment}}"]
+        message: "{{ .input.app_name }} {{ .input.image_tag }} deployed to {{ .input.environment }}"
       allowFailure: true
 ```
 
-### Workflow Documentation for AI
-
-Add AI-readable documentation:
-
-```yaml
-metadata:
-  annotations:
-    ai.muster.io/purpose: "Web application deployment with validation"
-    ai.muster.io/use-cases: |
-      - Deploy new application versions
-      - Promote between environments
-      - Rollback to previous versions
-    ai.muster.io/examples: |
-      Basic deployment:
-        call_tool(name="workflow_ai_deploy_webapp", arguments={"app_name": "my-app", "environment": "staging", "image_tag": "v1.2.3"})
-
-      Production deployment:
-        call_tool(name="workflow_ai_deploy_webapp", arguments={"app_name": "critical-service", "environment": "production", "image_tag": "v2.0.1"})
-```
+A clear `description` on the workflow and each step is what an agent reads to
+decide when and how to call it — that is the only "AI documentation" mechanism;
+the `description` fields are surfaced in the generated tool schema. See
+[Workflow Creation](workflow-creation.md) for the full set of step features
+(`condition`, `forEach`, `parallel`, `onFailure`).
 
 ## Prompt Engineering for Infrastructure
 
@@ -230,81 +201,45 @@ Teach effective conversation flows:
 
 ## Development Integration
 
-### Git Workflow Integration
+### Scripting and CI
 
-Integrate Muster with development workflows:
+Outside an interactive agent, drive muster from scripts and CI with `muster call`
+(invoke any aggregated tool) and `muster list`/`muster check` (discovery and
+availability). These connect to a running aggregator via `--endpoint` /
+`MUSTER_ENDPOINT` and honor `--output json` for machine parsing:
 
 ```yaml
-# .github/workflows/ai-assisted-deploy.yml
-name: AI-Assisted Deployment
+# .github/workflows/deploy.yml
+name: Deploy
 on:
-  pull_request:
-    types: [opened, synchronize]
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        options: [development, staging, production]
 
 jobs:
-  ai-analysis:
+  deploy:
     runs-on: ubuntu-latest
+    env:
+      MUSTER_ENDPOINT: ${{ secrets.MUSTER_ENDPOINT }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      - name: AI-Powered Change Analysis
-        run: |
-          # Use AI agent to analyze changes and suggest deployment strategy
-          ai-agent analyze-changes \
-            --context "pull-request" \
-            --files "${{ github.event.pull_request.changed_files }}" \
-            --suggest-deployment
+      # Fail early if the workflow's required tools aren't available
+      - run: muster check workflow deploy-webapp
 
-      - name: Automated Deployment Suggestion
-        run: |
-          # AI agent suggests appropriate deployment workflow
-          ai-agent suggest-workflow \
-            --change-type "${{ steps.analysis.outputs.change_type }}" \
-            --target-env "staging"
+      # Run the workflow as a tool, passing arguments as JSON
+      - run: |
+          muster call workflow_deploy_webapp --output json --json '{
+            "app_name": "user-service",
+            "environment": "${{ inputs.environment }}",
+            "image_tag": "${{ github.sha }}"
+          }'
 ```
 
-### IDE Integration Patterns
-
-Optimize IDE integration for infrastructure work:
-
-```json
-// .vscode/tasks.json
-{
-  "version": "2.0.0",
-  "tasks": [
-    {
-      "label": "AI: Analyze Infrastructure",
-      "type": "shell",
-      "command": "ai-agent",
-      "args": [
-        "analyze",
-        "--context", "infrastructure",
-        "--workspace", "${workspaceFolder}"
-      ],
-      "group": "build"
-    },
-    {
-      "label": "AI: Suggest Deployment",
-      "type": "shell",
-      "command": "ai-agent",
-      "args": [
-        "suggest-deployment",
-        "--files", "${file}",
-        "--environment", "${input:environment}"
-      ],
-      "group": "build"
-    }
-  ],
-  "inputs": [
-    {
-      "id": "environment",
-      "type": "pickString",
-      "description": "Target environment",
-      "options": ["development", "staging", "production"]
-    }
-  ]
-}
-```
+Authenticate non-interactively where needed with `muster auth login --endpoint <url>`
+(it exits non-zero — `2` if auth is required, `3` if the flow fails).
 
 ### Documentation for AI Agents
 

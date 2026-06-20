@@ -201,8 +201,8 @@ spec:
     - id: start
       tool: prometheus_start
       args:
-        port: "{{.port}}"
-        retention: "{{.retention}}"
+        port: "{{ .input.port }}"
+        retention: "{{ .input.retention }}"
 ```
 
 **Filesystem Configuration (Development)**
@@ -223,7 +223,7 @@ spec:
     - id: start
       tool: prometheus_start
       args:
-        port: "{{.port}}"
+        port: "{{ .input.port }}"
 ```
 
 #### Benefits

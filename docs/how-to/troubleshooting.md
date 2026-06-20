@@ -1,65 +1,67 @@
 # Troubleshooting Guide
 
-Comprehensive troubleshooting guide for resolving common Muster issues.
+Resolve common Muster issues.
+
+> This guide uses only commands Muster implements. The CLI is `muster serve |
+> agent | standalone | list | get | check | call | create | start | stop | auth |
+> context | events | test | version | self-update`. There is no `muster status`,
+> `muster logs`, `muster describe`, `muster validate`, `muster restart`,
+> `muster metrics`, `muster backup`/`restore`, `muster support-bundle`, or
+> `muster config` command. Configuration is file-based YAML and most read/inspect
+> operations go through `muster get` / `muster list` / `muster call`.
+
+All `list`/`get`/`check`/`call`/`start`/`stop` commands connect to a running
+aggregator (`muster serve`) at the configured endpoint (default
+`http://localhost:8090/mcp`). Override with `--endpoint` / `MUSTER_ENDPOINT`.
 
 ## Debug Tool Discovery Issues
 
 ### Issue: Tools not appearing in listings
-**Symptoms**: `list_tools` shows empty or incomplete results
+**Symptoms**: `muster list tools` shows empty or incomplete results.
 
 #### Diagnostic Steps
 ```bash
-# Check MCP server status
+# List MCP servers and their status (include unreachable ones with errors)
 muster list mcpserver
+muster list mcpserver --all --verbose
 
-# Verify specific server status
+# Inspect a specific server definition
 muster get mcpserver <server-name>
 
-# Test server availability
+# Check whether a specific server is available
 muster check mcpserver <server-name>
+
+# List the tools actually aggregated, optionally filtered
+muster list tools
+muster list tools --server <server-name>
+muster list tools --filter "*<keyword>*"
 ```
 
 #### Common Causes & Solutions
 
 **1. MCP Server Not Running**
-```bash
-# Check if server is available
-muster get mcpserver <server-name>
 
-# Check server availability
-muster check mcpserver <server-name>
-
-# List all servers to see status
-muster list mcpserver
-```
+A server that fails to start appears in `muster list mcpserver --all --verbose`
+with its error. Fix the command/URL in its definition and restart the aggregator.
 
 **2. Binary Path Issues**
 ```bash
-# Verify binary exists
+# Verify the server binary exists, is executable, and runs
 which <mcp-server-binary>
-
-# Check binary permissions
-ls -la $(which <mcp-server-binary>)
-
-# Test binary directly
+ls -la "$(which <mcp-server-binary>)"
 <mcp-server-binary> --version
 ```
 
-**3. Network Connectivity Problems**
+**3. Network Connectivity Problems (HTTP/SSE servers)**
 ```bash
-# Check if server is listening
-netstat -tlnp | grep <port>
-
-# Test local connectivity
-curl -v http://localhost:<port>/health
-
-# Check firewall rules
-sudo iptables -L | grep <port>
+# Check the remote server is listening and reachable
+curl -v <server-url>/health
+ss -tlnp | grep <port>
 ```
 
 #### Fix Configuration Issues
 ```yaml
-# Correct MCP server configuration
+# A valid MCPServer definition
 apiVersion: muster.giantswarm.io/v1alpha1
 kind: MCPServer
 metadata:
@@ -75,430 +77,305 @@ spec:
     GIT_ROOT: "/workspace"
 ```
 
+Apply it as a CRD (`kubectl apply -f`) or create it with
+`muster create mcpserver ...`. Definitions also live under
+`{config-path}/mcpservers/`.
+
 ## Resolve Workflow Failures
 
 ### Issue: Workflow execution fails or hangs
-**Symptoms**: Workflows stuck in "running" state or fail with unclear errors
+**Symptoms**: a workflow ends in a `failed` state, or a step errors with an
+unclear message.
 
 #### Diagnostic Steps
 ```bash
-# Get workflow execution details
-muster get workflow-execution <execution-id>
+# List recent executions, then inspect one in full
+muster list workflow-execution
+muster get workflow-execution <execution-id> -o yaml
 
-# Check execution logs
-muster logs workflow-execution <execution-id>
-
-# Get step-by-step status
-muster describe workflow-execution <execution-id>
-
-# Check for failed steps
-muster get workflow-execution <execution-id> -o json | jq '.status.steps[] | select(.status == "failed")'
+# Pull out only the failed steps
+muster get workflow-execution <execution-id> -o json \
+  | jq '.status.steps[] | select(.status == "failed")'
 ```
+
+The execution object records each step's status, inputs, and result — that is
+where step-level detail lives (there is no `muster logs`).
 
 #### Common Workflow Issues
 
 **1. Template Rendering Errors**
+
+The engine renders templates with `missingkey=error`, so a reference to a value
+that does not exist fails the step. Reference workflow inputs as
+`{{ .input.<arg> }}` and stored step results as `{{ .results.<step-id> }}`.
+
 ```bash
-# Check template syntax
-muster validate workflow <workflow-file>
+# Validate a stored workflow's structure and check its tools are available
+muster check workflow <workflow-name>
+muster call core_workflow_validate --name <workflow-name>
 
-# Test with minimal arguments
-muster workflow <workflow-name> --dry-run --args '{}'
-
-# Debug template rendering
-muster workflow <workflow-name> --debug-templates --args '<test-args>'
+# Run a workflow, passing arguments
+muster start workflow <workflow-name> --environment=staging
+muster call workflow_<workflow-name> --json '{"environment":"staging"}'
 ```
+
+Structural rules (e.g. exactly one of `tool`, `forEach`, or `parallel` per step)
+are also enforced by the CRD at `kubectl apply` time.
 
 **2. Tool Not Found Errors**
-```yaml
-# Verify tool availability before using in workflows
-steps:
-  - id: verify_tools
-    tool: debug_log
-    args:
-      message: "Available tools: {{.available_tools}}"
 
-  - id: main_task
-    tool: <required-tool>
-    # ... rest of configuration
-```
+Confirm the tool a step calls is present with `muster list tools --filter "<name>"`.
+A workflow that references an unavailable tool is reported unavailable by
+`muster check workflow <name>`.
 
 **3. Dependency Resolution Failures**
 ```bash
-# Check service dependencies
+# Inspect a service and the services it depends on
 muster get service <service-name> -o json | jq '.spec.dependencies'
-
-# Verify dependency services are running
-muster list services --filter "status=running"
-
-# Check dependency health
-muster describe service <dependency-service>
+muster list service -o wide
 ```
 
-#### Workflow Debugging Patterns
+#### Workflow Debugging Pattern
 ```yaml
-# Add debugging to problematic workflows
 apiVersion: muster.giantswarm.io/v1alpha1
 kind: Workflow
 metadata:
   name: debugged-workflow
   namespace: default
 spec:
-  name: debugged-workflow
+  description: "Workflow with a guarded recovery step"
   steps:
-    - id: debug_start
-      tool: debug_log
-      args:
-        message: "Starting workflow with: {{.}}"
-        level: "info"
-
     - id: problematic_step
-      tool: potentially_failing_tool
+      tool: <potentially-failing-tool>
       args:
-        input: "{{.user_input}}"
+        input: "{{ .input.user_input }}"
       store: true
-      allowFailure: false  # Fail fast for debugging
+      allowFailure: true   # keep going so the recovery step can run
 
-    - id: debug_result
-      tool: debug_log
-      args:
-        message: "Step result: {{.results.problematic_step}}"
-        level: "info"
-
+    # Run recovery only when the previous step did not succeed
     - id: conditional_recovery
-      tool: recovery_action
+      tool: <recovery-tool>
       condition:
-        jsonPath:
-          "results.problematic_step.success": false
+        fromStep: problematic_step
+        expectNot:
+          success: true
 ```
 
 ## Fix Service Startup Problems
 
-### Issue: Services fail to start or remain in pending state
-**Symptoms**: Service status stuck in "pending", "starting", or "failed"
+### Issue: Services fail to start or remain pending
+**Symptoms**: service status stuck in `pending`, `starting`, or `failed`.
 
 #### Diagnostic Steps
 ```bash
-# Check service status and events
-muster get service <service-name>
-muster describe service <service-name>
+# Service status (status detail is in the object itself)
+muster get service <service-name> -o yaml
 
-# Check underlying tool execution
-muster logs service <service-name> --step start
-
-# Verify dependencies
+# Check dependencies
 muster get service <service-name> -o json | jq '.status.dependencies'
 ```
 
 #### Common Service Issues
 
-**1. Dependency Issues**
+**1. Resource Constraints**
 ```bash
-# Check if dependencies are healthy
-muster list services --dependencies-of <service-name>
-```
+df -h     # disk
+free -h   # memory
+top       # CPU
 
-**2. Resource Constraints**
-```bash
-# Check system resources
-df -h  # Disk space
-free -h  # Memory
-top    # CPU usage
-
-# Check Muster resource limits
-muster get service <service-name> -o json | jq '.spec.resources'
-
-# Check container/process limits
+# If muster runs under systemd
 systemctl status muster
 journalctl -u muster --since "1 hour ago"
 ```
 
-#### Service Recovery Procedures
+#### Service Recovery
 ```bash
 # Stop and start the service
 muster stop service <service-name>
 muster start service <service-name>
-
-# Check service logs for errors
-muster logs service <service-name> --all-steps --since 1h
 ```
 
 ## Handle Network Connectivity Issues
 
-### Issue: Muster components cannot communicate
-**Symptoms**: Connection timeouts, unreachable services, network errors
+### Issue: Cannot reach the aggregator
+**Symptoms**: connection timeouts, unreachable endpoint, network errors.
 
 #### Diagnostic Steps
 ```bash
-# Check Muster server status
-muster status
+# Health endpoint on the aggregator port (default 8090)
+curl -v http://localhost:8090/health
 
-# Test connectivity to Muster server
-curl -v http://localhost:8080/health
+# What is listening?
+ss -tlnp | grep 8090
 
-# Check port bindings
-netstat -tlnp | grep muster
-
-# Test internal network connectivity
-ping <muster-server-host>
-telnet <muster-server-host> <port>
+# Is a muster process running?
+ps aux | grep '[m]uster'
 ```
 
 #### Network Configuration Issues
 
 **1. Port Conflicts**
 ```bash
-# Find process using Muster's port
-sudo lsof -i :8080
+# Find the process using the aggregator port
+sudo lsof -i :8090
 
-# Kill conflicting process
-sudo kill -9 <pid>
-
-# Change Muster port if needed
-muster serve --port 8081
+# The aggregator port is set in config.yaml. Edit it there, then restart
+# the aggregator (muster has no --port flag).
+$EDITOR ~/.config/muster/config.yaml
 ```
 
 **2. Firewall Issues**
 ```bash
-# Check firewall status
 sudo ufw status verbose
-
-# Allow Muster ports
-sudo ufw allow 8080/tcp
-sudo ufw allow 8081/tcp
-
-# For iptables
-sudo iptables -A INPUT -p tcp --dport 8080 -j ACCEPT
+sudo iptables -L | grep 8090
 ```
 
 **3. DNS Resolution Problems**
 ```bash
-# Test DNS resolution
 nslookup <hostname>
 dig <hostname>
-
-# Use IP addresses if DNS fails
-muster serve --host 192.168.1.100
-
-# Check /etc/hosts for conflicts
-cat /etc/hosts | grep <hostname>
-```
-
-#### Network Troubleshooting Tools
-```bash
-# Network connectivity test
-nc -zv <host> <port>
-
-# HTTP connectivity test
-curl -I http://<host>:<port>/
-
-# Trace network path
-traceroute <host>
-
-# Check network interfaces
-ip addr show
-ip route show
+# Use the explicit endpoint if name resolution is the problem
+muster list tools --endpoint http://<ip>:8090/mcp
 ```
 
 ## Common Error Messages and Solutions
 
-### "Tool not found" Errors
+### "Tool not found"
 ```bash
-# Error: Tool 'x_example_tool' not found
-# Solution: Verify MCP server is running and tool is registered
+# Verify the server is up and the tool is registered
+muster list mcpserver --all --verbose
+muster list tools --filter "<tool-name>"
 
-# Check tool registration
-muster agent
-list_tools example
-
-# Restart MCP server
-muster restart mcpserver <server-name>
+# To restart a backing MCP server, fix/refresh its definition and restart
+# the aggregator; there is no `muster restart`.
 ```
 
-### "Template rendering failed" Errors
-```bash
-# Error: template: workflow:1:23: executing "workflow" at <.invalid_field>
-# Solution: Fix template syntax and variable references
-
-# Check available template variables
-muster workflow <name> --show-template-vars
-
-# Validate template syntax
-muster validate workflow <file>
+### "Template rendering failed"
 ```
+# e.g. template: workflow:1:23: executing "workflow" at <.invalid_field>
+```
+Fix the reference: inputs are `{{ .input.<arg> }}`, results are
+`{{ .results.<step-id> }}`. Validate with `muster check workflow <name>`.
 
-### "Permission denied" Errors
+### "Permission denied"
 ```bash
-# Error: Permission denied when accessing files/resources
-# Solution: Check file permissions and user privileges
-
-# Fix file permissions
 chmod +x /path/to/binary
-chown muster:muster /path/to/config
-
-# Check user permissions
-id muster
-groups muster
+id "$(whoami)"
 ```
+
+### "authentication required" (exit code 2) / OAuth failure (exit code 3)
+```bash
+muster auth status
+muster auth login --endpoint <url>
+```
+Exit codes: `0` success, `1` error, `2` auth required, `3` auth failed.
 
 ## Performance Troubleshooting
 
 ### Issue: Slow workflow execution
-**Symptoms**: Workflows taking much longer than expected
-
-#### Diagnostic Steps
 ```bash
-# Check workflow execution timeline
-muster get workflow-execution <id> --show-timeline
+# Per-step status and timing are recorded on the execution object
+muster get workflow-execution <id> -o yaml
 
-# Monitor resource usage during execution
+# System view while a workflow runs
 htop
-iotop
-nethogs
-
-# Check for resource bottlenecks
-muster metrics --workflow <execution-id>
 ```
 
-#### Performance Optimization
+Muster exports logs, traces, and metrics via OpenTelemetry (OTLP). Point the
+standard `OTEL_EXPORTER_OTLP_*` environment variables at a collector for real
+metrics and traces — there is no `muster metrics`/`muster profile` command.
+
+Speed independent steps up by running them concurrently:
 ```yaml
-# Optimize workflow with parallel execution
 apiVersion: muster.giantswarm.io/v1alpha1
 kind: Workflow
 metadata:
   name: optimized-workflow
   namespace: default
 spec:
-  name: optimized-workflow
+  description: "Run independent steps in parallel"
   steps:
-    # Run independent steps in parallel
     - id: parallel_group
       parallel:
         - id: task_1
-          tool: independent_task_1
+          tool: <independent-task-1>
         - id: task_2
-          tool: independent_task_2
-        - id: task_3
-          tool: independent_task_3
-
-    # Continue with dependent steps
+          tool: <independent-task-2>
     - id: combine_results
-      tool: combine_task
+      tool: <combine-task>
       args:
-        input_1: "{{.results.task_1}}"
-        input_2: "{{.results.task_2}}"
-        input_3: "{{.results.task_3}}"
+        input_1: "{{ .results.task_1 }}"
+        input_2: "{{ .results.task_2 }}"
 ```
 
 ### Issue: High memory/CPU usage
-**Symptoms**: System slowdown, out of memory errors
-
-#### Solutions
 ```bash
-# Monitor Muster resource usage
-ps aux | grep muster
-systemctl status muster
+ps aux | grep '[m]uster'
 
-# Adjust resource limits
-# Edit systemd service file
+# Under systemd, cap resources via a drop-in
 sudo systemctl edit muster
 ```
-
 ```ini
 [Service]
-MemoryLimit=4G
+MemoryMax=4G
 CPUQuota=200%
 ```
-
 ```bash
-# Restart with new limits
 sudo systemctl daemon-reload
 sudo systemctl restart muster
 ```
 
 ## System-Level Troubleshooting
 
-### Log Analysis
+### Logs
+Muster logs to stderr (and to OTLP if configured). Increase verbosity with
+`--debug`; silence the console with `--silent`.
 ```bash
-# System logs
+# Verbose aggregator logs
+muster serve --debug > /tmp/muster-debug.log 2>&1
+
+# Under systemd
 journalctl -u muster --since "1 hour ago" --follow
-
-# Application logs
-tail -f /var/log/muster/muster.log
-
-# Workflow execution logs
-muster logs workflow-execution <id> --step <step-id>
-
-# Service logs
-muster logs service <service-name> --all-steps
 ```
 
 ### Health Checks
 ```bash
-# Overall system health
-muster status --verbose
-
-# Component health
-muster check mcpservers
-muster check services
-muster check workflows
-
-# Storage health
-df -h /var/lib/muster
-du -sh /var/lib/muster/*
+curl -fsS http://localhost:8090/health
+muster list service
+muster check mcpserver <server-name>
+muster check workflow <workflow-name>
 ```
 
-### Recovery Procedures
+### Recovery
 ```bash
-# Restart Muster cleanly
-muster stop
-sleep 5
-muster start
-
-# Reset to clean state (CAUTION: destroys data)
-muster stop
-rm -rf /var/lib/muster/data/*
-muster start
-
-# Backup and restore
-muster backup --output backup.tar.gz
-muster restore --input backup.tar.gz
+# Restart the aggregator cleanly
+muster stop      # or Ctrl+C the foreground process
+muster serve
 ```
 
 ## Getting Help
 
 ### Gathering Debug Information
 ```bash
-# Create support bundle
-muster support-bundle --output muster-debug.tar.gz
-
-# Export system information
-muster version --detailed > system-info.txt
-muster config show > current-config.yaml
-muster list services --output json > services.json
+muster version
+cat ~/.config/muster/config.yaml          # current configuration (it is just a file)
+muster list service -o json > services.json
+muster list mcpserver --all --verbose -o json > mcpservers.json
+muster serve --debug > muster-debug.log 2>&1   # reproduce the issue, then attach the log
 ```
 
-### Enable Debug Logging
-```yaml
-# Enable debug logging in configuration
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: Config
-metadata:
-  name: debug-config
-spec:
-  logging:
-    level: debug
-    format: json
-    outputs:
-      - type: file
-        path: /var/log/muster/debug.log
-      - type: console
+### Back up / restore configuration
+Configuration and entity definitions are plain files under your config directory
+(`~/.config/muster/` by default). Back up and restore by copying that directory:
+```bash
+tar czf muster-config-backup.tar.gz -C ~/.config muster
 ```
 
 ### Community Resources
 - **GitHub Issues**: [Report bugs and issues](https://github.com/giantswarm/muster/issues)
 - **Discussions**: [Ask questions and share solutions](https://github.com/giantswarm/muster/discussions)
-- **Documentation**: [Latest documentation](https://github.com/giantswarm/muster/docs)
 
 ## Related Documentation
+- [AI Agent Troubleshooting](ai-troubleshooting.md)
+- [Workflow Creation](workflow-creation.md)
 - [Configuration Reference](../reference/configuration.md)
