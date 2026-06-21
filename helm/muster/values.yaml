@@ -553,6 +553,17 @@ muster:
       # workload-authenticated exchange (no confidential-client credentials):
       #   workloadAudiences:
       #     "system:serviceaccount:ai-platform:*": ["github-infra", "cluster-a"]
+      #
+      # brokerClients: declaratively (re)seed confidential broker clients at
+      # startup from Kubernetes Secrets. mcp-oauth stores the client record
+      # (id -> bcrypt secret hash) only in Valkey; a store wipe leaves the
+      # client record gone and every exchange returns invalid_client. Seeding
+      # re-creates it from the same id+secret on every startup so a wipe
+      # self-heals. The id+secret must match what the broker client presents.
+      #   brokerClients:
+      #     portal-backend:
+      #       clientCredentialsSecretRef:
+      #         name: muster-broker-clients   # keys default to client-id/client-secret
       tokenExchangeBroker: {}
 
       # CIDRs from which X-Forwarded-Proto and X-Forwarded-Host headers are
