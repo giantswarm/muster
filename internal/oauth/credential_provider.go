@@ -50,6 +50,19 @@ type MintRequest struct {
 	// ActorTokenType, which are intentionally not forwarded here. Add them when
 	// a provider needs to re-present the raw actor JWT to a downstream endpoint.
 	Actor *oauthserver.SubjectIdentity
+
+	// SubjectIdentity is the full validated subject identity: subject, issuer,
+	// allowed scopes, and Claims carrying email/email_verified/groups plus any
+	// prior RFC 8693 act chain. The local-mint provider forwards it verbatim so
+	// the minted token reflects the subject's identity claims and preserves a
+	// multi-hop act chain. Nil on paths that only need the Subject string.
+	SubjectIdentity *oauthserver.SubjectIdentity
+
+	// GrantedGroups are groups the broker authorized for this exchange from a
+	// matching WorkloadGrant, distinct from the subject token's own groups. The
+	// local-mint provider passes them through; mcp-oauth merges them into the
+	// minted token without mutating the validated subject identity.
+	GrantedGroups []string
 }
 
 // MintResult is the result of a successful credential exchange.
