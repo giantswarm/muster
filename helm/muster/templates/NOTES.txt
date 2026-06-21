@@ -1,5 +1,25 @@
 Muster has been deployed!
 
+CustomResourceDefinitions
+-------------------------
+This chart bundles the MCPServer and Workflow CRDs in its `crds/` directory.
+
+  - Fresh install: Helm installs the CRDs automatically before the rest of the
+    release — nothing extra to do, no Flux required.
+  - Upgrade: Helm does NOT update CRDs in `crds/` on `helm upgrade` (a documented
+    Helm limitation). If a release changes the CRD schema, apply the new CRDs
+    first:
+
+      helm show crds giantswarm/muster | kubectl apply --server-side -f -
+
+    (`helm show crds ... | kubectl apply` is Helm's own recommended path —
+    Helm does not manage CRD upgrades natively, by design; see HIP-0011.)
+
+    Flux users instead set `install.crds: CreateReplace` and
+    `upgrade.crds: CreateReplace` on the HelmRelease, which keeps the CRDs in
+    lockstep with the app automatically. The standalone `muster-crds` chart is
+    another option for a fully helm-managed, upgrade-friendly CRD lifecycle.
+
 1. Get the application URL by running these commands:
 {{- if .Values.ingress.enabled }}
 {{- range $host := .Values.ingress.hosts }}

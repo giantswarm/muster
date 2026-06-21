@@ -8,9 +8,13 @@ The following CustomResourceDefinitions are now available in the cluster:
 The CRDs carry `helm.sh/resource-policy: keep`, so they (and any
 MCPServer / Workflow custom resources) survive `helm uninstall {{ .Release.Name }}`.
 
-IMPORTANT: install or upgrade muster-crds BEFORE the muster application chart.
-The muster app chart no longer ships these CRDs (`muster.crds.install` is
-disabled by default); it expects them to already exist in the cluster.
+IMPORTANT: when using this chart, install or upgrade muster-crds BEFORE the
+muster application chart so the CRDs are present before the operator starts.
+
+The muster app chart also bundles these CRDs in its `crds/` directory, so they
+are a no-op here if the app chart already created them. Use muster-crds when you
+want CRD changes to apply on `helm upgrade` (Helm never updates a chart's
+`crds/` directory on upgrade).
 
 Verify the CRDs are registered:
 
