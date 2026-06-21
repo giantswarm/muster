@@ -145,6 +145,22 @@ type MCPServerAuth struct {
 	// of the same name for full semantics. When set, muster's per-server OAuth
 	// login flow skips PRM probing and uses these values directly.
 	AuthorizationServer *MCPServerAuthAuthorizationServer `yaml:"authorizationServer,omitempty" json:"authorizationServer,omitempty"`
+
+	// LocalMint enables downstream auth via a per-backend token minted by muster
+	// from its own signing key. See the v1alpha1 CRD field of the same name for
+	// full semantics. Mutually exclusive with ForwardToken, TokenExchange, and
+	// AuthorizationServer.
+	LocalMint *LocalMintConfig `yaml:"localMint,omitempty" json:"localMint,omitempty"`
+}
+
+// LocalMintConfig configures the per-backend token mint (see MCPServerAuth.LocalMint).
+type LocalMintConfig struct {
+	// Enabled turns on local minting for this server.
+	Enabled bool `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+
+	// Audience is the minted token's aud claim: the backend's resource identifier.
+	// It must equal a configured broker local-mint target.
+	Audience string `yaml:"audience,omitempty" json:"audience,omitempty"`
 }
 
 // MCPServerAuthAuthorizationServer pins the OAuth authorization server for an

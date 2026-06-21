@@ -25,7 +25,8 @@ var jwtParser = jwt.NewParser(jwt.WithPaddingAllowed())
 // tokens. Using one struct keeps the accessors symmetrical.
 type tokenClaims struct {
 	jwt.RegisteredClaims
-	Email string `json:"email,omitempty"`
+	Email         string `json:"email,omitempty"`
+	EmailVerified bool   `json:"email_verified,omitempty"`
 }
 
 func parseUnverified(token string) (tokenClaims, error) {
@@ -55,6 +56,17 @@ func Email(token string) (string, error) {
 		return "", fmt.Errorf("decode token: %w", err)
 	}
 	return c.Email, nil
+}
+
+// EmailVerified returns the email_verified claim of a trusted ID token. Returns
+// false with a wrapped error on decode failure; returns (false, nil) when the
+// token parses but has no email_verified claim.
+func EmailVerified(token string) (bool, error) {
+	c, err := parseUnverified(token)
+	if err != nil {
+		return false, fmt.Errorf("decode token: %w", err)
+	}
+	return c.EmailVerified, nil
 }
 
 // Expiry returns the exp claim of a trusted JWT. Returns ErrTokenExpMissing

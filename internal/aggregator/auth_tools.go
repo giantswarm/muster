@@ -173,8 +173,9 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 	}
 
 	// SSO servers (token exchange or token forwarding) are connected automatically
-	// during session creation via initSSOForSession. Manual login is not supported.
-	if ShouldUseTokenExchange(serverInfo) || ShouldUseTokenForwarding(serverInfo) {
+	// during session creation via initSSOForSession. localMint mints per call from
+	// the inbound tokens. Neither supports manual login.
+	if ShouldUseTokenExchange(serverInfo) || ShouldUseTokenForwarding(serverInfo) || ShouldUseLocalMint(serverInfo) {
 		logging.Debug("AuthTools", "Rejecting manual auth_login for SSO server %s (session %s)",
 			serverName, logging.TruncateIdentifier(sessionID))
 		return &api.CallToolResult{

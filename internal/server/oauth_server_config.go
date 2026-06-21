@@ -54,8 +54,8 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, refreshTokenTTL time.Dur
 		// Only consulted when an Exchanger is registered (see
 		// buildOAuthServerOptions); a miss returns invalid_target.
 		TokenExchangeClientAudiences: cfg.TokenExchangeBroker.ClientAudiences,
-		WorkloadAudiences:            workloadGrantsFromConfig(cfg.TokenExchangeBroker.WorkloadAudiences),
-		EnableWorkloadTokenExchange:  len(cfg.TokenExchangeBroker.WorkloadAudiences) > 0,
+		WorkloadAudiences:            workloadGrantsFromConfig(cfg.TokenExchangeBroker.WorkloadAudiences, cfg.TokenExchangeBroker.WorkloadGroupGrants),
+		EnableWorkloadTokenExchange:  len(cfg.TokenExchangeBroker.WorkloadAudiences) > 0 || len(cfg.TokenExchangeBroker.WorkloadGroupGrants) > 0,
 	}
 	if cfg.AllowedOrigins != "" {
 		result.CORS.AllowedOrigins = strings.Split(cfg.AllowedOrigins, ",")
@@ -253,17 +253,26 @@ func newDPoPReplayCache(storageCfg config.OAuthStorageConfig) (oauthserver.DPoPR
 	return oauthserver.NewMemoryDPoPReplayCache(), nil, nil
 }
 
-// workloadGrantsFromConfig converts the muster config map (subject → audiences)
-// to the mcp-oauth WorkloadGrant slice. Issuer is "*" (any trusted issuer): the
-// config keys grants by workload subject and carries no issuer dimension, and
-// mcp-oauth rejects an empty Issuer.
-func workloadGrantsFromConfig(m map[string][]string) []oauthserver.WorkloadGrant {
-	grants := make([]oauthserver.WorkloadGrant, 0, len(m))
+// workloadGrantsFromConfig converts the muster workload config to the mcp-oauth
+// WorkloadGrant slice. The audiences map keys grants by workload subject with
+// Issuer "*" (any trusted issuer) and no groups. The group grants are explicit
+// (issuer, subject) entries carrying groups for the M2M mint path; mcp-oauth
+// rejects a wildcard group grant.
+func workloadGrantsFromConfig(m map[string][]string, groupGrants []config.WorkloadGroupGrantConfig) []oauthserver.WorkloadGrant {
+	grants := make([]oauthserver.WorkloadGrant, 0, len(m)+len(groupGrants))
 	for subject, audiences := range m {
 		grants = append(grants, oauthserver.WorkloadGrant{
 			Issuer:    "*",
 			Subject:   subject,
 			Audiences: audiences,
+		})
+	}
+	for _, g := range groupGrants {
+		grants = append(grants, oauthserver.WorkloadGrant{
+			Issuer:    g.Issuer,
+			Subject:   g.Subject,
+			Audiences: g.Audiences,
+			Groups:    g.Groups,
 		})
 	}
 	return grants

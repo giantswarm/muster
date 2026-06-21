@@ -388,7 +388,7 @@ func (a *AggregatorServer) initSSOForSession(userID, sessionID, idToken string) 
 			skippedNotAuthRequired++
 			continue
 		}
-		if !ShouldUseTokenExchange(info) && !ShouldUseTokenForwarding(info) {
+		if !ShouldUseTokenExchange(info) && !ShouldUseTokenForwarding(info) && !ShouldUseLocalMint(info) {
 			skippedNotSSO++
 			continue
 		}
@@ -507,7 +507,7 @@ func (a *AggregatorServer) establishSSOConnection(
 			// the in-memory pool is empty. In that case, clear the stale auth entry so
 			// the connection is re-established and the pool is repopulated.
 			stalePoolMiss := false
-			if (ShouldUseTokenExchange(serverInfo) || ShouldUseTokenForwarding(serverInfo)) && a.connPool != nil {
+			if (ShouldUseTokenExchange(serverInfo) || ShouldUseTokenForwarding(serverInfo) || ShouldUseLocalMint(serverInfo)) && a.connPool != nil {
 				_, poolHit := a.connPool.Get(sessionID, serverInfo.Name)
 				stalePoolMiss = !poolHit
 			}
@@ -532,12 +532,18 @@ func (a *AggregatorServer) establishSSOConnection(
 	var ssoMethod string
 
 	// Token exchange takes precedence over token forwarding
-	if ShouldUseTokenExchange(serverInfo) {
+	switch {
+	case ShouldUseLocalMint(serverInfo):
+		result, err = EstablishConnectionWithLocalMint(
+			ctx, a, serverInfo, musterIssuer,
+		)
+		ssoMethod = "localMint"
+	case ShouldUseTokenExchange(serverInfo):
 		result, err = EstablishConnectionWithTokenExchange(
 			ctx, a, serverInfo, musterIssuer,
 		)
 		ssoMethod = "token exchange (RFC 8693)"
-	} else {
+	default:
 		result, err = EstablishConnectionWithTokenForwarding(
 			ctx, a, serverInfo, musterIssuer,
 		)
