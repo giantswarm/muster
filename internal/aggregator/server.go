@@ -2876,9 +2876,13 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 	if a.authStore == nil {
 		return nil, nil, fmt.Errorf("auth store not initialized")
 	}
-	authenticated, _ := a.authStore.IsAuthenticated(ctx, sessionID, serverName)
-	if !authenticated {
-		return nil, nil, fmt.Errorf("user not authenticated to server %s", serverName)
+	// localMint authenticates per call from the inbound subject/actor tokens, not
+	// via a muster login session, so it has no authStore entry to gate on.
+	if !ShouldUseLocalMint(serverInfo) {
+		authenticated, _ := a.authStore.IsAuthenticated(ctx, sessionID, serverName)
+		if !authenticated {
+			return nil, nil, fmt.Errorf("user not authenticated to server %s", serverName)
+		}
 	}
 
 	// Check the connection pool first.
@@ -2926,7 +2930,20 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 	var tokenExpiry time.Time
 	var exchangedToken string
 
-	if ShouldUseTokenExchange(serverInfo) {
+	if ShouldUseLocalMint(serverInfo) {
+		audience := serverInfo.AuthConfig.LocalMint.Audience
+		onStaleToken := func() {
+			if a.connPool != nil {
+				a.connPool.Evict(sessionID, serverName)
+				logging.InfoWithAttrs("Aggregator", "Evicted stale localMint connection",
+					slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
+					slog.String("server", serverName))
+			}
+		}
+		headerFunc := makeLocalMintHeaderFunc(serverName, audience, onStaleToken)
+		client = internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
+
+	} else if ShouldUseTokenExchange(serverInfo) {
 		var err error
 		client, tokenExpiry, exchangedToken, err = a.exchangeTokenAndCreateClient(ctx, serverInfo, sessionID)
 		if err != nil {
@@ -3242,7 +3259,9 @@ func (a *AggregatorServer) ListServersRequiringAuth(ctx context.Context) []api.S
 
 		// SSO-enabled servers (token forwarding/exchange) are authenticated by
 		// the admin, not the user -- manual login cannot fix SSO failures.
-		if ShouldUseTokenExchange(info) || ShouldUseTokenForwarding(info) {
+		// localMint mints per call from inbound tokens, so it also needs no
+		// manual login.
+		if ShouldUseTokenExchange(info) || ShouldUseTokenForwarding(info) || ShouldUseLocalMint(info) {
 			continue
 		}
 

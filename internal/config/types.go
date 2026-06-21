@@ -387,6 +387,15 @@ type TokenExchangeBrokerConfig struct {
 	// by mcp-oauth before the provider is invoked.
 	WorkloadAudiences map[string][]string `yaml:"workloadAudiences,omitempty"`
 
+	// WorkloadGroupGrants authorize specific workload identities to receive groups
+	// in a token minted on the M2M (no-actor) path. A groupless workload such as a
+	// Kubernetes SA token carries no groups, so downstreams that gate on groups
+	// cannot authorize it; a grant supplies them. Unlike WorkloadAudiences (keyed
+	// by subject, any issuer), a group grant must name an explicit issuer and
+	// subject — mcp-oauth rejects a wildcard group grant. Group strings must be in
+	// the form downstreams expect (connector-prefixed where the IdP prefixes).
+	WorkloadGroupGrants []WorkloadGroupGrantConfig `yaml:"workloadGroupGrants,omitempty"`
+
 	// AllowPrivateIP allows downstream token endpoints to resolve to private
 	// or loopback IP addresses. WARNING: reduces SSRF protection; only enable
 	// for internal/VPN deployments where the target Dex is reachable via a
@@ -408,6 +417,19 @@ type TokenExchangeBrokerConfig struct {
 	// secret refs that do not set an explicit namespace. Populated from the
 	// muster namespace by the serve command; not user-facing config.
 	DefaultSecretNamespace string `yaml:"-"`
+}
+
+// WorkloadGroupGrantConfig mirrors the group-bearing form of oauthserver.WorkloadGrant:
+// an explicit (issuer, subject) workload that receives Groups on the M2M mint path.
+type WorkloadGroupGrantConfig struct {
+	// Issuer is the exact issuer URL of the workload token. No wildcard.
+	Issuer string `yaml:"issuer"`
+	// Subject is the exact sub claim of the workload token. No glob.
+	Subject string `yaml:"subject"`
+	// Audiences lists the audiences this workload may request.
+	Audiences []string `yaml:"audiences"`
+	// Groups are injected into the minted token (connector-prefixed where applicable).
+	Groups []string `yaml:"groups"`
 }
 
 // DelegationGrantConfig mirrors oauthserver.DelegationGrant: a single (actor, subject)

@@ -150,11 +150,27 @@ func TestWorkloadGrantsFromConfig_SetsWildcardIssuer(t *testing.T) {
 
 	grants := workloadGrantsFromConfig(map[string][]string{
 		"system:serviceaccount:ai-platform:kagent": {"github-infra"},
-	})
+	}, nil)
 	require.Len(t, grants, 1)
 	require.Equal(t, "*", grants[0].Issuer)
 	require.Equal(t, "system:serviceaccount:ai-platform:kagent", grants[0].Subject)
 	require.Equal(t, []string{"github-infra"}, grants[0].Audiences)
+}
+
+func TestWorkloadGrantsFromConfig_AppendsGroupGrants(t *testing.T) {
+	t.Parallel()
+
+	grants := workloadGrantsFromConfig(nil, []config.WorkloadGroupGrantConfig{{
+		Issuer:    "https://kubernetes.default.svc",
+		Subject:   "system:serviceaccount:kagent:sre-agent",
+		Audiences: []string{"mcp-prometheus"},
+		Groups:    []string{"giantswarm-ad:sre"},
+	}})
+	require.Len(t, grants, 1)
+	require.Equal(t, "https://kubernetes.default.svc", grants[0].Issuer)
+	require.Equal(t, "system:serviceaccount:kagent:sre-agent", grants[0].Subject)
+	require.Equal(t, []string{"mcp-prometheus"}, grants[0].Audiences)
+	require.Equal(t, []string{"giantswarm-ad:sre"}, grants[0].Groups)
 }
 
 // A workloadAudiences config must not produce WorkloadGrants with an empty

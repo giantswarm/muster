@@ -3,6 +3,8 @@ package aggregator
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -765,4 +767,136 @@ func TestHeaderFunc_NilCallback(t *testing.T) {
 		headers := headerFunc(context.Background())
 		assert.Equal(t, "Bearer tok", headers["Authorization"])
 	}
+}
+
+// fakeBackendTokenMinter is a test double for api.BackendTokenMinter.
+type fakeBackendTokenMinter struct {
+	gotReq api.BackendMintRequest
+	called bool
+	result api.BackendMintResult
+	err    error
+}
+
+func (f *fakeBackendTokenMinter) MintBackendToken(_ context.Context, req api.BackendMintRequest) (api.BackendMintResult, error) {
+	f.called = true
+	f.gotReq = req
+	return f.result, f.err
+}
+
+// unsignedJWT builds a header.payload.signature string whose payload is the
+// given claims. EmailVerified parses it unverified, so no real signature is needed.
+func unsignedJWT(t *testing.T, claims map[string]any) string {
+	t.Helper()
+	enc := func(v any) string {
+		b, err := json.Marshal(v)
+		require.NoError(t, err)
+		return base64.RawURLEncoding.EncodeToString(b)
+	}
+	return enc(map[string]any{"alg": "none", "typ": "JWT"}) + "." + enc(claims) + ".sig"
+}
+
+func TestShouldUseLocalMint(t *testing.T) {
+	tests := []struct {
+		name string
+		info *ServerInfo
+		want bool
+	}{
+		{"nil serverInfo", nil, false},
+		{"nil authConfig", &ServerInfo{}, false},
+		{"nil localMint", &ServerInfo{AuthConfig: &api.MCPServerAuth{}}, false},
+		{"disabled", &ServerInfo{AuthConfig: &api.MCPServerAuth{LocalMint: &api.LocalMintConfig{Enabled: false, Audience: "be"}}}, false},
+		{"enabled no audience", &ServerInfo{AuthConfig: &api.MCPServerAuth{LocalMint: &api.LocalMintConfig{Enabled: true}}}, false},
+		{"enabled with audience", &ServerInfo{AuthConfig: &api.MCPServerAuth{LocalMint: &api.LocalMintConfig{Enabled: true, Audience: "be"}}}, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, ShouldUseLocalMint(tc.info))
+		})
+	}
+}
+
+func TestMakeLocalMintHeaderFunc_M2M(t *testing.T) {
+	minter := &fakeBackendTokenMinter{result: api.BackendMintResult{AccessToken: "minted-m2m"}}
+	api.RegisterBackendTokenMinter(minter)
+	defer api.RegisterBackendTokenMinter(nil)
+
+	headerFunc := makeLocalMintHeaderFunc("backend", "be-audience", nil)
+	ctx := server.ContextWithBearerToken(context.Background(), "sa-token")
+
+	headers := headerFunc(ctx)
+
+	require.True(t, minter.called)
+	require.Equal(t, "sa-token", minter.gotReq.SubjectToken)
+	require.Empty(t, minter.gotReq.ActorToken, "M2M must carry no actor")
+	require.Equal(t, "be-audience", minter.gotReq.Audience)
+	require.Equal(t, "Bearer minted-m2m", headers["Authorization"])
+}
+
+func TestMakeLocalMintHeaderFunc_Delegation(t *testing.T) {
+	minter := &fakeBackendTokenMinter{result: api.BackendMintResult{AccessToken: "minted-obo"}}
+	api.RegisterBackendTokenMinter(minter)
+	defer api.RegisterBackendTokenMinter(nil)
+
+	headerFunc := makeLocalMintHeaderFunc("backend", "be-audience", nil)
+	userToken := unsignedJWT(t, map[string]any{"sub": "alice", "email": "alice@example.com", "email_verified": true})
+	ctx := server.ContextWithBearerToken(context.Background(), userToken)
+	ctx = server.ContextWithActorToken(ctx, "agent-sa-token")
+
+	headers := headerFunc(ctx)
+
+	require.True(t, minter.called)
+	require.Equal(t, userToken, minter.gotReq.SubjectToken)
+	require.Equal(t, "agent-sa-token", minter.gotReq.ActorToken)
+	require.Equal(t, "Bearer minted-obo", headers["Authorization"])
+}
+
+func TestMakeLocalMintHeaderFunc_EmailUnverifiedFailsClosed(t *testing.T) {
+	minter := &fakeBackendTokenMinter{result: api.BackendMintResult{AccessToken: "should-not-mint"}}
+	api.RegisterBackendTokenMinter(minter)
+	defer api.RegisterBackendTokenMinter(nil)
+
+	headerFunc := makeLocalMintHeaderFunc("backend", "be-audience", nil)
+	userToken := unsignedJWT(t, map[string]any{"sub": "alice", "email": "alice@example.com", "email_verified": false})
+	ctx := server.ContextWithBearerToken(context.Background(), userToken)
+	ctx = server.ContextWithActorToken(ctx, "agent-sa-token")
+
+	headers := headerFunc(ctx)
+
+	require.False(t, minter.called, "delegated mint must be refused when email_verified is false")
+	require.Empty(t, headers, "no Authorization header on fail-closed")
+}
+
+func TestMakeLocalMintHeaderFunc_NoSubjectFailsClosed(t *testing.T) {
+	minter := &fakeBackendTokenMinter{result: api.BackendMintResult{AccessToken: "x"}}
+	api.RegisterBackendTokenMinter(minter)
+	defer api.RegisterBackendTokenMinter(nil)
+
+	headerFunc := makeLocalMintHeaderFunc("backend", "be-audience", nil)
+	headers := headerFunc(context.Background())
+
+	require.False(t, minter.called, "no subject token must fail closed before minting")
+	require.Empty(t, headers)
+}
+
+func TestMakeLocalMintHeaderFunc_NoMinterFailsClosed(t *testing.T) {
+	api.RegisterBackendTokenMinter(nil)
+
+	headerFunc := makeLocalMintHeaderFunc("backend", "be-audience", nil)
+	ctx := server.ContextWithBearerToken(context.Background(), "sa-token")
+	headers := headerFunc(ctx)
+
+	require.Empty(t, headers, "absent minter must fail closed")
+}
+
+func TestMakeLocalMintHeaderFunc_MintErrorFailsClosed(t *testing.T) {
+	minter := &fakeBackendTokenMinter{err: errors.New("actor_delegation_not_authorized")}
+	api.RegisterBackendTokenMinter(minter)
+	defer api.RegisterBackendTokenMinter(nil)
+
+	headerFunc := makeLocalMintHeaderFunc("backend", "be-audience", nil)
+	ctx := server.ContextWithBearerToken(context.Background(), "sa-token")
+	headers := headerFunc(ctx)
+
+	require.True(t, minter.called)
+	require.Empty(t, headers, "mint error (policy deny) must fail closed, no Authorization header")
 }

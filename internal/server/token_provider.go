@@ -16,6 +16,26 @@ type contextKey string
 //nolint:gosec // G101 false positive - this is a context key name, not a credential
 const idTokenKey contextKey = "oauth_id_token"
 
+// bearerTokenKey is the context key for the raw inbound Authorization bearer
+// token. localMint uses it as the RFC 8693 subject token.
+//
+//nolint:gosec // G101 false positive - this is a context key name, not a credential
+const bearerTokenKey contextKey = "oauth_bearer_token"
+
+// actorTokenKey is the context key for the raw inbound actor token (HeaderActorToken).
+// localMint uses it as the RFC 8693 actor token on the delegation path.
+//
+//nolint:gosec // G101 false positive - this is a context key name, not a credential
+const actorTokenKey contextKey = "oauth_actor_token"
+
+// HeaderActorToken carries the agent's workload token alongside the user's
+// Authorization bearer on a localMint call_tool request. The value is a
+// "Bearer <token>" string, mirroring Authorization. This is a contract shared
+// with the kagent token provider that sends it.
+//
+//nolint:gosec // G101 false positive - this is an HTTP header name, not a credential
+const HeaderActorToken = "X-Actor-Token"
+
 // UserInfo represents user information from an OAuth provider.
 // This is a type alias for the library's providers.UserInfo type.
 type UserInfo = providers.UserInfo
@@ -32,6 +52,28 @@ func ContextWithIDToken(ctx context.Context, idToken string) context.Context {
 func GetIDTokenFromContext(ctx context.Context) (string, bool) {
 	token, ok := ctx.Value(idTokenKey).(string)
 	return token, ok && token != ""
+}
+
+// ContextWithBearerToken stores the raw inbound bearer token (subject) for localMint.
+func ContextWithBearerToken(ctx context.Context, token string) context.Context {
+	return context.WithValue(ctx, bearerTokenKey, token)
+}
+
+// GetBearerTokenFromContext returns the raw inbound bearer token, or "" when absent.
+func GetBearerTokenFromContext(ctx context.Context) string {
+	token, _ := ctx.Value(bearerTokenKey).(string)
+	return token
+}
+
+// ContextWithActorToken stores the raw inbound actor token (scheme stripped) for localMint.
+func ContextWithActorToken(ctx context.Context, token string) context.Context {
+	return context.WithValue(ctx, actorTokenKey, token)
+}
+
+// GetActorTokenFromContext returns the raw inbound actor token, or "" when absent.
+func GetActorTokenFromContext(ctx context.Context) string {
+	token, _ := ctx.Value(actorTokenKey).(string)
+	return token
 }
 
 // GetIDToken extracts the ID token from an OAuth2 token.
