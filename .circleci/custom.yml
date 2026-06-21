@@ -74,6 +74,12 @@ workflows:
 
     - architect/run-tests-with-ats:
         name: execute-muster-crds-chart-tests
+        app-test-suite_container_tag: "0.15.1-dev.phase-4-drop-apptestctl.2026-06-17.23-59-53.h1078a0a"
+        # Empty --app-tests-pre-deploy-script overrides the app-chart pre-deploy
+        # from .ats/main.yaml (which seeds muster-crds). For the CRD chart, ct
+        # install IS the CRD install, so seeding first fails the Helm ownership
+        # check on the kept CRDs.
+        additional_app-test-suite_flags: '--skip-steps smoke functional upgrade --app-tests-pre-deploy-script ""'
         requires:
         - build-muster-crds-chart
         filters:

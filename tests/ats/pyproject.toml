@@ -1,0 +1,19 @@
+[project]
+name = "ats"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = [
+    "pykube-ng>=22.1.0",
+    "pytest>=6.2.5",
+    "pytest-helm-charts>=1.0.2",
+    "pytest-rerunfailures~=16.0",
+    "requests~=2.34.0",
+]
+
+[tool.pytest.ini_options]
+markers = [
+    "smoke: fast sanity checks run first",
+    "functional: full feature tests",
+    "integration: tests exercising the app from outside the cluster",
+    "upgrade: run during upgrade scenario (before and after helm upgrade)",
+]
