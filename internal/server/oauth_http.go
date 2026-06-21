@@ -775,6 +775,10 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 
 	logEnabledOAuthOptions(logger)
 
+	// Declaratively (re)seed confidential broker clients from mounted secrets so
+	// that a wiped client store self-heals. Best-effort; never fails startup.
+	seedBrokerClients(context.Background(), oauthSrv, cfg.TokenExchangeBroker, logger)
+
 	return oauthSrv, combinedStore, dpopClient, nil
 }
 

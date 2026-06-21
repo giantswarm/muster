@@ -365,6 +365,16 @@ type TokenExchangeBrokerConfig struct {
 	// Config.TokenExchangeClientAudiences.
 	ClientAudiences map[string][]string `yaml:"clientAudiences,omitempty"`
 
+	// BrokerClients declaratively seeds confidential broker clients at startup
+	// from mounted Kubernetes Secrets, keyed by client ID. mcp-oauth stores a
+	// broker client's record (id -> bcrypt secret hash) only in its backing
+	// store (Valkey); a store wipe leaves the audience allowlist in config and
+	// the credentials in the holder's secret, but the client record gone, so
+	// every exchange returns invalid_client. Seeding re-creates the record from
+	// the same id+secret on every startup, so a wipe self-heals. The id+secret
+	// must match those the broker client (e.g. Backstage) presents.
+	BrokerClients map[string]BrokerClientConfig `yaml:"brokerClients,omitempty"`
+
 	// Targets maps an RFC 8693 audience name (e.g. a management cluster name)
 	// to the downstream credential provider target.
 	Targets map[string]BrokerTargetConfig `yaml:"targets,omitempty"`
@@ -503,6 +513,23 @@ type GithubAppSecretKeyRef struct {
 	Namespace string `yaml:"namespace,omitempty"`
 	// Key is the data key within the Secret. Defaults to "private-key".
 	Key string `yaml:"key,omitempty"`
+}
+
+// BrokerClientConfig declaratively seeds one confidential broker client. The
+// map key is the client ID; the secret is resolved from the referenced
+// Kubernetes Secret at startup and the client record is idempotently ensured
+// in mcp-oauth's store.
+type BrokerClientConfig struct {
+	// ClientCredentialsSecretRef references the Kubernetes Secret holding the
+	// broker client's id and secret. The same secret the broker client (e.g.
+	// Backstage) authenticates with. The ClientID resolved from the secret must
+	// match the map key; the map key wins if they differ.
+	ClientCredentialsSecretRef *BrokerSecretRefConfig `yaml:"clientCredentialsSecretRef,omitempty"`
+
+	// Scopes optionally records the scopes granted to the seeded client. The
+	// audiences a client may request are gated by ClientAudiences, not by these
+	// scopes; this is informational on the client record.
+	Scopes []string `yaml:"scopes,omitempty"`
 }
 
 // BrokerSecretRefConfig references a Kubernetes Secret with OAuth client

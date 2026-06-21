@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"log/slog"
@@ -16,6 +17,7 @@ import (
 	"github.com/giantswarm/mcp-oauth/storage/valkey"
 	valkeygo "github.com/valkey-io/valkey-go"
 
+	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/config"
 	musteroauth "github.com/giantswarm/muster/internal/oauth"
 )
@@ -134,6 +136,68 @@ func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger, 
 	}
 
 	return opts, nil
+}
+
+// seedBrokerClients ensures each configured confidential broker client exists
+// in the OAuth server's store, recreating its record from the same id+secret on
+// every startup. mcp-oauth stores a broker client's record (id -> bcrypt secret
+// hash) only in its backing store (Valkey); a store wipe leaves the audience
+// allowlist in config and the credentials in the holder's secret, but the
+// client record gone, so every exchange returns invalid_client. Seeding makes a
+// wipe self-heal.
+//
+// Best-effort: a missing secret handler (non-Kubernetes mode) or an unresolvable
+// secret is logged and skipped rather than failing startup -- the broker would
+// surface the missing client later, and crashing muster over a transient secret
+// read helps no one.
+func seedBrokerClients(ctx context.Context, srv *oauth.Server, broker config.TokenExchangeBrokerConfig, logger *slog.Logger) {
+	if len(broker.BrokerClients) == 0 {
+		return
+	}
+
+	handler := api.GetSecretCredentialsHandler()
+	if handler == nil {
+		logger.Warn("Cannot seed broker clients: no secret credentials handler registered (requires Kubernetes mode)",
+			"brokerClients", len(broker.BrokerClients))
+		return
+	}
+
+	for clientID, bc := range broker.BrokerClients {
+		if bc.ClientCredentialsSecretRef == nil {
+			logger.Warn("Skipping broker client seed: no clientCredentialsSecretRef", "client_id", clientID)
+			continue
+		}
+		ref := bc.ClientCredentialsSecretRef
+		creds, err := handler.LoadClientCredentials(ctx, &api.ClientCredentialsSecretRef{
+			Name:            ref.Name,
+			Namespace:       ref.Namespace,
+			ClientIDKey:     ref.ClientIDKey,
+			ClientSecretKey: ref.ClientSecretKey,
+		}, broker.DefaultSecretNamespace)
+		if err != nil {
+			logger.Warn("Failed to load broker client credentials; skipping seed",
+				"client_id", clientID, "secret", ref.Name, "error", err)
+			continue
+		}
+
+		// The config map key is authoritative for the client id; warn if the
+		// secret carries a different one so a misconfiguration is visible.
+		if creds.ClientID != "" && creds.ClientID != clientID {
+			logger.Warn("Broker client id in secret differs from config key; using config key",
+				"config_client_id", clientID, "secret_client_id", creds.ClientID)
+		}
+
+		seeded, err := srv.EnsureConfidentialClient(ctx, clientID, creds.ClientSecret, bc.Scopes)
+		if err != nil {
+			logger.Warn("Failed to seed broker client", "client_id", clientID, "error", err)
+			continue
+		}
+		if seeded {
+			logger.Info("Seeded confidential broker client", "client_id", clientID)
+		} else {
+			logger.Debug("Broker client already present; no seeding needed", "client_id", clientID)
+		}
+	}
 }
 
 func toTrustedIssuer(iss config.TrustedIssuerConfig) oauthserver.TrustedIssuer {
