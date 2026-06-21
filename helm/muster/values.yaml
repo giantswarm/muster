@@ -631,17 +631,24 @@ muster:
           # cluster.
           labels: {}
 
-# DEPRECATED. The muster application chart no longer ships the CRDs — they now
-# live in the standalone `muster-crds` chart (helm/muster-crds), so the CRD
-# lifecycle can be owned independently by a downstream `agentic-platform-crds`
-# umbrella. This block is retained only as a compatibility shim and will be
-# removed in the next release:
-#   - `crds.install` defaults to `false` and the app chart renders no CRDs at
-#     all (templates/crds.yaml was removed). It is kept so the (strict-ish)
-#     values schema still accepts a downstream that explicitly sets
-#     `muster.crds.install: false`.
-#   - `crds.annotations` is inert and carried only for the same compatibility.
-# Install or upgrade `muster-crds` BEFORE `muster`.
+# CRD ownership. The muster application chart ships the MCPServer and Workflow
+# CustomResourceDefinitions in the Helm 3 `crds/` directory (helm/muster/crds/),
+# with `helm.sh/resource-policy: keep` baked in. Helm installs them automatically
+# on `helm install` and never deletes them.
+#
+# Upgrade caveat: Helm does NOT update `crds/` on `helm upgrade` — this is an
+# intentional, still-current Helm design decision (HIP-0011), unchanged in
+# Helm 4. Flux users set `install.crds`/`upgrade.crds: CreateReplace` on the
+# HelmRelease for atomic CRD upgrades; plain-Helm users apply CRD changes
+# out-of-band via Helm's own recommended path
+# (`helm show crds giantswarm/muster | kubectl apply --server-side -f -`) or use
+# the standalone `muster-crds` chart, whose templated CRDs upgrade on
+# `helm upgrade`.
+#
+# The values below are an inert legacy shim from the earlier bundle-split design.
+# `crds/` placement is not value-toggleable, so neither field affects chart
+# behaviour; they are retained only so a downstream that still sets
+# `muster.crds.install: false` passes values-schema validation.
 crds:
   install: false
   annotations:
