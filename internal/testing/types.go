@@ -275,6 +275,49 @@ type MockOAuthServerConfig struct {
 	// since RFC 8693 token exchange endpoints must use HTTPS for security.
 	// Note: This is automatically set to true when UseAsMusterOAuthServer is true.
 	UseTLS bool `yaml:"use_tls,omitempty"`
+
+	// MusterBroker configures muster's RFC 8693 token broker on the OAuth server
+	// used as muster's own server (UseAsMusterOAuthServer). When set, the test
+	// framework runs muster in JWT mode (a generated ES256 key) and writes the
+	// broker config so the localMint downstream auth mode can mint per-backend
+	// tokens. Only honored on the entry with UseAsMusterOAuthServer=true.
+	MusterBroker *ScenarioBrokerConfig `yaml:"muster_broker,omitempty"`
+}
+
+// ScenarioBrokerConfig drives muster's tokenExchangeBroker config from a scenario.
+// It mirrors the subset of config.TokenExchangeBrokerConfig the localMint path needs.
+type ScenarioBrokerConfig struct {
+	// LocalMintAudiences lists the audiences for which muster mints a token from
+	// its own signing key (each becomes a broker target of type local-mint).
+	LocalMintAudiences []string `yaml:"local_mint_audiences,omitempty"`
+
+	// WorkloadAudiences maps a workload subject (glob) to the audiences it may
+	// request on the no-actor (M2M) mint path.
+	WorkloadAudiences map[string][]string `yaml:"workload_audiences,omitempty"`
+
+	// WorkloadGroupGrants injects groups into a token minted on the M2M path for
+	// an explicit (issuer, subject) workload. No wildcards.
+	WorkloadGroupGrants []ScenarioWorkloadGroupGrant `yaml:"workload_group_grants,omitempty"`
+
+	// ActorDelegationPolicy lists the (actor, subject) pairs accepted for delegated
+	// (OBO) exchange. Unused by the M2M scenarios; present for completeness.
+	ActorDelegationPolicy []ScenarioDelegationGrant `yaml:"actor_delegation_policy,omitempty"`
+}
+
+// ScenarioWorkloadGroupGrant mirrors config.WorkloadGroupGrantConfig.
+type ScenarioWorkloadGroupGrant struct {
+	Issuer    string   `yaml:"issuer"`
+	Subject   string   `yaml:"subject"`
+	Audiences []string `yaml:"audiences"`
+	Groups    []string `yaml:"groups"`
+}
+
+// ScenarioDelegationGrant mirrors config.DelegationGrantConfig.
+type ScenarioDelegationGrant struct {
+	ActorIssuer    string `yaml:"actor_issuer"`
+	ActorSubject   string `yaml:"actor_subject"`
+	SubjectIssuer  string `yaml:"subject_issuer"`
+	SubjectSubject string `yaml:"subject_subject"`
 }
 
 // TrustedIssuerConfig defines a trusted issuer for RFC 8693 token exchange
@@ -298,6 +341,17 @@ type MCPServerOAuthConfig struct {
 
 	// Scope is the required OAuth scope
 	Scope string `yaml:"scope,omitempty"`
+
+	// TrustMusterJWT puts the backend in a mode where it accepts a JWT minted by
+	// muster's own signing key instead of an opaque token issued by a mock IdP.
+	// The backend verifies the bearer's signature against muster's public key and
+	// checks iss == muster's issuer, exp, and aud == Audience. Used to exercise the
+	// localMint downstream auth mode end to end.
+	TrustMusterJWT bool `yaml:"trust_muster_jwt,omitempty"`
+
+	// Audience is the aud claim the backend requires when TrustMusterJWT is set.
+	// It must equal the localMint audience the broker mints for this backend.
+	Audience string `yaml:"audience,omitempty"`
 }
 
 // MockOAuthServerInfo contains info about a running mock OAuth server

@@ -2,6 +2,7 @@ package mock
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/giantswarm/muster/internal/template"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/mark3labs/mcp-go/server"
 )
 
@@ -35,6 +37,20 @@ type ProtectedMCPServerConfig struct {
 
 	// Transport is the HTTP transport type (sse or streamable-http)
 	Transport HTTPTransportType
+
+	// TrustMusterJWT accepts a JWT minted by muster (localMint) instead of an
+	// opaque token from a mock IdP. The bearer is verified against MusterPublicKey
+	// with iss == MusterIssuer, aud containing ExpectedAudience, and a valid exp.
+	TrustMusterJWT bool
+
+	// MusterIssuer is the expected iss claim of a muster-minted token.
+	MusterIssuer string
+
+	// MusterPublicKey is muster's access-token signing public key (ES256).
+	MusterPublicKey *ecdsa.PublicKey
+
+	// ExpectedAudience is the aud claim the minted token must carry.
+	ExpectedAudience string
 
 	// Debug enables debug logging
 	Debug bool
@@ -209,11 +225,15 @@ func (s *ProtectedMCPServer) createProtectedHandler() (http.Handler, error) {
 
 	// Create OAuth protection middleware
 	protectedHandler := &oauthProtectionMiddleware{
-		handler:       underlyingHandler,
-		oauthServer:   s.config.OAuthServer,
-		issuer:        s.GetIssuer(),
-		requiredScope: s.config.RequiredScope,
-		debug:         s.config.Debug,
+		handler:          underlyingHandler,
+		oauthServer:      s.config.OAuthServer,
+		issuer:           s.GetIssuer(),
+		requiredScope:    s.config.RequiredScope,
+		trustMusterJWT:   s.config.TrustMusterJWT,
+		musterIssuer:     s.config.MusterIssuer,
+		musterPublicKey:  s.config.MusterPublicKey,
+		expectedAudience: s.config.ExpectedAudience,
+		debug:            s.config.Debug,
 	}
 
 	// Create a mux to handle special endpoints
@@ -245,11 +265,15 @@ func (s *ProtectedMCPServer) createProtectedHandler() (http.Handler, error) {
 
 // oauthProtectionMiddleware validates OAuth tokens before passing to MCP handler
 type oauthProtectionMiddleware struct {
-	handler       http.Handler
-	oauthServer   *OAuthServer
-	issuer        string
-	requiredScope string
-	debug         bool
+	handler          http.Handler
+	oauthServer      *OAuthServer
+	issuer           string
+	requiredScope    string
+	trustMusterJWT   bool
+	musterIssuer     string
+	musterPublicKey  *ecdsa.PublicKey
+	expectedAudience string
+	debug            bool
 }
 
 func (m *oauthProtectionMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -269,6 +293,23 @@ func (m *oauthProtectionMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Req
 			fmt.Fprintf(os.Stderr, "🔒 Invalid Authorization header format, returning 401\n")
 		}
 		m.sendAuthChallenge(w, "invalid_token", "Authorization header must use Bearer scheme")
+		return
+	}
+
+	// In localMint mode the bearer is a JWT minted by muster's own signing key.
+	// Verify its signature, issuer, audience and expiry against muster's key.
+	if m.trustMusterJWT {
+		if err := m.verifyMusterJWT(token); err != nil {
+			if m.debug {
+				fmt.Fprintf(os.Stderr, "🔒 muster-minted JWT validation failed: %v, returning 401\n", err)
+			}
+			m.sendAuthChallenge(w, "invalid_token", "The minted access token is invalid")
+			return
+		}
+		if m.debug {
+			fmt.Fprintf(os.Stderr, "🔒 muster-minted JWT validated, passing request to MCP handler\n")
+		}
+		m.handler.ServeHTTP(w, r)
 		return
 	}
 
@@ -302,6 +343,27 @@ func (m *oauthProtectionMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Req
 
 	// Token valid - pass through to MCP handler
 	m.handler.ServeHTTP(w, r)
+}
+
+// verifyMusterJWT validates a muster-minted access token: ES256 signature against
+// muster's public key, iss == musterIssuer, aud containing expectedAudience, valid exp.
+func (m *oauthProtectionMiddleware) verifyMusterJWT(tokenStr string) error {
+	if m.musterPublicKey == nil {
+		return fmt.Errorf("no muster public key configured")
+	}
+	opts := []jwt.ParserOption{
+		jwt.WithValidMethods([]string{"ES256"}),
+		jwt.WithIssuer(m.musterIssuer),
+		jwt.WithExpirationRequired(),
+	}
+	if m.expectedAudience != "" {
+		opts = append(opts, jwt.WithAudience(m.expectedAudience))
+	}
+	parser := jwt.NewParser(opts...)
+	_, err := parser.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
+		return m.musterPublicKey, nil
+	})
+	return err
 }
 
 func (m *oauthProtectionMiddleware) sendAuthChallenge(w http.ResponseWriter, errorCode, errorDesc string) {

@@ -4,7 +4,12 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"net"
@@ -177,6 +182,18 @@ type musterInstanceManager struct {
 
 	// Protected MCP server tracking (OAuth-protected mock MCP servers)
 	protectedMCPServers map[string]map[string]*mock.ProtectedMCPServer // instanceID -> serverName -> server
+
+	// musterJWTContexts holds muster's per-instance JWT signing key and issuer when
+	// the scenario configures a token broker (muster_broker). Protected backends in
+	// trust_muster_jwt mode verify minted tokens against this key. Protected by mu.
+	musterJWTContexts map[string]*musterJWTContext // instanceID -> JWT context
+}
+
+// musterJWTContext carries the ES256 signing key and issuer for a muster instance
+// running in JWT mode for the localMint downstream auth path.
+type musterJWTContext struct {
+	signingKey *ecdsa.PrivateKey
+	issuer     string
 }
 
 // NewMusterInstanceManagerWithLogger creates a new muster instance manager with custom logger
@@ -208,7 +225,22 @@ func NewMusterInstanceManagerWithConfig(debug bool, basePort int, logger TestLog
 		mockHTTPServers:     make(map[string]map[string]*mock.HTTPServer),
 		mockOAuthServers:    make(map[string]map[string]*mock.OAuthServer),
 		protectedMCPServers: make(map[string]map[string]*mock.ProtectedMCPServer),
+		musterJWTContexts:   make(map[string]*musterJWTContext),
 	}, nil
+}
+
+// musterBrokerFromConfig returns the broker config declared on the OAuth server
+// used as muster's own server, or nil if no broker is configured.
+func musterBrokerFromConfig(config *MusterPreConfiguration) *ScenarioBrokerConfig {
+	if config == nil {
+		return nil
+	}
+	for _, oauthCfg := range config.MockOAuthServers {
+		if oauthCfg.UseAsMusterOAuthServer && oauthCfg.MusterBroker != nil {
+			return oauthCfg.MusterBroker
+		}
+	}
+	return nil
 }
 
 // CreateInstance creates a new muster serve instance with the given configuration.
@@ -236,6 +268,27 @@ func (m *musterInstanceManager) CreateInstance(ctx context.Context, scenarioName
 
 	if m.debug {
 		logger.Debug("🏗️  Creating muster instance %s with config at %s\n", instanceID, configPath)
+	}
+
+	// When the scenario configures a token broker, run muster in JWT mode: generate
+	// the signing key now so protected backends (started below) can verify minted
+	// tokens against the public key and the config writer can pin jwtSigningKeyFile.
+	if musterBrokerFromConfig(config) != nil {
+		signingKey, keyErr := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if keyErr != nil {
+			m.releasePort(port, instanceID, logger)
+			_ = os.RemoveAll(configPath)
+			return nil, fmt.Errorf("failed to generate muster JWT signing key: %w", keyErr)
+		}
+		m.mu.Lock()
+		m.musterJWTContexts[instanceID] = &musterJWTContext{
+			signingKey: signingKey,
+			issuer:     fmt.Sprintf("http://localhost:%d", port),
+		}
+		m.mu.Unlock()
+		if m.debug {
+			logger.Debug("🔑 Generated muster ES256 JWT signing key for localMint broker (issuer http://localhost:%d)\n", port)
+		}
 	}
 
 	// Start mock OAuth servers FIRST (before HTTP servers, as they may depend on OAuth)
@@ -326,6 +379,10 @@ func (m *musterInstanceManager) DestroyInstance(ctx context.Context, instance *M
 	if m.debug {
 		logger.Debug("🛑 Destroying muster instance %s (PID: %d)\n", instance.ID, instance.Process.Pid)
 	}
+
+	m.mu.Lock()
+	delete(m.musterJWTContexts, instance.ID)
+	m.mu.Unlock()
 
 	// Get the managed process
 	m.mu.RLock()
@@ -1213,7 +1270,7 @@ func (m *musterInstanceManager) configureOAuthForInstance(
 	// This enables testing of SSO token forwarding with muster's OAuth server protection
 	for _, oauthCfg := range config.MockOAuthServers {
 		if oauthCfg.UseAsMusterOAuthServer {
-			oauthServerConfig := m.buildMusterOAuthServerConfig(oauthCfg, port, instanceID, oauthMCPClientConfig, logger)
+			oauthServerConfig := m.buildMusterOAuthServerConfig(oauthCfg, port, instanceID, musterConfigPath, oauthMCPClientConfig, logger)
 			if oauthServerConfig != nil {
 				oauthConfig["server"] = oauthServerConfig
 			}
@@ -1278,6 +1335,7 @@ func (m *musterInstanceManager) buildMusterOAuthServerConfig(
 	oauthCfg MockOAuthServerConfig,
 	port int,
 	instanceID string,
+	musterConfigPath string,
 	oauthProxyConfig map[string]interface{},
 	logger TestLogger,
 ) map[string]interface{} {
@@ -1313,7 +1371,7 @@ func (m *musterInstanceManager) buildMusterOAuthServerConfig(
 		logger.Debug("🔐 Enabled muster OAuth server with mock provider (issuer: %s)\n", issuerURL)
 	}
 
-	return map[string]interface{}{
+	serverConfig := map[string]interface{}{
 		"enabled":                       true,
 		"baseUrl":                       fmt.Sprintf("http://localhost:%d", port),
 		"provider":                      "dex", // Mock server acts like Dex
@@ -1322,6 +1380,120 @@ func (m *musterInstanceManager) buildMusterOAuthServerConfig(
 		"allowLocalhostRedirectURIs":    true,
 		"allowPublicClientRegistration": true, // Allow dynamic client registration for testing
 	}
+
+	// When the scenario configures a token broker, run muster in JWT mode and write
+	// the broker config so the localMint downstream auth path can mint per-backend
+	// tokens from muster's own signing key.
+	if oauthCfg.MusterBroker != nil {
+		if err := m.applyMusterBrokerConfig(serverConfig, oauthCfg.MusterBroker, instanceID, musterConfigPath, issuerURL, logger); err != nil {
+			logger.Debug("⚠️  Failed to apply muster broker config: %v\n", err)
+		}
+	}
+
+	return serverConfig
+}
+
+// applyMusterBrokerConfig enables JWT mode (writing the generated ES256 signing key
+// to disk) and writes the tokenExchangeBroker section onto muster's OAuth server
+// config from the scenario's broker declaration.
+func (m *musterInstanceManager) applyMusterBrokerConfig(
+	serverConfig map[string]interface{},
+	broker *ScenarioBrokerConfig,
+	instanceID string,
+	musterConfigPath string,
+	upstreamIssuer string,
+	logger TestLogger,
+) error {
+	m.mu.RLock()
+	jwtCtx := m.musterJWTContexts[instanceID]
+	m.mu.RUnlock()
+	if jwtCtx == nil {
+		return fmt.Errorf("no JWT signing key generated for instance %s", instanceID)
+	}
+
+	der, err := x509.MarshalECPrivateKey(jwtCtx.signingKey)
+	if err != nil {
+		return fmt.Errorf("failed to marshal EC signing key: %w", err)
+	}
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der})
+	keyPath := filepath.Join(musterConfigPath, "muster-jwt-signing-key.pem")
+	if err := os.WriteFile(keyPath, keyPEM, 0600); err != nil { //nolint:gosec
+		return fmt.Errorf("failed to write JWT signing key: %w", err)
+	}
+
+	serverConfig["enableJWTMode"] = true
+	serverConfig["jwtSigningKeyFile"] = keyPath
+
+	// The broker validates subject tokens against trustedIssuers. Two subjects
+	// appear: tool discovery uses the upstream IdP's ID token (iss = the mock IdP),
+	// and per-call minting uses muster's own access token (iss = muster). Trust
+	// both. allowPrivateIPJWKS is required because both JWKS endpoints are on loopback.
+	trustedIssuers := []map[string]interface{}{
+		{
+			"issuer":             jwtCtx.issuer,
+			"jwksUrl":            jwtCtx.issuer + "/.well-known/jwks.json",
+			"allowPrivateIPJWKS": true,
+			"acceptedTypHeaders": []string{"at+jwt", "JWT", ""},
+		},
+	}
+	if upstreamIssuer != "" && upstreamIssuer != jwtCtx.issuer {
+		trustedIssuers = append(trustedIssuers, map[string]interface{}{
+			"issuer":             upstreamIssuer,
+			"jwksUrl":            upstreamIssuer + "/jwks",
+			"allowPrivateIPJWKS": true,
+			"acceptedTypHeaders": []string{"at+jwt", "JWT", ""},
+		})
+	}
+	serverConfig["trustedIssuers"] = trustedIssuers
+
+	brokerConfig := map[string]interface{}{}
+
+	if len(broker.LocalMintAudiences) > 0 {
+		targets := map[string]interface{}{}
+		for _, aud := range broker.LocalMintAudiences {
+			targets[aud] = map[string]interface{}{"type": "local-mint"}
+		}
+		brokerConfig["targets"] = targets
+	}
+	if len(broker.WorkloadAudiences) > 0 {
+		workloadAudiences := map[string]interface{}{}
+		for subject, auds := range broker.WorkloadAudiences {
+			workloadAudiences[subject] = auds
+		}
+		brokerConfig["workloadAudiences"] = workloadAudiences
+	}
+	if len(broker.WorkloadGroupGrants) > 0 {
+		grants := make([]map[string]interface{}, 0, len(broker.WorkloadGroupGrants))
+		for _, g := range broker.WorkloadGroupGrants {
+			grants = append(grants, map[string]interface{}{
+				"issuer":    g.Issuer,
+				"subject":   g.Subject,
+				"audiences": g.Audiences,
+				"groups":    g.Groups,
+			})
+		}
+		brokerConfig["workloadGroupGrants"] = grants
+	}
+	if len(broker.ActorDelegationPolicy) > 0 {
+		policy := make([]map[string]interface{}, 0, len(broker.ActorDelegationPolicy))
+		for _, p := range broker.ActorDelegationPolicy {
+			policy = append(policy, map[string]interface{}{
+				"actorIssuer":    p.ActorIssuer,
+				"actorSubject":   p.ActorSubject,
+				"subjectIssuer":  p.SubjectIssuer,
+				"subjectSubject": p.SubjectSubject,
+			})
+		}
+		brokerConfig["actorDelegationPolicy"] = policy
+	}
+
+	serverConfig["tokenExchangeBroker"] = brokerConfig
+
+	if m.debug {
+		logger.Debug("🔐 Enabled muster JWT mode + token broker (key: %s, targets: %v)\n",
+			keyPath, broker.LocalMintAudiences)
+	}
+	return nil
 }
 
 // generateConfigFilesWithMocks generates configuration files with mock HTTP server information
@@ -1478,6 +1650,24 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 							if m.debug {
 								logger.Debug("🔐 Enabling token exchange for MCPServer %s (connector: %v)\n",
 									mcpServer.Name, tokenExchange["connector_id"])
+							}
+						}
+
+						// If oauth.local_mint is specified, add auth.localMint to the CRD.
+						// muster then mints a per-backend token from its own signing key on
+						// each call (subject from the caller bearer, actor from X-Actor-Token).
+						if localMint, hasLocalMint := oauthConfig["local_mint"].(map[string]interface{}); hasLocalMint {
+							localMintConfig := map[string]interface{}{}
+							if enabled, ok := localMint["enabled"].(bool); ok {
+								localMintConfig["enabled"] = enabled
+							}
+							if audience, ok := localMint["audience"].(string); ok {
+								localMintConfig["audience"] = audience
+							}
+							authConfig["localMint"] = localMintConfig
+							if m.debug {
+								logger.Debug("🔐 Enabling localMint for MCPServer %s (audience: %v)\n",
+									mcpServer.Name, localMint["audience"])
 							}
 						}
 

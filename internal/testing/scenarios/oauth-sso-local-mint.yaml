@@ -1,0 +1,101 @@
+name: "oauth-sso-local-mint"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  Test the localMint downstream auth mode (M2M, no actor).
+
+  muster runs its own OAuth server in JWT mode with a token broker that has a
+  local-mint target. A backend is configured with auth.localMint, so on every
+  call muster mints a per-backend token from its own signing key (sub = caller,
+  aud = the backend audience, iss = muster) through the broker, which enforces
+  workloadAudiences before the local-mint provider runs.
+
+  The backend trusts muster-minted JWTs (trust_muster_jwt): it verifies the
+  bearer's ES256 signature against muster's public key plus iss/aud/exp. This
+  exercises the localMint dispatch and the broker workloadAudiences success path
+  end to end. Claim-level assertions (exact sub/aud/groups, the no-actor shape)
+  live in the unit tests, which the scenario framework cannot inspect on a JWT.
+
+  The matching deny path lives in oauth-sso-local-mint-deny.yaml.
+tags: ["oauth", "sso", "local-mint", "localmint", "broker", "m2m", "authentication", "mcpserver"]
+timeout: "2m"
+
+pre_configuration:
+  mock_oauth_servers:
+    - name: "muster-idp"
+      scopes: ["openid", "profile", "email", "groups", "mcp:admin"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "muster-client"
+      client_secret: "muster-secret"
+      # Run muster's own OAuth server backed by this mock upstream, in JWT mode,
+      # with a broker local-mint target and a workloadAudiences grant.
+      use_as_muster_oauth_server: true
+      muster_broker:
+        local_mint_audiences: ["mcp-localmint-backend"]
+        workload_audiences:
+          "*": ["mcp-localmint-backend"]
+
+  mcp_servers:
+    # Backend in localMint mode: muster mints a per-backend token; the backend
+    # trusts muster's signing key (no shared mock IdP).
+    - name: "localmint-backend"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          trust_muster_jwt: true
+          audience: "mcp-localmint-backend"
+          local_mint:
+            enabled: true
+            audience: "mcp-localmint-backend"
+        tools:
+          - name: "localmint_status"
+            description: "Operation requiring a muster-minted token"
+            responses:
+              - response:
+                  source: "localmint-backend"
+                  status: "authenticated-via-local-mint"
+                  message: "Backend accepted a token minted by muster"
+
+steps:
+  - id: verify-oauth-server
+    description: "Verify muster's OAuth server (mock upstream) is running"
+    tool: "test_get_oauth_server_info"
+    args:
+      server: "muster-idp"
+    expected:
+      success: true
+      contains:
+        - "muster-idp"
+        - "issuer_url"
+
+  - id: verify-server-registered
+    description: "Verify the localMint backend is registered"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "localmint-backend"
+
+  - id: muster-auth-login
+    description: "Authenticate to muster (stores a muster-issued JWT used as the mint subject)"
+    tool: "test_muster_auth_login"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "success"
+        - "ID token stored"
+
+  - id: call-localmint-tool
+    description: "Call the backend tool; muster mints a per-backend token and the backend accepts it"
+    tool: "x_localmint-backend_localmint_status"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "localmint-backend"
+        - "local-mint"

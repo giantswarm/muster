@@ -61,6 +61,9 @@ func (m *musterInstanceManager) startMockOAuthServers(
 			ClientSecret:   oauthCfg.ClientSecret,
 			Debug:          m.debug,
 			UseTLS:         useTLS,
+			// A localMint broker validates the subject token signature against this
+			// issuer's JWKS, so issue real ES256-signed ID tokens when a broker is set.
+			SignJWTs: oauthCfg.MusterBroker != nil,
 		}
 
 		// Use mock clock if configured (enables test_advance_oauth_clock tool)
@@ -308,6 +311,12 @@ func (m *musterInstanceManager) extractOAuthConfig(config map[string]interface{}
 	if scope, ok := oauthMap["scope"].(string); ok {
 		result.Scope = scope
 	}
+	if trust, ok := oauthMap["trust_muster_jwt"].(bool); ok {
+		result.TrustMusterJWT = trust
+	}
+	if aud, ok := oauthMap["audience"].(string); ok {
+		result.Audience = aud
+	}
 
 	return result
 }
@@ -352,6 +361,24 @@ func (m *musterInstanceManager) startProtectedMCPServer(
 		Tools:         tools,
 		Transport:     transportType,
 		Debug:         m.debug,
+	}
+
+	// In localMint mode the backend trusts a JWT minted by muster's own key rather
+	// than an opaque token from a mock IdP. Hand it muster's public key + issuer.
+	if oauthConfig.TrustMusterJWT {
+		m.mu.RLock()
+		jwtCtx := m.musterJWTContexts[instanceID]
+		m.mu.RUnlock()
+		if jwtCtx == nil {
+			return nil, fmt.Errorf("trust_muster_jwt set for %s but no muster broker / JWT key configured", mcpServer.Name)
+		}
+		config.TrustMusterJWT = true
+		config.MusterIssuer = jwtCtx.issuer
+		config.MusterPublicKey = &jwtCtx.signingKey.PublicKey
+		config.ExpectedAudience = oauthConfig.Audience
+		if config.Issuer == "" {
+			config.Issuer = jwtCtx.issuer
+		}
 	}
 
 	protectedServer, err := mock.NewProtectedMCPServer(config)
