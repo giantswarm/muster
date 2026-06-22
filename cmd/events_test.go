@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -35,7 +36,7 @@ func TestFollowTracker_DeduplicatesAcrossPolls(t *testing.T) {
 	}
 	// Output must be chronological (oldest first): Created (10:00:01) before
 	// Updated (10:00:02).
-	if !containsSubstr(lines[0], "WorkflowCreated") || !containsSubstr(lines[1], "WorkflowUpdated") {
+	if !strings.Contains(lines[0], "WorkflowCreated") || !strings.Contains(lines[1], "WorkflowUpdated") {
 		t.Fatalf("expected chronological order [created, updated], got: %v", lines)
 	}
 
@@ -49,7 +50,7 @@ func TestFollowTracker_DeduplicatesAcrossPolls(t *testing.T) {
 	if len(lines) != 1 {
 		t.Fatalf("expected 1 new line on second poll, got %d: %v", len(lines), lines)
 	}
-	if !containsSubstr(lines[0], "WorkflowDeleted") {
+	if !strings.Contains(lines[0], "WorkflowDeleted") {
 		t.Fatalf("expected the new WorkflowDeleted event, got: %v", lines)
 	}
 
@@ -69,13 +70,4 @@ func TestFollowTracker_NonArrayInput(t *testing.T) {
 	if lines := tracker.newLines(nil); lines != nil {
 		t.Fatalf("expected nil lines for nil input, got: %v", lines)
 	}
-}
-
-func containsSubstr(haystack, needle string) bool {
-	for i := 0; i+len(needle) <= len(haystack); i++ {
-		if haystack[i:i+len(needle)] == needle {
-			return true
-		}
-	}
-	return false
 }

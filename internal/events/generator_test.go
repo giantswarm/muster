@@ -2,7 +2,9 @@ package events
 
 import (
 	"context"
+	"reflect"
 	"testing"
+	"time"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -329,6 +331,34 @@ func TestAdapter_DefaultNamespace(t *testing.T) {
 	adapter := NewAdapter(&mockMusterClient{}, "muster-system")
 	if got := adapter.DefaultNamespace(); got != "muster-system" {
 		t.Errorf("DefaultNamespace: got %q, want %q", got, "muster-system")
+	}
+}
+
+// TestEventData_APIRoundTrip guards against silent field drift in the two mirror
+// converters that bridge the api<->events package boundary: EventData.ToAPI and
+// eventDataFromAPI. The api package cannot import events (service-locator rule),
+// so the field copy is duplicated by hand; if a future field is added to one
+// mapper but not the other, contextual data would be silently dropped at the
+// boundary. Populating every mapped field with a distinct non-zero value and
+// round-tripping ensures both mappers stay in sync.
+func TestEventData_APIRoundTrip(t *testing.T) {
+	original := EventData{
+		Operation:       "create",
+		Error:           "boom",
+		Duration:        5 * time.Second,
+		StepCount:       3,
+		StepID:          "deploy",
+		StepTool:        "core_service_list",
+		ConditionResult: "true",
+		ExecutionID:     "exec-123",
+		ToolNames:       []string{"a", "b"},
+		AllowFailure:    true,
+	}
+
+	got := eventDataFromAPI(original.ToAPI())
+
+	if !reflect.DeepEqual(got, original) {
+		t.Errorf("round trip dropped or mangled fields:\n got:  %#v\n want: %#v", got, original)
 	}
 }
 
