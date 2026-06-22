@@ -1,0 +1,63 @@
+name: "events-workflow-validation"
+description: "Workflow validation emits ValidationFailed (with error text) and ValidationSucceeded events (proves B1/H2)"
+category: "behavioral"
+concept: "events"
+tags: ["events", "workflow", "validation"]
+timeout: "1m"
+
+pre_configuration:
+  main_config:
+    config:
+      events: true
+
+steps:
+- id: "create-invalid-workflow"
+  description: "Creating a workflow with duplicate step IDs fails validation"
+  tool: "core_workflow_create"
+  args:
+    name: "events-invalid-wf"
+    args: {}
+    steps:
+      - id: "dupe"
+        tool: "core_service_list"
+      - id: "dupe"
+        tool: "core_workflow_list"
+  expected:
+    success: false
+    error_contains: ["duplicate step ID"]
+
+- id: "expect-validation-failed-event-with-error"
+  description: "WorkflowValidationFailed event must include the validation error text (B1)"
+  tool: "core_events"
+  args:
+    resourceType: "Workflow"
+    resourceName: "events-invalid-wf"
+    eventType: "Warning"
+  expected:
+    success: true
+    contains:
+      - "WorkflowValidationFailed"
+      - "duplicate step ID"
+
+- id: "validate-valid-workflow"
+  description: "Validating a correct workflow succeeds"
+  tool: "core_workflow_validate"
+  args:
+    name: "events-valid-wf"
+    args: {}
+    steps:
+      - id: "ok_step"
+        tool: "core_service_list"
+  expected:
+    success: true
+
+- id: "expect-validation-succeeded-event"
+  description: "WorkflowValidationSucceeded event must be emitted (H2)"
+  tool: "core_events"
+  args:
+    resourceType: "Workflow"
+    resourceName: "events-valid-wf"
+  expected:
+    success: true
+    contains:
+      - "WorkflowValidationSucceeded"

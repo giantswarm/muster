@@ -5,94 +5,53 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/watch"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
 
 	"github.com/giantswarm/muster/internal/api"
 )
 
-// CreateEvent creates a Kubernetes Event for the given object.
+// CreateEvent creates a Kubernetes Event for the given object via the
+// EventBroadcaster, which aggregates duplicate events (Count) and rate-limits
+// per source/object instead of writing one Event object per call.
 func (k *Client) CreateEvent(ctx context.Context, obj client.Object, reason, message, eventType string) error {
-	gvk, err := k.GroupVersionKindFor(obj)
-	if err != nil {
-		return fmt.Errorf("failed to get GroupVersionKind for object: %w", err)
+	if k.eventRecorder == nil {
+		return fmt.Errorf("event recorder not initialized")
 	}
-
-	event := &corev1.Event{
-		ObjectMeta: metav1.ObjectMeta{
-			GenerateName: obj.GetName() + "-",
-			Namespace:    obj.GetNamespace(),
-		},
-		InvolvedObject: corev1.ObjectReference{
-			APIVersion: gvk.GroupVersion().String(),
-			Kind:       gvk.Kind,
-			Name:       obj.GetName(),
-			Namespace:  obj.GetNamespace(),
-			UID:        obj.GetUID(),
-		},
-		Reason:         reason,
-		Message:        message,
-		Type:           eventType,
-		Source:         corev1.EventSource{Component: sourceComponent},
-		FirstTimestamp: metav1.NewTime(time.Now()),
-		LastTimestamp:  metav1.NewTime(time.Now()),
-		Count:          1,
-	}
-
-	if err := k.Create(ctx, event); err != nil {
-		return fmt.Errorf("failed to create Kubernetes Event: %w", err)
-	}
-
+	// "%s" with message as an argument avoids interpreting any '%' the rendered
+	// message may contain as a format directive.
+	k.eventRecorder.Eventf(obj, eventType, reason, "%s", message)
 	return nil
 }
 
-// CreateEventForCRD creates a Kubernetes Event for a CRD by type, name, and namespace.
+// CreateEventForCRD creates a Kubernetes Event for a CRD by type, name, and
+// namespace. It best-effort loads the live object so the Event references the
+// real UID, falling back to a minimal typed object carrying name/namespace.
 func (k *Client) CreateEventForCRD(ctx context.Context, crdType, name, namespace, reason, message, eventType string) error {
+	if k.eventRecorder == nil {
+		return fmt.Errorf("event recorder not initialized")
+	}
+
 	factory, ok := crdFactories[crdType]
 	if !ok {
 		return fmt.Errorf("unsupported CRD type: %s", crdType)
 	}
-	gvk := musterv1alpha1.GroupVersion.WithKind(crdType)
 
-	// Best-effort UID lookup so the Event references the live object.
-	var uid types.UID
 	obj := factory()
-	if err := k.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, obj); err == nil {
-		uid = obj.GetUID()
+	if err := k.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, obj); err != nil {
+		// Live object not found (e.g. delete events): reference a minimal
+		// object so the Event still carries the correct kind/name/namespace.
+		obj = factory()
+		obj.SetName(name)
+		obj.SetNamespace(namespace)
 	}
 
-	event := &corev1.Event{
-		ObjectMeta: metav1.ObjectMeta{
-			GenerateName: name + "-",
-			Namespace:    namespace,
-		},
-		InvolvedObject: corev1.ObjectReference{
-			APIVersion: gvk.GroupVersion().String(),
-			Kind:       gvk.Kind,
-			Name:       name,
-			Namespace:  namespace,
-			UID:        uid,
-		},
-		Reason:         reason,
-		Message:        message,
-		Type:           eventType,
-		Source:         corev1.EventSource{Component: sourceComponent},
-		FirstTimestamp: metav1.NewTime(time.Now()),
-		LastTimestamp:  metav1.NewTime(time.Now()),
-		Count:          1,
-	}
-
-	if err := k.Create(ctx, event); err != nil {
-		return fmt.Errorf("failed to create Kubernetes Event for %s %s/%s: %w", crdType, namespace, name, err)
-	}
-
+	k.eventRecorder.Eventf(obj, eventType, reason, "%s", message)
 	return nil
 }
 
@@ -158,6 +117,96 @@ func (k *Client) QueryEvents(ctx context.Context, options api.EventQueryOptions)
 		Events:     initialResults,
 		TotalCount: totalCount,
 	}, nil
+}
+
+// WatchEvents streams muster-sourced Kubernetes events matching the options as
+// they occur, via a native watch on the Events API. The returned channel is
+// closed when ctx is cancelled. The watch is re-established automatically if
+// the API server closes it, advancing the resourceVersion to avoid replaying
+// events already delivered.
+func (k *Client) WatchEvents(ctx context.Context, options api.EventQueryOptions) (<-chan api.EventResult, error) {
+	if k.clientset == nil {
+		return nil, fmt.Errorf("kubernetes clientset not initialized")
+	}
+
+	var fieldSelectors []string
+	if options.ResourceType != "" {
+		fieldSelectors = append(fieldSelectors, fmt.Sprintf("involvedObject.kind=%s", options.ResourceType))
+	}
+	if options.ResourceName != "" {
+		fieldSelectors = append(fieldSelectors, fmt.Sprintf("involvedObject.name=%s", options.ResourceName))
+	}
+	if options.EventType != "" {
+		fieldSelectors = append(fieldSelectors, fmt.Sprintf("type=%s", options.EventType))
+	}
+	fieldSelector := strings.Join(fieldSelectors, ",")
+
+	out := make(chan api.EventResult)
+	go func() {
+		defer close(out)
+		resourceVersion := ""
+		for {
+			if ctx.Err() != nil {
+				return
+			}
+			w, err := k.clientset.CoreV1().Events(options.Namespace).Watch(ctx, metav1.ListOptions{
+				FieldSelector:   fieldSelector,
+				ResourceVersion: resourceVersion,
+			})
+			if err != nil {
+				// ponytail: a failed (re)establish ends the stream rather than
+				// busy-retrying. Ceiling: a transient API error stops follow;
+				// the user re-runs `muster events --follow`. Upgrade path: wrap
+				// in client-go's RetryWatcher if silent reconnection is needed.
+				return
+			}
+			resourceVersion = k.drainEventWatch(ctx, w, options, out)
+			w.Stop()
+			if resourceVersion == "" {
+				// Watch ended without a usable resourceVersion (e.g. ctx done or
+				// 410 Gone); stop rather than risk a tight reconnect loop.
+				return
+			}
+		}
+	}()
+	return out, nil
+}
+
+// drainEventWatch forwards matching events from a single watch to out until the
+// watch closes or ctx is cancelled. It returns the last observed resourceVersion
+// so the caller can resume, or "" if the stream should not be resumed.
+func (k *Client) drainEventWatch(ctx context.Context, w watch.Interface, options api.EventQueryOptions, out chan<- api.EventResult) string {
+	resourceVersion := ""
+	for {
+		select {
+		case <-ctx.Done():
+			return ""
+		case evt, ok := <-w.ResultChan():
+			if !ok {
+				return resourceVersion
+			}
+			if evt.Type != watch.Added && evt.Type != watch.Modified {
+				continue
+			}
+			kev, ok := evt.Object.(*corev1.Event)
+			if !ok {
+				return ""
+			}
+			resourceVersion = kev.ResourceVersion
+			if kev.Source.Component != sourceComponent {
+				continue
+			}
+			result := k.convertKubernetesEvent(kev)
+			if options.Since != nil && result.Timestamp.Before(*options.Since) {
+				continue
+			}
+			select {
+			case out <- result:
+			case <-ctx.Done():
+				return ""
+			}
+		}
+	}
 }
 
 // convertKubernetesEvent converts a Kubernetes Event to our EventResult format.

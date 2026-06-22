@@ -1,0 +1,70 @@
+name: "events-workflow-lifecycle"
+description: "Workflow create/delete emit events with structured data (proves B1 step count, H2 deleted)"
+category: "behavioral"
+concept: "events"
+tags: ["events", "workflow", "lifecycle"]
+timeout: "1m"
+
+pre_configuration:
+  main_config:
+    config:
+      events: true
+
+steps:
+- id: "create-workflow"
+  description: "Create a two-step workflow"
+  tool: "core_workflow_create"
+  args:
+    name: "events-lifecycle-wf"
+    args: {}
+    steps:
+      - id: "step_one"
+        tool: "core_service_list"
+      - id: "step_two"
+        tool: "core_workflow_list"
+  expected:
+    success: true
+
+- id: "expect-workflow-created-event-with-step-count"
+  description: "WorkflowCreated event must carry the step count in its message (B1)"
+  tool: "core_events"
+  args:
+    resourceType: "Workflow"
+    resourceName: "events-lifecycle-wf"
+  expected:
+    success: true
+    contains:
+      - "WorkflowCreated"
+      - "with 2 steps"
+
+- id: "delete-workflow"
+  description: "Delete the workflow"
+  tool: "core_workflow_delete"
+  args:
+    name: "events-lifecycle-wf"
+  expected:
+    success: true
+
+- id: "expect-workflow-deleted-event"
+  description: "WorkflowDeleted event must be emitted (H2)"
+  tool: "core_events"
+  args:
+    resourceType: "Workflow"
+    resourceName: "events-lifecycle-wf"
+  expected:
+    success: true
+    contains:
+      - "WorkflowDeleted"
+
+# The workflow is already removed by the delete-workflow step above (needed to
+# emit the WorkflowDeleted event), so this safety-net cleanup expects the
+# established "not found" behavior rather than a second successful delete.
+cleanup:
+- id: "cleanup-workflow"
+  tool: "core_workflow_delete"
+  args:
+    name: "events-lifecycle-wf"
+  expected:
+    success: false
+    error_contains:
+      - "not found"

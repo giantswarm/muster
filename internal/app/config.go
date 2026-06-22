@@ -48,9 +48,6 @@ type Config struct {
 	OAuthServerEnabled bool   // Enable OAuth 2.1 protection for Muster Server
 	OAuthServerBaseURL string // Base URL of the Muster Server for OAuth issuer
 
-	// Events settings
-	EnableEvents bool // Enable Kubernetes event emission (alpha, disabled by default)
-
 	// ExtraCAFile is the path to a PEM file whose certificates are appended to
 	// the system trust pool at startup. The augmented pool becomes the default
 	// for outbound HTTP (MCP backends, token exchange, OAuth proxy) by
@@ -120,19 +117,6 @@ func (c *Config) WithOAuthMCPClient(enabled bool, publicURL, clientID string) *C
 func (c *Config) WithOAuthServer(enabled bool, baseURL string) *Config {
 	c.OAuthServerEnabled = enabled
 	c.OAuthServerBaseURL = baseURL
-	return c
-}
-
-// WithEvents enables or disables Kubernetes event emission.
-// Events are an alpha feature and disabled by default. When enabled, muster emits
-// Kubernetes Events for CRD lifecycle operations and service management.
-//
-// Args:
-//   - enabled: whether event emission is enabled
-//
-// Returns the modified Config for method chaining.
-func (c *Config) WithEvents(enabled bool) *Config {
-	c.EnableEvents = enabled
 	return c
 }
 

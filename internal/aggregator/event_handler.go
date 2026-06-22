@@ -313,21 +313,19 @@ func (eh *EventHandler) generateEvent(serviceName string, reason events.EventRea
 		return
 	}
 
-	// Create an object reference for the MCPServer CRD
-	// MCPServer lifecycle events should be associated with the MCPServer CRD resource
+	// Associate MCPServer lifecycle events with the MCPServer CRD resource in
+	// the configured muster namespace so they are not orphaned in "default".
+	namespace := eventManager.DefaultNamespace()
+	if namespace == "" {
+		namespace = metav1.NamespaceDefault
+	}
 	objectRef := api.ObjectReference{
 		Kind:      "MCPServer",
 		Name:      serviceName,
-		Namespace: metav1.NamespaceDefault, // TODO: Make configurable or derive from service
+		Namespace: namespace,
 	}
 
-	// Populate service-specific data
-	data.Name = serviceName
-	if data.Namespace == "" {
-		data.Namespace = metav1.NamespaceDefault
-	}
-
-	err := eventManager.CreateEvent(context.Background(), objectRef, string(reason), "", string(events.EventTypeNormal))
+	err := eventManager.CreateEventWithData(context.Background(), objectRef, string(reason), data.ToAPI())
 	if err != nil {
 		logging.Debug("Aggregator-EventHandler", "Failed to generate event for %s: %v", serviceName, err)
 	} else {

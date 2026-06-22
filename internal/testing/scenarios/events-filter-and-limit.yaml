@@ -1,0 +1,88 @@
+name: "events-filter-and-limit"
+description: "Locks in core_events query filtering by resourceType, resourceName, eventType and limit"
+category: "behavioral"
+concept: "events"
+tags: ["events", "query", "filter"]
+timeout: "1m"
+
+pre_configuration:
+  main_config:
+    config:
+      events: true
+
+steps:
+- id: "create-filter-workflow"
+  description: "Create a workflow to generate Normal events"
+  tool: "core_workflow_create"
+  args:
+    name: "events-filter-wf"
+    args: {}
+    steps:
+      - id: "only_step"
+        tool: "core_service_list"
+  expected:
+    success: true
+
+- id: "filter-by-resource-name"
+  description: "resourceName narrows results to the matching workflow"
+  tool: "core_events"
+  args:
+    resourceType: "Workflow"
+    resourceName: "events-filter-wf"
+  expected:
+    success: true
+    contains:
+      - "events-filter-wf"
+      - "WorkflowCreated"
+
+- id: "filter-by-event-type-normal"
+  description: "eventType=Normal returns the creation event"
+  tool: "core_events"
+  args:
+    resourceType: "Workflow"
+    resourceName: "events-filter-wf"
+    eventType: "Normal"
+  expected:
+    success: true
+    contains:
+      - "Normal"
+      - "WorkflowCreated"
+
+- id: "filter-by-event-type-warning-empty"
+  description: "eventType=Warning returns no Normal creation event for this workflow"
+  tool: "core_events"
+  args:
+    resourceType: "Workflow"
+    resourceName: "events-filter-wf"
+    eventType: "Warning"
+  expected:
+    success: true
+    not_contains:
+      - "WorkflowCreated"
+
+- id: "limit-results-to-one"
+  description: "limit caps the number of returned events"
+  tool: "core_events"
+  args:
+    resourceType: "Workflow"
+    limit: 1
+  expected:
+    success: true
+
+- id: "filter-by-unknown-resource-type-empty"
+  description: "Unknown resource type yields an empty event list"
+  tool: "core_events"
+  args:
+    resourceType: "DoesNotExist"
+  expected:
+    success: true
+    contains:
+      - "[]"
+
+cleanup:
+- id: "cleanup-workflow"
+  tool: "core_workflow_delete"
+  args:
+    name: "events-filter-wf"
+  expected:
+    success: true

@@ -144,6 +144,12 @@ type AggregatorServer struct {
 	// Populated in sessionToolFilter, cleaned up via OnUnregisterSession hook.
 	subjectSessions *subjectSessionTracker
 
+	// eventFollows tracks active `muster events --follow` streams per MCP
+	// session so they can be cancelled when the session disconnects or starts a
+	// new follow. Guarded by eventFollowsMu.
+	eventFollows   map[string]*eventFollow
+	eventFollowsMu sync.Mutex
+
 	// valkeyClient is the shared Valkey client used by authStore and capabilityStore
 	// when Valkey storage is configured. Nil when using in-memory stores.
 	// Closed during Stop().
@@ -530,6 +536,7 @@ func NewAggregatorServer(aggConfig AggregatorConfig, errorCallback func(error)) 
 		connPool:        NewSessionConnectionPool(DefaultConnectionPoolMaxAge),
 		ssoTracker:      newSSOTracker(),
 		subjectSessions: newSubjectSessionTracker(),
+		eventFollows:    make(map[string]*eventFollow),
 		valkeyClient:    stores.valkeyClient,
 		valkeyKeyPrefix: stores.keyPrefix,
 		valkeyEncryptor: stores.encryptor,
@@ -685,6 +692,7 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		logging.InfoWithAttrsCtx(ctx, "MCP-Protocol", "Session unregistered",
 			logging.TransportSessionID(session.SessionID()))
 		a.subjectSessions.RemoveSession(session.SessionID())
+		a.stopEventFollow(session.SessionID())
 	})
 
 	hooks.AddOnRegisterSession(func(ctx context.Context, session mcpserver.ClientSession) {
@@ -2115,6 +2123,12 @@ func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName st
 			result, err := provider.ExecuteTool(ctx, originalToolName, args)
 			if err != nil {
 				return nil, err
+			}
+			// `follow` returns the events seen so far immediately (above) and
+			// then streams subsequent events to this client as MCP
+			// notifications, backed by a real watch. See startEventFollow.
+			if follow, _ := args["follow"].(bool); follow {
+				a.startEventFollow(ctx, eventFollowOptions(args))
 			}
 			return convertToMCPResult(result), nil
 		}

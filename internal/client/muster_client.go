@@ -56,6 +56,7 @@ type MusterClient interface {
 	CreateEvent(ctx context.Context, obj client.Object, reason, message, eventType string) error
 	CreateEventForCRD(ctx context.Context, crdType, name, namespace, reason, message, eventType string) error
 	QueryEvents(ctx context.Context, options api.EventQueryOptions) (*api.EventQueryResult, error)
+	WatchEvents(ctx context.Context, options api.EventQueryOptions) (<-chan api.EventResult, error)
 
 	// Utility methods
 	IsKubernetesMode() bool

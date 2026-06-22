@@ -2,6 +2,8 @@ package events
 
 import (
 	"time"
+
+	"github.com/giantswarm/muster/internal/api"
 )
 
 // EventType represents the type/severity of a Kubernetes Event.
@@ -52,9 +54,6 @@ const (
 
 	// ReasonMCPServerToolsUnavailable indicates tool discovery failed or tools became unavailable.
 	ReasonMCPServerToolsUnavailable EventReason = "MCPServerToolsUnavailable"
-
-	// ReasonMCPServerReconnected indicates connection to an MCPServer was restored.
-	ReasonMCPServerReconnected EventReason = "MCPServerReconnected"
 
 	// Health and Recovery Events
 	// ReasonMCPServerHealthCheckFailed indicates health checks failed for an MCPServer.
@@ -139,31 +138,15 @@ const (
 	ReasonWorkflowStepConditionEvaluated EventReason = "WorkflowStepConditionEvaluated"
 
 	// Tool Availability Events
-	// ReasonWorkflowAvailable indicates all required tools became available.
-	ReasonWorkflowAvailable EventReason = "WorkflowAvailable"
-
 	// ReasonWorkflowUnavailable indicates required tools became unavailable.
 	ReasonWorkflowUnavailable EventReason = "WorkflowUnavailable"
-
-	// ReasonWorkflowToolsDiscovered indicates new required tools are discovered and available.
-	ReasonWorkflowToolsDiscovered EventReason = "WorkflowToolsDiscovered"
-
-	// ReasonWorkflowToolsMissing indicates specific tools became unavailable.
-	ReasonWorkflowToolsMissing EventReason = "WorkflowToolsMissing"
 
 	// Tool Registration Events
 	// ReasonWorkflowToolRegistered indicates workflow was registered as action_<workflow-name> tool.
 	ReasonWorkflowToolRegistered EventReason = "WorkflowToolRegistered"
 
-	// ReasonWorkflowToolUnregistered indicates workflow tool was removed from aggregator.
-	ReasonWorkflowToolUnregistered EventReason = "WorkflowToolUnregistered"
-
 	// ReasonWorkflowCapabilitiesRefreshed indicates aggregator capabilities were updated after workflow changes.
 	ReasonWorkflowCapabilitiesRefreshed EventReason = "WorkflowCapabilitiesRefreshed"
-
-	// Legacy event reasons (kept for compatibility)
-	// ReasonWorkflowExecuted indicates a Workflow was successfully executed.
-	ReasonWorkflowExecuted EventReason = "WorkflowExecuted"
 )
 
 // EventData holds contextual information for event message templating.
@@ -209,6 +192,25 @@ type EventData struct {
 	AllowFailure bool
 }
 
+// ToAPI converts the internal EventData into the api-layer EventData so it can
+// be passed across the API service-locator boundary via
+// EventManagerHandler.CreateEventWithData. Name and Namespace are intentionally
+// omitted because they are carried by the ObjectReference.
+func (d EventData) ToAPI() api.EventData {
+	return api.EventData{
+		Operation:       d.Operation,
+		Error:           d.Error,
+		Duration:        d.Duration,
+		StepCount:       d.StepCount,
+		StepID:          d.StepID,
+		StepTool:        d.StepTool,
+		ConditionResult: d.ConditionResult,
+		ExecutionID:     d.ExecutionID,
+		ToolNames:       d.ToolNames,
+		AllowFailure:    d.AllowFailure,
+	}
+}
+
 // ObjectReference represents a reference to a Kubernetes object for event creation.
 type ObjectReference struct {
 	// APIVersion is the API version of the object.
@@ -237,7 +239,6 @@ func getEventType(reason EventReason) EventType {
 		ReasonWorkflowExecutionFailed,
 		ReasonWorkflowValidationFailed,
 		ReasonWorkflowUnavailable,
-		ReasonWorkflowToolsMissing,
 		ReasonWorkflowStepFailed:
 		return EventTypeWarning
 	default:

@@ -38,7 +38,6 @@ func (e *MessageTemplateEngine) loadDefaultTemplates() {
 	// Tool Discovery Events
 	e.templates[ReasonMCPServerToolsDiscovered] = "MCPServer {{.Name}} tools discovered and registered successfully"
 	e.templates[ReasonMCPServerToolsUnavailable] = "MCPServer {{.Name}} tools became unavailable{{if .Error}}: {{.Error}}{{end}}"
-	e.templates[ReasonMCPServerReconnected] = "MCPServer {{.Name}} reconnected successfully and tools are available"
 
 	// Health and Recovery Events
 	e.templates[ReasonMCPServerHealthCheckFailed] = "MCPServer {{.Name}} health check failed{{if .Error}}: {{.Error}}{{end}}"
@@ -73,19 +72,11 @@ func (e *MessageTemplateEngine) loadDefaultTemplates() {
 	e.templates[ReasonWorkflowStepConditionEvaluated] = "Workflow {{.Name}} step {{.StepID}} condition evaluated to {{.ConditionResult}}"
 
 	// Tool Availability Events
-	e.templates[ReasonWorkflowAvailable] = "Workflow {{.Name}} is now available (all required tools are accessible)"
 	e.templates[ReasonWorkflowUnavailable] = "Workflow {{.Name}} is unavailable{{if .ToolNames}} (missing tools: {{.ToolNames}}){{end}}"
-	e.templates[ReasonWorkflowToolsDiscovered] = "Workflow {{.Name}} required tools discovered and are now available"
-	e.templates[ReasonWorkflowToolsMissing] = "Workflow {{.Name}} tools became unavailable{{if .ToolNames}} (missing: {{.ToolNames}}){{end}}"
 
 	// Tool Registration Events
 	e.templates[ReasonWorkflowToolRegistered] = "Workflow {{.Name}} registered as tool 'action_{{.Name}}' in aggregator"
-	e.templates[ReasonWorkflowToolUnregistered] = "Workflow {{.Name}} tool 'action_{{.Name}}' removed from aggregator"
 	e.templates[ReasonWorkflowCapabilitiesRefreshed] = "Aggregator capabilities refreshed after workflow {{.Name}} changes"
-
-	// Legacy templates (kept for compatibility)
-	e.templates[ReasonWorkflowExecuted] = "Workflow {{.Name}} executed successfully{{if .StepCount}} ({{.StepCount}} steps){{end}}{{if .Duration}} in {{.Duration}}{{end}}"
-
 }
 
 // Render generates a message for the given event reason and data.

@@ -500,7 +500,7 @@ func RegisterEventManager(h EventManagerHandler) {
 //	if eventManager == nil {
 //	    return fmt.Errorf("event manager not available")
 //	}
-//	err := eventManager.CreateEvent(ctx, objectRef, "Created", "Object successfully created", "Normal")
+//	err := eventManager.CreateEventWithData(ctx, objectRef, "MCPServerCreated", EventData{})
 func GetEventManager() EventManagerHandler {
 	handlerMutex.RLock()
 	defer handlerMutex.RUnlock()
