@@ -821,12 +821,13 @@ func TestMakeLocalMintHeaderFunc_M2M(t *testing.T) {
 	defer api.RegisterBackendTokenMinter(nil)
 
 	headerFunc := makeLocalMintHeaderFunc("backend", "be-audience", nil)
-	ctx := server.ContextWithBearerToken(context.Background(), "sa-token")
+	saToken := unsignedJWT(t, map[string]any{"sub": "system:serviceaccount:kagent:sre-agent"})
+	ctx := server.ContextWithBearerToken(context.Background(), saToken)
 
 	headers := headerFunc(ctx)
 
 	require.True(t, minter.called)
-	require.Equal(t, "sa-token", minter.gotReq.SubjectToken)
+	require.Equal(t, saToken, minter.gotReq.SubjectToken)
 	require.Empty(t, minter.gotReq.ActorToken, "M2M must carry no actor")
 	require.Equal(t, "be-audience", minter.gotReq.Audience)
 	require.Equal(t, "Bearer minted-m2m", headers["Authorization"])
@@ -866,6 +867,29 @@ func TestMakeLocalMintHeaderFunc_EmailUnverifiedFailsClosed(t *testing.T) {
 	require.Empty(t, headers, "no Authorization header on fail-closed")
 }
 
+// A pre-exchanged human-derived bearer (carries an email, no separate
+// X-Actor-Token) takes the M2M path. email_verified must still be enforced
+// there, else an unverified-email human identity slips through unchecked.
+func TestMakeLocalMintHeaderFunc_M2MEmailUnverifiedFailsClosed(t *testing.T) {
+	minter := &fakeBackendTokenMinter{result: api.BackendMintResult{AccessToken: "should-not-mint"}}
+	api.RegisterBackendTokenMinter(minter)
+	defer api.RegisterBackendTokenMinter(nil)
+
+	headerFunc := makeLocalMintHeaderFunc("backend", "be-audience", nil)
+	preExchanged := unsignedJWT(t, map[string]any{
+		"sub":            "alice",
+		"email":          "alice@example.com",
+		"email_verified": false,
+		"act":            map[string]any{"sub": "system:serviceaccount:kagent:sre-agent"},
+	})
+	ctx := server.ContextWithBearerToken(context.Background(), preExchanged)
+
+	headers := headerFunc(ctx)
+
+	require.False(t, minter.called, "M2M-path mint must be refused for an unverified email")
+	require.Empty(t, headers, "no Authorization header on fail-closed")
+}
+
 func TestMakeLocalMintHeaderFunc_NoSubjectFailsClosed(t *testing.T) {
 	minter := &fakeBackendTokenMinter{result: api.BackendMintResult{AccessToken: "x"}}
 	api.RegisterBackendTokenMinter(minter)
@@ -894,7 +918,8 @@ func TestMakeLocalMintHeaderFunc_MintErrorFailsClosed(t *testing.T) {
 	defer api.RegisterBackendTokenMinter(nil)
 
 	headerFunc := makeLocalMintHeaderFunc("backend", "be-audience", nil)
-	ctx := server.ContextWithBearerToken(context.Background(), "sa-token")
+	saToken := unsignedJWT(t, map[string]any{"sub": "system:serviceaccount:kagent:sre-agent"})
+	ctx := server.ContextWithBearerToken(context.Background(), saToken)
 	headers := headerFunc(ctx)
 
 	require.True(t, minter.called)

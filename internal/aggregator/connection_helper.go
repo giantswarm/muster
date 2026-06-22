@@ -1048,11 +1048,20 @@ func makeLocalMintHeaderFunc(serverName, audience string, onStaleToken func()) f
 		}
 		actorToken := server.GetActorTokenFromContext(ctx)
 
-		// Delegation (OBO) path: refuse to mint for an unverified email.
-		if actorToken != "" {
-			verified, err := pkgoauth.EmailVerified(subjectToken)
-			if err != nil || !verified {
-				return fail("localMint: subject email_verified is not true for %s, refusing delegated mint", serverName)
+		// Refuse to mint for a subject token that asserts an email it cannot
+		// prove. A human identity reaches localMint either as the delegation
+		// subject (separate X-Actor-Token) or as a pre-exchanged bearer that
+		// already carries an act chain and takes the M2M path; both carry an
+		// email claim. A groupless workload (SA) token carries no email and is
+		// exempt. Enforce before the mint, on both paths.
+		email, err := pkgoauth.Email(subjectToken)
+		if err != nil {
+			return fail("localMint: cannot decode subject token for %s, failing closed", serverName)
+		}
+		if email != "" {
+			verified, verr := pkgoauth.EmailVerified(subjectToken)
+			if verr != nil || !verified {
+				return fail("localMint: subject email_verified is not true for %s, refusing mint", serverName)
 			}
 		}
 
