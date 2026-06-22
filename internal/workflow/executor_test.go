@@ -2,6 +2,8 @@ package workflow
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/giantswarm/muster/internal/api"
@@ -10,6 +12,38 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// scriptedToolCaller is a concurrency-safe ToolCaller whose responses can be
+// scripted per tool. It is used by the control-flow tests (forEach, parallel,
+// conditions, onFailure).
+type scriptedToolCaller struct {
+	mu        sync.Mutex
+	calls     []toolCall
+	responder func(toolName string, args map[string]interface{}) (*mcp.CallToolResult, error)
+}
+
+func (m *scriptedToolCaller) CallToolInternal(ctx context.Context, toolName string, args map[string]interface{}) (*mcp.CallToolResult, error) {
+	m.mu.Lock()
+	m.calls = append(m.calls, toolCall{toolName: toolName, args: args})
+	m.mu.Unlock()
+	if m.responder != nil {
+		return m.responder(toolName, args)
+	}
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{mcp.NewTextContent(`{"status": "success"}`)},
+		IsError: false,
+	}, nil
+}
+
+func (m *scriptedToolCaller) calledTools() map[string]bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	got := make(map[string]bool, len(m.calls))
+	for _, c := range m.calls {
+		got[c.toolName] = true
+	}
+	return got
+}
 
 // mockToolCaller implements ToolCaller for testing
 type mockToolCaller struct {
@@ -217,4 +251,254 @@ func TestWorkflowExecutor_ResolveTemplate_StringNumbers(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "18000", result)
 	assert.IsType(t, "", result) // Should be string type, not float64
+}
+
+func TestWorkflowExecutor_TemplateCondition(t *testing.T) {
+	cases := []struct {
+		env       string
+		wantCalls int
+	}{
+		{"production", 1}, // condition true -> step runs
+		{"staging", 0},    // condition false -> step skipped
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.env, func(t *testing.T) {
+			mock := &scriptedToolCaller{}
+			executor := NewWorkflowExecutor(mock, nil)
+
+			workflow := &api.Workflow{
+				Name: "template_condition",
+				Args: map[string]api.ArgDefinition{
+					"env": {Type: "string", Required: true},
+				},
+				Steps: []api.WorkflowStep{
+					{
+						ID:   "deploy",
+						Tool: "deploy_tool",
+						Condition: &api.WorkflowCondition{
+							Template: `{{ eq .input.env "production" }}`,
+						},
+					},
+				},
+			}
+
+			_, err := executor.ExecuteWorkflow(context.Background(), workflow, map[string]interface{}{"env": tc.env})
+			require.NoError(t, err)
+			assert.Len(t, mock.calls, tc.wantCalls)
+		})
+	}
+}
+
+func TestWorkflowExecutor_ForEach(t *testing.T) {
+	mock := &scriptedToolCaller{}
+	executor := NewWorkflowExecutor(mock, nil)
+
+	workflow := &api.Workflow{
+		Name: "foreach",
+		Args: map[string]api.ArgDefinition{
+			"clusters": {Type: "array", Required: true},
+		},
+		Steps: []api.WorkflowStep{
+			{
+				ID: "fanout",
+				ForEach: &api.WorkflowForEach{
+					Items: "{{ .input.clusters }}",
+					As:    "item",
+					Steps: []api.WorkflowSubStep{
+						{
+							ID:   "deploy",
+							Tool: "deploy_tool",
+							Args: map[string]interface{}{
+								"name": "{{ .vars.item.name }}",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	clusters := []interface{}{
+		map[string]interface{}{"name": "alpha"},
+		map[string]interface{}{"name": "beta"},
+	}
+
+	_, err := executor.ExecuteWorkflow(context.Background(), workflow, map[string]interface{}{"clusters": clusters})
+	require.NoError(t, err)
+
+	require.Len(t, mock.calls, 2)
+	assert.Equal(t, "alpha", mock.calls[0].args["name"])
+	assert.Equal(t, "beta", mock.calls[1].args["name"])
+}
+
+// TestWorkflowExecutor_ForEachIndexedResults verifies that a stored sub-step is
+// addressable per iteration via "{{ .results.<id>_<index> }}" after the loop,
+// not just by its plain ID (which keeps only the last iteration's result).
+func TestWorkflowExecutor_ForEachIndexedResults(t *testing.T) {
+	mock := &scriptedToolCaller{
+		responder: func(toolName string, args map[string]interface{}) (*mcp.CallToolResult, error) {
+			if toolName == "deploy_tool" {
+				name, _ := args["name"].(string)
+				return &mcp.CallToolResult{
+					Content: []mcp.Content{mcp.NewTextContent(fmt.Sprintf(`{"id": %q}`, name))},
+				}, nil
+			}
+			return &mcp.CallToolResult{Content: []mcp.Content{mcp.NewTextContent(`{}`)}}, nil
+		},
+	}
+	executor := NewWorkflowExecutor(mock, nil)
+
+	workflow := &api.Workflow{
+		Name: "foreach_indexed",
+		Args: map[string]api.ArgDefinition{"clusters": {Type: "array", Required: true}},
+		Steps: []api.WorkflowStep{
+			{
+				ID: "fanout",
+				ForEach: &api.WorkflowForEach{
+					Items: "{{ .input.clusters }}",
+					As:    "item",
+					Steps: []api.WorkflowSubStep{
+						{
+							ID:    "deploy",
+							Tool:  "deploy_tool",
+							Args:  map[string]interface{}{"name": "{{ .vars.item.name }}"},
+							Store: true,
+						},
+					},
+				},
+			},
+			{
+				ID:   "summary",
+				Tool: "summary_tool",
+				Args: map[string]interface{}{
+					"first":  "{{ .results.deploy_0.id }}",
+					"second": "{{ .results.deploy_1.id }}",
+					"last":   "{{ .results.deploy.id }}",
+				},
+			},
+		},
+	}
+
+	clusters := []interface{}{
+		map[string]interface{}{"name": "alpha"},
+		map[string]interface{}{"name": "beta"},
+	}
+
+	_, err := executor.ExecuteWorkflow(context.Background(), workflow, map[string]interface{}{"clusters": clusters})
+	require.NoError(t, err)
+
+	require.Len(t, mock.calls, 3)
+	summary := mock.calls[2].args
+	assert.Equal(t, "alpha", summary["first"], "first iteration must be addressable as deploy_0")
+	assert.Equal(t, "beta", summary["second"], "second iteration must be addressable as deploy_1")
+	assert.Equal(t, "beta", summary["last"], "plain id keeps the last iteration's result")
+}
+
+func TestWorkflowExecutor_ForEachFailureStops(t *testing.T) {
+	mock := &scriptedToolCaller{
+		responder: func(toolName string, args map[string]interface{}) (*mcp.CallToolResult, error) {
+			return nil, fmt.Errorf("always fails")
+		},
+	}
+	executor := NewWorkflowExecutor(mock, nil)
+
+	workflow := &api.Workflow{
+		Name: "foreach_fail",
+		Args: map[string]api.ArgDefinition{"items": {Type: "array"}},
+		Steps: []api.WorkflowStep{
+			{
+				ID: "loop",
+				ForEach: &api.WorkflowForEach{
+					Items: "{{ .input.items }}",
+					Steps: []api.WorkflowSubStep{{ID: "s", Tool: "t"}},
+				},
+			},
+		},
+	}
+
+	_, err := executor.ExecuteWorkflow(context.Background(), workflow, map[string]interface{}{"items": []interface{}{"x", "y"}})
+	require.Error(t, err)
+	// A non-allowFailure sub-step failure stops the loop after the first item.
+	assert.Len(t, mock.calls, 1)
+}
+
+func TestWorkflowExecutor_Parallel(t *testing.T) {
+	mock := &scriptedToolCaller{}
+	executor := NewWorkflowExecutor(mock, nil)
+
+	workflow := &api.Workflow{
+		Name: "parallel",
+		Steps: []api.WorkflowStep{
+			{
+				ID: "group",
+				Parallel: []api.WorkflowSubStep{
+					{ID: "a", Tool: "tool_a"},
+					{ID: "b", Tool: "tool_b"},
+					{ID: "c", Tool: "tool_c"},
+				},
+			},
+		},
+	}
+
+	_, err := executor.ExecuteWorkflow(context.Background(), workflow, map[string]interface{}{})
+	require.NoError(t, err)
+
+	require.Len(t, mock.calls, 3)
+	got := mock.calledTools()
+	assert.True(t, got["tool_a"] && got["tool_b"] && got["tool_c"], "all parallel sub-steps should run")
+}
+
+func TestWorkflowExecutor_ParallelFailure(t *testing.T) {
+	mock := &scriptedToolCaller{
+		responder: func(toolName string, args map[string]interface{}) (*mcp.CallToolResult, error) {
+			if toolName == "bad" {
+				return nil, fmt.Errorf("boom")
+			}
+			return &mcp.CallToolResult{Content: []mcp.Content{mcp.NewTextContent(`{}`)}}, nil
+		},
+	}
+	executor := NewWorkflowExecutor(mock, nil)
+
+	workflow := &api.Workflow{
+		Name: "parallel_fail",
+		Steps: []api.WorkflowStep{
+			{
+				ID: "group",
+				Parallel: []api.WorkflowSubStep{
+					{ID: "a", Tool: "good"},
+					{ID: "b", Tool: "bad"},
+				},
+			},
+		},
+	}
+
+	_, err := executor.ExecuteWorkflow(context.Background(), workflow, map[string]interface{}{})
+	require.Error(t, err)
+}
+
+func TestWorkflowExecutor_OnFailure(t *testing.T) {
+	mock := &scriptedToolCaller{
+		responder: func(toolName string, args map[string]interface{}) (*mcp.CallToolResult, error) {
+			if toolName == "failing_tool" {
+				return nil, fmt.Errorf("boom")
+			}
+			return &mcp.CallToolResult{Content: []mcp.Content{mcp.NewTextContent(`{"ok": true}`)}}, nil
+		},
+	}
+	executor := NewWorkflowExecutor(mock, nil)
+
+	workflow := &api.Workflow{
+		Name: "with_rollback",
+		Steps: []api.WorkflowStep{
+			{ID: "main", Tool: "failing_tool"},
+		},
+		OnFailure: []api.WorkflowSubStep{
+			{ID: "rollback", Tool: "cleanup_tool"},
+		},
+	}
+
+	_, err := executor.ExecuteWorkflow(context.Background(), workflow, map[string]interface{}{})
+	require.Error(t, err)
+	assert.True(t, mock.calledTools()["cleanup_tool"], "onFailure cleanup tool should have been called")
 }

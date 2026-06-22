@@ -128,6 +128,9 @@ type MCPServerFamily struct {
 // +kubebuilder:validation:XValidation:rule="!has(self.authorizationServer) || self.type == 'oauth'",message="authorizationServer is only valid when type is oauth"
 // +kubebuilder:validation:XValidation:rule="!(has(self.forwardToken) && self.forwardToken == true && has(self.authorizationServer))",message="forwardToken bypasses per-backend OAuth; set one or the other, not both"
 // +kubebuilder:validation:XValidation:rule="!(has(self.tokenExchange) && has(self.tokenExchange.enabled) && self.tokenExchange.enabled == true && has(self.authorizationServer))",message="tokenExchange has its own issuer/endpoint config; set one or the other, not both"
+// +kubebuilder:validation:XValidation:rule="!(has(self.localMint) && self.localMint.enabled == true && has(self.forwardToken) && self.forwardToken == true)",message="localMint and forwardToken are mutually exclusive downstream auth modes; set one"
+// +kubebuilder:validation:XValidation:rule="!(has(self.localMint) && self.localMint.enabled == true && has(self.tokenExchange) && has(self.tokenExchange.enabled) && self.tokenExchange.enabled == true)",message="localMint and tokenExchange are mutually exclusive downstream auth modes; set one"
+// +kubebuilder:validation:XValidation:rule="!(has(self.localMint) && self.localMint.enabled == true && has(self.authorizationServer))",message="localMint mints muster's own token; it cannot be combined with authorizationServer"
 type MCPServerAuth struct {
 	// Type specifies the authentication type.
 	// Supported values:
@@ -188,6 +191,34 @@ type MCPServerAuth struct {
 	// Use case: Atlassian Remote MCP and similar backends that publish RFC 8414
 	// metadata at their resource origin instead of via RFC 9728.
 	AuthorizationServer *MCPServerAuthAuthorizationServer `json:"authorizationServer,omitempty" yaml:"authorizationServer,omitempty"`
+
+	// LocalMint enables downstream auth via a per-backend token minted by muster
+	// from its own signing key. On each call muster reads the caller's bearer as
+	// the subject and an optional X-Actor-Token header as the actor, then mints a
+	// token (sub=subject, act=actor, aud=Audience, iss=muster) through muster's
+	// RFC 8693 broker, which enforces ActorDelegationPolicy and WorkloadAudiences.
+	//
+	// Use LocalMint when the backend must authorize an agent acting for itself
+	// (M2M) or on behalf of a human (OBO) and no shared remote IdP can issue a
+	// token with the backend's audience. Requires muster's OAuth server to run in
+	// JWT mode with a broker local-mint target whose audience equals Audience.
+	//
+	// LocalMint is mutually exclusive with ForwardToken, TokenExchange, and
+	// AuthorizationServer (the CRD admission rules above reject combinations).
+	LocalMint *LocalMintConfig `json:"localMint,omitempty" yaml:"localMint,omitempty"`
+}
+
+// LocalMintConfig configures the per-backend token mint (see MCPServerAuth.LocalMint).
+type LocalMintConfig struct {
+	// Enabled turns on local minting for this server.
+	// +kubebuilder:default=false
+	Enabled bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+
+	// Audience is the minted token's aud claim: the backend's resource identifier.
+	// It must equal a configured broker local-mint target; the mint fails closed
+	// when no matching target exists.
+	// +kubebuilder:validation:MinLength=1
+	Audience string `json:"audience,omitempty" yaml:"audience,omitempty"`
 }
 
 // MCPServerAuthAuthorizationServer pins the OAuth authorization server for an

@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -21,6 +23,12 @@ type Workflow struct {
 	// Description provides human-readable documentation for the workflow's purpose
 	Description string `yaml:"description" json:"description"`
 
+	// Labels mirrors the Workflow CRD's metadata.labels. They are exposed as
+	// discovery facets on the workflow's execution tool so a client can scope a
+	// tool lookup to a labelled subset (e.g. by category) instead of dumping the
+	// whole catalogue.
+	Labels map[string]string `yaml:"labels,omitempty" json:"labels,omitempty"`
+
 	// Args defines the validation rules and metadata for workflow execution arguments.
 	// These definitions are used to validate arguments when executing workflows
 	// and to provide documentation for the workflow execution API.
@@ -29,6 +37,17 @@ type Workflow struct {
 	// Steps defines the sequence of operations to be performed during workflow execution.
 	// Each step represents a tool call with its arguments and processing logic.
 	Steps []WorkflowStep `yaml:"steps" json:"steps"`
+
+	// OnFailure defines best-effort cleanup/rollback steps run when the workflow
+	// fails on a step that does not allow failure. Their own failures are tolerated.
+	OnFailure []WorkflowSubStep `yaml:"onFailure,omitempty" json:"onFailure,omitempty"`
+
+	// Output is an optional templated projection that shapes the returned document.
+	// It is rendered once after the steps complete, against .input / .results /
+	// .vars, and replaces the default envelope. Each leaf is a Go-template/sprig
+	// expression and JSON structure is preserved. When nil, the default envelope
+	// is returned.
+	Output map[string]interface{} `yaml:"output,omitempty" json:"output,omitempty"`
 
 	// Runtime state fields (for API responses only) - Dynamic runtime information
 
@@ -42,6 +61,77 @@ type Workflow struct {
 
 	// LastModified indicates when this workflow was last updated
 	LastModified time.Time `yaml:"lastModified,omitempty" json:"lastModified"`
+}
+
+// OutputEnabled resolves the effective "include in returned result" flag for a
+// step from its Output pointer and the deprecated Store alias. Output takes
+// precedence when set; otherwise Store is used for backwards compatibility.
+func OutputEnabled(output *bool, store bool) bool {
+	if output != nil {
+		return *output
+	}
+	return store
+}
+
+// AuthoringWarnings returns non-fatal authoring lint messages for a workflow.
+// Each string is a complete, log-ready sentence describing the workflow itself
+// (the caller prefixes it with the workflow name). It is the single source of
+// truth shared by the structured create/validate path and the CRD reconciler so
+// the same nudge is emitted regardless of how a workflow is authored. Returns an
+// empty slice when there is nothing to warn about.
+func AuthoringWarnings(wf *Workflow) []string {
+	if wf == nil {
+		return nil
+	}
+	var warnings []string
+	if ids := deprecatedStoreIDs(wf); len(ids) > 0 {
+		warnings = append(warnings, fmt.Sprintf("uses the deprecated 'store' flag on: %s. 'store' is a backwards-compatible alias for 'output' and now only controls result visibility; referencing a step result no longer requires it. Prefer 'output'.", strings.Join(ids, ", ")))
+	}
+	if len(wf.Output) > 0 {
+		if ids := outputFlaggedIDs(wf); len(ids) > 0 {
+			warnings = append(warnings, fmt.Sprintf("declares a workflow-level 'output' projection, which replaces the default envelope, so the per-step 'output'/'store' flags on these steps have no effect on the returned document: %s. Remove them or drop the projection.", strings.Join(ids, ", ")))
+		}
+	}
+	return warnings
+}
+
+// deprecatedStoreIDs returns the IDs of every step and sub-step that still uses
+// the deprecated `store` flag, i.e. store is set while the superseding `output`
+// flag is not. Sub-steps are qualified by their parent step and group.
+func deprecatedStoreIDs(wf *Workflow) []string {
+	usesStore := func(output *bool, store bool) bool { return store && output == nil }
+	return collectStepIDs(wf, func(output *bool, store bool) bool { return usesStore(output, store) })
+}
+
+// outputFlaggedIDs returns the IDs of every step and sub-step that sets an
+// effective output/store flag. It is used to flag flags rendered inert by a
+// workflow-level output projection.
+func outputFlaggedIDs(wf *Workflow) []string {
+	return collectStepIDs(wf, OutputEnabled)
+}
+
+// collectStepIDs walks every step, forEach/parallel sub-step, and onFailure
+// handler, returning the (qualified) IDs for which match reports true.
+func collectStepIDs(wf *Workflow, match func(output *bool, store bool) bool) []string {
+	var ids []string
+	collect := func(label string, subs []WorkflowSubStep) {
+		for _, sub := range subs {
+			if match(sub.Output, sub.Store) {
+				ids = append(ids, label+sub.ID)
+			}
+		}
+	}
+	for _, step := range wf.Steps {
+		if match(step.Output, step.Store) {
+			ids = append(ids, step.ID)
+		}
+		if step.ForEach != nil {
+			collect(step.ID+".forEach.", step.ForEach.Steps)
+		}
+		collect(step.ID+".parallel.", step.Parallel)
+	}
+	collect("onFailure.", wf.OnFailure)
+	return ids
 }
 
 // Arg defines an argument for operations and workflows.
@@ -81,9 +171,14 @@ type OperationDefinition struct {
 // WorkflowCondition defines a condition that determines whether a workflow step should execute.
 // Conditions allow for dynamic workflow execution based on runtime state evaluation.
 type WorkflowCondition struct {
+	// Template is a boolean Go-template gate. When set, the step executes only
+	// if the template renders to a truthy value (e.g. "{{ eq .input.env \"production\" }}").
+	// Mutually exclusive with Tool/FromStep; when present, Expect/ExpectNot are ignored.
+	Template string `yaml:"template,omitempty" json:"template,omitempty"`
+
 	// Tool specifies the name of the tool to execute for condition evaluation.
 	// Must correspond to an available tool in the aggregator.
-	// Optional when FromStep is used.
+	// Optional when FromStep or Template is used.
 	Tool string `yaml:"tool,omitempty" json:"tool,omitempty"`
 
 	// Args provides the arguments to pass to the condition tool.
@@ -146,20 +241,78 @@ type WorkflowStep struct {
 	// Can include templated values that are resolved at runtime using previous step results.
 	Args map[string]interface{} `yaml:"args,omitempty" json:"args,omitempty"`
 
+	// ForEach executes a body of sub-steps once per item of a list.
+	// Mutually exclusive with Tool and Parallel.
+	ForEach *WorkflowForEach `yaml:"forEach,omitempty" json:"forEach,omitempty"`
+
+	// Parallel executes a group of sub-steps concurrently.
+	// Mutually exclusive with Tool and ForEach.
+	Parallel []WorkflowSubStep `yaml:"parallel,omitempty" json:"parallel,omitempty"`
+
 	// AllowFailure indicates whether this step is allowed to fail without failing the workflow.
 	// When true, step failures are recorded but the workflow continues execution.
 	// The step result will be available for subsequent step conditions to reference.
 	AllowFailure bool `yaml:"allow_failure,omitempty" json:"allow_failure,omitempty"`
 
-	// Outputs defines how step results should be stored and made available to subsequent steps.
-	// Maps output variable names to result field paths.
-	Outputs map[string]interface{} `yaml:"outputs,omitempty" json:"outputs,omitempty"`
+	// Output indicates whether this step's result is included in the workflow's
+	// returned document. Every step result is always referenceable by later steps
+	// regardless of this flag; Output only controls visibility in the returned
+	// result. When nil, the deprecated Store flag is used as a fallback.
+	Output *bool `yaml:"output,omitempty" json:"output,omitempty"`
 
-	// Store indicates whether the step result should be stored in workflow results.
-	// When true, the step result is stored and accessible in subsequent steps and conditions.
+	// Store is a deprecated alias for Output, kept for backwards compatibility.
+	// Referencing a step result no longer requires Store; it now only affects
+	// result visibility. Prefer Output.
 	Store bool `yaml:"store,omitempty" json:"store,omitempty"`
 
 	// Description provides human-readable documentation for this step's purpose
+	Description string `yaml:"description,omitempty" json:"description,omitempty"`
+}
+
+// WorkflowForEach describes a sequential loop over a list of items.
+// The body is a flat list of sub-steps executed once per item.
+type WorkflowForEach struct {
+	// Items is a template expression that must resolve to an array,
+	// e.g. "{{ .input.clusters }}".
+	Items string `yaml:"items" json:"items"`
+
+	// As is the loop variable name made available to the body as
+	// "{{ .vars.<as> }}". Defaults to "item".
+	As string `yaml:"as,omitempty" json:"as,omitempty"`
+
+	// Steps is the body executed for each item.
+	Steps []WorkflowSubStep `yaml:"steps" json:"steps"`
+}
+
+// WorkflowSubStep is a tool-call step used inside forEach bodies, parallel
+// groups, and onFailure handlers. It cannot itself contain forEach or parallel.
+type WorkflowSubStep struct {
+	// ID is a unique identifier for this sub-step.
+	ID string `yaml:"id" json:"id"`
+
+	// Condition defines an optional condition that determines whether this sub-step should execute.
+	Condition *WorkflowCondition `yaml:"condition,omitempty" json:"condition,omitempty"`
+
+	// Tool specifies the name of the tool to execute.
+	Tool string `yaml:"tool" json:"tool"`
+
+	// Args provides the arguments to pass to the tool (supports templating).
+	Args map[string]interface{} `yaml:"args,omitempty" json:"args,omitempty"`
+
+	// AllowFailure indicates whether this sub-step is allowed to fail without failing execution.
+	AllowFailure bool `yaml:"allow_failure,omitempty" json:"allow_failure,omitempty"`
+
+	// Output indicates whether this sub-step's result is included in the
+	// workflow's returned document. The result is always referenceable by later
+	// steps regardless of this flag. When nil, the deprecated Store flag is used
+	// as a fallback.
+	Output *bool `yaml:"output,omitempty" json:"output,omitempty"`
+
+	// Store is a deprecated alias for Output, kept for backwards compatibility.
+	// Prefer Output.
+	Store bool `yaml:"store,omitempty" json:"store,omitempty"`
+
+	// Description provides human-readable documentation for this sub-step's purpose.
 	Description string `yaml:"description,omitempty" json:"description,omitempty"`
 }
 

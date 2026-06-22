@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"path/filepath"
 	"strings"
 
@@ -133,131 +134,341 @@ func (p *Provider) handleDescribeTool(ctx context.Context, args map[string]inter
 	return textResult(jsonData), nil
 }
 
+// defaultFilterLimit caps how many tools the discovery tier returns per
+// filter_tools call when the caller does not specify a limit. Discovery is a
+// "find the right tool" step, not a listing: a small ranked top-K is enough for
+// a caller (typically an LLM) to pick from, and a small default keeps the page
+// — which then rides in the model's context for every following step — cheap.
+// Callers that want more can page explicitly with limit/offset.
+const defaultFilterLimit = 5
+
+// summaryMaxLen caps the length (in runes) of the one-line summary the
+// discovery tier emits in place of a tool's full description.
+const summaryMaxLen = 120
+
+// filterToolsOptions configures a single tool-discovery query. It is built
+// explicitly by each caller: handleFilterTools applies cheap discovery defaults
+// (summaries, no schema, capped page), while handleListCoreTools reproduces the
+// legacy full-detail listing (full descriptions, schema, no cap).
+type filterToolsOptions struct {
+	pattern           string
+	descriptionFilter string
+	query             string
+	labels            map[string]string
+	caseSensitive     bool
+	includeSchema     bool
+	summarize         bool
+	limit             int // 0 means no limit
+	offset            int
+}
+
 // handleListCoreTools handles the list_core_tools meta-tool.
 // This handler returns a filtered list of core muster tools (prefixed with "core").
-// It delegates to handleFilterTools with a pre-configured "core*" pattern.
+// It reuses the filter_tools engine but keeps the legacy full-detail listing
+// behaviour (full descriptions, schema by default, no result cap) so existing
+// callers are unaffected by the discovery-tier defaults.
 func (p *Provider) handleListCoreTools(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
-	// Build args for filter_tools with core* pattern
-	filterArgs := map[string]interface{}{
-		"pattern":        "core*",
-		"case_sensitive": false,
+	opts := filterToolsOptions{
+		pattern:       "core*",
+		caseSensitive: false,
+		includeSchema: true,
+		summarize:     false,
+		limit:         0, // no cap: the core tool set is small and bounded
 	}
-
-	// Pass through include_schema if provided
 	if schemaVal, ok := args["include_schema"].(bool); ok {
-		filterArgs["include_schema"] = schemaVal
+		opts.includeSchema = schemaVal
 	}
-
-	return p.handleFilterTools(ctx, filterArgs)
+	return p.filterToolsWithOptions(ctx, opts)
 }
 
 // handleFilterTools handles the filter_tools meta-tool.
-// This handler filters tools based on name patterns and description content.
+//
+// This is the discovery tier: it filters by name pattern, description substring,
+// and label facets, optionally ranks by relevance to a natural-language query,
+// and returns a bounded, summarised page. Full descriptions and input schemas
+// are omitted by default (opt in via include_schema); the authoritative detail
+// remains available through describe_tool.
 func (p *Provider) handleFilterTools(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
+	opts := filterToolsOptions{
+		includeSchema: false,
+		summarize:     true,
+		limit:         defaultFilterLimit,
+	}
+
+	if patternVal, ok := args["pattern"].(string); ok {
+		opts.pattern = patternVal
+	}
+	if descFilterVal, ok := args["description_filter"].(string); ok {
+		opts.descriptionFilter = descFilterVal
+	}
+	if queryVal, ok := args["query"].(string); ok {
+		opts.query = queryVal
+	}
+	if caseVal, ok := args["case_sensitive"].(bool); ok {
+		opts.caseSensitive = caseVal
+	}
+	if schemaVal, ok := args["include_schema"].(bool); ok {
+		opts.includeSchema = schemaVal
+	}
+	// Opting into schemas signals a request for full detail, so the full
+	// description is returned instead of the one-line summary.
+	opts.summarize = !opts.includeSchema
+	if labelsVal, ok := args["labels"].(map[string]interface{}); ok {
+		labels := make(map[string]string, len(labelsVal))
+		for k, v := range labelsVal {
+			labels[k] = fmt.Sprintf("%v", v)
+		}
+		opts.labels = labels
+	}
+
+	if limitVal, ok := args["limit"]; ok {
+		limit, err := toInt(limitVal)
+		if err != nil {
+			return errorResult("limit must be a number"), nil
+		}
+		if limit < 1 {
+			return errorResult("limit must be at least 1"), nil
+		}
+		opts.limit = limit
+	}
+	if offsetVal, ok := args["offset"]; ok {
+		offset, err := toInt(offsetVal)
+		if err != nil {
+			return errorResult("offset must be a number"), nil
+		}
+		if offset < 0 {
+			return errorResult("offset must be at least 0"), nil
+		}
+		opts.offset = offset
+	}
+
+	return p.filterToolsWithOptions(ctx, opts)
+}
+
+// filterToolsWithOptions is the shared filter/rank/paginate engine behind both
+// filter_tools (discovery) and list_core_tools (legacy listing).
+func (p *Provider) filterToolsWithOptions(ctx context.Context, opts filterToolsOptions) (*api.CallToolResult, error) {
 	handler, errResult := p.getHandler()
 	if errResult != nil {
 		return errResult, nil
-	}
-
-	// Get filter args with defaults
-	var pattern, descriptionFilter string
-	var caseSensitive bool
-	includeSchema := true
-
-	if patternVal, ok := args["pattern"].(string); ok {
-		pattern = patternVal
-	}
-	if descFilterVal, ok := args["description_filter"].(string); ok {
-		descriptionFilter = descFilterVal
-	}
-	if caseVal, ok := args["case_sensitive"].(bool); ok {
-		caseSensitive = caseVal
-	}
-	if schemaVal, ok := args["include_schema"].(bool); ok {
-		includeSchema = schemaVal
 	}
 
 	tools, err := handler.ListTools(ctx)
 	if err != nil {
 		return errorResult(fmt.Sprintf("Failed to list tools: %v", err)), nil
 	}
-
 	if len(tools) == 0 {
 		return textResult("No tools available to filter"), nil
 	}
 
-	// Validate pattern syntax before filtering
-	if pattern != "" {
-		if _, err := filepath.Match(pattern, ""); err != nil {
-			return errorResult(fmt.Sprintf("Invalid pattern %q: %v", pattern, err)), nil
+	if opts.pattern != "" {
+		if _, err := filepath.Match(opts.pattern, ""); err != nil {
+			return errorResult(fmt.Sprintf("Invalid pattern %q: %v", opts.pattern, err)), nil
 		}
 	}
 
-	// Filter tools based on criteria
-	filteredTools := make([]map[string]interface{}, 0, len(tools))
-
+	// 1. Filter by pattern, description substring, and label facets.
+	matched := make([]mcp.Tool, 0, len(tools))
 	for _, tool := range tools {
-		matches := true
-
-		// Check pattern filter with wildcard support
-		if pattern != "" {
-			toolName := tool.Name
-			searchPattern := pattern
-
-			if !caseSensitive {
-				toolName = strings.ToLower(toolName)
-				searchPattern = strings.ToLower(searchPattern)
-			}
-
-			// Pattern already validated above, error won't occur
-			matches, _ = filepath.Match(searchPattern, toolName)
+		if !matchesPattern(tool.Name, opts.pattern, opts.caseSensitive) {
+			continue
 		}
-
-		// Check description filter
-		if descriptionFilter != "" && matches {
-			toolDesc := tool.Description
-			searchDesc := descriptionFilter
-
-			if !caseSensitive {
-				toolDesc = strings.ToLower(toolDesc)
-				searchDesc = strings.ToLower(searchDesc)
-			}
-
-			matches = matches && strings.Contains(toolDesc, searchDesc)
+		if !matchesDescription(tool.Description, opts.descriptionFilter, opts.caseSensitive) {
+			continue
 		}
+		if !matchesLabels(tool, opts.labels) {
+			continue
+		}
+		matched = append(matched, tool)
+	}
 
-		if matches {
-			toolInfo := map[string]interface{}{
-				api.FieldName:            tool.Name,
-				api.SchemaKeyDescription: tool.Description,
-			}
-
-			if includeSchema {
-				toolInfo["inputSchema"] = tool.InputSchema
-			}
-
-			filteredTools = append(filteredTools, toolInfo)
+	// 2. Rank by relevance when a query is given; otherwise keep input order.
+	type scoredTool struct {
+		tool   mcp.Tool
+		score  float64
+		scored bool
+	}
+	var ordered []scoredTool
+	if opts.query != "" {
+		docs := make([]string, len(matched))
+		for i, t := range matched {
+			docs[i] = t.Name + " " + summarizeText(t.Description, 0)
+		}
+		for _, rd := range rankBM25(opts.query, docs) {
+			ordered = append(ordered, scoredTool{tool: matched[rd.index], score: rd.score, scored: true})
+		}
+	} else {
+		for _, t := range matched {
+			ordered = append(ordered, scoredTool{tool: t})
 		}
 	}
 
-	result := map[string]interface{}{
-		"filters": map[string]interface{}{
-			"pattern":            pattern,
-			"description_filter": descriptionFilter,
-			"case_sensitive":     caseSensitive,
-			"include_schema":     includeSchema,
+	// 3. Paginate.
+	total := len(ordered)
+	start := opts.offset
+	if start > total {
+		start = total
+	}
+	end := total
+	if opts.limit > 0 && start+opts.limit < end {
+		end = start + opts.limit
+	}
+	page := ordered[start:end]
+	truncated := end < total // more matches exist beyond this page
+
+	// 4. Project each tool to a discovery- or detail-shaped entry.
+	toolInfos := make([]ToolInfo, 0, len(page))
+	for _, st := range page {
+		info := ToolInfo{Name: st.tool.Name}
+		if opts.summarize {
+			info.Summary = summarizeText(st.tool.Description, summaryMaxLen)
+		} else {
+			info.Description = st.tool.Description
+		}
+		if st.scored {
+			info.Score = roundScore(st.score)
+		}
+		if labels := toolLabels(st.tool); len(labels) > 0 {
+			info.Labels = labels
+		}
+		if opts.includeSchema {
+			info.InputSchema = st.tool.InputSchema
+		}
+		toolInfos = append(toolInfos, info)
+	}
+
+	resp := FilterToolsResponse{
+		Filters: FilterCriteria{
+			Pattern:           opts.pattern,
+			DescriptionFilter: opts.descriptionFilter,
+			Query:             opts.query,
+			Labels:            opts.labels,
+			CaseSensitive:     opts.caseSensitive,
+			IncludeSchema:     opts.includeSchema,
+			Limit:             opts.limit,
+			Offset:            opts.offset,
 		},
-		"total_tools":    len(tools),
-		"filtered_count": len(filteredTools),
-		api.FieldTools:   filteredTools,
+		TotalTools:    len(tools),
+		FilteredCount: len(toolInfos),
+		Total:         total,
+		Truncated:     truncated,
+		Tools:         toolInfos,
 	}
 
-	jsonData, err := json.MarshalIndent(result, "", "  ")
+	jsonData, err := json.MarshalIndent(resp, "", "  ")
 	if err != nil {
 		return errorResult(fmt.Sprintf("Failed to format filtered tools: %v", err)), nil
 	}
 
 	return textResult(string(jsonData)), nil
+}
+
+// matchesPattern reports whether name matches the glob pattern (empty pattern
+// matches everything). The pattern is assumed already validated by the caller.
+func matchesPattern(name, pattern string, caseSensitive bool) bool {
+	if pattern == "" {
+		return true
+	}
+	if !caseSensitive {
+		name = strings.ToLower(name)
+		pattern = strings.ToLower(pattern)
+	}
+	ok, _ := filepath.Match(pattern, name)
+	return ok
+}
+
+// matchesDescription reports whether desc contains the filter substring (empty
+// filter matches everything).
+func matchesDescription(desc, filter string, caseSensitive bool) bool {
+	if filter == "" {
+		return true
+	}
+	if !caseSensitive {
+		desc = strings.ToLower(desc)
+		filter = strings.ToLower(filter)
+	}
+	return strings.Contains(desc, filter)
+}
+
+// matchesLabels reports whether the tool carries every requested label
+// (key=value). An empty want set matches everything.
+func matchesLabels(tool mcp.Tool, want map[string]string) bool {
+	if len(want) == 0 {
+		return true
+	}
+	have := toolLabels(tool)
+	for k, v := range want {
+		if have[k] != v {
+			return false
+		}
+	}
+	return true
+}
+
+// toolLabels extracts the discovery labels stashed in the tool's _meta by the
+// aggregator. Returns nil when the tool carries none.
+func toolLabels(tool mcp.Tool) map[string]string {
+	if tool.Meta == nil || tool.Meta.AdditionalFields == nil {
+		return nil
+	}
+	raw, ok := tool.Meta.AdditionalFields[api.MetaKeyLabels]
+	if !ok {
+		return nil
+	}
+	switch v := raw.(type) {
+	case map[string]string:
+		return v
+	case map[string]interface{}:
+		m := make(map[string]string, len(v))
+		for k, val := range v {
+			m[k] = fmt.Sprintf("%v", val)
+		}
+		return m
+	default:
+		return nil
+	}
+}
+
+// summarizeText returns the first line of desc, trimmed, and capped to maxRunes
+// runes (maxRunes <= 0 means no cap). It is the cheap one-line excerpt the
+// discovery tier returns in place of a full description.
+func summarizeText(desc string, maxRunes int) string {
+	s := desc
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	s = strings.TrimSpace(s)
+	if maxRunes > 0 {
+		if r := []rune(s); len(r) > maxRunes {
+			s = strings.TrimSpace(string(r[:maxRunes])) + "..."
+		}
+	}
+	return s
+}
+
+// roundScore rounds a relevance score to 4 decimal places for stable, compact
+// output. A positive score never collapses to exactly 0, so a ranked result
+// always serialises a non-zero score despite the Score field's omitempty tag.
+func roundScore(s float64) float64 {
+	r := math.Round(s*10000) / 10000
+	if r == 0 && s > 0 {
+		r = 0.0001 // smallest value at this precision; keeps the score present
+	}
+	return r
+}
+
+// toInt coerces a JSON-decoded numeric value (float64) or a native int to int.
+func toInt(v interface{}) (int, error) {
+	switch n := v.(type) {
+	case float64:
+		return int(n), nil
+	case int:
+		return n, nil
+	case int64:
+		return int(n), nil
+	default:
+		return 0, fmt.Errorf("not a number")
+	}
 }
 
 // handleCallTool handles the call_tool meta-tool.

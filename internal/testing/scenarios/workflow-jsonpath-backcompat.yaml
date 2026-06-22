@@ -1,0 +1,75 @@
+name: "workflow-jsonpath-backcompat"
+description: "Legacy dotted jsonPath expectations keep working unchanged after unifying on the shared path navigator: single-level, deeply nested dotted paths, and multiple expectations all gate a step on a match and skip it on a mismatch (issue #875 back-compat)"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "condition", "jsonpath", "back-compat", "core-api"]
+timeout: "2m"
+
+pre_configuration:
+  mcp_servers:
+  - name: "info-mock"
+    config:
+      tools:
+      - name: "info"
+        responses: [ { response: { status: "ready", data: { field: "ok" }, nested: { a: { b: "deep" } } } } ]
+  - name: "echo-provider"
+    config:
+      tools:
+      - name: "echo"
+        responses: [ { response: { said: "{{ .text }}" } } ]
+
+steps:
+- id: "create-backcompat-workflow"
+  tool: "core_workflow_create"
+  args:
+    name: "jsonpath-backcompat"
+    steps:
+      # Classic dotted-only paths (no brackets), multiple expectations that must
+      # all hold — the exact legacy navigator behavior. Matches -> runs.
+      - id: "dotted-match"
+        condition:
+          tool: "x_info-mock_info"
+          expect:
+            success: true
+            json_path:
+              status: "ready"
+              data.field: "ok"
+              nested.a.b: "deep"
+        tool: "x_echo-provider_echo"
+        args: { text: "dotted match ran" }
+        output: true
+      # A single dotted path whose value does not match — the step is skipped.
+      - id: "dotted-mismatch"
+        condition:
+          tool: "x_info-mock_info"
+          expect:
+            success: true
+            json_path:
+              status: "notready"
+        tool: "x_echo-provider_echo"
+        args: { text: "should not run" }
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "jsonpath-backcompat" }
+
+- id: "run-backcompat-workflow"
+  tool: "workflow_jsonpath-backcompat"
+  expected:
+    success: true
+    json_path:
+      status: "completed"
+      steps.0.id: "dotted-match"
+      steps.0.status: "completed"
+      steps.0.condition_evaluation: true
+      steps.1.id: "dotted-mismatch"
+      steps.1.status: "skipped"
+      steps.1.condition_evaluation: false
+
+cleanup:
+- id: "delete-backcompat-workflow"
+  tool: "core_workflow_delete"
+  args: { name: "jsonpath-backcompat" }
+  expected:
+    success: true

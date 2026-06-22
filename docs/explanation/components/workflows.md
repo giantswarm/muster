@@ -31,10 +31,22 @@ Each workflow definition automatically generates a corresponding execution tool:
 ## Advanced Features
 
 ### **Template Processing**
-- **Input Variables**: `{{.input.argName}}` for workflow arguments
-- **Step Outputs**: `{{stepId.fieldName}}` for step result chaining
+- **Input Variables**: `{{ .input.argName }}` for workflow arguments
+- **Step Results**: `{{ .results.stepId.fieldName }}` for step result chaining —
+  every step's result is referenceable by later steps regardless of any flag
+- **One Expression Language**: step args, condition templates, and condition
+  `jsonPath` expectations all use the same Go-template/sprig engine and the same
+  path navigator (dotted paths with array indexing, e.g. `items[0].name`)
 - **Default Values**: Built-in support for argument defaults
 - **Type Validation**: Schema validation for all arguments
+
+### **Result Shaping**
+- **`output` flag**: marks the steps whose results are included in the returned
+  document (the deprecated `store` flag is a backwards-compatible alias)
+- **`output` projection**: a workflow-level templated object rendered against
+  `.input` / `.results` / `.vars` after all steps complete, returned in place of
+  the default envelope to produce a small, structured response (JSON types are
+  preserved)
 
 ### **Execution Management**
 - **Execution History**: Full audit trail with `core_workflow_execution_list`

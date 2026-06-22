@@ -229,6 +229,13 @@ type WorkflowCreateRequest struct {
 	// Each step executes a tool with specified arguments and processing logic.
 	// Must contain at least one step for a valid workflow.
 	Steps []WorkflowStep `json:"steps" validate:"required"`
+
+	// OnFailure defines best-effort cleanup/rollback steps run when the workflow
+	// fails on a step that does not allow failure. Their own failures are tolerated.
+	OnFailure []WorkflowSubStep `json:"onFailure,omitempty"`
+
+	// Output is an optional templated projection that shapes the returned document.
+	Output map[string]interface{} `json:"output,omitempty"`
 }
 
 // WorkflowUpdateRequest represents a request to update an existing workflow definition.
@@ -250,6 +257,13 @@ type WorkflowUpdateRequest struct {
 	// Steps can be added, modified, or reordered.
 	// Changes affect workflow execution behavior.
 	Steps []WorkflowStep `json:"steps,omitempty"`
+
+	// OnFailure defines best-effort cleanup/rollback steps run when the workflow
+	// fails on a step that does not allow failure. Their own failures are tolerated.
+	OnFailure []WorkflowSubStep `json:"onFailure,omitempty"`
+
+	// Output is an optional templated projection that shapes the returned document.
+	Output map[string]interface{} `json:"output,omitempty"`
 }
 
 // WorkflowValidateRequest represents a request to validate a workflow definition
@@ -269,6 +283,13 @@ type WorkflowValidateRequest struct {
 
 	// Steps for validation (required). All referenced tools will be checked for availability.
 	Steps []WorkflowStep `json:"steps" validate:"required"`
+
+	// OnFailure defines best-effort cleanup/rollback steps run when the workflow
+	// fails on a step that does not allow failure. Their own failures are tolerated.
+	OnFailure []WorkflowSubStep `json:"onFailure,omitempty"`
+
+	// Output is an optional templated projection that shapes the returned document.
+	Output map[string]interface{} `json:"output,omitempty"`
 }
 
 // ParseRequest converts a map[string]interface{} to a typed request struct.

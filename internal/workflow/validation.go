@@ -97,7 +97,7 @@ func (we *WorkflowExecutor) validateJsonPath(toolResult *mcp.CallToolResult, jso
 			return false, fmt.Errorf("failed to resolve expected value template for path %s: %w", jsonPath, err)
 		}
 
-		actualValue, err := we.getValueFromPath(resultData, jsonPath)
+		actualValue, err := we.resolveJsonPathValue(resultData, jsonPath, execCtx)
 		if err != nil {
 			logging.Debug("WorkflowExecutor", "Failed to get value from path %s: %v", jsonPath, err)
 			return false, nil
@@ -116,27 +116,24 @@ func (we *WorkflowExecutor) validateJsonPath(toolResult *mcp.CallToolResult, jso
 	return true, nil
 }
 
-// getValueFromPath extracts a value from nested data using a simple dotted
-// path (e.g., "name", "data.field"). Only object navigation is supported —
-// no array indexing or wildcards.
-func (we *WorkflowExecutor) getValueFromPath(data interface{}, path string) (interface{}, error) {
-	parts := strings.Split(path, ".")
-	current := data
-
-	for _, part := range parts {
-		switch v := current.(type) {
-		case map[string]interface{}:
-			if value, exists := v[part]; exists {
-				current = value
-			} else {
-				return nil, fmt.Errorf("path '%s' not found", path)
-			}
-		default:
-			return nil, fmt.Errorf("cannot navigate path '%s': not an object", path)
-		}
+// resolveJsonPathValue extracts the value a jsonPath expectation asserts on from
+// a condition tool result. It accepts two interchangeable forms that share the
+// workflow's single expression language:
+//
+//   - a bare dotted/bracketed path navigated from the result object, e.g.
+//     "data.field" or "items[0].name" (back-compatible with legacy dotted paths,
+//     now also supporting array indexing); and
+//   - a full Go-template expression with the same capabilities as step args,
+//     where the condition result is exposed as ".result" alongside the usual
+//     ".input" / ".results" / ".vars" roots, e.g.
+//     "{{ (index .result.items 0).name }}".
+func (we *WorkflowExecutor) resolveJsonPathValue(resultData interface{}, path string, execCtx *executionContext) (interface{}, error) {
+	if strings.Contains(path, "{{") {
+		tctx := we.templateContext(execCtx)
+		tctx["result"] = resultData
+		return we.renderTypedTemplate(path, tctx)
 	}
-
-	return current, nil
+	return we.template.ResolvePath(resultData, path)
 }
 
 // valuesEqual compares two values, falling back to string comparison when

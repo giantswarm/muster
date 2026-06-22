@@ -1,0 +1,718 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+    helm.sh/resource-policy: keep
+  name: workflows.muster.giantswarm.io
+spec:
+  group: muster.giantswarm.io
+  names:
+    kind: Workflow
+    listKind: WorkflowList
+    plural: workflows
+    shortNames:
+    - wf
+    singular: workflow
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.valid
+      name: Valid
+      type: boolean
+    - jsonPath: .status.stepCount
+      name: Steps
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: Workflow is the Schema for the workflows API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: WorkflowSpec defines the desired state of Workflow
+            properties:
+              args:
+                additionalProperties:
+                  description: |-
+                    ArgDefinition defines validation rules and metadata for a single workflow argument.
+                    It specifies the expected type, whether the argument is required, an optional default,
+                    and a human-readable description.
+                  properties:
+                    default:
+                      description: Default provides a default value when the argument
+                        is omitted.
+                      x-kubernetes-preserve-unknown-fields: true
+                    description:
+                      description: Description provides human-readable documentation.
+                      maxLength: 500
+                      type: string
+                    required:
+                      default: false
+                      description: Required indicates whether this argument must be
+                        provided.
+                      type: boolean
+                    type:
+                      enum:
+                      - string
+                      - integer
+                      - boolean
+                      - number
+                      - object
+                      - array
+                      type: string
+                  required:
+                  - type
+                  type: object
+                description: Args defines the argument schema for workflow execution
+                  validation.
+                type: object
+              description:
+                description: Description provides a human-readable description of
+                  the workflow's purpose.
+                maxLength: 1000
+                type: string
+              onFailure:
+                description: |-
+                  OnFailure defines best-effort cleanup/rollback steps that run when the
+                  workflow fails on a step that does not allow failure. The steps execute
+                  sequentially and their own failures are tolerated.
+                items:
+                  description: |-
+                    WorkflowSubStep is a tool-call step used inside forEach bodies, parallel
+                    groups, and onFailure handlers. Unlike WorkflowStep it cannot itself contain
+                    forEach or parallel, which keeps the CRD schema structural (non-recursive).
+                  properties:
+                    allowFailure:
+                      default: false
+                      description: AllowFailure defines if in case of an error execution
+                        continues.
+                      type: boolean
+                    args:
+                      additionalProperties:
+                        x-kubernetes-preserve-unknown-fields: true
+                      description: Args provides arguments for the tool execution
+                        (supports templating).
+                      type: object
+                    condition:
+                      description: Condition defines an optional condition that determines
+                        whether this sub-step should execute.
+                      properties:
+                        args:
+                          additionalProperties:
+                            x-kubernetes-preserve-unknown-fields: true
+                          description: |-
+                            Args provides the arguments to pass to the condition tool.
+                            Values may be any JSON type.
+                          type: object
+                        expect:
+                          description: Expect defines positive health check expectations.
+                          properties:
+                            jsonPath:
+                              additionalProperties:
+                                x-kubernetes-preserve-unknown-fields: true
+                              description: |-
+                                JsonPath defines JSON path conditions to check in the result.
+                                Values may be any JSON type (typically scalars compared to a result field).
+                              type: object
+                            success:
+                              description: Success indicates whether the tool call
+                                should succeed.
+                              type: boolean
+                          type: object
+                        expectNot:
+                          description: ExpectNot defines negative health check expectations.
+                          properties:
+                            jsonPath:
+                              additionalProperties:
+                                x-kubernetes-preserve-unknown-fields: true
+                              description: |-
+                                JsonPath defines JSON path conditions to check in the result.
+                                Values may be any JSON type (typically scalars compared to a result field).
+                              type: object
+                            success:
+                              description: Success indicates whether the tool call
+                                should succeed.
+                              type: boolean
+                          type: object
+                        fromStep:
+                          description: FromStep specifies the step ID to reference
+                            for condition evaluation.
+                          type: string
+                        template:
+                          description: |-
+                            Template is a boolean Go-template gate. When set, the step executes only
+                            if the template renders to "true" (e.g. "{{ eq .input.env \"production\" }}").
+                            Mutually exclusive with Tool/FromStep; when present, Expect/ExpectNot are ignored.
+                          type: string
+                        tool:
+                          description: |-
+                            Tool specifies the name of the tool to execute for condition evaluation.
+                            Optional when FromStep or Template is used.
+                          type: string
+                      type: object
+                      x-kubernetes-validations:
+                      - message: exactly one of template, tool, or fromStep must be
+                          set
+                        rule: '(has(self.template) ? 1 : 0) + (has(self.tool) ? 1
+                          : 0) + (has(self.fromStep) ? 1 : 0) == 1'
+                      - message: a tool or fromStep condition requires expect or expectNot
+                        rule: has(self.template) || has(self.expect) || has(self.expectNot)
+                    description:
+                      description: Description provides human-readable documentation
+                        for this sub-step's purpose.
+                      maxLength: 500
+                      type: string
+                    id:
+                      description: ID is the unique identifier for this sub-step.
+                      maxLength: 63
+                      pattern: ^[a-zA-Z0-9_-]+$
+                      type: string
+                    output:
+                      description: |-
+                        Output indicates whether this sub-step's result is included in the
+                        workflow's returned document. The result is always referenceable by later
+                        steps regardless of this flag. When unset, the deprecated Store flag is
+                        used as a fallback.
+                      type: boolean
+                    store:
+                      default: false
+                      description: |-
+                        Store is a deprecated alias for Output, kept for backwards compatibility.
+                        Prefer Output.
+                      type: boolean
+                    tool:
+                      description: Tool specifies the name of the tool to execute.
+                      minLength: 1
+                      type: string
+                  required:
+                  - id
+                  - tool
+                  type: object
+                type: array
+              output:
+                additionalProperties:
+                  x-kubernetes-preserve-unknown-fields: true
+                description: |-
+                  Output is an optional templated projection that shapes the workflow's
+                  returned document. It is rendered once after all steps complete, against
+                  .input / .results / .vars, and replaces the default
+                  {execution_id, workflow, status, input, steps[], ...} envelope. Each leaf
+                  is a Go-template/sprig expression; JSON structure is preserved so numbers
+                  stay numbers and arrays stay arrays (e.g. "{{ .results.pods.items }}" or
+                  "{{ len .results.events.items }}"). A leaf's type comes from the value it
+                  evaluates to, not from how its rendered text looks: a single-action leaf
+                  keeps its real type (a number stays a number, "{{ len .x }}" is a number),
+                  and a computed string keeps its exact string form, so values whose form
+                  matters (leading zeros, versions, IDs like "08" or "1.20") are preserved
+                  without any coercion or workaround. Every step result is referenceable
+                  here regardless of its output flag. When omitted, the default envelope is
+                  returned unchanged.
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
+              steps:
+                description: Steps defines the sequence of workflow steps defining
+                  the execution flow.
+                items:
+                  description: |-
+                    WorkflowStep defines a single step in the workflow execution.
+                    A step is exactly one of: a tool call (tool), a sequential loop (forEach),
+                    or a concurrent group (parallel).
+                  properties:
+                    allowFailure:
+                      default: false
+                      description: AllowFailure defines if in case of an error the
+                        next step is executed or not.
+                      type: boolean
+                    args:
+                      additionalProperties:
+                        x-kubernetes-preserve-unknown-fields: true
+                      description: |-
+                        Args provides arguments for the tool execution (supports templating).
+                        Values may be any JSON type (string, integer, boolean, number, object, array)
+                        because the schema uses x-kubernetes-preserve-unknown-fields. Templated
+                        strings such as "{{.input.namespace}}" are resolved server-side at
+                        execution time.
+                      type: object
+                    condition:
+                      description: Condition defines an optional condition that determines
+                        whether this step should execute.
+                      properties:
+                        args:
+                          additionalProperties:
+                            x-kubernetes-preserve-unknown-fields: true
+                          description: |-
+                            Args provides the arguments to pass to the condition tool.
+                            Values may be any JSON type.
+                          type: object
+                        expect:
+                          description: Expect defines positive health check expectations.
+                          properties:
+                            jsonPath:
+                              additionalProperties:
+                                x-kubernetes-preserve-unknown-fields: true
+                              description: |-
+                                JsonPath defines JSON path conditions to check in the result.
+                                Values may be any JSON type (typically scalars compared to a result field).
+                              type: object
+                            success:
+                              description: Success indicates whether the tool call
+                                should succeed.
+                              type: boolean
+                          type: object
+                        expectNot:
+                          description: ExpectNot defines negative health check expectations.
+                          properties:
+                            jsonPath:
+                              additionalProperties:
+                                x-kubernetes-preserve-unknown-fields: true
+                              description: |-
+                                JsonPath defines JSON path conditions to check in the result.
+                                Values may be any JSON type (typically scalars compared to a result field).
+                              type: object
+                            success:
+                              description: Success indicates whether the tool call
+                                should succeed.
+                              type: boolean
+                          type: object
+                        fromStep:
+                          description: FromStep specifies the step ID to reference
+                            for condition evaluation.
+                          type: string
+                        template:
+                          description: |-
+                            Template is a boolean Go-template gate. When set, the step executes only
+                            if the template renders to "true" (e.g. "{{ eq .input.env \"production\" }}").
+                            Mutually exclusive with Tool/FromStep; when present, Expect/ExpectNot are ignored.
+                          type: string
+                        tool:
+                          description: |-
+                            Tool specifies the name of the tool to execute for condition evaluation.
+                            Optional when FromStep or Template is used.
+                          type: string
+                      type: object
+                      x-kubernetes-validations:
+                      - message: exactly one of template, tool, or fromStep must be
+                          set
+                        rule: '(has(self.template) ? 1 : 0) + (has(self.tool) ? 1
+                          : 0) + (has(self.fromStep) ? 1 : 0) == 1'
+                      - message: a tool or fromStep condition requires expect or expectNot
+                        rule: has(self.template) || has(self.expect) || has(self.expectNot)
+                    description:
+                      description: Description provides human-readable documentation
+                        for this step's purpose.
+                      maxLength: 500
+                      type: string
+                    forEach:
+                      description: |-
+                        ForEach executes a body of sub-steps once per item of a list. Mutually
+                        exclusive with tool and parallel.
+                      properties:
+                        as:
+                          default: item
+                          description: |-
+                            As is the loop variable name made available to the body as
+                            "{{ .vars.<as> }}". Defaults to "item".
+                          type: string
+                        items:
+                          description: |-
+                            Items is a template expression that must resolve to an array, e.g.
+                            "{{ .input.clusters }}". Each element is bound to the loop variable for
+                            the duration of one iteration.
+                          minLength: 1
+                          type: string
+                        steps:
+                          description: Steps is the body executed for each item.
+                          items:
+                            description: |-
+                              WorkflowSubStep is a tool-call step used inside forEach bodies, parallel
+                              groups, and onFailure handlers. Unlike WorkflowStep it cannot itself contain
+                              forEach or parallel, which keeps the CRD schema structural (non-recursive).
+                            properties:
+                              allowFailure:
+                                default: false
+                                description: AllowFailure defines if in case of an
+                                  error execution continues.
+                                type: boolean
+                              args:
+                                additionalProperties:
+                                  x-kubernetes-preserve-unknown-fields: true
+                                description: Args provides arguments for the tool
+                                  execution (supports templating).
+                                type: object
+                              condition:
+                                description: Condition defines an optional condition
+                                  that determines whether this sub-step should execute.
+                                properties:
+                                  args:
+                                    additionalProperties:
+                                      x-kubernetes-preserve-unknown-fields: true
+                                    description: |-
+                                      Args provides the arguments to pass to the condition tool.
+                                      Values may be any JSON type.
+                                    type: object
+                                  expect:
+                                    description: Expect defines positive health check
+                                      expectations.
+                                    properties:
+                                      jsonPath:
+                                        additionalProperties:
+                                          x-kubernetes-preserve-unknown-fields: true
+                                        description: |-
+                                          JsonPath defines JSON path conditions to check in the result.
+                                          Values may be any JSON type (typically scalars compared to a result field).
+                                        type: object
+                                      success:
+                                        description: Success indicates whether the
+                                          tool call should succeed.
+                                        type: boolean
+                                    type: object
+                                  expectNot:
+                                    description: ExpectNot defines negative health
+                                      check expectations.
+                                    properties:
+                                      jsonPath:
+                                        additionalProperties:
+                                          x-kubernetes-preserve-unknown-fields: true
+                                        description: |-
+                                          JsonPath defines JSON path conditions to check in the result.
+                                          Values may be any JSON type (typically scalars compared to a result field).
+                                        type: object
+                                      success:
+                                        description: Success indicates whether the
+                                          tool call should succeed.
+                                        type: boolean
+                                    type: object
+                                  fromStep:
+                                    description: FromStep specifies the step ID to
+                                      reference for condition evaluation.
+                                    type: string
+                                  template:
+                                    description: |-
+                                      Template is a boolean Go-template gate. When set, the step executes only
+                                      if the template renders to "true" (e.g. "{{ eq .input.env \"production\" }}").
+                                      Mutually exclusive with Tool/FromStep; when present, Expect/ExpectNot are ignored.
+                                    type: string
+                                  tool:
+                                    description: |-
+                                      Tool specifies the name of the tool to execute for condition evaluation.
+                                      Optional when FromStep or Template is used.
+                                    type: string
+                                type: object
+                                x-kubernetes-validations:
+                                - message: exactly one of template, tool, or fromStep
+                                    must be set
+                                  rule: '(has(self.template) ? 1 : 0) + (has(self.tool)
+                                    ? 1 : 0) + (has(self.fromStep) ? 1 : 0) == 1'
+                                - message: a tool or fromStep condition requires expect
+                                    or expectNot
+                                  rule: has(self.template) || has(self.expect) ||
+                                    has(self.expectNot)
+                              description:
+                                description: Description provides human-readable documentation
+                                  for this sub-step's purpose.
+                                maxLength: 500
+                                type: string
+                              id:
+                                description: ID is the unique identifier for this
+                                  sub-step.
+                                maxLength: 63
+                                pattern: ^[a-zA-Z0-9_-]+$
+                                type: string
+                              output:
+                                description: |-
+                                  Output indicates whether this sub-step's result is included in the
+                                  workflow's returned document. The result is always referenceable by later
+                                  steps regardless of this flag. When unset, the deprecated Store flag is
+                                  used as a fallback.
+                                type: boolean
+                              store:
+                                default: false
+                                description: |-
+                                  Store is a deprecated alias for Output, kept for backwards compatibility.
+                                  Prefer Output.
+                                type: boolean
+                              tool:
+                                description: Tool specifies the name of the tool to
+                                  execute.
+                                minLength: 1
+                                type: string
+                            required:
+                            - id
+                            - tool
+                            type: object
+                          minItems: 1
+                          type: array
+                      required:
+                      - items
+                      - steps
+                      type: object
+                    id:
+                      description: ID is the unique identifier for this step within
+                        the workflow.
+                      maxLength: 63
+                      pattern: ^[a-zA-Z0-9_-]+$
+                      type: string
+                    output:
+                      description: |-
+                        Output indicates whether this step's result is included in the workflow's
+                        returned document (what the caller receives). Every step result is always
+                        referenceable by later steps via {{ .results.<id>.<field> }} regardless of
+                        this flag; Output only controls visibility in the returned result. When
+                        unset, the deprecated Store flag is used as a fallback.
+                      type: boolean
+                    parallel:
+                      description: |-
+                        Parallel executes a group of sub-steps concurrently. Each sub-step
+                        resolves its arguments from the workflow state as it was before the
+                        group started; siblings cannot reference each other's results. Mutually
+                        exclusive with tool and forEach.
+                      items:
+                        description: |-
+                          WorkflowSubStep is a tool-call step used inside forEach bodies, parallel
+                          groups, and onFailure handlers. Unlike WorkflowStep it cannot itself contain
+                          forEach or parallel, which keeps the CRD schema structural (non-recursive).
+                        properties:
+                          allowFailure:
+                            default: false
+                            description: AllowFailure defines if in case of an error
+                              execution continues.
+                            type: boolean
+                          args:
+                            additionalProperties:
+                              x-kubernetes-preserve-unknown-fields: true
+                            description: Args provides arguments for the tool execution
+                              (supports templating).
+                            type: object
+                          condition:
+                            description: Condition defines an optional condition that
+                              determines whether this sub-step should execute.
+                            properties:
+                              args:
+                                additionalProperties:
+                                  x-kubernetes-preserve-unknown-fields: true
+                                description: |-
+                                  Args provides the arguments to pass to the condition tool.
+                                  Values may be any JSON type.
+                                type: object
+                              expect:
+                                description: Expect defines positive health check
+                                  expectations.
+                                properties:
+                                  jsonPath:
+                                    additionalProperties:
+                                      x-kubernetes-preserve-unknown-fields: true
+                                    description: |-
+                                      JsonPath defines JSON path conditions to check in the result.
+                                      Values may be any JSON type (typically scalars compared to a result field).
+                                    type: object
+                                  success:
+                                    description: Success indicates whether the tool
+                                      call should succeed.
+                                    type: boolean
+                                type: object
+                              expectNot:
+                                description: ExpectNot defines negative health check
+                                  expectations.
+                                properties:
+                                  jsonPath:
+                                    additionalProperties:
+                                      x-kubernetes-preserve-unknown-fields: true
+                                    description: |-
+                                      JsonPath defines JSON path conditions to check in the result.
+                                      Values may be any JSON type (typically scalars compared to a result field).
+                                    type: object
+                                  success:
+                                    description: Success indicates whether the tool
+                                      call should succeed.
+                                    type: boolean
+                                type: object
+                              fromStep:
+                                description: FromStep specifies the step ID to reference
+                                  for condition evaluation.
+                                type: string
+                              template:
+                                description: |-
+                                  Template is a boolean Go-template gate. When set, the step executes only
+                                  if the template renders to "true" (e.g. "{{ eq .input.env \"production\" }}").
+                                  Mutually exclusive with Tool/FromStep; when present, Expect/ExpectNot are ignored.
+                                type: string
+                              tool:
+                                description: |-
+                                  Tool specifies the name of the tool to execute for condition evaluation.
+                                  Optional when FromStep or Template is used.
+                                type: string
+                            type: object
+                            x-kubernetes-validations:
+                            - message: exactly one of template, tool, or fromStep
+                                must be set
+                              rule: '(has(self.template) ? 1 : 0) + (has(self.tool)
+                                ? 1 : 0) + (has(self.fromStep) ? 1 : 0) == 1'
+                            - message: a tool or fromStep condition requires expect
+                                or expectNot
+                              rule: has(self.template) || has(self.expect) || has(self.expectNot)
+                          description:
+                            description: Description provides human-readable documentation
+                              for this sub-step's purpose.
+                            maxLength: 500
+                            type: string
+                          id:
+                            description: ID is the unique identifier for this sub-step.
+                            maxLength: 63
+                            pattern: ^[a-zA-Z0-9_-]+$
+                            type: string
+                          output:
+                            description: |-
+                              Output indicates whether this sub-step's result is included in the
+                              workflow's returned document. The result is always referenceable by later
+                              steps regardless of this flag. When unset, the deprecated Store flag is
+                              used as a fallback.
+                            type: boolean
+                          store:
+                            default: false
+                            description: |-
+                              Store is a deprecated alias for Output, kept for backwards compatibility.
+                              Prefer Output.
+                            type: boolean
+                          tool:
+                            description: Tool specifies the name of the tool to execute.
+                            minLength: 1
+                            type: string
+                        required:
+                        - id
+                        - tool
+                        type: object
+                      minItems: 1
+                      type: array
+                    store:
+                      default: false
+                      description: |-
+                        Store is a deprecated alias for Output. It originally also controlled
+                        whether a step result was referenceable by later steps, but referencing
+                        is now always available; Store now only affects result visibility and is
+                        kept for backwards compatibility. Prefer Output.
+                      type: boolean
+                    tool:
+                      description: |-
+                        Tool specifies the name of the tool to execute for this step.
+                        Mutually exclusive with forEach and parallel.
+                      type: string
+                  required:
+                  - id
+                  type: object
+                  x-kubernetes-validations:
+                  - message: exactly one of tool, forEach, or parallel must be set
+                    rule: '(has(self.tool) ? 1 : 0) + (has(self.forEach) ? 1 : 0)
+                      + (has(self.parallel) ? 1 : 0) == 1'
+                minItems: 1
+                type: array
+            required:
+            - steps
+            type: object
+          status:
+            description: WorkflowStatus defines the observed state of Workflow
+            properties:
+              conditions:
+                description: Conditions represent the latest available observations
+                  of the workflow's state.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              referencedTools:
+                description: |-
+                  ReferencedTools lists all tools mentioned in the Workflow steps.
+                  This is informational only; actual availability depends on the user's session.
+                  See ADR 007 for details on session-scoped tool visibility.
+                items:
+                  type: string
+                type: array
+              stepCount:
+                description: StepCount is the number of steps in the workflow.
+                type: integer
+              valid:
+                description: Valid indicates whether the Workflow spec passes structural
+                  validation.
+                type: boolean
+              validationErrors:
+                description: ValidationErrors contains any spec validation error messages.
+                items:
+                  type: string
+                type: array
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

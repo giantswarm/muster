@@ -583,6 +583,27 @@
                   "additionalProperties": {"type": "array", "items": {"type": "string"}},
                   "description": "Per-client audience allowlist: broker client ID → audiences it may request. Requests outside the list get invalid_target."
                 },
+                "brokerClients": {
+                  "type": "object",
+                  "description": "Declaratively seed confidential broker clients at startup, keyed by client ID. mcp-oauth stores a broker client's record (id → bcrypt secret hash) only in its backing store (Valkey); a store wipe leaves the client record gone, so every exchange returns invalid_client. Seeding re-creates the record from the same id+secret on every startup so a wipe self-heals. The id+secret must match those the broker client (e.g. Backstage) presents.",
+                  "additionalProperties": {
+                    "type": "object",
+                    "properties": {
+                      "clientCredentialsSecretRef": {
+                        "type": "object",
+                        "required": ["name"],
+                        "properties": {
+                          "name": {"type": "string"},
+                          "namespace": {"type": "string", "description": "Defaults to the muster namespace."},
+                          "clientIdKey": {"type": "string", "description": "Defaults to client-id."},
+                          "clientSecretKey": {"type": "string", "description": "Defaults to client-secret."}
+                        },
+                        "description": "Kubernetes Secret holding the broker client's id and secret. The same secret the broker client authenticates with. The config map key is authoritative for the client id."
+                      },
+                      "scopes": {"type": "array", "items": {"type": "string"}, "description": "Optional scopes recorded on the seeded client record. Audiences are gated by clientAudiences, not by these scopes."}
+                    }
+                  }
+                },
                 "targets": {
                   "type": "object",
                   "description": "Audience name → credential provider target. Set type to select the provider (default: oidc-exchange).",

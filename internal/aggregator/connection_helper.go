@@ -443,6 +443,97 @@ func EstablishConnectionWithTokenForwarding(
 	}, nil
 }
 
+// EstablishConnectionWithLocalMint connects to a localMint server to discover
+// its capabilities. Discovery mints an M2M token from the connecting identity's
+// session token (in the agent topology that is the agent's own SA token, which
+// WorkloadAudiences authorizes); a human's on-behalf-of identity only arrives
+// per call_tool via the actor header. The returned client's header func re-mints
+// on every request from the live request context, so per-call execution still
+// performs the full M2M-or-delegation mint — the discovery token is not reused.
+func EstablishConnectionWithLocalMint(
+	ctx context.Context,
+	a *AggregatorServer,
+	serverInfo *ServerInfo,
+	musterIssuer string,
+) (*ConnectionResult, error) {
+	sessionID, sub, err := requireSessionContext(ctx, serverInfo.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	subjectToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer, a.sessionRefresher())
+	if subjectToken == "" {
+		return nil, fmt.Errorf("no session token available to mint localMint discovery for %s", serverInfo.Name)
+	}
+
+	audience := serverInfo.AuthConfig.LocalMint.Audience
+	onStaleToken := func() {
+		if a.connPool != nil {
+			a.connPool.Evict(sessionID, serverInfo.Name)
+		}
+		if a.authStore != nil {
+			if revokeErr := a.authStore.Revoke(context.Background(), sessionID, serverInfo.Name); revokeErr != nil {
+				logging.Warn("Connection", "Failed to revoke localMint auth for %s/%s: %v",
+					logging.TruncateIdentifier(sessionID), serverInfo.Name, revokeErr)
+			}
+		}
+	}
+	headerFunc := makeLocalMintHeaderFunc(serverInfo.Name, audience, onStaleToken)
+	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
+
+	// Discovery mints M2M: inject the session token as the subject and no actor.
+	discoveryCtx := server.ContextWithBearerToken(ctx, subjectToken)
+
+	if err := client.Initialize(discoveryCtx); err != nil {
+		_ = client.Close()
+		emitTokenForwardingEvent(serverInfo.Name, serverInfo.GetNamespace(), false, err.Error())
+		return nil, fmt.Errorf("localMint connection failed for %s: %w", serverInfo.Name, err)
+	}
+
+	tools, err := client.ListTools(discoveryCtx)
+	if err != nil {
+		_ = client.Close()
+		return nil, fmt.Errorf("failed to list tools after localMint to %s: %w", serverInfo.Name, err)
+	}
+	resources, err := client.ListResources(discoveryCtx)
+	if err != nil {
+		logging.Debug("Connection", "Failed to list resources for %s: %v", serverInfo.Name, err)
+		resources = nil
+	}
+	prompts, err := client.ListPrompts(discoveryCtx)
+	if err != nil {
+		logging.Debug("Connection", "Failed to list prompts for %s: %v", serverInfo.Name, err)
+		prompts = nil
+	}
+
+	if a.capabilityStore != nil {
+		if err := a.capabilityStore.Set(ctx, sessionID, serverInfo.Name, &oauthstore.Capabilities{
+			Tools: tools, Resources: resources, Prompts: prompts,
+		}); err != nil {
+			logging.Warn("Connection", "Failed to store capabilities for %s/%s: %v",
+				logging.TruncateIdentifier(sessionID), serverInfo.Name, err)
+		}
+	}
+	if a.authStore != nil {
+		if err := a.authStore.MarkAuthenticated(ctx, sessionID, serverInfo.Name); err != nil {
+			logging.Warn("Connection", "Failed to mark localMint auth for %s/%s: %v",
+				logging.TruncateIdentifier(sessionID), serverInfo.Name, err)
+		}
+	}
+
+	notifyMCPServerConnected(serverInfo.Name, "localMint")
+	logging.Info("Connection", "Connected %s to %s via localMint with %d tools",
+		logging.TruncateIdentifier(sub), serverInfo.Name, len(tools))
+
+	return &ConnectionResult{
+		ServerName:    serverInfo.Name,
+		ToolCount:     len(tools),
+		ResourceCount: len(resources),
+		PromptCount:   len(prompts),
+		Client:        client,
+	}, nil
+}
+
 // emitTokenForwardingEvent emits an event for token forwarding success or failure.
 func emitTokenForwardingEvent(serverName, namespace string, success bool, errorMsg string) {
 	eventManager := api.GetEventManager()
@@ -506,6 +597,18 @@ func ShouldUseTokenExchange(serverInfo *ServerInfo) bool {
 	}
 	config := serverInfo.AuthConfig.TokenExchange
 	return config.Enabled && config.DexTokenEndpoint != "" && config.ConnectorID != ""
+}
+
+// ShouldUseLocalMint reports whether muster mints a per-backend token for a
+// server. Enabled when AuthConfig.LocalMint is non-nil, Enabled, and carries an
+// Audience (the broker local-mint target). Mutually exclusive with token
+// forwarding and token exchange (enforced by the CRD admission rules).
+func ShouldUseLocalMint(serverInfo *ServerInfo) bool {
+	if serverInfo == nil || serverInfo.AuthConfig == nil || serverInfo.AuthConfig.LocalMint == nil {
+		return false
+	}
+	config := serverInfo.AuthConfig.LocalMint
+	return config.Enabled && config.Audience != ""
 }
 
 // EstablishConnectionWithTokenExchange attempts to establish a connection
@@ -881,6 +984,106 @@ func makeTokenForwardingHeaderFunc(
 		}
 		return map[string]string{
 			pkgoauth.HeaderAuthorization: pkgoauth.SchemeBearer + " " + latestToken,
+		}
+	}
+}
+
+// localMintTokenType is the RFC 8693 token-type URN for both the subject and
+// actor tokens on the localMint path. muster's trusted-issuer validator accepts
+// JWT-typed subject and actor tokens (Kubernetes SA and Dex tokens).
+const localMintTokenType = "urn:ietf:params:oauth:token-type:jwt" //nolint:gosec // G101: RFC 8693 token-type URN, not a credential
+
+// makeLocalMintHeaderFunc builds the per-call header function for localMint. On
+// each upstream request it reads the inbound subject (Authorization) and actor
+// (X-Actor-Token) tokens from the request context, mints a per-backend token
+// through the broker-enforced exchange, and sets it as the Authorization header.
+// An absent actor token mints the M2M token (sub=subject, no act); a present
+// actor token mints the delegated token (sub=subject, act=actor).
+//
+// Fail-closed: when the minter is unavailable, the subject token is absent, or
+// (on the delegation path) the subject's email is unverified, no Authorization
+// header is returned and the upstream call proceeds unauthenticated, which the
+// backend rejects. After maxConsecutiveTokenFailures failures the pooled
+// connection is evicted via onStaleToken to stop mcp-go's retry loop.
+//
+// The closure is called sequentially per connection by the MCP client, so its
+// counters need no mutex.
+func makeLocalMintHeaderFunc(serverName, audience string, onStaleToken func()) func(context.Context) map[string]string {
+	var lastWarnTime time.Time
+	var consecutiveFailures int
+	var staleEvicted bool
+
+	fail := func(format string, args ...any) map[string]string {
+		consecutiveFailures++
+		if time.Since(lastWarnTime) >= headerFuncWarnInterval {
+			logging.Warn("Connection", format, args...)
+			lastWarnTime = time.Now()
+		} else {
+			logging.Debug("Connection", format, args...)
+		}
+		if consecutiveFailures >= maxConsecutiveTokenFailures && !staleEvicted && onStaleToken != nil {
+			staleEvicted = true
+			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						logging.Error("Connection", fmt.Errorf("panic in onStaleToken: %v", r),
+							"onStaleToken callback panicked for %s", serverName)
+					}
+				}()
+				onStaleToken()
+			}()
+		}
+		return map[string]string{}
+	}
+
+	return func(ctx context.Context) map[string]string {
+		minter := api.GetBackendTokenMinter()
+		if minter == nil {
+			return fail("localMint: no backend token minter registered (OAuth server not in JWT mode), cannot mint for %s", serverName)
+		}
+
+		subjectToken := server.GetBearerTokenFromContext(ctx)
+		if subjectToken == "" {
+			return fail("localMint: no subject bearer on request to %s, failing closed", serverName)
+		}
+		actorToken := server.GetActorTokenFromContext(ctx)
+
+		// Refuse to mint for a subject token that asserts an email it cannot
+		// prove. A human identity reaches localMint either as the delegation
+		// subject (separate X-Actor-Token) or as a pre-exchanged bearer that
+		// already carries an act chain and takes the M2M path; both carry an
+		// email claim. A groupless workload (SA) token carries no email and is
+		// exempt. Enforce before the mint, on both paths.
+		email, err := pkgoauth.Email(subjectToken)
+		if err != nil {
+			return fail("localMint: cannot decode subject token for %s, failing closed", serverName)
+		}
+		if email != "" {
+			verified, verr := pkgoauth.EmailVerified(subjectToken)
+			if verr != nil || !verified {
+				return fail("localMint: subject email_verified is not true for %s, refusing mint", serverName)
+			}
+		}
+
+		req := api.BackendMintRequest{
+			SubjectToken:     subjectToken,
+			SubjectTokenType: localMintTokenType,
+			Audience:         audience,
+		}
+		if actorToken != "" {
+			req.ActorToken = actorToken
+			req.ActorTokenType = localMintTokenType
+		}
+
+		result, err := minter.MintBackendToken(ctx, req)
+		if err != nil {
+			return fail("localMint: mint failed for %s: %v", serverName, err)
+		}
+
+		consecutiveFailures = 0
+		staleEvicted = false
+		return map[string]string{
+			pkgoauth.HeaderAuthorization: pkgoauth.SchemeBearer + " " + result.AccessToken,
 		}
 	}
 }

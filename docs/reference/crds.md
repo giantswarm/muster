@@ -556,13 +556,19 @@ spec:
       default: <default_value>
       description: "<description>"
 
-  # Required: Workflow steps
+  # Required: Workflow steps. Each step is exactly one of: a tool call (tool),
+  # a sequential loop (forEach), or a concurrent group (parallel).
   steps:
+    # 1) A plain tool call
     - id: "<step_id>"
       tool: "<tool_name>"
       args:
-        <key>: <value_template>
+        <key>: <value_template>      # e.g. "{{.input.namespace}}"
       condition:
+        # Catalog of fields — set exactly ONE source (template, tool, or fromStep).
+        # template: a boolean Go-template gate, stands alone:
+        template: "{{ eq .input.env \"production\" }}"
+        # ...or tool/fromStep, which REQUIRE an expect or expectNot block:
         tool: "<condition_tool>"
         args:
           <key>: <value>
@@ -575,11 +581,42 @@ spec:
           success: true|false
           jsonPath:
             <path>: <unexpected_value>
-      store: true|false
+      output: true|false              # include this step's result in the returned document
+      store: true|false               # deprecated alias for output
       allowFailure: true|false
-      outputs:
-        <var_name>: <output_template>
       description: "<step_description>"
+
+    # 2) A sequential loop over a list (body is a flat list of sub-steps)
+    - id: "<step_id>"
+      forEach:
+        items: "{{ .input.<list_arg> }}"  # must resolve to an array
+        as: item                          # loop variable -> {{.vars.item}} (default "item")
+        steps:
+          - id: "<sub_step_id>"
+            tool: "<tool_name>"
+            args:
+              <key>: "{{ .vars.item.<field> }}"
+
+    # 3) A concurrent group (sub-steps run in parallel; siblings are independent)
+    - id: "<step_id>"
+      parallel:
+        - id: "<sub_step_id>"
+          tool: "<tool_name>"
+        - id: "<sub_step_id>"
+          tool: "<tool_name>"
+
+  # Optional: best-effort cleanup/rollback steps run when the workflow fails
+  # on a step that does not allow failure.
+  onFailure:
+    - id: "<sub_step_id>"
+      tool: "<rollback_tool>"
+
+  # Optional: a templated projection rendered once after all steps complete and
+  # returned in place of the default envelope. Each leaf is a Go-template/sprig
+  # expression evaluated against .input/.results/.vars; JSON structure (objects,
+  # arrays, numbers) is preserved.
+  output:
+    <key>: "{{ .results.<step_id>.<field> }}"
 
 # Status is managed automatically by muster (via reconciliation)
 status:
@@ -599,38 +636,121 @@ status:
 | `description` | `string` | No | Human-readable description | Max 1000 characters |
 | `args` | `map[string]ArgDefinition` | No | Argument schema for execution validation | - |
 | `steps` | `[]WorkflowStep` | Yes | Sequence of workflow steps | Min 1 item |
+| `onFailure` | `[]WorkflowSubStep` | No | Cleanup/rollback steps run when the workflow fails on a non-`allowFailure` step | - |
+| `output` | `map[string]any` | No | Templated projection rendered after all steps complete, returned in place of the default envelope. Each leaf is evaluated against `.input`/`.results`/`.vars` with JSON structure preserved | - |
 
 #### WorkflowStep Fields
+
+A step is exactly one of: a tool call (`tool`), a sequential loop (`forEach`), or a concurrent group (`parallel`).
 
 | Field | Type | Required | Description | Constraints |
 |-------|------|----------|-------------|-------------|
 | `id` | `string` | Yes | Unique step identifier within workflow | Pattern: `^[a-zA-Z0-9_-]+$`, Max 63 chars |
-| `tool` | `string` | Yes | Name of the tool to execute | Min 1 character |
+| `tool` | `string` | No* | Name of the tool to execute | Mutually exclusive with `forEach`/`parallel` |
 | `args` | `map[string]any` | No | Arguments for tool execution (supports templating) | - |
 | `condition` | `WorkflowCondition` | No | Optional execution condition | - |
-| `store` | `boolean` | No | Store step result for later steps | Default: `false` |
+| `forEach` | `WorkflowForEach` | No* | Run a body of sub-steps once per list item | Mutually exclusive with `tool`/`parallel` |
+| `parallel` | `[]WorkflowSubStep` | No* | Sub-steps executed concurrently | Mutually exclusive with `tool`/`forEach` |
+| `output` | `boolean` | No | Include this step's result in the returned document. Every step result is referenceable by later steps (`{{.results.<id>}}`) regardless of this flag | Default: `false` |
+| `store` | `boolean` | No | Deprecated alias for `output`; kept for backwards compatibility | Default: `false` |
 | `allowFailure` | `boolean` | No | Continue on step failure | Default: `false` |
-| `outputs` | `map[string]any` | No | Output mappings for subsequent steps | - |
 | `description` | `string` | No | Human-readable step documentation | Max 500 characters |
+
+*Exactly one of `tool`, `forEach`, or `parallel` must be set. This is enforced by the CRD at apply time (a CEL validation rule), so `kubectl apply` rejects a step that sets none or more than one.
+
+> **Referencing vs. returning**: Every step's result is referenceable by later
+> steps as `{{.results.<step_id>}}` without any flag. The `output` flag (and its
+> deprecated `store` alias) only controls whether the step's result is included
+> in the document returned to the caller. To shape that document further, use the
+> workflow-level [`output` projection](#workflow-output-projection).
+>
+> **Migration**: A previously documented `outputs:` field never did anything and
+> has been removed. The `store` flag still works as a backwards-compatible alias
+> for `output`; prefer `output`.
+
+#### WorkflowForEach Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `items` | `string` | Yes | Template expression resolving to an array, e.g. `"{{ .input.clusters }}"` |
+| `as` | `string` | No | Loop variable name, exposed as `{{ .vars.<as> }}` (default `item`); the zero-based index is `{{ .vars.<as>_index }}` |
+| `steps` | `[]WorkflowSubStep` | Yes | Flat body executed once per item (no nested `forEach`/`parallel`) |
+
+#### WorkflowSubStep Fields
+
+Used by `forEach.steps`, `parallel`, and `onFailure`. A sub-step is a plain tool call.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | `string` | Yes | Unique sub-step identifier |
+| `tool` | `string` | Yes | Name of the tool to execute |
+| `args` | `map[string]any` | No | Arguments for tool execution (supports templating) |
+| `condition` | `WorkflowCondition` | No | Optional execution condition |
+| `output` | `boolean` | No | Include this sub-step's result in the returned document (default `false`). The result is referenceable by later steps regardless of this flag. Inside `forEach`, each iteration is also addressable as `{{.results.<id>_<index>}}` (the plain `{{.results.<id>}}` keeps the last iteration). |
+| `store` | `boolean` | No | Deprecated alias for `output`; kept for backwards compatibility (default `false`) |
+| `allowFailure` | `boolean` | No | Continue on failure (default `false`) |
+| `description` | `string` | No | Human-readable documentation |
 
 #### WorkflowCondition Fields
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
+| `template` | `string` | No* | Boolean Go-template gate, e.g. `"{{ eq .input.env \"production\" }}"`. The step runs when it renders to `true`. |
 | `tool` | `string` | No* | Tool for condition evaluation |
 | `args` | `map[string]any` | No | Arguments for condition tool |
 | `fromStep` | `string` | No* | Reference step for condition evaluation |
-| `expect` | `WorkflowConditionExpectation` | No | Positive expectations |
-| `expectNot` | `WorkflowConditionExpectation` | No | Negative expectations |
+| `expect` | `WorkflowConditionExpectation` | No | Positive expectations (with `tool`/`fromStep`) |
+| `expectNot` | `WorkflowConditionExpectation` | No | Negative expectations (with `tool`/`fromStep`) |
 
-*Note: Either `tool` or `fromStep` should be specified
+*Note: Specify exactly one of `template`, `tool`, or `fromStep`. A `tool`/`fromStep` condition must declare `expect` or `expectNot` (without one, the engine defaults to expecting the call to fail). With `template`, `expect`/`expectNot` are ignored. Both rules are enforced at `kubectl apply` time via CEL. There are no `and`/`or` combinators.
 
 #### WorkflowConditionExpectation Fields
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `success` | `boolean` | Whether the tool call should succeed |
-| `jsonPath` | `map[string]any` | JSON path conditions to check |
+| `jsonPath` | `map[string]any` | Path conditions to check against the result. Each key uses the workflow's expression language: a dotted/bracketed path navigated from the result (with array indexing, e.g. `items[0].name`), or a full Go-template expression where the result is exposed as `.result` (e.g. `"{{ (index .result.items 0).name }}"`). |
+
+#### Workflow Output Projection
+
+The optional workflow-level `output` field shapes the document returned to the
+caller. It is a templated object rendered once after all steps complete, against
+the same `.input` / `.results` / `.vars` context used by step args, and returned
+in place of the default `{execution_id, workflow, status, input, steps[], ...}`
+envelope.
+
+```yaml
+spec:
+  steps:
+    - id: pods
+      tool: x_kubernetes_list
+      args: { kind: Pod }
+    - id: events
+      tool: x_kubernetes_list
+      args: { kind: Event }
+  output:
+    cluster: "{{ .input.management_cluster }}"
+    notRunning: "{{ .results.pods.items }}"
+    backoffCount: "{{ len .results.events.items }}"
+```
+
+- Each leaf is a Go-template/sprig expression. JSON structure is preserved:
+  `notRunning` stays an array and `backoffCount` stays a number.
+- Nested objects and arrays in the projection are rendered recursively.
+- Every step result is referenceable here regardless of its `output` flag. When a
+  projection is declared it replaces the envelope, so per-step `output`/`store`
+  flags no longer affect the returned document (the create/validate path and the
+  reconciler warn when such flags are left set and become inert).
+- **Type preservation (no lossy coercion)**: a leaf's type comes from the value
+  it evaluates to, never from how its rendered text looks. A *bare reference path*
+  leaf (`"{{ .results.pods.items }}"`) keeps its exact JSON type. A single-action
+  *computed* leaf keeps its real type too: `"{{ len .results.events.items }}"` is
+  a number, while a computed string keeps its exact string form — so values whose
+  form matters (versions, IDs, zero-padded values like `"08"`/`"1.20"`) are
+  preserved with no workaround. Non-finite values (`NaN`/`Inf`) stay strings.
+  Templates that mix literal text with actions (e.g. `"v{{ .v }}"`) render to a
+  string.
+- When `output` is omitted, the default envelope is returned unchanged.
 
 #### Status Fields
 
@@ -654,7 +774,6 @@ metadata:
   name: database-migration
   namespace: default
 spec:
-  name: database-migration
   description: "Perform database migration with rollback capability"
   args:
     database_name:
@@ -673,15 +792,15 @@ spec:
     - id: check_database
       tool: postgres_status
       args:
-        database: "{{.database_name}}"
+        database: "{{.input.database_name}}"
       store: true
       description: "Verify database connectivity"
 
     - id: backup_database
       tool: postgres_backup
       args:
-        database: "{{.database_name}}"
-        backup_name: "pre-migration-{{.migration_version}}"
+        database: "{{.input.database_name}}"
+        backup_name: "pre-migration-{{.input.migration_version}}"
       condition:
         fromStep: "check_database"
         expect:
@@ -694,38 +813,33 @@ spec:
     - id: run_migration
       tool: postgres_migrate
       args:
-        database: "{{.database_name}}"
-        version: "{{.migration_version}}"
-        dry_run: "{{.dry_run}}"
+        database: "{{.input.database_name}}"
+        version: "{{.input.migration_version}}"
+        dry_run: "{{.input.dry_run}}"
       condition:
         fromStep: "backup_database"
         expect:
           success: true
-      allowFailure: false
       store: true
       description: "Execute database migration"
 
     - id: verify_migration
       tool: postgres_verify
       args:
-        database: "{{.database_name}}"
-        expected_version: "{{.migration_version}}"
+        database: "{{.input.database_name}}"
+        expected_version: "{{.input.migration_version}}"
       condition:
         fromStep: "run_migration"
         expect:
           success: true
       description: "Verify migration completed successfully"
-
+  onFailure:
     - id: rollback_migration
       tool: postgres_restore
       args:
-        database: "{{.database_name}}"
+        database: "{{.input.database_name}}"
         backup_name: "{{.results.backup_database.backup_name}}"
-      condition:
-        fromStep: "verify_migration"
-        expectNot:
-          success: true
-      description: "Rollback on migration failure"
+      description: "Restore the pre-migration backup if the workflow fails"
 ```
 
 ### CLI Usage
@@ -747,33 +861,40 @@ kubectl apply -f workflow.yaml
 
 ## Templating
 
-All CRDs support Go template syntax for dynamic values. Templates can reference:
+Workflow step arguments support Go template syntax (rendered with [sprig](https://masterminds.github.io/sprig/) functions). Templates are resolved server-side at execution time with `missingkey=error`, so referencing an undefined key fails the step.
 
 ### Available Variables
 
-| Context | Variables | Description |
-|---------|-----------|-------------|
-| **Workflow** | `.` | All args passed during workflow execution |
-| | `.<arg_name>` | Specific argument values |
-| | `.results.<step_id>.<output>` | Results from previous steps |
+The template context exposes exactly these top-level keys:
+
+| Key | Description |
+|-----|-------------|
+| `.input.<arg_name>` | Arguments passed during workflow execution |
+| `.results.<step_id>` | Result of any previous step (navigate fields with `.results.<step_id>.<field>`; no flag required) |
+| `.vars.<name>` | Loop variables inside `forEach` (e.g. `.vars.item`, `.vars.item_index`) |
+| `.context.<step_id>` | Alias for `.results` |
+
+> There is no bare `.<arg_name>`; always use `.input.<arg_name>`.
 
 ### Template Functions
 
+The full [sprig](https://masterminds.github.io/sprig/) function set is available, e.g.:
+
 | Function | Description | Example |
 |----------|-------------|---------|
-| `replace` | String replacement | `{{.image | replace "/" "-"}}` |
-| `lower` | Convert to lowercase | `{{.name | lower}}` |
-| `upper` | Convert to uppercase | `{{.env | upper}}` |
-| `trim` | Remove whitespace | `{{.value | trim}}` |
+| `eq` / `ne` / `gt` | Comparisons (useful in `condition.template`) | `{{ eq .input.env "production" }}` |
+| `replace` | String replacement | `{{ .input.image | replace "/" "-" }}` |
+| `lower` / `upper` | Case conversion | `{{ .input.name | lower }}` |
+| `trim` | Remove whitespace | `{{ .input.value | trim }}` |
 
 ### Examples
 
 ```yaml
-# Workflow templating
+# Workflow step args
 args:
-  service_name: "{{.app_name}}-{{.environment}}"
+  service_name: "{{.input.app_name}}-{{.input.environment}}"
   image: "{{.results.build_image.image_id}}"
-  replicas: "{{.replicas}}"
+  replicas: "{{.input.replicas}}"
 ```
 
 ---

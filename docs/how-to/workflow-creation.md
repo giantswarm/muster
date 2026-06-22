@@ -1,126 +1,50 @@
 # Workflow Creation
 
-Learn how to build effective multi-step workflows for platform automation.
+Build multi-step automations from the tools available in your muster session.
+This guide describes only what the workflow engine actually implements. For the
+full field reference, see [Workflow CRD](../reference/crds.md#workflow).
 
-## Build Multi-Step Deployment Workflows
+## Mental model
 
-### Goal
-Create workflows that automate complex deployment processes with proper error handling and validation.
+A `Workflow` is a list of `steps` executed top to bottom. Each step is exactly
+one of:
 
-### Prerequisites
-- Understanding of your deployment process
-- Required tools available via MCP servers
+- a **tool call** (`tool`),
+- a **sequential loop** (`forEach`), or
+- a **concurrent group** (`parallel`).
 
-### Advanced Features
+A step may be gated by a `condition`. **Every** step's result is available to
+later steps as `{{ .results.<step_id> }}` — referencing no longer requires any
+flag. The `output: true` flag only controls whether a step's result is included
+in the document returned to the caller (see
+[Referencing vs. returning results](#referencing-vs-returning-results)). If a
+step fails and is not marked `allowFailure`, the workflow stops and its
+`onFailure` handlers run.
 
-#### Error Handling with allowFailure
-```yaml
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: Workflow
-metadata:
-  name: resilient-deployment
-  namespace: default
-spec:
-  name: resilient-deployment
-  description: "Deployment with optional steps"
-  args:
-    app_name:
-      type: string
-      required: true
-  steps:
-    - id: optional_migration
-      tool: x_database_run_migration
-      args:
-        version: "{{.version}}"
-      allowFailure: true  # Continue workflow even if this fails
-```
+## Templating
 
-#### Conditional Steps
-```yaml
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: Workflow
-metadata:
-  name: conditional-deployment
-  namespace: default
-spec:
-  name: conditional-deployment
-  description: "Deployment with environment-specific steps"
-  args:
-    environment:
-      type: string
-      required: true
-  steps:
-    - id: check_environment
-      tool: core_config_get
-      args:
-        environment: "{{.environment}}"
-      store: true
+Step arguments are Go templates (with [sprig](https://masterminds.github.io/sprig/)
+functions) rendered at execution time. The template context has exactly these
+top-level keys:
 
-    - id: production_validation
-      tool: x_security_run_production_checks
-      condition:
-        jsonPath:
-          "results.check_environment.is_production": true
+| Key | Description |
+|-----|-------------|
+| `.input.<arg>` | Workflow arguments |
+| `.results.<step_id>` | Result of any earlier step (no flag required) |
+| `.vars.<name>` | Loop variables inside `forEach` (`.vars.item`, `.vars.item_index`) |
+| `.context.<step_id>` | Legacy alias for `.results`; prefer `.results` |
 
-    - id: staging_fast_deploy
-      tool: x_deployment_quick_deploy
-      condition:
-        jsonPath:
-          "results.check_environment.is_staging": true
-```
-
-## Handle Conditional Workflow Steps
-
-### Goal
-Create workflows that execute different paths based on conditions.
-
-### Condition Types
-
-#### 1. JSONPath Conditions
-```yaml
-# Check result values from previous steps
-- id: conditional_step
-  tool: x_security_production_specific_tool
-  condition:
-    jsonPath:
-      "results.environment_check.type": "production"
-      "results.environment_check.ready": true
-```
-
-#### 2. Template-Based Conditions
-```yaml
-# Use template expressions
-- id: environment_specific
-  tool: x_deployment_deploy_to_environment
-  condition:
-    template: "{{ eq .environment \"production\" }}"
-```
-
-#### 3. Complex Conditions
-```yaml
-# Multiple conditions with logic
-- id: complex_validation
-  tool: x_monitoring_advanced_validation
-  condition:
-    and:
-      - jsonPath:
-          "results.health_check.status": "healthy"
-      - template: "{{ gt .replicas 1 }}"
-      - jsonPath:
-          "results.security_scan.passed": true
-```
-
-### Real-World Example: Environment-Specific Deployment
+> Always use `{{ .input.<arg> }}` — there is no bare `{{ .<arg> }}`. Rendering
+> uses `missingkey=error`, so a reference to an undefined key fails the step.
 
 ```yaml
 apiVersion: muster.giantswarm.io/v1alpha1
 kind: Workflow
 metadata:
-  name: smart-deployment
+  name: deploy-service
   namespace: default
 spec:
-  name: smart-deployment
-  description: "Intelligent deployment based on environment"
+  description: "Deploy a service to an environment"
   args:
     app_name:
       type: string
@@ -128,240 +52,242 @@ spec:
     environment:
       type: string
       required: true
-    force_production:
-      type: boolean
-      default: false
   steps:
-    - id: analyze_environment
-      tool: get_environment_config
+    - id: deploy
+      tool: x_deployment_deploy
       args:
-        environment: "{{.environment}}"
-      store: true
-
-    # Development: Quick deployment
-    - id: dev_quick_deploy
-      tool: quick_deploy
-      args:
-        app: "{{.app_name}}"
-        env: "{{.environment}}"
-      condition:
-        jsonPath:
-          "results.analyze_environment.type": "development"
-
-    # Staging: Deploy with basic tests
-    - id: staging_deploy
-      tool: deploy_with_tests
-      args:
-        app: "{{.app_name}}"
-        env: "{{.environment}}"
-        test_suite: "basic"
-      condition:
-        jsonPath:
-          "results.analyze_environment.type": "staging"
-
-    # Production: Full validation pipeline
-    - id: prod_security_scan
-      tool: security_scan
-      args:
-        app: "{{.app_name}}"
-      condition:
-        or:
-          - jsonPath:
-              "results.analyze_environment.type": "production"
-          - template: "{{ .force_production }}"
-      store: true
-
-    - id: prod_deploy
-      tool: production_deploy
-      args:
-        app: "{{.app_name}}"
-        security_report: "{{.results.prod_security_scan.report}}"
-      condition:
-        and:
-          - jsonPath:
-              "results.prod_security_scan.passed": true
-          - or:
-            - jsonPath:
-                "results.analyze_environment.type": "production"
-            - template: "{{ .force_production }}"
+        app: "{{ .input.app_name }}"
+        env: "{{ .input.environment }}"
 ```
 
-## Template Workflow Arguments
+## Referencing vs. returning results
 
-### Goal
-Use Go templates to create dynamic, reusable workflows.
+Two independent concerns used to be conflated into the single `store` flag; they
+are now separate:
 
-### Advanced Template Functions
+- **Referencing** — every step's result is always available to later steps and
+  to the [output projection](#shaping-the-returned-result-output-projection) as
+  `{{ .results.<step_id>.<field> }}`. No flag is needed. This makes the common
+  "take one value out of step 1 and feed it into step 2" pattern cheap.
+- **Returning** — `output: true` includes a step's result in the returned
+  document (what the caller, e.g. an LLM, receives). Use it only for the few
+  steps whose results the caller actually needs, to keep responses small.
 
-```yaml
-# Complex templating with helper functions
-args:
-  database_url: "postgresql://user:pass@{{.database_host}}:{{ add .database_port 1000 }}/{{.app_name}}"
-  feature_flags: "{{ join .enabled_features \",\" }}"
-  config_json: |
-    {
-      "app": "{{.app_name}}",
-      "env": "{{.environment}}",
-      "debug": {{ if eq .environment "development" }}true{{ else }}false{{ end }},
-      "replicas": {{.replicas}},
-      "created_at": "{{ now.Format \"2006-01-02T15:04:05Z07:00\" }}"
-    }
-```
-
-### Template with Result References
+`store: true` is a **deprecated alias** for `output: true` and keeps working for
+backwards compatibility; prefer `output`.
 
 ```yaml
 steps:
   - id: get_cluster_info
     tool: get_kubernetes_cluster_info
     args:
-      cluster: "{{.target_cluster}}"
-    store: true
+      cluster: "{{ .input.target_cluster }}"
+    # No flag needed — the result is referenceable below.
 
   - id: deploy_to_cluster
     tool: deploy_application
     args:
-      cluster_endpoint: "{{.results.get_cluster_info.endpoint}}"
-      cluster_version: "{{.results.get_cluster_info.version}}"
-      # Use template logic with results
-      namespace: "{{ if gt .results.get_cluster_info.node_count 5 }}production{{ else }}staging{{ end }}"
+      cluster_endpoint: "{{ .results.get_cluster_info.endpoint }}"
+      cluster_version: "{{ .results.get_cluster_info.version }}"
+    output: true   # include this step's result in the returned document
 ```
 
-## Debug Workflow Execution
+### What the caller receives
 
-### Goal
-Effectively troubleshoot and debug workflow execution issues.
+Without an [`output` projection](#shaping-the-returned-result-output-projection),
+a workflow returns the default envelope
+(`{execution_id, workflow, status, input, steps[], ...}`), and the exact shape
+depends on the last step:
 
-### Debugging Techniques
+- each step marked `output: true` contributes its result under `steps[]`; and
+- if the **last** step is a plain tool step that is *not* an `output` step, its
+  result is additionally merged onto the top level of the envelope (a
+  convenience so a trailing call's output is easy to read).
 
-#### 1. Add Debug Steps
+If you want a predictable, minimal response, declare an `output` projection — it
+replaces the envelope entirely (see below).
+
+## Shaping the returned result (output projection)
+
+By default a workflow returns a fixed envelope
+(`{execution_id, workflow, status, input, steps[], ...}`) where each `output`
+step contributes its whole result. To return a small, shaped document instead,
+declare a workflow-level `output` projection. It is rendered once after all
+steps complete, against `.input` / `.results` / `.vars`, and replaces the
+envelope:
+
 ```yaml
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: Workflow
-metadata:
-  name: debuggable-workflow
-  namespace: default
 spec:
-  name: debuggable-workflow
   steps:
-    - id: debug_input
-      tool: debug_log
-      args:
-        message: "Starting workflow with args: {{.}}"
-        level: "info"
-
-    - id: main_task
-      tool: complex_operation
-      args:
-        input: "{{.complex_input}}"
-      store: true
-
-    - id: debug_result
-      tool: debug_log
-      args:
-        message: "Main task completed: {{.results.main_task}}"
-        level: "info"
+    - id: pods
+      tool: x_kubernetes_list
+      args: { kind: Pod }
+    - id: events
+      tool: x_kubernetes_list
+      args: { kind: Event }
+  output:
+    cluster: "{{ .input.management_cluster }}"
+    notRunning: "{{ .results.pods.items }}"
+    backoffCount: "{{ len .results.events.items }}"
 ```
 
-#### 2. Validation Steps
+Each leaf is a Go-template/sprig expression. JSON structure is preserved:
+`notRunning` stays an array and `backoffCount` stays a number. Nested objects and
+arrays in the projection are rendered recursively. When `output` is omitted, the
+default envelope is returned unchanged.
+
+When a workflow declares an `output` projection, it **replaces** the envelope
+entirely, so the per-step `output: true` / `store: true` flags no longer affect
+the returned document (every step result is still referenceable in the
+projection regardless of those flags). Authoring a projection while leaving
+per-step `output` flags set is harmless but redundant; the create/validate path
+and the CRD reconciler log a one-line warning naming the inert flags.
+
+### Type preservation
+
+A leaf's type comes from the **value it evaluates to**, never from how its
+rendered text happens to look — so there is no lossy numeric coercion and no
+workaround to remember:
+
+- A **bare reference path** — `"{{ .results.pods.items }}"`, dots and array
+  indices only — is resolved directly and keeps its exact JSON type (object,
+  array, number, string, boolean) at any depth.
+- A **single-action computed leaf** keeps the real type of its result: a numeric
+  expression stays a number (so `"{{ len .results.events.items }}"` yields `3`,
+  not `"3"`), and a computed string keeps its exact string form.
+- A leaf that **mixes literal text with actions** (e.g. `"v{{ .v }}"`) renders to
+  a string, since its concatenated form is inherently textual.
+
+This means a computed value whose *string form* matters — a version (`"1.20"`),
+a zero-padded value (`"08"`), or a long numeric ID — is preserved as-is:
+
 ```yaml
-steps:
-  - id: validate_input
-    tool: validate_workflow_input
-    args:
-      schema: |
-        {
-          "type": "object",
-          "required": ["app_name", "environment"],
-          "properties": {
-            "app_name": {"type": "string", "minLength": 1},
-            "environment": {"type": "string", "enum": ["dev", "staging", "production"]}
-          }
-        }
-      input: "{{.}}"
+  output:
+    version: '{{ printf "%d.%d" (int .results.r.major) (int .results.r.minor) }}'  # stays "1.20"
+    padded: '{{ printf "%02d" (int .results.r.build) }}'                            # stays "08"
+    backoffCount: "{{ len .results.events.items }}"                                 # number 3
 ```
 
-#### 3. Checkpoint Steps
+Non-finite results (`NaN`, `Inf`) are kept as strings — they are produced by
+text-rendering functions like `printf`, never by coercion.
+
+## Conditions
+
+A `condition` decides whether a step runs. Specify **exactly one** of
+`template`, `tool`, or `fromStep`. A `tool` or `fromStep` condition must also
+declare an `expect` or `expectNot` block — without one the engine falls back to
+"expect the call to fail", which is rarely what you mean. Both rules are
+enforced at `kubectl apply` time (CEL) and by `workflow_create`/`workflow_validate`.
+
+### Template gate
+
+A boolean Go template. The step runs only when it renders to `true`:
+
 ```yaml
-steps:
-  - id: checkpoint_1
-    tool: create_checkpoint
-    args:
-      name: "pre-deployment"
-      state: "{{.}}"
-      results: "{{.results}}"
-
-  - id: risky_operation
-    tool: complex_deployment
-    args:
-      config: "{{.deployment_config}}"
-    store: true
-
-  - id: checkpoint_2
-    tool: create_checkpoint
-    args:
-      name: "post-deployment"
-      state: "{{.}}"
-      results: "{{.results}}"
+- id: production_only
+  tool: x_security_run_production_checks
+  condition:
+    template: "{{ eq .input.environment \"production\" }}"
 ```
 
-### Workflow Monitoring
-
-#### Real-time Execution Tracking
-```bash
-# Monitor workflow execution
-muster get workflow-execution deployment-workflow-20240107-123456 --watch
-
-# Get detailed execution status
-muster describe workflow-execution deployment-workflow-20240107-123456
-
-# View execution logs
-muster logs workflow-execution deployment-workflow-20240107-123456
-```
-
-#### Error Analysis
-```bash
-# Get failed step details
-muster get workflow-execution deployment-workflow-20240107-123456 -o json | jq '.status.steps[] | select(.status == "failed")'
-
-# View step-specific logs
-muster logs workflow-execution deployment-workflow-20240107-123456 --step validate_prerequisites
-
-# Export execution trace
-muster get workflow-execution deployment-workflow-20240107-123456 --export-trace trace.json
-```
-
-### Testing Strategies
-
-#### 1. Mock Steps for Testing
 ```yaml
-# Test workflow with mock tools
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: Workflow
-metadata:
-  name: test-deployment-workflow
-  namespace: default
+- id: scale_up
+  tool: x_deployment_scale
+  condition:
+    template: "{{ gt .input.replicas 1 }}"
+```
+
+### Tool-based condition
+
+Run a tool and check its outcome against `expect` / `expectNot`:
+
+```yaml
+- id: deploy
+  tool: x_deployment_deploy
+  condition:
+    tool: x_health_check
+    args:
+      service: "{{ .input.app_name }}"
+    expect:
+      success: true
+      jsonPath:
+        status: "healthy"
+```
+
+`jsonPath` keys use the same expression language as step args. A key may be a
+dotted/bracketed path navigated from the tool result (now including array
+indexing, e.g. `items[0].name`), or a full Go-template expression where the
+result is exposed as `.result`:
+
+```yaml
+    expect:
+      success: true
+      jsonPath:
+        "items[0].state": "running"                       # bracketed path
+        "{{ (index .result.items 0).name }}": "primary"   # template form
+```
+
+### Referencing an earlier step
+
+`fromStep` evaluates the stored result of a previous step:
+
+```yaml
+- id: rollback
+  tool: x_deployment_rollback
+  condition:
+    fromStep: "verify"
+    expectNot:
+      success: true
+```
+
+> There are no `and` / `or` combinators. To express AND, chain conditional
+> steps; for richer logic, use a single `condition.template`.
+
+## Loops with `forEach`
+
+Run a flat body of sub-steps once per item of a list. `items` must resolve to
+an array; each element is bound to `{{ .vars.<as> }}` (default `item`), and the
+zero-based index to `{{ .vars.<as>_index }}`.
+
+```yaml
 spec:
-  name: test-deployment-workflow
-  description: "Test version with mocks"
   args:
-    use_mocks:
-      type: boolean
-      default: true
+    clusters:
+      type: array
+      required: true
   steps:
-    - id: deploy_app
-      tool: "{{ if .use_mocks }}mock_deploy{{ else }}real_deploy{{ end }}"
-      args:
-        app: "{{.app_name}}"
+    - id: deploy_to_each
+      forEach:
+        items: "{{ .input.clusters }}"
+        as: cluster
+        steps:
+          - id: deploy
+            tool: deploy_application
+            args:
+              name: "{{ .vars.cluster.name }}"
+              version: "{{ .vars.cluster.version }}"
 ```
 
-## Advanced Workflow Patterns
+The body is non-recursive: sub-steps are plain tool calls and cannot themselves
+contain `forEach` or `parallel`. A sub-step's result is available within the same
+iteration as `{{ .results.<sub_step_id> }}`, and each iteration is also
+addressable after the loop by zero-based index as
+`{{ .results.<sub_step_id>_<index> }}` (e.g. `{{ .results.deploy_0 }}`). The
+plain `{{ .results.<sub_step_id> }}` key keeps the last iteration's result.
 
-### 1. Parallel Execution
+> The indexed key is a literal `<id>_<index>` string, so avoid a sub-step id
+> that already ends in `_<number>` (e.g. `deploy_0`) inside a `forEach` to keep
+> the per-iteration keys unambiguous.
+
+## Concurrency with `parallel`
+
+Run a group of sub-steps concurrently to cut total latency. Each sub-step
+resolves its arguments from the workflow state as it was **before** the group
+started — siblings cannot reference each other's results.
+
 ```yaml
-# Execute steps in parallel
 steps:
-  - id: parallel_group_1
+  - id: deploy_all
     parallel:
       - id: deploy_frontend
         tool: deploy_service
@@ -376,77 +302,100 @@ steps:
         args:
           service: "database"
 
-  - id: verify_all_services
+  - id: verify
     tool: verify_deployment
-    args:
-      services: ["frontend", "backend", "database"]
 ```
 
-### 2. Loop Patterns
+Sub-step results are available to later steps after the group completes.
+
+## Error handling
+
+### Tolerate a failing step
+
+`allowFailure: true` records the failure but continues the workflow. On a
+`forEach` or `parallel` step it tolerates a failure of the **whole group** (it
+cannot tolerate one iteration or branch while failing the rest — put
+`allowFailure` on the individual sub-step for that). The step's error is recorded
+as its result and is available to later `fromStep` conditions and the output
+projection without any extra flag:
+
 ```yaml
-# Process multiple items
-steps:
-  - id: deploy_microservices
-    forEach:
-      items: "{{.microservices}}"
-      step:
-        id: deploy_service
-        tool: deploy_microservice
-        args:
-          name: "{{.item.name}}"
-          version: "{{.item.version}}"
-          config: "{{.item.config}}"
+- id: optional_migration
+  tool: x_database_run_migration
+  args:
+    version: "{{ .input.version }}"
+  allowFailure: true
 ```
 
-### 3. Rollback Workflows
+### Rollback with `onFailure`
+
+`onFailure` lists best-effort cleanup/rollback sub-steps that run when the
+workflow fails on a step that does **not** allow failure. Their own failures are
+tolerated.
+
 ```yaml
-# Built-in rollback capability
 apiVersion: muster.giantswarm.io/v1alpha1
 kind: Workflow
 metadata:
   name: deployment-with-rollback
   namespace: default
 spec:
-  name: deployment-with-rollback
+  args:
+    app_name:
+      type: string
+      required: true
+    environment:
+      type: string
+      required: true
+  steps:
+    - id: deploy
+      tool: deploy_application
+      args:
+        app: "{{ .input.app_name }}"
+        env: "{{ .input.environment }}"
   onFailure:
-    - id: rollback_deployment
+    - id: rollback
       tool: rollback_to_previous_version
       args:
-        service: "{{.app_name}}"
-        environment: "{{.environment}}"
-    - id: notify_failure
+        service: "{{ .input.app_name }}"
+        environment: "{{ .input.environment }}"
+    - id: notify
       tool: send_alert
       args:
-        message: "Deployment failed, rolled back {{.app_name}}"
-  steps:
-    # ... normal deployment steps
+        message: "Deployment of {{ .input.app_name }} failed and was rolled back"
 ```
 
-## Best Practices
+## Managing and inspecting workflows
 
-### 1. Workflow Design
-- Keep workflows focused on single objectives
-- Use descriptive step IDs and descriptions
-- Implement proper error handling
-- Add validation steps early
+Workflows are namespaced CRDs and can be managed with `kubectl` or the muster
+workflow tools.
 
-### 2. Configuration Management
-- Use templates for dynamic configuration
-- Externalize environment-specific values
-- Validate inputs before processing
-- Store sensitive data securely
+```bash
+# List / inspect
+kubectl get workflows           # or: kubectl get wf
+kubectl describe workflow deploy-service
 
-### 3. Monitoring and Observability
-- Add logging steps for debugging
-- Include health checks and validation
-- Monitor execution times and success rates
-- Implement alerting for critical failures
+# Apply from a file
+kubectl apply -f workflow.yaml
+```
 
-### 4. Testing and Validation
-- Test workflows in non-production environments
-- Use dry-run modes for validation
-- Implement rollback procedures
-- Version control workflow definitions
+Each workflow is exposed as an `action_<name>` tool once its referenced tools
+are available in the session. Execution history is available through the
+`workflow_execution_list` and `workflow_execution_get` tools, which include
+per-step status (`completed`, `skipped`, `failed`).
 
-## Related Documentation
-- [Workflow Reference](../reference/mcp-tools.md#workflow-tools)
+## Best practices
+
+- Use `condition.template` to skip work that an environment does not need.
+- Use `parallel` for independent steps; keep dependent steps sequential.
+- Use `forEach` for fan-out over a list (clusters, namespaces, services).
+- Reference any step's result freely with `{{ .results.<id> }}`; reserve
+  `output: true` (or an `output` projection) for what the caller actually needs.
+- Add `onFailure` rollback steps for workflows that mutate external state.
+- Keep workflows focused; compose larger flows by calling one workflow's
+  `action_<name>` tool from another.
+
+## Related documentation
+
+- [Workflow CRD reference](../reference/crds.md#workflow)
+- [MCP tools reference](../reference/mcp-tools.md)

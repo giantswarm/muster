@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/giantswarm/mcp-oauth/providers/oidc"
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -278,6 +279,55 @@ func TestBrokerExchanger_DelegatedExchange_ActorThreaded(t *testing.T) {
 	assert.Equal(t, actor.Subject, capturedReq.Actor.Subject)
 	assert.Equal(t, actor.Issuer, capturedReq.Actor.Issuer)
 	assert.Equal(t, "user-1", capturedReq.Subject)
+}
+
+// TestBrokerExchanger_ForwardsSubjectIdentityAndGrantedGroups verifies that the
+// broker dispatch forwards the full validated subject identity (including Claims)
+// and the broker-granted groups to MintRequest, so the local-mint provider can
+// emit identity claims rather than a bare subject.
+func TestBrokerExchanger_ForwardsSubjectIdentityAndGrantedGroups(t *testing.T) {
+	var capturedReq MintRequest
+
+	broker := newTestBroker(config.TokenExchangeBrokerConfig{
+		Targets: map[string]config.BrokerTargetConfig{
+			"cluster-a": {Type: config.TargetTypeOIDCExchange},
+		},
+	}, nil)
+	broker.registry.factories[config.TargetTypeOIDCExchange] = func(_ config.BrokerTargetConfig, _ providerDeps) CredentialProvider {
+		return &funcProvider{fn: func(_ context.Context, req MintRequest) (*MintResult, error) {
+			capturedReq = req
+			return &MintResult{
+				AccessToken:     "minted-token",
+				IssuedTokenType: issuedTokenType,
+				ExpiresAt:       time.Now().Add(time.Hour),
+			}, nil
+		}}
+	}
+
+	subject := &oauthserver.SubjectIdentity{
+		Subject: "user-1",
+		Issuer:  "https://dex.main.example.com",
+		Claims: &oidc.IDTokenClaims{
+			Email:         "user-1@example.com",
+			EmailVerified: true,
+			Groups:        []string{"customer:team-a"},
+		},
+	}
+	_, err := broker.Exchange(t.Context(), &oauthserver.ExchangerRequest{
+		Audience:      "cluster-a",
+		Subject:       subject,
+		SubjectToken:  "subject-token",
+		GrantedGroups: []string{"workload:granted"},
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, "user-1", capturedReq.Subject, "Subject string is preserved for cache-keyed providers")
+	require.NotNil(t, capturedReq.SubjectIdentity, "full subject identity must be forwarded")
+	assert.Equal(t, subject, capturedReq.SubjectIdentity)
+	require.NotNil(t, capturedReq.SubjectIdentity.Claims)
+	assert.Equal(t, "user-1@example.com", capturedReq.SubjectIdentity.Claims.Email)
+	assert.Equal(t, []string{"customer:team-a"}, capturedReq.SubjectIdentity.Claims.Groups)
+	assert.Equal(t, []string{"workload:granted"}, capturedReq.GrantedGroups, "broker-granted groups must be forwarded")
 }
 
 func TestTokenExchangeBrokerConfig_Enabled(t *testing.T) {

@@ -12,8 +12,36 @@ Reference guide for AI agents and MCP clients working with Muster's tools. This 
 |-----------|-------------|-----------|
 | `list_tools` | List all available tools for the session | `{}` |
 | `describe_tool` | Get detailed schema for a specific tool | `{"name": "tool_name"}` |
-| `filter_tools` | Search tools by pattern | `{"pattern": "...", "description": "..."}` |
+| `filter_tools` | Discover tools cheaply (ranked, faceted, paginated) | `{"pattern": "...", "query": "...", "labels": {...}, "limit": 25}` |
 | `list_core_tools` | List only Muster core tools | `{}` |
+
+#### `filter_tools` — the discovery tier
+
+`filter_tools` is a cheap discovery tier, distinct from execution. Against a large fleet (hundreds of workflows) it returns a **bounded, summarised, optionally ranked** page rather than the full catalogue, so finding a tool costs a few hundred tokens instead of a full-catalogue dump.
+
+| Argument | Type | Default | Purpose |
+|----------|------|---------|---------|
+| `pattern` | string | — | Glob match on the tool name (e.g. `x_kubernetes_*`). |
+| `description_filter` | string | — | Case-insensitive substring match on the full description. |
+| `query` | string | — | Natural-language query. When set, matches are relevance-ranked (lexical BM25 over name + summary), returned best-first with a `score`; non-matching tools are dropped. |
+| `labels` | object | — | Label facets as key=value pairs. A tool must carry every given label to match. Only workflow tools carry labels today — they inherit the `Workflow` CRD's `metadata.labels`; core (`core_*`) and external (`x_*`) tools have none, so a `labels` facet currently scopes discovery to labelled workflows. |
+| `case_sensitive` | bool | `false` | Case-sensitive name matching. |
+| `include_schema` | bool | `false` | Return full descriptions **and** input schemas instead of one-line summaries. |
+| `limit` | number | `25` | Max tools per page. |
+| `offset` | number | `0` | Tools to skip before this page. |
+
+The response carries `total` (matches across the whole catalogue), `truncated` (more matches exist beyond this page), and per-tool a one-line `summary` (plus `score` when ranked and `labels` when present). Get the authoritative full schema of a chosen tool with `describe_tool` before executing it.
+
+```bash
+# Rank workflows by intent instead of guessing a pattern
+filter_tools(query="deploy an app to a cluster", limit=5)
+
+# Scope discovery to a labelled subset
+filter_tools(labels={"category": "observability"})
+
+# Page through a broad match
+filter_tools(pattern="*workflow*", limit=25, offset=25)
+```
 
 ### Tool Execution
 
@@ -649,8 +677,7 @@ Create a new workflow definition with advanced step configuration.
   - `id` (string, required) - Unique step identifier within workflow
   - `tool` (string, required) - Tool name to execute for this step
   - `description` (string, optional) - Human-readable step documentation
-  - `args` (object, optional) - Tool arguments with templating support (`{{.argName}}`, `{{stepId.field}}`)
-  - `outputs` (object, optional) - Output variable assignments for subsequent steps
+  - `args` (object, optional) - Tool arguments with templating support (inputs as `{{ .input.<arg> }}`, prior results as `{{ .results.<step-id>.<field> }}`)
   - `condition` (object, optional) - Conditional execution configuration:
     - `tool` (string, required) - Tool to call for condition evaluation
     - `args` (object, optional) - Arguments for condition tool
@@ -694,7 +721,7 @@ Create a new workflow definition with advanced step configuration.
         "tool": "x_kubernetes_apply",
         "description": "Deploy the application",
         "args": {
-          "manifest": "{{.manifest}}"
+          "manifest": "{{ .input.manifest }}"
         }
       },
       {
@@ -704,7 +731,7 @@ Create a new workflow definition with advanced step configuration.
         "condition": {
           "tool": "echo",
           "args": {
-            "value": "{{.health_check}}"
+            "value": "{{ .input.health_check }}"
           },
           "expect": {
             "json_path": {
@@ -713,7 +740,7 @@ Create a new workflow definition with advanced step configuration.
           }
         },
         "args": {
-          "name": "{{create_service.service_name}}"
+          "name": "{{ .results.create_service.service_name }}"
         },
         "store": true
       }
@@ -798,7 +825,7 @@ Update an existing workflow definition. Only provided fields are updated.
         "tool": "x_kubernetes_apply",
         "description": "Deploy the application",
         "args": {
-          "manifest": "{{.manifest}}"
+          "manifest": "{{ .input.manifest }}"
         }
       }
     ]
@@ -858,7 +885,7 @@ Validate a workflow definition without creating it.
         "id": "invalid_step",
         "tool": "nonexistent_tool",
         "args": {
-          "invalid_template": "{{.nonexistent_arg}}"
+          "invalid_template": "{{ .input.nonexistent_arg }}"
         }
       }
     ]
@@ -962,7 +989,7 @@ steps:
   - id: deploy
     tool: x_kubernetes_apply
     args:
-      manifest: "{{.manifest}}"
+      manifest: "{{ .input.app_name }}-manifest.yaml"
 ```
 
 This generates a `workflow_deploy-webapp` tool that you execute via:

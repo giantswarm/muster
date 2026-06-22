@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/giantswarm/mcp-oauth/providers/oidc"
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
 	"github.com/go-jose/go-jose/v4"
 	"github.com/stretchr/testify/require"
@@ -103,6 +104,95 @@ func TestLocalMintProvider_NilActor_NoActClaim(t *testing.T) {
 	require.Equal(t, "alice@example.com", claims["sub"])
 	_, hasAct := claims["act"]
 	require.False(t, hasAct, "non-delegated exchange must not carry act claim")
+}
+
+// TestLocalMintProvider_ForwardsIdentityClaimsAndGroups verifies that on the OBO
+// path the minted token carries the subject's validated identity claims (email,
+// groups), merges the broker-granted groups, and preserves a multi-hop act chain
+// (the new actor nested over the prior act on the subject token).
+func TestLocalMintProvider_ForwardsIdentityClaimsAndGroups(t *testing.T) {
+	t.Parallel()
+
+	exchanger := newTestLocalMintExchanger(t)
+	provider := &localMintProvider{exchanger: exchanger}
+
+	subject := &oauthserver.SubjectIdentity{
+		Subject: "alice@example.com",
+		Issuer:  "https://dex.example.com",
+		Claims: &oidc.IDTokenClaims{
+			Email:         "alice@example.com",
+			EmailVerified: true,
+			Groups:        []string{"customer:platform-team"},
+			Act:           &oidc.ActorClaim{Issuer: "https://dex.example.com", Subject: "agent-a"},
+		},
+	}
+
+	result, err := provider.Mint(context.Background(), MintRequest{
+		Subject:         subject.Subject,
+		Target:          "mcp-prometheus",
+		SubjectIdentity: subject,
+		Actor:           &oauthserver.SubjectIdentity{Subject: "agent-b", Issuer: "https://kubernetes.default.svc"},
+		GrantedGroups:   []string{"workload:granted-group"},
+	})
+	require.NoError(t, err)
+
+	claims := localMintJWTClaims(t, result.AccessToken)
+	require.Equal(t, "alice@example.com", claims["sub"])
+	require.Equal(t, "alice@example.com", claims["email"], "subject email must be carried into the minted token")
+	require.Equal(t, true, claims["email_verified"])
+
+	groups := stringSlice(t, claims["groups"])
+	require.Contains(t, groups, "customer:platform-team", "subject groups must be carried")
+	require.Contains(t, groups, "workload:granted-group", "broker-granted groups must be merged")
+
+	act, ok := claims["act"].(map[string]interface{})
+	require.True(t, ok, "act claim must be present")
+	require.Equal(t, "agent-b", act["sub"], "leaf actor is the new acting party")
+	require.Equal(t, "https://kubernetes.default.svc", act["iss"])
+
+	prior, ok := act["act"].(map[string]interface{})
+	require.True(t, ok, "prior act chain on the subject token must be preserved (not collapsed)")
+	require.Equal(t, "agent-a", prior["sub"])
+}
+
+// TestLocalMintProvider_M2M_NoSubjectClaims verifies that an M2M exchange whose
+// subject carries no identity claims mints sub+aud only: no email, no groups,
+// no act are fabricated.
+func TestLocalMintProvider_M2M_NoSubjectClaims(t *testing.T) {
+	t.Parallel()
+
+	exchanger := newTestLocalMintExchanger(t)
+	provider := &localMintProvider{exchanger: exchanger}
+
+	subject := &oauthserver.SubjectIdentity{Subject: "system:serviceaccount:agent-ns:kagent"}
+
+	result, err := provider.Mint(context.Background(), MintRequest{
+		Subject:         subject.Subject,
+		Target:          "mcp-kubernetes",
+		SubjectIdentity: subject,
+	})
+	require.NoError(t, err)
+
+	claims := localMintJWTClaims(t, result.AccessToken)
+	require.Equal(t, "system:serviceaccount:agent-ns:kagent", claims["sub"])
+	require.Equal(t, "mcp-kubernetes", claims["aud"])
+	require.NotContains(t, claims, "email")
+	require.NotContains(t, claims, "groups")
+	require.NotContains(t, claims, "act")
+}
+
+// stringSlice converts a decoded JSON array claim into a []string.
+func stringSlice(t *testing.T, v interface{}) []string {
+	t.Helper()
+	raw, ok := v.([]interface{})
+	require.True(t, ok, "expected a JSON array, got %T", v)
+	out := make([]string, len(raw))
+	for i := range raw {
+		s, ok := raw[i].(string)
+		require.True(t, ok, "expected string element, got %T", raw[i])
+		out[i] = s
+	}
+	return out
 }
 
 func TestLocalMintProvider_NilExchanger_ReturnsConfigError(t *testing.T) {

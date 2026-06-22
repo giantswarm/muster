@@ -13,19 +13,31 @@ This chart contains only the muster CustomResourceDefinitions:
 - `mcpservers.muster.giantswarm.io` (kind: `MCPServer`)
 - `workflows.muster.giantswarm.io` (kind: `Workflow`)
 
-It exists so the CRD lifecycle can be decoupled from the muster application
-chart and owned independently by a downstream `agentic-platform-crds` umbrella.
-The muster application chart no longer renders these CRDs.
+It is a standalone option for managing the CRD lifecycle independently of the
+muster application chart — useful for a downstream `agentic-platform-crds`
+umbrella, or for plain-Helm users who want CRD updates to apply on
+`helm upgrade`.
 
 The CRDs are loaded from `files/crds/*.yaml` by `templates/crds.yaml` (regular
 chart templates, not the Helm 3 `crds/` special directory), so they are
 upgradable on `helm upgrade` and the loader can merge `crds.annotations` into
 each CRD's `metadata.annotations`.
 
+> The muster **application** chart also ships these CRDs, in its Helm 3 `crds/`
+> directory (`helm/muster/crds/`). Helm installs them automatically on
+> `helm install muster` but does not update them on `helm upgrade`; Flux users
+> get atomic CRD upgrades via `install.crds`/`upgrade.crds: CreateReplace` on the
+> HelmRelease. The two are compatible: if you install `muster-crds` first, the
+> app chart's bundled CRDs already exist and are a no-op (Helm skips existing
+> CRDs in `crds/`, so there is no ownership conflict). Use `muster-crds` when you
+> want a separate, `helm upgrade`-friendly CRD lifecycle; otherwise the app
+> chart alone is sufficient.
+
 ## Ordering
 
-Install or upgrade **muster-crds before muster**. The muster application chart
-expects the CRDs to already exist and ships with `muster.crds.install: false`.
+When you use this chart, install or upgrade **muster-crds before muster** so the
+CRDs are present before the operator starts. (The app chart's own bundled CRDs
+become a no-op in this case.)
 
 In an umbrella chart, express this with a dependency ordering / sync wave so
 that `muster-crds` reconciles ahead of `muster`.

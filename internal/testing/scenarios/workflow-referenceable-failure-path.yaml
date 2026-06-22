@@ -1,0 +1,71 @@
+name: "workflow-referenceable-failure-path"
+description: "A failed step's synthesized result is always recorded and referenceable by later steps regardless of the output flag: a tolerated (allow_failure) failure exposes success=false and isError=true to a downstream step, and the same failure result drives a fromStep condition (issue #873)"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "output", "failure", "chaining", "core-api"]
+timeout: "2m"
+
+pre_configuration:
+  mcp_servers:
+  - name: "provider"
+    config:
+      tools:
+      - name: "boom"
+        responses: [ { error: "deliberate failure" } ]
+      - name: "echo"
+        responses: [ { response: { said: "{{ .text }}" } } ]
+
+steps:
+- id: "create-failure-ref-workflow"
+  tool: "core_workflow_create"
+  args:
+    name: "failure-ref"
+    steps:
+      # Tolerated failure with neither output nor store. Its synthesized failure
+      # result must still be recorded for referencing.
+      - id: "risky"
+        tool: "x_provider_boom"
+        allow_failure: true
+      # References the failed step's synthesized fields, proving failure-path
+      # results are referenceable without any output flag.
+      - id: "inspect"
+        tool: "x_provider_echo"
+        args: { text: "failed={{ .results.risky.isError }} ok={{ .results.risky.success }}" }
+        output: true
+      # A fromStep condition over the same failed step: expectNot success means
+      # "run when the referenced step did NOT succeed", so this step runs.
+      - id: "recover"
+        condition:
+          from_step: "risky"
+          expect_not:
+            success: true
+        tool: "x_provider_echo"
+        args: { text: "recovered" }
+        output: true
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "failure-ref" }
+
+- id: "run-failure-ref-workflow"
+  tool: "workflow_failure-ref"
+  expected:
+    success: true
+    json_path:
+      status: "completed"
+      steps.0.id: "risky"
+      steps.0.status: "failed"
+      steps.1.id: "inspect"
+      steps.1.result.said: "failed=true ok=false"
+      steps.2.id: "recover"
+      steps.2.status: "completed"
+      steps.2.condition_evaluation: true
+      steps.2.result.said: "recovered"
+
+cleanup:
+- id: "delete-failure-ref-workflow"
+  tool: "core_workflow_delete"
+  args: { name: "failure-ref" }
+  expected:
+    success: true

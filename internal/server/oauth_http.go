@@ -183,6 +183,9 @@ func NewOAuthHTTPServer(cfg config.OAuthServerConfig, mcpHandler http.Handler, d
 		dpopValkeyClient: dpopClient,
 	}
 
+	// Expose the broker-backed mint to the aggregator's localMint downstream path.
+	api.RegisterBackendTokenMinter(&brokerTokenMinter{server: oauthServer})
+
 	return server, nil
 }
 
@@ -291,6 +294,18 @@ func (s *OAuthHTTPServer) setupMCPRoutes(mux *http.ServeMux) {
 func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
+
+		// Surface the raw inbound tokens for the localMint downstream path: the
+		// Authorization bearer is the RFC 8693 subject, the actor header is the
+		// actor. Both are request-scoped and read per call_tool by the mint
+		// header func, so inject them before any branch returns and rebind r.
+		if bearer := extractBearerToken(r); bearer != "" {
+			ctx = ContextWithBearerToken(ctx, bearer)
+		}
+		if actor := extractActorToken(r); actor != "" {
+			ctx = ContextWithActorToken(ctx, actor)
+		}
+		r = r.WithContext(ctx)
 
 		// Get user info from context (set by ValidateToken middleware)
 		userInfo, ok := oauthhandler.UserInfoFromContext(ctx)
@@ -775,6 +790,10 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 
 	logEnabledOAuthOptions(logger)
 
+	// Declaratively (re)seed confidential broker clients from mounted secrets so
+	// that a wiped client store self-heals. Best-effort; never fails startup.
+	seedBrokerClients(context.Background(), oauthSrv, cfg.TokenExchangeBroker, logger)
+
 	return oauthSrv, combinedStore, dpopClient, nil
 }
 
@@ -834,13 +853,24 @@ func (s *OAuthHTTPServer) getProviderToken(ctx context.Context, r *http.Request)
 
 // extractBearerToken extracts the bearer token from the Authorization header.
 func extractBearerToken(r *http.Request) string {
-	auth := r.Header.Get("Authorization")
-	if auth == "" {
+	return stripBearerScheme(r.Header.Get("Authorization"))
+}
+
+// extractActorToken extracts the actor token from the HeaderActorToken header,
+// stripping an optional "Bearer " scheme for symmetry with Authorization.
+func extractActorToken(r *http.Request) string {
+	return stripBearerScheme(r.Header.Get(HeaderActorToken))
+}
+
+// stripBearerScheme returns the token portion of a "Bearer <token>" header
+// value, or "" when the value is empty or carries no Bearer scheme.
+func stripBearerScheme(value string) string {
+	if value == "" {
 		return ""
 	}
 	const prefix = "Bearer "
-	if len(auth) >= len(prefix) && strings.EqualFold(auth[:len(prefix)], prefix) {
-		return auth[len(prefix):]
+	if len(value) >= len(prefix) && strings.EqualFold(value[:len(prefix)], prefix) {
+		return value[len(prefix):]
 	}
 	return ""
 }

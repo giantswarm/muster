@@ -1,0 +1,67 @@
+name: "workflow-output-referenceable"
+description: "Every step result is referenceable by later steps regardless of the output flag: a value from a non-output step flows into a later step, the output flag controls which results appear in the returned document, and the deprecated store flag still works as an alias (issue #873)"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "output", "store", "chaining", "core-api"]
+timeout: "2m"
+
+pre_configuration:
+  mcp_servers:
+  - name: "data-provider"
+    config:
+      tools:
+      - name: "token"
+        responses: [ { response: { token: "secret-xyz" } } ]
+      - name: "echo"
+        responses: [ { response: { said: "{{ .text }}" } } ]
+
+steps:
+- id: "create-chain-workflow"
+  tool: "core_workflow_create"
+  args:
+    name: "chain-workflow"
+    steps:
+      # producer has neither output nor store: it must not appear in the returned
+      # document, but its result must still be referenceable by later steps.
+      - id: "producer"
+        tool: "x_data-provider_token"
+      # consumer references the non-output producer and is itself an output step.
+      - id: "consumer"
+        tool: "x_data-provider_echo"
+        args: { text: "{{ .results.producer.token }}" }
+        output: true
+      # legacy uses the deprecated store alias, which must still emit its result.
+      - id: "legacy"
+        tool: "x_data-provider_echo"
+        args: { text: "via store" }
+        store: true
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "chain-workflow" }
+
+# The non-output producer's value flowed into the consumer (proving referencing
+# works without output/store), the consumer surfaces its result because output is
+# true, and the legacy step surfaces its result via the store alias.
+- id: "run-chain-workflow"
+  tool: "workflow_chain-workflow"
+  expected:
+    success: true
+    json_path:
+      status: "completed"
+      steps.0.id: "producer"
+      steps.0.status: "completed"
+      steps.1.id: "consumer"
+      steps.1.status: "completed"
+      steps.1.result.said: "secret-xyz"
+      steps.2.id: "legacy"
+      steps.2.status: "completed"
+      steps.2.result.said: "via store"
+
+cleanup:
+- id: "delete-chain-workflow"
+  tool: "core_workflow_delete"
+  args: { name: "chain-workflow" }
+  expected:
+    success: true

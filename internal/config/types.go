@@ -365,6 +365,16 @@ type TokenExchangeBrokerConfig struct {
 	// Config.TokenExchangeClientAudiences.
 	ClientAudiences map[string][]string `yaml:"clientAudiences,omitempty"`
 
+	// BrokerClients declaratively seeds confidential broker clients at startup
+	// from mounted Kubernetes Secrets, keyed by client ID. mcp-oauth stores a
+	// broker client's record (id -> bcrypt secret hash) only in its backing
+	// store (Valkey); a store wipe leaves the audience allowlist in config and
+	// the credentials in the holder's secret, but the client record gone, so
+	// every exchange returns invalid_client. Seeding re-creates the record from
+	// the same id+secret on every startup, so a wipe self-heals. The id+secret
+	// must match those the broker client (e.g. Backstage) presents.
+	BrokerClients map[string]BrokerClientConfig `yaml:"brokerClients,omitempty"`
+
 	// Targets maps an RFC 8693 audience name (e.g. a management cluster name)
 	// to the downstream credential provider target.
 	Targets map[string]BrokerTargetConfig `yaml:"targets,omitempty"`
@@ -376,6 +386,15 @@ type TokenExchangeBrokerConfig struct {
 	// mcp-oauth's Config.WorkloadAudiences; enforcement is performed upstream
 	// by mcp-oauth before the provider is invoked.
 	WorkloadAudiences map[string][]string `yaml:"workloadAudiences,omitempty"`
+
+	// WorkloadGroupGrants authorize specific workload identities to receive groups
+	// in a token minted on the M2M (no-actor) path. A groupless workload such as a
+	// Kubernetes SA token carries no groups, so downstreams that gate on groups
+	// cannot authorize it; a grant supplies them. Unlike WorkloadAudiences (keyed
+	// by subject, any issuer), a group grant must name an explicit issuer and
+	// subject — mcp-oauth rejects a wildcard group grant. Group strings must be in
+	// the form downstreams expect (connector-prefixed where the IdP prefixes).
+	WorkloadGroupGrants []WorkloadGroupGrantConfig `yaml:"workloadGroupGrants,omitempty"`
 
 	// AllowPrivateIP allows downstream token endpoints to resolve to private
 	// or loopback IP addresses. WARNING: reduces SSRF protection; only enable
@@ -398,6 +417,38 @@ type TokenExchangeBrokerConfig struct {
 	// secret refs that do not set an explicit namespace. Populated from the
 	// muster namespace by the serve command; not user-facing config.
 	DefaultSecretNamespace string `yaml:"-"`
+}
+
+// WorkloadGrantedIdentityConfig is the broker-asserted identity injected into a
+// token minted on the workload (no-actor) exchange path. It maps to
+// oauthserver.WorkloadGrantedIdentity. Both fields are optional; an empty struct
+// means no identity injection.
+type WorkloadGrantedIdentityConfig struct {
+	// Groups are merged into the minted token's groups claim so a groupless
+	// workload, such as a Kubernetes ServiceAccount token, can be authorized by
+	// downstreams that gate on groups. Use the exact connector-prefixed strings
+	// the downstream expects.
+	Groups []string `yaml:"groups,omitempty"`
+	// Subject, when non-empty, replaces the validated credential's sub in the
+	// minted token. The downstream sees this value as the token subject; the
+	// original workload subject is retained in the audit trail.
+	Subject string `yaml:"subject,omitempty"`
+}
+
+// WorkloadGroupGrantConfig authorizes an explicit (issuer, subject) workload to
+// request specific audiences and receive a broker-asserted identity on the M2M
+// (no-actor) exchange path. Maps to the group-bearing form of
+// oauthserver.WorkloadGrant.
+type WorkloadGroupGrantConfig struct {
+	// Issuer is the exact issuer URL of the workload token. No wildcard.
+	Issuer string `yaml:"issuer"`
+	// Subject is a glob matched against the workload token's sub claim.
+	Subject string `yaml:"subject"`
+	// Audiences lists the audiences this workload may request.
+	Audiences []string `yaml:"audiences"`
+	// Granted is the broker-asserted identity injected into the minted token.
+	// When set, Issuer and Subject must be explicit (no "*", no glob).
+	Granted WorkloadGrantedIdentityConfig `yaml:"granted,omitempty"`
 }
 
 // DelegationGrantConfig mirrors oauthserver.DelegationGrant: a single (actor, subject)
@@ -503,6 +554,23 @@ type GithubAppSecretKeyRef struct {
 	Namespace string `yaml:"namespace,omitempty"`
 	// Key is the data key within the Secret. Defaults to "private-key".
 	Key string `yaml:"key,omitempty"`
+}
+
+// BrokerClientConfig declaratively seeds one confidential broker client. The
+// map key is the client ID; the secret is resolved from the referenced
+// Kubernetes Secret at startup and the client record is idempotently ensured
+// in mcp-oauth's store.
+type BrokerClientConfig struct {
+	// ClientCredentialsSecretRef references the Kubernetes Secret holding the
+	// broker client's id and secret. The same secret the broker client (e.g.
+	// Backstage) authenticates with. The ClientID resolved from the secret must
+	// match the map key; the map key wins if they differ.
+	ClientCredentialsSecretRef *BrokerSecretRefConfig `yaml:"clientCredentialsSecretRef,omitempty"`
+
+	// Scopes optionally records the scopes granted to the seeded client. The
+	// audiences a client may request are gated by ClientAudiences, not by these
+	// scopes; this is informational on the client record.
+	Scopes []string `yaml:"scopes,omitempty"`
 }
 
 // BrokerSecretRefConfig references a Kubernetes Secret with OAuth client

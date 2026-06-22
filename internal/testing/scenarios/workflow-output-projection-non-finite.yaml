@@ -1,0 +1,57 @@
+name: "workflow-output-projection-non-finite"
+description: "An output projection whose computed (non-bare-path) template leaves render to numeric-looking strings keeps them as strings: the non-finite 'NaN'/'Inf' and the finite '42' alike, because computed leaves are never coerced from text into numbers (which would lose the string form and, for NaN/Inf, break JSON marshalling). A genuinely numeric expression like '{{ add 40 2 }}' still yields a number, proving type comes from the value, not from how the text looks (issue #874 regression guard)"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "output", "projection", "types", "regression", "core-api"]
+timeout: "2m"
+
+pre_configuration:
+  mcp_servers:
+  - name: "signals"
+    config:
+      tools:
+      - name: "emit"
+        responses: [ { response: { nan: "NaN", inf: "Inf", num: "42" } } ]
+
+steps:
+- id: "create-projection-non-finite"
+  tool: "core_workflow_create"
+  args:
+    name: "projection-non-finite"
+    steps:
+      - id: "emit"
+        tool: "x_signals_emit"
+    # printf forces the computed-template path (not a bare reference). Its
+    # result is a string, so each leaf keeps its exact text: "NaN"/"Inf" and the
+    # finite "42" alike. computedSum uses arithmetic, whose value is a real
+    # number and stays one.
+    output:
+      nanText: '{{ printf "%s" .results.emit.nan }}'
+      infText: '{{ printf "%s" .results.emit.inf }}'
+      numText: '{{ printf "%s" .results.emit.num }}'
+      computedSum: "{{ add 40 2 }}"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "projection-non-finite" }
+
+# Because computed leaves are never coerced from text to numbers, "NaN"/"Inf"
+# and "42" are all preserved verbatim as strings (so json.Marshal never sees a
+# non-finite float), while the arithmetic leaf stays a real number.
+- id: "run-projection-non-finite"
+  tool: "workflow_projection-non-finite"
+  expected:
+    success: true
+    json_path:
+      nanText: "NaN"
+      infText: "Inf"
+      numText: "42"
+      computedSum: 42
+
+cleanup:
+- id: "delete-projection-non-finite"
+  tool: "core_workflow_delete"
+  args: { name: "projection-non-finite" }
+  expected:
+    success: true

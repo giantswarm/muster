@@ -1,0 +1,53 @@
+name: "workflow-output-projection-string-preservation"
+description: "A computed output projection leaf whose string form matters (a version like '1.20', a zero-padded value like '08') keeps that exact string with no workaround: computed leaves are never coerced from text into numbers. Bare reference paths and genuinely numeric expressions still yield numbers, so a value's type comes from the value itself, not from how its text looks (issue #874)"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "output", "projection", "types", "core-api"]
+timeout: "2m"
+
+pre_configuration:
+  mcp_servers:
+  - name: "release"
+    config:
+      tools:
+      - name: "info"
+        responses: [ { response: { major: 1, minor: 20, build: 8 } } ]
+
+steps:
+- id: "create-projection-strings"
+  tool: "core_workflow_create"
+  args:
+    name: "projection-strings"
+    steps:
+      - id: "info"
+        tool: "x_release_info"
+    # Computed leaves (printf) keep their string form verbatim - "1.20" and "08"
+    # survive without any quote workaround. A bare reference path and an
+    # arithmetic expression still produce real numbers.
+    output:
+      version: '{{ printf "%d.%d" (int .results.info.major) (int .results.info.minor) }}'
+      padded: '{{ printf "%02d" (int .results.info.build) }}'
+      buildNum: "{{ .results.info.build }}"
+      nextMajor: "{{ add (int .results.info.major) 1 }}"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "projection-strings" }
+
+- id: "run-projection-strings"
+  tool: "workflow_projection-strings"
+  expected:
+    success: true
+    json_path:
+      version: "1.20"
+      padded: "08"
+      buildNum: 8
+      nextMajor: 2
+
+cleanup:
+- id: "delete-projection-strings"
+  tool: "core_workflow_delete"
+  args: { name: "projection-strings" }
+  expected:
+    success: true

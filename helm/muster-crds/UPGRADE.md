@@ -8,17 +8,26 @@ which Helm never upgrades.
 
 ## Operator ordering
 
-Always reconcile `muster-crds` **before** the `muster` application chart:
+When you manage CRDs with this chart, always reconcile `muster-crds` **before**
+the `muster` application chart:
 
 1. `helm upgrade --install muster-crds ...`
 2. `helm upgrade --install muster ...`
 
-The muster application chart no longer renders the CRDs (`muster.crds.install`
-defaults to `false`) and expects them to already exist. Installing or upgrading
-muster first risks the operator starting against missing or stale CRDs.
+Installing or upgrading muster first risks the operator starting against missing
+or stale CRDs.
 
-In an umbrella chart (`agentic-platform-crds`), encode this with an explicit
-dependency ordering or a sync wave so the CRD chart always lands first.
+The muster application chart also bundles these CRDs in its Helm 3 `crds/`
+directory, so a plain `helm install muster` on a clean cluster gets them
+automatically. If `muster-crds` is already installed, the app chart's bundled
+CRDs are a no-op (Helm skips existing CRDs in `crds/`). Note that Helm never
+updates `crds/` on `helm upgrade` — that is exactly why this standalone chart
+(whose templated CRDs do upgrade) exists for the plain-Helm upgrade path; Flux
+users instead set `install.crds`/`upgrade.crds: CreateReplace` on the muster
+HelmRelease.
+
+In an umbrella chart (`agentic-platform-crds`), encode the ordering with an
+explicit dependency ordering or a sync wave so the CRD chart always lands first.
 
 ## CRD schema-deprecation ratchet
 

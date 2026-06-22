@@ -161,228 +161,135 @@ func (e *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *Workfl
 
 #### Conditional Execution
 
-Steps can be conditionally executed based on parameters or previous step results:
+A step's `condition` is an object. The simplest form is a boolean Go-template
+gate that sees `.input`, `.results`, and `.vars`:
 
 ```yaml
-# Simple condition
+# Run only when the gate renders "true"
 - id: production_only_step
-  condition: "{{eq .environment \"production\"}}"
+  condition:
+    template: '{{ eq .input.environment "production" }}'
   tool: production_specific_tool
 
-# Complex condition with multiple checks
+# The gate can combine inputs, prior results, and loop variables
 - id: complex_condition_step
-  condition: |
-    {{and
-      (eq .environment "production")
-      (gt .replicas 1)
-      (eq .previous_step_result.status "success")
-    }}
+  condition:
+    template: >-
+      {{ and
+        (eq .input.environment "production")
+        (gt .input.replicas 1)
+        (eq .results.previous_step.status "success") }}
   tool: conditional_tool
 ```
 
+A condition can instead evaluate a tool call (`condition.tool` with
+`expect`/`expectNot`) or reuse a prior step's result (`condition.fromStep`).
+
 #### Error Handling and Recovery
 
+Let a non-critical step fail without failing the whole workflow:
+
 ```yaml
-# Step-level error handling
 - id: risky_operation
   tool: potentially_failing_tool
-  retry:
-    attempts: 3
-    delay: "30s"
-    backoff: "exponential"
-  on_failure:
-    action: "continue"  # or "stop", "rollback"
-
-# Workflow-level error handling
-error_handling:
-  strategy: "rollback"
-  notification:
-    on_failure: true
-    channels: ["slack", "email"]
+  allowFailure: true
 ```
+
+When a step that does *not* allow failure fails, the workflow's `onFailure`
+handlers run as best-effort cleanup/rollback:
+
+```yaml
+spec:
+  steps:
+    - id: provision
+      tool: create_resources
+  onFailure:
+    - id: cleanup
+      tool: delete_resources
+      args:
+        target: "{{ .input.name }}"
+```
+
+There is no built-in `retry`/`backoff` or per-step `on_failure` action — model
+retries as explicit steps, and rollback via the workflow-level `onFailure`
+handler.
 
 ## Template System
 
 ### Parameter Templating
 
-Muster uses a powerful template system for dynamic parameter substitution:
+Muster renders parameters with Go's `text/template`. Workflow inputs are under
+`.input`, stored step results under `.results` (`.context` is an alias), and
+loop/user variables under `.vars`. Templates render with `missingkey=error`, so
+a reference to a value that does not exist fails the step.
 
 ```yaml
 # Basic parameter substitution
 args:
-  app_name: "my-app"
-  image: "{{.app_name}}:{{.version}}"
+  image: "{{ .input.app_name }}:{{ .input.version }}"
 
 # Conditional logic
 database_url: |
-  {{if .database_enabled}}
-  postgres://{{.app_name}}-db:5432/{{.app_name}}
-  {{else}}
-  sqlite:///tmp/{{.app_name}}.db
-  {{end}}
+  {{ if .input.database_enabled }}
+  postgres://{{ .input.app_name }}-db:5432/{{ .input.app_name }}
+  {{ else }}
+  sqlite:///tmp/{{ .input.app_name }}.db
+  {{ end }}
 
-# Loops and iteration
+# Loops and iteration (range rebinds dot to the element)
 environments:
-  {{range .target_environments}}
-  - name: "{{.}}"
-    replicas: {{if eq . "production"}}5{{else}}2{{end}}
-  {{end}}
-
-# Function helpers
-current_time: "{{now.Format \"2006-01-02T15:04:05Z\"}}"
-random_suffix: "{{.app_name}}-{{randomString 8}}"
+  {{ range .input.target_environments }}
+  - name: "{{ . }}"
+    replicas: {{ if eq . "production" }}5{{ else }}2{{ end }}
+  {{ end }}
 ```
 
-### Advanced Template Functions
+### Available Template Functions
 
-```go
-// Custom template functions available in workflows
-var TemplateFuncs = template.FuncMap{
-    // String functions
-    "upper":    strings.ToUpper,
-    "lower":    strings.ToLower,
-    "replace":  strings.ReplaceAll,
-    "contains": strings.Contains,
-
-    // Math functions
-    "add": func(a, b int) int { return a + b },
-    "sub": func(a, b int) int { return a - b },
-    "mul": func(a, b int) int { return a * b },
-
-    // Time functions
-    "now":       time.Now,
-    "timeAdd":   func(d time.Duration) time.Time { return time.Now().Add(d) },
-    "timeFormat": func(t time.Time, layout string) string { return t.Format(layout) },
-
-    // Random functions
-    "randomString": generateRandomString,
-    "randomInt":    rand.Intn,
-
-    // Environment functions
-    "env":     os.Getenv,
-    "envWith": os.LookupEnv,
-
-    // JSON functions
-    "toJson":   toJSON,
-    "fromJson": fromJSON,
-
-    // Base64 functions
-    "base64encode": base64.StdEncoding.EncodeToString,
-    "base64decode": base64.StdEncoding.DecodeString,
-}
-```
-
-## Event-Driven Orchestration
-
-### Event System
-
-Muster supports event-driven orchestration for reactive automation:
+Templates have the full [Sprig](https://masterminds.github.io/sprig/) function
+library available in addition to the Go built-ins — there is no muster-specific
+function set. Common examples:
 
 ```yaml
-# Event-triggered workflow
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: Workflow
-metadata:
-  name: auto-scale-response
-spec:
-  triggers:
-    - type: metric_threshold
-      source: prometheus
-      query: "avg(cpu_usage) > 80"
-      duration: "5m"
-
-    - type: service_event
-      source: kubernetes
-      event_type: "pod_oom_killed"
-
-  steps:
-    - id: analyze_load
-      tool: x_monitoring_analyze_load
-
-    - id: scale_service
-      condition: "{{gt .load_analysis.recommended_replicas .current_replicas}}"
-      tool: core_service_scale
-      args:
-        name: "{{.triggered_service}}"
-        replicas: "{{.load_analysis.recommended_replicas}}"
+args:
+  # String/case: upper, lower, replace, contains, trim, ...
+  name: "{{ .input.app_name | lower }}"
+  # Time: now, date, dateModify, ...
+  current_time: "{{ now | date \"2006-01-02T15:04:05Z07:00\" }}"
+  # Random: randAlphaNum, randAlpha, randNumeric, ...
+  random_suffix: "{{ .input.app_name }}-{{ randAlphaNum 8 }}"
+  # Encoding/JSON: b64enc, b64dec, toJson, fromJson, ...
+  encoded: "{{ .input.payload | b64enc }}"
 ```
 
-### Service Lifecycle Events
+## Events and Observation
 
-Services emit lifecycle events that can trigger workflows:
+Muster's reconcilers emit Kubernetes events for MCPServer and Workflow lifecycle
+changes — creation, validation, tool availability, and failures. These events are
+**observational**: query them with `muster events` (see the
+[Events reference](../reference/events.md)) or watch them with any Kubernetes
+controller to build reactive automation around muster.
 
-```go
-type ServiceEvent struct {
-    Type        EventType `json:"type"`
-    ServiceName string    `json:"serviceName"`
-    Timestamp   time.Time `json:"timestamp"`
-    Details     EventDetails `json:"details"`
-}
-
-type EventType string
-
-const (
-    ServiceCreated    EventType = "service.created"
-    ServiceStarted    EventType = "service.started"
-    ServiceStopped    EventType = "service.stopped"
-    ServiceFailed     EventType = "service.failed"
-    ServiceHealthy    EventType = "service.healthy"
-    ServiceUnhealthy  EventType = "service.unhealthy"
-    ServiceScaled     EventType = "service.scaled"
-    ServiceUpdated    EventType = "service.updated"
-)
-```
+Workflows are executed on demand, not by an embedded trigger engine. Run a
+workflow as its aggregated `workflow_<name>` tool, with
+`muster start workflow <name>`, or from another workflow step. To make automation
+reactive, wire your external triggers (alerts, schedulers, controllers) to one of
+those entry points — the Workflow spec itself has no `triggers` field.
 
 ## Monitoring and Observability
 
-### Orchestration Metrics
+Muster instruments itself with OpenTelemetry. Logs, traces, and metrics are
+exported via OTLP when the standard `OTEL_EXPORTER_OTLP_*` environment variables
+point at a collector, and workflow executions are traced as spans (per workflow
+and per step). Consume that data in your observability backend — there is no
+muster-specific metrics CLI.
 
-Comprehensive metrics for monitoring orchestration performance:
+Per-execution detail is also recorded on the workflow execution object itself
+(step status, inputs, results, and timing) and retrievable with:
 
-```prometheus
-# Workflow execution metrics
-muster_workflow_executions_total{workflow_name, status}
-muster_workflow_duration_seconds{workflow_name}
-muster_workflow_step_duration_seconds{workflow_name, step_id}
-muster_workflow_active_executions{workflow_name}
-
-# Service orchestration metrics
-muster_service_lifecycle_events_total{service_name, event_type}
-muster_service_dependency_resolution_duration_seconds
-muster_service_health_check_duration_seconds{service_name}
-muster_service_startup_duration_seconds{service_name}
-
-# Error and retry metrics
-muster_workflow_step_retries_total{workflow_name, step_id}
-muster_workflow_failures_total{workflow_name, failure_type}
-muster_service_startup_failures_total{service_class}
-```
-
-### Execution Tracing
-
-Distributed tracing for complex workflow executions:
-
-```go
-type ExecutionTrace struct {
-    TraceID      string                 `json:"traceId"`
-    WorkflowName string                 `json:"workflowName"`
-    StartTime    time.Time              `json:"startTime"`
-    Duration     time.Duration          `json:"duration"`
-    Steps        []StepTrace            `json:"steps"`
-    Services     []ServiceTrace         `json:"services"`
-    Events       []Event                `json:"events"`
-}
-
-type StepTrace struct {
-    StepID       string               `json:"stepId"`
-    StartTime    time.Time            `json:"startTime"`
-    Duration     time.Duration        `json:"duration"`
-    Tool         string               `json:"tool"`
-    Status       ExecutionStatus      `json:"status"`
-    Dependencies []string             `json:"dependencies"`
-    Retries      int                  `json:"retries"`
-    Error        string               `json:"error,omitempty"`
-}
+```bash
+muster get workflow-execution <id> -o yaml
+muster list workflow-execution
 ```
 
 ## Best Practices

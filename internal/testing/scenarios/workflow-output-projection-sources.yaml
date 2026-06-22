@@ -1,0 +1,77 @@
+name: "workflow-output-projection-sources"
+description: "An output projection can reference every kind of recorded result — indexed forEach results, parallel sibling results, a tolerated failure result, and the workflow input — proving the projection builds on universal referenceability (issues #873 + #874)"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "output", "projection", "foreach", "parallel", "failure", "core-api"]
+timeout: "3m"
+
+pre_configuration:
+  mcp_servers:
+  - name: "provider"
+    config:
+      tools:
+      - name: "echo"
+        responses: [ { response: { said: "{{ .text }}" } } ]
+      - name: "boom"
+        responses: [ { error: "deliberate failure" } ]
+
+steps:
+- id: "create-projection-sources"
+  tool: "core_workflow_create"
+  args:
+    name: "projection-sources"
+    args:
+      items: { type: "array", required: true }
+    steps:
+      - id: "loop"
+        forEach:
+          items: "{{ .input.items }}"
+          as: "it"
+          steps:
+            - id: "make"
+              tool: "x_provider_echo"
+              args: { text: "made-{{ .vars.it }}" }
+      - id: "fan"
+        parallel:
+          - id: "pa"
+            tool: "x_provider_echo"
+            args: { text: "branch-A" }
+          - id: "pb"
+            tool: "x_provider_echo"
+            args: { text: "branch-B" }
+      - id: "risky"
+        tool: "x_provider_boom"
+        allow_failure: true
+    output:
+      fromInput: "{{ index .input.items 0 }}"
+      firstIteration: "{{ .results.make_0.said }}"
+      lastIteration: "{{ .results.make.said }}"
+      parallelA: "{{ .results.pa.said }}"
+      parallelB: "{{ .results.pb.said }}"
+      failureSeen: "{{ .results.risky.isError }}"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "projection-sources" }
+
+- id: "run-projection-sources"
+  tool: "workflow_projection-sources"
+  args:
+    items: ["x", "y"]
+  expected:
+    success: true
+    json_path:
+      fromInput: "x"
+      firstIteration: "made-x"
+      lastIteration: "made-y"
+      parallelA: "branch-A"
+      parallelB: "branch-B"
+      failureSeen: true
+
+cleanup:
+- id: "delete-projection-sources"
+  tool: "core_workflow_delete"
+  args: { name: "projection-sources" }
+  expected:
+    success: true

@@ -216,14 +216,28 @@ func (e *TokenExchanger) Exchange(ctx context.Context, req *ExchangeRequest) (*E
 	logging.Debug("TokenExchange", "Exchanging token for user=%s endpoint=%s connector=%s",
 		logging.TruncateIdentifier(req.UserID), req.Config.DexTokenEndpoint, req.Config.ConnectorID)
 
-	// Build the token exchange request with client credentials if available
+	// Build the token exchange request with client credentials if available.
+	//
+	// Request an ID token (not an access token). The exchanged token is forwarded
+	// as the bearer to the downstream MCP server, where it must serve as the
+	// user's OIDC identity:
+	//   - mcp-kubernetes (strict --downstream-oauth) uses it as the Kubernetes
+	//     OIDC ID token to mint a per-user client against the remote apiserver.
+	//   - mcp-oauth only treats a forwarded bearer as an SSO identity when it is
+	//     a JWT whose aud is in the server's TrustedAudiences (the audience scopes
+	//     appended from RequiredAudiences land in the id_token's aud claim).
+	// Dex's default access token is opaque, so requesting access_token yields a
+	// token that downstream servers can validate via /userinfo but cannot use for
+	// OIDC — mcp-kubernetes then denies with "authentication required". Requesting
+	// an id_token mirrors the token-forwarding path, which forwards the user's
+	// ID token directly.
 	exchangeReq := oidc.TokenExchangeRequest{
 		TokenEndpoint:      req.Config.DexTokenEndpoint,
 		SubjectToken:       req.SubjectToken,
 		SubjectTokenType:   tokenType,
 		ConnectorID:        req.Config.ConnectorID,
 		Scope:              scopes,
-		RequestedTokenType: oidc.TokenTypeAccessToken,
+		RequestedTokenType: oidc.TokenTypeIDToken,
 		ClientID:           req.Config.ClientID,
 		ClientSecret:       req.Config.ClientSecret,
 	}
