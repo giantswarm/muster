@@ -419,17 +419,36 @@ type TokenExchangeBrokerConfig struct {
 	DefaultSecretNamespace string `yaml:"-"`
 }
 
-// WorkloadGroupGrantConfig mirrors the group-bearing form of oauthserver.WorkloadGrant:
-// an explicit (issuer, subject) workload that receives Groups on the M2M mint path.
+// WorkloadGrantedIdentityConfig is the broker-asserted identity injected into a
+// token minted on the workload (no-actor) exchange path. It maps to
+// oauthserver.WorkloadGrantedIdentity. Both fields are optional; an empty struct
+// means no identity injection.
+type WorkloadGrantedIdentityConfig struct {
+	// Groups are merged into the minted token's groups claim so a groupless
+	// workload, such as a Kubernetes ServiceAccount token, can be authorized by
+	// downstreams that gate on groups. Use the exact connector-prefixed strings
+	// the downstream expects.
+	Groups []string `yaml:"groups,omitempty"`
+	// Subject, when non-empty, replaces the validated credential's sub in the
+	// minted token. The downstream sees this value as the token subject; the
+	// original workload subject is retained in the audit trail.
+	Subject string `yaml:"subject,omitempty"`
+}
+
+// WorkloadGroupGrantConfig authorizes an explicit (issuer, subject) workload to
+// request specific audiences and receive a broker-asserted identity on the M2M
+// (no-actor) exchange path. Maps to the group-bearing form of
+// oauthserver.WorkloadGrant.
 type WorkloadGroupGrantConfig struct {
 	// Issuer is the exact issuer URL of the workload token. No wildcard.
 	Issuer string `yaml:"issuer"`
-	// Subject is the exact sub claim of the workload token. No glob.
+	// Subject is a glob matched against the workload token's sub claim.
 	Subject string `yaml:"subject"`
 	// Audiences lists the audiences this workload may request.
 	Audiences []string `yaml:"audiences"`
-	// Groups are injected into the minted token (connector-prefixed where applicable).
-	Groups []string `yaml:"groups"`
+	// Granted is the broker-asserted identity injected into the minted token.
+	// When set, Issuer and Subject must be explicit (no "*", no glob).
+	Granted WorkloadGrantedIdentityConfig `yaml:"granted,omitempty"`
 }
 
 // DelegationGrantConfig mirrors oauthserver.DelegationGrant: a single (actor, subject)

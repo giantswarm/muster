@@ -255,9 +255,9 @@ func newDPoPReplayCache(storageCfg config.OAuthStorageConfig) (oauthserver.DPoPR
 
 // workloadGrantsFromConfig converts the muster workload config to the mcp-oauth
 // WorkloadGrant slice. The audiences map keys grants by workload subject with
-// Issuer "*" (any trusted issuer) and no groups. The group grants are explicit
-// (issuer, subject) entries carrying groups for the M2M mint path; mcp-oauth
-// rejects a wildcard group grant.
+// Issuer "*" (any trusted issuer) and no granted identity. The group grants are
+// explicit (issuer, subject) entries; mcp-oauth rejects a wildcard grant with a
+// non-empty Granted identity.
 func workloadGrantsFromConfig(m map[string][]string, groupGrants []config.WorkloadGroupGrantConfig) []oauthserver.WorkloadGrant {
 	grants := make([]oauthserver.WorkloadGrant, 0, len(m)+len(groupGrants))
 	for subject, audiences := range m {
@@ -272,7 +272,10 @@ func workloadGrantsFromConfig(m map[string][]string, groupGrants []config.Worklo
 			Issuer:    g.Issuer,
 			Subject:   g.Subject,
 			Audiences: g.Audiences,
-			Groups:    g.Groups,
+			Granted: oauthserver.WorkloadGrantedIdentity{
+				Groups:  g.Granted.Groups,
+				Subject: g.Granted.Subject,
+			},
 		})
 	}
 	return grants
