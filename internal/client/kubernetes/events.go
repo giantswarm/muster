@@ -7,8 +7,10 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/watch"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/giantswarm/muster/internal/api"
@@ -115,6 +117,96 @@ func (k *Client) QueryEvents(ctx context.Context, options api.EventQueryOptions)
 		Events:     initialResults,
 		TotalCount: totalCount,
 	}, nil
+}
+
+// WatchEvents streams muster-sourced Kubernetes events matching the options as
+// they occur, via a native watch on the Events API. The returned channel is
+// closed when ctx is cancelled. The watch is re-established automatically if
+// the API server closes it, advancing the resourceVersion to avoid replaying
+// events already delivered.
+func (k *Client) WatchEvents(ctx context.Context, options api.EventQueryOptions) (<-chan api.EventResult, error) {
+	if k.clientset == nil {
+		return nil, fmt.Errorf("kubernetes clientset not initialized")
+	}
+
+	var fieldSelectors []string
+	if options.ResourceType != "" {
+		fieldSelectors = append(fieldSelectors, fmt.Sprintf("involvedObject.kind=%s", options.ResourceType))
+	}
+	if options.ResourceName != "" {
+		fieldSelectors = append(fieldSelectors, fmt.Sprintf("involvedObject.name=%s", options.ResourceName))
+	}
+	if options.EventType != "" {
+		fieldSelectors = append(fieldSelectors, fmt.Sprintf("type=%s", options.EventType))
+	}
+	fieldSelector := strings.Join(fieldSelectors, ",")
+
+	out := make(chan api.EventResult)
+	go func() {
+		defer close(out)
+		resourceVersion := ""
+		for {
+			if ctx.Err() != nil {
+				return
+			}
+			w, err := k.clientset.CoreV1().Events(options.Namespace).Watch(ctx, metav1.ListOptions{
+				FieldSelector:   fieldSelector,
+				ResourceVersion: resourceVersion,
+			})
+			if err != nil {
+				// ponytail: a failed (re)establish ends the stream rather than
+				// busy-retrying. Ceiling: a transient API error stops follow;
+				// the user re-runs `muster events --follow`. Upgrade path: wrap
+				// in client-go's RetryWatcher if silent reconnection is needed.
+				return
+			}
+			resourceVersion = k.drainEventWatch(ctx, w, options, out)
+			w.Stop()
+			if resourceVersion == "" {
+				// Watch ended without a usable resourceVersion (e.g. ctx done or
+				// 410 Gone); stop rather than risk a tight reconnect loop.
+				return
+			}
+		}
+	}()
+	return out, nil
+}
+
+// drainEventWatch forwards matching events from a single watch to out until the
+// watch closes or ctx is cancelled. It returns the last observed resourceVersion
+// so the caller can resume, or "" if the stream should not be resumed.
+func (k *Client) drainEventWatch(ctx context.Context, w watch.Interface, options api.EventQueryOptions, out chan<- api.EventResult) string {
+	resourceVersion := ""
+	for {
+		select {
+		case <-ctx.Done():
+			return ""
+		case evt, ok := <-w.ResultChan():
+			if !ok {
+				return resourceVersion
+			}
+			if evt.Type != watch.Added && evt.Type != watch.Modified {
+				continue
+			}
+			kev, ok := evt.Object.(*corev1.Event)
+			if !ok {
+				return ""
+			}
+			resourceVersion = kev.ResourceVersion
+			if kev.Source.Component != sourceComponent {
+				continue
+			}
+			result := k.convertKubernetesEvent(kev)
+			if options.Since != nil && result.Timestamp.Before(*options.Since) {
+				continue
+			}
+			select {
+			case out <- result:
+			case <-ctx.Done():
+				return ""
+			}
+		}
+	}
 }
 
 // convertKubernetesEvent converts a Kubernetes Event to our EventResult format.

@@ -182,6 +182,25 @@ type EventManagerHandler interface {
 	//	result, err := handler.QueryEvents(ctx, options)
 	QueryEvents(ctx context.Context, options EventQueryOptions) (*EventQueryResult, error)
 
+	// WatchEvents returns a channel that emits muster events matching the given
+	// options as they occur. It is the streaming counterpart to QueryEvents and
+	// backs `muster events --follow`: in Kubernetes mode it is driven by a
+	// native Kubernetes watch on the Events API; in filesystem mode by an
+	// fsnotify watch on the on-disk event log. No timer polling is involved.
+	//
+	// The returned channel is closed when ctx is cancelled or the underlying
+	// watch terminates. Callers must drain or cancel to avoid leaking the
+	// backing watch.
+	//
+	// Args:
+	//   - ctx: Context controlling the lifetime of the watch
+	//   - options: Filtering options applied to streamed events
+	//
+	// Returns:
+	//   - <-chan EventResult: Channel emitting matching events as they occur
+	//   - error: Error if the watch could not be established
+	WatchEvents(ctx context.Context, options EventQueryOptions) (<-chan EventResult, error)
+
 	// Utility methods
 
 	// IsKubernetesMode returns true if the event manager is using Kubernetes mode.

@@ -87,6 +87,15 @@ func (a *Adapter) QueryEvents(ctx context.Context, options api.EventQueryOptions
 	return result, nil
 }
 
+// WatchEvents streams events matching the options as they occur.
+// Implements EventManagerHandler.WatchEvents by delegating to the underlying
+// MusterClient (Kubernetes watch or filesystem fsnotify watch).
+func (a *Adapter) WatchEvents(ctx context.Context, options api.EventQueryOptions) (<-chan api.EventResult, error) {
+	logging.Debug("events", "Watching events with options: resourceType=%s, resourceName=%s, namespace=%s, eventType=%s",
+		options.ResourceType, options.ResourceName, options.Namespace, options.EventType)
+	return a.generator.client.WatchEvents(ctx, options)
+}
+
 // IsKubernetesMode returns true if the event manager is using Kubernetes mode.
 // Implements EventManagerHandler.IsKubernetesMode.
 func (a *Adapter) IsKubernetesMode() bool {
@@ -243,10 +252,11 @@ func (a *Adapter) handleEventsQuery(ctx context.Context, args map[string]interfa
 		options.Limit = limit
 	}
 
-	// Note: the `follow` argument is accepted for backwards compatibility but is
-	// a no-op server-side. Follow/streaming is implemented client-side in the
-	// `muster events --follow` CLI by polling this tool with an advancing
-	// window, which avoids unsupported MCP server-push machinery.
+	// The `follow` argument is handled by the aggregator: it returns the
+	// current events from this query immediately and then streams subsequent
+	// events to the calling client as MCP notifications (see
+	// AggregatorServer.startEventFollow). This handler always returns the
+	// point-in-time query result.
 
 	// Execute the query
 	result, err := a.QueryEvents(ctx, options)

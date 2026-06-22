@@ -154,15 +154,11 @@ func InitializeServices(cfg *Config) (*Services, error) {
 		namespace = "default"
 	}
 
-	// Register event manager adapter only when events are enabled (alpha feature).
-	// Events can be enabled via --enable-events flag or config.yaml `events: true`.
-	if cfg.EnableEvents || cfg.MusterConfig.Events {
-		eventAdapter := events.NewAdapter(musterClient, namespace)
-		eventAdapter.Register()
-		logging.Info("Services", "Kubernetes event emission enabled (alpha)")
-	} else {
-		logging.Debug("Services", "Kubernetes event emission disabled (use --enable-events to enable)")
-	}
+	// Register the event manager adapter. Event emission is a core feature and
+	// is always enabled; it works in both Kubernetes (real Events) and
+	// filesystem (on-disk event log) modes.
+	eventAdapter := events.NewAdapter(musterClient, namespace)
+	eventAdapter.Register()
 
 	// Create and register Workflow adapter using the muster client
 	workflowAdapter := workflow.NewAdapterWithClient(musterClient, namespace, toolCaller, toolChecker, cfg.ConfigPath)

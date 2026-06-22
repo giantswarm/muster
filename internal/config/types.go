@@ -7,7 +7,6 @@ type MusterConfig struct {
 	Aggregator AggregatorConfig `yaml:"aggregator"`
 	Namespace  string           `yaml:"namespace,omitempty"`  // Namespace for MCPServer and Workflow discovery
 	Kubernetes bool             `yaml:"kubernetes,omitempty"` // Enable Kubernetes CRD mode (uses CRDs instead of filesystem)
-	Events     bool             `yaml:"events,omitempty"`     // Enable Kubernetes event emission (alpha, disabled by default)
 }
 
 // MCPServerType defines the type of MCP server.

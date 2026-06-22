@@ -71,6 +71,19 @@ type Client struct {
 	headers          map[string]string           // Custom HTTP headers
 	oauthConfig      *transport.OAuthConfig      // OAuth config for mcp-go transport
 	agentTokenStore  *agentoauth.AgentTokenStore // Token store for agent OAuth
+
+	// continuousListening makes the streamable-http transport open a standalone
+	// GET stream to receive server-initiated notifications (e.g. events --follow).
+	continuousListening bool
+}
+
+// SetContinuousListening enables a standalone server-to-client notification
+// stream on the streamable-http transport. Must be called before Connect. It is
+// a no-op for the SSE transport, which always listens.
+func (c *Client) SetContinuousListening(enabled bool) {
+	c.mu.Lock()
+	c.continuousListening = enabled
+	c.mu.Unlock()
 }
 
 // NewClient creates a new MCP client with the specified endpoint, logger, and transport type.
@@ -283,6 +296,12 @@ func (c *Client) createAndConnectClient(ctx context.Context) (client.MCPClient, 
 		}
 		if len(headers) > 0 {
 			httpOpts = append(httpOpts, transport.WithHTTPHeaders(headers))
+		}
+		c.mu.RLock()
+		continuousListening := c.continuousListening
+		c.mu.RUnlock()
+		if continuousListening {
+			httpOpts = append(httpOpts, transport.WithContinuousListening())
 		}
 
 		streamableClient, err := client.NewStreamableHttpClient(c.endpoint, httpOpts...)

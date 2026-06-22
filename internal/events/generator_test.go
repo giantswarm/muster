@@ -71,6 +71,13 @@ func (m *mockMusterClient) QueryEvents(ctx context.Context, options api.EventQue
 	}, nil
 }
 
+func (m *mockMusterClient) WatchEvents(ctx context.Context, options api.EventQueryOptions) (<-chan api.EventResult, error) {
+	// Return a closed channel: the mock emits no streamed events.
+	ch := make(chan api.EventResult)
+	close(ch)
+	return ch, nil
+}
+
 func (m *mockMusterClient) IsKubernetesMode() bool {
 	return m.isKubernetes
 }

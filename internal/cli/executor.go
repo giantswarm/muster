@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/giantswarm/muster/internal/agent"
@@ -30,6 +31,8 @@ type (
 	MCPResource = mcp.Resource
 	// MCPPrompt is an alias for mcp.Prompt for use in cmd package
 	MCPPrompt = mcp.Prompt
+	// MCPNotification is an alias for mcp.JSONRPCNotification for use in cmd package
+	MCPNotification = mcp.JSONRPCNotification
 )
 
 // OutputFormat represents the supported output formats for CLI commands.
@@ -148,6 +151,11 @@ type ExecutorOptions struct {
 	Context string
 	// AuthMode controls authentication behavior (auto, prompt, none)
 	AuthMode AuthMode
+	// ContinuousListening, when true, makes the streamable-http client open a
+	// standalone GET stream so it receives server-initiated notifications
+	// (required for `events --follow`). Has no effect on the SSE transport,
+	// which always listens.
+	ContinuousListening bool
 }
 
 // ToolExecutor provides high-level tool execution functionality with formatted output.
@@ -165,6 +173,21 @@ type ToolExecutor struct {
 	endpoint string
 	// isRemote indicates if this is a remote (non-localhost) connection
 	isRemote bool
+	// notifyMu guards notifyHandler.
+	notifyMu sync.Mutex
+	// notifyHandler, when set, receives every MCP notification from the server
+	// instead of the default debug-logging drain. Used by `events --follow`.
+	notifyHandler func(mcp.JSONRPCNotification)
+}
+
+// OnNotification registers a handler that receives every server notification.
+// Passing nil restores the default (debug-log) drain behavior. The handler runs
+// on the executor's single notification-pump goroutine, so it must not block
+// for long.
+func (e *ToolExecutor) OnNotification(handler func(mcp.JSONRPCNotification)) {
+	e.notifyMu.Lock()
+	e.notifyHandler = handler
+	e.notifyMu.Unlock()
 }
 
 // NewToolExecutor creates a new tool executor with the specified options.
@@ -243,23 +266,36 @@ func NewToolExecutor(options ExecutorOptions) (*ToolExecutor, error) {
 	}
 
 	client := agent.NewClient(endpoint, logger, transport)
+	if options.ContinuousListening {
+		client.SetContinuousListening(true)
+	}
 
-	// Handle MCP notifications silently unless debug mode is enabled
+	executor := &ToolExecutor{
+		client:    client,
+		options:   options,
+		formatter: NewTableFormatter(options),
+		endpoint:  endpoint,
+		isRemote:  isRemote,
+	}
+
+	// Pump MCP notifications: forward to a registered handler (e.g. for
+	// `events --follow`) or, by default, drop them (logging in debug mode).
 	go func() {
 		for notification := range client.NotificationChan {
+			executor.notifyMu.Lock()
+			handler := executor.notifyHandler
+			executor.notifyMu.Unlock()
+			if handler != nil {
+				handler(notification)
+				continue
+			}
 			if options.Debug {
 				logger.Debug("MCP Notification: %s", notification.Method)
 			}
 		}
 	}()
 
-	return &ToolExecutor{
-		client:    client,
-		options:   options,
-		formatter: NewTableFormatter(options),
-		endpoint:  endpoint,
-		isRemote:  isRemote,
-	}, nil
+	return executor, nil
 }
 
 // Connect establishes a connection to the muster aggregator server.

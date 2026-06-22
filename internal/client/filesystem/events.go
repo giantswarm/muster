@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/giantswarm/muster/internal/api"
@@ -84,6 +85,105 @@ func (f *Client) QueryEvents(ctx context.Context, options api.EventQueryOptions)
 		Events:     initialEvents,
 		TotalCount: totalCount,
 	}, nil
+}
+
+// WatchEvents streams events matching the options as they are written, using an
+// fsnotify watch on the events directory. On each filesystem change it reads the
+// JSON daily files and emits events newer than the last one delivered. The
+// returned channel is closed when ctx is cancelled. This is event-driven (no
+// timer polling): work happens only when the on-disk log actually changes.
+func (f *Client) WatchEvents(ctx context.Context, options api.EventQueryOptions) (<-chan api.EventResult, error) {
+	eventsDir := filepath.Join(f.basePath, "events")
+	if err := os.MkdirAll(eventsDir, 0755); err != nil { //nolint:gosec
+		return nil, fmt.Errorf("failed to create events directory: %w", err)
+	}
+
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create events watcher: %w", err)
+	}
+	if err := watcher.Add(eventsDir); err != nil {
+		_ = watcher.Close()
+		return nil, fmt.Errorf("failed to watch events directory: %w", err)
+	}
+
+	out := make(chan api.EventResult)
+	go func() {
+		defer close(out)
+		defer func() { _ = watcher.Close() }()
+
+		lastSeen := time.Now()
+		if options.Since != nil {
+			lastSeen = *options.Since
+		}
+
+		emit := func() {
+			events := f.collectJSONEvents(eventsDir, options, lastSeen)
+			for _, ev := range events {
+				select {
+				case out <- ev:
+				case <-ctx.Done():
+					return
+				}
+				if ev.Timestamp.After(lastSeen) {
+					lastSeen = ev.Timestamp
+				}
+			}
+		}
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case _, ok := <-watcher.Events:
+				if !ok {
+					return
+				}
+				emit()
+			case _, ok := <-watcher.Errors:
+				if !ok {
+					return
+				}
+			}
+		}
+	}()
+
+	return out, nil
+}
+
+// collectJSONEvents reads the JSON daily files, applies the filter options, and
+// returns events strictly newer than after, sorted oldest-first. It deliberately
+// ignores the legacy events.log so each event is delivered once.
+func (f *Client) collectJSONEvents(eventsDir string, options api.EventQueryOptions, after time.Time) []api.EventResult {
+	entries, err := os.ReadDir(eventsDir)
+	if err != nil {
+		return nil
+	}
+
+	var all []api.EventResult
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasPrefix(entry.Name(), "events-") || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		fileEvents, err := f.readEventsFromFile(filepath.Join(eventsDir, entry.Name()))
+		if err != nil {
+			continue
+		}
+		all = append(all, fileEvents...)
+	}
+
+	filtered := f.filterEvents(all, options)
+	var fresh []api.EventResult
+	for _, ev := range filtered {
+		if ev.Timestamp.After(after) {
+			fresh = append(fresh, ev)
+		}
+	}
+
+	sort.Slice(fresh, func(i, j int) bool {
+		return fresh[i].Timestamp.Before(fresh[j].Timestamp)
+	})
+	return fresh
 }
 
 // readEventsFromFile reads events from a daily JSON file (one JSON event per line).

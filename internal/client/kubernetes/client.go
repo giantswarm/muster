@@ -53,6 +53,10 @@ type Client struct {
 	eventRecorder      record.EventRecorder
 	eventBroadcaster   record.EventBroadcaster
 	eventRecordingStop watch.Interface
+
+	// clientset is the typed Kubernetes clientset. It backs the event
+	// broadcaster sink and the native Events watch used by WatchEvents.
+	clientset kubernetes.Interface
 }
 
 // New returns a Kubernetes-backed Client for the given REST config. CRD
@@ -98,6 +102,7 @@ func New(config *rest.Config) (*Client, error) {
 		eventRecorder:      recorder,
 		eventBroadcaster:   broadcaster,
 		eventRecordingStop: recordingStop,
+		clientset:          clientset,
 	}
 
 	if err := c.validateCRDs(context.Background()); err != nil {
