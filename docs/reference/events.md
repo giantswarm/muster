@@ -138,13 +138,6 @@ MCPServers are external MCP (Model Context Protocol) servers that provide tools 
   # > list tools  # Check if tools appear
   ```
 
-#### MCPServerReconnected
-- **Type**: Normal
-- **Meaning**: Connection to MCPServer was restored after being lost
-- **Message Example**: "MCPServer 'github-server' reconnected successfully"
-- **Triggered When**: Network recovery, server restart, or connectivity restoration
-- **Next Steps**: Tools should become available again
-
 ### Health and Recovery Events
 
 #### MCPServerHealthCheckFailed
@@ -328,13 +321,6 @@ Workflows define sequences of tool executions. Events track configuration, execu
 
 ### Tool Availability Events
 
-#### WorkflowAvailable
-- **Type**: Normal
-- **Meaning**: All required tools became available for workflow
-- **Message Example**: "Workflow 'deploy-app' available: all 5 required tools found"
-- **Triggered When**: All tools needed by workflow steps become available
-- **Next Steps**: Workflow can be executed
-
 #### WorkflowUnavailable
 - **Type**: Warning
 - **Meaning**: Required tools became unavailable for workflow
@@ -349,33 +335,12 @@ Workflows define sequences of tool executions. Events track configuration, execu
   muster list mcpserver
   ```
 
-#### WorkflowToolsDiscovered
-- **Type**: Normal
-- **Meaning**: New required tools were discovered for workflow
-- **Message Example**: "Workflow 'deploy-app' tools discovered: found tools from 'kubernetes-server'"
-- **Triggered When**: MCPServer providing workflow tools becomes available
-- **Next Steps**: Workflow may become available
-
-#### WorkflowToolsMissing
-- **Type**: Warning
-- **Meaning**: Specific required tools became unavailable
-- **Message Example**: "Workflow 'deploy-app' tools missing: kubectl_apply, kubectl_get from 'kubernetes-server'"
-- **Triggered When**: MCPServer stops or tools become unavailable
-- **Troubleshooting**: Check the source MCPServer status and the workflow tool dependencies
-
 #### WorkflowToolRegistered
 - **Type**: Normal
 - **Meaning**: Workflow was registered as executable tool in aggregator
 - **Message Example**: "Workflow 'deploy-app' registered as action_deploy-app tool"
 - **Triggered When**: Workflow becomes available and is registered
 - **Next Steps**: Workflow can be called as `action_deploy-app` tool
-
-#### WorkflowToolUnregistered
-- **Type**: Normal
-- **Meaning**: Workflow tool was removed from aggregator
-- **Message Example**: "Workflow 'deploy-app' tool action_deploy-app unregistered"
-- **Triggered When**: Workflow deleted or becomes unavailable
-- **Next Steps**: Tool no longer callable
 
 #### WorkflowCapabilitiesRefreshed
 - **Type**: Normal
@@ -409,6 +374,11 @@ muster events --since 2024-01-15T10:00:00Z --until 2024-01-15T18:00:00Z
 
 # Combined filtering
 muster events --resource-type mcpserver --type Warning --since 2h --limit 10
+
+# Follow mode: print existing events, then stream new ones as they occur.
+# Implemented by polling on the client side (no server push); press Ctrl+C to stop.
+muster events --follow
+muster events --resource-type workflow --follow
 ```
 
 ### Using kubectl (Kubernetes Mode)

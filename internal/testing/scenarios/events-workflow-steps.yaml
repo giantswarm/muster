@@ -1,0 +1,65 @@
+name: "events-workflow-steps"
+description: "Step-level workflow events are emitted and carry the step ID and tool in their message (proves H2/B1)"
+category: "behavioral"
+concept: "events"
+tags: ["events", "workflow", "steps"]
+timeout: "2m"
+
+pre_configuration:
+  main_config:
+    config:
+      events: true
+
+steps:
+- id: "create-multi-step-workflow"
+  description: "Create a workflow with two named steps"
+  tool: "core_workflow_create"
+  args:
+    name: "events-steps-wf"
+    args: {}
+    steps:
+      - id: "first_step"
+        tool: "core_service_list"
+      - id: "second_step"
+        tool: "core_workflow_list"
+  expected:
+    success: true
+
+- id: "run-multi-step-workflow"
+  description: "Execute the workflow so step events are generated"
+  tool: "workflow_events-steps-wf"
+  args: {}
+  expected:
+    success: true
+
+- id: "expect-step-started-event-with-step-id"
+  description: "WorkflowStepStarted message must reference the step ID and tool (B1)"
+  tool: "core_events"
+  args:
+    resourceType: "Workflow"
+    resourceName: "events-steps-wf"
+  expected:
+    success: true
+    contains:
+      - "WorkflowStepStarted"
+      - "step first_step started"
+
+- id: "expect-step-completed-event-with-step-id"
+  description: "WorkflowStepCompleted message must reference the step ID (B1)"
+  tool: "core_events"
+  args:
+    resourceType: "Workflow"
+    resourceName: "events-steps-wf"
+  expected:
+    success: true
+    contains:
+      - "WorkflowStepCompleted"
+      - "step second_step completed"
+
+cleanup:
+- id: "cleanup-workflow"
+  tool: "core_workflow_delete"
+  args:
+    name: "events-steps-wf"
+  expected:
+    success: true

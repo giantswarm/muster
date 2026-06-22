@@ -534,8 +534,17 @@ func EstablishConnectionWithLocalMint(
 	}, nil
 }
 
-// emitTokenForwardingEvent emits an event for token forwarding success or failure.
+// emitTokenForwardingEvent records token forwarding outcomes. Successful
+// forwarding fires on every session connecting to every SSO server, so it is
+// demoted to a debug log (the highest-volume Normal-event noise on a
+// multi-user instance). Only failures are surfaced as Warning Kubernetes
+// events, where they carry actionable signal.
 func emitTokenForwardingEvent(serverName, namespace string, success bool, errorMsg string) {
+	if success {
+		logging.Debug("Connection", "ID token forwarded for SSO authentication to MCPServer %s", serverName)
+		return
+	}
+
 	eventManager := api.GetEventManager()
 	if eventManager == nil {
 		return
@@ -553,20 +562,9 @@ func emitTokenForwardingEvent(serverName, namespace string, success bool, errorM
 		Namespace: namespace,
 	}
 
-	var reason events.EventReason
-	var eventType, message string
-
-	if success {
-		reason = events.ReasonMCPServerTokenForwarded
-		eventType = "Normal"
-		message = fmt.Sprintf("ID token successfully forwarded for SSO authentication to MCPServer %s", serverName)
-	} else {
-		reason = events.ReasonMCPServerTokenForwardingFailed
-		eventType = "Warning"
-		message = fmt.Sprintf("ID token forwarding failed for MCPServer %s: %s", serverName, errorMsg)
-	}
-
-	_ = eventManager.CreateEvent(context.Background(), objRef, string(reason), message, eventType)
+	_ = eventManager.CreateEventWithData(context.Background(), objRef, string(events.ReasonMCPServerTokenForwardingFailed), api.EventData{
+		Error: errorMsg,
+	})
 }
 
 // ShouldUseTokenForwarding checks if token forwarding should be used for a server.
@@ -857,8 +855,15 @@ func EstablishConnectionWithTokenExchange(
 	}, nil
 }
 
-// emitTokenExchangeEvent emits an event for token exchange success or failure.
+// emitTokenExchangeEvent records token exchange outcomes. Like token
+// forwarding, successful exchange fires per-session per-server and is demoted
+// to a debug log; only failures are surfaced as Warning Kubernetes events.
 func emitTokenExchangeEvent(serverName, namespace string, success bool, errorMsg string) {
+	if success {
+		logging.Debug("Connection", "Token exchanged for cross-cluster SSO to MCPServer %s", serverName)
+		return
+	}
+
 	eventManager := api.GetEventManager()
 	if eventManager == nil {
 		return
@@ -876,20 +881,9 @@ func emitTokenExchangeEvent(serverName, namespace string, success bool, errorMsg
 		Namespace: namespace,
 	}
 
-	var reason events.EventReason
-	var eventType, message string
-
-	if success {
-		reason = events.ReasonMCPServerTokenExchanged
-		eventType = "Normal"
-		message = fmt.Sprintf("Token successfully exchanged for cross-cluster SSO to MCPServer %s", serverName)
-	} else {
-		reason = events.ReasonMCPServerTokenExchangeFailed
-		eventType = "Warning"
-		message = fmt.Sprintf("Token exchange failed for MCPServer %s: %s", serverName, errorMsg)
-	}
-
-	_ = eventManager.CreateEvent(context.Background(), objRef, string(reason), message, eventType)
+	_ = eventManager.CreateEventWithData(context.Background(), objRef, string(events.ReasonMCPServerTokenExchangeFailed), api.EventData{
+		Error: errorMsg,
+	})
 }
 
 // tokenExchangeRefreshMargin is the time before expiry at which a pooled

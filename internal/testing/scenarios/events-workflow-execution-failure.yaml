@@ -1,0 +1,62 @@
+name: "events-workflow-execution-failure"
+description: "A failing workflow execution emits a WorkflowExecutionFailed event carrying the error text (proves B1)"
+category: "behavioral"
+concept: "events"
+tags: ["events", "workflow", "execution", "failure"]
+timeout: "2m"
+
+pre_configuration:
+  main_config:
+    config:
+      events: true
+  mcp_servers:
+    - name: "events-fail-mock"
+      config:
+        tools:
+          - name: "always_fail"
+            input_schema:
+              args: {}
+            responses:
+              - error: "boom-intentional-failure"
+
+steps:
+- id: "create-failing-workflow"
+  description: "Create a workflow whose only step always fails"
+  tool: "core_workflow_create"
+  args:
+    name: "events-failing-wf"
+    args: {}
+    steps:
+      - id: "boom_step"
+        tool: "x_events-fail-mock_always_fail"
+  expected:
+    success: true
+
+- id: "run-failing-workflow"
+  description: "Execute the failing workflow"
+  tool: "workflow_events-failing-wf"
+  args: {}
+  expected:
+    success: false
+    error_contains: ["boom-intentional-failure"]
+
+- id: "expect-execution-failed-event-with-error"
+  description: "WorkflowExecutionFailed event must include the error text (B1)"
+  tool: "core_events"
+  args:
+    resourceType: "Workflow"
+    resourceName: "events-failing-wf"
+    eventType: "Warning"
+  expected:
+    success: true
+    contains:
+      - "WorkflowExecutionFailed"
+      - "boom-intentional-failure"
+
+cleanup:
+- id: "cleanup-workflow"
+  tool: "core_workflow_delete"
+  args:
+    name: "events-failing-wf"
+  expected:
+    success: true

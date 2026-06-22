@@ -2478,10 +2478,10 @@ func (a *Adapter) generateCRDEvent(name string, reason events.EventReason, data 
 		data.Namespace = a.namespace
 	}
 
-	// Note: message and eventType parameters are provided for interface compliance,
-	// but the actual values are determined by the event generator's template engine
-	// based on the reason code.
-	err := eventManager.CreateEvent(context.Background(), objectRef, string(reason), data.Error, "")
+	// The message and event type are determined by the generator's template
+	// engine from the reason; the structured data is threaded through so the
+	// rendered message includes contextual detail (step counts, errors, ...).
+	err := eventManager.CreateEventWithData(context.Background(), objectRef, string(reason), data.ToAPI())
 	if err != nil {
 		// Log error but don't fail the operation
 		logging.Debug("WorkflowAdapter", "Failed to generate event %s for Workflow %s: %v", string(reason), name, err)

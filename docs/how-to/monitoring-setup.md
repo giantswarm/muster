@@ -103,7 +103,6 @@ Muster emits events for key lifecycle transitions. Use these for alerting and di
 | `MCPServerRecoveryFailed` | Recovery failed |
 | `MCPServerToolsDiscovered` | Tools were discovered from the server |
 | `MCPServerToolsUnavailable` | Tools became unavailable |
-| `MCPServerReconnected` | Connection restored after a failure |
 
 ### Service Instance Events
 

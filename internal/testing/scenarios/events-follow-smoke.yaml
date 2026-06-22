@@ -1,0 +1,48 @@
+name: "events-follow-smoke"
+description: "Follow mode must surface events instead of hanging silently (proves B3 at the tool boundary)"
+category: "behavioral"
+concept: "events"
+tags: ["events", "follow", "streaming"]
+timeout: "1m"
+
+pre_configuration:
+  main_config:
+    config:
+      events: true
+
+steps:
+- id: "create-follow-workflow"
+  description: "Create a workflow so at least one event exists"
+  tool: "core_workflow_create"
+  args:
+    name: "events-follow-wf"
+    args: {}
+    steps:
+      - id: "only_step"
+        tool: "core_service_list"
+  expected:
+    success: true
+
+# core_events follow=true must return promptly with the events seen so far rather
+# than blocking forever. B3 is that the CLI --follow path never surfaces anything;
+# at the tool boundary follow mode must at least return the existing events.
+- id: "follow-returns-existing-events"
+  description: "follow=true returns the existing WorkflowCreated event without hanging"
+  tool: "core_events"
+  args:
+    resourceType: "Workflow"
+    resourceName: "events-follow-wf"
+    follow: true
+  timeout: "20s"
+  expected:
+    success: true
+    contains:
+      - "WorkflowCreated"
+
+cleanup:
+- id: "cleanup-workflow"
+  tool: "core_workflow_delete"
+  args:
+    name: "events-follow-wf"
+  expected:
+    success: true

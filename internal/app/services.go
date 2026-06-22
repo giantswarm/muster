@@ -157,7 +157,7 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	// Register event manager adapter only when events are enabled (alpha feature).
 	// Events can be enabled via --enable-events flag or config.yaml `events: true`.
 	if cfg.EnableEvents || cfg.MusterConfig.Events {
-		eventAdapter := events.NewAdapter(musterClient)
+		eventAdapter := events.NewAdapter(musterClient, namespace)
 		eventAdapter.Register()
 		logging.Info("Services", "Kubernetes event emission enabled (alpha)")
 	} else {

@@ -4,12 +4,17 @@ import (
 	"context"
 	"fmt"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/discovery"
+	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
@@ -40,6 +45,14 @@ type Client struct {
 	client.Client
 	scheme    *runtime.Scheme
 	discovery discovery.DiscoveryInterface
+
+	// Event emission goes through a client-go EventBroadcaster/EventRecorder
+	// rather than raw client.Create so duplicate events aggregate into one
+	// object with a Count and get per-(source, object) rate limiting for free,
+	// instead of one etcd write per emission.
+	eventRecorder      record.EventRecorder
+	eventBroadcaster   record.EventBroadcaster
+	eventRecordingStop watch.Interface
 }
 
 // New returns a Kubernetes-backed Client for the given REST config. CRD
@@ -65,13 +78,30 @@ func New(config *rest.Config) (*Client, error) {
 		return nil, fmt.Errorf("failed to create discovery client: %w", err)
 	}
 
+	// Clientset is used only as the EventBroadcaster sink; all CRD operations
+	// go through the controller-runtime client above.
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Kubernetes clientset: %w", err)
+	}
+
+	broadcaster := record.NewBroadcaster()
+	recordingStop := broadcaster.StartRecordingToSink(&typedcorev1.EventSinkImpl{
+		Interface: clientset.CoreV1().Events(""),
+	})
+	recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: sourceComponent})
+
 	c := &Client{
-		Client:    k8sClient,
-		scheme:    scheme,
-		discovery: discoveryClient,
+		Client:             k8sClient,
+		scheme:             scheme,
+		discovery:          discoveryClient,
+		eventRecorder:      recorder,
+		eventBroadcaster:   broadcaster,
+		eventRecordingStop: recordingStop,
 	}
 
 	if err := c.validateCRDs(context.Background()); err != nil {
+		_ = c.Close()
 		return nil, fmt.Errorf("CRD validation failed: %w", err)
 	}
 
@@ -83,10 +113,18 @@ func (k *Client) IsKubernetesMode() bool {
 	return true
 }
 
-// Close performs cleanup for the Kubernetes client. Controller-runtime
-// clients don't require explicit cleanup; this method exists for interface
-// compatibility.
+// Close performs cleanup for the Kubernetes client. The controller-runtime
+// client itself needs no cleanup, but the event broadcaster owns a background
+// goroutine and watch that must be stopped.
 func (k *Client) Close() error {
+	if k.eventRecordingStop != nil {
+		k.eventRecordingStop.Stop()
+		k.eventRecordingStop = nil
+	}
+	if k.eventBroadcaster != nil {
+		k.eventBroadcaster.Shutdown()
+		k.eventBroadcaster = nil
+	}
 	return nil
 }
 

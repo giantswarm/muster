@@ -5,94 +5,51 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
-
 	"github.com/giantswarm/muster/internal/api"
 )
 
-// CreateEvent creates a Kubernetes Event for the given object.
+// CreateEvent creates a Kubernetes Event for the given object via the
+// EventBroadcaster, which aggregates duplicate events (Count) and rate-limits
+// per source/object instead of writing one Event object per call.
 func (k *Client) CreateEvent(ctx context.Context, obj client.Object, reason, message, eventType string) error {
-	gvk, err := k.GroupVersionKindFor(obj)
-	if err != nil {
-		return fmt.Errorf("failed to get GroupVersionKind for object: %w", err)
+	if k.eventRecorder == nil {
+		return fmt.Errorf("event recorder not initialized")
 	}
-
-	event := &corev1.Event{
-		ObjectMeta: metav1.ObjectMeta{
-			GenerateName: obj.GetName() + "-",
-			Namespace:    obj.GetNamespace(),
-		},
-		InvolvedObject: corev1.ObjectReference{
-			APIVersion: gvk.GroupVersion().String(),
-			Kind:       gvk.Kind,
-			Name:       obj.GetName(),
-			Namespace:  obj.GetNamespace(),
-			UID:        obj.GetUID(),
-		},
-		Reason:         reason,
-		Message:        message,
-		Type:           eventType,
-		Source:         corev1.EventSource{Component: sourceComponent},
-		FirstTimestamp: metav1.NewTime(time.Now()),
-		LastTimestamp:  metav1.NewTime(time.Now()),
-		Count:          1,
-	}
-
-	if err := k.Create(ctx, event); err != nil {
-		return fmt.Errorf("failed to create Kubernetes Event: %w", err)
-	}
-
+	// "%s" with message as an argument avoids interpreting any '%' the rendered
+	// message may contain as a format directive.
+	k.eventRecorder.Eventf(obj, eventType, reason, "%s", message)
 	return nil
 }
 
-// CreateEventForCRD creates a Kubernetes Event for a CRD by type, name, and namespace.
+// CreateEventForCRD creates a Kubernetes Event for a CRD by type, name, and
+// namespace. It best-effort loads the live object so the Event references the
+// real UID, falling back to a minimal typed object carrying name/namespace.
 func (k *Client) CreateEventForCRD(ctx context.Context, crdType, name, namespace, reason, message, eventType string) error {
+	if k.eventRecorder == nil {
+		return fmt.Errorf("event recorder not initialized")
+	}
+
 	factory, ok := crdFactories[crdType]
 	if !ok {
 		return fmt.Errorf("unsupported CRD type: %s", crdType)
 	}
-	gvk := musterv1alpha1.GroupVersion.WithKind(crdType)
 
-	// Best-effort UID lookup so the Event references the live object.
-	var uid types.UID
 	obj := factory()
-	if err := k.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, obj); err == nil {
-		uid = obj.GetUID()
+	if err := k.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, obj); err != nil {
+		// Live object not found (e.g. delete events): reference a minimal
+		// object so the Event still carries the correct kind/name/namespace.
+		obj = factory()
+		obj.SetName(name)
+		obj.SetNamespace(namespace)
 	}
 
-	event := &corev1.Event{
-		ObjectMeta: metav1.ObjectMeta{
-			GenerateName: name + "-",
-			Namespace:    namespace,
-		},
-		InvolvedObject: corev1.ObjectReference{
-			APIVersion: gvk.GroupVersion().String(),
-			Kind:       gvk.Kind,
-			Name:       name,
-			Namespace:  namespace,
-			UID:        uid,
-		},
-		Reason:         reason,
-		Message:        message,
-		Type:           eventType,
-		Source:         corev1.EventSource{Component: sourceComponent},
-		FirstTimestamp: metav1.NewTime(time.Now()),
-		LastTimestamp:  metav1.NewTime(time.Now()),
-		Count:          1,
-	}
-
-	if err := k.Create(ctx, event); err != nil {
-		return fmt.Errorf("failed to create Kubernetes Event for %s %s/%s: %w", crdType, namespace, name, err)
-	}
-
+	k.eventRecorder.Eventf(obj, eventType, reason, "%s", message)
 	return nil
 }
 

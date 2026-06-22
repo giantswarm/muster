@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -194,52 +195,139 @@ func runEvents(cmd *cobra.Command, args []string) error {
 	if eventsLimit > 0 {
 		toolArgs["limit"] = eventsLimit
 	}
-	// Handle follow mode with notifications
+	// Handle follow mode via client-side polling.
 	if eventsFollow {
-		toolArgs["follow"] = true
-		return followEventsWithNotifications(ctx, executor, toolArgs)
+		return followEvents(ctx, executor, toolArgs)
 	}
 
 	return executor.Execute(ctx, "core_events", toolArgs)
 }
 
-// followEventsWithNotifications implements streaming via MCP notifications for the --follow flag
-func followEventsWithNotifications(ctx context.Context, executor *cli.ToolExecutor, baseArgs map[string]interface{}) error {
-	fmt.Printf("Streaming events (Press Ctrl+C to stop)...\n\n")
+// followEventPollInterval is how often --follow polls core_events for new events.
+const followEventPollInterval = 2 * time.Second
 
-	// Get the agent client to access notification channel
-	client := executor.GetClient()
-	if client == nil {
-		return fmt.Errorf("failed to get MCP client for streaming")
-	}
+// seenEventCap bounds the dedup set during a follow session.
+// ponytail: a burst of more than this many new events between two polls could
+// in theory reprint the oldest few; acceptable for an interactive stream and
+// far cheaper than parsing/keying on exact timestamps the display format drops.
+const seenEventCap = 4096
 
-	// Execute the core_events tool with follow=true - this will start the streaming on the server side
-	if err := executor.Execute(ctx, "core_events", baseArgs); err != nil {
-		return fmt.Errorf("failed to start event streaming: %w", err)
-	}
+// followEvents implements `muster events --follow` by polling the core_events
+// tool on an interval and printing only events it has not shown yet. This
+// replaces the never-implemented MCP server-push notification path: there is no
+// server-side streaming, so the client simply re-queries and de-duplicates.
+func followEvents(ctx context.Context, executor *cli.ToolExecutor, baseArgs map[string]interface{}) error {
+	fmt.Fprintln(os.Stderr, "Streaming events (press Ctrl+C to stop)...")
 
-	fmt.Printf("\n--- Following new events ---\n")
-
-	// Listen for event notifications from the server
+	tracker := newFollowTracker()
+	first := true
 	for {
+		raw, err := executor.ExecuteJSON(ctx, "core_events", baseArgs)
+		if err != nil {
+			return fmt.Errorf("failed to query events: %w", err)
+		}
+
+		for _, line := range tracker.newLines(raw) {
+			fmt.Println(line)
+		}
+
+		if first {
+			fmt.Fprintln(os.Stderr, "--- following new events ---")
+			first = false
+		}
+
 		select {
 		case <-ctx.Done():
-			fmt.Printf("\nStopped following events.\n")
+			fmt.Fprintln(os.Stderr, "\nStopped following events.")
 			return nil
-		case notification := <-client.NotificationChan:
-			// Handle event notifications
-			if notification.Method == "events/new_event" {
-				// Parse the event from the notification params
-				displayStreamedEvent(notification.Params)
-			}
+		case <-time.After(followEventPollInterval):
 		}
 	}
 }
 
-// displayStreamedEvent formats and displays a single streamed event
-func displayStreamedEvent(params interface{}) {
-	// For now, just print the notification as-is since we don't have the proper MCP notification mechanism working yet
-	fmt.Printf("New event notification: %+v\n", params)
+// followTracker de-duplicates events across polls and renders the unseen ones
+// as display lines in chronological order.
+type followTracker struct {
+	seen      map[string]struct{}
+	seenOrder []string
+}
+
+func newFollowTracker() *followTracker {
+	return &followTracker{
+		seen:      make(map[string]struct{}, seenEventCap),
+		seenOrder: make([]string, 0, seenEventCap),
+	}
+}
+
+func (t *followTracker) markSeen(key string) {
+	t.seen[key] = struct{}{}
+	t.seenOrder = append(t.seenOrder, key)
+	if len(t.seenOrder) > seenEventCap {
+		oldest := t.seenOrder[0]
+		t.seenOrder = t.seenOrder[1:]
+		delete(t.seen, oldest)
+	}
+}
+
+// newLines returns formatted lines for events in raw that have not been seen
+// before. core_events returns events newest-first, so the slice is walked in
+// reverse to produce a natural, chronological stream.
+func (t *followTracker) newLines(raw interface{}) []string {
+	events := toEventMaps(raw)
+	var lines []string
+	for i := len(events) - 1; i >= 0; i-- {
+		key := eventKey(events[i])
+		if _, ok := t.seen[key]; ok {
+			continue
+		}
+		t.markSeen(key)
+		lines = append(lines, formatFollowEvent(events[i]))
+	}
+	return lines
+}
+
+// toEventMaps coerces the parsed core_events JSON result into a slice of event
+// maps. The tool returns a JSON array of objects; anything else yields nil.
+func toEventMaps(raw interface{}) []map[string]interface{} {
+	arr, ok := raw.([]interface{})
+	if !ok {
+		return nil
+	}
+	events := make([]map[string]interface{}, 0, len(arr))
+	for _, item := range arr {
+		if m, ok := item.(map[string]interface{}); ok {
+			events = append(events, m)
+		}
+	}
+	return events
+}
+
+// eventKey builds a stable identity for an event from its display fields so the
+// follow loop can de-duplicate across polls.
+func eventKey(ev map[string]interface{}) string {
+	fields := []string{"timestamp", "resource_type", "resource_name", "namespace", "reason", "message", "type"}
+	parts := make([]string, 0, len(fields))
+	for _, f := range fields {
+		if v, ok := ev[f].(string); ok {
+			parts = append(parts, v)
+		} else {
+			parts = append(parts, "")
+		}
+	}
+	return strings.Join(parts, "\x1f")
+}
+
+// formatFollowEvent renders a single event as one line for the follow stream.
+func formatFollowEvent(ev map[string]interface{}) string {
+	get := func(k string) string {
+		if v, ok := ev[k].(string); ok {
+			return v
+		}
+		return ""
+	}
+	return fmt.Sprintf("[%s] %s %s/%s: %s - %s (%s)",
+		get("timestamp"), get("resource_type"), get("namespace"),
+		get("resource_name"), get("reason"), get("message"), get("type"))
 }
 
 // contains checks if a string slice contains a specific string

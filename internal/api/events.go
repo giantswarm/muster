@@ -65,6 +65,44 @@ type EventQueryResult struct {
 	TotalCount int `json:"totalCount"`
 }
 
+// EventData carries structured, contextual fields used by the event message
+// templates so that rendered messages include meaningful detail (errors, step
+// counts, durations, execution IDs, ...).
+//
+// The Name and Namespace of the involved object are taken from the
+// ObjectReference passed to CreateEventWithData and do not need to be set here.
+type EventData struct {
+	// Operation is the operation that triggered the event (e.g., "create", "update", "delete").
+	Operation string
+
+	// Error contains error information for failure events.
+	Error string
+
+	// Duration is the duration of an operation (for execution events).
+	Duration time.Duration
+
+	// StepCount is the number of steps in a workflow definition or execution.
+	StepCount int
+
+	// StepID is the ID of the workflow step involved in the event.
+	StepID string
+
+	// StepTool is the tool used in the workflow step.
+	StepTool string
+
+	// ConditionResult is the result of step condition evaluation.
+	ConditionResult string
+
+	// ExecutionID is the unique identifier for a workflow execution.
+	ExecutionID string
+
+	// ToolNames contains the list of tools (for tool-availability events).
+	ToolNames []string
+
+	// AllowFailure indicates whether a failed step is allowed to fail.
+	AllowFailure bool
+}
+
 // EventManagerHandler provides Kubernetes Event generation functionality for muster
 // CRD lifecycle operations and service management.
 //
@@ -86,16 +124,19 @@ type EventQueryResult struct {
 type EventManagerHandler interface {
 	// Event creation methods
 
-	// CreateEvent creates an event for a specific object reference.
-	// This method is used when you have the complete object reference information
-	// but not necessarily the actual Kubernetes object.
+	// CreateEventWithData creates an event for a specific object reference,
+	// carrying structured EventData so the message templates can render
+	// contextual detail (error strings, step counts, durations, ...).
+	//
+	// The human-readable message is rendered from the reason's template using
+	// the supplied data; the event type (Normal/Warning) is derived from the
+	// reason — callers do not pass a message or type.
 	//
 	// Args:
 	//   - ctx: Context for the operation, including cancellation and timeout
-	//   - objectRef: Reference to the object this event relates to
-	//   - reason: Short, machine-readable reason for the event (e.g., "Created", "Failed")
-	//   - message: Human-readable description of the event
-	//   - eventType: Type of event ("Normal" or "Warning")
+	//   - objectRef: Reference to the object this event relates to (provides Name/Namespace/Kind)
+	//   - reason: Machine-readable reason matching a known event reason (e.g., "MCPServerCreated")
+	//   - data: Structured contextual data for message templating
 	//
 	// Returns:
 	//   - error: Error if event creation fails
@@ -107,29 +148,14 @@ type EventManagerHandler interface {
 	//		Name:      "github-server",
 	//		Namespace: "default",
 	//	}
-	//	err := handler.CreateEvent(ctx, objectRef, "Created", "MCPServer successfully created", "Normal")
-	CreateEvent(ctx context.Context, objectRef ObjectReference, reason, message, eventType string) error
+	//	err := handler.CreateEventWithData(ctx, objectRef, "MCPServerCreated", EventData{})
+	CreateEventWithData(ctx context.Context, objectRef ObjectReference, reason string, data EventData) error
 
-	// CreateEventForCRD creates an event for a CRD by type, name, and namespace.
-	// This method is used when you know the CRD details but don't have the full object reference.
-	//
-	// Args:
-	//   - ctx: Context for the operation
-	//   - crdType: Type of CRD ("MCPServer", "Workflow")
-	//   - name: Name of the CRD instance
-	//   - namespace: Namespace of the CRD instance
-	//   - reason: Short, machine-readable reason for the event
-	//   - message: Human-readable description of the event
-	//   - eventType: Type of event ("Normal" or "Warning")
-	//
-	// Returns:
-	//   - error: Error if event creation fails
-	//
-	// Example:
-	//
-	//	err := handler.CreateEventForCRD(ctx, "MCPServer", "github-server", "default",
-	//		"Started", "MCPServer service started successfully", "Normal")
-	CreateEventForCRD(ctx context.Context, crdType, name, namespace, reason, message, eventType string) error
+	// DefaultNamespace returns the namespace muster CRDs live in (derived from
+	// muster configuration). Callers that emit events for runtime objects
+	// without an explicit namespace should use this so events are associated
+	// with the CRD in the correct namespace rather than orphaned in "default".
+	DefaultNamespace() string
 
 	// Event querying methods
 

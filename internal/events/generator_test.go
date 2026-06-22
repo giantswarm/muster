@@ -259,6 +259,79 @@ func TestEventGenerator_CRDEvent(t *testing.T) {
 	}
 }
 
+// TestAdapter_CreateEventWithData_RendersStructuredData exercises the *real*
+// API path (Adapter.CreateEventWithData -> generator -> client) rather than the
+// generator directly. This is the regression guard for B1: structured EventData
+// must survive the API boundary so rendered messages include contextual detail
+// (error strings, step counts, ...). Before the fix the adapter dropped all
+// fields except Name/Namespace and these assertions would fail.
+func TestAdapter_CreateEventWithData_RendersStructuredData(t *testing.T) {
+	tests := []struct {
+		name        string
+		reason      EventReason
+		data        api.EventData
+		wantMessage string
+		wantType    string
+	}{
+		{
+			name:        "workflow execution failure carries error",
+			reason:      ReasonWorkflowExecutionFailed,
+			data:        api.EventData{StepID: "deploy", Error: "boom"},
+			wantMessage: "Workflow my-wf execution failed at step deploy: boom",
+			wantType:    string(EventTypeWarning),
+		},
+		{
+			name:        "workflow created carries step count",
+			reason:      ReasonWorkflowCreated,
+			data:        api.EventData{StepCount: 2},
+			wantMessage: "Workflow my-wf successfully created with 2 steps",
+			wantType:    string(EventTypeNormal),
+		},
+		{
+			name:        "workflow step started carries step id and tool",
+			reason:      ReasonWorkflowStepStarted,
+			data:        api.EventData{StepID: "s1", StepTool: "core_service_list"},
+			wantMessage: "Workflow my-wf step s1 started (tool: core_service_list)",
+			wantType:    string(EventTypeNormal),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mockClient := &mockMusterClient{isKubernetes: false}
+			adapter := NewAdapter(mockClient, "muster")
+
+			objectRef := api.ObjectReference{Kind: "Workflow", Name: "my-wf", Namespace: "muster"}
+			if err := adapter.CreateEventWithData(context.Background(), objectRef, string(tc.reason), tc.data); err != nil {
+				t.Fatalf("CreateEventWithData failed: %v", err)
+			}
+
+			if len(mockClient.eventForCRDCalls) != 1 {
+				t.Fatalf("expected 1 CRD event, got %d", len(mockClient.eventForCRDCalls))
+			}
+			got := mockClient.eventForCRDCalls[0]
+			if got.message != tc.wantMessage {
+				t.Errorf("message: got %q, want %q", got.message, tc.wantMessage)
+			}
+			if got.eventType != tc.wantType {
+				t.Errorf("eventType: got %q, want %q", got.eventType, tc.wantType)
+			}
+			if got.namespace != "muster" {
+				t.Errorf("namespace: got %q, want %q", got.namespace, "muster")
+			}
+		})
+	}
+}
+
+// TestAdapter_DefaultNamespace verifies the adapter exposes the configured
+// muster namespace so runtime callers don't orphan events in "default" (B2).
+func TestAdapter_DefaultNamespace(t *testing.T) {
+	adapter := NewAdapter(&mockMusterClient{}, "muster-system")
+	if got := adapter.DefaultNamespace(); got != "muster-system" {
+		t.Errorf("DefaultNamespace: got %q, want %q", got, "muster-system")
+	}
+}
+
 func TestEventGenerator_IsKubernetesMode(t *testing.T) {
 	// Test Kubernetes mode
 	mockClientK8s := &mockMusterClient{isKubernetes: true}
