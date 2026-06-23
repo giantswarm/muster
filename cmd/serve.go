@@ -58,11 +58,13 @@ var (
 	serveOAuthServerBaseURL string
 )
 
-// serveEnableEvents enables Kubernetes event emission (alpha, disabled by default)
-var serveEnableEvents bool
-
 // serveExtraCAFile is a PEM file appended to the system trust pool at startup.
 var serveExtraCAFile string
+
+// serveEnableEvents is retained only to keep `muster serve --enable-events`
+// invocations from existing scripts/units working after events became
+// always-on. The flag is hidden, deprecated, and has no effect.
+var serveEnableEvents bool
 
 // serveCmd defines the serve command structure.
 // This is the main command of muster that starts the aggregator server
@@ -136,7 +138,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 		WithVersion(GetVersion()).
 		WithOAuthMCPClient(serveOAuthMCPClientEnabled, serveOAuthMCPClientPublicURL, serveOAuthMCPClientID).
 		WithOAuthServer(serveOAuthServerEnabled, serveOAuthServerBaseURL).
-		WithEvents(serveEnableEvents).
 		WithExtraCAFile(serveExtraCAFile)
 
 	// Create and initialize the application
@@ -184,10 +185,13 @@ func init() {
 	serveCmd.Flags().BoolVar(&serveOAuthServerEnabled, "oauth-server", false, "Enable OAuth 2.1 protection for Muster Server (requires config file for full setup)")
 	serveCmd.Flags().StringVar(&serveOAuthServerBaseURL, "oauth-server-base-url", "", "Base URL of the Muster Server for OAuth (e.g., https://muster.example.com)")
 
-	// Events flags (alpha feature, disabled by default)
-	serveCmd.Flags().BoolVar(&serveEnableEvents, "enable-events", false, "Enable Kubernetes event emission (alpha)")
-
 	// PEM file appended to the system trust pool at startup. Use for internal
 	// CAs (e.g. tunnelport SPIFFE bundle) without a per-MCPServer caFile knob.
 	serveCmd.Flags().StringVar(&serveExtraCAFile, "extra-ca-file", "", "PEM file whose certificates are appended to the system trust pool at startup")
+
+	// Deprecated no-op: events are always on. Kept hidden so existing
+	// `--enable-events` invocations don't fail with "unknown flag" after upgrade.
+	serveCmd.Flags().BoolVar(&serveEnableEvents, "enable-events", false, "Deprecated: events are always enabled; this flag has no effect")
+	_ = serveCmd.Flags().MarkHidden("enable-events")
+	_ = serveCmd.Flags().MarkDeprecated("enable-events", "events are always enabled; remove this flag")
 }

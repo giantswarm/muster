@@ -2,14 +2,19 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/cli"
 
+	"github.com/jedib0t/go-pretty/v6/text"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
+	"gopkg.in/yaml.v3"
 )
 
 var (
@@ -158,6 +163,11 @@ func runEvents(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	// Follow mode needs server-initiated notifications, which the streamable-http
+	// transport only delivers when a standalone listening stream is open.
+	if eventsFollow {
+		opts.ContinuousListening = true
+	}
 
 	executor, err := cli.NewToolExecutor(opts)
 	if err != nil {
@@ -194,52 +204,138 @@ func runEvents(cmd *cobra.Command, args []string) error {
 	if eventsLimit > 0 {
 		toolArgs["limit"] = eventsLimit
 	}
-	// Handle follow mode with notifications
+	// Handle follow mode via server-pushed MCP notifications.
 	if eventsFollow {
-		toolArgs["follow"] = true
-		return followEventsWithNotifications(ctx, executor, toolArgs)
+		return followEvents(ctx, executor, toolArgs, opts.Format)
 	}
 
 	return executor.Execute(ctx, "core_events", toolArgs)
 }
 
-// followEventsWithNotifications implements streaming via MCP notifications for the --follow flag
-func followEventsWithNotifications(ctx context.Context, executor *cli.ToolExecutor, baseArgs map[string]interface{}) error {
-	fmt.Printf("Streaming events (Press Ctrl+C to stop)...\n\n")
+// eventFollowNotificationMethod is the JSON-RPC notification method the
+// aggregator pushes new events on. Must match
+// aggregator.eventFollowNotificationMethod.
+const eventFollowNotificationMethod = "notifications/muster/event"
 
-	// Get the agent client to access notification channel
-	client := executor.GetClient()
-	if client == nil {
-		return fmt.Errorf("failed to get MCP client for streaming")
+// followEvents implements `muster events --follow` using real server push: it
+// calls core_events with follow=true (which returns the events seen so far and
+// registers a server-side watch for this session), prints those, then prints
+// every subsequent event the server pushes as an MCP notification. The server
+// sources events from a Kubernetes watch or filesystem fsnotify watch — there
+// is no client-side polling.
+//
+// The output format is honored: `json` emits one JSON object per line
+// (newline-delimited JSON), `yaml` emits one YAML document per event, and the
+// table/wide formats emit an aligned one-line-per-event human stream.
+func followEvents(ctx context.Context, executor *cli.ToolExecutor, baseArgs map[string]interface{}, format cli.OutputFormat) error {
+	fmt.Fprintln(os.Stderr, "Streaming events (press Ctrl+C to stop)...")
+
+	// Register the notification handler before starting the follow so events
+	// pushed immediately after the initial query are not missed.
+	pushed := make(chan map[string]interface{}, 256)
+	executor.OnNotification(func(n cli.MCPNotification) {
+		if n.Method != eventFollowNotificationMethod {
+			return
+		}
+		select {
+		case pushed <- n.Params.AdditionalFields:
+		case <-ctx.Done():
+		}
+	})
+	defer executor.OnNotification(nil)
+
+	baseArgs["follow"] = true
+	raw, err := executor.ExecuteJSON(ctx, "core_events", baseArgs)
+	if err != nil {
+		return fmt.Errorf("failed to start event follow: %w", err)
+	}
+	for _, line := range initialFollowLines(raw, format) {
+		fmt.Println(line)
 	}
 
-	// Execute the core_events tool with follow=true - this will start the streaming on the server side
-	if err := executor.Execute(ctx, "core_events", baseArgs); err != nil {
-		return fmt.Errorf("failed to start event streaming: %w", err)
-	}
-
-	fmt.Printf("\n--- Following new events ---\n")
-
-	// Listen for event notifications from the server
+	fmt.Fprintln(os.Stderr, "--- following new events ---")
 	for {
 		select {
 		case <-ctx.Done():
-			fmt.Printf("\nStopped following events.\n")
+			fmt.Fprintln(os.Stderr, "\nStopped following events.")
 			return nil
-		case notification := <-client.NotificationChan:
-			// Handle event notifications
-			if notification.Method == "events/new_event" {
-				// Parse the event from the notification params
-				displayStreamedEvent(notification.Params)
-			}
+		case ev := <-pushed:
+			fmt.Println(formatFollowEvent(ev, format))
 		}
 	}
 }
 
-// displayStreamedEvent formats and displays a single streamed event
-func displayStreamedEvent(params interface{}) {
-	// For now, just print the notification as-is since we don't have the proper MCP notification mechanism working yet
-	fmt.Printf("New event notification: %+v\n", params)
+// initialFollowLines renders the events returned by the initial core_events
+// query (newest-first) as display lines in chronological (oldest-first) order.
+func initialFollowLines(raw interface{}, format cli.OutputFormat) []string {
+	events := toEventMaps(raw)
+	lines := make([]string, 0, len(events))
+	for i := len(events) - 1; i >= 0; i-- {
+		lines = append(lines, formatFollowEvent(events[i], format))
+	}
+	return lines
+}
+
+// toEventMaps coerces the parsed core_events JSON result into a slice of event
+// maps. The tool returns a JSON array of objects; anything else yields nil.
+func toEventMaps(raw interface{}) []map[string]interface{} {
+	arr, ok := raw.([]interface{})
+	if !ok {
+		return nil
+	}
+	events := make([]map[string]interface{}, 0, len(arr))
+	for _, item := range arr {
+		if m, ok := item.(map[string]interface{}); ok {
+			events = append(events, m)
+		}
+	}
+	return events
+}
+
+// stdoutIsTTY reports whether stdout is an interactive terminal. It gates ANSI
+// coloring of the human follow stream so piped/redirected output stays clean.
+var stdoutIsTTY = term.IsTerminal(int(os.Stdout.Fd()))
+
+// formatFollowEvent renders a single streamed event according to the output
+// format: a JSON object (json), a YAML document (yaml), or an aligned human
+// line (table/wide). The human line orders fields to match the static table
+// (timestamp, type, resource, reason, message) and highlights Warnings on a TTY.
+func formatFollowEvent(ev map[string]interface{}, format cli.OutputFormat) string {
+	switch format {
+	case cli.OutputFormatJSON:
+		b, err := json.Marshal(ev)
+		if err != nil {
+			return fmt.Sprintf("{\"error\":%q}", err.Error())
+		}
+		return string(b)
+	case cli.OutputFormatYAML:
+		b, err := yaml.Marshal(ev)
+		if err != nil {
+			return fmt.Sprintf("error: %v", err)
+		}
+		return "---\n" + strings.TrimRight(string(b), "\n")
+	default:
+		return humanFollowLine(ev)
+	}
+}
+
+// humanFollowLine renders one event as a single aligned text line for the
+// table/wide follow stream.
+func humanFollowLine(ev map[string]interface{}) string {
+	get := func(k string) string {
+		if v, ok := ev[k].(string); ok {
+			return v
+		}
+		return ""
+	}
+	eventType := get("type")
+	line := fmt.Sprintf("[%s] %-7s %s %s/%s: %s - %s",
+		get("timestamp"), eventType, get("resource_type"), get("namespace"),
+		get("resource_name"), get("reason"), get("message"))
+	if stdoutIsTTY && eventType == "Warning" {
+		return text.FgYellow.Sprint(line)
+	}
+	return line
 }
 
 // contains checks if a string slice contains a specific string

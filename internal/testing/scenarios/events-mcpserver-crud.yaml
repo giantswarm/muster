@@ -1,0 +1,77 @@
+name: "events-mcpserver-crud"
+description: "MCPServer create/update/delete emit Created/Updated/Deleted events (proves H1: never emitted today)"
+category: "behavioral"
+concept: "events"
+tags: ["events", "mcpserver", "crud"]
+timeout: "2m"
+
+pre_configuration:
+  main_config:
+    config:
+      events: true
+
+steps:
+- id: "create-mcpserver"
+  description: "Create an MCPServer CRD"
+  tool: "core_mcpserver_create"
+  args:
+    name: "events-crud-server"
+    type: "streamable-http"
+    url: "https://api.example.com/mcp"
+    timeout: 45
+    autoStart: false
+  expected:
+    success: true
+
+- id: "expect-mcpserver-created-event"
+  description: "MCPServerCreated event must be emitted on CRD creation (H1)"
+  tool: "core_events"
+  args:
+    resourceType: "MCPServer"
+    resourceName: "events-crud-server"
+  expected:
+    success: true
+    contains:
+      - "MCPServerCreated"
+
+- id: "update-mcpserver"
+  description: "Update the MCPServer CRD"
+  tool: "core_mcpserver_update"
+  args:
+    name: "events-crud-server"
+    type: "streamable-http"
+    url: "https://updated.example.com/mcp"
+    timeout: 90
+    autoStart: false
+  expected:
+    success: true
+
+- id: "expect-mcpserver-updated-event"
+  description: "MCPServerUpdated event must be emitted on CRD update (H1)"
+  tool: "core_events"
+  args:
+    resourceType: "MCPServer"
+    resourceName: "events-crud-server"
+  expected:
+    success: true
+    contains:
+      - "MCPServerUpdated"
+
+- id: "delete-mcpserver"
+  description: "Delete the MCPServer CRD"
+  tool: "core_mcpserver_delete"
+  args:
+    name: "events-crud-server"
+  expected:
+    success: true
+
+- id: "expect-mcpserver-deleted-event"
+  description: "MCPServerDeleted event must be emitted on CRD deletion (H1)"
+  tool: "core_events"
+  args:
+    resourceType: "MCPServer"
+    resourceName: "events-crud-server"
+  expected:
+    success: true
+    contains:
+      - "MCPServerDeleted"

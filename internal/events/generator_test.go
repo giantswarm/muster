@@ -2,7 +2,9 @@ package events
 
 import (
 	"context"
+	"reflect"
 	"testing"
+	"time"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -67,6 +69,13 @@ func (m *mockMusterClient) QueryEvents(ctx context.Context, options api.EventQue
 		Events:     []api.EventResult{},
 		TotalCount: 0,
 	}, nil
+}
+
+func (m *mockMusterClient) WatchEvents(ctx context.Context, options api.EventQueryOptions) (<-chan api.EventResult, error) {
+	// Return a closed channel: the mock emits no streamed events.
+	ch := make(chan api.EventResult)
+	close(ch)
+	return ch, nil
 }
 
 func (m *mockMusterClient) IsKubernetesMode() bool {
@@ -256,6 +265,107 @@ func TestEventGenerator_CRDEvent(t *testing.T) {
 	expectedMessage := "MCPServer test-server operation failed: connection failed"
 	if event.message != expectedMessage {
 		t.Errorf("Expected message %s, got %s", expectedMessage, event.message)
+	}
+}
+
+// TestAdapter_CreateEventWithData_RendersStructuredData exercises the *real*
+// API path (Adapter.CreateEventWithData -> generator -> client) rather than the
+// generator directly. This is the regression guard for B1: structured EventData
+// must survive the API boundary so rendered messages include contextual detail
+// (error strings, step counts, ...). Before the fix the adapter dropped all
+// fields except Name/Namespace and these assertions would fail.
+func TestAdapter_CreateEventWithData_RendersStructuredData(t *testing.T) {
+	tests := []struct {
+		name        string
+		reason      EventReason
+		data        api.EventData
+		wantMessage string
+		wantType    string
+	}{
+		{
+			name:        "workflow execution failure carries error",
+			reason:      ReasonWorkflowExecutionFailed,
+			data:        api.EventData{StepID: "deploy", Error: "boom"},
+			wantMessage: "Workflow my-wf execution failed at step deploy: boom",
+			wantType:    string(EventTypeWarning),
+		},
+		{
+			name:        "workflow created carries step count",
+			reason:      ReasonWorkflowCreated,
+			data:        api.EventData{StepCount: 2},
+			wantMessage: "Workflow my-wf successfully created with 2 steps",
+			wantType:    string(EventTypeNormal),
+		},
+		{
+			name:        "workflow step started carries step id and tool",
+			reason:      ReasonWorkflowStepStarted,
+			data:        api.EventData{StepID: "s1", StepTool: "core_service_list"},
+			wantMessage: "Workflow my-wf step s1 started (tool: core_service_list)",
+			wantType:    string(EventTypeNormal),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mockClient := &mockMusterClient{isKubernetes: false}
+			adapter := NewAdapter(mockClient, "muster")
+
+			objectRef := api.ObjectReference{Kind: "Workflow", Name: "my-wf", Namespace: "muster"}
+			if err := adapter.CreateEventWithData(context.Background(), objectRef, string(tc.reason), tc.data); err != nil {
+				t.Fatalf("CreateEventWithData failed: %v", err)
+			}
+
+			if len(mockClient.eventForCRDCalls) != 1 {
+				t.Fatalf("expected 1 CRD event, got %d", len(mockClient.eventForCRDCalls))
+			}
+			got := mockClient.eventForCRDCalls[0]
+			if got.message != tc.wantMessage {
+				t.Errorf("message: got %q, want %q", got.message, tc.wantMessage)
+			}
+			if got.eventType != tc.wantType {
+				t.Errorf("eventType: got %q, want %q", got.eventType, tc.wantType)
+			}
+			if got.namespace != "muster" {
+				t.Errorf("namespace: got %q, want %q", got.namespace, "muster")
+			}
+		})
+	}
+}
+
+// TestAdapter_DefaultNamespace verifies the adapter exposes the configured
+// muster namespace so runtime callers don't orphan events in "default" (B2).
+func TestAdapter_DefaultNamespace(t *testing.T) {
+	adapter := NewAdapter(&mockMusterClient{}, "muster-system")
+	if got := adapter.DefaultNamespace(); got != "muster-system" {
+		t.Errorf("DefaultNamespace: got %q, want %q", got, "muster-system")
+	}
+}
+
+// TestEventData_APIRoundTrip guards against silent field drift in the two mirror
+// converters that bridge the api<->events package boundary: EventData.ToAPI and
+// eventDataFromAPI. The api package cannot import events (service-locator rule),
+// so the field copy is duplicated by hand; if a future field is added to one
+// mapper but not the other, contextual data would be silently dropped at the
+// boundary. Populating every mapped field with a distinct non-zero value and
+// round-tripping ensures both mappers stay in sync.
+func TestEventData_APIRoundTrip(t *testing.T) {
+	original := EventData{
+		Operation:       "create",
+		Error:           "boom",
+		Duration:        5 * time.Second,
+		StepCount:       3,
+		StepID:          "deploy",
+		StepTool:        "core_service_list",
+		ConditionResult: "true",
+		ExecutionID:     "exec-123",
+		ToolNames:       []string{"a", "b"},
+		AllowFailure:    true,
+	}
+
+	got := eventDataFromAPI(original.ToAPI())
+
+	if !reflect.DeepEqual(got, original) {
+		t.Errorf("round trip dropped or mangled fields:\n got:  %#v\n want: %#v", got, original)
 	}
 }
 

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/cli"
@@ -18,12 +17,16 @@ import (
 // through the aggregator.
 type Adapter struct {
 	generator *EventGenerator
+	namespace string
 }
 
 // NewAdapter creates a new events adapter using the provided MusterClient.
-func NewAdapter(musterClient client.MusterClient) *Adapter {
+// The namespace is the muster CRD namespace (from configuration) used as the
+// default association for runtime events that lack an explicit namespace.
+func NewAdapter(musterClient client.MusterClient, namespace string) *Adapter {
 	return &Adapter{
 		generator: NewEventGenerator(musterClient),
+		namespace: namespace,
 	}
 }
 
@@ -34,32 +37,37 @@ func (a *Adapter) Register() {
 	logging.Debug("events", "Event manager adapter registered with API")
 }
 
-// CreateEvent creates an event for a specific object reference.
-// Implements EventManagerHandler.CreateEvent.
-func (a *Adapter) CreateEvent(ctx context.Context, objectRef api.ObjectReference, reason, message, eventType string) error {
-	logging.Debug("events", "Creating event for %s %s/%s: %s - %s (%s)",
-		objectRef.Kind, objectRef.Namespace, objectRef.Name, reason, message, eventType)
+// CreateEventWithData creates an event for a specific object reference, carrying
+// structured EventData so the message template renders contextual detail.
+// Implements EventManagerHandler.CreateEventWithData.
+func (a *Adapter) CreateEventWithData(ctx context.Context, objectRef api.ObjectReference, reason string, data api.EventData) error {
+	logging.Debug("events", "Creating event for %s %s/%s: %s",
+		objectRef.Kind, objectRef.Namespace, objectRef.Name, reason)
 
-	data := EventData{
-		Name:      objectRef.Name,
-		Namespace: objectRef.Namespace,
-	}
-
-	return a.generator.CRDEvent(objectRef.Kind, objectRef.Name, objectRef.Namespace, EventReason(reason), data)
+	return a.generator.CRDEvent(objectRef.Kind, objectRef.Name, objectRef.Namespace, EventReason(reason), eventDataFromAPI(data))
 }
 
-// CreateEventForCRD creates an event for a CRD by type, name, and namespace.
-// Implements EventManagerHandler.CreateEventForCRD.
-func (a *Adapter) CreateEventForCRD(ctx context.Context, crdType, name, namespace, reason, message, eventType string) error {
-	logging.Debug("events", "Creating CRD event for %s %s/%s: %s - %s (%s)",
-		crdType, namespace, name, reason, message, eventType)
+// DefaultNamespace returns the muster CRD namespace.
+// Implements EventManagerHandler.DefaultNamespace.
+func (a *Adapter) DefaultNamespace() string {
+	return a.namespace
+}
 
-	data := EventData{
-		Name:      name,
-		Namespace: namespace,
+// eventDataFromAPI converts the api-layer EventData into the events package's
+// internal EventData used by the template engine.
+func eventDataFromAPI(d api.EventData) EventData {
+	return EventData{
+		Operation:       d.Operation,
+		Error:           d.Error,
+		Duration:        d.Duration,
+		StepCount:       d.StepCount,
+		StepID:          d.StepID,
+		StepTool:        d.StepTool,
+		ConditionResult: d.ConditionResult,
+		ExecutionID:     d.ExecutionID,
+		ToolNames:       d.ToolNames,
+		AllowFailure:    d.AllowFailure,
 	}
-
-	return a.generator.CRDEvent(crdType, name, namespace, EventReason(reason), data)
 }
 
 // QueryEvents retrieves events based on filtering options.
@@ -77,6 +85,15 @@ func (a *Adapter) QueryEvents(ctx context.Context, options api.EventQueryOptions
 
 	logging.Debug("events", "Retrieved %d events (total: %d)", len(result.Events), result.TotalCount)
 	return result, nil
+}
+
+// WatchEvents streams events matching the options as they occur.
+// Implements EventManagerHandler.WatchEvents by delegating to the underlying
+// MusterClient (Kubernetes watch or filesystem fsnotify watch).
+func (a *Adapter) WatchEvents(ctx context.Context, options api.EventQueryOptions) (<-chan api.EventResult, error) {
+	logging.Debug("events", "Watching events with options: resourceType=%s, resourceName=%s, namespace=%s, eventType=%s",
+		options.ResourceType, options.ResourceName, options.Namespace, options.EventType)
+	return a.generator.client.WatchEvents(ctx, options)
 }
 
 // IsKubernetesMode returns true if the event manager is using Kubernetes mode.
@@ -235,10 +252,11 @@ func (a *Adapter) handleEventsQuery(ctx context.Context, args map[string]interfa
 		options.Limit = limit
 	}
 
-	// Check for follow mode
-	if follow, ok := args["follow"].(bool); ok && follow {
-		return a.handleEventsStreaming(ctx, options)
-	}
+	// The `follow` argument is handled by the aggregator: it returns the
+	// current events from this query immediately and then streams subsequent
+	// events to the calling client as MCP notifications (see
+	// AggregatorServer.startEventFollow). This handler always returns the
+	// point-in-time query result.
 
 	// Execute the query
 	result, err := a.QueryEvents(ctx, options)
@@ -275,95 +293,4 @@ func (a *Adapter) handleEventsQuery(ctx context.Context, args map[string]interfa
 	return &api.CallToolResult{
 		Content: []interface{}{string(eventsJSON)},
 	}, nil
-}
-
-// handleEventsStreaming handles follow mode for event streaming
-func (a *Adapter) handleEventsStreaming(ctx context.Context, options api.EventQueryOptions) (*api.CallToolResult, error) {
-	// Get initial events first
-	result, err := a.QueryEvents(ctx, options)
-	if err != nil {
-		return &api.CallToolResult{
-			IsError: true,
-			Content: []interface{}{fmt.Sprintf("Failed to query initial events: %v", err)},
-		}, nil
-	}
-
-	// Format initial events for display
-	var initialEvents []interface{}
-	for _, event := range result.Events {
-		initialEvents = append(initialEvents, formatEventForDisplay(event))
-	}
-
-	// Start background streaming
-	go a.streamEventsInBackground(ctx, options)
-
-	// Return initial events immediately
-	initialEventsJSON, err := json.Marshal(initialEvents)
-	if err != nil {
-		return &api.CallToolResult{
-			IsError: true,
-			Content: []interface{}{fmt.Sprintf("Failed to marshal initial events: %v", err)},
-		}, nil
-	}
-
-	return &api.CallToolResult{
-		Content: []interface{}{string(initialEventsJSON)},
-	}, nil
-}
-
-// streamEventsInBackground monitors for new events and sends notifications
-func (a *Adapter) streamEventsInBackground(ctx context.Context, options api.EventQueryOptions) {
-	// Track the last seen timestamp to avoid duplicates
-	var lastSeenTime time.Time
-	if options.Since != nil {
-		lastSeenTime = *options.Since
-	} else {
-		lastSeenTime = time.Now()
-	}
-
-	// Check for new events every 2 seconds
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-
-	logging.Debug("events", "Started background event streaming")
-
-	for {
-		select {
-		case <-ctx.Done():
-			logging.Debug("events", "Stopped background event streaming")
-			return
-		case <-ticker.C:
-			// Create options for querying new events since lastSeenTime
-			newOptions := options
-			newOptions.Since = &lastSeenTime
-			newOptions.Until = nil // Remove until filter for streaming
-
-			// Query for new events
-			result, err := a.QueryEvents(ctx, newOptions)
-			if err != nil {
-				logging.Debug("events", "Error querying new events: %v", err)
-				continue
-			}
-
-			// Process new events
-			for _, event := range result.Events {
-				if event.Timestamp.After(lastSeenTime) {
-					// Format event for notification using shared helper
-					_ = formatEventForDisplay(event)
-
-					// Log the new event (MCP notification support is not yet implemented)
-					logging.Info("events", "New event: [%s] %s %s/%s: %s - %s (%s)",
-						event.Timestamp.Format("2006-01-02 15:04:05"),
-						event.InvolvedObject.Kind,
-						event.Namespace,
-						event.InvolvedObject.Name,
-						event.Reason,
-						event.Message,
-						event.Type)
-
-					lastSeenTime = event.Timestamp
-				}
-			}
-		}
-	}
 }

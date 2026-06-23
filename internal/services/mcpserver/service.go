@@ -62,6 +62,12 @@ type Service struct {
 	// onAuthRequired runs synchronously before the StateAuthRequired transition.
 	// Immutable after construction; set via WithAuthRequiredHook.
 	onAuthRequired func(definition *api.MCPServer, authErr *mcpserver.AuthRequiredError)
+
+	// healthEventMutex guards healthEventUnhealthy, which gates emission of
+	// MCPServerHealthCheckFailed to the healthy->unhealthy transition so the
+	// 30s health-check loop does not re-emit the same event every poll.
+	healthEventMutex     sync.Mutex
+	healthEventUnhealthy bool
 }
 
 // Option configures a Service at construction time.
@@ -474,10 +480,7 @@ func (s *Service) CheckHealth(ctx context.Context) (services.HealthStatus, error
 	if client == nil {
 		s.UpdateHealth(services.HealthUnhealthy)
 		err := fmt.Errorf("MCP client not available")
-		// Generate health check failed event
-		s.generateEvent(events.ReasonMCPServerHealthCheckFailed, events.EventData{
-			Error: err.Error(),
-		})
+		s.emitHealthCheckFailedOnce(err.Error())
 		return services.HealthUnhealthy, err
 	}
 
@@ -486,16 +489,41 @@ func (s *Service) CheckHealth(ctx context.Context) (services.HealthStatus, error
 		if err := pinger.Ping(ctx); err != nil {
 			s.UpdateHealth(services.HealthUnhealthy)
 			healthErr := fmt.Errorf("MCP ping failed: %w", err)
-			// Generate health check failed event
-			s.generateEvent(events.ReasonMCPServerHealthCheckFailed, events.EventData{
-				Error: healthErr.Error(),
-			})
+			s.emitHealthCheckFailedOnce(healthErr.Error())
 			return services.HealthUnhealthy, healthErr
 		}
 	}
 
 	s.UpdateHealth(services.HealthHealthy)
+	// Clear the gate so the next healthy->unhealthy transition emits again.
+	s.resetHealthCheckEventGate()
 	return services.HealthHealthy, nil
+}
+
+// emitHealthCheckFailedOnce emits MCPServerHealthCheckFailed only on the
+// transition into the unhealthy state. Subsequent failing health checks while
+// already unhealthy are suppressed so the 30s poll loop does not produce an
+// event every interval for a persistently-failing server (the dominant source
+// of event spam that kept the feature disabled in production).
+func (s *Service) emitHealthCheckFailedOnce(errMsg string) {
+	s.healthEventMutex.Lock()
+	already := s.healthEventUnhealthy
+	s.healthEventUnhealthy = true
+	s.healthEventMutex.Unlock()
+	if already {
+		return
+	}
+	s.generateEvent(events.ReasonMCPServerHealthCheckFailed, events.EventData{
+		Error: errMsg,
+	})
+}
+
+// resetHealthCheckEventGate clears the unhealthy gate after a healthy check so
+// the next failure transition emits a fresh event.
+func (s *Service) resetHealthCheckEventGate() {
+	s.healthEventMutex.Lock()
+	s.healthEventUnhealthy = false
+	s.healthEventMutex.Unlock()
 }
 
 // GetHealthCheckInterval implements HealthChecker
@@ -645,21 +673,19 @@ func (s *Service) generateEvent(reason events.EventReason, data events.EventData
 		return
 	}
 
-	// Create an object reference for the MCPServer CRD
-	// MCPServer lifecycle events should be associated with the MCPServer CRD resource
+	// Associate MCPServer lifecycle events with the MCPServer CRD resource in
+	// the configured muster namespace so they are not orphaned in "default".
+	namespace := eventManager.DefaultNamespace()
+	if namespace == "" {
+		namespace = "default"
+	}
 	objectRef := api.ObjectReference{
 		Kind:      "MCPServer",
 		Name:      s.GetName(),
-		Namespace: "default", // TODO: Make configurable or derive from service configuration
+		Namespace: namespace,
 	}
 
-	// Populate service-specific data
-	data.Name = s.GetName()
-	if data.Namespace == "" {
-		data.Namespace = "default"
-	}
-
-	err := eventManager.CreateEvent(context.Background(), objectRef, string(reason), "", string(events.EventTypeNormal))
+	err := eventManager.CreateEventWithData(context.Background(), objectRef, string(reason), data.ToAPI())
 	if err != nil {
 		logging.Debug(s.GetLogContext(), "Failed to generate event %s: %v", string(reason), err)
 	} else {

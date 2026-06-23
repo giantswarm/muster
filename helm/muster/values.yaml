@@ -231,11 +231,6 @@ muster:
   # Enable debug logging
   debug: false
 
-  # Enable Kubernetes event emission (alpha feature, disabled by default)
-  # When enabled, muster emits Kubernetes Events for CRD lifecycle operations
-  # and service management.
-  events: false
-
   # Append a PEM file to muster's system trust pool at startup. Use this when
   # muster talks to backends served by an internal CA (for example, the SPIFFE
   # bundle that tunnelport tunnels on a Giant Swarm MC). The chart mounts the

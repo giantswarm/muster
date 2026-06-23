@@ -825,7 +825,7 @@ func (a *Adapter) generateCRDEvent(name string, reason events.EventReason, data 
 		data.Namespace = a.namespace
 	}
 
-	err := eventManager.CreateEvent(context.Background(), objectRef, string(reason), "", string(events.EventTypeNormal))
+	err := eventManager.CreateEventWithData(context.Background(), objectRef, string(reason), data.ToAPI())
 	if err != nil {
 		// Log error but don't fail the operation
 		logging.Debug("MCPServer", "Failed to generate event %s for MCPServer %s: %v", string(reason), name, err)

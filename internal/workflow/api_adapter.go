@@ -1070,7 +1070,7 @@ func (a *Adapter) enhanceResultWithExecutionID(result *mcp.CallToolResult, execu
 			if err := json.Unmarshal([]byte(textContent.Text), &jsonData); err == nil {
 				// Successfully parsed as JSON
 				if jsonMap, ok := jsonData.(map[string]interface{}); ok {
-					jsonMap["execution_id"] = executionID
+					jsonMap[api.FieldExecutionID] = executionID
 					if enhancedJSON, err := json.Marshal(jsonMap); err == nil {
 						result.Content[0] = mcp.NewTextContent(string(enhancedJSON))
 						return result
@@ -1324,7 +1324,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Description: "Get workflow execution details",
 			Args: []api.ArgMetadata{
 				{
-					Name:        "execution_id",
+					Name:        api.FieldExecutionID,
 					Type:        api.ArgTypeString,
 					Required:    true,
 					Description: "ID of the execution",
@@ -1730,7 +1730,7 @@ func (a *Adapter) handleExecutionGet(ctx context.Context, args map[string]interf
 		IncludeSteps: true, // Default to true
 	}
 
-	executionID, ok := args["execution_id"].(string)
+	executionID, ok := args[api.FieldExecutionID].(string)
 	if !ok || executionID == "" {
 		return &api.CallToolResult{
 			Content: []interface{}{"execution_id is required"},
@@ -1783,12 +1783,12 @@ func (a *Adapter) handleExecutionGet(ctx context.Context, args map[string]interf
 	// For summary mode, create a custom response that completely omits the "steps" field
 	if !req.IncludeSteps && execution.Steps == nil {
 		summaryResponse := map[string]interface{}{
-			"execution_id":  execution.ExecutionID,
-			"workflow_name": execution.WorkflowName,
-			api.FieldStatus: execution.Status,
-			"started_at":    execution.StartedAt,
-			"duration_ms":   execution.DurationMs,
-			"input":         execution.Input,
+			api.FieldExecutionID: execution.ExecutionID,
+			"workflow_name":      execution.WorkflowName,
+			api.FieldStatus:      execution.Status,
+			"started_at":         execution.StartedAt,
+			"duration_ms":        execution.DurationMs,
+			api.FieldInput:       execution.Input,
 		}
 
 		// Add optional fields only if they exist
@@ -2478,10 +2478,10 @@ func (a *Adapter) generateCRDEvent(name string, reason events.EventReason, data 
 		data.Namespace = a.namespace
 	}
 
-	// Note: message and eventType parameters are provided for interface compliance,
-	// but the actual values are determined by the event generator's template engine
-	// based on the reason code.
-	err := eventManager.CreateEvent(context.Background(), objectRef, string(reason), data.Error, "")
+	// The message and event type are determined by the generator's template
+	// engine from the reason; the structured data is threaded through so the
+	// rendered message includes contextual detail (step counts, errors, ...).
+	err := eventManager.CreateEventWithData(context.Background(), objectRef, string(reason), data.ToAPI())
 	if err != nil {
 		// Log error but don't fail the operation
 		logging.Debug("WorkflowAdapter", "Failed to generate event %s for Workflow %s: %v", string(reason), name, err)

@@ -26,15 +26,21 @@
 //
 // Usage:
 //
-// Components should access event generation functionality through the API layer:
+// Components should access event generation functionality through the API layer.
+// The reason must match a known event reason (the message and Normal/Warning
+// type are derived from it via the template engine), and structured EventData
+// is threaded through so the rendered message includes contextual detail:
 //
 //	eventManager := api.GetEventManager()
 //	if eventManager != nil {
-//		err := eventManager.CreateEvent(ctx, objectRef, "Created", "MCPServer successfully created", "Normal")
+//		objectRef := api.ObjectReference{Kind: "MCPServer", Name: "github-server", Namespace: "default"}
+//		err := eventManager.CreateEventWithData(ctx, objectRef, string(events.ReasonMCPServerFailed), api.EventData{
+//			Error: "connection refused",
+//		})
 //	}
 //
 // Direct usage of EventGenerator is also supported for advanced scenarios:
 //
 //	generator := events.NewEventGenerator(musterClient)
-//	err := generator.MCPServerEvent(server, events.ReasonCreated, events.EventData{})
+//	err := generator.MCPServerEvent(server, events.ReasonMCPServerCreated, events.EventData{})
 package events
