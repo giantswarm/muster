@@ -112,7 +112,7 @@ func TestWorkflowExecutor_StoreAliasEmitsResult(t *testing.T) {
 }
 
 // #874: a workflow output template shapes the returned document, preserving
-// JSON structure across steps and omitting the default envelope.
+// JSON structure across steps and omitting the default response.
 func TestWorkflowExecutor_OutputTemplate(t *testing.T) {
 	mock := jsonResponder(map[string]string{
 		"pods":   `{"items": [{"name": "a"}, {"name": "b"}]}`,
@@ -142,9 +142,9 @@ func TestWorkflowExecutor_OutputTemplate(t *testing.T) {
 
 	decoded := decodeResult(t, result)
 
-	// The envelope keys are gone; only the output template remains.
+	// The response keys are gone; only the output template remains.
 	_, hasSteps := decoded[api.FieldSteps]
-	assert.False(t, hasSteps, "output template must omit the steps envelope")
+	assert.False(t, hasSteps, "output template must omit the steps response")
 	_, hasWorkflow := decoded["workflow"]
 	assert.False(t, hasWorkflow)
 
@@ -199,10 +199,10 @@ func TestWorkflowExecutor_OutputTemplate_ComputedLeafKeepsType(t *testing.T) {
 	assert.Equal(t, float64(2), decoded["nextMajor"], "numeric computed leaf stays a number")
 }
 
-// #877: the reserved _debug arg keeps the full envelope (execution_id, status,
+// #877: the reserved _debug arg keeps the full response (execution_id, status,
 // steps[] with every recorded result) and surfaces the rendered output template
 // under "output", while default mode returns only the output template.
-func TestWorkflowExecutor_OutputTemplate_DebugEnvelope(t *testing.T) {
+func TestWorkflowExecutor_OutputTemplate_DebugResponse(t *testing.T) {
 	mock := jsonResponder(map[string]string{
 		"pods":   `{"items": [{"name": "a"}, {"name": "b"}]}`,
 		"events": `{"items": [1, 2, 3]}`,
@@ -230,11 +230,11 @@ func TestWorkflowExecutor_OutputTemplate_DebugEnvelope(t *testing.T) {
 
 	decoded := decodeResult(t, result)
 
-	// The full envelope is present.
+	// The full response is present.
 	assert.Equal(t, "shaped", decoded["workflow"])
 	assert.Equal(t, "completed", decoded[api.FieldStatus])
 	steps, ok := decoded[api.FieldSteps].([]interface{})
-	require.True(t, ok, "debug envelope must include steps[]")
+	require.True(t, ok, "debug response must include steps[]")
 	require.Len(t, steps, 2)
 
 	// Every step's result is surfaced regardless of its output flag.
@@ -246,7 +246,7 @@ func TestWorkflowExecutor_OutputTemplate_DebugEnvelope(t *testing.T) {
 
 	// The rendered output template rides along under "output".
 	outputTemplate, ok := decoded[fieldOutput].(map[string]interface{})
-	require.True(t, ok, "debug envelope must carry the rendered output template under 'output'")
+	require.True(t, ok, "debug response must carry the rendered output template under 'output'")
 	assert.Equal(t, "prod", outputTemplate["cluster"])
 	assert.Equal(t, float64(3), outputTemplate["backoffCount"])
 
@@ -259,7 +259,7 @@ func TestWorkflowExecutor_OutputTemplate_DebugEnvelope(t *testing.T) {
 
 // #877: debug mode on a plain (no output template) workflow surfaces every recorded
 // step result, not just the output-flagged ones.
-func TestWorkflowExecutor_DebugEnvelope_NoOutputTemplate(t *testing.T) {
+func TestWorkflowExecutor_DebugResponse_NoOutputTemplate(t *testing.T) {
 	mock := jsonResponder(map[string]string{
 		"producer": `{"token": "abc"}`,
 		"consumer": `{"ok": true}`,
@@ -287,7 +287,7 @@ func TestWorkflowExecutor_DebugEnvelope_NoOutputTemplate(t *testing.T) {
 }
 
 // #877: an output template render error does not discard successful step results. The
-// caller gets an error plus a recoverable envelope carrying every step result
+// caller gets an error plus a recoverable response carrying every step result
 // and the output template error message.
 func TestWorkflowExecutor_OutputTemplate_ErrorKeepsResults(t *testing.T) {
 	mock := jsonResponder(map[string]string{
@@ -312,7 +312,7 @@ func TestWorkflowExecutor_OutputTemplate_ErrorKeepsResults(t *testing.T) {
 	decoded := decodeResult(t, result)
 	assert.Contains(t, decoded, "output_error")
 
-	// The successful step's result is still recoverable from the envelope.
+	// The successful step's result is still recoverable from the response.
 	steps := decoded[api.FieldSteps].([]interface{})
 	require.Len(t, steps, 1)
 	pods := steps[0].(map[string]interface{})

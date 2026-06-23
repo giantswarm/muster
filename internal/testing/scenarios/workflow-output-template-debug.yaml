@@ -1,5 +1,5 @@
 name: "workflow-output-template-debug"
-description: "The reserved _debug execution arg turns a output-template workflow's response into the full debug envelope: execution_id, status, and steps[] (with every recorded step result, even non-output steps) are kept, and the rendered output-template rides along under 'output'. Default execution still returns only the output-template. This is the observability escape hatch from issue #877."
+description: "The reserved _debug execution arg makes an output-template workflow return the full debug response: execution_id, status, and steps[] (with every recorded step result, even non-output steps) are kept, and the rendered output-template rides along under 'output'. Default execution still returns only the output-template. This is the observability escape hatch from issue #877."
 category: "behavioral"
 concept: "workflow"
 tags: ["workflow", "output", "output-template", "debug", "core-api"]
@@ -37,7 +37,7 @@ steps:
     - tool: "core_workflow_delete"
       args: { name: "debuggable-output" }
 
-# Default execution: only the output-template is returned, the envelope is omitted.
+# Default execution: only the output-template is returned, the default response is omitted.
 - id: "run-default"
   tool: "workflow_debuggable-output"
   args:
@@ -48,7 +48,7 @@ steps:
       cluster: "prod"
       backoffCount: 3
 
-# Debug execution: the full envelope returns, every step result is surfaced
+# Debug execution: the full response returns, every step result is surfaced
 # (including the non-output pods/events steps), and the output-template rides along
 # under "output".
 - id: "run-debug"

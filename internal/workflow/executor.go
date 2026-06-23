@@ -39,8 +39,8 @@ const (
 )
 
 // debugArgKey is a reserved workflow-execution argument that switches the
-// response into a verbose debug envelope: the full {execution_id, status,
-// steps[]} envelope (with every recorded step result) plus, when the workflow
+// response into a verbose debug response: the full {execution_id, status,
+// steps[]} response (with every recorded step result) plus, when the workflow
 // declares an output template, the rendered output template under "output". It is
 // consumed by the executor and stripped from the args before validation and
 // step execution, so it never collides with a workflow's own arguments and is
@@ -48,7 +48,7 @@ const (
 const debugArgKey = "_debug"
 
 // extractDebugFlag reads and removes the reserved debug argument from args,
-// reporting whether the verbose debug envelope was requested. It accepts a
+// reporting whether the verbose debug response was requested. It accepts a
 // boolean true or the string "true".
 func extractDebugFlag(args map[string]interface{}) bool {
 	v, ok := args[debugArgKey]
@@ -171,7 +171,7 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 	}
 
 	// When the workflow declares an output template, render it once against the
-	// completed step results and return it in place of the default envelope. This
+	// completed step results and return it in place of the default response. This
 	// lets a workflow return a small, shaped document instead of dumping every
 	// step result. Referencing here works for every step regardless of its output
 	// flag (see #873).
@@ -179,24 +179,24 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 		rendered, err := we.renderOutputTemplate(workflow.Output, execCtx)
 		if err != nil {
 			// An output template render error must not discard the step results that
-			// already succeeded. Return the full debug envelope (every recorded
+			// already succeeded. Return the full debug response (every recorded
 			// result) alongside the error so the underlying data stays
 			// recoverable for debugging the output template (#877).
 			logging.Error("WorkflowExecutor", err, "Failed to render output template")
 			wrapped := fmt.Errorf("failed to render output template: %w", err)
-			env := we.buildEnvelope(workflow, execCtx, statusCompleted, true, map[string]interface{}{
+			resp := we.buildResponse(workflow, execCtx, statusCompleted, true, map[string]interface{}{
 				"output_error": wrapped.Error(),
 			})
-			return marshalEnvelope(env, true), wrapped
+			return marshalResponse(resp, true), wrapped
 		}
-		// Debug mode keeps the full envelope (execution_id, status, steps[] with
+		// Debug mode keeps the full response (execution_id, status, steps[] with
 		// every recorded result) and surfaces the rendered output template under
 		// "output" (#877). Default mode returns only the output template.
 		if debug {
-			env := we.buildEnvelope(workflow, execCtx, statusCompleted, true, map[string]interface{}{
+			resp := we.buildResponse(workflow, execCtx, statusCompleted, true, map[string]interface{}{
 				fieldOutput: rendered,
 			})
-			return marshalEnvelope(env, false), nil
+			return marshalResponse(resp, false), nil
 		}
 		outputJSON, err := json.Marshal(rendered)
 		if err != nil {
@@ -310,14 +310,14 @@ func (we *WorkflowExecutor) buildStepsArray(stepMetadata []stepMetadata, results
 	return steps
 }
 
-// buildEnvelope assembles the default workflow envelope (execution_id,
+// buildResponse assembles the default workflow response (execution_id,
 // workflow, status, input, steps[], template_vars). includeAllResults surfaces
 // every recorded step result (debug/verbose); otherwise only output-flagged
 // steps surface theirs. extra carries additional top-level fields, e.g. the
 // rendered output template ("output") or an output template error ("output_error").
-func (we *WorkflowExecutor) buildEnvelope(workflow *api.Workflow, execCtx *executionContext, status string, includeAllResults bool, extra map[string]interface{}) map[string]interface{} {
+func (we *WorkflowExecutor) buildResponse(workflow *api.Workflow, execCtx *executionContext, status string, includeAllResults bool, extra map[string]interface{}) map[string]interface{} {
 	steps := we.buildStepsArray(execCtx.stepMetadata, execCtx.results, "", "", includeAllResults)
-	env := map[string]interface{}{
+	resp := map[string]interface{}{
 		api.FieldExecutionID: "", // Will be filled by manager
 		"workflow":           workflow.Name,
 		api.FieldStatus:      status,
@@ -326,22 +326,22 @@ func (we *WorkflowExecutor) buildEnvelope(workflow *api.Workflow, execCtx *execu
 		"template_vars":      execCtx.templateVars,
 	}
 	for k, v := range extra {
-		env[k] = v
+		resp[k] = v
 	}
-	return env
+	return resp
 }
 
-// marshalEnvelope serialises an envelope to a single-text-content MCP result.
+// marshalResponse serialises an response to a single-text-content MCP result.
 // On a marshal failure it falls back to a minimal error payload so the caller
 // always receives a usable result. isError sets the result's IsError flag.
-func marshalEnvelope(env map[string]interface{}, isError bool) *mcp.CallToolResult {
-	envJSON, err := json.Marshal(env)
+func marshalResponse(resp map[string]interface{}, isError bool) *mcp.CallToolResult {
+	respJSON, err := json.Marshal(resp)
 	if err != nil {
-		envJSON = []byte(fmt.Sprintf(`{"error": "failed to marshal workflow envelope: %s"}`, err.Error()))
+		respJSON = []byte(fmt.Sprintf(`{"error": "failed to marshal workflow response: %s"}`, err.Error()))
 		isError = true
 	}
 	return &mcp.CallToolResult{
-		Content: []mcp.Content{mcp.NewTextContent(string(envJSON))},
+		Content: []mcp.Content{mcp.NewTextContent(string(respJSON))},
 		IsError: isError,
 	}
 }
