@@ -38,6 +38,34 @@ const (
 	statusFailed    = "failed"
 )
 
+// debugArgKey is a reserved workflow-execution argument that switches the
+// response into a verbose debug envelope: the full {execution_id, status,
+// steps[]} envelope (with every recorded step result) plus, when the workflow
+// declares an output projection, the rendered projection under "output". It is
+// consumed by the executor and stripped from the args before validation and
+// step execution, so it never collides with a workflow's own arguments and is
+// not passed to step tools. See #877.
+const debugArgKey = "_debug"
+
+// extractDebugFlag reads and removes the reserved debug argument from args,
+// reporting whether the verbose debug envelope was requested. It accepts a
+// boolean true or the string "true".
+func extractDebugFlag(args map[string]interface{}) bool {
+	v, ok := args[debugArgKey]
+	if !ok {
+		return false
+	}
+	delete(args, debugArgKey)
+	switch t := v.(type) {
+	case bool:
+		return t
+	case string:
+		return t == "true"
+	default:
+		return false
+	}
+}
+
 // stepMetadata holds metadata about an executed step for tracking purposes
 type stepMetadata struct {
 	ID                  string      // Original step ID from workflow definition
@@ -89,6 +117,10 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 	}
 	logging.Debug("WorkflowExecutor", "ExecuteWorkflow called with workflow=%s, args=%+v, required=%+v", workflow.Name, args, requiredArgs)
 	logging.Debug("WorkflowExecutor", "Executing workflow %s with %d steps", workflow.Name, len(workflow.Steps))
+
+	// Pull the reserved debug toggle out of args before validation/execution so
+	// it neither collides with workflow args nor reaches step tools (#877).
+	debug := extractDebugFlag(args)
 
 	// Validate inputs against args definition (this applies default values to args)
 	if err := we.validateInputs(workflow.Args, args); err != nil {
@@ -146,8 +178,25 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 	if len(workflow.Output) > 0 {
 		projected, err := we.renderOutputProjection(workflow.Output, execCtx)
 		if err != nil {
+			// A projection render error must not discard the step results that
+			// already succeeded. Return the full debug envelope (every recorded
+			// result) alongside the error so the underlying data stays
+			// recoverable for debugging the projection (#877).
 			logging.Error("WorkflowExecutor", err, "Failed to render output projection")
-			return nil, fmt.Errorf("failed to render output projection: %w", err)
+			wrapped := fmt.Errorf("failed to render output projection: %w", err)
+			env := we.buildEnvelope(workflow, execCtx, statusCompleted, true, map[string]interface{}{
+				"output_error": wrapped.Error(),
+			})
+			return marshalEnvelope(env, true), wrapped
+		}
+		// Debug mode keeps the full envelope (execution_id, status, steps[] with
+		// every recorded result) and surfaces the rendered projection under
+		// "output" (#877). Default mode returns only the projection.
+		if debug {
+			env := we.buildEnvelope(workflow, execCtx, statusCompleted, true, map[string]interface{}{
+				fieldOutput: projected,
+			})
+			return marshalEnvelope(env, false), nil
 		}
 		projectedJSON, err := json.Marshal(projected)
 		if err != nil {
@@ -159,16 +208,17 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 		}, nil
 	}
 
-	// Build clean final result with consolidated step information
-	steps := we.buildStepsArray(execCtx.stepMetadata, execCtx.results, "", "")
+	// Build clean final result with consolidated step information. Debug mode
+	// surfaces every recorded step result, not just the output-flagged ones.
+	steps := we.buildStepsArray(execCtx.stepMetadata, execCtx.results, "", "", debug)
 
 	finalResult := map[string]interface{}{
-		"execution_id":  "", // Will be filled by manager
-		"workflow":      workflow.Name,
-		api.FieldStatus: statusCompleted,
-		"input":         execCtx.input,
-		api.FieldSteps:  steps,
-		"template_vars": execCtx.templateVars,
+		api.FieldExecutionID: "", // Will be filled by manager
+		"workflow":           workflow.Name,
+		api.FieldStatus:      statusCompleted,
+		api.FieldInput:       execCtx.input,
+		api.FieldSteps:       steps,
+		"template_vars":      execCtx.templateVars,
 	}
 
 	// If the last step isn't an output step, merge its result into the top level.
@@ -212,8 +262,11 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 	}, nil
 }
 
-// buildStepsArray creates a consolidated steps array from step metadata and results
-func (we *WorkflowExecutor) buildStepsArray(stepMetadata []stepMetadata, results map[string]interface{}, failedStepID string, errorMessage string) []map[string]interface{} {
+// buildStepsArray creates a consolidated steps array from step metadata and
+// results. When includeAllResults is true (debug/verbose mode), every recorded
+// step result is surfaced regardless of its output flag; otherwise only
+// output-flagged steps surface their result in the returned document.
+func (we *WorkflowExecutor) buildStepsArray(stepMetadata []stepMetadata, results map[string]interface{}, failedStepID string, errorMessage string, includeAllResults bool) []map[string]interface{} {
 	var steps []map[string]interface{}
 
 	for _, stepMeta := range stepMetadata {
@@ -239,9 +292,10 @@ func (we *WorkflowExecutor) buildStepsArray(stepMetadata []stepMetadata, results
 			step["allow_failure"] = stepMeta.AllowFailure
 		}
 
-		// Add result only for output steps (the returned document). Results are
-		// always recorded for referencing, but only surfaced here when requested.
-		if stepMeta.Output && results[stepMeta.ID] != nil {
+		// Add result for output steps (the returned document). Results are
+		// always recorded for referencing, but only surfaced here when
+		// requested -- or for every step in debug mode (includeAllResults).
+		if (stepMeta.Output || includeAllResults) && results[stepMeta.ID] != nil {
 			step["result"] = results[stepMeta.ID]
 		}
 
@@ -254,6 +308,42 @@ func (we *WorkflowExecutor) buildStepsArray(stepMetadata []stepMetadata, results
 	}
 
 	return steps
+}
+
+// buildEnvelope assembles the default workflow envelope (execution_id,
+// workflow, status, input, steps[], template_vars). includeAllResults surfaces
+// every recorded step result (debug/verbose); otherwise only output-flagged
+// steps surface theirs. extra carries additional top-level fields, e.g. the
+// rendered projection ("output") or a projection error ("output_error").
+func (we *WorkflowExecutor) buildEnvelope(workflow *api.Workflow, execCtx *executionContext, status string, includeAllResults bool, extra map[string]interface{}) map[string]interface{} {
+	steps := we.buildStepsArray(execCtx.stepMetadata, execCtx.results, "", "", includeAllResults)
+	env := map[string]interface{}{
+		api.FieldExecutionID: "", // Will be filled by manager
+		"workflow":           workflow.Name,
+		api.FieldStatus:      status,
+		api.FieldInput:       execCtx.input,
+		api.FieldSteps:       steps,
+		"template_vars":      execCtx.templateVars,
+	}
+	for k, v := range extra {
+		env[k] = v
+	}
+	return env
+}
+
+// marshalEnvelope serialises an envelope to a single-text-content MCP result.
+// On a marshal failure it falls back to a minimal error payload so the caller
+// always receives a usable result. isError sets the result's IsError flag.
+func marshalEnvelope(env map[string]interface{}, isError bool) *mcp.CallToolResult {
+	envJSON, err := json.Marshal(env)
+	if err != nil {
+		envJSON = []byte(fmt.Sprintf(`{"error": "failed to marshal workflow envelope: %s"}`, err.Error()))
+		isError = true
+	}
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{mcp.NewTextContent(string(envJSON))},
+		IsError: isError,
+	}
 }
 
 // subStepView is the common shape of an executable tool step, shared by
@@ -307,10 +397,10 @@ type stepOutcome struct {
 // input, user/loop variables, and previous step results.
 func (we *WorkflowExecutor) templateContext(execCtx *executionContext) map[string]interface{} {
 	return map[string]interface{}{
-		"input":   execCtx.input,
-		"vars":    execCtx.variables,
-		"results": execCtx.results,
-		"context": execCtx.results, // Alias for results to support .context.variable syntax
+		api.FieldInput: execCtx.input,
+		"vars":         execCtx.variables,
+		"results":      execCtx.results,
+		"context":      execCtx.results, // Alias for results to support .context.variable syntax
 	}
 }
 
@@ -809,14 +899,14 @@ func (we *WorkflowExecutor) failWorkflow(ctx context.Context, workflow *api.Work
 		return outcome.result, nil
 	}
 
-	steps := we.buildStepsArray(execCtx.stepMetadata, execCtx.results, outcome.failedStepID, outcome.errorMessage)
+	steps := we.buildStepsArray(execCtx.stepMetadata, execCtx.results, outcome.failedStepID, outcome.errorMessage, false)
 	partialResult := map[string]interface{}{
-		"execution_id":  "",
-		"workflow":      workflow.Name,
-		api.FieldStatus: statusFailed,
-		"input":         execCtx.input,
-		api.FieldSteps:  steps,
-		"template_vars": execCtx.templateVars,
+		api.FieldExecutionID: "",
+		"workflow":           workflow.Name,
+		api.FieldStatus:      statusFailed,
+		api.FieldInput:       execCtx.input,
+		api.FieldSteps:       steps,
+		"template_vars":      execCtx.templateVars,
 	}
 	partialJSON, jsonErr := json.Marshal(partialResult)
 	if jsonErr != nil {

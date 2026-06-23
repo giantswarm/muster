@@ -31,6 +31,7 @@ const (
 	FieldServer      = "server"
 	FieldMimeType    = "mimeType"
 	FieldExecutionID = "execution_id"
+	FieldInput       = "input"
 	FieldInputSchema = "inputSchema"
 	FieldURI         = "uri"
 	FieldLabel       = "label"
