@@ -205,14 +205,15 @@ func seedBrokerClients(ctx context.Context, srv *oauth.Server, broker config.Tok
 
 func toTrustedIssuer(iss config.TrustedIssuerConfig) oauthserver.TrustedIssuer {
 	return oauthserver.TrustedIssuer{
-		Issuer:             iss.Issuer,
-		JwksURL:            iss.JwksURL,
-		AllowedAudiences:   iss.AllowedAudiences,
-		AllowedScopes:      iss.AllowedScopes,
-		AllowedClaims:      iss.AllowedClaims,
-		SubjectClaim:       iss.SubjectClaim,
-		AllowPrivateIPJWKS: iss.AllowPrivateIPJWKS,
-		AcceptedTypHeaders: iss.AcceptedTypHeaders,
+		Issuer:                  iss.Issuer,
+		JwksURL:                 iss.JwksURL,
+		AllowedAudiences:        iss.AllowedAudiences,
+		AllowedScopes:           iss.AllowedScopes,
+		AllowedClaims:           iss.AllowedClaims,
+		SubjectClaim:            iss.SubjectClaim,
+		AllowPrivateIPJWKS:      iss.AllowPrivateIPJWKS,
+		AllowPrivateIPJWKSHosts: iss.AllowPrivateIPJWKSHosts,
+		AcceptedTypHeaders:      iss.AcceptedTypHeaders,
 	}
 }
 

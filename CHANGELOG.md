@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- `oauth.server.trustedIssuers[].allowPrivateIPJWKSHosts` (`[]string`): host-scoped alternative to `allowPrivateIPJWKS`. The issuer's `jwksUrl` may resolve to a private IP only when its hostname matches one of these values; all other hosts keep the SSRF guard. Maps to mcp-oauth's `TrustedIssuer.AllowPrivateIPJWKSHosts`. Prefer it over the blanket bool for a known in-cluster JWKS endpoint (e.g. a Dex fronted by an internal LB whose public hostname resolves to a private VIP).
+
 - `oauth.server.tokenExchangeBroker.delegateToSelf` (default false): when enabled, a delegated (on-behalf-of) token exchange that carries an `actor_token` but omits the RFC 8707 `resource` is bound to muster's own `resourceIdentifier`, so an agent STS client that cannot set a resource itself still receives a token muster accepts back and re-mints per backend on the localMint path. Only the delegation path is affected; a resource-less plain exchange still errors. Requires mcp-oauth v0.16.0.
 
 - Chart values now document the `muster-valkey` persistence model as a deliberate cache-only choice (RDB-only is intentional; every critical record is reconstructable at startup), with a per-record-type recovery table, and explain why AOF is not enabled (it does not survive PVC loss, and a config-flip restart is a data-loss footgun). Documentation only; no behaviour change. ([#884](https://github.com/giantswarm/muster/issues/884))

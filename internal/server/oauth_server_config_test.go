@@ -152,14 +152,15 @@ func TestToTrustedIssuer_MapsAllFields(t *testing.T) {
 	t.Parallel()
 
 	in := config.TrustedIssuerConfig{
-		Issuer:             "https://idp.example.com",
-		JwksURL:            "https://idp.example.com/jwks",
-		AllowedAudiences:   []string{"aud1", "aud2"},
-		AllowedScopes:      []string{"read", "write"},
-		AllowedClaims:      map[string]string{"sub": "system:serviceaccount:ns:*"},
-		SubjectClaim:       "email",
-		AllowPrivateIPJWKS: true,
-		AcceptedTypHeaders: []string{""},
+		Issuer:                  "https://idp.example.com",
+		JwksURL:                 "https://idp.example.com/jwks",
+		AllowedAudiences:        []string{"aud1", "aud2"},
+		AllowedScopes:           []string{"read", "write"},
+		AllowedClaims:           map[string]string{"sub": "system:serviceaccount:ns:*"},
+		SubjectClaim:            "email",
+		AllowPrivateIPJWKS:      true,
+		AllowPrivateIPJWKSHosts: []string{"dex.example.com"},
+		AcceptedTypHeaders:      []string{""},
 	}
 	got := toTrustedIssuer(in)
 	require.Equal(t, in.Issuer, got.Issuer)
@@ -169,6 +170,7 @@ func TestToTrustedIssuer_MapsAllFields(t *testing.T) {
 	require.Equal(t, in.AllowedClaims, got.AllowedClaims)
 	require.Equal(t, in.SubjectClaim, got.SubjectClaim)
 	require.True(t, got.AllowPrivateIPJWKS)
+	require.Equal(t, in.AllowPrivateIPJWKSHosts, got.AllowPrivateIPJWKSHosts)
 	require.Equal(t, in.AcceptedTypHeaders, got.AcceptedTypHeaders)
 }
 
