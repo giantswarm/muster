@@ -1,35 +1,58 @@
 package project
 
+import "runtime/debug"
+
 // dev is the default for unset build identifiers. Local `go build`
 // invocations without ldflags keep this so `muster version` stays printable.
 const dev = "dev"
 
-// version holds the current release version as a literal so the devctl
-// release flow can rewrite it on each release. Build pipelines additionally
-// override these at link time via `-X` ldflags:
-//
-//   - goreleaser (release archives) sets `version` to the semver tag,
-//     `gitSHA` to the short commit, `buildTimestamp` to the build date.
-//   - architect-orb's `go-build` job (container images) sets `version` via
-//     gitsemver, `gitSHA` to `CIRCLE_SHA1`, and `buildTimestamp` to the UTC
-//     build time.
+// devel is the module version runtime/debug reports for a build that carries
+// no resolvable VCS tag (no .git, or built outside a module checkout).
+const devel = "(devel)"
+
+// Build identifiers. The architect-orb `go-build` job overrides `gitSHA` (from
+// `CIRCLE_SHA1`) and `buildTimestamp` (UTC build time) at link time via `-X`
+// ldflags; it does NOT inject `version`. The version is instead derived at
+// runtime from the Go build info (see Version), which the toolchain stamps
+// from the VCS tag — a clean semver when the build sits exactly on a tag (as
+// release builds do, since they run on the tagged commit). `version` is left
+// as an escape hatch for an explicit `-X` override but is normally unset.
 var (
-	version        = "0.3.13-dev"
+	version        = dev
 	gitSHA         = dev
 	buildTimestamp = "unknown"
 )
 
-// Version returns the best human-readable build identifier available: the
-// injected or literal release version, otherwise the commit SHA if CI
-// injected one, otherwise the placeholder "dev".
+// Version returns the best human-readable build identifier available, in
+// order: an explicitly injected `version` ldflag, the VCS version stamped into
+// the Go build info, the injected commit SHA, and finally the placeholder
+// "dev".
 func Version() string {
 	if version != dev && version != "" {
 		return version
+	}
+	if v := buildInfoVersion(); v != "" {
+		return v
 	}
 	if gitSHA != dev {
 		return gitSHA
 	}
 	return dev
+}
+
+// buildInfoVersion reads the main module version the Go toolchain embedded from
+// version control. It returns "" when no usable version is present — either no
+// build info, or the "(devel)" placeholder a tag-less build produces — so
+// Version can fall through to the next source.
+var buildInfoVersion = func() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return ""
+	}
+	if v := info.Main.Version; v != "" && v != devel {
+		return v
+	}
+	return ""
 }
 
 // GitSHA returns the commit SHA the binary was built from.

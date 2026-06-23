@@ -68,6 +68,7 @@ All notable changes to this project will be documented in this file.
 - Update mcp-oauth to v0.4.0.
 - Update mcp-oauth to v0.3.1: forwarded ID tokens (`trustedAudiences`) are no longer hard-rejected by the trusted-issuer Bearer branch when the same issuer is also configured in `trustedIssuers` — fixes Backstage AI-chat SSO token forwarding returning 401 (`typ header is "", expected "at+jwt"`) on deployments with the token-exchange broker enabled.
 - Update mcp-oauth to v0.3.0 (server-side RFC 8693 token-exchange grant with pluggable `Exchanger`).
+- `muster version` now derives its version from the Go build info (`runtime/debug`) stamped from the VCS tag, instead of a hand-maintained literal in `pkg/project`. Release builds run on the tagged commit, so the binaries report the clean tag version; off-tag builds report a pseudo-version and tag-less builds report `dev`. `gitSHA`/`buildTimestamp` are still injected by architect's `go-build` ldflags. Removes the need to bump the version literal on every release. The scratch files architect's `go-build` writes into the worktree (the per-arch `muster-<os>-<arch>` binaries, `.ldflags`, and `.platforms`) are now gitignored so an untracked artifact doesn't mark the build `+dirty` in the embedded version. Validated end-to-end in CI: all six architectures embed the clean tag version with `vcs.modified=false`.
 
 ### Removed
 
