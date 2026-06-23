@@ -622,6 +622,12 @@ type TrustedIssuerConfig struct {
 	// is https://kubernetes.default.svc/openid/v1/jwks. Emits a startup warning
 	// when set (mcp-oauth dev-override flag). Default: false.
 	AllowPrivateIPJWKS bool `yaml:"allowPrivateIPJWKS,omitempty"`
+	// AllowPrivateIPJWKSHosts is the host-scoped alternative to AllowPrivateIPJWKS:
+	// the JwksURL may resolve to a private IP only when its hostname matches one of
+	// these values; all other hosts keep the SSRF guard. Prefer this over the
+	// blanket bool for a known in-cluster endpoint (e.g. a Dex fronted by an
+	// internal LB whose public hostname resolves to a private VIP).
+	AllowPrivateIPJWKSHosts []string `yaml:"allowPrivateIPJWKSHosts,omitempty"`
 	// AcceptedTypHeaders lists the JWT typ header values accepted for Bearer
 	// tokens from this issuer. Empty keeps the RFC 9068 default ("at+jwt").
 	// Kubernetes ServiceAccount tokens carry no typ header; use [""] to
