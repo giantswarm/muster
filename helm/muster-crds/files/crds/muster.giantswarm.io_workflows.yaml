@@ -213,7 +213,7 @@ spec:
                 additionalProperties:
                   x-kubernetes-preserve-unknown-fields: true
                 description: |-
-                  Output is an optional templated projection that shapes the workflow's
+                  Output is an optional output template that shapes the workflow's
                   returned document. It is rendered once after all steps complete, against
                   .input / .results / .vars, and replaces the default
                   {execution_id, workflow, status, input, steps[], ...} envelope. Each leaf

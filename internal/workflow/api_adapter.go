@@ -23,7 +23,7 @@ import (
 )
 
 // fieldOutput is the argument/field name for both the per-step output flag and
-// the workflow-level output projection.
+// the workflow-level output template.
 const fieldOutput = "output"
 
 // Adapter provides the API adapter for workflow management
@@ -429,7 +429,7 @@ func (a *Adapter) ValidateWorkflowFromStructured(args map[string]interface{}) er
 
 // logAuthoringWarnings emits the workflow's non-fatal authoring lint warnings
 // (deprecated `store` usage, per-step output flags rendered inert by an output
-// projection) at the structured create/validate path. The detection lives in
+// output template) at the structured create/validate path. The detection lives in
 // the api package so the CRD reconciler emits the same nudges.
 func logAuthoringWarnings(wf *api.Workflow) {
 	for _, w := range api.AuthoringWarnings(wf) {
@@ -593,8 +593,8 @@ func (a *Adapter) convertWorkflowToCRD(workflow *api.Workflow) *musterv1alpha1.W
 	}
 }
 
-// workflowOutputToCRD converts an internal output projection to CRD raw-JSON
-// form, returning nil when no projection is declared.
+// workflowOutputToCRD converts an internal output template to CRD raw-JSON
+// form, returning nil when no output template is declared.
 func (a *Adapter) workflowOutputToCRD(output map[string]interface{}) map[string]apiextensionsv1.JSON {
 	if len(output) == 0 {
 		return nil
@@ -1166,7 +1166,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 					Name:        fieldOutput,
 					Type:        api.ArgTypeObject,
 					Required:    false,
-					Description: "Optional templated output projection that shapes the returned document",
+					Description: "Optional output template that shapes the returned document",
 					Schema:      getWorkflowOutputSchema(),
 				},
 			},
@@ -1212,7 +1212,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 					Name:        fieldOutput,
 					Type:        api.ArgTypeObject,
 					Required:    false,
-					Description: "Optional templated output projection that shapes the returned document",
+					Description: "Optional output template that shapes the returned document",
 					Schema:      getWorkflowOutputSchema(),
 				},
 			},
@@ -1270,7 +1270,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 					Name:        fieldOutput,
 					Type:        api.ArgTypeObject,
 					Required:    false,
-					Description: "Optional templated output projection that shapes the returned document",
+					Description: "Optional output template that shapes the returned document",
 					Schema:      getWorkflowOutputSchema(),
 				},
 			},
@@ -1895,7 +1895,7 @@ func convertToWorkflow(args map[string]interface{}) (api.Workflow, error) {
 		wf.OnFailure = subSteps
 	}
 
-	// Convert output projection (optional)
+	// Convert output template (optional)
 	if outputParam, ok := args[fieldOutput].(map[string]interface{}); ok {
 		wf.Output = outputParam
 	}
@@ -2446,12 +2446,12 @@ func getWorkflowOnFailureSchema() map[string]interface{} {
 }
 
 // getWorkflowOutputSchema returns the schema for the workflow-level output
-// projection: an object whose leaves are templated expressions rendered against
+// output template: an object whose leaves are templated expressions rendered against
 // .input/.results/.vars to shape the returned document.
 func getWorkflowOutputSchema() map[string]interface{} {
 	return map[string]interface{}{
 		api.SchemaKeyType:                 string(api.ArgTypeObject),
-		api.SchemaKeyDescription:          "Optional templated projection rendered once after all steps complete and returned in place of the default envelope. Each leaf is a Go-template/sprig expression evaluated against .input/.results/.vars, e.g. \"{{ .results.pods.items }}\" or \"{{ len .results.events.items }}\". JSON structure is preserved (numbers stay numbers, arrays stay arrays). A leaf's type comes from the value it evaluates to, not from how its text looks: a single-action leaf keeps its real type (\"{{ len .x }}\" is a number) and a computed string keeps its exact string form, so values whose form matters (leading zeros, versions, IDs like \"08\" or \"1.20\") are preserved with no coercion or workaround. Declaring this projection replaces the envelope, so per-step output/store flags no longer affect the returned document; every step result is still referenceable here regardless of those flags.",
+		api.SchemaKeyDescription:          "Optional output template rendered once after all steps complete and returned in place of the default envelope. Each leaf is a Go-template/sprig expression evaluated against .input/.results/.vars, e.g. \"{{ .results.pods.items }}\" or \"{{ len .results.events.items }}\". JSON structure is preserved (numbers stay numbers, arrays stay arrays). A leaf's type comes from the value it evaluates to, not from how its text looks: a single-action leaf keeps its real type (\"{{ len .x }}\" is a number) and a computed string keeps its exact string form, so values whose form matters (leading zeros, versions, IDs like \"08\" or \"1.20\") are preserved with no coercion or workaround. Declaring this output template replaces the envelope, so per-step output/store flags no longer affect the returned document; every step result is still referenceable here regardless of those flags.",
 		api.SchemaKeyAdditionalProperties: true,
 	}
 }

@@ -1,8 +1,8 @@
-name: "workflow-output-projection-absent"
-description: "When no output projection is declared the workflow returns the default envelope unchanged — execution_id, workflow, status, input, steps[] and template_vars are all present and the output-flag-driven steps[].result behavior is preserved (issue #874 back-compat)"
+name: "workflow-output-template-absent"
+description: "When no output template is declared the workflow returns the default envelope unchanged — execution_id, workflow, status, input, steps[] and template_vars are all present and the output-flag-driven steps[].result behavior is preserved (issue #874 back-compat)"
 category: "behavioral"
 concept: "workflow"
-tags: ["workflow", "output", "projection", "back-compat", "core-api"]
+tags: ["workflow", "output", "output-template", "back-compat", "core-api"]
 timeout: "2m"
 
 pre_configuration:
@@ -14,10 +14,10 @@ pre_configuration:
         responses: [ { response: { said: "{{ .text }}" } } ]
 
 steps:
-- id: "create-no-projection"
+- id: "create-no-output-template"
   tool: "core_workflow_create"
   args:
-    name: "no-projection"
+    name: "no-output-template"
     args:
       who: { type: "string", required: true }
     steps:
@@ -29,18 +29,18 @@ steps:
     success: true
   cleanup:
     - tool: "core_workflow_delete"
-      args: { name: "no-projection" }
+      args: { name: "no-output-template" }
 
 # No spec.output: the full default envelope is returned, including the echoed
 # input and the output step's result inside steps[].
-- id: "run-no-projection"
-  tool: "workflow_no-projection"
+- id: "run-no-output-template"
+  tool: "workflow_no-output-template"
   args:
     who: "world"
   expected:
     success: true
     json_path:
-      workflow: "no-projection"
+      workflow: "no-output-template"
       status: "completed"
       input.who: "world"
       steps.0.id: "greet"
@@ -49,8 +49,8 @@ steps:
     contains: ["execution_id", "template_vars"]
 
 cleanup:
-- id: "delete-no-projection"
+- id: "delete-no-output-template"
   tool: "core_workflow_delete"
-  args: { name: "no-projection" }
+  args: { name: "no-output-template" }
   expected:
     success: true

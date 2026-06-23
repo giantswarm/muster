@@ -41,7 +41,7 @@ const (
 // debugArgKey is a reserved workflow-execution argument that switches the
 // response into a verbose debug envelope: the full {execution_id, status,
 // steps[]} envelope (with every recorded step result) plus, when the workflow
-// declares an output projection, the rendered projection under "output". It is
+// declares an output template, the rendered output template under "output". It is
 // consumed by the executor and stripped from the args before validation and
 // step execution, so it never collides with a workflow's own arguments and is
 // not passed to step tools. See #877.
@@ -170,41 +170,41 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 		}
 	}
 
-	// When the workflow declares an output projection, render it once against the
+	// When the workflow declares an output template, render it once against the
 	// completed step results and return it in place of the default envelope. This
 	// lets a workflow return a small, shaped document instead of dumping every
 	// step result. Referencing here works for every step regardless of its output
 	// flag (see #873).
 	if len(workflow.Output) > 0 {
-		projected, err := we.renderOutputProjection(workflow.Output, execCtx)
+		rendered, err := we.renderOutputTemplate(workflow.Output, execCtx)
 		if err != nil {
-			// A projection render error must not discard the step results that
+			// An output template render error must not discard the step results that
 			// already succeeded. Return the full debug envelope (every recorded
 			// result) alongside the error so the underlying data stays
-			// recoverable for debugging the projection (#877).
-			logging.Error("WorkflowExecutor", err, "Failed to render output projection")
-			wrapped := fmt.Errorf("failed to render output projection: %w", err)
+			// recoverable for debugging the output template (#877).
+			logging.Error("WorkflowExecutor", err, "Failed to render output template")
+			wrapped := fmt.Errorf("failed to render output template: %w", err)
 			env := we.buildEnvelope(workflow, execCtx, statusCompleted, true, map[string]interface{}{
 				"output_error": wrapped.Error(),
 			})
 			return marshalEnvelope(env, true), wrapped
 		}
 		// Debug mode keeps the full envelope (execution_id, status, steps[] with
-		// every recorded result) and surfaces the rendered projection under
-		// "output" (#877). Default mode returns only the projection.
+		// every recorded result) and surfaces the rendered output template under
+		// "output" (#877). Default mode returns only the output template.
 		if debug {
 			env := we.buildEnvelope(workflow, execCtx, statusCompleted, true, map[string]interface{}{
-				fieldOutput: projected,
+				fieldOutput: rendered,
 			})
 			return marshalEnvelope(env, false), nil
 		}
-		projectedJSON, err := json.Marshal(projected)
+		outputJSON, err := json.Marshal(rendered)
 		if err != nil {
-			return nil, fmt.Errorf("failed to marshal projected output: %w", err)
+			return nil, fmt.Errorf("failed to marshal rendered output: %w", err)
 		}
-		logging.Debug("WorkflowExecutor", "Projected output JSON: %s", string(projectedJSON))
+		logging.Debug("WorkflowExecutor", "Rendered output JSON: %s", string(outputJSON))
 		return &mcp.CallToolResult{
-			Content: []mcp.Content{mcp.NewTextContent(string(projectedJSON))},
+			Content: []mcp.Content{mcp.NewTextContent(string(outputJSON))},
 		}, nil
 	}
 
@@ -314,7 +314,7 @@ func (we *WorkflowExecutor) buildStepsArray(stepMetadata []stepMetadata, results
 // workflow, status, input, steps[], template_vars). includeAllResults surfaces
 // every recorded step result (debug/verbose); otherwise only output-flagged
 // steps surface theirs. extra carries additional top-level fields, e.g. the
-// rendered projection ("output") or a projection error ("output_error").
+// rendered output template ("output") or an output template error ("output_error").
 func (we *WorkflowExecutor) buildEnvelope(workflow *api.Workflow, execCtx *executionContext, status string, includeAllResults bool, extra map[string]interface{}) map[string]interface{} {
 	steps := we.buildStepsArray(execCtx.stepMetadata, execCtx.results, "", "", includeAllResults)
 	env := map[string]interface{}{
@@ -486,7 +486,7 @@ func (we *WorkflowExecutor) runStep(ctx context.Context, workflowName string, s 
 			ConditionTool:       conditionTool,
 		})
 		// Always record a result for the failed step so later steps and the
-		// output projection can reference it, regardless of the output flag.
+		// output template can reference it, regardless of the output flag.
 		execCtx.results[s.ID] = map[string]interface{}{
 			api.FieldError:   err.Error(),
 			api.FieldSuccess: false,
@@ -499,7 +499,7 @@ func (we *WorkflowExecutor) runStep(ctx context.Context, workflowName string, s 
 		return stepOutcome{stop: true, fatalErr: err, failedStepID: s.ID, errorMessage: err.Error()}, nil
 	}
 
-	// Always record the step result so later steps and the output projection can
+	// Always record the step result so later steps and the output template can
 	// reference it via {{ .results.<id>.<field> }}, regardless of the output
 	// flag. The output flag only controls visibility in the returned document.
 	var resultData interface{}

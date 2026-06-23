@@ -1,8 +1,8 @@
-name: "workflow-output-projection-string-preservation"
-description: "A computed output projection leaf whose string form matters (a version like '1.20', a zero-padded value like '08') keeps that exact string with no workaround: computed leaves are never coerced from text into numbers. Bare reference paths and genuinely numeric expressions still yield numbers, so a value's type comes from the value itself, not from how its text looks (issue #874)"
+name: "workflow-output-template-string-preservation"
+description: "A computed output template leaf whose string form matters (a version like '1.20', a zero-padded value like '08') keeps that exact string with no workaround: computed leaves are never coerced from text into numbers. Bare reference paths and genuinely numeric expressions still yield numbers, so a value's type comes from the value itself, not from how its text looks (issue #874)"
 category: "behavioral"
 concept: "workflow"
-tags: ["workflow", "output", "projection", "types", "core-api"]
+tags: ["workflow", "output", "output-template", "types", "core-api"]
 timeout: "2m"
 
 pre_configuration:
@@ -14,10 +14,10 @@ pre_configuration:
         responses: [ { response: { major: 1, minor: 20, build: 8 } } ]
 
 steps:
-- id: "create-projection-strings"
+- id: "create-output-template-strings"
   tool: "core_workflow_create"
   args:
-    name: "projection-strings"
+    name: "output-template-strings"
     steps:
       - id: "info"
         tool: "x_release_info"
@@ -33,10 +33,10 @@ steps:
     success: true
   cleanup:
     - tool: "core_workflow_delete"
-      args: { name: "projection-strings" }
+      args: { name: "output-template-strings" }
 
-- id: "run-projection-strings"
-  tool: "workflow_projection-strings"
+- id: "run-output-template-strings"
+  tool: "workflow_output-template-strings"
   expected:
     success: true
     json_path:
@@ -46,8 +46,8 @@ steps:
       nextMajor: 2
 
 cleanup:
-- id: "delete-projection-strings"
+- id: "delete-output-template-strings"
   tool: "core_workflow_delete"
-  args: { name: "projection-strings" }
+  args: { name: "output-template-strings" }
   expected:
     success: true

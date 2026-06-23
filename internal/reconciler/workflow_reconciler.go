@@ -199,7 +199,7 @@ func (r *WorkflowReconciler) reconcileCreateOrUpdate(ctx context.Context, req Re
 	}
 
 	// Surface non-fatal authoring nudges (deprecated `store`, inert per-step
-	// output flags under an output projection) for workflows applied directly as
+	// output flags under an output template) for workflows applied directly as
 	// CRDs, which never pass through the structured create/validate path.
 	for _, w := range api.AuthoringWarnings(wf) {
 		logging.Warn("WorkflowReconciler", "Workflow %q %s", req.Name, w)

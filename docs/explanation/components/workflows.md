@@ -43,7 +43,7 @@ Each workflow definition automatically generates a corresponding execution tool:
 ### **Result Shaping**
 - **`output` flag**: marks the steps whose results are included in the returned
   document (the deprecated `store` flag is a backwards-compatible alias)
-- **`output` projection**: a workflow-level templated object rendered against
+- **`output` template**: a workflow-level templated object rendered against
   `.input` / `.results` / `.vars` after all steps complete, returned in place of
   the default envelope to produce a small, structured response (JSON types are
   preserved)

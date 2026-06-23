@@ -1,8 +1,8 @@
-name: "workflow-output-projection-structure"
-description: "A workflow output projection renders structured JSON with full fidelity: nested objects and arrays, sprig-computed values, and types preserved end to end (booleans stay booleans, numbers stay numbers, arrays stay arrays), while the default envelope (execution_id/template_vars/steps[]) is omitted entirely (issue #874)"
+name: "workflow-output-template-structure"
+description: "A workflow output template renders structured JSON with full fidelity: nested objects and arrays, sprig-computed values, and types preserved end to end (booleans stay booleans, numbers stay numbers, arrays stay arrays), while the default envelope (execution_id/template_vars/steps[]) is omitted entirely (issue #874)"
 category: "behavioral"
 concept: "workflow"
-tags: ["workflow", "output", "projection", "types", "core-api"]
+tags: ["workflow", "output", "output-template", "types", "core-api"]
 timeout: "2m"
 
 pre_configuration:
@@ -16,10 +16,10 @@ pre_configuration:
         responses: [ { response: { name: "svc", healthy: true } } ]
 
 steps:
-- id: "create-projection-structure"
+- id: "create-output-template-structure"
   tool: "core_workflow_create"
   args:
-    name: "projection-structure"
+    name: "output-template-structure"
     steps:
       - id: "nums"
         tool: "x_data_nums"
@@ -40,13 +40,13 @@ steps:
     success: true
   cleanup:
     - tool: "core_workflow_delete"
-      args: { name: "projection-structure" }
+      args: { name: "output-template-structure" }
 
-# The projection is the entire returned payload: nested object, computed and
+# The output-template is the entire returned payload: nested object, computed and
 # selected scalars with preserved types, a preserved array, and a mixed array of
 # a templated and a literal string. The default envelope keys are absent.
-- id: "run-projection-structure"
-  tool: "workflow_projection-structure"
+- id: "run-output-template-structure"
+  tool: "workflow_output-template-structure"
   expected:
     success: true
     json_path:
@@ -60,13 +60,13 @@ steps:
       summary.allItems.2: 30
       labels.0: "SVC"
       labels.1: "static-label"
-    # The default envelope is omitted: only the projection (plus the
+    # The default envelope is omitted: only the output-template (plus the
     # manager-injected execution_id) is returned, never steps[]/status/input.
     not_contains: ["template_vars", "\"steps\"", "\"status\"", "\"input\""]
 
 cleanup:
-- id: "delete-projection-structure"
+- id: "delete-output-template-structure"
   tool: "core_workflow_delete"
-  args: { name: "projection-structure" }
+  args: { name: "output-template-structure" }
   expected:
     success: true

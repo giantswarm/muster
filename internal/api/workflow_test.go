@@ -42,7 +42,7 @@ func TestAuthoringWarnings_DeprecatedStore(t *testing.T) {
 	}
 }
 
-func TestAuthoringWarnings_ProjectionShadowsStepFlags(t *testing.T) {
+func TestAuthoringWarnings_OutputTemplateShadowsStepFlags(t *testing.T) {
 	wf := &Workflow{
 		Name: "demo",
 		Steps: []WorkflowStep{
@@ -61,7 +61,7 @@ func TestAuthoringWarnings_ProjectionShadowsStepFlags(t *testing.T) {
 
 	var inert string
 	for _, w := range warnings {
-		if strings.Contains(w, "output' projection") {
+		if strings.Contains(w, "output' template") {
 			inert = w
 		}
 	}
