@@ -612,7 +612,7 @@ spec:
       tool: "<rollback_tool>"
 
   # Optional: a templated output template rendered once after all steps complete and
-  # returned in place of the default envelope. Each leaf is a Go-template/sprig
+  # returned in place of the default response. Each leaf is a Go-template/sprig
   # expression evaluated against .input/.results/.vars; JSON structure (objects,
   # arrays, numbers) is preserved.
   output:
@@ -637,7 +637,7 @@ status:
 | `args` | `map[string]ArgDefinition` | No | Argument schema for execution validation | - |
 | `steps` | `[]WorkflowStep` | Yes | Sequence of workflow steps | Min 1 item |
 | `onFailure` | `[]WorkflowSubStep` | No | Cleanup/rollback steps run when the workflow fails on a non-`allowFailure` step | - |
-| `output` | `map[string]any` | No | Templated output template rendered after all steps complete, returned in place of the default envelope. Each leaf is evaluated against `.input`/`.results`/`.vars` with JSON structure preserved | - |
+| `output` | `map[string]any` | No | Templated output template rendered after all steps complete, returned in place of the default response. Each leaf is evaluated against `.input`/`.results`/`.vars` with JSON structure preserved | - |
 
 #### WorkflowStep Fields
 
@@ -717,7 +717,7 @@ The optional workflow-level `output` field shapes the document returned to the
 caller. It is a templated object rendered once after all steps complete, against
 the same `.input` / `.results` / `.vars` context used by step args, and returned
 in place of the default `{execution_id, workflow, status, input, steps[], ...}`
-envelope.
+response.
 
 ```yaml
 spec:
@@ -738,7 +738,7 @@ spec:
   `notRunning` stays an array and `backoffCount` stays a number.
 - Nested objects and arrays in the output template are rendered recursively.
 - Every step result is referenceable here regardless of its `output` flag. When a
-  output template is declared it replaces the envelope, so per-step `output`/`store`
+  output template is declared it replaces the response, so per-step `output`/`store`
   flags no longer affect the returned document (the create/validate path and the
   reconciler warn when such flags are left set and become inert).
 - **Type preservation (no lossy coercion)**: a leaf's type comes from the value
@@ -750,7 +750,7 @@ spec:
   preserved with no workaround. Non-finite values (`NaN`/`Inf`) stay strings.
   Templates that mix literal text with actions (e.g. `"v{{ .v }}"`) render to a
   string.
-- When `output` is omitted, the default envelope is returned unchanged.
+- When `output` is omitted, the default response is returned unchanged.
 
 #### Status Fields
 

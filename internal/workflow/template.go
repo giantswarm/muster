@@ -145,7 +145,7 @@ func (we *WorkflowExecutor) renderTypedTemplate(templateStr string, tctx map[str
 // renderOutputTemplate renders a workflow-level output template into a
 // structured map, recursively resolving every templated leaf while preserving
 // JSON types. It is evaluated once after all steps complete and used as the
-// returned document in place of the default envelope.
+// returned document in place of the default response.
 func (we *WorkflowExecutor) renderOutputTemplate(output map[string]interface{}, execCtx *executionContext) (map[string]interface{}, error) {
 	tctx := we.templateContext(execCtx)
 	rendered, err := we.renderOutputTemplateValue(output, tctx)

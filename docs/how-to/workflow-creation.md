@@ -95,26 +95,26 @@ steps:
 ### What the caller receives
 
 Without an [`output` template](#shaping-the-returned-result-output-template),
-a workflow returns the default envelope
+a workflow returns the default response
 (`{execution_id, workflow, status, input, steps[], ...}`), and the exact shape
 depends on the last step:
 
 - each step marked `output: true` contributes its result under `steps[]`; and
 - if the **last** step is a plain tool step that is *not* an `output` step, its
-  result is additionally merged onto the top level of the envelope (a
+  result is additionally merged onto the top level of the response (a
   convenience so a trailing call's output is easy to read).
 
 If you want a predictable, minimal response, declare an `output` template — it
-replaces the envelope entirely (see below).
+replaces the response entirely (see below).
 
 ## Shaping the returned result (output template)
 
-By default a workflow returns a fixed envelope
+By default a workflow returns a fixed response
 (`{execution_id, workflow, status, input, steps[], ...}`) where each `output`
 step contributes its whole result. To return a small, shaped document instead,
 declare a workflow-level `output` template. It is rendered once after all
 steps complete, against `.input` / `.results` / `.vars`, and replaces the
-envelope:
+response:
 
 ```yaml
 spec:
@@ -134,9 +134,9 @@ spec:
 Each leaf is a Go-template/sprig expression. JSON structure is preserved:
 `notRunning` stays an array and `backoffCount` stays a number. Nested objects and
 arrays in the output template are rendered recursively. When `output` is omitted, the
-default envelope is returned unchanged.
+default response is returned unchanged.
 
-When a workflow declares an `output` template, it **replaces** the envelope
+When a workflow declares an `output` template, it **replaces** the response
 entirely, so the per-step `output: true` / `store: true` flags no longer affect
 the returned document (every step result is still referenceable in the
 output template regardless of those flags). Authoring an output template while leaving

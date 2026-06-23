@@ -217,7 +217,7 @@ spec:
                   Output is an optional output template that shapes the workflow's
                   returned document. It is rendered once after all steps complete, against
                   .input / .results / .vars, and replaces the default
-                  {execution_id, workflow, status, input, steps[], ...} envelope. Each leaf
+                  {execution_id, workflow, status, input, steps[], ...} response. Each leaf
                   is a Go-template/sprig expression; JSON structure is preserved so numbers
                   stay numbers and arrays stay arrays (e.g. "{{ .results.pods.items }}" or
                   "{{ len .results.events.items }}"). A leaf's type comes from the value it
@@ -226,7 +226,7 @@ spec:
                   and a computed string keeps its exact string form, so values whose form
                   matters (leading zeros, versions, IDs like "08" or "1.20") are preserved
                   without any coercion or workaround. Every step result is referenceable
-                  here regardless of its output flag. When omitted, the default envelope is
+                  here regardless of its output flag. When omitted, the default response is
                   returned unchanged.
                 type: object
                 x-kubernetes-preserve-unknown-fields: true

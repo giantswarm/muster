@@ -1,5 +1,5 @@
 name: "workflow-output-template"
-description: "A workflow-level output template shapes the returned payload: it selects and combines values across steps, preserves JSON structure (arrays stay arrays, numbers stay numbers), and replaces the default steps[] envelope (issue #874)"
+description: "A workflow-level output template shapes the returned payload: it selects and combines values across steps, preserves JSON structure (arrays stay arrays, numbers stay numbers), and replaces the default steps[] response (issue #874)"
 category: "behavioral"
 concept: "workflow"
 tags: ["workflow", "output", "output-template", "core-api"]
@@ -40,7 +40,7 @@ steps:
       args: { name: "shaped-output" }
 
 # The returned payload is the output-template: input value, a preserved array, a
-# computed number, and a cross-field selection. The default envelope (workflow,
+# computed number, and a cross-field selection. The default response (workflow,
 # status, steps[]) is omitted.
 - id: "run-shaped-workflow"
   tool: "workflow_shaped-output"

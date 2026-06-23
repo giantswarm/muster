@@ -45,7 +45,7 @@ Each workflow definition automatically generates a corresponding execution tool:
   document (the deprecated `store` flag is a backwards-compatible alias)
 - **`output` template**: a workflow-level templated object rendered against
   `.input` / `.results` / `.vars` after all steps complete, returned in place of
-  the default envelope to produce a small, structured response (JSON types are
+  the default response to produce a small, structured result (JSON types are
   preserved)
 
 ### **Execution Management**

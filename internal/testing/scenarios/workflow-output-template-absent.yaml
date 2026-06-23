@@ -1,5 +1,5 @@
 name: "workflow-output-template-absent"
-description: "When no output template is declared the workflow returns the default envelope unchanged — execution_id, workflow, status, input, steps[] and template_vars are all present and the output-flag-driven steps[].result behavior is preserved (issue #874 back-compat)"
+description: "When no output template is declared the workflow returns the default response unchanged — execution_id, workflow, status, input, steps[] and template_vars are all present and the output-flag-driven steps[].result behavior is preserved (issue #874 back-compat)"
 category: "behavioral"
 concept: "workflow"
 tags: ["workflow", "output", "output-template", "back-compat", "core-api"]
@@ -31,7 +31,7 @@ steps:
     - tool: "core_workflow_delete"
       args: { name: "no-output-template" }
 
-# No spec.output: the full default envelope is returned, including the echoed
+# No spec.output: the full default response is returned, including the echoed
 # input and the output step's result inside steps[].
 - id: "run-no-output-template"
   tool: "workflow_no-output-template"

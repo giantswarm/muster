@@ -44,8 +44,8 @@ type Workflow struct {
 
 	// Output is an optional output template that shapes the returned document.
 	// It is rendered once after the steps complete, against .input / .results /
-	// .vars, and replaces the default envelope. Each leaf is a Go-template/sprig
-	// expression and JSON structure is preserved. When nil, the default envelope
+	// .vars, and replaces the default response. Each leaf is a Go-template/sprig
+	// expression and JSON structure is preserved. When nil, the default response
 	// is returned.
 	Output map[string]interface{} `yaml:"output,omitempty" json:"output,omitempty"`
 
@@ -89,7 +89,7 @@ func AuthoringWarnings(wf *Workflow) []string {
 	}
 	if len(wf.Output) > 0 {
 		if ids := outputFlaggedIDs(wf); len(ids) > 0 {
-			warnings = append(warnings, fmt.Sprintf("declares a workflow-level 'output' template, which replaces the default envelope, so the per-step 'output'/'store' flags on these steps have no effect on the returned document: %s. Remove them or drop the output template.", strings.Join(ids, ", ")))
+			warnings = append(warnings, fmt.Sprintf("declares a workflow-level 'output' template, which replaces the default response, so the per-step 'output'/'store' flags on these steps have no effect on the returned document: %s. Remove them or drop the output template.", strings.Join(ids, ", ")))
 		}
 	}
 	return warnings
