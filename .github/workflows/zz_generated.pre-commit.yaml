@@ -2,7 +2,7 @@
 #
 #    devctl
 #
-#    https://github.com/giantswarm/devctl/blob/e8b63a9422be0726ba42a16461d2491229ca0982/pkg/gen/input/precommit/internal/file/pre-commit-action.yaml.template
+#    https://github.com/giantswarm/devctl/blob/c4ecfa25c745149aa2ed33b79c909cb0082c52fe/pkg/gen/input/precommit/internal/file/pre-commit-action.yaml.template
 #
 name: pre-commit
 
@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Check out code
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Set up Python environment
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
       - name: Install helm-docs
