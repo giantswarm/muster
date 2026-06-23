@@ -199,6 +199,127 @@ func TestWorkflowExecutor_OutputProjection_ComputedLeafKeepsType(t *testing.T) {
 	assert.Equal(t, float64(2), decoded["nextMajor"], "numeric computed leaf stays a number")
 }
 
+// #877: the reserved _debug arg keeps the full envelope (execution_id, status,
+// steps[] with every recorded result) and surfaces the rendered projection
+// under "output", while default mode returns only the projection.
+func TestWorkflowExecutor_OutputProjection_DebugEnvelope(t *testing.T) {
+	mock := jsonResponder(map[string]string{
+		"pods":   `{"items": [{"name": "a"}, {"name": "b"}]}`,
+		"events": `{"items": [1, 2, 3]}`,
+	})
+	executor := NewWorkflowExecutor(mock, nil)
+
+	workflow := &api.Workflow{
+		Name: "shaped",
+		Args: map[string]api.ArgDefinition{"cluster": {Type: "string", Required: true}},
+		Steps: []api.WorkflowStep{
+			{ID: "pods", Tool: "pods"}, // not an output step
+			{ID: "events", Tool: "events"},
+		},
+		Output: map[string]interface{}{
+			"cluster":      "{{ .input.cluster }}",
+			"backoffCount": "{{ len .results.events.items }}",
+		},
+	}
+
+	result, err := executor.ExecuteWorkflow(context.Background(), workflow, map[string]interface{}{
+		"cluster": "prod",
+		"_debug":  true,
+	})
+	require.NoError(t, err)
+
+	decoded := decodeResult(t, result)
+
+	// The full envelope is present.
+	assert.Equal(t, "shaped", decoded["workflow"])
+	assert.Equal(t, "completed", decoded[api.FieldStatus])
+	steps, ok := decoded[api.FieldSteps].([]interface{})
+	require.True(t, ok, "debug envelope must include steps[]")
+	require.Len(t, steps, 2)
+
+	// Every step's result is surfaced regardless of its output flag.
+	for _, s := range steps {
+		stepMap := s.(map[string]interface{})
+		_, hasResult := stepMap["result"]
+		assert.True(t, hasResult, "debug mode must surface result for step %v", stepMap["id"])
+	}
+
+	// The rendered projection rides along under "output".
+	projection, ok := decoded[fieldOutput].(map[string]interface{})
+	require.True(t, ok, "debug envelope must carry the rendered projection under 'output'")
+	assert.Equal(t, "prod", projection["cluster"])
+	assert.Equal(t, float64(3), projection["backoffCount"])
+
+	// The reserved _debug arg is stripped from the recorded input and not
+	// passed to step tools.
+	input := decoded["input"].(map[string]interface{})
+	_, hasDebug := input["_debug"]
+	assert.False(t, hasDebug, "_debug must be stripped from the recorded input")
+}
+
+// #877: debug mode on a plain (no-projection) workflow surfaces every recorded
+// step result, not just the output-flagged ones.
+func TestWorkflowExecutor_DebugEnvelope_NoProjection(t *testing.T) {
+	mock := jsonResponder(map[string]string{
+		"producer": `{"token": "abc"}`,
+		"consumer": `{"ok": true}`,
+	})
+	executor := NewWorkflowExecutor(mock, nil)
+
+	workflow := &api.Workflow{
+		Name: "chain",
+		Steps: []api.WorkflowStep{
+			{ID: "producer", Tool: "producer"}, // neither output nor store
+			{ID: "consumer", Tool: "consumer", Output: boolPtr(true)},
+		},
+	}
+
+	result, err := executor.ExecuteWorkflow(context.Background(), workflow, map[string]interface{}{"_debug": true})
+	require.NoError(t, err)
+
+	decoded := decodeResult(t, result)
+	steps := decoded[api.FieldSteps].([]interface{})
+	require.Len(t, steps, 2)
+
+	producer := steps[0].(map[string]interface{})
+	_, hasResult := producer["result"]
+	assert.True(t, hasResult, "debug mode must surface the non-output producer's result")
+}
+
+// #877: a projection render error does not discard successful step results. The
+// caller gets an error plus a recoverable envelope carrying every step result
+// and the projection error message.
+func TestWorkflowExecutor_OutputProjection_ErrorKeepsResults(t *testing.T) {
+	mock := jsonResponder(map[string]string{
+		"pods": `{"items": [{"name": "a"}]}`,
+	})
+	executor := NewWorkflowExecutor(mock, nil)
+
+	workflow := &api.Workflow{
+		Name:  "broken-projection",
+		Steps: []api.WorkflowStep{{ID: "pods", Tool: "pods"}},
+		Output: map[string]interface{}{
+			// References a step that never ran: missingkey=error fails the render.
+			"value": "{{ .results.missing.field }}",
+		},
+	}
+
+	result, err := executor.ExecuteWorkflow(context.Background(), workflow, map[string]interface{}{})
+	require.Error(t, err, "a projection render error must surface as an error")
+	require.NotNil(t, result, "step results must remain recoverable on a projection error")
+	assert.True(t, result.IsError)
+
+	decoded := decodeResult(t, result)
+	assert.Contains(t, decoded, "output_error")
+
+	// The successful step's result is still recoverable from the envelope.
+	steps := decoded[api.FieldSteps].([]interface{})
+	require.Len(t, steps, 1)
+	pods := steps[0].(map[string]interface{})
+	_, hasResult := pods["result"]
+	assert.True(t, hasResult, "the successful step's result must survive the projection error")
+}
+
 // #875: condition jsonPath supports array indexing and template forms in
 // addition to legacy dotted paths.
 func TestWorkflowExecutor_JsonPathArrayIndexing(t *testing.T) {

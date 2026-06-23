@@ -1,0 +1,75 @@
+name: "workflow-output-projection-debug"
+description: "The reserved _debug execution arg turns a projection workflow's response into the full debug envelope: execution_id, status, and steps[] (with every recorded step result, even non-output steps) are kept, and the rendered projection rides along under 'output'. Default execution still returns only the projection. This is the observability escape hatch from issue #877."
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "output", "projection", "debug", "core-api"]
+timeout: "2m"
+
+pre_configuration:
+  mcp_servers:
+  - name: "k8s-mock"
+    config:
+      tools:
+      - name: "list_pods"
+        responses: [ { response: { items: [ { name: "pod-a" }, { name: "pod-b" } ] } } ]
+      - name: "list_events"
+        responses: [ { response: { items: [ 1, 2, 3 ] } } ]
+
+steps:
+- id: "create-debuggable-workflow"
+  tool: "core_workflow_create"
+  args:
+    name: "debuggable-output"
+    args:
+      cluster: { type: "string", required: true }
+    steps:
+      # Neither step is an output step; the projection references them anyway.
+      - id: "pods"
+        tool: "x_k8s-mock_list_pods"
+      - id: "events"
+        tool: "x_k8s-mock_list_events"
+    output:
+      cluster: "{{ .input.cluster }}"
+      backoffCount: "{{ len .results.events.items }}"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "debuggable-output" }
+
+# Default execution: only the projection is returned, the envelope is omitted.
+- id: "run-default"
+  tool: "workflow_debuggable-output"
+  args:
+    cluster: "prod"
+  expected:
+    success: true
+    json_path:
+      cluster: "prod"
+      backoffCount: 3
+
+# Debug execution: the full envelope returns, every step result is surfaced
+# (including the non-output pods/events steps), and the projection rides along
+# under "output".
+- id: "run-debug"
+  tool: "workflow_debuggable-output"
+  args:
+    cluster: "prod"
+    _debug: true
+  expected:
+    success: true
+    json_path:
+      workflow: "debuggable-output"
+      status: "completed"
+      steps.0.id: "pods"
+      steps.0.result.items.0.name: "pod-a"
+      steps.1.id: "events"
+      output.cluster: "prod"
+      output.backoffCount: 3
+
+cleanup:
+- id: "delete-debuggable-workflow"
+  tool: "core_workflow_delete"
+  args: { name: "debuggable-output" }
+  expected:
+    success: true
