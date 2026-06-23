@@ -45,7 +45,7 @@ type WorkflowSpec struct {
 	// sequentially and their own failures are tolerated.
 	OnFailure []WorkflowSubStep `json:"onFailure,omitempty" yaml:"onFailure,omitempty"`
 
-	// Output is an optional templated projection that shapes the workflow's
+	// Output is an optional output template that shapes the workflow's
 	// returned document. It is rendered once after all steps complete, against
 	// .input / .results / .vars, and replaces the default
 	// {execution_id, workflow, status, input, steps[], ...} envelope. Each leaf

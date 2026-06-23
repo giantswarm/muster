@@ -66,7 +66,7 @@ Two independent concerns used to be conflated into the single `store` flag; they
 are now separate:
 
 - **Referencing** — every step's result is always available to later steps and
-  to the [output projection](#shaping-the-returned-result-output-projection) as
+  to the [output template](#shaping-the-returned-result-output-template) as
   `{{ .results.<step_id>.<field> }}`. No flag is needed. This makes the common
   "take one value out of step 1 and feed it into step 2" pattern cheap.
 - **Returning** — `output: true` includes a step's result in the returned
@@ -94,7 +94,7 @@ steps:
 
 ### What the caller receives
 
-Without an [`output` projection](#shaping-the-returned-result-output-projection),
+Without an [`output` template](#shaping-the-returned-result-output-template),
 a workflow returns the default envelope
 (`{execution_id, workflow, status, input, steps[], ...}`), and the exact shape
 depends on the last step:
@@ -104,15 +104,15 @@ depends on the last step:
   result is additionally merged onto the top level of the envelope (a
   convenience so a trailing call's output is easy to read).
 
-If you want a predictable, minimal response, declare an `output` projection — it
+If you want a predictable, minimal response, declare an `output` template — it
 replaces the envelope entirely (see below).
 
-## Shaping the returned result (output projection)
+## Shaping the returned result (output template)
 
 By default a workflow returns a fixed envelope
 (`{execution_id, workflow, status, input, steps[], ...}`) where each `output`
 step contributes its whole result. To return a small, shaped document instead,
-declare a workflow-level `output` projection. It is rendered once after all
+declare a workflow-level `output` template. It is rendered once after all
 steps complete, against `.input` / `.results` / `.vars`, and replaces the
 envelope:
 
@@ -133,13 +133,13 @@ spec:
 
 Each leaf is a Go-template/sprig expression. JSON structure is preserved:
 `notRunning` stays an array and `backoffCount` stays a number. Nested objects and
-arrays in the projection are rendered recursively. When `output` is omitted, the
+arrays in the output template are rendered recursively. When `output` is omitted, the
 default envelope is returned unchanged.
 
-When a workflow declares an `output` projection, it **replaces** the envelope
+When a workflow declares an `output` template, it **replaces** the envelope
 entirely, so the per-step `output: true` / `store: true` flags no longer affect
 the returned document (every step result is still referenceable in the
-projection regardless of those flags). Authoring a projection while leaving
+output template regardless of those flags). Authoring an output template while leaving
 per-step `output` flags set is harmless but redundant; the create/validate path
 and the CRD reconciler log a one-line warning naming the inert flags.
 
@@ -317,7 +317,7 @@ Sub-step results are available to later steps after the group completes.
 cannot tolerate one iteration or branch while failing the rest — put
 `allowFailure` on the individual sub-step for that). The step's error is recorded
 as its result and is available to later `fromStep` conditions and the output
-projection without any extra flag:
+output template without any extra flag:
 
 ```yaml
 - id: optional_migration
@@ -390,7 +390,7 @@ per-step status (`completed`, `skipped`, `failed`).
 - Use `parallel` for independent steps; keep dependent steps sequential.
 - Use `forEach` for fan-out over a list (clusters, namespaces, services).
 - Reference any step's result freely with `{{ .results.<id> }}`; reserve
-  `output: true` (or an `output` projection) for what the caller actually needs.
+  `output: true` (or an `output` template) for what the caller actually needs.
 - Add `onFailure` rollback steps for workflows that mutate external state.
 - Keep workflows focused; compose larger flows by calling one workflow's
   `action_<name>` tool from another.

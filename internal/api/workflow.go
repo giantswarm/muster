@@ -42,7 +42,7 @@ type Workflow struct {
 	// fails on a step that does not allow failure. Their own failures are tolerated.
 	OnFailure []WorkflowSubStep `yaml:"onFailure,omitempty" json:"onFailure,omitempty"`
 
-	// Output is an optional templated projection that shapes the returned document.
+	// Output is an optional output template that shapes the returned document.
 	// It is rendered once after the steps complete, against .input / .results /
 	// .vars, and replaces the default envelope. Each leaf is a Go-template/sprig
 	// expression and JSON structure is preserved. When nil, the default envelope
@@ -89,7 +89,7 @@ func AuthoringWarnings(wf *Workflow) []string {
 	}
 	if len(wf.Output) > 0 {
 		if ids := outputFlaggedIDs(wf); len(ids) > 0 {
-			warnings = append(warnings, fmt.Sprintf("declares a workflow-level 'output' projection, which replaces the default envelope, so the per-step 'output'/'store' flags on these steps have no effect on the returned document: %s. Remove them or drop the projection.", strings.Join(ids, ", ")))
+			warnings = append(warnings, fmt.Sprintf("declares a workflow-level 'output' template, which replaces the default envelope, so the per-step 'output'/'store' flags on these steps have no effect on the returned document: %s. Remove them or drop the output template.", strings.Join(ids, ", ")))
 		}
 	}
 	return warnings
@@ -105,7 +105,7 @@ func deprecatedStoreIDs(wf *Workflow) []string {
 
 // outputFlaggedIDs returns the IDs of every step and sub-step that sets an
 // effective output/store flag. It is used to flag flags rendered inert by a
-// workflow-level output projection.
+// workflow-level output template.
 func outputFlaggedIDs(wf *Workflow) []string {
 	return collectStepIDs(wf, OutputEnabled)
 }

@@ -611,7 +611,7 @@ spec:
     - id: "<sub_step_id>"
       tool: "<rollback_tool>"
 
-  # Optional: a templated projection rendered once after all steps complete and
+  # Optional: a templated output template rendered once after all steps complete and
   # returned in place of the default envelope. Each leaf is a Go-template/sprig
   # expression evaluated against .input/.results/.vars; JSON structure (objects,
   # arrays, numbers) is preserved.
@@ -637,7 +637,7 @@ status:
 | `args` | `map[string]ArgDefinition` | No | Argument schema for execution validation | - |
 | `steps` | `[]WorkflowStep` | Yes | Sequence of workflow steps | Min 1 item |
 | `onFailure` | `[]WorkflowSubStep` | No | Cleanup/rollback steps run when the workflow fails on a non-`allowFailure` step | - |
-| `output` | `map[string]any` | No | Templated projection rendered after all steps complete, returned in place of the default envelope. Each leaf is evaluated against `.input`/`.results`/`.vars` with JSON structure preserved | - |
+| `output` | `map[string]any` | No | Templated output template rendered after all steps complete, returned in place of the default envelope. Each leaf is evaluated against `.input`/`.results`/`.vars` with JSON structure preserved | - |
 
 #### WorkflowStep Fields
 
@@ -662,7 +662,7 @@ A step is exactly one of: a tool call (`tool`), a sequential loop (`forEach`), o
 > steps as `{{.results.<step_id>}}` without any flag. The `output` flag (and its
 > deprecated `store` alias) only controls whether the step's result is included
 > in the document returned to the caller. To shape that document further, use the
-> workflow-level [`output` projection](#workflow-output-projection).
+> workflow-level [`output` template](#workflow-output-template).
 >
 > **Migration**: A previously documented `outputs:` field never did anything and
 > has been removed. The `store` flag still works as a backwards-compatible alias
@@ -711,7 +711,7 @@ Used by `forEach.steps`, `parallel`, and `onFailure`. A sub-step is a plain tool
 | `success` | `boolean` | Whether the tool call should succeed |
 | `jsonPath` | `map[string]any` | Path conditions to check against the result. Each key uses the workflow's expression language: a dotted/bracketed path navigated from the result (with array indexing, e.g. `items[0].name`), or a full Go-template expression where the result is exposed as `.result` (e.g. `"{{ (index .result.items 0).name }}"`). |
 
-#### Workflow Output Projection
+#### Workflow Output template
 
 The optional workflow-level `output` field shapes the document returned to the
 caller. It is a templated object rendered once after all steps complete, against
@@ -736,9 +736,9 @@ spec:
 
 - Each leaf is a Go-template/sprig expression. JSON structure is preserved:
   `notRunning` stays an array and `backoffCount` stays a number.
-- Nested objects and arrays in the projection are rendered recursively.
+- Nested objects and arrays in the output template are rendered recursively.
 - Every step result is referenceable here regardless of its `output` flag. When a
-  projection is declared it replaces the envelope, so per-step `output`/`store`
+  output template is declared it replaces the envelope, so per-step `output`/`store`
   flags no longer affect the returned document (the create/validate path and the
   reconciler warn when such flags are left set and become inert).
 - **Type preservation (no lossy coercion)**: a leaf's type comes from the value

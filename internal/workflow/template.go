@@ -142,27 +142,27 @@ func (we *WorkflowExecutor) renderTypedTemplate(templateStr string, tctx map[str
 	return we.template.RenderGoTemplateTyped(templateStr, tctx)
 }
 
-// renderOutputProjection renders a workflow-level output projection into a
+// renderOutputTemplate renders a workflow-level output template into a
 // structured map, recursively resolving every templated leaf while preserving
 // JSON types. It is evaluated once after all steps complete and used as the
 // returned document in place of the default envelope.
-func (we *WorkflowExecutor) renderOutputProjection(output map[string]interface{}, execCtx *executionContext) (map[string]interface{}, error) {
+func (we *WorkflowExecutor) renderOutputTemplate(output map[string]interface{}, execCtx *executionContext) (map[string]interface{}, error) {
 	tctx := we.templateContext(execCtx)
-	rendered, err := we.renderProjectionValue(output, tctx)
+	rendered, err := we.renderOutputTemplateValue(output, tctx)
 	if err != nil {
 		return nil, err
 	}
-	projected, ok := rendered.(map[string]interface{})
+	shaped, ok := rendered.(map[string]interface{})
 	if !ok {
-		return nil, fmt.Errorf("output projection must render to an object")
+		return nil, fmt.Errorf("output template must render to an object")
 	}
-	return projected, nil
+	return shaped, nil
 }
 
-// renderProjectionValue recursively renders a projection value: maps and slices
+// renderOutputTemplateValue recursively renders an output template value: maps and slices
 // are traversed, strings are rendered as typed templates, and other primitives
 // are returned unchanged.
-func (we *WorkflowExecutor) renderProjectionValue(value interface{}, tctx map[string]interface{}) (interface{}, error) {
+func (we *WorkflowExecutor) renderOutputTemplateValue(value interface{}, tctx map[string]interface{}) (interface{}, error) {
 	switch v := value.(type) {
 	case string:
 		if !strings.Contains(v, "{{") {
@@ -173,7 +173,7 @@ func (we *WorkflowExecutor) renderProjectionValue(value interface{}, tctx map[st
 	case map[string]interface{}:
 		out := make(map[string]interface{}, len(v))
 		for k, val := range v {
-			rendered, err := we.renderProjectionValue(val, tctx)
+			rendered, err := we.renderOutputTemplateValue(val, tctx)
 			if err != nil {
 				return nil, fmt.Errorf("output.%s: %w", k, err)
 			}
@@ -184,7 +184,7 @@ func (we *WorkflowExecutor) renderProjectionValue(value interface{}, tctx map[st
 	case []interface{}:
 		out := make([]interface{}, len(v))
 		for i, val := range v {
-			rendered, err := we.renderProjectionValue(val, tctx)
+			rendered, err := we.renderOutputTemplateValue(val, tctx)
 			if err != nil {
 				return nil, fmt.Errorf("output[%d]: %w", i, err)
 			}

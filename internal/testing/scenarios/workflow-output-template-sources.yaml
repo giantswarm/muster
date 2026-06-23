@@ -1,8 +1,8 @@
-name: "workflow-output-projection-sources"
-description: "An output projection can reference every kind of recorded result — indexed forEach results, parallel sibling results, a tolerated failure result, and the workflow input — proving the projection builds on universal referenceability (issues #873 + #874)"
+name: "workflow-output-template-sources"
+description: "An output template can reference every kind of recorded result — indexed forEach results, parallel sibling results, a tolerated failure result, and the workflow input — proving the output-template builds on universal referenceability (issues #873 + #874)"
 category: "behavioral"
 concept: "workflow"
-tags: ["workflow", "output", "projection", "foreach", "parallel", "failure", "core-api"]
+tags: ["workflow", "output", "output-template", "foreach", "parallel", "failure", "core-api"]
 timeout: "3m"
 
 pre_configuration:
@@ -16,10 +16,10 @@ pre_configuration:
         responses: [ { error: "deliberate failure" } ]
 
 steps:
-- id: "create-projection-sources"
+- id: "create-output-template-sources"
   tool: "core_workflow_create"
   args:
-    name: "projection-sources"
+    name: "output-template-sources"
     args:
       items: { type: "array", required: true }
     steps:
@@ -53,10 +53,10 @@ steps:
     success: true
   cleanup:
     - tool: "core_workflow_delete"
-      args: { name: "projection-sources" }
+      args: { name: "output-template-sources" }
 
-- id: "run-projection-sources"
-  tool: "workflow_projection-sources"
+- id: "run-output-template-sources"
+  tool: "workflow_output-template-sources"
   args:
     items: ["x", "y"]
   expected:
@@ -70,8 +70,8 @@ steps:
       failureSeen: true
 
 cleanup:
-- id: "delete-projection-sources"
+- id: "delete-output-template-sources"
   tool: "core_workflow_delete"
-  args: { name: "projection-sources" }
+  args: { name: "output-template-sources" }
   expected:
     success: true

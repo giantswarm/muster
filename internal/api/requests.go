@@ -234,7 +234,7 @@ type WorkflowCreateRequest struct {
 	// fails on a step that does not allow failure. Their own failures are tolerated.
 	OnFailure []WorkflowSubStep `json:"onFailure,omitempty"`
 
-	// Output is an optional templated projection that shapes the returned document.
+	// Output is an optional output template that shapes the returned document.
 	Output map[string]interface{} `json:"output,omitempty"`
 }
 
@@ -262,7 +262,7 @@ type WorkflowUpdateRequest struct {
 	// fails on a step that does not allow failure. Their own failures are tolerated.
 	OnFailure []WorkflowSubStep `json:"onFailure,omitempty"`
 
-	// Output is an optional templated projection that shapes the returned document.
+	// Output is an optional output template that shapes the returned document.
 	Output map[string]interface{} `json:"output,omitempty"`
 }
 
@@ -288,7 +288,7 @@ type WorkflowValidateRequest struct {
 	// fails on a step that does not allow failure. Their own failures are tolerated.
 	OnFailure []WorkflowSubStep `json:"onFailure,omitempty"`
 
-	// Output is an optional templated projection that shapes the returned document.
+	// Output is an optional output template that shapes the returned document.
 	Output map[string]interface{} `json:"output,omitempty"`
 }
 

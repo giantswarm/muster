@@ -1,0 +1,50 @@
+name: "workflow-output-template-error-recoverable"
+description: "A output-template render error no longer discards successful step results. When the output-template references a value that does not resolve (missingkey=error), the workflow execution fails loud BUT the response still carries the recorded step results plus an 'output_error' message, so the underlying data stays recoverable for debugging the output-template. Issue #877."
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "output", "output-template", "error", "core-api"]
+timeout: "2m"
+
+pre_configuration:
+  mcp_servers:
+  - name: "k8s-mock"
+    config:
+      tools:
+      - name: "list_pods"
+        responses: [ { response: { items: [ { name: "pod-a" } ] } } ]
+
+steps:
+- id: "create-broken-output-template"
+  tool: "core_workflow_create"
+  args:
+    name: "broken-output-template"
+    steps:
+      - id: "pods"
+        tool: "x_k8s-mock_list_pods"
+    output:
+      # References a step that never ran: the render fails under missingkey=error.
+      value: "{{ .results.missing.field }}"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "broken-output-template" }
+
+# The run fails (the output-template cannot render) but the successful step's result
+# (pod-a) and the output-template error are still recoverable from the response.
+- id: "run-broken-output-template"
+  tool: "workflow_broken-output-template"
+  args: {}
+  expected:
+    success: false
+    error_contains: ["output template"]
+    contains:
+      - "output_error"
+      - "pod-a"
+
+cleanup:
+- id: "delete-broken-output-template"
+  tool: "core_workflow_delete"
+  args: { name: "broken-output-template" }
+  expected:
+    success: true

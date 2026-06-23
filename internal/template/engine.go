@@ -194,7 +194,7 @@ func (e *Engine) resolvePath(path string, context map[string]interface{}) (inter
 // ResolvePath navigates a dotted path with optional array indexing against an
 // arbitrary root value and returns the typed value found there. It is the single
 // path navigator shared by template variable substitution, workflow output
-// projections, and condition jsonPath expectations.
+// output templates, and condition jsonPath expectations.
 //
 // Supported syntax:
 //   - object navigation: "data.field.subfield"
@@ -301,7 +301,7 @@ func (e *Engine) RenderGoTemplate(templateStr string, context map[string]interfa
 
 // RenderGoTemplateTyped renders a template while preserving the actual Go type
 // of its result, used where structured JSON output matters (workflow output
-// projections and jsonPath expectations).
+// output templates and jsonPath expectations).
 //
 // When the template body is a single output action it is evaluated for its
 // typed value rather than its rendered text: "{{ len .x }}" yields the number

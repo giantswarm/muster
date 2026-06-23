@@ -111,9 +111,9 @@ func TestWorkflowExecutor_StoreAliasEmitsResult(t *testing.T) {
 	assert.True(t, hasResult, "store:true must still surface the result")
 }
 
-// #874: a workflow output projection shapes the returned document, preserving
+// #874: a workflow output template shapes the returned document, preserving
 // JSON structure across steps and omitting the default envelope.
-func TestWorkflowExecutor_OutputProjection(t *testing.T) {
+func TestWorkflowExecutor_OutputTemplate(t *testing.T) {
 	mock := jsonResponder(map[string]string{
 		"pods":   `{"items": [{"name": "a"}, {"name": "b"}]}`,
 		"events": `{"items": [1, 2, 3]}`,
@@ -142,9 +142,9 @@ func TestWorkflowExecutor_OutputProjection(t *testing.T) {
 
 	decoded := decodeResult(t, result)
 
-	// The envelope keys are gone; only the projection remains.
+	// The envelope keys are gone; only the output template remains.
 	_, hasSteps := decoded[api.FieldSteps]
-	assert.False(t, hasSteps, "projection must omit the steps envelope")
+	assert.False(t, hasSteps, "output template must omit the steps envelope")
 	_, hasWorkflow := decoded["workflow"]
 	assert.False(t, hasWorkflow)
 
@@ -163,12 +163,12 @@ func TestWorkflowExecutor_OutputProjection(t *testing.T) {
 	assert.Equal(t, "a", nested["first"])
 }
 
-// #874: a computed projection leaf keeps the exact string it renders to —
+// #874: a computed output template leaf keeps the exact string it renders to —
 // versions, zero-padded values and other numeric-looking strings are never
 // silently coerced to a number — while genuinely numeric expressions (bare
 // reference paths, arithmetic) keep their numeric type. No sprig `quote`
 // workaround is required.
-func TestWorkflowExecutor_OutputProjection_ComputedLeafKeepsType(t *testing.T) {
+func TestWorkflowExecutor_OutputTemplate_ComputedLeafKeepsType(t *testing.T) {
 	mock := jsonResponder(map[string]string{
 		"release": `{"major": 1, "minor": 20, "build": 8}`,
 	})
@@ -200,9 +200,9 @@ func TestWorkflowExecutor_OutputProjection_ComputedLeafKeepsType(t *testing.T) {
 }
 
 // #877: the reserved _debug arg keeps the full envelope (execution_id, status,
-// steps[] with every recorded result) and surfaces the rendered projection
-// under "output", while default mode returns only the projection.
-func TestWorkflowExecutor_OutputProjection_DebugEnvelope(t *testing.T) {
+// steps[] with every recorded result) and surfaces the rendered output template
+// under "output", while default mode returns only the output template.
+func TestWorkflowExecutor_OutputTemplate_DebugEnvelope(t *testing.T) {
 	mock := jsonResponder(map[string]string{
 		"pods":   `{"items": [{"name": "a"}, {"name": "b"}]}`,
 		"events": `{"items": [1, 2, 3]}`,
@@ -244,11 +244,11 @@ func TestWorkflowExecutor_OutputProjection_DebugEnvelope(t *testing.T) {
 		assert.True(t, hasResult, "debug mode must surface result for step %v", stepMap["id"])
 	}
 
-	// The rendered projection rides along under "output".
-	projection, ok := decoded[fieldOutput].(map[string]interface{})
-	require.True(t, ok, "debug envelope must carry the rendered projection under 'output'")
-	assert.Equal(t, "prod", projection["cluster"])
-	assert.Equal(t, float64(3), projection["backoffCount"])
+	// The rendered output template rides along under "output".
+	outputTemplate, ok := decoded[fieldOutput].(map[string]interface{})
+	require.True(t, ok, "debug envelope must carry the rendered output template under 'output'")
+	assert.Equal(t, "prod", outputTemplate["cluster"])
+	assert.Equal(t, float64(3), outputTemplate["backoffCount"])
 
 	// The reserved _debug arg is stripped from the recorded input and not
 	// passed to step tools.
@@ -257,9 +257,9 @@ func TestWorkflowExecutor_OutputProjection_DebugEnvelope(t *testing.T) {
 	assert.False(t, hasDebug, "_debug must be stripped from the recorded input")
 }
 
-// #877: debug mode on a plain (no-projection) workflow surfaces every recorded
+// #877: debug mode on a plain (no output template) workflow surfaces every recorded
 // step result, not just the output-flagged ones.
-func TestWorkflowExecutor_DebugEnvelope_NoProjection(t *testing.T) {
+func TestWorkflowExecutor_DebugEnvelope_NoOutputTemplate(t *testing.T) {
 	mock := jsonResponder(map[string]string{
 		"producer": `{"token": "abc"}`,
 		"consumer": `{"ok": true}`,
@@ -286,17 +286,17 @@ func TestWorkflowExecutor_DebugEnvelope_NoProjection(t *testing.T) {
 	assert.True(t, hasResult, "debug mode must surface the non-output producer's result")
 }
 
-// #877: a projection render error does not discard successful step results. The
+// #877: an output template render error does not discard successful step results. The
 // caller gets an error plus a recoverable envelope carrying every step result
-// and the projection error message.
-func TestWorkflowExecutor_OutputProjection_ErrorKeepsResults(t *testing.T) {
+// and the output template error message.
+func TestWorkflowExecutor_OutputTemplate_ErrorKeepsResults(t *testing.T) {
 	mock := jsonResponder(map[string]string{
 		"pods": `{"items": [{"name": "a"}]}`,
 	})
 	executor := NewWorkflowExecutor(mock, nil)
 
 	workflow := &api.Workflow{
-		Name:  "broken-projection",
+		Name:  "broken-output template",
 		Steps: []api.WorkflowStep{{ID: "pods", Tool: "pods"}},
 		Output: map[string]interface{}{
 			// References a step that never ran: missingkey=error fails the render.
@@ -305,8 +305,8 @@ func TestWorkflowExecutor_OutputProjection_ErrorKeepsResults(t *testing.T) {
 	}
 
 	result, err := executor.ExecuteWorkflow(context.Background(), workflow, map[string]interface{}{})
-	require.Error(t, err, "a projection render error must surface as an error")
-	require.NotNil(t, result, "step results must remain recoverable on a projection error")
+	require.Error(t, err, "an output template render error must surface as an error")
+	require.NotNil(t, result, "step results must remain recoverable on an output template error")
 	assert.True(t, result.IsError)
 
 	decoded := decodeResult(t, result)
@@ -317,7 +317,7 @@ func TestWorkflowExecutor_OutputProjection_ErrorKeepsResults(t *testing.T) {
 	require.Len(t, steps, 1)
 	pods := steps[0].(map[string]interface{})
 	_, hasResult := pods["result"]
-	assert.True(t, hasResult, "the successful step's result must survive the projection error")
+	assert.True(t, hasResult, "the successful step's result must survive the output template error")
 }
 
 // #875: condition jsonPath supports array indexing and template forms in
