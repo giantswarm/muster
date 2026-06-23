@@ -69,6 +69,9 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, refreshTokenTTL time.Dur
 	if len(cfg.TokenExchangeBroker.ActorDelegationPolicy) > 0 {
 		result.ActorDelegationPolicy = delegationGrantsFromConfig(cfg.TokenExchangeBroker.ActorDelegationPolicy)
 	}
+	if cfg.TokenExchangeBroker.DelegateToSelf {
+		result.DelegationDefaultResource = cfg.ResourceIdentifier
+	}
 	return result
 }
 

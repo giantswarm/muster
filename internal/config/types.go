@@ -412,6 +412,14 @@ type TokenExchangeBrokerConfig struct {
 	// plain workload exchanges are unaffected.
 	ActorDelegationPolicy []DelegationGrantConfig `yaml:"actorDelegationPolicy,omitempty"`
 
+	// DelegateToSelf lets a delegated (on-behalf-of) exchange omit the RFC 8707
+	// resource: muster binds the minted token to its own ResourceIdentifier so an
+	// agent STS client that cannot set a resource still receives a token muster
+	// accepts back and re-mints per backend on the localMint path. Only the
+	// delegation path (actor_token present) is affected; a resource-less plain
+	// exchange still errors. Requires ResourceIdentifier. Default false.
+	DelegateToSelf bool `yaml:"delegateToSelf,omitempty"`
+
 	// DefaultSecretNamespace is the namespace used for target credential
 	// secret refs that do not set an explicit namespace. Populated from the
 	// muster namespace by the serve command; not user-facing config.
