@@ -354,6 +354,37 @@ muster:
       #   - Session persistence across pod restarts
       #   - Horizontal scaling with shared session state
       #   - Rolling updates without user session loss
+      #
+      # Persistence model: the Valkey store is treated as a CACHE.
+      # Valkey runs with RDB-only persistence (appendonly no) by design, not by
+      # oversight. The requirement is that every critical record is
+      # reconstructable at startup, so a Valkey restart, PVC recreation, or
+      # fresh install is non-fatal. Valkey is deployed outside this chart (as a
+      # sibling component of the agentic-platform umbrella), so persistence
+      # tuning would live there, not here.
+      #
+      # Why not AOF (appendonly yes)? It does NOT protect the data that is lost
+      # in practice: the AOF file lives on the same PVC, so a PVC wipe/recreation
+      # (the real failure mode) loses it too — only backups/replication would
+      # help. AOF only narrows the RDB-snapshot gap for in-place ungraceful
+      # restarts. And flipping appendonly in config then restarting is a
+      # data-loss footgun: Valkey starts from the empty AOF dir and ignores the
+      # existing RDB, wiping the live store on the enabling deploy (safe
+      # enablement needs a runtime CONFIG SET, not a chart change).
+      #
+      # What survives a wipe, and how each record type recovers:
+      #   confidential broker client (muster:client:<id>) -> reseeded at startup
+      #       from a Secret via tokenExchangeBroker.brokerClients
+      #   DCR-registered MCP-agent clients               -> re-registered on the
+      #       agent's next login
+      #   user sessions / access + refresh tokens        -> user re-authenticates
+      #       (muster auth login)
+      #   refresh-token families                         -> re-created on next
+      #       login (no security impact)
+      #   cached exchanged / provider tokens             -> re-minted lazily on
+      #       the next request
+      # The workload (IRSA SA-token) exchange path carries no Valkey-only record
+      # and is unaffected by a wipe. See giantswarm/muster#884.
       storage:
         # Storage backend type: "memory" or "valkey"
         # Default: "memory" (NOT recommended for production)
