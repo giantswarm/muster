@@ -35,6 +35,33 @@ func TestNewOAuthServerConfig_EnableJWTMode(t *testing.T) {
 	})
 }
 
+func TestNewOAuthServerConfig_DelegateToSelf(t *testing.T) {
+	t.Parallel()
+
+	t.Run("enabled binds default resource to ResourceIdentifier", func(t *testing.T) {
+		t.Parallel()
+		cfg := config.OAuthServerConfig{
+			BaseURL:            "https://muster.example.com",
+			ResourceIdentifier: "https://muster.example.com/mcp",
+			TokenExchangeBroker: config.TokenExchangeBrokerConfig{
+				DelegateToSelf: true,
+			},
+		}
+		got := newOAuthServerConfig(cfg, time.Hour)
+		require.Equal(t, "https://muster.example.com/mcp", got.DelegationDefaultResource)
+	})
+
+	t.Run("disabled leaves default resource empty", func(t *testing.T) {
+		t.Parallel()
+		cfg := config.OAuthServerConfig{
+			BaseURL:            "https://muster.example.com",
+			ResourceIdentifier: "https://muster.example.com/mcp",
+		}
+		got := newOAuthServerConfig(cfg, time.Hour)
+		require.Empty(t, got.DelegationDefaultResource)
+	})
+}
+
 func TestParseCIDRs(t *testing.T) {
 	t.Parallel()
 

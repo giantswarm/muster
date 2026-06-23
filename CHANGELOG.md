@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- `oauth.server.tokenExchangeBroker.delegateToSelf` (default false): when enabled, a delegated (on-behalf-of) token exchange that carries an `actor_token` but omits the RFC 8707 `resource` is bound to muster's own `resourceIdentifier`, so an agent STS client that cannot set a resource itself still receives a token muster accepts back and re-mints per backend on the localMint path. Only the delegation path is affected; a resource-less plain exchange still errors. Requires mcp-oauth v0.16.0.
+
 - Chart values now document the `muster-valkey` persistence model as a deliberate cache-only choice (RDB-only is intentional; every critical record is reconstructable at startup), with a per-record-type recovery table, and explain why AOF is not enabled (it does not survive PVC loss, and a config-flip restart is a data-loss footgun). Documentation only; no behaviour change. ([#884](https://github.com/giantswarm/muster/issues/884))
 
 - `workloadGroupGrants[].granted.subject`: when set, replaces the validated workload credential's `sub` in the minted token so the downstream sees a stable agent principal. `workloadGroupGrants[].granted.groups` is the new canonical location for injected groups (previously a top-level `groups` field). Both map to `oauthserver.WorkloadGrant.Granted`; requires mcp-oauth v0.14.0.
