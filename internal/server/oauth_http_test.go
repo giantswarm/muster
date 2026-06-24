@@ -531,6 +531,72 @@ func TestFireOnAuthenticated(t *testing.T) {
 	})
 }
 
+// A self-issued muster JWT (an emailless on-behalf-of token re-presented at the
+// front door) is not a forwarded or trusted-issuer token, so it reaches the
+// emailless fall-through. Its validated session must be bridged into the api
+// namespace and onAuthenticated must fire, so the session's localMint backends
+// connect and advertise their tools.
+func TestAccessTokenInjector_SelfIssuedJWT_FiresOnAuthenticated(t *testing.T) {
+	defer stubAcceptForwardedIDToken(func(context.Context, string) (*oauthserver.ForwardedIDTokenAcceptance, error) {
+		return nil, oauth.ErrTrustedAudienceMismatch
+	})()
+	defer stubAcceptTrustedIssuerToken(func(context.Context, string) (*oauthserver.ForwardedIDTokenAcceptance, error) {
+		return nil, oauthserver.ErrIssuerNotTrusted
+	})()
+
+	s := &OAuthHTTPServer{config: config.OAuthServerConfig{BaseURL: "https://muster.test"}}
+	var firedSession string
+	s.SetOnAuthenticated(func(_ context.Context, sessionID string) {
+		firedSession = sessionID
+	})
+
+	var capturedCtx context.Context
+	next := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		capturedCtx = r.Context()
+	})
+
+	r := requestWithBearer("self-issued-obo")
+	ctx := oauthhandler.ContextWithUserInfo(r.Context(), &providers.UserInfo{
+		ID:          "quentin@giantswarm.io",
+		TokenSource: providers.TokenSourceJWT,
+	})
+	ctx = oauthhandler.ContextWithSessionID(ctx, "ext-obo-session")
+	r = r.WithContext(ctx)
+
+	s.createAccessTokenInjectorMiddleware(next).ServeHTTP(httptest.NewRecorder(), r)
+
+	require.NotNil(t, capturedCtx, "next must be invoked")
+	assert.Equal(t, "ext-obo-session", api.GetSessionIDFromContext(capturedCtx), "session bridged into api namespace")
+	assert.Equal(t, "quentin@giantswarm.io", api.GetSubjectFromContext(capturedCtx), "subject set from UserInfo.ID")
+	assert.Equal(t, "ext-obo-session", firedSession, "onAuthenticated fired with the bridged session ID")
+}
+
+// An emailless token that is not a self-issued JWT must not fire onAuthenticated
+// from the emailless fall-through, even when a session is present.
+func TestAccessTokenInjector_EmaillessNonJWT_DoesNotFire(t *testing.T) {
+	defer stubAcceptForwardedIDToken(func(context.Context, string) (*oauthserver.ForwardedIDTokenAcceptance, error) {
+		return nil, oauth.ErrTrustedAudienceMismatch
+	})()
+	defer stubAcceptTrustedIssuerToken(func(context.Context, string) (*oauthserver.ForwardedIDTokenAcceptance, error) {
+		return nil, oauthserver.ErrIssuerNotTrusted
+	})()
+
+	s := &OAuthHTTPServer{config: config.OAuthServerConfig{BaseURL: "https://muster.test"}}
+	fired := false
+	s.SetOnAuthenticated(func(context.Context, string) { fired = true })
+
+	next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
+
+	r := requestWithBearer("opaque")
+	ctx := oauthhandler.ContextWithUserInfo(r.Context(), &providers.UserInfo{ID: "system:serviceaccount:ns:sa"})
+	ctx = oauthhandler.ContextWithSessionID(ctx, "ext-sa")
+	r = r.WithContext(ctx)
+
+	s.createAccessTokenInjectorMiddleware(next).ServeHTTP(httptest.NewRecorder(), r)
+
+	assert.False(t, fired, "onAuthenticated must not fire for a non-JWT emailless token")
+}
+
 // fakeJWT returns a syntactically valid JWT whose payload is the given claims
 // JSON-encoded. The header and signature parts are placeholders — the function
 // under test does not verify signatures.

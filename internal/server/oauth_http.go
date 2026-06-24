@@ -327,6 +327,26 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 			if s.injectExternalIDToken(w, r, ctx, next) {
 				return
 			}
+			// A self-issued muster JWT (an on-behalf-of token re-presented at the
+			// front door) is emailless — the human identity is in `sub`, not an
+			// `email` claim — and is neither a forwarded nor a trusted-issuer
+			// token, so it lands here. mcp-oauth has validated it and assigned a
+			// session; bridge that into the api namespace and fire onAuthenticated
+			// so the session's localMint backends connect and advertise their
+			// tools. fireOnAuthenticated reads the api-namespace session, which the
+			// email and forwarded paths set but this path otherwise does not.
+			if userInfo.TokenSource == providers.TokenSourceJWT {
+				if sessionID, ok := oauthhandler.SessionIDFromContext(ctx); ok {
+					ctx = api.WithSessionID(ctx, sessionID)
+					if userInfo.ID != "" {
+						ctx = api.WithSubject(ctx, userInfo.ID)
+					}
+					r = r.WithContext(ctx)
+					s.fireOnAuthenticated(ctx)
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
 			if s.debug {
 				logging.Debug("OAuth", "User info has no email, proceeding without token injection")
 			}

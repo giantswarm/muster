@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- On-behalf-of sessions now connect their localMint backends and advertise their tools. A self-issued OBO bearer (emailless, the human identity in `sub`) reached the dispatch gate after the mcp-oauth v0.18.0 bump but never triggered the per-session backend connect, so the agent saw only core tools. The access-token injector now bridges the validated session into the `api` namespace and fires `onAuthenticated` for self-issued JWTs, so the human session connects its localMint backends and registers their tools.
+
 - On-behalf-of tool calls now reach the backend instead of failing closed. A muster self-issued OBO bearer (`sub=human`, `act=agent`) re-presented at the front door is signature-validated with no token-store entry, so it previously carried no session ID; backend tools that require session auth then rejected it and the connection fell back to the agent ServiceAccount. Bumping mcp-oauth to v0.18.0 makes the `ValidateToken` middleware assign a session to every validated token (`FamilyID` when present, else the deterministic bearer-derived ID), so the existing session lookup resolves the OBO bearer and the per-backend localMint runs as the human. No muster code change.
 
 ### Added
