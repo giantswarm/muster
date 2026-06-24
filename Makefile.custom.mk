@@ -16,7 +16,25 @@ helm-lint: ## Run Helm linter
 # Makefile.gen.go.mk; these prerequisites run before it (CRD freshness, then the
 # integration suite) and only add prerequisites -- they do not override the
 # generated recipe.
-test: verify-crds muster-integration-test
+test: verify-crds muster-integration-test vcs-dirty-diagnostic
+
+# TEMPORARY DIAGNOSTIC -- remove once the +dirty culprit is found.
+# Release binaries embed `vX.Y.Z+dirty` because Go's build-info VCS stamp records
+# `vcs.modified=true` at link time, i.e. `git status` is non-empty when architect's
+# go-build links the binaries. The known scratch files (.ldflags/.platforms/binaries)
+# are already gitignored and a local repro is clean, so something the CI job writes
+# is still escaping. This target prints exactly what Go's buildvcs reads, as the last
+# `test` prerequisite -- the closest consumer-side point to architect's "Build
+# binaries" step (nothing between them writes to the worktree).
+.PHONY: vcs-dirty-diagnostic
+vcs-dirty-diagnostic:
+	@echo "VCSDIRTY>> ===== git status --porcelain (untracked=all; what go buildvcs reads) ====="
+	@git status --porcelain --untracked-files=all || true
+	@echo "VCSDIRTY>> ===== tracked diffs (name + stat) ====="
+	@git --no-pager diff --stat || true
+	@echo "VCSDIRTY>> ===== ignored artifacts currently present (context only) ====="
+	@git status --porcelain --ignored=matching --untracked-files=all 2>/dev/null | grep '^!!' | head -30 || true
+	@echo "VCSDIRTY>> ===== end ====="
 
 CONTROLLER_GEN_VERSION := v0.21.0
 
