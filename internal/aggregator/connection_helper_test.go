@@ -820,7 +820,7 @@ func TestMakeLocalMintHeaderFunc_M2M(t *testing.T) {
 	api.RegisterBackendTokenMinter(minter)
 	defer api.RegisterBackendTokenMinter(nil)
 
-	headerFunc := makeLocalMintHeaderFunc("backend", "be-audience", nil)
+	headerFunc := makeLocalMintHeaderFunc("backend", "be-audience", "", "", nil)
 	saToken := unsignedJWT(t, map[string]any{"sub": "system:serviceaccount:kagent:sre-agent"})
 	ctx := server.ContextWithBearerToken(context.Background(), saToken)
 
@@ -838,7 +838,7 @@ func TestMakeLocalMintHeaderFunc_Delegation(t *testing.T) {
 	api.RegisterBackendTokenMinter(minter)
 	defer api.RegisterBackendTokenMinter(nil)
 
-	headerFunc := makeLocalMintHeaderFunc("backend", "be-audience", nil)
+	headerFunc := makeLocalMintHeaderFunc("backend", "be-audience", "", "", nil)
 	userToken := unsignedJWT(t, map[string]any{"sub": "alice", "email": "alice@example.com", "email_verified": true})
 	ctx := server.ContextWithBearerToken(context.Background(), userToken)
 	ctx = server.ContextWithActorToken(ctx, "agent-sa-token")
@@ -856,7 +856,7 @@ func TestMakeLocalMintHeaderFunc_EmailUnverifiedFailsClosed(t *testing.T) {
 	api.RegisterBackendTokenMinter(minter)
 	defer api.RegisterBackendTokenMinter(nil)
 
-	headerFunc := makeLocalMintHeaderFunc("backend", "be-audience", nil)
+	headerFunc := makeLocalMintHeaderFunc("backend", "be-audience", "", "", nil)
 	userToken := unsignedJWT(t, map[string]any{"sub": "alice", "email": "alice@example.com", "email_verified": false})
 	ctx := server.ContextWithBearerToken(context.Background(), userToken)
 	ctx = server.ContextWithActorToken(ctx, "agent-sa-token")
@@ -875,7 +875,7 @@ func TestMakeLocalMintHeaderFunc_M2MEmailUnverifiedFailsClosed(t *testing.T) {
 	api.RegisterBackendTokenMinter(minter)
 	defer api.RegisterBackendTokenMinter(nil)
 
-	headerFunc := makeLocalMintHeaderFunc("backend", "be-audience", nil)
+	headerFunc := makeLocalMintHeaderFunc("backend", "be-audience", "", "", nil)
 	preExchanged := unsignedJWT(t, map[string]any{
 		"sub":            "alice",
 		"email":          "alice@example.com",
@@ -895,7 +895,7 @@ func TestMakeLocalMintHeaderFunc_NoSubjectFailsClosed(t *testing.T) {
 	api.RegisterBackendTokenMinter(minter)
 	defer api.RegisterBackendTokenMinter(nil)
 
-	headerFunc := makeLocalMintHeaderFunc("backend", "be-audience", nil)
+	headerFunc := makeLocalMintHeaderFunc("backend", "be-audience", "", "", nil)
 	headers := headerFunc(context.Background())
 
 	require.False(t, minter.called, "no subject token must fail closed before minting")
@@ -905,7 +905,7 @@ func TestMakeLocalMintHeaderFunc_NoSubjectFailsClosed(t *testing.T) {
 func TestMakeLocalMintHeaderFunc_NoMinterFailsClosed(t *testing.T) {
 	api.RegisterBackendTokenMinter(nil)
 
-	headerFunc := makeLocalMintHeaderFunc("backend", "be-audience", nil)
+	headerFunc := makeLocalMintHeaderFunc("backend", "be-audience", "", "", nil)
 	ctx := server.ContextWithBearerToken(context.Background(), "sa-token")
 	headers := headerFunc(ctx)
 
@@ -917,11 +917,66 @@ func TestMakeLocalMintHeaderFunc_MintErrorFailsClosed(t *testing.T) {
 	api.RegisterBackendTokenMinter(minter)
 	defer api.RegisterBackendTokenMinter(nil)
 
-	headerFunc := makeLocalMintHeaderFunc("backend", "be-audience", nil)
+	headerFunc := makeLocalMintHeaderFunc("backend", "be-audience", "", "", nil)
 	saToken := unsignedJWT(t, map[string]any{"sub": "system:serviceaccount:kagent:sre-agent"})
 	ctx := server.ContextWithBearerToken(context.Background(), saToken)
 	headers := headerFunc(ctx)
 
 	require.True(t, minter.called)
 	require.Empty(t, headers, "mint error (policy deny) must fail closed, no Authorization header")
+}
+
+// The per-call request bearer is the subject; an unrelated captured fallback is
+// not used when the context carries a bearer.
+func TestMakeLocalMintHeaderFunc_SubjectFromRequestBearer(t *testing.T) {
+	minter := &fakeBackendTokenMinter{result: api.BackendMintResult{AccessToken: "minted"}}
+	api.RegisterBackendTokenMinter(minter)
+	defer api.RegisterBackendTokenMinter(nil)
+
+	reqToken := unsignedJWT(t, map[string]any{"sub": "alice", "email": "alice@example.com", "email_verified": true})
+	headerFunc := makeLocalMintHeaderFunc("backend", "be-audience", "captured-fallback", "", nil)
+
+	ctx := server.ContextWithBearerToken(context.Background(), reqToken)
+	headers := headerFunc(ctx)
+
+	require.True(t, minter.called)
+	require.Equal(t, reqToken, minter.gotReq.SubjectToken, "subject must come from the request bearer")
+	require.Equal(t, "Bearer minted", headers["Authorization"])
+}
+
+// The background listen stream calls the header func with a bare context (no
+// inbound headers). The captured subject and actor must supply identity so the
+// listener mints with the connection's identity instead of failing closed.
+func TestMakeLocalMintHeaderFunc_CapturedIdentityOnEmptyContext(t *testing.T) {
+	minter := &fakeBackendTokenMinter{result: api.BackendMintResult{AccessToken: "minted"}}
+	api.RegisterBackendTokenMinter(minter)
+	defer api.RegisterBackendTokenMinter(nil)
+
+	capturedSubject := unsignedJWT(t, map[string]any{"sub": "alice", "email": "alice@example.com", "email_verified": true})
+	headerFunc := makeLocalMintHeaderFunc("backend", "be-audience", capturedSubject, "captured-sa", nil)
+
+	headers := headerFunc(context.Background())
+
+	require.True(t, minter.called)
+	require.Equal(t, capturedSubject, minter.gotReq.SubjectToken, "captured subject applies when context has none")
+	require.Equal(t, "captured-sa", minter.gotReq.ActorToken, "captured actor applies when context has none")
+	require.Equal(t, "Bearer minted", headers["Authorization"])
+}
+
+// A per-call actor token (X-Actor-Token) takes precedence over the captured one.
+func TestMakeLocalMintHeaderFunc_CtxActorOverridesCaptured(t *testing.T) {
+	minter := &fakeBackendTokenMinter{result: api.BackendMintResult{AccessToken: "minted"}}
+	api.RegisterBackendTokenMinter(minter)
+	defer api.RegisterBackendTokenMinter(nil)
+
+	reqToken := unsignedJWT(t, map[string]any{"sub": "alice", "email": "alice@example.com", "email_verified": true})
+	headerFunc := makeLocalMintHeaderFunc("backend", "be-audience", "", "captured-sa", nil)
+
+	ctx := server.ContextWithBearerToken(context.Background(), reqToken)
+	ctx = server.ContextWithActorToken(ctx, "live-sa")
+	headers := headerFunc(ctx)
+
+	require.True(t, minter.called)
+	require.Equal(t, "live-sa", minter.gotReq.ActorToken, "live actor must override the captured one")
+	require.Equal(t, "Bearer minted", headers["Authorization"])
 }

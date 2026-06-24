@@ -2954,7 +2954,9 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 					slog.String("server", serverName))
 			}
 		}
-		headerFunc := makeLocalMintHeaderFunc(serverName, audience, onStaleToken)
+		capturedSubject := server.GetBearerTokenFromContext(ctx)
+		capturedActor := server.GetActorTokenFromContext(ctx)
+		headerFunc := makeLocalMintHeaderFunc(serverName, audience, capturedSubject, capturedActor, onStaleToken)
 		client = internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
 
 	} else if ShouldUseTokenExchange(serverInfo) {
