@@ -20,7 +20,9 @@ workflows:
         # (-race, integration suites, govulncheck, helm-unittest, CRD-freshness)
         # override their own `make test`. See devctl makefile gen and the
         # make-target-ci-interface ADR.
-        test_target: test
+        # TEMPORARY: test-diag wraps `test` to print git status AFTER go test, to
+        # locate the +dirty culprit. Revert to `test` once identified.
+        test_target: test-diag
         # Cross-platform binaries attached to the GitHub Release by the
         # upload-release-assets job below (cli flavour). yamllint disables the
         # line-length rule for the 132-char matrix value.

@@ -16,16 +16,20 @@ helm-lint: ## Run Helm linter
 # Makefile.gen.go.mk; these prerequisites run before it (CRD freshness, then the
 # integration suite) and only add prerequisites -- they do not override the
 # generated recipe.
-test: verify-crds muster-integration-test vcs-dirty-diagnostic
+test: verify-crds muster-integration-test
 
 # TEMPORARY DIAGNOSTIC -- remove once the +dirty culprit is found.
 # Release binaries embed `vX.Y.Z+dirty` because Go's build-info VCS stamp records
 # `vcs.modified=true` at link time, i.e. `git status` is non-empty when architect's
-# go-build links the binaries. The known scratch files (.ldflags/.platforms/binaries)
-# are already gitignored and a local repro is clean, so something the CI job writes
-# is still escaping. This target prints exactly what Go's buildvcs reads, as the last
-# `test` prerequisite -- the closest consumer-side point to architect's "Build
-# binaries" step (nothing between them writes to the worktree).
+# go-build links the binaries. A first run showed the tree clean at the end of the
+# `test` PREREQUISITES -- but that point is before the generated `go test ./...`
+# recipe, so a file left by `go test` itself wouldn't show. This wrapper runs the
+# full `test` (incl. the go test recipe) and only THEN the diagnostic, the last
+# consumer-controlled point before architect's nancy + Build binaries steps.
+# .circleci/workflows.yml points test_target at this wrapper for the diagnostic.
+.PHONY: test-diag
+test-diag: test vcs-dirty-diagnostic
+
 .PHONY: vcs-dirty-diagnostic
 vcs-dirty-diagnostic:
 	@echo "VCSDIRTY>> ===== git status --porcelain (untracked=all; what go buildvcs reads) ====="
