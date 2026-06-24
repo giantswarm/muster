@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- On-behalf-of tool calls now reach the backend instead of failing closed. A muster self-issued OBO bearer (`sub=human`, `act=agent`) re-presented at the front door is signature-validated with no token-store entry, so it previously carried no session ID; backend tools that require session auth then rejected it and the connection fell back to the agent ServiceAccount. Bumping mcp-oauth to v0.18.0 makes the `ValidateToken` middleware assign a session to every validated token (`FamilyID` when present, else the deterministic bearer-derived ID), so the existing session lookup resolves the OBO bearer and the per-backend localMint runs as the human. No muster code change.
+
 ### Added
 
 - `oauth.server.trustedIssuers[].allowPrivateIPJWKSHosts` (`[]string`): host-scoped alternative to `allowPrivateIPJWKS`. The issuer's `jwksUrl` may resolve to a private IP only when its hostname matches one of these values; all other hosts keep the SSRF guard. Maps to mcp-oauth's `TrustedIssuer.AllowPrivateIPJWKSHosts`. Prefer it over the blanket bool for a known in-cluster JWKS endpoint (e.g. a Dex fronted by an internal LB whose public hostname resolves to a private VIP).
