@@ -478,10 +478,10 @@ func EstablishConnectionWithLocalMint(
 			}
 		}
 	}
-	headerFunc := makeLocalMintHeaderFunc(serverInfo.Name, audience, onStaleToken)
+	headerFunc := makeLocalMintHeaderFunc(serverInfo.Name, audience, subjectToken, "", onStaleToken)
 	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
 
-	// Discovery mints M2M: inject the session token as the subject and no actor.
+	// Discovery mints M2M: surface the session token as the subject and no actor.
 	discoveryCtx := server.ContextWithBearerToken(ctx, subjectToken)
 
 	if err := client.Initialize(discoveryCtx); err != nil {
@@ -1002,7 +1002,12 @@ const localMintTokenType = "urn:ietf:params:oauth:token-type:jwt" //nolint:gosec
 //
 // The closure is called sequentially per connection by the MCP client, so its
 // counters need no mutex.
-func makeLocalMintHeaderFunc(serverName, audience string, onStaleToken func()) func(context.Context) map[string]string {
+// capturedSubject and capturedActor are the subject and actor tokens bound to
+// the connection when it is created. They supply identity when the request
+// context carries none: the background listen stream runs on a context with no
+// inbound headers, so the listener mints with the connection's own identity
+// instead of failing closed and 401-looping against the backend.
+func makeLocalMintHeaderFunc(serverName, audience, capturedSubject, capturedActor string, onStaleToken func()) func(context.Context) map[string]string {
 	var lastWarnTime time.Time
 	var consecutiveFailures int
 	var staleEvicted bool
@@ -1038,16 +1043,19 @@ func makeLocalMintHeaderFunc(serverName, audience string, onStaleToken func()) f
 
 		subjectToken := server.GetBearerTokenFromContext(ctx)
 		if subjectToken == "" {
-			return fail("localMint: no subject bearer on request to %s, failing closed", serverName)
+			subjectToken = capturedSubject
+		}
+		if subjectToken == "" {
+			return fail("localMint: no subject token for %s, failing closed", serverName)
 		}
 		actorToken := server.GetActorTokenFromContext(ctx)
+		if actorToken == "" {
+			actorToken = capturedActor
+		}
 
 		// Refuse to mint for a subject token that asserts an email it cannot
-		// prove. A human identity reaches localMint either as the delegation
-		// subject (separate X-Actor-Token) or as a pre-exchanged bearer that
-		// already carries an act chain and takes the M2M path; both carry an
-		// email claim. A groupless workload (SA) token carries no email and is
-		// exempt. Enforce before the mint, on both paths.
+		// prove. A human subject carries an email claim; a groupless workload
+		// (SA) token carries none and is exempt. Enforce before the mint.
 		email, err := pkgoauth.Email(subjectToken)
 		if err != nil {
 			return fail("localMint: cannot decode subject token for %s, failing closed", serverName)
