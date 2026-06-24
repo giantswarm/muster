@@ -14,6 +14,13 @@ workflows:
         name: go-build
         binary: muster
         context: architect
+        # Run unit tests through `make test` rather than the orb's hardcoded
+        # `go test ./...`, so CI and local agent runs use the same command.
+        # The generic Makefile target is `go test ./...`; repos that need more
+        # (-race, integration suites, govulncheck, helm-unittest, CRD-freshness)
+        # override their own `make test`. See devctl makefile gen and the
+        # make-target-ci-interface ADR.
+        test_target: test
         # Cross-platform binaries attached to the GitHub Release by the
         # upload-release-assets job below (cli flavour). yamllint disables the
         # line-length rule for the 132-char matrix value.
