@@ -851,6 +851,28 @@ func TestMakeLocalMintHeaderFunc_Delegation(t *testing.T) {
 	require.Equal(t, "Bearer minted-obo", headers["Authorization"])
 }
 
+// The SSO bootstrap path connects backends on a detached context that carries
+// no live request headers, so makeLocalMintHeaderFunc must fall back to the
+// captured actor token. Without it the delegated exchange drops the actor,
+// falls to the M2M branch, and is authorized on the human subject instead of
+// the agent SA.
+func TestMakeLocalMintHeaderFunc_CapturedActorFallback(t *testing.T) {
+	minter := &fakeBackendTokenMinter{result: api.BackendMintResult{AccessToken: "minted-obo"}}
+	api.RegisterBackendTokenMinter(minter)
+	defer api.RegisterBackendTokenMinter(nil)
+
+	userToken := unsignedJWT(t, map[string]any{"sub": "alice", "email": "alice@example.com", "email_verified": true})
+	headerFunc := makeLocalMintHeaderFunc("backend", "be-audience", userToken, "agent-sa-token", nil)
+
+	// Context carries no bearer or actor: the detached bootstrap context.
+	headers := headerFunc(context.Background())
+
+	require.True(t, minter.called)
+	require.Equal(t, userToken, minter.gotReq.SubjectToken)
+	require.Equal(t, "agent-sa-token", minter.gotReq.ActorToken, "captured actor must survive the bootstrap path")
+	require.Equal(t, "Bearer minted-obo", headers["Authorization"])
+}
+
 func TestMakeLocalMintHeaderFunc_EmailUnverifiedFailsClosed(t *testing.T) {
 	minter := &fakeBackendTokenMinter{result: api.BackendMintResult{AccessToken: "should-not-mint"}}
 	api.RegisterBackendTokenMinter(minter)

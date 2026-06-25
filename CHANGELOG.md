@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- localMint backends connected during SSO bootstrap now mint on the on-behalf-of delegation path instead of falling back to M2M; the bootstrap and live-request paths now carry the same credential bundle.
+
 - Connected MCP clients now receive `notifications/{tools,resources,prompts}/list_changed` when a backend connects after the session was opened (localMint/OBO background bootstrap, post-restart re-init), so late-connecting backends no longer stay invisible for the session's lifetime.
 
 - OBO sessions now connect localMint backends. After the emission fix that adds `email` to muster-minted OBO JWTs, `fireOnAuthenticated` fires for OBO requests, but the `onAuthenticated` callback returned early at the `idToken == ""` guard (written to avoid 403-spam for post-restart Dex sessions). The guard is now narrowed: OBO sessions (detected via `userInfo.ActorSubject`) are allowed through. The inbound OBO bearer is threaded into the detached `initSSOForSession` background context and used as the RFC 8693 subject token in `EstablishConnectionWithLocalMint`, falling back from the Dex ID-token lookup when none is present.

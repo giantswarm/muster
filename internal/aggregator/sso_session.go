@@ -16,16 +16,13 @@ import (
 type ssoSession struct {
 	userID      string
 	sessionID   string
-	idToken     string
-	bearer      string
+	tokens      server.CallerTokens
 	tokenSource providers.TokenSource
 }
 
 // ssoSessionFromContext extracts the SSO-relevant token state from an
 // authenticated request context.
 func ssoSessionFromContext(ctx context.Context, sessionID string) ssoSession {
-	idToken, _ := server.GetIDTokenFromContext(ctx)
-	bearer := server.GetBearerTokenFromContext(ctx)
 	userInfo, _ := oauthhandler.UserInfoFromContext(ctx)
 	var tokenSource providers.TokenSource
 	if userInfo != nil {
@@ -34,8 +31,7 @@ func ssoSessionFromContext(ctx context.Context, sessionID string) ssoSession {
 	return ssoSession{
 		userID:      getUserSubjectFromContext(ctx),
 		sessionID:   sessionID,
-		idToken:     idToken,
-		bearer:      bearer,
+		tokens:      server.CallerTokensFromContext(ctx),
 		tokenSource: tokenSource,
 	}
 }
@@ -45,7 +41,7 @@ func ssoSessionFromContext(ctx context.Context, sessionID string) ssoSession {
 // upstream ID token nor a delegated OBO bearer is present — the session cannot
 // drive a token exchange and bootstrapping would fail immediately.
 func (s ssoSession) canBootstrapSSO() bool {
-	return s.idToken != "" || s.tokenSource == providers.TokenSourceOBO
+	return s.tokens.IDToken != "" || s.tokenSource == providers.TokenSourceOBO
 }
 
 // LogValue implements slog.LogValuer so ssoSession can be passed directly to
@@ -54,8 +50,9 @@ func (s ssoSession) LogValue() slog.Value {
 	return slog.GroupValue(
 		slog.String("userID", logging.TruncateIdentifier(s.userID)),
 		slog.String("sessionID", logging.TruncateIdentifier(s.sessionID)),
-		slog.Int("idTokenLen", len(s.idToken)),
-		slog.Int("bearerLen", len(s.bearer)),
+		slog.Int("idTokenLen", len(s.tokens.IDToken)),
+		slog.Int("bearerLen", len(s.tokens.Bearer)),
+		slog.Int("actorTokenLen", len(s.tokens.Actor)),
 		slog.String("tokenSource", string(s.tokenSource)),
 	)
 }
