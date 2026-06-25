@@ -23,13 +23,23 @@ func (a *AggregatorServer) refreshContext() context.Context {
 // isCapabilityNotification returns true if the notification method indicates
 // a server-side capability change (tools, resources, or prompts).
 func isCapabilityNotification(method string) bool {
-	switch method {
-	case "notifications/tools/list_changed",
-		"notifications/resources/list_changed",
-		"notifications/prompts/list_changed":
-		return true
+	for _, category := range capabilityCategories {
+		if category.method == method {
+			return true
+		}
 	}
 	return false
+}
+
+// capabilityCategories pairs each capability count with its list_changed method
+// so isCapabilityNotification and capabilityNotifications share one source.
+var capabilityCategories = []struct {
+	count  func(*ConnectionResult) int
+	method string
+}{
+	{func(r *ConnectionResult) int { return r.ToolCount }, "notifications/tools/list_changed"},
+	{func(r *ConnectionResult) int { return r.ResourceCount }, "notifications/resources/list_changed"},
+	{func(r *ConnectionResult) int { return r.PromptCount }, "notifications/prompts/list_changed"},
 }
 
 // capabilityNotifications returns the list_changed methods warranted by a
@@ -40,14 +50,10 @@ func capabilityNotifications(result *ConnectionResult) []string {
 		return nil
 	}
 	var methods []string
-	if result.ToolCount > 0 {
-		methods = append(methods, "notifications/tools/list_changed")
-	}
-	if result.ResourceCount > 0 {
-		methods = append(methods, "notifications/resources/list_changed")
-	}
-	if result.PromptCount > 0 {
-		methods = append(methods, "notifications/prompts/list_changed")
+	for _, category := range capabilityCategories {
+		if category.count(result) > 0 {
+			methods = append(methods, category.method)
+		}
 	}
 	return methods
 }
@@ -55,9 +61,16 @@ func capabilityNotifications(result *ConnectionResult) []string {
 // notifySubjectCapabilitiesChanged pushes list_changed notifications to every
 // live transport session for sub. A backend that connects after the client has
 // already listed and cached its capabilities would otherwise stay invisible for
-// the session's lifetime. subjectSessions maps sub to transport (Mcp-Session-Id)
-// IDs, which is what SendNotificationToSpecificClient requires; the OAuth session
-// ID carried in connection context cannot address a transport client.
+// the session's lifetime.
+//
+// The notification is subject-wide rather than scoped to the one session whose
+// capabilityStore entry changed: SendNotificationToSpecificClient addresses a
+// transport (Mcp-Session-Id) client, and from a background connect we hold only
+// the bearer-derived connection-context session ID, which has no reverse map to
+// a transport ID. subjectSessions resolves sub to its transport IDs instead. For
+// a subject with multiple concurrent transport sessions this over-broadcasts:
+// siblings re-list a server they have no entry for and get nothing new. Harmless,
+// and the common agent case is one transport session per subject.
 func (a *AggregatorServer) notifySubjectCapabilitiesChanged(sub string, result *ConnectionResult) {
 	if a.mcpServer == nil || a.subjectSessions == nil || sub == "" {
 		return
