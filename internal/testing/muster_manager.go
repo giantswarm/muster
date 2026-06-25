@@ -1185,7 +1185,7 @@ func (m *musterInstanceManager) configureOAuthForInstance(
 ) {
 	// Build OAuth MCP client/proxy config - this allows muster to handle OAuth flows for protected MCP servers
 	oauthMCPClientConfig := map[string]interface{}{
-		keyEnabled:      true,
+		keyEnabled:     true,
 		"publicUrl":    fmt.Sprintf("http://localhost:%d", port),
 		"callbackPath": "/oauth/proxy/callback",
 	}
@@ -1327,7 +1327,7 @@ func (m *musterInstanceManager) buildMusterOAuthServerConfig(
 	}
 
 	return map[string]interface{}{
-		keyEnabled:                       true,
+		keyEnabled:                      true,
 		"baseUrl":                       fmt.Sprintf("http://localhost:%d", port),
 		"provider":                      "dex", // Mock server acts like Dex
 		"dex":                           dexConfig,
@@ -1364,7 +1364,7 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 		"host":      "localhost",
 		"port":      port,
 		"transport": "streamable-http",
-		keyEnabled:   true,
+		keyEnabled:  true,
 	}
 
 	// Configure OAuth if mock OAuth servers are defined

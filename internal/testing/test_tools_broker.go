@@ -164,8 +164,8 @@ func (h *TestToolsHandler) handleMintToken(_ context.Context, args map[string]in
 
 	return map[string]interface{}{
 		keySuccess: true,
-		"name":    name,
-		"subject": sub,
+		"name":     name,
+		"subject":  sub,
 	}, nil
 }
 
@@ -229,7 +229,7 @@ func (h *TestToolsHandler) handleBrokerTokenExchange(ctx context.Context, args m
 		}
 		return map[string]interface{}{
 			"isError":           true,
-			keySuccess:           false,
+			keySuccess:          false,
 			"status":            status,
 			"error":             oauthErr,
 			"error_description": oauthDesc,
@@ -256,7 +256,7 @@ func (h *TestToolsHandler) handleBrokerTokenExchange(ctx context.Context, args m
 	}
 
 	result := map[string]interface{}{
-		keySuccess:      true,
+		keySuccess:     true,
 		"claims":       claims,
 		"access_token": tokenResp.AccessToken,
 	}
@@ -316,18 +316,18 @@ func (h *TestToolsHandler) handleCallProtectedMCP(ctx context.Context, args map[
 
 	if err := client.ConnectWithAuth(ctx, info.Endpoint, token); err != nil {
 		return map[string]interface{}{
-			"isError": true,
+			"isError":  true,
 			keySuccess: false,
-			"error":   fmt.Sprintf("backend rejected token: %v", err),
+			"error":    fmt.Sprintf("backend rejected token: %v", err),
 		}, nil
 	}
 
 	result, err := client.CallToolDirect(ctx, toolName, toolArgs)
 	if err != nil {
 		return map[string]interface{}{
-			"isError": true,
+			"isError":  true,
 			keySuccess: false,
-			"error":   fmt.Sprintf("backend tool call failed: %v", err),
+			"error":    fmt.Sprintf("backend tool call failed: %v", err),
 		}, nil
 	}
 
@@ -338,7 +338,7 @@ func (h *TestToolsHandler) handleCallProtectedMCP(ctx context.Context, args map[
 		}
 	}
 	return map[string]interface{}{
-		keySuccess:  !result.IsError,
+		keySuccess: !result.IsError,
 		"isError":  result.IsError,
 		"response": text,
 	}, nil
