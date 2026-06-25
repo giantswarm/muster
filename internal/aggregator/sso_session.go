@@ -18,14 +18,14 @@ type ssoSession struct {
 	sessionID   string
 	idToken     string
 	bearer      string
+	actorToken  string
 	tokenSource providers.TokenSource
 }
 
 // ssoSessionFromContext extracts the SSO-relevant token state from an
 // authenticated request context.
 func ssoSessionFromContext(ctx context.Context, sessionID string) ssoSession {
-	idToken, _ := server.GetIDTokenFromContext(ctx)
-	bearer := server.GetBearerTokenFromContext(ctx)
+	tokens := server.CallerTokensFromContext(ctx)
 	userInfo, _ := oauthhandler.UserInfoFromContext(ctx)
 	var tokenSource providers.TokenSource
 	if userInfo != nil {
@@ -34,10 +34,17 @@ func ssoSessionFromContext(ctx context.Context, sessionID string) ssoSession {
 	return ssoSession{
 		userID:      getUserSubjectFromContext(ctx),
 		sessionID:   sessionID,
-		idToken:     idToken,
-		bearer:      bearer,
+		idToken:     tokens.IDToken,
+		bearer:      tokens.Bearer,
+		actorToken:  tokens.Actor,
 		tokenSource: tokenSource,
 	}
+}
+
+// callerTokens reconstructs the credential bundle this session carries, for
+// re-injection into a context rebuilt off the request path.
+func (s ssoSession) callerTokens() server.CallerTokens {
+	return server.CallerTokens{IDToken: s.idToken, Bearer: s.bearer, Actor: s.actorToken}
 }
 
 // canBootstrapSSO reports whether the session has a usable subject token for
@@ -56,6 +63,7 @@ func (s ssoSession) LogValue() slog.Value {
 		slog.String("sessionID", logging.TruncateIdentifier(s.sessionID)),
 		slog.Int("idTokenLen", len(s.idToken)),
 		slog.Int("bearerLen", len(s.bearer)),
+		slog.Int("actorTokenLen", len(s.actorToken)),
 		slog.String("tokenSource", string(s.tokenSource)),
 	)
 }

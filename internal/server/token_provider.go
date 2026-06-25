@@ -76,6 +76,44 @@ func GetActorTokenFromContext(ctx context.Context) string {
 	return token
 }
 
+// CallerTokens is the set of per-request credential tokens that travel together
+// from an inbound request to a downstream backend connection. They are carried
+// as a unit so a context rebuilt off the request path (SSO bootstrap, reconnect,
+// background refresh) cannot silently drop one — a dropped actor token degrades
+// a localMint delegation to the M2M path and authorizes the exchange on the
+// human subject instead of the agent.
+type CallerTokens struct {
+	IDToken string
+	Bearer  string
+	Actor   string
+}
+
+// CallerTokensFromContext snapshots the credential tokens present on ctx.
+func CallerTokensFromContext(ctx context.Context) CallerTokens {
+	idToken, _ := GetIDTokenFromContext(ctx)
+	return CallerTokens{
+		IDToken: idToken,
+		Bearer:  GetBearerTokenFromContext(ctx),
+		Actor:   GetActorTokenFromContext(ctx),
+	}
+}
+
+// ContextWithCallerTokens stores each non-empty token on ctx via its dedicated
+// key, so the existing per-field getters observe identical values. Empty fields
+// are left untouched, preserving any value already on ctx.
+func ContextWithCallerTokens(ctx context.Context, tokens CallerTokens) context.Context {
+	if tokens.IDToken != "" {
+		ctx = ContextWithIDToken(ctx, tokens.IDToken)
+	}
+	if tokens.Bearer != "" {
+		ctx = ContextWithBearerToken(ctx, tokens.Bearer)
+	}
+	if tokens.Actor != "" {
+		ctx = ContextWithActorToken(ctx, tokens.Actor)
+	}
+	return ctx
+}
+
 // GetIDToken extracts the ID token from an OAuth2 token.
 // OIDC providers include an id_token in the Extra data.
 // Kubernetes OIDC authentication requires the ID token, not the access token.
