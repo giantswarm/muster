@@ -485,10 +485,15 @@ func EstablishConnectionWithLocalMint(
 			}
 		}
 	}
-	headerFunc := makeLocalMintHeaderFunc(serverInfo.Name, audience, subjectToken, "", onStaleToken)
+	// Capture the actor token so the background keepalive stream can re-mint
+	// OBO tokens without a live request context. Per-call requests read the
+	// actor token directly from the request context and do not use capturedActor.
+	capturedActor := server.GetActorTokenFromContext(ctx)
+	headerFunc := makeLocalMintHeaderFunc(serverInfo.Name, audience, subjectToken, capturedActor, onStaleToken)
 	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
 
-	// Discovery mints M2M: surface the session token as the subject and no actor.
+	// Surface the session token as the subject; actor token remains accessible
+	// via context chain from the caller tokens stored in ctx.
 	discoveryCtx := server.ContextWithBearerToken(ctx, subjectToken)
 
 	if err := client.Initialize(discoveryCtx); err != nil {

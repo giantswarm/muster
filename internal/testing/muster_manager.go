@@ -24,6 +24,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const keyEnabled = "enabled"
+
 // toStringMap converts an interface{} to map[string]interface{}.
 // This handles both map[string]interface{} and map[interface{}]interface{}
 // (which is common when parsing YAML).
@@ -248,7 +250,7 @@ func (m *musterInstanceManager) CreateInstance(ctx context.Context, scenarioName
 
 	// Start mock HTTP servers for URL-based mock MCP servers BEFORE generating config files
 	// Pass OAuth server info so protected MCP servers can reference them
-	mockHTTPServerInfo, err := m.startMockHTTPServersWithOAuth(ctx, instanceID, configPath, config, mockOAuthServerInfo, logger)
+	mockHTTPServerInfo, err := m.startMockHTTPServersWithOAuth(ctx, instanceID, configPath, port, config, mockOAuthServerInfo, logger)
 	if err != nil {
 		m.stopMockOAuthServers(ctx, instanceID, logger)
 		m.releasePort(port, instanceID, logger)
@@ -1183,7 +1185,7 @@ func (m *musterInstanceManager) configureOAuthForInstance(
 ) {
 	// Build OAuth MCP client/proxy config - this allows muster to handle OAuth flows for protected MCP servers
 	oauthMCPClientConfig := map[string]interface{}{
-		"enabled":      true,
+		keyEnabled:     true,
 		"publicUrl":    fmt.Sprintf("http://localhost:%d", port),
 		"callbackPath": "/oauth/proxy/callback",
 	}
@@ -1218,6 +1220,17 @@ func (m *musterInstanceManager) configureOAuthForInstance(
 				oauthConfig["server"] = oauthServerConfig
 			}
 			break // Only one mock server can be used as muster's OAuth server
+		}
+	}
+
+	// Layer the local-mint token-exchange broker (JWT mode, trusted issuers,
+	// targets) onto muster's OAuth server config when a scenario requests it.
+	if config.MusterBroker != nil {
+		serverConfig, ok := oauthConfig["server"].(map[string]interface{})
+		if !ok {
+			logger.Debug("⚠️  muster_broker set but no mock OAuth server uses use_as_muster_oauth_server; broker not configured\n")
+		} else if err := m.applyBrokerConfig(serverConfig, config, port, instanceID, musterConfigPath, logger); err != nil {
+			logger.Debug("⚠️  Failed to configure muster broker: %v\n", err)
 		}
 	}
 
@@ -1314,7 +1327,7 @@ func (m *musterInstanceManager) buildMusterOAuthServerConfig(
 	}
 
 	return map[string]interface{}{
-		"enabled":                       true,
+		keyEnabled:                      true,
 		"baseUrl":                       fmt.Sprintf("http://localhost:%d", port),
 		"provider":                      "dex", // Mock server acts like Dex
 		"dex":                           dexConfig,
@@ -1351,7 +1364,7 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 		"host":      "localhost",
 		"port":      port,
 		"transport": "streamable-http",
-		"enabled":   true,
+		keyEnabled:  true,
 	}
 
 	// Configure OAuth if mock OAuth servers are defined
@@ -1437,7 +1450,7 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 						// This enables SSO via RFC 8693 token exchange for cross-cluster SSO
 						if tokenExchange, hasTokenExchange := oauthConfig["token_exchange"].(map[string]interface{}); hasTokenExchange {
 							tokenExchangeConfig := map[string]interface{}{
-								"enabled": true,
+								keyEnabled: true,
 							}
 
 							// Handle dex_token_endpoint - can be explicit URL or reference to OAuth server
@@ -1478,6 +1491,21 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 							if m.debug {
 								logger.Debug("🔐 Enabling token exchange for MCPServer %s (connector: %v)\n",
 									mcpServer.Name, tokenExchange["connector_id"])
+							}
+						}
+
+						// If oauth.local_mint is specified, add auth.localMint to the CRD.
+						// muster then mints a per-session token (signed by its own key)
+						// to connect to this backend, instead of a global persistent client.
+						if localMint, ok := oauthConfig["local_mint"].(map[string]interface{}); ok {
+							localMintConfig := map[string]interface{}{keyEnabled: true}
+							if audience, ok := localMint["audience"].(string); ok {
+								localMintConfig["audience"] = audience
+							}
+							authConfig["localMint"] = localMintConfig
+							if m.debug {
+								logger.Debug("🔐 Enabling local-mint downstream auth for MCPServer %s (audience: %v)\n",
+									mcpServer.Name, localMint["audience"])
 							}
 						}
 

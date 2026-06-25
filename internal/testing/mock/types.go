@@ -10,6 +10,10 @@ type ToolConfig struct {
 	InputSchema map[string]interface{} `yaml:"input_schema"`
 	// Responses defines possible responses for this tool
 	Responses []ToolResponse `yaml:"responses"`
+	// EchoToken makes the tool return the bearer token it was invoked with and
+	// its decoded claims (sub, act, groups, aud, iss). Used to assert that a
+	// downstream backend accepts a broker-minted token end-to-end.
+	EchoToken bool `yaml:"echo_token,omitempty"`
 }
 
 // ToolResponse defines a conditional response for a mock tool

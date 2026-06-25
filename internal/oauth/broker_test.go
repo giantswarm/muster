@@ -330,6 +330,37 @@ func TestBrokerExchanger_ForwardsSubjectIdentityAndGrantedGroups(t *testing.T) {
 	assert.Equal(t, []string{"workload:granted"}, capturedReq.GrantedGroups, "broker-granted groups must be forwarded")
 }
 
+func TestBrokerExchanger_ForwardsGrantedSubject(t *testing.T) {
+	var capturedReq MintRequest
+
+	broker := newTestBroker(config.TokenExchangeBrokerConfig{
+		Targets: map[string]config.BrokerTargetConfig{
+			"cluster-a": {Type: config.TargetTypeOIDCExchange},
+		},
+	}, nil)
+	broker.registry.factories[config.TargetTypeOIDCExchange] = func(_ config.BrokerTargetConfig, _ providerDeps) CredentialProvider {
+		return &funcProvider{fn: func(_ context.Context, req MintRequest) (*MintResult, error) {
+			capturedReq = req
+			return &MintResult{
+				AccessToken:     "minted-token",
+				IssuedTokenType: issuedTokenType,
+				ExpiresAt:       time.Now().Add(time.Hour),
+			}, nil
+		}}
+	}
+
+	_, err := broker.Exchange(t.Context(), &oauthserver.ExchangerRequest{
+		Audience:       "cluster-a",
+		Subject:        &oauthserver.SubjectIdentity{Subject: "system:serviceaccount:kagent:sre-agent"},
+		SubjectToken:   "subject-token",
+		GrantedSubject: "sre-impersonator@example.com",
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, "sre-impersonator@example.com", capturedReq.GrantedSubject,
+		"broker-granted subject (impersonated user) must be forwarded to the provider")
+}
+
 func TestTokenExchangeBrokerConfig_Enabled(t *testing.T) {
 	assert.False(t, config.TokenExchangeBrokerConfig{}.Enabled())
 	assert.True(t, config.TokenExchangeBrokerConfig{

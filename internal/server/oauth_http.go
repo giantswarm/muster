@@ -856,10 +856,18 @@ func extractBearerToken(r *http.Request) string {
 	return stripBearerScheme(r.Header.Get("Authorization"))
 }
 
-// extractActorToken extracts the actor token from the HeaderActorToken header,
-// stripping an optional "Bearer " scheme for symmetry with Authorization.
+// extractActorToken extracts the actor token from the HeaderActorToken header.
+// Accepts both raw JWTs and "Bearer <token>" values; the Bearer scheme is
+// stripped when present but is not required (unlike Authorization).
 func extractActorToken(r *http.Request) string {
-	return stripBearerScheme(r.Header.Get(HeaderActorToken))
+	val := r.Header.Get(HeaderActorToken)
+	if val == "" {
+		return ""
+	}
+	if stripped := stripBearerScheme(val); stripped != "" {
+		return stripped
+	}
+	return val
 }
 
 // stripBearerScheme returns the token portion of a "Bearer <token>" header

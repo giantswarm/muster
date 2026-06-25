@@ -36,6 +36,20 @@ type ProtectedMCPServerConfig struct {
 	// Transport is the HTTP transport type (sse or streamable-http)
 	Transport HTTPTransportType
 
+	// TrustJWKSURL, when set, switches token validation from the mock OAuth
+	// server's opaque-token check to JWT signature verification against this
+	// JWKS endpoint (e.g. muster's /.well-known/jwks.json). This is how a
+	// backend proves it accepts a broker-minted token end-to-end.
+	TrustJWKSURL string
+
+	// ExpectedAudience is the aud value the minted token must carry when
+	// TrustJWKSURL is set. Empty accepts any audience.
+	ExpectedAudience string
+
+	// ExpectedIssuer is the iss value the minted token must carry when
+	// TrustJWKSURL is set. Empty accepts any issuer.
+	ExpectedIssuer string
+
 	// Debug enables debug logging
 	Debug bool
 }
@@ -215,6 +229,10 @@ func (s *ProtectedMCPServer) createProtectedHandler() (http.Handler, error) {
 		requiredScope: s.config.RequiredScope,
 		debug:         s.config.Debug,
 	}
+	if s.config.TrustJWKSURL != "" {
+		protectedHandler.jwksValidator = newJWKSValidator(
+			s.config.TrustJWKSURL, s.config.ExpectedAudience, s.config.ExpectedIssuer)
+	}
 
 	// Create a mux to handle special endpoints
 	mux := http.NewServeMux()
@@ -247,6 +265,7 @@ func (s *ProtectedMCPServer) createProtectedHandler() (http.Handler, error) {
 type oauthProtectionMiddleware struct {
 	handler       http.Handler
 	oauthServer   *OAuthServer
+	jwksValidator *jwksValidator
 	issuer        string
 	requiredScope string
 	debug         bool
@@ -269,6 +288,26 @@ func (m *oauthProtectionMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Req
 			fmt.Fprintf(os.Stderr, "🔒 Invalid Authorization header format, returning 401\n")
 		}
 		m.sendAuthChallenge(w, "invalid_token", "Authorization header must use Bearer scheme")
+		return
+	}
+
+	// JWKS mode: verify the bearer JWT's signature against the trusted JWKS
+	// (e.g. muster's signing key) plus audience/issuer, and thread the decoded
+	// claims down to the tool handler for echo_token tools.
+	if m.jwksValidator != nil {
+		claims, err := m.jwksValidator.validate(r.Context(), token)
+		if err != nil {
+			if m.debug {
+				fmt.Fprintf(os.Stderr, "🔒 JWKS validation failed: %v, returning 401\n", err)
+			}
+			m.sendAuthChallenge(w, "invalid_token", "The access token is invalid or expired")
+			return
+		}
+		r = r.WithContext(withReceivedToken(r.Context(), &receivedToken{Raw: token, Claims: claims}))
+		if m.debug {
+			fmt.Fprintf(os.Stderr, "🔒 JWKS-validated token (sub=%s), passing to MCP handler\n", claims.Sub)
+		}
+		m.handler.ServeHTTP(w, r)
 		return
 	}
 

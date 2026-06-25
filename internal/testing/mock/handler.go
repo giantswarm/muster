@@ -180,6 +180,22 @@ func (h *ToolHandler) createMCPHandler() func(context.Context, mcp.CallToolReque
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
+		// echo_token tools return the bearer token they were called with and its
+		// decoded claims, so scenarios can assert a backend accepted a
+		// broker-minted token end-to-end.
+		if h.config.EchoToken {
+			echo := map[string]interface{}{"response": result}
+			if tok := receivedTokenFrom(ctx); tok != nil {
+				echo["received_token"] = tok.Raw
+				if tok.Claims != nil {
+					echo["claims"] = tok.Claims
+				}
+			}
+			if jsonBytes, mErr := json.Marshal(echo); mErr == nil {
+				return mcp.NewToolResultText(string(jsonBytes)), nil
+			}
+		}
+
 		// Convert result to MCP format
 		if result != nil {
 			// Check if result is a map or slice - if so, JSON marshal it

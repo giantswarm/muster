@@ -37,6 +37,10 @@ func (m *musterInstanceManager) startMockOAuthServers(
 	}
 	m.mu.Unlock()
 
+	// Mock servers referenced as muster-broker trusted issuers must sign their
+	// tokens and serve TLS so muster's broker can validate them via JWKS.
+	brokerRefs := brokerTrustedServerRefs(config)
+
 	for _, oauthCfg := range config.MockOAuthServers {
 		tokenLifetime := 1 * time.Hour
 		if oauthCfg.TokenLifetime != "" {
@@ -45,11 +49,14 @@ func (m *musterInstanceManager) startMockOAuthServers(
 			}
 		}
 
+		signTokens := oauthCfg.SignTokens || brokerRefs[oauthCfg.Name]
+
 		// Determine if TLS should be enabled for this OAuth server.
 		// TLS is required for:
 		// 1. Muster's OAuth server (the Dex provider requires HTTPS)
 		// 2. Token exchange targets (RFC 8693 requires HTTPS endpoints)
-		useTLS := oauthCfg.UseAsMusterOAuthServer || oauthCfg.UseTLS || len(oauthCfg.TrustedIssuers) > 0
+		// 3. Muster-broker trusted issuers (broker fetches their JWKS over HTTPS)
+		useTLS := oauthCfg.UseAsMusterOAuthServer || oauthCfg.UseTLS || len(oauthCfg.TrustedIssuers) > 0 || signTokens
 
 		serverConfig := mock.OAuthServerConfig{
 			Issuer:         oauthCfg.Issuer,
@@ -61,6 +68,7 @@ func (m *musterInstanceManager) startMockOAuthServers(
 			ClientSecret:   oauthCfg.ClientSecret,
 			Debug:          m.debug,
 			UseTLS:         useTLS,
+			SignTokens:     signTokens,
 		}
 
 		// Use mock clock if configured (enables test_advance_oauth_clock tool)
@@ -209,6 +217,7 @@ func (m *musterInstanceManager) stopMockOAuthServers(ctx context.Context, instan
 func (m *musterInstanceManager) startMockHTTPServersWithOAuth(
 	ctx context.Context,
 	instanceID, configPath string,
+	musterPort int,
 	config *MusterPreConfiguration,
 	oauthServers map[string]*MockOAuthServerInfo,
 	logger TestLogger,
@@ -267,7 +276,7 @@ func (m *musterInstanceManager) startMockHTTPServersWithOAuth(
 
 		if oauthConfig != nil && oauthConfig.Required {
 			// Start as a protected MCP server
-			info, err := m.startProtectedMCPServer(ctx, instanceID, mcpServer, transportType, oauthConfig, oauthServers, logger)
+			info, err := m.startProtectedMCPServer(ctx, instanceID, musterPort, mcpServer, transportType, oauthConfig, oauthServers, logger)
 			if err != nil {
 				return nil, fmt.Errorf("failed to start protected MCP server %s: %w", mcpServer.Name, err)
 			}
@@ -308,6 +317,12 @@ func (m *musterInstanceManager) extractOAuthConfig(config map[string]interface{}
 	if scope, ok := oauthMap["scope"].(string); ok {
 		result.Scope = scope
 	}
+	if trust, ok := oauthMap["trust_muster_jwks"].(bool); ok {
+		result.TrustMusterJWKS = trust
+	}
+	if aud, ok := oauthMap["expected_audience"].(string); ok {
+		result.ExpectedAudience = aud
+	}
 
 	return result
 }
@@ -316,6 +331,7 @@ func (m *musterInstanceManager) extractOAuthConfig(config map[string]interface{}
 func (m *musterInstanceManager) startProtectedMCPServer(
 	ctx context.Context,
 	instanceID string,
+	musterPort int,
 	mcpServer MCPServerConfig,
 	transportType mock.HTTPTransportType,
 	oauthConfig *MCPServerOAuthConfig,
@@ -352,6 +368,16 @@ func (m *musterInstanceManager) startProtectedMCPServer(
 		Tools:         tools,
 		Transport:     transportType,
 		Debug:         m.debug,
+	}
+
+	// In trust-muster-JWKS mode the backend validates broker-minted JWTs against
+	// muster's signing key (its /.well-known/jwks.json) instead of the mock OAuth
+	// server's opaque tokens. muster's base URL is its issuer.
+	if oauthConfig.TrustMusterJWKS {
+		musterBaseURL := fmt.Sprintf("http://localhost:%d", musterPort)
+		config.TrustJWKSURL = musterBaseURL + "/.well-known/jwks.json"
+		config.ExpectedIssuer = musterBaseURL
+		config.ExpectedAudience = oauthConfig.ExpectedAudience
 	}
 
 	protectedServer, err := mock.NewProtectedMCPServer(config)
@@ -486,6 +512,9 @@ func (m *musterInstanceManager) extractToolConfigs(config map[string]interface{}
 		}
 		if desc, ok := toolMap["description"].(string); ok {
 			tool.Description = desc
+		}
+		if echo, ok := toolMap["echo_token"].(bool); ok {
+			tool.EchoToken = echo
 		}
 		if schema, ok := toolMap["input_schema"].(map[string]interface{}); ok {
 			tool.InputSchema = schema
