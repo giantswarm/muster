@@ -1068,7 +1068,7 @@ func TestBootstrapNewSessionSSO_ConnectsForwardTokenSynchronously(t *testing.T) 
 
 	// No ID token is resolvable (none in context, no usable OAuth proxy entry),
 	// so the forward-token connect fails fast without a network round-trip.
-	agg.bootstrapNewSessionSSO(userID, sessionID, "")
+	agg.bootstrapNewSessionSSO(userID, sessionID, "", "")
 
 	// Synchronous contract: the connect outcome is recorded by the time the call
 	// returns. An asynchronous bootstrap would not have this observable yet.

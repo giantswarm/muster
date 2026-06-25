@@ -1510,12 +1510,14 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 
 		userID := getUserSubjectFromContext(ctx)
 		idToken, _ := server.GetIDTokenFromContext(ctx)
+		userInfo, _ := oauthhandler.UserInfoFromContext(ctx)
 
 		logging.InfoWithAttrs("Aggregator", "SSO: onAuthenticated callback",
 			slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
 			slog.String("userID", logging.TruncateIdentifier(userID)),
 			slog.Bool("authAlive", authAlive),
-			slog.Bool("hasIDToken", idToken != ""))
+			slog.Bool("hasIDToken", idToken != ""),
+			slog.Bool("isOBO", userInfo != nil && userInfo.ActorSubject != ""))
 
 		if authAlive {
 			if idToken == "" {
@@ -1538,17 +1540,22 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 			if a.getMusterIssuer() != "" && a.ssoPoolMissNeedingInit(userID, sessionID) {
 				logging.InfoWithAttrs("Aggregator", "SSO: pool miss on live session, triggering SSO re-init",
 					slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
-				go a.initSSOForSession(userID, sessionID, idToken) //nolint:gosec // G118: SSO re-init goroutine must outlive the request that triggered it
+				go a.initSSOForSession(userID, sessionID, idToken, "") //nolint:gosec // G118: SSO re-init goroutine must outlive the request that triggered it
 			}
 			return
 		}
 
-		// Don't initiate SSO for stale sessions without a usable ID token.
-		// After a pod restart, Valkey may still have valid access tokens but no ID token
-		// in the OAuth store. Without this gate, downstream connections are established
-		// that immediately start spamming 403 errors.
-		if idToken == "" {
-			logging.InfoWithAttrs("Aggregator", "SSO: skipping initSSOForSession, no ID token available (stale session after restart)",
+		// OBO sessions (delegated human identity) have no Dex ID token — the
+		// muster-issued bearer itself is the subject token for localMint exchanges.
+		// Allow them through; initSSOForSession handles an empty idToken gracefully
+		// and EstablishConnectionWithLocalMint falls back to the bearer.
+		//
+		// For post-restart sessions where neither an ID token nor an OBO actor is
+		// present, skip to avoid spinning up connections with a stale bearer that
+		// has no valid subject for backend token exchanges.
+		isOBO := userInfo != nil && userInfo.ActorSubject != ""
+		if idToken == "" && !isOBO {
+			logging.InfoWithAttrs("Aggregator", "SSO: skipping initSSOForSession, no ID token and not an OBO session (stale session after restart)",
 				slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
 			return
 		}
@@ -1562,7 +1569,8 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 			a.ssoTracker.ClearAllSSOFailed(userID)
 		}
 
-		a.bootstrapNewSessionSSO(userID, sessionID, idToken)
+		bearerToken := server.GetBearerTokenFromContext(ctx)
+		a.bootstrapNewSessionSSO(userID, sessionID, idToken, bearerToken)
 	})
 
 	logging.InfoWithAttrs("Aggregator", "OAuth 2.1 server protection enabled",
@@ -1604,7 +1612,7 @@ func (a *AggregatorServer) ssoLifecycleOptions() []oauth.ServerOption {
 				slog.String("familyID", logging.TruncateIdentifier(familyID)),
 				slog.Bool("hasIDToken", idToken != ""),
 				slog.Int("idTokenLen", len(idToken)))
-			a.initSSOForSession(userID, familyID, idToken)
+			a.initSSOForSession(userID, familyID, idToken, "")
 			a.storeIDTokenForSSO(familyID, userID, idToken)
 		}),
 		// An upstream refresh with no ID token signals a broken refresh chain

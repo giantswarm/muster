@@ -345,9 +345,9 @@ const initSSOTimeout = 15 * time.Second
 // initSSOForSession detaches its own timeout-bounded context internally, so
 // blocking here does not tie the bootstrap to request cancellation. singleflight
 // collapses concurrent first requests for the same session into one bootstrap.
-func (a *AggregatorServer) bootstrapNewSessionSSO(userID, sessionID, idToken string) {
+func (a *AggregatorServer) bootstrapNewSessionSSO(userID, sessionID, idToken, bearerToken string) {
 	_, _, _ = a.ssoInitGroup.Do(sessionID, func() (any, error) {
-		a.initSSOForSession(userID, sessionID, idToken)
+		a.initSSOForSession(userID, sessionID, idToken, bearerToken)
 		return nil, nil
 	})
 }
@@ -359,11 +359,11 @@ func (a *AggregatorServer) bootstrapNewSessionSSO(userID, sessionID, idToken str
 // fully connected before the client receives its access token.
 // Connections to individual servers run in parallel with a shared timeout
 // so that a single slow server cannot block the entire login flow.
-func (a *AggregatorServer) initSSOForSession(userID, sessionID, idToken string) {
+func (a *AggregatorServer) initSSOForSession(userID, sessionID, idToken, bearerToken string) {
 	musterIssuer := a.getMusterIssuer()
 
-	logging.Info("Aggregator", "SSO: initSSOForSession called (userID=%s, sessionID=%s, idTokenLen=%d, musterIssuer=%s)",
-		logging.TruncateIdentifier(userID), logging.TruncateIdentifier(sessionID), len(idToken), musterIssuer)
+	logging.Info("Aggregator", "SSO: initSSOForSession called (userID=%s, sessionID=%s, idTokenLen=%d, bearerTokenLen=%d, musterIssuer=%s)",
+		logging.TruncateIdentifier(userID), logging.TruncateIdentifier(sessionID), len(idToken), len(bearerToken), musterIssuer)
 
 	if musterIssuer == "" {
 		logging.Info("Aggregator", "SSO: initSSOForSession returning early: musterIssuer is empty")
@@ -378,6 +378,9 @@ func (a *AggregatorServer) initSSOForSession(userID, sessionID, idToken string) 
 	bgCtx = api.WithSessionID(bgCtx, sessionID)
 	if idToken != "" {
 		bgCtx = server.ContextWithIDToken(bgCtx, idToken)
+	}
+	if bearerToken != "" {
+		bgCtx = server.ContextWithBearerToken(bgCtx, bearerToken)
 	}
 
 	var pending []*ServerInfo
