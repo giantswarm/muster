@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -1508,22 +1509,18 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 		}
 		_, _ = a.capabilityStore.Touch(ctx, sessionID)
 
-		userID := getUserSubjectFromContext(ctx)
-		idToken, _ := server.GetIDTokenFromContext(ctx)
+		sso := ssoSessionFromContext(ctx, sessionID)
 
 		logging.InfoWithAttrs("Aggregator", "SSO: onAuthenticated callback",
-			slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
-			slog.String("userID", logging.TruncateIdentifier(userID)),
-			slog.Bool("authAlive", authAlive),
-			slog.Bool("hasIDToken", idToken != ""))
+			slog.Any("session", sso),
+			slog.Bool("authAlive", authAlive))
 
 		if authAlive {
-			if idToken == "" {
-				// Session is known but the ID token is gone: the upstream
-				// refresh chain is broken (e.g. Dex -> GitHub returned 401).
+			if !sso.canBootstrapSSO() {
+				// No usable subject token: the upstream credential is gone.
 				// Evict stale SSO connections to stop mcp-go's infinite
 				// 1-second retry loop.
-				a.handleUpstreamRefreshFailure(sessionID, userID, "onAuthenticated: ID token missing for active session")
+				a.handleUpstreamRefreshFailure(sessionID, sso.userID, "onAuthenticated: no usable subject token for active session")
 				return
 			}
 			// After a pod restart the auth store survives in Valkey but the
@@ -1533,22 +1530,16 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 			// in-memory, so after a restart there are no stale failures, and
 			// clearing it on every request would retry a persistently failing
 			// exchange per-request instead of on the backoff schedule.
-			// The issuer check mirrors initSSOForSession's early return so
-			// pending slots are not claimed when no exchange can run.
-			if a.getMusterIssuer() != "" && a.ssoPoolMissNeedingInit(userID, sessionID) {
+			if a.getMusterIssuer() != "" && a.ssoPoolMissNeedingInit(sso.userID, sessionID) {
 				logging.InfoWithAttrs("Aggregator", "SSO: pool miss on live session, triggering SSO re-init",
 					slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
-				go a.initSSOForSession(userID, sessionID, idToken) //nolint:gosec // G118: SSO re-init goroutine must outlive the request that triggered it
+				go a.initSSOForSession(sso) //nolint:gosec // G118: SSO re-init goroutine must outlive the request that triggered it
 			}
 			return
 		}
 
-		// Don't initiate SSO for stale sessions without a usable ID token.
-		// After a pod restart, Valkey may still have valid access tokens but no ID token
-		// in the OAuth store. Without this gate, downstream connections are established
-		// that immediately start spamming 403 errors.
-		if idToken == "" {
-			logging.InfoWithAttrs("Aggregator", "SSO: skipping initSSOForSession, no ID token available (stale session after restart)",
+		if !sso.canBootstrapSSO() {
+			logging.InfoWithAttrs("Aggregator", "SSO: skipping bootstrap, no usable subject token",
 				slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
 			return
 		}
@@ -1558,11 +1549,11 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 		// restart or after a transient token-storage error) would be skipped
 		// for ssoTrackerFailureTTL even though the underlying cause may have
 		// been resolved.
-		if a.ssoTracker != nil && userID != "" {
-			a.ssoTracker.ClearAllSSOFailed(userID)
+		if a.ssoTracker != nil && sso.userID != "" {
+			a.ssoTracker.ClearAllSSOFailed(sso.userID)
 		}
 
-		a.bootstrapNewSessionSSO(userID, sessionID, idToken)
+		a.bootstrapNewSessionSSO(sso)
 	})
 
 	logging.InfoWithAttrs("Aggregator", "OAuth 2.1 server protection enabled",
@@ -1604,7 +1595,7 @@ func (a *AggregatorServer) ssoLifecycleOptions() []oauth.ServerOption {
 				slog.String("familyID", logging.TruncateIdentifier(familyID)),
 				slog.Bool("hasIDToken", idToken != ""),
 				slog.Int("idTokenLen", len(idToken)))
-			a.initSSOForSession(userID, familyID, idToken)
+			a.initSSOForSession(ssoSession{userID: userID, sessionID: familyID, idToken: idToken})
 			a.storeIDTokenForSSO(familyID, userID, idToken)
 		}),
 		// An upstream refresh with no ID token signals a broken refresh chain
@@ -1852,7 +1843,7 @@ func (a *AggregatorServer) IsYoloMode() bool {
 //   - args: Arguments to pass to the tool as key-value pairs
 //
 // Returns the tool execution result or an error if the tool cannot be found or executed.
-func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string, args map[string]interface{}) (res *mcp.CallToolResult, err error) {
+func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string, args map[string]any) (res *mcp.CallToolResult, err error) {
 	logging.DebugWithAttrs("Aggregator", "CallToolInternal called",
 		slog.String("tool", toolName))
 
@@ -1876,7 +1867,7 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 			return nil, fmt.Errorf("tool %s is provided by a family on servers %s; the %q parameter is required",
 				toolName, strings.Join(providers, ", "), instanceArg)
 		}
-		forwarded := make(map[string]interface{}, len(args)-1)
+		forwarded := make(map[string]any, len(args)-1)
 		for k, v := range args {
 			if k != instanceArg {
 				forwarded[k] = v
@@ -1930,7 +1921,7 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 // for solo tools or via ResolveToolNameForServer for family-grouped tools).
 // It encapsulates the global-client vs. session-scoped vs. token-exchange
 // branching that previously lived inline in CallToolInternal.
-func (a *AggregatorServer) dispatchResolvedTool(ctx context.Context, toolName, serverName, originalName string, args map[string]interface{}, sessionID, sub string) (*mcp.CallToolResult, error) {
+func (a *AggregatorServer) dispatchResolvedTool(ctx context.Context, toolName, serverName, originalName string, args map[string]any, sessionID, sub string) (*mcp.CallToolResult, error) {
 	serverInfo, exists := a.registry.GetServerInfo(serverName)
 	if !exists || serverInfo == nil {
 		return nil, fmt.Errorf("server not found: %s", serverName)
@@ -2008,7 +1999,7 @@ func (a *AggregatorServer) isCoreToolByName(toolName string) bool {
 //
 // Returns the tool execution result converted to MCP format, or an error if
 // no appropriate handler is found or execution fails.
-func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName string, args map[string]interface{}) (*mcp.CallToolResult, error) {
+func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName string, args map[string]any) (*mcp.CallToolResult, error) {
 	logging.DebugWithAttrs("Aggregator", "callCoreToolDirectly called",
 		slog.String("tool", toolName))
 
@@ -2031,13 +2022,7 @@ func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName st
 				"workflow_update", "workflow_delete", "workflow_validate", "workflow_available",
 				"workflow_execution_list", "workflow_execution_get"}
 
-			isManagementTool := false
-			for _, mgmtTool := range managementTools {
-				if originalToolName == mgmtTool {
-					isManagementTool = true
-					break
-				}
-			}
+			isManagementTool := slices.Contains(managementTools, originalToolName)
 
 			if isManagementTool {
 				// Use the original tool name for workflow management tools
@@ -2927,7 +2912,7 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 				logging.InfoWithAttrs("Aggregator", "Token expiring soon, triggering background refresh",
 					slog.String("server", serverName),
 					slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
-				a.triggerBackgroundTokenRefresh(sessionID, serverName, sub)
+				a.triggerBackgroundTokenRefresh(sessionID, serverName)
 				return pooledClient, func() {}, nil
 
 			default:
@@ -3040,7 +3025,7 @@ func (a *AggregatorServer) callToolWithTokenExchangeRetry(
 	ctx context.Context,
 	serverName string,
 	originalToolName string,
-	args map[string]interface{},
+	args map[string]any,
 	sessionID string,
 	sub string,
 ) (*mcp.CallToolResult, error) {
@@ -3081,11 +3066,11 @@ func (a *AggregatorServer) callToolWithTokenExchangeRetry(
 // the token for a token-exchange server and replace the pooled client.
 // Concurrent calls for the same (sessionID, serverName) are deduplicated via
 // singleflight -- only the first caller spawns the goroutine.
-func (a *AggregatorServer) triggerBackgroundTokenRefresh(sessionID, serverName, sub string) {
+func (a *AggregatorServer) triggerBackgroundTokenRefresh(sessionID, serverName string) {
 	sfKey := sessionID + "/" + serverName
 	go func() {
-		_, _, _ = a.tokenRefreshGroup.Do(sfKey, func() (interface{}, error) {
-			a.backgroundTokenRefresh(sessionID, serverName, sub)
+		_, _, _ = a.tokenRefreshGroup.Do(sfKey, func() (any, error) {
+			a.backgroundTokenRefresh(sessionID, serverName)
 			return nil, nil
 		})
 	}()
@@ -3098,7 +3083,7 @@ func (a *AggregatorServer) triggerBackgroundTokenRefresh(sessionID, serverName, 
 // Failures are logged but never propagated -- the caller already received the
 // still-valid pooled client, and callToolWithTokenExchangeRetry handles the
 // case where the token expires before the background refresh succeeds.
-func (a *AggregatorServer) backgroundTokenRefresh(sessionID, serverName, sub string) {
+func (a *AggregatorServer) backgroundTokenRefresh(sessionID, serverName string) {
 	ctx := context.Background()
 
 	serverInfo, exists := a.registry.GetServerInfo(serverName)
@@ -3236,7 +3221,7 @@ func (a *AggregatorServer) GetPrompt(ctx context.Context, name string, args map[
 	}
 
 	// Convert string args to interface{} args for the client
-	clientArgs := make(map[string]interface{})
+	clientArgs := make(map[string]any)
 	for k, v := range args {
 		clientArgs[k] = v
 	}

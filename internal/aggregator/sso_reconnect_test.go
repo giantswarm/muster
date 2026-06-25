@@ -21,7 +21,7 @@ type noopMCPClient struct{}
 func (c *noopMCPClient) Initialize(context.Context) error              { return nil }
 func (c *noopMCPClient) Close() error                                  { return nil }
 func (c *noopMCPClient) ListTools(context.Context) ([]mcp.Tool, error) { return nil, nil }
-func (c *noopMCPClient) CallTool(context.Context, string, map[string]interface{}) (*mcp.CallToolResult, error) {
+func (c *noopMCPClient) CallTool(context.Context, string, map[string]any) (*mcp.CallToolResult, error) {
 	return nil, nil
 }
 func (c *noopMCPClient) ListResources(context.Context) ([]mcp.Resource, error) { return nil, nil }
@@ -29,7 +29,7 @@ func (c *noopMCPClient) ReadResource(context.Context, string) (*mcp.ReadResource
 	return nil, nil
 }
 func (c *noopMCPClient) ListPrompts(context.Context) ([]mcp.Prompt, error) { return nil, nil }
-func (c *noopMCPClient) GetPrompt(context.Context, string, map[string]interface{}) (*mcp.GetPromptResult, error) {
+func (c *noopMCPClient) GetPrompt(context.Context, string, map[string]any) (*mcp.GetPromptResult, error) {
 	return nil, nil
 }
 func (c *noopMCPClient) Ping(context.Context) error                   { return nil }
@@ -1068,7 +1068,7 @@ func TestBootstrapNewSessionSSO_ConnectsForwardTokenSynchronously(t *testing.T) 
 
 	// No ID token is resolvable (none in context, no usable OAuth proxy entry),
 	// so the forward-token connect fails fast without a network round-trip.
-	agg.bootstrapNewSessionSSO(userID, sessionID, "")
+	agg.bootstrapNewSessionSSO(ssoSession{userID: userID, sessionID: sessionID})
 
 	// Synchronous contract: the connect outcome is recorded by the time the call
 	// returns. An asynchronous bootstrap would not have this observable yet.

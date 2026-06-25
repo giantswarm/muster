@@ -463,6 +463,13 @@ func EstablishConnectionWithLocalMint(
 
 	subjectToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer, a.sessionRefresher())
 	if subjectToken == "" {
+		// OBO sessions carry no Dex ID token; the muster-issued bearer is the
+		// RFC 8693 subject for the localMint exchange. Fall back to it here so
+		// the background bgCtx (which has the bearer threaded in by
+		// initSSOForSession) can still establish the per-backend connection.
+		subjectToken = server.GetBearerTokenFromContext(ctx)
+	}
+	if subjectToken == "" {
 		return nil, fmt.Errorf("no session token available to mint localMint discovery for %s", serverInfo.Name)
 	}
 
