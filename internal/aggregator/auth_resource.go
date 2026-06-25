@@ -345,9 +345,9 @@ const initSSOTimeout = 15 * time.Second
 // initSSOForSession detaches its own timeout-bounded context internally, so
 // blocking here does not tie the bootstrap to request cancellation. singleflight
 // collapses concurrent first requests for the same session into one bootstrap.
-func (a *AggregatorServer) bootstrapNewSessionSSO(userID, sessionID, idToken, bearerToken string) {
-	_, _, _ = a.ssoInitGroup.Do(sessionID, func() (any, error) {
-		a.initSSOForSession(userID, sessionID, idToken, bearerToken)
+func (a *AggregatorServer) bootstrapNewSessionSSO(sso ssoSession) {
+	_, _, _ = a.ssoInitGroup.Do(sso.sessionID, func() (any, error) {
+		a.initSSOForSession(sso)
 		return nil, nil
 	})
 }
@@ -359,11 +359,10 @@ func (a *AggregatorServer) bootstrapNewSessionSSO(userID, sessionID, idToken, be
 // fully connected before the client receives its access token.
 // Connections to individual servers run in parallel with a shared timeout
 // so that a single slow server cannot block the entire login flow.
-func (a *AggregatorServer) initSSOForSession(userID, sessionID, idToken, bearerToken string) {
+func (a *AggregatorServer) initSSOForSession(sso ssoSession) {
 	musterIssuer := a.getMusterIssuer()
 
-	logging.Info("Aggregator", "SSO: initSSOForSession called (userID=%s, sessionID=%s, idTokenLen=%d, bearerTokenLen=%d, musterIssuer=%s)",
-		logging.TruncateIdentifier(userID), logging.TruncateIdentifier(sessionID), len(idToken), len(bearerToken), musterIssuer)
+	logging.Info("Aggregator", "SSO: initSSOForSession called (session=%v, musterIssuer=%s)", sso, musterIssuer)
 
 	if musterIssuer == "" {
 		logging.Info("Aggregator", "SSO: initSSOForSession returning early: musterIssuer is empty")
@@ -374,13 +373,13 @@ func (a *AggregatorServer) initSSOForSession(userID, sessionID, idToken, bearerT
 	// context may be cancelled before SSO work finishes.
 	bgCtx, cancel := context.WithTimeout(context.Background(), initSSOTimeout)
 	defer cancel()
-	bgCtx = api.WithSubject(bgCtx, userID)
-	bgCtx = api.WithSessionID(bgCtx, sessionID)
-	if idToken != "" {
-		bgCtx = server.ContextWithIDToken(bgCtx, idToken)
+	bgCtx = api.WithSubject(bgCtx, sso.userID)
+	bgCtx = api.WithSessionID(bgCtx, sso.sessionID)
+	if sso.idToken != "" {
+		bgCtx = server.ContextWithIDToken(bgCtx, sso.idToken)
 	}
-	if bearerToken != "" {
-		bgCtx = server.ContextWithBearerToken(bgCtx, bearerToken)
+	if sso.bearer != "" {
+		bgCtx = server.ContextWithBearerToken(bgCtx, sso.bearer)
 	}
 
 	var pending []*ServerInfo
@@ -395,10 +394,10 @@ func (a *AggregatorServer) initSSOForSession(userID, sessionID, idToken, bearerT
 			skippedNotSSO++
 			continue
 		}
-		if a.ssoTracker != nil && a.ssoTracker.HasSSOFailed(userID, info.Name) {
-			fc := a.ssoTracker.GetFailureCount(userID, info.Name)
+		if a.ssoTracker != nil && a.ssoTracker.HasSSOFailed(sso.userID, info.Name) {
+			fc := a.ssoTracker.GetFailureCount(sso.userID, info.Name)
 			logging.Debug("Aggregator", "SSO: skipping %s for user %s (failureCount=%d, backoff=%v)",
-				info.Name, logging.TruncateIdentifier(userID), fc, ssoBackoffDuration(fc))
+				info.Name, logging.TruncateIdentifier(sso.userID), fc, ssoBackoffDuration(fc))
 			skippedPriorFailure++
 			continue
 		}
@@ -413,7 +412,7 @@ func (a *AggregatorServer) initSSOForSession(userID, sessionID, idToken, bearerT
 	}
 
 	logging.Info("Aggregator", "SSO: Connecting %d servers for session %s",
-		len(pending), logging.TruncateIdentifier(sessionID))
+		len(pending), logging.TruncateIdentifier(sso.sessionID))
 
 	var wg sync.WaitGroup
 	for _, info := range pending {
@@ -433,10 +432,10 @@ func (a *AggregatorServer) initSSOForSession(userID, sessionID, idToken, bearerT
 	select {
 	case <-done:
 		logging.Debug("Aggregator", "SSO: All %d servers connected for session %s",
-			len(pending), logging.TruncateIdentifier(sessionID))
+			len(pending), logging.TruncateIdentifier(sso.sessionID))
 	case <-bgCtx.Done():
 		logging.Warn("Aggregator", "SSO: Init timed out after %v for session %s",
-			initSSOTimeout, logging.TruncateIdentifier(sessionID))
+			initSSOTimeout, logging.TruncateIdentifier(sso.sessionID))
 	}
 }
 

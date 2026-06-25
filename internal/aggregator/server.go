@@ -1508,24 +1508,18 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 		}
 		_, _ = a.capabilityStore.Touch(ctx, sessionID)
 
-		userID := getUserSubjectFromContext(ctx)
-		idToken, _ := server.GetIDTokenFromContext(ctx)
-		userInfo, _ := oauthhandler.UserInfoFromContext(ctx)
+		sso := ssoSessionFromContext(ctx, sessionID)
 
 		logging.InfoWithAttrs("Aggregator", "SSO: onAuthenticated callback",
-			slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
-			slog.String("userID", logging.TruncateIdentifier(userID)),
-			slog.Bool("authAlive", authAlive),
-			slog.Bool("hasIDToken", idToken != ""),
-			slog.Bool("isOBO", userInfo != nil && userInfo.ActorSubject != ""))
+			slog.Any("session", sso),
+			slog.Bool("authAlive", authAlive))
 
 		if authAlive {
-			if idToken == "" {
-				// Session is known but the ID token is gone: the upstream
-				// refresh chain is broken (e.g. Dex -> GitHub returned 401).
+			if !sso.canBootstrapSSO() {
+				// No usable subject token: the upstream credential is gone.
 				// Evict stale SSO connections to stop mcp-go's infinite
 				// 1-second retry loop.
-				a.handleUpstreamRefreshFailure(sessionID, userID, "onAuthenticated: ID token missing for active session")
+				a.handleUpstreamRefreshFailure(sessionID, sso.userID, "onAuthenticated: no usable subject token for active session")
 				return
 			}
 			// After a pod restart the auth store survives in Valkey but the
@@ -1535,27 +1529,16 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 			// in-memory, so after a restart there are no stale failures, and
 			// clearing it on every request would retry a persistently failing
 			// exchange per-request instead of on the backoff schedule.
-			// The issuer check mirrors initSSOForSession's early return so
-			// pending slots are not claimed when no exchange can run.
-			if a.getMusterIssuer() != "" && a.ssoPoolMissNeedingInit(userID, sessionID) {
+			if a.getMusterIssuer() != "" && a.ssoPoolMissNeedingInit(sso.userID, sessionID) {
 				logging.InfoWithAttrs("Aggregator", "SSO: pool miss on live session, triggering SSO re-init",
 					slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
-				go a.initSSOForSession(userID, sessionID, idToken, "") //nolint:gosec // G118: SSO re-init goroutine must outlive the request that triggered it
+				go a.initSSOForSession(sso) //nolint:gosec // G118: SSO re-init goroutine must outlive the request that triggered it
 			}
 			return
 		}
 
-		// OBO sessions (delegated human identity) have no Dex ID token — the
-		// muster-issued bearer itself is the subject token for localMint exchanges.
-		// Allow them through; initSSOForSession handles an empty idToken gracefully
-		// and EstablishConnectionWithLocalMint falls back to the bearer.
-		//
-		// For post-restart sessions where neither an ID token nor an OBO actor is
-		// present, skip to avoid spinning up connections with a stale bearer that
-		// has no valid subject for backend token exchanges.
-		isOBO := userInfo != nil && userInfo.ActorSubject != ""
-		if idToken == "" && !isOBO {
-			logging.InfoWithAttrs("Aggregator", "SSO: skipping initSSOForSession, no ID token and not an OBO session (stale session after restart)",
+		if !sso.canBootstrapSSO() {
+			logging.InfoWithAttrs("Aggregator", "SSO: skipping bootstrap, no usable subject token",
 				slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
 			return
 		}
@@ -1565,12 +1548,11 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 		// restart or after a transient token-storage error) would be skipped
 		// for ssoTrackerFailureTTL even though the underlying cause may have
 		// been resolved.
-		if a.ssoTracker != nil && userID != "" {
-			a.ssoTracker.ClearAllSSOFailed(userID)
+		if a.ssoTracker != nil && sso.userID != "" {
+			a.ssoTracker.ClearAllSSOFailed(sso.userID)
 		}
 
-		bearerToken := server.GetBearerTokenFromContext(ctx)
-		a.bootstrapNewSessionSSO(userID, sessionID, idToken, bearerToken)
+		a.bootstrapNewSessionSSO(sso)
 	})
 
 	logging.InfoWithAttrs("Aggregator", "OAuth 2.1 server protection enabled",
@@ -1612,7 +1594,7 @@ func (a *AggregatorServer) ssoLifecycleOptions() []oauth.ServerOption {
 				slog.String("familyID", logging.TruncateIdentifier(familyID)),
 				slog.Bool("hasIDToken", idToken != ""),
 				slog.Int("idTokenLen", len(idToken)))
-			a.initSSOForSession(userID, familyID, idToken, "")
+			a.initSSOForSession(ssoSession{userID: userID, sessionID: familyID, idToken: idToken})
 			a.storeIDTokenForSSO(familyID, userID, idToken)
 		}),
 		// An upstream refresh with no ID token signals a broken refresh chain
