@@ -24,6 +24,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const keyEnabled = "enabled"
+
 // toStringMap converts an interface{} to map[string]interface{}.
 // This handles both map[string]interface{} and map[interface{}]interface{}
 // (which is common when parsing YAML).
@@ -1183,7 +1185,7 @@ func (m *musterInstanceManager) configureOAuthForInstance(
 ) {
 	// Build OAuth MCP client/proxy config - this allows muster to handle OAuth flows for protected MCP servers
 	oauthMCPClientConfig := map[string]interface{}{
-		"enabled":      true,
+		keyEnabled:      true,
 		"publicUrl":    fmt.Sprintf("http://localhost:%d", port),
 		"callbackPath": "/oauth/proxy/callback",
 	}
@@ -1325,7 +1327,7 @@ func (m *musterInstanceManager) buildMusterOAuthServerConfig(
 	}
 
 	return map[string]interface{}{
-		"enabled":                       true,
+		keyEnabled:                       true,
 		"baseUrl":                       fmt.Sprintf("http://localhost:%d", port),
 		"provider":                      "dex", // Mock server acts like Dex
 		"dex":                           dexConfig,
@@ -1362,7 +1364,7 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 		"host":      "localhost",
 		"port":      port,
 		"transport": "streamable-http",
-		"enabled":   true,
+		keyEnabled:   true,
 	}
 
 	// Configure OAuth if mock OAuth servers are defined
@@ -1448,7 +1450,7 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 						// This enables SSO via RFC 8693 token exchange for cross-cluster SSO
 						if tokenExchange, hasTokenExchange := oauthConfig["token_exchange"].(map[string]interface{}); hasTokenExchange {
 							tokenExchangeConfig := map[string]interface{}{
-								"enabled": true,
+								keyEnabled: true,
 							}
 
 							// Handle dex_token_endpoint - can be explicit URL or reference to OAuth server
@@ -1496,7 +1498,7 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 						// muster then mints a per-session token (signed by its own key)
 						// to connect to this backend, instead of a global persistent client.
 						if localMint, ok := oauthConfig["local_mint"].(map[string]interface{}); ok {
-							localMintConfig := map[string]interface{}{"enabled": true}
+							localMintConfig := map[string]interface{}{keyEnabled: true}
 							if audience, ok := localMint["audience"].(string); ok {
 								localMintConfig["audience"] = audience
 							}

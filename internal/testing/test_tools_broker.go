@@ -34,6 +34,11 @@ const (
 	// TestToolReconnectWithOBO reconnects the caller's MCP client to muster with a
 	// subject bearer token and a static X-Actor-Token for RFC 8693 OBO delegation.
 	TestToolReconnectWithOBO = "test_reconnect_with_obo"
+
+	keySuccess = "success"
+
+	// jwtTokenTypeURN is the RFC 8693 token-type identifier for JWTs.
+	jwtTokenTypeURN = "urn:ietf:params:oauth:token-type:jwt" //nolint:gosec
 )
 
 // handleReconnectWithToken reconnects the caller's MCP client to muster with a
@@ -63,7 +68,7 @@ func (h *TestToolsHandler) handleReconnectWithToken(ctx context.Context, args ma
 	h.userClients[defaultTestUser] = newClient
 	h.currentUser = defaultTestUser
 
-	return map[string]interface{}{"success": true}, nil
+	return map[string]interface{}{keySuccess: true}, nil
 }
 
 // handleReconnectWithOBO reconnects with a subject bearer token and a static
@@ -100,7 +105,7 @@ func (h *TestToolsHandler) handleReconnectWithOBO(ctx context.Context, args map[
 	h.userClients[defaultTestUser] = newClient
 	h.currentUser = defaultTestUser
 
-	return map[string]interface{}{"success": true}, nil
+	return map[string]interface{}{keySuccess: true}, nil
 }
 
 // handleMintToken mints a signed JWT on the referenced mock OAuth server and
@@ -158,7 +163,7 @@ func (h *TestToolsHandler) handleMintToken(_ context.Context, args map[string]in
 	h.mintedTokens[name] = token
 
 	return map[string]interface{}{
-		"success": true,
+		keySuccess: true,
 		"name":    name,
 		"subject": sub,
 	}, nil
@@ -190,7 +195,7 @@ func (h *TestToolsHandler) handleBrokerTokenExchange(ctx context.Context, args m
 
 	subjectTokenType, _ := args["subject_token_type"].(string)
 	if subjectTokenType == "" {
-		subjectTokenType = "urn:ietf:params:oauth:token-type:jwt"
+		subjectTokenType = jwtTokenTypeURN
 	}
 
 	form := url.Values{
@@ -205,7 +210,7 @@ func (h *TestToolsHandler) handleBrokerTokenExchange(ctx context.Context, args m
 			return nil, fmt.Errorf("no minted token named %q (mint it with test_mint_token first)", actorRef)
 		}
 		form.Set("actor_token", actorToken)
-		form.Set("actor_token_type", "urn:ietf:params:oauth:token-type:jwt")
+		form.Set("actor_token_type", jwtTokenTypeURN)
 	}
 	if resource, _ := args["resource"].(string); resource != "" {
 		form.Set("resource", resource)
@@ -224,7 +229,7 @@ func (h *TestToolsHandler) handleBrokerTokenExchange(ctx context.Context, args m
 		}
 		return map[string]interface{}{
 			"isError":           true,
-			"success":           false,
+			keySuccess:           false,
 			"status":            status,
 			"error":             oauthErr,
 			"error_description": oauthDesc,
@@ -251,7 +256,7 @@ func (h *TestToolsHandler) handleBrokerTokenExchange(ctx context.Context, args m
 	}
 
 	result := map[string]interface{}{
-		"success":      true,
+		keySuccess:      true,
 		"claims":       claims,
 		"access_token": tokenResp.AccessToken,
 	}
@@ -312,7 +317,7 @@ func (h *TestToolsHandler) handleCallProtectedMCP(ctx context.Context, args map[
 	if err := client.ConnectWithAuth(ctx, info.Endpoint, token); err != nil {
 		return map[string]interface{}{
 			"isError": true,
-			"success": false,
+			keySuccess: false,
 			"error":   fmt.Sprintf("backend rejected token: %v", err),
 		}, nil
 	}
@@ -321,7 +326,7 @@ func (h *TestToolsHandler) handleCallProtectedMCP(ctx context.Context, args map[
 	if err != nil {
 		return map[string]interface{}{
 			"isError": true,
-			"success": false,
+			keySuccess: false,
 			"error":   fmt.Sprintf("backend tool call failed: %v", err),
 		}, nil
 	}
@@ -333,7 +338,7 @@ func (h *TestToolsHandler) handleCallProtectedMCP(ctx context.Context, args map[
 		}
 	}
 	return map[string]interface{}{
-		"success":  !result.IsError,
+		keySuccess:  !result.IsError,
 		"isError":  result.IsError,
 		"response": text,
 	}, nil
