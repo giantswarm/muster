@@ -32,13 +32,57 @@ func isCapabilityNotification(method string) bool {
 	return false
 }
 
+// capabilityNotifications returns the list_changed methods warranted by a
+// successful connection result. Empty categories are skipped so clients are not
+// woken for capabilities that did not appear.
+func capabilityNotifications(result *ConnectionResult) []string {
+	if result == nil {
+		return nil
+	}
+	var methods []string
+	if result.ToolCount > 0 {
+		methods = append(methods, "notifications/tools/list_changed")
+	}
+	if result.ResourceCount > 0 {
+		methods = append(methods, "notifications/resources/list_changed")
+	}
+	if result.PromptCount > 0 {
+		methods = append(methods, "notifications/prompts/list_changed")
+	}
+	return methods
+}
+
+// notifySubjectCapabilitiesChanged pushes list_changed notifications to every
+// live transport session for sub. A backend that connects after the client has
+// already listed and cached its capabilities would otherwise stay invisible for
+// the session's lifetime. subjectSessions maps sub to transport (Mcp-Session-Id)
+// IDs, which is what SendNotificationToSpecificClient requires; the OAuth session
+// ID carried in connection context cannot address a transport client.
+func (a *AggregatorServer) notifySubjectCapabilitiesChanged(sub string, result *ConnectionResult) {
+	if a.mcpServer == nil || a.subjectSessions == nil || sub == "" {
+		return
+	}
+	methods := capabilityNotifications(result)
+	if len(methods) == 0 {
+		return
+	}
+	for _, sessionID := range a.subjectSessions.GetSessionIDs(sub) {
+		for _, method := range methods {
+			if err := a.mcpServer.SendNotificationToSpecificClient(sessionID, method, nil); err != nil {
+				logging.Debug("Aggregator", "%s to session %s failed: %v",
+					method, logging.TruncateIdentifier(sessionID), err)
+			}
+		}
+	}
+}
+
 // handleNonOAuthCapabilityChanged handles a capability-change notification
 // from a non-OAuth server. Concurrent re-fetches for the same server are
 // deduplicated via singleflight.
 func (a *AggregatorServer) handleNonOAuthCapabilityChanged(serverName string) {
 	sfKey := "notif-caps/" + serverName
 	go func() {
-		_, _, _ = a.notifRefreshGroup.Do(sfKey, func() (interface{}, error) {
+		_, _, _ = a.notifRefreshGroup.Do(sfKey, func() (any, error) {
 			a.refreshNonOAuthCapabilities(serverName)
 			return nil, nil
 		})
@@ -107,7 +151,7 @@ func (a *AggregatorServer) refreshNonOAuthCapabilities(serverName string) {
 func (a *AggregatorServer) handleSessionCapabilityChanged(serverName, sessionID string, client MCPClient) {
 	sfKey := sessionID + "/" + serverName
 	go func() {
-		_, _, _ = a.notifRefreshGroup.Do(sfKey, func() (interface{}, error) {
+		_, _, _ = a.notifRefreshGroup.Do(sfKey, func() (any, error) {
 			ctx := a.refreshContext()
 			a.refreshSessionCapabilities(ctx, serverName, sessionID, client)
 			return nil, nil

@@ -9,11 +9,89 @@ import (
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	oauthstore "github.com/giantswarm/muster/internal/oauth/store"
 )
+
+func TestCapabilityNotifications(t *testing.T) {
+	tests := []struct {
+		name   string
+		result *ConnectionResult
+		want   []string
+	}{
+		{"nil result", nil, nil},
+		{"all zero", &ConnectionResult{}, nil},
+		{"tools only", &ConnectionResult{ToolCount: 3}, []string{"notifications/tools/list_changed"}},
+		{"resources only", &ConnectionResult{ResourceCount: 1}, []string{"notifications/resources/list_changed"}},
+		{"prompts only", &ConnectionResult{PromptCount: 2}, []string{"notifications/prompts/list_changed"}},
+		{
+			"all three",
+			&ConnectionResult{ToolCount: 1, ResourceCount: 1, PromptCount: 1},
+			[]string{
+				"notifications/tools/list_changed",
+				"notifications/resources/list_changed",
+				"notifications/prompts/list_changed",
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, capabilityNotifications(tc.result))
+		})
+	}
+}
+
+func TestNotifySubjectCapabilitiesChanged_NoOp(t *testing.T) {
+	result := &ConnectionResult{ToolCount: 1}
+
+	t.Run("nil mcpServer", func(t *testing.T) {
+		agg := &AggregatorServer{subjectSessions: newSubjectSessionTracker()}
+		require.NotPanics(t, func() {
+			agg.notifySubjectCapabilitiesChanged("user@example.com", result)
+		})
+	})
+
+	t.Run("nil subjectSessions", func(t *testing.T) {
+		agg := &AggregatorServer{mcpServer: server.NewMCPServer("test", "test")}
+		require.NotPanics(t, func() {
+			agg.notifySubjectCapabilitiesChanged("user@example.com", result)
+		})
+	})
+
+	t.Run("empty subject", func(t *testing.T) {
+		agg := &AggregatorServer{
+			mcpServer:       server.NewMCPServer("test", "test"),
+			subjectSessions: newSubjectSessionTracker(),
+		}
+		require.NotPanics(t, func() {
+			agg.notifySubjectCapabilitiesChanged("", result)
+		})
+	})
+
+	t.Run("no capabilities", func(t *testing.T) {
+		agg := &AggregatorServer{
+			mcpServer:       server.NewMCPServer("test", "test"),
+			subjectSessions: newSubjectSessionTracker(),
+		}
+		agg.subjectSessions.Track("user@example.com", "mcp-session-1")
+		require.NotPanics(t, func() {
+			agg.notifySubjectCapabilitiesChanged("user@example.com", &ConnectionResult{})
+		})
+	})
+
+	t.Run("subject without tracked sessions", func(t *testing.T) {
+		agg := &AggregatorServer{
+			mcpServer:       server.NewMCPServer("test", "test"),
+			subjectSessions: newSubjectSessionTracker(),
+		}
+		require.NotPanics(t, func() {
+			agg.notifySubjectCapabilitiesChanged("unknown@example.com", result)
+		})
+	})
+}
 
 func TestToolListsEqual_Identical(t *testing.T) {
 	tools := []mcp.Tool{

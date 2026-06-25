@@ -566,6 +566,7 @@ func (a *AggregatorServer) establishSSOConnection(
 		}
 		logging.Info("Aggregator", "SSO: Connected user %s to SSO server %s via %s",
 			sub, serverInfo.Name, ssoMethod)
+		a.notifySubjectCapabilitiesChanged(sub, result)
 	} else {
 		if result != nil && result.Client != nil {
 			_ = result.Client.Close()
