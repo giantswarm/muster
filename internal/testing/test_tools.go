@@ -185,7 +185,8 @@ func IsTestTool(toolName string) bool {
 		TestToolMintToken,
 		TestToolBrokerTokenExchange,
 		TestToolCallProtectedMCP,
-		TestToolReconnectWithToken:
+		TestToolReconnectWithToken,
+		TestToolReconnectWithOBO:
 		return true
 	}
 	return false
@@ -236,6 +237,8 @@ func (h *TestToolsHandler) HandleTestTool(ctx context.Context, toolName string, 
 		return h.handleCallProtectedMCP(ctx, args)
 	case TestToolReconnectWithToken:
 		return h.handleReconnectWithToken(ctx, args)
+	case TestToolReconnectWithOBO:
+		return h.handleReconnectWithOBO(ctx, args)
 	default:
 		return nil, fmt.Errorf("unknown test tool: %s", toolName)
 	}

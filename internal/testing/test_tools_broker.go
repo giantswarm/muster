@@ -31,6 +31,9 @@ const (
 	// that forwards an external (Dex/SA) subject token. This lets data-plane
 	// local-mint use the inbound bearer as the subject for per-call backend tokens.
 	TestToolReconnectWithToken = "test_reconnect_with_token"
+	// TestToolReconnectWithOBO reconnects the caller's MCP client to muster with a
+	// subject bearer token and a static X-Actor-Token for RFC 8693 OBO delegation.
+	TestToolReconnectWithOBO = "test_reconnect_with_obo"
 )
 
 // handleReconnectWithToken reconnects the caller's MCP client to muster with a
@@ -55,6 +58,43 @@ func (h *TestToolsHandler) handleReconnectWithToken(ctx context.Context, args ma
 	newClient := NewMCPTestClientWithLogger(h.debug, h.logger)
 	if err := newClient.ConnectWithAuth(ctx, h.currentInstance.Endpoint, token); err != nil {
 		return nil, fmt.Errorf("reconnect with token failed: %w", err)
+	}
+	h.mcpClient = newClient
+	h.userClients[defaultTestUser] = newClient
+	h.currentUser = defaultTestUser
+
+	return map[string]interface{}{"success": true}, nil
+}
+
+// handleReconnectWithOBO reconnects with a subject bearer token and a static
+// X-Actor-Token header for RFC 8693 OBO delegation. args: token_ref, actor_token_ref.
+func (h *TestToolsHandler) handleReconnectWithOBO(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+	if h.currentInstance == nil {
+		return nil, fmt.Errorf("current instance not available")
+	}
+	tokenRef, _ := args["token_ref"].(string)
+	if tokenRef == "" {
+		return nil, fmt.Errorf("token_ref argument is required")
+	}
+	actorRef, _ := args["actor_token_ref"].(string)
+	if actorRef == "" {
+		return nil, fmt.Errorf("actor_token_ref argument is required")
+	}
+	subjectToken, ok := h.mintedTokens[tokenRef]
+	if !ok {
+		return nil, fmt.Errorf("no minted token named %q", tokenRef)
+	}
+	actorToken, ok := h.mintedTokens[actorRef]
+	if !ok {
+		return nil, fmt.Errorf("no minted token named %q", actorRef)
+	}
+
+	if h.mcpClient != nil {
+		_ = h.mcpClient.Close()
+	}
+	newClient := NewMCPTestClientWithLogger(h.debug, h.logger)
+	if err := newClient.ConnectWithOBO(ctx, h.currentInstance.Endpoint, subjectToken, actorToken); err != nil {
+		return nil, fmt.Errorf("reconnect with OBO failed: %w", err)
 	}
 	h.mcpClient = newClient
 	h.userClients[defaultTestUser] = newClient

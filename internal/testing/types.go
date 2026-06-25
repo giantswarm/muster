@@ -566,6 +566,9 @@ type MCPTestClient interface {
 	// ConnectWithAuth establishes connection to the MCP aggregator with an access token.
 	// This is used when muster's OAuth server is enabled and requires authentication.
 	ConnectWithAuth(ctx context.Context, endpoint, accessToken string) error
+	// ConnectWithOBO establishes connection with a bearer (subject) token and a
+	// static X-Actor-Token header for RFC 8693 OBO delegation.
+	ConnectWithOBO(ctx context.Context, endpoint, accessToken, actorToken string) error
 	// CallTool invokes an MCP tool with the given args (wrapped through call_tool meta-tool)
 	CallTool(ctx context.Context, toolName string, args map[string]interface{}) (interface{}, error)
 	// CallToolDirect invokes an MCP tool directly without wrapping through call_tool.
