@@ -427,15 +427,15 @@ func (am *AggregatorManager) isServerAuthRequired(serverName string) bool {
 	return info.RequiresSessionAuth()
 }
 
-// isServerSSOBased checks if a server is configured for SSO token forwarding or token exchange.
-// These servers are handled at the session level rather than globally, so the event handler
-// should skip global registration attempts for them.
+// isServerSSOBased checks if a server is configured for session-level auth (token forwarding,
+// token exchange, or local mint). These servers are handled per-session rather than globally,
+// so the event handler should skip global registration attempts for them.
 //
-// SSO-based servers work differently from regular OAuth servers:
-// - When the MCPServerService tries to connect, the server returns 401
-// - The service never creates an MCP client (it stops at the 401)
-// - User authentication happens at the session level via token forwarding/exchange
-// - Each user session creates its own connection with their SSO token
+// Session-based servers work differently from regular OAuth servers:
+//   - ForwardToken / TokenExchange: the MCPServerService never creates a global client because
+//     the backend returns 401 on the initial connection probe; auth happens per-session.
+//   - LocalMint: muster mints a per-caller token on each session; no persistent global client
+//     is created because the minted token's subject/actor identity changes per-session.
 //
 // This method is called by the event handler when a server becomes healthy/connected
 // to determine if global registration should be skipped.
@@ -466,6 +466,11 @@ func (am *AggregatorManager) isServerSSOBased(serverName string) bool {
 
 	// TokenExchange enables SSO via RFC 8693 token exchange
 	if info.AuthConfig.TokenExchange != nil && info.AuthConfig.TokenExchange.Enabled {
+		return true
+	}
+
+	// LocalMint mints a per-session token for each caller; no global persistent client exists
+	if info.AuthConfig.LocalMint != nil && info.AuthConfig.LocalMint.Enabled {
 		return true
 	}
 

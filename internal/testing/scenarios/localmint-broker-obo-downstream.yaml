@@ -1,0 +1,96 @@
+name: "localmint-broker-obo-downstream"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  End-to-end downstream acceptance of an OBO broker-minted token. A human + agent
+  delegated exchange mints a cluster-b token carrying the act delegation chain,
+  which a protected backend (trusting muster's JWKS) accepts and echoes, proving
+  the act chain survives to the downstream.
+tags: ["oauth", "broker", "local-mint", "obo", "downstream", "acceptance"]
+timeout: "2m"
+
+pre_configuration:
+  mock_oauth_servers:
+    - name: "muster-idp"
+      scopes: ["openid", "profile", "email", "groups"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "muster-client"
+      client_secret: "muster-secret"
+      use_as_muster_oauth_server: true
+
+    - name: "workload-idp"
+
+  muster_broker:
+    trusted_issuers:
+      - oauth_server_ref: "workload-idp"
+        accepted_typ_headers: [""]
+    targets:
+      cluster-b: "local-mint"
+    workload_audiences:
+      "system:serviceaccount:kagent:sre-agent": ["cluster-b"]
+    actor_delegation_policy:
+      - actor_oauth_server_ref: "workload-idp"
+        actor_subject: "system:serviceaccount:kagent:*"
+        subject_oauth_server_ref: "*"
+        subject_subject: "*"
+
+  mcp_servers:
+    - name: "cluster-b-backend"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          trust_muster_jwks: true
+          expected_audience: "cluster-b"
+        tools:
+          - name: "whoami"
+            description: "Echoes the caller's delegated identity"
+            echo_token: true
+            responses:
+              - response:
+                  cluster: "cluster-b"
+
+steps:
+  - id: "mint-human-token"
+    tool: "test_mint_token"
+    args:
+      server: "workload-idp"
+      name: "human-token"
+      sub: "alice@giantswarm.io"
+    expected:
+      success: true
+
+  - id: "mint-agent-token"
+    tool: "test_mint_token"
+    args:
+      server: "workload-idp"
+      name: "agent-token"
+      sub: "system:serviceaccount:kagent:sre-agent"
+    expected:
+      success: true
+
+  - id: "exchange-obo"
+    tool: "test_broker_token_exchange"
+    args:
+      subject_token_ref: "human-token"
+      actor_token_ref: "agent-token"
+      audience: "cluster-b"
+      name: "cluster-b-token"
+    expected:
+      success: true
+      contains: ["alice@giantswarm.io", "system:serviceaccount:kagent:sre-agent"]
+
+  - id: "call-downstream"
+    description: "Protected backend accepts the delegated token and echoes the act chain"
+    tool: "test_call_protected_mcp"
+    args:
+      server: "cluster-b-backend"
+      tool: "whoami"
+      token_ref: "cluster-b-token"
+    expected:
+      success: true
+      contains:
+        - "alice@giantswarm.io"                       # sub
+        - "system:serviceaccount:kagent:sre-agent"    # act.sub echoed by backend

@@ -1,0 +1,57 @@
+name: "localmint-broker-negative-audience"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  Negative local-mint broker path. A workload SA token is granted only the
+  cluster-b audience, but the exchange requests cluster-c. muster's broker must
+  reject it with the OAuth error invalid_target (audit reason
+  token_exchange_audience_not_allowed) and mint no token.
+tags: ["oauth", "broker", "local-mint", "negative", "token-exchange", "rfc8693"]
+timeout: "2m"
+
+pre_configuration:
+  mock_oauth_servers:
+    - name: "muster-idp"
+      scopes: ["openid", "profile", "email", "groups"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "muster-client"
+      client_secret: "muster-secret"
+      use_as_muster_oauth_server: true
+
+    - name: "workload-idp"
+
+  muster_broker:
+    trusted_issuers:
+      - oauth_server_ref: "workload-idp"
+        accepted_typ_headers: [""]
+    targets:
+      cluster-b: "local-mint"
+    workload_group_grants:
+      - oauth_server_ref: "workload-idp"
+        subject: "system:serviceaccount:kagent:sre-agent"
+        audiences: ["cluster-b"]
+        granted_subject: "sre-impersonator@giantswarm.io"
+
+steps:
+  - id: "mint-sa-token"
+    description: "Mint a workload SA subject token"
+    tool: "test_mint_token"
+    args:
+      server: "workload-idp"
+      name: "sa-token"
+      sub: "system:serviceaccount:kagent:sre-agent"
+    expected:
+      success: true
+
+  - id: "exchange-disallowed-audience"
+    description: "Request an audience the workload was not granted"
+    tool: "test_broker_token_exchange"
+    args:
+      subject_token_ref: "sa-token"
+      audience: "cluster-c"
+    expected:
+      success: false
+      error_contains:
+        - "invalid_target"

@@ -137,6 +137,86 @@ type MusterPreConfiguration struct {
 
 	// MockOAuthServers defines mock OAuth servers to start for testing
 	MockOAuthServers []MockOAuthServerConfig `yaml:"mock_oauth_servers,omitempty"`
+
+	// MusterBroker configures muster's own RFC 8693 token-exchange broker
+	// (oauth.server.tokenExchangeBroker) with local-mint targets, JWT mode and
+	// trusted issuers. Setting it makes muster mint signed JWTs at /oauth/token.
+	MusterBroker *MusterBrokerConfig `yaml:"muster_broker,omitempty"`
+}
+
+// MusterBrokerConfig configures muster as a local-mint RFC 8693 token broker for
+// a test instance. It mirrors config.TokenExchangeBrokerConfig plus the JWT-mode
+// and trusted-issuer settings the broker requires, resolving mock-server
+// references to live issuer/JWKS URLs at instance startup.
+type MusterBrokerConfig struct {
+	// TrustedIssuers lists the issuers whose subject/actor tokens muster's broker
+	// will validate (against each referenced mock server's JWKS). At least one is
+	// required; the broker refuses to start without trusted issuers.
+	TrustedIssuers []BrokerTrustedIssuerConfig `yaml:"trusted_issuers"`
+
+	// Targets maps an audience name to a local-mint target. Value is the target
+	// type; only "local-mint" is meaningful here (empty defaults to local-mint).
+	Targets map[string]string `yaml:"targets"`
+
+	// WorkloadAudiences maps a workload subject (glob over the SA token sub) to the
+	// audiences it may request (workload exchange path, no client credentials).
+	WorkloadAudiences map[string][]string `yaml:"workload_audiences,omitempty"`
+
+	// WorkloadGroupGrants authorize an explicit (issuer, subject) workload to
+	// request audiences and receive a broker-asserted identity (sub/groups) on the
+	// M2M no-actor path. The granted subject is the impersonated user.
+	WorkloadGroupGrants []BrokerWorkloadGroupGrantConfig `yaml:"workload_group_grants,omitempty"`
+
+	// ActorDelegationPolicy lists the (actor, subject) pairs muster accepts for
+	// delegated (OBO) exchange. A nil/empty policy denies all delegated exchanges.
+	ActorDelegationPolicy []BrokerDelegationGrantConfig `yaml:"actor_delegation_policy,omitempty"`
+
+	// DelegateToSelf lets a delegated exchange omit the RFC 8707 resource; muster
+	// binds the minted token to its own resourceIdentifier (rebind path).
+	DelegateToSelf bool `yaml:"delegate_to_self,omitempty"`
+}
+
+// BrokerTrustedIssuerConfig references a mock OAuth server as a trusted issuer for
+// muster's broker and carries the per-issuer claim/typ constraints.
+type BrokerTrustedIssuerConfig struct {
+	// OAuthServerRef references the mock OAuth server (by name) whose JWKS and
+	// issuer URL muster should trust. The referenced server is forced to sign
+	// tokens and serve TLS.
+	OAuthServerRef string `yaml:"oauth_server_ref"`
+	// AllowedAudiences lists accepted aud values. When empty, muster binds tokens
+	// from this issuer to its own issuer as the default audience (anti-replay).
+	// Set it (e.g. to the client_id) to accept ID tokens whose aud is the client.
+	AllowedAudiences []string `yaml:"allowed_audiences,omitempty"`
+	// AllowedClaims requires each named claim to match its glob (e.g. sub ->
+	// "system:serviceaccount:kagent:*"). Optional.
+	AllowedClaims map[string]string `yaml:"allowed_claims,omitempty"`
+	// SubjectClaim names the claim that becomes the canonical subject. Optional.
+	SubjectClaim string `yaml:"subject_claim,omitempty"`
+	// AcceptedTypHeaders lists accepted JWT typ headers. Use [""] for SA-style
+	// tokens that carry no typ header. Empty keeps the RFC 9068 default.
+	AcceptedTypHeaders []string `yaml:"accepted_typ_headers,omitempty"`
+}
+
+// BrokerWorkloadGroupGrantConfig mirrors config.WorkloadGroupGrantConfig for tests.
+// OAuthServerRef resolves to the grant's issuer URL.
+type BrokerWorkloadGroupGrantConfig struct {
+	OAuthServerRef string   `yaml:"oauth_server_ref"`
+	Subject        string   `yaml:"subject"`
+	Audiences      []string `yaml:"audiences"`
+	// GrantedSubject replaces the minted token's sub (the impersonated user).
+	GrantedSubject string `yaml:"granted_subject,omitempty"`
+	// GrantedGroups are merged into the minted token's groups claim.
+	GrantedGroups []string `yaml:"granted_groups,omitempty"`
+}
+
+// BrokerDelegationGrantConfig mirrors config.DelegationGrantConfig for tests.
+// ActorOAuthServerRef/SubjectOAuthServerRef resolve to issuer URLs ("*" allowed
+// to match any issuer).
+type BrokerDelegationGrantConfig struct {
+	ActorOAuthServerRef   string `yaml:"actor_oauth_server_ref"`
+	ActorSubject          string `yaml:"actor_subject"`
+	SubjectOAuthServerRef string `yaml:"subject_oauth_server_ref"`
+	SubjectSubject        string `yaml:"subject_subject"`
 }
 
 // MCPServerConfig represents an MCP server configuration
@@ -275,6 +355,11 @@ type MockOAuthServerConfig struct {
 	// since RFC 8693 token exchange endpoints must use HTTPS for security.
 	// Note: This is automatically set to true when UseAsMusterOAuthServer is true.
 	UseTLS bool `yaml:"use_tls,omitempty"`
+
+	// SignTokens makes this server issue ES256-signed tokens and serve a real
+	// JWKS, so muster's broker can validate its tokens as a trusted issuer.
+	// Automatically enabled (with UseTLS) when referenced by muster_broker.
+	SignTokens bool `yaml:"sign_tokens,omitempty"`
 }
 
 // TrustedIssuerConfig defines a trusted issuer for RFC 8693 token exchange
@@ -298,6 +383,16 @@ type MCPServerOAuthConfig struct {
 
 	// Scope is the required OAuth scope
 	Scope string `yaml:"scope,omitempty"`
+
+	// TrustMusterJWKS makes this backend validate bearer tokens as JWTs signed by
+	// muster (against muster's /.well-known/jwks.json) instead of the mock OAuth
+	// server's opaque-token check. Used to prove a downstream accepts a
+	// broker-minted token end-to-end.
+	TrustMusterJWKS bool `yaml:"trust_muster_jwks,omitempty"`
+
+	// ExpectedAudience is the aud the minted token must carry when
+	// TrustMusterJWKS is set (typically the broker target audience).
+	ExpectedAudience string `yaml:"expected_audience,omitempty"`
 }
 
 // MockOAuthServerInfo contains info about a running mock OAuth server

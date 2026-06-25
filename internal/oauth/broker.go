@@ -97,6 +97,7 @@ func (b *BrokerExchanger) Exchange(ctx context.Context, req *oauthserver.Exchang
 		Actor:            req.Actor,
 		SubjectIdentity:  req.Subject,
 		GrantedGroups:    req.GrantedGroups,
+		GrantedSubject:   req.GrantedSubject,
 	})
 	if err != nil {
 		return nil, err

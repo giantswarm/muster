@@ -40,10 +40,11 @@ func (p *localMintProvider) Mint(ctx context.Context, req MintRequest) (*MintRes
 	}
 
 	exchangerReq := &oauthserver.ExchangerRequest{
-		Subject:       subject,
-		Actor:         req.Actor,
-		Audience:      req.Target,
-		GrantedGroups: req.GrantedGroups,
+		Subject:        subject,
+		Actor:          req.Actor,
+		Audience:       req.Target,
+		GrantedGroups:  req.GrantedGroups,
+		GrantedSubject: req.GrantedSubject,
 	}
 
 	result, err := p.exchanger.Exchange(ctx, exchangerReq)

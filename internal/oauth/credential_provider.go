@@ -63,6 +63,12 @@ type MintRequest struct {
 	// local-mint provider passes them through; mcp-oauth merges them into the
 	// minted token without mutating the validated subject identity.
 	GrantedGroups []string
+
+	// GrantedSubject is the broker-asserted subject for this exchange from a
+	// matching WorkloadGrant (the impersonated user on the M2M path). When
+	// non-empty, the local-mint provider passes it through and mcp-oauth uses it
+	// as the minted token's sub in place of the validated subject.
+	GrantedSubject string
 }
 
 // MintResult is the result of a successful credential exchange.

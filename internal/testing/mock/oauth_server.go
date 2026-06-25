@@ -48,15 +48,16 @@ const jwtDummySignature = "dGVzdC1zaWduYXR1cmU"
 
 // idTokenClaims represents the claims in an ID token.
 type idTokenClaims struct {
-	Iss    string   `json:"iss"`              // Issuer
-	Sub    string   `json:"sub"`              // Subject (user ID)
-	Aud    string   `json:"aud"`              // Audience (client ID)
-	Exp    int64    `json:"exp"`              // Expiration time
-	Iat    int64    `json:"iat"`              // Issued at
-	Nonce  string   `json:"nonce,omitempty"`  // OIDC nonce echoed from the auth request
-	Email  string   `json:"email,omitempty"`  // User email
-	Name   string   `json:"name,omitempty"`   // User name
-	Groups []string `json:"groups,omitempty"` // User groups for RBAC
+	Iss           string   `json:"iss"`                      // Issuer
+	Sub           string   `json:"sub"`                      // Subject (user ID)
+	Aud           string   `json:"aud"`                      // Audience (client ID)
+	Exp           int64    `json:"exp"`                      // Expiration time
+	Iat           int64    `json:"iat"`                      // Issued at
+	Nonce         string   `json:"nonce,omitempty"`          // OIDC nonce echoed from the auth request
+	Email         string   `json:"email,omitempty"`          // User email
+	EmailVerified bool     `json:"email_verified,omitempty"` // Whether the email is verified (Dex sets this)
+	Name          string   `json:"name,omitempty"`           // User name
+	Groups        []string `json:"groups,omitempty"`         // User groups for RBAC
 }
 
 // OAuthServerConfig configures the mock OAuth server behavior
@@ -102,6 +103,12 @@ type OAuthServerConfig struct {
 	// to look up the trusted issuer and validate the subject token.
 	// Key: connector_id, Value: issuer URL
 	TrustedIssuers map[string]string
+
+	// SignTokens makes the server generate an EC P-256 signing key and serve a real
+	// JWKS, enabling MintSignedJWT to issue ES256-signed tokens that a downstream
+	// (e.g. muster's broker) can verify against this server's JWKS. Default false
+	// keeps the legacy alg:none ID tokens and empty JWKS used by most scenarios.
+	SignTokens bool
 }
 
 // OAuthErrorSimulation allows simulating error conditions
@@ -138,6 +145,10 @@ type OAuthServer struct {
 	// TLS certificate and CA for HTTPS mode
 	tlsCert   *tls.Certificate
 	caCertPEM []byte // PEM-encoded CA certificate for clients
+
+	// JWT signing material (populated when config.SignTokens is true)
+	signingKey *ecdsa.PrivateKey
+	signingKID string
 }
 
 type authCodeEntry struct {
@@ -189,12 +200,25 @@ func NewOAuthServer(config OAuthServerConfig) *OAuthServer {
 		clock = RealClock{}
 	}
 
-	return &OAuthServer{
+	s := &OAuthServer{
 		config:       config,
 		authCodes:    make(map[string]*authCodeEntry),
 		issuedTokens: make(map[string]*issuedToken),
 		clock:        clock,
 	}
+
+	if config.SignTokens {
+		key, kid, err := newSigningKey()
+		if err != nil {
+			// Key generation only fails if crypto/rand is unavailable, which never
+			// happens in practice; a mock server has no error return.
+			panic(fmt.Errorf("mock OAuth server: %w", err))
+		}
+		s.signingKey = key
+		s.signingKID = kid
+	}
+
+	return s
 }
 
 // Start starts the OAuth server on a random available port
@@ -1065,14 +1089,15 @@ func (s *OAuthServer) generateIDTokenWithSub(clientID, scope, subject, nonce str
 	now := s.clock.Now()
 
 	claims := idTokenClaims{
-		Iss:   s.config.Issuer,
-		Sub:   subject,
-		Aud:   clientID,
-		Exp:   now.Add(s.config.TokenLifetime).Unix(),
-		Iat:   now.Unix(),
-		Nonce: nonce,
-		Email: "test@example.com",
-		Name:  "Test User",
+		Iss:           s.config.Issuer,
+		Sub:           subject,
+		Aud:           clientID,
+		Exp:           now.Add(s.config.TokenLifetime).Unix(),
+		Iat:           now.Unix(),
+		Nonce:         nonce,
+		Email:         "test@example.com",
+		EmailVerified: true,
+		Name:          "Test User",
 	}
 
 	// Include groups claim if the "groups" scope was requested
@@ -1085,8 +1110,7 @@ func (s *OAuthServer) generateIDTokenWithSub(clientID, scope, subject, nonce str
 		panic(fmt.Errorf("failed to marshal ID token claims: %w", err))
 	}
 
-	payload := base64.RawURLEncoding.EncodeToString(claimsJSON)
-	return fmt.Sprintf("%s.%s.%s", jwtHeader, payload, jwtDummySignature)
+	return s.encodeIDToken(claimsJSON)
 }
 
 func (s *OAuthServer) handleUserInfo(w http.ResponseWriter, r *http.Request) {
@@ -1115,13 +1139,17 @@ func (s *OAuthServer) handleUserInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *OAuthServer) handleJWKS(w http.ResponseWriter, r *http.Request) {
-	// Return empty JWKS (we use opaque tokens for testing simplicity)
-	jwks := map[string]interface{}{
-		"keys": []interface{}{},
+	w.Header().Set("Content-Type", "application/json")
+
+	// When signing is enabled, publish the real signing public key so downstreams
+	// (e.g. muster's broker) can verify ES256 tokens minted via MintSignedJWT.
+	if jwks := s.publicJWKS(); jwks != nil {
+		_ = json.NewEncoder(w).Encode(jwks)
+		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(jwks)
+	// Legacy behavior: opaque tokens / alg:none ID tokens have no published key.
+	_ = json.NewEncoder(w).Encode(map[string]any{"keys": []any{}})
 }
 
 func (s *OAuthServer) handleCallback(w http.ResponseWriter, r *http.Request) {
@@ -1217,14 +1245,15 @@ func (s *OAuthServer) generateIDToken(clientID, scope, nonce string) string {
 	now := s.clock.Now()
 
 	claims := idTokenClaims{
-		Iss:   s.config.Issuer,
-		Sub:   "test-user-123",
-		Aud:   clientID,
-		Exp:   now.Add(s.config.TokenLifetime).Unix(),
-		Iat:   now.Unix(),
-		Nonce: nonce,
-		Email: "test@example.com",
-		Name:  "Test User",
+		Iss:           s.config.Issuer,
+		Sub:           "test-user-123",
+		Aud:           clientID,
+		Exp:           now.Add(s.config.TokenLifetime).Unix(),
+		Iat:           now.Unix(),
+		Nonce:         nonce,
+		Email:         "test@example.com",
+		EmailVerified: true,
+		Name:          "Test User",
 	}
 
 	// Include groups claim if the "groups" scope was requested
@@ -1238,11 +1267,7 @@ func (s *OAuthServer) generateIDToken(clientID, scope, nonce string) string {
 		panic(fmt.Errorf("failed to marshal ID token claims: %w", err))
 	}
 
-	payload := base64.RawURLEncoding.EncodeToString(claimsJSON)
-
-	// Return unsigned JWT (header.payload.)
-	// The trailing dot indicates no signature (alg: none)
-	return fmt.Sprintf("%s.%s.%s", jwtHeader, payload, jwtDummySignature)
+	return s.encodeIDToken(claimsJSON)
 }
 
 // WaitForReady waits for the OAuth server to be ready

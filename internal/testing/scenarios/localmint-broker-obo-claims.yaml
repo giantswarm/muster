@@ -1,0 +1,77 @@
+name: "localmint-broker-obo-claims"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  OBO (on-behalf-of) delegated local-mint broker path. A human subject token and
+  an agent ServiceAccount actor token are exchanged at muster's /oauth/token
+  broker. The actor delegation policy authorizes the (agent, human) pair and the
+  agent is allowed to request the cluster-b audience.
+
+  Asserts the minted token carries sub = the human, act.sub = the agent SA (the
+  RFC 8693 delegation chain), aud = the requested audience, and the human's groups.
+tags: ["oauth", "broker", "local-mint", "obo", "delegation", "token-exchange", "rfc8693"]
+timeout: "2m"
+
+pre_configuration:
+  mock_oauth_servers:
+    - name: "muster-idp"
+      scopes: ["openid", "profile", "email", "groups"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "muster-client"
+      client_secret: "muster-secret"
+      use_as_muster_oauth_server: true
+
+    - name: "workload-idp"
+
+  muster_broker:
+    trusted_issuers:
+      - oauth_server_ref: "workload-idp"
+        accepted_typ_headers: [""]
+    targets:
+      cluster-b: "local-mint"
+    workload_audiences:
+      "system:serviceaccount:kagent:sre-agent": ["cluster-b"]
+    actor_delegation_policy:
+      - actor_oauth_server_ref: "workload-idp"
+        actor_subject: "system:serviceaccount:kagent:*"
+        subject_oauth_server_ref: "*"
+        subject_subject: "*"
+
+steps:
+  - id: "mint-human-token"
+    description: "Mint the human subject token"
+    tool: "test_mint_token"
+    args:
+      server: "workload-idp"
+      name: "human-token"
+      sub: "alice@giantswarm.io"
+      groups: ["customer:giantswarm:admins"]
+    expected:
+      success: true
+
+  - id: "mint-agent-token"
+    description: "Mint the agent SA actor token"
+    tool: "test_mint_token"
+    args:
+      server: "workload-idp"
+      name: "agent-token"
+      sub: "system:serviceaccount:kagent:sre-agent"
+    expected:
+      success: true
+
+  - id: "exchange-obo"
+    description: "Delegated exchange: agent acts on behalf of the human for cluster-b"
+    tool: "test_broker_token_exchange"
+    args:
+      subject_token_ref: "human-token"
+      actor_token_ref: "agent-token"
+      audience: "cluster-b"
+    expected:
+      success: true
+      contains:
+        - "alice@giantswarm.io"                       # minted sub == human
+        - "system:serviceaccount:kagent:sre-agent"    # act.sub == agent SA
+        - "cluster-b"                                  # minted aud
+        - "customer:giantswarm:admins"                # human groups preserved

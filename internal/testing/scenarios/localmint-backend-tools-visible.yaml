@@ -1,0 +1,99 @@
+name: "localmint-backend-tools-visible"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  Regression for the LocalMint tool-visibility race plus end-to-end per-session
+  local-mint tool calls. A backend whose downstream auth is local-mint is
+  session-based (muster mints a per-caller token from the inbound subject; there
+  is no global persistent client), so the aggregator event handler must skip
+  global registration for it (isServerSSOBased must treat LocalMint like
+  ForwardToken/TokenExchange). Otherwise global registration fails on 401 and the
+  backend's x_<server>_* tools never reach the caller.
+
+  The caller connects to muster with a trusted-issuer token as the bearer (as a
+  real agent forwards a Dex/SA subject token). muster mints a per-call token for
+  the backend audience, the backend validates it against muster's JWKS, and the
+  tool call succeeds.
+tags: ["oauth", "local-mint", "aggregator", "tools", "data-plane", "regression"]
+timeout: "2m"
+
+pre_configuration:
+  mock_oauth_servers:
+    - name: "muster-idp"
+      scopes: ["openid", "profile", "email", "groups"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "muster-client"
+      client_secret: "muster-secret"
+      use_as_muster_oauth_server: true
+
+    - name: "workload-idp"
+
+  muster_broker:
+    trusted_issuers:
+      - oauth_server_ref: "workload-idp"
+        accepted_typ_headers: [""]
+    targets:
+      backend-cluster: "local-mint"
+    workload_audiences:
+      "system:serviceaccount:kagent:sre-agent": ["backend-cluster"]
+
+  mcp_servers:
+    - name: "localmint-backend"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          trust_muster_jwks: true
+          expected_audience: "backend-cluster"
+          local_mint:
+            audience: "backend-cluster"
+        tools:
+          - name: "whoami"
+            description: "A tool exposed only after per-session local-mint connect"
+            responses:
+              - response:
+                  status: "ok"
+
+steps:
+  - id: "verify-backend-registered"
+    description: "Backend is registered with muster"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["localmint-backend"]
+    timeout: "30s"
+
+  - id: "mint-agent-bearer"
+    description: "Mint a trusted-issuer SA token the caller will forward as its bearer"
+    tool: "test_mint_token"
+    args:
+      server: "workload-idp"
+      name: "agent-bearer"
+      sub: "system:serviceaccount:kagent:sre-agent"
+    expected:
+      success: true
+
+  - id: "connect-as-agent"
+    description: "Reconnect to muster presenting the SA token as the bearer"
+    tool: "test_reconnect_with_token"
+    args:
+      token_ref: "agent-bearer"
+    expected:
+      success: true
+
+  - id: "backend-tool-callable"
+    description: |
+      The backend tool is reachable through the aggregator: muster mints a
+      per-session local-mint token from the inbound bearer, the backend accepts
+      it, and the call returns. Fails without the isServerSSOBased LocalMint fix.
+    tool: "x_localmint-backend_whoami"
+    args: {}
+    expected:
+      success: true
+      contains: ["ok"]
+    retry:
+      count: 5
+      delay: "1s"

@@ -77,6 +77,7 @@ type TestToolsHandler struct {
 	mcpClient       MCPTestClient            // Default MCP client for calling tools
 	userClients     map[string]MCPTestClient // Named user sessions for multi-user testing
 	currentUser     string                   // Name of the currently active user ("default" if not set)
+	mintedTokens    map[string]string        // Named tokens minted by test_mint_token / test_broker_token_exchange
 	debug           bool
 	logger          TestLogger
 }
@@ -93,6 +94,7 @@ func NewTestToolsHandler(instanceManager MusterInstanceManager, instance *Muster
 		currentInstance: instance,
 		userClients:     make(map[string]MCPTestClient),
 		currentUser:     defaultTestUser,
+		mintedTokens:    make(map[string]string),
 		debug:           debug,
 		logger:          logger,
 	}
@@ -179,7 +181,11 @@ func IsTestTool(toolName string) bool {
 		TestToolMusterAuthLogin,
 		TestToolAddMockTool,
 		TestToolRemoveMockTool,
-		TestToolCallMetaTool:
+		TestToolCallMetaTool,
+		TestToolMintToken,
+		TestToolBrokerTokenExchange,
+		TestToolCallProtectedMCP,
+		TestToolReconnectWithToken:
 		return true
 	}
 	return false
@@ -222,6 +228,14 @@ func (h *TestToolsHandler) HandleTestTool(ctx context.Context, toolName string, 
 		return h.handleRemoveMockTool(ctx, args)
 	case TestToolCallMetaTool:
 		return h.handleCallMetaTool(ctx, args)
+	case TestToolMintToken:
+		return h.handleMintToken(ctx, args)
+	case TestToolBrokerTokenExchange:
+		return h.handleBrokerTokenExchange(ctx, args)
+	case TestToolCallProtectedMCP:
+		return h.handleCallProtectedMCP(ctx, args)
+	case TestToolReconnectWithToken:
+		return h.handleReconnectWithToken(ctx, args)
 	default:
 		return nil, fmt.Errorf("unknown test tool: %s", toolName)
 	}

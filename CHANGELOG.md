@@ -6,7 +6,11 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
-- localMint backends connected during SSO bootstrap now mint on the on-behalf-of delegation path instead of falling back to M2M; the bootstrap and live-request paths now carry the same credential bundle.
+- M2M (no-actor) local-mint exchanges now mint with the granted subject. A workload group grant's `granted.subject` was dropped on the local-mint broker path, so an impersonating exchange minted the workload ServiceAccount's own `sub` instead of the configured impersonated user (granted groups were already applied). The broker now forwards the granted subject to the local-mint provider.
+
+- local-mint backends are now treated as session-based for tool registration. `isServerSSOBased` did not recognize the local-mint auth mode, so the aggregator event handler attempted global registration for a local-mint backend (which has no global persistent client), failed on 401, and the backend's tools never reached the caller. local-mint now joins token forwarding and token exchange as a per-session auth mode.
+
+- localMint backends connected during SSO bootstrap now mint on the on-behalf-of delegation path instead of falling back to M2M. When `initSSOForSession` rebuilt its detached background context it carried the subject bearer and ID token but dropped the inbound `X-Actor-Token`, so a bootstrap-established connection minted with no actor and the broker authorized the per-backend exchange on the human subject (`token_exchange_audience_not_allowed`) rather than the agent ServiceAccount. The per-request credential tokens (subject bearer, actor token, ID token) are now carried into the bootstrap context as one unit, so the bootstrap and live-request paths mint identically.
 
 - Connected MCP clients now receive `notifications/{tools,resources,prompts}/list_changed` when a backend connects after the session was opened (localMint/OBO background bootstrap, post-restart re-init), so late-connecting backends no longer stay invisible for the session's lifetime.
 
