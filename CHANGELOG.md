@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
-- localMint backends connected during SSO bootstrap now mint on the on-behalf-of delegation path instead of falling back to M2M. When `initSSOForSession` rebuilt its detached background context it carried the subject bearer and ID token but dropped the inbound `X-Actor-Token`, so a bootstrap-established connection minted with no actor and the broker authorized the per-backend exchange on the human subject (`token_exchange_audience_not_allowed`) rather than the agent ServiceAccount. The per-request credential tokens (subject bearer, actor token, ID token) are now carried into the bootstrap context as one unit, so the bootstrap and live-request paths mint identically.
+- localMint backends connected during SSO bootstrap now mint on the on-behalf-of delegation path instead of falling back to M2M; the bootstrap and live-request paths now carry the same credential bundle.
 
 - Connected MCP clients now receive `notifications/{tools,resources,prompts}/list_changed` when a backend connects after the session was opened (localMint/OBO background bootstrap, post-restart re-init), so late-connecting backends no longer stay invisible for the session's lifetime.
 

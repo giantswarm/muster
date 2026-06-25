@@ -375,7 +375,7 @@ func (a *AggregatorServer) initSSOForSession(sso ssoSession) {
 	defer cancel()
 	bgCtx = api.WithSubject(bgCtx, sso.userID)
 	bgCtx = api.WithSessionID(bgCtx, sso.sessionID)
-	bgCtx = server.ContextWithCallerTokens(bgCtx, sso.callerTokens())
+	bgCtx = server.ContextWithCallerTokens(bgCtx, sso.tokens)
 
 	var pending []*ServerInfo
 	servers := a.registry.GetAllServers()

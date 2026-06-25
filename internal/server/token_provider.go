@@ -76,12 +76,9 @@ func GetActorTokenFromContext(ctx context.Context) string {
 	return token
 }
 
-// CallerTokens is the set of per-request credential tokens that travel together
-// from an inbound request to a downstream backend connection. They are carried
-// as a unit so a context rebuilt off the request path (SSO bootstrap, reconnect,
-// background refresh) cannot silently drop one — a dropped actor token degrades
-// a localMint delegation to the M2M path and authorizes the exchange on the
-// human subject instead of the agent.
+// CallerTokens is the set of per-request credential tokens (subject bearer,
+// ID token, actor) carried as a unit so a context rebuilt off the request path
+// cannot silently drop one.
 type CallerTokens struct {
 	IDToken string
 	Bearer  string
@@ -98,19 +95,12 @@ func CallerTokensFromContext(ctx context.Context) CallerTokens {
 	}
 }
 
-// ContextWithCallerTokens stores each non-empty token on ctx via its dedicated
-// key, so the existing per-field getters observe identical values. Empty fields
-// are left untouched, preserving any value already on ctx.
+// ContextWithCallerTokens stores all three tokens on ctx via their dedicated
+// keys so the per-field getters observe identical values.
 func ContextWithCallerTokens(ctx context.Context, tokens CallerTokens) context.Context {
-	if tokens.IDToken != "" {
-		ctx = ContextWithIDToken(ctx, tokens.IDToken)
-	}
-	if tokens.Bearer != "" {
-		ctx = ContextWithBearerToken(ctx, tokens.Bearer)
-	}
-	if tokens.Actor != "" {
-		ctx = ContextWithActorToken(ctx, tokens.Actor)
-	}
+	ctx = ContextWithIDToken(ctx, tokens.IDToken)
+	ctx = ContextWithBearerToken(ctx, tokens.Bearer)
+	ctx = ContextWithActorToken(ctx, tokens.Actor)
 	return ctx
 }
 

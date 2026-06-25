@@ -16,16 +16,13 @@ import (
 type ssoSession struct {
 	userID      string
 	sessionID   string
-	idToken     string
-	bearer      string
-	actorToken  string
+	tokens      server.CallerTokens
 	tokenSource providers.TokenSource
 }
 
 // ssoSessionFromContext extracts the SSO-relevant token state from an
 // authenticated request context.
 func ssoSessionFromContext(ctx context.Context, sessionID string) ssoSession {
-	tokens := server.CallerTokensFromContext(ctx)
 	userInfo, _ := oauthhandler.UserInfoFromContext(ctx)
 	var tokenSource providers.TokenSource
 	if userInfo != nil {
@@ -34,17 +31,9 @@ func ssoSessionFromContext(ctx context.Context, sessionID string) ssoSession {
 	return ssoSession{
 		userID:      getUserSubjectFromContext(ctx),
 		sessionID:   sessionID,
-		idToken:     tokens.IDToken,
-		bearer:      tokens.Bearer,
-		actorToken:  tokens.Actor,
+		tokens:      server.CallerTokensFromContext(ctx),
 		tokenSource: tokenSource,
 	}
-}
-
-// callerTokens reconstructs the credential bundle this session carries, for
-// re-injection into a context rebuilt off the request path.
-func (s ssoSession) callerTokens() server.CallerTokens {
-	return server.CallerTokens{IDToken: s.idToken, Bearer: s.bearer, Actor: s.actorToken}
 }
 
 // canBootstrapSSO reports whether the session has a usable subject token for
@@ -52,7 +41,7 @@ func (s ssoSession) callerTokens() server.CallerTokens {
 // upstream ID token nor a delegated OBO bearer is present — the session cannot
 // drive a token exchange and bootstrapping would fail immediately.
 func (s ssoSession) canBootstrapSSO() bool {
-	return s.idToken != "" || s.tokenSource == providers.TokenSourceOBO
+	return s.tokens.IDToken != "" || s.tokenSource == providers.TokenSourceOBO
 }
 
 // LogValue implements slog.LogValuer so ssoSession can be passed directly to
@@ -61,9 +50,9 @@ func (s ssoSession) LogValue() slog.Value {
 	return slog.GroupValue(
 		slog.String("userID", logging.TruncateIdentifier(s.userID)),
 		slog.String("sessionID", logging.TruncateIdentifier(s.sessionID)),
-		slog.Int("idTokenLen", len(s.idToken)),
-		slog.Int("bearerLen", len(s.bearer)),
-		slog.Int("actorTokenLen", len(s.actorToken)),
+		slog.Int("idTokenLen", len(s.tokens.IDToken)),
+		slog.Int("bearerLen", len(s.tokens.Bearer)),
+		slog.Int("actorTokenLen", len(s.tokens.Actor)),
 		slog.String("tokenSource", string(s.tokenSource)),
 	)
 }

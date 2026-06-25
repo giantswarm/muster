@@ -1595,7 +1595,7 @@ func (a *AggregatorServer) ssoLifecycleOptions() []oauth.ServerOption {
 				slog.String("familyID", logging.TruncateIdentifier(familyID)),
 				slog.Bool("hasIDToken", idToken != ""),
 				slog.Int("idTokenLen", len(idToken)))
-			a.initSSOForSession(ssoSession{userID: userID, sessionID: familyID, idToken: idToken})
+			a.initSSOForSession(ssoSession{userID: userID, sessionID: familyID, tokens: server.CallerTokens{IDToken: idToken}})
 			a.storeIDTokenForSSO(familyID, userID, idToken)
 		}),
 		// An upstream refresh with no ID token signals a broken refresh chain
