@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -1842,7 +1843,7 @@ func (a *AggregatorServer) IsYoloMode() bool {
 //   - args: Arguments to pass to the tool as key-value pairs
 //
 // Returns the tool execution result or an error if the tool cannot be found or executed.
-func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string, args map[string]interface{}) (res *mcp.CallToolResult, err error) {
+func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string, args map[string]any) (res *mcp.CallToolResult, err error) {
 	logging.DebugWithAttrs("Aggregator", "CallToolInternal called",
 		slog.String("tool", toolName))
 
@@ -1866,7 +1867,7 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 			return nil, fmt.Errorf("tool %s is provided by a family on servers %s; the %q parameter is required",
 				toolName, strings.Join(providers, ", "), instanceArg)
 		}
-		forwarded := make(map[string]interface{}, len(args)-1)
+		forwarded := make(map[string]any, len(args)-1)
 		for k, v := range args {
 			if k != instanceArg {
 				forwarded[k] = v
@@ -1920,7 +1921,7 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 // for solo tools or via ResolveToolNameForServer for family-grouped tools).
 // It encapsulates the global-client vs. session-scoped vs. token-exchange
 // branching that previously lived inline in CallToolInternal.
-func (a *AggregatorServer) dispatchResolvedTool(ctx context.Context, toolName, serverName, originalName string, args map[string]interface{}, sessionID, sub string) (*mcp.CallToolResult, error) {
+func (a *AggregatorServer) dispatchResolvedTool(ctx context.Context, toolName, serverName, originalName string, args map[string]any, sessionID, sub string) (*mcp.CallToolResult, error) {
 	serverInfo, exists := a.registry.GetServerInfo(serverName)
 	if !exists || serverInfo == nil {
 		return nil, fmt.Errorf("server not found: %s", serverName)
@@ -1998,7 +1999,7 @@ func (a *AggregatorServer) isCoreToolByName(toolName string) bool {
 //
 // Returns the tool execution result converted to MCP format, or an error if
 // no appropriate handler is found or execution fails.
-func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName string, args map[string]interface{}) (*mcp.CallToolResult, error) {
+func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName string, args map[string]any) (*mcp.CallToolResult, error) {
 	logging.DebugWithAttrs("Aggregator", "callCoreToolDirectly called",
 		slog.String("tool", toolName))
 
@@ -2021,13 +2022,7 @@ func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName st
 				"workflow_update", "workflow_delete", "workflow_validate", "workflow_available",
 				"workflow_execution_list", "workflow_execution_get"}
 
-			isManagementTool := false
-			for _, mgmtTool := range managementTools {
-				if originalToolName == mgmtTool {
-					isManagementTool = true
-					break
-				}
-			}
+			isManagementTool := slices.Contains(managementTools, originalToolName)
 
 			if isManagementTool {
 				// Use the original tool name for workflow management tools
@@ -2917,7 +2912,7 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 				logging.InfoWithAttrs("Aggregator", "Token expiring soon, triggering background refresh",
 					slog.String("server", serverName),
 					slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
-				a.triggerBackgroundTokenRefresh(sessionID, serverName, sub)
+				a.triggerBackgroundTokenRefresh(sessionID, serverName)
 				return pooledClient, func() {}, nil
 
 			default:
@@ -3030,7 +3025,7 @@ func (a *AggregatorServer) callToolWithTokenExchangeRetry(
 	ctx context.Context,
 	serverName string,
 	originalToolName string,
-	args map[string]interface{},
+	args map[string]any,
 	sessionID string,
 	sub string,
 ) (*mcp.CallToolResult, error) {
@@ -3071,11 +3066,11 @@ func (a *AggregatorServer) callToolWithTokenExchangeRetry(
 // the token for a token-exchange server and replace the pooled client.
 // Concurrent calls for the same (sessionID, serverName) are deduplicated via
 // singleflight -- only the first caller spawns the goroutine.
-func (a *AggregatorServer) triggerBackgroundTokenRefresh(sessionID, serverName, sub string) {
+func (a *AggregatorServer) triggerBackgroundTokenRefresh(sessionID, serverName string) {
 	sfKey := sessionID + "/" + serverName
 	go func() {
-		_, _, _ = a.tokenRefreshGroup.Do(sfKey, func() (interface{}, error) {
-			a.backgroundTokenRefresh(sessionID, serverName, sub)
+		_, _, _ = a.tokenRefreshGroup.Do(sfKey, func() (any, error) {
+			a.backgroundTokenRefresh(sessionID, serverName)
 			return nil, nil
 		})
 	}()
@@ -3088,7 +3083,7 @@ func (a *AggregatorServer) triggerBackgroundTokenRefresh(sessionID, serverName, 
 // Failures are logged but never propagated -- the caller already received the
 // still-valid pooled client, and callToolWithTokenExchangeRetry handles the
 // case where the token expires before the background refresh succeeds.
-func (a *AggregatorServer) backgroundTokenRefresh(sessionID, serverName, sub string) {
+func (a *AggregatorServer) backgroundTokenRefresh(sessionID, serverName string) {
 	ctx := context.Background()
 
 	serverInfo, exists := a.registry.GetServerInfo(serverName)
@@ -3226,7 +3221,7 @@ func (a *AggregatorServer) GetPrompt(ctx context.Context, name string, args map[
 	}
 
 	// Convert string args to interface{} args for the client
-	clientArgs := make(map[string]interface{})
+	clientArgs := make(map[string]any)
 	for k, v := range args {
 		clientArgs[k] = v
 	}
