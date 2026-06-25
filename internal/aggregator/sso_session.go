@@ -9,6 +9,7 @@ import (
 
 	"github.com/giantswarm/muster/internal/server"
 	"github.com/giantswarm/muster/pkg/logging"
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 )
 
 // ssoSession captures the token state for a single authenticated request,
@@ -41,7 +42,15 @@ func ssoSessionFromContext(ctx context.Context, sessionID string) ssoSession {
 // upstream ID token nor a delegated OBO bearer is present — the session cannot
 // drive a token exchange and bootstrapping would fail immediately.
 func (s ssoSession) canBootstrapSSO() bool {
-	return s.tokens.IDToken != "" || s.tokenSource == providers.TokenSourceOBO
+	if s.tokens.IDToken != "" || s.tokenSource == providers.TokenSourceOBO {
+		return true
+	}
+	// A self-issued on-behalf-of bearer (sub=human, act=agent) carries no
+	// separate upstream ID token and validates as TokenSourceJWT rather than
+	// TokenSourceOBO, but it is a usable localMint subject: the broker re-binds
+	// it to the backend audience on the embedded act principal.
+	hasAct, err := pkgoauth.HasActClaim(s.tokens.Bearer)
+	return err == nil && hasAct
 }
 
 // LogValue implements slog.LogValuer so ssoSession can be passed directly to

@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- On-behalf-of sessions now establish their per-backend local-mint connections. A human OBO bearer (muster's own self-issued JWT carrying `sub`=human and an `act` chain, validated as `TokenSourceJWT` with no email claim) was dropped by three checks, so the agent only ever saw the core meta-tools: the OAuth middleware did not fire `onAuthenticated` for an emailless self-issued JWT, `canBootstrapSSO` did not count an `act`-bearing bearer as a usable subject, and `EstablishConnectionWithLocalMint` resolved the local-mint subject from the upstream ID token (which carries no `act`) instead of the inbound OBO bearer. The OAuth middleware now fires `onAuthenticated` for a self-issued JWT, `canBootstrapSSO` accepts a bearer carrying an `act` claim, and local-mint uses that bearer as the exchange subject so the broker re-binds the delegation chain to each backend audience.
+
 - M2M (no-actor) local-mint exchanges now mint with the granted subject. A workload group grant's `granted.subject` was dropped on the local-mint broker path, so an impersonating exchange minted the workload ServiceAccount's own `sub` instead of the configured impersonated user (granted groups were already applied). The broker now forwards the granted subject to the local-mint provider.
 
 - local-mint backends are now treated as session-based for tool registration. `isServerSSOBased` did not recognize the local-mint auth mode, so the aggregator event handler attempted global registration for a local-mint backend (which has no global persistent client), failed on 401, and the backend's tools never reached the caller. local-mint now joins token forwarding and token exchange as a per-session auth mode.

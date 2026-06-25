@@ -25,8 +25,15 @@ var jwtParser = jwt.NewParser(jwt.WithPaddingAllowed())
 // tokens. Using one struct keeps the accessors symmetrical.
 type tokenClaims struct {
 	jwt.RegisteredClaims
-	Email         string `json:"email,omitempty"`
-	EmailVerified bool   `json:"email_verified,omitempty"`
+	Email         string      `json:"email,omitempty"`
+	EmailVerified bool        `json:"email_verified,omitempty"`
+	Act           *actorClaim `json:"act,omitempty"`
+}
+
+// actorClaim mirrors the RFC 8693 §4.4 act claim. Only presence is needed by
+// callers in this package; the broker walks the nested chain.
+type actorClaim struct {
+	Subject string `json:"sub,omitempty"`
 }
 
 func parseUnverified(token string) (tokenClaims, error) {
@@ -91,6 +98,17 @@ func Issuer(token string) (string, error) {
 		return "", fmt.Errorf("decode token: %w", err)
 	}
 	return c.Issuer, nil
+}
+
+// HasActClaim reports whether a trusted JWT carries an RFC 8693 §4.4 act
+// claim, i.e. it is a delegation (on-behalf-of) token. Returns false with a
+// wrapped error on decode failure.
+func HasActClaim(token string) (bool, error) {
+	c, err := parseUnverified(token)
+	if err != nil {
+		return false, fmt.Errorf("decode token: %w", err)
+	}
+	return c.Act != nil, nil
 }
 
 // IsExpired reports whether a trusted JWT's exp claim is in the past or

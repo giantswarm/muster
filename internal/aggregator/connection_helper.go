@@ -461,12 +461,25 @@ func EstablishConnectionWithLocalMint(
 		return nil, err
 	}
 
-	subjectToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer, a.sessionRefresher())
+	// An on-behalf-of session presents muster's own self-issued bearer
+	// (sub=human, act=agent). It must be the exchange subject so the broker
+	// re-binds the delegation chain to the backend audience and authorizes on
+	// the acting principal. getIDTokenForForwarding returns the upstream Dex ID
+	// token, which carries no act claim and forces the bare-human workload path
+	// (token_exchange_audience_not_allowed).
+	var subjectToken string
+	if bearer := server.GetBearerTokenFromContext(ctx); bearer != "" {
+		if hasAct, err := pkgoauth.HasActClaim(bearer); err == nil && hasAct {
+			subjectToken = bearer
+		}
+	}
 	if subjectToken == "" {
-		// OBO sessions carry no Dex ID token; the muster-issued bearer is the
-		// RFC 8693 subject for the localMint exchange. Fall back to it here so
-		// the background bgCtx (which has the bearer threaded in by
-		// initSSOForSession) can still establish the per-backend connection.
+		subjectToken = getIDTokenForForwarding(ctx, sessionID, musterIssuer, a.sessionRefresher())
+	}
+	if subjectToken == "" {
+		// No upstream Dex ID token (e.g. an OBO session whose bearer carries no
+		// decodable act, or a background context); fall back to the raw bearer
+		// threaded in by initSSOForSession.
 		subjectToken = server.GetBearerTokenFromContext(ctx)
 	}
 	if subjectToken == "" {

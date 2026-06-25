@@ -327,6 +327,22 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 			if s.injectExternalIDToken(w, r, ctx, next) {
 				return
 			}
+			// A self-issued JWT with no email is muster's own on-behalf-of bearer
+			// (sub=human, act=agent): the delegated token carries the human in sub
+			// and no email claim. It still needs onAuthenticated so the per-backend
+			// localMint SSO connections bootstrap; the mint reads the act-bearing
+			// bearer from context. Without this an agent run only ever sees the
+			// core meta-tools because no backend connection is established.
+			if userInfo.IsJWT() {
+				if sessionID, ok := oauthhandler.SessionIDFromContext(ctx); ok {
+					ctx = api.WithSessionID(ctx, sessionID)
+					ctx = api.WithSubject(ctx, userInfo.ID)
+					r = r.WithContext(ctx)
+					s.fireOnAuthenticated(ctx)
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
 			if s.debug {
 				logging.Debug("OAuth", "User info has no email, proceeding without token injection")
 			}
