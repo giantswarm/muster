@@ -216,6 +216,12 @@ func (a *Adapter) getWorkflows(ctx context.Context) []api.Workflow {
 		return []api.Workflow{}
 	}
 
+	// Every workflow's availability check resolves the same session tool set.
+	// Install a request-scoped memo so that expensive resolution happens once
+	// for the whole list instead of once per workflow (the O(workflows)
+	// rebuild that made this endpoint take ~30 s for ~280 workflows).
+	ctx = api.WithSessionToolMemo(ctx)
+
 	workflows := make([]api.Workflow, 0, len(workflowCRDs))
 	for _, workflowCRD := range workflowCRDs {
 		workflow := a.convertCRDToWorkflow(&workflowCRD)

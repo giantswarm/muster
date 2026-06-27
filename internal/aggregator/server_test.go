@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1316,5 +1317,78 @@ func TestAggregatorServer_MissingToolsForSession(t *testing.T) {
 		})
 		assert.Equal(t, []string{"x_this_tool_does_not_exist"}, missing,
 			"only the genuinely missing tool is returned, deduplicated and in input order")
+	})
+}
+
+// countingCapStore wraps a CapabilityStore and counts Get calls, so a test can
+// observe how many times the (expensive) session tool set is rebuilt.
+type countingCapStore struct {
+	oauthstore.CapabilityStore
+	gets atomic.Int64
+}
+
+func (s *countingCapStore) Get(ctx context.Context, sessionID, serverName string) (*oauthstore.Capabilities, error) {
+	s.gets.Add(1)
+	return s.CapabilityStore.Get(ctx, sessionID, serverName)
+}
+
+// TestAggregatorServer_MissingToolsForSession_SessionToolMemo is the regression
+// guard for the O(workflows) session-tool-rebuild blow-up: a request that checks
+// many items' availability (e.g. listing ~280 workflows) must resolve the
+// session's accessible tool set once for the whole request, not once per item.
+//
+// Each MissingToolsForSession call resolves the session set by reading every
+// auth-protected server's capabilities from the store. With two such servers,
+// one rebuild costs two store.Get calls. Without a memo the rebuild repeats per
+// call; with a request-scoped memo in ctx it happens exactly once.
+func TestAggregatorServer_MissingToolsForSession_SessionToolMemo(t *testing.T) {
+	const sessionID = "session-memo"
+
+	newAgg := func(t *testing.T) (*AggregatorServer, *countingCapStore, func()) {
+		t.Helper()
+		reg := NewServerRegistry("x")
+		registerAuthFamilyMember(t, reg, "mc1-mcp-kubernetes", "kubernetes", "management_cluster")
+		registerAuthFamilyMember(t, reg, "mc2-mcp-kubernetes", "kubernetes", "management_cluster")
+
+		base := oauthstore.NewInMemoryCapabilityStore(30 * time.Minute)
+		ctx := context.Background()
+		require.NoError(t, base.Set(ctx, sessionID, "mc1-mcp-kubernetes",
+			&oauthstore.Capabilities{Tools: []mcp.Tool{{Name: "list", Description: "List resources"}}}))
+		require.NoError(t, base.Set(ctx, sessionID, "mc2-mcp-kubernetes",
+			&oauthstore.Capabilities{Tools: []mcp.Tool{{Name: "list", Description: "List resources"}}}))
+
+		store := &countingCapStore{CapabilityStore: base}
+		a := &AggregatorServer{registry: reg, capabilityStore: store}
+		return a, store, base.Stop
+	}
+
+	// checkN simulates checking N items' availability, each resolving the same
+	// session-scoped tool — the workflow-list access pattern.
+	checkN := func(a *AggregatorServer, ctx context.Context, n int) {
+		for i := 0; i < n; i++ {
+			a.MissingToolsForSession(ctx, []string{"x_kubernetes_list"})
+		}
+	}
+
+	t.Run("without a memo the session tool set is rebuilt per check", func(t *testing.T) {
+		a, store, stop := newAgg(t)
+		defer stop()
+
+		ctx := api.WithSessionID(context.Background(), sessionID)
+		store.gets.Store(0)
+		checkN(a, ctx, 3)
+		assert.Equal(t, int64(6), store.gets.Load(),
+			"three checks rebuild the session set three times (two auth servers each)")
+	})
+
+	t.Run("with a memo the session tool set is built once for the whole request", func(t *testing.T) {
+		a, store, stop := newAgg(t)
+		defer stop()
+
+		ctx := api.WithSessionToolMemo(api.WithSessionID(context.Background(), sessionID))
+		store.gets.Store(0)
+		checkN(a, ctx, 3)
+		assert.Equal(t, int64(2), store.gets.Load(),
+			"the request-scoped memo collapses N rebuilds into one (two auth servers, once)")
 	})
 }
