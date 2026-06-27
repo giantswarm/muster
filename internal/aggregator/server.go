@@ -2217,18 +2217,35 @@ func (a *AggregatorServer) MissingToolsForSession(ctx context.Context, toolNames
 		sessionTools    map[string]struct{}
 		sessionResolved bool
 	)
-	// resolveSessionTools lazily builds the session-scoped tool set so the
-	// (potentially store-backed) rebuild happens at most once per call, and
-	// only when a non-core tool actually needs it.
+	// build performs the (potentially store-backed) rebuild of the
+	// session-scoped tool set. It is invoked at most once per call locally, and
+	// — when the context carries a SessionToolMemo — at most once across every
+	// availability check sharing that memo (e.g. all workflows in one list
+	// request), removing the O(items) rebuild blow-up.
+	build := func() map[string]struct{} {
+		tools := a.GetToolsForSession(ctx, sessionID)
+		set := make(map[string]struct{}, len(tools))
+		for _, tool := range tools {
+			set[tool.Name] = struct{}{}
+		}
+		return set
+	}
+
+	// resolveSessionTools lazily resolves the session-scoped tool set so the
+	// rebuild happens only when a non-core tool actually needs it. If the
+	// context carries a request-scoped memo, the set is resolved through it so
+	// it is built once across the whole request; otherwise it is built once per
+	// call (preserving prior behavior outside list requests).
+	memo := api.SessionToolMemoFromContext(ctx)
 	resolveSessionTools := func() map[string]struct{} {
 		if sessionResolved {
 			return sessionTools
 		}
 		sessionResolved = true
-		tools := a.GetToolsForSession(ctx, sessionID)
-		sessionTools = make(map[string]struct{}, len(tools))
-		for _, tool := range tools {
-			sessionTools[tool.Name] = struct{}{}
+		if memo != nil {
+			sessionTools = memo.Resolve(build)
+		} else {
+			sessionTools = build()
 		}
 		return sessionTools
 	}

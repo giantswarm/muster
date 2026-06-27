@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Workflow listing no longer rebuilds the session tool set once per workflow. `getWorkflows` evaluated each workflow's availability independently, and every check resolved the caller's full session-scoped tool set (`GetAllToolsForSession` across all backend MCP servers) from scratch — an O(workflows) blow-up that made `core_workflow_list` take ~30 s for ~280 workflows. The list path now installs a request-scoped memo (`api.SessionToolMemo`) so the session tool set is resolved once for the whole request and shared across all per-workflow availability checks. Single-workflow paths are unchanged (no memo, same per-call behavior).
+
 - M2M (no-actor) local-mint exchanges now mint with the granted subject. A workload group grant's `granted.subject` was dropped on the local-mint broker path, so an impersonating exchange minted the workload ServiceAccount's own `sub` instead of the configured impersonated user (granted groups were already applied). The broker now forwards the granted subject to the local-mint provider.
 
 - local-mint backends are now treated as session-based for tool registration. `isServerSSOBased` did not recognize the local-mint auth mode, so the aggregator event handler attempted global registration for a local-mint backend (which has no global persistent client), failed on 401, and the backend's tools never reached the caller. local-mint now joins token forwarding and token exchange as a per-session auth mode.
