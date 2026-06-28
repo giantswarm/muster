@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- OTel service-lifecycle metrics emitted from the orchestrator: `muster.service.state_transitions_total` counter (labels: `service_name`, `service_type`, `from_state`, `to_state`) and `muster.service.up` observable gauge (1 = running/connected, 0 = otherwise). Both use the same meter scope as existing tool-call metrics. Closes #401.
+- Helm: `prometheusRule.enabled` (under `muster.observability.metrics.prometheus`) renders a `PrometheusRule` with three alerting rules: `MusterServiceDown` (5 min), `MusterServiceFlapping` (>4 transitions in 10 min), `MusterHighToolErrorRate` (>10% error ratio for 5 min). Supports `observability.giantswarm.io/tenant` for multi-tenant Mimir.
+- Helm: `grafanaDashboard.enabled` (under `muster.observability.metrics`) renders a ConfigMap containing a Grafana dashboard with service-status, state-transition, tool-call rate, latency, and error-rate panels. Picked up automatically by the grafana-sidecar.
+
 ### Fixed
 
 - Workflow listing no longer rebuilds the session tool set once per workflow. `getWorkflows` evaluated each workflow's availability independently, and every check resolved the caller's full session-scoped tool set (`GetAllToolsForSession` across all backend MCP servers) from scratch — an O(workflows) blow-up that made `core_workflow_list` take ~30 s for ~280 workflows. The list path now installs a request-scoped memo (`api.SessionToolMemo`) so the session tool set is resolved once for the whole request and shared across all per-workflow availability checks. Single-workflow paths are unchanged (no memo, same per-call behavior).
