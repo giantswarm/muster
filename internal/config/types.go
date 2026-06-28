@@ -42,18 +42,18 @@ type AggregatorConfig struct {
 	OAuth OAuthConfig `yaml:"oauth,omitempty"`
 
 	// Admin exposes a read-only web UI for listing and managing sessions on a
-	// separate HTTP listener. Disabled by default. When enabled, the listener
-	// binds to AdminBindAddress:AdminPort without authentication, so it is
-	// only safe when bound to a loopback address or reached via port-forward.
+	// separate HTTP listener. Disabled by default. When the OAuth server is
+	// enabled its token validation also guards the admin listener; otherwise
+	// the listener may only bind a loopback address.
 	Admin AdminConfig `yaml:"admin,omitempty"`
 }
 
 // AdminConfig defines the configuration for the admin web UI.
 //
 // The admin surface exposes session management (list, inspect, delete) on a
-// dedicated HTTP listener. It does not implement authentication; rely on
-// network-level controls (loopback binding, kubectl port-forward RBAC) to
-// gate access.
+// dedicated HTTP listener. When the OAuth server is enabled, the same token
+// validation guards this listener. When it is not, the listener may only bind
+// a loopback address and is reached via kubectl port-forward.
 type AdminConfig struct {
 	// Enabled controls whether the admin listener is started. Default: false.
 	Enabled bool `yaml:"enabled,omitempty"`
@@ -62,7 +62,8 @@ type AdminConfig struct {
 	Port int `yaml:"port,omitempty"`
 
 	// BindAddress is the interface to bind to (default: "127.0.0.1").
-	// Change this at your own risk: the admin surface has no auth.
+	// A non-loopback address requires the OAuth server to be enabled;
+	// otherwise the listener refuses to start.
 	BindAddress string `yaml:"bindAddress,omitempty"`
 }
 

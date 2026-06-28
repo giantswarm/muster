@@ -963,21 +963,72 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 			BindAddress: a.config.Admin.BindAddress,
 			Port:        a.config.Admin.Port,
 		}
-		adminSrv, err := admin.NewServer(adminCfg, a.adminDeps())
-		if err != nil {
-			logging.Error("Aggregator", err, "Failed to construct admin server (port %d)", adminCfg.Port)
-		} else if err := adminSrv.Start(); err != nil {
-			logging.Error("Aggregator", err, "Failed to start admin server on %s", adminSrv.Addr())
-		} else {
-			a.mu.Lock()
-			a.adminServer = adminSrv
-			a.mu.Unlock()
-			logging.InfoWithAttrs("Aggregator", "Admin UI listening",
-				slog.String("addr", adminSrv.Addr()))
+		// Protect the admin plane with the same OAuth validation muster uses
+		// for its own endpoints. When the OAuth server is enabled but has no
+		// HTTP listener to validate against (e.g. stdio transport), the admin
+		// plane cannot be protected and is not served unauthenticated.
+		startAdmin := true
+		switch decideAdminAuth(a.oauthHTTPServer != nil, a.config.OAuthServer.Enabled) {
+		case adminAuthOAuth:
+			adminCfg.AuthMiddleware = a.oauthHTTPServer.ValidateTokenWithSubject
+		case adminAuthUnavailable:
+			logging.Error("Aggregator",
+				fmt.Errorf("OAuth server enabled but unavailable on transport %q", a.config.Transport),
+				"Admin UI not started: cannot protect the admin plane and will not serve it unauthenticated")
+			startAdmin = false
+		case adminAuthLoopbackOnly:
+			logging.WarnWithAttrs("Aggregator",
+				"Admin UI is unauthenticated; enable the OAuth server to protect it. A non-loopback bind is refused.",
+				slog.String("bindAddress", adminCfg.BindAddress))
+		}
+
+		if startAdmin {
+			adminSrv, err := admin.NewServer(adminCfg, a.adminDeps())
+			if err != nil {
+				logging.Error("Aggregator", err, "Failed to construct admin server (port %d)", adminCfg.Port)
+			} else if err := adminSrv.Start(); err != nil {
+				logging.Error("Aggregator", err, "Failed to start admin server on %s", adminSrv.Addr())
+			} else {
+				a.mu.Lock()
+				a.adminServer = adminSrv
+				a.mu.Unlock()
+				logging.InfoWithAttrs("Aggregator", "Admin UI listening",
+					slog.String("addr", adminSrv.Addr()))
+			}
 		}
 	}
 
 	return nil
+}
+
+// adminAuthMode classifies how the admin listener is guarded.
+type adminAuthMode int
+
+const (
+	// adminAuthOAuth wraps every admin route with the OAuth server's token
+	// validation.
+	adminAuthOAuth adminAuthMode = iota
+	// adminAuthLoopbackOnly serves the admin plane unauthenticated; admin.NewServer
+	// refuses any non-loopback bind in this mode.
+	adminAuthLoopbackOnly
+	// adminAuthUnavailable means OAuth is enabled but no HTTP listener exists to
+	// validate against (e.g. stdio transport), so the admin plane must not start.
+	adminAuthUnavailable
+)
+
+// decideAdminAuth chooses how to guard the admin listener. hasOAuthListener is
+// true when an OAuth HTTP server exists to validate requests; oauthEnabled is
+// true when oauth.server is configured. When OAuth is enabled but no listener
+// exists, the admin plane cannot be protected and must not be served.
+func decideAdminAuth(hasOAuthListener, oauthEnabled bool) adminAuthMode {
+	switch {
+	case hasOAuthListener:
+		return adminAuthOAuth
+	case oauthEnabled:
+		return adminAuthUnavailable
+	default:
+		return adminAuthLoopbackOnly
+	}
 }
 
 // Stop gracefully shuts down the aggregator server and all its components.

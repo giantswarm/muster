@@ -43,6 +43,11 @@ type Deps struct {
 type Config struct {
 	BindAddress string // default "127.0.0.1"
 	Port        int    // default 9999
+
+	// AuthMiddleware, when non-nil, wraps every admin route and must reject
+	// unauthenticated requests. The admin surface exposes session tokens, so
+	// NewServer refuses to bind a non-loopback address while this is nil.
+	AuthMiddleware func(http.Handler) http.Handler
 }
 
 // Server owns the admin HTTP listener.
@@ -65,6 +70,10 @@ func NewServer(cfg Config, deps Deps) (*Server, error) {
 	}
 	if cfg.Port == 0 {
 		cfg.Port = 9999
+	}
+	if cfg.AuthMiddleware == nil && !isLoopbackBind(cfg.BindAddress) {
+		return nil, fmt.Errorf("admin.NewServer: refusing to bind non-loopback address %q without authentication; "+
+			"enable the OAuth server or bind a loopback address", cfg.BindAddress)
 	}
 
 	tmpl, err := parseTemplates()
@@ -127,5 +136,19 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /mcps", s.handleMCPList)
 	mux.HandleFunc("GET /mcps/{name}", s.handleMCPDetail)
 
+	if s.cfg.AuthMiddleware != nil {
+		return s.cfg.AuthMiddleware(mux)
+	}
 	return mux
+}
+
+// isLoopbackBind reports whether addr binds the listener to the loopback
+// interface only. Hostnames other than "localhost" are treated as
+// non-loopback because their resolution is not under muster's control.
+func isLoopbackBind(addr string) bool {
+	if addr == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(addr)
+	return ip != nil && ip.IsLoopback()
 }

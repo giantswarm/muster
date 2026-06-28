@@ -135,6 +135,48 @@ func TestHandleDetail_rendersDecodedJWT(t *testing.T) {
 	}
 }
 
+func TestHandleDetail_json_noRawTokenLeak(t *testing.T) {
+	raw := buildJWT(t,
+		`{"alg":"RS256","kid":"kid1"}`,
+		`{"sub":"pau","aud":"kubernetes"}`,
+		[]byte("SECRET-SIGNATURE-SHOULD-NEVER-LEAK"),
+	)
+	ts := newTestServer(t, fakeDeps(func(d *fakeDepsState) {
+		d.detail = &SessionDetail{
+			SessionID: "sid123",
+			Subject:   "pau",
+			Servers:   []ServerEntry{{Name: "kubernetes", Issuer: "https://dex"}},
+			Tokens:    []SessionToken{{Label: "muster → kubernetes", Raw: raw}},
+		}
+	}))
+	defer ts.Close()
+
+	req, _ := http.NewRequest("GET", ts.URL+"/sessions/sid123", nil)
+	req.Header.Set("Accept", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	s := string(body)
+
+	if strings.Contains(s, raw) {
+		t.Fatal("raw compact JWT leaked into JSON body")
+	}
+	if strings.Contains(s, "SECRET-SIGNATURE-SHOULD-NEVER-LEAK") {
+		t.Fatal("raw signature leaked into JSON body")
+	}
+	sigSegment := base64.RawURLEncoding.EncodeToString([]byte("SECRET-SIGNATURE-SHOULD-NEVER-LEAK"))
+	if strings.Contains(s, sigSegment) {
+		t.Fatal("base64-encoded signature leaked into JSON body")
+	}
+	// The decoded payload must still be present so the UI stays useful.
+	if !strings.Contains(s, "decodedTokens") || !strings.Contains(s, `"sub": "pau"`) {
+		t.Fatalf("expected decoded payload in JSON body, got: %s", s)
+	}
+}
+
 func TestHandleDetail_notFound(t *testing.T) {
 	ts := newTestServer(t, fakeDeps(func(d *fakeDepsState) {}))
 	defer ts.Close()
