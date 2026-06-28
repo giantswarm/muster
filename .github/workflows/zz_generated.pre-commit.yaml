@@ -2,7 +2,7 @@
 #
 #    devctl
 #
-#    https://github.com/giantswarm/devctl/blob/27c057288502edd9923a520af3177d747980d9fd/pkg/gen/input/precommit/internal/file/pre-commit-action.yaml.template
+#    https://github.com/giantswarm/devctl/blob/29117dfe2f5e5a256a4d181aeb2c87a00d96e3da/pkg/gen/input/precommit/internal/file/pre-commit-action.yaml.template
 #
 name: pre-commit
 
@@ -15,7 +15,7 @@ on:
       - master
 
 env:
-  HELM_VERSION: "3.21.1"
+  HELM_VERSION: "3.21.2"
   HELM_DOCS_VERSION: "1.14.2"
   HELM_VALUES_SCHEMA_JSON_VERSION: "2.5.0"
 
@@ -26,7 +26,7 @@ jobs:
       - name: Check out code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Set up Python environment
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
       - name: Install helm-docs
         uses: giantswarm/install-binary-action@5bef88f65012037dd836117c8d344b21bb559854 # v4.1.0
         with:
@@ -37,7 +37,7 @@ jobs:
           smoke_test: "${binary} --version"
       - name: Cache schema plugin
         id: cache-schema
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
         with:
           path: /home/runner/.local/share/helm/plugins/helm-values-schema-json
           key: ${{ runner.os }}-${{ env.HELM_VALUES_SCHEMA_JSON_VERSION }}-schema
@@ -47,7 +47,7 @@ jobs:
           helm plugin install https://github.com/losisin/helm-values-schema-json \
             --version $HELM_VALUES_SCHEMA_JSON_VERSION
       - name: Set up Go environment
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version: "1.26"
       - name: Install goimports
