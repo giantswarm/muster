@@ -24,6 +24,7 @@ import (
 // providing transparent tracking without modifying workflow execution logic.
 type ExecutionTracker struct {
 	storage ExecutionStorage
+	metrics *workflowMetrics
 	mu      sync.RWMutex
 }
 
@@ -33,6 +34,7 @@ type ExecutionTracker struct {
 func NewExecutionTracker(storage ExecutionStorage) *ExecutionTracker {
 	return &ExecutionTracker{
 		storage: storage,
+		metrics: newWorkflowMetrics(),
 	}
 }
 
@@ -97,10 +99,23 @@ func (et *ExecutionTracker) TrackExecution(ctx context.Context, workflowName str
 		logging.Debug("ExecutionTracker", "Execution %s completed successfully", executionID)
 	}
 
-	// Store final execution record
-	if storageErr := et.storage.Store(ctx, execution); storageErr != nil {
-		logging.Warn("ExecutionTracker", "Failed to store final execution record %s: %v", executionID, storageErr)
+	// Bound the record size before persisting so a workflow that returns a
+	// huge payload cannot produce a record that exceeds the storage backend's
+	// per-object limit (etcd in Kubernetes mode).
+	if guardExecutionPayload(execution, maxExecutionPayloadBytes) {
+		logging.Debug("ExecutionTracker", "Truncated oversized payload for execution %s", executionID)
 	}
+
+	// Store final execution record. A failure here means the execution is
+	// invisible to dashboards and the core_workflow_execution_* tools, so log
+	// at Error level and increment a counter to make the gap observable
+	// instead of silently warning.
+	if storageErr := et.storage.Store(ctx, execution); storageErr != nil {
+		logging.Error("ExecutionTracker", storageErr, "Failed to store final execution record %s for workflow %s", executionID, workflowName)
+		et.metrics.recordStoreError(ctx, workflowName)
+	}
+
+	et.metrics.recordExecution(ctx, workflowName, execution.Status, time.Duration(execution.DurationMs)*time.Millisecond)
 
 	logging.Debug("ExecutionTracker", "Completed execution tracking for workflow %s (execution: %s, duration: %dms)",
 		workflowName, executionID, execution.DurationMs)
@@ -386,6 +401,15 @@ func (et *ExecutionTracker) ListExecutions(ctx context.Context, req *api.ListWor
 	defer et.mu.RUnlock()
 
 	return et.storage.List(ctx, req)
+}
+
+// Prune delegates retention pruning to the underlying storage, deleting records
+// that violate the retention policy and returning the number deleted.
+func (et *ExecutionTracker) Prune(ctx context.Context, policy RetentionPolicy) (int, error) {
+	et.mu.RLock()
+	defer et.mu.RUnlock()
+
+	return et.storage.Prune(ctx, policy)
 }
 
 // GetExecution returns detailed information about a specific workflow execution.

@@ -4,12 +4,13 @@ Complete reference for muster's Kubernetes Custom Resource Definitions. These CR
 
 ## Overview
 
-Muster provides two primary CRDs:
+Muster provides these CRDs:
 
 | CRD | API Version | Kind | Short Name | Purpose |
 |-----|-------------|------|------------|---------|
 | **MCPServer** | `muster.giantswarm.io/v1alpha1` | `MCPServer` | `mcps` | Manages MCP (Model Context Protocol) servers that provide tools |
 | **Workflow** | `muster.giantswarm.io/v1alpha1` | `Workflow` | `wf` | Defines multi-step processes for automated task execution |
+| **WorkflowExecution** | `muster.giantswarm.io/v1alpha1` | `WorkflowExecution` | `wfe` | Durable, immutable record of a single workflow run |
 
 ## MCPServer
 
@@ -856,6 +857,85 @@ kubectl describe workflow deploy-application
 # Create from file
 kubectl apply -f workflow.yaml
 ```
+
+---
+
+## WorkflowExecution
+
+A `WorkflowExecution` is the durable, immutable record of a single workflow run. When muster runs in Kubernetes mode, every `workflow_<name>` call persists one `WorkflowExecution` so execution history survives process restarts and is visible across replicas and through `kubectl`. In standalone `muster serve` the same records are kept on the filesystem instead.
+
+These records are written and pruned by muster — you do not create them by hand. They have **no status subresource**: the record is append-only history, not a reconciled resource. The object's `metadata.name` is the execution UUID.
+
+### Resource Definition
+
+```yaml
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: WorkflowExecution
+metadata:
+  name: <execution-uuid>
+  namespace: <namespace>
+  labels:
+    muster.giantswarm.io/workflow: <workflow-name>  # set by muster, used for list filtering
+    muster.giantswarm.io/status: <status>           # set by muster, used for list filtering
+spec:
+  workflowName: <workflow-name>
+  status: inprogress|completed|failed
+  startedAt: <timestamp>
+  completedAt: <timestamp>        # unset while in progress
+  durationMs: <int>
+  input: { ... }                  # original workflow arguments (arbitrary JSON)
+  result: { ... }                 # final result (arbitrary JSON; unset on failure/in progress)
+  error: "<message>"              # set only on failure
+  truncated: false                # true when oversized payloads were truncated to fit
+  steps:
+    - stepId: <id>
+      tool: <tool-name>
+      status: inprogress|completed|failed
+      startedAt: <timestamp>
+      completedAt: <timestamp>
+      durationMs: <int>
+      input: { ... }
+      result: { ... }
+      error: "<message>"
+      storedAs: <variable-name>
+```
+
+### Field Reference
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `spec.workflowName` | string (required) | Name of the workflow that was executed |
+| `spec.status` | enum | `inprogress`, `completed`, or `failed` |
+| `spec.startedAt` | timestamp (required) | When the execution began |
+| `spec.completedAt` | timestamp | When the execution finished (unset while in progress) |
+| `spec.durationMs` | int64 | Total execution duration in milliseconds |
+| `spec.input` | object | Original arguments passed to the workflow |
+| `spec.result` | object | Final result (unset on failure or while in progress) |
+| `spec.error` | string | Error message when `status: failed` |
+| `spec.steps[]` | list | Per-step records (id, tool, status, timings, input/result, error) |
+| `spec.truncated` | bool | True when oversized payloads were replaced with a truncation marker to keep the record within the size limit (256 KB) |
+
+### Retention
+
+Records are pruned automatically by a background GC: anything older than 21 days, plus a newest-10000 burst safety cap. These bounds are fixed in the current version.
+
+### CLI Usage
+
+```bash
+# List recent workflow executions
+kubectl get workflowexecutions
+# or using short name
+kubectl get wfe
+
+# Filter by workflow or status via labels
+kubectl get wfe -l muster.giantswarm.io/workflow=deploy-application
+kubectl get wfe -l muster.giantswarm.io/status=failed
+
+# Inspect a single run
+kubectl describe wfe <execution-uuid>
+```
+
+> Prefer the `core_workflow_execution_list` / `core_workflow_execution_get` tools for programmatic access — they return the same records through muster's API in both Kubernetes and filesystem modes.
 
 ---
 

@@ -99,6 +99,25 @@ attribute to the meta-tool name (`call_tool`, `list_tools`, …), not
 the underlying workload tool. Per-real-tool metrics would require a
 second recording site at `CallToolInternal`; not wired today.
 
+### Workflow execution metrics
+
+The workflow execution tracker emits three OTel instruments under the
+scope `github.com/giantswarm/muster/internal/workflow`, recorded once
+per finished workflow run:
+
+| OTel name                              | Type                  | Attributes          | Prometheus export name                       |
+|----------------------------------------|-----------------------|---------------------|----------------------------------------------|
+| `muster.workflow_executions`           | `Int64Counter`        | `workflow`, `status`| `muster_workflow_executions_total`           |
+| `muster.workflow_execution.duration`   | `Float64Histogram`/s  | `workflow`, `status`| `muster_workflow_execution_duration_seconds` |
+| `muster.workflow_execution.store_errors`| `Int64Counter`       | `workflow`          | `muster_workflow_execution_store_errors_total`|
+
+`status` is the terminal execution state (`completed` or `failed`).
+These are cheap workflow-level signals; per-step metrics are not wired.
+`muster_workflow_execution_store_errors_total` counts records that
+failed to persist — a non-zero rate means execution history is being
+lost (and dashboards built on the `WorkflowExecution` CRD will be
+incomplete).
+
 ## Structured logs
 
 The aggregator emits one info-level line per tool call from the

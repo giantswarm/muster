@@ -1,0 +1,49 @@
+name: "workflow-execution-payload-truncation"
+description: "A workflow execution whose stored record would exceed the payload-size guard is bounded before persistence: the live workflow result is returned in full, but the persisted record retrieved via core_workflow_execution_get carries a truncation marker so per-run records stay small enough for any backend (etcd in Kubernetes mode). Regression coverage for durable workflow execution tracking (#930)."
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "execution", "tracking", "truncation", "storage"]
+timeout: "3m"
+
+steps:
+# A workflow whose output template renders a payload far larger than the
+# persistence guard threshold (~256 KB). repeat keeps the scenario file tiny
+# while producing a multi-hundred-KB blob at execution time.
+- id: "create-large-payload-workflow"
+  tool: "core_workflow_create"
+  args:
+    name: "large-payload-workflow"
+    steps:
+      - id: "noop"
+        tool: "core_service_list"
+    output:
+      blob: "{{ repeat 400000 \"x\" }}"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "large-payload-workflow" }
+
+# The live execution returns the full oversized document to the caller.
+- id: "execute-large-payload-workflow"
+  tool: "workflow_large-payload-workflow"
+  args: {}
+  expected:
+    success: true
+
+# The persisted record, however, is bounded: retrieving it surfaces the
+# truncation marker rather than the full oversized blob.
+- id: "verify-stored-record-truncated"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ execute-large-payload-workflow.execution_id }}"
+  expected:
+    success: true
+    contains: ["truncated"]
+
+cleanup:
+- id: "final-cleanup-workflow"
+  tool: "core_workflow_delete"
+  args: { name: "large-payload-workflow" }
+  expected:
+    success: true

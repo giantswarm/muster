@@ -1,0 +1,175 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+  name: workflowexecutions.muster.giantswarm.io
+spec:
+  group: muster.giantswarm.io
+  names:
+    kind: WorkflowExecution
+    listKind: WorkflowExecutionList
+    plural: workflowexecutions
+    shortNames:
+    - wfe
+    singular: workflowexecution
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.workflowName
+      name: Workflow
+      type: string
+    - jsonPath: .spec.status
+      name: Status
+      type: string
+    - jsonPath: .spec.durationMs
+      name: Duration(ms)
+      type: integer
+    - jsonPath: .spec.startedAt
+      name: Started
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          WorkflowExecution is the Schema for the workflowexecutions API. It is an
+          immutable, durable record of a single workflow run and therefore has no
+          status subresource.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              WorkflowExecutionSpec is the durable record of a single workflow run.
+
+              A WorkflowExecution is an immutable, append-only record: it captures what
+              happened during one execution of a workflow and is never reconciled, so the
+              type intentionally has no status subresource. The object's metadata.name is
+              the execution UUID. It mirrors api.WorkflowExecution so the in-memory and
+              Kubernetes-backed representations stay aligned.
+            properties:
+              completedAt:
+                description: CompletedAt is the timestamp when the execution finished
+                  (nil if still running).
+                format: date-time
+                type: string
+              durationMs:
+                description: DurationMs is the total execution duration in milliseconds.
+                format: int64
+                type: integer
+              error:
+                description: Error contains error information if the execution failed
+                  (nil if successful).
+                type: string
+              input:
+                description: Input contains the original arguments passed to the workflow.
+                x-kubernetes-preserve-unknown-fields: true
+              result:
+                description: |-
+                  Result contains the final result of the workflow execution
+                  (nil if failed or in progress).
+                x-kubernetes-preserve-unknown-fields: true
+              startedAt:
+                description: StartedAt is the timestamp when the execution began.
+                format: date-time
+                type: string
+              status:
+                description: Status indicates the final (or current) state of the
+                  execution.
+                enum:
+                - inprogress
+                - completed
+                - failed
+                type: string
+              steps:
+                description: Steps contains detailed information about each step execution.
+                items:
+                  description: |-
+                    WorkflowExecutionStepRecord is the durable record of a single step execution
+                    within a workflow run. It mirrors api.WorkflowExecutionStep.
+                  properties:
+                    completedAt:
+                      description: CompletedAt is the timestamp when the step execution
+                        finished (nil if still running).
+                      format: date-time
+                      type: string
+                    durationMs:
+                      description: DurationMs is the step execution duration in milliseconds.
+                      format: int64
+                      type: integer
+                    error:
+                      description: Error contains error information if the step failed
+                        (nil if successful).
+                      type: string
+                    input:
+                      description: Input contains the resolved arguments passed to
+                        the tool for this step.
+                      x-kubernetes-preserve-unknown-fields: true
+                    result:
+                      description: |-
+                        Result contains the result returned by the tool execution
+                        (nil if failed or in progress).
+                      x-kubernetes-preserve-unknown-fields: true
+                    startedAt:
+                      description: StartedAt is the timestamp when the step execution
+                        began.
+                      format: date-time
+                      type: string
+                    status:
+                      description: Status indicates the final (or current) state of
+                        the step execution.
+                      enum:
+                      - inprogress
+                      - completed
+                      - failed
+                      type: string
+                    stepId:
+                      description: StepID is the unique identifier for this step within
+                        the workflow.
+                      type: string
+                    storedAs:
+                      description: StoredAs is the variable name where the step result
+                        was stored.
+                      type: string
+                    tool:
+                      description: Tool is the name of the tool that was executed
+                        for this step.
+                      type: string
+                  required:
+                  - status
+                  - stepId
+                  type: object
+                type: array
+              truncated:
+                description: |-
+                  Truncated indicates that oversized payloads (Result and/or step results)
+                  were truncated to keep the stored record within size limits.
+                type: boolean
+              workflowName:
+                description: WorkflowName is the name of the workflow that was executed.
+                type: string
+            required:
+            - startedAt
+            - status
+            - workflowName
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources: {}
