@@ -79,16 +79,28 @@ func newLogCapture() *logCapture {
 	return lc
 }
 
-// captureOutput captures output from a reader to a buffer
+// captureOutput captures output from a reader to a buffer.
+//
+// It uses a bufio.Reader rather than a bufio.Scanner because a Scanner aborts
+// on any line longer than its token limit (64 KiB by default). When that
+// happens the goroutine stops draining the io.Pipe, the subprocess blocks on
+// its next write, and the whole instance deadlocks. A debug-level log line
+// carrying a large workflow result easily exceeds that limit, so reading
+// length-unbounded lines keeps the subprocess from ever stalling on output.
 func (lc *logCapture) captureOutput(reader io.Reader, buffer *bytes.Buffer) {
 	defer lc.wg.Done()
 
-	scanner := bufio.NewScanner(reader)
-	for scanner.Scan() {
-		line := scanner.Text()
-		lc.mu.Lock()
-		buffer.WriteString(line + "\n")
-		lc.mu.Unlock()
+	br := bufio.NewReader(reader)
+	for {
+		line, err := br.ReadString('\n')
+		if len(line) > 0 {
+			lc.mu.Lock()
+			buffer.WriteString(line)
+			lc.mu.Unlock()
+		}
+		if err != nil {
+			return
+		}
 	}
 }
 

@@ -22,8 +22,9 @@ metadata:
     {{- include "muster.labels" . | nindent 4 }}
 rules:
   # Muster CRDs - required for managing MCPServer, Workflow resources
+  # and durable WorkflowExecution records.
   - apiGroups: ["muster.giantswarm.io"]
-    resources: ["mcpservers", "workflows"]
+    resources: ["mcpservers", "workflows", "workflowexecutions"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 
   # Muster CRD status subresources - for updating status fields

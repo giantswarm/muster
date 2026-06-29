@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/config"
@@ -31,6 +32,11 @@ type ExecutionStorage interface {
 
 	// Delete removes a workflow execution record (for cleanup)
 	Delete(ctx context.Context, executionID string) error
+
+	// Prune deletes records that violate the retention policy (older than
+	// MaxAge and/or beyond the newest MaxCount) and returns the number of
+	// records deleted. An empty policy is a no-op.
+	Prune(ctx context.Context, policy RetentionPolicy) (int, error)
 }
 
 // ExecutionStorageImpl implements ExecutionStorage using the existing config.Storage
@@ -42,6 +48,9 @@ type ExecutionStorageImpl struct {
 	storage *config.Storage
 	mu      sync.RWMutex
 	cache   map[string]*api.WorkflowExecutionSummary // Cache for efficient listing
+
+	// now is injectable so the retention GC is unit-testable without sleeping.
+	now func() time.Time
 }
 
 // NewExecutionStorage creates a new execution storage instance that integrates
@@ -58,6 +67,7 @@ func NewExecutionStorage(configPath string) ExecutionStorage {
 	return &ExecutionStorageImpl{
 		storage: storage,
 		cache:   make(map[string]*api.WorkflowExecutionSummary),
+		now:     time.Now,
 	}
 }
 
@@ -207,6 +217,45 @@ func (es *ExecutionStorageImpl) Delete(ctx context.Context, executionID string) 
 
 	logging.Debug("ExecutionStorage", "Deleted execution %s", executionID)
 	return nil
+}
+
+// Prune deletes execution records that violate the retention policy: records
+// older than MaxAge and/or records beyond the newest MaxCount (by StartedAt).
+// It returns the number of records deleted. An empty policy deletes nothing.
+func (es *ExecutionStorageImpl) Prune(ctx context.Context, policy RetentionPolicy) (int, error) {
+	if policy.MaxAge <= 0 && policy.MaxCount <= 0 {
+		return 0, nil
+	}
+
+	// Snapshot the current summaries under the write lock (refreshCache mutates
+	// the cache), then release it before deleting so Delete can take its own
+	// lock without deadlocking.
+	es.mu.Lock()
+	if err := es.refreshCache(); err != nil {
+		es.mu.Unlock()
+		return 0, fmt.Errorf("failed to refresh execution cache for pruning: %w", err)
+	}
+	records := make([]retentionRecord, 0, len(es.cache))
+	for _, summary := range es.cache {
+		records = append(records, retentionRecord{ID: summary.ExecutionID, StartedAt: summary.StartedAt})
+	}
+	es.mu.Unlock()
+
+	deleted := 0
+	for _, id := range selectForDeletion(records, es.now(), policy) {
+		if err := es.Delete(ctx, id); err != nil {
+			if strings.Contains(err.Error(), "not found") {
+				continue
+			}
+			return deleted, fmt.Errorf("failed to prune execution %s: %w", id, err)
+		}
+		deleted++
+	}
+
+	if deleted > 0 {
+		logging.Debug("ExecutionStorage", "Pruned %d execution(s)", deleted)
+	}
+	return deleted, nil
 }
 
 // refreshCache scans the workflow_executions directory and updates the in-memory cache

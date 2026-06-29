@@ -375,6 +375,13 @@ type WorkflowExecution struct {
 
 	// Steps contains detailed information about each step execution
 	Steps []WorkflowExecutionStep `json:"steps"`
+
+	// Truncated indicates that oversized payloads (the workflow/step Input
+	// and/or Result fields) were bounded before the record was persisted, so the
+	// stored record stays well within the backend's per-object size limit (e.g.
+	// etcd in Kubernetes mode). When true, the omitted payloads were replaced
+	// with a marker.
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 // WorkflowExecutionStep represents a single step execution within a workflow.

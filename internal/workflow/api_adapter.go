@@ -26,6 +26,17 @@ import (
 // the workflow-level output template.
 const fieldOutput = "output"
 
+// Retention defaults bound how long execution records are kept and cap the
+// total count as a burst safety net. The GC runs on a fixed interval.
+//
+// ponytail: these are constants for v1. The upgrade path is to promote them to
+// the muster config surface once a deployment needs different retention.
+const (
+	defaultRetentionMaxAge   = 21 * 24 * time.Hour
+	defaultRetentionMaxCount = 10000
+	retentionGCInterval      = time.Hour
+)
+
 // Adapter provides the API adapter for workflow management
 type Adapter struct {
 	client           client.MusterClient
@@ -37,6 +48,9 @@ type Adapter struct {
 	// Prevent circular dependency during tool generation
 	generatingTools bool
 	mu              sync.RWMutex
+
+	// stopGC cancels the background retention GC goroutine on Stop.
+	stopGC context.CancelFunc
 }
 
 // ToolAvailabilityChecker interface for checking tool availability
@@ -59,13 +73,58 @@ func NewAdapterWithClient(musterClient client.MusterClient, namespace string, to
 	adapter := &Adapter{
 		client:           musterClient,
 		namespace:        namespace,
-		executionTracker: NewExecutionTracker(NewExecutionStorage(configPath)),
+		executionTracker: NewExecutionTracker(newExecutionStorage(musterClient, namespace, configPath)),
 		toolChecker:      toolChecker,
 	}
 
 	adapter.executor = NewWorkflowExecutor(toolCaller, adapter)
 
+	// Start the background retention GC so execution records stay bounded in
+	// both backends without manual cleanup.
+	gcCtx, cancel := context.WithCancel(context.Background())
+	adapter.stopGC = cancel
+	go adapter.runRetentionGC(gcCtx)
+
 	return adapter
+}
+
+// runRetentionGC periodically prunes execution records that violate the default
+// retention policy until ctx is cancelled. The age cutoff uses the storage's
+// injectable clock, so the prune logic is unit-testable without sleeping.
+func (a *Adapter) runRetentionGC(ctx context.Context) {
+	ticker := time.NewTicker(retentionGCInterval)
+	defer ticker.Stop()
+
+	policy := RetentionPolicy{
+		MaxAge:   defaultRetentionMaxAge,
+		MaxCount: defaultRetentionMaxCount,
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			deleted, err := a.executionTracker.Prune(ctx, policy)
+			if err != nil {
+				logging.Warn("WorkflowAdapter", "Execution retention GC failed: %v", err)
+				continue
+			}
+			if deleted > 0 {
+				logging.Info("WorkflowAdapter", "Execution retention GC pruned %d record(s)", deleted)
+			}
+		}
+	}
+}
+
+// newExecutionStorage selects the execution-storage backend by deployment mode:
+// the durable Kubernetes CRD backend when running against a cluster, and the
+// filesystem backend for standalone `muster serve` (a writable config dir).
+func newExecutionStorage(musterClient client.MusterClient, namespace, configPath string) ExecutionStorage {
+	if musterClient != nil && musterClient.IsKubernetesMode() {
+		return newK8sExecutionStorage(musterClient, namespace)
+	}
+	return NewExecutionStorage(configPath)
 }
 
 // Register registers this adapter with the API layer
@@ -542,6 +601,9 @@ func (a *Adapter) CallToolInternal(ctx context.Context, toolName string, args ma
 
 // Stop stops the workflow adapter
 func (a *Adapter) Stop() {
+	if a.stopGC != nil {
+		a.stopGC()
+	}
 	if a.client != nil {
 		_ = a.client.Close()
 	}

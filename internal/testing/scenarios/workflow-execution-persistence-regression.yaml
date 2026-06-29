@@ -1,0 +1,95 @@
+name: "workflow-execution-persistence-regression"
+description: "Durable execution tracking keeps working end-to-end after the storage seam, payload guard, retention GC and metrics changes land: executing a workflow records a per-run document that is listable and retrievable (summary, full steps, and a single step) via the core_workflow_execution_* tools. Backend-agnostic regression for #930."
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "execution", "tracking", "persistence", "storage"]
+timeout: "3m"
+
+pre_configuration:
+  mcp_servers:
+  - name: "echo-provider"
+    config:
+      tools:
+      - name: "first"
+        responses: [ { response: "first_payload" } ]
+      - name: "second"
+        responses: [ { response: "second_payload" } ]
+
+steps:
+- id: "create-tracked-workflow"
+  tool: "core_workflow_create"
+  args:
+    name: "persistence-regression-workflow"
+    args:
+      label:
+        type: "string"
+        default: "regression"
+    steps:
+      - id: "first_step"
+        tool: "x_echo-provider_first"
+        output: true
+      - id: "second_step"
+        tool: "x_echo-provider_second"
+        output: true
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "persistence-regression-workflow" }
+
+- id: "execute-tracked-workflow"
+  tool: "workflow_persistence-regression-workflow"
+  args:
+    label: "run-1"
+  expected:
+    success: true
+    json_path:
+      status: "completed"
+      workflow: "persistence-regression-workflow"
+
+# The execution is discoverable via the list tool.
+- id: "list-tracked-executions"
+  tool: "core_workflow_execution_list"
+  args:
+    workflow_name: "persistence-regression-workflow"
+  expected:
+    success: true
+    contains: ["persistence-regression-workflow", "completed"]
+
+# The full record (with steps) is retrievable and carries the recorded step data.
+- id: "get-tracked-execution-full"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ execute-tracked-workflow.execution_id }}"
+    include_steps: true
+  expected:
+    success: true
+    contains: ["first_step", "second_step", "first_payload", "second_payload"]
+
+# The summary view (no steps) still returns execution metadata.
+- id: "get-tracked-execution-summary"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ execute-tracked-workflow.execution_id }}"
+    include_steps: false
+  expected:
+    success: true
+    contains: ["persistence-regression-workflow", "completed"]
+    not_contains: ["second_step"]
+
+# A single step is retrievable by id.
+- id: "get-tracked-execution-step"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ execute-tracked-workflow.execution_id }}"
+    step_id: "first_step"
+  expected:
+    success: true
+    contains: ["first_step"]
+
+cleanup:
+- id: "final-cleanup-workflow"
+  tool: "core_workflow_delete"
+  args: { name: "persistence-regression-workflow" }
+  expected:
+    success: true
