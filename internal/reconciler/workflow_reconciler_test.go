@@ -391,6 +391,161 @@ func TestWorkflowReconciler_SyncStatus_InvalidWorkflow(t *testing.T) {
 	}
 }
 
+func TestWorkflowReconciler_SyncStatus_ParallelStepIsValid(t *testing.T) {
+	mgr := NewMockWorkflowManager()
+	statusUpdater := NewMockStatusUpdater()
+
+	reconciler := NewWorkflowReconciler(mgr).
+		WithStatusUpdater(statusUpdater, "default")
+
+	// A parallel container step carries no top-level tool; its sub-steps do.
+	// This mirrors the gazelle cluster-health/failing-pods/pod-health workflows
+	// that muster previously flagged invalid with "step 'probe': tool is required".
+	mgr.AddWorkflow(&api.Workflow{
+		Name: "test-workflow",
+		Steps: []api.WorkflowStep{
+			{
+				ID: "probe",
+				Parallel: []api.WorkflowSubStep{
+					{ID: "pods", Tool: "x_kubernetes_pods"},
+					{ID: "nodes", Tool: "x_kubernetes_nodes"},
+				},
+			},
+		},
+	})
+
+	ctx := context.Background()
+	_ = reconciler.Reconcile(ctx, ReconcileRequest{
+		Type:      ResourceTypeWorkflow,
+		Name:      "test-workflow",
+		Namespace: "default",
+		Attempt:   1,
+	})
+
+	if statusUpdater.LastUpdatedWorkflow == nil {
+		t.Fatal("expected LastUpdatedWorkflow to be set")
+	}
+	if !statusUpdater.LastUpdatedWorkflow.Status.Valid {
+		t.Errorf("expected Valid=true for parallel-container workflow, got errors %v",
+			statusUpdater.LastUpdatedWorkflow.Status.ValidationErrors)
+	}
+	tools := statusUpdater.LastUpdatedWorkflow.Status.ReferencedTools
+	if len(tools) != 2 || tools[0] != "x_kubernetes_nodes" || tools[1] != "x_kubernetes_pods" {
+		t.Errorf("expected parallel sub-step tools to be referenced, got %v", tools)
+	}
+}
+
+func TestWorkflowReconciler_SyncStatus_ForEachStepIsValid(t *testing.T) {
+	mgr := NewMockWorkflowManager()
+	statusUpdater := NewMockStatusUpdater()
+
+	reconciler := NewWorkflowReconciler(mgr).
+		WithStatusUpdater(statusUpdater, "default")
+
+	mgr.AddWorkflow(&api.Workflow{
+		Name: "test-workflow",
+		Steps: []api.WorkflowStep{
+			{
+				ID: "fan-out",
+				ForEach: &api.WorkflowForEach{
+					Items: "{{ .input.clusters }}",
+					Steps: []api.WorkflowSubStep{
+						{ID: "check", Tool: "x_kubernetes_get"},
+					},
+				},
+			},
+		},
+	})
+
+	ctx := context.Background()
+	_ = reconciler.Reconcile(ctx, ReconcileRequest{
+		Type:      ResourceTypeWorkflow,
+		Name:      "test-workflow",
+		Namespace: "default",
+		Attempt:   1,
+	})
+
+	if statusUpdater.LastUpdatedWorkflow == nil {
+		t.Fatal("expected LastUpdatedWorkflow to be set")
+	}
+	if !statusUpdater.LastUpdatedWorkflow.Status.Valid {
+		t.Errorf("expected Valid=true for forEach-container workflow, got errors %v",
+			statusUpdater.LastUpdatedWorkflow.Status.ValidationErrors)
+	}
+}
+
+func TestWorkflowReconciler_SyncStatus_ContainerSubStepRequiresTool(t *testing.T) {
+	mgr := NewMockWorkflowManager()
+	statusUpdater := NewMockStatusUpdater()
+
+	reconciler := NewWorkflowReconciler(mgr).
+		WithStatusUpdater(statusUpdater, "default")
+
+	// A parallel sub-step still requires its own tool.
+	mgr.AddWorkflow(&api.Workflow{
+		Name: "test-workflow",
+		Steps: []api.WorkflowStep{
+			{
+				ID: "probe",
+				Parallel: []api.WorkflowSubStep{
+					{ID: "pods", Tool: ""}, // Invalid - sub-step tool is required
+				},
+			},
+		},
+	})
+
+	ctx := context.Background()
+	_ = reconciler.Reconcile(ctx, ReconcileRequest{
+		Type:      ResourceTypeWorkflow,
+		Name:      "test-workflow",
+		Namespace: "default",
+		Attempt:   1,
+	})
+
+	if statusUpdater.LastUpdatedWorkflow == nil {
+		t.Fatal("expected LastUpdatedWorkflow to be set")
+	}
+	if statusUpdater.LastUpdatedWorkflow.Status.Valid {
+		t.Error("expected Valid=false when a parallel sub-step has no tool")
+	}
+}
+
+func TestWorkflowReconciler_SyncStatus_ToolAndContainerMutuallyExclusive(t *testing.T) {
+	mgr := NewMockWorkflowManager()
+	statusUpdater := NewMockStatusUpdater()
+
+	reconciler := NewWorkflowReconciler(mgr).
+		WithStatusUpdater(statusUpdater, "default")
+
+	mgr.AddWorkflow(&api.Workflow{
+		Name: "test-workflow",
+		Steps: []api.WorkflowStep{
+			{
+				ID:   "probe",
+				Tool: "some-tool",
+				Parallel: []api.WorkflowSubStep{
+					{ID: "pods", Tool: "x_kubernetes_pods"},
+				},
+			},
+		},
+	})
+
+	ctx := context.Background()
+	_ = reconciler.Reconcile(ctx, ReconcileRequest{
+		Type:      ResourceTypeWorkflow,
+		Name:      "test-workflow",
+		Namespace: "default",
+		Attempt:   1,
+	})
+
+	if statusUpdater.LastUpdatedWorkflow == nil {
+		t.Fatal("expected LastUpdatedWorkflow to be set")
+	}
+	if statusUpdater.LastUpdatedWorkflow.Status.Valid {
+		t.Error("expected Valid=false when a step sets both tool and parallel")
+	}
+}
+
 func TestWorkflowReconciler_SyncStatus_ExtractReferencedTools(t *testing.T) {
 	mgr := NewMockWorkflowManager()
 	statusUpdater := NewMockStatusUpdater()
