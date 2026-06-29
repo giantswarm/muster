@@ -174,6 +174,25 @@ func (r *WorkflowReconciler) extractReferencedTools(wf *api.Workflow) []string {
 		if step.Condition != nil && step.Condition.Tool != "" {
 			toolSet[step.Condition.Tool] = true
 		}
+		// Container steps (parallel/forEach) carry their tools on sub-steps.
+		for _, sub := range step.Parallel {
+			if sub.Tool != "" {
+				toolSet[sub.Tool] = true
+			}
+			if sub.Condition != nil && sub.Condition.Tool != "" {
+				toolSet[sub.Condition.Tool] = true
+			}
+		}
+		if step.ForEach != nil {
+			for _, sub := range step.ForEach.Steps {
+				if sub.Tool != "" {
+					toolSet[sub.Tool] = true
+				}
+				if sub.Condition != nil && sub.Condition.Tool != "" {
+					toolSet[sub.Condition.Tool] = true
+				}
+			}
+		}
 	}
 
 	// Convert to sorted slice for deterministic output
@@ -246,8 +265,31 @@ func (r *WorkflowReconciler) validateWorkflow(wf *api.Workflow) error {
 		}
 		stepIDs[step.ID] = true
 
-		if step.Tool == "" {
-			return fmt.Errorf("step '%s': tool is required", step.ID)
+		// A step is a container when it carries a forEach loop or a parallel
+		// group. Container steps legitimately have no top-level tool; their
+		// sub-steps carry the tools. A leaf step must specify exactly one tool.
+		composite := step.ForEach != nil || len(step.Parallel) > 0
+		switch {
+		case step.Tool == "" && !composite:
+			return fmt.Errorf("step '%s': one of tool, forEach, or parallel is required", step.ID)
+		case step.Tool != "" && composite:
+			return fmt.Errorf("step '%s': tool is mutually exclusive with forEach/parallel", step.ID)
+		case step.ForEach != nil && len(step.Parallel) > 0:
+			return fmt.Errorf("step '%s': forEach and parallel are mutually exclusive", step.ID)
+		}
+
+		// Sub-steps of a container always require a tool of their own.
+		for j, sub := range step.Parallel {
+			if sub.Tool == "" {
+				return fmt.Errorf("step '%s': parallel sub-step %d (%s): tool is required", step.ID, j, sub.ID)
+			}
+		}
+		if step.ForEach != nil {
+			for j, sub := range step.ForEach.Steps {
+				if sub.Tool == "" {
+					return fmt.Errorf("step '%s': forEach sub-step %d (%s): tool is required", step.ID, j, sub.ID)
+				}
+			}
 		}
 	}
 
