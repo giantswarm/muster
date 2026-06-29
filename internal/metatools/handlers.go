@@ -290,9 +290,9 @@ func (p *Provider) filterToolsWithOptions(ctx context.Context, opts filterToolsO
 	}
 	var ordered []scoredTool
 	if opts.query != "" {
-		docs := make([]string, len(matched))
+		docs := make([]rankDoc, len(matched))
 		for i, t := range matched {
-			docs[i] = t.Name + " " + summarizeText(t.Description, 0)
+			docs[i] = rankDoc{name: t.Name, description: summarizeText(t.Description, 0)}
 		}
 		for _, rd := range rankBM25(opts.query, docs) {
 			ordered = append(ordered, scoredTool{tool: matched[rd.index], score: rd.score, scored: true})
