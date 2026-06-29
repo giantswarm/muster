@@ -36,6 +36,27 @@ func TestGuardExecutionPayloadTruncatesOversized(t *testing.T) {
 	require.NotEqual(t, huge, exec.Result)
 }
 
+func TestGuardExecutionPayloadTruncatesOversizedInput(t *testing.T) {
+	huge := strings.Repeat("x", 8*1024)
+	exec := &api.WorkflowExecution{
+		ExecutionID:  "exec-1",
+		WorkflowName: "alpha",
+		Status:       api.WorkflowExecutionCompleted,
+		Input:        map[string]interface{}{"blob": huge},
+		Steps: []api.WorkflowExecutionStep{
+			{StepID: "step-1", Tool: "x_echo_echo", Status: api.WorkflowExecutionCompleted, Input: map[string]interface{}{"blob": huge}},
+		},
+	}
+
+	truncated := guardExecutionPayload(exec, 1024)
+	require.True(t, truncated, "an oversized Input must be reported as truncated")
+	require.True(t, exec.Truncated, "the record must be flagged Truncated")
+
+	// The oversized Input was replaced and the bounded record fits the limit.
+	require.NotEqual(t, huge, exec.Input["blob"])
+	require.LessOrEqual(t, payloadSize(exec), 1024)
+}
+
 func TestGuardExecutionPayloadLeavesSmallRecord(t *testing.T) {
 	exec := &api.WorkflowExecution{
 		ExecutionID:  "exec-1",

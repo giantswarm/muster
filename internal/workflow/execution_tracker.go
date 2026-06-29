@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/giantswarm/muster/internal/api"
@@ -25,7 +24,6 @@ import (
 type ExecutionTracker struct {
 	storage ExecutionStorage
 	metrics *workflowMetrics
-	mu      sync.RWMutex
 }
 
 // NewExecutionTracker creates a new execution tracker with the specified storage.
@@ -397,27 +395,18 @@ func (et *ExecutionTracker) parseResult(result *mcp.CallToolResult) interface{} 
 // ListExecutions returns paginated workflow executions with optional filtering.
 // This provides a convenient way to access execution history through the tracker.
 func (et *ExecutionTracker) ListExecutions(ctx context.Context, req *api.ListWorkflowExecutionsRequest) (*api.ListWorkflowExecutionsResponse, error) {
-	et.mu.RLock()
-	defer et.mu.RUnlock()
-
 	return et.storage.List(ctx, req)
 }
 
 // Prune delegates retention pruning to the underlying storage, deleting records
 // that violate the retention policy and returning the number deleted.
 func (et *ExecutionTracker) Prune(ctx context.Context, policy RetentionPolicy) (int, error) {
-	et.mu.RLock()
-	defer et.mu.RUnlock()
-
 	return et.storage.Prune(ctx, policy)
 }
 
 // GetExecution returns detailed information about a specific workflow execution.
 // This provides a convenient way to access individual execution records through the tracker.
 func (et *ExecutionTracker) GetExecution(ctx context.Context, req *api.GetWorkflowExecutionRequest) (*api.WorkflowExecution, error) {
-	et.mu.RLock()
-	defer et.mu.RUnlock()
-
 	execution, err := et.storage.Get(ctx, req.ExecutionID)
 	if err != nil {
 		return nil, err

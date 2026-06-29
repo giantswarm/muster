@@ -159,8 +159,9 @@ spec:
                 type: array
               truncated:
                 description: |-
-                  Truncated indicates that oversized payloads (Result and/or step results)
-                  were truncated to keep the stored record within size limits.
+                  Truncated indicates that oversized payloads (the workflow/step Input
+                  and/or Result fields) were truncated to keep the stored record within
+                  size limits.
                 type: boolean
               workflowName:
                 description: WorkflowName is the name of the workflow that was executed.

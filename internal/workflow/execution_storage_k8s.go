@@ -31,19 +31,6 @@ const (
 	labelStatus   = "muster.giantswarm.io/status"
 )
 
-// RetentionPolicy bounds how old a record may be and how many records are kept
-// before the retention GC prunes it. The zero value is a no-op (keep
-// everything), so an unset policy never deletes records.
-type RetentionPolicy struct {
-	// MaxAge deletes records whose StartedAt is older than now-MaxAge. A zero
-	// value disables age-based pruning.
-	MaxAge time.Duration
-
-	// MaxCount keeps only the newest MaxCount records (by StartedAt). A zero
-	// value disables count-based pruning.
-	MaxCount int
-}
-
 // k8sExecutionStorage is the Kubernetes-backed ExecutionStorage. It persists
 // each workflow run as a WorkflowExecution CRD via the controller-runtime
 // client embedded in MusterClient, so records survive process restarts and are
@@ -207,43 +194,25 @@ func (s *k8sExecutionStorage) Prune(ctx context.Context, policy RetentionPolicy)
 	if err := s.client.List(ctx, &list, crclient.InNamespace(s.namespace)); err != nil {
 		return 0, fmt.Errorf("failed to list executions for pruning: %w", err)
 	}
-	items := list.Items
 
-	toDelete := make(map[int]bool)
-
-	if policy.MaxAge > 0 {
-		cutoff := s.now().Add(-policy.MaxAge)
-		for i := range items {
-			if items[i].Spec.StartedAt.Time.Before(cutoff) {
-				toDelete[i] = true
-			}
-		}
-	}
-
-	if policy.MaxCount > 0 && len(items) > policy.MaxCount {
-		order := make([]int, len(items))
-		for i := range order {
-			order[i] = i
-		}
-		// Newest first so the oldest records fall past the count cap.
-		sort.SliceStable(order, func(a, b int) bool {
-			return items[order[a]].Spec.StartedAt.After(items[order[b]].Spec.StartedAt.Time)
+	records := make([]retentionRecord, 0, len(list.Items))
+	for i := range list.Items {
+		records = append(records, retentionRecord{
+			ID:        list.Items[i].Name,
+			StartedAt: list.Items[i].Spec.StartedAt.Time,
 		})
-		for _, i := range order[policy.MaxCount:] {
-			toDelete[i] = true
-		}
 	}
 
 	deleted := 0
-	for i := range items {
-		if !toDelete[i] {
-			continue
+	for _, id := range selectForDeletion(records, s.now(), policy) {
+		crd := &musterv1alpha1.WorkflowExecution{
+			ObjectMeta: metav1.ObjectMeta{Name: id, Namespace: s.namespace},
 		}
-		if err := s.client.Delete(ctx, &items[i]); err != nil {
+		if err := s.client.Delete(ctx, crd); err != nil {
 			if apierrors.IsNotFound(err) {
 				continue
 			}
-			return deleted, fmt.Errorf("failed to prune execution %s: %w", items[i].Name, err)
+			return deleted, fmt.Errorf("failed to prune execution %s: %w", id, err)
 		}
 		deleted++
 	}
@@ -387,6 +356,7 @@ func toJSON(v interface{}) *apiextensionsv1.JSON {
 	}
 	raw, err := json.Marshal(v)
 	if err != nil {
+		logging.Debug("ExecutionStorage", "Dropping unmarshalable payload field: %v", err)
 		return nil
 	}
 	return &apiextensionsv1.JSON{Raw: raw}
@@ -399,6 +369,7 @@ func fromJSON(j *apiextensionsv1.JSON) interface{} {
 	}
 	var v interface{}
 	if err := json.Unmarshal(j.Raw, &v); err != nil {
+		logging.Debug("ExecutionStorage", "Dropping malformed payload field: %v", err)
 		return nil
 	}
 	return v
@@ -412,6 +383,7 @@ func mapFromJSON(j *apiextensionsv1.JSON) map[string]interface{} {
 	}
 	var m map[string]interface{}
 	if err := json.Unmarshal(j.Raw, &m); err != nil {
+		logging.Debug("ExecutionStorage", "Dropping malformed map payload field: %v", err)
 		return nil
 	}
 	return m

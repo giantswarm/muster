@@ -46,8 +46,9 @@ type WorkflowExecutionSpec struct {
 	// Steps contains detailed information about each step execution.
 	Steps []WorkflowExecutionStepRecord `json:"steps,omitempty" yaml:"steps,omitempty"`
 
-	// Truncated indicates that oversized payloads (Result and/or step results)
-	// were truncated to keep the stored record within size limits.
+	// Truncated indicates that oversized payloads (the workflow/step Input
+	// and/or Result fields) were truncated to keep the stored record within
+	// size limits.
 	Truncated bool `json:"truncated,omitempty" yaml:"truncated,omitempty"`
 }
 

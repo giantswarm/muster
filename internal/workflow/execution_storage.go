@@ -235,35 +235,14 @@ func (es *ExecutionStorageImpl) Prune(ctx context.Context, policy RetentionPolic
 		es.mu.Unlock()
 		return 0, fmt.Errorf("failed to refresh execution cache for pruning: %w", err)
 	}
-	summaries := make([]*api.WorkflowExecutionSummary, 0, len(es.cache))
+	records := make([]retentionRecord, 0, len(es.cache))
 	for _, summary := range es.cache {
-		summaries = append(summaries, summary)
+		records = append(records, retentionRecord{ID: summary.ExecutionID, StartedAt: summary.StartedAt})
 	}
 	es.mu.Unlock()
 
-	toDelete := make(map[string]struct{})
-
-	if policy.MaxAge > 0 {
-		cutoff := es.now().Add(-policy.MaxAge)
-		for _, summary := range summaries {
-			if summary.StartedAt.Before(cutoff) {
-				toDelete[summary.ExecutionID] = struct{}{}
-			}
-		}
-	}
-
-	if policy.MaxCount > 0 && len(summaries) > policy.MaxCount {
-		// Newest first so the oldest records fall past the count cap.
-		sort.Slice(summaries, func(i, j int) bool {
-			return summaries[i].StartedAt.After(summaries[j].StartedAt)
-		})
-		for _, summary := range summaries[policy.MaxCount:] {
-			toDelete[summary.ExecutionID] = struct{}{}
-		}
-	}
-
 	deleted := 0
-	for id := range toDelete {
+	for _, id := range selectForDeletion(records, es.now(), policy) {
 		if err := es.Delete(ctx, id); err != nil {
 			if strings.Contains(err.Error(), "not found") {
 				continue
