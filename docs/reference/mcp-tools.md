@@ -23,7 +23,7 @@ Reference guide for AI agents and MCP clients working with Muster's tools. This 
 |----------|------|---------|---------|
 | `pattern` | string | — | Glob match on the tool name (e.g. `x_kubernetes_*`). |
 | `description_filter` | string | — | Case-insensitive substring match on the full description. |
-| `query` | string | — | Natural-language query. When set, matches are relevance-ranked (lexical BM25 over name + summary), returned best-first with a `score`; non-matching tools are dropped. |
+| `query` | string | — | Natural-language query. When set, matches are relevance-ranked (field-weighted lexical BM25F over name + summary — name matches weigh higher than description matches, and ubiquitous verbs like `list`/`get` are down-weighted so the discriminating noun drives ranking), returned best-first with a `score`; non-matching tools are dropped. |
 | `labels` | object | — | Label facets as key=value pairs. A tool must carry every given label to match. Only workflow tools carry labels today — they inherit the `Workflow` CRD's `metadata.labels`; core (`core_*`) and external (`x_*`) tools have none, so a `labels` facet currently scopes discovery to labelled workflows. |
 | `case_sensitive` | bool | `false` | Case-sensitive name matching. |
 | `include_schema` | bool | `false` | Return full descriptions **and** input schemas instead of one-line summaries. |
