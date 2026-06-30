@@ -232,6 +232,9 @@ func TestBrokerExchanger_DownstreamError(t *testing.T) {
 	assert.False(t, errors.Is(err, oauthserver.ErrInvalidTarget))
 }
 
+// issuedTokenType is the RFC 8693 access-token URN returned by stub providers.
+const issuedTokenType = "urn:ietf:params:oauth:token-type:access_token" //nolint:gosec // G101: RFC 8693 token-type URN, not a credential
+
 // funcProvider is a CredentialProvider backed by a function, used in tests to
 // capture or stub Mint calls without a full provider implementation.
 type funcProvider struct {

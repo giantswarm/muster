@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Removed
+
+- The `github-app` broker target type and its `githubApp` config block. Broker targets now support `oidc-exchange` (default) and `local-mint`.
+
 ### Fixed
 
 - `filter_tools` query ranking now weights tool-name matches over description matches and down-weights the ubiquitous CRUD verbs (`list`, `get`), so an intent query is driven by its discriminating noun rather than a generic verb. Previously name and description were concatenated into one BM25 document scored token-equally, so `list pods` surfaced pagerduty `x_pd_list_*` and `core_*_list` above `x_kubernetes_list` and the pod workflows (the generic `list` token dominated). The ranker is now a BM25F-style field-weighted lexical scorer: name and description are scored as separate length-normalised fields, name matches weigh higher, and stop-verb contributions are scaled down (down-weighted, not dropped, so a `list`-only query still ranks list-shaped tools). ([#931](https://github.com/giantswarm/muster/issues/931))

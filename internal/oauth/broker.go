@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/giantswarm/mcp-oauth/providers/tokencache"
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
 
 	"github.com/giantswarm/muster/internal/config"
@@ -33,12 +32,10 @@ import (
 //
 // Thread-safe: Yes.
 type BrokerExchanger struct {
-	cfg         config.TokenExchangeBrokerConfig
-	exchanger   *TokenExchanger
-	githubCache *tokencache.Cache
-	httpClient  *http.Client // shared HTTP client for downstream calls
-	localMint   *oauthserver.LocalMintExchanger
-	registry    *providerRegistry
+	cfg       config.TokenExchangeBrokerConfig
+	exchanger *TokenExchanger
+	localMint *oauthserver.LocalMintExchanger
+	registry  *providerRegistry
 }
 
 // NewBrokerExchanger creates a BrokerExchanger for the configured targets.
@@ -60,10 +57,8 @@ func NewBrokerExchanger(cfg config.TokenExchangeBrokerConfig, localMint *oauthse
 			AllowPrivateIP: cfg.AllowPrivateIP,
 			HTTPClient:     httpClient,
 		}),
-		githubCache: tokencache.New(),
-		httpClient:  httpClient,
-		localMint:   localMint,
-		registry:    defaultProviderRegistry(),
+		localMint: localMint,
+		registry:  defaultProviderRegistry(),
 	}
 }
 
@@ -78,11 +73,9 @@ func (b *BrokerExchanger) Exchange(ctx context.Context, req *oauthserver.Exchang
 	}
 
 	deps := providerDeps{
-		exchanger:   b.exchanger,
-		githubCache: b.githubCache,
-		httpClient:  b.httpClient,
-		defaultNS:   b.cfg.DefaultSecretNamespace,
-		localMint:   b.localMint,
+		exchanger: b.exchanger,
+		defaultNS: b.cfg.DefaultSecretNamespace,
+		localMint: b.localMint,
 	}
 	provider, err := b.registry.forTarget(req.Audience, target, deps)
 	if err != nil {

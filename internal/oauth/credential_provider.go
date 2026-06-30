@@ -3,10 +3,8 @@ package oauth
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"time"
 
-	"github.com/giantswarm/mcp-oauth/providers/tokencache"
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
 
 	"github.com/giantswarm/muster/internal/api"
@@ -17,7 +15,7 @@ import (
 // CredentialProvider mints credentials for one broker target.
 //
 // Each implementation encapsulates the downstream token-exchange protocol for a
-// specific target type (e.g. OIDC/Dex exchange, GitHub App installation token).
+// specific target type (e.g. OIDC/Dex exchange, locally minted JWT).
 // The broker calls Mint after mcp-oauth has already validated and authorized the
 // request: the provider only needs to perform the downstream exchange.
 type CredentialProvider interface {
@@ -84,11 +82,8 @@ type MintResult struct {
 // constructed per Exchange call. The broker builds this once in NewBrokerExchanger
 // and threads it through the factory so caches survive individual Mint calls.
 type providerDeps struct {
-	exchanger   *TokenExchanger
-	githubCache *tokencache.Cache
-	// httpClient is the broker's shared HTTP client; nil falls back to http.DefaultClient.
-	httpClient *http.Client
-	defaultNS  string
+	exchanger *TokenExchanger
+	defaultNS string
 	// localMint is the mcp-oauth local JWT signer used by TargetTypeLocalMint.
 	// Nil when JWT mode is disabled; the localMintProvider returns an error in that case.
 	localMint *oauthserver.LocalMintExchanger
@@ -109,13 +104,6 @@ func defaultProviderRegistry() *providerRegistry {
 	r := &providerRegistry{factories: make(map[config.BrokerTargetType]providerFactory)}
 	r.factories[config.TargetTypeOIDCExchange] = func(target config.BrokerTargetConfig, deps providerDeps) CredentialProvider {
 		return &oidcExchangeProvider{target: target, exchanger: deps.exchanger, defaultNS: deps.defaultNS}
-	}
-	r.factories[config.TargetTypeGithubApp] = func(target config.BrokerTargetConfig, deps providerDeps) CredentialProvider {
-		httpClient := deps.httpClient
-		if httpClient == nil {
-			httpClient = http.DefaultClient
-		}
-		return &githubAppProvider{target: target, cache: deps.githubCache, defaultNS: deps.defaultNS, httpClient: httpClient}
 	}
 	r.factories[config.TargetTypeLocalMint] = func(_ config.BrokerTargetConfig, deps providerDeps) CredentialProvider {
 		return &localMintProvider{exchanger: deps.localMint}

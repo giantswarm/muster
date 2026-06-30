@@ -77,7 +77,7 @@
         "additionalSecretNamespaces": {
           "type": "array",
           "items": {"type": "string"},
-          "description": "Additional namespaces where broker target secrets or githubApp.privateKeyRef secrets reside. A Role/RoleBinding granting get on secrets is created in each."
+          "description": "Additional namespaces where broker target credential secrets reside. A Role/RoleBinding granting get on secrets is created in each."
         }
       }
     },
@@ -610,7 +610,7 @@
                   "additionalProperties": {
                     "type": "object",
                     "properties": {
-                      "type": {"type": "string", "enum": ["oidc-exchange", "github-app", "local-mint"], "description": "Credential provider type. Defaults to oidc-exchange when omitted. local-mint mints a muster-signed RFC 9068 JWT locally; requires enableJWTMode."},
+                      "type": {"type": "string", "enum": ["oidc-exchange", "local-mint"], "description": "Credential provider type. Defaults to oidc-exchange when omitted. local-mint mints a muster-signed RFC 9068 JWT locally; requires enableJWTMode."},
                       "dexTokenEndpoint": {"type": "string", "pattern": "^https://", "description": "oidc-exchange: downstream Dex token endpoint URL (HTTPS)."},
                       "expectedIssuer": {"type": "string", "description": "oidc-exchange: expected iss claim of the exchanged token. Derived from dexTokenEndpoint when empty."},
                       "connectorId": {"type": "string", "description": "oidc-exchange: downstream Dex OIDC connector that trusts the subject token's issuer."},
@@ -625,37 +625,7 @@
                           "clientSecretKey": {"type": "string", "description": "Defaults to client-secret."}
                         },
                         "description": "oidc-exchange: Kubernetes Secret holding the downstream exchange client credentials."
-                      },
-                      "githubApp": {
-                        "type": "object",
-                        "required": ["appId", "privateKeyRef"],
-                        "properties": {
-                          "appId": {"type": "string", "pattern": "^[0-9]+$", "description": "GitHub App numeric ID (iss claim in the App JWT)."},
-                          "installationId": {"type": "string", "description": "Installation ID. Omit to auto-discover via owner+repo."},
-                          "owner": {"type": "string", "description": "GitHub org or user for installation auto-discovery. Required when installationId is empty."},
-                          "repo": {"type": "string", "description": "Repository name for installation auto-discovery. Required when installationId is empty."},
-                          "privateKeyRef": {
-                            "type": "object",
-                            "required": ["name"],
-                            "properties": {
-                              "name": {"type": "string", "description": "Kubernetes Secret name holding the RSA private key PEM."},
-                              "namespace": {"type": "string", "description": "Defaults to the muster namespace."},
-                              "key": {"type": "string", "description": "Key within the Secret data map. Defaults to private-key."}
-                            }
-                          },
-                          "repositories": {"type": "array", "items": {"type": "string"}, "description": "Restrict the installation token to these repositories. Empty means all repositories the installation can access."},
-                          "permissions": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Restrict the installation token to these permissions, e.g. {contents: read, pull_requests: write}."},
-                          "baseUrl": {"type": "string", "pattern": "^https://", "description": "Override the GitHub API base URL (HTTPS only). Defaults to https://api.github.com. Set for GitHub Enterprise Server."}
-                        },
-                        "description": "github-app: GitHub App installation token config."
                       }
-                    },
-                    "if": {
-                      "properties": {"type": {"const": "github-app"}},
-                      "required": ["type"]
-                    },
-                    "then": {
-                      "required": ["githubApp"]
                     }
                   }
                 },
@@ -666,7 +636,7 @@
                 },
                 "defaultSecretNamespace": {
                   "type": "string",
-                  "description": "Default namespace for clientCredentialsSecretRef and githubApp.privateKeyRef lookups when namespace is omitted. Defaults to the muster pod's namespace."
+                  "description": "Default namespace for clientCredentialsSecretRef lookups when namespace is omitted. Defaults to the muster pod's namespace."
                 },
                 "allowPrivateIP": {
                   "type": "boolean",

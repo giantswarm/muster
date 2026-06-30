@@ -9,7 +9,7 @@ Muster needs access to:
 
 Secrets access is intentionally scoped to namespaced Roles, not a ClusterRole,
 to limit blast radius. By default a Role is created in the release namespace.
-Broker target secrets or githubApp.privateKeyRef secrets in other namespaces
+Broker target credential secrets in other namespaces
 require listing those namespaces in rbac.additionalSecretNamespaces.
 */}}
 
