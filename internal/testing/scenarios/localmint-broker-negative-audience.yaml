@@ -2,10 +2,9 @@ name: "localmint-broker-negative-audience"
 category: "behavioral"
 concept: "mcpserver"
 description: |
-  Negative local-mint broker path. A workload SA token is granted only the
-  cluster-b audience, but the exchange requests cluster-c. muster's broker must
-  reject it with the OAuth error invalid_target (audit reason
-  token_exchange_audience_not_allowed) and mint no token.
+  Negative local-mint broker path. The exchange requests audience cluster-c,
+  which is not a configured broker target (only cluster-b is). muster's broker
+  must reject it with the OAuth error invalid_target and mint no token.
 tags: ["oauth", "broker", "local-mint", "negative", "token-exchange", "rfc8693"]
 timeout: "2m"
 
@@ -28,11 +27,6 @@ pre_configuration:
         accepted_typ_headers: [""]
     targets:
       cluster-b: "local-mint"
-    workload_group_grants:
-      - oauth_server_ref: "workload-idp"
-        subject: "system:serviceaccount:kagent:sre-agent"
-        audiences: ["cluster-b"]
-        granted_subject: "sre-impersonator@giantswarm.io"
 
 steps:
   - id: "mint-sa-token"

@@ -158,21 +158,8 @@ type MusterBrokerConfig struct {
 	// type; only "local-mint" is meaningful here (empty defaults to local-mint).
 	Targets map[string]string `yaml:"targets"`
 
-	// WorkloadAudiences maps a workload subject (glob over the SA token sub) to the
-	// audiences it may request (workload exchange path, no client credentials).
-	WorkloadAudiences map[string][]string `yaml:"workload_audiences,omitempty"`
-
-	// WorkloadGroupGrants authorize an explicit (issuer, subject) workload to
-	// request audiences and receive a broker-asserted identity (sub/groups) on the
-	// M2M no-actor path. The granted subject is the impersonated user.
-	WorkloadGroupGrants []BrokerWorkloadGroupGrantConfig `yaml:"workload_group_grants,omitempty"`
-
-	// ActorDelegationPolicy lists the (actor, subject) pairs muster accepts for
-	// delegated (OBO) exchange. A nil/empty policy denies all delegated exchanges.
-	ActorDelegationPolicy []BrokerDelegationGrantConfig `yaml:"actor_delegation_policy,omitempty"`
-
 	// DelegateToSelf lets a delegated exchange omit the RFC 8707 resource; muster
-	// binds the minted token to its own resourceIdentifier (rebind path).
+	// binds the minted token to its own resourceIdentifier.
 	DelegateToSelf bool `yaml:"delegate_to_self,omitempty"`
 }
 
@@ -195,28 +182,6 @@ type BrokerTrustedIssuerConfig struct {
 	// AcceptedTypHeaders lists accepted JWT typ headers. Use [""] for SA-style
 	// tokens that carry no typ header. Empty keeps the RFC 9068 default.
 	AcceptedTypHeaders []string `yaml:"accepted_typ_headers,omitempty"`
-}
-
-// BrokerWorkloadGroupGrantConfig mirrors config.WorkloadGroupGrantConfig for tests.
-// OAuthServerRef resolves to the grant's issuer URL.
-type BrokerWorkloadGroupGrantConfig struct {
-	OAuthServerRef string   `yaml:"oauth_server_ref"`
-	Subject        string   `yaml:"subject"`
-	Audiences      []string `yaml:"audiences"`
-	// GrantedSubject replaces the minted token's sub (the impersonated user).
-	GrantedSubject string `yaml:"granted_subject,omitempty"`
-	// GrantedGroups are merged into the minted token's groups claim.
-	GrantedGroups []string `yaml:"granted_groups,omitempty"`
-}
-
-// BrokerDelegationGrantConfig mirrors config.DelegationGrantConfig for tests.
-// ActorOAuthServerRef/SubjectOAuthServerRef resolve to issuer URLs ("*" allowed
-// to match any issuer).
-type BrokerDelegationGrantConfig struct {
-	ActorOAuthServerRef   string `yaml:"actor_oauth_server_ref"`
-	ActorSubject          string `yaml:"actor_subject"`
-	SubjectOAuthServerRef string `yaml:"subject_oauth_server_ref"`
-	SubjectSubject        string `yaml:"subject_subject"`
 }
 
 // MCPServerConfig represents an MCP server configuration

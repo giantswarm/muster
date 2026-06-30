@@ -28,11 +28,6 @@ pre_configuration:
     targets:
       cluster-b: "local-mint"
       cluster-c: "local-mint"
-    workload_group_grants:
-      - oauth_server_ref: "workload-idp"
-        subject: "system:serviceaccount:kagent:sre-agent"
-        audiences: ["cluster-b", "cluster-c"]
-        granted_subject: "sre-impersonator@giantswarm.io"
 
   mcp_servers:
     - name: "cluster-b-backend"

@@ -13,16 +13,15 @@ import (
 //
 // The token carries:
 //   - sub          = the validated human subject (MintRequest.SubjectIdentity.Subject)
-//   - email, groups = the subject's validated identity claims when present, plus
-//     any broker-granted groups (MintRequest.GrantedGroups)
+//   - email, groups = the subject's validated identity claims when present
 //   - act          = the validated agent actor (MintRequest.Actor) nested over any
 //     prior act chain carried on the subject token, when present
 //   - iss          = muster's configured BaseURL (the issuer that mcp-kubernetes trusts)
 //   - aud          = the broker target audience (MintRequest.Target)
 //
-// mcp-oauth enforces ActorDelegationPolicy before Exchange is called, so by
-// the time Mint runs, both subject and actor identities are already validated
-// and authorized. No re-validation is performed here.
+// mcp-oauth validates the subject and actor tokens before Exchange is called, so
+// by the time Mint runs both identities are already validated. No re-validation
+// is performed here.
 //
 // Requires enableJWTMode to be true; returns a configuration error otherwise.
 type localMintProvider struct {
@@ -40,11 +39,9 @@ func (p *localMintProvider) Mint(ctx context.Context, req MintRequest) (*MintRes
 	}
 
 	exchangerReq := &oauthserver.ExchangerRequest{
-		Subject:        subject,
-		Actor:          req.Actor,
-		Audience:       req.Target,
-		GrantedGroups:  req.GrantedGroups,
-		GrantedSubject: req.GrantedSubject,
+		Subject:  subject,
+		Actor:    req.Actor,
+		Audience: req.Target,
 	}
 
 	result, err := p.exchanger.Exchange(ctx, exchangerReq)

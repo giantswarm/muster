@@ -28,13 +28,6 @@ pre_configuration:
         accepted_typ_headers: [""]
     targets:
       cluster-b: "local-mint"
-    workload_audiences:
-      "system:serviceaccount:kagent:sre-agent": ["cluster-b"]
-    actor_delegation_policy:
-      - actor_oauth_server_ref: "workload-idp"
-        actor_subject: "system:serviceaccount:kagent:*"
-        subject_oauth_server_ref: "*"
-        subject_subject: "*"
 
   mcp_servers:
     - name: "cluster-b-backend"

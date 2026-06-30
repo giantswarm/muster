@@ -629,11 +629,6 @@
                     }
                   }
                 },
-                "workloadAudiences": {
-                  "type": "object",
-                  "description": "Per-workload audience allowlist for workload-authenticated RFC 8693 token exchange (no confidential-client credentials). Keys are workload subjects (system:serviceaccount:<ns>:<name>; globs supported), values are the audiences the workload may request.",
-                  "additionalProperties": {"type": "array", "items": {"type": "string"}}
-                },
                 "defaultSecretNamespace": {
                   "type": "string",
                   "description": "Default namespace for clientCredentialsSecretRef lookups when namespace is omitted. Defaults to the muster pod's namespace."
@@ -641,20 +636,6 @@
                 "allowPrivateIP": {
                   "type": "boolean",
                   "description": "Allow downstream token endpoints to resolve to private/loopback IPs. Reduces SSRF protection; internal deployments only."
-                },
-                "actorDelegationPolicy": {
-                  "type": "array",
-                  "description": "Allowlist of (actor, subject) pairs for RFC 8693 delegated token exchange. An actor is the agent service account; a subject is the human on whose behalf the token is minted. A nil/empty policy denies all delegated exchanges (mcp-oauth default). Required when any target uses type: local-mint.",
-                  "items": {
-                    "type": "object",
-                    "required": ["actorIssuer", "actorSubject", "subjectIssuer", "subjectSubject"],
-                    "properties": {
-                      "actorIssuer": {"type": "string", "description": "Exact issuer URL of the actor token, or * to match any issuer."},
-                      "actorSubject": {"type": "string", "description": "Glob matched against the actor token sub claim. Use * to match any."},
-                      "subjectIssuer": {"type": "string", "description": "Exact issuer URL of the subject token, or * to match any issuer."},
-                      "subjectSubject": {"type": "string", "description": "Glob matched against the subject token sub claim. Use * to match any."}
-                    }
-                  }
                 }
               }
             },

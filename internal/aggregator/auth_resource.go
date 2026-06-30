@@ -337,7 +337,7 @@ const initSSOTimeout = 15 * time.Second
 // authentication is marked and the per-session capability store is populated
 // before the request that triggered it reaches its MCP handler.
 //
-// M2M callers (a forwarded ServiceAccount token, no auth-code flow) have no
+// Forwarded-token callers (a ServiceAccount token, no auth-code flow) have no
 // synchronous SessionCreationHandler hook. Because agents discover tools once at
 // startup, a first tools/list racing an asynchronous bootstrap would see no
 // tools and leave the backend unusable for the agent's lifetime.

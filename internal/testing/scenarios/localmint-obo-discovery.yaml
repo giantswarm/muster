@@ -6,7 +6,7 @@ description: |
   When a human connects with a Dex JWT as Authorization AND an SA token as
   X-Actor-Token, the SSO bootstrap must use OBO (sub=human, act=SA) for the
   discovery mint so the backend tools become visible. Without capturedActor the
-  background keepalive stream falls back to M2M with the human subject, which
+  background keepalive stream falls back to a no-actor mint with the human subject, which
   has no workload grant, so the backend returns 401 and tools stay hidden.
 
   Scenario: human (workload-idp) + SA (workload-idp, sre-agent) → OBO → cluster-b tools visible.
@@ -32,13 +32,6 @@ pre_configuration:
         accepted_typ_headers: [""]
     targets:
       cluster-b: "local-mint"
-    workload_audiences:
-      "system:serviceaccount:kagent:sre-agent": ["cluster-b"]
-    actor_delegation_policy:
-      - actor_oauth_server_ref: "workload-idp"
-        actor_subject: "system:serviceaccount:kagent:*"
-        subject_oauth_server_ref: "*"
-        subject_subject: "*"
 
   mcp_servers:
     - name: "cluster-b-backend"

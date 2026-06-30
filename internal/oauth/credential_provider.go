@@ -51,22 +51,10 @@ type MintRequest struct {
 
 	// SubjectIdentity is the full validated subject identity: subject, issuer,
 	// allowed scopes, and Claims carrying email/email_verified/groups plus any
-	// prior RFC 8693 act chain. The local-mint provider forwards it verbatim so
-	// the minted token reflects the subject's identity claims and preserves a
-	// multi-hop act chain. Nil on paths that only need the Subject string.
+	// prior RFC 8693 act chain. The local-mint provider forwards it so the minted
+	// token reflects the subject's identity claims and preserves a multi-hop act
+	// chain. Nil on paths that only need the Subject string.
 	SubjectIdentity *oauthserver.SubjectIdentity
-
-	// GrantedGroups are groups the broker authorized for this exchange from a
-	// matching WorkloadGrant, distinct from the subject token's own groups. The
-	// local-mint provider passes them through; mcp-oauth merges them into the
-	// minted token without mutating the validated subject identity.
-	GrantedGroups []string
-
-	// GrantedSubject is the broker-asserted subject for this exchange from a
-	// matching WorkloadGrant (the impersonated user on the M2M path). When
-	// non-empty, the local-mint provider passes it through and mcp-oauth uses it
-	// as the minted token's sub in place of the validated subject.
-	GrantedSubject string
 }
 
 // MintResult is the result of a successful credential exchange.

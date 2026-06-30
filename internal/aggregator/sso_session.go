@@ -38,10 +38,10 @@ func ssoSessionFromContext(ctx context.Context, sessionID string) ssoSession {
 
 // canBootstrapSSO reports whether the session has a usable subject token for
 // establishing localMint backend connections. Returns false when neither an
-// upstream ID token nor a delegated OBO bearer is present — the session cannot
+// upstream ID token nor a delegated actor token is present: the session cannot
 // drive a token exchange and bootstrapping would fail immediately.
 func (s ssoSession) canBootstrapSSO() bool {
-	return s.tokens.IDToken != "" || s.tokenSource == providers.TokenSourceOBO
+	return s.tokens.IDToken != "" || s.tokens.Actor != ""
 }
 
 // LogValue implements slog.LogValuer so ssoSession can be passed directly to

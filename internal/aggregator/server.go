@@ -133,7 +133,7 @@ type AggregatorServer struct {
 	notifRefreshGroup singleflight.Group
 
 	// ssoInitGroup deduplicates concurrent synchronous SSO bootstraps for the
-	// same new session. M2M callers have no auth-code flow, so their first
+	// same new session. Forwarded-token callers have no auth-code flow, so their first
 	// request drives initSSOForSession inline; collapsing concurrent first
 	// requests for one session prevents duplicate backend connects.
 	ssoInitGroup singleflight.Group

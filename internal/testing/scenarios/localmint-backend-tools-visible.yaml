@@ -36,8 +36,6 @@ pre_configuration:
         accepted_typ_headers: [""]
     targets:
       backend-cluster: "local-mint"
-    workload_audiences:
-      "system:serviceaccount:kagent:sre-agent": ["backend-cluster"]
 
   mcp_servers:
     - name: "localmint-backend"

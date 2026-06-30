@@ -519,9 +519,8 @@ muster:
       # (* spans any chars incl. '/', ? one char). Set allowPrivateIPJWKS: true
       # when the JWKS endpoint resolves to a private IP (e.g. in-cluster
       # Kubernetes SA trust via https://kubernetes.default.svc/openid/v1/jwks).
-      # subjectClaim sources the canonical subject (minted sub, and the value
-      # matched by actorDelegationPolicy) from a claim other than sub; use
-      # "email" for Dex, whose sub is opaque.
+      # subjectClaim sources the canonical subject (the minted sub) from a claim
+      # other than sub; use "email" for Dex, whose sub is opaque.
       # Example, trusting a Kubernetes ServiceAccount and a Dex IdP:
       #   - issuer: https://kubernetes.default.svc
       #     jwksUrl: https://kubernetes.default.svc/openid/v1/jwks
@@ -558,10 +557,6 @@ muster:
       #       scopes: "openid profile email groups audience:server:client_id:dex-k8s-authenticator"
       #       clientCredentialsSecretRef:
       #         name: muster-token-exchange-cluster-a
-      #
-      # workload-authenticated exchange (no confidential-client credentials):
-      #   workloadAudiences:
-      #     "system:serviceaccount:ai-platform:*": ["cluster-a", "cluster-b"]
       #
       # brokerClients: declaratively (re)seed confidential broker clients at
       # startup from Kubernetes Secrets. mcp-oauth stores the client record

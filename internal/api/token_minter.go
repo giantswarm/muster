@@ -10,9 +10,9 @@ import (
 // downstream auth mode. The aggregator calls it at request time with the
 // caller's raw subject token and, for delegation, the actor token; the
 // implementation runs them through muster's RFC 8693 broker, which validates
-// both tokens and enforces ActorDelegationPolicy and WorkloadAudiences before a
-// token is minted. Implemented by the OAuth server adapter and registered at
-// bootstrap; nil when muster's OAuth server is not running in JWT mode.
+// both tokens before a token is minted. Implemented by the OAuth server adapter
+// and registered at bootstrap; nil when muster's OAuth server is not running in
+// JWT mode.
 type BackendTokenMinter interface {
 	MintBackendToken(ctx context.Context, req BackendMintRequest) (BackendMintResult, error)
 }
@@ -22,12 +22,12 @@ type BackendTokenMinter interface {
 // from them; the caller supplies no pre-extracted claims.
 type BackendMintRequest struct {
 	// SubjectToken is the raw subject token: the human's bearer on the delegation
-	// path, or the workload's own token on the M2M path.
+	// path, or the caller's own token on the impersonation (no-actor) path.
 	SubjectToken string
 	// SubjectTokenType is the RFC 8693 token-type URN of SubjectToken.
 	SubjectTokenType string
 	// ActorToken is the raw actor token (the agent's workload token) on the
-	// delegation path. Empty selects the M2M path (no act claim).
+	// delegation path. Empty mints a subject-only token (no act claim).
 	ActorToken string
 	// ActorTokenType is the RFC 8693 token-type URN of ActorToken. Empty when
 	// ActorToken is empty.
