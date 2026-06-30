@@ -38,7 +38,7 @@ rbac:
   # Create RBAC resources (ClusterRole, ClusterRoleBinding, and per-namespace Roles for secrets).
   create: true
   # additionalSecretNamespaces lists namespaces beyond the release namespace where
-  # broker target secrets or githubApp.privateKeyRef secrets may reside.
+  # broker target credential secrets may reside.
   # A Role/RoleBinding granting `get` on secrets is created in each listed namespace.
   additionalSecretNamespaces: []
 
@@ -538,8 +538,8 @@ muster:
       # Brokered RFC 8693 token exchange: muster as a shared token broker.
       # An external confidential client POSTs a token-exchange request with an
       # `audience` parameter to /oauth/token and receives a token minted by the
-      # audience's downstream credential provider (Dex exchange or GitHub App
-      # installation token). Subject tokens are validated against trustedIssuers,
+      # audience's downstream credential provider (Dex exchange or local-mint).
+      # Subject tokens are validated against trustedIssuers,
       # so at least one issuer entry covering the broker client's tokens is required.
       # Policy enforced by mcp-oauth: confidential clients only, per-client
       # audience allowlist, no refresh tokens, expires_in bounded by the
@@ -559,26 +559,9 @@ muster:
       #       clientCredentialsSecretRef:
       #         name: muster-token-exchange-cluster-a
       #
-      # github-app target: mints GitHub App installation tokens
-      #   targets:
-      #     github-infra:
-      #       type: github-app
-      #       githubApp:
-      #         appId: "123456"
-      #         # Either a static installationId:
-      #         installationId: "78901234"
-      #         # Or auto-discover via the repository installation:
-      #         # owner: my-org
-      #         # repo: infra
-      #         privateKeyRef:
-      #           name: github-app-pem       # Kubernetes Secret, key defaults to "private-key"
-      #         repositories: ["infra"]      # optional: restrict to specific repos
-      #         permissions:                 # optional: restrict granted permissions
-      #           contents: read
-      #
       # workload-authenticated exchange (no confidential-client credentials):
       #   workloadAudiences:
-      #     "system:serviceaccount:ai-platform:*": ["github-infra", "cluster-a"]
+      #     "system:serviceaccount:ai-platform:*": ["cluster-a", "cluster-b"]
       #
       # brokerClients: declaratively (re)seed confidential broker clients at
       # startup from Kubernetes Secrets. mcp-oauth stores the client record

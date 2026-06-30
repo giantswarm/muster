@@ -341,11 +341,6 @@ const (
 	// provider. It is the default when BrokerTargetConfig.Type is empty.
 	TargetTypeOIDCExchange BrokerTargetType = "oidc-exchange"
 
-	// TargetTypeGithubApp selects the GitHub App installation token provider.
-	// The provider builds an RS256 App JWT and exchanges it for a short-lived
-	// installation token scoped to the configured repositories and permissions.
-	TargetTypeGithubApp BrokerTargetType = "github-app"
-
 	// TargetTypeLocalMint selects the local-mint provider. The provider mints an
 	// RFC 9068 JWT signed by muster's own access-token signing key, with sub set
 	// to the validated human subject and act set to the validated agent actor.
@@ -508,59 +503,6 @@ type BrokerTargetConfig struct {
 	// downstream exchange client credentials (same secrets the per-MCPServer
 	// tokenExchange config uses; no duplication).
 	ClientCredentialsSecretRef *BrokerSecretRefConfig `yaml:"clientCredentialsSecretRef,omitempty"`
-
-	// GithubApp contains configuration for the github-app provider type.
-	// Required when Type is "github-app"; ignored otherwise.
-	GithubApp *GithubAppTargetConfig `yaml:"githubApp,omitempty"`
-}
-
-// GithubAppTargetConfig configures the github-app credential provider.
-// The provider mints short-lived GitHub App installation tokens by building an
-// RS256 App JWT and exchanging it at the GitHub API.
-type GithubAppTargetConfig struct {
-	// AppID is the numeric GitHub App ID, used as the JWT iss claim.
-	AppID string `yaml:"appId"`
-
-	// InstallationID is the numeric installation ID. When empty, it is
-	// auto-discovered via GET /repos/{Owner}/{Repo}/installation using the App JWT.
-	// Either InstallationID or both Owner and Repo must be set.
-	InstallationID string `yaml:"installationId,omitempty"`
-
-	// Owner is the GitHub organization or user that installed the App.
-	// Required for auto-discovery when InstallationID is empty.
-	Owner string `yaml:"owner,omitempty"`
-
-	// Repo is the repository name (without owner) used for auto-discovery.
-	// Required for auto-discovery when InstallationID is empty.
-	Repo string `yaml:"repo,omitempty"`
-
-	// PrivateKeyRef references the Kubernetes Secret containing the RSA private
-	// key PEM. Key defaults to "private-key" when empty.
-	PrivateKeyRef *GithubAppSecretKeyRef `yaml:"privateKeyRef"`
-
-	// Repositories limits the installation token to specific repositories.
-	// When empty, the token covers all repositories the installation can access.
-	Repositories []string `yaml:"repositories,omitempty"`
-
-	// Permissions further restricts the installation token permissions.
-	// Keys are permission names (e.g. "contents", "issues"); values are
-	// "read" or "write". When empty, the installation's full permissions apply.
-	Permissions map[string]string `yaml:"permissions,omitempty"`
-
-	// BaseURL overrides the GitHub API base URL. Must use HTTPS. Defaults to
-	// https://api.github.com. Set for GitHub Enterprise Server or test stubs.
-	BaseURL string `yaml:"baseUrl,omitempty"`
-}
-
-// GithubAppSecretKeyRef references a Kubernetes Secret by name, namespace, and
-// key within the secret data map. Used for the GitHub App RSA private key PEM.
-type GithubAppSecretKeyRef struct {
-	// Name is the Kubernetes Secret name. Required.
-	Name string `yaml:"name"`
-	// Namespace defaults to the broker's DefaultSecretNamespace when empty.
-	Namespace string `yaml:"namespace,omitempty"`
-	// Key is the data key within the Secret. Defaults to "private-key".
-	Key string `yaml:"key,omitempty"`
 }
 
 // BrokerClientConfig declaratively seeds one confidential broker client. The

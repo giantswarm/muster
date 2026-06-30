@@ -5,7 +5,6 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/giantswarm/mcp-oauth/providers/tokencache"
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -118,8 +117,7 @@ func TestProviderRegistry_UnknownType(t *testing.T) {
 				"cluster-a": {Type: "mystery-provider"},
 			},
 		},
-		registry:    defaultProviderRegistry(),
-		githubCache: tokencache.New(),
+		registry: defaultProviderRegistry(),
 	}
 
 	_, err := broker.Exchange(t.Context(), &oauthserver.ExchangerRequest{
