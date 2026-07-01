@@ -642,6 +642,36 @@ func ShouldUseLocalMint(serverInfo *ServerInfo) bool {
 // Returns:
 //   - *ConnectionResult: The connection result if successful
 //   - error: The error if connection failed
+
+// buildConnectionTokenExchangeConfig returns a value copy of base with the
+// per-connection mutations applied: the resolved client credentials and, when
+// requiredAudiences is non-empty, the appended cross-client audience scopes.
+//
+// It never mutates base. base (serverInfo.AuthConfig.TokenExchange) is a pointer
+// shared with the registry's MCPServer definition — the exact object
+// MCPServerReconciler.ConfigurationChanged compares against the CR. Mutating it in
+// place (the runtime-only ClientID/ClientSecret, or the appended audience Scopes)
+// makes the stored definition permanently differ from the CR, so every reconcile
+// sees a "configuration changed" and restarts the server (~10-15s churn). The
+// audience-scope append in particular affects every tokenExchange server that also
+// sets requiredAudiences.
+//
+// On an audience-scope formatting error the credential-populated copy is returned
+// (without audiences) together with the error, so the caller can log and continue.
+func buildConnectionTokenExchangeConfig(base *api.TokenExchangeConfig, requiredAudiences []string, clientID, clientSecret string) (api.TokenExchangeConfig, error) {
+	cfg := *base
+	cfg.ClientID = clientID
+	cfg.ClientSecret = clientSecret
+	if len(requiredAudiences) > 0 {
+		updatedScopes, err := dex.AppendAudienceScopes(cfg.Scopes, requiredAudiences)
+		if err != nil {
+			return cfg, err
+		}
+		cfg.Scopes = updatedScopes
+	}
+	return cfg, nil
+}
+
 func EstablishConnectionWithTokenExchange(
 	ctx context.Context,
 	a *AggregatorServer,
@@ -699,44 +729,35 @@ func EstablishConnectionWithTokenExchange(
 		logging.TruncateIdentifier(sub), serverInfo.Name)
 
 	// Load client credentials from secret if configured.
-	// Note: This intentionally mutates serverInfo.AuthConfig.TokenExchange to populate
-	// the resolved credentials. This is safe because serverInfo is a local copy used
-	// only for this connection attempt.
+	var clientID, clientSecret string
 	if serverInfo.AuthConfig.TokenExchange.ClientCredentialsSecretRef != nil {
 		credentials, err := loadTokenExchangeCredentials(ctx, serverInfo)
 		if err != nil {
 			logging.Error("Connection", err, "Failed to load token exchange credentials for %s", serverInfo.Name)
 			return nil, fmt.Errorf("failed to load client credentials: %w", err)
 		}
-		serverInfo.AuthConfig.TokenExchange.ClientID = credentials.ClientID
-		serverInfo.AuthConfig.TokenExchange.ClientSecret = credentials.ClientSecret
+		clientID, clientSecret = credentials.ClientID, credentials.ClientSecret
 		logging.Debug("Connection", "Loaded client credentials for token exchange to %s (client_id=%s)",
 			serverInfo.Name, credentials.ClientID)
 	}
 
-	// Append requiredAudiences as cross-client scopes for the token exchange.
-	// This ensures the exchanged token contains the audiences needed by the downstream server
-	// (e.g., for Kubernetes OIDC authentication on the remote cluster).
-	// Uses dex.AppendAudienceScopes() from mcp-oauth for security-validated formatting.
-	//
-	// Note: This intentionally mutates serverInfo.AuthConfig.TokenExchange.Scopes to include
-	// the audience scopes. This is safe because serverInfo is a local copy used only for
-	// this connection attempt.
-	if len(serverInfo.AuthConfig.RequiredAudiences) > 0 {
-		updatedScopes, err := dex.AppendAudienceScopes(
-			serverInfo.AuthConfig.TokenExchange.Scopes,
-			serverInfo.AuthConfig.RequiredAudiences,
-		)
-		if err != nil {
-			// Log the error but continue without the audiences - they should already be
-			// validated at CRD admission, but handle gracefully if not.
-			logging.Warn("Connection", "Failed to format audience scopes for %s: %v (continuing without audiences)",
-				serverInfo.Name, err)
-		} else {
-			serverInfo.AuthConfig.TokenExchange.Scopes = updatedScopes
-			logging.Debug("Connection", "Added %d required audiences to token exchange scopes for %s",
-				len(serverInfo.AuthConfig.RequiredAudiences), serverInfo.Name)
-		}
+	// Apply per-connection mutations to a value copy; never mutate
+	// serverInfo.AuthConfig.TokenExchange in place, it is shared with the registry
+	// definition (see buildConnectionTokenExchangeConfig).
+	exchangeConfig, err := buildConnectionTokenExchangeConfig(
+		serverInfo.AuthConfig.TokenExchange,
+		serverInfo.AuthConfig.RequiredAudiences,
+		clientID,
+		clientSecret,
+	)
+	if err != nil {
+		// Log the error but continue without the audiences - they should already be
+		// validated at CRD admission, but handle gracefully if not.
+		logging.Warn("Connection", "Failed to format audience scopes for %s: %v (continuing without audiences)",
+			serverInfo.Name, err)
+	} else if len(serverInfo.AuthConfig.RequiredAudiences) > 0 {
+		logging.Debug("Connection", "Added %d required audiences to token exchange scopes for %s",
+			len(serverInfo.AuthConfig.RequiredAudiences), serverInfo.Name)
 	}
 
 	// Perform the token exchange.
@@ -744,7 +765,7 @@ func EstablishConnectionWithTokenExchange(
 		ctx,
 		idToken,
 		userID,
-		serverInfo.AuthConfig.TokenExchange,
+		&exchangeConfig,
 	)
 	if err != nil {
 		logging.Warn("Connection", "Token exchange failed for user %s to server %s: %v",

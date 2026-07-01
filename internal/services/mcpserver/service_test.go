@@ -597,6 +597,88 @@ func TestConfigurationChanged(t *testing.T) {
 			},
 			expectChanged: false,
 		},
+		{
+			// Regression for giantswarm/giantswarm#37060: token-exchange
+			// ClientID/ClientSecret are resolved from a Secret at runtime and
+			// stored on the running definition, but are absent from a definition
+			// rebuilt from the CR. A difference in these runtime-only fields must
+			// NOT be treated as a configuration change, or the reconciler restarts
+			// the MCPServer on every pass.
+			name: "auth token-exchange runtime credentials differ only",
+			current: &api.MCPServer{
+				Name:      "test",
+				Type:      api.MCPServerTypeStreamableHTTP,
+				URL:       "http://example.com",
+				AutoStart: true,
+				Auth: &api.MCPServerAuth{
+					Type: "oauth",
+					TokenExchange: &api.TokenExchangeConfig{
+						Enabled:          true,
+						DexTokenEndpoint: "https://dex.example.com/token",
+						ConnectorID:      "connector",
+						Scopes:           "openid profile email groups",
+						// Resolved at runtime on the stored definition.
+						ClientID:     "resolved-client-id",
+						ClientSecret: "resolved-client-secret",
+					},
+				},
+			},
+			newConfig: &api.MCPServer{
+				Name:      "test",
+				Type:      api.MCPServerTypeStreamableHTTP,
+				URL:       "http://example.com",
+				AutoStart: true,
+				Auth: &api.MCPServerAuth{
+					Type: "oauth",
+					TokenExchange: &api.TokenExchangeConfig{
+						Enabled:          true,
+						DexTokenEndpoint: "https://dex.example.com/token",
+						ConnectorID:      "connector",
+						Scopes:           "openid profile email groups",
+						// Empty on the CR-derived definition (json:"-" yaml:"-").
+					},
+				},
+			},
+			expectChanged: false,
+		},
+		{
+			name: "auth token-exchange spec field changed",
+			current: &api.MCPServer{
+				Name:      "test",
+				Type:      api.MCPServerTypeStreamableHTTP,
+				URL:       "http://example.com",
+				AutoStart: true,
+				Auth: &api.MCPServerAuth{
+					Type: "oauth",
+					TokenExchange: &api.TokenExchangeConfig{
+						Enabled:          true,
+						DexTokenEndpoint: "https://dex.example.com/token",
+						ConnectorID:      "connector",
+						Scopes:           "openid profile email groups",
+						ClientID:         "resolved-client-id",
+						ClientSecret:     "resolved-client-secret",
+					},
+				},
+			},
+			newConfig: &api.MCPServer{
+				Name:      "test",
+				Type:      api.MCPServerTypeStreamableHTTP,
+				URL:       "http://example.com",
+				AutoStart: true,
+				Auth: &api.MCPServerAuth{
+					Type: "oauth",
+					TokenExchange: &api.TokenExchangeConfig{
+						Enabled:          true,
+						DexTokenEndpoint: "https://dex.example.com/token",
+						ConnectorID:      "connector",
+						// Scopes changed: a real spec change must be detected even
+						// though the runtime credentials also differ.
+						Scopes: "openid profile email groups offline_access",
+					},
+				},
+			},
+			expectChanged: true,
+		},
 	}
 
 	for _, tt := range tests {
