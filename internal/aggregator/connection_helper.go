@@ -799,51 +799,9 @@ func EstablishConnectionWithTokenExchange(
 	// from the latest subject ID token; onStaleToken evicts the connection when
 	// the subject can no longer be refreshed, so the listener stops instead of
 	// looping an expired token and the state settles to Auth Required.
-	reexchange := func() (string, time.Time, error) {
-		// Bound the network work: the header closure resolves the subject token
-		// and round-trips to Dex here, and the stale-eviction recovery only
-		// triggers when this returns an error. An unbounded call against a hung
-		// Dex would block the header path forever without ever advancing the
-		// failure counter, so a slow endpoint must surface as a normal failure.
-		ctx, cancel := context.WithTimeout(context.Background(), tokenReexchangeTimeout)
-		defer cancel()
-
-		freshID := getIDTokenForForwarding(ctx, sessionID, musterIssuer, a.sessionRefresher())
-		if freshID == "" {
-			return "", time.Time{}, fmt.Errorf("no subject ID token available for re-exchange")
-		}
-		if expired, expErr := pkgoauth.IsExpired(freshID); expired {
-			return "", time.Time{}, fmt.Errorf("subject ID token expired: %w", expErr)
-		}
-		freshUserID, subErr := pkgoauth.Subject(freshID)
-		if subErr != nil || freshUserID == "" {
-			freshUserID = userID
-		}
-		newToken, exErr := oauthHandler.ExchangeTokenForRemoteCluster(
-			ctx, freshID, freshUserID, serverInfo.AuthConfig.TokenExchange,
-		)
-		if exErr != nil {
-			return "", time.Time{}, exErr
-		}
-		newExpiry, expErr := pkgoauth.Expiry(newToken)
-		if expErr != nil {
-			logging.Debug("TokenExchange", "Could not extract expiry from re-exchanged token for %s, refreshing on the fallback interval: %v",
-				serverInfo.Name, expErr)
-		}
-		return newToken, newExpiry, nil
-	}
-
-	onStaleToken := func() {
-		if a.connPool != nil {
-			a.connPool.Evict(sessionID, serverInfo.Name)
-		}
-		if a.authStore != nil {
-			if revokeErr := a.authStore.Revoke(context.Background(), sessionID, serverInfo.Name); revokeErr != nil {
-				logging.Warn("Connection", "Failed to revoke token-exchange auth for %s/%s: %v",
-					logging.TruncateIdentifier(sessionID), serverInfo.Name, revokeErr)
-			}
-		}
-	}
+	reexchange, onStaleToken := a.makeTokenExchangeRefreshClosures(
+		serverInfo.Name, sessionID, userID, musterIssuer, oauthHandler, serverInfo.AuthConfig.TokenExchange,
+	)
 
 	headerFunc := makeTokenExchangeHeaderFunc(serverInfo.Name, exchangedToken, tokenExpiry, reexchange, onStaleToken)
 
@@ -1055,6 +1013,60 @@ func makeTokenExchangeHeaderFunc(
 		}
 		return map[string]string{pkgoauth.HeaderAuthorization: pkgoauth.SchemeBearer + " " + token}
 	}
+}
+
+// makeTokenExchangeRefreshClosures builds the reexchange and onStaleToken
+// callbacks that back a token-exchange connection's self-refreshing header
+// func. reexchange resolves the latest subject ID token and mints a fresh
+// backend token from it, bounded by tokenReexchangeTimeout. onStaleToken evicts
+// the pooled connection and revokes stored auth so the listener stops once the
+// subject can no longer be refreshed. exchangeConfig must already carry resolved
+// client credentials and audience scopes.
+func (a *AggregatorServer) makeTokenExchangeRefreshClosures(
+	serverName, sessionID, fallbackUserID, musterIssuer string,
+	oauthHandler api.OAuthHandler,
+	exchangeConfig *api.TokenExchangeConfig,
+) (func() (string, time.Time, error), func()) {
+	reexchange := func() (string, time.Time, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), tokenReexchangeTimeout)
+		defer cancel()
+
+		freshID := getIDTokenForForwarding(ctx, sessionID, musterIssuer, a.sessionRefresher())
+		if freshID == "" {
+			return "", time.Time{}, fmt.Errorf("no subject ID token available for re-exchange")
+		}
+		if expired, _ := pkgoauth.IsExpired(freshID); expired {
+			return "", time.Time{}, fmt.Errorf("subject ID token expired")
+		}
+		freshUserID, subErr := pkgoauth.Subject(freshID)
+		if subErr != nil || freshUserID == "" {
+			freshUserID = fallbackUserID
+		}
+		newToken, exErr := oauthHandler.ExchangeTokenForRemoteCluster(ctx, freshID, freshUserID, exchangeConfig)
+		if exErr != nil {
+			return "", time.Time{}, exErr
+		}
+		newExpiry, expErr := pkgoauth.Expiry(newToken)
+		if expErr != nil {
+			logging.Debug("TokenExchange", "Could not extract expiry from re-exchanged token for %s, refreshing on the fallback interval: %v",
+				serverName, expErr)
+		}
+		return newToken, newExpiry, nil
+	}
+
+	onStaleToken := func() {
+		if a.connPool != nil {
+			a.connPool.Evict(sessionID, serverName)
+		}
+		if a.authStore != nil {
+			if revokeErr := a.authStore.Revoke(context.Background(), sessionID, serverName); revokeErr != nil {
+				logging.Warn("Connection", "Failed to revoke token-exchange auth for %s/%s: %v",
+					logging.TruncateIdentifier(sessionID), serverName, revokeErr)
+			}
+		}
+	}
+
+	return reexchange, onStaleToken
 }
 
 // makeTokenForwardingHeaderFunc creates the header function closure used by
