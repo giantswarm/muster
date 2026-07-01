@@ -11,6 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/server"
@@ -1001,4 +1002,142 @@ func TestMakeLocalMintHeaderFunc_CtxActorOverridesCaptured(t *testing.T) {
 	require.True(t, minter.called)
 	require.Equal(t, "live-sa", minter.gotReq.ActorToken, "live actor must override the captured one")
 	require.Equal(t, "Bearer minted", headers["Authorization"])
+}
+
+func TestMakeTokenExchangeHeaderFunc_NoRefreshBeforeMargin(t *testing.T) {
+	var logBuf bytes.Buffer
+	logging.InitForCLI(logging.LevelDebug, &logBuf)
+
+	var calls atomic.Int32
+	reexchange := func() (string, time.Time, error) {
+		calls.Add(1)
+		return "new-token", time.Now().Add(time.Hour), nil
+	}
+
+	// Token expires well beyond the refresh margin — no re-exchange expected.
+	headerFunc := makeTokenExchangeHeaderFunc("srv", "initial-token", time.Now().Add(time.Hour), reexchange, nil)
+
+	for i := 0; i < 3; i++ {
+		headers := headerFunc(context.Background())
+		assert.Equal(t, "Bearer initial-token", headers["Authorization"])
+	}
+	assert.Equal(t, int32(0), calls.Load(), "must not re-exchange before the refresh margin")
+}
+
+func TestMakeTokenExchangeHeaderFunc_RefreshesWithinMargin(t *testing.T) {
+	var logBuf bytes.Buffer
+	logging.InitForCLI(logging.LevelDebug, &logBuf)
+
+	var calls atomic.Int32
+	reexchange := func() (string, time.Time, error) {
+		calls.Add(1)
+		return "refreshed-token", time.Now().Add(time.Hour), nil
+	}
+
+	// Token is already inside the refresh margin: first call re-exchanges, and the
+	// new far-future expiry stops further re-exchanges.
+	headerFunc := makeTokenExchangeHeaderFunc("srv", "initial-token", time.Now(), reexchange, nil)
+
+	headers := headerFunc(context.Background())
+	assert.Equal(t, "Bearer refreshed-token", headers["Authorization"], "should present the re-exchanged token")
+
+	headers = headerFunc(context.Background())
+	assert.Equal(t, "Bearer refreshed-token", headers["Authorization"])
+	assert.Equal(t, int32(1), calls.Load(), "should re-exchange exactly once, then reuse the fresh token")
+}
+
+func TestMakeTokenExchangeHeaderFunc_EvictsAfterConsecutiveFailures(t *testing.T) {
+	var logBuf bytes.Buffer
+	logging.InitForCLI(logging.LevelDebug, &logBuf)
+
+	reexchange := func() (string, time.Time, error) {
+		return "", time.Time{}, fmt.Errorf("subject ID token expired")
+	}
+
+	var evictCount atomic.Int32
+	var firstEvict sync.WaitGroup
+	firstEvict.Add(1)
+	onStaleToken := func() {
+		if evictCount.Add(1) == 1 {
+			firstEvict.Done()
+		}
+	}
+
+	headerFunc := makeTokenExchangeHeaderFunc("srv", "stale-token", time.Now(), reexchange, onStaleToken)
+
+	for i := 0; i < maxConsecutiveTokenFailures-1; i++ {
+		headers := headerFunc(context.Background())
+		assert.Equal(t, "Bearer stale-token", headers["Authorization"], "must fall back to the current token while re-exchange fails")
+	}
+	assert.Equal(t, int32(0), evictCount.Load(), "must not evict before reaching the failure threshold")
+
+	headers := headerFunc(context.Background())
+	assert.Equal(t, "Bearer stale-token", headers["Authorization"])
+	firstEvict.Wait()
+	assert.Equal(t, int32(1), evictCount.Load(), "onStaleToken should fire exactly once at the threshold")
+
+	// Further failures do not re-fire the callback within the same streak.
+	headerFunc(context.Background())
+	assert.Equal(t, int32(1), evictCount.Load())
+}
+
+func TestMakeTokenExchangeHeaderFunc_ResetsFailureCountOnRecovery(t *testing.T) {
+	var logBuf bytes.Buffer
+	logging.InitForCLI(logging.LevelDebug, &logBuf)
+
+	fail := true
+	reexchange := func() (string, time.Time, error) {
+		if fail {
+			return "", time.Time{}, fmt.Errorf("transient failure")
+		}
+		return "recovered-token", time.Now().Add(time.Hour), nil
+	}
+
+	var evictCount atomic.Int32
+	onStaleToken := func() { evictCount.Add(1) }
+
+	headerFunc := makeTokenExchangeHeaderFunc("srv", "stale-token", time.Now(), reexchange, onStaleToken)
+
+	for i := 0; i < maxConsecutiveTokenFailures-1; i++ {
+		headerFunc(context.Background())
+	}
+	assert.Equal(t, int32(0), evictCount.Load())
+
+	fail = false
+	headers := headerFunc(context.Background())
+	assert.Equal(t, "Bearer recovered-token", headers["Authorization"], "should use the recovered token")
+
+	// After recovery the token expiry is far in the future, so no further
+	// re-exchange (and no eviction) occurs.
+	headers = headerFunc(context.Background())
+	assert.Equal(t, "Bearer recovered-token", headers["Authorization"])
+	assert.Equal(t, int32(0), evictCount.Load(), "failure counter must reset on recovery")
+}
+
+func TestMakeTokenExchangeHeaderFunc_NilCallbackNoPanic(t *testing.T) {
+	var logBuf bytes.Buffer
+	logging.InitForCLI(logging.LevelDebug, &logBuf)
+
+	reexchange := func() (string, time.Time, error) {
+		return "", time.Time{}, fmt.Errorf("always fails")
+	}
+	headerFunc := makeTokenExchangeHeaderFunc("srv", "stale-token", time.Now(), reexchange, nil)
+
+	for i := 0; i < maxConsecutiveTokenFailures+2; i++ {
+		headers := headerFunc(context.Background())
+		assert.Equal(t, "Bearer stale-token", headers["Authorization"])
+	}
+}
+
+func TestMakeTokenExchangeHeaderFunc_ZeroExpiryNeverRefreshes(t *testing.T) {
+	var calls atomic.Int32
+	reexchange := func() (string, time.Time, error) {
+		calls.Add(1)
+		return "new", time.Now().Add(time.Hour), nil
+	}
+	headerFunc := makeTokenExchangeHeaderFunc("srv", "initial-token", time.Time{}, reexchange, nil)
+
+	headers := headerFunc(context.Background())
+	assert.Equal(t, "Bearer initial-token", headers["Authorization"])
+	assert.Equal(t, int32(0), calls.Load(), "zero expiry disables proactive refresh")
 }

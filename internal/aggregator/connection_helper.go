@@ -3,6 +3,7 @@ package aggregator
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	internalmcp "github.com/giantswarm/muster/internal/mcpserver"
@@ -791,15 +792,49 @@ func EstablishConnectionWithTokenExchange(
 		logging.Debug("TokenExchange", "Could not extract expiry from exchanged token, proactive refresh disabled: %v", err)
 	}
 
-	// Create a header function using the exchanged token. The token has a fixed
-	// lifetime; if it expires while the client is pooled, the downstream server
-	// returns 401. In that case, callToolWithTokenExchangeRetry evicts the stale
-	// pool entry, re-exchanges a fresh token, and retries the tool call.
-	headerFunc := func(_ context.Context) map[string]string {
-		return map[string]string{pkgoauth.HeaderAuthorization: pkgoauth.SchemeBearer + " " + exchangedToken}
+	// The exchanged access token has a fixed lifetime (Dex default 30m). The
+	// persistent connection carries mcp-go's continuous listener, which outlives
+	// that lifetime and never traverses the tool-call retry path, so the token
+	// must be refreshed on the connection itself. reexchange mints a fresh token
+	// from the latest subject ID token; onStaleToken evicts the connection when
+	// the subject can no longer be refreshed, so the listener stops instead of
+	// looping an expired token and the state settles to Auth Required.
+	reexchange := func() (string, time.Time, error) {
+		freshID := getIDTokenForForwarding(context.Background(), sessionID, musterIssuer, a.sessionRefresher())
+		if freshID == "" {
+			return "", time.Time{}, fmt.Errorf("no subject ID token available for re-exchange")
+		}
+		if expired, expErr := pkgoauth.IsExpired(freshID); expired {
+			return "", time.Time{}, fmt.Errorf("subject ID token expired: %w", expErr)
+		}
+		freshUserID, subErr := pkgoauth.Subject(freshID)
+		if subErr != nil || freshUserID == "" {
+			freshUserID = userID
+		}
+		newToken, exErr := oauthHandler.ExchangeTokenForRemoteCluster(
+			context.Background(), freshID, freshUserID, serverInfo.AuthConfig.TokenExchange,
+		)
+		if exErr != nil {
+			return "", time.Time{}, exErr
+		}
+		newExpiry, _ := pkgoauth.Expiry(newToken)
+		return newToken, newExpiry, nil
 	}
 
-	// Create a client with the dynamic header function.
+	onStaleToken := func() {
+		if a.connPool != nil {
+			a.connPool.Evict(sessionID, serverInfo.Name)
+		}
+		if a.authStore != nil {
+			if revokeErr := a.authStore.Revoke(context.Background(), sessionID, serverInfo.Name); revokeErr != nil {
+				logging.Warn("Connection", "Failed to revoke token-exchange auth for %s/%s: %v",
+					logging.TruncateIdentifier(sessionID), serverInfo.Name, revokeErr)
+			}
+		}
+	}
+
+	headerFunc := makeTokenExchangeHeaderFunc(serverInfo.Name, exchangedToken, tokenExpiry, reexchange, onStaleToken)
+
 	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
 
 	// Try to initialize the client with the exchanged token
@@ -915,6 +950,67 @@ const headerFuncWarnInterval = 1 * time.Minute
 // eviction. At mcp-go's 1-second retry interval, 3 failures ≈ 3 seconds of
 // retrying with stale tokens before the connection is proactively closed.
 const maxConsecutiveTokenFailures = 3
+
+// makeTokenExchangeHeaderFunc builds the header function for a token-exchange
+// connection. The exchanged token is refreshed in place: once the current token
+// enters the tokenExchangeRefreshMargin window before its expiry, the next call
+// re-exchanges a fresh one via reexchange and caches it. On re-exchange failure
+// the previous token is kept as a fallback; after maxConsecutiveTokenFailures
+// consecutive failures onStaleToken is invoked once (asynchronously) to evict the
+// connection so mcp-go's retry loop stops. The counter resets on a successful
+// re-exchange, allowing re-eviction if refresh fails again later.
+//
+// reexchange must be safe to call without a request context; it resolves the
+// latest subject token itself. expiry may be zero when the token carries no
+// parseable exp, in which case no proactive refresh happens (the tool-call path
+// still recovers via its 401 retry).
+func makeTokenExchangeHeaderFunc(
+	serverName, initialToken string,
+	expiry time.Time,
+	reexchange func() (string, time.Time, error),
+	onStaleToken func(),
+) func(context.Context) map[string]string {
+	var mu sync.Mutex
+	token := initialToken
+	var consecutiveFailures int
+	var staleEvicted bool
+	var lastWarnTime time.Time
+
+	return func(_ context.Context) map[string]string {
+		mu.Lock()
+		defer mu.Unlock()
+
+		if !expiry.IsZero() && time.Now().After(expiry.Add(-tokenExchangeRefreshMargin)) {
+			newToken, newExpiry, err := reexchange()
+			if err != nil {
+				consecutiveFailures++
+				if time.Since(lastWarnTime) >= headerFuncWarnInterval {
+					logging.Warn("Connection", "Token re-exchange failed for %s (%d/%d consecutive), reusing current token: %v",
+						serverName, consecutiveFailures, maxConsecutiveTokenFailures, err)
+					lastWarnTime = time.Now()
+				}
+				if consecutiveFailures >= maxConsecutiveTokenFailures && !staleEvicted && onStaleToken != nil {
+					staleEvicted = true
+					go func() {
+						defer func() {
+							if r := recover(); r != nil {
+								logging.Error("Connection", fmt.Errorf("panic in onStaleToken: %v", r),
+									"onStaleToken callback panicked for %s", serverName)
+							}
+						}()
+						onStaleToken()
+					}()
+				}
+			} else {
+				token = newToken
+				expiry = newExpiry
+				consecutiveFailures = 0
+				staleEvicted = false
+			}
+		}
+		return map[string]string{pkgoauth.HeaderAuthorization: pkgoauth.SchemeBearer + " " + token}
+	}
+}
 
 // makeTokenForwardingHeaderFunc creates the header function closure used by
 // EstablishConnectionWithTokenForwarding. The returned closure resolves the latest
