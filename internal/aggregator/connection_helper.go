@@ -800,7 +800,15 @@ func EstablishConnectionWithTokenExchange(
 	// the subject can no longer be refreshed, so the listener stops instead of
 	// looping an expired token and the state settles to Auth Required.
 	reexchange := func() (string, time.Time, error) {
-		freshID := getIDTokenForForwarding(context.Background(), sessionID, musterIssuer, a.sessionRefresher())
+		// Bound the network work: the header closure resolves the subject token
+		// and round-trips to Dex here, and the stale-eviction recovery only
+		// triggers when this returns an error. An unbounded call against a hung
+		// Dex would block the header path forever without ever advancing the
+		// failure counter, so a slow endpoint must surface as a normal failure.
+		ctx, cancel := context.WithTimeout(context.Background(), tokenReexchangeTimeout)
+		defer cancel()
+
+		freshID := getIDTokenForForwarding(ctx, sessionID, musterIssuer, a.sessionRefresher())
 		if freshID == "" {
 			return "", time.Time{}, fmt.Errorf("no subject ID token available for re-exchange")
 		}
@@ -812,12 +820,16 @@ func EstablishConnectionWithTokenExchange(
 			freshUserID = userID
 		}
 		newToken, exErr := oauthHandler.ExchangeTokenForRemoteCluster(
-			context.Background(), freshID, freshUserID, serverInfo.AuthConfig.TokenExchange,
+			ctx, freshID, freshUserID, serverInfo.AuthConfig.TokenExchange,
 		)
 		if exErr != nil {
 			return "", time.Time{}, exErr
 		}
-		newExpiry, _ := pkgoauth.Expiry(newToken)
+		newExpiry, expErr := pkgoauth.Expiry(newToken)
+		if expErr != nil {
+			logging.Debug("TokenExchange", "Could not extract expiry from re-exchanged token for %s, proactive refresh disabled: %v",
+				serverInfo.Name, expErr)
+		}
 		return newToken, newExpiry, nil
 	}
 
@@ -940,6 +952,12 @@ func emitTokenExchangeEvent(serverName, namespace string, success bool, errorMsg
 // without blocking the user's request.
 const tokenExchangeRefreshMargin = 5 * time.Minute
 
+// tokenReexchangeTimeout bounds the subject-token resolution and Dex round-trip
+// performed by the token-exchange header closure. It must stay well under
+// tokenExchangeRefreshMargin so a slow or hung Dex surfaces as a failure (which
+// advances the eviction counter) long before the current token actually expires.
+const tokenReexchangeTimeout = 30 * time.Second
+
 // headerFuncWarnInterval is the minimum interval between WARN-level log messages
 // when the headerFunc closure fails to resolve an ID token. Between warnings,
 // failures are logged at DEBUG to avoid flooding logs from stale sessions.
@@ -961,9 +979,13 @@ const maxConsecutiveTokenFailures = 3
 // re-exchange, allowing re-eviction if refresh fails again later.
 //
 // reexchange must be safe to call without a request context; it resolves the
-// latest subject token itself. expiry may be zero when the token carries no
-// parseable exp, in which case no proactive refresh happens (the tool-call path
-// still recovers via its 401 retry).
+// latest subject token itself and must bound its own network work so it cannot
+// block indefinitely. expiry may be zero when the token carries no parseable
+// exp, in which case no proactive refresh happens (the tool-call path still
+// recovers via its 401 retry).
+//
+// The mutex is held across reexchange so a single refresh serves all callers
+// (single-flight); this relies on reexchange being time-bounded.
 func makeTokenExchangeHeaderFunc(
 	serverName, initialToken string,
 	expiry time.Time,
