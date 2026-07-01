@@ -996,11 +996,12 @@ const maxConsecutiveTokenFailures = 3
 // as tokenExchangeFallbackRefreshInterval from now, so refresh keeps firing
 // blind rather than latching off and re-stranding the listener.
 //
-// mcp-go calls the returned closure sequentially per connection, so the shared
-// state needs no lock for correctness; the mutex additionally serialises the
-// bounded reexchange so a single refresh serves any concurrent caller
-// (single-flight), matching makeTokenForwardingHeaderFunc's sequential-call
-// assumption while staying safe if that ever changes.
+// mcp-go invokes the returned closure concurrently on a single connection: the
+// continuous-listening GET runs in its own goroutine (listenForever) while tool
+// calls invoke it from their own goroutines, and both reach headerFunc via
+// sendHTTP. The mutex is therefore required for correctness, not just defensive;
+// it also serialises the bounded reexchange so a single refresh serves any
+// concurrent caller (single-flight) rather than each firing its own Dex round-trip.
 func makeTokenExchangeHeaderFunc(
 	serverName, initialToken string,
 	expiry time.Time,
