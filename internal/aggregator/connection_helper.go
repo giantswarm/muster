@@ -741,15 +741,9 @@ func EstablishConnectionWithTokenExchange(
 			serverInfo.Name, credentials.ClientID)
 	}
 
-	// Build a value copy of the TokenExchange config with the per-connection
-	// mutations (resolved credentials + required-audience scopes) applied. We must
-	// NOT mutate serverInfo.AuthConfig.TokenExchange in place: AuthConfig and
-	// TokenExchange are pointers shared with the registry definition (see
-	// orchestrator.go: `AuthConfig: definition.Auth`), which is the exact object
-	// MCPServerReconciler.ConfigurationChanged compares. In-place mutation of the
-	// runtime-only ClientID/ClientSecret and the appended audience Scopes makes the
-	// stored definition permanently differ from the CR, causing a restart on every
-	// reconcile. This mirrors the value-copy pattern already used in server.go.
+	// Apply per-connection mutations to a value copy; never mutate
+	// serverInfo.AuthConfig.TokenExchange in place, it is shared with the registry
+	// definition (see buildConnectionTokenExchangeConfig).
 	exchangeConfig, err := buildConnectionTokenExchangeConfig(
 		serverInfo.AuthConfig.TokenExchange,
 		serverInfo.AuthConfig.RequiredAudiences,
