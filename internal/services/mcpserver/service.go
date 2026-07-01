@@ -409,12 +409,44 @@ func (s *Service) ConfigurationChanged(newConfig interface{}) bool {
 		s.LogDebug("Config change detected: family changed from %+v to %+v", cur.Family, newDef.Family)
 		return true
 	}
-	if !reflect.DeepEqual(cur.Auth, newDef.Auth) {
+	if authConfigChanged(cur.Auth, newDef.Auth) {
 		s.LogDebug("Config change detected: auth configuration changed")
 		return true
 	}
 
 	return false
+}
+
+// authConfigChanged reports whether two auth configurations differ in a way that
+// requires a restart. It compares the full auth spec but ignores the token-exchange
+// client credentials (ClientID/ClientSecret), which are resolved from a Secret at
+// runtime and stored back on the running service's definition. Those fields are
+// absent from a definition freshly rebuilt from the CR (they are tagged json:"-"
+// yaml:"-"), so a plain reflect.DeepEqual would always report a difference once
+// credentials have loaded, causing the reconciler to restart the MCPServer on every
+// pass (see giantswarm/giantswarm#37060).
+func authConfigChanged(cur, next *api.MCPServerAuth) bool {
+	if cur == nil || next == nil {
+		return cur != next
+	}
+	return !reflect.DeepEqual(normalizeAuthForComparison(cur), normalizeAuthForComparison(next))
+}
+
+// normalizeAuthForComparison returns a copy of the auth config with runtime-only
+// token-exchange credential fields cleared, so spec-derived fields can be compared
+// without the resolved credentials skewing the result. The input is never mutated.
+func normalizeAuthForComparison(auth *api.MCPServerAuth) *api.MCPServerAuth {
+	if auth == nil {
+		return nil
+	}
+	normalized := *auth
+	if auth.TokenExchange != nil {
+		te := *auth.TokenExchange
+		te.ClientID = ""
+		te.ClientSecret = ""
+		normalized.TokenExchange = &te
+	}
+	return &normalized
 }
 
 // GetServiceData implements ServiceDataProvider
