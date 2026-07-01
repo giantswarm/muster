@@ -789,7 +789,7 @@ func EstablishConnectionWithTokenExchange(
 	// downstream server returns 401.
 	tokenExpiry, err := pkgoauth.Expiry(exchangedToken)
 	if err != nil {
-		logging.Debug("TokenExchange", "Could not extract expiry from exchanged token, proactive refresh disabled: %v", err)
+		logging.Debug("TokenExchange", "Could not extract expiry from exchanged token, refreshing on the fallback interval: %v", err)
 	}
 
 	// The exchanged access token has a fixed lifetime (Dex default 30m). The
@@ -827,7 +827,7 @@ func EstablishConnectionWithTokenExchange(
 		}
 		newExpiry, expErr := pkgoauth.Expiry(newToken)
 		if expErr != nil {
-			logging.Debug("TokenExchange", "Could not extract expiry from re-exchanged token for %s, proactive refresh disabled: %v",
+			logging.Debug("TokenExchange", "Could not extract expiry from re-exchanged token for %s, refreshing on the fallback interval: %v",
 				serverInfo.Name, expErr)
 		}
 		return newToken, newExpiry, nil
@@ -958,6 +958,14 @@ const tokenExchangeRefreshMargin = 5 * time.Minute
 // advances the eviction counter) long before the current token actually expires.
 const tokenReexchangeTimeout = 30 * time.Second
 
+// tokenExchangeFallbackRefreshInterval is how long an exchanged token is assumed
+// valid when it carries no parseable exp. A zero expiry must not latch proactive
+// refresh off for the life of the connection: the listener would then loop an
+// expired token again, which is the exact failure the refresh exists to prevent.
+// Refreshing blind on this interval keeps the token fresh without a Dex round-trip
+// on every header call.
+const tokenExchangeFallbackRefreshInterval = 5 * time.Minute
+
 // headerFuncWarnInterval is the minimum interval between WARN-level log messages
 // when the headerFunc closure fails to resolve an ID token. Between warnings,
 // failures are logged at DEBUG to avoid flooding logs from stale sessions.
@@ -965,8 +973,12 @@ const headerFuncWarnInterval = 1 * time.Minute
 
 // maxConsecutiveTokenFailures is the number of consecutive token resolution
 // failures in the headerFunc before the stale connection is signaled for
-// eviction. At mcp-go's 1-second retry interval, 3 failures ≈ 3 seconds of
-// retrying with stale tokens before the connection is proactively closed.
+// eviction. On the token-forwarding and localMint paths resolution is a local
+// store lookup, so at mcp-go's 1-second retry interval 3 failures ≈ 3 seconds
+// before the connection is proactively closed. On the token-exchange path each
+// attempt performs a Dex round-trip bounded by tokenReexchangeTimeout, so the
+// worst case is longer (up to 3×tokenReexchangeTimeout against a hung Dex);
+// the connection still settles cleanly, just not within a few seconds.
 const maxConsecutiveTokenFailures = 3
 
 // makeTokenExchangeHeaderFunc builds the header function for a token-exchange
@@ -980,12 +992,15 @@ const maxConsecutiveTokenFailures = 3
 //
 // reexchange must be safe to call without a request context; it resolves the
 // latest subject token itself and must bound its own network work so it cannot
-// block indefinitely. expiry may be zero when the token carries no parseable
-// exp, in which case no proactive refresh happens (the tool-call path still
-// recovers via its 401 retry).
+// block indefinitely. A zero expiry (token carries no parseable exp) is treated
+// as tokenExchangeFallbackRefreshInterval from now, so refresh keeps firing
+// blind rather than latching off and re-stranding the listener.
 //
-// The mutex is held across reexchange so a single refresh serves all callers
-// (single-flight); this relies on reexchange being time-bounded.
+// mcp-go calls the returned closure sequentially per connection, so the shared
+// state needs no lock for correctness; the mutex additionally serialises the
+// bounded reexchange so a single refresh serves any concurrent caller
+// (single-flight), matching makeTokenForwardingHeaderFunc's sequential-call
+// assumption while staying safe if that ever changes.
 func makeTokenExchangeHeaderFunc(
 	serverName, initialToken string,
 	expiry time.Time,
@@ -994,6 +1009,9 @@ func makeTokenExchangeHeaderFunc(
 ) func(context.Context) map[string]string {
 	var mu sync.Mutex
 	token := initialToken
+	if expiry.IsZero() {
+		expiry = time.Now().Add(tokenExchangeRefreshMargin + tokenExchangeFallbackRefreshInterval)
+	}
 	var consecutiveFailures int
 	var staleEvicted bool
 	var lastWarnTime time.Time
@@ -1025,7 +1043,11 @@ func makeTokenExchangeHeaderFunc(
 				}
 			} else {
 				token = newToken
-				expiry = newExpiry
+				if newExpiry.IsZero() {
+					expiry = time.Now().Add(tokenExchangeRefreshMargin + tokenExchangeFallbackRefreshInterval)
+				} else {
+					expiry = newExpiry
+				}
 				consecutiveFailures = 0
 				staleEvicted = false
 			}

@@ -11,6 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/giantswarm/muster/internal/api"
@@ -1129,15 +1130,32 @@ func TestMakeTokenExchangeHeaderFunc_NilCallbackNoPanic(t *testing.T) {
 	}
 }
 
-func TestMakeTokenExchangeHeaderFunc_ZeroExpiryNeverRefreshes(t *testing.T) {
-	var calls atomic.Int32
-	reexchange := func() (string, time.Time, error) {
-		calls.Add(1)
-		return "new", time.Now().Add(time.Hour), nil
-	}
-	headerFunc := makeTokenExchangeHeaderFunc("srv", "initial-token", time.Time{}, reexchange, nil)
+func TestMakeTokenExchangeHeaderFunc_ZeroExpiryRefreshesOnFallbackInterval(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var calls atomic.Int32
+		reexchange := func() (string, time.Time, error) {
+			calls.Add(1)
+			// Fresh token also carries no parseable exp, so refresh must keep
+			// firing on the fallback interval rather than latching off.
+			return "refreshed-token", time.Time{}, nil
+		}
+		headerFunc := makeTokenExchangeHeaderFunc("srv", "initial-token", time.Time{}, reexchange, nil)
 
-	headers := headerFunc(context.Background())
-	assert.Equal(t, "Bearer initial-token", headers["Authorization"])
-	assert.Equal(t, int32(0), calls.Load(), "zero expiry disables proactive refresh")
+		// The initial token is fresh: a zero expiry is normalised to the fallback
+		// window, not treated as already-expired, so no immediate re-exchange.
+		headers := headerFunc(context.Background())
+		assert.Equal(t, "Bearer initial-token", headers["Authorization"])
+		assert.Equal(t, int32(0), calls.Load(), "must not re-exchange while inside the fallback window")
+
+		// Cross the fallback refresh point (fallback window minus the margin).
+		time.Sleep(tokenExchangeFallbackRefreshInterval + time.Second)
+		headers = headerFunc(context.Background())
+		assert.Equal(t, "Bearer refreshed-token", headers["Authorization"], "unparseable expiry must not disable refresh")
+		assert.Equal(t, int32(1), calls.Load())
+
+		// And it keeps refreshing on the interval rather than stopping after one.
+		time.Sleep(tokenExchangeFallbackRefreshInterval + time.Second)
+		headerFunc(context.Background())
+		assert.Equal(t, int32(2), calls.Load(), "refresh must recur on the fallback interval")
+	})
 }
