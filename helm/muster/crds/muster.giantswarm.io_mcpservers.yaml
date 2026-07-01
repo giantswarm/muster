@@ -120,11 +120,11 @@ spec:
                       from its own signing key. On each call muster reads the caller's bearer as
                       the subject and an optional X-Actor-Token header as the actor, then mints a
                       token (sub=subject, act=actor, aud=Audience, iss=muster) through muster's
-                      RFC 8693 broker, which enforces ActorDelegationPolicy and WorkloadAudiences.
+                      RFC 8693 broker.
 
-                      Use LocalMint when the backend must authorize an agent acting for itself
-                      (M2M) or on behalf of a human (OBO) and no shared remote IdP can issue a
-                      token with the backend's audience. Requires muster's OAuth server to run in
+                      Use LocalMint when the backend must authorize an agent acting on behalf of a
+                      human (OBO) and no shared remote IdP can issue a token with the backend's
+                      audience. Requires muster's OAuth server to run in
                       JWT mode with a broker local-mint target whose audience equals Audience.
 
                       LocalMint is mutually exclusive with ForwardToken, TokenExchange, and

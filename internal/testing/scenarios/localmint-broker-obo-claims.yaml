@@ -4,8 +4,7 @@ concept: "mcpserver"
 description: |
   OBO (on-behalf-of) delegated local-mint broker path. A human subject token and
   an agent ServiceAccount actor token are exchanged at muster's /oauth/token
-  broker. The actor delegation policy authorizes the (agent, human) pair and the
-  agent is allowed to request the cluster-b audience.
+  broker.
 
   Asserts the minted token carries sub = the human, act.sub = the agent SA (the
   RFC 8693 delegation chain), aud = the requested audience, and the human's groups.
@@ -31,13 +30,6 @@ pre_configuration:
         accepted_typ_headers: [""]
     targets:
       cluster-b: "local-mint"
-    workload_audiences:
-      "system:serviceaccount:kagent:sre-agent": ["cluster-b"]
-    actor_delegation_policy:
-      - actor_oauth_server_ref: "workload-idp"
-        actor_subject: "system:serviceaccount:kagent:*"
-        subject_oauth_server_ref: "*"
-        subject_subject: "*"
 
 steps:
   - id: "mint-human-token"

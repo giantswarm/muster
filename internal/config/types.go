@@ -345,8 +345,6 @@ const (
 	// RFC 9068 JWT signed by muster's own access-token signing key, with sub set
 	// to the validated human subject and act set to the validated agent actor.
 	// Requires enableJWTMode to be true; no downstream token endpoint is needed.
-	// mcp-oauth enforces ActorDelegationPolicy before the provider is invoked;
-	// a nil/empty policy denies all delegated exchanges.
 	TargetTypeLocalMint BrokerTargetType = "local-mint"
 )
 
@@ -373,39 +371,11 @@ type TokenExchangeBrokerConfig struct {
 	// to the downstream credential provider target.
 	Targets map[string]BrokerTargetConfig `yaml:"targets,omitempty"`
 
-	// WorkloadAudiences maps a workload subject (the sub claim of a validated
-	// SA token, e.g. system:serviceaccount:<ns>:<name>; globs supported) to
-	// the audiences it may request. Enables workload-authenticated token
-	// exchange (no confidential-client credentials required). Maps to
-	// mcp-oauth's Config.WorkloadAudiences; enforcement is performed upstream
-	// by mcp-oauth before the provider is invoked.
-	WorkloadAudiences map[string][]string `yaml:"workloadAudiences,omitempty"`
-
-	// WorkloadGroupGrants authorize specific workload identities to receive groups
-	// in a token minted on the M2M (no-actor) path. A groupless workload such as a
-	// Kubernetes SA token carries no groups, so downstreams that gate on groups
-	// cannot authorize it; a grant supplies them. Unlike WorkloadAudiences (keyed
-	// by subject, any issuer), a group grant must name an explicit issuer and
-	// subject — mcp-oauth rejects a wildcard group grant. Group strings must be in
-	// the form downstreams expect (connector-prefixed where the IdP prefixes).
-	WorkloadGroupGrants []WorkloadGroupGrantConfig `yaml:"workloadGroupGrants,omitempty"`
-
 	// AllowPrivateIP allows downstream token endpoints to resolve to private
 	// or loopback IP addresses. WARNING: reduces SSRF protection; only enable
 	// for internal/VPN deployments where the target Dex is reachable via a
 	// private address.
 	AllowPrivateIP bool `yaml:"allowPrivateIP,omitempty"`
-
-	// ActorDelegationPolicy lists the (actor, subject) pairs that muster accepts
-	// for RFC 8693 delegated exchange. An actor is the agent service account; a
-	// subject is the human on whose behalf the token is minted. Both ActorIssuer
-	// and SubjectIssuer accept an exact issuer URL or "*" (any issuer); ActorSubject
-	// and SubjectSubject are matched as globs against the token sub claim.
-	//
-	// A nil or empty policy denies all delegated exchanges (mcp-oauth default).
-	// This field is only consulted for brokered exchanges that carry an actor_token;
-	// plain workload exchanges are unaffected.
-	ActorDelegationPolicy []DelegationGrantConfig `yaml:"actorDelegationPolicy,omitempty"`
 
 	// DelegateToSelf lets a delegated (on-behalf-of) exchange omit the RFC 8707
 	// resource: muster binds the minted token to its own ResourceIdentifier so an
@@ -421,56 +391,9 @@ type TokenExchangeBrokerConfig struct {
 	DefaultSecretNamespace string `yaml:"-"`
 }
 
-// WorkloadGrantedIdentityConfig is the broker-asserted identity injected into a
-// token minted on the workload (no-actor) exchange path. It maps to
-// oauthserver.WorkloadGrantedIdentity. Both fields are optional; an empty struct
-// means no identity injection.
-type WorkloadGrantedIdentityConfig struct {
-	// Groups are merged into the minted token's groups claim so a groupless
-	// workload, such as a Kubernetes ServiceAccount token, can be authorized by
-	// downstreams that gate on groups. Use the exact connector-prefixed strings
-	// the downstream expects.
-	Groups []string `yaml:"groups,omitempty"`
-	// Subject, when non-empty, replaces the validated credential's sub in the
-	// minted token. The downstream sees this value as the token subject; the
-	// original workload subject is retained in the audit trail.
-	Subject string `yaml:"subject,omitempty"`
-}
-
-// WorkloadGroupGrantConfig authorizes an explicit (issuer, subject) workload to
-// request specific audiences and receive a broker-asserted identity on the M2M
-// (no-actor) exchange path. Maps to the group-bearing form of
-// oauthserver.WorkloadGrant.
-type WorkloadGroupGrantConfig struct {
-	// Issuer is the exact issuer URL of the workload token. No wildcard.
-	Issuer string `yaml:"issuer"`
-	// Subject is a glob matched against the workload token's sub claim.
-	Subject string `yaml:"subject"`
-	// Audiences lists the audiences this workload may request.
-	Audiences []string `yaml:"audiences"`
-	// Granted is the broker-asserted identity injected into the minted token.
-	// When set, Issuer and Subject must be explicit (no "*", no glob).
-	Granted WorkloadGrantedIdentityConfig `yaml:"granted,omitempty"`
-}
-
-// DelegationGrantConfig mirrors oauthserver.DelegationGrant: a single (actor, subject)
-// allowlist entry for RFC 8693 delegated token exchange.
-type DelegationGrantConfig struct {
-	// ActorIssuer is the exact issuer URL of the actor token, or "*" to match any.
-	ActorIssuer string `yaml:"actorIssuer"`
-	// ActorSubject is a glob matched against the actor token sub claim.
-	// Use "*" to match any subject from the given issuer.
-	ActorSubject string `yaml:"actorSubject"`
-	// SubjectIssuer is the exact issuer URL of the subject token, or "*" to match any.
-	SubjectIssuer string `yaml:"subjectIssuer"`
-	// SubjectSubject is a glob matched against the subject token sub claim.
-	// Use "*" to match any subject from the given issuer.
-	SubjectSubject string `yaml:"subjectSubject"`
-}
-
 // Enabled reports whether brokered token exchange is configured.
 func (c TokenExchangeBrokerConfig) Enabled() bool {
-	return len(c.Targets) > 0 || len(c.WorkloadAudiences) > 0
+	return len(c.Targets) > 0
 }
 
 // BrokerTargetConfig describes one downstream target of the token broker.
@@ -554,10 +477,10 @@ type TrustedIssuerConfig struct {
 	// "system:serviceaccount:<namespace>:*".
 	AllowedClaims map[string]string `yaml:"allowedClaims,omitempty"`
 	// SubjectClaim names the verified claim whose value becomes the canonical
-	// subject (the sub of any token minted from this identity, and the value
-	// matched by actorDelegationPolicy). Empty keeps the standard sub claim. Set
-	// it to "email" for Dex, whose sub is opaque, when the downstream trusts the
-	// email. Fail-closed: a token whose claim is absent or non-string is rejected.
+	// subject (the sub of any token minted from this identity). Empty keeps the
+	// standard sub claim. Set it to "email" for Dex, whose sub is opaque, when the
+	// downstream trusts the email. Fail-closed: a token whose claim is absent or
+	// non-string is rejected.
 	SubjectClaim string `yaml:"subjectClaim,omitempty"`
 	// AllowPrivateIPJWKS allows the JwksURL to resolve to a private or loopback
 	// address. Required for in-cluster Kubernetes SA trust where the JWKS endpoint

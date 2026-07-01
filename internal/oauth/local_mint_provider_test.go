@@ -110,7 +110,7 @@ func TestLocalMintProvider_NilActor_NoActClaim(t *testing.T) {
 // path the minted token carries the subject's validated identity claims (email,
 // groups), merges the broker-granted groups, and preserves a multi-hop act chain
 // (the new actor nested over the prior act on the subject token).
-func TestLocalMintProvider_ForwardsIdentityClaimsAndGroups(t *testing.T) {
+func TestLocalMintProvider_ForwardsIdentityClaims(t *testing.T) {
 	t.Parallel()
 
 	exchanger := newTestLocalMintExchanger(t)
@@ -132,7 +132,6 @@ func TestLocalMintProvider_ForwardsIdentityClaimsAndGroups(t *testing.T) {
 		Target:          "mcp-prometheus",
 		SubjectIdentity: subject,
 		Actor:           &oauthserver.SubjectIdentity{Subject: "agent-b", Issuer: "https://kubernetes.default.svc"},
-		GrantedGroups:   []string{"workload:granted-group"},
 	})
 	require.NoError(t, err)
 
@@ -143,7 +142,6 @@ func TestLocalMintProvider_ForwardsIdentityClaimsAndGroups(t *testing.T) {
 
 	groups := stringSlice(t, claims["groups"])
 	require.Contains(t, groups, "customer:platform-team", "subject groups must be carried")
-	require.Contains(t, groups, "workload:granted-group", "broker-granted groups must be merged")
 
 	act, ok := claims["act"].(map[string]interface{})
 	require.True(t, ok, "act claim must be present")
@@ -155,10 +153,10 @@ func TestLocalMintProvider_ForwardsIdentityClaimsAndGroups(t *testing.T) {
 	require.Equal(t, "agent-a", prior["sub"])
 }
 
-// TestLocalMintProvider_M2M_NoSubjectClaims verifies that an M2M exchange whose
-// subject carries no identity claims mints sub+aud only: no email, no groups,
-// no act are fabricated.
-func TestLocalMintProvider_M2M_NoSubjectClaims(t *testing.T) {
+// TestLocalMintProvider_NoSubjectClaims verifies that an exchange whose subject
+// carries no identity claims mints sub+aud only: no email, no groups, no act are
+// fabricated.
+func TestLocalMintProvider_NoSubjectClaims(t *testing.T) {
 	t.Parallel()
 
 	exchanger := newTestLocalMintExchanger(t)

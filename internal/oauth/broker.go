@@ -20,9 +20,9 @@ import (
 //
 // mcp-oauth owns subject-token validation (TrustedIssuers), client
 // authentication, the per-client audience allowlist
-// (Config.TokenExchangeClientAudiences), workload-audience authorization
-// (Config.WorkloadAudiences), and audit. BrokerExchanger owns the audience →
-// provider dispatch and delegates minting to the registered CredentialProvider.
+// (Config.TokenExchangeClientAudiences), and audit. BrokerExchanger owns the
+// audience → provider dispatch and delegates minting to the registered
+// CredentialProvider.
 //
 // The exchanger instance is deliberately separate from the OAuth manager's
 // internal SSO exchanger: broker targets carry their own scope sets (e.g. the
@@ -89,8 +89,6 @@ func (b *BrokerExchanger) Exchange(ctx context.Context, req *oauthserver.Exchang
 		Target:           req.Audience,
 		Actor:            req.Actor,
 		SubjectIdentity:  req.Subject,
-		GrantedGroups:    req.GrantedGroups,
-		GrantedSubject:   req.GrantedSubject,
 	})
 	if err != nil {
 		return nil, err

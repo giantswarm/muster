@@ -10,17 +10,16 @@ import (
 
 // brokerTokenMinter implements api.BackendTokenMinter on top of the embedded
 // mcp-oauth server. It routes every mint through WorkloadExchangeSubjectToken so
-// the server's enforcement (subject and actor token validation,
-// ActorDelegationPolicy, WorkloadAudiences) runs before muster's broker mints
-// the token. It performs no policy of its own.
+// the server's enforcement (subject and actor token validation) runs before
+// muster's broker mints the token. It performs no policy of its own.
 type brokerTokenMinter struct {
 	server *oauth.Server
 }
 
 var _ api.BackendTokenMinter = (*brokerTokenMinter)(nil)
 
-// MintBackendToken mints a per-backend token. An empty ActorToken selects the
-// M2M path; a non-empty ActorToken selects RFC 8693 delegation.
+// MintBackendToken mints a per-backend token. An empty ActorToken mints a
+// subject-only token; a non-empty ActorToken selects RFC 8693 delegation.
 func (m *brokerTokenMinter) MintBackendToken(ctx context.Context, req api.BackendMintRequest) (api.BackendMintResult, error) {
 	result, err := m.server.WorkloadExchangeSubjectToken(ctx,
 		req.SubjectToken, req.SubjectTokenType,

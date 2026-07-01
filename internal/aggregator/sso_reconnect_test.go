@@ -1028,7 +1028,7 @@ func TestSSOPoolMissNeedingInit_NoRetryStormOnPersistentFailure(t *testing.T) {
 }
 
 func TestBootstrapNewSessionSSO_ConnectsForwardTokenSynchronously(t *testing.T) {
-	// M2M callers (forwarded SA token, no auth-code flow) reach onAuthenticated
+	// Forwarded-token callers (SA token, no auth-code flow) reach onAuthenticated
 	// for a brand-new session. bootstrapNewSessionSSO must connect the session's
 	// forward-token backends synchronously so auth state and capabilities are
 	// ready before the same request's MCP handler runs — otherwise the agent's
@@ -1063,8 +1063,8 @@ func TestBootstrapNewSessionSSO_ConnectsForwardTokenSynchronously(t *testing.T) 
 		},
 	}
 
-	userID := "m2m-subject"
-	sessionID := "m2m-deterministic-session"
+	userID := "forwarded-subject"
+	sessionID := "forwarded-deterministic-session"
 
 	// No ID token is resolvable (none in context, no usable OAuth proxy entry),
 	// so the forward-token connect fails fast without a network round-trip.

@@ -26,19 +26,6 @@ func brokerTrustedServerRefs(config *MusterPreConfiguration) map[string]bool {
 			refs[ti.OAuthServerRef] = true
 		}
 	}
-	for _, g := range b.WorkloadGroupGrants {
-		if g.OAuthServerRef != "" {
-			refs[g.OAuthServerRef] = true
-		}
-	}
-	for _, d := range b.ActorDelegationPolicy {
-		if d.ActorOAuthServerRef != "" && d.ActorOAuthServerRef != "*" {
-			refs[d.ActorOAuthServerRef] = true
-		}
-		if d.SubjectOAuthServerRef != "" && d.SubjectOAuthServerRef != "*" {
-			refs[d.SubjectOAuthServerRef] = true
-		}
-	}
 	return refs
 }
 
@@ -115,11 +102,7 @@ func (m *musterInstanceManager) applyBrokerConfig(
 	}
 	serverConfig["trustedIssuers"] = trustedIssuers
 
-	tokenExchangeBroker, err := m.buildTokenExchangeBrokerConfig(broker, instanceID)
-	if err != nil {
-		return err
-	}
-	serverConfig["tokenExchangeBroker"] = tokenExchangeBroker
+	serverConfig["tokenExchangeBroker"] = buildTokenExchangeBrokerConfig(broker)
 
 	if m.debug {
 		logger.Debug("🔐 Configured muster token-exchange broker (local-mint): %d trusted issuers, %d targets\n",
@@ -128,12 +111,9 @@ func (m *musterInstanceManager) applyBrokerConfig(
 	return nil
 }
 
-// buildTokenExchangeBrokerConfig assembles the tokenExchangeBroker config map from
-// the scenario broker spec, resolving issuer references for grants.
-func (m *musterInstanceManager) buildTokenExchangeBrokerConfig(
-	broker *MusterBrokerConfig,
-	instanceID string,
-) (map[string]interface{}, error) {
+// buildTokenExchangeBrokerConfig assembles the tokenExchangeBroker config map
+// from the scenario broker spec.
+func buildTokenExchangeBrokerConfig(broker *MusterBrokerConfig) map[string]interface{} {
 	targets := make(map[string]interface{}, len(broker.Targets))
 	for audience, targetType := range broker.Targets {
 		if targetType == "" {
@@ -142,56 +122,10 @@ func (m *musterInstanceManager) buildTokenExchangeBrokerConfig(
 		targets[audience] = map[string]interface{}{"type": targetType}
 	}
 
-	result := map[string]interface{}{
+	return map[string]interface{}{
 		"targets":        targets,
 		"delegateToSelf": broker.DelegateToSelf,
 	}
-
-	if len(broker.WorkloadAudiences) > 0 {
-		result["workloadAudiences"] = broker.WorkloadAudiences
-	}
-
-	if len(broker.WorkloadGroupGrants) > 0 {
-		grants := make([]map[string]interface{}, 0, len(broker.WorkloadGroupGrants))
-		for _, g := range broker.WorkloadGroupGrants {
-			issuerURL := m.resolveIssuerURL(instanceID, g.OAuthServerRef)
-			if issuerURL == "" {
-				return nil, fmt.Errorf("muster_broker workload_group_grant references unknown OAuth server %q", g.OAuthServerRef)
-			}
-			grant := map[string]interface{}{
-				"issuer":    issuerURL,
-				"subject":   g.Subject,
-				"audiences": g.Audiences,
-			}
-			if g.GrantedSubject != "" || len(g.GrantedGroups) > 0 {
-				granted := map[string]interface{}{}
-				if g.GrantedSubject != "" {
-					granted["subject"] = g.GrantedSubject
-				}
-				if len(g.GrantedGroups) > 0 {
-					granted["groups"] = g.GrantedGroups
-				}
-				grant["granted"] = granted
-			}
-			grants = append(grants, grant)
-		}
-		result["workloadGroupGrants"] = grants
-	}
-
-	if len(broker.ActorDelegationPolicy) > 0 {
-		policy := make([]map[string]interface{}, 0, len(broker.ActorDelegationPolicy))
-		for _, d := range broker.ActorDelegationPolicy {
-			policy = append(policy, map[string]interface{}{
-				"actorIssuer":    m.resolveIssuerRefOrWildcard(instanceID, d.ActorOAuthServerRef),
-				"actorSubject":   d.ActorSubject,
-				"subjectIssuer":  m.resolveIssuerRefOrWildcard(instanceID, d.SubjectOAuthServerRef),
-				"subjectSubject": d.SubjectSubject,
-			})
-		}
-		result["actorDelegationPolicy"] = policy
-	}
-
-	return result, nil
 }
 
 // resolveIssuerURL returns the live issuer URL of a started mock OAuth server.
@@ -201,13 +135,4 @@ func (m *musterInstanceManager) resolveIssuerURL(instanceID, ref string) string 
 		return ""
 	}
 	return srv.GetIssuerURL()
-}
-
-// resolveIssuerRefOrWildcard resolves a server ref to its issuer URL, passing "*"
-// (any issuer) and empty through unchanged.
-func (m *musterInstanceManager) resolveIssuerRefOrWildcard(instanceID, ref string) string {
-	if ref == "" || ref == "*" {
-		return "*"
-	}
-	return m.resolveIssuerURL(instanceID, ref)
 }

@@ -815,8 +815,8 @@ func TestShouldUseLocalMint(t *testing.T) {
 	}
 }
 
-func TestMakeLocalMintHeaderFunc_M2M(t *testing.T) {
-	minter := &fakeBackendTokenMinter{result: api.BackendMintResult{AccessToken: "minted-m2m"}}
+func TestMakeLocalMintHeaderFunc_NoActor(t *testing.T) {
+	minter := &fakeBackendTokenMinter{result: api.BackendMintResult{AccessToken: "minted-no-actor"}}
 	api.RegisterBackendTokenMinter(minter)
 	defer api.RegisterBackendTokenMinter(nil)
 
@@ -828,9 +828,9 @@ func TestMakeLocalMintHeaderFunc_M2M(t *testing.T) {
 
 	require.True(t, minter.called)
 	require.Equal(t, saToken, minter.gotReq.SubjectToken)
-	require.Empty(t, minter.gotReq.ActorToken, "M2M must carry no actor")
+	require.Empty(t, minter.gotReq.ActorToken, "no-actor path must carry no actor")
 	require.Equal(t, "be-audience", minter.gotReq.Audience)
-	require.Equal(t, "Bearer minted-m2m", headers["Authorization"])
+	require.Equal(t, "Bearer minted-no-actor", headers["Authorization"])
 }
 
 func TestMakeLocalMintHeaderFunc_Delegation(t *testing.T) {
@@ -854,7 +854,7 @@ func TestMakeLocalMintHeaderFunc_Delegation(t *testing.T) {
 // The SSO bootstrap path connects backends on a detached context that carries
 // no live request headers, so makeLocalMintHeaderFunc must fall back to the
 // captured actor token. Without it the delegated exchange drops the actor,
-// falls to the M2M branch, and is authorized on the human subject instead of
+// falls to the no-actor branch, and is authorized on the human subject instead of
 // the agent SA.
 func TestMakeLocalMintHeaderFunc_CapturedActorFallback(t *testing.T) {
 	minter := &fakeBackendTokenMinter{result: api.BackendMintResult{AccessToken: "minted-obo"}}
@@ -890,9 +890,9 @@ func TestMakeLocalMintHeaderFunc_EmailUnverifiedFailsClosed(t *testing.T) {
 }
 
 // A pre-exchanged human-derived bearer (carries an email, no separate
-// X-Actor-Token) takes the M2M path. email_verified must still be enforced
+// X-Actor-Token) takes the no-actor path. email_verified must still be enforced
 // there, else an unverified-email human identity slips through unchecked.
-func TestMakeLocalMintHeaderFunc_M2MEmailUnverifiedFailsClosed(t *testing.T) {
+func TestMakeLocalMintHeaderFunc_NoActorEmailUnverifiedFailsClosed(t *testing.T) {
 	minter := &fakeBackendTokenMinter{result: api.BackendMintResult{AccessToken: "should-not-mint"}}
 	api.RegisterBackendTokenMinter(minter)
 	defer api.RegisterBackendTokenMinter(nil)
@@ -908,7 +908,7 @@ func TestMakeLocalMintHeaderFunc_M2MEmailUnverifiedFailsClosed(t *testing.T) {
 
 	headers := headerFunc(ctx)
 
-	require.False(t, minter.called, "M2M-path mint must be refused for an unverified email")
+	require.False(t, minter.called, "no-actor-path mint must be refused for an unverified email")
 	require.Empty(t, headers, "no Authorization header on fail-closed")
 }
 

@@ -444,12 +444,12 @@ func EstablishConnectionWithTokenForwarding(
 }
 
 // EstablishConnectionWithLocalMint connects to a localMint server to discover
-// its capabilities. Discovery mints an M2M token from the connecting identity's
-// session token (in the agent topology that is the agent's own SA token, which
-// WorkloadAudiences authorizes); a human's on-behalf-of identity only arrives
-// per call_tool via the actor header. The returned client's header func re-mints
-// on every request from the live request context, so per-call execution still
-// performs the full M2M-or-delegation mint — the discovery token is not reused.
+// its capabilities. Discovery mints a token from the connecting identity's
+// session token (in the agent topology that is the agent's own SA token); a
+// human's on-behalf-of identity only arrives per call_tool via the actor header.
+// The returned client's header func re-mints on every request from the live
+// request context, so per-call execution still performs the full mint; the
+// discovery token is not reused.
 func EstablishConnectionWithLocalMint(
 	ctx context.Context,
 	a *AggregatorServer,
@@ -1003,7 +1003,7 @@ const localMintTokenType = "urn:ietf:params:oauth:token-type:jwt" //nolint:gosec
 // each upstream request it reads the inbound subject (Authorization) and actor
 // (X-Actor-Token) tokens from the request context, mints a per-backend token
 // through the broker-enforced exchange, and sets it as the Authorization header.
-// An absent actor token mints the M2M token (sub=subject, no act); a present
+// An absent actor token mints the no-actor token (sub=subject, no act); a present
 // actor token mints the delegated token (sub=subject, act=actor).
 //
 // Fail-closed: when the minter is unavailable, the subject token is absent, or

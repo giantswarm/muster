@@ -54,8 +54,11 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, refreshTokenTTL time.Dur
 		// Only consulted when an Exchanger is registered (see
 		// buildOAuthServerOptions); a miss returns invalid_target.
 		TokenExchangeClientAudiences: cfg.TokenExchangeBroker.ClientAudiences,
-		WorkloadAudiences:            workloadGrantsFromConfig(cfg.TokenExchangeBroker.WorkloadAudiences, cfg.TokenExchangeBroker.WorkloadGroupGrants),
-		EnableWorkloadTokenExchange:  len(cfg.TokenExchangeBroker.WorkloadAudiences) > 0 || len(cfg.TokenExchangeBroker.WorkloadGroupGrants) > 0,
+		// Enables the credential-less workload-authenticated exchange on the HTTP
+		// /oauth/token endpoint (the agent STS path), authenticated by the subject
+		// and actor tokens themselves. The in-process localMint path does not
+		// consult this; the HTTP path does.
+		EnableWorkloadTokenExchange: cfg.TokenExchangeBroker.Enabled(),
 	}
 	if cfg.AllowedOrigins != "" {
 		result.CORS.AllowedOrigins = strings.Split(cfg.AllowedOrigins, ",")
@@ -65,9 +68,6 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, refreshTokenTTL time.Dur
 	}
 	if cfg.EnableJWTMode {
 		result.AccessTokenFormat = oauthserver.AccessTokenFormatJWT
-	}
-	if len(cfg.TokenExchangeBroker.ActorDelegationPolicy) > 0 {
-		result.ActorDelegationPolicy = delegationGrantsFromConfig(cfg.TokenExchangeBroker.ActorDelegationPolicy)
 	}
 	if cfg.TokenExchangeBroker.DelegateToSelf {
 		result.DelegationDefaultResource = cfg.ResourceIdentifier
@@ -126,8 +126,7 @@ func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger, 
 		}
 		brokerLogger.Info("Brokered RFC 8693 token exchange enabled",
 			"targets", len(cfg.TokenExchangeBroker.Targets),
-			"brokerClients", len(cfg.TokenExchangeBroker.ClientAudiences),
-			"workloadSubjects", len(cfg.TokenExchangeBroker.WorkloadAudiences))
+			"brokerClients", len(cfg.TokenExchangeBroker.ClientAudiences))
 	}
 
 	if len(cfg.TrustedProxyCIDRs) > 0 {
@@ -255,49 +254,6 @@ func newDPoPReplayCache(storageCfg config.OAuthStorageConfig) (oauthserver.DPoPR
 		return valkey.NewDPoPReplayCache(client, prefix+"dpop:"), client, nil
 	}
 	return oauthserver.NewMemoryDPoPReplayCache(), nil, nil
-}
-
-// workloadGrantsFromConfig converts the muster workload config to the mcp-oauth
-// WorkloadGrant slice. The audiences map keys grants by workload subject with
-// Issuer "*" (any trusted issuer) and no granted identity. The group grants are
-// explicit (issuer, subject) entries; mcp-oauth rejects a wildcard grant with a
-// non-empty Granted identity.
-func workloadGrantsFromConfig(m map[string][]string, groupGrants []config.WorkloadGroupGrantConfig) []oauthserver.WorkloadGrant {
-	grants := make([]oauthserver.WorkloadGrant, 0, len(m)+len(groupGrants))
-	for subject, audiences := range m {
-		grants = append(grants, oauthserver.WorkloadGrant{
-			Issuer:    "*",
-			Subject:   subject,
-			Audiences: audiences,
-		})
-	}
-	for _, g := range groupGrants {
-		grants = append(grants, oauthserver.WorkloadGrant{
-			Issuer:    g.Issuer,
-			Subject:   g.Subject,
-			Audiences: g.Audiences,
-			Granted: oauthserver.WorkloadGrantedIdentity{
-				Groups:  g.Granted.Groups,
-				Subject: g.Granted.Subject,
-			},
-		})
-	}
-	return grants
-}
-
-// delegationGrantsFromConfig converts the muster ActorDelegationPolicy config
-// slice to the mcp-oauth DelegationGrant slice.
-func delegationGrantsFromConfig(grants []config.DelegationGrantConfig) []oauthserver.DelegationGrant {
-	result := make([]oauthserver.DelegationGrant, len(grants))
-	for i, g := range grants {
-		result[i] = oauthserver.DelegationGrant{
-			ActorIssuer:    g.ActorIssuer,
-			ActorSubject:   g.ActorSubject,
-			SubjectIssuer:  g.SubjectIssuer,
-			SubjectSubject: g.SubjectSubject,
-		}
-	}
-	return result
 }
 
 // logEnabledOAuthOptions emits operator-facing Info lines confirming which

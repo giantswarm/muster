@@ -140,7 +140,7 @@ func (h *TestToolsHandler) handleMintToken(_ context.Context, args map[string]in
 		claims["iss"] = iss
 	}
 	// Default the audience to muster's own issuer: the broker binds workload
-	// subject tokens (M2M) and all actor tokens to its issuer as anti-replay
+	// subject tokens (no-actor) and all actor tokens to its issuer as anti-replay
 	// protection when the trusted issuer sets no allowedAudiences. The muster
 	// port is dynamic, so resolve it here rather than hardcoding it in YAML.
 	if aud, ok := args["aud"].(string); ok && aud != "" {
