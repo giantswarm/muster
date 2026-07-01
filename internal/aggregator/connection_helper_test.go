@@ -769,8 +769,12 @@ func TestHeaderFunc_NilCallback(t *testing.T) {
 	}
 }
 
-// fakeBackendTokenMinter is a test double for api.BackendTokenMinter.
+// fakeBackendTokenMinter is a test double for api.BackendTokenMinter. mu guards
+// gotReq/called so the double can be hammered from concurrent goroutines
+// without -race flagging the double itself; sequential callers read the fields
+// directly after the call returns.
 type fakeBackendTokenMinter struct {
+	mu     sync.Mutex
 	gotReq api.BackendMintRequest
 	called bool
 	result api.BackendMintResult
@@ -778,8 +782,10 @@ type fakeBackendTokenMinter struct {
 }
 
 func (f *fakeBackendTokenMinter) MintBackendToken(_ context.Context, req api.BackendMintRequest) (api.BackendMintResult, error) {
+	f.mu.Lock()
 	f.called = true
 	f.gotReq = req
+	f.mu.Unlock()
 	return f.result, f.err
 }
 
@@ -1001,4 +1007,73 @@ func TestMakeLocalMintHeaderFunc_CtxActorOverridesCaptured(t *testing.T) {
 	require.True(t, minter.called)
 	require.Equal(t, "live-sa", minter.gotReq.ActorToken, "live actor must override the captured one")
 	require.Equal(t, "Bearer minted", headers["Authorization"])
+}
+
+// mcp-go invokes a connection's headerFunc concurrently from the listener
+// goroutine and from tool-call goroutines. These tests hammer the closures from
+// many goroutines so the race detector (make test / go test -race) catches any
+// unsynchronised access to the failure counters, and assert onStaleToken fires
+// at most once despite the concurrency. Removing either mutex fails them.
+
+func TestMakeTokenForwardingHeaderFunc_ConcurrentCalls(t *testing.T) {
+	var logBuf bytes.Buffer
+	logging.InitForCLI(logging.LevelDebug, &logBuf)
+
+	api.RegisterOAuthHandler(nil)
+	defer api.RegisterOAuthHandler(nil)
+
+	var evictCount atomic.Int32
+	onStaleToken := func() { evictCount.Add(1) }
+
+	// No OAuth handler → getIDTokenForForwarding returns "" → the fallback path
+	// drives consecutiveFailures/staleEvicted/hadToken/lastWarnTime on every call.
+	headerFunc := makeTokenForwardingHeaderFunc("session", "user", "https://dex.example.com", "server", "fallback-token", onStaleToken)
+
+	const goroutines = 16
+	const perGoroutine = 50
+	var wg sync.WaitGroup
+	for range goroutines {
+		wg.Go(func() {
+			for range perGoroutine {
+				headers := headerFunc(context.Background())
+				assert.Equal(t, "Bearer fallback-token", headers["Authorization"])
+			}
+		})
+	}
+	wg.Wait()
+
+	// staleEvicted latches under the mutex, so the eviction goroutine is launched
+	// at most once regardless of how many callers cross the threshold.
+	assert.LessOrEqual(t, evictCount.Load(), int32(1), "onStaleToken must fire at most once")
+}
+
+func TestMakeLocalMintHeaderFunc_ConcurrentCalls(t *testing.T) {
+	var logBuf bytes.Buffer
+	logging.InitForCLI(logging.LevelDebug, &logBuf)
+
+	minter := &fakeBackendTokenMinter{result: api.BackendMintResult{AccessToken: "minted"}}
+	api.RegisterBackendTokenMinter(minter)
+	defer api.RegisterBackendTokenMinter(nil)
+
+	var evictCount atomic.Int32
+	onStaleToken := func() { evictCount.Add(1) }
+
+	headerFunc := makeLocalMintHeaderFunc("backend", "be-audience", "", "", onStaleToken)
+	subjectToken := unsignedJWT(t, map[string]any{"sub": "alice", "email": "alice@example.com", "email_verified": true})
+	ctx := server.ContextWithBearerToken(context.Background(), subjectToken)
+
+	const goroutines = 16
+	const perGoroutine = 50
+	var wg sync.WaitGroup
+	for range goroutines {
+		wg.Go(func() {
+			for range perGoroutine {
+				headers := headerFunc(ctx)
+				assert.Equal(t, "Bearer minted", headers["Authorization"])
+			}
+		})
+	}
+	wg.Wait()
+
+	assert.Equal(t, int32(0), evictCount.Load(), "successful mints must never evict")
 }
