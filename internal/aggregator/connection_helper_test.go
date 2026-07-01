@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/giantswarm/muster/internal/api"
+	oauthstore "github.com/giantswarm/muster/internal/oauth/store"
 	"github.com/giantswarm/muster/internal/server"
 	"github.com/giantswarm/muster/pkg/logging"
 
@@ -1158,4 +1159,84 @@ func TestMakeTokenExchangeHeaderFunc_ZeroExpiryRefreshesOnFallbackInterval(t *te
 		headerFunc(context.Background())
 		assert.Equal(t, int32(2), calls.Load(), "refresh must recur on the fallback interval")
 	})
+}
+
+// makeTokenExchangeRefreshClosures backs the self-refreshing header func used by
+// both the initial token-exchange connection and the tool-call / background-
+// refresh path. The tool-call path previously built a static header, so a
+// backend touched once then left idle re-stranded in Auth Required on token
+// expiry; these tests pin the refresh (reexchange) and recovery (onStaleToken)
+// behaviour the shared closures give both paths.
+
+func TestMakeTokenExchangeRefreshClosures_ReexchangeMintsFromFreshSubject(t *testing.T) {
+	var logBuf bytes.Buffer
+	logging.InitForCLI(logging.LevelDebug, &logBuf)
+
+	subjectToken := unsignedJWT(t, map[string]any{"sub": "alice", "exp": time.Now().Add(time.Hour).Unix()})
+	var gotSubject, gotUserID string
+	var gotConfig *api.TokenExchangeConfig
+	mock := &issuerMockOAuthHandler{
+		enabled: true,
+		getFullTokenFunc: func(string, string) *api.OAuthToken {
+			return &api.OAuthToken{IDToken: subjectToken}
+		},
+		exchangeFunc: func(_ context.Context, localToken, userID string, config *api.TokenExchangeConfig) (string, error) {
+			gotSubject, gotUserID, gotConfig = localToken, userID, config
+			return "fresh-backend-token", nil
+		},
+	}
+	api.RegisterOAuthHandler(mock)
+	t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
+
+	a := &AggregatorServer{}
+	config := &api.TokenExchangeConfig{ConnectorID: "dex-connector"}
+	reexchange, _ := a.makeTokenExchangeRefreshClosures("srv", "sess-1", "fallback-user", "https://muster.example.com", mock, config)
+
+	token, _, err := reexchange()
+	require.NoError(t, err)
+	require.Equal(t, "fresh-backend-token", token)
+	require.Equal(t, subjectToken, gotSubject, "must mint from the freshly resolved subject ID token")
+	require.Equal(t, "alice", gotUserID, "user ID comes from the fresh subject token's sub, not the fallback")
+	require.Same(t, config, gotConfig, "must pass the resolved exchange config (creds + audience scopes) through")
+}
+
+func TestMakeTokenExchangeRefreshClosures_ReexchangeFailsWhenNoSubject(t *testing.T) {
+	var logBuf bytes.Buffer
+	logging.InitForCLI(logging.LevelDebug, &logBuf)
+
+	// enabled handler, but no stored token: the subject can no longer be resolved.
+	mock := &issuerMockOAuthHandler{enabled: true}
+	api.RegisterOAuthHandler(mock)
+	t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
+
+	a := &AggregatorServer{}
+	reexchange, _ := a.makeTokenExchangeRefreshClosures("srv", "sess-1", "u", "https://muster.example.com", mock, &api.TokenExchangeConfig{})
+
+	_, _, err := reexchange()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "no subject ID token")
+}
+
+func TestMakeTokenExchangeRefreshClosures_OnStaleTokenEvictsAndRevokes(t *testing.T) {
+	var logBuf bytes.Buffer
+	logging.InitForCLI(logging.LevelDebug, &logBuf)
+
+	pool := NewSessionConnectionPool(time.Hour)
+	t.Cleanup(pool.Stop)
+	authStore := oauthstore.NewInMemorySessionAuthStore(time.Hour)
+	a := &AggregatorServer{connPool: pool, authStore: authStore}
+
+	ctx := t.Context()
+	require.NoError(t, authStore.MarkAuthenticated(ctx, "sess-1", "srv"))
+	pool.Put("sess-1", "srv", &poolTestClient{})
+
+	_, onStaleToken := a.makeTokenExchangeRefreshClosures("srv", "sess-1", "u", "iss", &issuerMockOAuthHandler{}, &api.TokenExchangeConfig{})
+	onStaleToken()
+
+	_, ok := pool.Get("sess-1", "srv")
+	require.False(t, ok, "stale connection must be evicted so the looping listener stops")
+
+	authed, err := authStore.IsAuthenticated(ctx, "sess-1", "srv")
+	require.NoError(t, err)
+	require.False(t, authed, "stored auth must be revoked so the state settles to Auth Required")
 }
