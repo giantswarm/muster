@@ -519,7 +519,7 @@ muster:
       # (* spans any chars incl. '/', ? one char). Set allowPrivateIPJWKS: true
       # when the JWKS endpoint resolves to a private IP (e.g. in-cluster
       # Kubernetes SA trust via https://kubernetes.default.svc/openid/v1/jwks).
-      # subjectClaim sources the canonical subject (the minted sub) from a claim
+      # subjectClaim sources the canonical subject (the issued sub) from a claim
       # other than sub; use "email" for Dex, whose sub is opaque.
       # Example, trusting a Kubernetes ServiceAccount and a Dex IdP:
       #   - issuer: https://kubernetes.default.svc
@@ -536,15 +536,15 @@ muster:
 
       # Brokered RFC 8693 token exchange: muster as a shared token broker.
       # An external confidential client POSTs a token-exchange request with an
-      # `audience` parameter to /oauth/token and receives a token minted by the
-      # audience's downstream credential provider (Dex exchange or local-mint).
-      # Subject tokens are validated against trustedIssuers,
-      # so at least one issuer entry covering the broker client's tokens is required.
+      # `audience` parameter to /oauth/token and receives a token issued by the
+      # audience's downstream Dex. Subject tokens are validated against
+      # trustedIssuers, so at least one issuer entry covering the broker
+      # client's tokens is required.
       # Policy enforced by mcp-oauth: confidential clients only, per-client
       # audience allowlist, no refresh tokens, expires_in bounded by the
       # downstream token's expiry, DPoP rejected.
       #
-      # oidc-exchange target (default): downstream Dex RFC 8693 exchange
+      # Target: downstream Dex RFC 8693 exchange
       #   clientAudiences:
       #     portal-backend: ["cluster-a", "cluster-b"]
       #   targets:

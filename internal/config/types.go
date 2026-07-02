@@ -326,27 +326,12 @@ type OAuthServerConfig struct {
 
 	// TokenExchangeBroker exposes muster's RFC 8693 token exchange to external
 	// confidential clients: a broker client POSTs a token-exchange request with
-	// an `audience` parameter to /oauth/token and receives a token minted by
-	// the audience's downstream Dex (not a muster-issued JWT). Subject tokens
+	// an `audience` parameter to /oauth/token and receives a token issued by
+	// the audience's downstream Dex (not a muster-signed JWT). Subject tokens
 	// are validated against TrustedIssuers; the per-client allowlist below
 	// gates which audiences each client may request.
 	TokenExchangeBroker TokenExchangeBrokerConfig `yaml:"tokenExchangeBroker,omitempty"`
 }
-
-// BrokerTargetType identifies the credential provider for a broker target.
-type BrokerTargetType string
-
-const (
-	// TargetTypeOIDCExchange selects the downstream Dex/OIDC RFC 8693 exchange
-	// provider. It is the default when BrokerTargetConfig.Type is empty.
-	TargetTypeOIDCExchange BrokerTargetType = "oidc-exchange"
-
-	// TargetTypeLocalMint selects the local-mint provider. The provider mints an
-	// RFC 9068 JWT signed by muster's own access-token signing key, with sub set
-	// to the validated human subject and act set to the validated agent actor.
-	// Requires enableJWTMode to be true; no downstream token endpoint is needed.
-	TargetTypeLocalMint BrokerTargetType = "local-mint"
-)
 
 // TokenExchangeBrokerConfig configures brokered RFC 8693 token exchange
 // (muster as a shared token broker for external clients).
@@ -377,14 +362,6 @@ type TokenExchangeBrokerConfig struct {
 	// private address.
 	AllowPrivateIP bool `yaml:"allowPrivateIP,omitempty"`
 
-	// DelegateToSelf lets a delegated (on-behalf-of) exchange omit the RFC 8707
-	// resource: muster binds the minted token to its own ResourceIdentifier so an
-	// agent STS client that cannot set a resource still receives a token muster
-	// accepts back and re-mints per backend on the localMint path. Only the
-	// delegation path (actor_token present) is affected; a resource-less plain
-	// exchange still errors. Requires ResourceIdentifier. Default false.
-	DelegateToSelf bool `yaml:"delegateToSelf,omitempty"`
-
 	// DefaultSecretNamespace is the namespace used for target credential
 	// secret refs that do not set an explicit namespace. Populated from the
 	// muster namespace by the serve command; not user-facing config.
@@ -398,10 +375,6 @@ func (c TokenExchangeBrokerConfig) Enabled() bool {
 
 // BrokerTargetConfig describes one downstream target of the token broker.
 type BrokerTargetConfig struct {
-	// Type selects the credential provider. Defaults to TargetTypeOIDCExchange
-	// when empty.
-	Type BrokerTargetType `yaml:"type,omitempty"`
-
 	// DexTokenEndpoint is the downstream Dex token endpoint URL (HTTPS).
 	// Example: https://dex.cluster-b.example.com/token
 	DexTokenEndpoint string `yaml:"dexTokenEndpoint"`

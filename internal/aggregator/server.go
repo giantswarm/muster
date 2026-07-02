@@ -2890,13 +2890,9 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 	if a.authStore == nil {
 		return nil, nil, fmt.Errorf("auth store not initialized")
 	}
-	// localMint authenticates per call from the inbound subject/actor tokens, not
-	// via a muster login session, so it has no authStore entry to gate on.
-	if !ShouldUseLocalMint(serverInfo) {
-		authenticated, _ := a.authStore.IsAuthenticated(ctx, sessionID, serverName)
-		if !authenticated {
-			return nil, nil, fmt.Errorf("user not authenticated to server %s", serverName)
-		}
+	authenticated, _ := a.authStore.IsAuthenticated(ctx, sessionID, serverName)
+	if !authenticated {
+		return nil, nil, fmt.Errorf("user not authenticated to server %s", serverName)
 	}
 
 	// Check the connection pool first.
@@ -2944,22 +2940,7 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 	var tokenExpiry time.Time
 	var exchangedToken string
 
-	if ShouldUseLocalMint(serverInfo) {
-		audience := serverInfo.AuthConfig.LocalMint.Audience
-		onStaleToken := func() {
-			if a.connPool != nil {
-				a.connPool.Evict(sessionID, serverName)
-				logging.InfoWithAttrs("Aggregator", "Evicted stale localMint connection",
-					slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
-					slog.String("server", serverName))
-			}
-		}
-		capturedSubject := server.GetBearerTokenFromContext(ctx)
-		capturedActor := server.GetActorTokenFromContext(ctx)
-		headerFunc := makeLocalMintHeaderFunc(serverName, audience, capturedSubject, capturedActor, onStaleToken)
-		client = internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
-
-	} else if ShouldUseTokenExchange(serverInfo) {
+	if ShouldUseTokenExchange(serverInfo) {
 		var err error
 		client, tokenExpiry, exchangedToken, err = a.exchangeTokenAndCreateClient(ctx, serverInfo, sessionID)
 		if err != nil {
@@ -2967,28 +2948,19 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 		}
 
 	} else if ShouldUseTokenForwarding(serverInfo) {
-		musterIssuer := a.getMusterIssuer()
-		refresher := a.sessionRefresher()
-		idToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer, refresher)
-		if idToken == "" {
-			return nil, nil, fmt.Errorf("no ID token available for forwarding to %s", serverName)
-		}
-
-		if expired, err := pkgoauth.IsExpired(idToken); expired {
-			return nil, nil, fmt.Errorf("ID token has expired for %s, re-authenticate to refresh: %w", serverName, err)
-		}
-
-		headerFunc := func(_ context.Context) map[string]string {
-			latestToken := getIDTokenForForwarding(context.Background(), sessionID, musterIssuer, refresher)
-			if latestToken == "" {
-				latestToken = idToken
+		onStaleToken := func() {
+			if a.connPool != nil {
+				a.connPool.Evict(sessionID, serverName)
+				logging.InfoWithAttrs("Aggregator", "Evicted stale token-forwarding connection",
+					slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
+					slog.String("server", serverName))
 			}
-			if latestToken == "" {
-				return map[string]string{}
-			}
-			return map[string]string{pkgoauth.HeaderAuthorization: pkgoauth.SchemeBearer + " " + latestToken}
 		}
-		client = internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
+		var err error
+		client, err = a.newTokenForwardingClient(ctx, sessionID, sub, a.getMusterIssuer(), serverInfo, onStaleToken)
+		if err != nil {
+			return nil, nil, err
+		}
 
 	} else if serverInfo.AuthInfo != nil && serverInfo.AuthInfo.Issuer != "" {
 		oauthHandler := api.GetOAuthHandler()
@@ -3275,9 +3247,7 @@ func (a *AggregatorServer) ListServersRequiringAuth(ctx context.Context) []api.S
 
 		// SSO-enabled servers (token forwarding/exchange) are authenticated by
 		// the admin, not the user -- manual login cannot fix SSO failures.
-		// localMint mints per call from inbound tokens, so it also needs no
-		// manual login.
-		if ShouldUseTokenExchange(info) || ShouldUseTokenForwarding(info) || ShouldUseLocalMint(info) {
+		if ShouldUseTokenExchange(info) || ShouldUseTokenForwarding(info) {
 			continue
 		}
 

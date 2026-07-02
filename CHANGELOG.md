@@ -11,6 +11,16 @@ All notable changes to this project will be documented in this file.
 
 ### Removed
 
+- localMint downstream auth. The `auth.localMint` MCPServer CRD field and its admission rules, the `local-mint` broker target type and the target `type` key, and the `oauth.server.tokenExchangeBroker.delegateToSelf` config key are removed. Backends that used localMint switch to `forwardToken: true` and validate the forwarded token against muster's JWKS.
+
+- The `X-Actor-Token` request header. The actor token is presented once as the RFC 8693 `actor_token` parameter at `/oauth/token`; `/mcp` requests carry only the issued on-behalf-of token as the bearer.
+
+### Changed
+
+- The aggregator forwards the validated inbound bearer to `forwardToken` backends on each request instead of issuing a per-backend token, so the on-behalf-of token (including its nested `act` delegation chain) reaches the backend byte-identical. When the request carries no forwardable bearer (the background listen stream, opaque-token sessions), the session's stored upstream ID token is forwarded as before.
+
+- On-behalf-of token exchange at `/oauth/token` no longer requires a broker target: a request without an `audience` takes mcp-oauth's self-issued path and the issued token's `aud` defaults to muster's `resourceIdentifier`. Requests with an `audience` keep the brokered downstream Dex exchange.
+
 - M2M (machine-to-machine) token exchange. The `oauth.server.tokenExchangeBroker.workloadAudiences`, `workloadGroupGrants`, and `actorDelegationPolicy` config keys are removed, along with broker-granted identity injection (`granted.subject` / `granted.groups`). On-behalf-of (OBO) delegation is unchanged and now accepts any actor validated against the trusted issuers; the impersonated subject's downstream authorization governs access. Requires mcp-oauth v0.18.7.
 
 - The `github-app` broker target type and its `githubApp` config block. Broker targets now support `oidc-exchange` (default) and `local-mint`.

@@ -138,29 +138,19 @@ type MusterPreConfiguration struct {
 	// MockOAuthServers defines mock OAuth servers to start for testing
 	MockOAuthServers []MockOAuthServerConfig `yaml:"mock_oauth_servers,omitempty"`
 
-	// MusterBroker configures muster's own RFC 8693 token-exchange broker
-	// (oauth.server.tokenExchangeBroker) with local-mint targets, JWT mode and
-	// trusted issuers. Setting it makes muster mint signed JWTs at /oauth/token.
+	// MusterBroker configures muster's RFC 8693 token exchange at /oauth/token:
+	// JWT mode (muster signs issued tokens) plus the trusted issuers whose
+	// subject/actor tokens the exchange validates.
 	MusterBroker *MusterBrokerConfig `yaml:"muster_broker,omitempty"`
 }
 
-// MusterBrokerConfig configures muster as a local-mint RFC 8693 token broker for
-// a test instance. It mirrors config.TokenExchangeBrokerConfig plus the JWT-mode
-// and trusted-issuer settings the broker requires, resolving mock-server
+// MusterBrokerConfig configures muster's self-issued RFC 8693 token exchange
+// for a test instance: JWT mode and trusted issuers, resolving mock-server
 // references to live issuer/JWKS URLs at instance startup.
 type MusterBrokerConfig struct {
-	// TrustedIssuers lists the issuers whose subject/actor tokens muster's broker
-	// will validate (against each referenced mock server's JWKS). At least one is
-	// required; the broker refuses to start without trusted issuers.
+	// TrustedIssuers lists the issuers whose subject/actor tokens muster's
+	// exchange will validate (against each referenced mock server's JWKS).
 	TrustedIssuers []BrokerTrustedIssuerConfig `yaml:"trusted_issuers"`
-
-	// Targets maps an audience name to a local-mint target. Value is the target
-	// type; only "local-mint" is meaningful here (empty defaults to local-mint).
-	Targets map[string]string `yaml:"targets"`
-
-	// DelegateToSelf lets a delegated exchange omit the RFC 8707 resource; muster
-	// binds the minted token to its own resourceIdentifier.
-	DelegateToSelf bool `yaml:"delegate_to_self,omitempty"`
 }
 
 // BrokerTrustedIssuerConfig references a mock OAuth server as a trusted issuer for
@@ -531,9 +521,6 @@ type MCPTestClient interface {
 	// ConnectWithAuth establishes connection to the MCP aggregator with an access token.
 	// This is used when muster's OAuth server is enabled and requires authentication.
 	ConnectWithAuth(ctx context.Context, endpoint, accessToken string) error
-	// ConnectWithOBO establishes connection with a bearer (subject) token and a
-	// static X-Actor-Token header for RFC 8693 OBO delegation.
-	ConnectWithOBO(ctx context.Context, endpoint, accessToken, actorToken string) error
 	// CallTool invokes an MCP tool with the given args (wrapped through call_tool meta-tool)
 	CallTool(ctx context.Context, toolName string, args map[string]interface{}) (interface{}, error)
 	// CallToolDirect invokes an MCP tool directly without wrapping through call_tool.

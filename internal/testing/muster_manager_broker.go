@@ -11,10 +11,9 @@ import (
 	"path/filepath"
 )
 
-// brokerTrustedServerRefs returns the set of mock OAuth server names referenced by
-// a muster_broker block (as trusted issuers, workload group grants, or actor
-// delegation grants). Those servers must sign their tokens and serve TLS so
-// muster's broker can validate them via JWKS.
+// brokerTrustedServerRefs returns the set of mock OAuth server names referenced
+// by a muster_broker block as trusted issuers. Those servers must sign their
+// tokens and serve TLS so muster's exchange can validate them via JWKS.
 func brokerTrustedServerRefs(config *MusterPreConfiguration) map[string]bool {
 	refs := make(map[string]bool)
 	if config == nil || config.MusterBroker == nil {
@@ -31,7 +30,7 @@ func brokerTrustedServerRefs(config *MusterPreConfiguration) map[string]bool {
 
 // generateBrokerSigningKey writes an EC P-256 private key (EC PRIVATE KEY PEM) to
 // the muster config directory and returns its path. muster's loadSigningKey reads
-// this to sign local-mint JWTs (ES256).
+// this to sign issued JWTs (ES256).
 func generateBrokerSigningKey(musterConfigPath string) (string, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -50,8 +49,8 @@ func generateBrokerSigningKey(musterConfigPath string) (string, error) {
 	return path, nil
 }
 
-// applyBrokerConfig populates the muster oauth.server config map with JWT mode,
-// trusted issuers and the local-mint token-exchange broker, resolving mock-server
+// applyBrokerConfig populates the muster oauth.server config map with JWT mode
+// and trusted issuers for the self-issued token exchange, resolving mock-server
 // references to live issuer/JWKS URLs. It is a no-op when no muster_broker is set.
 func (m *musterInstanceManager) applyBrokerConfig(
 	serverConfig map[string]interface{},
@@ -102,30 +101,11 @@ func (m *musterInstanceManager) applyBrokerConfig(
 	}
 	serverConfig["trustedIssuers"] = trustedIssuers
 
-	serverConfig["tokenExchangeBroker"] = buildTokenExchangeBrokerConfig(broker)
-
 	if m.debug {
-		logger.Debug("🔐 Configured muster token-exchange broker (local-mint): %d trusted issuers, %d targets\n",
-			len(broker.TrustedIssuers), len(broker.Targets))
+		logger.Debug("🔐 Configured muster token exchange: %d trusted issuers\n",
+			len(broker.TrustedIssuers))
 	}
 	return nil
-}
-
-// buildTokenExchangeBrokerConfig assembles the tokenExchangeBroker config map
-// from the scenario broker spec.
-func buildTokenExchangeBrokerConfig(broker *MusterBrokerConfig) map[string]interface{} {
-	targets := make(map[string]interface{}, len(broker.Targets))
-	for audience, targetType := range broker.Targets {
-		if targetType == "" {
-			targetType = "local-mint"
-		}
-		targets[audience] = map[string]interface{}{"type": targetType}
-	}
-
-	return map[string]interface{}{
-		"targets":        targets,
-		"delegateToSelf": broker.DelegateToSelf,
-	}
 }
 
 // resolveIssuerURL returns the live issuer URL of a started mock OAuth server.

@@ -135,20 +135,3 @@ tests:
       - matchRegex:
           path: data["config.yaml"]
           pattern: "muster-broker-clients"
-
-  - it: renders local-mint typed broker target into config.yaml
-    set:
-      muster.oauth.server.enabled: true
-      muster.oauth.server.baseUrl: "https://muster.example.com"
-      muster.oauth.server.existingSecret: "muster-oauth"
-      muster.oauth.server.dex.issuerUrl: "https://dex.example.com"
-      muster.oauth.server.dex.clientId: "muster"
-      muster.oauth.server.enableJWTMode: true
-      muster.oauth.server.tokenExchangeBroker:
-        targets:
-          mcp-kubernetes:
-            type: local-mint
-    asserts:
-      - matchRegex:
-          path: data["config.yaml"]
-          pattern: "local-mint"

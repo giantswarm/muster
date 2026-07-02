@@ -190,13 +190,6 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 				Scopes: server.Spec.Auth.AuthorizationServer.Scopes,
 			}
 		}
-		// Convert LocalMint config if present
-		if server.Spec.Auth.LocalMint != nil {
-			info.Auth.LocalMint = &api.LocalMintConfig{
-				Enabled:  server.Spec.Auth.LocalMint.Enabled,
-				Audience: server.Spec.Auth.LocalMint.Audience,
-			}
-		}
 	}
 
 	// Generate user-friendly status message based on state and error
@@ -312,14 +305,6 @@ func (a *Adapter) convertRequestToCRD(req *api.MCPServerCreateRequest) *musterv1
 			crd.Spec.Auth.AuthorizationServer = &musterv1alpha1.MCPServerAuthAuthorizationServer{
 				Issuer: musterv1alpha1.IssuerURL(strings.TrimSuffix(req.Auth.AuthorizationServer.Issuer, "/")),
 				Scopes: req.Auth.AuthorizationServer.Scopes,
-			}
-		}
-
-		// Convert LocalMint if present
-		if req.Auth.LocalMint != nil {
-			crd.Spec.Auth.LocalMint = &musterv1alpha1.LocalMintConfig{
-				Enabled:  req.Auth.LocalMint.Enabled,
-				Audience: req.Auth.LocalMint.Audience,
 			}
 		}
 	}
@@ -694,12 +679,6 @@ func (a *Adapter) handleMCPServerUpdate(args map[string]interface{}) (*api.CallT
 			existing.Spec.Auth.AuthorizationServer = &musterv1alpha1.MCPServerAuthAuthorizationServer{
 				Issuer: musterv1alpha1.IssuerURL(strings.TrimSuffix(req.Auth.AuthorizationServer.Issuer, "/")),
 				Scopes: req.Auth.AuthorizationServer.Scopes,
-			}
-		}
-		if req.Auth.LocalMint != nil {
-			existing.Spec.Auth.LocalMint = &musterv1alpha1.LocalMintConfig{
-				Enabled:  req.Auth.LocalMint.Enabled,
-				Audience: req.Auth.LocalMint.Audience,
 			}
 		}
 	}

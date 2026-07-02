@@ -54,11 +54,6 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, refreshTokenTTL time.Dur
 		// Only consulted when an Exchanger is registered (see
 		// buildOAuthServerOptions); a miss returns invalid_target.
 		TokenExchangeClientAudiences: cfg.TokenExchangeBroker.ClientAudiences,
-		// Enables the credential-less workload-authenticated exchange on the HTTP
-		// /oauth/token endpoint (the agent STS path), authenticated by the subject
-		// and actor tokens themselves. The in-process localMint path does not
-		// consult this; the HTTP path does.
-		EnableWorkloadTokenExchange: cfg.TokenExchangeBroker.Enabled(),
 	}
 	if cfg.AllowedOrigins != "" {
 		result.CORS.AllowedOrigins = strings.Split(cfg.AllowedOrigins, ",")
@@ -69,19 +64,13 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, refreshTokenTTL time.Dur
 	if cfg.EnableJWTMode {
 		result.AccessTokenFormat = oauthserver.AccessTokenFormatJWT
 	}
-	if cfg.TokenExchangeBroker.DelegateToSelf {
-		result.DelegationDefaultResource = cfg.ResourceIdentifier
-	}
 	return result
 }
 
 // buildOAuthServerOptions assembles the functional options for the mcp-oauth server.
 // instrumentation.New registers a Prometheus collector on the OTel global
 // provider, so a second call in the same process will race or duplicate-register.
-// localMint is non-nil only when JWT mode is enabled; it is forwarded into
-// NewBrokerExchanger so that local-mint broker targets can sign tokens with
-// muster's own access-token key.
-func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger, localMint *oauthserver.LocalMintExchanger) ([]oauth.ServerOption, error) {
+func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger) ([]oauth.ServerOption, error) {
 	inst, err := instrumentation.New(instrumentation.Config{
 		Enabled:         true,
 		ServiceName:     "muster",
@@ -119,7 +108,7 @@ func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger, 
 		if len(cfg.TrustedIssuers) == 0 {
 			return nil, fmt.Errorf("tokenExchangeBroker requires at least one trustedIssuers entry to validate subject tokens")
 		}
-		opts = append(opts, oauthserver.WithExchanger(musteroauth.NewBrokerExchanger(cfg.TokenExchangeBroker, localMint)))
+		opts = append(opts, oauthserver.WithExchanger(musteroauth.NewBrokerExchanger(cfg.TokenExchangeBroker)))
 		brokerLogger := logger
 		if brokerLogger == nil {
 			brokerLogger = slog.Default()
