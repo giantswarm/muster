@@ -8,7 +8,7 @@ import (
 )
 
 func TestCallerTokens_RoundTrip(t *testing.T) {
-	want := CallerTokens{IDToken: "id-tok", Bearer: "bearer-tok", Actor: "actor-tok"}
+	want := CallerTokens{IDToken: "id-tok", Bearer: "bearer-tok"}
 
 	ctx := ContextWithCallerTokens(context.Background(), want)
 
@@ -17,11 +17,4 @@ func TestCallerTokens_RoundTrip(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "id-tok", id)
 	require.Equal(t, "bearer-tok", GetBearerTokenFromContext(ctx))
-	require.Equal(t, "actor-tok", GetActorTokenFromContext(ctx))
-}
-
-func TestCallerTokens_CarriesActor(t *testing.T) {
-	ctx := ContextWithCallerTokens(context.Background(), CallerTokens{Bearer: "b", Actor: "a"})
-	require.Equal(t, "a", GetActorTokenFromContext(ctx))
-	require.Equal(t, "a", CallerTokensFromContext(ctx).Actor)
 }

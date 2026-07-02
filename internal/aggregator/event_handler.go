@@ -216,8 +216,8 @@ func (eh *EventHandler) processEvent(event api.ServiceStateChangedEvent) {
 	isHealthyAndActive := api.IsActiveState(api.ServiceState(event.NewState)) && api.HealthStatus(event.Health) == api.HealthHealthy
 
 	if isHealthyAndActive {
-		// Skip global registration for session-based servers (token forwarding, token exchange,
-		// or local mint). These servers are handled at the session level — each caller's session
+		// Skip global registration for session-based servers (token forwarding or token
+		// exchange). These servers are handled at the session level — each caller's session
 		// creates its own per-identity connection. No persistent global MCP client exists for them.
 		// See Issue #318 for details on this design decision.
 		if eh.isServerSSOBased != nil && eh.isServerSSOBased(event.Name) {

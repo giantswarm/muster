@@ -36,12 +36,14 @@ func ssoSessionFromContext(ctx context.Context, sessionID string) ssoSession {
 	}
 }
 
-// canBootstrapSSO reports whether the session has a usable subject token for
-// establishing localMint backend connections. Returns false when neither an
-// upstream ID token nor a delegated actor token is present: the session cannot
-// drive a token exchange and bootstrapping would fail immediately.
+// canBootstrapSSO reports whether the session has a usable token for
+// establishing session-scoped backend connections. The upstream ID token
+// serves the human login path; the validated inbound bearer serves callers
+// that arrive with a muster-issued access token (agent OBO sessions) and is
+// what the aggregator forwards downstream. Without either the bootstrap
+// would fail immediately.
 func (s ssoSession) canBootstrapSSO() bool {
-	return s.tokens.IDToken != "" || s.tokens.Actor != ""
+	return s.tokens.IDToken != "" || s.tokens.Bearer != ""
 }
 
 // LogValue implements slog.LogValuer so ssoSession can be passed directly to
@@ -52,7 +54,6 @@ func (s ssoSession) LogValue() slog.Value {
 		slog.String("sessionID", logging.TruncateIdentifier(s.sessionID)),
 		slog.Int("idTokenLen", len(s.tokens.IDToken)),
 		slog.Int("bearerLen", len(s.tokens.Bearer)),
-		slog.Int("actorTokenLen", len(s.tokens.Actor)),
 		slog.String("tokenSource", string(s.tokenSource)),
 	)
 }

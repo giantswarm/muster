@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/giantswarm/mcp-oauth/providers/oidc"
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -52,7 +51,7 @@ func withCredentialsHandler(t *testing.T, h api.SecretCredentialsHandler) {
 }
 
 func newTestBroker(cfg config.TokenExchangeBrokerConfig, httpClient *http.Client) *BrokerExchanger {
-	b := NewBrokerExchanger(cfg, nil)
+	b := NewBrokerExchanger(cfg)
 	if httpClient != nil {
 		b.exchanger = NewTokenExchangerWithOptions(TokenExchangerOptions{
 			AllowPrivateIP: true,
@@ -230,104 +229,6 @@ func TestBrokerExchanger_DownstreamError(t *testing.T) {
 	// Downstream failures must not map to invalid_target; mcp-oauth reports
 	// them to the client as a generic invalid_grant.
 	assert.False(t, errors.Is(err, oauthserver.ErrInvalidTarget))
-}
-
-// issuedTokenType is the RFC 8693 access-token URN returned by stub providers.
-const issuedTokenType = "urn:ietf:params:oauth:token-type:access_token" //nolint:gosec // G101: RFC 8693 token-type URN, not a credential
-
-// funcProvider is a CredentialProvider backed by a function, used in tests to
-// capture or stub Mint calls without a full provider implementation.
-type funcProvider struct {
-	fn func(context.Context, MintRequest) (*MintResult, error)
-}
-
-func (p *funcProvider) Mint(ctx context.Context, req MintRequest) (*MintResult, error) {
-	return p.fn(ctx, req)
-}
-
-// TestBrokerExchanger_DelegatedExchange_ActorThreaded verifies that the RFC 8693
-// §4.4 acting party (ExchangerRequest.Actor) is forwarded to MintRequest.Actor
-// without modification through the broker dispatch.
-func TestBrokerExchanger_DelegatedExchange_ActorThreaded(t *testing.T) {
-	var capturedReq MintRequest
-
-	broker := newTestBroker(config.TokenExchangeBrokerConfig{
-		Targets: map[string]config.BrokerTargetConfig{
-			"cluster-a": {Type: config.TargetTypeOIDCExchange},
-		},
-	}, nil)
-	broker.registry.factories[config.TargetTypeOIDCExchange] = func(_ config.BrokerTargetConfig, _ providerDeps) CredentialProvider {
-		return &funcProvider{fn: func(_ context.Context, req MintRequest) (*MintResult, error) {
-			capturedReq = req
-			return &MintResult{
-				AccessToken:     "delegated-token",
-				IssuedTokenType: issuedTokenType,
-				ExpiresAt:       time.Now().Add(time.Hour),
-			}, nil
-		}}
-	}
-
-	actor := subjectIdentity("system:serviceaccount:default:agent-sa")
-	result, err := broker.Exchange(t.Context(), &oauthserver.ExchangerRequest{
-		Audience:         "cluster-a",
-		Subject:          subjectIdentity("user-1"),
-		SubjectToken:     "subject-token",
-		SubjectTokenType: "urn:ietf:params:oauth:token-type:id_token",
-		Actor:            actor,
-	})
-	require.NoError(t, err)
-	assert.Equal(t, "delegated-token", result.AccessToken)
-
-	require.NotNil(t, capturedReq.Actor, "Actor must be threaded through broker dispatch")
-	assert.Equal(t, actor.Subject, capturedReq.Actor.Subject)
-	assert.Equal(t, actor.Issuer, capturedReq.Actor.Issuer)
-	assert.Equal(t, "user-1", capturedReq.Subject)
-}
-
-// TestBrokerExchanger_ForwardsSubjectIdentity verifies that the broker dispatch
-// forwards the full validated subject identity (including Claims) to MintRequest,
-// so the local-mint provider can emit identity claims rather than a bare subject.
-func TestBrokerExchanger_ForwardsSubjectIdentity(t *testing.T) {
-	var capturedReq MintRequest
-
-	broker := newTestBroker(config.TokenExchangeBrokerConfig{
-		Targets: map[string]config.BrokerTargetConfig{
-			"cluster-a": {Type: config.TargetTypeOIDCExchange},
-		},
-	}, nil)
-	broker.registry.factories[config.TargetTypeOIDCExchange] = func(_ config.BrokerTargetConfig, _ providerDeps) CredentialProvider {
-		return &funcProvider{fn: func(_ context.Context, req MintRequest) (*MintResult, error) {
-			capturedReq = req
-			return &MintResult{
-				AccessToken:     "minted-token",
-				IssuedTokenType: issuedTokenType,
-				ExpiresAt:       time.Now().Add(time.Hour),
-			}, nil
-		}}
-	}
-
-	subject := &oauthserver.SubjectIdentity{
-		Subject: "user-1",
-		Issuer:  "https://dex.main.example.com",
-		Claims: &oidc.IDTokenClaims{
-			Email:         "user-1@example.com",
-			EmailVerified: true,
-			Groups:        []string{"customer:team-a"},
-		},
-	}
-	_, err := broker.Exchange(t.Context(), &oauthserver.ExchangerRequest{
-		Audience:     "cluster-a",
-		Subject:      subject,
-		SubjectToken: "subject-token",
-	})
-	require.NoError(t, err)
-
-	assert.Equal(t, "user-1", capturedReq.Subject, "Subject string is preserved for cache-keyed providers")
-	require.NotNil(t, capturedReq.SubjectIdentity, "full subject identity must be forwarded")
-	assert.Equal(t, subject, capturedReq.SubjectIdentity)
-	require.NotNil(t, capturedReq.SubjectIdentity.Claims)
-	assert.Equal(t, "user-1@example.com", capturedReq.SubjectIdentity.Claims.Email)
-	assert.Equal(t, []string{"customer:team-a"}, capturedReq.SubjectIdentity.Claims.Groups)
 }
 
 func TestTokenExchangeBrokerConfig_Enabled(t *testing.T) {

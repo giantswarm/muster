@@ -576,7 +576,7 @@
             },
             "tokenExchangeBroker": {
               "type": "object",
-              "description": "Brokered RFC 8693 token exchange: external confidential clients exchange a subject token plus an audience name for a token minted by the audience's downstream Dex. Subject tokens are validated against trustedIssuers.",
+              "description": "Brokered RFC 8693 token exchange: external confidential clients exchange a subject token plus an audience name for a token issued by the audience's downstream Dex. Subject tokens are validated against trustedIssuers.",
               "properties": {
                 "clientAudiences": {
                   "type": "object",
@@ -606,15 +606,14 @@
                 },
                 "targets": {
                   "type": "object",
-                  "description": "Audience name → credential provider target. Set type to select the provider (default: oidc-exchange).",
+                  "description": "Audience name → downstream Dex/OIDC exchange target.",
                   "additionalProperties": {
                     "type": "object",
                     "properties": {
-                      "type": {"type": "string", "enum": ["oidc-exchange", "local-mint"], "description": "Credential provider type. Defaults to oidc-exchange when omitted. local-mint mints a muster-signed RFC 9068 JWT locally; requires enableJWTMode."},
-                      "dexTokenEndpoint": {"type": "string", "pattern": "^https://", "description": "oidc-exchange: downstream Dex token endpoint URL (HTTPS)."},
-                      "expectedIssuer": {"type": "string", "description": "oidc-exchange: expected iss claim of the exchanged token. Derived from dexTokenEndpoint when empty."},
-                      "connectorId": {"type": "string", "description": "oidc-exchange: downstream Dex OIDC connector that trusts the subject token's issuer."},
-                      "scopes": {"type": "string", "description": "oidc-exchange: space-separated downstream scopes (default: openid profile email groups). Kubernetes-bound audiences must include the Dex cross-client scope, e.g. audience:server:client_id:dex-k8s-authenticator."},
+                      "dexTokenEndpoint": {"type": "string", "pattern": "^https://", "description": "Downstream Dex token endpoint URL (HTTPS)."},
+                      "expectedIssuer": {"type": "string", "description": "Expected iss claim of the exchanged token. Derived from dexTokenEndpoint when empty."},
+                      "connectorId": {"type": "string", "description": "Downstream Dex OIDC connector that trusts the subject token's issuer."},
+                      "scopes": {"type": "string", "description": "Space-separated downstream scopes (default: openid profile email groups). Kubernetes-bound audiences must include the Dex cross-client scope, e.g. audience:server:client_id:dex-k8s-authenticator."},
                       "clientCredentialsSecretRef": {
                         "type": "object",
                         "required": ["name"],

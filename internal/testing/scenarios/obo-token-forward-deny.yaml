@@ -1,0 +1,62 @@
+name: "obo-token-forward-deny"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  Deny paths of the forward-token OBO model. A token from an issuer muster
+  does not trust is rejected at both trust boundaries: the /oauth/token
+  exchange refuses it as a subject token, and /mcp refuses it as a bearer,
+  so nothing is ever forwarded downstream.
+tags: ["oauth", "obo", "token-exchange", "token-forwarding", "negative"]
+timeout: "2m"
+
+pre_configuration:
+  mock_oauth_servers:
+    - name: "muster-idp"
+      scopes: ["openid", "profile", "email", "groups"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "muster-client"
+      client_secret: "muster-secret"
+      use_as_muster_oauth_server: true
+
+    - name: "workload-idp"
+
+    - name: "rogue-idp"
+      sign_tokens: true
+
+  muster_broker:
+    trusted_issuers:
+      - oauth_server_ref: "workload-idp"
+        accepted_typ_headers: [""]
+
+steps:
+  - id: "mint-rogue-token"
+    description: "Mint a token on an issuer muster does not trust"
+    tool: "test_mint_token"
+    args:
+      server: "rogue-idp"
+      name: "rogue-token"
+      sub: "mallory@example.com"
+    expected:
+      success: true
+
+  - id: "exchange-denied"
+    description: "The exchange refuses an untrusted-issuer subject token"
+    tool: "test_broker_token_exchange"
+    args:
+      subject_token_ref: "rogue-token"
+    expected:
+      success: false
+      error_contains:
+        - "invalid"
+
+  - id: "mcp-denied"
+    description: "/mcp refuses the untrusted bearer; no session is established"
+    tool: "test_reconnect_with_token"
+    args:
+      token_ref: "rogue-token"
+    expected:
+      success: false
+      error_contains:
+        - "reconnect with token failed"

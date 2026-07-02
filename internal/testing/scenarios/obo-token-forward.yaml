@@ -1,0 +1,124 @@
+name: "obo-token-forward"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  End-to-end agent OBO flow on the forward-token model. A human subject token
+  and an agent SA actor token are exchanged at muster's /oauth/token
+  (self-issued path, no audience): muster signs one token carrying
+  sub=human, act=agent, groups, aud=muster's resource identifier. The agent
+  then presents that token on /mcp; muster validates it and forwards it
+  unchanged to a forwardToken backend, which validates it against muster's
+  JWKS and echoes the received claims, proving the delegation chain reaches
+  the backend intact. Byte-identical forwarding of the inbound bearer is
+  pinned at the unit level (TestHeaderFunc_ForwardsRequestBearer).
+tags: ["oauth", "obo", "token-exchange", "token-forwarding", "aggregator", "data-plane"]
+timeout: "2m"
+
+pre_configuration:
+  mock_oauth_servers:
+    - name: "muster-idp"
+      scopes: ["openid", "profile", "email", "groups"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "muster-client"
+      client_secret: "muster-secret"
+      use_as_muster_oauth_server: true
+
+    - name: "workload-idp"
+
+  muster_broker:
+    trusted_issuers:
+      - oauth_server_ref: "workload-idp"
+        accepted_typ_headers: [""]
+
+  mcp_servers:
+    - name: "obo-backend"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          trust_muster_jwks: true
+          forward_token: true
+        tools:
+          - name: "whoami"
+            description: "Echoes the caller's forwarded token claims"
+            echo_token: true
+            responses:
+              - response:
+                  status: "ok"
+
+steps:
+  - id: "verify-backend-registered"
+    description: "Backend is registered with muster"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["obo-backend"]
+    timeout: "30s"
+
+  - id: "mint-human-token"
+    description: "Mint a human subject token with email and groups"
+    tool: "test_mint_token"
+    args:
+      server: "workload-idp"
+      name: "human-token"
+      sub: "alice@giantswarm.io"
+      email: "alice@giantswarm.io"
+      email_verified: true
+      groups: ["customer:giantswarm:team-ai"]
+    expected:
+      success: true
+
+  - id: "mint-agent-token"
+    description: "Mint an SA token for the agent (the OBO actor)"
+    tool: "test_mint_token"
+    args:
+      server: "workload-idp"
+      name: "agent-token"
+      sub: "system:serviceaccount:kagent:sre-agent"
+    expected:
+      success: true
+
+  - id: "exchange-obo"
+    description: |
+      Self-issued exchange (no audience): muster validates subject + actor and
+      signs one token with sub=human, act=agent, groups copied from the
+      subject, aud defaulting to muster's resource identifier.
+    tool: "test_broker_token_exchange"
+    args:
+      subject_token_ref: "human-token"
+      actor_token_ref: "agent-token"
+      name: "obo-token"
+    expected:
+      success: true
+      contains:
+        - "alice@giantswarm.io"
+        - "system:serviceaccount:kagent:sre-agent"
+        - "customer:giantswarm:team-ai"
+
+  - id: "connect-as-agent"
+    description: "Present the OBO token as the bearer on /mcp"
+    tool: "test_reconnect_with_token"
+    args:
+      token_ref: "obo-token"
+    expected:
+      success: true
+
+  - id: "backend-receives-forwarded-token"
+    description: |
+      The backend tool is reachable through the aggregator and echoes the
+      claims of the token it received: the forwarded token still carries the
+      human subject and the agent act chain, and validated against muster's
+      JWKS.
+    tool: "x_obo-backend_whoami"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "alice@giantswarm.io"
+        - "system:serviceaccount:kagent:sre-agent"
+    retry:
+      count: 5
+      delay: "1s"
