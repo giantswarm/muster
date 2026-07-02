@@ -1401,3 +1401,94 @@ func TestEstablishConnectionWithTokenExchange_RefreshUsesResolvedConfig(t *testi
 	assert.Empty(t, shared.ClientSecret)
 	assert.Equal(t, "openid profile email groups", shared.Scopes)
 }
+
+// TestEstablishConnectionWithTokenExchange_RefreshUsesResolvedConfig pins the
+// wiring at the real call site: the refresh closures behind the persistent
+// connection's header func must receive the resolved per-connection exchange
+// config (client credentials + appended audience scopes), not the shared
+// spec-only serverInfo.AuthConfig.TokenExchange pointer. With the shared
+// pointer, every re-exchange after the initial token neared expiry ran without
+// client credentials and without requiredAudiences.
+//
+// The initial exchange deliberately returns a token already inside
+// tokenExchangeRefreshMargin, so the first header invocation during
+// client.Initialize triggers a re-exchange synchronously — the second captured
+// config is the one the refresh closure actually uses.
+func TestEstablishConnectionWithTokenExchange_RefreshUsesResolvedConfig(t *testing.T) {
+	var logBuf bytes.Buffer
+	logging.InitForCLI(logging.LevelDebug, &logBuf)
+
+	// Fake downstream MCP server for the exchanged-token connection.
+	downstream := mcpgoserver.NewTestStreamableHTTPServer(
+		mcpgoserver.NewMCPServer("downstream", "1.0.0", mcpgoserver.WithToolCapabilities(true)),
+	)
+	t.Cleanup(downstream.Close)
+
+	subjectToken := unsignedJWT(t, map[string]any{"sub": "alice", "exp": time.Now().Add(time.Hour).Unix()})
+
+	var mu sync.Mutex
+	var gotConfigs []api.TokenExchangeConfig
+	mock := &issuerMockOAuthHandler{
+		enabled: true,
+		getFullTokenFunc: func(string, string) *api.OAuthToken {
+			return &api.OAuthToken{IDToken: subjectToken}
+		},
+		exchangeFunc: func(_ context.Context, _, _ string, config *api.TokenExchangeConfig) (string, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			gotConfigs = append(gotConfigs, *config)
+			if len(gotConfigs) == 1 {
+				// Already within tokenExchangeRefreshMargin: forces re-exchange
+				// on the first header invocation.
+				return unsignedJWT(t, map[string]any{"exp": time.Now().Add(time.Minute).Unix()}), nil
+			}
+			return unsignedJWT(t, map[string]any{"exp": time.Now().Add(time.Hour).Unix()}), nil
+		},
+	}
+	api.RegisterOAuthHandler(mock)
+	t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
+
+	api.RegisterSecretCredentialsHandler(&mockSecretCredentialsHandler{
+		credentials: &api.ClientCredentials{ClientID: "resolved-client-id", ClientSecret: "resolved-client-secret"},
+	})
+	t.Cleanup(func() { api.RegisterSecretCredentialsHandler(nil) })
+
+	shared := &api.TokenExchangeConfig{
+		Enabled:                    true,
+		DexTokenEndpoint:           "https://dex.remote.example/token",
+		ConnectorID:                "cluster-a-dex",
+		Scopes:                     "openid profile email groups",
+		ClientCredentialsSecretRef: &api.ClientCredentialsSecretRef{Name: "creds"},
+	}
+	serverInfo := &ServerInfo{
+		Name: "remote-srv",
+		URL:  downstream.URL,
+		AuthConfig: &api.MCPServerAuth{
+			TokenExchange:     shared,
+			RequiredAudiences: []string{"dex-k8s-authenticator"},
+		},
+	}
+
+	ctx := api.WithSessionID(api.WithSubject(context.Background(), "alice"), "sess-1")
+	result, err := EstablishConnectionWithTokenExchange(ctx, &AggregatorServer{}, serverInfo, "https://muster.example.com")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = result.Client.Close() })
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.GreaterOrEqual(t, len(gotConfigs), 2,
+		"initialize must trigger a re-exchange through the refresh closure")
+	for i, cfg := range gotConfigs {
+		assert.Equal(t, "resolved-client-id", cfg.ClientID,
+			"exchange call %d must carry the resolved client ID", i)
+		assert.Equal(t, "resolved-client-secret", cfg.ClientSecret,
+			"exchange call %d must carry the resolved client secret", i)
+		assert.Contains(t, cfg.Scopes, "dex-k8s-authenticator",
+			"exchange call %d must carry the appended audience scopes", i)
+	}
+
+	// The shared registry definition stays spec-only (giantswarm/giantswarm#37060).
+	assert.Empty(t, shared.ClientID)
+	assert.Empty(t, shared.ClientSecret)
+	assert.Equal(t, "openid profile email groups", shared.Scopes)
+}
