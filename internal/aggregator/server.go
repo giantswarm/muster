@@ -28,7 +28,6 @@ import (
 	"github.com/coreos/go-systemd/v22/activation"
 	oauth "github.com/giantswarm/mcp-oauth"
 	oauthhandler "github.com/giantswarm/mcp-oauth/handler"
-	"github.com/giantswarm/mcp-oauth/providers/dex"
 	"github.com/giantswarm/mcp-oauth/security"
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
 	mcptoolkitlogging "github.com/giantswarm/mcp-toolkit/logging"
@@ -2822,33 +2821,31 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 		return nil, time.Time{}, "", fmt.Errorf("failed to extract user ID from token for %s: %w", serverName, err)
 	}
 
-	exchangeConfig := *serverInfo.AuthConfig.TokenExchange
-
-	if exchangeConfig.ClientCredentialsSecretRef != nil {
+	var clientID, clientSecret string
+	if serverInfo.AuthConfig.TokenExchange.ClientCredentialsSecretRef != nil {
 		credentials, err := loadTokenExchangeCredentials(ctx, serverInfo)
 		if err != nil {
 			return nil, time.Time{}, "", fmt.Errorf("failed to load client credentials for %s: %w", serverName, err)
 		}
-		exchangeConfig.ClientID = credentials.ClientID
-		exchangeConfig.ClientSecret = credentials.ClientSecret
+		clientID, clientSecret = credentials.ClientID, credentials.ClientSecret
 	}
 
-	if len(serverInfo.AuthConfig.RequiredAudiences) > 0 {
-		updatedScopes, err := dex.AppendAudienceScopes(
-			exchangeConfig.Scopes,
-			serverInfo.AuthConfig.RequiredAudiences,
-		)
-		if err != nil {
-			logging.WarnWithAttrs("Aggregator", "Failed to format audience scopes (continuing without audiences)",
-				slog.String("server", serverName),
-				slog.String("error", err.Error()))
-		} else {
-			exchangeConfig.Scopes = updatedScopes
-		}
+	// Stamp the runtime state onto a value copy; never mutate
+	// serverInfo.AuthConfig.TokenExchange in place, it is shared with the registry
+	// definition (see api.TokenExchangeConfig.WithResolvedRuntime).
+	exchangeConfig, err := serverInfo.AuthConfig.TokenExchange.WithResolvedRuntime(
+		clientID,
+		clientSecret,
+		serverInfo.AuthConfig.RequiredAudiences,
+	)
+	if err != nil {
+		logging.WarnWithAttrs("Aggregator", "Failed to format audience scopes (continuing without audiences)",
+			slog.String("server", serverName),
+			slog.String("error", err.Error()))
 	}
 
 	exchangedToken, err := oauthHandler.ExchangeTokenForRemoteCluster(
-		ctx, idToken, userID, &exchangeConfig,
+		ctx, idToken, userID, &exchangeConfig.TokenExchangeConfig,
 	)
 	if err != nil {
 		return nil, time.Time{}, "", fmt.Errorf("token exchange failed for %s: %w", serverName, err)

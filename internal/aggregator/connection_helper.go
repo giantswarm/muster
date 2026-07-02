@@ -15,7 +15,6 @@ import (
 	"github.com/giantswarm/muster/pkg/logging"
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
-	"github.com/giantswarm/mcp-oauth/providers/dex"
 	"github.com/mark3labs/mcp-go/mcp"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -506,35 +505,6 @@ func ShouldUseTokenExchange(serverInfo *ServerInfo) bool {
 //   - *ConnectionResult: The connection result if successful
 //   - error: The error if connection failed
 
-// buildConnectionTokenExchangeConfig returns a value copy of base with the
-// per-connection mutations applied: the resolved client credentials and, when
-// requiredAudiences is non-empty, the appended cross-client audience scopes.
-//
-// It never mutates base. base (serverInfo.AuthConfig.TokenExchange) is a pointer
-// shared with the registry's MCPServer definition — the exact object
-// MCPServerReconciler.ConfigurationChanged compares against the CR. Mutating it in
-// place (the runtime-only ClientID/ClientSecret, or the appended audience Scopes)
-// makes the stored definition permanently differ from the CR, so every reconcile
-// sees a "configuration changed" and restarts the server (~10-15s churn). The
-// audience-scope append in particular affects every tokenExchange server that also
-// sets requiredAudiences.
-//
-// On an audience-scope formatting error the credential-populated copy is returned
-// (without audiences) together with the error, so the caller can log and continue.
-func buildConnectionTokenExchangeConfig(base *api.TokenExchangeConfig, requiredAudiences []string, clientID, clientSecret string) (api.TokenExchangeConfig, error) {
-	cfg := *base
-	cfg.ClientID = clientID
-	cfg.ClientSecret = clientSecret
-	if len(requiredAudiences) > 0 {
-		updatedScopes, err := dex.AppendAudienceScopes(cfg.Scopes, requiredAudiences)
-		if err != nil {
-			return cfg, err
-		}
-		cfg.Scopes = updatedScopes
-	}
-	return cfg, nil
-}
-
 func EstablishConnectionWithTokenExchange(
 	ctx context.Context,
 	a *AggregatorServer,
@@ -604,14 +574,13 @@ func EstablishConnectionWithTokenExchange(
 			serverInfo.Name, credentials.ClientID)
 	}
 
-	// Apply per-connection mutations to a value copy; never mutate
+	// Stamp the runtime state onto a value copy; never mutate
 	// serverInfo.AuthConfig.TokenExchange in place, it is shared with the registry
-	// definition (see buildConnectionTokenExchangeConfig).
-	exchangeConfig, err := buildConnectionTokenExchangeConfig(
-		serverInfo.AuthConfig.TokenExchange,
-		serverInfo.AuthConfig.RequiredAudiences,
+	// definition (see api.TokenExchangeConfig.WithResolvedRuntime).
+	exchangeConfig, err := serverInfo.AuthConfig.TokenExchange.WithResolvedRuntime(
 		clientID,
 		clientSecret,
+		serverInfo.AuthConfig.RequiredAudiences,
 	)
 	if err != nil {
 		// Log the error but continue without the audiences - they should already be
@@ -628,7 +597,7 @@ func EstablishConnectionWithTokenExchange(
 		ctx,
 		idToken,
 		userID,
-		&exchangeConfig,
+		&exchangeConfig.TokenExchangeConfig,
 	)
 	if err != nil {
 		logging.Warn("Connection", "Token exchange failed for user %s to server %s: %v",
@@ -683,7 +652,7 @@ func EstablishConnectionWithTokenExchange(
 	// the subject can no longer be refreshed, so the listener stops instead of
 	// looping an expired token and the state settles to Auth Required.
 	reexchange, onStaleToken := a.makeTokenExchangeRefreshClosures(
-		serverInfo.Name, sessionID, userID, musterIssuer, oauthHandler, serverInfo.AuthConfig.TokenExchange,
+		serverInfo.Name, sessionID, userID, musterIssuer, oauthHandler, &exchangeConfig,
 	)
 
 	headerFunc := makeTokenExchangeHeaderFunc(serverInfo.Name, exchangedToken, tokenExpiry, reexchange, onStaleToken)
@@ -903,12 +872,13 @@ func makeTokenExchangeHeaderFunc(
 // func. reexchange resolves the latest subject ID token and mints a fresh
 // backend token from it, bounded by tokenReexchangeTimeout. onStaleToken evicts
 // the pooled connection and revokes stored auth so the listener stops once the
-// subject can no longer be refreshed. exchangeConfig must already carry resolved
-// client credentials and audience scopes.
+// subject can no longer be refreshed. Requiring api.ResolvedTokenExchangeConfig
+// guarantees the config carries the resolved client credentials and audience
+// scopes, not the shared spec-only registry definition.
 func (a *AggregatorServer) makeTokenExchangeRefreshClosures(
 	serverName, sessionID, fallbackUserID, musterIssuer string,
 	oauthHandler api.OAuthHandler,
-	exchangeConfig *api.TokenExchangeConfig,
+	exchangeConfig *api.ResolvedTokenExchangeConfig,
 ) (func() (string, time.Time, error), func()) {
 	reexchange := func() (string, time.Time, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), tokenReexchangeTimeout)
@@ -925,7 +895,7 @@ func (a *AggregatorServer) makeTokenExchangeRefreshClosures(
 		if subErr != nil || freshUserID == "" {
 			freshUserID = fallbackUserID
 		}
-		newToken, exErr := oauthHandler.ExchangeTokenForRemoteCluster(ctx, freshID, freshUserID, exchangeConfig)
+		newToken, exErr := oauthHandler.ExchangeTokenForRemoteCluster(ctx, freshID, freshUserID, &exchangeConfig.TokenExchangeConfig)
 		if exErr != nil {
 			return "", time.Time{}, exErr
 		}

@@ -15,10 +15,12 @@ import (
 	"time"
 
 	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/config"
 	oauthstore "github.com/giantswarm/muster/internal/oauth/store"
 	"github.com/giantswarm/muster/internal/server"
 	"github.com/giantswarm/muster/pkg/logging"
 
+	mcpgoserver "github.com/mark3labs/mcp-go/server"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -1211,7 +1213,7 @@ func TestMakeTokenExchangeRefreshClosures_ReexchangeMintsFromFreshSubject(t *tes
 	t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
 	a := &AggregatorServer{}
-	config := &api.TokenExchangeConfig{ConnectorID: "dex-connector"}
+	config := &api.ResolvedTokenExchangeConfig{TokenExchangeConfig: api.TokenExchangeConfig{ConnectorID: "dex-connector"}}
 	reexchange, _ := a.makeTokenExchangeRefreshClosures("srv", "sess-1", "fallback-user", "https://muster.example.com", mock, config)
 
 	token, _, err := reexchange()
@@ -1219,7 +1221,7 @@ func TestMakeTokenExchangeRefreshClosures_ReexchangeMintsFromFreshSubject(t *tes
 	require.Equal(t, "fresh-backend-token", token)
 	require.Equal(t, subjectToken, gotSubject, "must mint from the freshly resolved subject ID token")
 	require.Equal(t, "alice", gotUserID, "user ID comes from the fresh subject token's sub, not the fallback")
-	require.Same(t, config, gotConfig, "must pass the resolved exchange config (creds + audience scopes) through")
+	require.Same(t, &config.TokenExchangeConfig, gotConfig, "must pass the resolved exchange config (creds + audience scopes) through")
 }
 
 func TestMakeTokenExchangeRefreshClosures_ReexchangeFailsWhenNoSubject(t *testing.T) {
@@ -1232,7 +1234,7 @@ func TestMakeTokenExchangeRefreshClosures_ReexchangeFailsWhenNoSubject(t *testin
 	t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
 	a := &AggregatorServer{}
-	reexchange, _ := a.makeTokenExchangeRefreshClosures("srv", "sess-1", "u", "https://muster.example.com", mock, &api.TokenExchangeConfig{})
+	reexchange, _ := a.makeTokenExchangeRefreshClosures("srv", "sess-1", "u", "https://muster.example.com", mock, &api.ResolvedTokenExchangeConfig{})
 
 	_, _, err := reexchange()
 	require.Error(t, err)
@@ -1252,7 +1254,7 @@ func TestMakeTokenExchangeRefreshClosures_OnStaleTokenEvictsAndRevokes(t *testin
 	require.NoError(t, authStore.MarkAuthenticated(ctx, "sess-1", "srv"))
 	pool.Put("sess-1", "srv", &poolTestClient{})
 
-	_, onStaleToken := a.makeTokenExchangeRefreshClosures("srv", "sess-1", "u", "iss", &issuerMockOAuthHandler{}, &api.TokenExchangeConfig{})
+	_, onStaleToken := a.makeTokenExchangeRefreshClosures("srv", "sess-1", "u", "iss", &issuerMockOAuthHandler{}, &api.ResolvedTokenExchangeConfig{})
 	onStaleToken()
 
 	_, ok := pool.Get("sess-1", "srv")
@@ -1263,55 +1265,192 @@ func TestMakeTokenExchangeRefreshClosures_OnStaleTokenEvictsAndRevokes(t *testin
 	require.False(t, authed, "stored auth must be revoked so the state settles to Auth Required")
 }
 
-// TestBuildConnectionTokenExchangeConfig_DoesNotMutateShared is a regression test
-// for the MCPServer restart-churn bug (giantswarm/giantswarm#37060): the token
-// exchange path must not mutate the shared registry definition's Auth pointer,
-// because MCPServerReconciler.ConfigurationChanged compares it against the CR.
-// Covers the requiredAudiences case, which the credential-only cases missed.
-func TestBuildConnectionTokenExchangeConfig_DoesNotMutateShared(t *testing.T) {
-	base := &api.TokenExchangeConfig{
-		Enabled:          true,
-		DexTokenEndpoint: "https://dex.example/token",
-		ConnectorID:      "giantswarm-simple-oidc",
-		Scopes:           "openid profile email groups",
+// TestEstablishConnectionWithTokenExchange_RefreshUsesResolvedConfig pins the
+// wiring at the real call site: the refresh closures behind the persistent
+// connection's header func must receive the resolved per-connection exchange
+// config (client credentials + appended audience scopes), not the shared
+// spec-only serverInfo.AuthConfig.TokenExchange pointer. With the shared
+// pointer, every re-exchange after the initial token neared expiry ran without
+// client credentials and without requiredAudiences.
+//
+// The initial exchange deliberately returns a token already inside
+// tokenExchangeRefreshMargin, so the first header invocation during
+// client.Initialize triggers a re-exchange synchronously — the second captured
+// config is the one the refresh closure actually uses.
+func TestEstablishConnectionWithTokenExchange_RefreshUsesResolvedConfig(t *testing.T) {
+	var logBuf bytes.Buffer
+	logging.InitForCLI(logging.LevelDebug, &logBuf)
+
+	// Fake downstream MCP server for the exchanged-token connection.
+	downstream := mcpgoserver.NewTestStreamableHTTPServer(
+		mcpgoserver.NewMCPServer("downstream", "1.0.0", mcpgoserver.WithToolCapabilities(true)),
+	)
+	t.Cleanup(downstream.Close)
+
+	subjectToken := unsignedJWT(t, map[string]any{"sub": "alice", "exp": time.Now().Add(time.Hour).Unix()})
+
+	var mu sync.Mutex
+	var gotConfigs []api.TokenExchangeConfig
+	mock := &issuerMockOAuthHandler{
+		enabled: true,
+		getFullTokenFunc: func(string, string) *api.OAuthToken {
+			return &api.OAuthToken{IDToken: subjectToken}
+		},
+		exchangeFunc: func(_ context.Context, _, _ string, config *api.TokenExchangeConfig) (string, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			gotConfigs = append(gotConfigs, *config)
+			if len(gotConfigs) == 1 {
+				// Already within tokenExchangeRefreshMargin: forces re-exchange
+				// on the first header invocation.
+				return unsignedJWT(t, map[string]any{"exp": time.Now().Add(time.Minute).Unix()}), nil
+			}
+			return unsignedJWT(t, map[string]any{"exp": time.Now().Add(time.Hour).Unix()}), nil
+		},
+	}
+	api.RegisterOAuthHandler(mock)
+	t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
+
+	api.RegisterSecretCredentialsHandler(&mockSecretCredentialsHandler{
+		credentials: &api.ClientCredentials{ClientID: "resolved-client-id", ClientSecret: "resolved-client-secret"},
+	})
+	t.Cleanup(func() { api.RegisterSecretCredentialsHandler(nil) })
+
+	shared := &api.TokenExchangeConfig{
+		Enabled:                    true,
+		DexTokenEndpoint:           "https://dex.remote.example/token",
+		ConnectorID:                "cluster-a-dex",
+		Scopes:                     "openid profile email groups",
+		ClientCredentialsSecretRef: &api.ClientCredentialsSecretRef{Name: "creds"},
+	}
+	serverInfo := &ServerInfo{
+		Name: "remote-srv",
+		URL:  downstream.URL,
+		AuthConfig: &api.MCPServerAuth{
+			TokenExchange:     shared,
+			RequiredAudiences: []string{"dex-k8s-authenticator"},
+		},
 	}
 
-	cfg, err := buildConnectionTokenExchangeConfig(
-		base,
-		[]string{"dex-k8s-authenticator"},
-		"resolved-client-id",
-		"resolved-client-secret",
-	)
+	ctx := api.WithSessionID(api.WithSubject(context.Background(), "alice"), "sess-1")
+	result, err := EstablishConnectionWithTokenExchange(ctx, &AggregatorServer{}, serverInfo, "https://muster.example.com")
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = result.Client.Close() })
 
-	// The returned copy carries the per-connection mutations...
-	assert.Equal(t, "resolved-client-id", cfg.ClientID)
-	assert.Equal(t, "resolved-client-secret", cfg.ClientSecret)
-	assert.Contains(t, cfg.Scopes, "openid profile email groups")
-	assert.Contains(t, cfg.Scopes, "dex-k8s-authenticator",
-		"required audiences should be appended as cross-client scopes on the copy")
+	mu.Lock()
+	defer mu.Unlock()
+	require.GreaterOrEqual(t, len(gotConfigs), 2,
+		"initialize must trigger a re-exchange through the refresh closure")
+	for i, cfg := range gotConfigs {
+		assert.Equal(t, "resolved-client-id", cfg.ClientID,
+			"exchange call %d must carry the resolved client ID", i)
+		assert.Equal(t, "resolved-client-secret", cfg.ClientSecret,
+			"exchange call %d must carry the resolved client secret", i)
+		assert.Contains(t, cfg.Scopes, "dex-k8s-authenticator",
+			"exchange call %d must carry the appended audience scopes", i)
+	}
 
-	// ...while the shared base is left completely untouched.
-	assert.Empty(t, base.ClientID, "shared definition ClientID must not be mutated")
-	assert.Empty(t, base.ClientSecret, "shared definition ClientSecret must not be mutated")
-	assert.Equal(t, "openid profile email groups", base.Scopes,
-		"shared definition Scopes must not gain audience scopes (would cause reconcile churn)")
+	// The shared registry definition stays spec-only (giantswarm/giantswarm#37060).
+	assert.Empty(t, shared.ClientID)
+	assert.Empty(t, shared.ClientSecret)
+	assert.Equal(t, "openid profile email groups", shared.Scopes)
 }
 
-// TestBuildConnectionTokenExchangeConfig_NoAudiences covers the plain
-// tokenExchange case (no requiredAudiences): scopes are carried through unchanged
-// and the shared base is not mutated.
-func TestBuildConnectionTokenExchangeConfig_NoAudiences(t *testing.T) {
-	base := &api.TokenExchangeConfig{
-		Enabled: true,
-		Scopes:  "openid profile",
+// TestExchangeTokenAndCreateClient_RefreshUsesResolvedConfig mirrors the test
+// above for the tool-call / background-refresh path (server.go): the refresh
+// closures wired by exchangeTokenAndCreateClient must also receive the resolved
+// per-connection exchange config. This path was correct when the initial-
+// connection path regressed (#944) but had no test of its own, so a regression
+// here would have passed the whole suite.
+func TestExchangeTokenAndCreateClient_RefreshUsesResolvedConfig(t *testing.T) {
+	var logBuf bytes.Buffer
+	logging.InitForCLI(logging.LevelDebug, &logBuf)
+
+	// Fake downstream MCP server for the exchanged-token connection.
+	downstream := mcpgoserver.NewTestStreamableHTTPServer(
+		mcpgoserver.NewMCPServer("downstream", "1.0.0", mcpgoserver.WithToolCapabilities(true)),
+	)
+	t.Cleanup(downstream.Close)
+
+	subjectToken := unsignedJWT(t, map[string]any{"sub": "alice", "exp": time.Now().Add(time.Hour).Unix()})
+
+	var mu sync.Mutex
+	var gotConfigs []api.TokenExchangeConfig
+	mock := &issuerMockOAuthHandler{
+		enabled: true,
+		getFullTokenFunc: func(string, string) *api.OAuthToken {
+			return &api.OAuthToken{IDToken: subjectToken}
+		},
+		exchangeFunc: func(_ context.Context, _, _ string, config *api.TokenExchangeConfig) (string, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			gotConfigs = append(gotConfigs, *config)
+			if len(gotConfigs) == 1 {
+				// Already within tokenExchangeRefreshMargin: forces re-exchange
+				// on the first header invocation.
+				return unsignedJWT(t, map[string]any{"exp": time.Now().Add(time.Minute).Unix()}), nil
+			}
+			return unsignedJWT(t, map[string]any{"exp": time.Now().Add(time.Hour).Unix()}), nil
+		},
+	}
+	api.RegisterOAuthHandler(mock)
+	t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
+
+	api.RegisterSecretCredentialsHandler(&mockSecretCredentialsHandler{
+		credentials: &api.ClientCredentials{ClientID: "resolved-client-id", ClientSecret: "resolved-client-secret"},
+	})
+	t.Cleanup(func() { api.RegisterSecretCredentialsHandler(nil) })
+
+	shared := &api.TokenExchangeConfig{
+		Enabled:                    true,
+		DexTokenEndpoint:           "https://dex.remote.example/token",
+		ConnectorID:                "cluster-a-dex",
+		Scopes:                     "openid profile email groups",
+		ClientCredentialsSecretRef: &api.ClientCredentialsSecretRef{Name: "creds"},
+	}
+	serverInfo := &ServerInfo{
+		Name: "remote-srv",
+		URL:  downstream.URL,
+		AuthConfig: &api.MCPServerAuth{
+			TokenExchange:     shared,
+			RequiredAudiences: []string{"dex-k8s-authenticator"},
+		},
 	}
 
-	cfg, err := buildConnectionTokenExchangeConfig(base, nil, "cid", "secret")
-	require.NoError(t, err)
+	// Unlike EstablishConnectionWithTokenExchange, this path resolves the
+	// muster issuer from the aggregator's own OAuth server config.
+	a := &AggregatorServer{
+		config: AggregatorConfig{
+			OAuthServer: OAuthServerConfig{
+				Enabled: true,
+				Config:  config.OAuthServerConfig{BaseURL: "https://muster.example.com"},
+			},
+		},
+	}
 
-	assert.Equal(t, "openid profile", cfg.Scopes)
-	assert.Equal(t, "cid", cfg.ClientID)
-	assert.Empty(t, base.ClientID, "shared definition must not be mutated")
-	assert.Equal(t, "openid profile", base.Scopes)
+	client, _, _, err := a.exchangeTokenAndCreateClient(context.Background(), serverInfo, "sess-1")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = client.Close() })
+
+	// The caller initializes the returned client; the first header invocation
+	// sees the near-expiry token and re-exchanges through the refresh closure.
+	require.NoError(t, client.Initialize(context.Background()))
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.GreaterOrEqual(t, len(gotConfigs), 2,
+		"initialize must trigger a re-exchange through the refresh closure")
+	for i, cfg := range gotConfigs {
+		assert.Equal(t, "resolved-client-id", cfg.ClientID,
+			"exchange call %d must carry the resolved client ID", i)
+		assert.Equal(t, "resolved-client-secret", cfg.ClientSecret,
+			"exchange call %d must carry the resolved client secret", i)
+		assert.Contains(t, cfg.Scopes, "dex-k8s-authenticator",
+			"exchange call %d must carry the appended audience scopes", i)
+	}
+
+	// The shared registry definition stays spec-only (giantswarm/giantswarm#37060).
+	assert.Empty(t, shared.ClientID)
+	assert.Empty(t, shared.ClientSecret)
+	assert.Equal(t, "openid profile email groups", shared.Scopes)
 }

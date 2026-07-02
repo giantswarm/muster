@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Team ownership label. `application.giantswarm.io/team` now renders `bumblebee` instead of an empty string: the labels helper looked up the annotation under the wrong key (`application.giantswarm.io/team`) instead of the OCI key `io.giantswarm.application.team` set in `Chart.yaml`.
+
+
 ### Removed
 
 - localMint downstream auth. The `auth.localMint` MCPServer CRD field and its admission rules, the `local-mint` broker target type and the target `type` key, and the `oauth.server.tokenExchangeBroker.delegateToSelf` config key are removed. Backends that used localMint switch to `forwardToken: true` and validate the forwarded token against muster's JWKS.
@@ -21,6 +26,8 @@ All notable changes to this project will be documented in this file.
 - The `github-app` broker target type and its `githubApp` config block. Broker targets now support `oidc-exchange` (default) and `local-mint`.
 
 ### Fixed
+
+- Token re-exchange on the persistent oidc-exchange connection now uses the resolved per-connection config. The initial-connection path handed the refresh closure the shared spec-only `TokenExchange` pointer (which, since [#940](https://github.com/giantswarm/muster/pull/940), deliberately never carries the runtime-resolved credentials or appended `requiredAudiences` scopes), so every re-exchange after the first token neared expiry ran without client credentials — failing outright against a Dex requiring client auth and evicting the session back to `Auth Required` — and without the required audiences, minting tokens the downstream server rejects. ([#942](https://github.com/giantswarm/muster/issues/942))
 
 - Data race in the token-forwarding and localMint connection header functions. Both mutate per-connection failure counters, which mcp-go invokes concurrently from the listener goroutine and tool-call goroutines, so under load the stale-connection eviction could double-fire (double eviction/revoke). The counters are now mutex-guarded. ([#939](https://github.com/giantswarm/muster/issues/939))
 
@@ -108,6 +115,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Token-exchange spec-vs-runtime handling consolidated onto `api.TokenExchangeConfig` ([#942](https://github.com/giantswarm/muster/issues/942)): the new `WithResolvedRuntime` method is the single place that stamps the per-connection runtime state (resolved client credentials, appended `requiredAudiences` scopes) onto a value copy, and `SpecOnly` is the single place that strips it for CR comparison. Replaces the duplicated build logic in the aggregator's connection and tool-call paths and the hand-rolled field clearing in the reconciler comparison. `WithResolvedRuntime` returns a distinct `ResolvedTokenExchangeConfig` type which the token-refresh closures now require, so handing them the shared spec-only registry definition (the [#944](https://github.com/giantswarm/muster/pull/944) bug) no longer compiles; the tool-call path's refresh wiring is now pinned by its own regression test as well. No behavior change.
 - Kubernetes event emission is now always on. The previous opt-in gate (`--enable-events` flag and `events:` config field) and its "disabled by default" framing were removed; events are a core observability feature that works in both Kubernetes (native Events) and filesystem (on-disk log) modes. The `muster serve --enable-events` flag is retained as a hidden, deprecated no-op so existing scripts and unit files keep working after upgrade (it prints a deprecation notice and has no effect); the removed `events:` config key is silently ignored.
 - Kubernetes event spam reduction: the high-volume per-session `MCPServerTokenForwarded`/`MCPServerTokenExchanged` Normal events now log at debug level instead of writing a Kubernetes Event on every session's connection to every SSO server. Token *failures* are still surfaced as Warning events. The Kubernetes backend now emits events through a client-go `EventRecorder`/`EventBroadcaster` so duplicate events aggregate into a single object with a `Count` and get per-key rate limiting, and the per-poll `MCPServerHealthCheckFailed` emission is gated on the healthy→unhealthy transition rather than firing every 30s for every unhealthy server. These were the dominant event-volume sources that previously made the feature noisy.
 - Update mcp-oauth to v0.13.2: the trusted-issuer JWKS client used for `allowPrivateIPJWKS` now honors the process CA bundle, so a backend validating muster's in-cluster JWKS over TLS with an internal CA no longer fails with `x509: unknown authority`.
