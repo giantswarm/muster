@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Team ownership label. `application.giantswarm.io/team` now renders `bumblebee` instead of an empty string: the labels helper looked up the annotation under the wrong key (`application.giantswarm.io/team`) instead of the OCI key `io.giantswarm.application.team` set in `Chart.yaml`.
+
+
 ### Removed
 
 - M2M (machine-to-machine) token exchange. The `oauth.server.tokenExchangeBroker.workloadAudiences`, `workloadGroupGrants`, and `actorDelegationPolicy` config keys are removed, along with broker-granted identity injection (`granted.subject` / `granted.groups`). On-behalf-of (OBO) delegation is unchanged and now accepts any actor validated against the trusted issuers; the impersonated subject's downstream authorization governs access. Requires mcp-oauth v0.18.7.
