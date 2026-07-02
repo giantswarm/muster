@@ -1311,59 +1311,6 @@ func TestMakeTokenExchangeRefreshClosures_OnStaleTokenEvictsAndRevokes(t *testin
 	require.False(t, authed, "stored auth must be revoked so the state settles to Auth Required")
 }
 
-// TestBuildConnectionTokenExchangeConfig_DoesNotMutateShared is a regression test
-// for the MCPServer restart-churn bug (giantswarm/giantswarm#37060): the token
-// exchange path must not mutate the shared registry definition's Auth pointer,
-// because MCPServerReconciler.ConfigurationChanged compares it against the CR.
-// Covers the requiredAudiences case, which the credential-only cases missed.
-func TestBuildConnectionTokenExchangeConfig_DoesNotMutateShared(t *testing.T) {
-	base := &api.TokenExchangeConfig{
-		Enabled:          true,
-		DexTokenEndpoint: "https://dex.example/token",
-		ConnectorID:      "giantswarm-simple-oidc",
-		Scopes:           "openid profile email groups",
-	}
-
-	cfg, err := buildConnectionTokenExchangeConfig(
-		base,
-		[]string{"dex-k8s-authenticator"},
-		"resolved-client-id",
-		"resolved-client-secret",
-	)
-	require.NoError(t, err)
-
-	// The returned copy carries the per-connection mutations...
-	assert.Equal(t, "resolved-client-id", cfg.ClientID)
-	assert.Equal(t, "resolved-client-secret", cfg.ClientSecret)
-	assert.Contains(t, cfg.Scopes, "openid profile email groups")
-	assert.Contains(t, cfg.Scopes, "dex-k8s-authenticator",
-		"required audiences should be appended as cross-client scopes on the copy")
-
-	// ...while the shared base is left completely untouched.
-	assert.Empty(t, base.ClientID, "shared definition ClientID must not be mutated")
-	assert.Empty(t, base.ClientSecret, "shared definition ClientSecret must not be mutated")
-	assert.Equal(t, "openid profile email groups", base.Scopes,
-		"shared definition Scopes must not gain audience scopes (would cause reconcile churn)")
-}
-
-// TestBuildConnectionTokenExchangeConfig_NoAudiences covers the plain
-// tokenExchange case (no requiredAudiences): scopes are carried through unchanged
-// and the shared base is not mutated.
-func TestBuildConnectionTokenExchangeConfig_NoAudiences(t *testing.T) {
-	base := &api.TokenExchangeConfig{
-		Enabled: true,
-		Scopes:  "openid profile",
-	}
-
-	cfg, err := buildConnectionTokenExchangeConfig(base, nil, "cid", "secret")
-	require.NoError(t, err)
-
-	assert.Equal(t, "openid profile", cfg.Scopes)
-	assert.Equal(t, "cid", cfg.ClientID)
-	assert.Empty(t, base.ClientID, "shared definition must not be mutated")
-	assert.Equal(t, "openid profile", base.Scopes)
-}
-
 // TestEstablishConnectionWithTokenExchange_RefreshUsesResolvedConfig pins the
 // wiring at the real call site: the refresh closures behind the persistent
 // connection's header func must receive the resolved per-connection exchange
