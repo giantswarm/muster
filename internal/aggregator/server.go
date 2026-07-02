@@ -2951,20 +2951,6 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 		}
 
 	} else if ShouldUseTokenForwarding(serverInfo) {
-		musterIssuer := a.getMusterIssuer()
-		refresher := a.sessionRefresher()
-		idToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer, refresher)
-		if idToken == "" {
-			idToken = forwardableBearer(ctx)
-		}
-		if idToken == "" {
-			return nil, nil, fmt.Errorf("no token available for forwarding to %s", serverName)
-		}
-
-		if expired, err := pkgoauth.IsExpired(idToken); expired {
-			return nil, nil, fmt.Errorf("token has expired for %s, re-authenticate to refresh: %w", serverName, err)
-		}
-
 		onStaleToken := func() {
 			if a.connPool != nil {
 				a.connPool.Evict(sessionID, serverName)
@@ -2973,8 +2959,11 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 					slog.String("server", serverName))
 			}
 		}
-		headerFunc := makeTokenForwardingHeaderFunc(sessionID, sub, musterIssuer, serverName, idToken, refresher, onStaleToken)
-		client = internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
+		var err error
+		client, err = a.newTokenForwardingClient(ctx, sessionID, sub, a.getMusterIssuer(), serverInfo, onStaleToken)
+		if err != nil {
+			return nil, nil, err
+		}
 
 	} else if serverInfo.AuthInfo != nil && serverInfo.AuthInfo.Issuer != "" {
 		oauthHandler := api.GetOAuthHandler()

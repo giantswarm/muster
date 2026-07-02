@@ -325,40 +325,6 @@ func EstablishConnectionWithTokenForwarding(
 		}
 	}
 
-	refresher := a.sessionRefresher()
-	idToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer, refresher)
-	if idToken == "" {
-		// Sessions without an OAuth-store entry (agent OBO callers) present a
-		// muster-issued bearer on /mcp; that validated token is what gets
-		// forwarded, so it also establishes the connection.
-		idToken = forwardableBearer(ctx)
-	}
-	if idToken == "" {
-		logging.Debug("Connection", "No forwardable token available for user %s",
-			logging.TruncateIdentifier(sub))
-		return nil, fmt.Errorf("no token available for forwarding")
-	}
-
-	// Validate the token is not expired before forwarding
-	// This avoids unnecessary network round-trips with expired tokens
-	if expired, expErr := pkgoauth.IsExpired(idToken); expired {
-		logging.Warn("Connection", "Token expired for user %s, cannot forward to %s: %v",
-			logging.TruncateIdentifier(sub), serverInfo.Name, expErr)
-		return nil, fmt.Errorf("token has expired, needs refresh before forwarding")
-	}
-
-	logging.Info("Connection", "Attempting ID token forwarding for user %s to server %s",
-		logging.TruncateIdentifier(sub), serverInfo.Name)
-
-	// Create a client with a dynamic header function that resolves the latest
-	// ID token on each request. This ensures token refresh is picked up
-	// automatically without needing to re-establish the connection.
-	//
-	// IMPORTANT: Use context.Background() instead of the captured request ctx,
-	// because the original request context becomes stale/cancelled after the
-	// connection-establishing request completes. The OAuth token store (keyed by
-	// sub + musterIssuer) is the stable source for refreshed tokens.
-	//
 	// The onStaleToken callback evicts the pooled connection and revokes the
 	// auth entry when the token cannot be resolved after repeated attempts.
 	// This stops mcp-go's infinite retry loop with expired tokens.
@@ -375,8 +341,13 @@ func EstablishConnectionWithTokenForwarding(
 			}
 		}
 	}
-	headerFunc := makeTokenForwardingHeaderFunc(sessionID, sub, musterIssuer, serverInfo.Name, idToken, refresher, onStaleToken)
-	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
+	client, err := a.newTokenForwardingClient(ctx, sessionID, sub, musterIssuer, serverInfo, onStaleToken)
+	if err != nil {
+		return nil, err
+	}
+
+	logging.Info("Connection", "Attempting ID token forwarding for user %s to server %s",
+		logging.TruncateIdentifier(sub), serverInfo.Name)
 
 	// Try to initialize the client with the forwarded token
 	if err := client.Initialize(ctx); err != nil {
@@ -979,6 +950,42 @@ func (a *AggregatorServer) makeTokenExchangeRefreshClosures(
 	}
 
 	return reexchange, onStaleToken
+}
+
+// newTokenForwardingClient resolves the session's forwardable token and builds
+// the streamable-HTTP client whose header func re-resolves it on every request.
+// Both the connect-time discovery path and the pool-miss tool-call path build
+// their client here so token resolution cannot diverge between them.
+//
+// Resolution mirrors the header func: the OAuth-store ID token (with an
+// in-process upstream refresh) first, then the validated inbound bearer for
+// sessions without an OAuth-store entry (agent OBO callers). An expired or
+// absent token is an error; the caller surfaces it to the session.
+func (a *AggregatorServer) newTokenForwardingClient(
+	ctx context.Context,
+	sessionID, sub, musterIssuer string,
+	serverInfo *ServerInfo,
+	onStaleToken func(),
+) (*internalmcp.StreamableHTTPClient, error) {
+	refresher := a.sessionRefresher()
+	idToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer, refresher)
+	if idToken == "" {
+		idToken = forwardableBearer(ctx)
+	}
+	if idToken == "" {
+		logging.Debug("Connection", "No forwardable token available for user %s",
+			logging.TruncateIdentifier(sub))
+		return nil, fmt.Errorf("no token available for forwarding to %s", serverInfo.Name)
+	}
+
+	if expired, expErr := pkgoauth.IsExpired(idToken); expired {
+		logging.Warn("Connection", "Token expired for user %s, cannot forward to %s: %v",
+			logging.TruncateIdentifier(sub), serverInfo.Name, expErr)
+		return nil, fmt.Errorf("token has expired for %s, re-authenticate to refresh: %w", serverInfo.Name, expErr)
+	}
+
+	headerFunc := makeTokenForwardingHeaderFunc(sessionID, sub, musterIssuer, serverInfo.Name, idToken, refresher, onStaleToken)
+	return internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc), nil
 }
 
 // forwardableBearer returns the validated inbound bearer from ctx when it is a
