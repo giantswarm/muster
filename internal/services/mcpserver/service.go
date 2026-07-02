@@ -441,9 +441,7 @@ func normalizeAuthForComparison(auth *api.MCPServerAuth) *api.MCPServerAuth {
 	}
 	normalized := *auth
 	if auth.TokenExchange != nil {
-		te := *auth.TokenExchange
-		te.ClientID = ""
-		te.ClientSecret = ""
+		te := auth.TokenExchange.SpecOnly()
 		normalized.TokenExchange = &te
 	}
 	return &normalized
