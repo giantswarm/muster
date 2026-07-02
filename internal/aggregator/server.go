@@ -2859,9 +2859,10 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 		logging.Debug("TokenExchange", "Could not extract expiry from exchanged token, proactive refresh disabled: %v", err)
 	}
 
-	headerFunc := func(_ context.Context) map[string]string {
-		return map[string]string{pkgoauth.HeaderAuthorization: pkgoauth.SchemeBearer + " " + exchangedToken}
-	}
+	reexchange, onStaleToken := a.makeTokenExchangeRefreshClosures(
+		serverName, sessionID, userID, musterIssuer, oauthHandler, &exchangeConfig,
+	)
+	headerFunc := makeTokenExchangeHeaderFunc(serverName, exchangedToken, tokenExpiry, reexchange, onStaleToken)
 
 	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
 	return client, tokenExpiry, exchangedToken, nil

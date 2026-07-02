@@ -14,6 +14,7 @@ type issuerMockOAuthHandler struct {
 	enabled          bool
 	findTokenResult  *api.OAuthToken
 	getFullTokenFunc func(sessionID, issuer string) *api.OAuthToken
+	exchangeFunc     func(ctx context.Context, localToken, userID string, config *api.TokenExchangeConfig) (string, error)
 }
 
 func (m *issuerMockOAuthHandler) IsEnabled() bool {
@@ -85,6 +86,9 @@ func (m *issuerMockOAuthHandler) Stop() {
 }
 
 func (m *issuerMockOAuthHandler) ExchangeTokenForRemoteCluster(ctx context.Context, localToken, userID string, config *api.TokenExchangeConfig) (string, error) {
+	if m.exchangeFunc != nil {
+		return m.exchangeFunc(ctx, localToken, userID, config)
+	}
 	return "", nil
 }
 

@@ -11,8 +11,11 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/giantswarm/muster/internal/api"
+	oauthstore "github.com/giantswarm/muster/internal/oauth/store"
 	"github.com/giantswarm/muster/internal/server"
 	"github.com/giantswarm/muster/pkg/logging"
 
@@ -1001,6 +1004,241 @@ func TestMakeLocalMintHeaderFunc_CtxActorOverridesCaptured(t *testing.T) {
 	require.True(t, minter.called)
 	require.Equal(t, "live-sa", minter.gotReq.ActorToken, "live actor must override the captured one")
 	require.Equal(t, "Bearer minted", headers["Authorization"])
+}
+
+func TestMakeTokenExchangeHeaderFunc_NoRefreshBeforeMargin(t *testing.T) {
+	var logBuf bytes.Buffer
+	logging.InitForCLI(logging.LevelDebug, &logBuf)
+
+	var calls atomic.Int32
+	reexchange := func() (string, time.Time, error) {
+		calls.Add(1)
+		return "new-token", time.Now().Add(time.Hour), nil
+	}
+
+	// Token expires well beyond the refresh margin — no re-exchange expected.
+	headerFunc := makeTokenExchangeHeaderFunc("srv", "initial-token", time.Now().Add(time.Hour), reexchange, nil)
+
+	for i := 0; i < 3; i++ {
+		headers := headerFunc(context.Background())
+		assert.Equal(t, "Bearer initial-token", headers["Authorization"])
+	}
+	assert.Equal(t, int32(0), calls.Load(), "must not re-exchange before the refresh margin")
+}
+
+func TestMakeTokenExchangeHeaderFunc_RefreshesWithinMargin(t *testing.T) {
+	var logBuf bytes.Buffer
+	logging.InitForCLI(logging.LevelDebug, &logBuf)
+
+	var calls atomic.Int32
+	reexchange := func() (string, time.Time, error) {
+		calls.Add(1)
+		return "refreshed-token", time.Now().Add(time.Hour), nil
+	}
+
+	// Token is already inside the refresh margin: first call re-exchanges, and the
+	// new far-future expiry stops further re-exchanges.
+	headerFunc := makeTokenExchangeHeaderFunc("srv", "initial-token", time.Now(), reexchange, nil)
+
+	headers := headerFunc(context.Background())
+	assert.Equal(t, "Bearer refreshed-token", headers["Authorization"], "should present the re-exchanged token")
+
+	headers = headerFunc(context.Background())
+	assert.Equal(t, "Bearer refreshed-token", headers["Authorization"])
+	assert.Equal(t, int32(1), calls.Load(), "should re-exchange exactly once, then reuse the fresh token")
+}
+
+func TestMakeTokenExchangeHeaderFunc_EvictsAfterConsecutiveFailures(t *testing.T) {
+	var logBuf bytes.Buffer
+	logging.InitForCLI(logging.LevelDebug, &logBuf)
+
+	reexchange := func() (string, time.Time, error) {
+		return "", time.Time{}, fmt.Errorf("subject ID token expired")
+	}
+
+	var evictCount atomic.Int32
+	var firstEvict sync.WaitGroup
+	firstEvict.Add(1)
+	onStaleToken := func() {
+		if evictCount.Add(1) == 1 {
+			firstEvict.Done()
+		}
+	}
+
+	headerFunc := makeTokenExchangeHeaderFunc("srv", "stale-token", time.Now(), reexchange, onStaleToken)
+
+	for i := 0; i < maxConsecutiveTokenFailures-1; i++ {
+		headers := headerFunc(context.Background())
+		assert.Equal(t, "Bearer stale-token", headers["Authorization"], "must fall back to the current token while re-exchange fails")
+	}
+	assert.Equal(t, int32(0), evictCount.Load(), "must not evict before reaching the failure threshold")
+
+	headers := headerFunc(context.Background())
+	assert.Equal(t, "Bearer stale-token", headers["Authorization"])
+	firstEvict.Wait()
+	assert.Equal(t, int32(1), evictCount.Load(), "onStaleToken should fire exactly once at the threshold")
+
+	// Further failures do not re-fire the callback within the same streak.
+	headerFunc(context.Background())
+	assert.Equal(t, int32(1), evictCount.Load())
+}
+
+func TestMakeTokenExchangeHeaderFunc_ResetsFailureCountOnRecovery(t *testing.T) {
+	var logBuf bytes.Buffer
+	logging.InitForCLI(logging.LevelDebug, &logBuf)
+
+	fail := true
+	reexchange := func() (string, time.Time, error) {
+		if fail {
+			return "", time.Time{}, fmt.Errorf("transient failure")
+		}
+		return "recovered-token", time.Now().Add(time.Hour), nil
+	}
+
+	var evictCount atomic.Int32
+	onStaleToken := func() { evictCount.Add(1) }
+
+	headerFunc := makeTokenExchangeHeaderFunc("srv", "stale-token", time.Now(), reexchange, onStaleToken)
+
+	for i := 0; i < maxConsecutiveTokenFailures-1; i++ {
+		headerFunc(context.Background())
+	}
+	assert.Equal(t, int32(0), evictCount.Load())
+
+	fail = false
+	headers := headerFunc(context.Background())
+	assert.Equal(t, "Bearer recovered-token", headers["Authorization"], "should use the recovered token")
+
+	// After recovery the token expiry is far in the future, so no further
+	// re-exchange (and no eviction) occurs.
+	headers = headerFunc(context.Background())
+	assert.Equal(t, "Bearer recovered-token", headers["Authorization"])
+	assert.Equal(t, int32(0), evictCount.Load(), "failure counter must reset on recovery")
+}
+
+func TestMakeTokenExchangeHeaderFunc_NilCallbackNoPanic(t *testing.T) {
+	var logBuf bytes.Buffer
+	logging.InitForCLI(logging.LevelDebug, &logBuf)
+
+	reexchange := func() (string, time.Time, error) {
+		return "", time.Time{}, fmt.Errorf("always fails")
+	}
+	headerFunc := makeTokenExchangeHeaderFunc("srv", "stale-token", time.Now(), reexchange, nil)
+
+	for i := 0; i < maxConsecutiveTokenFailures+2; i++ {
+		headers := headerFunc(context.Background())
+		assert.Equal(t, "Bearer stale-token", headers["Authorization"])
+	}
+}
+
+func TestMakeTokenExchangeHeaderFunc_ZeroExpiryRefreshesOnFallbackInterval(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var calls atomic.Int32
+		reexchange := func() (string, time.Time, error) {
+			calls.Add(1)
+			// Fresh token also carries no parseable exp, so refresh must keep
+			// firing on the fallback interval rather than latching off.
+			return "refreshed-token", time.Time{}, nil
+		}
+		headerFunc := makeTokenExchangeHeaderFunc("srv", "initial-token", time.Time{}, reexchange, nil)
+
+		// The initial token is fresh: a zero expiry is normalised to the fallback
+		// window, not treated as already-expired, so no immediate re-exchange.
+		headers := headerFunc(context.Background())
+		assert.Equal(t, "Bearer initial-token", headers["Authorization"])
+		assert.Equal(t, int32(0), calls.Load(), "must not re-exchange while inside the fallback window")
+
+		// Cross the fallback refresh point (fallback window minus the margin).
+		time.Sleep(tokenExchangeFallbackRefreshInterval + time.Second)
+		headers = headerFunc(context.Background())
+		assert.Equal(t, "Bearer refreshed-token", headers["Authorization"], "unparseable expiry must not disable refresh")
+		assert.Equal(t, int32(1), calls.Load())
+
+		// And it keeps refreshing on the interval rather than stopping after one.
+		time.Sleep(tokenExchangeFallbackRefreshInterval + time.Second)
+		headerFunc(context.Background())
+		assert.Equal(t, int32(2), calls.Load(), "refresh must recur on the fallback interval")
+	})
+}
+
+// makeTokenExchangeRefreshClosures backs the self-refreshing header func used by
+// both the initial token-exchange connection and the tool-call / background-
+// refresh path. The tool-call path previously built a static header, so a
+// backend touched once then left idle re-stranded in Auth Required on token
+// expiry; these tests pin the refresh (reexchange) and recovery (onStaleToken)
+// behaviour the shared closures give both paths.
+
+func TestMakeTokenExchangeRefreshClosures_ReexchangeMintsFromFreshSubject(t *testing.T) {
+	var logBuf bytes.Buffer
+	logging.InitForCLI(logging.LevelDebug, &logBuf)
+
+	subjectToken := unsignedJWT(t, map[string]any{"sub": "alice", "exp": time.Now().Add(time.Hour).Unix()})
+	var gotSubject, gotUserID string
+	var gotConfig *api.TokenExchangeConfig
+	mock := &issuerMockOAuthHandler{
+		enabled: true,
+		getFullTokenFunc: func(string, string) *api.OAuthToken {
+			return &api.OAuthToken{IDToken: subjectToken}
+		},
+		exchangeFunc: func(_ context.Context, localToken, userID string, config *api.TokenExchangeConfig) (string, error) {
+			gotSubject, gotUserID, gotConfig = localToken, userID, config
+			return "fresh-backend-token", nil
+		},
+	}
+	api.RegisterOAuthHandler(mock)
+	t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
+
+	a := &AggregatorServer{}
+	config := &api.TokenExchangeConfig{ConnectorID: "dex-connector"}
+	reexchange, _ := a.makeTokenExchangeRefreshClosures("srv", "sess-1", "fallback-user", "https://muster.example.com", mock, config)
+
+	token, _, err := reexchange()
+	require.NoError(t, err)
+	require.Equal(t, "fresh-backend-token", token)
+	require.Equal(t, subjectToken, gotSubject, "must mint from the freshly resolved subject ID token")
+	require.Equal(t, "alice", gotUserID, "user ID comes from the fresh subject token's sub, not the fallback")
+	require.Same(t, config, gotConfig, "must pass the resolved exchange config (creds + audience scopes) through")
+}
+
+func TestMakeTokenExchangeRefreshClosures_ReexchangeFailsWhenNoSubject(t *testing.T) {
+	var logBuf bytes.Buffer
+	logging.InitForCLI(logging.LevelDebug, &logBuf)
+
+	// enabled handler, but no stored token: the subject can no longer be resolved.
+	mock := &issuerMockOAuthHandler{enabled: true}
+	api.RegisterOAuthHandler(mock)
+	t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
+
+	a := &AggregatorServer{}
+	reexchange, _ := a.makeTokenExchangeRefreshClosures("srv", "sess-1", "u", "https://muster.example.com", mock, &api.TokenExchangeConfig{})
+
+	_, _, err := reexchange()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "no subject ID token")
+}
+
+func TestMakeTokenExchangeRefreshClosures_OnStaleTokenEvictsAndRevokes(t *testing.T) {
+	var logBuf bytes.Buffer
+	logging.InitForCLI(logging.LevelDebug, &logBuf)
+
+	pool := NewSessionConnectionPool(time.Hour)
+	t.Cleanup(pool.Stop)
+	authStore := oauthstore.NewInMemorySessionAuthStore(time.Hour)
+	a := &AggregatorServer{connPool: pool, authStore: authStore}
+
+	ctx := t.Context()
+	require.NoError(t, authStore.MarkAuthenticated(ctx, "sess-1", "srv"))
+	pool.Put("sess-1", "srv", &poolTestClient{})
+
+	_, onStaleToken := a.makeTokenExchangeRefreshClosures("srv", "sess-1", "u", "iss", &issuerMockOAuthHandler{}, &api.TokenExchangeConfig{})
+	onStaleToken()
+
+	_, ok := pool.Get("sess-1", "srv")
+	require.False(t, ok, "stale connection must be evicted so the looping listener stops")
+
+	authed, err := authStore.IsAuthenticated(ctx, "sess-1", "srv")
+	require.NoError(t, err)
+	require.False(t, authed, "stored auth must be revoked so the state settles to Auth Required")
 }
 
 // TestBuildConnectionTokenExchangeConfig_DoesNotMutateShared is a regression test
