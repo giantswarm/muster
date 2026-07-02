@@ -821,7 +821,7 @@ func EstablishConnectionWithTokenExchange(
 	// the subject can no longer be refreshed, so the listener stops instead of
 	// looping an expired token and the state settles to Auth Required.
 	reexchange, onStaleToken := a.makeTokenExchangeRefreshClosures(
-		serverInfo.Name, sessionID, userID, musterIssuer, oauthHandler, serverInfo.AuthConfig.TokenExchange,
+		serverInfo.Name, sessionID, userID, musterIssuer, oauthHandler, &exchangeConfig,
 	)
 
 	headerFunc := makeTokenExchangeHeaderFunc(serverInfo.Name, exchangedToken, tokenExpiry, reexchange, onStaleToken)
