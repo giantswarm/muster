@@ -72,7 +72,7 @@ func (b *BrokerExchanger) Exchange(ctx context.Context, req *oauthserver.Exchang
 		return nil, fmt.Errorf("%w: no broker target configured for audience %q", oauthserver.ErrInvalidTarget, req.Audience)
 	}
 
-	exchangeConfig := &api.TokenExchangeConfig{
+	specConfig := api.TokenExchangeConfig{
 		Enabled:          true,
 		DexTokenEndpoint: target.DexTokenEndpoint,
 		ExpectedIssuer:   target.ExpectedIssuer,
@@ -84,18 +84,25 @@ func (b *BrokerExchanger) Exchange(ctx context.Context, req *oauthserver.Exchang
 		Scopes: target.Scopes,
 	}
 
+	var clientID, clientSecret string
 	if target.ClientCredentialsSecretRef != nil {
 		creds, err := b.loadCredentials(ctx, target.ClientCredentialsSecretRef)
 		if err != nil {
 			logging.Warn("TokenBroker", "Failed to load credentials for audience=%s: %v", req.Audience, err)
 			return nil, fmt.Errorf("load broker credentials for audience %q: %w", req.Audience, err)
 		}
-		exchangeConfig.ClientID = creds.ClientID
-		exchangeConfig.ClientSecret = creds.ClientSecret
+		clientID, clientSecret = creds.ClientID, creds.ClientSecret
+	}
+
+	// Broker targets carry no required audiences, so this stamps only the
+	// credentials; it cannot fail without audiences to format.
+	exchangeConfig, err := specConfig.WithResolvedRuntime(clientID, clientSecret, nil)
+	if err != nil {
+		return nil, fmt.Errorf("resolve broker exchange config for audience %q: %w", req.Audience, err)
 	}
 
 	result, err := b.exchanger.Exchange(ctx, &ExchangeRequest{
-		Config:           exchangeConfig,
+		Config:           &exchangeConfig.TokenExchangeConfig,
 		SubjectToken:     req.SubjectToken,
 		SubjectTokenType: req.SubjectTokenType,
 		UserID:           req.Subject.Subject,
