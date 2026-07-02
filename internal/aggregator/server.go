@@ -2973,7 +2973,7 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 					slog.String("server", serverName))
 			}
 		}
-		headerFunc := makeTokenForwardingHeaderFunc(sessionID, sub, musterIssuer, serverName, idToken, onStaleToken)
+		headerFunc := makeTokenForwardingHeaderFunc(sessionID, sub, musterIssuer, serverName, idToken, refresher, onStaleToken)
 		client = internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
 
 	} else if serverInfo.AuthInfo != nil && serverInfo.AuthInfo.Issuer != "" {

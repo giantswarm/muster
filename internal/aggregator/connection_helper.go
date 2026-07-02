@@ -375,7 +375,7 @@ func EstablishConnectionWithTokenForwarding(
 			}
 		}
 	}
-	headerFunc := makeTokenForwardingHeaderFunc(sessionID, sub, musterIssuer, serverInfo.Name, idToken, onStaleToken)
+	headerFunc := makeTokenForwardingHeaderFunc(sessionID, sub, musterIssuer, serverInfo.Name, idToken, refresher, onStaleToken)
 	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
 
 	// Try to initialize the client with the forwarded token
@@ -1009,10 +1009,18 @@ func forwardableBearer(ctx context.Context) string {
 //     sessions have no forwardable bearer.
 //  3. fallbackToken, captured when the connection was established. Sessions
 //     with no OAuth-store entry (agent OBO callers) live off 1 and 3.
+//  4. When the fallback has expired, an in-process upstream refresh via
+//     refresher, so sessions that still hold a refresh chain (opaque-token
+//     human sessions) recover in place instead of riding into eviction.
+//     The refresh runs under the closure's mutex, so concurrent invocations
+//     wait for one refresh instead of racing their own. It is attempted only
+//     in the stale state: sessions with no upstream refresh chain never
+//     trigger it while their token is valid.
 //
 // Failure accounting: a resolution counts as failed only when it bottoms out
-// on an expired or undecodable fallback — that is the stale-token state that
-// 401-loops against the backend. A WARN is emitted at most once per
+// on an expired or undecodable fallback and the refresh recovered nothing —
+// that is the stale-token state that 401-loops against the backend. A WARN
+// is emitted at most once per
 // headerFuncWarnInterval (DEBUG otherwise), and after
 // maxConsecutiveTokenFailures consecutive failures the onStaleToken callback
 // is invoked asynchronously to evict the pooled connection, which stops
@@ -1027,6 +1035,7 @@ func forwardableBearer(ctx context.Context) string {
 // the counter updates and ensures onStaleToken fires at most once per failure streak.
 func makeTokenForwardingHeaderFunc(
 	sessionID, sub, musterIssuer, serverName, fallbackToken string,
+	refresher func(context.Context, string) error,
 	onStaleToken func(),
 ) func(context.Context) map[string]string {
 	var mu sync.Mutex
@@ -1058,6 +1067,18 @@ func makeTokenForwardingHeaderFunc(
 				staleEvicted = false
 				return map[string]string{
 					pkgoauth.HeaderAuthorization: pkgoauth.SchemeBearer + " " + latestToken,
+				}
+			}
+			if refresher != nil {
+				if refreshed := getIDTokenForForwarding(context.Background(), sessionID, musterIssuer, refresher); refreshed != "" {
+					logging.Info("Connection", "Token expired, refreshed in place for session %s to %s",
+						logging.TruncateIdentifier(sessionID), serverName)
+					consecutiveFailures = 0
+					staleEvicted = false
+					hadToken = true
+					return map[string]string{
+						pkgoauth.HeaderAuthorization: pkgoauth.SchemeBearer + " " + refreshed,
+					}
 				}
 			}
 			consecutiveFailures++
