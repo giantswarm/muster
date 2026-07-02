@@ -735,7 +735,7 @@ func EstablishConnectionWithTokenExchange(
 		ctx,
 		idToken,
 		userID,
-		&exchangeConfig,
+		&exchangeConfig.TokenExchangeConfig,
 	)
 	if err != nil {
 		logging.Warn("Connection", "Token exchange failed for user %s to server %s: %v",
@@ -1010,12 +1010,13 @@ func makeTokenExchangeHeaderFunc(
 // func. reexchange resolves the latest subject ID token and mints a fresh
 // backend token from it, bounded by tokenReexchangeTimeout. onStaleToken evicts
 // the pooled connection and revokes stored auth so the listener stops once the
-// subject can no longer be refreshed. exchangeConfig must already carry resolved
-// client credentials and audience scopes.
+// subject can no longer be refreshed. Requiring api.ResolvedTokenExchangeConfig
+// guarantees the config carries the resolved client credentials and audience
+// scopes, not the shared spec-only registry definition.
 func (a *AggregatorServer) makeTokenExchangeRefreshClosures(
 	serverName, sessionID, fallbackUserID, musterIssuer string,
 	oauthHandler api.OAuthHandler,
-	exchangeConfig *api.TokenExchangeConfig,
+	exchangeConfig *api.ResolvedTokenExchangeConfig,
 ) (func() (string, time.Time, error), func()) {
 	reexchange := func() (string, time.Time, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), tokenReexchangeTimeout)
@@ -1032,7 +1033,7 @@ func (a *AggregatorServer) makeTokenExchangeRefreshClosures(
 		if subErr != nil || freshUserID == "" {
 			freshUserID = fallbackUserID
 		}
-		newToken, exErr := oauthHandler.ExchangeTokenForRemoteCluster(ctx, freshID, freshUserID, exchangeConfig)
+		newToken, exErr := oauthHandler.ExchangeTokenForRemoteCluster(ctx, freshID, freshUserID, &exchangeConfig.TokenExchangeConfig)
 		if exErr != nil {
 			return "", time.Time{}, exErr
 		}

@@ -15,6 +15,15 @@ import "github.com/giantswarm/mcp-oauth/providers/dex"
 // reconcile sees a "configuration changed" and restarts the server (~10-15s
 // churn, giantswarm/giantswarm#37060).
 
+// ResolvedTokenExchangeConfig is a TokenExchangeConfig that carries the
+// per-connection runtime state. It is only produced by WithResolvedRuntime, so
+// a function that needs the resolved credentials and audience scopes can
+// require this type and the shared spec-only registry definition cannot be
+// passed by mistake (the bug class fixed in #944).
+type ResolvedTokenExchangeConfig struct {
+	TokenExchangeConfig
+}
+
 // WithResolvedRuntime returns a copy of the config carrying the per-connection
 // runtime state: the resolved client credentials and, when requiredAudiences is
 // non-empty, the appended cross-client audience scopes. The value receiver
@@ -24,17 +33,17 @@ import "github.com/giantswarm/mcp-oauth/providers/dex"
 // On an audience-scope formatting error the credential-populated copy is
 // returned (without audiences) together with the error, so callers can log and
 // continue.
-func (c TokenExchangeConfig) WithResolvedRuntime(clientID, clientSecret string, requiredAudiences []string) (TokenExchangeConfig, error) {
+func (c TokenExchangeConfig) WithResolvedRuntime(clientID, clientSecret string, requiredAudiences []string) (ResolvedTokenExchangeConfig, error) {
 	c.ClientID = clientID
 	c.ClientSecret = clientSecret
 	if len(requiredAudiences) > 0 {
 		updatedScopes, err := dex.AppendAudienceScopes(c.Scopes, requiredAudiences)
 		if err != nil {
-			return c, err
+			return ResolvedTokenExchangeConfig{c}, err
 		}
 		c.Scopes = updatedScopes
 	}
-	return c, nil
+	return ResolvedTokenExchangeConfig{c}, nil
 }
 
 // SpecOnly returns a copy of the config with the runtime-resolved fields

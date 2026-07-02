@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/config"
 	oauthstore "github.com/giantswarm/muster/internal/oauth/store"
 	"github.com/giantswarm/muster/internal/server"
 	"github.com/giantswarm/muster/pkg/logging"
@@ -1259,7 +1260,7 @@ func TestMakeTokenExchangeRefreshClosures_ReexchangeMintsFromFreshSubject(t *tes
 	t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
 	a := &AggregatorServer{}
-	config := &api.TokenExchangeConfig{ConnectorID: "dex-connector"}
+	config := &api.ResolvedTokenExchangeConfig{TokenExchangeConfig: api.TokenExchangeConfig{ConnectorID: "dex-connector"}}
 	reexchange, _ := a.makeTokenExchangeRefreshClosures("srv", "sess-1", "fallback-user", "https://muster.example.com", mock, config)
 
 	token, _, err := reexchange()
@@ -1267,7 +1268,7 @@ func TestMakeTokenExchangeRefreshClosures_ReexchangeMintsFromFreshSubject(t *tes
 	require.Equal(t, "fresh-backend-token", token)
 	require.Equal(t, subjectToken, gotSubject, "must mint from the freshly resolved subject ID token")
 	require.Equal(t, "alice", gotUserID, "user ID comes from the fresh subject token's sub, not the fallback")
-	require.Same(t, config, gotConfig, "must pass the resolved exchange config (creds + audience scopes) through")
+	require.Same(t, &config.TokenExchangeConfig, gotConfig, "must pass the resolved exchange config (creds + audience scopes) through")
 }
 
 func TestMakeTokenExchangeRefreshClosures_ReexchangeFailsWhenNoSubject(t *testing.T) {
@@ -1280,7 +1281,7 @@ func TestMakeTokenExchangeRefreshClosures_ReexchangeFailsWhenNoSubject(t *testin
 	t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
 	a := &AggregatorServer{}
-	reexchange, _ := a.makeTokenExchangeRefreshClosures("srv", "sess-1", "u", "https://muster.example.com", mock, &api.TokenExchangeConfig{})
+	reexchange, _ := a.makeTokenExchangeRefreshClosures("srv", "sess-1", "u", "https://muster.example.com", mock, &api.ResolvedTokenExchangeConfig{})
 
 	_, _, err := reexchange()
 	require.Error(t, err)
@@ -1300,7 +1301,7 @@ func TestMakeTokenExchangeRefreshClosures_OnStaleTokenEvictsAndRevokes(t *testin
 	require.NoError(t, authStore.MarkAuthenticated(ctx, "sess-1", "srv"))
 	pool.Put("sess-1", "srv", &poolTestClient{})
 
-	_, onStaleToken := a.makeTokenExchangeRefreshClosures("srv", "sess-1", "u", "iss", &issuerMockOAuthHandler{}, &api.TokenExchangeConfig{})
+	_, onStaleToken := a.makeTokenExchangeRefreshClosures("srv", "sess-1", "u", "iss", &issuerMockOAuthHandler{}, &api.ResolvedTokenExchangeConfig{})
 	onStaleToken()
 
 	_, ok := pool.Get("sess-1", "srv")
@@ -1402,19 +1403,13 @@ func TestEstablishConnectionWithTokenExchange_RefreshUsesResolvedConfig(t *testi
 	assert.Equal(t, "openid profile email groups", shared.Scopes)
 }
 
-// TestEstablishConnectionWithTokenExchange_RefreshUsesResolvedConfig pins the
-// wiring at the real call site: the refresh closures behind the persistent
-// connection's header func must receive the resolved per-connection exchange
-// config (client credentials + appended audience scopes), not the shared
-// spec-only serverInfo.AuthConfig.TokenExchange pointer. With the shared
-// pointer, every re-exchange after the initial token neared expiry ran without
-// client credentials and without requiredAudiences.
-//
-// The initial exchange deliberately returns a token already inside
-// tokenExchangeRefreshMargin, so the first header invocation during
-// client.Initialize triggers a re-exchange synchronously — the second captured
-// config is the one the refresh closure actually uses.
-func TestEstablishConnectionWithTokenExchange_RefreshUsesResolvedConfig(t *testing.T) {
+// TestExchangeTokenAndCreateClient_RefreshUsesResolvedConfig mirrors the test
+// above for the tool-call / background-refresh path (server.go): the refresh
+// closures wired by exchangeTokenAndCreateClient must also receive the resolved
+// per-connection exchange config. This path was correct when the initial-
+// connection path regressed (#944) but had no test of its own, so a regression
+// here would have passed the whole suite.
+func TestExchangeTokenAndCreateClient_RefreshUsesResolvedConfig(t *testing.T) {
 	var logBuf bytes.Buffer
 	logging.InitForCLI(logging.LevelDebug, &logBuf)
 
@@ -1469,10 +1464,24 @@ func TestEstablishConnectionWithTokenExchange_RefreshUsesResolvedConfig(t *testi
 		},
 	}
 
-	ctx := api.WithSessionID(api.WithSubject(context.Background(), "alice"), "sess-1")
-	result, err := EstablishConnectionWithTokenExchange(ctx, &AggregatorServer{}, serverInfo, "https://muster.example.com")
+	// Unlike EstablishConnectionWithTokenExchange, this path resolves the
+	// muster issuer from the aggregator's own OAuth server config.
+	a := &AggregatorServer{
+		config: AggregatorConfig{
+			OAuthServer: OAuthServerConfig{
+				Enabled: true,
+				Config:  config.OAuthServerConfig{BaseURL: "https://muster.example.com"},
+			},
+		},
+	}
+
+	client, _, _, err := a.exchangeTokenAndCreateClient(context.Background(), serverInfo, "sess-1")
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = result.Client.Close() })
+	t.Cleanup(func() { _ = client.Close() })
+
+	// The caller initializes the returned client; the first header invocation
+	// sees the near-expiry token and re-exchanges through the refresh closure.
+	require.NoError(t, client.Initialize(context.Background()))
 
 	mu.Lock()
 	defer mu.Unlock()

@@ -2845,7 +2845,7 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 	}
 
 	exchangedToken, err := oauthHandler.ExchangeTokenForRemoteCluster(
-		ctx, idToken, userID, &exchangeConfig,
+		ctx, idToken, userID, &exchangeConfig.TokenExchangeConfig,
 	)
 	if err != nil {
 		return nil, time.Time{}, "", fmt.Errorf("token exchange failed for %s: %w", serverName, err)
