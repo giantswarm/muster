@@ -1107,17 +1107,24 @@ func (a *AggregatorServer) makeTokenExchangeRefreshClosures(
 // resets when a valid token is resolved, allowing re-eviction if the token
 // disappears again after recovery.
 //
-// The closure is safe to call without a mutex because headerFunc is called
-// sequentially per connection by the MCP client.
+// mcp-go invokes the returned closure concurrently on a single connection: the
+// continuous-listening GET runs in its own goroutine (listenForever) while tool
+// calls invoke it from their own goroutines, and both reach headerFunc via
+// sendHTTP. The mutex is therefore required for correctness: it serialises
+// the counter updates and ensures onStaleToken fires at most once per failure streak.
 func makeTokenForwardingHeaderFunc(
 	sessionID, sub, musterIssuer, serverName, fallbackToken string,
 	onStaleToken func(),
 ) func(context.Context) map[string]string {
+	var mu sync.Mutex
 	var lastWarnTime time.Time
 	var consecutiveFailures int
 	var staleEvicted bool
 	hadToken := true
 	return func(_ context.Context) map[string]string {
+		mu.Lock()
+		defer mu.Unlock()
+
 		latestToken := getIDTokenForForwarding(context.Background(), sessionID, musterIssuer, nil)
 		if latestToken == "" {
 			consecutiveFailures++
@@ -1186,18 +1193,25 @@ const localMintTokenType = "urn:ietf:params:oauth:token-type:jwt" //nolint:gosec
 // backend rejects. After maxConsecutiveTokenFailures failures the pooled
 // connection is evicted via onStaleToken to stop mcp-go's retry loop.
 //
-// The closure is called sequentially per connection by the MCP client, so its
-// counters need no mutex.
+// mcp-go invokes the returned closure concurrently on a single connection: the
+// continuous-listening GET runs in its own goroutine (listenForever) while tool
+// calls invoke it from their own goroutines, and both reach headerFunc via
+// sendHTTP. The mutex is therefore required for correctness: it serialises
+// the counter updates and ensures onStaleToken fires at most once per failure streak.
+//
 // capturedSubject and capturedActor are the subject and actor tokens bound to
 // the connection when it is created. They supply identity when the request
 // context carries none: the background listen stream runs on a context with no
 // inbound headers, so the listener mints with the connection's own identity
 // instead of failing closed and 401-looping against the backend.
 func makeLocalMintHeaderFunc(serverName, audience, capturedSubject, capturedActor string, onStaleToken func()) func(context.Context) map[string]string {
+	var mu sync.Mutex
 	var lastWarnTime time.Time
 	var consecutiveFailures int
 	var staleEvicted bool
 
+	// fail is only ever called from within the returned closure, which already
+	// holds mu, so it must not lock again.
 	fail := func(format string, args ...any) map[string]string {
 		consecutiveFailures++
 		if time.Since(lastWarnTime) >= headerFuncWarnInterval {
@@ -1222,6 +1236,9 @@ func makeLocalMintHeaderFunc(serverName, audience, capturedSubject, capturedActo
 	}
 
 	return func(ctx context.Context) map[string]string {
+		mu.Lock()
+		defer mu.Unlock()
+
 		minter := api.GetBackendTokenMinter()
 		if minter == nil {
 			return fail("localMint: no backend token minter registered (OAuth server not in JWT mode), cannot mint for %s", serverName)

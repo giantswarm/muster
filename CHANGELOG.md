@@ -12,6 +12,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Data race in the token-forwarding and localMint connection header functions. Both mutate per-connection failure counters, which mcp-go invokes concurrently from the listener goroutine and tool-call goroutines, so under load the stale-connection eviction could double-fire (double eviction/revoke). The counters are now mutex-guarded. ([#939](https://github.com/giantswarm/muster/issues/939))
+
 - Token-exchange (oidc-exchange) backends no longer get stuck in `Auth Required` once their exchanged token expires. The persistent aggregator connection now re-exchanges a fresh token before expiry, and evicts itself only when the subject token can no longer be refreshed.
 
 - MCPServers using RFC 8693 token exchange no longer restart on every reconcile pass (~every 10-15s), which previously caused intermittent `authentication required` / `user not authenticated to server` errors on tool calls landing in the restart window. ([#37060](https://github.com/giantswarm/giantswarm/issues/37060))
