@@ -135,4 +135,3 @@ tests:
       - matchRegex:
           path: data["config.yaml"]
           pattern: "muster-broker-clients"
-
