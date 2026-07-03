@@ -21,6 +21,7 @@ func TestSSOSessionFromContext_CapturesCallerTokens(t *testing.T) {
 }
 
 func TestCanBootstrapSSO(t *testing.T) {
+	jwtBearer := unsignedJWT(t, map[string]any{"sub": "alice"})
 	tests := []struct {
 		name   string
 		tokens server.CallerTokens
@@ -28,8 +29,13 @@ func TestCanBootstrapSSO(t *testing.T) {
 	}{
 		{"no tokens", server.CallerTokens{}, false},
 		{"ID token only", server.CallerTokens{IDToken: "id"}, true},
-		{"bearer only", server.CallerTokens{Bearer: "obo-access-token"}, true},
-		{"both", server.CallerTokens{IDToken: "id", Bearer: "b"}, true},
+		{"forwardable JWT bearer only", server.CallerTokens{Bearer: jwtBearer}, true},
+		// An opaque bearer cannot be forwarded downstream: a session holding
+		// only one has lost its upstream credential, and counting it would
+		// make the broken-refresh-chain eviction in onAuthenticated
+		// unreachable (every authenticated request carries a bearer).
+		{"opaque bearer only", server.CallerTokens{Bearer: "opaque-access-token"}, false},
+		{"ID token with opaque bearer", server.CallerTokens{IDToken: "id", Bearer: "opaque"}, true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
