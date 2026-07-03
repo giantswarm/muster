@@ -3,9 +3,11 @@ package server
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"strings"
 	"time"
 
@@ -50,6 +52,12 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, refreshTokenTTL time.Dur
 		// the same private-IP issuer instead of rejecting it as a DNS-rebinding
 		// attack. Public-hostname Dex deployments are unaffected.
 		AllowPrivateIPJWKS: cfg.Dex.AllowPrivateIPOIDC,
+		// mcp-oauth's JWKS clients no longer read the CA installed on
+		// http.DefaultTransport; the pool must be passed explicitly. Hand it
+		// the process trust pool that --extra-ca-file augments so an
+		// internal-CA IdP validates (nil when no extra CA is installed, which
+		// means the system pool).
+		JWKSRootCAs: processRootCAs(),
 		// Per-client audience allowlist for brokered RFC 8693 token exchange.
 		// Only consulted when an Exchanger is registered (see
 		// buildOAuthServerOptions); a miss returns invalid_target.
@@ -210,7 +218,24 @@ func toTrustedIssuer(iss config.TrustedIssuerConfig) oauthserver.TrustedIssuer {
 		AllowPrivateIPJWKS:      iss.AllowPrivateIPJWKS,
 		AllowPrivateIPJWKSHosts: iss.AllowPrivateIPJWKSHosts,
 		AcceptedTypHeaders:      iss.AcceptedTypHeaders,
+		// mcp-oauth's per-issuer JWKS clients verify against this pool and no
+		// longer read the CA installed on http.DefaultTransport; without it an
+		// internal-CA issuer fails JWKS TLS verification (nil means the bare
+		// system pool).
+		RootCAs: processRootCAs(),
 	}
+}
+
+// processRootCAs returns the process trust pool that installExtraCAFile set on
+// http.DefaultTransport, or nil when no extra CA is installed. mcp-oauth's
+// JWKS clients require the pool explicitly; reading it back from the transport
+// keeps --extra-ca-file the single source of outbound trust.
+func processRootCAs() *x509.CertPool {
+	transport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok || transport.TLSClientConfig == nil {
+		return nil
+	}
+	return transport.TLSClientConfig.RootCAs
 }
 
 func parseCIDRs(cidrs []string) ([]*net.IPNet, error) {

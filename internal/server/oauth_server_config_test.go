@@ -1,6 +1,9 @@
 package server
 
 import (
+	"crypto/tls"
+	"crypto/x509"
+	"net/http"
 	"testing"
 	"time"
 
@@ -224,4 +227,27 @@ func TestBuildOAuthServerOptions_BrokerTargetRequiresDexTokenEndpoint(t *testing
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "cluster-a")
 	require.Contains(t, err.Error(), "dexTokenEndpoint")
+}
+
+// TestOAuthServerConfig_PropagatesProcessRootCAs pins that the trust pool
+// installed on http.DefaultTransport (--extra-ca-file) reaches mcp-oauth's
+// JWKS clients, which require the pool explicitly: the server-level
+// JWKSRootCAs and every trusted issuer's RootCAs. Without this, an
+// internal-CA issuer fails JWKS TLS verification with certificate signed by
+// unknown authority.
+func TestOAuthServerConfig_PropagatesProcessRootCAs(t *testing.T) {
+	pool := x509.NewCertPool()
+	original := http.DefaultTransport
+	transport, ok := original.(*http.Transport)
+	require.True(t, ok)
+	cloned := transport.Clone()
+	cloned.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
+	http.DefaultTransport = cloned
+	defer func() { http.DefaultTransport = original }()
+
+	serverConfig := newOAuthServerConfig(config.OAuthServerConfig{BaseURL: "https://muster.example.com"}, time.Hour)
+	require.Same(t, pool, serverConfig.JWKSRootCAs)
+
+	issuer := toTrustedIssuer(config.TrustedIssuerConfig{Issuer: "https://dex.example.com"})
+	require.Same(t, pool, issuer.RootCAs)
 }
