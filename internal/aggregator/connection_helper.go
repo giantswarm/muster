@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	internalmcp "github.com/giantswarm/muster/internal/mcpserver"
@@ -927,10 +928,11 @@ func (a *AggregatorServer) makeTokenExchangeRefreshClosures(
 // Both the connect-time discovery path and the pool-miss tool-call path build
 // their client here so token resolution cannot diverge between them.
 //
-// Resolution mirrors the header func: the OAuth-store ID token (with an
-// in-process upstream refresh) first, then the validated inbound bearer for
-// sessions without an OAuth-store entry (agent OBO callers). An expired or
-// absent token is an error; the caller surfaces it to the session.
+// Resolution matches the header func: the validated inbound bearer first, so
+// the connect-time check exercises the token the connection will actually
+// forward, then the OAuth-store ID token (with an in-process upstream refresh)
+// for sessions without a forwardable bearer (opaque-token human sessions). An
+// expired or absent token is an error; the caller surfaces it to the session.
 func (a *AggregatorServer) newTokenForwardingClient(
 	ctx context.Context,
 	sessionID, sub, musterIssuer string,
@@ -938,43 +940,49 @@ func (a *AggregatorServer) newTokenForwardingClient(
 	onStaleToken func(),
 ) (*internalmcp.StreamableHTTPClient, error) {
 	refresher := a.sessionRefresher()
-	idToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer, refresher)
-	if idToken == "" {
-		idToken = forwardableBearer(ctx)
+	token := forwardableBearer(ctx)
+	if token == "" {
+		token = getIDTokenForForwarding(ctx, sessionID, musterIssuer, refresher)
 	}
-	if idToken == "" {
+	if token == "" {
 		logging.Debug("Connection", "No forwardable token available for user %s",
 			logging.TruncateIdentifier(sub))
 		return nil, fmt.Errorf("no token available for forwarding to %s", serverInfo.Name)
 	}
 
-	if expired, expErr := pkgoauth.IsExpired(idToken); expired {
+	if expired, expErr := pkgoauth.IsExpired(token); expired {
 		logging.Warn("Connection", "Token expired for user %s, cannot forward to %s: %v",
 			logging.TruncateIdentifier(sub), serverInfo.Name, expErr)
 		return nil, fmt.Errorf("token has expired for %s, re-authenticate to refresh: %w", serverInfo.Name, expErr)
 	}
 
-	headerFunc := makeTokenForwardingHeaderFunc(sessionID, sub, musterIssuer, serverInfo.Name, idToken, refresher, onStaleToken)
+	headerFunc := makeTokenForwardingHeaderFunc(sessionID, musterIssuer, serverInfo.Name, token, refresher, onStaleToken)
 	return internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc), nil
 }
 
+// isForwardableToken reports whether token is a decodable JWT. An opaque
+// bearer is never forwarded: a downstream backend cannot validate it against
+// muster's JWKS, so opaque-token sessions resolve the stored ID token instead.
+func isForwardableToken(token string) bool {
+	if token == "" {
+		return false
+	}
+	_, err := pkgoauth.Subject(token)
+	return err == nil
+}
+
 // forwardableBearer returns the validated inbound bearer from ctx when it is a
-// decodable JWT, or "" otherwise. An opaque bearer is never forwarded: a
-// downstream backend cannot validate it against muster's JWKS, so those
-// sessions keep resolving the stored ID token instead.
+// decodable JWT, or "" otherwise (see isForwardableToken).
 func forwardableBearer(ctx context.Context) string {
 	bearer := server.GetBearerTokenFromContext(ctx)
-	if bearer == "" {
-		return ""
-	}
-	if _, err := pkgoauth.Subject(bearer); err != nil {
+	if !isForwardableToken(bearer) {
 		return ""
 	}
 	return bearer
 }
 
 // makeTokenForwardingHeaderFunc creates the header function closure used by
-// EstablishConnectionWithTokenForwarding. Resolution order per invocation:
+// newTokenForwardingClient. Resolution order per invocation:
 //
 //  1. The validated inbound bearer on the request context, forwarded
 //     byte-identical so the backend sees the caller's own muster-issued token
@@ -988,119 +996,104 @@ func forwardableBearer(ctx context.Context) string {
 //     with no OAuth-store entry (agent OBO callers) live off 1 and 3.
 //  4. When the fallback has expired, an in-process upstream refresh via
 //     refresher, so sessions that still hold a refresh chain (opaque-token
-//     human sessions) recover in place instead of riding into eviction.
-//     The refresh runs under the closure's mutex, so concurrent invocations
-//     wait for one refresh instead of racing their own. It is attempted only
-//     in the stale state: sessions with no upstream refresh chain never
-//     trigger it while their token is valid.
+//     human sessions) recover in place instead of riding into eviction. The
+//     refresh is bounded by the provider's request timeout and coalesced by
+//     RefreshSession's singleflight; it is attempted only in the stale
+//     state, so sessions with no upstream refresh chain never trigger it
+//     while their token is valid.
 //
 // Failure accounting: a resolution counts as failed only when it bottoms out
-// on an expired or undecodable fallback and the refresh recovered nothing —
-// that is the stale-token state that 401-loops against the backend. A WARN
-// is emitted at most once per
-// headerFuncWarnInterval (DEBUG otherwise), and after
-// maxConsecutiveTokenFailures consecutive failures the onStaleToken callback
-// is invoked asynchronously to evict the pooled connection, which stops
-// mcp-go's retry loop because closing the client cancels the transport's
-// context. The callback fires at most once per failure streak; the counter
-// resets when a usable token is resolved.
+// on an expired or undecodable fallback and the refresh recovered nothing,
+// the stale-token state that 401-loops against the backend. A WARN is
+// emitted at most once per headerFuncWarnInterval (DEBUG otherwise). When
+// the failure count reaches maxConsecutiveTokenFailures the onStaleToken
+// callback is invoked asynchronously to evict the pooled connection, which
+// stops mcp-go's retry loop because closing the client cancels the
+// transport's context. The callback fires at most once per failure streak;
+// the counter resets when a usable token is resolved.
 //
 // mcp-go invokes the returned closure concurrently on a single connection: the
 // continuous-listening GET runs in its own goroutine (listenForever) while tool
 // calls invoke it from their own goroutines, and both reach headerFunc via
-// sendHTTP. The mutex is therefore required for correctness: it serialises
-// the counter updates and ensures onStaleToken fires at most once per failure streak.
+// sendHTTP. The mutex serialises the slow path (store lookup, refresh, warn
+// rate-limiting); the failure counter is atomic so the bearer fast path never
+// waits behind a store lookup or an in-flight refresh.
 func makeTokenForwardingHeaderFunc(
-	sessionID, sub, musterIssuer, serverName, fallbackToken string,
+	sessionID, musterIssuer, serverName, fallbackToken string,
 	refresher func(context.Context, string) error,
 	onStaleToken func(),
 ) func(context.Context) map[string]string {
 	var mu sync.Mutex
 	var lastWarnTime time.Time
-	var consecutiveFailures int
-	var staleEvicted bool
-	hadToken := true
+	var consecutiveFailures atomic.Int64
+
+	bearerHeader := func(token string) map[string]string {
+		return map[string]string{
+			pkgoauth.HeaderAuthorization: pkgoauth.SchemeBearer + " " + token,
+		}
+	}
+	succeed := func(token, source string) map[string]string {
+		if consecutiveFailures.Swap(0) > 0 {
+			logging.Info("Connection", "Token resolution recovered (%s) for session %s to %s",
+				source, logging.TruncateIdentifier(sessionID), serverName)
+		}
+		return bearerHeader(token)
+	}
+	// fail must be called with mu held: it serialises the warn rate-limiting.
+	fail := func() map[string]string {
+		failures := consecutiveFailures.Add(1)
+		if time.Since(lastWarnTime) >= headerFuncWarnInterval {
+			logging.Warn("Connection", "Authentication failed: no usable token for session %s to %s, using expired connection token (%d/%d consecutive failures)",
+				logging.TruncateIdentifier(sessionID), serverName, failures, maxConsecutiveTokenFailures)
+			lastWarnTime = time.Now()
+		} else {
+			logging.Debug("Connection", "Authentication failed: no usable token for session %s to %s, using expired connection token (warning suppressed, %d/%d consecutive failures)",
+				logging.TruncateIdentifier(sessionID), serverName, failures, maxConsecutiveTokenFailures)
+		}
+		if failures == int64(maxConsecutiveTokenFailures) && onStaleToken != nil {
+			logging.Warn("Connection", "Token resolution failed %d consecutive times for session %s to %s, evicting stale connection",
+				failures, logging.TruncateIdentifier(sessionID), serverName)
+			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						logging.Error("Connection", fmt.Errorf("panic in onStaleToken: %v", r),
+							"onStaleToken callback panicked for session %s to %s",
+							logging.TruncateIdentifier(sessionID), serverName)
+					}
+				}()
+				onStaleToken()
+			}()
+		}
+		return bearerHeader(fallbackToken)
+	}
+
 	return func(ctx context.Context) map[string]string {
+		if bearer := forwardableBearer(ctx); bearer != "" {
+			return succeed(bearer, "request bearer")
+		}
+
 		mu.Lock()
 		defer mu.Unlock()
 
-		if bearer := forwardableBearer(ctx); bearer != "" {
-			consecutiveFailures = 0
-			staleEvicted = false
-			hadToken = true
-			return map[string]string{
-				pkgoauth.HeaderAuthorization: pkgoauth.SchemeBearer + " " + bearer,
-			}
+		if latestToken := getIDTokenForForwarding(context.Background(), sessionID, musterIssuer, nil); latestToken != "" {
+			return succeed(latestToken, "OAuth store")
 		}
-
-		latestToken := getIDTokenForForwarding(context.Background(), sessionID, musterIssuer, nil)
-		if latestToken == "" {
-			latestToken = fallbackToken
-			if expired, _ := pkgoauth.IsExpired(latestToken); !expired {
-				// The captured token is still usable; nothing is stale yet.
-				logging.Debug("Connection", "No ID token in OAuth store for session %s to %s, forwarding the connection token",
+		if expired, _ := pkgoauth.IsExpired(fallbackToken); !expired {
+			logging.Debug("Connection", "No ID token in OAuth store for session %s to %s, forwarding the connection token",
+				logging.TruncateIdentifier(sessionID), serverName)
+			return succeed(fallbackToken, "connection token")
+		}
+		if refresher != nil {
+			if err := refresher(ctx, sessionID); err != nil {
+				logging.Debug("Connection", "Session refresh failed for %s: %v",
+					logging.TruncateIdentifier(sessionID), err)
+			} else if refreshed := getIDTokenForForwarding(context.Background(), sessionID, musterIssuer, nil); refreshed != "" {
+				logging.Info("Connection", "Token expired, refreshed in place for session %s to %s",
 					logging.TruncateIdentifier(sessionID), serverName)
-				consecutiveFailures = 0
-				staleEvicted = false
-				return map[string]string{
-					pkgoauth.HeaderAuthorization: pkgoauth.SchemeBearer + " " + latestToken,
-				}
-			}
-			if refresher != nil {
-				if refreshed := getIDTokenForForwarding(context.Background(), sessionID, musterIssuer, refresher); refreshed != "" {
-					logging.Info("Connection", "Token expired, refreshed in place for session %s to %s",
-						logging.TruncateIdentifier(sessionID), serverName)
-					consecutiveFailures = 0
-					staleEvicted = false
-					hadToken = true
-					return map[string]string{
-						pkgoauth.HeaderAuthorization: pkgoauth.SchemeBearer + " " + refreshed,
-					}
-				}
-			}
-			consecutiveFailures++
-
-			if time.Since(lastWarnTime) >= headerFuncWarnInterval {
-				logging.Warn("Connection", "Authentication failed: no usable token for session %s to %s, using expired connection token (%d/%d consecutive failures)",
-					logging.TruncateIdentifier(sessionID), serverName, consecutiveFailures, maxConsecutiveTokenFailures)
-				lastWarnTime = time.Now()
-			} else {
-				logging.Debug("Connection", "Authentication failed: no usable token for session %s to %s, using expired connection token (warning suppressed, %d/%d consecutive failures)",
-					logging.TruncateIdentifier(sessionID), serverName, consecutiveFailures, maxConsecutiveTokenFailures)
-			}
-			hadToken = false
-
-			if consecutiveFailures >= maxConsecutiveTokenFailures && !staleEvicted && onStaleToken != nil {
-				staleEvicted = true
-				logging.Warn("Connection", "Token resolution failed %d consecutive times for session %s to %s — evicting stale connection",
-					consecutiveFailures, logging.TruncateIdentifier(sessionID), serverName)
-				go func() {
-					defer func() {
-						if r := recover(); r != nil {
-							logging.Error("Connection", fmt.Errorf("panic in onStaleToken: %v", r),
-								"onStaleToken callback panicked for session %s to %s",
-								logging.TruncateIdentifier(sessionID), serverName)
-						}
-					}()
-					onStaleToken()
-				}()
-			}
-		} else {
-			if !hadToken {
-				logging.Info("Connection", "ID token recovered in OAuth store for session %s to %s",
-					logging.TruncateIdentifier(sessionID), serverName)
-			}
-			consecutiveFailures = 0
-			staleEvicted = false
-			hadToken = true
-			if latestToken != fallbackToken {
-				logging.Info("Connection", "Token expired, refreshing: resolved updated ID token from OAuth store for user %s to %s",
-					logging.TruncateIdentifier(sub), serverName)
+				return succeed(refreshed, "upstream refresh")
 			}
 		}
-		return map[string]string{
-			pkgoauth.HeaderAuthorization: pkgoauth.SchemeBearer + " " + latestToken,
-		}
+		return fail()
 	}
 }
 
