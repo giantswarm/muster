@@ -24,17 +24,17 @@ spec:
       args:
         name: "{{.input.app_name}}"
         tag: "{{.input.environment}}-latest"
-      store: true
+      output: true
     - id: deploy_service
       tool: kubectl_apply
       args:
         name: "{{.input.app_name}}-{{.input.environment}}"
         image: "{{.results.build_image.image_id}}"
         replicas: "{{.input.replicas}}"
-      store: true
+      output: true
     - id: verify_deployment
       tool: health_check
       args:
         service_name: "{{.results.deploy_service.name}}"
         timeout: "5m"
-      store: true
+      output: true
