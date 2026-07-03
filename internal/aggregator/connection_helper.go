@@ -991,11 +991,13 @@ func isForwardableToken(token string) bool {
 // forwardableBearer returns the validated inbound bearer from ctx when it is a
 // decodable JWT, or "" otherwise (see isForwardableToken).
 //
-// The forwarded bearer is audience-scoped to muster's resource identifier, not
-// to the receiving backend: the same token is accepted by every forwardToken
-// backend and by muster's own front door. forwardToken backends must therefore
-// be equally trusted, and the token's nested act chain is the backend's
-// delegation provenance.
+// The bearer is forwarded byte-identical, not re-minted per backend, so it is
+// not audience-scoped to the receiving backend: a muster-issued OBO token
+// carries aud=muster's resource identifier and a directly presented
+// trusted-issuer token carries that issuer's audience. The same token is
+// accepted by every forwardToken backend that trusts its issuer and by
+// muster's own front door, so those backends must be equally trusted; the
+// token's nested act chain is the backend's delegation provenance.
 func forwardableBearer(ctx context.Context) string {
 	bearer := server.GetBearerTokenFromContext(ctx)
 	if !isForwardableToken(bearer) {
