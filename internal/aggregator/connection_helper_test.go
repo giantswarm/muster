@@ -1466,17 +1466,33 @@ func TestNewTokenForwardingClient_BearerWinsOverExpiredContextIDToken(t *testing
 	expiredID := unsignedJWT(t, map[string]any{"sub": "alice", "exp": time.Now().Add(-time.Hour).Unix()})
 	ctx := server.ContextWithCallerTokens(context.Background(), server.CallerTokens{IDToken: expiredID, Bearer: bearer})
 
-	client, err := a.newTokenForwardingClient(ctx, "session-1", "alice", "https://muster.example.com",
+	client, resolvedToken, err := a.newTokenForwardingClient(ctx, "session-1", "alice", "https://muster.example.com",
 		&ServerInfo{Name: "srv", URL: "http://127.0.0.1:0"}, nil)
 	require.NoError(t, err,
 		"a valid forwardable bearer must win over the expired ctx ID token")
 	require.NotNil(t, client)
+	require.Equal(t, bearer, resolvedToken,
+		"the returned token must be the one the connection forwards")
 	_ = client.Close()
 
 	// Without a forwardable bearer the expired ctx ID token is resolved and
 	// correctly refused.
 	ctx = server.ContextWithCallerTokens(context.Background(), server.CallerTokens{IDToken: expiredID, Bearer: "opaque"})
-	_, err = a.newTokenForwardingClient(ctx, "session-1", "alice", "https://muster.example.com",
+	_, _, err = a.newTokenForwardingClient(ctx, "session-1", "alice", "https://muster.example.com",
 		&ServerInfo{Name: "srv", URL: "http://127.0.0.1:0"}, nil)
 	require.ErrorContains(t, err, "expired")
+}
+
+// TestForwardedTokenDiagnostic pins the connect-failure diagnostic: it names
+// the forwarded token's issuer (and only the issuer — never the token) so a
+// backend that does not trust that issuer's JWKS is attributable from the log.
+func TestForwardedTokenDiagnostic(t *testing.T) {
+	token := unsignedJWT(t, map[string]any{"sub": "alice", "iss": "https://muster.example.com"})
+
+	diag := forwardedTokenDiagnostic(token)
+	require.Contains(t, diag, "iss=https://muster.example.com")
+	require.Contains(t, diag, "JWKS")
+	require.NotContains(t, diag, token, "the diagnostic must never contain the token itself")
+
+	require.Equal(t, "forwarded token has no parseable iss claim", forwardedTokenDiagnostic("opaque"))
 }

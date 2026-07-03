@@ -13,11 +13,15 @@ All notable changes to this project will be documented in this file.
 
 - localMint downstream auth. The `auth.localMint` MCPServer CRD field and its admission rules, the `local-mint` broker target type and the target `type` key, and the `oauth.server.tokenExchangeBroker.delegateToSelf` config key are removed. Backends that used localMint switch to `forwardToken: true` and validate the forwarded token against muster's JWKS.
 
+  **Upgrade note:** applying the new CRD makes the Kubernetes API server silently prune `spec.auth.localMint` from existing MCPServer resources — the schema is structural, so there is no validation error and a GitOps apply succeeds. The affected backend is then left with no downstream-auth mode: muster's calls reach it unauthenticated, the backend answers 401, and its tools disappear from sessions without any apply-time failure. Migrate every MCPServer that sets `auth.localMint` to `auth.forwardToken: true` (with the backend configured to trust muster's issuer/JWKS) before or together with this upgrade.
+
 - The `X-Actor-Token` request header. The actor token is presented once as the RFC 8693 `actor_token` parameter at `/oauth/token`; `/mcp` requests carry only the issued on-behalf-of token as the bearer.
 
 ### Changed
 
 - muster refuses to start when a `tokenExchangeBroker` target lacks `dexTokenEndpoint`, naming the misconfigured audience, instead of surfacing an unattributed error on the first exchange request. The chart's `values.schema.json` requires the key as well.
+
+- A token-forwarding connect failure now logs the forwarded token's issuer (the `iss` claim only — never the token) with a hint that the backend must trust that issuer's JWKS, so a backend that does not yet trust muster's issuer is attributable from the log instead of a bare initialize error.
 
 - The aggregator forwards the validated inbound bearer to `forwardToken` backends on each request instead of issuing a per-backend token, so the on-behalf-of token (including its nested `act` delegation chain) reaches the backend byte-identical. When the request carries no forwardable bearer (the background listen stream, opaque-token sessions), the session's stored upstream ID token is forwarded as before.
 

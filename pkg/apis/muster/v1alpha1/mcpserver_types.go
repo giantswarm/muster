@@ -138,9 +138,18 @@ type MCPServerAuth struct {
 	Type string `json:"type,omitempty" yaml:"type,omitempty"`
 
 	// ForwardToken enables ID token forwarding for SSO.
-	// When true, muster forwards the user's ID token to this server instead of
-	// triggering a separate OAuth flow. The downstream server must be configured
-	// to trust muster's client ID in its TrustedAudiences.
+	// When true, muster forwards the caller's validated bearer (or the
+	// session's upstream ID token) to this server instead of triggering a
+	// separate OAuth flow. The downstream server must be configured to trust
+	// the token's issuer: muster's issuer/JWKS for muster-issued bearers, or
+	// muster's client ID in its TrustedAudiences for forwarded upstream ID
+	// tokens.
+	//
+	// The forwarded token is not audience-scoped to this server: the same
+	// bearer is accepted by every forwardToken backend and by muster itself,
+	// so all forwardToken backends must be equally trusted. The token's
+	// nested act claim carries the delegation chain for backend
+	// authorization decisions.
 	// +kubebuilder:default=false
 	ForwardToken bool `json:"forwardToken,omitempty" yaml:"forwardToken,omitempty"`
 

@@ -2947,6 +2947,7 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 	var client MCPClient
 	var tokenExpiry time.Time
 	var exchangedToken string
+	var forwardedToken string
 
 	if ShouldUseTokenExchange(serverInfo) {
 		var err error
@@ -2965,7 +2966,7 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 			}
 		}
 		var err error
-		client, err = a.newTokenForwardingClient(ctx, sessionID, sub, a.getMusterIssuer(), serverInfo, onStaleToken)
+		client, forwardedToken, err = a.newTokenForwardingClient(ctx, sessionID, sub, a.getMusterIssuer(), serverInfo, onStaleToken)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -2988,6 +2989,15 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 	// Initialize the on-demand client
 	if err := client.Initialize(ctx); err != nil {
 		_ = client.Close()
+		if forwardedToken != "" {
+			// A backend rejection is indistinguishable from other transport
+			// failures here, so the issuer diagnostic is attached to every
+			// token-forwarding connect failure.
+			logging.WarnWithAttrs("Aggregator", "Token-forwarding client rejected on connect",
+				slog.String("server", serverName),
+				slog.String("error", err.Error()),
+				slog.String("diagnostic", forwardedTokenDiagnostic(forwardedToken)))
+		}
 		return nil, nil, fmt.Errorf("failed to initialize on-demand client for %s: %w", serverName, err)
 	}
 

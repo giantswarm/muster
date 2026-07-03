@@ -341,7 +341,7 @@ func EstablishConnectionWithTokenForwarding(
 			}
 		}
 	}
-	client, err := a.newTokenForwardingClient(ctx, sessionID, sub, musterIssuer, serverInfo, onStaleToken)
+	client, forwardedToken, err := a.newTokenForwardingClient(ctx, sessionID, sub, musterIssuer, serverInfo, onStaleToken)
 	if err != nil {
 		return nil, err
 	}
@@ -353,9 +353,11 @@ func EstablishConnectionWithTokenForwarding(
 	if err := client.Initialize(ctx); err != nil {
 		_ = client.Close()
 
-		// Log the token forwarding failure
-		logging.Warn("Connection", "ID token forwarding failed for user %s to server %s: %v",
-			logging.TruncateIdentifier(sub), serverInfo.Name, err)
+		// A rejection here is indistinguishable from other transport failures
+		// (mcp-go surfaces the 401 as a generic initialize error), so the
+		// issuer diagnostic is attached to every connect failure.
+		logging.Warn("Connection", "ID token forwarding failed for user %s to server %s: %v (%s)",
+			logging.TruncateIdentifier(sub), serverInfo.Name, err, forwardedTokenDiagnostic(forwardedToken))
 
 		// Emit event for token forwarding failure
 		emitTokenForwardingEvent(serverInfo.Name, serverInfo.GetNamespace(), false, err.Error())
@@ -933,12 +935,16 @@ func (a *AggregatorServer) makeTokenExchangeRefreshClosures(
 // forward, then the OAuth-store ID token (with an in-process upstream refresh)
 // for sessions without a forwardable bearer (opaque-token human sessions). An
 // expired or absent token is an error; the caller surfaces it to the session.
+//
+// The resolved token is returned alongside the client so connect-failure paths
+// can attribute a backend rejection to the token's issuer (see
+// forwardedTokenDiagnostic).
 func (a *AggregatorServer) newTokenForwardingClient(
 	ctx context.Context,
 	sessionID, sub, musterIssuer string,
 	serverInfo *ServerInfo,
 	onStaleToken func(),
-) (*internalmcp.StreamableHTTPClient, error) {
+) (*internalmcp.StreamableHTTPClient, string, error) {
 	refresher := a.sessionRefresher()
 	token := forwardableBearer(ctx)
 	if token == "" {
@@ -947,17 +953,28 @@ func (a *AggregatorServer) newTokenForwardingClient(
 	if token == "" {
 		logging.Debug("Connection", "No forwardable token available for user %s",
 			logging.TruncateIdentifier(sub))
-		return nil, fmt.Errorf("no token available for forwarding to %s", serverInfo.Name)
+		return nil, "", fmt.Errorf("no token available for forwarding to %s", serverInfo.Name)
 	}
 
 	if expired, expErr := pkgoauth.IsExpired(token); expired {
 		logging.Warn("Connection", "Token expired for user %s, cannot forward to %s: %v",
 			logging.TruncateIdentifier(sub), serverInfo.Name, expErr)
-		return nil, fmt.Errorf("token has expired for %s, re-authenticate to refresh: %w", serverInfo.Name, expErr)
+		return nil, "", fmt.Errorf("token has expired for %s, re-authenticate to refresh: %w", serverInfo.Name, expErr)
 	}
 
 	headerFunc := makeTokenForwardingHeaderFunc(sessionID, musterIssuer, serverInfo.Name, token, refresher, onStaleToken)
-	return internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc), nil
+	return internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc), token, nil
+}
+
+// forwardedTokenDiagnostic identifies a forwarded token by its issuer claim
+// only — never the token itself or any other claim — with a hint for the most
+// common rejection cause: the backend does not trust the issuer's JWKS.
+func forwardedTokenDiagnostic(token string) string {
+	iss, err := pkgoauth.Issuer(token)
+	if err != nil || iss == "" {
+		return "forwarded token has no parseable iss claim"
+	}
+	return fmt.Sprintf("forwarded token iss=%s; the backend must trust this issuer's JWKS to accept forwarded tokens", iss)
 }
 
 // isForwardableToken reports whether token is a decodable JWT. An opaque
@@ -973,6 +990,12 @@ func isForwardableToken(token string) bool {
 
 // forwardableBearer returns the validated inbound bearer from ctx when it is a
 // decodable JWT, or "" otherwise (see isForwardableToken).
+//
+// The forwarded bearer is audience-scoped to muster's resource identifier, not
+// to the receiving backend: the same token is accepted by every forwardToken
+// backend and by muster's own front door. forwardToken backends must therefore
+// be equally trusted, and the token's nested act chain is the backend's
+// delegation provenance.
 func forwardableBearer(ctx context.Context) string {
 	bearer := server.GetBearerTokenFromContext(ctx)
 	if !isForwardableToken(bearer) {
