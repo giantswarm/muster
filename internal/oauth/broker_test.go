@@ -229,6 +229,8 @@ func TestBrokerExchanger_DownstreamError(t *testing.T) {
 	// Downstream failures must not map to invalid_target; mcp-oauth reports
 	// them to the client as a generic invalid_grant.
 	assert.False(t, errors.Is(err, oauthserver.ErrInvalidTarget))
+	assert.Contains(t, err.Error(), `audience "cluster-a"`,
+		"downstream errors must name the target so a misconfigured audience is attributable")
 }
 
 func TestTokenExchangeBrokerConfig_Enabled(t *testing.T) {

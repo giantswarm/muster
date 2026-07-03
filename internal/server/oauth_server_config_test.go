@@ -204,3 +204,24 @@ func TestBuildOAuthServerOptions_InvalidCIDRReturnsError(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid CIDR")
 }
+
+func TestBuildOAuthServerOptions_BrokerTargetRequiresDexTokenEndpoint(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.OAuthServerConfig{
+		BaseURL: "https://muster.example.com",
+		TrustedIssuers: []config.TrustedIssuerConfig{
+			{Issuer: "https://dex.example.com"},
+		},
+		TokenExchangeBroker: config.TokenExchangeBrokerConfig{
+			ClientAudiences: map[string][]string{"portal": {"cluster-a"}},
+			Targets: map[string]config.BrokerTargetConfig{
+				"cluster-a": {},
+			},
+		},
+	}
+	_, err := buildOAuthServerOptions(cfg, nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "cluster-a")
+	require.Contains(t, err.Error(), "dexTokenEndpoint")
+}

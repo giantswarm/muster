@@ -17,6 +17,8 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- muster refuses to start when a `tokenExchangeBroker` target lacks `dexTokenEndpoint`, naming the misconfigured audience, instead of surfacing an unattributed error on the first exchange request. The chart's `values.schema.json` requires the key as well.
+
 - The aggregator forwards the validated inbound bearer to `forwardToken` backends on each request instead of issuing a per-backend token, so the on-behalf-of token (including its nested `act` delegation chain) reaches the backend byte-identical. When the request carries no forwardable bearer (the background listen stream, opaque-token sessions), the session's stored upstream ID token is forwarded as before.
 
 - On-behalf-of token exchange at `/oauth/token` no longer requires a broker target: a request without an `audience` takes mcp-oauth's self-issued path and the issued token's `aud` defaults to muster's `resourceIdentifier`. Requests with an `audience` keep the brokered downstream Dex exchange.

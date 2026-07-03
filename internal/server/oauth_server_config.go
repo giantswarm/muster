@@ -108,6 +108,14 @@ func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger) 
 		if len(cfg.TrustedIssuers) == 0 {
 			return nil, fmt.Errorf("tokenExchangeBroker requires at least one trustedIssuers entry to validate subject tokens")
 		}
+		// Config loading is lenient YAML: a target missing required keys
+		// loads silently, so require the endpoint here instead of failing on
+		// the first exchange request.
+		for audience, target := range cfg.TokenExchangeBroker.Targets {
+			if target.DexTokenEndpoint == "" {
+				return nil, fmt.Errorf("tokenExchangeBroker target %q requires dexTokenEndpoint (downstream Dex token endpoint)", audience)
+			}
+		}
 		opts = append(opts, oauthserver.WithExchanger(musteroauth.NewBrokerExchanger(cfg.TokenExchangeBroker)))
 		brokerLogger := logger
 		if brokerLogger == nil {

@@ -108,7 +108,7 @@ func (b *BrokerExchanger) Exchange(ctx context.Context, req *oauthserver.Exchang
 		UserID:           req.Subject.Subject,
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("broker exchange for audience %q: %w", req.Audience, err)
 	}
 
 	logging.Debug("TokenBroker", "Brokered exchange for audience=%s user=%s (cached=%v)",

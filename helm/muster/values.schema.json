@@ -609,6 +609,7 @@
                   "description": "Audience name → downstream Dex/OIDC exchange target.",
                   "additionalProperties": {
                     "type": "object",
+                    "required": ["dexTokenEndpoint"],
                     "properties": {
                       "dexTokenEndpoint": {"type": "string", "pattern": "^https://", "description": "Downstream Dex token endpoint URL (HTTPS)."},
                       "expectedIssuer": {"type": "string", "description": "Expected iss claim of the exchanged token. Derived from dexTokenEndpoint when empty."},
