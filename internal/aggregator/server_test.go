@@ -13,6 +13,7 @@ import (
 
 	"github.com/giantswarm/muster/internal/api"
 	oauthstore "github.com/giantswarm/muster/internal/oauth/store"
+	"github.com/giantswarm/muster/internal/server"
 
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -1391,4 +1392,42 @@ func TestAggregatorServer_MissingToolsForSession_SessionToolMemo(t *testing.T) {
 		assert.Equal(t, int64(2), store.gets.Load(),
 			"the request-scoped memo collapses N rebuilds into one (two auth servers, once)")
 	})
+}
+
+// TestGetOrCreateClientForToolCall_ForwardableBearerExemptFromAuthGate pins the
+// auth-gate exemption for token-forwarding servers: a request carrying a
+// forwardable validated bearer proceeds without a per-server auth entry (the
+// bearer is the credential the connection forwards), so a stale-token eviction
+// that revoked the entry cannot fail calls that present a fresh token. An
+// opaque bearer stays gated.
+func TestGetOrCreateClientForToolCall_ForwardableBearerExemptFromAuthGate(t *testing.T) {
+	a := newTestAggregatorWithPool(t)
+	sessionID := "test-session"
+	serverName := "forward-server"
+
+	err := a.registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: serverName, ToolPrefix: ""},
+		URL:                "https://server.example.com",
+		AuthConfig:         &api.MCPServerAuth{ForwardToken: true},
+	})
+	require.NoError(t, err)
+
+	// No MarkAuthenticated: simulates the state after a stale-token eviction
+	// revoked the per-server entry. The pooled client stands in for the
+	// connection the exempted call would use.
+	mockClient := &callToolMockClient{}
+	a.connPool.Put(sessionID, serverName, mockClient)
+
+	bearer := unsignedJWT(t, map[string]any{"sub": "alice", "exp": time.Now().Add(time.Hour).Unix()})
+	ctx := server.ContextWithBearerToken(context.Background(), bearer)
+
+	client, cleanup, clientErr := a.getOrCreateClientForToolCall(ctx, serverName, sessionID, "alice")
+	require.NoError(t, clientErr, "forwardable bearer must pass the auth gate for a token-forwarding server")
+	defer cleanup()
+	require.Equal(t, mockClient, client)
+
+	// An opaque bearer cannot be forwarded and must stay gated.
+	opaqueCtx := server.ContextWithBearerToken(context.Background(), "opaque-token")
+	_, _, gateErr := a.getOrCreateClientForToolCall(opaqueCtx, serverName, sessionID, "alice")
+	require.ErrorContains(t, gateErr, "not authenticated")
 }

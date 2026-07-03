@@ -2892,7 +2892,15 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 	}
 	authenticated, _ := a.authStore.IsAuthenticated(ctx, sessionID, serverName)
 	if !authenticated {
-		return nil, nil, fmt.Errorf("user not authenticated to server %s", serverName)
+		// Token-forwarding servers need no per-server auth entry when the
+		// request itself carries a forwardable validated bearer: that bearer
+		// is the credential the connection forwards. Without this, a
+		// stale-token eviction that revoked the entry makes calls fail until
+		// the asynchronous SSO re-init completes, even though the caller
+		// presents a fresh token.
+		if !ShouldUseTokenForwarding(serverInfo) || forwardableBearer(ctx) == "" {
+			return nil, nil, fmt.Errorf("user not authenticated to server %s", serverName)
+		}
 	}
 
 	// Check the connection pool first.
