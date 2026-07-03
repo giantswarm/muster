@@ -57,6 +57,9 @@ steps:
       success: true
       contains: ["obo-backend"]
     timeout: "30s"
+    retry:
+      count: 5
+      delay: "1s"
 
   - id: "mint-human-token"
     description: "Mint a human subject token with email and groups"
@@ -97,6 +100,9 @@ steps:
         - "alice@giantswarm.io"
         - "system:serviceaccount:kagent:sre-agent"
         - "customer:giantswarm:team-ai"
+    retry:
+      count: 5
+      delay: "1s"
 
   - id: "connect-as-agent"
     description: "Present the OBO token as the bearer on /mcp"
@@ -105,6 +111,9 @@ steps:
       token_ref: "obo-token"
     expected:
       success: true
+    retry:
+      count: 5
+      delay: "1s"
 
   - id: "backend-receives-forwarded-token"
     description: |
