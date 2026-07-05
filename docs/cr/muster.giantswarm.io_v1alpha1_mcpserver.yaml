@@ -1,0 +1,14 @@
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: git-tools
+  namespace: default
+spec:
+  type: stdio
+  autoStart: true
+  command: npx
+  args: ["@modelcontextprotocol/server-git"]
+  env:
+    GIT_ROOT: "/workspace"
+    LOG_LEVEL: "info"
+  description: "Git tools MCP server for repository operations"
