@@ -403,6 +403,11 @@ func mergeOAuthServerConfig(cfg *Config) config.OAuthServerConfig {
 	// secret refs use via the MCPServer's own namespace).
 	serverCfg.TokenExchangeBroker.DefaultSecretNamespace = cfg.MusterConfig.Namespace
 
+	// Forward --extra-ca-file so the OAuth server can verify private-IP trusted
+	// issuers / forwarded-token JWKS endpoints against the operator's internal
+	// CA (mcp-oauth v1+ no longer reads http.DefaultTransport's RootCAs).
+	serverCfg.ExtraCAFile = cfg.ExtraCAFile
+
 	return serverCfg
 }
 

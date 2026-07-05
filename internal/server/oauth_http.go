@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -31,6 +32,7 @@ import (
 	"github.com/giantswarm/muster/internal/config"
 	"github.com/giantswarm/muster/pkg/logging"
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+	"github.com/giantswarm/muster/pkg/tlsutil"
 )
 
 const (
@@ -604,6 +606,20 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 
 	logger := slog.Default()
 
+	// mcp-oauth v1+ no longer reads a CA installed on http.DefaultTransport for
+	// its permissive JWKS / OIDC-discovery clients (private-IP trusted issuers,
+	// forwarded-token validation, internal-CA Dex), so build the operator's CA
+	// pool once and hand it to each of those clients explicitly. nil (no
+	// --extra-ca-file) keeps system-pool verification.
+	var caPool *x509.CertPool
+	if cfg.ExtraCAFile != "" {
+		var poolErr error
+		caPool, poolErr = tlsutil.LoadCAPool(cfg.ExtraCAFile)
+		if poolErr != nil {
+			return nil, nil, nil, fmt.Errorf("load extra CA file for OAuth server: %w", poolErr)
+		}
+	}
+
 	redirectURL := cfg.BaseURL + "/oauth/callback"
 	var provider providers.Provider
 	var err error
@@ -626,6 +642,10 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 			RedirectURL:    redirectURL,
 			Scopes:         scopes,
 			AllowPrivateIP: cfg.Dex.AllowPrivateIPOIDC,
+			// Verify an internal-CA Dex during OIDC discovery / token calls
+			// against the operator's extra CA (only consulted when
+			// AllowPrivateIP is set and no explicit HTTPClient is provided).
+			RootCAs: caPool,
 		}
 
 		if cfg.Dex.ConnectorID != "" {
@@ -737,6 +757,9 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 	}
 
 	serverConfig := newOAuthServerConfig(cfg, refreshTokenTTL)
+	// Verify the forwarded-ID-token (TrustedAudiences) JWKS endpoint against the
+	// operator's extra CA when the issuer is private-IP. nil keeps system-pool.
+	serverConfig.JWKSRootCAs = caPool
 
 	var localMint *oauthserver.LocalMintExchanger
 	if cfg.EnableJWTMode {
@@ -765,7 +788,7 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 		}
 	}
 
-	builtOpts, err := buildOAuthServerOptions(cfg, logger, localMint)
+	builtOpts, err := buildOAuthServerOptions(cfg, logger, localMint, caPool)
 	if err != nil {
 		return nil, nil, nil, err
 	}

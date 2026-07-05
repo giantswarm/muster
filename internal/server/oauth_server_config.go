@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"log/slog"
 	"net"
@@ -81,7 +82,7 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, refreshTokenTTL time.Dur
 // localMint is non-nil only when JWT mode is enabled; it is forwarded into
 // NewBrokerExchanger so that local-mint broker targets can sign tokens with
 // muster's own access-token key.
-func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger, localMint *oauthserver.LocalMintExchanger) ([]oauth.ServerOption, error) {
+func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger, localMint *oauthserver.LocalMintExchanger, caPool *x509.CertPool) ([]oauth.ServerOption, error) {
 	inst, err := instrumentation.New(instrumentation.Config{
 		Enabled:         true,
 		ServiceName:     "muster",
@@ -110,7 +111,7 @@ func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger, 
 	if len(cfg.TrustedIssuers) > 0 {
 		issuers := make([]oauthserver.TrustedIssuer, len(cfg.TrustedIssuers))
 		for i, iss := range cfg.TrustedIssuers {
-			issuers[i] = toTrustedIssuer(iss)
+			issuers[i] = toTrustedIssuer(iss, caPool)
 		}
 		opts = append(opts, oauthserver.WithTrustedIssuers(issuers))
 	}
@@ -202,7 +203,12 @@ func seedBrokerClients(ctx context.Context, srv *oauth.Server, broker config.Tok
 	}
 }
 
-func toTrustedIssuer(iss config.TrustedIssuerConfig) oauthserver.TrustedIssuer {
+// toTrustedIssuer maps a muster trusted-issuer config onto mcp-oauth's type.
+// caPool is the operator's extra-CA pool: mcp-oauth's per-issuer permissive
+// JWKS client (used when AllowPrivateIPJWKS / AllowPrivateIPJWKSHosts is set)
+// verifies the JWKS endpoint's TLS certificate against it. nil keeps system-pool
+// verification, so public-hostname issuers are unaffected.
+func toTrustedIssuer(iss config.TrustedIssuerConfig, caPool *x509.CertPool) oauthserver.TrustedIssuer {
 	return oauthserver.TrustedIssuer{
 		Issuer:                  iss.Issuer,
 		JwksURL:                 iss.JwksURL,
@@ -213,6 +219,7 @@ func toTrustedIssuer(iss config.TrustedIssuerConfig) oauthserver.TrustedIssuer {
 		AllowPrivateIPJWKS:      iss.AllowPrivateIPJWKS,
 		AllowPrivateIPJWKSHosts: iss.AllowPrivateIPJWKSHosts,
 		AcceptedTypHeaders:      iss.AcceptedTypHeaders,
+		RootCAs:                 caPool,
 	}
 }
 
