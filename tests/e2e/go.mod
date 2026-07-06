@@ -8,7 +8,7 @@ replace github.com/imdario/mergo => github.com/imdario/mergo v0.3.16
 // Needed because module declares its path as: al.essio.dev/pkg/shellescape
 replace github.com/alessio/shellescape => al.essio.dev/pkg/shellescape v1.6.0
 
-require github.com/giantswarm/apptest-framework/v5 v5.2.0
+require github.com/giantswarm/apptest-framework/v5 v5.2.1
 
 require (
 	dario.cat/mergo v1.0.2 // indirect
@@ -40,11 +40,11 @@ require (
 	github.com/extism/go-sdk v1.7.1 // indirect
 	github.com/fatih/color v1.19.0 // indirect
 	github.com/fluxcd/cli-utils v1.2.0 // indirect
-	github.com/fluxcd/helm-controller/api v1.6.0 // indirect
+	github.com/fluxcd/helm-controller/api v1.6.1 // indirect
 	github.com/fluxcd/pkg/apis/acl v0.10.0 // indirect
-	github.com/fluxcd/pkg/apis/kustomize v1.19.0 // indirect
-	github.com/fluxcd/pkg/apis/meta v1.30.0 // indirect
-	github.com/fluxcd/source-controller/api v1.9.0 // indirect
+	github.com/fluxcd/pkg/apis/kustomize v1.19.1 // indirect
+	github.com/fluxcd/pkg/apis/meta v1.31.0 // indirect
+	github.com/fluxcd/source-controller/api v1.9.1 // indirect
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.2 // indirect
 	github.com/giantswarm/apiextensions-application v0.6.2 // indirect
@@ -118,8 +118,8 @@ require (
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
 	github.com/monochromegane/go-gitignore v0.0.0-20200626010858-205db1a8cc00 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
-	github.com/onsi/ginkgo/v2 v2.31.0 // indirect
-	github.com/onsi/gomega v1.42.0 // indirect
+	github.com/onsi/ginkgo/v2 v2.32.0 // indirect
+	github.com/onsi/gomega v1.42.1 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/peterbourgon/diskv v2.0.1+incompatible // indirect
@@ -153,13 +153,13 @@ require (
 	go.uber.org/zap v1.28.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
-	golang.org/x/crypto v0.51.0 // indirect
+	golang.org/x/crypto v0.53.0 // indirect
 	golang.org/x/mod v0.36.0 // indirect
-	golang.org/x/net v0.55.0 // indirect
+	golang.org/x/net v0.56.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.21.0 // indirect
-	golang.org/x/sys v0.45.0 // indirect
-	golang.org/x/term v0.43.0 // indirect
+	golang.org/x/sys v0.46.0 // indirect
+	golang.org/x/term v0.44.0 // indirect
 	golang.org/x/text v0.38.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	golang.org/x/tools v0.45.0 // indirect
@@ -182,7 +182,7 @@ require (
 	k8s.io/kubectl v0.36.2 // indirect
 	k8s.io/streaming v0.36.2 // indirect
 	k8s.io/utils v0.0.0-20260507154919-ff6756f316d2 // indirect
-	oras.land/oras-go/v2 v2.6.0 // indirect
+	oras.land/oras-go/v2 v2.6.1 // indirect
 	sigs.k8s.io/cluster-api v1.13.2 // indirect
 	sigs.k8s.io/controller-runtime v0.24.1 // indirect
 	sigs.k8s.io/e2e-framework v0.7.0 // indirect
