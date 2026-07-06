@@ -2,38 +2,33 @@ package app
 
 import (
 	"crypto/tls"
-	"crypto/x509"
 	"fmt"
 	"net/http"
-	"os"
 
 	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/pkg/tlsutil"
 )
 
 // installExtraCAFile reads PEM-encoded certificates from path, appends them to
 // the system trust pool, and replaces http.DefaultTransport's TLSClientConfig
 // so every outbound HTTP call that uses the default client (MCP backends,
-// token exchange, OAuth proxy) trusts the additional CAs.
+// token exchange) trusts the additional CAs.
 //
-// This is the single place that augments outbound trust at startup. Any
-// caller that constructs its own *http.Transport opts out of the augmented
-// pool by design — it has explicit TLS configuration of its own.
+// This augments outbound trust for callers that ride http.DefaultTransport. It
+// is NOT sufficient for the mcp-oauth OAuth server: its permissive JWKS /
+// token-exchange clients no longer read http.DefaultTransport's RootCAs (v1+),
+// so that CA trust is threaded in explicitly via config.OAuthServerConfig's
+// ExtraCAFile — both paths build the pool from tlsutil.LoadCAPool so they
+// verify against an identical pool. Any caller that constructs its own
+// *http.Transport opts out of the augmented pool by design.
 //
 // A missing/unreadable file or unparseable PEM is fatal: muster's outbound
 // dependencies should never silently fall back to the unaugmented pool when
 // the operator asked for an internal CA.
 func installExtraCAFile(path string) error {
-	pem, err := os.ReadFile(path) //nolint:gosec // path comes from operator-provided flag
+	pool, err := tlsutil.LoadCAPool(path)
 	if err != nil {
-		return fmt.Errorf("read extra CA file %s: %w", path, err)
-	}
-
-	pool, err := x509.SystemCertPool()
-	if err != nil || pool == nil {
-		pool = x509.NewCertPool()
-	}
-	if !pool.AppendCertsFromPEM(pem) {
-		return fmt.Errorf("no PEM certificates parsed from %s", path)
+		return err
 	}
 
 	transport, ok := http.DefaultTransport.(*http.Transport)

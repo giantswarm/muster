@@ -331,6 +331,13 @@ type OAuthServerConfig struct {
 	// are validated against TrustedIssuers; the per-client allowlist below
 	// gates which audiences each client may request.
 	TokenExchangeBroker TokenExchangeBrokerConfig `yaml:"tokenExchangeBroker,omitempty"`
+
+	// ExtraCAFile mirrors the process-level --extra-ca-file flag. mcp-oauth's
+	// permissive JWKS / token-exchange clients (used for private-IP trusted
+	// issuers and forwarded-ID-token validation) no longer read a CA installed
+	// on http.DefaultTransport, so the OAuth server must be handed the CA pool
+	// explicitly. Populated at wiring time, never from YAML.
+	ExtraCAFile string `yaml:"-"`
 }
 
 // TokenExchangeBrokerConfig configures brokered RFC 8693 token exchange

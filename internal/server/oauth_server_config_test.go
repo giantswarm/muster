@@ -1,9 +1,7 @@
 package server
 
 import (
-	"crypto/tls"
 	"crypto/x509"
-	"net/http"
 	"testing"
 	"time"
 
@@ -90,7 +88,7 @@ func TestBuildOAuthServerOptions_NoErrorWhenFieldsSet(t *testing.T) {
 		},
 		TrustedProxyCIDRs: []string{"127.0.0.1/32"},
 	}
-	opts, err := buildOAuthServerOptions(cfg, nil)
+	opts, err := buildOAuthServerOptions(cfg, nil, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, opts)
 }
@@ -108,7 +106,7 @@ func TestBuildOAuthServerOptions_AllowPrivateIPJWKSNoError(t *testing.T) {
 			},
 		},
 	}
-	opts, err := buildOAuthServerOptions(cfg, nil)
+	opts, err := buildOAuthServerOptions(cfg, nil, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, opts)
 }
@@ -119,7 +117,7 @@ func TestBuildOAuthServerOptions_NoErrorWhenFieldsAbsent(t *testing.T) {
 	cfg := config.OAuthServerConfig{
 		BaseURL: "https://muster.example.com",
 	}
-	opts, err := buildOAuthServerOptions(cfg, nil)
+	opts, err := buildOAuthServerOptions(cfg, nil, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, opts)
 }
@@ -138,7 +136,7 @@ func TestToTrustedIssuer_MapsAllFields(t *testing.T) {
 		AllowPrivateIPJWKSHosts: []string{"dex.example.com"},
 		AcceptedTypHeaders:      []string{""},
 	}
-	got := toTrustedIssuer(in)
+	got := toTrustedIssuer(in, nil)
 	require.Equal(t, in.Issuer, got.Issuer)
 	require.Equal(t, in.JwksURL, got.JwksURL)
 	require.Equal(t, in.AllowedAudiences, got.AllowedAudiences)
@@ -180,7 +178,7 @@ func TestBuildOAuthServerOptions_BrokerRequiresTrustedIssuers(t *testing.T) {
 			},
 		},
 	}
-	_, err := buildOAuthServerOptions(cfg, nil)
+	_, err := buildOAuthServerOptions(cfg, nil, nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "trustedIssuers")
 
@@ -191,7 +189,7 @@ func TestBuildOAuthServerOptions_BrokerRequiresTrustedIssuers(t *testing.T) {
 			AllowedAudiences: []string{"portal-frontend"},
 		},
 	}
-	opts, err := buildOAuthServerOptions(cfg, nil)
+	opts, err := buildOAuthServerOptions(cfg, nil, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, opts)
 }
@@ -203,7 +201,7 @@ func TestBuildOAuthServerOptions_InvalidCIDRReturnsError(t *testing.T) {
 		BaseURL:           "https://muster.example.com",
 		TrustedProxyCIDRs: []string{"not-a-cidr"},
 	}
-	_, err := buildOAuthServerOptions(cfg, nil)
+	_, err := buildOAuthServerOptions(cfg, nil, nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid CIDR")
 }
@@ -223,31 +221,22 @@ func TestBuildOAuthServerOptions_BrokerTargetRequiresDexTokenEndpoint(t *testing
 			},
 		},
 	}
-	_, err := buildOAuthServerOptions(cfg, nil)
+	_, err := buildOAuthServerOptions(cfg, nil, nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "cluster-a")
 	require.Contains(t, err.Error(), "dexTokenEndpoint")
 }
 
-// TestOAuthServerConfig_PropagatesProcessRootCAs pins that the trust pool
-// installed on http.DefaultTransport (--extra-ca-file) reaches mcp-oauth's
-// JWKS clients, which require the pool explicitly: the server-level
-// JWKSRootCAs and every trusted issuer's RootCAs. Without this, an
-// internal-CA issuer fails JWKS TLS verification with certificate signed by
-// unknown authority.
-func TestOAuthServerConfig_PropagatesProcessRootCAs(t *testing.T) {
+// TestToTrustedIssuer_PropagatesCAPool pins that the operator's extra-CA pool
+// reaches every trusted issuer's RootCAs, which mcp-oauth's per-issuer JWKS
+// clients require explicitly. Without it, an internal-CA issuer fails JWKS TLS
+// verification with certificate signed by unknown authority.
+func TestToTrustedIssuer_PropagatesCAPool(t *testing.T) {
 	pool := x509.NewCertPool()
-	original := http.DefaultTransport
-	transport, ok := original.(*http.Transport)
-	require.True(t, ok)
-	cloned := transport.Clone()
-	cloned.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
-	http.DefaultTransport = cloned
-	defer func() { http.DefaultTransport = original }()
 
-	serverConfig := newOAuthServerConfig(config.OAuthServerConfig{BaseURL: "https://muster.example.com"}, time.Hour)
-	require.Same(t, pool, serverConfig.JWKSRootCAs)
-
-	issuer := toTrustedIssuer(config.TrustedIssuerConfig{Issuer: "https://dex.example.com"})
+	issuer := toTrustedIssuer(config.TrustedIssuerConfig{Issuer: "https://dex.example.com"}, pool)
 	require.Same(t, pool, issuer.RootCAs)
+
+	issuerNoPool := toTrustedIssuer(config.TrustedIssuerConfig{Issuer: "https://dex.example.com"}, nil)
+	require.Nil(t, issuerNoPool.RootCAs)
 }

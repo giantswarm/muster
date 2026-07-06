@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
-	"net/http"
 	"strings"
 	"time"
 
@@ -52,12 +51,6 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, refreshTokenTTL time.Dur
 		// the same private-IP issuer instead of rejecting it as a DNS-rebinding
 		// attack. Public-hostname Dex deployments are unaffected.
 		AllowPrivateIPJWKS: cfg.Dex.AllowPrivateIPOIDC,
-		// mcp-oauth's JWKS clients no longer read the CA installed on
-		// http.DefaultTransport; the pool must be passed explicitly. Hand it
-		// the process trust pool that --extra-ca-file augments so an
-		// internal-CA IdP validates (nil when no extra CA is installed, which
-		// means the system pool).
-		JWKSRootCAs: processRootCAs(),
 		// Per-client audience allowlist for brokered RFC 8693 token exchange.
 		// Only consulted when an Exchanger is registered (see
 		// buildOAuthServerOptions); a miss returns invalid_target.
@@ -78,7 +71,7 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, refreshTokenTTL time.Dur
 // buildOAuthServerOptions assembles the functional options for the mcp-oauth server.
 // instrumentation.New registers a Prometheus collector on the OTel global
 // provider, so a second call in the same process will race or duplicate-register.
-func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger) ([]oauth.ServerOption, error) {
+func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger, caPool *x509.CertPool) ([]oauth.ServerOption, error) {
 	inst, err := instrumentation.New(instrumentation.Config{
 		Enabled:         true,
 		ServiceName:     "muster",
@@ -107,7 +100,7 @@ func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger) 
 	if len(cfg.TrustedIssuers) > 0 {
 		issuers := make([]oauthserver.TrustedIssuer, len(cfg.TrustedIssuers))
 		for i, iss := range cfg.TrustedIssuers {
-			issuers[i] = toTrustedIssuer(iss)
+			issuers[i] = toTrustedIssuer(iss, caPool)
 		}
 		opts = append(opts, oauthserver.WithTrustedIssuers(issuers))
 	}
@@ -207,7 +200,12 @@ func seedBrokerClients(ctx context.Context, srv *oauth.Server, broker config.Tok
 	}
 }
 
-func toTrustedIssuer(iss config.TrustedIssuerConfig) oauthserver.TrustedIssuer {
+// toTrustedIssuer maps a muster trusted-issuer config onto mcp-oauth's type.
+// caPool is the operator's extra-CA pool: mcp-oauth's per-issuer permissive
+// JWKS client (used when AllowPrivateIPJWKS / AllowPrivateIPJWKSHosts is set)
+// verifies the JWKS endpoint's TLS certificate against it. nil keeps system-pool
+// verification, so public-hostname issuers are unaffected.
+func toTrustedIssuer(iss config.TrustedIssuerConfig, caPool *x509.CertPool) oauthserver.TrustedIssuer {
 	return oauthserver.TrustedIssuer{
 		Issuer:                  iss.Issuer,
 		JwksURL:                 iss.JwksURL,
@@ -218,24 +216,8 @@ func toTrustedIssuer(iss config.TrustedIssuerConfig) oauthserver.TrustedIssuer {
 		AllowPrivateIPJWKS:      iss.AllowPrivateIPJWKS,
 		AllowPrivateIPJWKSHosts: iss.AllowPrivateIPJWKSHosts,
 		AcceptedTypHeaders:      iss.AcceptedTypHeaders,
-		// mcp-oauth's per-issuer JWKS clients verify against this pool and no
-		// longer read the CA installed on http.DefaultTransport; without it an
-		// internal-CA issuer fails JWKS TLS verification (nil means the bare
-		// system pool).
-		RootCAs: processRootCAs(),
+		RootCAs:                 caPool,
 	}
-}
-
-// processRootCAs returns the process trust pool that installExtraCAFile set on
-// http.DefaultTransport, or nil when no extra CA is installed. mcp-oauth's
-// JWKS clients require the pool explicitly; reading it back from the transport
-// keeps --extra-ca-file the single source of outbound trust.
-func processRootCAs() *x509.CertPool {
-	transport, ok := http.DefaultTransport.(*http.Transport)
-	if !ok || transport.TLSClientConfig == nil {
-		return nil
-	}
-	return transport.TLSClientConfig.RootCAs
 }
 
 func parseCIDRs(cidrs []string) ([]*net.IPNet, error) {
