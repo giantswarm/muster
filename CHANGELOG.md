@@ -27,15 +27,15 @@ All notable changes to this project will be documented in this file.
 
 - On-behalf-of token exchange at `/oauth/token` no longer requires a broker target: a request without an `audience` takes mcp-oauth's self-issued path and the issued token's `aud` defaults to muster's `resourceIdentifier`. Requests with an `audience` keep the brokered downstream Dex exchange.
 
-- M2M (machine-to-machine) token exchange. The `oauth.server.tokenExchangeBroker.workloadAudiences`, `workloadGroupGrants`, and `actorDelegationPolicy` config keys are removed, along with broker-granted identity injection (`granted.subject` / `granted.groups`). On-behalf-of (OBO) delegation is unchanged and now accepts any actor validated against the trusted issuers; the impersonated subject's downstream authorization governs access. Requires mcp-oauth v0.18.7.
+- M2M (machine-to-machine) token exchange. The `oauth.server.tokenExchangeBroker.workloadAudiences`, `workloadGroupGrants`, and `actorDelegationPolicy` config keys are removed, along with broker-granted identity injection (`granted.subject` / `granted.groups`). On-behalf-of (OBO) delegation is unchanged and now accepts any actor validated against the trusted issuers; the impersonated subject's downstream authorization governs access.
 
-- The `github-app` broker target type and its `githubApp` config block. Broker targets now support `oidc-exchange` (default) and `local-mint`.
+- The `github-app` broker target type and its `githubApp` config block. The only remaining broker target type is `oidc-exchange`.
 
 ### Fixed
 
 - Token re-exchange on the persistent oidc-exchange connection now uses the resolved per-connection config. The initial-connection path handed the refresh closure the shared spec-only `TokenExchange` pointer (which, since [#940](https://github.com/giantswarm/muster/pull/940), deliberately never carries the runtime-resolved credentials or appended `requiredAudiences` scopes), so every re-exchange after the first token neared expiry ran without client credentials — failing outright against a Dex requiring client auth and evicting the session back to `Auth Required` — and without the required audiences, minting tokens the downstream server rejects. ([#942](https://github.com/giantswarm/muster/issues/942))
 
-- Data race in the token-forwarding and localMint connection header functions. Both mutate per-connection failure counters, which mcp-go invokes concurrently from the listener goroutine and tool-call goroutines, so under load the stale-connection eviction could double-fire (double eviction/revoke). The counters are now mutex-guarded. ([#939](https://github.com/giantswarm/muster/issues/939))
+- Data race in the token-forwarding connection header function, which mutates a per-connection failure counter that mcp-go invokes concurrently from the listener goroutine and tool-call goroutines, so under load the stale-connection eviction could double-fire (double eviction/revoke). Counter access is now synchronized. ([#939](https://github.com/giantswarm/muster/issues/939))
 
 - Token-exchange (oidc-exchange) backends no longer get stuck in `Auth Required` once their exchanged token expires. The persistent aggregator connection now re-exchanges a fresh token before expiry, and evicts itself only when the subject token can no longer be refreshed.
 
