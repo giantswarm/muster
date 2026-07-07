@@ -1,0 +1,79 @@
+{{- if and (eq (include "muster.prometheusExporterEnabled" .) "true") .Values.muster.observability.metrics.prometheus.prometheusRule.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "muster.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "muster.labels" . | nindent 4 }}
+    {{- with .Values.muster.observability.metrics.prometheus.prometheusRule.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- with .Values.muster.observability.metrics.prometheus.prometheusRule.tenant }}
+    observability.giantswarm.io/tenant: {{ . | quote }}
+    {{- end }}
+spec:
+  groups:
+    - name: muster.service
+      rules:
+        - alert: MusterDown
+          expr: |
+            absent(muster_service_up)
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            runbook_url: "https://github.com/giantswarm/muster/blob/main/docs/runbooks/MusterDown.md"
+            summary: "Muster is not reporting metrics"
+            description: >
+              No muster_service_up series found for 2 minutes. The muster process is likely
+              down or the scrape target is unreachable. Also fires if muster has no services
+              configured.
+
+        - alert: MusterServiceDown
+          expr: |
+            muster_service_up == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            runbook_url: "https://github.com/giantswarm/muster/blob/main/docs/runbooks/MusterServiceDown.md"
+            summary: "Muster MCP service {{ "{{" }} $labels.service_name {{ "}}" }} is down"
+            description: >
+              MCP service {{ "{{" }} $labels.service_name {{ "}}" }} (type: {{ "{{" }} $labels.service_type {{ "}}" }})
+              has not been in a running/connected state for 5 minutes.
+
+        - alert: MusterServiceFlapping
+          expr: |
+            increase(muster_service_state_transitions_total[10m]) > 8
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            runbook_url: "https://github.com/giantswarm/muster/blob/main/docs/runbooks/MusterServiceFlapping.md"
+            summary: "Muster MCP service {{ "{{" }} $labels.service_name {{ "}}" }} is flapping"
+            description: >
+              MCP service {{ "{{" }} $labels.service_name {{ "}}" }} has transitioned state more than
+              8 times in the last 10 minutes, indicating instability.
+
+    - name: muster.tools
+      rules:
+        - alert: MusterHighToolErrorRate
+          expr: |
+            (
+              sum by (tool) (rate(muster_tool_calls_total{outcome=~"error|error_result"}[5m]))
+              /
+              sum by (tool) (rate(muster_tool_calls_total[5m]))
+            ) > 0.1
+            and
+            sum by (tool) (rate(muster_tool_calls_total[5m])) > 0.05
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            runbook_url: "https://github.com/giantswarm/muster/blob/main/docs/runbooks/MusterHighToolErrorRate.md"
+            summary: "High error rate for MCP tool {{ "{{" }} $labels.tool {{ "}}" }}"
+            description: >
+              MCP tool {{ "{{" }} $labels.tool {{ "}}" }} has an error rate above 10%
+              ({{ "{{" }} $value | humanizePercentage {{ "}}" }}) over the last 5 minutes.
+{{- end }}

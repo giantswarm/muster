@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- OTel service-lifecycle metrics emitted from the orchestrator: `muster.service.state_transitions_total` counter (labels: `service_name`, `service_type`, `from_state`, `to_state`) and `muster.service.up` observable gauge (1 = running/connected, 0 = otherwise). Both use the same meter scope as existing tool-call metrics. Closes #401.
+- Helm: `prometheusRule.enabled` (under `muster.observability.metrics.prometheus`) renders a `PrometheusRule` with three alerting rules: `MusterServiceDown` (5 min), `MusterServiceFlapping` (>4 transitions in 10 min), `MusterHighToolErrorRate` (>10% error ratio for 5 min). Supports `observability.giantswarm.io/tenant` for multi-tenant Mimir.
+- Helm: `grafanaDashboard.enabled` (under `muster.observability.metrics`) renders a ConfigMap containing a Grafana dashboard with service-status, state-transition, tool-call rate, latency, and error-rate panels. Picked up automatically by the grafana-sidecar.
+
 ### Fixed
 
 - Team ownership label. `application.giantswarm.io/team` now renders `bumblebee` instead of an empty string: the labels helper looked up the annotation under the wrong key (`application.giantswarm.io/team`) instead of the OCI key `io.giantswarm.application.team` set in `Chart.yaml`.

@@ -645,6 +645,31 @@ muster:
           # selecting the right Prometheus instance in a multi-tenant
           # cluster.
           labels: {}
+        # PrometheusRule for Prometheus-Operator clusters. Renders a
+        # PrometheusRule with alerting rules for muster service health and
+        # tool call error rates. Requires ServiceMonitor to be enabled so
+        # the rules have data to evaluate.
+        prometheusRule:
+          enabled: false
+          # Extra labels applied to the PrometheusRule — use to target the
+          # right Prometheus instance (e.g. "prometheus: kube-prometheus").
+          labels: {}
+          # observability.giantswarm.io/tenant label value for multi-tenant
+          # Mimir deployments. Empty disables the label.
+          tenant: ""
+      # Grafana dashboard ConfigMap. When enabled, a ConfigMap containing a
+      # pre-built Grafana dashboard is rendered. The grafana-sidecar picks it
+      # up automatically when the ConfigMap carries the correct label.
+      grafanaDashboard:
+        enabled: false
+        # Namespace to deploy the ConfigMap into. Defaults to the release
+        # namespace when empty.
+        namespace: ""
+        # Label selector used by the Grafana sidecar to discover dashboards.
+        # The default matches the standard grafana-operator/grafana-sidecar
+        # convention. Override if your Grafana uses a different label.
+        label: grafana_dashboard
+        labelValue: "1"
 
 # CRD ownership. The muster application chart ships the MCPServer and Workflow
 # CustomResourceDefinitions in the Helm 3 `crds/` directory (helm/muster/crds/),

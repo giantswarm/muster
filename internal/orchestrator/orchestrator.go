@@ -35,6 +35,7 @@ const MaxConcurrentRetries = 5
 // service registry (MCPServer services and the aggregator service).
 type Orchestrator struct {
 	registry services.ServiceRegistry
+	metrics  *serviceMetrics
 
 	// Configuration
 	aggregator config.AggregatorConfig
@@ -68,6 +69,7 @@ func New(cfg Config) *Orchestrator {
 
 	return &Orchestrator{
 		registry:               registry,
+		metrics:                newServiceMetrics(registry),
 		aggregator:             cfg.Aggregator,
 		yolo:                   cfg.Yolo,
 		stopReasons:            make(map[string]StopReason),
@@ -242,6 +244,8 @@ func (o *Orchestrator) publishStateChangeEvent(name string, oldState, newState s
 	}
 
 	logging.Debug("Orchestrator", "Service %s state changed: %s -> %s (health: %s)", name, oldState, newState, health)
+
+	o.metrics.recordTransition(o.ctx, name, string(service.GetType()), string(oldState), string(newState))
 
 	event := ServiceStateChangedEvent{
 		Name:        name,
