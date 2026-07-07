@@ -6,7 +6,6 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- Shared Go test assertions in `tests/assertions`, consumed by both the ATS chart tests (`tests/ats`) and the apptest-framework e2e suite (`tests/e2e`).
 - The e2e basic suite verifies workload cluster connectivity and muster deployment readiness (was an empty scaffold).
 
 ### Changed

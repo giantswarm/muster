@@ -10,9 +10,10 @@ replace github.com/alessio/shellescape => al.essio.dev/pkg/shellescape v1.6.0
 
 require (
 	github.com/giantswarm/apptest-framework/v5 v5.2.0
-	github.com/giantswarm/muster/tests/assertions v0.0.0-00010101000000-000000000000
 	github.com/onsi/ginkgo/v2 v2.31.0
 	github.com/onsi/gomega v1.42.0
+	k8s.io/api v0.36.2
+	k8s.io/apimachinery v0.36.2
 )
 
 require (
@@ -172,9 +173,7 @@ require (
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	helm.sh/helm/v4 v4.2.0 // indirect
-	k8s.io/api v0.36.2 // indirect
 	k8s.io/apiextensions-apiserver v0.36.2 // indirect
-	k8s.io/apimachinery v0.36.2 // indirect
 	k8s.io/apiserver v0.36.2 // indirect
 	k8s.io/cli-runtime v0.36.2 // indirect
 	k8s.io/client-go v0.36.2 // indirect
@@ -197,5 +196,3 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.0 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
-
-replace github.com/giantswarm/muster/tests/assertions => ../assertions
