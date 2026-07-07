@@ -4,6 +4,11 @@
 // the Muster Server to authenticate with remote MCP servers on behalf of users without
 // exposing sensitive tokens to the Muster Agent.
 //
+// In muster's auth vocabulary this is the outbound-auth / connector machinery:
+// muster acting as OAuth client toward backends that run their own
+// authorization server (ADR-008 addendum). Inbound auth (authenticating
+// muster's own callers) lives in internal/server and mcp-oauth.
+//
 // # Architecture
 //
 // The OAuth proxy follows a three-legged OAuth 2.1 Authorization Code flow:

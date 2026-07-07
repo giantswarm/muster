@@ -369,6 +369,29 @@ If needed later:
 - Agent-side issuer-keyed token storage for automatic SSO
 - Server-side SSE notifications when auth state changes (avoid polling)
 
+## Addendum (2026-07): inbound auth, outbound auth, connectors
+
+Naming for the two halves of muster's auth surface, matching how comparable
+gateways (claude.ai remote MCP, AWS AgentCore Gateway) describe theirs:
+
+- **Inbound auth**: how muster authenticates its callers. The mcp-oauth front
+  door (ADR-005): Dex-backed authorization server, token exchange, OBO tokens
+  whose subject is the human and whose `act` chain records acting agents.
+- **Outbound auth**: how muster obtains and attaches credentials toward
+  backends. Token forwarding/exchange for platform backends (ADR-009), and
+  the per-backend OAuth client this ADR and ADR-004 describe
+  (`core_auth_login`, `auth://status`, muster's public callback) for backends
+  that run their own authorization server.
+- **Connector**: a per-backend outbound-auth configuration for an externally
+  administered backend (one the platform cannot mint authority for, e.g.
+  GitHub via pro). The user grants access once through the backend's own
+  consent flow; muster stores the grant and attaches it per call.
+
+Rule of thumb: backends whose authorization derives from platform identity
+(impersonation, tenancy) use forwarding; backends whose authority lives in an
+external account system use a connector. The connector machinery lives in
+`internal/oauth` plus the aggregator auth tools/resource.
+
 ## Related Decisions
 
 - [ADR-004: OAuth Proxy](004-oauth-proxy.md) - Server-side OAuth implementation

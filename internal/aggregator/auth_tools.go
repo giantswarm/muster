@@ -34,6 +34,14 @@
 //  5. Muster uses the exchanged token for downstream requests
 //
 // Configuration: Requires `auth.tokenExchange` configuration in MCPServer spec.
+//
+// ## Direct OAuth (connector path)
+//
+// Backends that run their own authorization server are not covered by SSO:
+// muster acts as OAuth client to the backend's AS instead (outbound auth /
+// connector, ADR-008 addendum). The user grants access once via
+// `core_auth_login` in the browser; muster stores the grant and attaches it
+// per call. Implemented by this file together with internal/oauth.
 package aggregator
 
 import (
@@ -65,7 +73,7 @@ func NewAuthToolProvider(aggregator *AggregatorServer) *AuthToolProvider {
 }
 
 // ExecuteTool executes an authentication tool by name.
-func (p *AuthToolProvider) ExecuteTool(ctx context.Context, toolName string, args map[string]interface{}) (*api.CallToolResult, error) {
+func (p *AuthToolProvider) ExecuteTool(ctx context.Context, toolName string, args map[string]any) (*api.CallToolResult, error) {
 	switch toolName {
 	case "auth_login":
 		return p.handleAuthLogin(ctx, args)
@@ -82,11 +90,11 @@ func (p *AuthToolProvider) ExecuteTool(ctx context.Context, toolName string, arg
 // Security features:
 //   - Rate limiting: Prevents OAuth flow abuse by limiting attempts per user
 //   - Metrics: Tracks login attempts, successes, and failures for monitoring
-func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
+func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]any) (*api.CallToolResult, error) {
 	serverName, ok := args["server"].(string)
 	if !ok || serverName == "" {
 		return &api.CallToolResult{
-			Content: []interface{}{"Error: 'server' argument is required and must be a string"},
+			Content: []any{"Error: 'server' argument is required and must be a string"},
 			IsError: true,
 		}, nil
 	}
@@ -105,7 +113,7 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 			remaining = p.aggregator.authRateLimiter.RemainingAttempts(sub)
 		}
 		return &api.CallToolResult{
-			Content: []interface{}{fmt.Sprintf(
+			Content: []any{fmt.Sprintf(
 				"Rate limit exceeded. Too many authentication attempts.\n\n"+
 					"Please wait a moment before trying again.\n"+
 					"Remaining attempts: %d",
@@ -126,7 +134,7 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 	serverInfo, exists := p.aggregator.registry.GetServerInfo(serverName)
 	if !exists {
 		return &api.CallToolResult{
-			Content: []interface{}{fmt.Sprintf("Server '%s' not found. Use list_tools to see available servers.", serverName)},
+			Content: []any{fmt.Sprintf("Server '%s' not found. Use list_tools to see available servers.", serverName)},
 			IsError: true,
 		}, nil
 	}
@@ -135,12 +143,12 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		// Server is already connected or doesn't require auth
 		if serverInfo.IsConnected() {
 			return &api.CallToolResult{
-				Content: []interface{}{fmt.Sprintf("Server '%s' is already authenticated and connected.", serverName)},
+				Content: []any{fmt.Sprintf("Server '%s' is already authenticated and connected.", serverName)},
 				IsError: false,
 			}, nil
 		}
 		return &api.CallToolResult{
-			Content: []interface{}{fmt.Sprintf("Server '%s' does not require authentication.", serverName)},
+			Content: []any{fmt.Sprintf("Server '%s' does not require authentication.", serverName)},
 			IsError: false,
 		}, nil
 	}
@@ -150,7 +158,7 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		if authenticated {
 			logging.Debug("AuthTools", "Session %s already authenticated to server %s", logging.TruncateIdentifier(sessionID), serverName)
 			return &api.CallToolResult{
-				Content: []interface{}{fmt.Sprintf("Server '%s' is already authenticated.", serverName)},
+				Content: []any{fmt.Sprintf("Server '%s' is already authenticated.", serverName)},
 				IsError: false,
 			}, nil
 		}
@@ -163,7 +171,7 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 			p.aggregator.authMetrics.RecordLoginFailure(serverName, sub, "oauth_not_configured")
 		}
 		return &api.CallToolResult{
-			Content: []interface{}{fmt.Sprintf(
+			Content: []any{fmt.Sprintf(
 				"OAuth is not configured. Server '%s' requires authentication but OAuth proxy is not enabled. "+
 					"Enable OAuth proxy in the configuration to authenticate to remote MCP servers.",
 				serverName,
@@ -179,7 +187,7 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		logging.Debug("AuthTools", "Rejecting manual auth_login for SSO server %s (session %s)",
 			serverName, logging.TruncateIdentifier(sessionID))
 		return &api.CallToolResult{
-			Content: []interface{}{fmt.Sprintf(
+			Content: []any{fmt.Sprintf(
 				"Server '%s' uses SSO and is connected automatically.\n\n"+
 					"Manual login via core_auth_login is not supported for SSO servers.\n"+
 					"SSO connections are established when your session starts. "+
@@ -226,7 +234,7 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 			p.aggregator.authMetrics.RecordLoginFailure(serverName, sub, "issuer_discovery_failed")
 		}
 		return &api.CallToolResult{
-			Content: []interface{}{fmt.Sprintf(
+			Content: []any{fmt.Sprintf(
 				"Cannot authenticate to '%s': RFC 9728 protected resource metadata not found. "+
 					"On the MCPServer set spec.auth.type=oauth and spec.auth.authorizationServer.issuer "+
 					"to pin the OAuth issuer URL (e.g. https://cf.mcp.atlassian.com for Atlassian's hosted MCP). "+
@@ -272,7 +280,7 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 				p.aggregator.authMetrics.RecordLoginFailure(serverName, sub, "connection_failed")
 			}
 			return &api.CallToolResult{
-				Content: []interface{}{fmt.Sprintf(
+				Content: []any{fmt.Sprintf(
 					"Failed to connect to '%s': %v\n\nPlease try again or check the server status.",
 					serverName, connectErr,
 				)},
@@ -289,14 +297,14 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 			p.aggregator.authMetrics.RecordLoginFailure(serverName, sub, "challenge_creation_failed")
 		}
 		return &api.CallToolResult{
-			Content: []interface{}{fmt.Sprintf("Failed to create authentication challenge: %v", err)},
+			Content: []any{fmt.Sprintf("Failed to create authentication challenge: %v", err)},
 			IsError: true,
 		}, nil
 	}
 
 	// Return the auth challenge as a tool result with the sign-in link
 	return &api.CallToolResult{
-		Content: []interface{}{fmt.Sprintf(
+		Content: []any{fmt.Sprintf(
 			"Authentication Required\n\n"+
 				"Server: %s\n"+
 				"Status: %s\n\n"+
@@ -315,11 +323,11 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 //
 // Security features:
 //   - Metrics: Tracks logout attempts and successes for monitoring
-func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
+func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string]any) (*api.CallToolResult, error) {
 	serverName, ok := args["server"].(string)
 	if !ok || serverName == "" {
 		return &api.CallToolResult{
-			Content: []interface{}{"Error: 'server' argument is required and must be a string"},
+			Content: []any{"Error: 'server' argument is required and must be a string"},
 			IsError: true,
 		}, nil
 	}
@@ -338,7 +346,7 @@ func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string
 	serverInfo, exists := p.aggregator.registry.GetServerInfo(serverName)
 	if !exists {
 		return &api.CallToolResult{
-			Content: []interface{}{fmt.Sprintf("Server '%s' not found.", serverName)},
+			Content: []any{fmt.Sprintf("Server '%s' not found.", serverName)},
 			IsError: true,
 		}, nil
 	}
@@ -348,7 +356,7 @@ func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string
 		logging.Debug("AuthTools", "Rejecting manual auth_logout for SSO server %s (session %s)",
 			serverName, logging.TruncateIdentifier(sessionID))
 		return &api.CallToolResult{
-			Content: []interface{}{fmt.Sprintf(
+			Content: []any{fmt.Sprintf(
 				"Server '%s' uses SSO and is managed automatically.\n\n"+
 					"Manual logout via core_auth_logout is not supported for SSO servers.\n"+
 					"To disconnect, re-authenticate to muster or contact your administrator.",
@@ -402,7 +410,7 @@ func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string
 	}
 
 	return &api.CallToolResult{
-		Content: []interface{}{fmt.Sprintf(
+		Content: []any{fmt.Sprintf(
 			"Successfully logged out from '%s'.\n\n"+
 				"The server's tools are now hidden. Use core_auth_login with server='%s' to re-authenticate.",
 			serverName, serverName,
