@@ -2,7 +2,7 @@ name: "localmint-broker-obo-downstream"
 category: "behavioral"
 concept: "mcpserver"
 description: |
-  End-to-end downstream acceptance of an OBO broker-minted token. A human + agent
+  End-to-end downstream acceptance of an OBO self-issued token. A human + agent
   delegated exchange mints a cluster-b token carrying the act delegation chain,
   which a protected backend (trusting muster's JWKS) accepts and echoes, proving
   the act chain survives to the downstream.
@@ -69,7 +69,7 @@ steps:
     args:
       subject_token_ref: "human-token"
       actor_token_ref: "agent-token"
-      audience: "cluster-b"
+      resource: "cluster-b"
       name: "cluster-b-token"
     expected:
       success: true

@@ -123,8 +123,7 @@ func buildTokenExchangeBrokerConfig(broker *MusterBrokerConfig) map[string]inter
 	}
 
 	return map[string]interface{}{
-		"targets":        targets,
-		"delegateToSelf": broker.DelegateToSelf,
+		"targets": targets,
 	}
 }
 

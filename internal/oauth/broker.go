@@ -24,6 +24,10 @@ import (
 // audience → provider dispatch and delegates minting to the registered
 // CredentialProvider.
 //
+// Only the downstream OIDC/Dex exchange (oidc-exchange) targets are served here:
+// local self-issuance moved to mcp-oauth's credential-less self-issued path
+// (Server.SelfIssuedExchange), which never reaches the host Exchanger.
+//
 // The exchanger instance is deliberately separate from the OAuth manager's
 // internal SSO exchanger: broker targets carry their own scope sets (e.g. the
 // Dex cross-client scope for kube-apiserver-bound audiences), and sharing the
@@ -34,14 +38,11 @@ import (
 type BrokerExchanger struct {
 	cfg       config.TokenExchangeBrokerConfig
 	exchanger *TokenExchanger
-	localMint *oauthserver.LocalMintExchanger
 	registry  *providerRegistry
 }
 
 // NewBrokerExchanger creates a BrokerExchanger for the configured targets.
-// localMint may be nil when JWT mode is disabled; local-mint targets will
-// return a configuration error at Mint time in that case.
-func NewBrokerExchanger(cfg config.TokenExchangeBrokerConfig, localMint *oauthserver.LocalMintExchanger) *BrokerExchanger {
+func NewBrokerExchanger(cfg config.TokenExchangeBrokerConfig) *BrokerExchanger {
 	// Mirror the OAuth manager's internal-deployment handling: mcp-oauth's
 	// private-IP-allowed client bypasses the process-wide augmented transport
 	// (--extra-ca-file), so hand the exchanger an explicit client backed by
@@ -57,8 +58,7 @@ func NewBrokerExchanger(cfg config.TokenExchangeBrokerConfig, localMint *oauthse
 			AllowPrivateIP: cfg.AllowPrivateIP,
 			HTTPClient:     httpClient,
 		}),
-		localMint: localMint,
-		registry:  defaultProviderRegistry(),
+		registry: defaultProviderRegistry(),
 	}
 }
 
@@ -75,7 +75,6 @@ func (b *BrokerExchanger) Exchange(ctx context.Context, req *oauthserver.Exchang
 	deps := providerDeps{
 		exchanger: b.exchanger,
 		defaultNS: b.cfg.DefaultSecretNamespace,
-		localMint: b.localMint,
 	}
 	provider, err := b.registry.forTarget(req.Audience, target, deps)
 	if err != nil {

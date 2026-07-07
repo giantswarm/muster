@@ -2,12 +2,12 @@ name: "localmint-broker-obo-claims"
 category: "behavioral"
 concept: "mcpserver"
 description: |
-  OBO (on-behalf-of) delegated local-mint broker path. A human subject token and
-  an agent ServiceAccount actor token are exchanged at muster's /oauth/token
-  broker.
+  OBO (on-behalf-of) delegated self-issued local-mint path. A human subject token
+  and an agent ServiceAccount actor token are exchanged at muster's /oauth/token
+  self-issued endpoint (credential-less, keyed on the RFC 8707 resource).
 
   Asserts the minted token carries sub = the human, act.sub = the agent SA (the
-  RFC 8693 delegation chain), aud = the requested audience, and the human's groups.
+  RFC 8693 delegation chain), aud = the requested resource, and the human's groups.
 tags: ["oauth", "broker", "local-mint", "obo", "delegation", "token-exchange", "rfc8693"]
 timeout: "2m"
 
@@ -54,16 +54,16 @@ steps:
       success: true
 
   - id: "exchange-obo"
-    description: "Delegated exchange: agent acts on behalf of the human for cluster-b"
+    description: "Delegated self-issued exchange: agent acts on behalf of the human for cluster-b"
     tool: "test_broker_token_exchange"
     args:
       subject_token_ref: "human-token"
       actor_token_ref: "agent-token"
-      audience: "cluster-b"
+      resource: "cluster-b"
     expected:
       success: true
       contains:
         - "alice@giantswarm.io"                       # minted sub == human
         - "system:serviceaccount:kagent:sre-agent"    # act.sub == agent SA
-        - "cluster-b"                                  # minted aud
+        - "cluster-b"                                  # minted aud == requested resource
         - "customer:giantswarm:admins"                # human groups preserved
