@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- The e2e basic suite verifies workload cluster connectivity and muster deployment readiness (was an empty scaffold).
+
+### Changed
+
+- ATS chart tests use the Go test contract (`go test -tags=smoke`) instead of pytest, and the smoke scenario runs in CI (previously all ATS scenarios were skipped).
+
 ### Fixed
 
 - Team ownership label. `application.giantswarm.io/team` now renders `bumblebee` instead of an empty string: the labels helper looked up the annotation under the wrong key (`application.giantswarm.io/team`) instead of the OCI key `io.giantswarm.application.team` set in `Chart.yaml`.
