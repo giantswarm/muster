@@ -170,14 +170,11 @@ func (h *TestToolsHandler) handleMintToken(_ context.Context, args map[string]in
 }
 
 // handleBrokerTokenExchange POSTs an RFC 8693 token-exchange request to muster's
-// /oauth/token self-issued path (credential-less, resource-keyed) and, on
-// success, verifies the minted JWT against muster's JWKS and returns its claims.
-// The request carries no `audience` parameter (that would select the brokered
-// path, which requires an authenticated confidential client); the RFC 8707
-// `resource` selects the target and becomes the minted token's aud. On failure
-// it returns the OAuth error so negative scenarios can assert on it.
-// args: subject_token_ref, resource (required); actor_token_ref,
-// subject_token_type, name optional.
+// /oauth/token broker (workload path, no client credentials) and, on success,
+// verifies the minted JWT against muster's JWKS and returns its claims. On
+// failure it returns the OAuth error so negative scenarios can assert on it.
+// args: subject_token_ref, audience (required); actor_token_ref,
+// subject_token_type, resource, name optional.
 func (h *TestToolsHandler) handleBrokerTokenExchange(ctx context.Context, args map[string]interface{}) (interface{}, error) {
 	if h.currentInstance == nil {
 		return nil, fmt.Errorf("current instance not available")
@@ -191,9 +188,9 @@ func (h *TestToolsHandler) handleBrokerTokenExchange(ctx context.Context, args m
 	if !ok {
 		return nil, fmt.Errorf("no minted token named %q (mint it with test_mint_token first)", subjectRef)
 	}
-	resource, _ := args["resource"].(string)
-	if resource == "" {
-		return nil, fmt.Errorf("resource argument is required")
+	audience, _ := args["audience"].(string)
+	if audience == "" {
+		return nil, fmt.Errorf("audience argument is required")
 	}
 
 	subjectTokenType, _ := args["subject_token_type"].(string)
@@ -205,7 +202,7 @@ func (h *TestToolsHandler) handleBrokerTokenExchange(ctx context.Context, args m
 		"grant_type":         {"urn:ietf:params:oauth:grant-type:token-exchange"},
 		"subject_token":      {subjectToken},
 		"subject_token_type": {subjectTokenType},
-		"resource":           {resource},
+		"audience":           {audience},
 	}
 	if actorRef, _ := args["actor_token_ref"].(string); actorRef != "" {
 		actorToken, ok := h.mintedTokens[actorRef]
@@ -214,6 +211,9 @@ func (h *TestToolsHandler) handleBrokerTokenExchange(ctx context.Context, args m
 		}
 		form.Set("actor_token", actorToken)
 		form.Set("actor_token_type", jwtTokenTypeURN)
+	}
+	if resource, _ := args["resource"].(string); resource != "" {
+		form.Set("resource", resource)
 	}
 
 	baseURL := pkgoauth.NormalizeServerURL(h.currentInstance.Endpoint)

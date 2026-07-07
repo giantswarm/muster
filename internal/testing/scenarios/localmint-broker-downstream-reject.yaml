@@ -2,8 +2,8 @@ name: "localmint-broker-downstream-reject"
 category: "behavioral"
 concept: "mcpserver"
 description: |
-  A self-issued token bound to resource cluster-c is presented to a backend that
-  only accepts the cluster-b audience. The backend must reject it (401) on the
+  A broker-minted token bound to cluster-c is presented to a backend that only
+  accepts the cluster-b audience. The backend must reject it (401) on the
   audience check, proving downstream audience binding is enforced.
 tags: ["oauth", "broker", "local-mint", "downstream", "negative", "audience-binding"]
 timeout: "2m"
@@ -56,11 +56,11 @@ steps:
       success: true
 
   - id: "exchange-wrong-audience"
-    description: "Mint a token bound to resource cluster-c"
+    description: "Mint a token bound to cluster-c"
     tool: "test_broker_token_exchange"
     args:
       subject_token_ref: "sa-token"
-      resource: "cluster-c"
+      audience: "cluster-c"
       name: "cluster-c-token"
     expected:
       success: true

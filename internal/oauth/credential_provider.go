@@ -51,7 +51,9 @@ type MintRequest struct {
 
 	// SubjectIdentity is the full validated subject identity: subject, issuer,
 	// allowed scopes, and Claims carrying email/email_verified/groups plus any
-	// prior RFC 8693 act chain. Nil on paths that only need the Subject string.
+	// prior RFC 8693 act chain. The local-mint provider forwards it so the minted
+	// token reflects the subject's identity claims and preserves a multi-hop act
+	// chain. Nil on paths that only need the Subject string.
 	SubjectIdentity *oauthserver.SubjectIdentity
 }
 
@@ -70,6 +72,9 @@ type MintResult struct {
 type providerDeps struct {
 	exchanger *TokenExchanger
 	defaultNS string
+	// localMint is the mcp-oauth local JWT signer used by TargetTypeLocalMint.
+	// Nil when JWT mode is disabled; the localMintProvider returns an error in that case.
+	localMint *oauthserver.LocalMintExchanger
 }
 
 // providerFactory constructs a CredentialProvider for a single broker target.
@@ -87,6 +92,9 @@ func defaultProviderRegistry() *providerRegistry {
 	r := &providerRegistry{factories: make(map[config.BrokerTargetType]providerFactory)}
 	r.factories[config.TargetTypeOIDCExchange] = func(target config.BrokerTargetConfig, deps providerDeps) CredentialProvider {
 		return &oidcExchangeProvider{target: target, exchanger: deps.exchanger, defaultNS: deps.defaultNS}
+	}
+	r.factories[config.TargetTypeLocalMint] = func(_ config.BrokerTargetConfig, deps providerDeps) CredentialProvider {
+		return &localMintProvider{exchanger: deps.localMint}
 	}
 	return r
 }

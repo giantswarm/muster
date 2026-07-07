@@ -35,65 +35,30 @@ func TestNewOAuthServerConfig_EnableJWTMode(t *testing.T) {
 	})
 }
 
-func TestNewOAuthServerConfig_TokenExchangeAllowedResources(t *testing.T) {
+func TestNewOAuthServerConfig_DelegateToSelf(t *testing.T) {
 	t.Parallel()
 
-	t.Run("local-mint targets extend the allowlist alongside the resource identifier", func(t *testing.T) {
+	t.Run("enabled binds default resource to ResourceIdentifier", func(t *testing.T) {
 		t.Parallel()
 		cfg := config.OAuthServerConfig{
 			BaseURL:            "https://muster.example.com",
 			ResourceIdentifier: "https://muster.example.com/mcp",
 			TokenExchangeBroker: config.TokenExchangeBrokerConfig{
-				Targets: map[string]config.BrokerTargetConfig{
-					"cluster-b": {Type: config.TargetTypeLocalMint},
-					"cluster-c": {Type: config.TargetTypeLocalMint},
-					// An oidc-exchange target routes through the host Exchanger, not
-					// the self-issued path, so it must not appear in the allowlist.
-					"cluster-oidc": {DexTokenEndpoint: "https://dex.example.com/token", ConnectorID: "main"},
-				},
+				DelegateToSelf: true,
 			},
 		}
 		got := newOAuthServerConfig(cfg, time.Hour)
-		require.ElementsMatch(t, []string{"https://muster.example.com/mcp", "cluster-b", "cluster-c"}, got.TokenExchangeAllowedResources)
+		require.Equal(t, "https://muster.example.com/mcp", got.DelegationDefaultResource)
 	})
 
-	// The self-issued /oauth/token grant is inherent to JWT mode and cannot be
-	// toggled off, and an empty TokenExchangeAllowedResources disables the check
-	// (any resource accepted). The allowlist must therefore never be empty, even
-	// when no local-mint target is configured, so the credential-less endpoint
-	// stays constrained to muster's own resource identifier.
-	t.Run("no local-mint targets still constrains to the resource identifier", func(t *testing.T) {
+	t.Run("disabled leaves default resource empty", func(t *testing.T) {
 		t.Parallel()
 		cfg := config.OAuthServerConfig{
 			BaseURL:            "https://muster.example.com",
 			ResourceIdentifier: "https://muster.example.com/mcp",
 		}
 		got := newOAuthServerConfig(cfg, time.Hour)
-		require.Equal(t, []string{"https://muster.example.com/mcp"}, got.TokenExchangeAllowedResources)
-	})
-
-	t.Run("only oidc-exchange targets still constrains to the resource identifier", func(t *testing.T) {
-		t.Parallel()
-		cfg := config.OAuthServerConfig{
-			BaseURL:            "https://muster.example.com",
-			ResourceIdentifier: "https://muster.example.com/mcp",
-			TokenExchangeBroker: config.TokenExchangeBrokerConfig{
-				Targets: map[string]config.BrokerTargetConfig{
-					"cluster-oidc": {DexTokenEndpoint: "https://dex.example.com/token", ConnectorID: "main"},
-				},
-			},
-		}
-		got := newOAuthServerConfig(cfg, time.Hour)
-		require.Equal(t, []string{"https://muster.example.com/mcp"}, got.TokenExchangeAllowedResources)
-	})
-
-	t.Run("falls back to the issuer when no explicit resource identifier is set", func(t *testing.T) {
-		t.Parallel()
-		cfg := config.OAuthServerConfig{
-			BaseURL: "https://muster.example.com",
-		}
-		got := newOAuthServerConfig(cfg, time.Hour)
-		require.Equal(t, []string{"https://muster.example.com"}, got.TokenExchangeAllowedResources)
+		require.Empty(t, got.DelegationDefaultResource)
 	})
 }
 
@@ -149,7 +114,7 @@ func TestBuildOAuthServerOptions_NoErrorWhenFieldsSet(t *testing.T) {
 		},
 		TrustedProxyCIDRs: []string{"127.0.0.1/32"},
 	}
-	opts, err := buildOAuthServerOptions(cfg, nil, nil)
+	opts, err := buildOAuthServerOptions(cfg, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, opts)
 }
@@ -167,7 +132,7 @@ func TestBuildOAuthServerOptions_AllowPrivateIPJWKSNoError(t *testing.T) {
 			},
 		},
 	}
-	opts, err := buildOAuthServerOptions(cfg, nil, nil)
+	opts, err := buildOAuthServerOptions(cfg, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, opts)
 }
@@ -178,7 +143,7 @@ func TestBuildOAuthServerOptions_NoErrorWhenFieldsAbsent(t *testing.T) {
 	cfg := config.OAuthServerConfig{
 		BaseURL: "https://muster.example.com",
 	}
-	opts, err := buildOAuthServerOptions(cfg, nil, nil)
+	opts, err := buildOAuthServerOptions(cfg, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, opts)
 }
@@ -239,7 +204,7 @@ func TestBuildOAuthServerOptions_BrokerRequiresTrustedIssuers(t *testing.T) {
 			},
 		},
 	}
-	_, err := buildOAuthServerOptions(cfg, nil, nil)
+	_, err := buildOAuthServerOptions(cfg, nil, nil, nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "trustedIssuers")
 
@@ -250,7 +215,7 @@ func TestBuildOAuthServerOptions_BrokerRequiresTrustedIssuers(t *testing.T) {
 			AllowedAudiences: []string{"portal-frontend"},
 		},
 	}
-	opts, err := buildOAuthServerOptions(cfg, nil, nil)
+	opts, err := buildOAuthServerOptions(cfg, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, opts)
 }
@@ -262,7 +227,7 @@ func TestBuildOAuthServerOptions_InvalidCIDRReturnsError(t *testing.T) {
 		BaseURL:           "https://muster.example.com",
 		TrustedProxyCIDRs: []string{"not-a-cidr"},
 	}
-	_, err := buildOAuthServerOptions(cfg, nil, nil)
+	_, err := buildOAuthServerOptions(cfg, nil, nil, nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid CIDR")
 }

@@ -761,6 +761,7 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 	// operator's extra CA when the issuer is private-IP. nil keeps system-pool.
 	serverConfig.JWKSRootCAs = caPool
 
+	var localMint *oauthserver.LocalMintExchanger
 	if cfg.EnableJWTMode {
 		key, kid, alg, err := loadSigningKey(cfg.JWTSigningKeyFile)
 		if err != nil {
@@ -770,12 +771,24 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 		serverConfig.AccessTokenSigningKeyID = kid
 		serverConfig.AccessTokenSigningAlgorithm = alg
 		logger.Info("JWT mode enabled", "alg", alg, "kid", kid)
-		// Local self-issuance uses the same signing material: the server signs the
-		// self-issued exchange tokens with the access-token key configured above,
-		// so no separate exchanger is constructed here.
+
+		// Construct a LocalMintExchanger from the same signing material so that
+		// local-mint broker targets sign tokens with muster's own access-token key.
+		mintCfg := &oauthserver.Config{
+			Issuer:                      cfg.BaseURL,
+			AccessTokenFormat:           oauthserver.AccessTokenFormatJWT,
+			AccessTokenSigningKey:       key,
+			AccessTokenSigningKeyID:     kid,
+			AccessTokenSigningAlgorithm: alg,
+			AccessTokenTTL:              int64(DefaultAccessTokenTTL / time.Second),
+		}
+		localMint, err = oauthserver.NewLocalMintExchanger(mintCfg)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to create local mint exchanger: %w", err)
+		}
 	}
 
-	builtOpts, err := buildOAuthServerOptions(cfg, logger, caPool)
+	builtOpts, err := buildOAuthServerOptions(cfg, logger, localMint, caPool)
 	if err != nil {
 		return nil, nil, nil, err
 	}

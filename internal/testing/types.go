@@ -156,9 +156,11 @@ type MusterBrokerConfig struct {
 
 	// Targets maps an audience name to a local-mint target. Value is the target
 	// type; only "local-mint" is meaningful here (empty defaults to local-mint).
-	// Local-mint targets become the allowed RFC 8707 resource values of the
-	// self-issued exchange (mcp-oauth's Config.TokenExchangeAllowedResources).
 	Targets map[string]string `yaml:"targets"`
+
+	// DelegateToSelf lets a delegated exchange omit the RFC 8707 resource; muster
+	// binds the minted token to its own resourceIdentifier.
+	DelegateToSelf bool `yaml:"delegate_to_self,omitempty"`
 }
 
 // BrokerTrustedIssuerConfig references a mock OAuth server as a trusted issuer for

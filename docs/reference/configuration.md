@@ -158,33 +158,29 @@ estimate.
 | `allowedClaims` | `map[string]string` | Required claim name→pattern pairs. Keys are JWT claim names; values are exact strings or globs where `*` spans any chars including `/` and `?` matches one char. Absent or non-string claims are rejected. Empty means no restriction. |
 | `allowPrivateIPJWKS` | `bool` | Allow `jwksUrl` to resolve to a private or loopback address. Required for in-cluster Kubernetes SA trust where the JWKS endpoint is `https://kubernetes.default.svc/openid/v1/jwks`. Emits a startup warning when set. Default: `false`. |
 
-#### Token Exchange (`tokenExchangeBroker`)
+#### Brokered Token Exchange (`tokenExchangeBroker`)
 
-Configures muster's RFC 8693 token exchange. Subject (and optional actor) tokens are validated against `trustedIssuers`, so at least one issuer entry covering the caller's tokens is required. Each target selects one of two flows via its `type`:
+Exposes muster's RFC 8693 token exchange to external confidential clients: a broker client POSTs a token-exchange request with an `audience` parameter to `/oauth/token` and receives a token minted by the audience's downstream Dex (instead of a muster-issued JWT). Subject tokens are validated against `trustedIssuers`, so at least one issuer entry covering the broker client's tokens is required.
 
-- **`oidc-exchange` (brokered, the default):** an external **confidential client** POSTs a token-exchange request carrying an `audience` parameter to `/oauth/token` and receives a token minted by that audience's downstream Dex (not a muster-issued JWT). Client authentication is mandatory and only confidential clients are accepted; audiences are gated by the per-client allowlist; no refresh tokens are issued (`expires_in` is bounded by the downstream token's expiry — clients re-exchange); DPoP is rejected.
-- **`local-mint` (self-issued):** a **credential-less** caller POSTs a token-exchange request carrying an RFC 8707 `resource` parameter (and **no** `audience`) to `/oauth/token` and receives a JWT muster signs with its own access-token key (requires `enableJWTMode`). The `resource` becomes the minted token's `aud`, defaulting to `resourceIdentifier` when omitted. The set of `local-mint` target names is the allowlist of permitted `resource` values (plus muster's own `resourceIdentifier`); an unlisted resource is rejected with `invalid_target`. A subject asserting an `email` claim without `email_verified: true` is refused. This is also the path muster's aggregator uses in-process to mint per-backend tokens for `localMint` downstream auth.
-
-> **Migration note (mcp-oauth v1.0.1):** `local-mint` targets are no longer audience-routed through the broker. A caller now sends `resource` instead of `audience`, and the request must **not** carry client credentials (an `audience`-carrying request selects the brokered path, which requires a confidential client). The removed `delegateToSelf` knob is now the default: a self-issued exchange with no `resource` binds the token to `resourceIdentifier`.
+Policy enforced by the broker path (mcp-oauth): client authentication is mandatory and only confidential clients are accepted; audiences are gated by the per-client allowlist; no refresh tokens are issued (`expires_in` is bounded by the downstream token's expiry — clients re-exchange); DPoP is rejected.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `clientAudiences` | `map[string][]string` | `{}` | Per-client audience allowlist for the brokered path: broker client ID → audiences it may request. A miss returns `invalid_target`. |
-| `targets` | `map[string]BrokerTargetConfig` | `{}` | Target name → target config. For `oidc-exchange` this is the RFC 8693 audience (e.g. a cluster name) resolved to a downstream Dex exchange; for `local-mint` this is a permitted RFC 8707 `resource` value. |
-| `allowPrivateIP` | `bool` | `false` | Allow downstream token endpoints to resolve to private/loopback IPs. Reduces SSRF protection; internal deployments only. Applies to `oidc-exchange` targets. |
+| `clientAudiences` | `map[string][]string` | `{}` | Per-client audience allowlist: broker client ID → audiences it may request. A miss returns `invalid_target`. |
+| `targets` | `map[string]BrokerTargetConfig` | `{}` | Audience name (e.g. a cluster name) → downstream Dex exchange target. |
+| `allowPrivateIP` | `bool` | `false` | Allow downstream token endpoints to resolve to private/loopback IPs. Reduces SSRF protection; internal deployments only. |
 
 **BrokerTargetConfig fields:**
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `type` | `string` | `oidc-exchange` (default) or `local-mint`. `local-mint` requires `enableJWTMode` and needs none of the Dex fields below. |
-| `dexTokenEndpoint` | `string` | Downstream Dex token endpoint URL (HTTPS). Required for `oidc-exchange`. |
-| `expectedIssuer` | `string` | Expected `iss` claim of the exchanged token. Derived from `dexTokenEndpoint` when empty. `oidc-exchange` only. |
-| `connectorId` | `string` | Downstream Dex OIDC connector that trusts the subject token's issuer. Required for `oidc-exchange`. |
-| `scopes` | `string` | Space-separated downstream scopes (default: `openid profile email groups`). Kubernetes-bound audiences must include the Dex cross-client scope for the apiserver's client, e.g. `audience:server:client_id:dex-k8s-authenticator` — without it the exchanged token's `aud` is the exchange client only, which the kube-apiserver rejects. The client-supplied RFC 8693 `scope` parameter is intentionally ignored. `oidc-exchange` only. |
-| `clientCredentialsSecretRef` | `object` | Kubernetes Secret with the downstream exchange client credentials: `name` (required), `namespace` (defaults to the muster namespace), `clientIdKey` (default `client-id`), `clientSecretKey` (default `client-secret`). `oidc-exchange` only. |
+| `dexTokenEndpoint` | `string` | Downstream Dex token endpoint URL (HTTPS). Required. |
+| `expectedIssuer` | `string` | Expected `iss` claim of the exchanged token. Derived from `dexTokenEndpoint` when empty. |
+| `connectorId` | `string` | Downstream Dex OIDC connector that trusts the subject token's issuer. Required. |
+| `scopes` | `string` | Space-separated downstream scopes (default: `openid profile email groups`). Kubernetes-bound audiences must include the Dex cross-client scope for the apiserver's client, e.g. `audience:server:client_id:dex-k8s-authenticator` — without it the exchanged token's `aud` is the exchange client only, which the kube-apiserver rejects. The client-supplied RFC 8693 `scope` parameter is intentionally ignored. |
+| `clientCredentialsSecretRef` | `object` | Kubernetes Secret with the downstream exchange client credentials: `name` (required), `namespace` (defaults to the muster namespace), `clientIdKey` (default `client-id`), `clientSecretKey` (default `client-secret`). |
 
-Example (`oidc-exchange`):
+Example:
 
 ```yaml
 aggregator:
@@ -204,34 +200,6 @@ aggregator:
             scopes: "openid profile email groups audience:server:client_id:dex-k8s-authenticator"
             clientCredentialsSecretRef:
               name: muster-token-exchange-cluster-a
-```
-
-Example (`local-mint`, self-issued):
-
-```yaml
-aggregator:
-  oauth:
-    server:
-      enableJWTMode: true
-      jwtSigningKeyFile: /etc/muster/access-token-signing-key.pem
-      resourceIdentifier: https://muster.example.com/mcp
-      trustedIssuers:
-        - issuer: https://workload-idp.example.com
-          jwksUrl: https://workload-idp.example.com/keys
-      tokenExchangeBroker:
-        targets:
-          cluster-b:
-            type: local-mint
-```
-
-A caller then exchanges a trusted-issuer subject token for a muster-signed token bound to `cluster-b`:
-
-```bash
-curl -s https://muster.example.com/mcp/oauth/token \
-  -d grant_type=urn:ietf:params:oauth:grant-type:token-exchange \
-  -d subject_token="$SUBJECT_JWT" \
-  -d subject_token_type=urn:ietf:params:oauth:token-type:jwt \
-  -d resource=cluster-b
 ```
 
 #### Private-IP OIDC Discovery (Dex)
