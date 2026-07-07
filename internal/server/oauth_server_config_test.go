@@ -38,7 +38,7 @@ func TestNewOAuthServerConfig_EnableJWTMode(t *testing.T) {
 func TestNewOAuthServerConfig_TokenExchangeAllowedResources(t *testing.T) {
 	t.Parallel()
 
-	t.Run("local-mint targets populate the allowed-resource allowlist", func(t *testing.T) {
+	t.Run("local-mint targets extend the allowlist alongside the resource identifier", func(t *testing.T) {
 		t.Parallel()
 		cfg := config.OAuthServerConfig{
 			BaseURL:            "https://muster.example.com",
@@ -54,17 +54,46 @@ func TestNewOAuthServerConfig_TokenExchangeAllowedResources(t *testing.T) {
 			},
 		}
 		got := newOAuthServerConfig(cfg, time.Hour)
-		require.ElementsMatch(t, []string{"cluster-b", "cluster-c"}, got.TokenExchangeAllowedResources)
+		require.ElementsMatch(t, []string{"https://muster.example.com/mcp", "cluster-b", "cluster-c"}, got.TokenExchangeAllowedResources)
 	})
 
-	t.Run("no local-mint targets leaves the allowlist empty", func(t *testing.T) {
+	// The self-issued /oauth/token grant is inherent to JWT mode and cannot be
+	// toggled off, and an empty TokenExchangeAllowedResources disables the check
+	// (any resource accepted). The allowlist must therefore never be empty, even
+	// when no local-mint target is configured, so the credential-less endpoint
+	// stays constrained to muster's own resource identifier.
+	t.Run("no local-mint targets still constrains to the resource identifier", func(t *testing.T) {
 		t.Parallel()
 		cfg := config.OAuthServerConfig{
 			BaseURL:            "https://muster.example.com",
 			ResourceIdentifier: "https://muster.example.com/mcp",
 		}
 		got := newOAuthServerConfig(cfg, time.Hour)
-		require.Empty(t, got.TokenExchangeAllowedResources)
+		require.Equal(t, []string{"https://muster.example.com/mcp"}, got.TokenExchangeAllowedResources)
+	})
+
+	t.Run("only oidc-exchange targets still constrains to the resource identifier", func(t *testing.T) {
+		t.Parallel()
+		cfg := config.OAuthServerConfig{
+			BaseURL:            "https://muster.example.com",
+			ResourceIdentifier: "https://muster.example.com/mcp",
+			TokenExchangeBroker: config.TokenExchangeBrokerConfig{
+				Targets: map[string]config.BrokerTargetConfig{
+					"cluster-oidc": {DexTokenEndpoint: "https://dex.example.com/token", ConnectorID: "main"},
+				},
+			},
+		}
+		got := newOAuthServerConfig(cfg, time.Hour)
+		require.Equal(t, []string{"https://muster.example.com/mcp"}, got.TokenExchangeAllowedResources)
+	})
+
+	t.Run("falls back to the issuer when no explicit resource identifier is set", func(t *testing.T) {
+		t.Parallel()
+		cfg := config.OAuthServerConfig{
+			BaseURL: "https://muster.example.com",
+		}
+		got := newOAuthServerConfig(cfg, time.Hour)
+		require.Equal(t, []string{"https://muster.example.com"}, got.TokenExchangeAllowedResources)
 	})
 }
 

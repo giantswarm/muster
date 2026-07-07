@@ -55,14 +55,26 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, refreshTokenTTL time.Dur
 		// Only consulted when an Exchanger is registered (see
 		// buildOAuthServerOptions); a miss returns invalid_target.
 		TokenExchangeClientAudiences: cfg.TokenExchangeBroker.ClientAudiences,
-		// Caps the RFC 8707 resource values the credential-less self-issued
-		// exchange may mint a muster-signed token for. muster's own
-		// ResourceIdentifier is always allowed; the configured local-mint targets
-		// are added here so an unlisted resource is rejected with invalid_target.
-		// An empty list would disable the check, so local-mint targets must be
-		// enumerated for the target allowlist to be enforced.
-		TokenExchangeAllowedResources: cfg.TokenExchangeBroker.LocalMintResources(),
 	}
+	// Cap the RFC 8707 resource values the credential-less self-issued exchange
+	// (mcp-oauth's Server.SelfIssuedExchange, reachable at /oauth/token without
+	// client credentials) may mint a muster-signed token for.
+	//
+	// This list must never be empty. mcp-oauth treats an empty
+	// TokenExchangeAllowedResources as "any resource accepted" (server/config.go),
+	// so an empty list would let any subject holding a trusted-issuer token mint a
+	// muster-signed JWT bound to an arbitrary aud — bypassing the confidential
+	// client and per-client audience allowlist the brokered path enforces. The
+	// self-issued grant is inherent to JWT mode and cannot be toggled off, so we
+	// always seed the allowlist with muster's own resource identifier (which
+	// SelfIssuedExchange accepts anyway as the default aud) to keep the check
+	// enforced even when no local-mint targets are configured. Declared local-mint
+	// targets extend it; any other resource is rejected with invalid_target.
+	allowedResources := cfg.TokenExchangeBroker.LocalMintResources()
+	if id := result.GetResourceIdentifier(); id != "" {
+		allowedResources = append([]string{id}, allowedResources...)
+	}
+	result.TokenExchangeAllowedResources = allowedResources
 	if cfg.AllowedOrigins != "" {
 		result.CORS.AllowedOrigins = strings.Split(cfg.AllowedOrigins, ",")
 		for i, o := range result.CORS.AllowedOrigins {
