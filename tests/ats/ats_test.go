@@ -1,10 +1,11 @@
-//go:build smoke || functional || upgrade
+//go:build smoke || upgrade
 
 package ats
 
 import (
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -13,6 +14,8 @@ import (
 
 	"github.com/giantswarm/muster/tests/assertions"
 )
+
+const deploymentReadyTimeout = 3 * time.Minute
 
 // newClusterClient builds a controller-runtime client from the kubeconfig
 // ATS hands to test code, per app-test-suite docs/TEST_CONTRACT.md.
@@ -39,4 +42,13 @@ func newTarget(t *testing.T) assertions.Target {
 		ReleaseName: releaseName,
 		AppVersion:  os.Getenv("ATS_CHART_VERSION"),
 	}
+}
+
+func TestClusterReachable(t *testing.T) {
+	require.NoError(t, assertions.ClusterReachable(t.Context(), newClusterClient(t)))
+}
+
+func TestDeploymentReady(t *testing.T) {
+	err := assertions.DeploymentReady(t.Context(), newClusterClient(t), newTarget(t), deploymentReadyTimeout)
+	require.NoError(t, err)
 }
