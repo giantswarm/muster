@@ -2,10 +2,9 @@ name: "localmint-broker-negative-audience"
 category: "behavioral"
 concept: "mcpserver"
 description: |
-  Negative self-issued local-mint path. The exchange requests resource cluster-c,
-  which is not a configured local-mint target (only cluster-b is), so it falls
-  outside mcp-oauth's TokenExchangeAllowedResources. muster must reject it with
-  the OAuth error invalid_target and mint no token.
+  Negative local-mint broker path. The exchange requests audience cluster-c,
+  which is not a configured broker target (only cluster-b is). muster's broker
+  must reject it with the OAuth error invalid_target and mint no token.
 tags: ["oauth", "broker", "local-mint", "negative", "token-exchange", "rfc8693"]
 timeout: "2m"
 
@@ -40,12 +39,12 @@ steps:
     expected:
       success: true
 
-  - id: "exchange-disallowed-resource"
-    description: "Request a resource that is not a configured local-mint target"
+  - id: "exchange-disallowed-audience"
+    description: "Request an audience the workload was not granted"
     tool: "test_broker_token_exchange"
     args:
       subject_token_ref: "sa-token"
-      resource: "cluster-c"
+      audience: "cluster-c"
     expected:
       success: false
       error_contains:

@@ -384,6 +384,14 @@ type TokenExchangeBrokerConfig struct {
 	// private address.
 	AllowPrivateIP bool `yaml:"allowPrivateIP,omitempty"`
 
+	// DelegateToSelf lets a delegated (on-behalf-of) exchange omit the RFC 8707
+	// resource: muster binds the minted token to its own ResourceIdentifier so an
+	// agent STS client that cannot set a resource still receives a token muster
+	// accepts back and re-mints per backend on the localMint path. Only the
+	// delegation path (actor_token present) is affected; a resource-less plain
+	// exchange still errors. Requires ResourceIdentifier. Default false.
+	DelegateToSelf bool `yaml:"delegateToSelf,omitempty"`
+
 	// DefaultSecretNamespace is the namespace used for target credential
 	// secret refs that do not set an explicit namespace. Populated from the
 	// muster namespace by the serve command; not user-facing config.
@@ -393,35 +401,6 @@ type TokenExchangeBrokerConfig struct {
 // Enabled reports whether brokered token exchange is configured.
 func (c TokenExchangeBrokerConfig) Enabled() bool {
 	return len(c.Targets) > 0
-}
-
-// LocalMintResources returns the audience keys of the local-mint targets. These
-// are the RFC 8707 resource values the credential-less self-issued exchange
-// (mcp-oauth's Server.SelfIssuedExchange) may mint a muster-signed token for, on
-// top of muster's own ResourceIdentifier. They populate mcp-oauth's
-// Config.TokenExchangeAllowedResources so an unlisted resource is rejected with
-// invalid_target.
-func (c TokenExchangeBrokerConfig) LocalMintResources() []string {
-	var resources []string
-	for audience, target := range c.Targets {
-		if target.Type == TargetTypeLocalMint {
-			resources = append(resources, audience)
-		}
-	}
-	return resources
-}
-
-// HasBrokeredTargets reports whether any target routes through the host
-// Exchanger (the downstream OIDC/Dex exchange, i.e. a non-local-mint target).
-// Only then does muster register an Exchanger; local-mint targets are served by
-// the self-issued path, which never reaches the Exchanger.
-func (c TokenExchangeBrokerConfig) HasBrokeredTargets() bool {
-	for _, target := range c.Targets {
-		if target.Type != TargetTypeLocalMint {
-			return true
-		}
-	}
-	return false
 }
 
 // BrokerTargetConfig describes one downstream target of the token broker.

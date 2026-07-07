@@ -55,26 +55,12 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, refreshTokenTTL time.Dur
 		// Only consulted when an Exchanger is registered (see
 		// buildOAuthServerOptions); a miss returns invalid_target.
 		TokenExchangeClientAudiences: cfg.TokenExchangeBroker.ClientAudiences,
+		// Enables the credential-less workload-authenticated exchange on the HTTP
+		// /oauth/token endpoint (the agent STS path), authenticated by the subject
+		// and actor tokens themselves. The in-process localMint path does not
+		// consult this; the HTTP path does.
+		EnableWorkloadTokenExchange: cfg.TokenExchangeBroker.Enabled(),
 	}
-	// Cap the RFC 8707 resource values the credential-less self-issued exchange
-	// (mcp-oauth's Server.SelfIssuedExchange, reachable at /oauth/token without
-	// client credentials) may mint a muster-signed token for.
-	//
-	// This list must never be empty. mcp-oauth treats an empty
-	// TokenExchangeAllowedResources as "any resource accepted" (server/config.go),
-	// so an empty list would let any subject holding a trusted-issuer token mint a
-	// muster-signed JWT bound to an arbitrary aud — bypassing the confidential
-	// client and per-client audience allowlist the brokered path enforces. The
-	// self-issued grant is inherent to JWT mode and cannot be toggled off, so we
-	// always seed the allowlist with muster's own resource identifier (which
-	// SelfIssuedExchange accepts anyway as the default aud) to keep the check
-	// enforced even when no local-mint targets are configured. Declared local-mint
-	// targets extend it; any other resource is rejected with invalid_target.
-	allowedResources := cfg.TokenExchangeBroker.LocalMintResources()
-	if id := result.GetResourceIdentifier(); id != "" {
-		allowedResources = append([]string{id}, allowedResources...)
-	}
-	result.TokenExchangeAllowedResources = allowedResources
 	if cfg.AllowedOrigins != "" {
 		result.CORS.AllowedOrigins = strings.Split(cfg.AllowedOrigins, ",")
 		for i, o := range result.CORS.AllowedOrigins {
@@ -84,13 +70,19 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, refreshTokenTTL time.Dur
 	if cfg.EnableJWTMode {
 		result.AccessTokenFormat = oauthserver.AccessTokenFormatJWT
 	}
+	if cfg.TokenExchangeBroker.DelegateToSelf {
+		result.DelegationDefaultResource = cfg.ResourceIdentifier
+	}
 	return result
 }
 
 // buildOAuthServerOptions assembles the functional options for the mcp-oauth server.
 // instrumentation.New registers a Prometheus collector on the OTel global
 // provider, so a second call in the same process will race or duplicate-register.
-func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger, caPool *x509.CertPool) ([]oauth.ServerOption, error) {
+// localMint is non-nil only when JWT mode is enabled; it is forwarded into
+// NewBrokerExchanger so that local-mint broker targets can sign tokens with
+// muster's own access-token key.
+func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger, localMint *oauthserver.LocalMintExchanger, caPool *x509.CertPool) ([]oauth.ServerOption, error) {
 	inst, err := instrumentation.New(instrumentation.Config{
 		Enabled:         true,
 		ServiceName:     "muster",
@@ -128,23 +120,14 @@ func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger, 
 		if len(cfg.TrustedIssuers) == 0 {
 			return nil, fmt.Errorf("tokenExchangeBroker requires at least one trustedIssuers entry to validate subject tokens")
 		}
+		opts = append(opts, oauthserver.WithExchanger(musteroauth.NewBrokerExchanger(cfg.TokenExchangeBroker, localMint)))
 		brokerLogger := logger
 		if brokerLogger == nil {
 			brokerLogger = slog.Default()
 		}
-		// Only the downstream OIDC/Dex exchange (oidc-exchange) targets route
-		// through the host Exchanger. Local-mint targets are served by mcp-oauth's
-		// credential-less self-issued path, gated by TokenExchangeAllowedResources
-		// (see newOAuthServerConfig), and never reach the Exchanger.
-		if cfg.TokenExchangeBroker.HasBrokeredTargets() {
-			opts = append(opts, oauthserver.WithExchanger(musteroauth.NewBrokerExchanger(cfg.TokenExchangeBroker)))
-			brokerLogger.Info("Brokered RFC 8693 token exchange enabled",
-				"targets", len(cfg.TokenExchangeBroker.Targets),
-				"brokerClients", len(cfg.TokenExchangeBroker.ClientAudiences))
-		} else {
-			brokerLogger.Info("Self-issued RFC 8693 token exchange enabled",
-				"localMintResources", len(cfg.TokenExchangeBroker.LocalMintResources()))
-		}
+		brokerLogger.Info("Brokered RFC 8693 token exchange enabled",
+			"targets", len(cfg.TokenExchangeBroker.Targets),
+			"brokerClients", len(cfg.TokenExchangeBroker.ClientAudiences))
 	}
 
 	if len(cfg.TrustedProxyCIDRs) > 0 {

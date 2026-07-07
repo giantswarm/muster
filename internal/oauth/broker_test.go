@@ -52,7 +52,7 @@ func withCredentialsHandler(t *testing.T, h api.SecretCredentialsHandler) {
 }
 
 func newTestBroker(cfg config.TokenExchangeBrokerConfig, httpClient *http.Client) *BrokerExchanger {
-	b := NewBrokerExchanger(cfg)
+	b := NewBrokerExchanger(cfg, nil)
 	if httpClient != nil {
 		b.exchanger = NewTokenExchangerWithOptions(TokenExchangerOptions{
 			AllowPrivateIP: true,
