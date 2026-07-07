@@ -1,3 +1,4 @@
+test-executor: gotest
 app-tests-app-config-file: tests/test-values.yaml
 app-tests-deploy-namespace: muster
 
@@ -6,4 +7,6 @@ smoke-tests-cluster-type: kind
 upgrade-tests-cluster-type: kind
 upgrade-tests-app-catalog-url: https://giantswarm.github.io/giantswarm-catalog
 
-skip-steps: [smoke,functional,upgrade]
+# functional has no tests yet; upgrade needs a validated stable-version path
+# before it can gate CI.
+skip-steps: [functional,upgrade]

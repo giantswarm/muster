@@ -1,6 +1,6 @@
 module e2e
 
-go 1.26.3
+go 1.26.4
 
 // Needed because module declares its path as: dario.cat/mergo
 replace github.com/imdario/mergo => github.com/imdario/mergo v0.3.16
@@ -8,7 +8,12 @@ replace github.com/imdario/mergo => github.com/imdario/mergo v0.3.16
 // Needed because module declares its path as: al.essio.dev/pkg/shellescape
 replace github.com/alessio/shellescape => al.essio.dev/pkg/shellescape v1.6.0
 
-require github.com/giantswarm/apptest-framework/v5 v5.2.0
+require (
+	github.com/giantswarm/apptest-framework/v5 v5.2.0
+	github.com/giantswarm/muster/tests/assertions v0.0.0-00010101000000-000000000000
+	github.com/onsi/ginkgo/v2 v2.31.0
+	github.com/onsi/gomega v1.42.0
+)
 
 require (
 	dario.cat/mergo v1.0.2 // indirect
@@ -118,8 +123,6 @@ require (
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
 	github.com/monochromegane/go-gitignore v0.0.0-20200626010858-205db1a8cc00 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
-	github.com/onsi/ginkgo/v2 v2.31.0 // indirect
-	github.com/onsi/gomega v1.42.0 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/peterbourgon/diskv v2.0.1+incompatible // indirect
@@ -194,3 +197,5 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.0 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
+
+replace github.com/giantswarm/muster/tests/assertions => ../assertions
