@@ -373,6 +373,17 @@ type TokenExchangeBrokerConfig struct {
 	// secret refs that do not set an explicit namespace. Populated from the
 	// muster namespace by the serve command; not user-facing config.
 	DefaultSecretNamespace string `yaml:"-"`
+
+	// DefaultAgentAudience is a TEMPORARY WORKAROUND (giantswarm/muster#965).
+	// When an agent on-behalf-of exchange (grant_type=token-exchange with an
+	// actor_token) arrives with no `audience`, muster injects this audience so
+	// the exchange routes to the matching Targets entry and mints a Dex-signed
+	// token (e.g. aud=dex-k8s-authenticator) the kube-apiserver accepts, letting
+	// mcp-kubernetes pass it through without impersonation. kagent passes a nil
+	// audience today; once kagent-dev/kagent#2106 (Go) + #2107 (Python) add
+	// KAGENT_STS_AUDIENCE, kagent scopes the token itself and this field plus its
+	// injection middleware must be deleted. Empty disables the injection.
+	DefaultAgentAudience string `yaml:"defaultAgentAudience,omitempty"`
 }
 
 // Enabled reports whether brokered token exchange is configured.
