@@ -1,7 +1,6 @@
 package server
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -9,11 +8,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
@@ -220,63 +217,7 @@ func (s *OAuthHTTPServer) CreateMux() http.Handler {
 	// Setup MCP endpoint with OAuth protection
 	s.setupMCPRoutes(mux)
 
-	return s.withAgentExchangeAudience(mux)
-}
-
-// grantTypeTokenExchange is the RFC 8693 token-exchange grant.
-const grantTypeTokenExchange = "urn:ietf:params:oauth:grant-type:token-exchange"
-
-// maxTokenExchangeBody bounds the request body the audience-injection middleware
-// reads. Token-exchange requests are a handful of form fields; this only guards
-// against an unbounded read.
-const maxTokenExchangeBody = 1 << 20
-
-// withAgentExchangeAudience is a TEMPORARY WORKAROUND (giantswarm/muster#965).
-//
-// The glean apiserver trusts Dex only (aud=dex-k8s-authenticator). kagent's STS
-// exchange presents subject+actor but passes a nil audience, so muster self-issues
-// aud=<resourceIdentifier>, which the apiserver cannot validate — forcing
-// mcp-kubernetes to impersonate. Injecting the configured broker audience here
-// routes the exchange to the matching Targets entry, so muster mints a Dex-signed
-// dex-k8s-authenticator token that mcp-kubernetes passes through natively (no
-// impersonation). Once kagent-dev/kagent#2106 (Go) + #2107 (Python) add
-// KAGENT_STS_AUDIENCE, kagent scopes the token itself and this middleware plus
-// TokenExchangeBrokerConfig.DefaultAgentAudience must be deleted.
-//
-// The injection is scoped to on-behalf-of exchanges (an actor_token is present)
-// that carry no audience of their own, so a caller that requests an explicit
-// audience is never overridden.
-func (s *OAuthHTTPServer) withAgentExchangeAudience(next http.Handler) http.Handler {
-	audience := s.config.TokenExchangeBroker.DefaultAgentAudience
-	if audience == "" {
-		return next
-	}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if isTokenExchangePost(r) {
-			raw, err := io.ReadAll(io.LimitReader(r.Body, maxTokenExchangeBody))
-			_ = r.Body.Close()
-			if err == nil {
-				body := raw
-				if values, parseErr := url.ParseQuery(string(raw)); parseErr == nil &&
-					values.Get("grant_type") == grantTypeTokenExchange &&
-					values.Get("actor_token") != "" &&
-					values.Get("audience") == "" {
-					values.Set("audience", audience)
-					body = []byte(values.Encode())
-				}
-				r.Body = io.NopCloser(bytes.NewReader(body))
-				r.ContentLength = int64(len(body))
-				r.Header.Set("Content-Length", strconv.Itoa(len(body)))
-			}
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-// isTokenExchangePost reports whether r is a form-encoded POST to the token endpoint.
-func isTokenExchangePost(r *http.Request) bool {
-	return r.Method == http.MethodPost && r.URL.Path == "/oauth/token" &&
-		strings.HasPrefix(r.Header.Get("Content-Type"), "application/x-www-form-urlencoded")
+	return mux
 }
 
 // setupOAuthRoutes registers OAuth 2.1 endpoints on the mux.
