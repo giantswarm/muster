@@ -55,11 +55,6 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, refreshTokenTTL time.Dur
 		// Only consulted when an Exchanger is registered (see
 		// buildOAuthServerOptions); a miss returns invalid_target.
 		TokenExchangeClientAudiences: cfg.TokenExchangeBroker.ClientAudiences,
-		// Enables the credential-less workload-authenticated exchange on the HTTP
-		// /oauth/token endpoint (the agent STS path), authenticated by the subject
-		// and actor tokens themselves. The in-process localMint path does not
-		// consult this; the HTTP path does.
-		EnableWorkloadTokenExchange: cfg.TokenExchangeBroker.Enabled(),
 	}
 	if cfg.AllowedOrigins != "" {
 		result.CORS.AllowedOrigins = strings.Split(cfg.AllowedOrigins, ",")
@@ -70,19 +65,21 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, refreshTokenTTL time.Dur
 	if cfg.EnableJWTMode {
 		result.AccessTokenFormat = oauthserver.AccessTokenFormatJWT
 	}
-	if cfg.TokenExchangeBroker.DelegateToSelf {
-		result.DelegationDefaultResource = cfg.ResourceIdentifier
-	}
+	// Lock the self-issued RFC 8693 exchange to muster's own audience. The
+	// allowlist is disabled when empty, which would let any trusted-issuer
+	// caller obtain a muster-signed token for an arbitrary resource. The
+	// forward-token model needs only aud = muster's resource identifier
+	// (always permitted, and the default when the request omits resource);
+	// tokens for other audiences go through the brokered path, which has
+	// client authentication and its own per-client audience allowlist.
+	result.TokenExchangeAllowedResources = []string{result.GetResourceIdentifier()}
 	return result
 }
 
 // buildOAuthServerOptions assembles the functional options for the mcp-oauth server.
 // instrumentation.New registers a Prometheus collector on the OTel global
 // provider, so a second call in the same process will race or duplicate-register.
-// localMint is non-nil only when JWT mode is enabled; it is forwarded into
-// NewBrokerExchanger so that local-mint broker targets can sign tokens with
-// muster's own access-token key.
-func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger, localMint *oauthserver.LocalMintExchanger, caPool *x509.CertPool) ([]oauth.ServerOption, error) {
+func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger, caPool *x509.CertPool) ([]oauth.ServerOption, error) {
 	inst, err := instrumentation.New(instrumentation.Config{
 		Enabled:         true,
 		ServiceName:     "muster",
@@ -120,7 +117,15 @@ func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger, 
 		if len(cfg.TrustedIssuers) == 0 {
 			return nil, fmt.Errorf("tokenExchangeBroker requires at least one trustedIssuers entry to validate subject tokens")
 		}
-		opts = append(opts, oauthserver.WithExchanger(musteroauth.NewBrokerExchanger(cfg.TokenExchangeBroker, localMint)))
+		// Config loading is lenient YAML: a target missing required keys
+		// loads silently, so require the endpoint here instead of failing on
+		// the first exchange request.
+		for audience, target := range cfg.TokenExchangeBroker.Targets {
+			if target.DexTokenEndpoint == "" {
+				return nil, fmt.Errorf("tokenExchangeBroker target %q requires dexTokenEndpoint (downstream Dex token endpoint)", audience)
+			}
+		}
+		opts = append(opts, oauthserver.WithExchanger(musteroauth.NewBrokerExchanger(cfg.TokenExchangeBroker)))
 		brokerLogger := logger
 		if brokerLogger == nil {
 			brokerLogger = slog.Default()

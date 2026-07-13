@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	internalmcp "github.com/giantswarm/muster/internal/mcpserver"
@@ -324,34 +325,6 @@ func EstablishConnectionWithTokenForwarding(
 		}
 	}
 
-	refresher := a.sessionRefresher()
-	idToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer, refresher)
-	if idToken == "" {
-		logging.Debug("Connection", "No ID token available for user %s",
-			logging.TruncateIdentifier(sub))
-		return nil, fmt.Errorf("no ID token available for forwarding")
-	}
-
-	// Validate ID token is not expired before forwarding
-	// This avoids unnecessary network round-trips with expired tokens
-	if expired, expErr := pkgoauth.IsExpired(idToken); expired {
-		logging.Warn("Connection", "ID token expired for user %s, cannot forward to %s: %v",
-			logging.TruncateIdentifier(sub), serverInfo.Name, expErr)
-		return nil, fmt.Errorf("ID token has expired, needs refresh before forwarding")
-	}
-
-	logging.Info("Connection", "Attempting ID token forwarding for user %s to server %s",
-		logging.TruncateIdentifier(sub), serverInfo.Name)
-
-	// Create a client with a dynamic header function that resolves the latest
-	// ID token on each request. This ensures token refresh is picked up
-	// automatically without needing to re-establish the connection.
-	//
-	// IMPORTANT: Use context.Background() instead of the captured request ctx,
-	// because the original request context becomes stale/cancelled after the
-	// connection-establishing request completes. The OAuth token store (keyed by
-	// sub + musterIssuer) is the stable source for refreshed tokens.
-	//
 	// The onStaleToken callback evicts the pooled connection and revokes the
 	// auth entry when the token cannot be resolved after repeated attempts.
 	// This stops mcp-go's infinite retry loop with expired tokens.
@@ -368,16 +341,23 @@ func EstablishConnectionWithTokenForwarding(
 			}
 		}
 	}
-	headerFunc := makeTokenForwardingHeaderFunc(sessionID, sub, musterIssuer, serverInfo.Name, idToken, onStaleToken)
-	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
+	client, forwardedToken, err := a.newTokenForwardingClient(ctx, sessionID, sub, musterIssuer, serverInfo, onStaleToken)
+	if err != nil {
+		return nil, err
+	}
+
+	logging.Info("Connection", "Attempting ID token forwarding for user %s to server %s",
+		logging.TruncateIdentifier(sub), serverInfo.Name)
 
 	// Try to initialize the client with the forwarded token
 	if err := client.Initialize(ctx); err != nil {
 		_ = client.Close()
 
-		// Log the token forwarding failure
-		logging.Warn("Connection", "ID token forwarding failed for user %s to server %s: %v",
-			logging.TruncateIdentifier(sub), serverInfo.Name, err)
+		// A rejection here is indistinguishable from other transport failures
+		// (mcp-go surfaces the 401 as a generic initialize error), so the
+		// issuer diagnostic is attached to every connect failure.
+		logging.Warn("Connection", "ID token forwarding failed for user %s to server %s: %v (%s)",
+			logging.TruncateIdentifier(sub), serverInfo.Name, err, forwardedTokenDiagnostic(forwardedToken))
 
 		// Emit event for token forwarding failure
 		emitTokenForwardingEvent(serverInfo.Name, serverInfo.GetNamespace(), false, err.Error())
@@ -432,109 +412,6 @@ func EstablishConnectionWithTokenForwarding(
 	notifyMCPServerConnected(serverInfo.Name, "SSO token forwarding")
 
 	logging.Info("Connection", "User %s connected to %s via SSO token forwarding with %d tools",
-		logging.TruncateIdentifier(sub), serverInfo.Name, len(tools))
-
-	return &ConnectionResult{
-		ServerName:    serverInfo.Name,
-		ToolCount:     len(tools),
-		ResourceCount: len(resources),
-		PromptCount:   len(prompts),
-		Client:        client,
-	}, nil
-}
-
-// EstablishConnectionWithLocalMint connects to a localMint server to discover
-// its capabilities. Discovery mints a token from the connecting identity's
-// session token (in the agent topology that is the agent's own SA token); a
-// human's on-behalf-of identity only arrives per call_tool via the actor header.
-// The returned client's header func re-mints on every request from the live
-// request context, so per-call execution still performs the full mint; the
-// discovery token is not reused.
-func EstablishConnectionWithLocalMint(
-	ctx context.Context,
-	a *AggregatorServer,
-	serverInfo *ServerInfo,
-	musterIssuer string,
-) (*ConnectionResult, error) {
-	sessionID, sub, err := requireSessionContext(ctx, serverInfo.Name)
-	if err != nil {
-		return nil, err
-	}
-
-	subjectToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer, a.sessionRefresher())
-	if subjectToken == "" {
-		// OBO sessions carry no Dex ID token; the muster-issued bearer is the
-		// RFC 8693 subject for the localMint exchange. Fall back to it here so
-		// the background bgCtx (which has the bearer threaded in by
-		// initSSOForSession) can still establish the per-backend connection.
-		subjectToken = server.GetBearerTokenFromContext(ctx)
-	}
-	if subjectToken == "" {
-		return nil, fmt.Errorf("no session token available to mint localMint discovery for %s", serverInfo.Name)
-	}
-
-	audience := serverInfo.AuthConfig.LocalMint.Audience
-	onStaleToken := func() {
-		if a.connPool != nil {
-			a.connPool.Evict(sessionID, serverInfo.Name)
-		}
-		if a.authStore != nil {
-			if revokeErr := a.authStore.Revoke(context.Background(), sessionID, serverInfo.Name); revokeErr != nil {
-				logging.Warn("Connection", "Failed to revoke localMint auth for %s/%s: %v",
-					logging.TruncateIdentifier(sessionID), serverInfo.Name, revokeErr)
-			}
-		}
-	}
-	// Capture the actor token so the background keepalive stream can re-mint
-	// OBO tokens without a live request context. Per-call requests read the
-	// actor token directly from the request context and do not use capturedActor.
-	capturedActor := server.GetActorTokenFromContext(ctx)
-	headerFunc := makeLocalMintHeaderFunc(serverInfo.Name, audience, subjectToken, capturedActor, onStaleToken)
-	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
-
-	// Surface the session token as the subject; actor token remains accessible
-	// via context chain from the caller tokens stored in ctx.
-	discoveryCtx := server.ContextWithBearerToken(ctx, subjectToken)
-
-	if err := client.Initialize(discoveryCtx); err != nil {
-		_ = client.Close()
-		emitTokenForwardingEvent(serverInfo.Name, serverInfo.GetNamespace(), false, err.Error())
-		return nil, fmt.Errorf("localMint connection failed for %s: %w", serverInfo.Name, err)
-	}
-
-	tools, err := client.ListTools(discoveryCtx)
-	if err != nil {
-		_ = client.Close()
-		return nil, fmt.Errorf("failed to list tools after localMint to %s: %w", serverInfo.Name, err)
-	}
-	resources, err := client.ListResources(discoveryCtx)
-	if err != nil {
-		logging.Debug("Connection", "Failed to list resources for %s: %v", serverInfo.Name, err)
-		resources = nil
-	}
-	prompts, err := client.ListPrompts(discoveryCtx)
-	if err != nil {
-		logging.Debug("Connection", "Failed to list prompts for %s: %v", serverInfo.Name, err)
-		prompts = nil
-	}
-
-	if a.capabilityStore != nil {
-		if err := a.capabilityStore.Set(ctx, sessionID, serverInfo.Name, &oauthstore.Capabilities{
-			Tools: tools, Resources: resources, Prompts: prompts,
-		}); err != nil {
-			logging.Warn("Connection", "Failed to store capabilities for %s/%s: %v",
-				logging.TruncateIdentifier(sessionID), serverInfo.Name, err)
-		}
-	}
-	if a.authStore != nil {
-		if err := a.authStore.MarkAuthenticated(ctx, sessionID, serverInfo.Name); err != nil {
-			logging.Warn("Connection", "Failed to mark localMint auth for %s/%s: %v",
-				logging.TruncateIdentifier(sessionID), serverInfo.Name, err)
-		}
-	}
-
-	notifyMCPServerConnected(serverInfo.Name, "localMint")
-	logging.Info("Connection", "Connected %s to %s via localMint with %d tools",
 		logging.TruncateIdentifier(sub), serverInfo.Name, len(tools))
 
 	return &ConnectionResult{
@@ -607,18 +484,6 @@ func ShouldUseTokenExchange(serverInfo *ServerInfo) bool {
 	}
 	config := serverInfo.AuthConfig.TokenExchange
 	return config.Enabled && config.DexTokenEndpoint != "" && config.ConnectorID != ""
-}
-
-// ShouldUseLocalMint reports whether muster mints a per-backend token for a
-// server. Enabled when AuthConfig.LocalMint is non-nil, Enabled, and carries an
-// Audience (the broker local-mint target). Mutually exclusive with token
-// forwarding and token exchange (enforced by the CRD admission rules).
-func ShouldUseLocalMint(serverInfo *ServerInfo) bool {
-	if serverInfo == nil || serverInfo.AuthConfig == nil || serverInfo.AuthConfig.LocalMint == nil {
-		return false
-	}
-	config := serverInfo.AuthConfig.LocalMint
-	return config.Enabled && config.Audience != ""
 }
 
 // EstablishConnectionWithTokenExchange attempts to establish a connection
@@ -921,7 +786,7 @@ const headerFuncWarnInterval = 1 * time.Minute
 
 // maxConsecutiveTokenFailures is the number of consecutive token resolution
 // failures in the headerFunc before the stale connection is signaled for
-// eviction. On the token-forwarding and localMint paths resolution is a local
+// eviction. On the token-forwarding path resolution is a local
 // store lookup, so at mcp-go's 1-second retry interval 3 failures ≈ 3 seconds
 // before the connection is proactively closed. On the token-exchange path each
 // attempt performs a Dex round-trip bounded by tokenReexchangeTimeout, so the
@@ -1060,206 +925,200 @@ func (a *AggregatorServer) makeTokenExchangeRefreshClosures(
 	return reexchange, onStaleToken
 }
 
+// newTokenForwardingClient resolves the session's forwardable token and builds
+// the streamable-HTTP client whose header func re-resolves it on every request.
+// Both the connect-time discovery path and the pool-miss tool-call path build
+// their client here so token resolution cannot diverge between them.
+//
+// Resolution matches the header func: the validated inbound bearer first, so
+// the connect-time check exercises the token the connection will actually
+// forward, then the OAuth-store ID token (with an in-process upstream refresh)
+// for sessions without a forwardable bearer (opaque-token human sessions). An
+// expired or absent token is an error; the caller surfaces it to the session.
+//
+// The resolved token is returned alongside the client so connect-failure paths
+// can attribute a backend rejection to the token's issuer (see
+// forwardedTokenDiagnostic).
+func (a *AggregatorServer) newTokenForwardingClient(
+	ctx context.Context,
+	sessionID, sub, musterIssuer string,
+	serverInfo *ServerInfo,
+	onStaleToken func(),
+) (*internalmcp.StreamableHTTPClient, string, error) {
+	refresher := a.sessionRefresher()
+	token := forwardableBearer(ctx)
+	if token == "" {
+		token = getIDTokenForForwarding(ctx, sessionID, musterIssuer, refresher)
+	}
+	if token == "" {
+		logging.Debug("Connection", "No forwardable token available for user %s",
+			logging.TruncateIdentifier(sub))
+		return nil, "", fmt.Errorf("no token available for forwarding to %s", serverInfo.Name)
+	}
+
+	if expired, expErr := pkgoauth.IsExpired(token); expired {
+		logging.Warn("Connection", "Token expired for user %s, cannot forward to %s: %v",
+			logging.TruncateIdentifier(sub), serverInfo.Name, expErr)
+		return nil, "", fmt.Errorf("token has expired for %s, re-authenticate to refresh: %w", serverInfo.Name, expErr)
+	}
+
+	headerFunc := makeTokenForwardingHeaderFunc(sessionID, musterIssuer, serverInfo.Name, token, refresher, onStaleToken)
+	return internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc), token, nil
+}
+
+// forwardedTokenDiagnostic identifies a forwarded token by its issuer claim
+// only — never the token itself or any other claim — with a hint for the most
+// common rejection cause: the backend does not trust the issuer's JWKS.
+func forwardedTokenDiagnostic(token string) string {
+	iss, err := pkgoauth.Issuer(token)
+	if err != nil || iss == "" {
+		return "forwarded token has no parseable iss claim"
+	}
+	return fmt.Sprintf("forwarded token iss=%s; the backend must trust this issuer's JWKS to accept forwarded tokens", iss)
+}
+
+// isForwardableToken reports whether token is a decodable JWT. An opaque
+// bearer is never forwarded: a downstream backend cannot validate it against
+// muster's JWKS, so opaque-token sessions resolve the stored ID token instead.
+func isForwardableToken(token string) bool {
+	if token == "" {
+		return false
+	}
+	_, err := pkgoauth.Subject(token)
+	return err == nil
+}
+
+// forwardableBearer returns the validated inbound bearer from ctx when it is a
+// decodable JWT, or "" otherwise (see isForwardableToken).
+//
+// The bearer is forwarded byte-identical, not re-minted per backend, so it is
+// not audience-scoped to the receiving backend: a muster-issued OBO token
+// carries aud=muster's resource identifier and a directly presented
+// trusted-issuer token carries that issuer's audience. The same token is
+// accepted by every forwardToken backend that trusts its issuer and by
+// muster's own front door, so those backends must be equally trusted; the
+// token's nested act chain is the backend's delegation provenance.
+func forwardableBearer(ctx context.Context) string {
+	bearer := server.GetBearerTokenFromContext(ctx)
+	if !isForwardableToken(bearer) {
+		return ""
+	}
+	return bearer
+}
+
 // makeTokenForwardingHeaderFunc creates the header function closure used by
-// EstablishConnectionWithTokenForwarding. The returned closure resolves the latest
-// ID token from the OAuth store on each invocation and falls back to fallbackToken
-// when the store lookup fails.
+// newTokenForwardingClient. Resolution order per invocation:
 //
-// Warning rate-limiting: when the token lookup fails, a WARN is emitted at most
-// once per headerFuncWarnInterval. Subsequent failures within the window are logged
-// at DEBUG. When the token recovers after a failure period, an INFO is emitted.
+//  1. The validated inbound bearer on the request context, forwarded
+//     byte-identical so the backend sees the caller's own muster-issued token
+//     including any nested act delegation chain. This serves per-request
+//     forwarding for tool calls; opaque bearers are excluded (see
+//     forwardableBearer).
+//  2. The session's latest ID token from the OAuth store. The background
+//     listen stream runs without a request context, and opaque-token-mode
+//     sessions have no forwardable bearer.
+//  3. fallbackToken, captured when the connection was established. Sessions
+//     with no OAuth-store entry (agent OBO callers) live off 1 and 3.
+//  4. When the fallback has expired, an in-process upstream refresh via
+//     refresher, so sessions that still hold a refresh chain (opaque-token
+//     human sessions) recover in place instead of riding into eviction. The
+//     refresh is bounded by the provider's request timeout and coalesced by
+//     RefreshSession's singleflight; it is attempted only in the stale
+//     state, so sessions with no upstream refresh chain never trigger it
+//     while their token is valid.
 //
-// Stale token eviction: after maxConsecutiveTokenFailures consecutive failures,
-// the onStaleToken callback is invoked asynchronously (in a goroutine) to evict
-// the connection from the pool and close the client. This stops mcp-go's infinite
-// retry loop because closing the client cancels the transport's context.
-// The callback fires at most once per consecutive failure streak; the counter
-// resets when a valid token is resolved, allowing re-eviction if the token
-// disappears again after recovery.
+// Failure accounting: a resolution counts as failed only when it bottoms out
+// on an expired or undecodable fallback and the refresh recovered nothing,
+// the stale-token state that 401-loops against the backend. A WARN is
+// emitted at most once per headerFuncWarnInterval (DEBUG otherwise). When
+// the failure count reaches maxConsecutiveTokenFailures the onStaleToken
+// callback is invoked asynchronously to evict the pooled connection, which
+// stops mcp-go's retry loop because closing the client cancels the
+// transport's context. The callback fires at most once per failure streak;
+// the counter resets when a usable token is resolved.
 //
 // mcp-go invokes the returned closure concurrently on a single connection: the
 // continuous-listening GET runs in its own goroutine (listenForever) while tool
 // calls invoke it from their own goroutines, and both reach headerFunc via
-// sendHTTP. The mutex is therefore required for correctness: it serialises
-// the counter updates and ensures onStaleToken fires at most once per failure streak.
+// sendHTTP. The mutex serialises the slow path (store lookup, refresh, warn
+// rate-limiting); the failure counter is atomic so the bearer fast path never
+// waits behind a store lookup or an in-flight refresh.
 func makeTokenForwardingHeaderFunc(
-	sessionID, sub, musterIssuer, serverName, fallbackToken string,
+	sessionID, musterIssuer, serverName, fallbackToken string,
+	refresher func(context.Context, string) error,
 	onStaleToken func(),
 ) func(context.Context) map[string]string {
 	var mu sync.Mutex
 	var lastWarnTime time.Time
-	var consecutiveFailures int
-	var staleEvicted bool
-	hadToken := true
-	return func(_ context.Context) map[string]string {
-		mu.Lock()
-		defer mu.Unlock()
+	var consecutiveFailures atomic.Int64
 
-		latestToken := getIDTokenForForwarding(context.Background(), sessionID, musterIssuer, nil)
-		if latestToken == "" {
-			consecutiveFailures++
-
-			if time.Since(lastWarnTime) >= headerFuncWarnInterval {
-				logging.Warn("Connection", "Authentication failed: no ID token in OAuth store for session %s to %s, using original token (%d/%d consecutive failures)",
-					logging.TruncateIdentifier(sessionID), serverName, consecutiveFailures, maxConsecutiveTokenFailures)
-				lastWarnTime = time.Now()
-			} else {
-				logging.Debug("Connection", "Authentication failed: no ID token in OAuth store for session %s to %s, using original token (warning suppressed, %d/%d consecutive failures)",
-					logging.TruncateIdentifier(sessionID), serverName, consecutiveFailures, maxConsecutiveTokenFailures)
-			}
-			hadToken = false
-
-			if consecutiveFailures >= maxConsecutiveTokenFailures && !staleEvicted && onStaleToken != nil {
-				staleEvicted = true
-				logging.Warn("Connection", "Token resolution failed %d consecutive times for session %s to %s — evicting stale connection",
-					consecutiveFailures, logging.TruncateIdentifier(sessionID), serverName)
-				go func() {
-					defer func() {
-						if r := recover(); r != nil {
-							logging.Error("Connection", fmt.Errorf("panic in onStaleToken: %v", r),
-								"onStaleToken callback panicked for session %s to %s",
-								logging.TruncateIdentifier(sessionID), serverName)
-						}
-					}()
-					onStaleToken()
-				}()
-			}
-
-			latestToken = fallbackToken
-		} else {
-			if !hadToken {
-				logging.Info("Connection", "ID token recovered in OAuth store for session %s to %s",
-					logging.TruncateIdentifier(sessionID), serverName)
-			}
-			consecutiveFailures = 0
-			staleEvicted = false
-			hadToken = true
-			if latestToken != fallbackToken {
-				logging.Info("Connection", "Token expired, refreshing: resolved updated ID token from OAuth store for user %s to %s",
-					logging.TruncateIdentifier(sub), serverName)
-			}
-		}
+	bearerHeader := func(token string) map[string]string {
 		return map[string]string{
-			pkgoauth.HeaderAuthorization: pkgoauth.SchemeBearer + " " + latestToken,
+			pkgoauth.HeaderAuthorization: pkgoauth.SchemeBearer + " " + token,
 		}
 	}
-}
-
-// localMintTokenType is the RFC 8693 token-type URN for both the subject and
-// actor tokens on the localMint path. muster's trusted-issuer validator accepts
-// JWT-typed subject and actor tokens (Kubernetes SA and Dex tokens).
-const localMintTokenType = "urn:ietf:params:oauth:token-type:jwt" //nolint:gosec // G101: RFC 8693 token-type URN, not a credential
-
-// makeLocalMintHeaderFunc builds the per-call header function for localMint. On
-// each upstream request it reads the inbound subject (Authorization) and actor
-// (X-Actor-Token) tokens from the request context, mints a per-backend token
-// through the broker-enforced exchange, and sets it as the Authorization header.
-// An absent actor token mints the no-actor token (sub=subject, no act); a present
-// actor token mints the delegated token (sub=subject, act=actor).
-//
-// Fail-closed: when the minter is unavailable, the subject token is absent, or
-// (on the delegation path) the subject's email is unverified, no Authorization
-// header is returned and the upstream call proceeds unauthenticated, which the
-// backend rejects. After maxConsecutiveTokenFailures failures the pooled
-// connection is evicted via onStaleToken to stop mcp-go's retry loop.
-//
-// mcp-go invokes the returned closure concurrently on a single connection: the
-// continuous-listening GET runs in its own goroutine (listenForever) while tool
-// calls invoke it from their own goroutines, and both reach headerFunc via
-// sendHTTP. The mutex is therefore required for correctness: it serialises
-// the counter updates and ensures onStaleToken fires at most once per failure streak.
-//
-// capturedSubject and capturedActor are the subject and actor tokens bound to
-// the connection when it is created. They supply identity when the request
-// context carries none: the background listen stream runs on a context with no
-// inbound headers, so the listener mints with the connection's own identity
-// instead of failing closed and 401-looping against the backend.
-func makeLocalMintHeaderFunc(serverName, audience, capturedSubject, capturedActor string, onStaleToken func()) func(context.Context) map[string]string {
-	var mu sync.Mutex
-	var lastWarnTime time.Time
-	var consecutiveFailures int
-	var staleEvicted bool
-
-	// fail is only ever called from within the returned closure, which already
-	// holds mu, so it must not lock again.
-	fail := func(format string, args ...any) map[string]string {
-		consecutiveFailures++
+	succeed := func(token, source string) map[string]string {
+		if consecutiveFailures.Swap(0) > 0 {
+			logging.Info("Connection", "Token resolution recovered (%s) for session %s to %s",
+				source, logging.TruncateIdentifier(sessionID), serverName)
+		}
+		return bearerHeader(token)
+	}
+	// fail must be called with mu held: it serialises the warn rate-limiting.
+	fail := func() map[string]string {
+		failures := consecutiveFailures.Add(1)
 		if time.Since(lastWarnTime) >= headerFuncWarnInterval {
-			logging.Warn("Connection", format, args...)
+			logging.Warn("Connection", "Authentication failed: no usable token for session %s to %s, using expired connection token (%d/%d consecutive failures)",
+				logging.TruncateIdentifier(sessionID), serverName, failures, maxConsecutiveTokenFailures)
 			lastWarnTime = time.Now()
 		} else {
-			logging.Debug("Connection", format, args...)
+			logging.Debug("Connection", "Authentication failed: no usable token for session %s to %s, using expired connection token (warning suppressed, %d/%d consecutive failures)",
+				logging.TruncateIdentifier(sessionID), serverName, failures, maxConsecutiveTokenFailures)
 		}
-		if consecutiveFailures >= maxConsecutiveTokenFailures && !staleEvicted && onStaleToken != nil {
-			staleEvicted = true
+		if failures == int64(maxConsecutiveTokenFailures) && onStaleToken != nil {
+			logging.Warn("Connection", "Token resolution failed %d consecutive times for session %s to %s, evicting stale connection",
+				failures, logging.TruncateIdentifier(sessionID), serverName)
 			go func() {
 				defer func() {
 					if r := recover(); r != nil {
 						logging.Error("Connection", fmt.Errorf("panic in onStaleToken: %v", r),
-							"onStaleToken callback panicked for %s", serverName)
+							"onStaleToken callback panicked for session %s to %s",
+							logging.TruncateIdentifier(sessionID), serverName)
 					}
 				}()
 				onStaleToken()
 			}()
 		}
-		return map[string]string{}
+		return bearerHeader(fallbackToken)
 	}
 
 	return func(ctx context.Context) map[string]string {
+		if bearer := forwardableBearer(ctx); bearer != "" {
+			return succeed(bearer, "request bearer")
+		}
+
 		mu.Lock()
 		defer mu.Unlock()
 
-		minter := api.GetBackendTokenMinter()
-		if minter == nil {
-			return fail("localMint: no backend token minter registered (OAuth server not in JWT mode), cannot mint for %s", serverName)
+		if latestToken := getIDTokenForForwarding(context.Background(), sessionID, musterIssuer, nil); latestToken != "" {
+			return succeed(latestToken, "OAuth store")
 		}
-
-		subjectToken := server.GetBearerTokenFromContext(ctx)
-		if subjectToken == "" {
-			subjectToken = capturedSubject
+		if expired, _ := pkgoauth.IsExpired(fallbackToken); !expired {
+			logging.Debug("Connection", "No ID token in OAuth store for session %s to %s, forwarding the connection token",
+				logging.TruncateIdentifier(sessionID), serverName)
+			return succeed(fallbackToken, "connection token")
 		}
-		if subjectToken == "" {
-			return fail("localMint: no subject token for %s, failing closed", serverName)
-		}
-		actorToken := server.GetActorTokenFromContext(ctx)
-		if actorToken == "" {
-			actorToken = capturedActor
-		}
-
-		// Refuse to mint for a subject token that asserts an email it cannot
-		// prove. A human subject carries an email claim; a groupless workload
-		// (SA) token carries none and is exempt. Enforce before the mint.
-		email, err := pkgoauth.Email(subjectToken)
-		if err != nil {
-			return fail("localMint: cannot decode subject token for %s, failing closed", serverName)
-		}
-		if email != "" {
-			verified, verr := pkgoauth.EmailVerified(subjectToken)
-			if verr != nil || !verified {
-				return fail("localMint: subject email_verified is not true for %s, refusing mint", serverName)
+		if refresher != nil {
+			if err := refresher(ctx, sessionID); err != nil {
+				logging.Debug("Connection", "Session refresh failed for %s: %v",
+					logging.TruncateIdentifier(sessionID), err)
+			} else if refreshed := getIDTokenForForwarding(context.Background(), sessionID, musterIssuer, nil); refreshed != "" {
+				logging.Info("Connection", "Token expired, refreshed in place for session %s to %s",
+					logging.TruncateIdentifier(sessionID), serverName)
+				return succeed(refreshed, "upstream refresh")
 			}
 		}
-
-		req := api.BackendMintRequest{
-			SubjectToken:     subjectToken,
-			SubjectTokenType: localMintTokenType,
-			Audience:         audience,
-		}
-		if actorToken != "" {
-			req.ActorToken = actorToken
-			req.ActorTokenType = localMintTokenType
-		}
-
-		result, err := minter.MintBackendToken(ctx, req)
-		if err != nil {
-			return fail("localMint: mint failed for %s: %v", serverName, err)
-		}
-
-		consecutiveFailures = 0
-		staleEvicted = false
-		return map[string]string{
-			pkgoauth.HeaderAuthorization: pkgoauth.SchemeBearer + " " + result.AccessToken,
-		}
+		return fail()
 	}
 }
 

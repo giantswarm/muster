@@ -427,15 +427,13 @@ func (am *AggregatorManager) isServerAuthRequired(serverName string) bool {
 	return info.RequiresSessionAuth()
 }
 
-// isServerSSOBased checks if a server is configured for session-level auth (token forwarding,
-// token exchange, or local mint). These servers are handled per-session rather than globally,
+// isServerSSOBased checks if a server is configured for session-level auth (token forwarding
+// or token exchange). These servers are handled per-session rather than globally,
 // so the event handler should skip global registration attempts for them.
 //
-// Session-based servers work differently from regular OAuth servers:
-//   - ForwardToken / TokenExchange: the MCPServerService never creates a global client because
-//     the backend returns 401 on the initial connection probe; auth happens per-session.
-//   - LocalMint: muster mints a per-caller token on each session; no persistent global client
-//     is created because the minted token's subject/actor identity changes per-session.
+// Session-based servers work differently from regular OAuth servers: the
+// MCPServerService never creates a global client because the backend returns
+// 401 on the initial connection probe; auth happens per-session.
 //
 // This method is called by the event handler when a server becomes healthy/connected
 // to determine if global registration should be skipped.
@@ -466,11 +464,6 @@ func (am *AggregatorManager) isServerSSOBased(serverName string) bool {
 
 	// TokenExchange enables SSO via RFC 8693 token exchange
 	if info.AuthConfig.TokenExchange != nil && info.AuthConfig.TokenExchange.Enabled {
-		return true
-	}
-
-	// LocalMint mints a per-session token for each caller; no global persistent client exists
-	if info.AuthConfig.LocalMint != nil && info.AuthConfig.LocalMint.Enabled {
 		return true
 	}
 

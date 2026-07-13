@@ -109,38 +109,19 @@ spec:
                     default: false
                     description: |-
                       ForwardToken enables ID token forwarding for SSO.
-                      When true, muster forwards the user's ID token to this server instead of
-                      triggering a separate OAuth flow. The downstream server must be configured
-                      to trust muster's client ID in its TrustedAudiences.
+                      When true, muster forwards the caller's validated bearer (or the
+                      session's upstream ID token) to this server instead of triggering a
+                      separate OAuth flow. The downstream server must be configured to trust
+                      the token's issuer: muster's issuer/JWKS for muster-issued bearers, or
+                      muster's client ID in its TrustedAudiences for forwarded upstream ID
+                      tokens.
+
+                      The forwarded token is not audience-scoped to this server: the same
+                      bearer is accepted by every forwardToken backend and by muster itself,
+                      so all forwardToken backends must be equally trusted. The token's
+                      nested act claim carries the delegation chain for backend
+                      authorization decisions.
                     type: boolean
-                  localMint:
-                    description: |-
-                      LocalMint enables downstream auth via a per-backend token minted by muster
-                      from its own signing key. On each call muster reads the caller's bearer as
-                      the subject and an optional X-Actor-Token header as the actor, then mints a
-                      token (sub=subject, act=actor, aud=Audience, iss=muster) through muster's
-                      RFC 8693 broker.
-
-                      Use LocalMint when the backend must authorize an agent acting on behalf of a
-                      human (OBO) and no shared remote IdP can issue a token with the backend's
-                      audience. Requires muster's OAuth server to run in
-                      JWT mode with a broker local-mint target whose audience equals Audience.
-
-                      LocalMint is mutually exclusive with ForwardToken, TokenExchange, and
-                      AuthorizationServer (the CRD admission rules above reject combinations).
-                    properties:
-                      audience:
-                        description: |-
-                          Audience is the minted token's aud claim: the backend's resource identifier.
-                          It must equal a configured broker local-mint target; the mint fails closed
-                          when no matching target exists.
-                        minLength: 1
-                        type: string
-                      enabled:
-                        default: false
-                        description: Enabled turns on local minting for this server.
-                        type: boolean
-                    type: object
                   requiredAudiences:
                     description: |-
                       RequiredAudiences specifies additional audience(s) that the forwarded ID token
@@ -268,19 +249,6 @@ spec:
                     or the other, not both
                   rule: '!(has(self.tokenExchange) && has(self.tokenExchange.enabled)
                     && self.tokenExchange.enabled == true && has(self.authorizationServer))'
-                - message: localMint and forwardToken are mutually exclusive downstream
-                    auth modes; set one
-                  rule: '!(has(self.localMint) && self.localMint.enabled == true &&
-                    has(self.forwardToken) && self.forwardToken == true)'
-                - message: localMint and tokenExchange are mutually exclusive downstream
-                    auth modes; set one
-                  rule: '!(has(self.localMint) && self.localMint.enabled == true &&
-                    has(self.tokenExchange) && has(self.tokenExchange.enabled) &&
-                    self.tokenExchange.enabled == true)'
-                - message: localMint mints muster's own token; it cannot be combined
-                    with authorizationServer
-                  rule: '!(has(self.localMint) && self.localMint.enabled == true &&
-                    has(self.authorizationServer))'
               autoStart:
                 default: false
                 description: |-

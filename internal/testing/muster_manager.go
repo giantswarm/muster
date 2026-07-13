@@ -1235,8 +1235,8 @@ func (m *musterInstanceManager) configureOAuthForInstance(
 		}
 	}
 
-	// Layer the local-mint token-exchange broker (JWT mode, trusted issuers,
-	// targets) onto muster's OAuth server config when a scenario requests it.
+	// Layer the self-issued token exchange (JWT mode, trusted issuers) onto
+	// muster's OAuth server config when a scenario requests it.
 	if config.MusterBroker != nil {
 		serverConfig, ok := oauthConfig["server"].(map[string]interface{})
 		if !ok {
@@ -1503,21 +1503,6 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 							if m.debug {
 								logger.Debug("🔐 Enabling token exchange for MCPServer %s (connector: %v)\n",
 									mcpServer.Name, tokenExchange["connector_id"])
-							}
-						}
-
-						// If oauth.local_mint is specified, add auth.localMint to the CRD.
-						// muster then mints a per-session token (signed by its own key)
-						// to connect to this backend, instead of a global persistent client.
-						if localMint, ok := oauthConfig["local_mint"].(map[string]interface{}); ok {
-							localMintConfig := map[string]interface{}{keyEnabled: true}
-							if audience, ok := localMint["audience"].(string); ok {
-								localMintConfig["audience"] = audience
-							}
-							authConfig["localMint"] = localMintConfig
-							if m.debug {
-								logger.Debug("🔐 Enabling local-mint downstream auth for MCPServer %s (audience: %v)\n",
-									mcpServer.Name, localMint["audience"])
 							}
 						}
 

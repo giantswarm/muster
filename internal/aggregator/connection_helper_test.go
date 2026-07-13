@@ -611,7 +611,6 @@ func TestHeaderFunc_RateLimitsWarning(t *testing.T) {
 	logging.InitForCLI(logging.LevelDebug, &logBuf)
 
 	sessionID := "test-session-rate-limit"
-	sub := "test-user"
 	musterIssuer := "https://dex.example.com"
 	serverName := "test-server"
 	fallbackToken := "original-token"
@@ -619,7 +618,7 @@ func TestHeaderFunc_RateLimitsWarning(t *testing.T) {
 	// No OAuth handler registered means getIDTokenForForwarding always returns "".
 	api.RegisterOAuthHandler(nil)
 
-	headerFunc := makeTokenForwardingHeaderFunc(sessionID, sub, musterIssuer, serverName, fallbackToken, nil)
+	headerFunc := makeTokenForwardingHeaderFunc(sessionID, musterIssuer, serverName, fallbackToken, nil, nil)
 
 	// First call: should produce a WARN (interval has not been hit yet).
 	logBuf.Reset()
@@ -665,7 +664,6 @@ func TestHeaderFunc_EvictsAfterConsecutiveFailures(t *testing.T) {
 	logging.InitForCLI(logging.LevelDebug, &logBuf)
 
 	sessionID := "test-session-evict"
-	sub := "test-user"
 	musterIssuer := "https://dex.example.com"
 	serverName := "test-server"
 	fallbackToken := "original-token"
@@ -682,7 +680,7 @@ func TestHeaderFunc_EvictsAfterConsecutiveFailures(t *testing.T) {
 		}
 	}
 
-	headerFunc := makeTokenForwardingHeaderFunc(sessionID, sub, musterIssuer, serverName, fallbackToken, onStaleToken)
+	headerFunc := makeTokenForwardingHeaderFunc(sessionID, musterIssuer, serverName, fallbackToken, nil, onStaleToken)
 
 	// Call fewer than maxConsecutiveTokenFailures times — callback should NOT fire.
 	for i := 0; i < maxConsecutiveTokenFailures-1; i++ {
@@ -718,7 +716,6 @@ func TestHeaderFunc_ResetsFailureCountOnRecovery(t *testing.T) {
 	logging.InitForCLI(logging.LevelDebug, &logBuf)
 
 	sessionID := "test-session-reset"
-	sub := "test-user"
 	musterIssuer := "https://dex.example.com"
 	serverName := "test-server"
 	fallbackToken := "original-token"
@@ -730,7 +727,7 @@ func TestHeaderFunc_ResetsFailureCountOnRecovery(t *testing.T) {
 		evictCount.Add(1)
 	}
 
-	headerFunc := makeTokenForwardingHeaderFunc(sessionID, sub, musterIssuer, serverName, fallbackToken, onStaleToken)
+	headerFunc := makeTokenForwardingHeaderFunc(sessionID, musterIssuer, serverName, fallbackToken, nil, onStaleToken)
 
 	// Accumulate failures just below the threshold.
 	for i := 0; i < maxConsecutiveTokenFailures-1; i++ {
@@ -765,7 +762,7 @@ func TestHeaderFunc_NilCallback(t *testing.T) {
 	api.RegisterOAuthHandler(nil)
 	defer api.RegisterOAuthHandler(nil)
 
-	headerFunc := makeTokenForwardingHeaderFunc("s", "u", "iss", "srv", "tok", nil)
+	headerFunc := makeTokenForwardingHeaderFunc("s", "iss", "srv", "tok", nil, nil)
 
 	// Should not panic even after many failures with nil callback.
 	for i := 0; i < maxConsecutiveTokenFailures+5; i++ {
@@ -774,18 +771,210 @@ func TestHeaderFunc_NilCallback(t *testing.T) {
 	}
 }
 
-// fakeBackendTokenMinter is a test double for api.BackendTokenMinter.
-type fakeBackendTokenMinter struct {
-	gotReq api.BackendMintRequest
-	called bool
-	result api.BackendMintResult
-	err    error
+// TestHeaderFunc_ForwardsRequestBearer pins per-request forwarding: a request
+// context carrying a validated bearer wins over the OAuth-store ID token and
+// is forwarded byte-identical.
+func TestHeaderFunc_ForwardsRequestBearer(t *testing.T) {
+	var logBuf bytes.Buffer
+	logging.InitForCLI(logging.LevelDebug, &logBuf)
+
+	sessionID := "test-session-bearer"
+	musterIssuer := "https://muster.example.com"
+	storeToken := unsignedJWT(t, map[string]any{"sub": "alice", "exp": time.Now().Add(time.Hour).Unix()})
+	mock := newMockOAuthHandler(true)
+	mock.StoreToken(sessionID, "", musterIssuer, &api.OAuthToken{IDToken: storeToken})
+	api.RegisterOAuthHandler(mock)
+	defer api.RegisterOAuthHandler(nil)
+
+	oboToken := unsignedJWT(t, map[string]any{
+		"sub": "alice",
+		"act": map[string]any{"sub": "system:serviceaccount:kagent:sre-agent"},
+		"exp": time.Now().Add(time.Hour).Unix(),
+	})
+	headerFunc := makeTokenForwardingHeaderFunc(sessionID, musterIssuer, "srv", "fallback", nil, nil)
+
+	ctx := server.ContextWithBearerToken(context.Background(), oboToken)
+	headers := headerFunc(ctx)
+	require.Equal(t, "Bearer "+oboToken, headers["Authorization"],
+		"request bearer must be forwarded byte-identical, not the store token")
+
+	// Without a request bearer (listen stream) the store token applies.
+	headers = headerFunc(context.Background())
+	require.Equal(t, "Bearer "+storeToken, headers["Authorization"])
 }
 
-func (f *fakeBackendTokenMinter) MintBackendToken(_ context.Context, req api.BackendMintRequest) (api.BackendMintResult, error) {
-	f.called = true
-	f.gotReq = req
-	return f.result, f.err
+// TestHeaderFunc_OpaqueBearerIgnored pins that a non-JWT bearer is never
+// forwarded: opaque muster tokens cannot be validated by a backend, so the
+// resolution falls through to the stored ID token.
+func TestHeaderFunc_OpaqueBearerIgnored(t *testing.T) {
+	var logBuf bytes.Buffer
+	logging.InitForCLI(logging.LevelDebug, &logBuf)
+
+	sessionID := "test-session-opaque"
+	musterIssuer := "https://muster.example.com"
+	storeToken := unsignedJWT(t, map[string]any{"sub": "alice", "exp": time.Now().Add(time.Hour).Unix()})
+	mock := newMockOAuthHandler(true)
+	mock.StoreToken(sessionID, "", musterIssuer, &api.OAuthToken{IDToken: storeToken})
+	api.RegisterOAuthHandler(mock)
+	defer api.RegisterOAuthHandler(nil)
+
+	headerFunc := makeTokenForwardingHeaderFunc(sessionID, musterIssuer, "srv", "fallback", nil, nil)
+
+	ctx := server.ContextWithBearerToken(context.Background(), "opaque-access-token")
+	headers := headerFunc(ctx)
+	require.Equal(t, "Bearer "+storeToken, headers["Authorization"])
+}
+
+// TestHeaderFunc_ValidFallbackIsNotAFailure pins the failure accounting for
+// sessions with no OAuth-store entry (agent OBO callers): as long as the
+// connection token is an unexpired JWT, resolution succeeds without warnings
+// or eviction.
+func TestHeaderFunc_ValidFallbackIsNotAFailure(t *testing.T) {
+	var logBuf bytes.Buffer
+	logging.InitForCLI(logging.LevelDebug, &logBuf)
+
+	api.RegisterOAuthHandler(nil)
+	defer api.RegisterOAuthHandler(nil)
+
+	var evictCount atomic.Int32
+	onStaleToken := func() { evictCount.Add(1) }
+
+	fallback := unsignedJWT(t, map[string]any{"sub": "alice", "exp": time.Now().Add(time.Hour).Unix()})
+	headerFunc := makeTokenForwardingHeaderFunc("s", "https://muster.example.com", "srv", fallback, nil, onStaleToken)
+
+	logBuf.Reset()
+	for i := 0; i < maxConsecutiveTokenFailures+2; i++ {
+		headers := headerFunc(context.Background())
+		require.Equal(t, "Bearer "+fallback, headers["Authorization"])
+	}
+	require.Equal(t, int32(0), evictCount.Load(),
+		"an unexpired connection token must not count toward stale eviction")
+	require.NotContains(t, logBuf.String(), "WARN")
+}
+
+// TestHeaderFunc_ExpiredFallbackEvicts pins that the stale-token state (no
+// store token, connection token past expiry) still counts failures and evicts.
+func TestHeaderFunc_ExpiredFallbackEvicts(t *testing.T) {
+	var logBuf bytes.Buffer
+	logging.InitForCLI(logging.LevelDebug, &logBuf)
+
+	api.RegisterOAuthHandler(nil)
+	defer api.RegisterOAuthHandler(nil)
+
+	var evictCount atomic.Int32
+	var firstEvict sync.WaitGroup
+	firstEvict.Add(1)
+	onStaleToken := func() {
+		if evictCount.Add(1) == 1 {
+			firstEvict.Done()
+		}
+	}
+
+	expired := unsignedJWT(t, map[string]any{"sub": "alice", "exp": time.Now().Add(-time.Hour).Unix()})
+	headerFunc := makeTokenForwardingHeaderFunc("s", "https://muster.example.com", "srv", expired, nil, onStaleToken)
+
+	for i := 0; i < maxConsecutiveTokenFailures; i++ {
+		headerFunc(context.Background())
+	}
+	firstEvict.Wait()
+	require.Equal(t, int32(1), evictCount.Load())
+}
+
+// TestHeaderFunc_ExpiredFallbackRefreshesInPlace pins the last-resort refresh:
+// when resolution bottoms out on an expired fallback, a session that still
+// holds an upstream refresh chain recovers in place via the refresher instead
+// of counting failures toward eviction.
+func TestHeaderFunc_ExpiredFallbackRefreshesInPlace(t *testing.T) {
+	var logBuf bytes.Buffer
+	logging.InitForCLI(logging.LevelDebug, &logBuf)
+
+	sessionID := "test-session-refresh"
+	musterIssuer := "https://muster.example.com"
+	mock := newMockOAuthHandler(true)
+	api.RegisterOAuthHandler(mock)
+	defer api.RegisterOAuthHandler(nil)
+
+	refreshedToken := unsignedJWT(t, map[string]any{"sub": "alice", "exp": time.Now().Add(time.Hour).Unix()})
+	var refreshCalls atomic.Int32
+	refresher := func(_ context.Context, sid string) error {
+		refreshCalls.Add(1)
+		require.Equal(t, sessionID, sid)
+		mock.StoreToken(sessionID, "", musterIssuer, &api.OAuthToken{IDToken: refreshedToken})
+		return nil
+	}
+
+	var evictCount atomic.Int32
+	onStaleToken := func() { evictCount.Add(1) }
+
+	expired := unsignedJWT(t, map[string]any{"sub": "alice", "exp": time.Now().Add(-time.Hour).Unix()})
+	headerFunc := makeTokenForwardingHeaderFunc(sessionID, musterIssuer, "srv", expired, refresher, onStaleToken)
+
+	headers := headerFunc(context.Background())
+	require.Equal(t, "Bearer "+refreshedToken, headers["Authorization"],
+		"expired fallback must recover via the refresher, not forward the stale token")
+	require.Equal(t, int32(1), refreshCalls.Load())
+	require.Equal(t, int32(0), evictCount.Load(),
+		"a successful in-place refresh must not count toward stale eviction")
+
+	// The repopulated store now serves resolution directly; no further refresh.
+	headers = headerFunc(context.Background())
+	require.Equal(t, "Bearer "+refreshedToken, headers["Authorization"])
+	require.Equal(t, int32(1), refreshCalls.Load())
+}
+
+// TestHeaderFunc_RefresherFailureStillEvicts pins that a session whose refresh
+// chain is gone (refresher fails, store stays empty) keeps the failure
+// accounting and evicts.
+func TestHeaderFunc_RefresherFailureStillEvicts(t *testing.T) {
+	var logBuf bytes.Buffer
+	logging.InitForCLI(logging.LevelDebug, &logBuf)
+
+	api.RegisterOAuthHandler(newMockOAuthHandler(true))
+	defer api.RegisterOAuthHandler(nil)
+
+	refresher := func(_ context.Context, _ string) error {
+		return fmt.Errorf("refresh chain gone")
+	}
+
+	var evictCount atomic.Int32
+	var firstEvict sync.WaitGroup
+	firstEvict.Add(1)
+	onStaleToken := func() {
+		if evictCount.Add(1) == 1 {
+			firstEvict.Done()
+		}
+	}
+
+	expired := unsignedJWT(t, map[string]any{"sub": "alice", "exp": time.Now().Add(-time.Hour).Unix()})
+	headerFunc := makeTokenForwardingHeaderFunc("s", "https://muster.example.com", "srv", expired, refresher, onStaleToken)
+
+	for i := 0; i < maxConsecutiveTokenFailures; i++ {
+		headerFunc(context.Background())
+	}
+	firstEvict.Wait()
+	require.Equal(t, int32(1), evictCount.Load())
+}
+
+func TestForwardableBearer(t *testing.T) {
+	jwtToken := unsignedJWT(t, map[string]any{"sub": "alice"})
+	tests := []struct {
+		name   string
+		bearer string
+		want   string
+	}{
+		{"no bearer", "", ""},
+		{"opaque bearer", "opaque-token", ""},
+		{"jwt bearer", jwtToken, jwtToken},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			if tc.bearer != "" {
+				ctx = server.ContextWithBearerToken(ctx, tc.bearer)
+			}
+			require.Equal(t, tc.want, forwardableBearer(ctx))
+		})
+	}
 }
 
 // unsignedJWT builds a header.payload.signature string whose payload is the
@@ -800,219 +989,11 @@ func unsignedJWT(t *testing.T, claims map[string]any) string {
 	return enc(map[string]any{"alg": "none", "typ": "JWT"}) + "." + enc(claims) + ".sig"
 }
 
-func TestShouldUseLocalMint(t *testing.T) {
-	tests := []struct {
-		name string
-		info *ServerInfo
-		want bool
-	}{
-		{"nil serverInfo", nil, false},
-		{"nil authConfig", &ServerInfo{}, false},
-		{"nil localMint", &ServerInfo{AuthConfig: &api.MCPServerAuth{}}, false},
-		{"disabled", &ServerInfo{AuthConfig: &api.MCPServerAuth{LocalMint: &api.LocalMintConfig{Enabled: false, Audience: "be"}}}, false},
-		{"enabled no audience", &ServerInfo{AuthConfig: &api.MCPServerAuth{LocalMint: &api.LocalMintConfig{Enabled: true}}}, false},
-		{"enabled with audience", &ServerInfo{AuthConfig: &api.MCPServerAuth{LocalMint: &api.LocalMintConfig{Enabled: true, Audience: "be"}}}, true},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.want, ShouldUseLocalMint(tc.info))
-		})
-	}
-}
-
-func TestMakeLocalMintHeaderFunc_NoActor(t *testing.T) {
-	minter := &fakeBackendTokenMinter{result: api.BackendMintResult{AccessToken: "minted-no-actor"}}
-	api.RegisterBackendTokenMinter(minter)
-	defer api.RegisterBackendTokenMinter(nil)
-
-	headerFunc := makeLocalMintHeaderFunc("backend", "be-audience", "", "", nil)
-	saToken := unsignedJWT(t, map[string]any{"sub": "system:serviceaccount:kagent:sre-agent"})
-	ctx := server.ContextWithBearerToken(context.Background(), saToken)
-
-	headers := headerFunc(ctx)
-
-	require.True(t, minter.called)
-	require.Equal(t, saToken, minter.gotReq.SubjectToken)
-	require.Empty(t, minter.gotReq.ActorToken, "no-actor path must carry no actor")
-	require.Equal(t, "be-audience", minter.gotReq.Audience)
-	require.Equal(t, "Bearer minted-no-actor", headers["Authorization"])
-}
-
-func TestMakeLocalMintHeaderFunc_Delegation(t *testing.T) {
-	minter := &fakeBackendTokenMinter{result: api.BackendMintResult{AccessToken: "minted-obo"}}
-	api.RegisterBackendTokenMinter(minter)
-	defer api.RegisterBackendTokenMinter(nil)
-
-	headerFunc := makeLocalMintHeaderFunc("backend", "be-audience", "", "", nil)
-	userToken := unsignedJWT(t, map[string]any{"sub": "alice", "email": "alice@example.com", "email_verified": true})
-	ctx := server.ContextWithBearerToken(context.Background(), userToken)
-	ctx = server.ContextWithActorToken(ctx, "agent-sa-token")
-
-	headers := headerFunc(ctx)
-
-	require.True(t, minter.called)
-	require.Equal(t, userToken, minter.gotReq.SubjectToken)
-	require.Equal(t, "agent-sa-token", minter.gotReq.ActorToken)
-	require.Equal(t, "Bearer minted-obo", headers["Authorization"])
-}
-
-// The SSO bootstrap path connects backends on a detached context that carries
-// no live request headers, so makeLocalMintHeaderFunc must fall back to the
-// captured actor token. Without it the delegated exchange drops the actor,
-// falls to the no-actor branch, and is authorized on the human subject instead of
-// the agent SA.
-func TestMakeLocalMintHeaderFunc_CapturedActorFallback(t *testing.T) {
-	minter := &fakeBackendTokenMinter{result: api.BackendMintResult{AccessToken: "minted-obo"}}
-	api.RegisterBackendTokenMinter(minter)
-	defer api.RegisterBackendTokenMinter(nil)
-
-	userToken := unsignedJWT(t, map[string]any{"sub": "alice", "email": "alice@example.com", "email_verified": true})
-	headerFunc := makeLocalMintHeaderFunc("backend", "be-audience", userToken, "agent-sa-token", nil)
-
-	// Context carries no bearer or actor: the detached bootstrap context.
-	headers := headerFunc(context.Background())
-
-	require.True(t, minter.called)
-	require.Equal(t, userToken, minter.gotReq.SubjectToken)
-	require.Equal(t, "agent-sa-token", minter.gotReq.ActorToken, "captured actor must survive the bootstrap path")
-	require.Equal(t, "Bearer minted-obo", headers["Authorization"])
-}
-
-func TestMakeLocalMintHeaderFunc_EmailUnverifiedFailsClosed(t *testing.T) {
-	minter := &fakeBackendTokenMinter{result: api.BackendMintResult{AccessToken: "should-not-mint"}}
-	api.RegisterBackendTokenMinter(minter)
-	defer api.RegisterBackendTokenMinter(nil)
-
-	headerFunc := makeLocalMintHeaderFunc("backend", "be-audience", "", "", nil)
-	userToken := unsignedJWT(t, map[string]any{"sub": "alice", "email": "alice@example.com", "email_verified": false})
-	ctx := server.ContextWithBearerToken(context.Background(), userToken)
-	ctx = server.ContextWithActorToken(ctx, "agent-sa-token")
-
-	headers := headerFunc(ctx)
-
-	require.False(t, minter.called, "delegated mint must be refused when email_verified is false")
-	require.Empty(t, headers, "no Authorization header on fail-closed")
-}
-
-// A pre-exchanged human-derived bearer (carries an email, no separate
-// X-Actor-Token) takes the no-actor path. email_verified must still be enforced
-// there, else an unverified-email human identity slips through unchecked.
-func TestMakeLocalMintHeaderFunc_NoActorEmailUnverifiedFailsClosed(t *testing.T) {
-	minter := &fakeBackendTokenMinter{result: api.BackendMintResult{AccessToken: "should-not-mint"}}
-	api.RegisterBackendTokenMinter(minter)
-	defer api.RegisterBackendTokenMinter(nil)
-
-	headerFunc := makeLocalMintHeaderFunc("backend", "be-audience", "", "", nil)
-	preExchanged := unsignedJWT(t, map[string]any{
-		"sub":            "alice",
-		"email":          "alice@example.com",
-		"email_verified": false,
-		"act":            map[string]any{"sub": "system:serviceaccount:kagent:sre-agent"},
-	})
-	ctx := server.ContextWithBearerToken(context.Background(), preExchanged)
-
-	headers := headerFunc(ctx)
-
-	require.False(t, minter.called, "no-actor-path mint must be refused for an unverified email")
-	require.Empty(t, headers, "no Authorization header on fail-closed")
-}
-
-func TestMakeLocalMintHeaderFunc_NoSubjectFailsClosed(t *testing.T) {
-	minter := &fakeBackendTokenMinter{result: api.BackendMintResult{AccessToken: "x"}}
-	api.RegisterBackendTokenMinter(minter)
-	defer api.RegisterBackendTokenMinter(nil)
-
-	headerFunc := makeLocalMintHeaderFunc("backend", "be-audience", "", "", nil)
-	headers := headerFunc(context.Background())
-
-	require.False(t, minter.called, "no subject token must fail closed before minting")
-	require.Empty(t, headers)
-}
-
-func TestMakeLocalMintHeaderFunc_NoMinterFailsClosed(t *testing.T) {
-	api.RegisterBackendTokenMinter(nil)
-
-	headerFunc := makeLocalMintHeaderFunc("backend", "be-audience", "", "", nil)
-	ctx := server.ContextWithBearerToken(context.Background(), "sa-token")
-	headers := headerFunc(ctx)
-
-	require.Empty(t, headers, "absent minter must fail closed")
-}
-
-func TestMakeLocalMintHeaderFunc_MintErrorFailsClosed(t *testing.T) {
-	minter := &fakeBackendTokenMinter{err: errors.New("actor_delegation_not_authorized")}
-	api.RegisterBackendTokenMinter(minter)
-	defer api.RegisterBackendTokenMinter(nil)
-
-	headerFunc := makeLocalMintHeaderFunc("backend", "be-audience", "", "", nil)
-	saToken := unsignedJWT(t, map[string]any{"sub": "system:serviceaccount:kagent:sre-agent"})
-	ctx := server.ContextWithBearerToken(context.Background(), saToken)
-	headers := headerFunc(ctx)
-
-	require.True(t, minter.called)
-	require.Empty(t, headers, "mint error (policy deny) must fail closed, no Authorization header")
-}
-
-// The per-call request bearer is the subject; an unrelated captured fallback is
-// not used when the context carries a bearer.
-func TestMakeLocalMintHeaderFunc_SubjectFromRequestBearer(t *testing.T) {
-	minter := &fakeBackendTokenMinter{result: api.BackendMintResult{AccessToken: "minted"}}
-	api.RegisterBackendTokenMinter(minter)
-	defer api.RegisterBackendTokenMinter(nil)
-
-	reqToken := unsignedJWT(t, map[string]any{"sub": "alice", "email": "alice@example.com", "email_verified": true})
-	headerFunc := makeLocalMintHeaderFunc("backend", "be-audience", "captured-fallback", "", nil)
-
-	ctx := server.ContextWithBearerToken(context.Background(), reqToken)
-	headers := headerFunc(ctx)
-
-	require.True(t, minter.called)
-	require.Equal(t, reqToken, minter.gotReq.SubjectToken, "subject must come from the request bearer")
-	require.Equal(t, "Bearer minted", headers["Authorization"])
-}
-
-// The background listen stream calls the header func with a bare context (no
-// inbound headers). The captured subject and actor must supply identity so the
-// listener mints with the connection's identity instead of failing closed.
-func TestMakeLocalMintHeaderFunc_CapturedIdentityOnEmptyContext(t *testing.T) {
-	minter := &fakeBackendTokenMinter{result: api.BackendMintResult{AccessToken: "minted"}}
-	api.RegisterBackendTokenMinter(minter)
-	defer api.RegisterBackendTokenMinter(nil)
-
-	capturedSubject := unsignedJWT(t, map[string]any{"sub": "alice", "email": "alice@example.com", "email_verified": true})
-	headerFunc := makeLocalMintHeaderFunc("backend", "be-audience", capturedSubject, "captured-sa", nil)
-
-	headers := headerFunc(context.Background())
-
-	require.True(t, minter.called)
-	require.Equal(t, capturedSubject, minter.gotReq.SubjectToken, "captured subject applies when context has none")
-	require.Equal(t, "captured-sa", minter.gotReq.ActorToken, "captured actor applies when context has none")
-	require.Equal(t, "Bearer minted", headers["Authorization"])
-}
-
-// A per-call actor token (X-Actor-Token) takes precedence over the captured one.
-func TestMakeLocalMintHeaderFunc_CtxActorOverridesCaptured(t *testing.T) {
-	minter := &fakeBackendTokenMinter{result: api.BackendMintResult{AccessToken: "minted"}}
-	api.RegisterBackendTokenMinter(minter)
-	defer api.RegisterBackendTokenMinter(nil)
-
-	reqToken := unsignedJWT(t, map[string]any{"sub": "alice", "email": "alice@example.com", "email_verified": true})
-	headerFunc := makeLocalMintHeaderFunc("backend", "be-audience", "", "captured-sa", nil)
-
-	ctx := server.ContextWithBearerToken(context.Background(), reqToken)
-	ctx = server.ContextWithActorToken(ctx, "live-sa")
-	headers := headerFunc(ctx)
-
-	require.True(t, minter.called)
-	require.Equal(t, "live-sa", minter.gotReq.ActorToken, "live actor must override the captured one")
-	require.Equal(t, "Bearer minted", headers["Authorization"])
-}
-
 // mcp-go invokes a connection's headerFunc concurrently from the listener
-// goroutine and from tool-call goroutines. These tests hammer the closures from
+// goroutine and from tool-call goroutines. This test hammers the closure from
 // many goroutines so the race detector (make test / go test -race) catches any
-// unsynchronised access to the failure counters, and assert onStaleToken fires
-// at most once despite the concurrency. Removing either mutex fails them.
+// unsynchronised access to the failure counters, and asserts onStaleToken fires
+// at most once despite the concurrency. Removing the mutex fails it.
 
 func TestMakeTokenForwardingHeaderFunc_ConcurrentCalls(t *testing.T) {
 	var logBuf bytes.Buffer
@@ -1026,7 +1007,7 @@ func TestMakeTokenForwardingHeaderFunc_ConcurrentCalls(t *testing.T) {
 
 	// No OAuth handler → getIDTokenForForwarding returns "" → the fallback path
 	// drives consecutiveFailures/staleEvicted/hadToken/lastWarnTime on every call.
-	headerFunc := makeTokenForwardingHeaderFunc("session", "user", "https://dex.example.com", "server", "fallback-token", onStaleToken)
+	headerFunc := makeTokenForwardingHeaderFunc("session", "https://dex.example.com", "server", "fallback-token", nil, onStaleToken)
 
 	const goroutines = 16
 	const perGoroutine = 50
@@ -1044,37 +1025,6 @@ func TestMakeTokenForwardingHeaderFunc_ConcurrentCalls(t *testing.T) {
 	// staleEvicted latches under the mutex, so the eviction goroutine is launched
 	// at most once regardless of how many callers cross the threshold.
 	assert.LessOrEqual(t, evictCount.Load(), int32(1), "onStaleToken must fire at most once")
-}
-
-func TestMakeLocalMintHeaderFunc_ConcurrentCalls(t *testing.T) {
-	var logBuf bytes.Buffer
-	logging.InitForCLI(logging.LevelDebug, &logBuf)
-
-	minter := &fakeBackendTokenMinter{result: api.BackendMintResult{AccessToken: "minted"}}
-	api.RegisterBackendTokenMinter(minter)
-	defer api.RegisterBackendTokenMinter(nil)
-
-	var evictCount atomic.Int32
-	onStaleToken := func() { evictCount.Add(1) }
-
-	headerFunc := makeLocalMintHeaderFunc("backend", "be-audience", "", "", onStaleToken)
-	subjectToken := unsignedJWT(t, map[string]any{"sub": "alice", "email": "alice@example.com", "email_verified": true})
-	ctx := server.ContextWithBearerToken(context.Background(), subjectToken)
-
-	const goroutines = 16
-	const perGoroutine = 50
-	var wg sync.WaitGroup
-	for range goroutines {
-		wg.Go(func() {
-			for range perGoroutine {
-				headers := headerFunc(ctx)
-				assert.Equal(t, "Bearer minted", headers["Authorization"])
-			}
-		})
-	}
-	wg.Wait()
-
-	assert.Equal(t, int32(0), evictCount.Load(), "successful mints must never evict")
 }
 
 func TestMakeTokenExchangeHeaderFunc_NoRefreshBeforeMargin(t *testing.T) {
@@ -1500,4 +1450,49 @@ func TestExchangeTokenAndCreateClient_RefreshUsesResolvedConfig(t *testing.T) {
 	assert.Empty(t, shared.ClientID)
 	assert.Empty(t, shared.ClientSecret)
 	assert.Equal(t, "openid profile email groups", shared.Scopes)
+}
+
+// TestNewTokenForwardingClient_BearerWinsOverExpiredContextIDToken pins the
+// connect-time resolution order: a valid forwardable bearer on the request
+// context wins over an expired ctx ID token (which the middleware injects
+// without an expiry check), so a pool-miss connect succeeds with the same
+// token every per-request header resolution would forward.
+func TestNewTokenForwardingClient_BearerWinsOverExpiredContextIDToken(t *testing.T) {
+	api.RegisterOAuthHandler(nil)
+	defer api.RegisterOAuthHandler(nil)
+
+	a := &AggregatorServer{}
+	bearer := unsignedJWT(t, map[string]any{"sub": "alice", "exp": time.Now().Add(time.Hour).Unix()})
+	expiredID := unsignedJWT(t, map[string]any{"sub": "alice", "exp": time.Now().Add(-time.Hour).Unix()})
+	ctx := server.ContextWithCallerTokens(context.Background(), server.CallerTokens{IDToken: expiredID, Bearer: bearer})
+
+	client, resolvedToken, err := a.newTokenForwardingClient(ctx, "session-1", "alice", "https://muster.example.com",
+		&ServerInfo{Name: "srv", URL: "http://127.0.0.1:0"}, nil)
+	require.NoError(t, err,
+		"a valid forwardable bearer must win over the expired ctx ID token")
+	require.NotNil(t, client)
+	require.Equal(t, bearer, resolvedToken,
+		"the returned token must be the one the connection forwards")
+	_ = client.Close()
+
+	// Without a forwardable bearer the expired ctx ID token is resolved and
+	// correctly refused.
+	ctx = server.ContextWithCallerTokens(context.Background(), server.CallerTokens{IDToken: expiredID, Bearer: "opaque"})
+	_, _, err = a.newTokenForwardingClient(ctx, "session-1", "alice", "https://muster.example.com",
+		&ServerInfo{Name: "srv", URL: "http://127.0.0.1:0"}, nil)
+	require.ErrorContains(t, err, "expired")
+}
+
+// TestForwardedTokenDiagnostic pins the connect-failure diagnostic: it names
+// the forwarded token's issuer (and only the issuer — never the token) so a
+// backend that does not trust that issuer's JWKS is attributable from the log.
+func TestForwardedTokenDiagnostic(t *testing.T) {
+	token := unsignedJWT(t, map[string]any{"sub": "alice", "iss": "https://muster.example.com"})
+
+	diag := forwardedTokenDiagnostic(token)
+	require.Contains(t, diag, "iss=https://muster.example.com")
+	require.Contains(t, diag, "JWKS")
+	require.NotContains(t, diag, token, "the diagnostic must never contain the token itself")
+
+	require.Equal(t, "forwarded token has no parseable iss claim", forwardedTokenDiagnostic("opaque"))
 }

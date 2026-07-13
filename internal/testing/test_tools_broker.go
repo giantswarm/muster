@@ -27,13 +27,9 @@ const (
 	// previously minted bearer token, proving downstream acceptance end-to-end.
 	TestToolCallProtectedMCP = "test_call_protected_mcp"
 	// TestToolReconnectWithToken reconnects the caller's MCP client to muster using
-	// a previously minted trusted-issuer token as the bearer, simulating an agent
-	// that forwards an external (Dex/SA) subject token. This lets data-plane
-	// local-mint use the inbound bearer as the subject for per-call backend tokens.
+	// a previously minted or exchanged token as the bearer, simulating an agent
+	// that presents a muster-issued OBO access token on /mcp.
 	TestToolReconnectWithToken = "test_reconnect_with_token"
-	// TestToolReconnectWithOBO reconnects the caller's MCP client to muster with a
-	// subject bearer token and a static X-Actor-Token for RFC 8693 OBO delegation.
-	TestToolReconnectWithOBO = "test_reconnect_with_obo"
 
 	keySuccess = "success"
 
@@ -42,8 +38,7 @@ const (
 )
 
 // handleReconnectWithToken reconnects the caller's MCP client to muster with a
-// previously minted token as the bearer. muster accepts it via TrustedIssuers and
-// the data-plane local-mint path uses it as the subject token. args: token_ref.
+// previously minted or exchanged token as the bearer. args: token_ref.
 func (h *TestToolsHandler) handleReconnectWithToken(ctx context.Context, args map[string]interface{}) (interface{}, error) {
 	if h.currentInstance == nil {
 		return nil, fmt.Errorf("current instance not available")
@@ -71,47 +66,10 @@ func (h *TestToolsHandler) handleReconnectWithToken(ctx context.Context, args ma
 	return map[string]interface{}{keySuccess: true}, nil
 }
 
-// handleReconnectWithOBO reconnects with a subject bearer token and a static
-// X-Actor-Token header for RFC 8693 OBO delegation. args: token_ref, actor_token_ref.
-func (h *TestToolsHandler) handleReconnectWithOBO(ctx context.Context, args map[string]interface{}) (interface{}, error) {
-	if h.currentInstance == nil {
-		return nil, fmt.Errorf("current instance not available")
-	}
-	tokenRef, _ := args["token_ref"].(string)
-	if tokenRef == "" {
-		return nil, fmt.Errorf("token_ref argument is required")
-	}
-	actorRef, _ := args["actor_token_ref"].(string)
-	if actorRef == "" {
-		return nil, fmt.Errorf("actor_token_ref argument is required")
-	}
-	subjectToken, ok := h.mintedTokens[tokenRef]
-	if !ok {
-		return nil, fmt.Errorf("no minted token named %q", tokenRef)
-	}
-	actorToken, ok := h.mintedTokens[actorRef]
-	if !ok {
-		return nil, fmt.Errorf("no minted token named %q", actorRef)
-	}
-
-	if h.mcpClient != nil {
-		_ = h.mcpClient.Close()
-	}
-	newClient := NewMCPTestClientWithLogger(h.debug, h.logger)
-	if err := newClient.ConnectWithOBO(ctx, h.currentInstance.Endpoint, subjectToken, actorToken); err != nil {
-		return nil, fmt.Errorf("reconnect with OBO failed: %w", err)
-	}
-	h.mcpClient = newClient
-	h.userClients[defaultTestUser] = newClient
-	h.currentUser = defaultTestUser
-
-	return map[string]interface{}{keySuccess: true}, nil
-}
-
 // handleMintToken mints a signed JWT on the referenced mock OAuth server and
 // stores it under args["name"] so later steps can present it as a subject or
-// actor token. args: server, name, sub (required); iss, aud, typ (string),
-// groups ([]string), act (map) optional.
+// actor token. args: server, name, sub (required); iss, aud, typ, email
+// (string), email_verified (bool), groups ([]string), act (map) optional.
 func (h *TestToolsHandler) handleMintToken(_ context.Context, args map[string]interface{}) (interface{}, error) {
 	if h.currentInstance == nil || h.instanceManager == nil {
 		return nil, fmt.Errorf("instance manager or current instance not available")
@@ -151,6 +109,12 @@ func (h *TestToolsHandler) handleMintToken(_ context.Context, args map[string]in
 	if groups := toStringSlice(args["groups"]); len(groups) > 0 {
 		claims["groups"] = groups
 	}
+	if email, ok := args["email"].(string); ok && email != "" {
+		claims["email"] = email
+		if verified, ok := args["email_verified"].(bool); ok {
+			claims["email_verified"] = verified
+		}
+	}
 	if act, ok := args["act"].(map[string]interface{}); ok && len(act) > 0 {
 		claims["act"] = act
 	}
@@ -170,10 +134,12 @@ func (h *TestToolsHandler) handleMintToken(_ context.Context, args map[string]in
 }
 
 // handleBrokerTokenExchange POSTs an RFC 8693 token-exchange request to muster's
-// /oauth/token broker (workload path, no client credentials) and, on success,
-// verifies the minted JWT against muster's JWKS and returns its claims. On
-// failure it returns the OAuth error so negative scenarios can assert on it.
-// args: subject_token_ref, audience (required); actor_token_ref,
+// /oauth/token endpoint and, on success, verifies the issued JWT against
+// muster's JWKS and returns its claims. Without an audience the request takes
+// the self-issued path (muster signs the token itself); with an audience it
+// takes the brokered path. On failure it returns the OAuth error so negative
+// scenarios can assert on it.
+// args: subject_token_ref (required); audience, actor_token_ref,
 // subject_token_type, resource, name optional.
 func (h *TestToolsHandler) handleBrokerTokenExchange(ctx context.Context, args map[string]interface{}) (interface{}, error) {
 	if h.currentInstance == nil {
@@ -188,10 +154,6 @@ func (h *TestToolsHandler) handleBrokerTokenExchange(ctx context.Context, args m
 	if !ok {
 		return nil, fmt.Errorf("no minted token named %q (mint it with test_mint_token first)", subjectRef)
 	}
-	audience, _ := args["audience"].(string)
-	if audience == "" {
-		return nil, fmt.Errorf("audience argument is required")
-	}
 
 	subjectTokenType, _ := args["subject_token_type"].(string)
 	if subjectTokenType == "" {
@@ -202,7 +164,9 @@ func (h *TestToolsHandler) handleBrokerTokenExchange(ctx context.Context, args m
 		"grant_type":         {"urn:ietf:params:oauth:grant-type:token-exchange"},
 		"subject_token":      {subjectToken},
 		"subject_token_type": {subjectTokenType},
-		"audience":           {audience},
+	}
+	if audience, _ := args["audience"].(string); audience != "" {
+		form.Set("audience", audience)
 	}
 	if actorRef, _ := args["actor_token_ref"].(string); actorRef != "" {
 		actorToken, ok := h.mintedTokens[actorRef]

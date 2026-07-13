@@ -11,15 +11,33 @@ All notable changes to this project will be documented in this file.
 
 ### Removed
 
-- M2M (machine-to-machine) token exchange. The `oauth.server.tokenExchangeBroker.workloadAudiences`, `workloadGroupGrants`, and `actorDelegationPolicy` config keys are removed, along with broker-granted identity injection (`granted.subject` / `granted.groups`). On-behalf-of (OBO) delegation is unchanged and now accepts any actor validated against the trusted issuers; the impersonated subject's downstream authorization governs access. Requires mcp-oauth v0.18.7.
+- localMint downstream auth. The `auth.localMint` MCPServer CRD field and its admission rules, the `local-mint` broker target type and the target `type` key, and the `oauth.server.tokenExchangeBroker.delegateToSelf` config key are removed. Backends that used localMint switch to `forwardToken: true` and validate the forwarded token against muster's JWKS.
 
-- The `github-app` broker target type and its `githubApp` config block. Broker targets now support `oidc-exchange` (default) and `local-mint`.
+  **Upgrade note:** applying the new CRD makes the Kubernetes API server silently prune `spec.auth.localMint` from existing MCPServer resources — the schema is structural, so there is no validation error and a GitOps apply succeeds. The affected backend is then left with no downstream-auth mode: muster's calls reach it unauthenticated, the backend answers 401, and its tools disappear from sessions without any apply-time failure. Migrate every MCPServer that sets `auth.localMint` to `auth.forwardToken: true` (with the backend configured to trust muster's issuer/JWKS) before or together with this upgrade.
+
+- The `X-Actor-Token` request header. The actor token is presented once as the RFC 8693 `actor_token` parameter at `/oauth/token`; `/mcp` requests carry only the issued on-behalf-of token as the bearer.
+
+### Changed
+
+- muster refuses to start when a `tokenExchangeBroker` target lacks `dexTokenEndpoint`, naming the misconfigured audience, instead of surfacing an unattributed error on the first exchange request. The chart's `values.schema.json` requires the key as well.
+
+- A token-forwarding connect failure now logs the forwarded token's issuer (the `iss` claim only — never the token) with a hint that the backend must trust that issuer's JWKS, so a backend that does not yet trust muster's issuer is attributable from the log instead of a bare initialize error.
+
+- The aggregator forwards the validated inbound bearer to `forwardToken` backends on each request instead of issuing a per-backend token, so the on-behalf-of token (including its nested `act` delegation chain) reaches the backend byte-identical. When the request carries no forwardable bearer (the background listen stream, opaque-token sessions), the session's stored upstream ID token is forwarded as before.
+
+- On-behalf-of token exchange at `/oauth/token` no longer requires a broker target: a request without an `audience` takes mcp-oauth's self-issued path and the issued token's `aud` defaults to muster's `resourceIdentifier`. Requests with an `audience` keep the brokered downstream Dex exchange.
+
+- The self-issued exchange only mints tokens for muster's own audience: `TokenExchangeAllowedResources` is pinned to the `resourceIdentifier`, so a request naming any other RFC 8707 `resource` is refused with `invalid_target`. Previously the allowlist was unset (disabled) and any caller holding a trusted-issuer token could obtain a muster-signed token for an arbitrary audience. Tokens for other audiences go through the brokered path, which requires client authentication and a per-client audience allowlist.
+
+- M2M (machine-to-machine) token exchange. The `oauth.server.tokenExchangeBroker.workloadAudiences`, `workloadGroupGrants`, and `actorDelegationPolicy` config keys are removed, along with broker-granted identity injection (`granted.subject` / `granted.groups`). On-behalf-of (OBO) delegation is unchanged and now accepts any actor validated against the trusted issuers; the impersonated subject's downstream authorization governs access.
+
+- The `github-app` broker target type and its `githubApp` config block. The only remaining broker target type is `oidc-exchange`.
 
 ### Fixed
 
 - Token re-exchange on the persistent oidc-exchange connection now uses the resolved per-connection config. The initial-connection path handed the refresh closure the shared spec-only `TokenExchange` pointer (which, since [#940](https://github.com/giantswarm/muster/pull/940), deliberately never carries the runtime-resolved credentials or appended `requiredAudiences` scopes), so every re-exchange after the first token neared expiry ran without client credentials — failing outright against a Dex requiring client auth and evicting the session back to `Auth Required` — and without the required audiences, minting tokens the downstream server rejects. ([#942](https://github.com/giantswarm/muster/issues/942))
 
-- Data race in the token-forwarding and localMint connection header functions. Both mutate per-connection failure counters, which mcp-go invokes concurrently from the listener goroutine and tool-call goroutines, so under load the stale-connection eviction could double-fire (double eviction/revoke). The counters are now mutex-guarded. ([#939](https://github.com/giantswarm/muster/issues/939))
+- Data race in the token-forwarding connection header function, which mutates a per-connection failure counter that mcp-go invokes concurrently from the listener goroutine and tool-call goroutines, so under load the stale-connection eviction could double-fire (double eviction/revoke). Counter access is now synchronized. ([#939](https://github.com/giantswarm/muster/issues/939))
 
 - Token-exchange (oidc-exchange) backends no longer get stuck in `Auth Required` once their exchanged token expires. The persistent aggregator connection now re-exchanges a fresh token before expiry, and evicts itself only when the subject token can no longer be refreshed.
 

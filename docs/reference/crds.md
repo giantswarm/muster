@@ -340,8 +340,10 @@ spec:
 
 When `forwardToken: true` is configured:
 1. User authenticates to muster once via OAuth
-2. When calling this MCP server, muster forwards the user's ID token
-3. The downstream server validates the token (must configure `TrustedAudiences`)
+2. When calling this MCP server, muster forwards the caller's validated bearer (or the session's upstream ID token)
+3. The downstream server validates the token against the issuer it trusts (muster's issuer/JWKS for muster-issued bearers, or `TrustedAudiences` for forwarded upstream ID tokens)
+
+The forwarded token is audience-scoped to muster's resource identifier, not to the individual backend: the same token is accepted by every `forwardToken` backend and by muster itself, so all `forwardToken` backends must be equally trusted. The token's nested `act` claim carries the delegation chain for backend authorization decisions.
 
 Downstream servers must be configured to trust muster's client ID:
 - **mcp-kubernetes**: Set `oauth.trustedAudiences: ["muster-client"]` in Helm values
@@ -1067,12 +1069,13 @@ env:
 
 When using `forwardToken: true` for SSO:
 
-1. **ID Tokens Only**: Muster forwards ID tokens (containing identity claims), not access tokens
+1. **Validated Tokens Only**: Muster forwards the caller's bearer only after validating it at its own front door; opaque bearers are never forwarded
 2. **TLS Required**: All communication must be over HTTPS
 3. **Tokens Not Logged**: Tokens are never logged in plaintext
-4. **Downstream Opt-In**: Downstream servers must explicitly configure `TrustedAudiences`
+4. **Downstream Opt-In**: Downstream servers must explicitly trust muster's issuer/JWKS (or configure `TrustedAudiences` for forwarded upstream ID tokens)
 5. **Constant-Time Comparison**: mcp-oauth uses `subtle.ConstantTimeCompare` for audience matching
 6. **Audit Logging**: Both muster and downstream servers log when cross-client tokens are used
+7. **Shared Audience**: The forwarded token is audience-scoped to muster's resource identifier, so it is accepted by every `forwardToken` backend and by muster itself — treat all `forwardToken` backends as equally trusted; the token's nested `act` chain is the delegation provenance available to backends
 
 Events emitted for SSO:
 - `MCPServerTokenForwarded`: Successful SSO token forwarding

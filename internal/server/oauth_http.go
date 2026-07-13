@@ -185,9 +185,6 @@ func NewOAuthHTTPServer(cfg config.OAuthServerConfig, mcpHandler http.Handler, d
 		dpopValkeyClient: dpopClient,
 	}
 
-	// Expose the broker-backed mint to the aggregator's localMint downstream path.
-	api.RegisterBackendTokenMinter(&brokerTokenMinter{server: oauthServer})
-
 	return server, nil
 }
 
@@ -297,15 +294,12 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
-		// Surface the raw inbound tokens for the localMint downstream path: the
-		// Authorization bearer is the RFC 8693 subject, the actor header is the
-		// actor. Both are request-scoped and read per call_tool by the mint
-		// header func, so inject them before any branch returns and rebind r.
+		// Surface the raw inbound bearer for downstream token forwarding: the
+		// aggregator forwards this validated token to backends. It is
+		// request-scoped and read per call by the forwarding header func, so
+		// inject it before any branch returns and rebind r.
 		if bearer := extractBearerToken(r); bearer != "" {
 			ctx = ContextWithBearerToken(ctx, bearer)
-		}
-		if actor := extractActorToken(r); actor != "" {
-			ctx = ContextWithActorToken(ctx, actor)
 		}
 		r = r.WithContext(ctx)
 
@@ -317,6 +311,14 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 			}
 			next.ServeHTTP(w, r)
 			return
+		}
+
+		// Always propagate session ID early so onAuthenticated callbacks can
+		// detect sessions with broken refresh chains even when the ID token
+		// is missing.
+		if sessionID, ok := oauthhandler.SessionIDFromContext(ctx); ok {
+			ctx = api.WithSessionID(ctx, sessionID)
+			r = r.WithContext(ctx)
 		}
 
 		if userInfo.Email == "" {
@@ -332,15 +334,12 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 			if s.debug {
 				logging.Debug("OAuth", "User info has no email, proceeding without token injection")
 			}
+			// The session is authenticated even without an email (e.g. an agent
+			// presenting a muster-issued OBO token): fire the callback so its
+			// session-scoped backends are established with the validated bearer.
+			s.fireOnAuthenticated(ctx)
 			next.ServeHTTP(w, r)
 			return
-		}
-
-		// Always propagate session ID early so onAuthenticated callbacks can
-		// detect sessions with broken refresh chains even when the ID token
-		// is missing.
-		if sessionID, ok := oauthhandler.SessionIDFromContext(ctx); ok {
-			ctx = api.WithSessionID(ctx, sessionID)
 		}
 
 		// Look up the upstream provider token by the muster access token.
@@ -761,7 +760,6 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 	// operator's extra CA when the issuer is private-IP. nil keeps system-pool.
 	serverConfig.JWKSRootCAs = caPool
 
-	var localMint *oauthserver.LocalMintExchanger
 	if cfg.EnableJWTMode {
 		key, kid, alg, err := loadSigningKey(cfg.JWTSigningKeyFile)
 		if err != nil {
@@ -771,24 +769,9 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 		serverConfig.AccessTokenSigningKeyID = kid
 		serverConfig.AccessTokenSigningAlgorithm = alg
 		logger.Info("JWT mode enabled", "alg", alg, "kid", kid)
-
-		// Construct a LocalMintExchanger from the same signing material so that
-		// local-mint broker targets sign tokens with muster's own access-token key.
-		mintCfg := &oauthserver.Config{
-			Issuer:                      cfg.BaseURL,
-			AccessTokenFormat:           oauthserver.AccessTokenFormatJWT,
-			AccessTokenSigningKey:       key,
-			AccessTokenSigningKeyID:     kid,
-			AccessTokenSigningAlgorithm: alg,
-			AccessTokenTTL:              int64(DefaultAccessTokenTTL / time.Second),
-		}
-		localMint, err = oauthserver.NewLocalMintExchanger(mintCfg)
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to create local mint exchanger: %w", err)
-		}
 	}
 
-	builtOpts, err := buildOAuthServerOptions(cfg, logger, localMint, caPool)
+	builtOpts, err := buildOAuthServerOptions(cfg, logger, caPool)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -877,20 +860,6 @@ func (s *OAuthHTTPServer) getProviderToken(ctx context.Context, r *http.Request)
 // extractBearerToken extracts the bearer token from the Authorization header.
 func extractBearerToken(r *http.Request) string {
 	return stripBearerScheme(r.Header.Get("Authorization"))
-}
-
-// extractActorToken extracts the actor token from the HeaderActorToken header.
-// Accepts both raw JWTs and "Bearer <token>" values; the Bearer scheme is
-// stripped when present but is not required (unlike Authorization).
-func extractActorToken(r *http.Request) string {
-	val := r.Header.Get(HeaderActorToken)
-	if val == "" {
-		return ""
-	}
-	if stripped := stripBearerScheme(val); stripped != "" {
-		return stripped
-	}
-	return val
 }
 
 // stripBearerScheme returns the token portion of a "Bearer <token>" header

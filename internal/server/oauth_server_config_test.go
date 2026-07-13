@@ -1,6 +1,7 @@
 package server
 
 import (
+	"crypto/x509"
 	"testing"
 	"time"
 
@@ -32,33 +33,6 @@ func TestNewOAuthServerConfig_EnableJWTMode(t *testing.T) {
 		}
 		got := newOAuthServerConfig(cfg, time.Hour)
 		require.Empty(t, got.AccessTokenFormat)
-	})
-}
-
-func TestNewOAuthServerConfig_DelegateToSelf(t *testing.T) {
-	t.Parallel()
-
-	t.Run("enabled binds default resource to ResourceIdentifier", func(t *testing.T) {
-		t.Parallel()
-		cfg := config.OAuthServerConfig{
-			BaseURL:            "https://muster.example.com",
-			ResourceIdentifier: "https://muster.example.com/mcp",
-			TokenExchangeBroker: config.TokenExchangeBrokerConfig{
-				DelegateToSelf: true,
-			},
-		}
-		got := newOAuthServerConfig(cfg, time.Hour)
-		require.Equal(t, "https://muster.example.com/mcp", got.DelegationDefaultResource)
-	})
-
-	t.Run("disabled leaves default resource empty", func(t *testing.T) {
-		t.Parallel()
-		cfg := config.OAuthServerConfig{
-			BaseURL:            "https://muster.example.com",
-			ResourceIdentifier: "https://muster.example.com/mcp",
-		}
-		got := newOAuthServerConfig(cfg, time.Hour)
-		require.Empty(t, got.DelegationDefaultResource)
 	})
 }
 
@@ -114,7 +88,7 @@ func TestBuildOAuthServerOptions_NoErrorWhenFieldsSet(t *testing.T) {
 		},
 		TrustedProxyCIDRs: []string{"127.0.0.1/32"},
 	}
-	opts, err := buildOAuthServerOptions(cfg, nil, nil, nil)
+	opts, err := buildOAuthServerOptions(cfg, nil, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, opts)
 }
@@ -132,7 +106,7 @@ func TestBuildOAuthServerOptions_AllowPrivateIPJWKSNoError(t *testing.T) {
 			},
 		},
 	}
-	opts, err := buildOAuthServerOptions(cfg, nil, nil, nil)
+	opts, err := buildOAuthServerOptions(cfg, nil, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, opts)
 }
@@ -143,7 +117,7 @@ func TestBuildOAuthServerOptions_NoErrorWhenFieldsAbsent(t *testing.T) {
 	cfg := config.OAuthServerConfig{
 		BaseURL: "https://muster.example.com",
 	}
-	opts, err := buildOAuthServerOptions(cfg, nil, nil, nil)
+	opts, err := buildOAuthServerOptions(cfg, nil, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, opts)
 }
@@ -190,6 +164,29 @@ func TestNewOAuthServerConfig_MapsTokenExchangeClientAudiences(t *testing.T) {
 	require.Equal(t, allowlist, got.TokenExchangeClientAudiences)
 }
 
+func TestNewOAuthServerConfig_LocksSelfIssuedExchangeToOwnResource(t *testing.T) {
+	t.Parallel()
+
+	t.Run("explicit resource identifier", func(t *testing.T) {
+		t.Parallel()
+		cfg := config.OAuthServerConfig{
+			BaseURL:            "https://muster.example.com",
+			ResourceIdentifier: "https://muster.example.com/mcp",
+		}
+		got := newOAuthServerConfig(cfg, time.Hour)
+		require.Equal(t, []string{"https://muster.example.com/mcp"}, got.TokenExchangeAllowedResources)
+	})
+
+	t.Run("falls back to issuer", func(t *testing.T) {
+		t.Parallel()
+		cfg := config.OAuthServerConfig{
+			BaseURL: "https://muster.example.com",
+		}
+		got := newOAuthServerConfig(cfg, time.Hour)
+		require.Equal(t, []string{"https://muster.example.com"}, got.TokenExchangeAllowedResources)
+	})
+}
+
 func TestBuildOAuthServerOptions_BrokerRequiresTrustedIssuers(t *testing.T) {
 	t.Parallel()
 
@@ -204,7 +201,7 @@ func TestBuildOAuthServerOptions_BrokerRequiresTrustedIssuers(t *testing.T) {
 			},
 		},
 	}
-	_, err := buildOAuthServerOptions(cfg, nil, nil, nil)
+	_, err := buildOAuthServerOptions(cfg, nil, nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "trustedIssuers")
 
@@ -215,7 +212,7 @@ func TestBuildOAuthServerOptions_BrokerRequiresTrustedIssuers(t *testing.T) {
 			AllowedAudiences: []string{"portal-frontend"},
 		},
 	}
-	opts, err := buildOAuthServerOptions(cfg, nil, nil, nil)
+	opts, err := buildOAuthServerOptions(cfg, nil, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, opts)
 }
@@ -227,7 +224,42 @@ func TestBuildOAuthServerOptions_InvalidCIDRReturnsError(t *testing.T) {
 		BaseURL:           "https://muster.example.com",
 		TrustedProxyCIDRs: []string{"not-a-cidr"},
 	}
-	_, err := buildOAuthServerOptions(cfg, nil, nil, nil)
+	_, err := buildOAuthServerOptions(cfg, nil, nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid CIDR")
+}
+
+func TestBuildOAuthServerOptions_BrokerTargetRequiresDexTokenEndpoint(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.OAuthServerConfig{
+		BaseURL: "https://muster.example.com",
+		TrustedIssuers: []config.TrustedIssuerConfig{
+			{Issuer: "https://dex.example.com"},
+		},
+		TokenExchangeBroker: config.TokenExchangeBrokerConfig{
+			ClientAudiences: map[string][]string{"portal": {"cluster-a"}},
+			Targets: map[string]config.BrokerTargetConfig{
+				"cluster-a": {},
+			},
+		},
+	}
+	_, err := buildOAuthServerOptions(cfg, nil, nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "cluster-a")
+	require.Contains(t, err.Error(), "dexTokenEndpoint")
+}
+
+// TestToTrustedIssuer_PropagatesCAPool pins that the operator's extra-CA pool
+// reaches every trusted issuer's RootCAs, which mcp-oauth's per-issuer JWKS
+// clients require explicitly. Without it, an internal-CA issuer fails JWKS TLS
+// verification with certificate signed by unknown authority.
+func TestToTrustedIssuer_PropagatesCAPool(t *testing.T) {
+	pool := x509.NewCertPool()
+
+	issuer := toTrustedIssuer(config.TrustedIssuerConfig{Issuer: "https://dex.example.com"}, pool)
+	require.Same(t, pool, issuer.RootCAs)
+
+	issuerNoPool := toTrustedIssuer(config.TrustedIssuerConfig{Issuer: "https://dex.example.com"}, nil)
+	require.Nil(t, issuerNoPool.RootCAs)
 }

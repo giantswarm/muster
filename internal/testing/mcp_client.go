@@ -68,14 +68,6 @@ func (c *mcpTestClient) ConnectWithAuth(ctx context.Context, endpoint, accessTok
 	return c.connectWithOptions(ctx, endpoint, accessToken)
 }
 
-// ConnectWithOBO establishes connection with a bearer (subject) token and a
-// static X-Actor-Token header for RFC 8693 OBO delegation.
-func (c *mcpTestClient) ConnectWithOBO(ctx context.Context, endpoint, accessToken, actorToken string) error {
-	return c.connectWithOptions(ctx, endpoint, accessToken, map[string]string{
-		"X-Actor-Token": actorToken,
-	})
-}
-
 // connectWithOptions establishes connection with optional authentication.
 func (c *mcpTestClient) connectWithOptions(ctx context.Context, endpoint, accessToken string, extraHeaders ...map[string]string) error {
 	c.endpoint = endpoint
