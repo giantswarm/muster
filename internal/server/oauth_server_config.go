@@ -65,6 +65,14 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, refreshTokenTTL time.Dur
 	if cfg.EnableJWTMode {
 		result.AccessTokenFormat = oauthserver.AccessTokenFormatJWT
 	}
+	// Lock the self-issued RFC 8693 exchange to muster's own audience. The
+	// allowlist is disabled when empty, which would let any trusted-issuer
+	// caller obtain a muster-signed token for an arbitrary resource. The
+	// forward-token model needs only aud = muster's resource identifier
+	// (always permitted, and the default when the request omits resource);
+	// tokens for other audiences go through the brokered path, which has
+	// client authentication and its own per-client audience allowlist.
+	result.TokenExchangeAllowedResources = []string{result.GetResourceIdentifier()}
 	return result
 }
 

@@ -27,6 +27,8 @@ All notable changes to this project will be documented in this file.
 
 - On-behalf-of token exchange at `/oauth/token` no longer requires a broker target: a request without an `audience` takes mcp-oauth's self-issued path and the issued token's `aud` defaults to muster's `resourceIdentifier`. Requests with an `audience` keep the brokered downstream Dex exchange.
 
+- The self-issued exchange only mints tokens for muster's own audience: `TokenExchangeAllowedResources` is pinned to the `resourceIdentifier`, so a request naming any other RFC 8707 `resource` is refused with `invalid_target`. Previously the allowlist was unset (disabled) and any caller holding a trusted-issuer token could obtain a muster-signed token for an arbitrary audience. Tokens for other audiences go through the brokered path, which requires client authentication and a per-client audience allowlist.
+
 - M2M (machine-to-machine) token exchange. The `oauth.server.tokenExchangeBroker.workloadAudiences`, `workloadGroupGrants`, and `actorDelegationPolicy` config keys are removed, along with broker-granted identity injection (`granted.subject` / `granted.groups`). On-behalf-of (OBO) delegation is unchanged and now accepts any actor validated against the trusted issuers; the impersonated subject's downstream authorization governs access.
 
 - The `github-app` broker target type and its `githubApp` config block. The only remaining broker target type is `oidc-exchange`.

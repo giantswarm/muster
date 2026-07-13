@@ -164,6 +164,29 @@ func TestNewOAuthServerConfig_MapsTokenExchangeClientAudiences(t *testing.T) {
 	require.Equal(t, allowlist, got.TokenExchangeClientAudiences)
 }
 
+func TestNewOAuthServerConfig_LocksSelfIssuedExchangeToOwnResource(t *testing.T) {
+	t.Parallel()
+
+	t.Run("explicit resource identifier", func(t *testing.T) {
+		t.Parallel()
+		cfg := config.OAuthServerConfig{
+			BaseURL:            "https://muster.example.com",
+			ResourceIdentifier: "https://muster.example.com/mcp",
+		}
+		got := newOAuthServerConfig(cfg, time.Hour)
+		require.Equal(t, []string{"https://muster.example.com/mcp"}, got.TokenExchangeAllowedResources)
+	})
+
+	t.Run("falls back to issuer", func(t *testing.T) {
+		t.Parallel()
+		cfg := config.OAuthServerConfig{
+			BaseURL: "https://muster.example.com",
+		}
+		got := newOAuthServerConfig(cfg, time.Hour)
+		require.Equal(t, []string{"https://muster.example.com"}, got.TokenExchangeAllowedResources)
+	})
+}
+
 func TestBuildOAuthServerOptions_BrokerRequiresTrustedIssuers(t *testing.T) {
 	t.Parallel()
 

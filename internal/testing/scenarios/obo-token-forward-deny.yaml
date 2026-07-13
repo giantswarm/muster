@@ -5,7 +5,10 @@ description: |
   Deny paths of the forward-token OBO model. A token from an issuer muster
   does not trust is rejected at both trust boundaries: the /oauth/token
   exchange refuses it as a subject token, and /mcp refuses it as a bearer,
-  so nothing is ever forwarded downstream.
+  so nothing is ever forwarded downstream. A trusted subject requesting a
+  resource other than muster's own identifier is refused with
+  invalid_target: the self-issued exchange mints tokens only for muster's
+  own audience.
 tags: ["oauth", "obo", "token-exchange", "token-forwarding", "negative"]
 timeout: "2m"
 
@@ -50,6 +53,27 @@ steps:
       success: false
       error_contains:
         - "invalid"
+
+  - id: "mint-trusted-token"
+    description: "Mint a token on the trusted workload issuer"
+    tool: "test_mint_token"
+    args:
+      server: "workload-idp"
+      name: "trusted-token"
+      sub: "system:serviceaccount:kagent:sre-agent"
+    expected:
+      success: true
+
+  - id: "foreign-resource-denied"
+    description: "The exchange refuses to mint for a resource that is not muster's own identifier"
+    tool: "test_broker_token_exchange"
+    args:
+      subject_token_ref: "trusted-token"
+      resource: "https://unrelated.example.com"
+    expected:
+      success: false
+      error_contains:
+        - "invalid_target"
 
   - id: "mcp-denied"
     description: "/mcp refuses the untrusted bearer; no session is established"
