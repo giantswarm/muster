@@ -127,12 +127,14 @@ The CLI's `muster auth status` displays an approximate session estimate based on
 default 30-day duration. Custom server-side values are not yet reflected in the CLI
 estimate.
 
-#### JWT Access Tokens
+#### Resource Identifier
+
+muster issues only opaque access tokens. muster is not an identity provider:
+it never signs tokens, and downstream MCP servers validate identity against
+dex (or their own IdP), never against muster.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `enableJWTMode` | `bool` | `false` | Issue RFC 9068 signed JWTs as access tokens. Required when downstream services (e.g. agentgateway) validate tokens locally without calling the introspection endpoint. |
-| `jwtSigningKeyFile` | `string` | `""` | Path to a PEM-encoded private key (EC P-256 → ES256, or RSA ≥2048 → RS256) used to sign JWT access tokens. **Required when `enableJWTMode` is true** — the server refuses to start otherwise. `kid` is derived from the RFC 7638 JWK thumbprint of the public key. In Helm, set the key contents via `muster.oauth.server.jwtSigningKey` (or supply it through `existingSecret` under key `jwt-signing-key` for production, so it never passes through Helm values/release history); the chart mounts it and wires this field automatically. `helm template` fails if neither is provided when JWT mode is on. |
 | `resourceIdentifier` | `string` | `""` | RFC 8707 canonical URI for this muster instance as a resource server. Access tokens carry this value in their `aud` claim; tokens bound to a different resource are rejected, preventing replay across resource servers sharing the same IdP. Defaults to `baseUrl` when empty. |
 
 #### DPoP and Trusted Proxies

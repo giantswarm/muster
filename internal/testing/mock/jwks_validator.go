@@ -2,6 +2,8 @@ package mock
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -26,12 +28,16 @@ type jwksValidator struct {
 	cached *jose.JSONWebKeySet
 }
 
-func newJWKSValidator(jwksURL, expectedAudience, expectedIssuer string) *jwksValidator {
+func newJWKSValidator(jwksURL, expectedAudience, expectedIssuer string, rootCAs *x509.CertPool) *jwksValidator {
+	client := &http.Client{Timeout: 5 * time.Second}
+	if rootCAs != nil {
+		client.Transport = &http.Transport{TLSClientConfig: &tls.Config{RootCAs: rootCAs, MinVersion: tls.VersionTLS12}}
+	}
 	return &jwksValidator{
 		jwksURL:          jwksURL,
 		expectedAudience: expectedAudience,
 		expectedIssuer:   expectedIssuer,
-		httpClient:       &http.Client{Timeout: 5 * time.Second},
+		httpClient:       client,
 	}
 }
 

@@ -1241,7 +1241,7 @@ func (m *musterInstanceManager) configureOAuthForInstance(
 		serverConfig, ok := oauthConfig["server"].(map[string]interface{})
 		if !ok {
 			logger.Debug("⚠️  muster_broker set but no mock OAuth server uses use_as_muster_oauth_server; broker not configured\n")
-		} else if err := m.applyBrokerConfig(serverConfig, config, port, instanceID, musterConfigPath, logger); err != nil {
+		} else if err := m.applyBrokerConfig(serverConfig, config, port, instanceID, logger); err != nil {
 			logger.Debug("⚠️  Failed to configure muster broker: %v\n", err)
 		}
 	}

@@ -2,6 +2,7 @@ package testing
 
 import (
 	"context"
+	"crypto/x509"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -276,7 +277,7 @@ func (m *musterInstanceManager) startMockHTTPServersWithOAuth(
 
 		if oauthConfig != nil && oauthConfig.Required {
 			// Start as a protected MCP server
-			info, err := m.startProtectedMCPServer(ctx, instanceID, musterPort, mcpServer, transportType, oauthConfig, oauthServers, logger)
+			info, err := m.startProtectedMCPServer(ctx, instanceID, mcpServer, transportType, oauthConfig, oauthServers, logger)
 			if err != nil {
 				return nil, fmt.Errorf("failed to start protected MCP server %s: %w", mcpServer.Name, err)
 			}
@@ -317,8 +318,8 @@ func (m *musterInstanceManager) extractOAuthConfig(config map[string]interface{}
 	if scope, ok := oauthMap["scope"].(string); ok {
 		result.Scope = scope
 	}
-	if trust, ok := oauthMap["trust_muster_jwks"].(bool); ok {
-		result.TrustMusterJWKS = trust
+	if ref, ok := oauthMap["trust_issuer_ref"].(string); ok {
+		result.TrustIssuerRef = ref
 	}
 	if aud, ok := oauthMap["expected_audience"].(string); ok {
 		result.ExpectedAudience = aud
@@ -331,7 +332,6 @@ func (m *musterInstanceManager) extractOAuthConfig(config map[string]interface{}
 func (m *musterInstanceManager) startProtectedMCPServer(
 	ctx context.Context,
 	instanceID string,
-	musterPort int,
 	mcpServer MCPServerConfig,
 	transportType mock.HTTPTransportType,
 	oauthConfig *MCPServerOAuthConfig,
@@ -370,14 +370,28 @@ func (m *musterInstanceManager) startProtectedMCPServer(
 		Debug:         m.debug,
 	}
 
-	// In trust-muster-JWKS mode the backend validates broker-minted JWTs against
-	// muster's signing key (its /.well-known/jwks.json) instead of the mock OAuth
-	// server's opaque tokens. muster's base URL is its issuer.
-	if oauthConfig.TrustMusterJWKS {
-		musterBaseURL := fmt.Sprintf("http://localhost:%d", musterPort)
-		config.TrustJWKSURL = musterBaseURL + "/.well-known/jwks.json"
-		config.ExpectedIssuer = musterBaseURL
+	// In trust-issuer mode the backend validates forwarded JWTs against the
+	// referenced mock OAuth server's JWKS (the dex stand-in) instead of the
+	// mock OAuth server's opaque tokens. This is the forwardToken trust
+	// model: the backend trusts the IdP, never muster.
+	if oauthConfig.TrustIssuerRef != "" {
+		trusted, ok := oauthServers[oauthConfig.TrustIssuerRef]
+		if !ok {
+			return nil, fmt.Errorf("mcp server %s trust_issuer_ref references unknown OAuth server %q",
+				mcpServer.Name, oauthConfig.TrustIssuerRef)
+		}
+		config.TrustJWKSURL = trusted.IssuerURL + "/jwks"
+		config.ExpectedIssuer = trusted.IssuerURL
 		config.ExpectedAudience = oauthConfig.ExpectedAudience
+		// Trusted issuers serve TLS with a per-run test CA; the validator's
+		// JWKS fetch must verify against it.
+		if srv := m.GetMockOAuthServer(instanceID, oauthConfig.TrustIssuerRef); srv != nil {
+			if caPEM := srv.GetCACertPEM(); len(caPEM) > 0 {
+				pool := x509.NewCertPool()
+				pool.AppendCertsFromPEM(caPEM)
+				config.TrustJWKSRootCAs = pool
+			}
+		}
 	}
 
 	protectedServer, err := mock.NewProtectedMCPServer(config)

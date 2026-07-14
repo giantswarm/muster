@@ -1,14 +1,7 @@
 package testing
 
 import (
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
-	"crypto/x509"
-	"encoding/pem"
 	"fmt"
-	"os"
-	"path/filepath"
 )
 
 // brokerTrustedServerRefs returns the set of mock OAuth server names referenced
@@ -28,50 +21,23 @@ func brokerTrustedServerRefs(config *MusterPreConfiguration) map[string]bool {
 	return refs
 }
 
-// generateBrokerSigningKey writes an EC P-256 private key (EC PRIVATE KEY PEM) to
-// the muster config directory and returns its path. muster's loadSigningKey reads
-// this to sign issued JWTs (ES256).
-func generateBrokerSigningKey(musterConfigPath string) (string, error) {
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return "", fmt.Errorf("generating broker signing key: %w", err)
-	}
-	der, err := x509.MarshalECPrivateKey(key)
-	if err != nil {
-		return "", fmt.Errorf("marshaling broker signing key: %w", err)
-	}
-	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der})
-
-	path := filepath.Join(musterConfigPath, "broker-signing-key.pem")
-	if err := os.WriteFile(path, pemBytes, 0600); err != nil {
-		return "", fmt.Errorf("writing broker signing key: %w", err)
-	}
-	return path, nil
-}
-
-// applyBrokerConfig populates the muster oauth.server config map with JWT mode
-// and trusted issuers for the self-issued token exchange, resolving mock-server
-// references to live issuer/JWKS URLs. It is a no-op when no muster_broker is set.
+// applyBrokerConfig populates the muster oauth.server config map with the
+// trusted issuers whose tokens muster accepts as bearers on /mcp, resolving
+// mock-server references to live issuer/JWKS URLs. muster never signs tokens
+// (no JWT mode); dex stand-ins are the only issuers. It is a no-op when no
+// muster_broker is set.
 func (m *musterInstanceManager) applyBrokerConfig(
 	serverConfig map[string]interface{},
 	config *MusterPreConfiguration,
 	port int,
-	instanceID, musterConfigPath string,
+	instanceID string,
 	logger TestLogger,
 ) error {
 	if config == nil || config.MusterBroker == nil {
 		return nil
 	}
 	broker := config.MusterBroker
-	baseURL := fmt.Sprintf("http://localhost:%d", port)
-
-	keyPath, err := generateBrokerSigningKey(musterConfigPath)
-	if err != nil {
-		return err
-	}
-	serverConfig["enableJWTMode"] = true
-	serverConfig["jwtSigningKeyFile"] = keyPath
-	serverConfig["resourceIdentifier"] = baseURL
+	serverConfig["resourceIdentifier"] = fmt.Sprintf("http://localhost:%d", port)
 
 	// Trusted issuers: resolve each referenced mock server to its issuer + JWKS URL.
 	trustedIssuers := make([]map[string]interface{}, 0, len(broker.TrustedIssuers))
@@ -102,7 +68,7 @@ func (m *musterInstanceManager) applyBrokerConfig(
 	serverConfig["trustedIssuers"] = trustedIssuers
 
 	if m.debug {
-		logger.Debug("🔐 Configured muster token exchange: %d trusted issuers\n",
+		logger.Debug("🔐 Configured muster trusted issuers: %d\n",
 			len(broker.TrustedIssuers))
 	}
 	return nil

@@ -62,16 +62,12 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, refreshTokenTTL time.Dur
 			result.CORS.AllowedOrigins[i] = strings.TrimSpace(o)
 		}
 	}
-	if cfg.EnableJWTMode {
-		result.AccessTokenFormat = oauthserver.AccessTokenFormatJWT
-	}
-	// Lock the self-issued RFC 8693 exchange to muster's own audience. The
-	// allowlist is disabled when empty, which would let any trusted-issuer
-	// caller obtain a muster-signed token for an arbitrary resource. The
-	// forward-token model needs only aud = muster's resource identifier
-	// (always permitted, and the default when the request omits resource);
-	// tokens for other audiences go through the brokered path, which has
-	// client authentication and its own per-client audience allowlist.
+	// muster is not an IdP: access tokens stay opaque (no JWT mode, no
+	// signing key), so no muster-signed token can exist to be forwarded or
+	// validated downstream. Dex is the sole SSO authority. The self-issued
+	// RFC 8693 exchange requires JWT access tokens and is therefore
+	// permanently disabled; the resource allowlist below is defense in depth
+	// should mcp-oauth ever relax that requirement.
 	result.TokenExchangeAllowedResources = []string{result.GetResourceIdentifier()}
 	return result
 }

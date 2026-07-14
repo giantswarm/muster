@@ -2,6 +2,7 @@ package mock
 
 import (
 	"context"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -38,9 +39,14 @@ type ProtectedMCPServerConfig struct {
 
 	// TrustJWKSURL, when set, switches token validation from the mock OAuth
 	// server's opaque-token check to JWT signature verification against this
-	// JWKS endpoint (e.g. muster's /.well-known/jwks.json). This is how a
-	// backend proves it accepts a broker-minted token end-to-end.
+	// JWKS endpoint (the trusted issuer's JWKS, a dex stand-in). This is how
+	// a backend proves it accepts a forwarded IdP-issued token end-to-end.
 	TrustJWKSURL string
+
+	// TrustJWKSRootCAs verifies the TLS certificate of the TrustJWKSURL
+	// endpoint (mock issuers serve TLS with a test CA). nil keeps the
+	// system pool.
+	TrustJWKSRootCAs *x509.CertPool
 
 	// ExpectedAudience is the aud value the minted token must carry when
 	// TrustJWKSURL is set. Empty accepts any audience.
@@ -231,7 +237,7 @@ func (s *ProtectedMCPServer) createProtectedHandler() (http.Handler, error) {
 	}
 	if s.config.TrustJWKSURL != "" {
 		protectedHandler.jwksValidator = newJWKSValidator(
-			s.config.TrustJWKSURL, s.config.ExpectedAudience, s.config.ExpectedIssuer)
+			s.config.TrustJWKSURL, s.config.ExpectedAudience, s.config.ExpectedIssuer, s.config.TrustJWKSRootCAs)
 	}
 
 	// Create a mux to handle special endpoints

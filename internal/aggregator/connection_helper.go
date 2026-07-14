@@ -978,8 +978,11 @@ func forwardedTokenDiagnostic(token string) string {
 }
 
 // isForwardableToken reports whether token is a decodable JWT. An opaque
-// bearer is never forwarded: a downstream backend cannot validate it against
-// muster's JWKS, so opaque-token sessions resolve the stored ID token instead.
+// bearer is never forwarded: a downstream backend cannot validate it, so
+// opaque-token sessions resolve the stored dex ID token instead. muster
+// issues only opaque access tokens (it is not an IdP and has no signing
+// key), so any decodable JWT here was issued by an external trusted issuer
+// (dex).
 func isForwardableToken(token string) bool {
 	if token == "" {
 		return false
@@ -992,12 +995,11 @@ func isForwardableToken(token string) bool {
 // decodable JWT, or "" otherwise (see isForwardableToken).
 //
 // The bearer is forwarded byte-identical, not re-minted per backend, so it is
-// not audience-scoped to the receiving backend: a muster-issued OBO token
-// carries aud=muster's resource identifier and a directly presented
-// trusted-issuer token carries that issuer's audience. The same token is
-// accepted by every forwardToken backend that trusts its issuer and by
-// muster's own front door, so those backends must be equally trusted; the
-// token's nested act chain is the backend's delegation provenance.
+// not audience-scoped to the receiving backend: a trusted-issuer (dex) token
+// carries that issuer's audience. The same token is accepted by every
+// forwardToken backend that trusts its issuer, so those backends must be
+// equally trusted; the token's nested act chain (minted by the IdP) is the
+// backend's delegation provenance.
 func forwardableBearer(ctx context.Context) string {
 	bearer := server.GetBearerTokenFromContext(ctx)
 	if !isForwardableToken(bearer) {
@@ -1010,7 +1012,7 @@ func forwardableBearer(ctx context.Context) string {
 // newTokenForwardingClient. Resolution order per invocation:
 //
 //  1. The validated inbound bearer on the request context, forwarded
-//     byte-identical so the backend sees the caller's own muster-issued token
+//     byte-identical so the backend sees the caller's own IdP-issued token
 //     including any nested act delegation chain. This serves per-request
 //     forwarding for tool calls; opaque bearers are excluded (see
 //     forwardableBearer).

@@ -1,15 +1,13 @@
-name: "obo-token-forward-deny"
+name: "dex-token-forward-deny"
 category: "behavioral"
 concept: "mcpserver"
 description: |
-  Deny paths of the forward-token OBO model. A token from an issuer muster
-  does not trust is rejected at both trust boundaries: the /oauth/token
-  exchange refuses it as a subject token, and /mcp refuses it as a bearer,
-  so nothing is ever forwarded downstream. A trusted subject requesting a
-  resource other than muster's own identifier is refused with
-  invalid_target: the self-issued exchange mints tokens only for muster's
-  own audience.
-tags: ["oauth", "obo", "token-exchange", "token-forwarding", "negative"]
+  Deny paths of the dex-only trust model. muster never signs tokens: the
+  RFC 8693 exchange at /oauth/token refuses to issue even for a subject from
+  a trusted issuer, so no muster-signed token can ever exist. A token from an
+  issuer muster does not trust is refused as a bearer on /mcp, so nothing is
+  ever forwarded downstream.
+tags: ["oauth", "obo", "token-forwarding", "negative"]
 timeout: "2m"
 
 pre_configuration:
@@ -34,26 +32,6 @@ pre_configuration:
         accepted_typ_headers: [""]
 
 steps:
-  - id: "mint-rogue-token"
-    description: "Mint a token on an issuer muster does not trust"
-    tool: "test_mint_token"
-    args:
-      server: "rogue-idp"
-      name: "rogue-token"
-      sub: "mallory@example.com"
-    expected:
-      success: true
-
-  - id: "exchange-denied"
-    description: "The exchange refuses an untrusted-issuer subject token"
-    tool: "test_broker_token_exchange"
-    args:
-      subject_token_ref: "rogue-token"
-    expected:
-      success: false
-      error_contains:
-        - "invalid"
-
   - id: "mint-trusted-token"
     description: "Mint a token on the trusted workload issuer"
     tool: "test_mint_token"
@@ -64,16 +42,28 @@ steps:
     expected:
       success: true
 
-  - id: "foreign-resource-denied"
-    description: "The exchange refuses to mint for a resource that is not muster's own identifier"
+  - id: "mint-refused"
+    description: |
+      muster is not an IdP: the exchange refuses to issue a token even for a
+      subject from a trusted issuer, because muster has no signing key and
+      JWT issuance is permanently disabled.
     tool: "test_broker_token_exchange"
     args:
       subject_token_ref: "trusted-token"
-      resource: "https://unrelated.example.com"
     expected:
       success: false
       error_contains:
-        - "invalid_target"
+        - "invalid_grant"
+
+  - id: "mint-rogue-token"
+    description: "Mint a token on an issuer muster does not trust"
+    tool: "test_mint_token"
+    args:
+      server: "rogue-idp"
+      name: "rogue-token"
+      sub: "mallory@example.com"
+    expected:
+      success: true
 
   - id: "mcp-denied"
     description: "/mcp refuses the untrusted bearer; no session is established"
