@@ -335,8 +335,9 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 				logging.Debug("OAuth", "User info has no email, proceeding without token injection")
 			}
 			// The session is authenticated even without an email (e.g. an agent
-			// presenting a muster-issued OBO token): fire the callback so its
-			// session-scoped backends are established with the validated bearer.
+			// presenting a trusted-issuer workload token): fire the callback so
+			// its session-scoped backends are established with the validated
+			// bearer.
 			s.fireOnAuthenticated(ctx)
 			next.ServeHTTP(w, r)
 			return
@@ -599,10 +600,6 @@ func (s *OAuthHTTPServer) Shutdown(ctx context.Context) error {
 // The returned valkeygo.Client is non-nil only when a Valkey-backed DPoP replay
 // cache is created; the caller must call Close() on it when done.
 func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) (*oauth.Server, storage.TokenStore, valkeygo.Client, error) {
-	if cfg.EnableJWTMode && cfg.JWTSigningKeyFile == "" {
-		return nil, nil, nil, fmt.Errorf("enableJWTMode requires jwtSigningKeyFile to be set")
-	}
-
 	logger := slog.Default()
 
 	// mcp-oauth v1+ no longer reads a CA installed on http.DefaultTransport for
@@ -759,17 +756,6 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 	// Verify the forwarded-ID-token (TrustedAudiences) JWKS endpoint against the
 	// operator's extra CA when the issuer is private-IP. nil keeps system-pool.
 	serverConfig.JWKSRootCAs = caPool
-
-	if cfg.EnableJWTMode {
-		key, kid, alg, err := loadSigningKey(cfg.JWTSigningKeyFile)
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("JWT mode enabled but signing key unavailable: %w", err)
-		}
-		serverConfig.AccessTokenSigningKey = key
-		serverConfig.AccessTokenSigningKeyID = kid
-		serverConfig.AccessTokenSigningAlgorithm = alg
-		logger.Info("JWT mode enabled", "alg", alg, "kid", kid)
-	}
 
 	builtOpts, err := buildOAuthServerOptions(cfg, logger, caPool)
 	if err != nil {

@@ -109,18 +109,20 @@ spec:
                     default: false
                     description: |-
                       ForwardToken enables ID token forwarding for SSO.
-                      When true, muster forwards the caller's validated bearer (or the
-                      session's upstream ID token) to this server instead of triggering a
-                      separate OAuth flow. The downstream server must be configured to trust
-                      the token's issuer: muster's issuer/JWKS for muster-issued bearers, or
-                      muster's client ID in its TrustedAudiences for forwarded upstream ID
-                      tokens.
+                      When true, muster forwards the session's upstream dex ID token (or, for
+                      sessions established by a trusted-issuer bearer, that IdP-issued bearer)
+                      to this server byte-identical, instead of triggering a separate OAuth
+                      flow. Every forwarded token is issued by the IdP (dex); muster is not
+                      an identity provider, never signs tokens, and no backend is ever
+                      configured to trust a muster JWKS. The downstream server must trust the
+                      IdP's issuer/JWKS (e.g. muster's client ID in its TrustedAudiences for
+                      forwarded dex ID tokens).
 
                       The forwarded token is not audience-scoped to this server: the same
-                      bearer is accepted by every forwardToken backend and by muster itself,
-                      so all forwardToken backends must be equally trusted. The token's
-                      nested act claim carries the delegation chain for backend
-                      authorization decisions.
+                      token is accepted by every forwardToken backend, so all forwardToken
+                      backends must be equally trusted. A token's nested act claim (minted
+                      by the IdP, e.g. via exchange at dex) carries the delegation chain for
+                      backend authorization decisions.
                     type: boolean
                   requiredAudiences:
                     description: |-

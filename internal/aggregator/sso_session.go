@@ -37,13 +37,15 @@ func ssoSessionFromContext(ctx context.Context, sessionID string) ssoSession {
 }
 
 // canBootstrapSSO reports whether the session has a usable token for
-// establishing session-scoped backend connections. The upstream ID token
+// establishing session-scoped backend connections. The upstream dex ID token
 // serves the human login path; a forwardable (decodable JWT) inbound bearer
-// serves callers that arrive with a muster-issued access token (agent OBO
-// sessions) and is what the aggregator forwards downstream. An opaque bearer
-// does not count: it cannot be forwarded, so a session holding only one has
-// lost its upstream credential and the caller treats it as a broken refresh
-// chain.
+// serves callers that arrive with an IdP-issued token accepted via the
+// trustedIssuers allowlist (agent OBO sessions carrying a dex-minted act
+// chain) and is what the aggregator forwards downstream. muster issues only
+// opaque access tokens, so a decodable bearer is by construction externally
+// issued. An opaque bearer does not count: it cannot be forwarded, so a
+// session holding only one has lost its upstream credential and the caller
+// treats it as a broken refresh chain.
 func (s ssoSession) canBootstrapSSO() bool {
 	return s.tokens.IDToken != "" || isForwardableToken(s.tokens.Bearer)
 }

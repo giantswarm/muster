@@ -7,33 +7,20 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	oauthserver "github.com/giantswarm/mcp-oauth/server"
-
 	"github.com/giantswarm/muster/internal/config"
 )
 
-func TestNewOAuthServerConfig_EnableJWTMode(t *testing.T) {
+// muster is not an IdP: access tokens must stay opaque so no muster-signed
+// token can ever be forwarded to or validated by a downstream server.
+func TestNewOAuthServerConfig_AccessTokensStayOpaque(t *testing.T) {
 	t.Parallel()
 
-	t.Run("JWT mode enabled", func(t *testing.T) {
-		t.Parallel()
-		cfg := config.OAuthServerConfig{
-			BaseURL:       "https://muster.example.com",
-			EnableJWTMode: true,
-		}
-		got := newOAuthServerConfig(cfg, time.Hour)
-		require.Equal(t, oauthserver.AccessTokenFormatJWT, got.AccessTokenFormat)
-	})
-
-	t.Run("JWT mode disabled", func(t *testing.T) {
-		t.Parallel()
-		cfg := config.OAuthServerConfig{
-			BaseURL:       "https://muster.example.com",
-			EnableJWTMode: false,
-		}
-		got := newOAuthServerConfig(cfg, time.Hour)
-		require.Empty(t, got.AccessTokenFormat)
-	})
+	cfg := config.OAuthServerConfig{
+		BaseURL: "https://muster.example.com",
+	}
+	got := newOAuthServerConfig(cfg, time.Hour)
+	require.Empty(t, got.AccessTokenFormat)
+	require.Nil(t, got.AccessTokenSigningKey)
 }
 
 func TestParseCIDRs(t *testing.T) {

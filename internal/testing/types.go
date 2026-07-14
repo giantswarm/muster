@@ -339,14 +339,15 @@ type MCPServerOAuthConfig struct {
 	// Scope is the required OAuth scope
 	Scope string `yaml:"scope,omitempty"`
 
-	// TrustMusterJWKS makes this backend validate bearer tokens as JWTs signed by
-	// muster (against muster's /.well-known/jwks.json) instead of the mock OAuth
-	// server's opaque-token check. Used to prove a downstream accepts a
-	// broker-minted token end-to-end.
-	TrustMusterJWKS bool `yaml:"trust_muster_jwks,omitempty"`
+	// TrustIssuerRef makes this backend validate bearer tokens as JWTs signed
+	// by the referenced mock OAuth server (against its JWKS) instead of the
+	// mock OAuth server's opaque-token check. Used to prove a downstream
+	// accepts a forwarded dex-issued token end-to-end. muster is never a
+	// token issuer, so there is no option to trust muster's JWKS.
+	TrustIssuerRef string `yaml:"trust_issuer_ref,omitempty"`
 
-	// ExpectedAudience is the aud the minted token must carry when
-	// TrustMusterJWKS is set (typically the broker target audience).
+	// ExpectedAudience is the aud the forwarded token must carry when
+	// TrustIssuerRef is set. Empty accepts any audience.
 	ExpectedAudience string `yaml:"expected_audience,omitempty"`
 }
 

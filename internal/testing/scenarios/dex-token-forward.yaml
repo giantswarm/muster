@@ -1,17 +1,17 @@
-name: "obo-token-forward"
+name: "dex-token-forward"
 category: "behavioral"
 concept: "mcpserver"
 description: |
-  End-to-end agent OBO flow on the forward-token model. A human subject token
-  and an agent SA actor token are exchanged at muster's /oauth/token
-  (self-issued path, no audience): muster signs one token carrying
-  sub=human, act=agent, groups, aud=muster's resource identifier. The agent
-  then presents that token on /mcp; muster validates it and forwards it
-  unchanged to a forwardToken backend, which validates it against muster's
-  JWKS and echoes the received claims, proving the delegation chain reaches
-  the backend intact. Byte-identical forwarding of the inbound bearer is
-  pinned at the unit level (TestHeaderFunc_ForwardsRequestBearer).
-tags: ["oauth", "obo", "token-exchange", "token-forwarding", "aggregator", "data-plane"]
+  End-to-end agent OBO flow on the dex-only trust model. Dex (workload-idp
+  stand-in) is the sole token issuer: it mints the on-behalf-of token
+  (sub=human, act=agent, groups) itself. The agent presents that dex-issued
+  token on /mcp; muster validates it against the trusted issuer's JWKS and
+  forwards it unchanged to a forwardToken backend, which validates it against
+  the SAME issuer's JWKS (never muster's — muster signs nothing) and echoes
+  the received claims, proving the delegation chain reaches the backend
+  byte-identical. Byte-identical forwarding of the inbound bearer is pinned
+  at the unit level (TestHeaderFunc_ForwardsRequestBearer).
+tags: ["oauth", "obo", "token-forwarding", "aggregator", "data-plane"]
 timeout: "2m"
 
 pre_configuration:
@@ -38,7 +38,7 @@ pre_configuration:
         type: "streamable-http"
         oauth:
           required: true
-          trust_muster_jwks: true
+          trust_issuer_ref: "workload-idp"
           forward_token: true
         tools:
           - name: "whoami"
@@ -61,51 +61,25 @@ steps:
       count: 5
       delay: "1s"
 
-  - id: "mint-human-token"
-    description: "Mint a human subject token with email and groups"
+  - id: "mint-dex-obo-token"
+    description: |
+      Dex mints the on-behalf-of token itself: sub=human, act=agent SA,
+      groups. muster plays no part in issuance.
     tool: "test_mint_token"
     args:
       server: "workload-idp"
-      name: "human-token"
+      name: "obo-token"
       sub: "alice@giantswarm.io"
       email: "alice@giantswarm.io"
       email_verified: true
       groups: ["customer:giantswarm:team-ai"]
+      act:
+        sub: "system:serviceaccount:kagent:sre-agent"
     expected:
       success: true
-
-  - id: "mint-agent-token"
-    description: "Mint an SA token for the agent (the OBO actor)"
-    tool: "test_mint_token"
-    args:
-      server: "workload-idp"
-      name: "agent-token"
-      sub: "system:serviceaccount:kagent:sre-agent"
-    expected:
-      success: true
-
-  - id: "exchange-obo"
-    description: |
-      Self-issued exchange (no audience): muster validates subject + actor and
-      signs one token with sub=human, act=agent, groups copied from the
-      subject, aud defaulting to muster's resource identifier.
-    tool: "test_broker_token_exchange"
-    args:
-      subject_token_ref: "human-token"
-      actor_token_ref: "agent-token"
-      name: "obo-token"
-    expected:
-      success: true
-      contains:
-        - "alice@giantswarm.io"
-        - "system:serviceaccount:kagent:sre-agent"
-        - "customer:giantswarm:team-ai"
-    retry:
-      count: 5
-      delay: "1s"
 
   - id: "connect-as-agent"
-    description: "Present the OBO token as the bearer on /mcp"
+    description: "Present the dex-issued OBO token as the bearer on /mcp"
     tool: "test_reconnect_with_token"
     args:
       token_ref: "obo-token"
@@ -119,8 +93,9 @@ steps:
     description: |
       The backend tool is reachable through the aggregator and echoes the
       claims of the token it received: the forwarded token still carries the
-      human subject and the agent act chain, and validated against muster's
-      JWKS.
+      human subject and the agent act chain, and validated against the DEX
+      issuer's JWKS — the backend does not know muster's signing key because
+      muster has none.
     tool: "x_obo-backend_whoami"
     args: {}
     expected:

@@ -134,11 +134,11 @@ func (h *TestToolsHandler) handleMintToken(_ context.Context, args map[string]in
 }
 
 // handleBrokerTokenExchange POSTs an RFC 8693 token-exchange request to muster's
-// /oauth/token endpoint and, on success, verifies the issued JWT against
-// muster's JWKS and returns its claims. Without an audience the request takes
-// the self-issued path (muster signs the token itself); with an audience it
-// takes the brokered path. On failure it returns the OAuth error so negative
-// scenarios can assert on it.
+// /oauth/token endpoint. muster is not an IdP and refuses to sign tokens, so
+// the audience-less (self-issued) path always fails; scenarios use this tool
+// to pin that refusal. On failure it returns the OAuth error so negative
+// scenarios can assert on it. On success (a brokered exchange against a
+// downstream target) it returns the issued token's claims.
 // args: subject_token_ref (required); audience, actor_token_ref,
 // subject_token_type, resource, name optional.
 func (h *TestToolsHandler) handleBrokerTokenExchange(ctx context.Context, args map[string]interface{}) (interface{}, error) {
@@ -328,7 +328,7 @@ func (h *TestToolsHandler) verifyAgainstMusterJWKS(ctx context.Context, baseURL,
 		return nil, fmt.Errorf("decoding muster JWKS: %w", err)
 	}
 	if len(set.Keys) == 0 {
-		return nil, fmt.Errorf("muster JWKS is empty (is enableJWTMode set?)")
+		return nil, fmt.Errorf("muster JWKS is empty (muster does not sign tokens)")
 	}
 
 	var payload []byte
