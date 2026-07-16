@@ -7,14 +7,16 @@ import (
 
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/config"
+	"github.com/stretchr/testify/require"
 )
 
 // issuerMockOAuthHandler implements api.OAuthHandler for testing getMusterIssuer
 type issuerMockOAuthHandler struct {
-	enabled          bool
-	findTokenResult  *api.OAuthToken
-	getFullTokenFunc func(sessionID, issuer string) *api.OAuthToken
-	exchangeFunc     func(ctx context.Context, localToken, userID string, config *api.TokenExchangeConfig) (string, error)
+	enabled             bool
+	findTokenResult     *api.OAuthToken
+	getFullTokenFunc    func(sessionID, issuer string) *api.OAuthToken
+	exchangeFunc        func(ctx context.Context, localToken, userID string, config *api.TokenExchangeConfig) (string, error)
+	createChallengeFunc func(sessionID, userID, serverName, issuer, scope string) (*api.AuthChallenge, error)
 }
 
 func (m *issuerMockOAuthHandler) IsEnabled() bool {
@@ -52,7 +54,10 @@ func (m *issuerMockOAuthHandler) DeleteTokensByUser(_ string) {
 func (m *issuerMockOAuthHandler) DeleteTokensBySession(_ string) {
 }
 
-func (m *issuerMockOAuthHandler) CreateAuthChallenge(_ context.Context, _, _, _, _, _ string) (*api.AuthChallenge, error) {
+func (m *issuerMockOAuthHandler) CreateAuthChallenge(_ context.Context, sessionID, userID, serverName, issuer, scope string) (*api.AuthChallenge, error) {
+	if m.createChallengeFunc != nil {
+		return m.createChallengeFunc(sessionID, userID, serverName, issuer, scope)
+	}
 	return nil, nil
 }
 
@@ -273,4 +278,49 @@ func TestGetMusterIssuer_NoFallbackToken(t *testing.T) {
 	if issuer != "" {
 		t.Errorf("expected empty issuer, got '%s'", issuer)
 	}
+}
+
+func TestHandleAuthLogin_ChallengeCarriesStructuredContent(t *testing.T) {
+	mockHandler := &issuerMockOAuthHandler{
+		enabled: true,
+		createChallengeFunc: func(_, _, serverName, _, _ string) (*api.AuthChallenge, error) {
+			return &api.AuthChallenge{
+				Status:     "auth_required",
+				AuthURL:    "https://idp.example.com/authorize?state=abc",
+				ServerName: serverName,
+				Message:    "Authentication required for " + serverName + ". Please visit the link below to authenticate.",
+			}, nil
+		},
+	}
+	api.RegisterOAuthHandler(mockHandler)
+	t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
+
+	registry := NewServerRegistry("x")
+	require.NoError(t, registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: "protected-server"},
+		URL:                "https://protected.example.com/mcp",
+		AuthInfo:           &AuthInfo{Issuer: "https://idp.example.com", Scope: "openid"},
+	}))
+
+	provider := NewAuthToolProvider(&AggregatorServer{registry: registry})
+
+	ctx := api.WithSessionID(api.WithSubject(t.Context(), "user-sub"), "session-1")
+	result, err := provider.handleAuthLogin(ctx, map[string]any{"server": "protected-server"})
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+
+	// Text content keeps the sign-in URL on its own line for text-only consumers.
+	require.Len(t, result.Content, 1)
+	text, ok := result.Content[0].(string)
+	require.True(t, ok)
+	require.Contains(t, text, "Authentication Required")
+	require.Contains(t, text, "\nhttps://idp.example.com/authorize?state=abc\n")
+
+	challenge, ok := result.StructuredContent.(*api.AuthChallenge)
+	require.True(t, ok, "StructuredContent must be an *api.AuthChallenge, got %T", result.StructuredContent)
+	require.Equal(t, "auth_required", challenge.Status)
+	require.Equal(t, "https://idp.example.com/authorize?state=abc", challenge.AuthURL)
+	require.Equal(t, "protected-server", challenge.ServerName)
+	require.NotContains(t, challenge.Message, "below", "structured message must not assume the text layout")
+	require.Contains(t, challenge.Message, "call this tool again")
 }

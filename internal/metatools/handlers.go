@@ -46,7 +46,7 @@ func (p *Provider) getHandler() (api.MetaToolsHandler, *api.CallToolResult) {
 // Returns:
 //   - *api.CallToolResult: The result of the tool execution
 //   - error: Error if the tool doesn't exist or execution fails
-func (p *Provider) ExecuteTool(ctx context.Context, toolName string, args map[string]interface{}) (*api.CallToolResult, error) {
+func (p *Provider) ExecuteTool(ctx context.Context, toolName string, args map[string]any) (*api.CallToolResult, error) {
 	logging.Debug("metatools", "Executing tool %s with args: %v", toolName, args)
 
 	// Dispatch to the appropriate handler
@@ -81,7 +81,7 @@ func (p *Provider) ExecuteTool(ctx context.Context, toolName string, args map[st
 // handleListTools handles the list_tools meta-tool.
 // This handler returns a list of all available tools from the aggregator,
 // along with information about servers that require authentication.
-func (p *Provider) handleListTools(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
+func (p *Provider) handleListTools(ctx context.Context, _ map[string]any) (*api.CallToolResult, error) {
 	handler, errResult := p.getHandler()
 	if errResult != nil {
 		return errResult, nil
@@ -105,7 +105,7 @@ func (p *Provider) handleListTools(ctx context.Context, args map[string]interfac
 
 // handleDescribeTool handles the describe_tool meta-tool.
 // This handler returns detailed information about a specific tool.
-func (p *Provider) handleDescribeTool(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
+func (p *Provider) handleDescribeTool(ctx context.Context, args map[string]any) (*api.CallToolResult, error) {
 	name, ok := args["name"].(string)
 	if !ok || name == "" {
 		return errorResult("name argument is required"), nil
@@ -167,7 +167,7 @@ type filterToolsOptions struct {
 // It reuses the filter_tools engine but keeps the legacy full-detail listing
 // behaviour (full descriptions, schema by default, no result cap) so existing
 // callers are unaffected by the discovery-tier defaults.
-func (p *Provider) handleListCoreTools(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
+func (p *Provider) handleListCoreTools(ctx context.Context, args map[string]any) (*api.CallToolResult, error) {
 	opts := filterToolsOptions{
 		pattern:       "core*",
 		caseSensitive: false,
@@ -188,7 +188,7 @@ func (p *Provider) handleListCoreTools(ctx context.Context, args map[string]inte
 // and returns a bounded, summarised page. Full descriptions and input schemas
 // are omitted by default (opt in via include_schema); the authoritative detail
 // remains available through describe_tool.
-func (p *Provider) handleFilterTools(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
+func (p *Provider) handleFilterTools(ctx context.Context, args map[string]any) (*api.CallToolResult, error) {
 	opts := filterToolsOptions{
 		includeSchema: false,
 		summarize:     true,
@@ -213,7 +213,7 @@ func (p *Provider) handleFilterTools(ctx context.Context, args map[string]interf
 	// Opting into schemas signals a request for full detail, so the full
 	// description is returned instead of the one-line summary.
 	opts.summarize = !opts.includeSchema
-	if labelsVal, ok := args["labels"].(map[string]interface{}); ok {
+	if labelsVal, ok := args["labels"].(map[string]any); ok {
 		labels := make(map[string]string, len(labelsVal))
 		for k, v := range labelsVal {
 			labels[k] = fmt.Sprintf("%v", v)
@@ -305,10 +305,7 @@ func (p *Provider) filterToolsWithOptions(ctx context.Context, opts filterToolsO
 
 	// 3. Paginate.
 	total := len(ordered)
-	start := opts.offset
-	if start > total {
-		start = total
-	}
+	start := min(opts.offset, total)
 	end := total
 	if opts.limit > 0 && start+opts.limit < end {
 		end = start + opts.limit
@@ -418,7 +415,7 @@ func toolLabels(tool mcp.Tool) map[string]string {
 	switch v := raw.(type) {
 	case map[string]string:
 		return v
-	case map[string]interface{}:
+	case map[string]any:
 		m := make(map[string]string, len(v))
 		for k, val := range v {
 			m[k] = fmt.Sprintf("%v", val)
@@ -458,7 +455,7 @@ func roundScore(s float64) float64 {
 }
 
 // toInt coerces a JSON-decoded numeric value (float64) or a native int to int.
-func toInt(v interface{}) (int, error) {
+func toInt(v any) (int, error) {
 	switch n := v.(type) {
 	case float64:
 		return int(n), nil
@@ -474,17 +471,17 @@ func toInt(v interface{}) (int, error) {
 // handleCallTool handles the call_tool meta-tool.
 // This handler executes any tool by name with the provided arguments.
 // It preserves the full CallToolResult structure for proper unwrapping.
-func (p *Provider) handleCallTool(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
+func (p *Provider) handleCallTool(ctx context.Context, args map[string]any) (*api.CallToolResult, error) {
 	name, ok := args["name"].(string)
 	if !ok || name == "" {
 		return errorResult("name argument is required"), nil
 	}
 
 	// Get arguments if provided
-	var toolArgs map[string]interface{}
+	var toolArgs map[string]any
 	if argsRaw := args["arguments"]; argsRaw != nil {
 		var ok bool
-		toolArgs, ok = argsRaw.(map[string]interface{})
+		toolArgs, ok = argsRaw.(map[string]any)
 		if !ok {
 			return errorResult("arguments must be a JSON object"), nil
 		}
@@ -504,11 +501,13 @@ func (p *Provider) handleCallTool(ctx context.Context, args map[string]interface
 	// CRITICAL: Return result as structured JSON to preserve CallToolResult structure.
 	// This enables proper unwrapping by clients and maintains BDD test validation fidelity.
 	resultJSON, err := json.Marshal(struct {
-		IsError bool          `json:"isError"`
-		Content []interface{} `json:"content"`
+		IsError           bool  `json:"isError"`
+		Content           []any `json:"content"`
+		StructuredContent any   `json:"structuredContent,omitempty"`
 	}{
-		IsError: result.IsError,
-		Content: SerializeContent(result.Content),
+		IsError:           result.IsError,
+		Content:           SerializeContent(result.Content),
+		StructuredContent: result.StructuredContent,
 	})
 	if err != nil {
 		return errorResult(fmt.Sprintf("Failed to serialize result: %v", err)), nil
@@ -516,15 +515,19 @@ func (p *Provider) handleCallTool(ctx context.Context, args map[string]interface
 
 	// Propagate the underlying tool's error status to the outer wrapper so that
 	// MCP clients inspecting only the top-level isError field get an accurate signal.
+	// StructuredContent is propagated both natively (for clients that read the MCP
+	// structuredContent field directly) and inside the JSON envelope (for clients
+	// that unwrap the text content).
 	return &api.CallToolResult{
-		Content: []interface{}{string(resultJSON)},
-		IsError: result.IsError,
+		Content:           []any{string(resultJSON)},
+		IsError:           result.IsError,
+		StructuredContent: result.StructuredContent,
 	}, nil
 }
 
 // handleListResources handles the list_resources meta-tool.
 // This handler returns a list of all available resources.
-func (p *Provider) handleListResources(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
+func (p *Provider) handleListResources(ctx context.Context, _ map[string]any) (*api.CallToolResult, error) {
 	handler, errResult := p.getHandler()
 	if errResult != nil {
 		return errResult, nil
@@ -545,7 +548,7 @@ func (p *Provider) handleListResources(ctx context.Context, args map[string]inte
 
 // handleDescribeResource handles the describe_resource meta-tool.
 // This handler returns detailed information about a specific resource.
-func (p *Provider) handleDescribeResource(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
+func (p *Provider) handleDescribeResource(ctx context.Context, args map[string]any) (*api.CallToolResult, error) {
 	uri, ok := args["uri"].(string)
 	if !ok || uri == "" {
 		return errorResult("uri argument is required"), nil
@@ -576,7 +579,7 @@ func (p *Provider) handleDescribeResource(ctx context.Context, args map[string]i
 
 // handleGetResource handles the get_resource meta-tool.
 // This handler retrieves the contents of a resource.
-func (p *Provider) handleGetResource(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
+func (p *Provider) handleGetResource(ctx context.Context, args map[string]any) (*api.CallToolResult, error) {
 	uri, ok := args["uri"].(string)
 	if !ok || uri == "" {
 		return errorResult("uri argument is required"), nil
@@ -607,7 +610,7 @@ func (p *Provider) handleGetResource(ctx context.Context, args map[string]interf
 
 // handleListPrompts handles the list_prompts meta-tool.
 // This handler returns a list of all available prompts.
-func (p *Provider) handleListPrompts(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
+func (p *Provider) handleListPrompts(ctx context.Context, _ map[string]any) (*api.CallToolResult, error) {
 	handler, errResult := p.getHandler()
 	if errResult != nil {
 		return errResult, nil
@@ -628,7 +631,7 @@ func (p *Provider) handleListPrompts(ctx context.Context, args map[string]interf
 
 // handleDescribePrompt handles the describe_prompt meta-tool.
 // This handler returns detailed information about a specific prompt.
-func (p *Provider) handleDescribePrompt(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
+func (p *Provider) handleDescribePrompt(ctx context.Context, args map[string]any) (*api.CallToolResult, error) {
 	name, ok := args["name"].(string)
 	if !ok || name == "" {
 		return errorResult("name argument is required"), nil
@@ -659,7 +662,7 @@ func (p *Provider) handleDescribePrompt(ctx context.Context, args map[string]int
 
 // handleGetPrompt handles the get_prompt meta-tool.
 // This handler executes a prompt with the provided arguments.
-func (p *Provider) handleGetPrompt(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
+func (p *Provider) handleGetPrompt(ctx context.Context, args map[string]any) (*api.CallToolResult, error) {
 	name, ok := args["name"].(string)
 	if !ok || name == "" {
 		return errorResult("name argument is required"), nil
@@ -668,7 +671,7 @@ func (p *Provider) handleGetPrompt(ctx context.Context, args map[string]interfac
 	// Get arguments if provided and convert to string map
 	promptArgs := make(map[string]string)
 	if argsRaw := args["arguments"]; argsRaw != nil {
-		argsMap, ok := argsRaw.(map[string]interface{})
+		argsMap, ok := argsRaw.(map[string]any)
 		if !ok {
 			return errorResult("arguments must be a JSON object"), nil
 		}
@@ -715,27 +718,27 @@ func (p *Provider) handleGetPrompt(ctx context.Context, args map[string]interfac
 // This helper handles different content types and returns appropriate JSON.
 func serializePromptContent(content mcp.Content) (json.RawMessage, error) {
 	if textContent, ok := mcp.AsTextContent(content); ok {
-		return json.Marshal(map[string]interface{}{
+		return json.Marshal(map[string]any{
 			"type": "text",
 			"text": textContent.Text,
 		})
 	}
 	if imageContent, ok := mcp.AsImageContent(content); ok {
-		return json.Marshal(map[string]interface{}{
+		return json.Marshal(map[string]any{
 			"type":            "image",
 			api.FieldMimeType: imageContent.MIMEType,
 			"dataSize":        len(imageContent.Data),
 		})
 	}
 	if audioContent, ok := mcp.AsAudioContent(content); ok {
-		return json.Marshal(map[string]interface{}{
+		return json.Marshal(map[string]any{
 			"type":            "audio",
 			api.FieldMimeType: audioContent.MIMEType,
 			"dataSize":        len(audioContent.Data),
 		})
 	}
 	if resource, ok := mcp.AsEmbeddedResource(content); ok {
-		return json.Marshal(map[string]interface{}{
+		return json.Marshal(map[string]any{
 			"type":     "embeddedResource",
 			"resource": resource.Resource,
 		})
@@ -747,7 +750,7 @@ func serializePromptContent(content mcp.Content) (json.RawMessage, error) {
 // textResult creates a successful text result.
 func textResult(text string) *api.CallToolResult {
 	return &api.CallToolResult{
-		Content: []interface{}{text},
+		Content: []any{text},
 		IsError: false,
 	}
 }
@@ -755,7 +758,7 @@ func textResult(text string) *api.CallToolResult {
 // errorResult creates an error result.
 func errorResult(message string) *api.CallToolResult {
 	return &api.CallToolResult{
-		Content: []interface{}{message},
+		Content: []any{message},
 		IsError: true,
 	}
 }

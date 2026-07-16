@@ -5,6 +5,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewClient(t *testing.T) {
@@ -186,4 +187,39 @@ func TestShowPromptDiff(t *testing.T) {
 
 	// This test mainly ensures the function doesn't panic
 	client.showPromptDiff(oldPrompts, newPrompts)
+}
+
+func TestUnwrapMetaToolResponse_StructuredContent(t *testing.T) {
+	client := NewClient("http://localhost:8090/mcp", nil, TransportStreamableHTTP)
+
+	envelope := `{
+		"isError": false,
+		"content": [{"type": "text", "text": "Authentication Required"}],
+		"structuredContent": {"status": "auth_required", "auth_url": "https://idp.example.com/authorize"}
+	}`
+	wrapped := &mcp.CallToolResult{
+		Content: []mcp.Content{mcp.NewTextContent(envelope)},
+	}
+
+	unwrapped, err := client.unwrapMetaToolResponse(wrapped, "core_auth_login")
+	require.NoError(t, err)
+	require.Len(t, unwrapped.Content, 1)
+
+	structured, ok := unwrapped.StructuredContent.(map[string]any)
+	require.True(t, ok, "structuredContent must survive unwrapping, got %T", unwrapped.StructuredContent)
+	require.Equal(t, "auth_required", structured["status"])
+	require.Equal(t, "https://idp.example.com/authorize", structured["auth_url"])
+}
+
+func TestUnwrapMetaToolResponse_NoStructuredContent(t *testing.T) {
+	client := NewClient("http://localhost:8090/mcp", nil, TransportStreamableHTTP)
+
+	envelope := `{"isError": false, "content": [{"type": "text", "text": "plain result"}]}`
+	wrapped := &mcp.CallToolResult{
+		Content: []mcp.Content{mcp.NewTextContent(envelope)},
+	}
+
+	unwrapped, err := client.unwrapMetaToolResponse(wrapped, "some_tool")
+	require.NoError(t, err)
+	require.Nil(t, unwrapped.StructuredContent)
 }
