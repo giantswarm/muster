@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- `core_auth_login` now returns the authentication challenge as MCP `structuredContent` (`{status: "auth_required", auth_url, server_name, message}`) alongside the unchanged human-readable text, so agent frameworks that prefer structured tool output (e.g. ADK's mcptoolset) receive a machine-readable sign-in link. The `call_tool` meta-tool propagates `structuredContent` from the wrapped tool both natively on its own result and as a `structuredContent` field inside its JSON envelope, and the agent client restores it when unwrapping. Text-only consumers are unaffected.
+- MCP `structuredContent` from downstream tools is now preserved. The `call_tool` meta-tool propagates `structuredContent` from the wrapped tool both natively on its own result and as a `structuredContent` field inside its JSON envelope (previously it was silently dropped), and the agent client restores it when unwrapping. Core tools can opt in via the new `StructuredContent` field on `api.CallToolResult`; none set it yet. Text-only consumers are unaffected.
 
 ### Removed
 

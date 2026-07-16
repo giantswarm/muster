@@ -293,14 +293,7 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		}, nil
 	}
 
-	// Return the auth challenge as a tool result with the sign-in link.
-	// The structured copy carries a self-contained message because clients
-	// that prefer structuredContent never see the text layout around it.
-	structuredChallenge := *challenge
-	structuredChallenge.Message = fmt.Sprintf(
-		"Authentication required for %s. Sign in at auth_url, then call this tool again to complete the connection.",
-		serverName,
-	)
+	// Return the auth challenge as a tool result with the sign-in link
 	return &api.CallToolResult{
 		Content: []any{fmt.Sprintf(
 			"Authentication Required\n\n"+
@@ -313,8 +306,7 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 			challenge.Message,
 			challenge.AuthURL,
 		)},
-		IsError:           false,
-		StructuredContent: &structuredChallenge,
+		IsError: false,
 	}, nil
 }
 
