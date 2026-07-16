@@ -4,9 +4,10 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/giantswarm/muster/internal/api"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/giantswarm/muster/internal/api"
 )
 
 // TestMapWorkflowToolName verifies that the workflow provider's internal tool

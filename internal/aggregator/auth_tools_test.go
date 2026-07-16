@@ -5,9 +5,10 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/config"
-	"github.com/stretchr/testify/require"
 )
 
 // issuerMockOAuthHandler implements api.OAuthHandler for testing getMusterIssuer

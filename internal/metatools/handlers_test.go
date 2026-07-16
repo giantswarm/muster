@@ -279,7 +279,7 @@ func TestProvider_HandleCallTool(t *testing.T) {
 		// The result should be JSON preserving CallToolResult structure
 		content := result.Content[0].(string)
 		var parsed struct {
-			IsError bool          `json:"isError"`
+			IsError bool  `json:"isError"`
 			Content []any `json:"content"`
 		}
 		err = json.Unmarshal([]byte(content), &parsed)
@@ -306,7 +306,7 @@ func TestProvider_HandleCallTool(t *testing.T) {
 
 		content := result.Content[0].(string)
 		var parsed struct {
-			IsError bool          `json:"isError"`
+			IsError bool  `json:"isError"`
 			Content []any `json:"content"`
 		}
 		err = json.Unmarshal([]byte(content), &parsed)
