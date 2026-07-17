@@ -110,6 +110,14 @@ type OAuthMCPClientConfig struct {
 	// Muster can serve its own CIMD when acting as an OAuth client for MCP servers.
 	CIMD OAuthCIMDConfig `yaml:"cimd,omitempty"`
 
+	// PostLoginRedirectURL, when set, is where the browser is redirected after
+	// a successful OAuth proxy callback, instead of the static success page.
+	// The connected server's name is appended as a "server" query parameter.
+	// Lets a front-end (e.g. a chat gateway) observe login completion and
+	// update its own UI. Must be an absolute http(s) URL; an invalid value is
+	// ignored with a warning. Failed callbacks always render the error page.
+	PostLoginRedirectURL string `yaml:"postLoginRedirectUrl,omitempty"`
+
 	// ExtraCAFile mirrors the process-level --extra-ca-file flag for the
 	// OAuth/token-exchange layer's internal-deployment heuristic. When set,
 	// the token-exchange HTTP client allows resolution to private IP ranges

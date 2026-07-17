@@ -634,3 +634,30 @@ func TestNewManager_SelfHostedCIMD(t *testing.T) {
 		t.Errorf("Expected CIMD path %q, got %q", "/.well-known/oauth-client.json", cimdPath)
 	}
 }
+
+func TestParsePostLoginRedirect(t *testing.T) {
+	tests := []struct {
+		name    string
+		raw     string
+		wantErr bool
+	}{
+		{name: "valid https", raw: "https://gateway.example.com/connectors/complete"},
+		{name: "valid http", raw: "http://localhost:8080/done"},
+		{name: "relative path", raw: "/connectors/complete", wantErr: true},
+		{name: "missing host", raw: "https://", wantErr: true},
+		{name: "non-http scheme", raw: "javascript:alert(1)", wantErr: true},
+		{name: "garbage", raw: "://not a url", wantErr: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := parsePostLoginRedirect(tc.raw)
+			if tc.wantErr && err == nil {
+				t.Errorf("expected error for %q", tc.raw)
+			}
+			if !tc.wantErr && err != nil {
+				t.Errorf("unexpected error for %q: %v", tc.raw, err)
+			}
+		})
+	}
+}

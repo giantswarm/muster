@@ -7,6 +7,7 @@ import (
 	"html"
 	"html/template"
 	"net/http"
+	"net/url"
 
 	"github.com/giantswarm/muster/pkg/logging"
 )
@@ -36,6 +37,11 @@ func init() {
 type Handler struct {
 	client  *Client
 	manager *Manager
+	// postLoginRedirect, when non-nil, is where the browser is sent after a
+	// successful callback (with the server name appended as a query
+	// parameter) instead of the static success page. Operator-configured,
+	// never derived from request input.
+	postLoginRedirect *url.URL
 }
 
 // NewHandler creates a new OAuth HTTP handler.
@@ -49,6 +55,13 @@ func NewHandler(client *Client) *Handler {
 // This is called by the Manager after creating the Handler.
 func (h *Handler) SetManager(manager *Manager) {
 	h.manager = manager
+}
+
+// SetPostLoginRedirect sets the operator-configured target the browser is
+// redirected to after a successful callback. A nil target keeps the static
+// success page.
+func (h *Handler) SetPostLoginRedirect(target *url.URL) {
+	h.postLoginRedirect = target
 }
 
 // HandleCallback handles the OAuth callback endpoint.
@@ -127,8 +140,29 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Render success page
-	h.renderSuccessPage(w, state.ServerName)
+	h.finishSuccess(w, r, state.ServerName)
+}
+
+// finishSuccess completes a successful callback: a redirect to the
+// operator-configured post-login target when one is set, the static success
+// page otherwise.
+func (h *Handler) finishSuccess(w http.ResponseWriter, r *http.Request, serverName string) {
+	if h.postLoginRedirect != nil {
+		http.Redirect(w, r, postLoginRedirectTarget(h.postLoginRedirect, serverName), http.StatusSeeOther)
+		return
+	}
+	h.renderSuccessPage(w, serverName)
+}
+
+// postLoginRedirectTarget appends the connected server's name to the
+// configured post-login redirect URL, preserving any query parameters the
+// operator configured on it.
+func postLoginRedirectTarget(base *url.URL, serverName string) string {
+	target := *base
+	query := target.Query()
+	query.Set("server", serverName)
+	target.RawQuery = query.Encode()
+	return target.String()
 }
 
 // setSecurityHeaders sets recommended security headers for HTML responses.

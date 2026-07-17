@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `oauth.mcpClient.postLoginRedirectUrl`: when set to an absolute http(s) URL, a successful OAuth proxy callback redirects the browser there (with the connected server's name appended as a `server` query parameter) instead of rendering the static success page. Lets a front-end observe connector login completion and update its own UI. Failed callbacks still render the error page; an invalid value is ignored with a warning.
+
 ### Removed
 
 - **BREAKING: JWT mode.** muster is not an identity provider: dex is the sole SSO authority. The `enableJWTMode` and `jwtSigningKey`/`jwtSigningKeyFile` config keys, the signing-key loading, and the chart's `jwt-signing-key` Secret plumbing are removed; muster issues only opaque access tokens and has no signing key, so **no muster-signed token can exist**. `forwardToken` backends receive the upstream dex ID token (or, for sessions established by a trusted-issuer bearer, that IdP-issued token) byte-identical — never a muster-signed token — and validate it against the IdP's issuer/JWKS, never against muster. The self-issued RFC 8693 exchange at `/oauth/token` (which signed muster tokens) is permanently disabled and refuses issuance; agent/OBO flows use dex-issued tokens (exchange at dex, e.g. per-backend `tokenExchange` / `auth.mode: exchange`). Deployments that set `enableJWTMode` must drop the key (the chart schema now rejects it) and reconfigure any backend that trusted muster's JWKS to trust dex instead. This reverses the muster-signed-token direction of the forward-token refactor and supersedes its "backends must trust muster's issuer/JWKS" deployment note; the BDD scenarios `obo-token-forward*` are replaced by `dex-token-forward*`, which pin that the forwarded delegation chain is dex-minted and that muster refuses to issue tokens.

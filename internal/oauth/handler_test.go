@@ -413,3 +413,66 @@ func TestClient_GetCIMDURL(t *testing.T) {
 		})
 	}
 }
+
+func TestHandler_FinishSuccess_RedirectConfigured(t *testing.T) {
+	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
+	defer client.Stop()
+
+	handler := NewHandler(client)
+	target, err := parsePostLoginRedirect("https://gateway.example.com/connectors/complete?src=muster")
+	if err != nil {
+		t.Fatalf("parsePostLoginRedirect: %v", err)
+	}
+	handler.SetPostLoginRedirect(target)
+
+	req := httptest.NewRequest("GET", "/oauth/proxy/callback", nil)
+	rr := httptest.NewRecorder()
+	handler.finishSuccess(rr, req, "gazelle mcp/pro")
+
+	if rr.Code != http.StatusSeeOther {
+		t.Fatalf("Expected status %d, got %d", http.StatusSeeOther, rr.Code)
+	}
+	location := rr.Header().Get("Location")
+	want := "https://gateway.example.com/connectors/complete?server=gazelle+mcp%2Fpro&src=muster"
+	if location != want {
+		t.Errorf("Expected Location %q, got %q", want, location)
+	}
+}
+
+func TestHandler_FinishSuccess_NoRedirectRendersSuccessPage(t *testing.T) {
+	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
+	defer client.Stop()
+
+	handler := NewHandler(client)
+
+	req := httptest.NewRequest("GET", "/oauth/proxy/callback", nil)
+	rr := httptest.NewRecorder()
+	handler.finishSuccess(rr, req, "test-server")
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Expected status %d, got %d", http.StatusOK, rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), "test-server") {
+		t.Errorf("Expected success page to mention the server, got %q", rr.Body.String())
+	}
+}
+
+func TestPostLoginRedirectTarget_PreservesBaseUnmodified(t *testing.T) {
+	base, err := parsePostLoginRedirect("https://gateway.example.com/done")
+	if err != nil {
+		t.Fatalf("parsePostLoginRedirect: %v", err)
+	}
+
+	first := postLoginRedirectTarget(base, "server-a")
+	second := postLoginRedirectTarget(base, "server-b")
+
+	if first != "https://gateway.example.com/done?server=server-a" {
+		t.Errorf("unexpected first target %q", first)
+	}
+	if second != "https://gateway.example.com/done?server=server-b" {
+		t.Errorf("unexpected second target %q", second)
+	}
+	if base.RawQuery != "" {
+		t.Errorf("base URL must not accumulate query parameters, got %q", base.RawQuery)
+	}
+}

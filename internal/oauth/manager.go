@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 
@@ -35,6 +36,20 @@ type Manager struct {
 
 	// Callback to establish session connection after authentication
 	authCompletionCallback AuthCompletionCallback
+}
+
+// parsePostLoginRedirect validates an operator-configured post-login redirect
+// target: it must be an absolute http(s) URL. The value never comes from
+// request input, so this guards against misconfiguration, not attackers.
+func parsePostLoginRedirect(raw string) (*url.URL, error) {
+	target, err := url.Parse(raw)
+	if err != nil {
+		return nil, err
+	}
+	if (target.Scheme != "https" && target.Scheme != "http") || target.Host == "" {
+		return nil, fmt.Errorf("must be an absolute http(s) URL")
+	}
+	return target, nil
 }
 
 // AuthServerConfig holds OAuth configuration for a specific remote MCP server.
@@ -86,6 +101,14 @@ func NewManager(cfg config.OAuthMCPClientConfig, opts ...ManagerOption) *Manager
 	client := NewClient(effectiveClientID, cfg.PublicURL, cfg.CallbackPath, cimdScopes, mopts.clientOpts...)
 
 	handler := NewHandler(client)
+	if cfg.PostLoginRedirectURL != "" {
+		if target, err := parsePostLoginRedirect(cfg.PostLoginRedirectURL); err != nil {
+			logging.Warn("OAuth", "Ignoring invalid oauth.mcpClient.postLoginRedirectUrl %q: %v", cfg.PostLoginRedirectURL, err)
+		} else {
+			handler.SetPostLoginRedirect(target)
+			logging.Info("OAuth", "Post-login redirect enabled: %s", target)
+		}
+	}
 
 	// Create token exchanger for RFC 8693 cross-cluster SSO.
 	// Outbound TLS is handled by the augmented http.DefaultTransport (see
