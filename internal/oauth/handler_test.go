@@ -433,14 +433,10 @@ func startTestHandler(t *testing.T, authorizationURL string, allowlist ...string
 	}
 	handler.SetPostLoginRedirectAllowlist(prefixes)
 
-	encodedState, err := client.stateStore.GenerateState("session-1", "user-1", "test-server", "https://idp.example.com", "verifier")
+	encodedState, err := client.stateStore.GenerateState("session-1", "user-1", "test-server", "https://idp.example.com", "verifier",
+		func(string) (string, error) { return authorizationURL, nil })
 	if err != nil {
 		t.Fatalf("GenerateState: %v", err)
-	}
-	if authorizationURL != "" {
-		if client.stateStore.Update(encodedState, func(s *OAuthState) { s.AuthorizationURL = authorizationURL }) == nil {
-			t.Fatal("Update: state not found")
-		}
 	}
 	return handler, encodedState
 }
@@ -485,6 +481,25 @@ func TestHandler_HandleStart_RecordsAllowlistedRedirect(t *testing.T) {
 	}
 }
 
+func TestHandler_HandleStart_RecordsExactEntryPathRedirect(t *testing.T) {
+	handler, encodedState := startTestHandler(t, "https://idp.example.com/authorize?state=abc",
+		"https://gateway.example.com/connectors")
+
+	rr := startRequest(handler, "state="+url.QueryEscape(encodedState)+
+		"&redirect="+url.QueryEscape("https://gateway.example.com/connectors?s=gw-state-1"))
+
+	if rr.Code != http.StatusFound {
+		t.Fatalf("Expected status %d, got %d", http.StatusFound, rr.Code)
+	}
+	state := handler.client.stateStore.Update(encodedState, func(*OAuthState) {})
+	if state == nil {
+		t.Fatal("state disappeared")
+	}
+	if state.RedirectURI != "https://gateway.example.com/connectors?s=gw-state-1" {
+		t.Errorf("Expected exact-path redirect recorded on state, got %q", state.RedirectURI)
+	}
+}
+
 func TestHandler_HandleStart_RejectsNonAllowlistedRedirect(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -496,6 +511,11 @@ func TestHandler_HandleStart_RejectsNonAllowlistedRedirect(t *testing.T) {
 		{name: "scheme downgrade", redirect: "http://gateway.example.com/connectors/complete"},
 		{name: "userinfo trick", redirect: "https://gateway.example.com@evil.example.com/connectors"},
 		{name: "not a url", redirect: "javascript:alert(1)"},
+		{name: "prefix without segment boundary", redirect: "https://gateway.example.com/connectorsevil"},
+		{name: "dot segments", redirect: "https://gateway.example.com/connectors/../admin"},
+		{name: "encoded dot segments", redirect: "https://gateway.example.com/connectors/%2e%2e/admin"},
+		{name: "mixed-case encoded dot segments", redirect: "https://gateway.example.com/connectors/.%2E/admin"},
+		{name: "encoded slash hiding the boundary", redirect: "https://gateway.example.com/connectors%2f..%2fadmin"},
 	}
 
 	for _, tc := range tests {

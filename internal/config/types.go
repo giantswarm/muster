@@ -114,7 +114,8 @@ type OAuthMCPClientConfig struct {
 	// parameter on the OAuth proxy start endpoint. Each entry is an absolute
 	// http(s) URL prefix; a caller-supplied redirect target is accepted only
 	// when its scheme and host match an entry exactly and its path extends
-	// the entry's path (the target's query is unconstrained). After a
+	// the entry's path at a segment boundary; targets containing dot
+	// segments are rejected (the target's query is unconstrained). After a
 	// successful callback the browser is redirected to the accepted target
 	// with the connected server's name appended as a "server" query
 	// parameter, instead of the static success page. This lets a front-end

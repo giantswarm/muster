@@ -110,22 +110,55 @@ func (h *Handler) HandleStart(w http.ResponseWriter, r *http.Request) {
 }
 
 // redirectAllowed reports whether a caller-supplied post-login redirect
-// target matches the operator allowlist: absolute http(s), no userinfo, and
-// scheme/host equal to an entry with the entry's path as prefix. The target's
-// query is unconstrained so front-ends can carry their own correlation state.
+// target matches the operator allowlist: absolute http(s), no userinfo,
+// scheme/host equal to an entry, and the entry's path extended at a segment
+// boundary. Matching uses the escaped path form so percent-encoded slashes
+// cannot fake a boundary, and dot segments are rejected outright: browsers
+// resolve them before navigation, which would void the path constraint. The
+// target's query is unconstrained so front-ends can carry their own
+// correlation state.
 func (h *Handler) redirectAllowed(raw string) bool {
 	target, err := url.Parse(raw)
 	if err != nil || target.User != nil || target.Host == "" ||
 		(target.Scheme != "https" && target.Scheme != "http") {
 		return false
 	}
+	targetPath := target.EscapedPath()
+	if hasDotSegment(targetPath) {
+		return false
+	}
 	for _, entry := range h.postLoginRedirectAllowlist {
 		if target.Scheme == entry.Scheme && target.Host == entry.Host &&
-			strings.HasPrefix(target.Path, entry.Path) {
+			pathExtendsPrefix(targetPath, entry.EscapedPath()) {
 			return true
 		}
 	}
 	return false
+}
+
+// hasDotSegment reports whether an escaped URL path contains a "." or ".."
+// segment, in plain or %2e-encoded form (browsers treat "%2e%2e" and mixed
+// spellings as dot segments during navigation).
+func hasDotSegment(escapedPath string) bool {
+	for segment := range strings.SplitSeq(escapedPath, "/") {
+		decoded := strings.ReplaceAll(strings.ToLower(segment), "%2e", ".")
+		if decoded == "." || decoded == ".." {
+			return true
+		}
+	}
+	return false
+}
+
+// pathExtendsPrefix reports whether an escaped target path equals an escaped
+// entry path or extends it at a segment boundary: entry "/connectors"
+// matches "/connectors" and "/connectors/complete" but not "/connectorsevil".
+// An entry path of "" or "/" admits every path on the entry's host.
+func pathExtendsPrefix(targetPath, entryPath string) bool {
+	entryPath = strings.TrimSuffix(entryPath, "/")
+	if entryPath == "" {
+		return true
+	}
+	return targetPath == entryPath || strings.HasPrefix(targetPath, entryPath+"/")
 }
 
 // HandleCallback handles the OAuth callback endpoint.
