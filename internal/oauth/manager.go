@@ -101,13 +101,18 @@ func NewManager(cfg config.OAuthMCPClientConfig, opts ...ManagerOption) *Manager
 	client := NewClient(effectiveClientID, cfg.PublicURL, cfg.CallbackPath, cimdScopes, mopts.clientOpts...)
 
 	handler := NewHandler(client)
-	if cfg.PostLoginRedirectURL != "" {
-		if target, err := parsePostLoginRedirect(cfg.PostLoginRedirectURL); err != nil {
-			logging.Warn("OAuth", "Ignoring invalid oauth.mcpClient.postLoginRedirectUrl %q: %v", cfg.PostLoginRedirectURL, err)
-		} else {
-			handler.SetPostLoginRedirect(target)
-			logging.Info("OAuth", "Post-login redirect enabled: %s", target)
+	if len(cfg.PostLoginRedirectAllowlist) > 0 {
+		var prefixes []*url.URL
+		for _, raw := range cfg.PostLoginRedirectAllowlist {
+			prefix, err := parsePostLoginRedirect(raw)
+			if err != nil {
+				logging.Warn("OAuth", "Ignoring invalid oauth.mcpClient.postLoginRedirectAllowlist entry %q: %v", raw, err)
+				continue
+			}
+			prefixes = append(prefixes, prefix)
 		}
+		handler.SetPostLoginRedirectAllowlist(prefixes)
+		logging.Info("OAuth", "Post-login redirect allowlist enabled with %d entries", len(prefixes))
 	}
 
 	// Create token exchanger for RFC 8693 cross-cluster SSO.
@@ -173,6 +178,22 @@ func (m *Manager) GetCallbackPath() string {
 		return ""
 	}
 	return m.config.CallbackPath
+}
+
+// GetStartPath returns the path of the OAuth proxy start endpoint.
+func (m *Manager) GetStartPath() string {
+	if m == nil {
+		return ""
+	}
+	return config.DefaultOAuthProxyStartPath
+}
+
+// GetStartHandler returns the HTTP handler for the OAuth proxy start endpoint.
+func (m *Manager) GetStartHandler() http.HandlerFunc {
+	if m == nil {
+		return nil
+	}
+	return m.handler.HandleStart
 }
 
 // GetCIMDPath returns the path for serving the CIMD.

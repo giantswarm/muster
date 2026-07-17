@@ -164,6 +164,16 @@ func (a *Adapter) GetCallbackPath() string {
 	return a.manager.GetCallbackPath()
 }
 
+// GetStartPath returns the path of the OAuth proxy start endpoint.
+func (a *Adapter) GetStartPath() string {
+	return a.manager.GetStartPath()
+}
+
+// GetStartHandler returns the HTTP handler for the OAuth proxy start endpoint.
+func (a *Adapter) GetStartHandler() http.HandlerFunc {
+	return a.manager.GetStartHandler()
+}
+
 // GetCIMDPath returns the path for serving the CIMD.
 func (a *Adapter) GetCIMDPath() string {
 	return a.manager.GetCIMDPath()

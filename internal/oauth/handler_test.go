@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -414,65 +415,161 @@ func TestClient_GetCIMDURL(t *testing.T) {
 	}
 }
 
-func TestHandler_FinishSuccess_RedirectConfigured(t *testing.T) {
+// startTestHandler returns a handler whose state store holds one flow with
+// the given upstream authorization URL, plus the encoded state for it.
+func startTestHandler(t *testing.T, authorizationURL string, allowlist ...string) (*Handler, string) {
+	t.Helper()
 	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
-	defer client.Stop()
+	t.Cleanup(client.Stop)
 
 	handler := NewHandler(client)
-	target, err := parsePostLoginRedirect("https://gateway.example.com/connectors/complete?src=muster")
-	if err != nil {
-		t.Fatalf("parsePostLoginRedirect: %v", err)
+	var prefixes []*url.URL
+	for _, raw := range allowlist {
+		prefix, err := parsePostLoginRedirect(raw)
+		if err != nil {
+			t.Fatalf("parsePostLoginRedirect(%q): %v", raw, err)
+		}
+		prefixes = append(prefixes, prefix)
 	}
-	handler.SetPostLoginRedirect(target)
+	handler.SetPostLoginRedirectAllowlist(prefixes)
+
+	encodedState, err := client.stateStore.GenerateState("session-1", "user-1", "test-server", "https://idp.example.com", "verifier")
+	if err != nil {
+		t.Fatalf("GenerateState: %v", err)
+	}
+	if authorizationURL != "" {
+		if client.stateStore.Update(encodedState, func(s *OAuthState) { s.AuthorizationURL = authorizationURL }) == nil {
+			t.Fatal("Update: state not found")
+		}
+	}
+	return handler, encodedState
+}
+
+func startRequest(handler *Handler, query string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest("GET", "/oauth/proxy/start?"+query, nil)
+	rr := httptest.NewRecorder()
+	handler.HandleStart(rr, req)
+	return rr
+}
+
+func TestHandler_HandleStart_RedirectsUpstream(t *testing.T) {
+	handler, encodedState := startTestHandler(t, "https://idp.example.com/authorize?state=abc")
+
+	rr := startRequest(handler, "state="+url.QueryEscape(encodedState))
+
+	if rr.Code != http.StatusFound {
+		t.Fatalf("Expected status %d, got %d", http.StatusFound, rr.Code)
+	}
+	if got := rr.Header().Get("Location"); got != "https://idp.example.com/authorize?state=abc" {
+		t.Errorf("Expected upstream Location, got %q", got)
+	}
+}
+
+func TestHandler_HandleStart_RecordsAllowlistedRedirect(t *testing.T) {
+	handler, encodedState := startTestHandler(t, "https://idp.example.com/authorize?state=abc",
+		"https://gateway.example.com/connectors")
+
+	rr := startRequest(handler, "state="+url.QueryEscape(encodedState)+
+		"&redirect="+url.QueryEscape("https://gateway.example.com/connectors/complete?s=gw-state-1"))
+
+	if rr.Code != http.StatusFound {
+		t.Fatalf("Expected status %d, got %d", http.StatusFound, rr.Code)
+	}
+
+	state := handler.client.stateStore.Update(encodedState, func(*OAuthState) {})
+	if state == nil {
+		t.Fatal("state disappeared")
+	}
+	if state.RedirectURI != "https://gateway.example.com/connectors/complete?s=gw-state-1" {
+		t.Errorf("Expected redirect recorded on state, got %q", state.RedirectURI)
+	}
+}
+
+func TestHandler_HandleStart_RejectsNonAllowlistedRedirect(t *testing.T) {
+	tests := []struct {
+		name     string
+		redirect string
+	}{
+		{name: "other host", redirect: "https://evil.example.com/connectors/complete"},
+		{name: "host suffix trick", redirect: "https://gateway.example.com.evil.example.com/connectors/complete"},
+		{name: "other path", redirect: "https://gateway.example.com/other"},
+		{name: "scheme downgrade", redirect: "http://gateway.example.com/connectors/complete"},
+		{name: "userinfo trick", redirect: "https://gateway.example.com@evil.example.com/connectors"},
+		{name: "not a url", redirect: "javascript:alert(1)"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			handler, encodedState := startTestHandler(t, "https://idp.example.com/authorize?state=abc",
+				"https://gateway.example.com/connectors")
+
+			rr := startRequest(handler, "state="+url.QueryEscape(encodedState)+"&redirect="+url.QueryEscape(tc.redirect))
+
+			if rr.Code != http.StatusFound {
+				t.Fatalf("Expected login to proceed with status %d, got %d", http.StatusFound, rr.Code)
+			}
+			state := handler.client.stateStore.Update(encodedState, func(*OAuthState) {})
+			if state == nil {
+				t.Fatal("state disappeared")
+			}
+			if state.RedirectURI != "" {
+				t.Errorf("Expected rejected redirect to leave state untouched, got %q", state.RedirectURI)
+			}
+		})
+	}
+}
+
+func TestHandler_HandleStart_InvalidState(t *testing.T) {
+	handler, _ := startTestHandler(t, "https://idp.example.com/authorize?state=abc")
+
+	rr := startRequest(handler, "state=not-a-real-state")
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("Expected status %d, got %d", http.StatusBadRequest, rr.Code)
+	}
+}
+
+func TestHandler_HandleStart_MissingState(t *testing.T) {
+	handler, _ := startTestHandler(t, "https://idp.example.com/authorize?state=abc")
+
+	rr := startRequest(handler, "")
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("Expected status %d, got %d", http.StatusBadRequest, rr.Code)
+	}
+}
+
+func TestHandler_FinishSuccess_RedirectRecordedOnState(t *testing.T) {
+	handler, _ := startTestHandler(t, "")
 
 	req := httptest.NewRequest("GET", "/oauth/proxy/callback", nil)
 	rr := httptest.NewRecorder()
-	handler.finishSuccess(rr, req, "gazelle mcp/pro")
+	handler.finishSuccess(rr, req, &OAuthState{
+		ServerName:  "gazelle mcp/pro",
+		RedirectURI: "https://gateway.example.com/connectors/complete?s=gw-state-1",
+	})
 
 	if rr.Code != http.StatusSeeOther {
 		t.Fatalf("Expected status %d, got %d", http.StatusSeeOther, rr.Code)
 	}
 	location := rr.Header().Get("Location")
-	want := "https://gateway.example.com/connectors/complete?server=gazelle+mcp%2Fpro&src=muster"
+	want := "https://gateway.example.com/connectors/complete?s=gw-state-1&server=gazelle+mcp%2Fpro"
 	if location != want {
 		t.Errorf("Expected Location %q, got %q", want, location)
 	}
 }
 
 func TestHandler_FinishSuccess_NoRedirectRendersSuccessPage(t *testing.T) {
-	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
-	defer client.Stop()
-
-	handler := NewHandler(client)
+	handler, _ := startTestHandler(t, "")
 
 	req := httptest.NewRequest("GET", "/oauth/proxy/callback", nil)
 	rr := httptest.NewRecorder()
-	handler.finishSuccess(rr, req, "test-server")
+	handler.finishSuccess(rr, req, &OAuthState{ServerName: "test-server"})
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("Expected status %d, got %d", http.StatusOK, rr.Code)
 	}
 	if !strings.Contains(rr.Body.String(), "test-server") {
 		t.Errorf("Expected success page to mention the server, got %q", rr.Body.String())
-	}
-}
-
-func TestPostLoginRedirectTarget_PreservesBaseUnmodified(t *testing.T) {
-	base, err := parsePostLoginRedirect("https://gateway.example.com/done")
-	if err != nil {
-		t.Fatalf("parsePostLoginRedirect: %v", err)
-	}
-
-	first := postLoginRedirectTarget(base, "server-a")
-	second := postLoginRedirectTarget(base, "server-b")
-
-	if first != "https://gateway.example.com/done?server=server-a" {
-		t.Errorf("unexpected first target %q", first)
-	}
-	if second != "https://gateway.example.com/done?server=server-b" {
-		t.Errorf("unexpected second target %q", second)
-	}
-	if base.RawQuery != "" {
-		t.Errorf("base URL must not accumulate query parameters, got %q", base.RawQuery)
 	}
 }

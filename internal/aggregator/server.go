@@ -1440,6 +1440,13 @@ func (a *AggregatorServer) createStandardMux(mcpHandler http.Handler) http.Handl
 				slog.String("path", callbackPath))
 		}
 
+		startPath := oauthHandler.GetStartPath()
+		if startPath != "" {
+			mux.HandleFunc(startPath, oauthHandler.GetStartHandler())
+			logging.InfoWithAttrs("Aggregator", "Mounted OAuth start handler",
+				slog.String("path", startPath))
+		}
+
 		// Mount the CIMD handler if self-hosting is enabled
 		if oauthHandler.ShouldServeCIMD() {
 			cimdPath := oauthHandler.GetCIMDPath()

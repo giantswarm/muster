@@ -3,8 +3,10 @@ package oauth
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 
+	"github.com/giantswarm/muster/internal/config"
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
 	"github.com/giantswarm/muster/pkg/logging"
@@ -141,10 +143,25 @@ func (c *Client) GenerateAuthURL(ctx context.Context, sessionID, userID, serverN
 		return "", fmt.Errorf("failed to build authorization URL: %w", err)
 	}
 
+	// The user-facing URL is the muster-hosted start endpoint, which redirects
+	// to the upstream authorization URL stored with the state. The extra hop
+	// lets the initiating front-end attach an allowlisted post-login redirect
+	// target to the flow (the "redirect" query parameter on the start URL).
+	if c.stateStore.Update(state, func(s *OAuthState) { s.AuthorizationURL = authURL }) == nil {
+		return "", fmt.Errorf("failed to store authorization URL with state")
+	}
+
 	logging.Debug("OAuth", "Generated auth URL for session=%s server=%s issuer=%s",
 		logging.TruncateIdentifier(sessionID), serverName, issuer)
 
-	return authURL, nil
+	return c.GetStartURL(state), nil
+}
+
+// GetStartURL returns the muster-hosted start URL for an encoded state. The
+// browser is redirected from there to the upstream authorization server.
+func (c *Client) GetStartURL(encodedState string) string {
+	return strings.TrimSuffix(c.publicURL, "/") + config.DefaultOAuthProxyStartPath +
+		"?state=" + url.QueryEscape(encodedState)
 }
 
 // ExchangeCode exchanges an authorization code for tokens.

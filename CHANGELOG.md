@@ -6,7 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- `oauth.mcpClient.postLoginRedirectUrl`: when set to an absolute http(s) URL, a successful OAuth proxy callback redirects the browser there (with the connected server's name appended as a `server` query parameter) instead of rendering the static success page. Lets a front-end observe connector login completion and update its own UI. Failed callbacks still render the error page; an invalid value is ignored with a warning.
+- OAuth proxy start endpoint (`/oauth/proxy/start`): auth-challenge login URLs now point the browser at this muster-hosted endpoint, which redirects to the upstream authorization server. The login flow is unchanged for users; the URL in `core_auth_login` results is now a short muster URL instead of the full upstream authorization URL.
+- `oauth.mcpClient.postLoginRedirectAllowlist`: a list of absolute http(s) URL prefixes. A caller may append a `redirect` query parameter to the start URL; when the target matches an allowlist entry (exact scheme and host, path prefix), a successful callback redirects the browser there (with the connected server's name appended as a `server` query parameter) instead of rendering the static success page. Lets a front-end observe connector login completion for the flows it initiated, without affecting other clients of the same muster. Empty (default) rejects all redirect requests; a rejected target is dropped and the login still proceeds. Failed callbacks always render the error page.
 
 ### Removed
 

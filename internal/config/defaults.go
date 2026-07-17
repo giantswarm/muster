@@ -8,6 +8,11 @@ const (
 	// This MUST be different from DefaultOAuthCallbackPath to avoid route conflicts
 	DefaultOAuthProxyCallbackPath = "/oauth/proxy/callback"
 
+	// DefaultOAuthProxyStartPath is the path for the OAuth proxy start endpoint.
+	// Auth challenges point the browser here; it redirects to the upstream
+	// authorization server, optionally recording a post-login redirect target.
+	DefaultOAuthProxyStartPath = "/oauth/proxy/start"
+
 	// DefaultOAuthCIMDPath is the default path for serving the Client ID Metadata Document (CIMD)
 	DefaultOAuthCIMDPath = "/.well-known/oauth-client.json"
 

@@ -34,8 +34,16 @@ type OAuthState struct {
 	// CreatedAt is when the state was created (for expiration).
 	CreatedAt time.Time `json:"created_at"`
 
-	// RedirectURI is where to redirect after callback processing.
+	// RedirectURI is where to redirect the browser after a successful
+	// callback, instead of the static success page. Set server-side by the
+	// start endpoint after allowlist validation; never taken from the
+	// callback request.
 	RedirectURI string `json:"redirect_uri,omitempty"`
+
+	// AuthorizationURL is the upstream authorization-server URL this flow
+	// continues to. Set server-side after the URL is built; the start
+	// endpoint redirects the browser here.
+	AuthorizationURL string `json:"authorization_url,omitempty"`
 
 	// Issuer is the OAuth issuer URL for token exchange.
 	Issuer string `json:"issuer,omitempty"`

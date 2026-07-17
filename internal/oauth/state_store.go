@@ -22,6 +22,11 @@ type StateStorer interface {
 	// Valid states are consumed (single-use) to prevent replay attacks.
 	ValidateState(encodedState string) *OAuthState
 
+	// Update applies mutate to a stored state without consuming it and
+	// returns a copy of the updated state; nil if the state is invalid,
+	// expired, or absent. The TTL is unchanged.
+	Update(encodedState string, mutate func(*OAuthState)) *OAuthState
+
 	// Delete removes a state entry by nonce.
 	Delete(nonce string)
 
@@ -137,6 +142,41 @@ func (ss *StateStore) ValidateState(encodedState string) *OAuthState {
 	ss.Delete(state.Nonce)
 
 	return storedState
+}
+
+// Update applies mutate to a stored state without consuming it.
+// Returns a copy of the updated state, or nil if the state is invalid,
+// expired, or absent.
+func (ss *StateStore) Update(encodedState string, mutate func(*OAuthState)) *OAuthState {
+	stateJSON, err := base64.URLEncoding.DecodeString(encodedState)
+	if err != nil {
+		logging.Warn("OAuth", "Failed to decode state for update: %v", err)
+		return nil
+	}
+
+	var state OAuthState
+	if err := json.Unmarshal(stateJSON, &state); err != nil {
+		logging.Warn("OAuth", "Failed to unmarshal state for update: %v", err)
+		return nil
+	}
+
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+
+	storedState, exists := ss.states[state.Nonce]
+	if !exists {
+		logging.Warn("OAuth", "State not found for update: nonce=%s", state.Nonce)
+		return nil
+	}
+	if time.Since(storedState.CreatedAt) > ss.stateExpiry {
+		logging.Warn("OAuth", "State expired on update: nonce=%s", state.Nonce)
+		delete(ss.states, state.Nonce)
+		return nil
+	}
+
+	mutate(storedState)
+	updated := *storedState
+	return &updated
 }
 
 // Delete removes a state from the store.

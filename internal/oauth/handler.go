@@ -8,6 +8,7 @@ import (
 	"html/template"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/giantswarm/muster/pkg/logging"
 )
@@ -37,11 +38,11 @@ func init() {
 type Handler struct {
 	client  *Client
 	manager *Manager
-	// postLoginRedirect, when non-nil, is where the browser is sent after a
-	// successful callback (with the server name appended as a query
-	// parameter) instead of the static success page. Operator-configured,
-	// never derived from request input.
-	postLoginRedirect *url.URL
+	// postLoginRedirectAllowlist bounds the redirect targets the start
+	// endpoint accepts from its "redirect" query parameter. Entries are
+	// operator-configured absolute URL prefixes; an empty list rejects all
+	// redirect requests.
+	postLoginRedirectAllowlist []*url.URL
 }
 
 // NewHandler creates a new OAuth HTTP handler.
@@ -57,11 +58,72 @@ func (h *Handler) SetManager(manager *Manager) {
 	h.manager = manager
 }
 
-// SetPostLoginRedirect sets the operator-configured target the browser is
-// redirected to after a successful callback. A nil target keeps the static
-// success page.
-func (h *Handler) SetPostLoginRedirect(target *url.URL) {
-	h.postLoginRedirect = target
+// SetPostLoginRedirectAllowlist sets the operator-configured URL prefixes the
+// start endpoint accepts as post-login redirect targets. An empty list keeps
+// the static success page for every flow.
+func (h *Handler) SetPostLoginRedirectAllowlist(prefixes []*url.URL) {
+	h.postLoginRedirectAllowlist = prefixes
+}
+
+// HandleStart handles the OAuth proxy start endpoint. Auth challenges point
+// the browser here; it redirects to the upstream authorization URL stored
+// with the flow's state. An optional "redirect" query parameter, validated
+// against the operator allowlist, is recorded on the state so a successful
+// callback sends the browser there instead of the static success page. An
+// unacceptable redirect target is dropped (the login still proceeds).
+func (h *Handler) HandleStart(w http.ResponseWriter, r *http.Request) {
+	stateParam := r.URL.Query().Get("state")
+	if stateParam == "" {
+		logging.Warn("OAuth", "Start endpoint called without state parameter")
+		h.renderErrorPage(w, "Invalid sign-in link: missing required parameters")
+		return
+	}
+
+	redirectParam := r.URL.Query().Get("redirect")
+	acceptedRedirect := ""
+	if redirectParam != "" {
+		if h.redirectAllowed(redirectParam) {
+			acceptedRedirect = redirectParam
+		} else {
+			logging.Warn("OAuth", "Rejecting post-login redirect target not in allowlist: %q", redirectParam)
+		}
+	}
+
+	state := h.client.stateStore.Update(stateParam, func(s *OAuthState) {
+		if acceptedRedirect != "" {
+			s.RedirectURI = acceptedRedirect
+		}
+	})
+	if state == nil {
+		h.renderErrorPage(w, "Authentication session expired. Please try again.")
+		return
+	}
+	if state.AuthorizationURL == "" {
+		logging.Warn("OAuth", "State has no authorization URL: nonce=%s", state.Nonce)
+		h.renderErrorPage(w, "Authentication session invalid. Please try again.")
+		return
+	}
+
+	http.Redirect(w, r, state.AuthorizationURL, http.StatusFound)
+}
+
+// redirectAllowed reports whether a caller-supplied post-login redirect
+// target matches the operator allowlist: absolute http(s), no userinfo, and
+// scheme/host equal to an entry with the entry's path as prefix. The target's
+// query is unconstrained so front-ends can carry their own correlation state.
+func (h *Handler) redirectAllowed(raw string) bool {
+	target, err := url.Parse(raw)
+	if err != nil || target.User != nil || target.Host == "" ||
+		(target.Scheme != "https" && target.Scheme != "http") {
+		return false
+	}
+	for _, entry := range h.postLoginRedirectAllowlist {
+		if target.Scheme == entry.Scheme && target.Host == entry.Host &&
+			strings.HasPrefix(target.Path, entry.Path) {
+			return true
+		}
+	}
+	return false
 }
 
 // HandleCallback handles the OAuth callback endpoint.
@@ -140,23 +202,28 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	h.finishSuccess(w, r, state.ServerName)
+	h.finishSuccess(w, r, state)
 }
 
-// finishSuccess completes a successful callback: a redirect to the
-// operator-configured post-login target when one is set, the static success
-// page otherwise.
-func (h *Handler) finishSuccess(w http.ResponseWriter, r *http.Request, serverName string) {
-	if h.postLoginRedirect != nil {
-		http.Redirect(w, r, postLoginRedirectTarget(h.postLoginRedirect, serverName), http.StatusSeeOther)
-		return
+// finishSuccess completes a successful callback: a redirect to the flow's
+// recorded post-login target when the start endpoint accepted one, the
+// static success page otherwise. The target was allowlist-validated at the
+// start endpoint; the callback never reads it from request input.
+func (h *Handler) finishSuccess(w http.ResponseWriter, r *http.Request, state *OAuthState) {
+	if state.RedirectURI != "" {
+		target, err := url.Parse(state.RedirectURI)
+		if err == nil {
+			http.Redirect(w, r, postLoginRedirectTarget(target, state.ServerName), http.StatusSeeOther)
+			return
+		}
+		logging.Warn("OAuth", "Ignoring unparseable post-login redirect target: %v", err)
 	}
-	h.renderSuccessPage(w, serverName)
+	h.renderSuccessPage(w, state.ServerName)
 }
 
 // postLoginRedirectTarget appends the connected server's name to the
-// configured post-login redirect URL, preserving any query parameters the
-// operator configured on it.
+// post-login redirect URL, preserving any query parameters already on it
+// (front-ends carry their own correlation state there).
 func postLoginRedirectTarget(base *url.URL, serverName string) string {
 	target := *base
 	query := target.Query()

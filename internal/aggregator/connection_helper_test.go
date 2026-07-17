@@ -42,6 +42,8 @@ func newMockOAuthHandler(enabled bool) *mockOAuthHandler {
 
 func (m *mockOAuthHandler) IsEnabled() bool                                        { return m.enabled }
 func (m *mockOAuthHandler) GetCallbackPath() string                                { return "" }
+func (m *mockOAuthHandler) GetStartPath() string                                   { return "" }
+func (m *mockOAuthHandler) GetStartHandler() http.HandlerFunc                      { return nil }
 func (m *mockOAuthHandler) GetHTTPHandler() http.Handler                           { return nil }
 func (m *mockOAuthHandler) ShouldServeCIMD() bool                                  { return false }
 func (m *mockOAuthHandler) GetCIMDPath() string                                    { return "" }
