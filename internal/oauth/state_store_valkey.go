@@ -95,7 +95,8 @@ func (s *ValkeyStateStore) stateKey(nonce string) string {
 	return s.keyPrefix + "oauth:state:" + nonce
 }
 
-func (s *ValkeyStateStore) GenerateState(sessionID, userID, serverName, issuer, codeVerifier string) (string, error) {
+func (s *ValkeyStateStore) GenerateState(sessionID, userID, serverName, issuer, codeVerifier string,
+	buildAuthorizationURL func(encodedState string) (string, error)) (string, error) {
 	nonceBytes := make([]byte, 32)
 	if _, err := rand.Read(nonceBytes); err != nil {
 		return "", err
@@ -118,6 +119,13 @@ func (s *ValkeyStateStore) GenerateState(sessionID, userID, serverName, issuer, 
 		return "", err
 	}
 	encodedState := base64.URLEncoding.EncodeToString(stateJSON)
+
+	if buildAuthorizationURL != nil {
+		state.AuthorizationURL, err = buildAuthorizationURL(encodedState)
+		if err != nil {
+			return "", err
+		}
+	}
 
 	entryData, err := json.Marshal(stateToEntry(state))
 	if err != nil {
@@ -260,9 +268,16 @@ func (s *ValkeyStateStore) Update(encodedState string, mutate func(*OAuthState))
 		return nil
 	}
 
-	cmd := s.client.B().Set().Key(key).Value(value).Keepttl().Build()
+	// XX: only overwrite a key that still exists. Without it, an update racing
+	// the callback's consuming GETDEL would recreate the key, and KEEPTTL on a
+	// fresh key means no expiry — a consumed state resurrected forever.
+	cmd := s.client.B().Set().Key(key).Value(value).Xx().Keepttl().Build()
 	if err := s.client.Do(ctx, cmd).Error(); err != nil {
-		logging.Warn("OAuth", "ValkeyStateStore: SET on update failed: %v", err)
+		if valkey.IsValkeyNil(err) {
+			logging.Warn("OAuth", "ValkeyStateStore: state consumed during update: nonce=%s", state.Nonce)
+		} else {
+			logging.Warn("OAuth", "ValkeyStateStore: SET on update failed: %v", err)
+		}
 		return nil
 	}
 
