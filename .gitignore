@@ -40,3 +40,6 @@ muster-v-*
 
 # graphify knowledge graph (regenerable, rebuilt by the post-commit hook)
 graphify-out/
+
+# Local Claude Code worktrees
+.claude/worktrees/
