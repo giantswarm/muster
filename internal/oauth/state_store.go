@@ -14,8 +14,12 @@ import (
 // Implementations must be safe for concurrent use.
 type StateStorer interface {
 	// GenerateState creates a new OAuth state, stores it, and returns the
-	// base64-encoded state string to include in the authorization URL.
-	GenerateState(sessionID, userID, serverName, issuer, codeVerifier string) (encodedState string, err error)
+	// base64-encoded state string the start endpoint resolves. When
+	// buildAuthorizationURL is non-nil it is called with the encoded state
+	// and its result is stored as the flow's upstream authorization URL, so
+	// state and URL land in a single write; an error aborts without storing.
+	GenerateState(sessionID, userID, serverName, issuer, codeVerifier string,
+		buildAuthorizationURL func(encodedState string) (string, error)) (encodedState string, err error)
 
 	// ValidateState validates an encoded state from a callback. Returns the
 	// original state if valid; nil if invalid, expired, or already consumed.
@@ -73,7 +77,8 @@ func NewStateStore() *StateStore {
 //   - serverName: The MCP server name requiring authentication
 //   - issuer: The OAuth issuer URL
 //   - codeVerifier: The PKCE code verifier for this flow
-func (ss *StateStore) GenerateState(sessionID, userID, serverName, issuer, codeVerifier string) (encodedState string, err error) {
+func (ss *StateStore) GenerateState(sessionID, userID, serverName, issuer, codeVerifier string,
+	buildAuthorizationURL func(encodedState string) (string, error)) (encodedState string, err error) {
 	nonceBytes := make([]byte, 32)
 	if _, err := rand.Read(nonceBytes); err != nil {
 		return "", err
@@ -96,6 +101,13 @@ func (ss *StateStore) GenerateState(sessionID, userID, serverName, issuer, codeV
 	}
 
 	encodedState = base64.URLEncoding.EncodeToString(stateJSON)
+
+	if buildAuthorizationURL != nil {
+		state.AuthorizationURL, err = buildAuthorizationURL(encodedState)
+		if err != nil {
+			return "", err
+		}
+	}
 
 	ss.mu.Lock()
 	ss.states[nonce] = state

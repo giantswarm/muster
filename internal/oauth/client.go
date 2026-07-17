@@ -126,29 +126,24 @@ func (c *Client) GenerateAuthURL(ctx context.Context, sessionID, userID, serverN
 		return "", fmt.Errorf("failed to generate PKCE: %w", err)
 	}
 
-	state, err := c.stateStore.GenerateState(sessionID, userID, serverName, issuer, pkce.CodeVerifier)
+	// The upstream authorization URL is stored with the state in a single
+	// write; the user-facing URL is the muster-hosted start endpoint, which
+	// redirects the browser there. The extra hop lets the initiating
+	// front-end attach an allowlisted post-login redirect target to the flow
+	// (the "redirect" query parameter on the start URL).
+	state, err := c.stateStore.GenerateState(sessionID, userID, serverName, issuer, pkce.CodeVerifier,
+		func(encodedState string) (string, error) {
+			return c.oauthClient.BuildAuthorizationURL(
+				metadata.AuthorizationEndpoint,
+				c.clientID,
+				c.GetRedirectURI(),
+				encodedState,
+				scope,
+				pkce,
+			)
+		})
 	if err != nil {
 		return "", fmt.Errorf("failed to generate state: %w", err)
-	}
-
-	authURL, err := c.oauthClient.BuildAuthorizationURL(
-		metadata.AuthorizationEndpoint,
-		c.clientID,
-		c.GetRedirectURI(),
-		state,
-		scope,
-		pkce,
-	)
-	if err != nil {
-		return "", fmt.Errorf("failed to build authorization URL: %w", err)
-	}
-
-	// The user-facing URL is the muster-hosted start endpoint, which redirects
-	// to the upstream authorization URL stored with the state. The extra hop
-	// lets the initiating front-end attach an allowlisted post-login redirect
-	// target to the flow (the "redirect" query parameter on the start URL).
-	if c.stateStore.Update(state, func(s *OAuthState) { s.AuthorizationURL = authURL }) == nil {
-		return "", fmt.Errorf("failed to store authorization URL with state")
 	}
 
 	logging.Debug("OAuth", "Generated auth URL for session=%s server=%s issuer=%s",
