@@ -104,7 +104,9 @@ func (h *Handler) HandleStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.Redirect(w, r, state.AuthorizationURL, http.StatusFound)
+	// The target is the upstream authorization URL stored server-side with the
+	// state by GenerateAuthURL; the request only supplies the state lookup key.
+	http.Redirect(w, r, state.AuthorizationURL, http.StatusFound) //nolint:gosec // G710: server-side stored URL, not request input
 }
 
 // redirectAllowed reports whether a caller-supplied post-login redirect
@@ -213,7 +215,7 @@ func (h *Handler) finishSuccess(w http.ResponseWriter, r *http.Request, state *O
 	if state.RedirectURI != "" {
 		target, err := url.Parse(state.RedirectURI)
 		if err == nil {
-			http.Redirect(w, r, postLoginRedirectTarget(target, state.ServerName), http.StatusSeeOther)
+			http.Redirect(w, r, postLoginRedirectTarget(target, state.ServerName), http.StatusSeeOther) //nolint:gosec // G710: allowlist-validated at the start endpoint, stored server-side
 			return
 		}
 		logging.Warn("OAuth", "Ignoring unparseable post-login redirect target: %v", err)
