@@ -284,6 +284,20 @@ func (h *TestToolsHandler) handleSimulateOAuthCallback(ctx context.Context, args
 		h.logger.Debug("🔐 Got auth URL from authenticate tool: %s\n", authURL)
 	}
 
+	// The tool returns the muster-hosted start URL; the browser is redirected
+	// from there to the upstream authorization URL. Simulate that hop to get
+	// the URL carrying the OAuth parameters (client_id, PKCE, redirect_uri).
+	if strings.Contains(authURL, "/oauth/proxy/start") {
+		upstreamURL, err := h.resolveStartRedirect(ctx, authURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve start URL redirect: %w", err)
+		}
+		if h.debug {
+			h.logger.Debug("🔐 Start URL resolved to upstream auth URL: %s\n", upstreamURL)
+		}
+		authURL = upstreamURL
+	}
+
 	// Step 2: Parse the auth URL to extract the state parameter
 	parsedURL, err := url.Parse(authURL)
 	if err != nil {
@@ -410,6 +424,37 @@ func (h *TestToolsHandler) handleSimulateOAuthCallback(ctx context.Context, args
 	}
 
 	return nil, fmt.Errorf("callback returned error status: %d", resp.StatusCode)
+}
+
+// resolveStartRedirect follows the muster-hosted start URL one hop (without
+// following further redirects) and returns the upstream authorization URL it
+// points at, the way a browser would reach the IdP.
+func (h *TestToolsHandler) resolveStartRedirect(ctx context.Context, startURL string) (string, error) {
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, startURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create start request: %w", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("start request failed: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode < 300 || resp.StatusCode >= 400 {
+		return "", fmt.Errorf("start endpoint returned status %d instead of a redirect", resp.StatusCode)
+	}
+	location := resp.Header.Get("Location")
+	if location == "" {
+		return "", fmt.Errorf("start endpoint redirect has no Location header")
+	}
+	return location, nil
 }
 
 // callAuthenticateTool calls the core_auth_login tool via MCP to get the auth URL.
