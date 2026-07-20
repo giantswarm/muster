@@ -369,6 +369,24 @@ func (a *AggregatorServer) initSSOForSession(sso ssoSession) {
 		return
 	}
 
+	// Persist the caller's ID token into the OAuth-proxy store so the background
+	// re-exchange/forwarding closures can resolve a subject after the request
+	// context is gone. getIDTokenForForwarding runs on a detached
+	// context.Background() and can only read the store; it is populated
+	// otherwise only at fresh login (SessionCreationHandler) or on an upstream
+	// refresh that returns an ID token (TokenRefreshHandler). A session that
+	// reconnects after its login-time ID token expired (e.g. after a pod
+	// restart) re-inits SSO here from the live request context but would
+	// otherwise leave the store empty -- so every background re-exchange fails
+	// with "no subject ID token available for re-exchange" and the fallback
+	// refresher rotates the client's refresh token in a tight retry loop until
+	// OAuth 2.1 reuse detection revokes the family. Storing it here keeps the
+	// store fresh for as long as the session keeps making authenticated
+	// requests. storeIDTokenForSSO no-ops on empty/unparseable tokens.
+	if sso.tokens.IDToken != "" {
+		a.storeIDTokenForSSO(sso.sessionID, sso.userID, sso.tokens.IDToken)
+	}
+
 	// Build a detached context with a timeout -- the token-exchange request
 	// context may be cancelled before SSO work finishes.
 	bgCtx, cancel := context.WithTimeout(context.Background(), initSSOTimeout)
