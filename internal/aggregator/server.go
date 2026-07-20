@@ -1594,8 +1594,9 @@ func (a *AggregatorServer) ssoLifecycleOptions() []oauth.ServerOption {
 				slog.String("familyID", logging.TruncateIdentifier(familyID)),
 				slog.Bool("hasIDToken", idToken != ""),
 				slog.Int("idTokenLen", len(idToken)))
+			// initSSOForSession persists idToken into the OAuth-proxy store
+			// itself, so no separate storeIDTokenForSSO call is needed here.
 			a.initSSOForSession(ssoSession{userID: userID, sessionID: familyID, tokens: server.CallerTokens{IDToken: idToken}})
-			a.storeIDTokenForSSO(familyID, userID, idToken)
 		}),
 		// An upstream refresh with no ID token signals a broken refresh chain
 		// (Dex obtained new tokens but the id_token was dropped); evict SSO
