@@ -44,10 +44,13 @@ type oauthServer interface {
 	ValidateTokenWithSubject(next http.Handler) http.Handler
 	CreateMux() http.Handler
 	Shutdown(ctx context.Context) error
-	// RefreshSession forces an in-process upstream provider token refresh for the
-	// given token family. Used by getIDTokenForForwarding to recover from idle-period
-	// expiry without requiring the user to re-authenticate.
-	RefreshSession(ctx context.Context, familyID string) error
+	// RefreshSessionProvider forces an in-process, provider-only upstream token
+	// refresh for the given token family: it refreshes the upstream (dex)
+	// provider token and repopulates the SSO ID token WITHOUT rotating the
+	// client's mcp refresh token. Used by getIDTokenForForwarding to recover from
+	// idle-period expiry without requiring re-auth — and without the client-token
+	// rotation that would trip OAuth 2.1 reuse detection and deauth the user.
+	RefreshSessionProvider(ctx context.Context, familyID string) error
 }
 
 // AggregatorServer implements a comprehensive MCP server that aggregates multiple backend MCP servers.
@@ -174,13 +177,16 @@ func (a *AggregatorServer) getValkeyClient() valkey.Client {
 }
 
 // sessionRefresher returns a callback that delegates to the OAuth HTTP server's
-// RefreshSession, or nil when OAuth is not configured. Callers pass this into
-// getIDTokenForForwarding so idle-expired tokens are recovered in-process.
+// provider-only RefreshSessionProvider, or nil when OAuth is not configured.
+// Callers pass this into getIDTokenForForwarding so idle-expired ID tokens are
+// recovered in-process by refreshing the upstream provider token — WITHOUT
+// rotating the client's mcp refresh token, whose rotation on this background
+// path would trip OAuth 2.1 reuse detection and revoke the whole token family.
 func (a *AggregatorServer) sessionRefresher() func(context.Context, string) error {
 	if a.oauthHTTPServer == nil {
 		return nil
 	}
-	return a.oauthHTTPServer.RefreshSession
+	return a.oauthHTTPServer.RefreshSessionProvider
 }
 
 // getValkeyKeyPrefix returns the configured key prefix for Valkey stores.

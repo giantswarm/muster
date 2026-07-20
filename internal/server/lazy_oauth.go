@@ -166,16 +166,18 @@ func (l *LazyOAuthHTTPServer) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-// RefreshSession forces an in-process upstream provider token refresh for the given
-// token family. Returns an error if OIDC discovery has not yet completed.
-func (l *LazyOAuthHTTPServer) RefreshSession(ctx context.Context, familyID string) error {
+// RefreshSessionProvider forces an in-process, provider-only upstream token
+// refresh for the given token family (the upstream provider token is refreshed
+// and the SSO ID token repopulated without rotating the client's mcp refresh
+// token). Returns an error if OIDC discovery has not yet completed.
+func (l *LazyOAuthHTTPServer) RefreshSessionProvider(ctx context.Context, familyID string) error {
 	l.mu.RLock()
 	inner := l.inner
 	l.mu.RUnlock()
 	if inner == nil {
 		return fmt.Errorf("OIDC discovery not yet complete, cannot refresh session")
 	}
-	return inner.RefreshSession(ctx, familyID)
+	return inner.RefreshSessionProvider(ctx, familyID)
 }
 
 // WaitReady blocks until OIDC discovery succeeds or the context is cancelled.

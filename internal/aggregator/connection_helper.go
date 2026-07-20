@@ -1021,13 +1021,14 @@ func forwardableBearer(ctx context.Context) string {
 //     sessions have no forwardable bearer.
 //  3. fallbackToken, captured when the connection was established. Sessions
 //     with no OAuth-store entry (agent OBO callers) live off 1 and 3.
-//  4. When the fallback has expired, an in-process upstream refresh via
-//     refresher, so sessions that still hold a refresh chain (opaque-token
-//     human sessions) recover in place instead of riding into eviction. The
-//     refresh is bounded by the provider's request timeout and coalesced by
-//     RefreshSession's singleflight; it is attempted only in the stale
-//     state, so sessions with no upstream refresh chain never trigger it
-//     while their token is valid.
+//  4. When the fallback has expired, an in-process provider-only upstream
+//     refresh via refresher, so sessions that still hold a refresh chain
+//     (opaque-token human sessions) recover in place instead of riding into
+//     eviction. The refresh is bounded by the provider's request timeout and
+//     coalesced by the per-user provider-refresh single-flight; it refreshes
+//     the upstream provider token WITHOUT rotating the client's mcp refresh
+//     token, and is attempted only in the stale state, so sessions with no
+//     upstream refresh chain never trigger it while their token is valid.
 //
 // Failure accounting: a resolution counts as failed only when it bottoms out
 // on an expired or undecodable fallback and the refresh recovered nothing,
