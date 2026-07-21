@@ -517,7 +517,9 @@ func (p *Provider) handleCallTool(ctx context.Context, args map[string]any) (*ap
 	// MCP clients inspecting only the top-level isError field get an accurate signal.
 	// StructuredContent is propagated both natively (for clients that read the MCP
 	// structuredContent field directly) and inside the JSON envelope (for clients
-	// that unwrap the text content).
+	// that unwrap the text content). The native Content is the envelope JSON while
+	// the native StructuredContent mirrors the wrapped tool: the two fields describe
+	// different layers by design and are not meant to agree.
 	return &api.CallToolResult{
 		Content:           []any{string(resultJSON)},
 		IsError:           result.IsError,
