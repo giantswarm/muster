@@ -1024,11 +1024,12 @@ func forwardableBearer(ctx context.Context) string {
 //  4. When the fallback has expired, an in-process provider-only upstream
 //     refresh via refresher, so sessions that still hold a refresh chain
 //     (opaque-token human sessions) recover in place instead of riding into
-//     eviction. The refresh is bounded by the provider's request timeout and
-//     coalesced by the per-user provider-refresh single-flight; it refreshes
-//     the upstream provider token WITHOUT rotating the client's mcp refresh
-//     token, and is attempted only in the stale state, so sessions with no
-//     upstream refresh chain never trigger it while their token is valid.
+//     eviction. The refresh is bounded by the provider's request timeout,
+//     coalesced by the per-user provider-refresh single-flight, and attempted
+//     only in the stale state, so sessions with no upstream refresh chain
+//     never trigger it while their token is valid. See
+//     oauthServer.RefreshSessionProvider for the rotation/deauth background
+//     (giantswarm#37164).
 //
 // Failure accounting: a resolution counts as failed only when it bottoms out
 // on an expired or undecodable fallback and the refresh recovered nothing,

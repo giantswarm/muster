@@ -380,12 +380,13 @@ func (a *AggregatorServer) initSSOForSession(sso ssoSession) {
 	// otherwise leave the store empty -- so every background re-exchange fails
 	// with "no subject ID token available for re-exchange" and the fallback
 	// refresher rotates the client's refresh token in a tight retry loop until
-	// OAuth 2.1 reuse detection revokes the family. Storing it here keeps the
-	// store fresh for as long as the session keeps making authenticated
-	// requests. storeIDTokenForSSO no-ops on empty/unparseable tokens.
-	if sso.tokens.IDToken != "" {
-		a.storeIDTokenForSSO(sso.sessionID, sso.userID, sso.tokens.IDToken)
-	}
+	// OAuth 2.1 reuse detection revokes the family and deauths the user
+	// (giantswarm#37164). This persist only covers init time: initSSOForSession
+	// runs at login, session bootstrap (singleflighted), and pool-miss re-init;
+	// between inits the store is kept fresh by TokenRefreshHandler via the
+	// provider refresh.
+	// storeIDTokenForSSO no-ops on empty/unparseable tokens.
+	a.storeIDTokenForSSO(sso.sessionID, sso.userID, sso.tokens.IDToken)
 
 	// Build a detached context with a timeout -- the token-exchange request
 	// context may be cancelled before SSO work finishes.

@@ -24,15 +24,11 @@ func (f *fakeOAuthServer) RefreshSessionProvider(_ context.Context, familyID str
 	return f.refreshErr
 }
 
-// TestSessionRefresher_UsesProviderOnlyRefresh pins the defect-#2 fix on the
-// muster side: the background re-exchange refresher must delegate to the
-// provider-only RefreshSessionProvider, which refreshes the upstream provider
-// token WITHOUT rotating the client's mcp refresh token. Rotating it on this
-// ~1/s background path was the deauth engine (OAuth 2.1 reuse detection revoked
-// the family). The no-rotation invariant itself is proven in mcp-oauth
-// (TestRefreshSessionProvider_DoesNotRotateClientRefreshToken); this guards the
-// wiring so a refactor cannot silently re-point the refresher at a client-token
-// rotating path.
+// TestSessionRefresher_UsesProviderOnlyRefresh guards the wiring so a refactor
+// cannot silently re-point the background refresher at a client-token-rotating
+// path; see oauthServer.RefreshSessionProvider for the rotation/deauth
+// background (giantswarm#37164). The no-rotation invariant itself is proven in
+// mcp-oauth (TestRefreshSessionProvider_DoesNotRotateClientRefreshToken).
 func TestSessionRefresher_UsesProviderOnlyRefresh(t *testing.T) {
 	fake := &fakeOAuthServer{}
 	a := &AggregatorServer{oauthHTTPServer: fake}

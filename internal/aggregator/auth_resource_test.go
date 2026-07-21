@@ -730,16 +730,13 @@ func TestStoreIDTokenForSSO_SetsExpiresAtFromJWT(t *testing.T) {
 	})
 }
 
-// TestInitSSOForSession_PersistsIDToken locks in the fix for the garm
-// re-exchange rotation-storm deauth. A session that reconnects after its
-// login-time ID token expired (e.g. after a pod restart) re-inits SSO here from
-// the live request-context ID token; that token MUST be persisted to the
+// TestInitSSOForSession_PersistsIDToken locks in the reconnect-persist fix: a
+// session that re-inits SSO after its login-time ID token expired (e.g. after
+// a pod restart) MUST have its request-context ID token persisted to the
 // OAuth-proxy store so the background re-exchange closure
-// (getIDTokenForForwarding, which runs on a detached context and can only read
-// the store) can resolve a subject. Without this, every background re-exchange
-// fails with "no subject ID token available for re-exchange" and the fallback
-// refresher rotates the client's refresh token in a tight retry loop until
-// OAuth 2.1 reuse detection revokes the family and deauths the session.
+// (getIDTokenForForwarding, which runs detached and can only read the store)
+// can resolve a subject. See oauthServer.RefreshSessionProvider for the
+// rotation/deauth background (giantswarm#37164).
 func TestInitSSOForSession_PersistsIDToken(t *testing.T) {
 	mock := newMockOAuthHandler(true)
 	api.RegisterOAuthHandler(mock)

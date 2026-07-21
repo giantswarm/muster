@@ -535,10 +535,9 @@ func (s *OAuthHTTPServer) GetOAuthServer() *oauth.Server {
 // refresh for the given token family. Delegates to the underlying mcp-oauth
 // Server.RefreshSessionProvider, which refreshes the upstream (dex) provider
 // token and fires TokenRefreshHandler — repopulating the SSO proxy store with a
-// fresh ID token — WITHOUT rotating the client-facing mcp refresh token. The
-// background SSO re-exchange paths call this to recover an idle-expired ID token
-// without the client-token rotation that would trip OAuth 2.1 reuse detection
-// and deauth the user.
+// fresh ID token — without rotating the client-facing mcp refresh token. See
+// the aggregator's oauthServer.RefreshSessionProvider contract for the
+// rotation/deauth background (giantswarm#37164).
 func (s *OAuthHTTPServer) RefreshSessionProvider(ctx context.Context, familyID string) error {
 	_, err := s.oauthServer.RefreshSessionProvider(ctx, familyID)
 	return err

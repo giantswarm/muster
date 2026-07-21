@@ -47,9 +47,15 @@ type oauthServer interface {
 	// RefreshSessionProvider forces an in-process, provider-only upstream token
 	// refresh for the given token family: it refreshes the upstream (dex)
 	// provider token and repopulates the SSO ID token WITHOUT rotating the
-	// client's mcp refresh token. Used by getIDTokenForForwarding to recover from
-	// idle-period expiry without requiring re-auth — and without the client-token
-	// rotation that would trip OAuth 2.1 reuse detection and deauth the user.
+	// client's mcp refresh token. Used by getIDTokenForForwarding to recover
+	// from idle-period expiry without requiring re-auth.
+	//
+	// The no-rotation contract is load-bearing (giantswarm#37164): a background
+	// SSO refresh that rotated the client's refresh token on the ~1/s
+	// re-exchange retry path tripped OAuth 2.1 refresh-token reuse detection,
+	// which revoked the whole token family and deauthed the user. Every
+	// background/no-request-context refresh must therefore go through this
+	// provider-only path.
 	RefreshSessionProvider(ctx context.Context, familyID string) error
 }
 
@@ -179,9 +185,8 @@ func (a *AggregatorServer) getValkeyClient() valkey.Client {
 // sessionRefresher returns a callback that delegates to the OAuth HTTP server's
 // provider-only RefreshSessionProvider, or nil when OAuth is not configured.
 // Callers pass this into getIDTokenForForwarding so idle-expired ID tokens are
-// recovered in-process by refreshing the upstream provider token — WITHOUT
-// rotating the client's mcp refresh token, whose rotation on this background
-// path would trip OAuth 2.1 reuse detection and revoke the whole token family.
+// recovered in-process; see oauthServer.RefreshSessionProvider for the
+// rotation/deauth background (giantswarm#37164).
 func (a *AggregatorServer) sessionRefresher() func(context.Context, string) error {
 	if a.oauthHTTPServer == nil {
 		return nil
