@@ -115,10 +115,12 @@ type OAuthMCPClientConfig struct {
 	// http(s) URL prefix; a caller-supplied redirect target is accepted only
 	// when its scheme and host match an entry exactly and its path extends
 	// the entry's path at a segment boundary; targets containing dot
-	// segments are rejected (the target's query is unconstrained). After a
-	// successful callback the browser is redirected to the accepted target
-	// with the connected server's name appended as a "server" query
-	// parameter, instead of the static success page. This lets a front-end
+	// segments are rejected (the target's query is unconstrained). Host
+	// matching is port-exact: an entry without a port matches only targets
+	// without a port. After a successful callback the browser is redirected
+	// to the accepted target with the connected server's name appended as a
+	// "server" query parameter (overwriting any "server" the caller set),
+	// instead of the static success page. This lets a front-end
 	// (e.g. a chat gateway) observe login completion for the flows it
 	// initiated without affecting other clients of the same muster. Empty
 	// (default) rejects all redirect requests; invalid entries are ignored
