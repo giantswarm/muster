@@ -10,6 +10,10 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- SSO sessions on token-exchange backends no longer deauthenticate under a re-exchange rotation storm. A long-lived SSO session reconnecting after its login-time ID token expired re-inited SSO in `initSSOForSession` from the live request context but never persisted that token to the OAuth-proxy store, so muster's background re-exchange (running on a detached `context.Background()` that can only read the store) fell back to the in-process refresher and rotated the client's mcp refresh token on every ~1s continuous-listen retry (~56×/min for ~15 min); two rotations eventually collided and OAuth 2.1 reuse detection revoked the whole token family → deauth. `initSSOForSession` now persists the request-context ID token, and the background SSO refresher is routed to mcp-oauth's provider-only `RefreshSessionProvider`, which repopulates the upstream provider token without rotating the client-facing refresh token. ([#37164](https://github.com/giantswarm/giantswarm/issues/37164))
+
+  **Deploy note:** the accompanying mcp-oauth bump (`v1.0.10` → `v1.2.0`) changes the Valkey provider-token storage layout to a single shared entry per user with **no legacy read-fallback**, so **every user re-authenticates exactly once** on rollout (existing sessions do not carry over). Optionally flush the affected token keys (`token:*`, `refresh:*`, and related `meta:*` / `family:*` / user-client set keys under the configured prefix) for a clean cutover; skipping the flush is safe — leftover keys are never read and just linger until TTL.
+
 - Team ownership label. `application.giantswarm.io/team` now renders `bumblebee` instead of an empty string: the labels helper looked up the annotation under the wrong key (`application.giantswarm.io/team`) instead of the OCI key `io.giantswarm.application.team` set in `Chart.yaml`.
 
 
