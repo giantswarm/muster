@@ -538,12 +538,15 @@ func (s *OAuthHTTPServer) GetOAuthServer() *oauth.Server {
 	return s.oauthServer
 }
 
-// RefreshSession forces an in-process upstream provider token refresh for the given
-// token family. Delegates to the underlying mcp-oauth Server.RefreshSession so that
-// TokenRefreshHandler fires and the SSO proxy store is updated before the caller
-// re-reads the ID token.
-func (s *OAuthHTTPServer) RefreshSession(ctx context.Context, familyID string) error {
-	_, err := s.oauthServer.RefreshSession(ctx, familyID)
+// RefreshSessionProvider forces an in-process, provider-only upstream token
+// refresh for the given token family. Delegates to the underlying mcp-oauth
+// Server.RefreshSessionProvider, which refreshes the upstream (dex) provider
+// token and fires TokenRefreshHandler — repopulating the SSO proxy store with a
+// fresh ID token — without rotating the client-facing mcp refresh token. See
+// the aggregator's oauthServer.RefreshSessionProvider contract for the
+// rotation/deauth background (giantswarm#37164).
+func (s *OAuthHTTPServer) RefreshSessionProvider(ctx context.Context, familyID string) error {
+	_, err := s.oauthServer.RefreshSessionProvider(ctx, familyID)
 	return err
 }
 

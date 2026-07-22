@@ -10,6 +10,7 @@ import (
 
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/config"
+	"github.com/giantswarm/muster/internal/server"
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -725,6 +726,60 @@ func TestStoreIDTokenForSSO_SetsExpiresAtFromJWT(t *testing.T) {
 		token := &pkgoauth.Token{ExpiresAt: stored.ExpiresAt}
 		if !token.IsExpiredWithMargin(0) {
 			t.Errorf("stored entry should be IsExpiredWithMargin(0)-expired; ExpiresAt=%v", stored.ExpiresAt)
+		}
+	})
+}
+
+// TestInitSSOForSession_PersistsIDToken locks in the reconnect-persist fix: a
+// session that re-inits SSO after its login-time ID token expired (e.g. after
+// a pod restart) MUST have its request-context ID token persisted to the
+// OAuth-proxy store so the background re-exchange closure
+// (getIDTokenForForwarding, which runs detached and can only read the store)
+// can resolve a subject. See oauthServer.RefreshSessionProvider for the
+// rotation/deauth background (giantswarm#37164).
+func TestInitSSOForSession_PersistsIDToken(t *testing.T) {
+	mock := newMockOAuthHandler(true)
+	api.RegisterOAuthHandler(mock)
+	t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
+
+	a := &AggregatorServer{
+		registry: NewServerRegistry("x"),
+		config: AggregatorConfig{
+			OAuthServer: OAuthServerConfig{
+				Enabled: true,
+				Config: config.OAuthServerConfig{
+					Provider: "generic",
+					BaseURL:  "https://muster.example",
+				},
+			},
+		},
+	}
+
+	// JWT payload: {"sub":"alice","exp":9999999999} (year 2286).
+	idToken := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhbGljZSIsImV4cCI6OTk5OTk5OTk5OX0.sig"
+	a.initSSOForSession(ssoSession{
+		userID:    "alice",
+		sessionID: "family-reconnect",
+		tokens:    server.CallerTokens{IDToken: idToken},
+	})
+
+	stored := mock.GetFullTokenByIssuer("family-reconnect", "https://muster.example")
+	if stored == nil {
+		t.Fatal("initSSOForSession must persist the request-context ID token to the proxy store so background re-exchange can resolve it")
+	}
+	if stored.IDToken != idToken {
+		t.Errorf("stored IDToken = %q, want %q", stored.IDToken, idToken)
+	}
+
+	t.Run("no-ops when the caller carries no ID token", func(t *testing.T) {
+		mock.tokens = map[string]*api.OAuthToken{}
+		a.initSSOForSession(ssoSession{
+			userID:    "bob",
+			sessionID: "family-no-idtoken",
+			tokens:    server.CallerTokens{},
+		})
+		if stored := mock.GetFullTokenByIssuer("family-no-idtoken", "https://muster.example"); stored != nil {
+			t.Fatalf("must not store anything when the caller has no ID token, got %+v", stored)
 		}
 	})
 }

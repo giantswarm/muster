@@ -44,10 +44,19 @@ type oauthServer interface {
 	ValidateTokenWithSubject(next http.Handler) http.Handler
 	CreateMux() http.Handler
 	Shutdown(ctx context.Context) error
-	// RefreshSession forces an in-process upstream provider token refresh for the
-	// given token family. Used by getIDTokenForForwarding to recover from idle-period
-	// expiry without requiring the user to re-authenticate.
-	RefreshSession(ctx context.Context, familyID string) error
+	// RefreshSessionProvider forces an in-process, provider-only upstream token
+	// refresh for the given token family: it refreshes the upstream (dex)
+	// provider token and repopulates the SSO ID token WITHOUT rotating the
+	// client's mcp refresh token. Used by getIDTokenForForwarding to recover
+	// from idle-period expiry without requiring re-auth.
+	//
+	// The no-rotation contract is load-bearing (giantswarm#37164): a background
+	// SSO refresh that rotated the client's refresh token on the ~1/s
+	// re-exchange retry path tripped OAuth 2.1 refresh-token reuse detection,
+	// which revoked the whole token family and deauthed the user. Every
+	// background/no-request-context refresh must therefore go through this
+	// provider-only path.
+	RefreshSessionProvider(ctx context.Context, familyID string) error
 }
 
 // AggregatorServer implements a comprehensive MCP server that aggregates multiple backend MCP servers.
@@ -174,13 +183,15 @@ func (a *AggregatorServer) getValkeyClient() valkey.Client {
 }
 
 // sessionRefresher returns a callback that delegates to the OAuth HTTP server's
-// RefreshSession, or nil when OAuth is not configured. Callers pass this into
-// getIDTokenForForwarding so idle-expired tokens are recovered in-process.
+// provider-only RefreshSessionProvider, or nil when OAuth is not configured.
+// Callers pass this into getIDTokenForForwarding so idle-expired ID tokens are
+// recovered in-process; see oauthServer.RefreshSessionProvider for the
+// rotation/deauth background (giantswarm#37164).
 func (a *AggregatorServer) sessionRefresher() func(context.Context, string) error {
 	if a.oauthHTTPServer == nil {
 		return nil
 	}
-	return a.oauthHTTPServer.RefreshSession
+	return a.oauthHTTPServer.RefreshSessionProvider
 }
 
 // getValkeyKeyPrefix returns the configured key prefix for Valkey stores.
@@ -1601,8 +1612,9 @@ func (a *AggregatorServer) ssoLifecycleOptions() []oauth.ServerOption {
 				slog.String("familyID", logging.TruncateIdentifier(familyID)),
 				slog.Bool("hasIDToken", idToken != ""),
 				slog.Int("idTokenLen", len(idToken)))
+			// initSSOForSession persists idToken into the OAuth-proxy store
+			// itself, so no separate storeIDTokenForSSO call is needed here.
 			a.initSSOForSession(ssoSession{userID: userID, sessionID: familyID, tokens: server.CallerTokens{IDToken: idToken}})
-			a.storeIDTokenForSSO(familyID, userID, idToken)
 		}),
 		// An upstream refresh with no ID token signals a broken refresh chain
 		// (Dex obtained new tokens but the id_token was dropped); evict SSO
