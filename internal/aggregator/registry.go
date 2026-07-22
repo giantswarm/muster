@@ -3,6 +3,7 @@ package aggregator
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strings"
@@ -340,6 +341,14 @@ func (r *ServerRegistry) GetClient(name string) (MCPClient, error) {
 	info, exists := r.servers[name]
 	if !exists {
 		return nil, fmt.Errorf("server %s not found", name)
+	}
+
+	// IsConnected can report true from the service registry's active state while
+	// the client pointer is momentarily absent (a reconnect flips state to active
+	// before the replacement client is assigned). A nil client is unusable, and
+	// callers dispatch on it directly, so returning it panics them.
+	if info.Client == nil {
+		return nil, fmt.Errorf("server %s has no active client", name)
 	}
 
 	if !info.IsConnected() {
@@ -1032,9 +1041,7 @@ func (r *ServerRegistry) GetAllServers() map[string]*ServerInfo {
 
 	// Create a copy to prevent external modifications
 	result := make(map[string]*ServerInfo, len(r.servers))
-	for k, v := range r.servers {
-		result[k] = v
-	}
+	maps.Copy(result, r.servers)
 	return result
 }
 

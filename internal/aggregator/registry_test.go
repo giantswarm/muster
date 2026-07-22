@@ -479,7 +479,7 @@ func TestServerRegistry_FamilyGrouping(t *testing.T) {
 			return out
 		}
 		first := names(registry.GetAllTools())
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			assert.Equal(t, first, names(registry.GetAllTools()),
 				"tools/list order must be stable across repeated calls (iteration %d)", i)
 		}
@@ -584,17 +584,17 @@ func TestServerRegistry_FamilyGrouping(t *testing.T) {
 		const goroutines = 8
 		const iterations = 50
 		done := make(chan struct{}, goroutines)
-		for g := 0; g < goroutines; g++ {
+		for range goroutines {
 			go func() {
 				defer func() { done <- struct{}{} }()
-				for i := 0; i < iterations; i++ {
+				for range iterations {
 					_ = registry.GetAllTools()
 					_, err := registry.ResolveToolNameForServer("x_kubernetes_list_pods", "k8s-a")
 					assert.NoError(t, err)
 				}
 			}()
 		}
-		for g := 0; g < goroutines; g++ {
+		for range goroutines {
 			<-done
 		}
 	})
@@ -639,5 +639,29 @@ func TestServerRegistry_RegisterPendingAuthUpsert(t *testing.T) {
 		require.True(t, exists)
 		require.True(t, info.RequiresSessionAuth())
 		require.Equal(t, "https://active.example.com", info.URL)
+	})
+}
+
+func TestServerRegistry_GetClient(t *testing.T) {
+	t.Run("nil client returns an error rather than a nil client", func(t *testing.T) {
+		registry := NewServerRegistry("x")
+		// Present in the map but with no client assigned: the state that made
+		// ReadResource/GetPrompt panic when GetClient handed back (nil, nil).
+		registry.servers["ghost"] = &ServerInfo{Name: "ghost"}
+
+		client, err := registry.GetClient("ghost")
+		require.Error(t, err)
+		require.Nil(t, client)
+		require.Contains(t, err.Error(), "ghost")
+	})
+
+	t.Run("live client is returned", func(t *testing.T) {
+		registry := NewServerRegistry("x")
+		want := &mockMCPClient{}
+		registry.servers["live"] = &ServerInfo{Name: "live", Client: want}
+
+		client, err := registry.GetClient("live")
+		require.NoError(t, err)
+		require.Same(t, want, client)
 	})
 }
