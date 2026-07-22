@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 	"sync"
 	"time"
@@ -146,9 +147,7 @@ func (c *Client) GetHeaders() map[string]string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	headers := make(map[string]string)
-	for k, v := range c.headers {
-		headers[k] = v
-	}
+	maps.Copy(headers, c.headers)
 	return headers
 }
 
@@ -254,9 +253,7 @@ func (c *Client) createAndConnectClient(ctx context.Context) (client.MCPClient, 
 
 	c.mu.RLock()
 	headers := make(map[string]string)
-	for k, v := range c.headers {
-		headers[k] = v
-	}
+	maps.Copy(headers, c.headers)
 	oauthCfg := c.oauthConfig
 	c.mu.RUnlock()
 
@@ -485,7 +482,7 @@ func (c *Client) listTools(ctx context.Context, initial bool) error {
 		c.logger.Info("Listing available tools...")
 	}
 
-	result, err := c.callToolDirect(ctx, metatools.ToolListTools, map[string]interface{}{})
+	result, err := c.callToolDirect(ctx, metatools.ToolListTools, map[string]any{})
 	if err != nil {
 		if c.logger != nil {
 			c.logger.Error("ListTools failed: %v", err)
@@ -570,7 +567,7 @@ func (c *Client) parseListToolsResponse(result *mcp.CallToolResult) ([]mcp.Tool,
 }
 
 // convertInputSchema converts the untyped InputSchema from ToolInfo into mcp.ToolInputSchema.
-func convertInputSchema(raw interface{}) mcp.ToolInputSchema {
+func convertInputSchema(raw any) mcp.ToolInputSchema {
 	schema := mcp.ToolInputSchema{
 		Type: "object",
 	}
@@ -578,7 +575,7 @@ func convertInputSchema(raw interface{}) mcp.ToolInputSchema {
 		return schema
 	}
 
-	m, ok := raw.(map[string]interface{})
+	m, ok := raw.(map[string]any)
 	if !ok {
 		return schema
 	}
@@ -586,10 +583,10 @@ func convertInputSchema(raw interface{}) mcp.ToolInputSchema {
 	if t, ok := m["type"].(string); ok {
 		schema.Type = t
 	}
-	if props, ok := m["properties"].(map[string]interface{}); ok {
+	if props, ok := m["properties"].(map[string]any); ok {
 		schema.Properties = props
 	}
-	if req, ok := m["required"].([]interface{}); ok {
+	if req, ok := m["required"].([]any); ok {
 		required := make([]string, 0, len(req))
 		for _, r := range req {
 			if s, ok := r.(string); ok {
@@ -760,7 +757,7 @@ var metaToolNames = map[string]bool{
 
 // callToolFunc is a function type for direct tool execution.
 // Used by wrapAndCallTool to abstract over callToolDirect and callToolDirectWithTimeout.
-type callToolFunc func(ctx context.Context, name string, args map[string]interface{}) (*mcp.CallToolResult, error)
+type callToolFunc func(ctx context.Context, name string, args map[string]any) (*mcp.CallToolResult, error)
 
 // wrapAndCallTool handles the meta-tool wrapping logic for both CallTool and CallToolWithTimeout.
 // Meta-tools are called directly, while all other tools are wrapped through the call_tool meta-tool.
@@ -774,14 +771,14 @@ type callToolFunc func(ctx context.Context, name string, args map[string]interfa
 // Returns:
 //   - CallToolResult: The tool execution result (unwrapped if it was wrapped)
 //   - error: Any execution or communication errors
-func (c *Client) wrapAndCallTool(ctx context.Context, name string, args map[string]interface{}, callFn callToolFunc) (*mcp.CallToolResult, error) {
+func (c *Client) wrapAndCallTool(ctx context.Context, name string, args map[string]any, callFn callToolFunc) (*mcp.CallToolResult, error) {
 	// Meta-tools are called directly without wrapping
 	if metaToolNames[name] {
 		return callFn(ctx, name, args)
 	}
 
 	// All other tools are wrapped through call_tool meta-tool
-	wrappedArgs := map[string]interface{}{
+	wrappedArgs := map[string]any{
 		"name":      name,
 		"arguments": args,
 	}
@@ -817,13 +814,13 @@ func (c *Client) wrapAndCallTool(ctx context.Context, name string, args map[stri
 //
 // Example:
 //
-//	result, err := client.CallTool(ctx, "core_service_list", map[string]interface{}{
+//	result, err := client.CallTool(ctx, "core_service_list", map[string]any{
 //	    "namespace": "default",
 //	})
 //	if err != nil {
 //	    return fmt.Errorf("tool execution failed: %w", err)
 //	}
-func (c *Client) CallTool(ctx context.Context, name string, args map[string]interface{}) (*mcp.CallToolResult, error) {
+func (c *Client) CallTool(ctx context.Context, name string, args map[string]any) (*mcp.CallToolResult, error) {
 	return c.wrapAndCallTool(ctx, name, args, c.callToolDirect)
 }
 
@@ -838,7 +835,7 @@ func (c *Client) CallTool(ctx context.Context, name string, args map[string]inte
 // Returns:
 //   - CallToolResult: Complete tool execution result including content and metadata
 //   - error: Any execution or communication errors
-func (c *Client) callToolDirect(ctx context.Context, name string, args map[string]interface{}) (*mcp.CallToolResult, error) {
+func (c *Client) callToolDirect(ctx context.Context, name string, args map[string]any) (*mcp.CallToolResult, error) {
 	// Ensure client is connected before attempting tool execution
 	if c.client == nil {
 		return nil, fmt.Errorf("client not connected")
@@ -903,13 +900,14 @@ func (c *Client) unwrapMetaToolResponse(result *mcp.CallToolResult, toolName str
 	}
 
 	// Parse the wrapped result structure
-	// The call_tool meta-tool returns: {"isError": bool, "content": [...]}
+	// The call_tool meta-tool returns: {"isError": bool, "content": [...], "structuredContent": ...}
 	var wrappedResult struct {
 		IsError bool `json:"isError"`
 		Content []struct {
 			Type string `json:"type"`
 			Text string `json:"text,omitempty"`
 		} `json:"content"`
+		StructuredContent any `json:"structuredContent,omitempty"`
 	}
 
 	if err := json.Unmarshal([]byte(textContent.Text), &wrappedResult); err != nil {
@@ -922,6 +920,7 @@ func (c *Client) unwrapMetaToolResponse(result *mcp.CallToolResult, toolName str
 	unwrapped := &mcp.CallToolResult{
 		IsError: wrappedResult.IsError,
 	}
+	unwrapped.StructuredContent = wrappedResult.StructuredContent
 
 	for _, item := range wrappedResult.Content {
 		if item.Type == "text" {
@@ -960,7 +959,7 @@ func (c *Client) unwrapMetaToolResponse(result *mcp.CallToolResult, toolName str
 //	    return fmt.Errorf("failed to list services: %w", err)
 //	}
 //	fmt.Println("Services:", result)
-func (c *Client) CallToolSimple(ctx context.Context, name string, args map[string]interface{}) (string, error) {
+func (c *Client) CallToolSimple(ctx context.Context, name string, args map[string]any) (string, error) {
 	result, err := c.CallTool(ctx, name, args)
 	if err != nil {
 		return "", err
@@ -1003,7 +1002,7 @@ func (c *Client) CallToolSimple(ctx context.Context, name string, args map[strin
 //   - args: Tool arguments as a map of arg names to values
 //
 // Returns:
-//   - interface{}: Parsed JSON data structure, or string if not valid JSON
+//   - any: Parsed JSON data structure, or string if not valid JSON
 //   - error: Tool execution errors or parsing errors
 //
 // The method handles JSON parsing gracefully - if the tool result is not
@@ -1012,22 +1011,22 @@ func (c *Client) CallToolSimple(ctx context.Context, name string, args map[strin
 //
 // Example:
 //
-//	result, err := client.CallToolJSON(ctx, "core_service_status", map[string]interface{}{
+//	result, err := client.CallToolJSON(ctx, "core_service_status", map[string]any{
 //	    "name": "mcp-aggregator",
 //	})
 //	if err != nil {
 //	    return err
 //	}
 //	// result is now a parsed JSON structure
-//	serviceData := result.(map[string]interface{})
-func (c *Client) CallToolJSON(ctx context.Context, name string, args map[string]interface{}) (interface{}, error) {
+//	serviceData := result.(map[string]any)
+func (c *Client) CallToolJSON(ctx context.Context, name string, args map[string]any) (any, error) {
 	textResult, err := c.CallToolSimple(ctx, name, args)
 	if err != nil {
 		return nil, err
 	}
 
 	// Attempt to parse as JSON
-	var jsonResult interface{}
+	var jsonResult any
 	if err := json.Unmarshal([]byte(textResult), &jsonResult); err != nil {
 		// If it's not JSON, return the text as-is
 		return textResult, nil
@@ -1353,7 +1352,7 @@ func (c *Client) GetServerInfo() *ServerInfo {
 //
 // This method is primarily used by the command system to access formatting
 // capabilities for tools, resources, and prompts.
-func (c *Client) GetFormatters() interface{} {
+func (c *Client) GetFormatters() any {
 	return c.formatters
 }
 
@@ -1421,16 +1420,16 @@ func (c *Client) SetTimeoutForComplexOperations() {
 
 // CallToolWithTimeout executes a tool with a custom timeout.
 // Like CallTool, this method transparently wraps non-meta-tool calls through call_tool.
-func (c *Client) CallToolWithTimeout(ctx context.Context, name string, args map[string]interface{}, timeout time.Duration) (*mcp.CallToolResult, error) {
+func (c *Client) CallToolWithTimeout(ctx context.Context, name string, args map[string]any, timeout time.Duration) (*mcp.CallToolResult, error) {
 	// Create a closure that captures the timeout for use with wrapAndCallTool
-	callFn := func(ctx context.Context, name string, args map[string]interface{}) (*mcp.CallToolResult, error) {
+	callFn := func(ctx context.Context, name string, args map[string]any) (*mcp.CallToolResult, error) {
 		return c.callToolDirectWithTimeout(ctx, name, args, timeout)
 	}
 	return c.wrapAndCallTool(ctx, name, args, callFn)
 }
 
 // callToolDirectWithTimeout executes a tool directly with a custom timeout.
-func (c *Client) callToolDirectWithTimeout(ctx context.Context, name string, args map[string]interface{}, timeout time.Duration) (*mcp.CallToolResult, error) {
+func (c *Client) callToolDirectWithTimeout(ctx context.Context, name string, args map[string]any, timeout time.Duration) (*mcp.CallToolResult, error) {
 	// Ensure client is connected before attempting tool execution
 	if c.client == nil {
 		return nil, fmt.Errorf("client not connected")

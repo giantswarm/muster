@@ -18,7 +18,7 @@ type ArgDefinition struct {
 
 	// Default provides a default value to use if the arg is not provided.
 	// The default value must match the specified Type.
-	Default interface{} `yaml:"default,omitempty" json:"default,omitempty"`
+	Default any `yaml:"default,omitempty" json:"default,omitempty"`
 
 	// Description provides human-readable documentation for this arg.
 	Description string `yaml:"description,omitempty" json:"description,omitempty"`
@@ -70,12 +70,18 @@ type CallToolResult struct {
 	//
 	// For successful executions: contains the tool's output data
 	// For errors: contains error messages and diagnostic information
-	Content []interface{} `json:"content"`
+	Content []any `json:"content"`
 
 	// IsError indicates whether the tool execution resulted in an error.
 	// true: The execution failed and Content contains error information
 	// false: The execution succeeded and Content contains the result data
 	IsError bool `json:"isError,omitempty"`
+
+	// StructuredContent optionally carries a machine-readable representation
+	// of the result, mapped to the MCP structuredContent field. It is always
+	// returned alongside Content, never instead of it, so text-only consumers
+	// keep working.
+	StructuredContent any `json:"structuredContent,omitempty"`
 }
 
 // ToolMetadata describes a tool that can be exposed through the MCP protocol.
@@ -141,7 +147,7 @@ type ArgMetadata struct {
 
 	// Default specifies the default value used when the argument is not provided.
 	// Only used when Required is false. Must match the specified Type.
-	Default interface{}
+	Default any
 
 	// Schema provides detailed JSON Schema definition for complex types.
 	// When specified, this takes precedence over the basic Type field for
@@ -152,7 +158,7 @@ type ArgMetadata struct {
 	//
 	// For simple types (string, number, boolean), this field can be omitted
 	// and the basic Type field will be used.
-	Schema map[string]interface{} `json:"schema,omitempty"`
+	Schema map[string]any `json:"schema,omitempty"`
 }
 
 // ToolProvider interface defines the contract for components that can provide tools
@@ -210,27 +216,27 @@ type ToolProvider interface {
 	//
 	// Example:
 	//
-	//	func (p *MyProvider) ExecuteTool(ctx context.Context, toolName string, args map[string]interface{}) (*CallToolResult, error) {
+	//	func (p *MyProvider) ExecuteTool(ctx context.Context, toolName string, args map[string]any) (*CallToolResult, error) {
 	//	    switch toolName {
 	//	    case "my_operation":
 	//	        input, ok := args["input"].(string)
 	//	        if !ok {
 	//	            return &CallToolResult{
-	//	                Content: []interface{}{"input arg must be a string"},
+	//	                Content: []any{"input arg must be a string"},
 	//	                IsError: true,
 	//	            }, nil
 	//	        }
 	//	        // Perform operation
 	//	        result := processInput(input)
 	//	        return &CallToolResult{
-	//	            Content: []interface{}{result},
+	//	            Content: []any{result},
 	//	            IsError: false,
 	//	        }, nil
 	//	    default:
 	//	        return nil, fmt.Errorf("unknown tool: %s", toolName)
 	//	    }
 	//	}
-	ExecuteTool(ctx context.Context, toolName string, args map[string]interface{}) (*CallToolResult, error)
+	ExecuteTool(ctx context.Context, toolName string, args map[string]any) (*CallToolResult, error)
 }
 
 // ToolUpdateSubscriber interface defines the contract for components that want to
@@ -322,7 +328,7 @@ type SchemaProperty struct {
 
 	// Default specifies the default value used when the property is not provided.
 	// Must be compatible with the specified Type.
-	Default interface{} `yaml:"default,omitempty" json:"default,omitempty"`
+	Default any `yaml:"default,omitempty" json:"default,omitempty"`
 }
 
 // WorkflowExecutionStatus represents the status of a workflow execution
@@ -365,10 +371,10 @@ type WorkflowExecution struct {
 	DurationMs int64 `json:"duration_ms"`
 
 	// Input contains the original arguments passed to the workflow
-	Input map[string]interface{} `json:"input"`
+	Input map[string]any `json:"input"`
 
 	// Result contains the final result of the workflow execution (nil if failed or in progress)
-	Result interface{} `json:"result,omitempty"`
+	Result any `json:"result,omitempty"`
 
 	// Error contains error information if the execution failed (nil if successful)
 	Error *string `json:"error,omitempty"`
@@ -410,10 +416,10 @@ type WorkflowExecutionStep struct {
 	DurationMs int64 `json:"duration_ms"`
 
 	// Input contains the resolved arguments passed to the tool for this step
-	Input map[string]interface{} `json:"input"`
+	Input map[string]any `json:"input"`
 
 	// Result contains the result returned by the tool execution (nil if failed or in progress)
-	Result interface{} `json:"result,omitempty"`
+	Result any `json:"result,omitempty"`
 
 	// Error contains error information if the step failed (nil if successful)
 	Error *string `json:"error,omitempty"`

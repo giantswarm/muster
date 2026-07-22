@@ -32,7 +32,7 @@ func (m *mockMetaToolsHandler) ListTools(ctx context.Context) ([]mcp.Tool, error
 	return m.tools, nil
 }
 
-func (m *mockMetaToolsHandler) CallTool(ctx context.Context, name string, args map[string]interface{}) (*mcp.CallToolResult, error) {
+func (m *mockMetaToolsHandler) CallTool(ctx context.Context, name string, args map[string]any) (*mcp.CallToolResult, error) {
 	if m.callToolError != nil {
 		return nil, m.callToolError
 	}
@@ -130,7 +130,7 @@ func TestProvider_HandleDescribeTool(t *testing.T) {
 	defer cleanup()
 
 	t.Run("describes existing tool", func(t *testing.T) {
-		result, err := provider.ExecuteTool(ctx, "describe_tool", map[string]interface{}{
+		result, err := provider.ExecuteTool(ctx, "describe_tool", map[string]any{
 			"name": "test_tool",
 		})
 		require.NoError(t, err)
@@ -138,7 +138,7 @@ func TestProvider_HandleDescribeTool(t *testing.T) {
 		assert.False(t, result.IsError)
 
 		content := result.Content[0].(string)
-		var parsed map[string]interface{}
+		var parsed map[string]any
 		err = json.Unmarshal([]byte(content), &parsed)
 		require.NoError(t, err)
 		assert.Equal(t, "test_tool", parsed["name"])
@@ -153,7 +153,7 @@ func TestProvider_HandleDescribeTool(t *testing.T) {
 	})
 
 	t.Run("error for non-existent tool", func(t *testing.T) {
-		result, err := provider.ExecuteTool(ctx, "describe_tool", map[string]interface{}{
+		result, err := provider.ExecuteTool(ctx, "describe_tool", map[string]any{
 			"name": "nonexistent",
 		})
 		require.NoError(t, err)
@@ -183,7 +183,7 @@ func TestProvider_HandleListCoreTools(t *testing.T) {
 	assert.False(t, result.IsError)
 
 	content := result.Content[0].(string)
-	var parsed map[string]interface{}
+	var parsed map[string]any
 	err = json.Unmarshal([]byte(content), &parsed)
 	require.NoError(t, err)
 
@@ -191,7 +191,7 @@ func TestProvider_HandleListCoreTools(t *testing.T) {
 	assert.Equal(t, float64(3), parsed["total_tools"])
 	assert.Equal(t, float64(2), parsed["filtered_count"])
 
-	tools := parsed["tools"].([]interface{})
+	tools := parsed["tools"].([]any)
 	assert.Len(t, tools, 2)
 }
 
@@ -210,7 +210,7 @@ func TestProvider_HandleFilterTools(t *testing.T) {
 	defer cleanup()
 
 	t.Run("filter by pattern", func(t *testing.T) {
-		result, err := provider.ExecuteTool(ctx, "filter_tools", map[string]interface{}{
+		result, err := provider.ExecuteTool(ctx, "filter_tools", map[string]any{
 			"pattern": "x_*",
 		})
 		require.NoError(t, err)
@@ -218,7 +218,7 @@ func TestProvider_HandleFilterTools(t *testing.T) {
 		assert.False(t, result.IsError)
 
 		content := result.Content[0].(string)
-		var parsed map[string]interface{}
+		var parsed map[string]any
 		err = json.Unmarshal([]byte(content), &parsed)
 		require.NoError(t, err)
 
@@ -226,7 +226,7 @@ func TestProvider_HandleFilterTools(t *testing.T) {
 	})
 
 	t.Run("filter by description", func(t *testing.T) {
-		result, err := provider.ExecuteTool(ctx, "filter_tools", map[string]interface{}{
+		result, err := provider.ExecuteTool(ctx, "filter_tools", map[string]any{
 			"description_filter": "workflow",
 		})
 		require.NoError(t, err)
@@ -234,7 +234,7 @@ func TestProvider_HandleFilterTools(t *testing.T) {
 		assert.False(t, result.IsError)
 
 		content := result.Content[0].(string)
-		var parsed map[string]interface{}
+		var parsed map[string]any
 		err = json.Unmarshal([]byte(content), &parsed)
 		require.NoError(t, err)
 
@@ -242,7 +242,7 @@ func TestProvider_HandleFilterTools(t *testing.T) {
 	})
 
 	t.Run("error for invalid pattern", func(t *testing.T) {
-		result, err := provider.ExecuteTool(ctx, "filter_tools", map[string]interface{}{
+		result, err := provider.ExecuteTool(ctx, "filter_tools", map[string]any{
 			"pattern": "[invalid",
 		})
 		require.NoError(t, err)
@@ -268,9 +268,9 @@ func TestProvider_HandleCallTool(t *testing.T) {
 	defer cleanup()
 
 	t.Run("calls tool successfully", func(t *testing.T) {
-		result, err := provider.ExecuteTool(ctx, "call_tool", map[string]interface{}{
+		result, err := provider.ExecuteTool(ctx, "call_tool", map[string]any{
 			"name":      "some_tool",
-			"arguments": map[string]interface{}{"arg1": "value1"},
+			"arguments": map[string]any{"arg1": "value1"},
 		})
 		require.NoError(t, err)
 		require.NotNil(t, result)
@@ -279,8 +279,8 @@ func TestProvider_HandleCallTool(t *testing.T) {
 		// The result should be JSON preserving CallToolResult structure
 		content := result.Content[0].(string)
 		var parsed struct {
-			IsError bool          `json:"isError"`
-			Content []interface{} `json:"content"`
+			IsError bool  `json:"isError"`
+			Content []any `json:"content"`
 		}
 		err = json.Unmarshal([]byte(content), &parsed)
 		require.NoError(t, err)
@@ -297,7 +297,7 @@ func TestProvider_HandleCallTool(t *testing.T) {
 		}
 		defer func() { mock.callToolResult = previous }()
 
-		result, err := provider.ExecuteTool(ctx, "call_tool", map[string]interface{}{
+		result, err := provider.ExecuteTool(ctx, "call_tool", map[string]any{
 			"name": "some_tool",
 		})
 		require.NoError(t, err)
@@ -306,8 +306,8 @@ func TestProvider_HandleCallTool(t *testing.T) {
 
 		content := result.Content[0].(string)
 		var parsed struct {
-			IsError bool          `json:"isError"`
-			Content []interface{} `json:"content"`
+			IsError bool  `json:"isError"`
+			Content []any `json:"content"`
 		}
 		err = json.Unmarshal([]byte(content), &parsed)
 		require.NoError(t, err)
@@ -323,7 +323,7 @@ func TestProvider_HandleCallTool(t *testing.T) {
 	})
 
 	t.Run("error for invalid arguments type", func(t *testing.T) {
-		result, err := provider.ExecuteTool(ctx, "call_tool", map[string]interface{}{
+		result, err := provider.ExecuteTool(ctx, "call_tool", map[string]any{
 			"name":      "some_tool",
 			"arguments": "not-an-object",
 		})
@@ -331,6 +331,48 @@ func TestProvider_HandleCallTool(t *testing.T) {
 		require.NotNil(t, result)
 		assert.True(t, result.IsError)
 		assert.Contains(t, result.Content[0].(string), "arguments must be a JSON object")
+	})
+
+	t.Run("propagates structured content natively and in the envelope", func(t *testing.T) {
+		previous := mock.callToolResult
+		mock.callToolResult = &mcp.CallToolResult{
+			Content: []mcp.Content{
+				mcp.TextContent{Type: "text", Text: "Authentication Required"},
+			},
+			StructuredContent: map[string]any{
+				"status":   "auth_required",
+				"auth_url": "https://idp.example.com/authorize",
+			},
+		}
+		defer func() { mock.callToolResult = previous }()
+
+		result, err := provider.ExecuteTool(ctx, "call_tool", map[string]any{
+			"name": "core_auth_login",
+		})
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		require.False(t, result.IsError)
+
+		require.Equal(t, mock.callToolResult.StructuredContent, result.StructuredContent)
+
+		content := result.Content[0].(string)
+		var parsed struct {
+			IsError           bool           `json:"isError"`
+			Content           []any          `json:"content"`
+			StructuredContent map[string]any `json:"structuredContent"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(content), &parsed))
+		assert.Equal(t, "auth_required", parsed.StructuredContent["status"])
+		assert.Equal(t, "https://idp.example.com/authorize", parsed.StructuredContent["auth_url"])
+	})
+
+	t.Run("envelope omits structuredContent when unset", func(t *testing.T) {
+		result, err := provider.ExecuteTool(ctx, "call_tool", map[string]any{
+			"name": "some_tool",
+		})
+		require.NoError(t, err)
+		require.Nil(t, result.StructuredContent)
+		assert.NotContains(t, result.Content[0].(string), "structuredContent")
 	})
 }
 
@@ -372,7 +414,7 @@ func TestProvider_HandleDescribeResource(t *testing.T) {
 	defer cleanup()
 
 	t.Run("describes existing resource", func(t *testing.T) {
-		result, err := provider.ExecuteTool(ctx, "describe_resource", map[string]interface{}{
+		result, err := provider.ExecuteTool(ctx, "describe_resource", map[string]any{
 			"uri": "file://test.txt",
 		})
 		require.NoError(t, err)
@@ -408,7 +450,7 @@ func TestProvider_HandleGetResource(t *testing.T) {
 		cleanup := registerMockHandler(mock)
 		defer cleanup()
 
-		result, err := provider.ExecuteTool(ctx, "get_resource", map[string]interface{}{
+		result, err := provider.ExecuteTool(ctx, "get_resource", map[string]any{
 			"uri": "file://test.txt",
 		})
 		require.NoError(t, err)
@@ -432,7 +474,7 @@ func TestProvider_HandleGetResource(t *testing.T) {
 		cleanup := registerMockHandler(mock)
 		defer cleanup()
 
-		result, err := provider.ExecuteTool(ctx, "get_resource", map[string]interface{}{
+		result, err := provider.ExecuteTool(ctx, "get_resource", map[string]any{
 			"uri": "file://binary.dat",
 		})
 		require.NoError(t, err)
@@ -491,7 +533,7 @@ func TestProvider_HandleDescribePrompt(t *testing.T) {
 	defer cleanup()
 
 	t.Run("describes existing prompt", func(t *testing.T) {
-		result, err := provider.ExecuteTool(ctx, "describe_prompt", map[string]interface{}{
+		result, err := provider.ExecuteTool(ctx, "describe_prompt", map[string]any{
 			"name": "test_prompt",
 		})
 		require.NoError(t, err)
@@ -526,7 +568,7 @@ func TestProvider_HandleGetPrompt(t *testing.T) {
 	defer cleanup()
 
 	t.Run("gets prompt successfully", func(t *testing.T) {
-		result, err := provider.ExecuteTool(ctx, "get_prompt", map[string]interface{}{
+		result, err := provider.ExecuteTool(ctx, "get_prompt", map[string]any{
 			"name": "test_prompt",
 		})
 		require.NoError(t, err)
