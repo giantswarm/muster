@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 
 	"github.com/giantswarm/muster/internal/api"
@@ -83,9 +84,9 @@ func (a *AggregatorServer) createMetaToolsFromProvider(provider api.ToolProvider
 func (a *AggregatorServer) createMetaToolHandler(provider api.ToolProvider, toolName string) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		// Extract arguments from MCP request format
-		args := make(map[string]interface{})
+		args := make(map[string]any)
 		if req.Params.Arguments != nil {
-			if argsMap, ok := req.Params.Arguments.(map[string]interface{}); ok {
+			if argsMap, ok := req.Params.Arguments.(map[string]any); ok {
 				args = argsMap
 			}
 		}
@@ -124,19 +125,17 @@ func (a *AggregatorServer) createMetaToolHandler(provider api.ToolProvider, tool
 //
 // Returns an MCP-compatible input schema with proper type information and validation rules.
 func convertToMCPSchema(params []api.ArgMetadata) mcp.ToolInputSchema {
-	properties := make(map[string]interface{})
+	properties := make(map[string]any)
 	required := []string{}
 
 	for _, param := range params {
-		var propSchema map[string]interface{}
+		var propSchema map[string]any
 
 		// Use detailed schema if available, otherwise fall back to basic type
 		if len(param.Schema) > 0 {
 			// Use the detailed schema definition
-			propSchema = make(map[string]interface{})
-			for key, value := range param.Schema {
-				propSchema[key] = value
-			}
+			propSchema = make(map[string]any)
+			maps.Copy(propSchema, param.Schema)
 
 			// Ensure description is included (override schema description if needed)
 			if param.Description != "" {
@@ -144,7 +143,7 @@ func convertToMCPSchema(params []api.ArgMetadata) mcp.ToolInputSchema {
 			}
 		} else {
 			// Fall back to basic type-based schema
-			propSchema = map[string]interface{}{
+			propSchema = map[string]any{
 				"type":        param.Type,
 				"description": param.Description,
 			}
@@ -184,8 +183,8 @@ func mapWorkflowToolName(name string) string {
 	const workflowActionPrefix = "action_"
 	const workflowExecPrefix = "workflow_"
 
-	if strings.HasPrefix(name, workflowActionPrefix) {
-		return workflowExecPrefix + strings.TrimPrefix(name, workflowActionPrefix)
+	if workflowName, ok := strings.CutPrefix(name, workflowActionPrefix); ok {
+		return workflowExecPrefix + workflowName
 	}
 	return corePrefix + name
 }
@@ -218,7 +217,7 @@ func (a *AggregatorServer) getAllCoreToolsAsMCPTools() []mcp.Tool {
 	const corePrefix = "core_"
 
 	// Helper to add tools from a provider, with optional name remapping.
-	addToolsFromProvider := func(handler interface{}, remap func(string) string) {
+	addToolsFromProvider := func(handler any, remap func(string) string) {
 		if handler == nil {
 			return
 		}
@@ -239,9 +238,7 @@ func (a *AggregatorServer) getAllCoreToolsAsMCPTools() []mcp.Tool {
 				// to callers that do not opt into label-faceted discovery.
 				if len(toolMeta.Labels) > 0 {
 					labels := make(map[string]string, len(toolMeta.Labels))
-					for k, v := range toolMeta.Labels {
-						labels[k] = v
-					}
+					maps.Copy(labels, toolMeta.Labels)
 					tool.Meta = &mcp.Meta{
 						AdditionalFields: map[string]any{api.MetaKeyLabels: labels},
 					}
@@ -258,7 +255,7 @@ func (a *AggregatorServer) getAllCoreToolsAsMCPTools() []mcp.Tool {
 	addToolsFromProvider(api.GetWorkflow(), mapWorkflowToolName)
 
 	// Other core providers use the default "core_" prefix only.
-	otherProviders := []interface{}{
+	otherProviders := []any{
 		api.GetServiceManager(),
 		api.GetConfigHandler(),
 		api.GetMCPServerManager(),
@@ -277,8 +274,8 @@ func (a *AggregatorServer) getAllCoreToolsAsMCPTools() []mcp.Tool {
 			Description: "Authenticate to an OAuth-protected MCP server",
 			InputSchema: mcp.ToolInputSchema{
 				Type: "object",
-				Properties: map[string]interface{}{
-					"server": map[string]interface{}{
+				Properties: map[string]any{
+					"server": map[string]any{
 						"type":        "string",
 						"description": "Name of the MCP server to authenticate to",
 					},
@@ -291,8 +288,8 @@ func (a *AggregatorServer) getAllCoreToolsAsMCPTools() []mcp.Tool {
 			Description: "Log out from an OAuth-protected MCP server",
 			InputSchema: mcp.ToolInputSchema{
 				Type: "object",
-				Properties: map[string]interface{}{
-					"server": map[string]interface{}{
+				Properties: map[string]any{
+					"server": map[string]any{
 						"type":        "string",
 						"description": "Name of the MCP server to log out from",
 					},
@@ -336,7 +333,8 @@ func convertToMCPResult(result *api.CallToolResult) *mcp.CallToolResult {
 	}
 
 	return &mcp.CallToolResult{
-		Content: mcpContent,
-		IsError: result.IsError,
+		Content:           mcpContent,
+		IsError:           result.IsError,
+		StructuredContent: result.StructuredContent,
 	}
 }

@@ -1,9 +1,13 @@
 package aggregator
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/giantswarm/muster/internal/api"
 )
 
 // TestMapWorkflowToolName verifies that the workflow provider's internal tool
@@ -46,4 +50,26 @@ func TestMapWorkflowToolName(t *testing.T) {
 			assert.Equal(t, tc.want, mapWorkflowToolName(tc.in))
 		})
 	}
+}
+
+// TestConvertToMCPResult_StructuredContent verifies that StructuredContent is
+// propagated to the MCP result alongside the text content, and stays absent
+// when the internal result does not set it.
+func TestConvertToMCPResult_StructuredContent(t *testing.T) {
+	payload := map[string]any{"status": "auth_required", "auth_url": "https://idp.example.com/authorize"}
+
+	result := convertToMCPResult(&api.CallToolResult{
+		Content:           []any{"some text"},
+		StructuredContent: payload,
+	})
+	assert.Equal(t, payload, result.StructuredContent)
+	assert.Len(t, result.Content, 1)
+
+	// The MCP wire format carries the payload under the structuredContent key.
+	wire, err := json.Marshal(result)
+	require.NoError(t, err)
+	assert.Contains(t, string(wire), `"structuredContent":{"auth_url":"https://idp.example.com/authorize","status":"auth_required"}`)
+
+	result = convertToMCPResult(&api.CallToolResult{Content: []any{"some text"}})
+	assert.Nil(t, result.StructuredContent)
 }
