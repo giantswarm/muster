@@ -20,13 +20,43 @@ const (
 
 // valkeyStateEntry is the JSON-serialized value stored for each state.
 type valkeyStateEntry struct {
-	SessionID    string    `json:"sid"`
-	UserID       string    `json:"uid"`
-	ServerName   string    `json:"srv"`
-	Nonce        string    `json:"n"`
-	CreatedAt    time.Time `json:"ca"`
-	Issuer       string    `json:"iss,omitempty"`
-	CodeVerifier string    `json:"cv,omitempty"`
+	SessionID        string    `json:"sid"`
+	UserID           string    `json:"uid"`
+	ServerName       string    `json:"srv"`
+	Nonce            string    `json:"n"`
+	CreatedAt        time.Time `json:"ca"`
+	Issuer           string    `json:"iss,omitempty"`
+	CodeVerifier     string    `json:"cv,omitempty"`
+	RedirectURI      string    `json:"ru,omitempty"`
+	AuthorizationURL string    `json:"aurl,omitempty"`
+}
+
+func (e *valkeyStateEntry) toState() *OAuthState {
+	return &OAuthState{
+		SessionID:        e.SessionID,
+		UserID:           e.UserID,
+		ServerName:       e.ServerName,
+		Nonce:            e.Nonce,
+		CreatedAt:        e.CreatedAt,
+		Issuer:           e.Issuer,
+		CodeVerifier:     e.CodeVerifier,
+		RedirectURI:      e.RedirectURI,
+		AuthorizationURL: e.AuthorizationURL,
+	}
+}
+
+func stateToEntry(s *OAuthState) *valkeyStateEntry {
+	return &valkeyStateEntry{
+		SessionID:        s.SessionID,
+		UserID:           s.UserID,
+		ServerName:       s.ServerName,
+		Nonce:            s.Nonce,
+		CreatedAt:        s.CreatedAt,
+		Issuer:           s.Issuer,
+		CodeVerifier:     s.CodeVerifier,
+		RedirectURI:      s.RedirectURI,
+		AuthorizationURL: s.AuthorizationURL,
+	}
 }
 
 // ValkeyStateStore stores OAuth state parameters in Valkey with automatic
@@ -65,7 +95,8 @@ func (s *ValkeyStateStore) stateKey(nonce string) string {
 	return s.keyPrefix + "oauth:state:" + nonce
 }
 
-func (s *ValkeyStateStore) GenerateState(sessionID, userID, serverName, issuer, codeVerifier string) (string, error) {
+func (s *ValkeyStateStore) GenerateState(sessionID, userID, serverName, issuer, codeVerifier string,
+	buildAuthorizationURL func(encodedState string) (string, error)) (string, error) {
 	nonceBytes := make([]byte, 32)
 	if _, err := rand.Read(nonceBytes); err != nil {
 		return "", err
@@ -89,17 +120,14 @@ func (s *ValkeyStateStore) GenerateState(sessionID, userID, serverName, issuer, 
 	}
 	encodedState := base64.URLEncoding.EncodeToString(stateJSON)
 
-	entry := &valkeyStateEntry{
-		SessionID:    sessionID,
-		UserID:       userID,
-		ServerName:   serverName,
-		Nonce:        nonce,
-		CreatedAt:    state.CreatedAt,
-		Issuer:       issuer,
-		CodeVerifier: codeVerifier,
+	if buildAuthorizationURL != nil {
+		state.AuthorizationURL, err = buildAuthorizationURL(encodedState)
+		if err != nil {
+			return "", err
+		}
 	}
 
-	entryData, err := json.Marshal(entry)
+	entryData, err := json.Marshal(stateToEntry(state))
 	if err != nil {
 		return "", err
 	}
@@ -177,15 +205,83 @@ func (s *ValkeyStateStore) ValidateState(encodedState string) *OAuthState {
 		return nil
 	}
 
-	return &OAuthState{
-		SessionID:    entry.SessionID,
-		UserID:       entry.UserID,
-		ServerName:   entry.ServerName,
-		Nonce:        entry.Nonce,
-		CreatedAt:    entry.CreatedAt,
-		Issuer:       entry.Issuer,
-		CodeVerifier: entry.CodeVerifier,
+	return entry.toState()
+}
+
+// Update applies mutate to a stored state without consuming it.
+// Returns the updated state, or nil if the state is invalid, expired, or
+// absent. The key's TTL is preserved.
+func (s *ValkeyStateStore) Update(encodedState string, mutate func(*OAuthState)) *OAuthState {
+	stateJSON, err := base64.URLEncoding.DecodeString(encodedState)
+	if err != nil {
+		logging.Warn("OAuth", "ValkeyStateStore: failed to decode state for update: %v", err)
+		return nil
 	}
+
+	var state OAuthState
+	if err := json.Unmarshal(stateJSON, &state); err != nil {
+		logging.Warn("OAuth", "ValkeyStateStore: failed to unmarshal state for update: %v", err)
+		return nil
+	}
+
+	ctx := context.Background()
+	key := s.stateKey(state.Nonce)
+
+	result := s.client.Do(ctx, s.client.B().Get().Key(key).Build())
+	if err := result.Error(); err != nil {
+		if valkey.IsValkeyNil(err) {
+			logging.Warn("OAuth", "ValkeyStateStore: state not found for update: nonce=%s", state.Nonce)
+		} else {
+			logging.Warn("OAuth", "ValkeyStateStore: GET for update failed: %v", err)
+		}
+		return nil
+	}
+
+	stored, err := result.ToString()
+	if err != nil {
+		return nil
+	}
+
+	plaintext, err := s.decryptValue(stored)
+	if err != nil {
+		logging.Warn("OAuth", "ValkeyStateStore: decryption failed on update: %v", err)
+		return nil
+	}
+
+	var entry valkeyStateEntry
+	if err := json.Unmarshal(plaintext, &entry); err != nil {
+		logging.Warn("OAuth", "ValkeyStateStore: failed to unmarshal stored state on update: %v", err)
+		return nil
+	}
+
+	updated := entry.toState()
+	mutate(updated)
+
+	entryData, err := json.Marshal(stateToEntry(updated))
+	if err != nil {
+		logging.Warn("OAuth", "ValkeyStateStore: failed to marshal updated state: %v", err)
+		return nil
+	}
+	value, err := s.encryptValue(entryData)
+	if err != nil {
+		logging.Warn("OAuth", "ValkeyStateStore: encryption failed on update: %v", err)
+		return nil
+	}
+
+	// XX: only overwrite a key that still exists. Without it, an update racing
+	// the callback's consuming GETDEL would recreate the key, and KEEPTTL on a
+	// fresh key means no expiry — a consumed state resurrected forever.
+	cmd := s.client.B().Set().Key(key).Value(value).Xx().Keepttl().Build()
+	if err := s.client.Do(ctx, cmd).Error(); err != nil {
+		if valkey.IsValkeyNil(err) {
+			logging.Warn("OAuth", "ValkeyStateStore: state consumed during update: nonce=%s", state.Nonce)
+		} else {
+			logging.Warn("OAuth", "ValkeyStateStore: SET on update failed: %v", err)
+		}
+		return nil
+	}
+
+	return updated
 }
 
 func (s *ValkeyStateStore) Delete(nonce string) {

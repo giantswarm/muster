@@ -1451,6 +1451,13 @@ func (a *AggregatorServer) createStandardMux(mcpHandler http.Handler) http.Handl
 				slog.String("path", callbackPath))
 		}
 
+		startPath := oauthHandler.GetStartPath()
+		if startPath != "" {
+			mux.HandleFunc(startPath, oauthHandler.GetStartHandler())
+			logging.InfoWithAttrs("Aggregator", "Mounted OAuth start handler",
+				slog.String("path", startPath))
+		}
+
 		// Mount the CIMD handler if self-hosting is enabled
 		if oauthHandler.ShouldServeCIMD() {
 			cimdPath := oauthHandler.GetCIMDPath()
@@ -2421,6 +2428,12 @@ func (a *AggregatorServer) tryConnectWithToken(ctx context.Context, serverName, 
 				slog.String("server", serverName))
 		}
 	}
+
+	// This connect runs from the OAuth browser callback, outside any MCP
+	// request from the client. Without a push the new backend stays invisible
+	// to sessions that already listed and cached their tools; the SSO connect
+	// path (auth_resource.go) does the same.
+	a.notifySubjectCapabilitiesChanged(api.GetSubjectFromContext(ctx), result)
 
 	return result.FormatAsMCPResult(), nil
 }

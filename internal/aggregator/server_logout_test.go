@@ -395,8 +395,10 @@ func (d *deleteCaptureMockHandler) DeleteTokensBySession(_ string) {}
 func (d *deleteCaptureMockHandler) CreateAuthChallenge(_ context.Context, _, _, _, _, _ string) (*api.AuthChallenge, error) {
 	return nil, nil
 }
-func (d *deleteCaptureMockHandler) GetHTTPHandler() http.Handler { return nil }
-func (d *deleteCaptureMockHandler) GetCallbackPath() string      { return "/oauth/proxy/callback" }
+func (d *deleteCaptureMockHandler) GetHTTPHandler() http.Handler      { return nil }
+func (d *deleteCaptureMockHandler) GetCallbackPath() string           { return "/oauth/proxy/callback" }
+func (d *deleteCaptureMockHandler) GetStartPath() string              { return "/oauth/proxy/start" }
+func (d *deleteCaptureMockHandler) GetStartHandler() http.HandlerFunc { return nil }
 func (d *deleteCaptureMockHandler) GetCIMDPath() string {
 	return "/.well-known/oauth-client.json"
 }
@@ -442,8 +444,10 @@ func (c *clearCaptureMockHandler) DeleteTokensBySession(_ string) {}
 func (c *clearCaptureMockHandler) CreateAuthChallenge(_ context.Context, _, _, _, _, _ string) (*api.AuthChallenge, error) {
 	return nil, nil
 }
-func (c *clearCaptureMockHandler) GetHTTPHandler() http.Handler { return nil }
-func (c *clearCaptureMockHandler) GetCallbackPath() string      { return "/oauth/proxy/callback" }
+func (c *clearCaptureMockHandler) GetHTTPHandler() http.Handler      { return nil }
+func (c *clearCaptureMockHandler) GetCallbackPath() string           { return "/oauth/proxy/callback" }
+func (c *clearCaptureMockHandler) GetStartPath() string              { return "/oauth/proxy/start" }
+func (c *clearCaptureMockHandler) GetStartHandler() http.HandlerFunc { return nil }
 func (c *clearCaptureMockHandler) GetCIMDPath() string {
 	return "/.well-known/oauth-client.json"
 }

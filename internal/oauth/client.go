@@ -3,8 +3,10 @@ package oauth
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 
+	"github.com/giantswarm/muster/internal/config"
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
 	"github.com/giantswarm/muster/pkg/logging"
@@ -124,27 +126,37 @@ func (c *Client) GenerateAuthURL(ctx context.Context, sessionID, userID, serverN
 		return "", fmt.Errorf("failed to generate PKCE: %w", err)
 	}
 
-	state, err := c.stateStore.GenerateState(sessionID, userID, serverName, issuer, pkce.CodeVerifier)
+	// The upstream authorization URL is stored with the state in a single
+	// write; the user-facing URL is the muster-hosted start endpoint, which
+	// redirects the browser there. The extra hop lets the initiating
+	// front-end attach an allowlisted post-login redirect target to the flow
+	// (the "redirect" query parameter on the start URL).
+	state, err := c.stateStore.GenerateState(sessionID, userID, serverName, issuer, pkce.CodeVerifier,
+		func(encodedState string) (string, error) {
+			return c.oauthClient.BuildAuthorizationURL(
+				metadata.AuthorizationEndpoint,
+				c.clientID,
+				c.GetRedirectURI(),
+				encodedState,
+				scope,
+				pkce,
+			)
+		})
 	if err != nil {
 		return "", fmt.Errorf("failed to generate state: %w", err)
-	}
-
-	authURL, err := c.oauthClient.BuildAuthorizationURL(
-		metadata.AuthorizationEndpoint,
-		c.clientID,
-		c.GetRedirectURI(),
-		state,
-		scope,
-		pkce,
-	)
-	if err != nil {
-		return "", fmt.Errorf("failed to build authorization URL: %w", err)
 	}
 
 	logging.Debug("OAuth", "Generated auth URL for session=%s server=%s issuer=%s",
 		logging.TruncateIdentifier(sessionID), serverName, issuer)
 
-	return authURL, nil
+	return c.GetStartURL(state), nil
+}
+
+// GetStartURL returns the muster-hosted start URL for an encoded state. The
+// browser is redirected from there to the upstream authorization server.
+func (c *Client) GetStartURL(encodedState string) string {
+	return strings.TrimSuffix(c.publicURL, "/") + config.DefaultOAuthProxyStartPath +
+		"?state=" + url.QueryEscape(encodedState)
 }
 
 // ExchangeCode exchanges an authorization code for tokens.

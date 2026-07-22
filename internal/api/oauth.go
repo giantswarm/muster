@@ -81,6 +81,13 @@ type OAuthHandler interface {
 	// GetCallbackPath returns the configured callback path (e.g., "/oauth/proxy/callback").
 	GetCallbackPath() string
 
+	// GetStartPath returns the path of the OAuth proxy start endpoint
+	// (e.g., "/oauth/proxy/start"), which auth challenges point the browser at.
+	GetStartPath() string
+
+	// GetStartHandler returns the HTTP handler for the OAuth proxy start endpoint.
+	GetStartHandler() http.HandlerFunc
+
 	// GetCIMDPath returns the path for serving the CIMD (e.g., "/.well-known/oauth-client.json").
 	GetCIMDPath() string
 

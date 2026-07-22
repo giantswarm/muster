@@ -49,6 +49,8 @@ func (m *stubOAuthHandler) RegisterServer(_, _, _ string)                       
 func (m *stubOAuthHandler) SetAuthCompletionCallback(_ api.AuthCompletionCallback) {}
 func (m *stubOAuthHandler) GetHTTPHandler() http.Handler                           { return nil }
 func (m *stubOAuthHandler) GetCallbackPath() string                                { return "" }
+func (m *stubOAuthHandler) GetStartPath() string                                   { return "" }
+func (m *stubOAuthHandler) GetStartHandler() http.HandlerFunc                      { return nil }
 func (m *stubOAuthHandler) GetCIMDPath() string                                    { return "" }
 func (m *stubOAuthHandler) ShouldServeCIMD() bool                                  { return false }
 func (m *stubOAuthHandler) GetCIMDHandler() http.HandlerFunc                       { return nil }

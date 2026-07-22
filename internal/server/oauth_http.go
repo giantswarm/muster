@@ -259,6 +259,13 @@ func (s *OAuthHTTPServer) setupOAuthProxyRoutes(mux *http.ServeMux) {
 		logging.Info("OAuth", "Mounted OAuth proxy callback at %s", callbackPath)
 	}
 
+	// Mount the OAuth proxy start endpoint (browser entry point of the flow)
+	startPath := oauthProxyHandler.GetStartPath()
+	if startPath != "" {
+		mux.HandleFunc(startPath, oauthProxyHandler.GetStartHandler())
+		logging.Info("OAuth", "Mounted OAuth proxy start at %s", startPath)
+	}
+
 	// Mount the self-hosted CIMD if enabled
 	// This allows remote MCP servers to fetch muster's client metadata
 	if oauthProxyHandler.ShouldServeCIMD() {

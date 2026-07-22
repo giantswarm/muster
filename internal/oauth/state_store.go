@@ -14,13 +14,22 @@ import (
 // Implementations must be safe for concurrent use.
 type StateStorer interface {
 	// GenerateState creates a new OAuth state, stores it, and returns the
-	// base64-encoded state string to include in the authorization URL.
-	GenerateState(sessionID, userID, serverName, issuer, codeVerifier string) (encodedState string, err error)
+	// base64-encoded state string the start endpoint resolves. When
+	// buildAuthorizationURL is non-nil it is called with the encoded state
+	// and its result is stored as the flow's upstream authorization URL, so
+	// state and URL land in a single write; an error aborts without storing.
+	GenerateState(sessionID, userID, serverName, issuer, codeVerifier string,
+		buildAuthorizationURL func(encodedState string) (string, error)) (encodedState string, err error)
 
 	// ValidateState validates an encoded state from a callback. Returns the
 	// original state if valid; nil if invalid, expired, or already consumed.
 	// Valid states are consumed (single-use) to prevent replay attacks.
 	ValidateState(encodedState string) *OAuthState
+
+	// Update applies mutate to a stored state without consuming it and
+	// returns a copy of the updated state; nil if the state is invalid,
+	// expired, or absent. The TTL is unchanged.
+	Update(encodedState string, mutate func(*OAuthState)) *OAuthState
 
 	// Delete removes a state entry by nonce.
 	Delete(nonce string)
@@ -68,7 +77,8 @@ func NewStateStore() *StateStore {
 //   - serverName: The MCP server name requiring authentication
 //   - issuer: The OAuth issuer URL
 //   - codeVerifier: The PKCE code verifier for this flow
-func (ss *StateStore) GenerateState(sessionID, userID, serverName, issuer, codeVerifier string) (encodedState string, err error) {
+func (ss *StateStore) GenerateState(sessionID, userID, serverName, issuer, codeVerifier string,
+	buildAuthorizationURL func(encodedState string) (string, error)) (encodedState string, err error) {
 	nonceBytes := make([]byte, 32)
 	if _, err := rand.Read(nonceBytes); err != nil {
 		return "", err
@@ -91,6 +101,13 @@ func (ss *StateStore) GenerateState(sessionID, userID, serverName, issuer, codeV
 	}
 
 	encodedState = base64.URLEncoding.EncodeToString(stateJSON)
+
+	if buildAuthorizationURL != nil {
+		state.AuthorizationURL, err = buildAuthorizationURL(encodedState)
+		if err != nil {
+			return "", err
+		}
+	}
 
 	ss.mu.Lock()
 	ss.states[nonce] = state
@@ -137,6 +154,41 @@ func (ss *StateStore) ValidateState(encodedState string) *OAuthState {
 	ss.Delete(state.Nonce)
 
 	return storedState
+}
+
+// Update applies mutate to a stored state without consuming it.
+// Returns a copy of the updated state, or nil if the state is invalid,
+// expired, or absent.
+func (ss *StateStore) Update(encodedState string, mutate func(*OAuthState)) *OAuthState {
+	stateJSON, err := base64.URLEncoding.DecodeString(encodedState)
+	if err != nil {
+		logging.Warn("OAuth", "Failed to decode state for update: %v", err)
+		return nil
+	}
+
+	var state OAuthState
+	if err := json.Unmarshal(stateJSON, &state); err != nil {
+		logging.Warn("OAuth", "Failed to unmarshal state for update: %v", err)
+		return nil
+	}
+
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+
+	storedState, exists := ss.states[state.Nonce]
+	if !exists {
+		logging.Warn("OAuth", "State not found for update: nonce=%s", state.Nonce)
+		return nil
+	}
+	if time.Since(storedState.CreatedAt) > ss.stateExpiry {
+		logging.Warn("OAuth", "State expired on update: nonce=%s", state.Nonce)
+		delete(ss.states, state.Nonce)
+		return nil
+	}
+
+	mutate(storedState)
+	updated := *storedState
+	return &updated
 }
 
 // Delete removes a state from the store.

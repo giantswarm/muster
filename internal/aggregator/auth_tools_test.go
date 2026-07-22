@@ -64,6 +64,14 @@ func (m *issuerMockOAuthHandler) GetCallbackPath() string {
 	return "/oauth/proxy/callback"
 }
 
+func (m *issuerMockOAuthHandler) GetStartPath() string {
+	return "/oauth/proxy/start"
+}
+
+func (m *issuerMockOAuthHandler) GetStartHandler() http.HandlerFunc {
+	return nil
+}
+
 func (m *issuerMockOAuthHandler) GetCIMDPath() string {
 	return "/.well-known/oauth-client.json"
 }

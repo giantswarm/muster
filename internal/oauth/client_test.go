@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -260,32 +261,51 @@ func TestClient_GenerateAuthURL(t *testing.T) {
 		t.Fatalf("Failed to generate auth URL: %v", err)
 	}
 
-	// Verify URL contains expected parameters
-	if authURL == "" {
-		t.Error("Expected non-empty auth URL")
+	// The user-facing URL is the muster-hosted start endpoint carrying the state.
+	if !strings.HasPrefix(authURL, "https://muster.example.com/oauth/proxy/start?state=") {
+		t.Fatalf("Expected start URL, got %q", authURL)
+	}
+
+	parsed, err := url.Parse(authURL)
+	if err != nil {
+		t.Fatalf("Failed to parse start URL: %v", err)
+	}
+	encodedState := parsed.Query().Get("state")
+	if encodedState == "" {
+		t.Fatal("Start URL should carry the state")
+	}
+
+	// The upstream authorization URL is stored with the state.
+	state := client.stateStore.Update(encodedState, func(*OAuthState) {})
+	if state == nil {
+		t.Fatal("State should be stored")
+	}
+	upstream := state.AuthorizationURL
+	if !strings.HasPrefix(upstream, metadata.AuthorizationEndpoint) {
+		t.Errorf("Upstream URL should target the authorization endpoint, got %q", upstream)
 	}
 
 	// Check for PKCE parameters
-	if !strings.Contains(authURL, "code_challenge=") {
-		t.Error("Auth URL should contain code_challenge")
+	if !strings.Contains(upstream, "code_challenge=") {
+		t.Error("Upstream URL should contain code_challenge")
 	}
-	if !strings.Contains(authURL, "code_challenge_method=S256") {
-		t.Error("Auth URL should contain code_challenge_method=S256")
+	if !strings.Contains(upstream, "code_challenge_method=S256") {
+		t.Error("Upstream URL should contain code_challenge_method=S256")
 	}
-	if !strings.Contains(authURL, "response_type=code") {
-		t.Error("Auth URL should contain response_type=code")
+	if !strings.Contains(upstream, "response_type=code") {
+		t.Error("Upstream URL should contain response_type=code")
 	}
-	if !strings.Contains(authURL, "client_id=") {
-		t.Error("Auth URL should contain client_id")
+	if !strings.Contains(upstream, "client_id=") {
+		t.Error("Upstream URL should contain client_id")
 	}
-	if !strings.Contains(authURL, "redirect_uri=") {
-		t.Error("Auth URL should contain redirect_uri")
+	if !strings.Contains(upstream, "redirect_uri=") {
+		t.Error("Upstream URL should contain redirect_uri")
 	}
-	if !strings.Contains(authURL, "state=") {
-		t.Error("Auth URL should contain state")
+	if !strings.Contains(upstream, "state=") {
+		t.Error("Upstream URL should contain state")
 	}
-	if !strings.Contains(authURL, "scope=") {
-		t.Error("Auth URL should contain scope")
+	if !strings.Contains(upstream, "scope=") {
+		t.Error("Upstream URL should contain scope")
 	}
 }
 
