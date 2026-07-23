@@ -212,7 +212,7 @@ func InitializeServices(cfg *Config) (*Services, error) {
 			Yolo:         cfg.Yolo,
 			ConfigDir:    cfg.ConfigPath,
 			Debug:        cfg.Debug,
-			OAuth: mergedOAuthMCPClientConfig,
+			OAuth:        mergedOAuthMCPClientConfig,
 			OAuthServer: aggregator.OAuthServerConfig{
 				// serve command flag overrides config file if enabled
 				Enabled: cfg.OAuthServerEnabled || cfg.MusterConfig.Aggregator.OAuth.Server.Enabled,
