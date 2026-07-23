@@ -72,11 +72,12 @@ func NewAggregatorManager(config AggregatorConfig, orchestratorAPI api.Orchestra
 	// Initialize OAuth manager if enabled (OAuth MCP client/proxy for authenticating TO remote MCP servers)
 	if config.OAuth.Enabled {
 		oauthMCPClientConfig := configPkg.OAuthMCPClientConfig{
-			Enabled:      config.OAuth.Enabled,
-			PublicURL:    config.OAuth.PublicURL,
-			ClientID:     config.OAuth.ClientID,
-			CallbackPath: config.OAuth.CallbackPath,
-			ExtraCAFile:  config.OAuth.ExtraCAFile,
+			Enabled:                    config.OAuth.Enabled,
+			PublicURL:                  config.OAuth.PublicURL,
+			ClientID:                   config.OAuth.ClientID,
+			CallbackPath:               config.OAuth.CallbackPath,
+			PostLoginRedirectAllowlist: config.OAuth.PostLoginRedirectAllowlist,
+			ExtraCAFile:                config.OAuth.ExtraCAFile,
 		}
 
 		var oauthOpts []oauth.ManagerOption

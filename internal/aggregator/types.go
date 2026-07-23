@@ -309,6 +309,10 @@ type OAuthProxyConfig struct {
 	// CallbackPath is the path for the OAuth callback endpoint.
 	CallbackPath string
 
+	// PostLoginRedirectAllowlist holds the operator-configured URL prefixes
+	// the OAuth proxy start endpoint accepts as post-login redirect targets.
+	PostLoginRedirectAllowlist []string
+
 	// ExtraCAFile mirrors the process-level --extra-ca-file flag for the
 	// OAuth/token-exchange layer's internal-deployment heuristic.
 	ExtraCAFile string
