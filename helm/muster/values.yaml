@@ -295,6 +295,18 @@ muster:
         # scopes: "openid profile email offline_access https://mail.google.com/ https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/drive"
         scopes: ""
 
+      # Optional allowlist for the "redirect" query parameter on the OAuth proxy
+      # start endpoint. Each entry is an absolute http(s) URL prefix; a caller
+      # redirect target is accepted only when its scheme and host match an entry
+      # exactly and its path extends the entry's path. On a successful callback
+      # the browser is redirected there (with the connected server name appended
+      # as a "server" query parameter) instead of the static success page.
+      # Empty (default) rejects all redirect requests.
+      # Example:
+      # postLoginRedirectAllowlist:
+      #   - "https://gateway.example.com/connectors/complete"
+      postLoginRedirectAllowlist: []
+
     # Server configuration for protecting the Muster Server itself (ADR 005)
     # When enabled, the Muster Server acts as an OAuth Resource Server, requiring
     # valid access tokens from clients (e.g., Muster Agent) to access protected endpoints.

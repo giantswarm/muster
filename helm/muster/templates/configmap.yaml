@@ -24,6 +24,10 @@ data:
             {{- if .Values.muster.oauth.mcpClient.cimd.scopes }}
             scopes: {{ .Values.muster.oauth.mcpClient.cimd.scopes | quote }}
             {{- end }}
+          {{- with .Values.muster.oauth.mcpClient.postLoginRedirectAllowlist }}
+          postLoginRedirectAllowlist:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
         {{- end }}
         {{- if .Values.muster.oauth.server.enabled }}
         {{- $secretsPath := "/etc/muster/secrets" }}
