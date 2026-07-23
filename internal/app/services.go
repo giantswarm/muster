@@ -187,29 +187,20 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	// Need to get the service registry handler from the registry adapter
 	registryHandler := api.GetServiceRegistry()
 	if registryHandler != nil {
-		// Merge OAuth MCP client/proxy config: serve command flags override config file, but use config file as fallback
-		oauthMCPClientEnabled := cfg.OAuthMCPClientEnabled || cfg.MusterConfig.Aggregator.OAuth.MCPClient.Enabled
-		oauthPublicURL := cfg.OAuthMCPClientPublicURL
-		if oauthPublicURL == "" {
-			oauthPublicURL = cfg.MusterConfig.Aggregator.OAuth.MCPClient.PublicURL
+		// Merge OAuth MCP client/proxy config: serve command flags override config
+		// file, but use config file as fallback. Start from the parsed config
+		// value so fields without a flag override flow through untouched; a
+		// field-by-field rebuild here silently dropped fields more than once.
+		mergedOAuthMCPClientConfig := cfg.MusterConfig.Aggregator.OAuth.MCPClient
+		mergedOAuthMCPClientConfig.Enabled = cfg.OAuthMCPClientEnabled || mergedOAuthMCPClientConfig.Enabled
+		if cfg.OAuthMCPClientPublicURL != "" {
+			mergedOAuthMCPClientConfig.PublicURL = cfg.OAuthMCPClientPublicURL
 		}
-
-		// Build a merged OAuthMCPClientConfig for GetEffectiveClientID()
-		mergedOAuthMCPClientConfig := config.OAuthMCPClientConfig{
-			Enabled:                    oauthMCPClientEnabled,
-			PublicURL:                  oauthPublicURL,
-			ClientID:                   cfg.OAuthMCPClientID, // serve command flag value (empty if not specified)
-			CallbackPath:               cfg.MusterConfig.Aggregator.OAuth.MCPClient.CallbackPath,
-			CIMD:                       cfg.MusterConfig.Aggregator.OAuth.MCPClient.CIMD,
-			PostLoginRedirectAllowlist: cfg.MusterConfig.Aggregator.OAuth.MCPClient.PostLoginRedirectAllowlist,
-			ExtraCAFile:                cfg.ExtraCAFile, // forwards --extra-ca-file for the token-exchange internal-deployment heuristic
+		if cfg.OAuthMCPClientID != "" {
+			mergedOAuthMCPClientConfig.ClientID = cfg.OAuthMCPClientID
 		}
-		// If serve command flag didn't set ClientID, check config file
-		if mergedOAuthMCPClientConfig.ClientID == "" {
-			mergedOAuthMCPClientConfig.ClientID = cfg.MusterConfig.Aggregator.OAuth.MCPClient.ClientID
-		}
-		// Use GetEffectiveClientID() to auto-derive from PublicURL if still empty
-		effectiveClientID := mergedOAuthMCPClientConfig.GetEffectiveClientID()
+		// Forwards --extra-ca-file for the token-exchange internal-deployment heuristic
+		mergedOAuthMCPClientConfig.ExtraCAFile = cfg.ExtraCAFile
 
 		// Convert config types
 		aggConfig := aggregator.AggregatorConfig{
@@ -221,14 +212,7 @@ func InitializeServices(cfg *Config) (*Services, error) {
 			Yolo:         cfg.Yolo,
 			ConfigDir:    cfg.ConfigPath,
 			Debug:        cfg.Debug,
-			OAuth: aggregator.OAuthProxyConfig{
-				Enabled:                    oauthMCPClientEnabled,
-				PublicURL:                  oauthPublicURL,
-				ClientID:                   effectiveClientID,
-				CallbackPath:               mergedOAuthMCPClientConfig.CallbackPath,
-				PostLoginRedirectAllowlist: mergedOAuthMCPClientConfig.PostLoginRedirectAllowlist,
-				ExtraCAFile:                mergedOAuthMCPClientConfig.ExtraCAFile,
-			},
+			OAuth:        mergedOAuthMCPClientConfig,
 			OAuthServer: aggregator.OAuthServerConfig{
 				// serve command flag overrides config file if enabled
 				Enabled: cfg.OAuthServerEnabled || cfg.MusterConfig.Aggregator.OAuth.Server.Enabled,

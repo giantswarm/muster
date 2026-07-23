@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/giantswarm/muster/internal/api"
+	configPkg "github.com/giantswarm/muster/internal/config"
 	"github.com/giantswarm/muster/internal/mcpserver"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -257,8 +258,11 @@ type AggregatorConfig struct {
 	// Defaults to "dev" if not specified.
 	Version string
 
-	// OAuth configuration for remote MCP server authentication (client role)
-	OAuth OAuthProxyConfig
+	// OAuth configuration for remote MCP server authentication (client role).
+	// This is the merged (config file + serve flags) MCP client config, passed
+	// through unconverted so no field can be lost on the way to the OAuth
+	// manager.
+	OAuth configPkg.OAuthMCPClientConfig
 
 	// OAuthServer configuration for protecting the Muster Server (resource server role)
 	OAuthServer OAuthServerConfig
@@ -292,30 +296,6 @@ type OAuthServerConfig struct {
 	// Config holds the full OAuth server configuration.
 	// This is populated from the config.OAuthServerConfig during initialization.
 	Config interface{}
-}
-
-// OAuthProxyConfig holds OAuth proxy configuration for the aggregator.
-type OAuthProxyConfig struct {
-	// Enabled controls whether OAuth proxy functionality is active.
-	Enabled bool
-
-	// PublicURL is the publicly accessible URL of the Muster Server.
-	// This is used to construct OAuth callback URLs.
-	PublicURL string
-
-	// ClientID is the OAuth client identifier (CIMD URL).
-	ClientID string
-
-	// CallbackPath is the path for the OAuth callback endpoint.
-	CallbackPath string
-
-	// PostLoginRedirectAllowlist holds the operator-configured URL prefixes
-	// the OAuth proxy start endpoint accepts as post-login redirect targets.
-	PostLoginRedirectAllowlist []string
-
-	// ExtraCAFile mirrors the process-level --extra-ca-file flag for the
-	// OAuth/token-exchange layer's internal-deployment heuristic.
-	ExtraCAFile string
 }
 
 // RegistrationEvent represents a server registration or deregistration event.
