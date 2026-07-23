@@ -196,12 +196,13 @@ func InitializeServices(cfg *Config) (*Services, error) {
 
 		// Build a merged OAuthMCPClientConfig for GetEffectiveClientID()
 		mergedOAuthMCPClientConfig := config.OAuthMCPClientConfig{
-			Enabled:      oauthMCPClientEnabled,
-			PublicURL:    oauthPublicURL,
-			ClientID:     cfg.OAuthMCPClientID, // serve command flag value (empty if not specified)
-			CallbackPath: cfg.MusterConfig.Aggregator.OAuth.MCPClient.CallbackPath,
-			CIMD:         cfg.MusterConfig.Aggregator.OAuth.MCPClient.CIMD,
-			ExtraCAFile:  cfg.ExtraCAFile, // forwards --extra-ca-file for the token-exchange internal-deployment heuristic
+			Enabled:                    oauthMCPClientEnabled,
+			PublicURL:                  oauthPublicURL,
+			ClientID:                   cfg.OAuthMCPClientID, // serve command flag value (empty if not specified)
+			CallbackPath:               cfg.MusterConfig.Aggregator.OAuth.MCPClient.CallbackPath,
+			CIMD:                       cfg.MusterConfig.Aggregator.OAuth.MCPClient.CIMD,
+			PostLoginRedirectAllowlist: cfg.MusterConfig.Aggregator.OAuth.MCPClient.PostLoginRedirectAllowlist,
+			ExtraCAFile:                cfg.ExtraCAFile, // forwards --extra-ca-file for the token-exchange internal-deployment heuristic
 		}
 		// If serve command flag didn't set ClientID, check config file
 		if mergedOAuthMCPClientConfig.ClientID == "" {
@@ -221,11 +222,12 @@ func InitializeServices(cfg *Config) (*Services, error) {
 			ConfigDir:    cfg.ConfigPath,
 			Debug:        cfg.Debug,
 			OAuth: aggregator.OAuthProxyConfig{
-				Enabled:      oauthMCPClientEnabled,
-				PublicURL:    oauthPublicURL,
-				ClientID:     effectiveClientID,
-				CallbackPath: mergedOAuthMCPClientConfig.CallbackPath,
-				ExtraCAFile:  mergedOAuthMCPClientConfig.ExtraCAFile,
+				Enabled:                    oauthMCPClientEnabled,
+				PublicURL:                  oauthPublicURL,
+				ClientID:                   effectiveClientID,
+				CallbackPath:               mergedOAuthMCPClientConfig.CallbackPath,
+				PostLoginRedirectAllowlist: mergedOAuthMCPClientConfig.PostLoginRedirectAllowlist,
+				ExtraCAFile:                mergedOAuthMCPClientConfig.ExtraCAFile,
 			},
 			OAuthServer: aggregator.OAuthServerConfig{
 				// serve command flag overrides config file if enabled
