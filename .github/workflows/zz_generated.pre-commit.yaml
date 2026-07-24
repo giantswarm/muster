@@ -2,7 +2,7 @@
 #
 #    devctl
 #
-#    https://github.com/giantswarm/devctl/blob/2da6815ca27b4f152a8f05403278e843da597cd4/pkg/gen/input/precommit/internal/file/pre-commit-action.yaml.template
+#    https://github.com/giantswarm/devctl/blob/0fd5aa1adbfdacdbd40b4fe49aca1cec0b364b7e/pkg/gen/input/precommit/internal/file/pre-commit-action.yaml.template
 #
 name: pre-commit
 
@@ -15,7 +15,7 @@ on:
       - master
 
 env:
-  HELM_VERSION: "3.21.2"
+  HELM_VERSION: "3.21.3"
   HELM_DOCS_VERSION: "1.14.2"
   HELM_VALUES_SCHEMA_JSON_VERSION: "2.5.0"
 
@@ -24,9 +24,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Check out code
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Python environment
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
       - name: Install helm-docs
         uses: giantswarm/install-binary-action@5bef88f65012037dd836117c8d344b21bb559854 # v4.1.0
         with:
@@ -47,12 +47,12 @@ jobs:
           helm plugin install https://github.com/losisin/helm-values-schema-json \
             --version $HELM_VALUES_SCHEMA_JSON_VERSION
       - name: Set up Go environment
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.26"
       - name: Install goimports
         run: |
-          go install golang.org/x/tools/cmd/goimports@v0.47.0
+          go install golang.org/x/tools/cmd/goimports@v0.48.0
       - name: Install golangci-lint
         uses: giantswarm/install-binary-action@5bef88f65012037dd836117c8d344b21bb559854 # v4.1.0
         with:
