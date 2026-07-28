@@ -65,7 +65,6 @@ Prometheus scraper opt in via:
 muster:
   observability:
     metrics:
-      exporter: prometheus           # or "otlp,prometheus" for dual-export
       prometheus:
         port: 9464
         serviceMonitor:
@@ -74,10 +73,17 @@ muster:
           labels: {}
 ```
 
-When `prometheus` is in `metrics.exporter`, the muster container
-exposes port 9464 with the OTel SDK's self-hosted `/metrics` handler.
-The Service forwards the port; a `ServiceMonitor` is rendered when
-`serviceMonitor.enabled` is true. Histogram exemplars are emitted in
+`serviceMonitor.enabled: true` is sufficient on its own: it implicitly
+appends `prometheus` to `metrics.exporter`, so the single toggle serves
+`/metrics` and renders the `ServiceMonitor`. Setting
+`metrics.exporter: prometheus` explicitly (or `"otlp,prometheus"` for
+dual-export) also works — e.g. to scrape the endpoint without a
+Prometheus Operator.
+
+When `prometheus` is in the effective exporter list, the muster
+container exposes port 9464 with the OTel SDK's self-hosted `/metrics`
+handler. The Service forwards the port; a `ServiceMonitor` is rendered
+when `serviceMonitor.enabled` is true. Histogram exemplars are emitted in
 the Prometheus exposition format (Prometheus 2.26+ / Mimir 2.6+
 ingest natively).
 

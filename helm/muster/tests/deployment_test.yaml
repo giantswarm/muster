@@ -274,6 +274,35 @@ tests:
             containerPort: 9464
             protocol: TCP
 
+  - it: serviceMonitor.enabled drops the "none" sentinel when implying prometheus
+    template: templates/deployment.yaml
+    set:
+      muster.observability.metrics.exporter: "none"
+      muster.observability.metrics.prometheus.serviceMonitor.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_METRICS_EXPORTER
+            value: "prometheus"
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: metrics
+            containerPort: 9464
+            protocol: TCP
+
+  - it: renders no OTEL_METRICS_EXPORTER when exporter is null
+    template: templates/deployment.yaml
+    set:
+      muster.observability.metrics.exporter: null
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_METRICS_EXPORTER
+          any: true
+
   - it: does NOT enable the Prometheus surface for substring-only matches (fakeprometheus)
     template: templates/deployment.yaml
     set:
