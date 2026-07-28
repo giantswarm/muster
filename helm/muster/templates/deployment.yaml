@@ -109,11 +109,11 @@ spec:
               value: {{ . | quote }}
             {{- end }}
             {{- end }}
-            {{- with .Values.muster.observability.metrics.exporter }}
+            {{- with (include "muster.effectiveMetricsExporter" .) }}
             - name: OTEL_METRICS_EXPORTER
               value: {{ . | quote }}
             {{- end }}
-            {{- if or .Values.muster.observability.otel.endpoint .Values.muster.observability.metrics.exporter }}
+            {{- if or .Values.muster.observability.otel.endpoint (include "muster.effectiveMetricsExporter" .) }}
             - name: OTEL_RESOURCE_ATTRIBUTES
               value: "k8s.namespace.name=$(K8S_NAMESPACE),k8s.pod.name=$(K8S_POD_NAME),k8s.node.name=$(K8S_NODE_NAME){{- with .Values.muster.observability.otel.resourceAttributes }},{{ . }}{{- end }}"
             {{- end }}

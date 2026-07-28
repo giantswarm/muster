@@ -634,7 +634,9 @@ muster:
         port: 9464
         # ServiceMonitor for Prometheus-Operator clusters. When
         # enabled, a ServiceMonitor selecting muster's Service on the
-        # prometheus port is rendered.
+        # prometheus port is rendered, and "prometheus" is implicitly
+        # appended to metrics.exporter above so the /metrics endpoint
+        # is served — no need to set the exporter separately.
         serviceMonitor:
           enabled: false
           # Scrape interval. Empty falls back to the Prometheus
