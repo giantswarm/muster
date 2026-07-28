@@ -83,8 +83,13 @@ ingest natively).
 
 ## Metrics
 
-The aggregator emits two OTel instruments under the scope
-`github.com/giantswarm/muster/internal/aggregator`:
+Every muster instrument is emitted under the single OTel scope
+`github.com/giantswarm/muster` (`observability.TracerName`), shared with
+the tracer so spans and metrics correlate. There is no per-package
+suffix; the Prometheus exporter surfaces it as the `otel_scope_name`
+label.
+
+The aggregator emits two instruments:
 
 | OTel name                    | Type                  | Attributes        | Prometheus export name              |
 |------------------------------|-----------------------|-------------------|-------------------------------------|
@@ -101,8 +106,7 @@ second recording site at `CallToolInternal`; not wired today.
 
 ### Workflow execution metrics
 
-The workflow execution tracker emits three OTel instruments under the
-scope `github.com/giantswarm/muster/internal/workflow`, recorded once
+The workflow execution tracker emits three instruments, recorded once
 per finished workflow run:
 
 | OTel name                              | Type                  | Attributes          | Prometheus export name                       |
