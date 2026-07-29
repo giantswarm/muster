@@ -70,15 +70,34 @@ Create the namespace for muster resource discovery
 {{- end }}
 
 {{/*
+Effective metric exporter list: muster.observability.metrics.exporter,
+normalized (whitespace-trimmed, empty elements dropped), with "prometheus"
+appended when prometheus.serviceMonitor.enabled is set — asking for a
+ServiceMonitor implies serving /metrics, so the "none" no-op sentinel is
+dropped in that case too.
+*/}}
+{{- define "muster.effectiveMetricsExporter" -}}
+{{- $exporters := list -}}
+{{- range (.Values.muster.observability.metrics.exporter | default "" | toString | splitList ",") -}}
+{{- with trim . -}}
+{{- $exporters = append $exporters . -}}
+{{- end -}}
+{{- end -}}
+{{- if .Values.muster.observability.metrics.prometheus.serviceMonitor.enabled -}}
+{{- $exporters = without $exporters "none" -}}
+{{- if not (has "prometheus" $exporters) -}}
+{{- $exporters = append $exporters "prometheus" -}}
+{{- end -}}
+{{- end -}}
+{{- join "," $exporters -}}
+{{- end }}
+
+{{/*
 Render "true" when "prometheus" is an exact comma-separated element of
-muster.observability.metrics.exporter, trimming whitespace per element.
-Distinguishes "prometheus" / "otlp,prometheus" / "otlp, prometheus"
-(enabled) from "fakeprometheus" / "prometheus_dev" (not enabled).
+the effective exporter list. Distinguishes "prometheus" /
+"otlp,prometheus" / "otlp, prometheus" (enabled) from "fakeprometheus" /
+"prometheus_dev" (not enabled).
 */}}
 {{- define "muster.prometheusExporterEnabled" -}}
-{{- $exporters := list -}}
-{{- range (.Values.muster.observability.metrics.exporter | toString | splitList ",") -}}
-{{- $exporters = append $exporters (trim .) -}}
-{{- end -}}
-{{- if has "prometheus" $exporters -}}true{{- end -}}
+{{- if has "prometheus" (splitList "," (include "muster.effectiveMetricsExporter" .)) -}}true{{- end -}}
 {{- end }}
