@@ -61,6 +61,60 @@ tests:
       - hasDocuments:
           count: 0
 
+  - it: cilium ingress allows only the aggregator port by default
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.flavor: cilium
+    template: templates/ciliumnetworkpolicy.yaml
+    asserts:
+      - equal:
+          path: spec.ingress[0].toPorts[0].ports
+          value:
+            - port: "8090"
+              protocol: TCP
+
+  - it: cilium ingress also allows the metrics port when the prometheus exporter is enabled
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.flavor: cilium
+      muster.observability.metrics.prometheus.serviceMonitor.enabled: true
+    template: templates/ciliumnetworkpolicy.yaml
+    asserts:
+      - equal:
+          path: spec.ingress[0].toPorts[0].ports
+          value:
+            - port: "8090"
+              protocol: TCP
+            - port: "9464"
+              protocol: TCP
+
+  - it: kubernetes ingress allows only the aggregator port by default
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.flavor: kubernetes
+    template: templates/networkpolicy.yaml
+    asserts:
+      - equal:
+          path: spec.ingress[0].ports
+          value:
+            - port: 8090
+              protocol: TCP
+
+  - it: kubernetes ingress also allows the metrics port when the prometheus exporter is enabled
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.flavor: kubernetes
+      muster.observability.metrics.exporter: "prometheus"
+    template: templates/networkpolicy.yaml
+    asserts:
+      - equal:
+          path: spec.ingress[0].ports
+          value:
+            - port: 8090
+              protocol: TCP
+            - port: 9464
+              protocol: TCP
+
   - it: cilium allowClusterIngress adds cluster entity egress on 80/443
     set:
       networkPolicy.enabled: true

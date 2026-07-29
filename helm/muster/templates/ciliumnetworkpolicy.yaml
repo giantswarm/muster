@@ -25,6 +25,11 @@ spec:
         - ports:
             - port: "{{ .Values.muster.aggregator.port }}"
               protocol: TCP
+            {{- if eq (include "muster.prometheusExporterEnabled" .) "true" }}
+            # Prometheus / Alloy scrapes of the self-hosted /metrics endpoint
+            - port: "{{ .Values.muster.observability.metrics.prometheus.port }}"
+              protocol: TCP
+            {{- end }}
 
   egress:
     # Allow DNS resolution
