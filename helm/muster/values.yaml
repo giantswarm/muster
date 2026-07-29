@@ -618,7 +618,8 @@ muster:
 
     # Metric exporter selection. Empty means muster relies on the
     # toolkit's default — OTLP when otel.endpoint is set, no-op
-    # otherwise.
+    # otherwise — unless prometheus.serviceMonitor.enabled below
+    # implies the prometheus exporter.
     #
     # Set to one of (or a comma-separated combination of):
     #   - "otlp"        push metrics to the OTLP endpoint above
@@ -630,11 +631,15 @@ muster:
       exporter: ""
       prometheus:
         # Port the self-hosted /metrics endpoint listens on. Only
-        # exposed when "prometheus" is in metrics.exporter.
+        # exposed when "prometheus" is in the effective exporter list
+        # (metrics.exporter above, or implied by serviceMonitor.enabled
+        # below).
         port: 9464
         # ServiceMonitor for Prometheus-Operator clusters. When
         # enabled, a ServiceMonitor selecting muster's Service on the
-        # prometheus port is rendered.
+        # prometheus port is rendered, and "prometheus" is implicitly
+        # appended to metrics.exporter above so the /metrics endpoint
+        # is served — no need to set the exporter separately.
         serviceMonitor:
           enabled: false
           # Scrape interval. Empty falls back to the Prometheus

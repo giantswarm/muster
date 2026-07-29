@@ -229,6 +229,101 @@ tests:
             containerPort: 9464
             protocol: TCP
 
+  - it: serviceMonitor.enabled alone implies the prometheus exporter
+    template: templates/deployment.yaml
+    set:
+      muster.observability.metrics.prometheus.serviceMonitor.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_METRICS_EXPORTER
+            value: "prometheus"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_EXPORTER_PROMETHEUS_PORT
+            value: "9464"
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: metrics
+            containerPort: 9464
+            protocol: TCP
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_RESOURCE_ATTRIBUTES
+            value: "k8s.namespace.name=$(K8S_NAMESPACE),k8s.pod.name=$(K8S_POD_NAME),k8s.node.name=$(K8S_NODE_NAME)"
+
+  - it: serviceMonitor.enabled appends prometheus to an explicit exporter list
+    template: templates/deployment.yaml
+    set:
+      muster.observability.metrics.exporter: "otlp"
+      muster.observability.metrics.prometheus.serviceMonitor.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_METRICS_EXPORTER
+            value: "otlp,prometheus"
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: metrics
+            containerPort: 9464
+            protocol: TCP
+
+  - it: serviceMonitor.enabled drops the "none" sentinel when implying prometheus
+    template: templates/deployment.yaml
+    set:
+      muster.observability.metrics.exporter: "none"
+      muster.observability.metrics.prometheus.serviceMonitor.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_METRICS_EXPORTER
+            value: "prometheus"
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: metrics
+            containerPort: 9464
+            protocol: TCP
+
+  - it: renders no OTEL_METRICS_EXPORTER when exporter is null
+    template: templates/deployment.yaml
+    set:
+      muster.observability.metrics.exporter: null
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_METRICS_EXPORTER
+          any: true
+
+  - it: does NOT enable the Prometheus surface for substring-only matches (fakeprometheus)
+    template: templates/deployment.yaml
+    set:
+      muster.observability.metrics.exporter: "fakeprometheus"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_METRICS_EXPORTER
+            value: "fakeprometheus"
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_EXPORTER_PROMETHEUS_PORT
+      - notContains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: metrics
+            containerPort: 9464
+            protocol: TCP
+
   - it: prometheus-only mode merges user resourceAttributes with downward-API attrs
     template: templates/deployment.yaml
     set:

@@ -15,13 +15,23 @@ tests:
       - hasDocuments:
           count: 0
 
-  - it: renders nothing when serviceMonitor.enabled is true but prometheus is not in exporter
+  - it: renders when serviceMonitor.enabled is true with no exporter configured
+    set:
+      muster.observability.metrics.prometheus.serviceMonitor.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: kind
+          value: ServiceMonitor
+
+  - it: renders when serviceMonitor.enabled is true even if prometheus is not in exporter
     set:
       muster.observability.metrics.exporter: "otlp"
       muster.observability.metrics.prometheus.serviceMonitor.enabled: true
     asserts:
       - hasDocuments:
-          count: 0
+          count: 1
 
   - it: renders the ServiceMonitor when prometheus is selected and serviceMonitor is enabled
     set:
@@ -56,10 +66,10 @@ tests:
       - hasDocuments:
           count: 1
 
-  - it: does NOT render for substring-only matches (fakeprometheus)
+  - it: does NOT render for substring-only matches (fakeprometheus) with serviceMonitor disabled
     set:
       muster.observability.metrics.exporter: "fakeprometheus"
-      muster.observability.metrics.prometheus.serviceMonitor.enabled: true
+      muster.observability.metrics.prometheus.serviceMonitor.enabled: false
     asserts:
       - hasDocuments:
           count: 0
