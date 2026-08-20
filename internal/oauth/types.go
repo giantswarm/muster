@@ -14,6 +14,31 @@ type TokenKey struct {
 	Scope     string
 }
 
+// AuthChallengeParams carries the per-flow values a proxy authentication
+// challenge is built from. The fields are grouped in a struct because they are
+// all strings: a transposed pair, such as resource and scope, would fail only
+// at the authorization server.
+type AuthChallengeParams struct {
+	// SessionID links the OAuth flow to the caller's login session.
+	SessionID string
+
+	// UserID is the authenticated user's identity (sub claim).
+	UserID string
+
+	// ServerName is the MCP server that requires authentication.
+	ServerName string
+
+	// Issuer is the authorization server the flow runs against.
+	Issuer string
+
+	// Resource is the canonical URI of the MCP server the token is for. It
+	// goes on the authorization request and on the token request (RFC 8707).
+	Resource string
+
+	// Scope is the space-separated scope list to request.
+	Scope string
+}
+
 // OAuthState represents the state parameter data for OAuth flows.
 // This is serialized and passed through the OAuth flow to link
 // the callback to the original request.
@@ -47,6 +72,11 @@ type OAuthState struct {
 
 	// Issuer is the OAuth issuer URL for token exchange.
 	Issuer string `json:"issuer,omitempty"`
+
+	// Resource is the canonical URI of the MCP server this flow obtains a
+	// token for (RFC 8707). The same value goes on the authorization
+	// request and on the token request.
+	Resource string `json:"resource,omitempty"`
 
 	// CodeVerifier is the PKCE code verifier for this flow.
 	// Stored server-side only, not transmitted in the state parameter.

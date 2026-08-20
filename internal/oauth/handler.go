@@ -2,8 +2,10 @@ package oauth
 
 import (
 	"bytes"
+	"context"
 	"embed"
 	"encoding/json"
+	"fmt"
 	"html"
 	"html/template"
 	"net/http"
@@ -163,23 +165,20 @@ func pathExtendsPrefix(targetPath, entryPath string) bool {
 
 // HandleCallback handles the OAuth callback endpoint.
 // This is called by the browser after the user authenticates with the IdP.
+//
+// The RFC 9207 `iss` check runs before anything else is read from the
+// response: an authorization response that does not come from the expected
+// authorization server is rejected whole, including its error parameters.
 func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	// Extract query parameters
 	code := r.URL.Query().Get("code")
 	stateParam := r.URL.Query().Get("state")
+	issParam := r.URL.Query().Get("iss")
 	errorParam := r.URL.Query().Get("error")
 	errorDesc := r.URL.Query().Get("error_description")
 
-	// Handle OAuth errors - use generic message to avoid leaking sensitive info
-	if errorParam != "" {
-		logging.Warn("OAuth", "OAuth callback received error: %s - %s", errorParam, errorDesc)
-		h.renderErrorPage(w, "Authentication was denied or failed. Please try again.")
-		return
-	}
-
-	// Validate required parameters
-	if code == "" || stateParam == "" {
-		logging.Warn("OAuth", "OAuth callback missing code or state parameter")
+	if stateParam == "" {
+		logging.Warn("OAuth", "OAuth callback missing state parameter")
 		h.renderErrorPage(w, "Invalid callback: missing required parameters")
 		return
 	}
@@ -192,6 +191,31 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if state.Issuer == "" {
+		logging.Warn("OAuth", "Missing issuer in state for nonce=%s", state.Nonce)
+		h.renderErrorPage(w, "Authentication session invalid. Please try again.")
+		return
+	}
+
+	if err := h.validateResponseIssuer(r.Context(), state, issParam); err != nil {
+		logging.Warn("OAuth", "Rejecting OAuth callback for server=%s: %v", state.ServerName, err)
+		h.renderErrorPage(w, "Authentication response could not be verified. Please try again.")
+		return
+	}
+
+	// Handle OAuth errors - use generic message to avoid leaking sensitive info
+	if errorParam != "" {
+		logging.Warn("OAuth", "OAuth callback received error: %s - %s", errorParam, errorDesc)
+		h.renderErrorPage(w, "Authentication was denied or failed. Please try again.")
+		return
+	}
+
+	if code == "" {
+		logging.Warn("OAuth", "OAuth callback missing code parameter")
+		h.renderErrorPage(w, "Invalid callback: missing required parameters")
+		return
+	}
+
 	logging.Debug("OAuth", "Processing OAuth callback for session=%s server=%s issuer=%s",
 		logging.TruncateIdentifier(state.SessionID), state.ServerName, state.Issuer)
 
@@ -201,18 +225,13 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if state.Issuer == "" {
-		logging.Warn("OAuth", "Missing issuer in state for nonce=%s", state.Nonce)
-		h.renderErrorPage(w, "Authentication session invalid. Please try again.")
-		return
-	}
 	if state.CodeVerifier == "" {
 		logging.Warn("OAuth", "Missing code verifier in state for nonce=%s", state.Nonce)
 		h.renderErrorPage(w, "Authentication session invalid. Please try again.")
 		return
 	}
 
-	token, err := h.client.ExchangeCode(r.Context(), code, state.CodeVerifier, state.Issuer)
+	token, err := h.client.ExchangeCode(r.Context(), code, state.CodeVerifier, state.Issuer, state.Resource)
 	if err != nil {
 		logging.Error("OAuth", err, "Failed to exchange authorization code")
 		h.renderErrorPage(w, "Failed to complete authentication. Please try again.")
@@ -238,6 +257,39 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.finishSuccess(w, r, state)
+}
+
+// validateResponseIssuer applies the RFC 9207 check to an authorization
+// response. A present `iss` must equal the issuer identifier of the
+// authorization server the flow was sent to, by simple string comparison with
+// no normalization. An absent `iss` is refused when the server advertises
+// authorization_response_iss_parameter_supported, and accepted otherwise:
+// most deployed authorization servers still omit the parameter.
+//
+// The expected value is the issuer from the server's own metadata, falling
+// back to the issuer recorded with the state when the metadata is not
+// reachable.
+func (h *Handler) validateResponseIssuer(ctx context.Context, state *OAuthState, iss string) error {
+	metadata, err := h.client.DiscoverMetadata(ctx, state.Issuer)
+	if err != nil && iss == "" {
+		return fmt.Errorf("no iss on the response and AS metadata for %q is unavailable: %w", state.Issuer, err)
+	}
+
+	if iss == "" {
+		if metadata.AuthorizationResponseIssParameterSupported {
+			return fmt.Errorf("no iss on the response although %q advertises authorization_response_iss_parameter_supported", state.Issuer)
+		}
+		return nil
+	}
+
+	expected := state.Issuer
+	if err == nil && metadata.Issuer != "" {
+		expected = metadata.Issuer
+	}
+	if iss != expected {
+		return fmt.Errorf("iss mismatch: response carried %q, expected %q", iss, expected)
+	}
+	return nil
 }
 
 // finishSuccess completes a successful callback: a redirect to the flow's

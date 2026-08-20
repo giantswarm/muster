@@ -2461,16 +2461,12 @@ func discoverProtectedResourceMetadata(ctx context.Context, serverURL string, ov
 
 	if override != nil {
 		issuer := strings.TrimSuffix(override.Issuer, "/")
-		// RFC 8414 §3.3 self-verification: fetch AS metadata at the pinned
-		// issuer and confirm it advertises the same issuer back. A typo or
-		// stale pin fails closed instead of driving an OAuth flow against
-		// the wrong AS.
-		md, err := pkgoauth.NewClient().DiscoverMetadata(ctx, issuer)
-		if err != nil {
-			return nil, fmt.Errorf("authorizationServer override: %w", err)
-		}
-		if got := strings.TrimSuffix(md.Issuer, "/"); got != issuer {
-			return nil, fmt.Errorf("authorizationServer override: issuer mismatch — spec.auth.authorizationServer.issuer=%q but AS metadata reports issuer=%q", issuer, md.Issuer)
+		// Fetching AS metadata at the pinned issuer also verifies it: the
+		// discovery client applies the RFC 8414 §3.3 identity check, so a
+		// typo or a stale pin fails closed here instead of driving an OAuth
+		// flow against the wrong AS.
+		if _, err := pkgoauth.NewClient().DiscoverMetadata(ctx, issuer); err != nil {
+			return nil, fmt.Errorf("authorizationServer override (spec.auth.authorizationServer.issuer=%q): %w", issuer, err)
 		}
 		logging.InfoWithAttrs("AuthTools", "oauth_authorization_server_override_used",
 			slog.String("issuer", issuer))

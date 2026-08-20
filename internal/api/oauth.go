@@ -73,7 +73,7 @@ type OAuthHandler interface {
 
 	// CreateAuthChallenge creates an authentication challenge for a 401 response.
 	// Returns the challenge containing the auth URL for the user to visit.
-	CreateAuthChallenge(ctx context.Context, sessionID, userID, serverName, issuer, scope string) (*AuthChallenge, error)
+	CreateAuthChallenge(ctx context.Context, params AuthChallengeParams) (*AuthChallenge, error)
 
 	// GetHTTPHandler returns the HTTP handler for OAuth callback endpoints.
 	GetHTTPHandler() http.Handler

@@ -24,10 +24,12 @@ func TestHandler_HandleCallback_MissingParams(t *testing.T) {
 		wantInBody string
 	}{
 		{
+			// The state is validated before the code is read, so an
+			// unknown state is reported as an expired session.
 			name:       "missing code",
 			query:      "state=some-state",
 			wantStatus: http.StatusBadRequest,
-			wantInBody: "missing required parameters",
+			wantInBody: "Authentication session expired",
 		},
 		{
 			name:       "missing state",
@@ -63,12 +65,16 @@ func TestHandler_HandleCallback_MissingParams(t *testing.T) {
 }
 
 func TestHandler_HandleCallback_OAuthError(t *testing.T) {
+	authServer := newAuthorizationServer(t, authorizationServerOptions{})
+	defer authServer.Close()
+
 	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
 
 	handler := NewHandler(client)
+	encodedState := storeCallbackState(t, client, authServer.URL)
 
-	req := httptest.NewRequest("GET", "/oauth/callback?error=access_denied&error_description=User+denied+access", nil)
+	req := httptest.NewRequest("GET", "/oauth/callback?error=access_denied&error_description=User+denied+access&state="+url.QueryEscape(encodedState), nil)
 	rr := httptest.NewRecorder()
 
 	handler.HandleCallback(rr, req)
@@ -82,6 +88,29 @@ func TestHandler_HandleCallback_OAuthError(t *testing.T) {
 	// from OAuth provider error descriptions
 	if !strings.Contains(body, "Authentication was denied or failed") {
 		t.Errorf("Expected body to contain generic error message, got %q", body)
+	}
+}
+
+// TestHandler_HandleCallback_ErrorWithoutValidState covers RFC 9207: an error
+// response that cannot be attributed to a stored flow is rejected, and its
+// error parameters are never shown.
+func TestHandler_HandleCallback_ErrorWithoutValidState(t *testing.T) {
+	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
+	defer client.Stop()
+
+	handler := NewHandler(client)
+
+	req := httptest.NewRequest("GET", "/oauth/callback?error=access_denied&error_description=User+denied+access", nil)
+	rr := httptest.NewRecorder()
+
+	handler.HandleCallback(rr, req)
+
+	body := rr.Body.String()
+	if strings.Contains(body, "Authentication was denied or failed") {
+		t.Errorf("Expected the error response to be rejected, got %q", body)
+	}
+	if !strings.Contains(body, "missing required parameters") {
+		t.Errorf("Expected body to report missing parameters, got %q", body)
 	}
 }
 
@@ -433,7 +462,7 @@ func startTestHandler(t *testing.T, authorizationURL string, allowlist ...string
 	}
 	handler.SetPostLoginRedirectAllowlist(prefixes)
 
-	encodedState, err := client.stateStore.GenerateState("session-1", "user-1", "test-server", "https://idp.example.com", "verifier",
+	encodedState, err := client.stateStore.GenerateState(StateParams{SessionID: "session-1", UserID: "user-1", ServerName: "test-server", Issuer: "https://idp.example.com", CodeVerifier: "verifier"},
 		func(string) (string, error) { return authorizationURL, nil })
 	if err != nil {
 		t.Fatalf("GenerateState: %v", err)

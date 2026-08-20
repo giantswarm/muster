@@ -329,16 +329,16 @@ func (m *Manager) StoreToken(sessionID, userID, issuer string, token *pkgoauth.T
 
 // CreateAuthChallenge creates an authentication challenge for a 401 response.
 // Returns the auth URL the user should visit and the challenge response.
-func (m *Manager) CreateAuthChallenge(ctx context.Context, sessionID, userID, serverName, issuer, scope string) (*AuthRequiredResponse, error) {
+func (m *Manager) CreateAuthChallenge(ctx context.Context, params AuthChallengeParams) (*AuthRequiredResponse, error) {
 	if m == nil {
 		return nil, fmt.Errorf("OAuth proxy is disabled")
 	}
 
 	// Register server config if we got it from the 401
-	m.RegisterServer(serverName, issuer, scope)
+	m.RegisterServer(params.ServerName, params.Issuer, params.Scope)
 
 	// Generate authorization URL (code verifier is stored with the state)
-	authURL, err := m.client.GenerateAuthURL(ctx, sessionID, userID, serverName, issuer, scope)
+	authURL, err := m.client.GenerateAuthURL(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate auth URL: %w", err)
 	}
@@ -346,12 +346,12 @@ func (m *Manager) CreateAuthChallenge(ctx context.Context, sessionID, userID, se
 	challenge := &AuthRequiredResponse{
 		Status:     "auth_required",
 		AuthURL:    authURL,
-		ServerName: serverName,
-		Message:    fmt.Sprintf("Authentication required for %s. Please visit the link below to authenticate.", serverName),
+		ServerName: params.ServerName,
+		Message:    fmt.Sprintf("Authentication required for %s. Please visit the link below to authenticate.", params.ServerName),
 	}
 
 	logging.Info("OAuth", "Created auth challenge for session=%s server=%s",
-		logging.TruncateIdentifier(sessionID), serverName)
+		logging.TruncateIdentifier(params.SessionID), params.ServerName)
 
 	return challenge, nil
 }
@@ -394,7 +394,7 @@ func (m *Manager) HandleCallback(ctx context.Context, code, state string) error 
 	}
 
 	// Exchange code for token using issuer and code verifier from state
-	token, err := m.client.ExchangeCode(ctx, code, stateData.CodeVerifier, stateData.Issuer)
+	token, err := m.client.ExchangeCode(ctx, code, stateData.CodeVerifier, stateData.Issuer, stateData.Resource)
 	if err != nil {
 		return fmt.Errorf("token exchange failed: %w", err)
 	}

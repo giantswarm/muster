@@ -47,6 +47,16 @@ func TestNewClient(t *testing.T) {
 	})
 }
 
+// encodeMetadataAsIssuer publishes an AS metadata document that names the test
+// server itself as the issuer. RFC 8414 §3.3 requires the client to reject a
+// document whose issuer identifies a different authorization server, so a
+// fixture with a fixed issuer would never be accepted.
+func encodeMetadataAsIssuer(w http.ResponseWriter, r *http.Request, metadata *Metadata) {
+	published := *metadata
+	published.Issuer = "http://" + r.Host
+	_ = json.NewEncoder(w).Encode(&published)
+}
+
 func TestDiscoverMetadata(t *testing.T) {
 	t.Run("discovers via RFC 8414 endpoint", func(t *testing.T) {
 		metadata := &Metadata{
@@ -58,7 +68,7 @@ func TestDiscoverMetadata(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path == WellKnownAuthorizationServer {
 				w.Header().Set("Content-Type", "application/json")
-				_ = json.NewEncoder(w).Encode(metadata)
+				encodeMetadataAsIssuer(w, r, metadata)
 				return
 			}
 			http.NotFound(w, r)
@@ -71,8 +81,8 @@ func TestDiscoverMetadata(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if result.Issuer != metadata.Issuer {
-			t.Errorf("expected issuer %s, got %s", metadata.Issuer, result.Issuer)
+		if result.Issuer != server.URL {
+			t.Errorf("expected issuer %s, got %s", server.URL, result.Issuer)
 		}
 		if result.AuthorizationEndpoint != metadata.AuthorizationEndpoint {
 			t.Errorf("expected auth endpoint %s, got %s", metadata.AuthorizationEndpoint, result.AuthorizationEndpoint)
@@ -89,7 +99,7 @@ func TestDiscoverMetadata(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path == WellKnownOpenIDConfiguration {
 				w.Header().Set("Content-Type", "application/json")
-				_ = json.NewEncoder(w).Encode(metadata)
+				encodeMetadataAsIssuer(w, r, metadata)
 				return
 			}
 			// RFC 8414 endpoint returns 404
@@ -103,8 +113,8 @@ func TestDiscoverMetadata(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if result.Issuer != metadata.Issuer {
-			t.Errorf("expected issuer %s, got %s", metadata.Issuer, result.Issuer)
+		if result.Issuer != server.URL {
+			t.Errorf("expected issuer %s, got %s", server.URL, result.Issuer)
 		}
 	})
 
@@ -134,7 +144,7 @@ func TestDiscoverMetadata(t *testing.T) {
 			atomic.AddInt32(&callCount, 1)
 			if r.URL.Path == WellKnownAuthorizationServer {
 				w.Header().Set("Content-Type", "application/json")
-				_ = json.NewEncoder(w).Encode(metadata)
+				encodeMetadataAsIssuer(w, r, metadata)
 				return
 			}
 			http.NotFound(w, r)
@@ -174,7 +184,7 @@ func TestDiscoverMetadata(t *testing.T) {
 			atomic.AddInt32(&callCount, 1)
 			if r.URL.Path == WellKnownAuthorizationServer {
 				w.Header().Set("Content-Type", "application/json")
-				_ = json.NewEncoder(w).Encode(metadata)
+				encodeMetadataAsIssuer(w, r, metadata)
 				return
 			}
 			http.NotFound(w, r)
@@ -210,7 +220,7 @@ func TestDiscoverMetadata(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path == WellKnownAuthorizationServer {
 				w.Header().Set("Content-Type", "application/json")
-				_ = json.NewEncoder(w).Encode(metadata)
+				encodeMetadataAsIssuer(w, r, metadata)
 				return
 			}
 			http.NotFound(w, r)
@@ -264,6 +274,9 @@ func TestExchangeCode(t *testing.T) {
 			if r.Form.Get("code_verifier") != "verifier123" {
 				t.Errorf("expected code_verifier verifier123, got %s", r.Form.Get("code_verifier"))
 			}
+			if r.Form.Get("resource") != "https://mcp.example.com/mcp" {
+				t.Errorf("expected resource https://mcp.example.com/mcp, got %s", r.Form.Get("resource"))
+			}
 
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(expectedToken)
@@ -272,12 +285,13 @@ func TestExchangeCode(t *testing.T) {
 
 		c := NewClient(WithHTTPClient(server.Client()))
 		token, err := c.ExchangeCode(
-			context.Background(),
+			t.Context(),
 			server.URL+"/token",
 			"auth-code",
 			"http://localhost:8080/callback",
 			"test-client",
 			"verifier123",
+			"https://mcp.example.com/mcp",
 		)
 
 		if err != nil {
@@ -303,12 +317,13 @@ func TestExchangeCode(t *testing.T) {
 
 		c := NewClient(WithHTTPClient(server.Client()))
 		_, err := c.ExchangeCode(
-			context.Background(),
+			t.Context(),
 			server.URL+"/token",
 			"invalid-code",
 			"http://localhost:8080/callback",
 			"test-client",
 			"verifier123",
+			"https://mcp.example.com/mcp",
 		)
 
 		if err == nil {
@@ -326,14 +341,15 @@ func TestBuildAuthorizationURL(t *testing.T) {
 			CodeChallengeMethod: "S256",
 		}
 
-		url, err := c.BuildAuthorizationURL(
-			"https://auth.example.com/authorize",
-			"test-client",
-			"http://localhost:8080/callback",
-			"state123",
-			"openid profile email",
-			pkce,
-		)
+		url, err := c.BuildAuthorizationURL(AuthorizationRequest{
+			AuthorizationEndpoint: "https://auth.example.com/authorize",
+			ClientID:              "test-client",
+			RedirectURI:           "http://localhost:8080/callback",
+			State:                 "state123",
+			Scope:                 "openid profile email",
+			Resource:              "https://mcp.example.com/mcp",
+			PKCE:                  pkce,
+		})
 
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -348,6 +364,7 @@ func TestBuildAuthorizationURL(t *testing.T) {
 			"scope=openid+profile+email",
 			"code_challenge=challenge123",
 			"code_challenge_method=S256",
+			"resource=https%3A%2F%2Fmcp.example.com%2Fmcp",
 		}
 
 		for _, param := range expectedParams {
@@ -358,14 +375,13 @@ func TestBuildAuthorizationURL(t *testing.T) {
 	})
 
 	t.Run("builds URL without PKCE", func(t *testing.T) {
-		url, err := c.BuildAuthorizationURL(
-			"https://auth.example.com/authorize",
-			"test-client",
-			"http://localhost:8080/callback",
-			"state123",
-			"openid",
-			nil, // no PKCE
-		)
+		url, err := c.BuildAuthorizationURL(AuthorizationRequest{
+			AuthorizationEndpoint: "https://auth.example.com/authorize",
+			ClientID:              "test-client",
+			RedirectURI:           "http://localhost:8080/callback",
+			State:                 "state123",
+			Scope:                 "openid",
+		})
 
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -378,14 +394,12 @@ func TestBuildAuthorizationURL(t *testing.T) {
 	})
 
 	t.Run("builds URL without scope", func(t *testing.T) {
-		url, err := c.BuildAuthorizationURL(
-			"https://auth.example.com/authorize",
-			"test-client",
-			"http://localhost:8080/callback",
-			"state123",
-			"", // no scope
-			nil,
-		)
+		url, err := c.BuildAuthorizationURL(AuthorizationRequest{
+			AuthorizationEndpoint: "https://auth.example.com/authorize",
+			ClientID:              "test-client",
+			RedirectURI:           "http://localhost:8080/callback",
+			State:                 "state123",
+		})
 
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -397,15 +411,31 @@ func TestBuildAuthorizationURL(t *testing.T) {
 		}
 	})
 
+	t.Run("omits resource when not supplied", func(t *testing.T) {
+		url, err := c.BuildAuthorizationURL(AuthorizationRequest{
+			AuthorizationEndpoint: "https://auth.example.com/authorize",
+			ClientID:              "test-client",
+			RedirectURI:           "http://localhost:8080/callback",
+			State:                 "state123",
+		})
+
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if strings.Contains(url, "resource=") {
+			t.Errorf("expected URL to not contain resource, got %s", url)
+		}
+	})
+
 	t.Run("returns error for invalid URL", func(t *testing.T) {
-		_, err := c.BuildAuthorizationURL(
-			"://invalid-url",
-			"test-client",
-			"http://localhost:8080/callback",
-			"state123",
-			"openid",
-			nil,
-		)
+		_, err := c.BuildAuthorizationURL(AuthorizationRequest{
+			AuthorizationEndpoint: "://invalid-url",
+			ClientID:              "test-client",
+			RedirectURI:           "http://localhost:8080/callback",
+			State:                 "state123",
+			Scope:                 "openid",
+		})
 
 		if err == nil {
 			t.Error("expected error for invalid URL")
@@ -425,7 +455,7 @@ func TestClearMetadataCache(t *testing.T) {
 		atomic.AddInt32(&callCount, 1)
 		if r.URL.Path == WellKnownAuthorizationServer {
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(metadata)
+			encodeMetadataAsIssuer(w, r, metadata)
 			return
 		}
 		http.NotFound(w, r)
@@ -476,7 +506,7 @@ func TestMetadataCacheExpiry(t *testing.T) {
 		atomic.AddInt32(&callCount, 1)
 		if r.URL.Path == WellKnownAuthorizationServer {
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(metadata)
+			encodeMetadataAsIssuer(w, r, metadata)
 			return
 		}
 		http.NotFound(w, r)
