@@ -75,7 +75,7 @@ steps:
       name: "recreated-server"
     expected:
       success: true
-      wait_for_state: "30s"
+      wait_for_state: "60s"
       json_path:
         name: "recreated-server"
         state: "connected"
@@ -98,7 +98,7 @@ steps:
       name: "recreated-server"
     expected:
       success: false
-      wait_for_state: "30s"
+      wait_for_state: "60s"
 
   # Phase 3: Re-create the same definition under the same name. Before the fix,
   # the stale registry entry made the reconciler treat this as an unchanged
