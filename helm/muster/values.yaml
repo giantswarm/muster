@@ -372,7 +372,7 @@ muster:
       # oversight. The requirement is that every critical record is
       # reconstructable at startup, so a Valkey restart, PVC recreation, or
       # fresh install is non-fatal. Valkey is deployed outside this chart (as a
-      # sibling component of the agentic-platform umbrella), so persistence
+      # sibling component of the agent-platform umbrella), so persistence
       # tuning would live there, not here.
       #
       # Why not AOF (appendonly yes)? It does NOT protect the data that is lost

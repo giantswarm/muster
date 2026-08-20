@@ -14,9 +14,8 @@ This chart contains only the muster CustomResourceDefinitions:
 - `workflows.muster.giantswarm.io` (kind: `Workflow`)
 
 It is a standalone option for managing the CRD lifecycle independently of the
-muster application chart — useful for a downstream `agentic-platform-crds`
-umbrella, or for plain-Helm users who want CRD updates to apply on
-`helm upgrade`.
+muster application chart — useful for a downstream umbrella chart, or for
+plain-Helm users who want CRD updates to apply on `helm upgrade`.
 
 The CRDs are loaded from `files/crds/*.yaml` by `templates/crds.yaml` (regular
 chart templates, not the Helm 3 `crds/` special directory), so they are
