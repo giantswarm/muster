@@ -59,6 +59,7 @@ type AuthManager struct {
 	client        *Client
 	state         AuthState
 	serverURL     string
+	resource      string
 	authChallenge *pkgoauth.AuthChallenge
 	authURL       string
 	lastError     error
@@ -118,9 +119,10 @@ func (m *AuthManager) CheckConnection(ctx context.Context, serverURL string) (Au
 	}
 
 	// Probe the server to discover auth requirements
-	challenge := m.discoverAuthChallenge(ctx, serverURL)
-	if challenge != nil {
-		m.authChallenge = challenge
+	discovered := m.discoverAuthChallenge(ctx, serverURL)
+	if discovered != nil {
+		m.authChallenge = discovered.challenge
+		m.resource = discovered.resource
 		m.state = AuthStatePendingAuth
 		return m.state, nil
 	}
@@ -132,17 +134,25 @@ func (m *AuthManager) CheckConnection(ctx context.Context, serverURL string) (Au
 	return m.state, nil
 }
 
+// discoveredAuth carries what a discovery probe learned about the server: the
+// authentication challenge and, when the server publishes RFC 9728 metadata,
+// the canonical resource identifier it declares for itself.
+type discoveredAuth struct {
+	challenge *pkgoauth.AuthChallenge
+	resource  string
+}
+
 // discoverAuthChallenge probes the server to discover OAuth auth requirements.
 // It first sends a HEAD request to the endpoint to check for a 401 + WWW-Authenticate
 // header. If that yields an issuer, it's used directly. Otherwise it falls back to
 // fetching /.well-known/oauth-protected-resource (RFC 9728).
-func (m *AuthManager) discoverAuthChallenge(ctx context.Context, serverURL string) *pkgoauth.AuthChallenge {
+func (m *AuthManager) discoverAuthChallenge(ctx context.Context, serverURL string) *discoveredAuth {
 	httpClient := m.client.GetHTTPClient()
 
 	// Try a HEAD request to the server endpoint to check for 401
-	challenge := probeEndpoint(ctx, httpClient, serverURL)
-	if challenge != nil {
-		return challenge
+	discovered := probeEndpoint(ctx, httpClient, serverURL)
+	if discovered != nil {
+		return discovered
 	}
 
 	// Fall back to RFC 9728 protected resource metadata discovery
@@ -150,7 +160,7 @@ func (m *AuthManager) discoverAuthChallenge(ctx context.Context, serverURL strin
 }
 
 // probeEndpoint sends a HEAD request to the server and parses any 401 WWW-Authenticate header.
-func probeEndpoint(ctx context.Context, httpClient *http.Client, serverURL string) *pkgoauth.AuthChallenge {
+func probeEndpoint(ctx context.Context, httpClient *http.Client, serverURL string) *discoveredAuth {
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, serverURL, nil)
 	if err != nil {
 		return nil
@@ -179,17 +189,22 @@ func probeEndpoint(ctx context.Context, httpClient *http.Client, serverURL strin
 		return nil
 	}
 
-	// If we have a direct issuer, use it
-	if challenge.GetIssuer() != "" {
-		return challenge
+	// The resource metadata is the only place the server states its own
+	// canonical resource identifier, so it is fetched even when the
+	// challenge already names the issuer.
+	var metadata *protectedResourceMetadata
+	if challenge.ResourceMetadataURL != "" {
+		metadata = fetchResourceMetadata(ctx, httpClient, challenge.ResourceMetadataURL)
 	}
 
-	// If we have a resource_metadata URL, fetch it
-	if challenge.ResourceMetadataURL != "" {
-		if issuer := fetchIssuerFromResourceMetadata(ctx, httpClient, challenge.ResourceMetadataURL); issuer != "" {
-			challenge.Issuer = issuer
-			return challenge
-		}
+	// If we have a direct issuer, use it
+	if challenge.GetIssuer() != "" {
+		return &discoveredAuth{challenge: challenge, resource: metadata.resourceIdentifier()}
+	}
+
+	if metadata != nil && metadata.issuer() != "" {
+		challenge.Issuer = metadata.issuer()
+		return &discoveredAuth{challenge: challenge, resource: metadata.resourceIdentifier()}
 	}
 
 	return nil
@@ -197,38 +212,63 @@ func probeEndpoint(ctx context.Context, httpClient *http.Client, serverURL strin
 
 // discoverFromResourceMetadata fetches /.well-known/oauth-protected-resource from
 // the server's base URL (RFC 9728) and extracts the authorization server issuer.
-func discoverFromResourceMetadata(ctx context.Context, httpClient *http.Client, serverURL string) *pkgoauth.AuthChallenge {
+func discoverFromResourceMetadata(ctx context.Context, httpClient *http.Client, serverURL string) *discoveredAuth {
 	baseURL := pkgoauth.NormalizeServerURL(serverURL)
 	metadataURL := baseURL + "/.well-known/oauth-protected-resource"
 
-	issuer := fetchIssuerFromResourceMetadata(ctx, httpClient, metadataURL)
-	if issuer == "" {
+	metadata := fetchResourceMetadata(ctx, httpClient, metadataURL)
+	if metadata == nil || metadata.issuer() == "" {
 		return nil
 	}
 
-	return &pkgoauth.AuthChallenge{
-		Scheme: "Bearer",
-		Issuer: issuer,
+	return &discoveredAuth{
+		challenge: &pkgoauth.AuthChallenge{
+			Scheme: "Bearer",
+			Issuer: metadata.issuer(),
+		},
+		resource: metadata.resourceIdentifier(),
 	}
 }
 
 // protectedResourceMetadata is the JSON structure returned by RFC 9728 endpoints.
 type protectedResourceMetadata struct {
+	// Resource is the canonical URI the server declares for itself
+	// (RFC 9728 §3.2). It is the RFC 8707 `resource` value a client must
+	// send when it asks for a token for this server.
+	Resource string `json:"resource"`
+
 	AuthorizationServers []string `json:"authorization_servers"`
 }
 
-// fetchIssuerFromResourceMetadata fetches a resource metadata URL and extracts
-// the first authorization server as the issuer.
-func fetchIssuerFromResourceMetadata(ctx context.Context, httpClient *http.Client, metadataURL string) string {
+// issuer returns the first authorization server, or an empty string.
+func (m *protectedResourceMetadata) issuer() string {
+	if m == nil || len(m.AuthorizationServers) == 0 {
+		return ""
+	}
+	return m.AuthorizationServers[0]
+}
+
+// resourceIdentifier returns the declared resource URI, or an empty string
+// when the document is absent or omits the field.
+func (m *protectedResourceMetadata) resourceIdentifier() string {
+	if m == nil {
+		return ""
+	}
+	return m.Resource
+}
+
+// fetchResourceMetadata fetches an RFC 9728 protected resource metadata
+// document. Returns nil when the document cannot be read or parsed.
+func fetchResourceMetadata(ctx context.Context, httpClient *http.Client, metadataURL string) *protectedResourceMetadata {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, metadataURL, nil)
 	if err != nil {
-		return ""
+		return nil
 	}
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return ""
+		return nil
 	}
 	defer func() {
 		_, _ = io.Copy(io.Discard, resp.Body)
@@ -236,23 +276,19 @@ func fetchIssuerFromResourceMetadata(ctx context.Context, httpClient *http.Clien
 	}()
 
 	if resp.StatusCode != http.StatusOK {
-		return ""
+		return nil
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 	if err != nil {
-		return ""
+		return nil
 	}
 
 	var meta protectedResourceMetadata
 	if err := json.Unmarshal(body, &meta); err != nil {
-		return ""
+		return nil
 	}
-
-	if len(meta.AuthorizationServers) > 0 {
-		return meta.AuthorizationServers[0]
-	}
-	return ""
+	return &meta
 }
 
 // StartAuthFlow initiates the OAuth authentication flow.
@@ -298,7 +334,17 @@ func (m *AuthManager) startAuthFlowWithOptions(ctx context.Context, opts *AuthFl
 		return "", errors.New("no issuer URL in auth challenge")
 	}
 
-	authURL, waitFn, err := m.client.CompleteAuthFlowWithOptions(ctx, m.serverURL, issuerURL, opts)
+	// The server's own RFC 9728 metadata is the authority on its RFC 8707
+	// resource identifier. Passing it here keeps the token bound to the
+	// value the server validates against, instead of one derived from the
+	// endpoint URL the user happened to type.
+	flowOpts := AuthFlowOptions{Resource: m.resource}
+	if opts != nil {
+		flowOpts = *opts
+		flowOpts.Resource = m.resource
+	}
+
+	authURL, waitFn, err := m.client.CompleteAuthFlowWithOptions(ctx, m.serverURL, issuerURL, &flowOpts)
 	if err != nil {
 		slog.Debug("Failed to start OAuth authentication flow",
 			"server_url", m.serverURL,

@@ -135,7 +135,6 @@ func TestClient_GetToken_SSO_FallbackToIssuer(t *testing.T) {
 func TestClient_DiscoverMetadata(t *testing.T) {
 	// Create a test server that returns OAuth metadata
 	metadata := pkgoauth.Metadata{
-		Issuer:                "https://auth.example.com",
 		AuthorizationEndpoint: "https://auth.example.com/authorize",
 		TokenEndpoint:         "https://auth.example.com/token",
 	}
@@ -143,6 +142,7 @@ func TestClient_DiscoverMetadata(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == pkgoauth.WellKnownAuthorizationServer {
 			w.Header().Set("Content-Type", "application/json")
+			metadata.Issuer = "http://" + r.Host
 			_ = json.NewEncoder(w).Encode(metadata)
 			return
 		}
@@ -185,7 +185,6 @@ func TestClient_DiscoverMetadata(t *testing.T) {
 func TestClient_DiscoverMetadata_OpenIDFallback(t *testing.T) {
 	// Create a test server that only supports OpenID Connect discovery
 	metadata := pkgoauth.Metadata{
-		Issuer:                "https://auth.example.com",
 		AuthorizationEndpoint: "https://auth.example.com/authorize",
 		TokenEndpoint:         "https://auth.example.com/token",
 	}
@@ -193,6 +192,7 @@ func TestClient_DiscoverMetadata_OpenIDFallback(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == pkgoauth.WellKnownOpenIDConfiguration {
 			w.Header().Set("Content-Type", "application/json")
+			metadata.Issuer = "http://" + r.Host
 			_ = json.NewEncoder(w).Encode(metadata)
 			return
 		}
@@ -236,7 +236,6 @@ func TestClient_DiscoverMetadata_Error(t *testing.T) {
 func TestClient_GenerateAuthURL(t *testing.T) {
 	// Create a test server that returns OAuth metadata
 	metadata := pkgoauth.Metadata{
-		Issuer:                        "https://auth.example.com",
 		AuthorizationEndpoint:         "https://auth.example.com/authorize",
 		TokenEndpoint:                 "https://auth.example.com/token",
 		CodeChallengeMethodsSupported: []string{"S256"},
@@ -245,6 +244,7 @@ func TestClient_GenerateAuthURL(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == pkgoauth.WellKnownAuthorizationServer {
 			w.Header().Set("Content-Type", "application/json")
+			metadata.Issuer = "http://" + r.Host
 			_ = json.NewEncoder(w).Encode(metadata)
 			return
 		}
@@ -256,7 +256,14 @@ func TestClient_GenerateAuthURL(t *testing.T) {
 	defer client.Stop()
 
 	ctx := context.Background()
-	authURL, err := client.GenerateAuthURL(ctx, testSubject, "test-user", testServerName, server.URL, testResource, testScopes)
+	authURL, err := client.GenerateAuthURL(ctx, AuthChallengeParams{
+		SessionID:  testSubject,
+		UserID:     "test-user",
+		ServerName: testServerName,
+		Issuer:     server.URL,
+		Resource:   testResource,
+		Scope:      testScopes,
+	})
 	if err != nil {
 		t.Fatalf("Failed to generate auth URL: %v", err)
 	}
@@ -313,7 +320,6 @@ func TestClient_GenerateAuthURL_RefusesWithoutS256PKCE(t *testing.T) {
 	// AS metadata without code_challenge_methods_supported — MCP 2025-11-25
 	// requires the client refuse to proceed.
 	metadata := pkgoauth.Metadata{
-		Issuer:                "https://auth.example.com",
 		AuthorizationEndpoint: "https://auth.example.com/authorize",
 		TokenEndpoint:         "https://auth.example.com/token",
 	}
@@ -321,6 +327,7 @@ func TestClient_GenerateAuthURL_RefusesWithoutS256PKCE(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == pkgoauth.WellKnownAuthorizationServer {
 			w.Header().Set("Content-Type", "application/json")
+			metadata.Issuer = "http://" + r.Host
 			_ = json.NewEncoder(w).Encode(metadata)
 			return
 		}
@@ -331,7 +338,14 @@ func TestClient_GenerateAuthURL_RefusesWithoutS256PKCE(t *testing.T) {
 	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
 
-	_, err := client.GenerateAuthURL(t.Context(), testSubject, "test-user", testServerName, server.URL, testResource, testScopes)
+	_, err := client.GenerateAuthURL(t.Context(), AuthChallengeParams{
+		SessionID:  testSubject,
+		UserID:     "test-user",
+		ServerName: testServerName,
+		Issuer:     server.URL,
+		Resource:   testResource,
+		Scope:      testScopes,
+	})
 	if err == nil {
 		t.Fatal("expected refusal error when AS does not advertise S256 PKCE")
 	}
@@ -354,7 +368,7 @@ func TestClient_ExchangeCode(t *testing.T) {
 	var serverURL string
 	mux.HandleFunc(pkgoauth.WellKnownAuthorizationServer, func(w http.ResponseWriter, r *http.Request) {
 		metadata := pkgoauth.Metadata{
-			Issuer:                "https://auth.example.com",
+			Issuer:                serverURL,
 			AuthorizationEndpoint: "https://auth.example.com/authorize",
 			TokenEndpoint:         serverURL + "/token",
 		}
@@ -424,7 +438,7 @@ func TestClient_ExchangeCode_Error(t *testing.T) {
 	var serverURL string
 	mux.HandleFunc(pkgoauth.WellKnownAuthorizationServer, func(w http.ResponseWriter, r *http.Request) {
 		metadata := pkgoauth.Metadata{
-			Issuer:                "https://auth.example.com",
+			Issuer:                serverURL,
 			AuthorizationEndpoint: "https://auth.example.com/authorize",
 			TokenEndpoint:         serverURL + "/token",
 		}

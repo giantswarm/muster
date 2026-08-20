@@ -108,9 +108,10 @@ func (c *Client) GetToken(sessionID, issuer, scope string) *pkgoauth.Token {
 // GenerateAuthURL creates an OAuth authorization URL for user authentication.
 // Returns the URL. The code verifier is stored with the state for later retrieval.
 //
-// resource is the canonical URI of the MCP server the token is for. It is
-// recorded with the state so the token request carries the same value.
-func (c *Client) GenerateAuthURL(ctx context.Context, sessionID, userID, serverName, issuer, resource, scope string) (string, error) {
+// params.Resource is recorded with the state so the token request carries the
+// same RFC 8707 value as the authorization request.
+func (c *Client) GenerateAuthURL(ctx context.Context, params AuthChallengeParams) (string, error) {
+	issuer := params.Issuer
 	metadata, err := c.oauthClient.DiscoverMetadata(ctx, issuer)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch OAuth metadata: %w", err)
@@ -134,23 +135,23 @@ func (c *Client) GenerateAuthURL(ctx context.Context, sessionID, userID, serverN
 	// redirects the browser there. The extra hop lets the initiating
 	// front-end attach an allowlisted post-login redirect target to the flow
 	// (the "redirect" query parameter on the start URL).
-	params := StateParams{
-		SessionID:    sessionID,
-		UserID:       userID,
-		ServerName:   serverName,
+	stateParams := StateParams{
+		SessionID:    params.SessionID,
+		UserID:       params.UserID,
+		ServerName:   params.ServerName,
 		Issuer:       issuer,
-		Resource:     resource,
+		Resource:     params.Resource,
 		CodeVerifier: pkce.CodeVerifier,
 	}
-	state, err := c.stateStore.GenerateState(params,
+	state, err := c.stateStore.GenerateState(stateParams,
 		func(encodedState string) (string, error) {
 			return c.oauthClient.BuildAuthorizationURL(pkgoauth.AuthorizationRequest{
 				AuthorizationEndpoint: metadata.AuthorizationEndpoint,
 				ClientID:              c.clientID,
 				RedirectURI:           c.GetRedirectURI(),
 				State:                 encodedState,
-				Scope:                 scope,
-				Resource:              resource,
+				Scope:                 params.Scope,
+				Resource:              params.Resource,
 				PKCE:                  pkce,
 			})
 		})
@@ -159,7 +160,7 @@ func (c *Client) GenerateAuthURL(ctx context.Context, sessionID, userID, serverN
 	}
 
 	logging.Debug("OAuth", "Generated auth URL for session=%s server=%s issuer=%s resource=%s",
-		logging.TruncateIdentifier(sessionID), serverName, issuer, resource)
+		logging.TruncateIdentifier(params.SessionID), params.ServerName, issuer, params.Resource)
 
 	return c.GetStartURL(state), nil
 }

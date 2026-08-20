@@ -448,7 +448,11 @@ func TestManager_GetCIMDHandler_NilManager(t *testing.T) {
 func TestManager_CreateAuthChallenge_NilManager(t *testing.T) {
 	var manager *Manager
 	ctx := context.Background()
-	_, err := manager.CreateAuthChallenge(ctx, "user@example.com", "test-user", "server", "", "", "")
+	_, err := manager.CreateAuthChallenge(ctx, AuthChallengeParams{
+		SessionID:  "user@example.com",
+		UserID:     "test-user",
+		ServerName: "server",
+	})
 	if err == nil {
 		t.Error("Expected error for nil manager")
 	}
@@ -504,7 +508,14 @@ func TestManager_CreateAuthChallenge(t *testing.T) {
 	scope := testScopes
 
 	ctx := context.Background()
-	_, err := manager.CreateAuthChallenge(ctx, testSubject, "test-user", "mcp-server", issuer, testResource, scope)
+	_, err := manager.CreateAuthChallenge(ctx, AuthChallengeParams{
+		SessionID:  testSubject,
+		UserID:     "test-user",
+		ServerName: "mcp-server",
+		Issuer:     issuer,
+		Resource:   testResource,
+		Scope:      scope,
+	})
 	// Expected to fail because the issuer doesn't return valid metadata
 	if err == nil {
 		// If it succeeds (unlikely), that's also fine

@@ -73,9 +73,7 @@ type OAuthHandler interface {
 
 	// CreateAuthChallenge creates an authentication challenge for a 401 response.
 	// Returns the challenge containing the auth URL for the user to visit.
-	// resource is the canonical URI of the MCP server the token is for; it
-	// goes on the authorization request and the token request (RFC 8707).
-	CreateAuthChallenge(ctx context.Context, sessionID, userID, serverName, issuer, resource, scope string) (*AuthChallenge, error)
+	CreateAuthChallenge(ctx context.Context, params AuthChallengeParams) (*AuthChallenge, error)
 
 	// GetHTTPHandler returns the HTTP handler for OAuth callback endpoints.
 	GetHTTPHandler() http.Handler

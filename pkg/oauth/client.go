@@ -148,10 +148,25 @@ func (c *Client) doDiscoverMetadata(ctx context.Context, issuer string) (*Metada
 		}
 	}
 
-	var lastErr error
+	var lastErr, identityErr error
 	for _, wellKnownURL := range candidates {
 		metadata, err := c.fetchMetadata(ctx, wellKnownURL)
 		if err == nil {
+			// RFC 8414 §3.3: the issuer in the document must equal the
+			// issuer the document was fetched for. Without this check a
+			// server can name any issuer it likes, and every later
+			// comparison against metadata.Issuer (the RFC 9207 `iss`
+			// check, audience binding) inherits that claim.
+			if err := verifyIssuerIdentity(issuer, metadata.Issuer); err != nil {
+				c.logger.Warn("AS metadata rejected: issuer identity mismatch",
+					"issuer", issuer,
+					"url", wellKnownURL,
+					"error", err)
+				if identityErr == nil {
+					identityErr = err
+				}
+				continue
+			}
 			c.cacheMetadata(issuer, metadata)
 			return metadata, nil
 		}
@@ -161,7 +176,27 @@ func (c *Client) doDiscoverMetadata(ctx context.Context, issuer string) (*Metada
 			"error", err)
 		lastErr = err
 	}
+	// A served document that fails the identity check is the more specific
+	// diagnosis than a 404 on a well-known form the server does not use, so
+	// it wins when both happened.
+	if identityErr != nil {
+		return nil, identityErr
+	}
 	return nil, fmt.Errorf("failed to discover OAuth metadata for %s: %w", issuer, lastErr)
+}
+
+// verifyIssuerIdentity applies the RFC 8414 §3.3 self-verification: the
+// `issuer` value in the metadata document must identify the authorization
+// server the document was retrieved for. A trailing slash on either side is
+// not a difference; nothing else is normalized.
+func verifyIssuerIdentity(requested, advertised string) error {
+	if advertised == "" {
+		return fmt.Errorf("AS metadata for %q carries no issuer (RFC 8414 §3.3)", requested)
+	}
+	if strings.TrimSuffix(advertised, "/") != strings.TrimSuffix(requested, "/") {
+		return fmt.Errorf("AS metadata issuer mismatch: fetched for %q but the document reports %q (RFC 8414 §3.3)", requested, advertised)
+	}
+	return nil
 }
 
 // fetchMetadata fetches metadata from a specific URL.

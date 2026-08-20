@@ -185,7 +185,10 @@ still needs to follow the rules.
   cannot be attributed to the expected authorization server is rejected
   whole, error parameters included. The expected value is the issuer from
   the server's own metadata, falling back to `OAuthState.Issuer`; the
-  comparison is a simple string comparison with no normalization.
+  comparison is a simple string comparison with no normalization. The
+  metadata is trustworthy for that comparison because
+  `pkg/oauth.Client.DiscoverMetadata` applies the RFC 8414 §3.3 identity
+  check and refuses a document whose `issuer` names a different server.
 - **Metadata side: implemented.** `pkg/oauth/types.go` `Metadata` carries
   `authorization_response_iss_parameter_supported`, and both the proxy and
   the agent refuse a response that omits `iss` when the server advertises
@@ -309,26 +312,7 @@ still needs to follow the rules.
 
 Concrete work items, grouped by SEP and ordered by risk:
 
-1. **SEP-2468 — server-side proxy `iss` validation (highest priority). Done.**
-   - In [internal/oauth/handler.go](../../../internal/oauth/handler.go)
-     `HandleCallback`, extract `r.URL.Query().Get("iss")` alongside
-     `code` / `state`.
-   - Compare against `state.Issuer` (and against the discovered
-     `Metadata.Issuer` when available — SEP-2468 mandates an exact match
-     against the issuer-metadata document the client validated per RFC
-     8414 §3.3). Mirror the agent's "empty = not advertised, present =
-     must match" rule
-     ([internal/agent/oauth/client.go](../../../internal/agent/oauth/client.go)
-     lines 299-318).
-   - On mismatch: render the existing error page and abort *before*
-     calling `ExchangeCode`, identical to the agent's
-     `cancelCurrentFlow()` path.
-   - Add an `IssParameterSupported bool` field to
-     [pkg/oauth/types.go](../../../pkg/oauth/types.go) `Metadata` so the
-     parsed metadata reflects the AS flag and enables a future tightening
-     to "reject when absent and advertised".
-
-2. **SEP-837 — `application_type` plumbed through CIMD and (future) DCR.**
+1. **SEP-837 — `application_type` plumbed through CIMD and (future) DCR.**
    - Add an optional `ApplicationType string` field to
      [pkg/oauth/types.go](../../../pkg/oauth/types.go) `ClientMetadata`.
    - The server-side proxy's CIMD is published at the public muster URL
@@ -341,7 +325,7 @@ Concrete work items, grouped by SEP and ordered by risk:
      `cmd/auth_login.go` and `cmd/auth_helpers.go` are the right seam to
      thread that intent through `internal/agent/oauth/client.go`.
 
-3. **SEP-2207 — opportunistic `offline_access` for the server-side proxy.**
+2. **SEP-2207 — opportunistic `offline_access` for the server-side proxy.**
    - In
      [internal/oauth/client.go](../../../internal/oauth/client.go)
      `GenerateAuthURL`, after `DiscoverMetadata`, check whether the
@@ -356,7 +340,7 @@ Concrete work items, grouped by SEP and ordered by risk:
      (`internal/aggregator/auth_resource.go` /
      `internal/aggregator/auth_tools.go`).
 
-4. **SEP-2350 — scope accumulation in the outbound retry.**
+3. **SEP-2350 — scope accumulation in the outbound retry.**
    - Where muster sees an upstream `insufficient_scope` from a remote MCP
      server, look up the existing tokens for that
      `(SessionID, Issuer, *)` via
@@ -372,7 +356,7 @@ Concrete work items, grouped by SEP and ordered by risk:
      hierarchy collapsing on the client side (the AS handles that — see
      SEP-2350's note).
 
-5. **SEP-2352 — explicit error on AS migration.**
+4. **SEP-2352 — explicit error on AS migration.**
    - In `Manager.RegisterServer`
      ([internal/oauth/manager.go](../../../internal/oauth/manager.go)
      lines 179-196), when an existing entry's `Issuer` does not match
@@ -388,7 +372,7 @@ Concrete work items, grouped by SEP and ordered by risk:
      [internal/oauth/doc.go](../../../internal/oauth/doc.go) — it is the
      primary architectural reason the SEP-2352 burden on muster is small.
 
-6. **SEP-2351 — documentation only.**
+5. **SEP-2351 — documentation only.**
    - No behavioural change. When updating any user-facing docs that
      mention the well-known suffix
      (`docs/contributing/testing/oauth-testing.md` and decision record

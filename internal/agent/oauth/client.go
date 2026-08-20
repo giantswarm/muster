@@ -54,6 +54,13 @@ type AuthFlowOptions struct {
 	// IDTokenHint is a previously issued ID token as a hint about the user's session.
 	// Used with Silent=true to identify the user for silent re-authentication.
 	IDTokenHint string
+
+	// Resource is the RFC 8707 resource indicator for the muster server the
+	// flow obtains a token for. The value belongs to the server: it is the
+	// `resource` field of the server's RFC 9728 protected resource metadata.
+	// Empty falls back to the canonical form of the server URL, which is
+	// correct only while the two agree.
+	Resource string
 }
 
 // AuthFlow represents an in-progress OAuth authorization flow.
@@ -233,13 +240,13 @@ func (c *Client) StartAuthFlowWithOptions(ctx context.Context, serverURL, issuer
 		return "", fmt.Errorf("failed to start callback server: %w", err)
 	}
 
-	// The agent's protected resource is the muster server it signs in to.
-	// It exposes no RFC 9728 `resource` value of its own, so the canonical
-	// form of the configured server URL is the identifier.
-	resource, err := pkgoauth.CanonicalResourceURI(serverURL)
+	// The muster server declares its own RFC 8707 identifier in its RFC 9728
+	// metadata, and validates incoming tokens against that value. Prefer it;
+	// derive from the server URL only when the metadata omits it.
+	resource, err := resourceIndicator(opts, serverURL)
 	if err != nil {
 		callbackServer.Stop()
-		return "", fmt.Errorf("cannot derive an RFC 8707 resource indicator from %q: %w", serverURL, err)
+		return "", err
 	}
 
 	// Store the flow
@@ -457,6 +464,26 @@ func (c *Client) discoverOAuthMetadata(ctx context.Context, issuerURL string) (*
 // DefaultAgentClientID is the CIMD URL for the Muster Agent.
 // This is hosted on GitHub Pages and serves as the client_id for OAuth.
 const DefaultAgentClientID = "https://giantswarm.github.io/muster/muster-agent.json"
+
+// resourceIndicator returns the RFC 8707 `resource` value for a flow: the URI
+// the server declares in its RFC 9728 metadata when the caller discovered one,
+// and the canonical form of the server URL otherwise. Both are canonicalized,
+// so a declared value that carries a trailing slash still matches.
+func resourceIndicator(opts *AuthFlowOptions, serverURL string) (string, error) {
+	if opts != nil && opts.Resource != "" {
+		canonical, err := pkgoauth.CanonicalResourceURI(opts.Resource)
+		if err != nil {
+			return "", fmt.Errorf("the server declares an unusable RFC 8707 resource %q: %w", opts.Resource, err)
+		}
+		return canonical, nil
+	}
+
+	canonical, err := pkgoauth.CanonicalResourceURI(serverURL)
+	if err != nil {
+		return "", fmt.Errorf("cannot derive an RFC 8707 resource indicator from %q: %w", serverURL, err)
+	}
+	return canonical, nil
+}
 
 // buildAuthorizationURLWithOptions constructs the OAuth authorization URL with optional OIDC parameters.
 // The opts parameter allows setting prompt, login_hint, id_token_hint, and other OIDC parameters.

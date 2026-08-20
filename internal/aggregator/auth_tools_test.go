@@ -53,7 +53,7 @@ func (m *issuerMockOAuthHandler) DeleteTokensByUser(_ string) {
 func (m *issuerMockOAuthHandler) DeleteTokensBySession(_ string) {
 }
 
-func (m *issuerMockOAuthHandler) CreateAuthChallenge(_ context.Context, _, _, _, _, _, _ string) (*api.AuthChallenge, error) {
+func (m *issuerMockOAuthHandler) CreateAuthChallenge(_ context.Context, _ api.AuthChallengeParams) (*api.AuthChallenge, error) {
 	return nil, nil
 }
 
@@ -344,6 +344,53 @@ func TestResourceIndicator(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := resourceIndicator(tc.declaredResource, tc.serverURL); got != tc.want {
 				t.Errorf("expected %q, got %q", tc.want, got)
+			}
+		})
+	}
+}
+
+func TestNeedsResourceMetadata(t *testing.T) {
+	tests := []struct {
+		name      string
+		authInfo  AuthInfo
+		serverURL string
+		want      bool
+	}{
+		{
+			name:      "resource missing although the 401 supplied issuer and scope",
+			authInfo:  AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
+			serverURL: "https://backend.example.com/mcp",
+			want:      true,
+		},
+		{
+			name:      "nothing left to discover",
+			authInfo:  AuthInfo{Issuer: "https://dex.example.com", Scope: "openid", Resource: "https://backend.example.com/mcp"},
+			serverURL: "https://backend.example.com/mcp",
+			want:      false,
+		},
+		{
+			name:      "issuer missing",
+			authInfo:  AuthInfo{Scope: "openid", Resource: "https://backend.example.com/mcp"},
+			serverURL: "https://backend.example.com/mcp",
+			want:      true,
+		},
+		{
+			name:      "scope missing",
+			authInfo:  AuthInfo{Issuer: "https://dex.example.com", Resource: "https://backend.example.com/mcp"},
+			serverURL: "https://backend.example.com/mcp",
+			want:      true,
+		},
+		{
+			name:     "no URL to probe",
+			authInfo: AuthInfo{},
+			want:     false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := needsResourceMetadata(&tc.authInfo, tc.serverURL); got != tc.want {
+				t.Errorf("expected %v, got %v", tc.want, got)
 			}
 		})
 	}

@@ -195,11 +195,12 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		authInfo = &AuthInfo{}
 	}
 
-	// If issuer or scope is empty, try to discover it from the server's resource metadata.
-	// When spec.auth.authorizationServer is set on the MCPServer CR, the override
-	// branch in discoverProtectedResourceMetadata bypasses PRM probing and uses
-	// the operator-pinned issuer directly (with RFC 8414 §3.3 self-verification).
-	if (authInfo.Issuer == "" || authInfo.Scope == "") && serverInfo.URL != "" {
+	// Fill in whatever the flow still lacks from the server's resource
+	// metadata. When spec.auth.authorizationServer is set on the MCPServer CR,
+	// the override branch in discoverProtectedResourceMetadata bypasses PRM
+	// probing and uses the operator-pinned issuer directly (with RFC 8414 §3.3
+	// self-verification).
+	if needsResourceMetadata(authInfo, serverInfo.URL) {
 		var override *api.MCPServerAuthAuthorizationServer
 		if serverInfo.AuthConfig != nil {
 			override = serverInfo.AuthConfig.AuthorizationServer
@@ -284,8 +285,14 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 	}
 
 	// No token or token was cleared - need to create an auth challenge
-	resource := resourceIndicator(authInfo.Resource, serverInfo.URL)
-	challenge, err := oauthHandler.CreateAuthChallenge(ctx, sessionID, sub, serverName, authInfo.Issuer, resource, authInfo.Scope)
+	challenge, err := oauthHandler.CreateAuthChallenge(ctx, api.AuthChallengeParams{
+		SessionID:  sessionID,
+		UserID:     sub,
+		ServerName: serverName,
+		Issuer:     authInfo.Issuer,
+		Resource:   resourceIndicator(authInfo.Resource, serverInfo.URL),
+		Scope:      authInfo.Scope,
+	})
 	if err != nil {
 		logging.Error("AuthTools", err, "Failed to create auth challenge for server %s", serverName)
 		if p.aggregator.authMetrics != nil {
@@ -299,6 +306,19 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 
 	// Return the auth challenge as a tool result with the sign-in link
 	return authChallengeResult(serverName, challenge), nil
+}
+
+// needsResourceMetadata reports whether an RFC 9728 probe can still add
+// something to the flow. The 401 path supplies issuer and scope from the
+// authorization server metadata but never the resource identifier, so the
+// resource belongs in this condition: without it muster falls back to the
+// configured URL even for a backend that declares a different canonical URI,
+// and binds the token to an identifier the backend does not answer to.
+func needsResourceMetadata(authInfo *AuthInfo, serverURL string) bool {
+	if serverURL == "" {
+		return false
+	}
+	return authInfo.Issuer == "" || authInfo.Scope == "" || authInfo.Resource == ""
 }
 
 // resourceIndicator returns the RFC 8707 `resource` value for a backend: the

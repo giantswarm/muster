@@ -392,7 +392,7 @@ func (d *deleteCaptureMockHandler) DeleteTokensByUser(userID string) {
 	}
 }
 func (d *deleteCaptureMockHandler) DeleteTokensBySession(_ string) {}
-func (d *deleteCaptureMockHandler) CreateAuthChallenge(_ context.Context, _, _, _, _, _, _ string) (*api.AuthChallenge, error) {
+func (d *deleteCaptureMockHandler) CreateAuthChallenge(_ context.Context, _ api.AuthChallengeParams) (*api.AuthChallenge, error) {
 	return nil, nil
 }
 func (d *deleteCaptureMockHandler) GetHTTPHandler() http.Handler      { return nil }
@@ -441,7 +441,7 @@ func (c *clearCaptureMockHandler) ClearTokenByIssuer(sessionID, issuer string) {
 }
 func (c *clearCaptureMockHandler) DeleteTokensByUser(_ string)    {}
 func (c *clearCaptureMockHandler) DeleteTokensBySession(_ string) {}
-func (c *clearCaptureMockHandler) CreateAuthChallenge(_ context.Context, _, _, _, _, _, _ string) (*api.AuthChallenge, error) {
+func (c *clearCaptureMockHandler) CreateAuthChallenge(_ context.Context, _ api.AuthChallengeParams) (*api.AuthChallenge, error) {
 	return nil, nil
 }
 func (c *clearCaptureMockHandler) GetHTTPHandler() http.Handler      { return nil }
