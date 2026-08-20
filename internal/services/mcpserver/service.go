@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"net"
+	"os"
 	"reflect"
 	"slices"
 	"strings"
@@ -29,13 +30,28 @@ const UnreachableThreshold = 3
 
 // Exponential backoff configuration for unreachable servers.
 const (
-	// InitialBackoff is the initial retry interval after first failure (30 seconds)
-	InitialBackoff = 30 * time.Second
 	// MaxBackoff is the maximum retry interval (30 minutes)
 	MaxBackoff = 30 * time.Minute
 	// BackoffMultiplier is the factor by which backoff increases on each failure
 	BackoffMultiplier = 2.0
 )
+
+// InitialBackoff is the initial retry interval after the first connection
+// failure. Overridable via MUSTER_MCPSERVER_INITIAL_BACKOFF (a Go duration,
+// e.g. "1s") so the integration test harness can recover from transient
+// connect failures without waiting out production backoff.
+var InitialBackoff = durationFromEnv("MUSTER_MCPSERVER_INITIAL_BACKOFF", 30*time.Second)
+
+// durationFromEnv reads a Go duration from the named environment variable,
+// falling back to def when unset or unparsable.
+func durationFromEnv(name string, def time.Duration) time.Duration {
+	if v := os.Getenv(name); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
+		}
+	}
+	return def
+}
 
 // RestartGracePeriod is the pause between stop and start during a restart.
 // This allows time for:
