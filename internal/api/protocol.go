@@ -6,3 +6,9 @@ package api
 // initialize handshake cannot negotiate. Changing eras is a reviewed change,
 // not a dependency bump.
 const OutboundProtocolVersion = "2025-11-25"
+
+// ServiceDataProtocolVersion is the GetServiceData key under which an MCP
+// server service reports the revision its backend answered with. Both
+// core_service_status (via ServiceStatus.Metadata) and core_mcpserver_get
+// (via MCPServerInfo.ProtocolVersion) read it from here.
+const ServiceDataProtocolVersion = "protocolVersion"
