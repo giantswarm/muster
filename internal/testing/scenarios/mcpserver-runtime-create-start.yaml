@@ -1,0 +1,114 @@
+name: "mcpserver-runtime-create-start"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "create", "lifecycle", "service-management", "core-api", "regression"]
+timeout: "3m"
+
+# Test Story: MCPServer definitions created at runtime become startable services
+# Regression test for issue #680: MCPServer CRs applied while muster was running
+# were never registered in the orchestrator's service registry (registration only
+# happened at boot), so starting them failed with "service not found" until the
+# process was restarted.
+#
+# Given: A live mock MCP endpoint (from a pre-configured server)
+# When: I create a brand-new MCPServer definition at runtime pointing at that
+#       endpoint and start it
+# Then: The service starts, connects, and its tools are callable -- without a
+#       muster restart
+
+pre_configuration:
+  mcp_servers:
+    - name: "runtime-reg-mock"
+      config:
+        type: "streamable-http"
+        tools:
+          - name: "runtime_test_tool"
+            description: "A tool used to verify runtime-created server connectivity"
+            input_schema:
+              type: "object"
+              properties:
+                message: { type: "string" }
+            responses:
+              - response:
+                  message: "{{ .message }}"
+                  server: "runtime-reg-mock"
+                  status: "executed"
+
+steps:
+  # Phase 1: Grab the live mock endpoint URL from the pre-configured server
+  - id: "get-mock-endpoint"
+    description: "Read the pre-configured mock server to obtain its live endpoint URL"
+    tool: "core_mcpserver_get"
+    args:
+      name: "runtime-reg-mock"
+    expected:
+      success: true
+      json_path:
+        name: "runtime-reg-mock"
+        type: "streamable-http"
+
+  # Phase 2: Create a brand-new MCPServer definition at runtime (simulates a CR
+  # applied via kubectl while muster serve is already running)
+  - id: "create-runtime-mcpserver"
+    description: "Create a new MCPServer definition after muster has booted"
+    tool: "core_mcpserver_create"
+    args:
+      name: "runtime-created-server"
+      type: "streamable-http"
+      autoStart: true
+      url: "{{ get-mock-endpoint.url }}"
+      timeout: 30
+    expected:
+      success: true
+
+  # Phase 3: Start it. Before the #680 fix this failed with
+  # "service runtime-created-server not found" because the service was never
+  # registered in the orchestrator's registry.
+  - id: "start-runtime-mcpserver"
+    description: "Start the runtime-created MCPServer service"
+    tool: "core_service_start"
+    args:
+      name: "runtime-created-server"
+    expected:
+      success: true
+
+  - id: "verify-runtime-mcpserver-connected"
+    description: "Verify the runtime-created server reaches connected state"
+    tool: "core_service_status"
+    args:
+      name: "runtime-created-server"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "runtime-created-server"
+        state: "connected"
+
+  # Phase 4: Prove the server is actually usable end to end
+  - id: "call-tool-on-runtime-mcpserver"
+    description: "Call a tool exposed by the runtime-created server"
+    tool: "x_runtime-created-server_runtime_test_tool"
+    args:
+      message: "created-after-boot"
+    expected:
+      success: true
+      contains: ["created-after-boot", "executed"]
+
+cleanup:
+  - id: "cleanup-stop-runtime-mcpserver"
+    description: "Stop the runtime-created MCPServer service"
+    tool: "core_service_stop"
+    args:
+      name: "runtime-created-server"
+    expected:
+      success: true
+    continue_on_failure: true
+
+  - id: "cleanup-delete-runtime-mcpserver"
+    description: "Delete the runtime-created MCPServer definition"
+    tool: "core_mcpserver_delete"
+    args:
+      name: "runtime-created-server"
+    expected:
+      success: true
+    continue_on_failure: true
