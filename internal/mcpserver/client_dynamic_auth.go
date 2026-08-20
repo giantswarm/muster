@@ -114,6 +114,7 @@ func (c *DynamicAuthClient) Initialize(ctx context.Context) error {
 
 	c.client = mcpClient
 	c.connected = true
+	c.negotiatedProtocolVersion = initResult.ProtocolVersion
 	c.wireNotificationHandler()
 
 	logging.Debug("DynamicAuthClient", "StreamableHTTP client initialized with OAuth handler. Server: %s, Version: %s",

@@ -96,6 +96,7 @@ func (c *StdioClient) Initialize(ctx context.Context) error {
 
 	c.client = mcpClient
 	c.connected = true
+	c.negotiatedProtocolVersion = initResult.ProtocolVersion
 	c.wireNotificationHandler()
 
 	// Log server capabilities

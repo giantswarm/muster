@@ -3,7 +3,8 @@ description: |
   Pin the MCP handshake muster negotiates on both sides (issues #1029, #1030).
 
   Outbound: muster's client must ask a downstream server for protocol version
-  2025-11-25 (api.OutboundProtocolVersion). The old pin, 2024-11-05, predates
+  2025-11-25 (api.OutboundProtocolVersion), and must report the revision the
+  server answered with per backend. The old pin, 2024-11-05, predates
   structuredContent, outputSchema, and elicitation, so a strict downstream
   server may withhold all three. Both transports are probed because each
   builds its own initialize request.
@@ -52,7 +53,7 @@ pre_configuration:
 
 steps:
   - id: "wait-for-probe-http"
-    description: "The streamable-http downstream server is running"
+    description: "The streamable-http server is connected on the negotiated revision"
     tool: "core_service_status"
     args:
       name: "probe-http"
@@ -61,9 +62,10 @@ steps:
       wait_for_state: "30s"
       json_path:
         state: "connected"
+        metadata.protocolVersion: "2025-11-25"
 
   - id: "wait-for-probe-stdio"
-    description: "The stdio downstream server is running"
+    description: "The stdio server is connected on the negotiated revision"
     tool: "core_service_status"
     args:
       name: "probe-stdio"
@@ -72,6 +74,7 @@ steps:
       wait_for_state: "30s"
       json_path:
         state: "running"
+        metadata.protocolVersion: "2025-11-25"
 
   - id: "outbound-handshake-streamable-http"
     description: "muster asked the streamable-http server for 2025-11-25, and the call returns its content"

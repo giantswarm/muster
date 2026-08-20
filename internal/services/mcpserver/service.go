@@ -494,6 +494,11 @@ func (s *Service) GetServiceData() map[string]interface{} {
 	if s.client != nil {
 		data["client"] = s.client
 		data["clientReady"] = true
+		// The negotiated revision can be older than the one muster asks for,
+		// so it is reported per backend rather than assumed.
+		if versioned, ok := s.client.(interface{ NegotiatedProtocolVersion() string }); ok {
+			data["protocolVersion"] = versioned.NegotiatedProtocolVersion()
+		}
 	} else {
 		data["clientReady"] = false
 	}

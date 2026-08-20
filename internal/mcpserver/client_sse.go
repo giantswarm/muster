@@ -91,6 +91,7 @@ func (c *SSEClient) Initialize(ctx context.Context) error {
 
 	c.client = mcpClient
 	c.connected = true
+	c.negotiatedProtocolVersion = initResult.ProtocolVersion
 	c.wireNotificationHandler()
 
 	logging.Debug("SSEClient", "SSE client initialized. Server: %s, Version: %s",

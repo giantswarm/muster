@@ -35,6 +35,11 @@ type MCPClient interface {
 	// sends a JSON-RPC notification (e.g. notifications/tools/list_changed).
 	// The handler is wired to the underlying mcp-go client during Initialize.
 	OnNotification(handler func(mcp.JSONRPCNotification))
+	// NegotiatedProtocolVersion returns the MCP revision the server answered
+	// with during the handshake, or "" before a successful Initialize. It can
+	// be older than api.OutboundProtocolVersion: a server that supports only
+	// an earlier revision answers with that one, and the client accepts it.
+	NegotiatedProtocolVersion() string
 }
 
 // Compile-time interface compliance checks
@@ -52,6 +57,11 @@ type baseMCPClient struct {
 	client    client.MCPClient
 	mu        sync.RWMutex
 	connected bool
+
+	// negotiatedProtocolVersion holds the protocolVersion from the initialize
+	// response. mcp-go keeps it in a private field with no accessor, so each
+	// transport records it here as it completes the handshake.
+	negotiatedProtocolVersion string
 
 	notifMu      sync.Mutex
 	notifHandler func(mcp.JSONRPCNotification)
@@ -79,8 +89,21 @@ func (b *baseMCPClient) closeClient() error {
 	err := b.client.Close()
 	b.connected = false
 	b.client = nil
+	b.negotiatedProtocolVersion = ""
 
 	return err
+}
+
+// NegotiatedProtocolVersion returns the MCP revision the server answered with
+// during the handshake, or "" when the client is not connected.
+func (b *baseMCPClient) NegotiatedProtocolVersion() string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if !b.connected {
+		return ""
+	}
+	return b.negotiatedProtocolVersion
 }
 
 // listTools returns all available tools from the server

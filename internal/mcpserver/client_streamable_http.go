@@ -113,6 +113,7 @@ func (c *StreamableHTTPClient) Initialize(ctx context.Context) error {
 
 	c.client = mcpClient
 	c.connected = true
+	c.negotiatedProtocolVersion = initResult.ProtocolVersion
 	c.wireNotificationHandler()
 
 	logging.Debug("StreamableHTTPClient", "StreamableHTTP client initialized. Server: %s, Version: %s",
