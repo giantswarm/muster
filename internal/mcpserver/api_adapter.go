@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	oauthhandler "github.com/giantswarm/mcp-oauth/handler"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -195,7 +196,23 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 	// Generate user-friendly status message based on state and error
 	info.StatusMessage = generateStatusMessage(info.State, info.Error, server.Name)
 
+	info.RegisteredBy = server.Annotations[api.RegisteredByAnnotation]
+
 	return info
+}
+
+// subjectFromContext resolves the authenticated caller's subject, mirroring the
+// aggregator's resolution order: the injector middleware's context key first,
+// then the mcp-oauth UserInfo (which survives middleware early-exit paths).
+// Returns "" for unauthenticated transports (stdio, plain HTTP).
+func subjectFromContext(ctx context.Context) string {
+	if sub := api.GetSubjectFromContext(ctx); sub != "" {
+		return sub
+	}
+	if userInfo, ok := oauthhandler.UserInfoFromContext(ctx); ok && userInfo != nil {
+		return userInfo.ID
+	}
+	return ""
 }
 
 // generateStatusMessage creates a user-friendly, actionable status message
@@ -496,7 +513,7 @@ func (a *Adapter) ExecuteTool(ctx context.Context, toolName string, args map[str
 	case "mcpserver_validate":
 		return a.handleMCPServerValidate(args)
 	case "mcpserver_create":
-		return a.handleMCPServerCreate(args)
+		return a.handleMCPServerCreate(ctx, args)
 	case "mcpserver_update":
 		return a.handleMCPServerUpdate(args)
 	case "mcpserver_delete":
@@ -632,7 +649,7 @@ func (a *Adapter) handleMCPServerValidate(args map[string]interface{}) (*api.Cal
 	}, nil
 }
 
-func (a *Adapter) handleMCPServerCreate(args map[string]interface{}) (*api.CallToolResult, error) {
+func (a *Adapter) handleMCPServerCreate(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
 	var req api.MCPServerCreateRequest
 	if err := api.ParseRequest(args, &req); err != nil {
 		return &api.CallToolResult{
@@ -644,13 +661,19 @@ func (a *Adapter) handleMCPServerCreate(args map[string]interface{}) (*api.CallT
 	// Convert request to CRD once for reuse
 	serverCRD := a.convertRequestToCRD(&req)
 
+	// Stamp the authenticated subject so registration is attributable even for
+	// clients that don't stamp it themselves (issue #1021). Update preserves it
+	// via its get-modify-update flow.
+	if subject := subjectFromContext(ctx); subject != "" {
+		serverCRD.Annotations = map[string]string{api.RegisteredByAnnotation: subject}
+	}
+
 	// Validate the definition
 	if err := a.validateMCPServer(serverCRD); err != nil {
 		return simpleError(fmt.Sprintf("Invalid MCP server definition: %v", err))
 	}
 
 	// Create the new MCP server using the unified client
-	ctx := context.Background()
 	if err := a.client.CreateMCPServer(ctx, serverCRD); err != nil {
 		if errors.IsAlreadyExists(err) {
 			return simpleError(fmt.Sprintf("MCP server '%s' already exists", req.Name))
