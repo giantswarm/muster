@@ -392,6 +392,11 @@ type MusterInstanceManager interface {
 	// WaitForReady waits for an instance to be ready to accept connections.
 	// The logger parameter allows scenario-specific logging with prefixes for parallel execution.
 	WaitForReady(ctx context.Context, instance *MusterInstance, logger TestLogger) error
+	// InstanceExitStatus reports whether the instance's muster serve process has
+	// already exited, and with what result. Used to distinguish "step failed
+	// against a live instance" from "the instance died mid-scenario" in failure
+	// reports.
+	InstanceExitStatus(instance *MusterInstance) (exited bool, waitErr error)
 }
 
 // TestStep defines a single step within a test scenario
