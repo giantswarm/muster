@@ -644,7 +644,9 @@ func (r *testRunner) runTestToolStep(ctx context.Context, step TestStep, config 
 	return result
 }
 
-// validateTestToolExpectations validates expectations for test tool results.
+// validateTestToolExpectations validates expectations for test tool results:
+// success, error_contains, contains, and json_path. not_contains is not
+// evaluated here.
 func (r *testRunner) validateTestToolExpectations(expected TestExpectation, response interface{}, err error, logger TestLogger) bool {
 	// Determine if there's an error - either from Go error or from response isError field
 	hasError := err != nil
@@ -720,6 +722,33 @@ func (r *testRunner) validateTestToolExpectations(expected TestExpectation, resp
 					logger.Debug("❌ Test tool response does not contain expected text '%s'\n", expectedText)
 				}
 				return false
+			}
+		}
+
+		// Check JSON path expectations
+		if len(expected.JSONPath) > 0 {
+			if responseMap == nil {
+				if r.debug {
+					logger.Debug("❌ JSON path validation failed: test tool response is not a JSON object (type %T)\n", response)
+				}
+				return false
+			}
+
+			for jsonPath, expectedValue := range expected.JSONPath {
+				actualValue, exists := r.resolveJSONPath(responseMap, jsonPath)
+				if !exists {
+					if r.debug {
+						logger.Debug("❌ JSON path '%s' not found in test tool response\n", jsonPath)
+					}
+					return false
+				}
+
+				if !r.compareValuesEnhanced(actualValue, expectedValue) {
+					if r.debug {
+						logger.Debug("❌ JSON path '%s': expected %v, got %v\n", jsonPath, expectedValue, actualValue)
+					}
+					return false
+				}
 			}
 		}
 	}

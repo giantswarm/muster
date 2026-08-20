@@ -25,6 +25,21 @@ type Server struct {
 	mcpServer      *server.MCPServer
 	debug          bool
 	mu             sync.RWMutex
+
+	// clientProtocolVersion and clientName record the initialize request the
+	// connecting client sent, which echo_handshake tools report back. mcp-go
+	// echoes any revision from mcp.ValidProtocolVersions straight back to the
+	// client, so the response alone cannot tell an asked-for revision apart
+	// from one the server chose; the request is the only place the caller's
+	// own ask is observable.
+	clientProtocolVersion string
+	clientName            string
+
+	// protocolVersion, when set, replaces the revision mcp-go would answer
+	// initialize with. It makes the mock stand in for a backend that supports
+	// only an older revision, which is otherwise unreachable because mcp-go
+	// echoes whatever the client asked for.
+	protocolVersion string
 }
 
 // NewServerFromFile creates a new mock MCP server from a configuration file
@@ -37,7 +52,8 @@ func NewServerFromFile(configPath string, debug bool) (*Server, error) {
 
 	// Parse the config structure that contains tools directly
 	var configData struct {
-		Tools []ToolConfig `yaml:"tools"`
+		Tools           []ToolConfig `yaml:"tools"`
+		ProtocolVersion string       `yaml:"protocol_version"`
 	}
 	if err := yaml.Unmarshal(content, &configData); err != nil {
 		return nil, fmt.Errorf("failed to parse mock config file %s: %w", configPath, err)
@@ -47,22 +63,38 @@ func NewServerFromFile(configPath string, debug bool) (*Server, error) {
 	name := filepath.Base(configPath)
 	name = strings.TrimSuffix(name, filepath.Ext(name))
 
+	hooks := &server.Hooks{}
+	mockServer := &Server{
+		name:            name,
+		tools:           configData.Tools,
+		toolHandlers:    make(map[string]*ToolHandler),
+		templateEngine:  template.New(),
+		debug:           debug,
+		protocolVersion: configData.ProtocolVersion,
+	}
+	hooks.AddBeforeInitialize(func(_ context.Context, _ any, req *mcp.InitializeRequest) {
+		mockServer.mu.Lock()
+		mockServer.clientProtocolVersion = req.Params.ProtocolVersion
+		mockServer.clientName = req.Params.ClientInfo.Name
+		mockServer.mu.Unlock()
+	})
+	if configData.ProtocolVersion != "" {
+		// mcp-go builds the result, runs this hook, then serialises it, so
+		// overwriting the field here is what the client sees.
+		hooks.AddAfterInitialize(func(_ context.Context, _ any, _ *mcp.InitializeRequest, result *mcp.InitializeResult) {
+			result.ProtocolVersion = configData.ProtocolVersion
+		})
+	}
+
 	mcpServer := server.NewMCPServer(
 		fmt.Sprintf("mock-%s", name),
 		"1.0.0",
 		server.WithToolCapabilities(true),
 		server.WithResourceCapabilities(false, false),
 		server.WithPromptCapabilities(false),
+		server.WithHooks(hooks),
 	)
-
-	mockServer := &Server{
-		name:           name,
-		tools:          configData.Tools,
-		toolHandlers:   make(map[string]*ToolHandler),
-		templateEngine: template.New(),
-		mcpServer:      mcpServer,
-		debug:          debug,
-	}
+	mockServer.mcpServer = mcpServer
 
 	// Initialize tool handlers and register tools
 	for _, toolConfig := range configData.Tools {
@@ -122,6 +154,24 @@ func (s *Server) createToolHandler(toolName string) func(context.Context, mcp.Ca
 		result, err := handler.HandleCall(args)
 		if err != nil {
 			return nil, err
+		}
+
+		// echo_handshake tools report the initialize request muster's outbound
+		// client sent, so scenarios can pin the negotiated protocol version.
+		if handler.config.EchoHandshake {
+			s.mu.RLock()
+			version, clientName := s.clientProtocolVersion, s.clientName
+			s.mu.RUnlock()
+			echo := map[string]interface{}{
+				"response":                result,
+				"client_protocol_version": version,
+				"client_name":             clientName,
+			}
+			jsonBytes, mErr := json.Marshal(echo)
+			if mErr != nil {
+				return nil, fmt.Errorf("failed to marshal echo_handshake result for tool %s: %w", toolName, mErr)
+			}
+			return mcp.NewToolResultText(string(jsonBytes)), nil
 		}
 
 		// Convert result to MCP format

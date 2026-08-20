@@ -66,6 +66,9 @@ const (
 	// scenarios need this direct path. The meta-tool's JSON result is parsed and
 	// returned so scenarios can assert on it with json_path / contains.
 	TestToolCallMetaTool = "test_call_meta_tool"
+	// TestToolGetServerInfo returns the protocol version and server capabilities
+	// negotiated during the current session's initialize handshake.
+	TestToolGetServerInfo = "test_get_server_info"
 )
 
 // TestToolsHandler handles test-specific tools that operate on mock infrastructure.
@@ -182,6 +185,7 @@ func IsTestTool(toolName string) bool {
 		TestToolAddMockTool,
 		TestToolRemoveMockTool,
 		TestToolCallMetaTool,
+		TestToolGetServerInfo,
 		TestToolMintToken,
 		TestToolBrokerTokenExchange,
 		TestToolCallProtectedMCP,
@@ -228,6 +232,8 @@ func (h *TestToolsHandler) HandleTestTool(ctx context.Context, toolName string, 
 		return h.handleRemoveMockTool(ctx, args)
 	case TestToolCallMetaTool:
 		return h.handleCallMetaTool(ctx, args)
+	case TestToolGetServerInfo:
+		return h.handleGetServerInfo(ctx, args)
 	case TestToolMintToken:
 		return h.handleMintToken(ctx, args)
 	case TestToolBrokerTokenExchange:
@@ -1140,6 +1146,35 @@ func (h *TestToolsHandler) handleGetCurrentUser(ctx context.Context, args map[st
 		"available_users": available,
 		"total_users":     len(h.userClients),
 	}, nil
+}
+
+// handleGetServerInfo reports the protocol version and capabilities the
+// aggregator returned in the initialize response for the active session.
+func (h *TestToolsHandler) handleGetServerInfo(_ context.Context, _ map[string]interface{}) (interface{}, error) {
+	client := h.GetCurrentClient()
+	if client == nil {
+		return nil, fmt.Errorf("no MCP client available for user %q", h.currentUser)
+	}
+
+	initResult := client.InitializeResult()
+	if initResult == nil {
+		return nil, fmt.Errorf("MCP client for user %q has no initialize result", h.currentUser)
+	}
+
+	result := map[string]interface{}{
+		api.FieldSuccess:   true,
+		"protocol_version": initResult.ProtocolVersion,
+		"server_name":      initResult.ServerInfo.Name,
+		"has_tools":        initResult.Capabilities.Tools != nil,
+		"has_prompts":      initResult.Capabilities.Prompts != nil,
+		"has_resources":    initResult.Capabilities.Resources != nil,
+	}
+	if resources := initResult.Capabilities.Resources; resources != nil {
+		result["resources_subscribe"] = resources.Subscribe
+		result["resources_list_changed"] = resources.ListChanged
+	}
+
+	return result, nil
 }
 
 // handleSimulateMusterReauth simulates re-authentication to muster with a new token.

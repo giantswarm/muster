@@ -534,6 +534,9 @@ type MCPTestClient interface {
 	ListToolsWithSchemas(ctx context.Context) ([]mcp.Tool, error)
 	// ReadResource reads an MCP resource by URI
 	ReadResource(ctx context.Context, uri string) (*mcp.ReadResourceResult, error)
+	// InitializeResult returns the negotiated handshake result, or nil when the
+	// client is not connected.
+	InitializeResult() *mcp.InitializeResult
 	// Close closes the MCP connection
 	Close() error
 }
