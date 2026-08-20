@@ -232,16 +232,15 @@ capabilities via mcp-go's `ServerOption` API:
 
 ```go
 opts := []mcpserver.ServerOption{
-    mcpserver.WithToolCapabilities(true),           // Enable tool execution
-    mcpserver.WithResourceCapabilities(true, true), // Enable resources with subscribe and listChanged
-    mcpserver.WithPromptCapabilities(true),         // Enable prompt retrieval
-    mcpserver.WithToolFilter(a.sessionToolFilter),  // Return session-specific tools for OAuth servers
-    mcpserver.WithHooks(hooks),                     // Clean up subject-session mappings on disconnect
+    mcpserver.WithToolFilter(a.sessionToolFilter), // Return session-specific tools for OAuth servers
+    mcpserver.WithHooks(hooks),                    // Clean up subject-session mappings on disconnect
 }
+opts = append(opts, mcpServerCapabilityOptions()...)
 opts = append(opts, mcpServerOptions()...)
 mcpSrv := mcpserver.NewMCPServer("muster-aggregator", serverVersion, opts...)
 ```
-(see `internal/aggregator/server.go` lines 721–729; cited in
+(see `internal/aggregator/server.go` lines 777–783 and
+`internal/aggregator/server_options.go` lines 35–41; cited in
 [internal/aggregator/server.go](../../../internal/aggregator/server.go))
 
 There is no `WithExtensions(…)` call here, and there is no inbound
@@ -298,12 +297,8 @@ call:
 
 ```go
 initResult, err := mcpClient.Initialize(ctx, mcp.InitializeRequest{
-    Params: struct {
-        ProtocolVersion string                 `json:"protocolVersion"`
-        Capabilities    mcp.ClientCapabilities `json:"capabilities"`
-        ClientInfo      mcp.Implementation     `json:"clientInfo"`
-    }{
-        ProtocolVersion: "2024-11-05",
+    Params: mcp.InitializeParams{
+        ProtocolVersion: api.OutboundProtocolVersion,
         ClientInfo: mcp.Implementation{
             Name:    "muster-aggregator",
             Version: "1.0.0",
@@ -313,18 +308,18 @@ initResult, err := mcpClient.Initialize(ctx, mcp.InitializeRequest{
 })
 ```
 ([internal/mcpserver/client_streamable_http.go](../../../internal/mcpserver/client_streamable_http.go),
-lines 91–104; identical patterns at
+lines 92–101; identical patterns at
 [client_sse.go](../../../internal/mcpserver/client_sse.go) lines
-69–88,
+70–79,
 [client_stdio.go](../../../internal/mcpserver/client_stdio.go) lines
-75–88,
+76–85,
 [client_dynamic_auth.go](../../../internal/mcpserver/client_dynamic_auth.go)
-lines 93–106, and the agent's REPL client at
+lines 94–103, and the agent's REPL client at
 [internal/agent/client.go](../../../internal/agent/client.go) lines
-400–417). The `initResult` is consumed only for its `ServerInfo.Name`
-and `ServerInfo.Version` — `initResult.Capabilities.Extensions` (or
-whatever the upgraded mcp-go field will be called) is dropped on the
-floor.
+415–430). The `initResult` is consumed for its `ServerInfo.Name`,
+`ServerInfo.Version`, and `ProtocolVersion` —
+`initResult.Capabilities.Extensions` (or whatever the upgraded mcp-go
+field will be called) is dropped on the floor.
 
 For 2026-07-28 the outbound clients have to:
 
