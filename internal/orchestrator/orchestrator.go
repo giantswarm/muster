@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
@@ -23,8 +24,22 @@ const (
 	StopReasonDependency
 )
 
-// RetryInterval is the interval at which the orchestrator checks for failed servers to retry.
-const RetryInterval = 30 * time.Second
+// RetryInterval is the interval at which the orchestrator checks for failed
+// servers to retry. Overridable via MUSTER_ORCHESTRATOR_RETRY_INTERVAL (a Go
+// duration, e.g. "1s") so the integration test harness can pick up expired
+// backoffs promptly instead of waiting for the next production-length tick.
+var RetryInterval = durationFromEnv("MUSTER_ORCHESTRATOR_RETRY_INTERVAL", 30*time.Second)
+
+// durationFromEnv reads a Go duration from the named environment variable,
+// falling back to def when unset or unparsable.
+func durationFromEnv(name string, def time.Duration) time.Duration {
+	if v := os.Getenv(name); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
+		}
+	}
+	return def
+}
 
 // MaxConcurrentRetries limits the number of MCPServers that can be retried simultaneously.
 // This prevents a "thundering herd" scenario where many failed servers retry at once,

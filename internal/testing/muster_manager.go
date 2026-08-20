@@ -980,6 +980,16 @@ func (m *musterInstanceManager) startMusterProcess(ctx context.Context, configPa
 
 	cmd := exec.CommandContext(ctx, musterPath, args...) //nolint:gosec
 
+	// Under parallel load a first connect to a mock endpoint can fail
+	// transiently; with production timing that costs 30s initial backoff plus
+	// up to a 30s orchestrator tick before the retry, blowing past scenario
+	// wait_for_state budgets. Fast-retry inside the harness so transient
+	// failures recover in seconds.
+	cmd.Env = append(os.Environ(),
+		"MUSTER_MCPSERVER_INITIAL_BACKOFF=1s",
+		"MUSTER_ORCHESTRATOR_RETRY_INTERVAL=1s",
+	)
+
 	// Configure the process attributes (platform-specific)
 	configureProcAttr(cmd)
 
