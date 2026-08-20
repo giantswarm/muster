@@ -37,10 +37,11 @@ rules:
     resources: ["customresourcedefinitions"]
     verbs: ["get", "list", "watch"]
 
-  # Events - required for the core_events tool
+  # Events - required for the core_events tool; update/patch let the
+  # EventBroadcaster bump the count on repeated events instead of failing.
   - apiGroups: [""]
     resources: ["events"]
-    verbs: ["get", "list", "watch", "create"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
