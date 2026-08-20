@@ -1,0 +1,64 @@
+name: "mcpserver-auth-schema-advertised"
+description: "core_mcpserver create/update/validate advertise the full auth schema including authorizationServer and tokenExchange (issue #1018)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "metatools", "describe_tool", "oauth", "authentication", "issue-1018"]
+timeout: "1m"
+
+# Schema-advertisement acceptance for #1018:
+#
+# Given: The core_mcpserver_create/update/validate handlers accept the full
+#        auth block (authorizationServer override and tokenExchange).
+# When:  A client inspects the advertised tool schema via describe_tool.
+# Then:  The auth argument schema exposes authorizationServer and
+#        tokenExchange with their nested fields, so clients composing
+#        arguments from the schema can discover the full auth model.
+
+steps:
+- id: "describe-create-advertises-full-auth"
+  description: "core_mcpserver_create advertises authorizationServer and tokenExchange in the auth schema"
+  tool: "test_call_meta_tool"
+  args:
+    tool: "describe_tool"
+    arguments:
+      name: "core_mcpserver_create"
+  expected:
+    success: true
+    contains:
+      - "authorizationServer"
+      - "tokenExchange"
+      - "dexTokenEndpoint"
+      - "expectedIssuer"
+      - "connectorId"
+      - "clientCredentialsSecretRef"
+      - "issuer"
+
+- id: "describe-update-advertises-full-auth"
+  description: "core_mcpserver_update advertises authorizationServer and tokenExchange in the auth schema"
+  tool: "test_call_meta_tool"
+  args:
+    tool: "describe_tool"
+    arguments:
+      name: "core_mcpserver_update"
+  expected:
+    success: true
+    contains:
+      - "authorizationServer"
+      - "tokenExchange"
+      - "dexTokenEndpoint"
+      - "connectorId"
+
+- id: "describe-validate-advertises-full-auth"
+  description: "core_mcpserver_validate advertises authorizationServer and tokenExchange in the auth schema"
+  tool: "test_call_meta_tool"
+  args:
+    tool: "describe_tool"
+    arguments:
+      name: "core_mcpserver_validate"
+  expected:
+    success: true
+    contains:
+      - "authorizationServer"
+      - "tokenExchange"
+      - "dexTokenEndpoint"
+      - "connectorId"
