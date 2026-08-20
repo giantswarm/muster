@@ -146,6 +146,16 @@ type Reconciler interface {
 	GetResourceType() ResourceType
 }
 
+// ResyncLister is an optional interface a Reconciler can implement to
+// participate in periodic full resync. It enumerates the names of all
+// resources that should be reconciled on each resync tick: both resources
+// that currently have a definition (heals lost create/update events) and
+// resources whose runtime state still exists without a definition (heals
+// lost delete events).
+type ResyncLister interface {
+	ResyncNames() []string
+}
+
 // ChangeDetector is the interface for components that detect changes in resources.
 //
 // Different implementations exist for filesystem watching and Kubernetes informers.
@@ -227,6 +237,15 @@ type ManagerConfig struct {
 	// If a reconciler takes longer than this, the context will be cancelled.
 	// Defaults to 30 seconds if not specified.
 	ReconcileTimeout time.Duration
+
+	// ResyncInterval is how often the manager enqueues a full reconcile of all
+	// known resources, independent of change events. This is the level-based
+	// safety net: change detection (fsnotify, watches) can drop or coalesce
+	// events — most visibly on overlayfs (CI containers) — and a purely
+	// edge-triggered reconciler never recovers from a lost event. Resync makes
+	// any divergence self-heal within one interval. In-sync resources reconcile
+	// as cheap no-ops. Defaults to 30 seconds if not specified.
+	ResyncInterval time.Duration
 
 	// Debug enables debug logging for reconciliation operations.
 	Debug bool

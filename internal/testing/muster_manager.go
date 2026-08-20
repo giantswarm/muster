@@ -778,6 +778,24 @@ func capturedLogTail(mp *managedProcess) string {
 	return "\n--- captured muster output ---\n" + out
 }
 
+// InstanceExitStatus reports whether the instance's muster serve process has
+// already exited, and with what result. Reading waitErr is safe only after
+// observing the closed exited channel.
+func (m *musterInstanceManager) InstanceExitStatus(instance *MusterInstance) (bool, error) {
+	m.mu.RLock()
+	managedProc := m.processes[instance.ID]
+	m.mu.RUnlock()
+	if managedProc == nil {
+		return false, nil
+	}
+	select {
+	case <-managedProc.exited:
+		return true, managedProc.waitErr
+	default:
+		return false, nil
+	}
+}
+
 // processExitedError builds the standard error returned from WaitForReady when
 // the muster serve process terminates before the instance becomes ready. It
 // surfaces the wait result and a bounded tail of the captured output, and shows

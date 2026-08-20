@@ -369,3 +369,60 @@ func TestManager_GetWatchMode(t *testing.T) {
 		t.Errorf("expected watch mode %s, got %s", WatchModeFilesystem, mode)
 	}
 }
+
+// mockResyncReconciler is a mockReconciler that also implements ResyncLister.
+type mockResyncReconciler struct {
+	mockReconciler
+	names []string
+}
+
+func (m *mockResyncReconciler) ResyncNames() []string {
+	return m.names
+}
+
+// TestManager_PeriodicResync verifies that resources enumerated by a
+// ResyncLister are reconciled periodically without any change event. This is
+// the safety net for lost filesystem events (issue: delete-recreate CI flake):
+// an edge-triggered-only reconciler never recovers from a dropped event.
+func TestManager_PeriodicResync(t *testing.T) {
+	config := ManagerConfig{
+		Mode:           WatchModeFilesystem,
+		FilesystemPath: t.TempDir(),
+		WorkerCount:    1,
+		ResyncInterval: 20 * time.Millisecond,
+	}
+	manager := NewManager(config)
+
+	reconciled := make(chan ReconcileRequest, 16)
+	reconciler := &mockResyncReconciler{
+		mockReconciler: mockReconciler{
+			resourceType: ResourceTypeMCPServer,
+			reconcileFunc: func(ctx context.Context, req ReconcileRequest) ReconcileResult {
+				select {
+				case reconciled <- req:
+				default:
+				}
+				return ReconcileResult{}
+			},
+		},
+		names: []string{"lost-event-server"},
+	}
+
+	if err := manager.RegisterReconciler(reconciler); err != nil {
+		t.Fatalf("failed to register reconciler: %v", err)
+	}
+	if err := manager.Start(context.Background()); err != nil {
+		t.Fatalf("failed to start manager: %v", err)
+	}
+	defer func() { _ = manager.Stop() }()
+
+	// No change event is ever emitted; the resync loop alone must reconcile.
+	select {
+	case req := <-reconciled:
+		if req.Name != "lost-event-server" {
+			t.Errorf("expected resync reconcile for lost-event-server, got %s", req.Name)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("periodic resync never reconciled the resource")
+	}
+}

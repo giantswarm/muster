@@ -99,9 +99,30 @@ func (f *Client) listResources(list client.ObjectList, factory func() client.Obj
 	return meta.SetList(list, items)
 }
 
+// writeResourceLocked marshals obj and atomically writes its YAML file.
+// Caller must hold f.mu.
+func (f *Client) writeResourceLocked(obj client.Object, m resourceMeta) error {
+	if obj.GetNamespace() == "" {
+		obj.SetNamespace(defaultNamespace)
+	}
+
+	data, err := yaml.Marshal(obj)
+	if err != nil {
+		return fmt.Errorf("failed to marshal %s %s: %w", m.gr.Resource, obj.GetName(), err)
+	}
+	filePath := m.filePath(f.basePath, obj.GetName())
+	if err := atomicWriteFile(filePath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write %s file %s: %w", m.gr.Resource, filePath, err)
+	}
+	return nil
+}
+
 // createResource writes obj to its YAML file. Returns AlreadyExists if the
 // file is already present.
 func (f *Client) createResource(obj client.Object, m resourceMeta) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	filePath := m.filePath(f.basePath, obj.GetName())
 	if _, err := os.Stat(filePath); err == nil {
 		return errors.NewAlreadyExists(m.gr, obj.GetName())
@@ -112,44 +133,62 @@ func (f *Client) createResource(obj client.Object, m resourceMeta) error {
 		return fmt.Errorf("failed to create directory %s: %w", dirPath, err)
 	}
 
-	if obj.GetNamespace() == "" {
-		obj.SetNamespace(defaultNamespace)
-	}
-
-	data, err := yaml.Marshal(obj)
-	if err != nil {
-		return fmt.Errorf("failed to marshal %s %s: %w", m.gr.Resource, obj.GetName(), err)
-	}
-	if err := atomicWriteFile(filePath, data, 0644); err != nil {
-		return fmt.Errorf("failed to write %s file %s: %w", m.gr.Resource, filePath, err)
-	}
-	return nil
+	return f.writeResourceLocked(obj, m)
 }
 
 // updateResource rewrites obj's YAML file. Returns NotFound if the file is
 // missing.
 func (f *Client) updateResource(obj client.Object, m resourceMeta) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	filePath := m.filePath(f.basePath, obj.GetName())
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		return errors.NewNotFound(m.gr, obj.GetName())
 	}
 
-	if obj.GetNamespace() == "" {
-		obj.SetNamespace(defaultNamespace)
-	}
+	return f.writeResourceLocked(obj, m)
+}
 
-	data, err := yaml.Marshal(obj)
+// updateResourceStatus applies only a status change onto the CURRENT on-disk
+// definition, under the mutation lock. current must be a freshly allocated
+// object of the right type; applyStatus copies the caller's status onto it
+// after the re-read. Re-reading under the lock prevents two races inherent in
+// status sync's read-modify-write: resurrecting a definition that was deleted
+// after the caller read it (the delete-recreate CI flake), and clobbering a
+// concurrent spec update with the caller's stale spec.
+func (f *Client) updateResourceStatus(name string, current client.Object, applyStatus func(), m resourceMeta) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if err := f.getResource(name, current, m); err != nil {
+		return err // NotFound: definition was deleted — never resurrect it
+	}
+	before, err := yaml.Marshal(current)
 	if err != nil {
-		return fmt.Errorf("failed to marshal %s %s: %w", m.gr.Resource, obj.GetName(), err)
+		return fmt.Errorf("failed to marshal %s %s: %w", m.gr.Resource, name, err)
 	}
-	if err := atomicWriteFile(filePath, data, 0644); err != nil {
-		return fmt.Errorf("failed to write %s file %s: %w", m.gr.Resource, filePath, err)
+	applyStatus()
+	after, err := yaml.Marshal(current)
+	if err != nil {
+		return fmt.Errorf("failed to marshal %s %s: %w", m.gr.Resource, name, err)
 	}
-	return nil
+	// Skip no-change writes. Every write fires a filesystem watch event that
+	// schedules another reconcile, whose status sync writes again: an
+	// unconditional write here turns the reconciler into a self-feeding loop
+	// (one rewrite per debounce interval per resource, forever) and keeps a
+	// permanent write-vs-delete race window open.
+	if string(before) == string(after) {
+		return nil
+	}
+	return f.writeResourceLocked(current, m)
 }
 
 // deleteResource removes the YAML file. Returns NotFound if missing.
 func (f *Client) deleteResource(name string, m resourceMeta) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	filePath := m.filePath(f.basePath, name)
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		return errors.NewNotFound(m.gr, name)

@@ -446,6 +446,20 @@ func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, con
 	result.EndTime = time.Now()
 	result.Duration = result.EndTime.Sub(result.StartTime)
 
+	// A failing step against a dead instance is a different bug class than a
+	// failing step against a live one. Surface an unexpected instance death
+	// prominently so CI failures are diagnosable from the summary line alone.
+	if result.Result != ResultPassed {
+		if exited, waitErr := r.instanceManager.InstanceExitStatus(instance); exited {
+			death := fmt.Sprintf("muster instance process died mid-scenario (wait result: %v)", waitErr)
+			if result.Error != "" {
+				result.Error = death + "; " + result.Error
+			} else {
+				result.Error = death
+			}
+		}
+	}
+
 	// Collect instance logs by triggering the destroy process early
 	// The defer cleanup will handle the actual cleanup, but we need logs now
 	r.collectInstanceLogs(instance, &result)

@@ -34,8 +34,13 @@ func (f *Client) DeleteWorkflow(_ context.Context, name, _ string) error {
 	return f.deleteResource(name, workflowMeta)
 }
 
-// UpdateWorkflowStatus rewrites the entire YAML — filesystem mode embeds
-// status alongside spec, so there is no separate status sub-resource.
-func (f *Client) UpdateWorkflowStatus(ctx context.Context, w *musterv1alpha1.Workflow) error {
-	return f.UpdateWorkflow(ctx, w)
+// UpdateWorkflowStatus applies only the status onto the current on-disk
+// definition — filesystem mode embeds status alongside spec, so this must not
+// rewrite the caller's (possibly stale) spec, and must not resurrect a
+// definition that was deleted after the caller read it.
+func (f *Client) UpdateWorkflowStatus(_ context.Context, w *musterv1alpha1.Workflow) error {
+	var current musterv1alpha1.Workflow
+	return f.updateResourceStatus(w.Name, &current, func() {
+		current.Status = w.Status
+	}, workflowMeta)
 }
