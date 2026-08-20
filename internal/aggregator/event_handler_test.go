@@ -25,6 +25,7 @@ func newMockOrchestratorAPI() *mockOrchestratorAPI {
 func (m *mockOrchestratorAPI) StartService(name string) error   { return nil }
 func (m *mockOrchestratorAPI) StopService(name string) error    { return nil }
 func (m *mockOrchestratorAPI) RestartService(name string) error { return nil }
+func (m *mockOrchestratorAPI) RemoveService(name string) error  { return nil }
 func (m *mockOrchestratorAPI) GetServiceStatus(name string) (*api.ServiceStatus, error) {
 	return nil, nil
 }

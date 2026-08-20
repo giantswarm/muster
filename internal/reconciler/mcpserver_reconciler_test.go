@@ -119,9 +119,9 @@ func TestMCPServerReconciler_ReconcileDelete(t *testing.T) {
 		t.Errorf("unexpected error for delete: %v", result.Error)
 	}
 
-	// Verify service was stopped
-	if !orchAPI.StoppedServices["deleted-server"] {
-		t.Error("expected service to be stopped on delete")
+	// Verify service was stopped and removed from the registry
+	if !orchAPI.RemovedServices["deleted-server"] {
+		t.Error("expected service to be removed on delete")
 	}
 }
 
@@ -316,8 +316,8 @@ func TestMCPServerReconciler_ReconcileStopError(t *testing.T) {
 		Health:      api.HealthHealthy,
 	})
 
-	// Simulate stop error
-	orchAPI.StopError = fmt.Errorf("failed to stop service")
+	// Simulate remove error
+	orchAPI.RemoveError = fmt.Errorf("failed to stop service")
 
 	reconciler := NewMCPServerReconciler(orchAPI, mgr, registry)
 

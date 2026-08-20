@@ -36,11 +36,13 @@ type MockOrchestratorAPI struct {
 	StartedServices   map[string]bool
 	StoppedServices   map[string]bool
 	RestartedServices map[string]bool
+	RemovedServices   map[string]bool
 
 	// Configurable errors for testing error paths
 	StartError   error
 	StopError    error
 	RestartError error
+	RemoveError  error
 
 	// Event channel for state change subscription
 	EventChan chan api.ServiceStateChangedEvent
@@ -55,6 +57,7 @@ func NewMockOrchestratorAPI() *MockOrchestratorAPI {
 		StartedServices:   make(map[string]bool),
 		StoppedServices:   make(map[string]bool),
 		RestartedServices: make(map[string]bool),
+		RemovedServices:   make(map[string]bool),
 		EventChan:         make(chan api.ServiceStateChangedEvent, 100),
 		ServiceStatuses:   make(map[string]*api.ServiceStatus),
 	}
@@ -77,6 +80,16 @@ func (m *MockOrchestratorAPI) StopService(name string) error {
 		return m.StopError
 	}
 	m.StoppedServices[name] = true
+	return nil
+}
+
+func (m *MockOrchestratorAPI) RemoveService(name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.RemoveError != nil {
+		return m.RemoveError
+	}
+	m.RemovedServices[name] = true
 	return nil
 }
 

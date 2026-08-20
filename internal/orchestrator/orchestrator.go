@@ -482,6 +482,28 @@ func (o *Orchestrator) StopService(name string) error {
 	return nil
 }
 
+// RemoveService stops a service and removes it from the registry.
+// This is used when a service definition is deleted, so that a later
+// re-create with the same name is reconciled as a fresh service instead
+// of matching the stale registry entry.
+func (o *Orchestrator) RemoveService(name string) error {
+	service, exists := o.registry.Get(name)
+	if !exists {
+		return api.NewServiceNotFoundError(name)
+	}
+
+	if err := service.Stop(o.ctx); err != nil {
+		return fmt.Errorf("failed to stop service %s: %w", name, err)
+	}
+
+	if err := o.registry.Unregister(name); err != nil {
+		return err
+	}
+
+	logging.Info("Orchestrator", "Removed service: %s", name)
+	return nil
+}
+
 // RestartService restarts a specific service by name.
 func (o *Orchestrator) RestartService(name string) error {
 	service, exists := o.registry.Get(name)

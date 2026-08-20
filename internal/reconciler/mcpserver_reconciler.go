@@ -395,14 +395,16 @@ func (r *MCPServerReconciler) reconcileDelete(ctx context.Context, req Reconcile
 		return ReconcileResult{}
 	}
 
-	// Stop the service
-	if err := r.orchestratorAPI.StopService(req.Name); err != nil {
-		// If service not found, it's already stopped
+	// Stop the service and remove it from the registry, so a later re-create
+	// with the same name is reconciled as a fresh service instead of matching
+	// the stale registry entry (which would leave it stopped forever).
+	if err := r.orchestratorAPI.RemoveService(req.Name); err != nil {
+		// If service not found, it's already removed
 		if IsNotFoundError(err) {
 			return ReconcileResult{}
 		}
 		return ReconcileResult{
-			Error:   fmt.Errorf("failed to stop service: %w", err),
+			Error:   fmt.Errorf("failed to remove service: %w", err),
 			Requeue: true,
 		}
 	}

@@ -1,0 +1,158 @@
+name: "mcpserver-runtime-delete-recreate"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "delete", "lifecycle", "service-management", "core-api", "regression"]
+timeout: "3m"
+
+# Test Story: Deleted MCPServer definitions can be re-created under the same name
+# Regression test for the delete side of issue #680: deleting an MCPServer
+# definition stopped the service but left a stale entry in the orchestrator's
+# service registry. Re-applying a definition with the same name then matched
+# the stale entry, the reconciler saw "config unchanged", and the service
+# stayed stopped forever instead of starting fresh.
+#
+# Given: A running MCPServer backed by a live mock MCP endpoint
+# When: I delete its definition, wait for the service to be fully removed,
+#       and re-create the same definition under the same name
+# Then: The service is removed from the registry on delete, and the re-created
+#       definition starts fresh (autoStart) and its tools are callable again
+
+pre_configuration:
+  mcp_servers:
+    - name: "recreate-mock"
+      config:
+        type: "streamable-http"
+        tools:
+          - name: "recreate_test_tool"
+            description: "A tool used to verify delete/re-create lifecycle"
+            input_schema:
+              type: "object"
+              properties:
+                message: { type: "string" }
+            responses:
+              - response:
+                  message: "{{ .message }}"
+                  server: "recreate-mock"
+                  status: "executed"
+
+steps:
+  # Phase 1: Create the server and bring it up
+  - id: "get-mock-endpoint"
+    description: "Read the pre-configured mock server to obtain its live endpoint URL"
+    tool: "core_mcpserver_get"
+    args:
+      name: "recreate-mock"
+    expected:
+      success: true
+      json_path:
+        name: "recreate-mock"
+        type: "streamable-http"
+
+  - id: "create-mcpserver"
+    description: "Create the MCPServer definition"
+    tool: "core_mcpserver_create"
+    args:
+      name: "recreated-server"
+      type: "streamable-http"
+      autoStart: true
+      url: "{{ get-mock-endpoint.url }}"
+      timeout: 30
+    expected:
+      success: true
+
+  - id: "start-mcpserver"
+    description: "Start the MCPServer service"
+    tool: "core_service_start"
+    args:
+      name: "recreated-server"
+    expected:
+      success: true
+
+  - id: "verify-mcpserver-connected"
+    description: "Verify the server reaches connected state"
+    tool: "core_service_status"
+    args:
+      name: "recreated-server"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "recreated-server"
+        state: "connected"
+
+  # Phase 2: Delete the definition. Before the fix, the reconciler stopped the
+  # service but left it registered, so the status call kept succeeding and this
+  # step timed out.
+  - id: "delete-mcpserver"
+    description: "Delete the MCPServer definition"
+    tool: "core_mcpserver_delete"
+    args:
+      name: "recreated-server"
+    expected:
+      success: true
+
+  - id: "verify-service-removed"
+    description: "Verify the service is removed from the registry, not just stopped"
+    tool: "core_service_status"
+    args:
+      name: "recreated-server"
+    expected:
+      success: false
+      wait_for_state: "30s"
+
+  # Phase 3: Re-create the same definition under the same name. Before the fix,
+  # the stale registry entry made the reconciler treat this as an unchanged
+  # update and the service stayed stopped; now it must start fresh via autoStart
+  # without an explicit core_service_start.
+  - id: "recreate-mcpserver"
+    description: "Re-create the MCPServer definition with the same name"
+    tool: "core_mcpserver_create"
+    args:
+      name: "recreated-server"
+      type: "streamable-http"
+      autoStart: true
+      url: "{{ get-mock-endpoint.url }}"
+      timeout: 30
+    expected:
+      success: true
+
+  - id: "verify-recreated-mcpserver-connected"
+    description: "Verify the re-created server starts fresh and reaches connected state"
+    tool: "core_service_status"
+    args:
+      name: "recreated-server"
+    expected:
+      success: true
+      wait_for_state: "60s"
+      json_path:
+        name: "recreated-server"
+        state: "connected"
+
+  # Phase 4: Prove the re-created server is usable end to end
+  - id: "call-tool-on-recreated-mcpserver"
+    description: "Call a tool exposed by the re-created server"
+    tool: "x_recreated-server_recreate_test_tool"
+    args:
+      message: "recreated-after-delete"
+    expected:
+      success: true
+      contains: ["recreated-after-delete", "executed"]
+
+cleanup:
+  - id: "cleanup-stop-recreated-mcpserver"
+    description: "Stop the re-created MCPServer service"
+    tool: "core_service_stop"
+    args:
+      name: "recreated-server"
+    expected:
+      success: true
+    continue_on_failure: true
+
+  - id: "cleanup-delete-recreated-mcpserver"
+    description: "Delete the re-created MCPServer definition"
+    tool: "core_mcpserver_delete"
+    args:
+      name: "recreated-server"
+    expected:
+      success: true
+    continue_on_failure: true

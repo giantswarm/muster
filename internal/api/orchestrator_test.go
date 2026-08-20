@@ -245,6 +245,10 @@ func (m *mockOrchestratorHandler) RestartService(name string) error {
 	return m.restartErr
 }
 
+func (m *mockOrchestratorHandler) RemoveService(name string) error {
+	return m.stopErr
+}
+
 func (m *mockOrchestratorHandler) SubscribeToStateChanges() <-chan ServiceStateChangedEvent {
 	return m.eventChan
 }

@@ -106,6 +106,11 @@ type ServiceManagerHandler interface {
 	// RestartService restarts a service by name (stop followed by start).
 	RestartService(name string) error
 
+	// RemoveService stops a service and removes it from the service registry.
+	// Used when a service definition is deleted, so a later re-create with
+	// the same name is treated as a fresh service.
+	RemoveService(name string) error
+
 	// GetServiceStatus returns the current status of a service.
 	GetServiceStatus(name string) (*ServiceStatus, error)
 

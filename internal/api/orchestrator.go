@@ -32,6 +32,17 @@ type OrchestratorAPI interface {
 	//   - error: nil on success, or an error describing why the service could not be stopped
 	StopService(name string) error
 
+	// RemoveService stops the specified service and removes it from the service
+	// registry. This is used when the service's definition is deleted, so that a
+	// later re-create with the same name is treated as a fresh service.
+	//
+	// Args:
+	//   - name: The unique name of the service to remove
+	//
+	// Returns:
+	//   - error: nil on success, or an error describing why the service could not be removed
+	RemoveService(name string) error
+
 	// RestartService performs a stop followed by a start operation on the specified service.
 	// This is equivalent to calling StopService followed by StartService, but may be
 	// implemented more efficiently by the underlying service manager.
@@ -107,6 +118,16 @@ func (a *orchestratorAPI) StopService(name string) error {
 		return fmt.Errorf("service manager not registered")
 	}
 	return handler.StopService(name)
+}
+
+// RemoveService stops and unregisters a specific service by delegating to the
+// registered service manager.
+func (a *orchestratorAPI) RemoveService(name string) error {
+	handler := GetServiceManager()
+	if handler == nil {
+		return fmt.Errorf("service manager not registered")
+	}
+	return handler.RemoveService(name)
 }
 
 // RestartService restarts a specific service by delegating to the registered service manager.
