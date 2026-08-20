@@ -39,6 +39,18 @@ Examples:
   muster create mcpserver my-http-server --type=streamable-http --url=https://api.example.com/mcp --timeout=30
   muster create mcpserver my-sse-server --type=sse --url=https://sse.example.com/mcp --timeout=60
 
+Authentication (remote server types only):
+  --auth-type oauth                    Enable OAuth 2.0/OIDC authentication
+  --auth-issuer <url>                  Pin the authorization server issuer for servers
+                                       without RFC 9728 metadata (requires --auth-type=oauth)
+  --auth-scopes "<scopes>"             OAuth scopes for the pinned issuer (space-separated)
+  --forward-token                      Forward the session's ID token for SSO (implies oauth)
+  --required-audiences <a1,a2>         Extra audiences to request for the forwarded token
+
+  muster create mcpserver my-oauth-server --type=streamable-http --url=https://api.example.com/mcp --auth-type=oauth
+  muster create mcpserver my-pinned-server --type=streamable-http --url=https://api.example.com/mcp --auth-type=oauth --auth-issuer=https://auth.example.com --auth-scopes="openid profile"
+  muster create mcpserver my-sso-server --type=streamable-http --url=https://mcp.example.com/mcp --forward-token --required-audiences=dex-k8s-authenticator
+
 Note: The aggregator server must be running (use 'muster serve') before using these commands.`,
 	Args: cobra.MinimumNArgs(2),
 	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
@@ -114,6 +126,17 @@ func parseMCPServerParameters(mcpServerName string) map[string]interface{} {
 	return result
 }
 
+// getOrCreateObjectMap retrieves an existing map[string]interface{} from args (used for
+// nested objects like auth), or creates one if it doesn't exist.
+func getOrCreateObjectMap(args map[string]interface{}, key string) map[string]interface{} {
+	if m, ok := args[key].(map[string]interface{}); ok {
+		return m
+	}
+	m := make(map[string]interface{})
+	args[key] = m
+	return m
+}
+
 // getOrCreateStringMap retrieves an existing map[string]string from args, or creates one if it doesn't exist.
 // This helper prevents nil map panics when adding key-value pairs to env or headers.
 func getOrCreateStringMap(args map[string]interface{}, key string) map[string]string {
@@ -186,6 +209,32 @@ func processMCPServerFlag(args map[string]interface{}, flagName, flagValue strin
 				headersMap := getOrCreateStringMap(args, "headers")
 				headersMap[parts[0]] = parts[1]
 			}
+		}
+	case "auth-type", "authType":
+		if hasValue {
+			getOrCreateObjectMap(args, "auth")["type"] = flagValue
+		}
+	case "forward-token", "forwardToken":
+		if hasValue {
+			getOrCreateObjectMap(args, "auth")["forwardToken"] = flagValue == stringTrue
+		} else {
+			getOrCreateObjectMap(args, "auth")["forwardToken"] = true
+		}
+	case "required-audiences", "requiredAudiences":
+		if hasValue && flagValue != "" {
+			audiences := strings.Split(flagValue, ",")
+			for j := range audiences {
+				audiences[j] = strings.TrimSpace(audiences[j])
+			}
+			getOrCreateObjectMap(args, "auth")["requiredAudiences"] = audiences
+		}
+	case "auth-issuer", "authIssuer":
+		if hasValue {
+			getOrCreateObjectMap(getOrCreateObjectMap(args, "auth"), "authorizationServer")["issuer"] = flagValue
+		}
+	case "auth-scopes", "authScopes":
+		if hasValue {
+			getOrCreateObjectMap(getOrCreateObjectMap(args, "auth"), "authorizationServer")["scopes"] = flagValue
 		}
 	}
 }
