@@ -28,11 +28,18 @@ type Server struct {
 
 	// clientProtocolVersion and clientName record the initialize request the
 	// connecting client sent, which echo_handshake tools report back. mcp-go
-	// answers initialize with its own supported version regardless of what the
-	// client asked for, so the request is the only place the caller's version
-	// is observable.
+	// echoes any revision from mcp.ValidProtocolVersions straight back to the
+	// client, so the response alone cannot tell an asked-for revision apart
+	// from one the server chose; the request is the only place the caller's
+	// own ask is observable.
 	clientProtocolVersion string
 	clientName            string
+
+	// protocolVersion, when set, replaces the revision mcp-go would answer
+	// initialize with. It makes the mock stand in for a backend that supports
+	// only an older revision, which is otherwise unreachable because mcp-go
+	// echoes whatever the client asked for.
+	protocolVersion string
 }
 
 // NewServerFromFile creates a new mock MCP server from a configuration file
@@ -45,7 +52,8 @@ func NewServerFromFile(configPath string, debug bool) (*Server, error) {
 
 	// Parse the config structure that contains tools directly
 	var configData struct {
-		Tools []ToolConfig `yaml:"tools"`
+		Tools           []ToolConfig `yaml:"tools"`
+		ProtocolVersion string       `yaml:"protocol_version"`
 	}
 	if err := yaml.Unmarshal(content, &configData); err != nil {
 		return nil, fmt.Errorf("failed to parse mock config file %s: %w", configPath, err)
@@ -57,11 +65,12 @@ func NewServerFromFile(configPath string, debug bool) (*Server, error) {
 
 	hooks := &server.Hooks{}
 	mockServer := &Server{
-		name:           name,
-		tools:          configData.Tools,
-		toolHandlers:   make(map[string]*ToolHandler),
-		templateEngine: template.New(),
-		debug:          debug,
+		name:            name,
+		tools:           configData.Tools,
+		toolHandlers:    make(map[string]*ToolHandler),
+		templateEngine:  template.New(),
+		debug:           debug,
+		protocolVersion: configData.ProtocolVersion,
 	}
 	hooks.AddBeforeInitialize(func(_ context.Context, _ any, req *mcp.InitializeRequest) {
 		mockServer.mu.Lock()
@@ -69,6 +78,13 @@ func NewServerFromFile(configPath string, debug bool) (*Server, error) {
 		mockServer.clientName = req.Params.ClientInfo.Name
 		mockServer.mu.Unlock()
 	})
+	if configData.ProtocolVersion != "" {
+		// mcp-go builds the result, runs this hook, then serialises it, so
+		// overwriting the field here is what the client sees.
+		hooks.AddAfterInitialize(func(_ context.Context, _ any, _ *mcp.InitializeRequest, result *mcp.InitializeResult) {
+			result.ProtocolVersion = configData.ProtocolVersion
+		})
+	}
 
 	mcpServer := server.NewMCPServer(
 		fmt.Sprintf("mock-%s", name),
@@ -151,9 +167,11 @@ func (s *Server) createToolHandler(toolName string) func(context.Context, mcp.Ca
 				"client_protocol_version": version,
 				"client_name":             clientName,
 			}
-			if jsonBytes, mErr := json.Marshal(echo); mErr == nil {
-				return mcp.NewToolResultText(string(jsonBytes)), nil
+			jsonBytes, mErr := json.Marshal(echo)
+			if mErr != nil {
+				return nil, fmt.Errorf("failed to marshal echo_handshake result for tool %s: %w", toolName, mErr)
 			}
+			return mcp.NewToolResultText(string(jsonBytes)), nil
 		}
 
 		// Convert result to MCP format

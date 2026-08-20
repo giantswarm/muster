@@ -398,6 +398,7 @@ func (c *mcpTestClient) Close() error {
 
 	err := c.client.Close()
 	c.client = nil
+	c.initResult = nil
 	return err
 }
 

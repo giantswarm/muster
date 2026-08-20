@@ -451,6 +451,9 @@ func (m *musterInstanceManager) startRegularMockHTTPServer(
 	mockConfig := map[string]interface{}{
 		"tools": mcpServer.Config["tools"],
 	}
+	if version, ok := mcpServer.Config["protocol_version"].(string); ok && version != "" {
+		mockConfig["protocol_version"] = version
+	}
 
 	yamlData, err := yaml.Marshal(mockConfig)
 	if err != nil {
