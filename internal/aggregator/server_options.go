@@ -23,3 +23,19 @@ func mcpServerOptions() []server.ServerOption {
 		server.WithToolHandlerMiddleware(Metrics()),
 	}
 }
+
+// mcpServerCapabilityOptions returns the capability advertisement for the
+// aggregator's mcp-go server.
+//
+// resources/subscribe is off: mcp-go acknowledges a subscribe request whenever
+// the capability is advertised, but the aggregator neither relays the
+// subscription to the downstream server that owns the resource nor emits
+// notifications/resources/updated, so a subscribing client waits forever.
+// listChanged is on and backed by the notification subscriber.
+func mcpServerCapabilityOptions() []server.ServerOption {
+	return []server.ServerOption{
+		server.WithToolCapabilities(true),
+		server.WithResourceCapabilities(false, true),
+		server.WithPromptCapabilities(true),
+	}
+}

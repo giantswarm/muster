@@ -768,7 +768,6 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 			slog.String("error", err.Error()))
 	})
 
-	// Create MCP server with full capabilities enabled
 	// WithToolFilter enables session-specific tool visibility for OAuth-authenticated servers
 	// (see ADR-006: Session-Scoped Tool Visibility)
 	//
@@ -776,12 +775,10 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	// requires for histogram exemplars to carry the active tool-handler
 	// span — see the helper's doc comment.
 	opts := []mcpserver.ServerOption{
-		mcpserver.WithToolCapabilities(true),           // Enable tool execution
-		mcpserver.WithResourceCapabilities(true, true), // Enable resources with subscribe and listChanged
-		mcpserver.WithPromptCapabilities(true),         // Enable prompt retrieval
-		mcpserver.WithToolFilter(a.sessionToolFilter),  // Return session-specific tools for OAuth servers
-		mcpserver.WithHooks(hooks),                     // Clean up subject-session mappings on disconnect
+		mcpserver.WithToolFilter(a.sessionToolFilter), // Return session-specific tools for OAuth servers
+		mcpserver.WithHooks(hooks),                    // Clean up subject-session mappings on disconnect
 	}
+	opts = append(opts, mcpServerCapabilityOptions()...)
 	opts = append(opts, mcpServerOptions()...)
 	mcpSrv := mcpserver.NewMCPServer("muster-aggregator", serverVersion, opts...)
 
