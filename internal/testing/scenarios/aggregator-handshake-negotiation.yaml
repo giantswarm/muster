@@ -1,0 +1,106 @@
+name: "aggregator-handshake-negotiation"
+description: |
+  Pin the MCP handshake muster negotiates on both sides (issues #1029, #1030).
+
+  Outbound: muster's client must ask a downstream server for protocol version
+  2025-11-25 (api.OutboundProtocolVersion). The old pin, 2024-11-05, predates
+  structuredContent, outputSchema, and elicitation, so a strict downstream
+  server may withhold all three. Both transports are probed because each
+  builds its own initialize request.
+
+  Inbound: the aggregator must not advertise resources.subscribe. mcp-go
+  acknowledges resources/subscribe whenever the capability is on, and muster
+  never emits notifications/resources/updated, so a subscribing client waits
+  forever. listChanged stays on because notification_subscriber wires it.
+category: "behavioral"
+concept: "aggregator"
+tags: ["aggregator", "protocol", "capabilities", "handshake"]
+timeout: "2m"
+
+pre_configuration:
+  mcp_servers:
+    - name: "probe-http"
+      config:
+        type: "streamable-http"
+        tools:
+          - name: "echo_tool"
+            description: "Returns its argument, and the initialize request muster sent"
+            echo_handshake: true
+            input_schema:
+              type: "object"
+              properties:
+                message: { type: "string" }
+            responses:
+              - response:
+                  message: "{{ .message }}"
+                  status: "executed"
+
+    - name: "probe-stdio"
+      config:
+        tools:
+          - name: "echo_tool"
+            description: "Returns its argument, and the initialize request muster sent"
+            echo_handshake: true
+            input_schema:
+              type: "object"
+              properties:
+                message: { type: "string" }
+            responses:
+              - response:
+                  message: "{{ .message }}"
+                  status: "executed"
+
+steps:
+  - id: "wait-for-probe-http"
+    description: "The streamable-http downstream server is running"
+    tool: "core_service_status"
+    args:
+      name: "probe-http"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "connected"
+
+  - id: "wait-for-probe-stdio"
+    description: "The stdio downstream server is running"
+    tool: "core_service_status"
+    args:
+      name: "probe-stdio"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "running"
+
+  - id: "outbound-handshake-streamable-http"
+    description: "muster asked the streamable-http server for 2025-11-25, and the call returns its content"
+    tool: "x_probe-http_echo_tool"
+    args:
+      message: "handshake-payload"
+    expected:
+      success: true
+      contains: ["2025-11-25", "handshake-payload", "executed"]
+      not_contains: ["2024-11-05"]
+
+  - id: "outbound-handshake-stdio"
+    description: "muster asked the stdio server for 2025-11-25, and the call returns its content"
+    tool: "x_probe-stdio_echo_tool"
+    args:
+      message: "handshake-payload"
+    expected:
+      success: true
+      contains: ["2025-11-25", "handshake-payload", "executed"]
+      not_contains: ["2024-11-05"]
+
+  - id: "inbound-advertises-no-resource-subscribe"
+    description: "The aggregator advertises resources.listChanged but not resources.subscribe"
+    tool: "test_get_server_info"
+    expected:
+      success: true
+      json_path:
+        has_resources: true
+        resources_subscribe: false
+        resources_list_changed: true
+        has_tools: true
+        has_prompts: true

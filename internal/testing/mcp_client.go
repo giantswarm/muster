@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/giantswarm/muster/internal/api"
+
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -39,6 +41,7 @@ type mcpTestClient struct {
 	debug       bool
 	logger      TestLogger
 	accessToken string // Current access token used for authentication
+	initResult  *mcp.InitializeResult
 }
 
 // NewMCPTestClient creates a new MCP test client
@@ -113,12 +116,8 @@ func (c *mcpTestClient) connectWithOptions(ctx context.Context, endpoint, access
 
 	// Initialize the MCP protocol
 	initRequest := mcp.InitializeRequest{
-		Params: struct {
-			ProtocolVersion string                 `json:"protocolVersion"`
-			Capabilities    mcp.ClientCapabilities `json:"capabilities"`
-			ClientInfo      mcp.Implementation     `json:"clientInfo"`
-		}{
-			ProtocolVersion: "2024-11-05",
+		Params: mcp.InitializeParams{
+			ProtocolVersion: api.OutboundProtocolVersion,
 			ClientInfo: mcp.Implementation{
 				Name:    "muster-test-client",
 				Version: "1.0.0",
@@ -132,7 +131,7 @@ func (c *mcpTestClient) connectWithOptions(ctx context.Context, endpoint, access
 	defer cancel()
 
 	// CRITICAL: Only store the client AFTER successful initialization
-	_, err = httpClient.Initialize(initCtx, initRequest)
+	initResult, err := httpClient.Initialize(initCtx, initRequest)
 	if err != nil {
 		_ = httpClient.Close() // Clean up failed client
 		return fmt.Errorf("failed to initialize MCP protocol: %w", err)
@@ -140,12 +139,19 @@ func (c *mcpTestClient) connectWithOptions(ctx context.Context, endpoint, access
 
 	// SUCCESS: Store the client only after full initialization
 	c.client = httpClient
+	c.initResult = initResult
 
 	if c.debug {
 		c.logger.Debug("✅ Successfully connected to MCP aggregator at %s\n", endpoint)
 	}
 
 	return nil
+}
+
+// InitializeResult returns the negotiated handshake result from the last
+// successful Connect, or nil when the client is not connected.
+func (c *mcpTestClient) InitializeResult() *mcp.InitializeResult {
+	return c.initResult
 }
 
 // CallTool executes a tool via MCP using the call_tool meta-tool.
