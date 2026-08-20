@@ -221,15 +221,10 @@ func (a *Adapter) handleServiceStart(args map[string]interface{}) (*api.CallTool
 		}, nil
 	}
 
-	status, err := a.GetServiceStatus(name)
-	if err != nil {
-		return &api.CallToolResult{
-			Content: []interface{}{fmt.Sprintf("Failed to start service: %v", err)},
-			IsError: true,
-		}, nil
-	}
-
-	if status.State == "running" {
+	// A missing status is not fatal: StartService lazily registers MCPServer
+	// definitions created after boot (issue #680), so only short-circuit when
+	// the service exists and is already running.
+	if status, err := a.GetServiceStatus(name); err == nil && status.State == "running" {
 		return &api.CallToolResult{
 			Content: []interface{}{fmt.Sprintf("Service '%s' is already running", name)},
 			IsError: false,
