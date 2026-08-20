@@ -130,10 +130,37 @@ func (o *Orchestrator) processAutoStartMCPServers(ctx context.Context) error {
 	return nil
 }
 
-// createMCPServerService creates an MCPServer service from MCPServerInfo and registers it.
+// createMCPServerService creates an MCPServer service from MCPServerInfo,
+// registers it, and starts it asynchronously.
 func (o *Orchestrator) createMCPServerService(ctx context.Context, mcpServerInfo api.MCPServerInfo) error {
 	logging.Info("Orchestrator", "Creating MCPServer service: %s", mcpServerInfo.Name)
 
+	mcpService, err := o.registerMCPServerService(mcpServerInfo)
+	if err != nil {
+		return err
+	}
+
+	// Start the service immediately since the orchestrator's Start() method
+	// has already started static services and won't start newly registered ones
+	go func() {
+		if err := mcpService.Start(ctx); err != nil {
+			if api.IsAuthRequiredError(err) {
+				// Pending auth registration happens in the auth-required hook.
+				return
+			}
+			logging.Error("Orchestrator", err, "Failed to start MCPServer service: %s", mcpServerInfo.Name)
+		} else {
+			logging.Info("Orchestrator", "Started MCPServer service: %s", mcpServerInfo.Name)
+		}
+	}()
+
+	logging.Info("Orchestrator", "Successfully created and registered MCPServer service: %s", mcpServerInfo.Name)
+	return nil
+}
+
+// registerMCPServerService creates an MCPServer service from MCPServerInfo and
+// registers it in the service registry without starting it.
+func (o *Orchestrator) registerMCPServerService(mcpServerInfo api.MCPServerInfo) (services.Service, error) {
 	apiDef := &api.MCPServer{
 		Name:        mcpServerInfo.Name,
 		Type:        api.MCPServerType(mcpServerInfo.Type),
@@ -156,31 +183,36 @@ func (o *Orchestrator) createMCPServerService(ctx context.Context, mcpServerInfo
 	// Auth Required state.
 	mcpService, err := mcpserver.NewService(apiDef, mcpserver.WithAuthRequiredHook(o.handleAuthRequiredServer))
 	if err != nil {
-		return fmt.Errorf("failed to create MCPServer service: %w", err)
+		return nil, fmt.Errorf("failed to create MCPServer service: %w", err)
 	}
 
 	mcpService.SetStateChangeCallback(o.createStateChangeCallback())
 
 	if err := o.registry.Register(mcpService); err != nil {
-		return fmt.Errorf("failed to register MCPServer service: %w", err)
+		return nil, fmt.Errorf("failed to register MCPServer service: %w", err)
 	}
 
-	// Start the service immediately since the orchestrator's Start() method
-	// has already started static services and won't start newly registered ones
-	go func() {
-		if err := mcpService.Start(ctx); err != nil {
-			if api.IsAuthRequiredError(err) {
-				// Pending auth registration happens in the auth-required hook.
-				return
-			}
-			logging.Error("Orchestrator", err, "Failed to start MCPServer service: %s", mcpServerInfo.Name)
-		} else {
-			logging.Info("Orchestrator", "Started MCPServer service: %s", mcpServerInfo.Name)
-		}
-	}()
+	return mcpService, nil
+}
 
-	logging.Info("Orchestrator", "Successfully created and registered MCPServer service: %s", mcpServerInfo.Name)
-	return nil
+// registerMCPServerFromDefinition lazily registers an MCPServer service for a
+// definition that appeared after orchestrator boot (e.g. a CR applied at
+// runtime). Boot-time registration only covers definitions that existed when
+// the orchestrator started; without this, StartService would fail with
+// "service not found" until the process restarts (issue #680).
+func (o *Orchestrator) registerMCPServerFromDefinition(name string) (services.Service, error) {
+	mcpServerMgr := api.GetMCPServerManager()
+	if mcpServerMgr == nil {
+		return nil, fmt.Errorf("service %s not found", name)
+	}
+
+	mcpServerInfo, err := mcpServerMgr.GetMCPServer(name)
+	if err != nil || mcpServerInfo == nil {
+		return nil, fmt.Errorf("service %s not found", name)
+	}
+
+	logging.Info("Orchestrator", "Registering MCPServer service for definition created at runtime: %s", name)
+	return o.registerMCPServerService(*mcpServerInfo)
 }
 
 // handleAuthRequiredServer registers a server that requires OAuth authentication
@@ -384,7 +416,13 @@ func (o *Orchestrator) shouldAttemptRetry(svc services.Service) bool {
 func (o *Orchestrator) StartService(name string) error {
 	service, exists := o.registry.Get(name)
 	if !exists {
-		return fmt.Errorf("service %s not found", name)
+		// MCPServer definitions created after boot are not in the registry
+		// yet; register them lazily before starting.
+		var err error
+		service, err = o.registerMCPServerFromDefinition(name)
+		if err != nil {
+			return err
+		}
 	}
 
 	if err := service.Start(o.ctx); err != nil {
