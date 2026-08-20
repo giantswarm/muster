@@ -59,7 +59,7 @@ func TestSeedBrokerClients(t *testing.T) {
 		t.Cleanup(func() { api.RegisterSecretCredentialsHandler(prev) })
 
 		broker := config.TokenExchangeBrokerConfig{
-			DefaultSecretNamespace: "agentic-platform",
+			DefaultSecretNamespace: "agent-platform",
 			BrokerClients: map[string]config.BrokerClientConfig{
 				clientID: {ClientCredentialsSecretRef: &config.BrokerSecretRefConfig{Name: "muster-broker-clients"}},
 			},
