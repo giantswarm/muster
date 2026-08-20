@@ -88,3 +88,37 @@ func TestStartServiceUnknownServiceStillErrors(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 }
+
+// TestRemoveServiceUnregistersService verifies the delete-side counterpart of
+// lazy registration: RemoveService must drop the service from the registry so
+// a re-created definition with the same name reconciles as a fresh service.
+func TestRemoveServiceUnregistersService(t *testing.T) {
+	manager := &mockMCPServerManager{servers: map[string]api.MCPServerInfo{}}
+	api.RegisterMCPServerManager(manager)
+	t.Cleanup(func() { api.RegisterMCPServerManager(nil) })
+
+	o := New(Config{Aggregator: config.AggregatorConfig{}})
+	require.NoError(t, o.Start(context.Background()))
+	t.Cleanup(func() { _ = o.Stop() })
+
+	manager.servers["doomed-mcp"] = api.MCPServerInfo{
+		Name:      "doomed-mcp",
+		Type:      "streamable-http",
+		AutoStart: true,
+		URL:       "http://127.0.0.1:1", // closed port: start fails, registration must still happen
+		Timeout:   1,
+	}
+	_ = o.StartService("doomed-mcp")
+	_, exists := o.registry.Get("doomed-mcp")
+	require.True(t, exists, "precondition: service must be registered")
+
+	require.NoError(t, o.RemoveService("doomed-mcp"))
+
+	_, exists = o.registry.Get("doomed-mcp")
+	assert.False(t, exists, "service must be gone from the registry after RemoveService")
+
+	// Removing an unknown service reports not found.
+	err := o.RemoveService("doomed-mcp")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+}

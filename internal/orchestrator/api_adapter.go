@@ -60,6 +60,10 @@ func (a *Adapter) StopService(name string) error {
 	return a.orchestrator.StopService(name)
 }
 
+func (a *Adapter) RemoveService(name string) error {
+	return a.orchestrator.RemoveService(name)
+}
+
 func (a *Adapter) RestartService(name string) error {
 	return a.orchestrator.RestartService(name)
 }
