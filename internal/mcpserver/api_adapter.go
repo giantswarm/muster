@@ -374,6 +374,70 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 					api.SchemaKeyItems:       map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeString)},
 					api.SchemaKeyDescription: "Additional audiences to request from IdP for token forwarding (e.g., dex-k8s-authenticator for Kubernetes OIDC)",
 				},
+				"authorizationServer": map[string]interface{}{
+					api.SchemaKeyType:        string(api.ArgTypeObject),
+					api.SchemaKeyDescription: "Pins the OAuth authorization server when the MCP server does not publish RFC 9728 Protected Resource Metadata; skips PRM probing",
+					api.SchemaKeyProperties: map[string]interface{}{
+						"issuer": map[string]interface{}{
+							api.SchemaKeyType:        string(api.ArgTypeString),
+							api.SchemaKeyDescription: "OAuth 2.0 / OIDC issuer URL (HTTPS, no trailing slash)",
+						},
+						"scopes": map[string]interface{}{
+							api.SchemaKeyType:        string(api.ArgTypeString),
+							api.SchemaKeyDescription: "OAuth scope parameter value (space-separated scope tokens)",
+						},
+					},
+					api.SchemaKeyRequired: []string{"issuer"},
+				},
+				"tokenExchange": map[string]interface{}{
+					api.SchemaKeyType:        string(api.ArgTypeObject),
+					api.SchemaKeyDescription: "RFC 8693 Token Exchange for cross-cluster SSO; exchanges muster's local token for one issued by the remote cluster's IdP (takes precedence over forwardToken)",
+					api.SchemaKeyProperties: map[string]interface{}{
+						"enabled": map[string]interface{}{
+							api.SchemaKeyType:        string(api.ArgTypeBoolean),
+							api.SchemaKeyDescription: "Whether token exchange should be attempted",
+						},
+						"dexTokenEndpoint": map[string]interface{}{
+							api.SchemaKeyType:        string(api.ArgTypeString),
+							api.SchemaKeyDescription: "URL of the remote cluster's Dex token endpoint (required when enabled)",
+						},
+						"expectedIssuer": map[string]interface{}{
+							api.SchemaKeyType:        string(api.ArgTypeString),
+							api.SchemaKeyDescription: "Expected issuer URL in the exchanged token's iss claim; derived from dexTokenEndpoint if not set",
+						},
+						"connectorId": map[string]interface{}{
+							api.SchemaKeyType:        string(api.ArgTypeString),
+							api.SchemaKeyDescription: "ID of the OIDC connector on the remote Dex that trusts the local Dex (required when enabled)",
+						},
+						"scopes": map[string]interface{}{
+							api.SchemaKeyType:        string(api.ArgTypeString),
+							api.SchemaKeyDescription: "Scopes to request for the exchanged token (default: openid profile email groups)",
+						},
+						"clientCredentialsSecretRef": map[string]interface{}{
+							api.SchemaKeyType:        string(api.ArgTypeObject),
+							api.SchemaKeyDescription: "Kubernetes Secret with client credentials for the remote Dex token endpoint",
+							api.SchemaKeyProperties: map[string]interface{}{
+								"name": map[string]interface{}{
+									api.SchemaKeyType:        string(api.ArgTypeString),
+									api.SchemaKeyDescription: "Secret name",
+								},
+								"namespace": map[string]interface{}{
+									api.SchemaKeyType:        string(api.ArgTypeString),
+									api.SchemaKeyDescription: "Secret namespace (defaults to the MCPServer's namespace)",
+								},
+								"clientIdKey": map[string]interface{}{
+									api.SchemaKeyType:        string(api.ArgTypeString),
+									api.SchemaKeyDescription: "Key in the secret containing the client ID (default: client-id)",
+								},
+								"clientSecretKey": map[string]interface{}{
+									api.SchemaKeyType:        string(api.ArgTypeString),
+									api.SchemaKeyDescription: "Key in the secret containing the client secret (default: client-secret)",
+								},
+							},
+							api.SchemaKeyRequired: []string{"name"},
+						},
+					},
+				},
 			},
 		}},
 	}
