@@ -265,6 +265,11 @@ func (t MCPServerType) IsRemote() bool {
 	return t == MCPServerTypeStreamableHTTP || t == MCPServerTypeSSE
 }
 
+// RegisteredByAnnotation records the authenticated subject that registered an
+// MCPServer. Stamped server-side on create so attribution cannot be spoofed or
+// omitted by clients (issue #1021). The key is shared with the developer portal.
+const RegisteredByAnnotation = "ui.giantswarm.io/registered-by"
+
 // MCPServerInfo contains consolidated MCP server information for API responses.
 // This type is used when returning server information through the API, providing
 // a flattened view of server configuration and runtime state that is convenient
@@ -361,6 +366,11 @@ type MCPServerInfo struct {
 	// ConnectedAt indicates when the current session connected to this server.
 	// Only populated if there is an active session connection.
 	ConnectedAt *time.Time `json:"connectedAt,omitempty"`
+
+	// RegisteredBy is the authenticated subject that registered this server,
+	// read from the RegisteredByAnnotation. Empty when the server was created
+	// without an authenticated context (e.g. GitOps-applied CRs).
+	RegisteredBy string `json:"registeredBy,omitempty"`
 }
 
 // MCPServerManagerHandler defines the interface for MCP server management operations.

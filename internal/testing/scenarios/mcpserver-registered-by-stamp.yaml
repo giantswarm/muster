@@ -1,0 +1,101 @@
+name: "mcpserver-registered-by-stamp"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  Verify that core_mcpserver_create stamps the authenticated subject into the
+  ui.giantswarm.io/registered-by annotation server-side (issue #1021), exposed
+  as registeredBy on core_mcpserver_get, and that core_mcpserver_update
+  preserves it. Registration is open (no authorization on mcpserver mutation
+  tools), so the server-side stamp is the only durable attribution for who
+  changed the shared tool surface — client-side stamping is spoofable.
+tags: ["mcpserver", "create", "oauth", "attribution", "core-api"]
+timeout: "2m"
+
+pre_configuration:
+  mock_oauth_servers:
+    - name: "muster-idp"
+      scopes: ["openid", "profile", "email"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "muster-client"
+      client_secret: "muster-secret"
+      use_as_muster_oauth_server: true
+
+steps:
+  - id: "auth-as-registrar"
+    description: "Authenticate to muster with a distinct subject"
+    tool: "test_muster_auth_login"
+    args:
+      subject: "registrar-user"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  - id: "create-registrar-session"
+    description: "Create an authenticated user session"
+    tool: "test_create_user"
+    args:
+      name: "registrar"
+    expected:
+      success: true
+
+  - id: "switch-to-registrar"
+    description: "Switch to the authenticated session"
+    tool: "test_switch_user"
+    args:
+      name: "registrar"
+    expected:
+      success: true
+
+  - id: "create-mcpserver"
+    description: "Create an MCP server as the authenticated user"
+    tool: "core_mcpserver_create"
+    args:
+      name: "stamped-server"
+      type: "stdio"
+      command: "echo"
+      args: ["stamped"]
+      autoStart: false
+    expected:
+      success: true
+
+  - id: "verify-registered-by-stamped"
+    description: "registeredBy carries the authenticated subject"
+    tool: "core_mcpserver_get"
+    args:
+      name: "stamped-server"
+    expected:
+      success: true
+      json_path:
+        name: "stamped-server"
+        registeredBy: "registrar-user"
+
+  - id: "update-mcpserver"
+    description: "Update the server definition"
+    tool: "core_mcpserver_update"
+    args:
+      name: "stamped-server"
+      description: "updated description"
+    expected:
+      success: true
+
+  - id: "verify-registered-by-preserved"
+    description: "registeredBy survives the update"
+    tool: "core_mcpserver_get"
+    args:
+      name: "stamped-server"
+    expected:
+      success: true
+      json_path:
+        registeredBy: "registrar-user"
+
+cleanup:
+  - id: "delete-mcpserver"
+    description: "Delete the test MCP server"
+    tool: "core_mcpserver_delete"
+    args:
+      name: "stamped-server"
+    expected:
+      success: true
