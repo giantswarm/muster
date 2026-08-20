@@ -3,6 +3,7 @@ package aggregator
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/giantswarm/muster/internal/api"
@@ -280,5 +281,30 @@ func TestGetMusterIssuer_NoFallbackToken(t *testing.T) {
 
 	if issuer != "" {
 		t.Errorf("expected empty issuer, got '%s'", issuer)
+	}
+}
+
+func TestAuthChallengeResult_StructuredAuthURL(t *testing.T) {
+	result := authChallengeResult("github", &api.AuthChallenge{
+		AuthURL: "https://example.com/oauth/start?state=abc",
+		Message: "authentication required",
+	})
+
+	if result.IsError {
+		t.Fatal("expected non-error result")
+	}
+
+	sc, ok := result.StructuredContent.(map[string]any)
+	if !ok {
+		t.Fatalf("expected structured content map, got %T", result.StructuredContent)
+	}
+	if sc["authUrl"] != "https://example.com/oauth/start?state=abc" {
+		t.Errorf("expected authUrl in structured content, got %v", sc["authUrl"])
+	}
+
+	// Prose must keep carrying the URL for text-only consumers.
+	text, ok := result.Content[0].(string)
+	if !ok || !strings.Contains(text, "https://example.com/oauth/start?state=abc") {
+		t.Errorf("expected sign-in URL in prose content, got %v", result.Content[0])
 	}
 }

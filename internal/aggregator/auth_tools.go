@@ -294,6 +294,13 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 	}
 
 	// Return the auth challenge as a tool result with the sign-in link
+	return authChallengeResult(serverName, challenge), nil
+}
+
+// authChallengeResult builds the tool result for a pending auth challenge.
+// The sign-in URL is carried both in the prose and as structuredContent.authUrl
+// so clients can read it without parsing the text.
+func authChallengeResult(serverName string, challenge *api.AuthChallenge) *api.CallToolResult {
 	return &api.CallToolResult{
 		Content: []any{fmt.Sprintf(
 			"Authentication Required\n\n"+
@@ -307,7 +314,10 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 			challenge.AuthURL,
 		)},
 		IsError: false,
-	}, nil
+		StructuredContent: map[string]any{
+			"authUrl": challenge.AuthURL,
+		},
+	}
 }
 
 // handleAuthLogout clears authentication for a specific MCP server.
