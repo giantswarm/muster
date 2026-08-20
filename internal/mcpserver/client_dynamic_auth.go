@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/pkg/logging"
 	"github.com/giantswarm/muster/pkg/observability"
 
@@ -91,12 +92,8 @@ func (c *DynamicAuthClient) Initialize(ctx context.Context) error {
 	}
 
 	initResult, err := mcpClient.Initialize(ctx, mcp.InitializeRequest{
-		Params: struct {
-			ProtocolVersion string                 `json:"protocolVersion"`
-			Capabilities    mcp.ClientCapabilities `json:"capabilities"`
-			ClientInfo      mcp.Implementation     `json:"clientInfo"`
-		}{
-			ProtocolVersion: "2024-11-05",
+		Params: mcp.InitializeParams{
+			ProtocolVersion: api.OutboundProtocolVersion,
 			ClientInfo: mcp.Implementation{
 				Name:    "muster-aggregator",
 				Version: "1.0.0",

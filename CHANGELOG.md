@@ -44,6 +44,8 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- muster negotiates MCP protocol version `2025-11-25` with downstream servers, on every transport (stdio, SSE, streamable HTTP, dynamic-auth) and from the agent client. Previously it asked for `2024-11-05`, a revision that predates `structuredContent`, `outputSchema`, and elicitation, so a backend that gates those features on the negotiated version withheld them. Backends that support only an older revision are unaffected: the server answers with the revision it supports. ([#1029](https://github.com/giantswarm/muster/issues/1029))
+
 - muster refuses to start when a `tokenExchangeBroker` target lacks `dexTokenEndpoint`, naming the misconfigured audience, instead of surfacing an unattributed error on the first exchange request. The chart's `values.schema.json` requires the key as well.
 
 - A token-forwarding connect failure now logs the forwarded token's issuer (the `iss` claim only — never the token) with a hint that the backend must trust that issuer's JWKS, so a backend that does not yet trust muster's issuer is attributable from the log instead of a bare initialize error.
