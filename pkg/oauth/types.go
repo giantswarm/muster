@@ -172,6 +172,12 @@ type Metadata struct {
 
 	// CodeChallengeMethodsSupported lists the PKCE code challenge methods.
 	CodeChallengeMethodsSupported []string `json:"code_challenge_methods_supported,omitempty"`
+
+	// AuthorizationResponseIssParameterSupported reports whether the
+	// authorization server sends the RFC 9207 `iss` parameter on
+	// authorization responses. When true, a response without `iss` must be
+	// rejected.
+	AuthorizationResponseIssParameterSupported bool `json:"authorization_response_iss_parameter_supported,omitempty"`
 }
 
 // SupportsS256PKCE reports whether the AS metadata advertises S256 PKCE.

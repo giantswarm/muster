@@ -211,13 +211,21 @@ func (c *Client) cacheMetadata(issuer string, metadata *Metadata) {
 }
 
 // ExchangeCode exchanges an authorization code for tokens.
-func (c *Client) ExchangeCode(ctx context.Context, tokenEndpoint, code, redirectURI, clientID, codeVerifier string) (*Token, error) {
+//
+// resource is the canonical URI of the MCP server the token is for. MCP
+// 2026-07-28 requires the RFC 8707 `resource` parameter on the token request
+// regardless of whether the authorization server supports it, so it is sent
+// whenever the caller supplies one.
+func (c *Client) ExchangeCode(ctx context.Context, tokenEndpoint, code, redirectURI, clientID, codeVerifier, resource string) (*Token, error) {
 	data := url.Values{
 		"grant_type":    {"authorization_code"},
 		"code":          {code},
 		"redirect_uri":  {redirectURI},
 		"client_id":     {clientID},
 		"code_verifier": {codeVerifier},
+	}
+	if resource != "" {
+		data.Set("resource", resource)
 	}
 
 	return c.doTokenRequest(ctx, tokenEndpoint, data)
@@ -275,26 +283,61 @@ func (c *Client) doTokenRequest(ctx context.Context, tokenEndpoint string, data 
 	return &token, nil
 }
 
+// AuthorizationRequest carries the parameters of an OAuth authorization
+// request. The fields are grouped in a struct because several of them are
+// URLs that are easy to transpose in a positional argument list.
+type AuthorizationRequest struct {
+	// AuthorizationEndpoint is the authorization endpoint of the AS.
+	AuthorizationEndpoint string
+
+	// ClientID identifies the client. Muster uses its CIMD URL.
+	ClientID string
+
+	// RedirectURI is where the AS returns the authorization response.
+	RedirectURI string
+
+	// State is the opaque CSRF value returned on the authorization response.
+	State string
+
+	// Scope is the space-separated scope list, optional.
+	Scope string
+
+	// Resource is the canonical URI of the MCP server the token is for
+	// (RFC 8707). Empty omits the parameter.
+	Resource string
+
+	// PKCE holds the code challenge, optional.
+	PKCE *PKCEChallenge
+}
+
 // BuildAuthorizationURL constructs an OAuth authorization URL.
-func (c *Client) BuildAuthorizationURL(authEndpoint, clientID, redirectURI, state, scope string, pkce *PKCEChallenge) (string, error) {
-	authURL, err := url.Parse(authEndpoint)
+//
+// MCP 2026-07-28 requires the RFC 8707 `resource` parameter on the
+// authorization request regardless of whether the authorization server
+// supports it, so it is sent whenever the caller supplies one.
+func (c *Client) BuildAuthorizationURL(request AuthorizationRequest) (string, error) {
+	authURL, err := url.Parse(request.AuthorizationEndpoint)
 	if err != nil {
 		return "", fmt.Errorf("invalid authorization endpoint: %w", err)
 	}
 
 	query := authURL.Query()
 	query.Set("response_type", "code")
-	query.Set("client_id", clientID)
-	query.Set("redirect_uri", redirectURI)
-	query.Set("state", state)
+	query.Set("client_id", request.ClientID)
+	query.Set("redirect_uri", request.RedirectURI)
+	query.Set("state", request.State)
 
-	if scope != "" {
-		query.Set("scope", scope)
+	if request.Scope != "" {
+		query.Set("scope", request.Scope)
 	}
 
-	if pkce != nil {
-		query.Set("code_challenge", pkce.CodeChallenge)
-		query.Set("code_challenge_method", pkce.CodeChallengeMethod)
+	if request.Resource != "" {
+		query.Set("resource", request.Resource)
+	}
+
+	if request.PKCE != nil {
+		query.Set("code_challenge", request.PKCE.CodeChallenge)
+		query.Set("code_challenge_method", request.PKCE.CodeChallengeMethod)
 	}
 
 	authURL.RawQuery = query.Encode()

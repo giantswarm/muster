@@ -264,6 +264,9 @@ func TestExchangeCode(t *testing.T) {
 			if r.Form.Get("code_verifier") != "verifier123" {
 				t.Errorf("expected code_verifier verifier123, got %s", r.Form.Get("code_verifier"))
 			}
+			if r.Form.Get("resource") != "https://mcp.example.com/mcp" {
+				t.Errorf("expected resource https://mcp.example.com/mcp, got %s", r.Form.Get("resource"))
+			}
 
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(expectedToken)
@@ -272,12 +275,13 @@ func TestExchangeCode(t *testing.T) {
 
 		c := NewClient(WithHTTPClient(server.Client()))
 		token, err := c.ExchangeCode(
-			context.Background(),
+			t.Context(),
 			server.URL+"/token",
 			"auth-code",
 			"http://localhost:8080/callback",
 			"test-client",
 			"verifier123",
+			"https://mcp.example.com/mcp",
 		)
 
 		if err != nil {
@@ -303,12 +307,13 @@ func TestExchangeCode(t *testing.T) {
 
 		c := NewClient(WithHTTPClient(server.Client()))
 		_, err := c.ExchangeCode(
-			context.Background(),
+			t.Context(),
 			server.URL+"/token",
 			"invalid-code",
 			"http://localhost:8080/callback",
 			"test-client",
 			"verifier123",
+			"https://mcp.example.com/mcp",
 		)
 
 		if err == nil {
@@ -326,14 +331,15 @@ func TestBuildAuthorizationURL(t *testing.T) {
 			CodeChallengeMethod: "S256",
 		}
 
-		url, err := c.BuildAuthorizationURL(
-			"https://auth.example.com/authorize",
-			"test-client",
-			"http://localhost:8080/callback",
-			"state123",
-			"openid profile email",
-			pkce,
-		)
+		url, err := c.BuildAuthorizationURL(AuthorizationRequest{
+			AuthorizationEndpoint: "https://auth.example.com/authorize",
+			ClientID:              "test-client",
+			RedirectURI:           "http://localhost:8080/callback",
+			State:                 "state123",
+			Scope:                 "openid profile email",
+			Resource:              "https://mcp.example.com/mcp",
+			PKCE:                  pkce,
+		})
 
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -348,6 +354,7 @@ func TestBuildAuthorizationURL(t *testing.T) {
 			"scope=openid+profile+email",
 			"code_challenge=challenge123",
 			"code_challenge_method=S256",
+			"resource=https%3A%2F%2Fmcp.example.com%2Fmcp",
 		}
 
 		for _, param := range expectedParams {
@@ -358,14 +365,13 @@ func TestBuildAuthorizationURL(t *testing.T) {
 	})
 
 	t.Run("builds URL without PKCE", func(t *testing.T) {
-		url, err := c.BuildAuthorizationURL(
-			"https://auth.example.com/authorize",
-			"test-client",
-			"http://localhost:8080/callback",
-			"state123",
-			"openid",
-			nil, // no PKCE
-		)
+		url, err := c.BuildAuthorizationURL(AuthorizationRequest{
+			AuthorizationEndpoint: "https://auth.example.com/authorize",
+			ClientID:              "test-client",
+			RedirectURI:           "http://localhost:8080/callback",
+			State:                 "state123",
+			Scope:                 "openid",
+		})
 
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -378,14 +384,12 @@ func TestBuildAuthorizationURL(t *testing.T) {
 	})
 
 	t.Run("builds URL without scope", func(t *testing.T) {
-		url, err := c.BuildAuthorizationURL(
-			"https://auth.example.com/authorize",
-			"test-client",
-			"http://localhost:8080/callback",
-			"state123",
-			"", // no scope
-			nil,
-		)
+		url, err := c.BuildAuthorizationURL(AuthorizationRequest{
+			AuthorizationEndpoint: "https://auth.example.com/authorize",
+			ClientID:              "test-client",
+			RedirectURI:           "http://localhost:8080/callback",
+			State:                 "state123",
+		})
 
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -397,15 +401,31 @@ func TestBuildAuthorizationURL(t *testing.T) {
 		}
 	})
 
+	t.Run("omits resource when not supplied", func(t *testing.T) {
+		url, err := c.BuildAuthorizationURL(AuthorizationRequest{
+			AuthorizationEndpoint: "https://auth.example.com/authorize",
+			ClientID:              "test-client",
+			RedirectURI:           "http://localhost:8080/callback",
+			State:                 "state123",
+		})
+
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if strings.Contains(url, "resource=") {
+			t.Errorf("expected URL to not contain resource, got %s", url)
+		}
+	})
+
 	t.Run("returns error for invalid URL", func(t *testing.T) {
-		_, err := c.BuildAuthorizationURL(
-			"://invalid-url",
-			"test-client",
-			"http://localhost:8080/callback",
-			"state123",
-			"openid",
-			nil,
-		)
+		_, err := c.BuildAuthorizationURL(AuthorizationRequest{
+			AuthorizationEndpoint: "://invalid-url",
+			ClientID:              "test-client",
+			RedirectURI:           "http://localhost:8080/callback",
+			State:                 "state123",
+			Scope:                 "openid",
+		})
 
 		if err == nil {
 			t.Error("expected error for invalid URL")

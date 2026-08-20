@@ -256,7 +256,7 @@ func TestClient_GenerateAuthURL(t *testing.T) {
 	defer client.Stop()
 
 	ctx := context.Background()
-	authURL, err := client.GenerateAuthURL(ctx, testSubject, "test-user", testServerName, server.URL, testScopes)
+	authURL, err := client.GenerateAuthURL(ctx, testSubject, "test-user", testServerName, server.URL, testResource, testScopes)
 	if err != nil {
 		t.Fatalf("Failed to generate auth URL: %v", err)
 	}
@@ -331,7 +331,7 @@ func TestClient_GenerateAuthURL_RefusesWithoutS256PKCE(t *testing.T) {
 	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
 
-	_, err := client.GenerateAuthURL(context.Background(), testSubject, "test-user", testServerName, server.URL, testScopes)
+	_, err := client.GenerateAuthURL(t.Context(), testSubject, "test-user", testServerName, server.URL, testResource, testScopes)
 	if err == nil {
 		t.Fatal("expected refusal error when AS does not advertise S256 PKCE")
 	}
@@ -396,7 +396,7 @@ func TestClient_ExchangeCode(t *testing.T) {
 	defer client.Stop()
 
 	ctx := context.Background()
-	token, err := client.ExchangeCode(ctx, "auth-code", "code-verifier", server.URL)
+	token, err := client.ExchangeCode(ctx, "auth-code", "code-verifier", server.URL, testResource)
 	if err != nil {
 		t.Fatalf("Failed to exchange code: %v", err)
 	}
@@ -443,7 +443,7 @@ func TestClient_ExchangeCode_Error(t *testing.T) {
 	defer client.Stop()
 
 	ctx := context.Background()
-	_, err := client.ExchangeCode(ctx, "invalid-code", "code-verifier", server.URL)
+	_, err := client.ExchangeCode(ctx, "invalid-code", "code-verifier", server.URL, testResource)
 	if err == nil {
 		t.Fatal("Expected error for invalid code exchange")
 	}

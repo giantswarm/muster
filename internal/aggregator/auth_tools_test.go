@@ -53,7 +53,7 @@ func (m *issuerMockOAuthHandler) DeleteTokensByUser(_ string) {
 func (m *issuerMockOAuthHandler) DeleteTokensBySession(_ string) {
 }
 
-func (m *issuerMockOAuthHandler) CreateAuthChallenge(_ context.Context, _, _, _, _, _ string) (*api.AuthChallenge, error) {
+func (m *issuerMockOAuthHandler) CreateAuthChallenge(_ context.Context, _, _, _, _, _, _ string) (*api.AuthChallenge, error) {
 	return nil, nil
 }
 
@@ -306,5 +306,45 @@ func TestAuthChallengeResult_StructuredAuthURL(t *testing.T) {
 	text, ok := result.Content[0].(string)
 	if !ok || !strings.Contains(text, "https://example.com/oauth/start?state=abc") {
 		t.Errorf("expected sign-in URL in prose content, got %v", result.Content[0])
+	}
+}
+
+func TestResourceIndicator(t *testing.T) {
+	tests := []struct {
+		name             string
+		declaredResource string
+		serverURL        string
+		want             string
+	}{
+		{
+			name:             "prefers the declared resource",
+			declaredResource: "https://backend.example.com/mcp",
+			serverURL:        "https://backend.example.com/mcp/",
+			want:             "https://backend.example.com/mcp",
+		},
+		{
+			name:      "falls back to the server URL",
+			serverURL: "https://backend.example.com/mcp/",
+			want:      "https://backend.example.com/mcp",
+		},
+		{
+			name:             "falls back when the declared resource is unusable",
+			declaredResource: "not a uri",
+			serverURL:        "https://backend.example.com/mcp",
+			want:             "https://backend.example.com/mcp",
+		},
+		{
+			name:      "returns empty when nothing is usable",
+			serverURL: "stdio",
+			want:      "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := resourceIndicator(tc.declaredResource, tc.serverURL); got != tc.want {
+				t.Errorf("expected %q, got %q", tc.want, got)
+			}
+		})
 	}
 }

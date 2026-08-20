@@ -216,6 +216,9 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 				authInfo.Scope = metadata.Scope
 				logging.Info("AuthTools", "Discovered required scope for %s: %s", serverName, metadata.Scope)
 			}
+			if authInfo.Resource == "" && metadata.Resource != "" {
+				authInfo.Resource = metadata.Resource
+			}
 		}
 	}
 
@@ -281,7 +284,8 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 	}
 
 	// No token or token was cleared - need to create an auth challenge
-	challenge, err := oauthHandler.CreateAuthChallenge(ctx, sessionID, sub, serverName, authInfo.Issuer, authInfo.Scope)
+	resource := resourceIndicator(authInfo.Resource, serverInfo.URL)
+	challenge, err := oauthHandler.CreateAuthChallenge(ctx, sessionID, sub, serverName, authInfo.Issuer, resource, authInfo.Scope)
 	if err != nil {
 		logging.Error("AuthTools", err, "Failed to create auth challenge for server %s", serverName)
 		if p.aggregator.authMetrics != nil {
@@ -295,6 +299,29 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 
 	// Return the auth challenge as a tool result with the sign-in link
 	return authChallengeResult(serverName, challenge), nil
+}
+
+// resourceIndicator returns the RFC 8707 `resource` value for a backend: the
+// canonical URI the backend declares in its RFC 9728 metadata, or the
+// canonical form of its configured URL when the metadata omits it or when
+// spec.auth.authorizationServer opts out of metadata discovery.
+//
+// An unusable URL yields an empty string. MCP 2026-07-28 requires sending the
+// parameter, but a value muster cannot canonicalize is worse than none: it
+// would bind the token to an identifier no backend recognizes.
+func resourceIndicator(declaredResource, serverURL string) string {
+	for _, candidate := range []string{declaredResource, serverURL} {
+		if candidate == "" {
+			continue
+		}
+		canonical, err := pkgoauth.CanonicalResourceURI(candidate)
+		if err != nil {
+			logging.Warn("AuthTools", "Cannot use %q as an RFC 8707 resource indicator: %v", candidate, err)
+			continue
+		}
+		return canonical
+	}
+	return ""
 }
 
 // authChallengeResult builds the tool result for a pending auth challenge.

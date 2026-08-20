@@ -48,6 +48,11 @@ type OAuthState struct {
 	// Issuer is the OAuth issuer URL for token exchange.
 	Issuer string `json:"issuer,omitempty"`
 
+	// Resource is the canonical URI of the MCP server this flow obtains a
+	// token for (RFC 8707). The same value goes on the authorization
+	// request and on the token request.
+	Resource string `json:"resource,omitempty"`
+
 	// CodeVerifier is the PKCE code verifier for this flow.
 	// Stored server-side only, not transmitted in the state parameter.
 	CodeVerifier string `json:"-"`

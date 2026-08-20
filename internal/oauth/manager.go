@@ -329,7 +329,7 @@ func (m *Manager) StoreToken(sessionID, userID, issuer string, token *pkgoauth.T
 
 // CreateAuthChallenge creates an authentication challenge for a 401 response.
 // Returns the auth URL the user should visit and the challenge response.
-func (m *Manager) CreateAuthChallenge(ctx context.Context, sessionID, userID, serverName, issuer, scope string) (*AuthRequiredResponse, error) {
+func (m *Manager) CreateAuthChallenge(ctx context.Context, sessionID, userID, serverName, issuer, resource, scope string) (*AuthRequiredResponse, error) {
 	if m == nil {
 		return nil, fmt.Errorf("OAuth proxy is disabled")
 	}
@@ -338,7 +338,7 @@ func (m *Manager) CreateAuthChallenge(ctx context.Context, sessionID, userID, se
 	m.RegisterServer(serverName, issuer, scope)
 
 	// Generate authorization URL (code verifier is stored with the state)
-	authURL, err := m.client.GenerateAuthURL(ctx, sessionID, userID, serverName, issuer, scope)
+	authURL, err := m.client.GenerateAuthURL(ctx, sessionID, userID, serverName, issuer, resource, scope)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate auth URL: %w", err)
 	}
@@ -394,7 +394,7 @@ func (m *Manager) HandleCallback(ctx context.Context, code, state string) error 
 	}
 
 	// Exchange code for token using issuer and code verifier from state
-	token, err := m.client.ExchangeCode(ctx, code, stateData.CodeVerifier, stateData.Issuer)
+	token, err := m.client.ExchangeCode(ctx, code, stateData.CodeVerifier, stateData.Issuer, stateData.Resource)
 	if err != nil {
 		return fmt.Errorf("token exchange failed: %w", err)
 	}

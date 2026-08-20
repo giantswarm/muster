@@ -64,6 +64,11 @@ type AuthFlow struct {
 	// IssuerURL is the OAuth issuer URL.
 	IssuerURL string
 
+	// Resource is the canonical URI of the muster server this flow obtains a
+	// token for (RFC 8707). It goes on the authorization request and on the
+	// token request.
+	Resource string
+
 	// PKCE holds the PKCE challenge parameters.
 	PKCE *pkgoauth.PKCEChallenge
 
@@ -228,10 +233,20 @@ func (c *Client) StartAuthFlowWithOptions(ctx context.Context, serverURL, issuer
 		return "", fmt.Errorf("failed to start callback server: %w", err)
 	}
 
+	// The agent's protected resource is the muster server it signs in to.
+	// It exposes no RFC 9728 `resource` value of its own, so the canonical
+	// form of the configured server URL is the identifier.
+	resource, err := pkgoauth.CanonicalResourceURI(serverURL)
+	if err != nil {
+		callbackServer.Stop()
+		return "", fmt.Errorf("cannot derive an RFC 8707 resource indicator from %q: %w", serverURL, err)
+	}
+
 	// Store the flow
 	c.currentFlow = &AuthFlow{
 		ServerURL:      serverURL,
 		IssuerURL:      issuerURL,
+		Resource:       resource,
 		PKCE:           pkce,
 		State:          state,
 		CallbackServer: callbackServer,
@@ -241,7 +256,7 @@ func (c *Client) StartAuthFlowWithOptions(ctx context.Context, serverURL, issuer
 	}
 
 	// Build authorization URL with options
-	authURL, err := c.buildAuthorizationURLWithOptions(metadata, redirectURI, state, pkce, opts)
+	authURL, err := c.buildAuthorizationURLWithOptions(metadata, redirectURI, state, pkce, resource, opts)
 	if err != nil {
 		c.cancelCurrentFlow()
 		return "", fmt.Errorf("failed to build authorization URL: %w", err)
@@ -298,7 +313,18 @@ func (c *Client) WaitForCallback(ctx context.Context) (*oauth2.Token, error) {
 
 	// Verify iss (RFC 9207) to defend against authorization-server mix-up
 	// attacks when the client talks to multiple ASes. Non-conforming servers
-	// omit the param; treat empty as "not advertised", not as a mismatch.
+	// omit the param; treat empty as "not advertised", not as a mismatch,
+	// unless the server's own metadata says it always sends it.
+	if result.Iss == "" && flow.Metadata != nil && flow.Metadata.AuthorizationResponseIssParameterSupported {
+		slog.Debug("OAuth response omits iss although the AS advertises it",
+			"server_url", flow.ServerURL,
+			"issuer_url", flow.IssuerURL,
+		)
+		c.mu.Lock()
+		c.cancelCurrentFlow()
+		c.mu.Unlock()
+		return nil, fmt.Errorf("authorization response carried no iss although %q advertises authorization_response_iss_parameter_supported", flow.IssuerURL)
+	}
 	if result.Iss != "" {
 		expected := flow.IssuerURL
 		if flow.Metadata != nil && flow.Metadata.Issuer != "" {
@@ -424,6 +450,7 @@ func (c *Client) discoverOAuthMetadata(ctx context.Context, issuerURL string) (*
 		ScopesSupported:               sharedMeta.ScopesSupported,
 		ResponseTypesSupported:        sharedMeta.ResponseTypesSupported,
 		CodeChallengeMethodsSupported: sharedMeta.CodeChallengeMethodsSupported,
+		AuthorizationResponseIssParameterSupported: sharedMeta.AuthorizationResponseIssParameterSupported,
 	}, nil
 }
 
@@ -433,7 +460,7 @@ const DefaultAgentClientID = "https://giantswarm.github.io/muster/muster-agent.j
 
 // buildAuthorizationURLWithOptions constructs the OAuth authorization URL with optional OIDC parameters.
 // The opts parameter allows setting prompt, login_hint, id_token_hint, and other OIDC parameters.
-func (c *Client) buildAuthorizationURLWithOptions(metadata *OAuthMetadata, redirectURI, state string, pkce *pkgoauth.PKCEChallenge, opts *AuthFlowOptions) (string, error) {
+func (c *Client) buildAuthorizationURLWithOptions(metadata *OAuthMetadata, redirectURI, state string, pkce *pkgoauth.PKCEChallenge, resource string, opts *AuthFlowOptions) (string, error) {
 	// Use golang.org/x/oauth2 Config for constructing the authorization URL
 	cfg := &oauth2.Config{
 		ClientID:    DefaultAgentClientID,
@@ -448,6 +475,12 @@ func (c *Client) buildAuthorizationURLWithOptions(metadata *OAuthMetadata, redir
 	// Build auth code options
 	authOpts := []oauth2.AuthCodeOption{
 		oauth2.S256ChallengeOption(pkce.CodeVerifier),
+	}
+
+	// MCP 2026-07-28 requires the RFC 8707 resource indicator on the
+	// authorization request regardless of whether the AS supports it.
+	if resource != "" {
+		authOpts = append(authOpts, oauth2.SetAuthURLParam("resource", resource))
 	}
 
 	// Apply optional OIDC parameters using mcp-oauth's helper
@@ -487,8 +520,13 @@ func (c *Client) exchangeCode(ctx context.Context, flow *AuthFlow, code string) 
 	// Use a custom HTTP context to inject our configured client
 	ctx = context.WithValue(ctx, oauth2.HTTPClient, c.httpClient)
 
+	exchangeOpts := []oauth2.AuthCodeOption{oauth2.VerifierOption(flow.PKCE.CodeVerifier)}
+	if flow.Resource != "" {
+		exchangeOpts = append(exchangeOpts, oauth2.SetAuthURLParam("resource", flow.Resource))
+	}
+
 	// Exchange the code using the standard library with PKCE verifier
-	token, err := cfg.Exchange(ctx, code, oauth2.VerifierOption(flow.PKCE.CodeVerifier))
+	token, err := cfg.Exchange(ctx, code, exchangeOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("token exchange failed: %w", err)
 	}

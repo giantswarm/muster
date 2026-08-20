@@ -58,7 +58,7 @@ func (m *mockOAuthHandler) RegisterServer(_, _, _ string)                       
 func (m *mockOAuthHandler) SetAuthCompletionCallback(_ api.AuthCompletionCallback) {}
 func (m *mockOAuthHandler) Stop()                                                  {}
 
-func (m *mockOAuthHandler) CreateAuthChallenge(_ context.Context, _, _, _, _, _ string) (*api.AuthChallenge, error) {
+func (m *mockOAuthHandler) CreateAuthChallenge(_ context.Context, _, _, _, _, _, _ string) (*api.AuthChallenge, error) {
 	return nil, nil
 }
 

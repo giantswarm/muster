@@ -178,22 +178,18 @@ still needs to follow the rules.
   lines 299-318 implement the "compare if present, reject on mismatch"
   policy that SEP-2468 specifies, including the explicit note that empty
   `iss` is treated as "not advertised", not as a mismatch.
-- **Server-side: gap.** The proxy callback at
+- **Server-side: implemented.** The proxy callback at
   [internal/oauth/handler.go](../../../internal/oauth/handler.go)
-  `HandleCallback` (lines 56-132) reads only `code`, `state`,
-  `error`, and `error_description` from the redirect URL. It never reads or
-  validates `iss`. The proxy is precisely the multi-AS client this SEP is
-  aimed at: every remote MCP server registered with
-  `Manager.RegisterServer` (`internal/oauth/manager.go` lines 179-196) can
-  point to a different `Issuer`, and the auth flow uses
-  `OAuthState.Issuer` to drive token exchange
-  ([internal/oauth/types.go](../../../internal/oauth/types.go) lines 21-46,
-  see `state.Issuer` reads in `handler.go` lines 94-105).
-- **Metadata side:** `pkg/oauth/types.go` `Metadata`
-  (lines 142-189) does not yet carry
-  `authorization_response_iss_parameter_supported`. The SEP recommends
-  reflecting this flag so a future "MUST be present" tightening is
-  detectable per-AS.
+  `HandleCallback` reads `iss` and hands it to `validateResponseIssuer`
+  before it acts on anything else in the response, so a response that
+  cannot be attributed to the expected authorization server is rejected
+  whole, error parameters included. The expected value is the issuer from
+  the server's own metadata, falling back to `OAuthState.Issuer`; the
+  comparison is a simple string comparison with no normalization.
+- **Metadata side: implemented.** `pkg/oauth/types.go` `Metadata` carries
+  `authorization_response_iss_parameter_supported`, and both the proxy and
+  the agent refuse a response that omits `iss` when the server advertises
+  the flag.
 
 ### SEP-837 — `application_type` in DCR
 
@@ -313,7 +309,7 @@ still needs to follow the rules.
 
 Concrete work items, grouped by SEP and ordered by risk:
 
-1. **SEP-2468 — server-side proxy `iss` validation (highest priority).**
+1. **SEP-2468 — server-side proxy `iss` validation (highest priority). Done.**
    - In [internal/oauth/handler.go](../../../internal/oauth/handler.go)
      `HandleCallback`, extract `r.URL.Query().Get("iss")` alongside
      `code` / `state`.
@@ -423,14 +419,6 @@ Concrete work items, grouped by SEP and ordered by risk:
   `auth://status`, or both? SEP-2352 says "surface an error rather than
   silently attempt to use mismatched credentials" — translating that into
   muster's per-server UI vocabulary needs a product call.
-- **Strictness toggle for `iss`.** SEP-2468 explicitly leaves "reject
-  responses that omit `iss` from servers that advertise support" as a
-  near-future tightening. Should muster ship that strict mode now (behind
-  config) so operators can opt in per environment? The data already
-  exists (RFC 8414 metadata) but the discovery path
-  ([pkg/oauth/client.go](../../../pkg/oauth/client.go) lines 80-165) does
-  not yet surface the AS flag through
-  [pkg/oauth/types.go](../../../pkg/oauth/types.go) `Metadata`.
 - **Scope accumulation across `Scope` keys.** Tokens are stored under
   `TokenKey{SessionID, Issuer, Scope}` — meaning a step-up that asks for
   a wider scope produces a *new* token-store entry rather than

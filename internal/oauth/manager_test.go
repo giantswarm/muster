@@ -13,6 +13,7 @@ const (
 	testServerName = "mcp-kubernetes"
 	testIssuer     = "https://auth.example.com"
 	testScopes     = "openid profile"
+	testResource   = "https://mcp.example.com/mcp"
 	testSubject    = "user-123"
 )
 
@@ -447,7 +448,7 @@ func TestManager_GetCIMDHandler_NilManager(t *testing.T) {
 func TestManager_CreateAuthChallenge_NilManager(t *testing.T) {
 	var manager *Manager
 	ctx := context.Background()
-	_, err := manager.CreateAuthChallenge(ctx, "user@example.com", "test-user", "server", "", "")
+	_, err := manager.CreateAuthChallenge(ctx, "user@example.com", "test-user", "server", "", "", "")
 	if err == nil {
 		t.Error("Expected error for nil manager")
 	}
@@ -503,7 +504,7 @@ func TestManager_CreateAuthChallenge(t *testing.T) {
 	scope := testScopes
 
 	ctx := context.Background()
-	_, err := manager.CreateAuthChallenge(ctx, testSubject, "test-user", "mcp-server", issuer, scope)
+	_, err := manager.CreateAuthChallenge(ctx, testSubject, "test-user", "mcp-server", issuer, testResource, scope)
 	// Expected to fail because the issuer doesn't return valid metadata
 	if err == nil {
 		// If it succeeds (unlikely), that's also fine

@@ -140,8 +140,8 @@ func (a *Adapter) DeleteTokensBySession(sessionID string) {
 }
 
 // CreateAuthChallenge creates an authentication challenge for a 401 response.
-func (a *Adapter) CreateAuthChallenge(ctx context.Context, sessionID, userID, serverName, issuer, scope string) (*api.AuthChallenge, error) {
-	challenge, err := a.manager.CreateAuthChallenge(ctx, sessionID, userID, serverName, issuer, scope)
+func (a *Adapter) CreateAuthChallenge(ctx context.Context, sessionID, userID, serverName, issuer, resource, scope string) (*api.AuthChallenge, error) {
+	challenge, err := a.manager.CreateAuthChallenge(ctx, sessionID, userID, serverName, issuer, resource, scope)
 	if err != nil {
 		return nil, err
 	}

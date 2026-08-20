@@ -26,6 +26,7 @@ type valkeyStateEntry struct {
 	Nonce            string    `json:"n"`
 	CreatedAt        time.Time `json:"ca"`
 	Issuer           string    `json:"iss,omitempty"`
+	Resource         string    `json:"res,omitempty"`
 	CodeVerifier     string    `json:"cv,omitempty"`
 	RedirectURI      string    `json:"ru,omitempty"`
 	AuthorizationURL string    `json:"aurl,omitempty"`
@@ -39,6 +40,7 @@ func (e *valkeyStateEntry) toState() *OAuthState {
 		Nonce:            e.Nonce,
 		CreatedAt:        e.CreatedAt,
 		Issuer:           e.Issuer,
+		Resource:         e.Resource,
 		CodeVerifier:     e.CodeVerifier,
 		RedirectURI:      e.RedirectURI,
 		AuthorizationURL: e.AuthorizationURL,
@@ -53,6 +55,7 @@ func stateToEntry(s *OAuthState) *valkeyStateEntry {
 		Nonce:            s.Nonce,
 		CreatedAt:        s.CreatedAt,
 		Issuer:           s.Issuer,
+		Resource:         s.Resource,
 		CodeVerifier:     s.CodeVerifier,
 		RedirectURI:      s.RedirectURI,
 		AuthorizationURL: s.AuthorizationURL,
@@ -95,7 +98,7 @@ func (s *ValkeyStateStore) stateKey(nonce string) string {
 	return s.keyPrefix + "oauth:state:" + nonce
 }
 
-func (s *ValkeyStateStore) GenerateState(sessionID, userID, serverName, issuer, codeVerifier string,
+func (s *ValkeyStateStore) GenerateState(params StateParams,
 	buildAuthorizationURL func(encodedState string) (string, error)) (string, error) {
 	nonceBytes := make([]byte, 32)
 	if _, err := rand.Read(nonceBytes); err != nil {
@@ -105,13 +108,14 @@ func (s *ValkeyStateStore) GenerateState(sessionID, userID, serverName, issuer, 
 	nonce := base64.URLEncoding.EncodeToString(nonceBytes)
 
 	state := &OAuthState{
-		SessionID:    sessionID,
-		UserID:       userID,
-		ServerName:   serverName,
+		SessionID:    params.SessionID,
+		UserID:       params.UserID,
+		ServerName:   params.ServerName,
 		Nonce:        nonce,
 		CreatedAt:    time.Now(),
-		Issuer:       issuer,
-		CodeVerifier: codeVerifier,
+		Issuer:       params.Issuer,
+		Resource:     params.Resource,
+		CodeVerifier: params.CodeVerifier,
 	}
 
 	stateJSON, err := json.Marshal(state)
@@ -144,8 +148,8 @@ func (s *ValkeyStateStore) GenerateState(sessionID, userID, serverName, issuer, 
 		return "", err
 	}
 
-	logging.Debug("OAuth", "ValkeyStateStore: generated state for session=%s server=%s issuer=%s",
-		logging.TruncateIdentifier(sessionID), serverName, issuer)
+	logging.Debug("OAuth", "ValkeyStateStore: generated state for session=%s server=%s issuer=%s resource=%s",
+		logging.TruncateIdentifier(params.SessionID), params.ServerName, params.Issuer, params.Resource)
 	return encodedState, nil
 }
 

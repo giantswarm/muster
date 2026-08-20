@@ -55,7 +55,7 @@ func (m *stubOAuthHandler) GetCIMDPath() string                                 
 func (m *stubOAuthHandler) ShouldServeCIMD() bool                                  { return false }
 func (m *stubOAuthHandler) GetCIMDHandler() http.HandlerFunc                       { return nil }
 func (m *stubOAuthHandler) Stop()                                                  {}
-func (m *stubOAuthHandler) CreateAuthChallenge(_ context.Context, _, _, _, _, _ string) (*api.AuthChallenge, error) {
+func (m *stubOAuthHandler) CreateAuthChallenge(_ context.Context, _, _, _, _, _, _ string) (*api.AuthChallenge, error) {
 	return nil, nil
 }
 func (m *stubOAuthHandler) ExchangeTokenForRemoteCluster(_ context.Context, _, _ string, _ *api.TokenExchangeConfig) (string, error) {

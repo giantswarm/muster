@@ -33,6 +33,11 @@ type AuthInfo struct {
 
 	// ResourceMetadataURL is the URL to fetch OAuth metadata (MCP-specific)
 	ResourceMetadataURL string
+
+	// Resource is the canonical URI the server declares for itself in its
+	// RFC 9728 metadata. It is the RFC 8707 `resource` value muster sends on
+	// authorization and token requests for this server.
+	Resource string
 }
 
 // AuthRequiredError is returned when an MCP server requires OAuth authentication
