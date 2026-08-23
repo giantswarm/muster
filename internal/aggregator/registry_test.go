@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
@@ -663,5 +664,40 @@ func TestServerRegistry_GetClient(t *testing.T) {
 		client, err := registry.GetClient("live")
 		require.NoError(t, err)
 		require.Same(t, want, client)
+	})
+}
+
+func TestServerRegistry_DeregisterRequestedAt(t *testing.T) {
+	t.Run("skips entries registered after the deregistration was requested", func(t *testing.T) {
+		registry := NewServerRegistry("x")
+		requestedAt := time.Now()
+
+		// A pending-auth registration lands while the (slow) deregistration
+		// triggered by a stale state=starting event is still in flight.
+		require.NoError(t, registry.RegisterPendingAuth(PendingAuthRegistration{
+			ServerRegistration: ServerRegistration{Name: "oauth-server"},
+			URL:                "https://oauth.example.com",
+			AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com"},
+		}))
+
+		require.NoError(t, registry.DeregisterRequestedAt("oauth-server", requestedAt))
+
+		info, exists := registry.GetServerInfo("oauth-server")
+		require.True(t, exists, "newer registration must survive a stale deregistration")
+		require.True(t, info.RequiresSessionAuth())
+	})
+
+	t.Run("removes entries registered before the deregistration was requested", func(t *testing.T) {
+		registry := NewServerRegistry("x")
+		require.NoError(t, registry.RegisterPendingAuth(PendingAuthRegistration{
+			ServerRegistration: ServerRegistration{Name: "oauth-server"},
+			URL:                "https://oauth.example.com",
+			AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com"},
+		}))
+
+		require.NoError(t, registry.DeregisterRequestedAt("oauth-server", time.Now()))
+
+		_, exists := registry.GetServerInfo("oauth-server")
+		require.False(t, exists)
 	})
 }

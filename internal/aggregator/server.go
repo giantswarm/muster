@@ -1182,6 +1182,13 @@ func (a *AggregatorServer) DeregisterServer(name string) error {
 	logging.InfoWithAttrs("Aggregator", "DeregisterServer called",
 		slog.String("server", name))
 
+	// Snapshot the request time before the slow store cleanup below. The
+	// registry delete at the end only removes entries older than this, so a
+	// registration that lands while cleanup runs (e.g. the pending-auth entry
+	// created right after a 401 while a stale state=starting event is still
+	// being processed) survives instead of being clobbered.
+	requestedAt := time.Now()
+
 	// Remove auth state and capabilities for this server across all sessions.
 	if a.authStore != nil {
 		if err := a.authStore.RevokeServer(context.Background(), name); err != nil {
@@ -1201,7 +1208,7 @@ func (a *AggregatorServer) DeregisterServer(name string) error {
 		a.connPool.EvictServer(name)
 	}
 
-	return a.registry.Deregister(name)
+	return a.registry.DeregisterRequestedAt(name, requestedAt)
 }
 
 // GetRegistry returns the server registry for direct access to backend server information.

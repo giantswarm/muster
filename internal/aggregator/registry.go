@@ -233,10 +233,11 @@ func (r *ServerRegistry) Register(ctx context.Context, registration ServerRegist
 	}
 
 	info := &ServerInfo{
-		Name:       registration.Name,
-		Client:     client,
-		ToolPrefix: registration.ToolPrefix,
-		Family:     cloneFamily(registration.Family),
+		Name:         registration.Name,
+		Client:       client,
+		ToolPrefix:   registration.ToolPrefix,
+		Family:       cloneFamily(registration.Family),
+		RegisteredAt: time.Now(),
 	}
 
 	r.applyServerRegistrationLocked(registration.Name, registration.ToolPrefix, registration.Family)
@@ -276,12 +277,29 @@ func (r *ServerRegistry) Register(ctx context.Context, registration ServerRegist
 //
 // Returns an error if the server is not found in the registry.
 func (r *ServerRegistry) Deregister(name string) error {
+	return r.DeregisterRequestedAt(name, time.Now())
+}
+
+// DeregisterRequestedAt removes an MCP server like Deregister, but only if the
+// registry entry was created before requestedAt. Deregistration can be slow
+// (session auth revocation, connection-pool eviction happen first), and a new
+// registration for the same name can land in that window — e.g. the
+// pending-auth entry created right after a 401 while a stale state=starting
+// event is still being processed. Deleting that newer entry would strand the
+// server in a state where core_auth_login reports "server not found" until the
+// process restarts.
+func (r *ServerRegistry) DeregisterRequestedAt(name string, requestedAt time.Time) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	info, exists := r.servers[name]
 	if !exists {
 		return fmt.Errorf("server %s not found", name)
+	}
+
+	if info.RegisteredAt.After(requestedAt) {
+		logging.Info("Aggregator", "Skipping deregistration of %s: entry was re-registered after the deregistration was requested", name)
+		return nil
 	}
 
 	if info.Client != nil {
@@ -1122,12 +1140,13 @@ func (r *ServerRegistry) RegisterPendingAuth(registration PendingAuthRegistratio
 	}
 
 	info := &ServerInfo{
-		Name:       registration.Name,
-		URL:        registration.URL,
-		ToolPrefix: registration.ToolPrefix,
-		Family:     cloneFamily(registration.Family),
-		AuthInfo:   registration.AuthInfo,
-		AuthConfig: authConfig,
+		Name:         registration.Name,
+		URL:          registration.URL,
+		ToolPrefix:   registration.ToolPrefix,
+		Family:       cloneFamily(registration.Family),
+		AuthInfo:     registration.AuthInfo,
+		AuthConfig:   authConfig,
+		RegisteredAt: time.Now(),
 	}
 
 	r.applyServerRegistrationLocked(registration.Name, registration.ToolPrefix, registration.Family)
