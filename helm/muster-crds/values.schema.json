@@ -1,16 +1,30 @@
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "type": "object",
-  "properties": {
-    "crds": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "annotations": {
-          "type": "object",
-          "description": "Annotations merged into each CRD's metadata.annotations. Default `helm.sh/resource-policy: keep` preserves CRDs on `helm uninstall`."
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+        "crds": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "annotations": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "helm.sh/resource-policy": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "global": {
+            "type": [
+                "object",
+                "null"
+            ],
+            "description": "Global values shared between all subcharts",
+            "$comment": "Added automatically by 'helm schema' to allow this chart to be used as a Helm dependency, as the `additionalProperties` setting would otherwise collide with Helm's special 'global' values key."
         }
-      }
     }
-  }
 }
