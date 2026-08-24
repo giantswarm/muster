@@ -2,6 +2,11 @@
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
 
+# Umbrella-chart toggle. App-of-apps meta-charts (agent-platform) forward their
+# component values block verbatim, including this on/off key. The muster chart
+# itself ignores it; it exists so the values schema accepts such forwarded blocks.
+enabled: true
+
 replicaCount: 1
 
 image:
@@ -42,8 +47,8 @@ rbac:
   # A Role/RoleBinding granting `get` on secrets is created in each listed namespace.
   additionalSecretNamespaces: []
 
-podAnnotations: {}
-podLabels: {}
+podAnnotations: {}  # @schema additionalProperties: true
+podLabels: {}  # @schema additionalProperties: true
 
 podSecurityContext:
   runAsUser: 1000
@@ -208,7 +213,7 @@ volumes: []
 # Additional volumeMounts on the output Deployment definition.
 volumeMounts: []
 
-nodeSelector: {}
+nodeSelector: {}  # @schema additionalProperties: true
 
 tolerations: []
 
@@ -372,7 +377,7 @@ muster:
       # oversight. The requirement is that every critical record is
       # reconstructable at startup, so a Valkey restart, PVC recreation, or
       # fresh install is non-fatal. Valkey is deployed outside this chart (as a
-      # sibling component of the agentic-platform umbrella), so persistence
+      # sibling component of the agent-platform umbrella), so persistence
       # tuning would live there, not here.
       #
       # Why not AOF (appendonly yes)? It does NOT protect the data that is lost
@@ -580,7 +585,7 @@ muster:
       #     portal-backend:
       #       clientCredentialsSecretRef:
       #         name: muster-broker-clients   # keys default to client-id/client-secret
-      tokenExchangeBroker: {}
+      tokenExchangeBroker: {}  # @schema additionalProperties: true
 
       # CIDRs from which X-Forwarded-Proto and X-Forwarded-Host headers are
       # trusted for DPoP htu URL reconstruction. Required when muster runs
@@ -648,7 +653,7 @@ muster:
           # Extra labels applied to the ServiceMonitor — useful for
           # selecting the right Prometheus instance in a multi-tenant
           # cluster.
-          labels: {}
+          labels: {}  # @schema additionalProperties: true
 
 # CRD ownership. The muster application chart ships the MCPServer and Workflow
 # CustomResourceDefinitions in the Helm 3 `crds/` directory (helm/muster/crds/),

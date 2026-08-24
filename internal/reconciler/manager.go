@@ -70,6 +70,9 @@ func NewManager(config ManagerConfig) *Manager {
 	if config.ReconcileTimeout == 0 {
 		config.ReconcileTimeout = 30 * time.Second
 	}
+	if config.ResyncInterval == 0 {
+		config.ResyncInterval = 30 * time.Second
+	}
 	if config.DisabledResourceTypes == nil {
 		config.DisabledResourceTypes = make(map[ResourceType]bool)
 	}
@@ -144,6 +147,10 @@ func (m *Manager) Start(ctx context.Context) error {
 	// Start event processor
 	m.wg.Add(1)
 	go m.processChangeEvents()
+
+	// Start periodic resync (level-based safety net for lost change events)
+	m.wg.Add(1)
+	go m.periodicResync()
 
 	// Start workers
 	for i := 0; i < m.config.WorkerCount; i++ {
@@ -222,6 +229,52 @@ func (m *Manager) processChangeEvents() {
 				return
 			}
 			m.handleChangeEvent(event)
+		}
+	}
+}
+
+// periodicResync enqueues a reconcile for every resource known to each
+// registered ResyncLister, on a fixed interval. Change detection alone is
+// edge-triggered: a dropped or coalesced event (fsnotify on overlayfs, watch
+// hiccups) leaves the system permanently diverged — most visibly a re-created
+// MCPServer definition whose service is never started. Resync makes any such
+// divergence self-heal within one interval; in-sync resources reconcile as
+// cheap no-ops. The queue deduplicates, so resync never piles up requests.
+func (m *Manager) periodicResync() {
+	defer m.wg.Done()
+
+	ticker := time.NewTicker(m.config.ResyncInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-m.ctx.Done():
+			return
+		case <-ticker.C:
+			m.resyncAll()
+		}
+	}
+}
+
+// resyncAll enqueues reconcile requests for all resources enumerated by
+// reconcilers that implement ResyncLister.
+func (m *Manager) resyncAll() {
+	m.mu.RLock()
+	listers := make(map[ResourceType]ResyncLister)
+	for resourceType, reconciler := range m.reconcilers {
+		if lister, ok := reconciler.(ResyncLister); ok && !m.config.DisabledResourceTypes[resourceType] {
+			listers[resourceType] = lister
+		}
+	}
+	m.mu.RUnlock()
+
+	for resourceType, lister := range listers {
+		for _, name := range lister.ResyncNames() {
+			m.queue.Add(ReconcileRequest{
+				Type:    resourceType,
+				Name:    name,
+				Attempt: 1,
+			})
 		}
 	}
 }

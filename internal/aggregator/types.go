@@ -120,6 +120,12 @@ type ServerInfo struct {
 	// LastUpdate tracks when the server information was last refreshed
 	LastUpdate time.Time
 
+	// RegisteredAt records when this registry entry was created (set once by
+	// Register/RegisterPendingAuth, never refreshed). Deregistration requests
+	// skip entries created after the request began, so a concurrent
+	// re-registration is not clobbered by a stale deregister.
+	RegisteredAt time.Time
+
 	// ToolPrefix is the configured prefix for tools from this server.
 	// This is used for name collision resolution.
 	ToolPrefix string

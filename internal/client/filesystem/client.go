@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -32,6 +33,13 @@ const defaultNamespace = "default"
 // interface methods, shared helpers, and the sub-resource writer types.
 type Client struct {
 	basePath string
+
+	// mu serializes all resource file mutations (create/update/delete/status).
+	// Without it, a status sync's read-modify-write races a concurrent delete:
+	// the sync reads the definition, the delete removes the file, and the
+	// sync's rename resurrects it — the definition comes back as a zombie and
+	// the service is never torn down (delete-recreate CI flake).
+	mu sync.Mutex
 }
 
 // New returns a filesystem-backed Client rooted at basePath. An empty

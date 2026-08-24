@@ -71,6 +71,27 @@ func (r *MCPServerReconciler) GetResourceType() ResourceType {
 	return ResourceTypeMCPServer
 }
 
+// ResyncNames implements ResyncLister: the union of all MCPServer definition
+// names and all registered MCPServer service names. Including registry-only
+// names lets resync heal a lost delete event (service running without a
+// definition); definition names heal lost create/update events.
+func (r *MCPServerReconciler) ResyncNames() []string {
+	seen := make(map[string]struct{})
+	for _, info := range r.mcpServerManager.ListMCPServers() {
+		seen[info.Name] = struct{}{}
+	}
+	for _, svc := range r.serviceRegistry.GetAll() {
+		if svc.GetType() == api.TypeMCPServer {
+			seen[svc.GetName()] = struct{}{}
+		}
+	}
+	names := make([]string, 0, len(seen))
+	for name := range seen {
+		names = append(names, name)
+	}
+	return names
+}
+
 // Reconcile processes a single MCPServer reconciliation request.
 //
 // After successful reconciliation, this returns RequeueAfter to enable periodic

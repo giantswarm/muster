@@ -3,11 +3,14 @@ category: "behavioral"
 concept: "mcpserver"
 description: |
   Verify that core_mcpserver_create stamps the authenticated subject into the
-  ui.giantswarm.io/registered-by annotation server-side (issue #1021), exposed
-  as registeredBy on core_mcpserver_get, and that core_mcpserver_update
-  preserves it. Registration is open (no authorization on mcpserver mutation
-  tools), so the server-side stamp is the only durable attribution for who
-  changed the shared tool surface — client-side stamping is spoofable.
+  ui.giantswarm.io/registered-by annotation server-side (issue #1021) and the
+  token's email claim into ui.giantswarm.io/registered-by-email (issue #1048),
+  exposed as registeredBy/registeredByEmail on core_mcpserver_get, and that
+  core_mcpserver_update preserves both. Registration is open (no authorization
+  on mcpserver mutation tools), so the server-side stamp is the only durable
+  attribution for who changed the shared tool surface — client-side stamping
+  is spoofable. The subject is the stable identifier; the email is display
+  metadata for UIs.
 tags: ["mcpserver", "create", "oauth", "attribution", "core-api"]
 timeout: "2m"
 
@@ -62,7 +65,7 @@ steps:
       success: true
 
   - id: "verify-registered-by-stamped"
-    description: "registeredBy carries the authenticated subject"
+    description: "registeredBy carries the subject, registeredByEmail the email claim"
     tool: "core_mcpserver_get"
     args:
       name: "stamped-server"
@@ -71,6 +74,7 @@ steps:
       json_path:
         name: "stamped-server"
         registeredBy: "registrar-user"
+        registeredByEmail: "test@example.com"
 
   - id: "update-mcpserver"
     description: "Update the server definition"
@@ -82,7 +86,7 @@ steps:
       success: true
 
   - id: "verify-registered-by-preserved"
-    description: "registeredBy survives the update"
+    description: "registeredBy and registeredByEmail survive the update"
     tool: "core_mcpserver_get"
     args:
       name: "stamped-server"
@@ -90,6 +94,7 @@ steps:
       success: true
       json_path:
         registeredBy: "registrar-user"
+        registeredByEmail: "test@example.com"
 
 cleanup:
   - id: "delete-mcpserver"
