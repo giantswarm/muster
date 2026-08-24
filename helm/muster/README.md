@@ -20,6 +20,7 @@ A Helm chart for muster - Universal Control Plane for AI Agents built on MCP
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
+| enabled | bool | `true` |  |
 | replicaCount | int | `1` |  |
 | image.registry | string | `"gsoci.azurecr.io"` |  |
 | image.repository | string | `"giantswarm/muster"` |  |

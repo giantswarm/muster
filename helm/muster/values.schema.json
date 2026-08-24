@@ -43,6 +43,9 @@
                 }
             }
         },
+        "enabled": {
+            "type": "boolean"
+        },
         "fullnameOverride": {
             "type": "string"
         },
@@ -368,7 +371,7 @@
                                 },
                                 "tokenExchangeBroker": {
                                     "type": "object",
-                                    "additionalProperties": false
+                                    "additionalProperties": true
                                 },
                                 "trustedAudiences": {
                                     "type": "array"
@@ -419,7 +422,7 @@
                                                 },
                                                 "labels": {
                                                     "type": "object",
-                                                    "additionalProperties": false
+                                                    "additionalProperties": true
                                                 }
                                             }
                                         }
@@ -531,11 +534,11 @@
         },
         "nodeSelector": {
             "type": "object",
-            "additionalProperties": false
+            "additionalProperties": true
         },
         "podAnnotations": {
             "type": "object",
-            "additionalProperties": false
+            "additionalProperties": true
         },
         "podDisruptionBudget": {
             "type": "object",
@@ -551,7 +554,7 @@
         },
         "podLabels": {
             "type": "object",
-            "additionalProperties": false
+            "additionalProperties": true
         },
         "podSecurityContext": {
             "type": "object",
