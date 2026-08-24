@@ -25,6 +25,37 @@
                 }
             }
         },
+        "baseDomain": {
+            "type": "string"
+        },
+        "bootstrapMode": {
+            "type": "object",
+            "additionalProperties": true
+        },
+        "chartOperator": {
+            "type": "object",
+            "additionalProperties": true
+        },
+        "ciliumNetworkPolicy": {
+            "type": "object",
+            "additionalProperties": true
+        },
+        "cluster": {
+            "type": "object",
+            "additionalProperties": true
+        },
+        "clusterCA": {
+            "type": "string"
+        },
+        "clusterCIDR": {
+            "type": "string"
+        },
+        "clusterDNSIP": {
+            "type": "string"
+        },
+        "clusterID": {
+            "type": "string"
+        },
         "crds": {
             "type": "object",
             "additionalProperties": false,
@@ -100,6 +131,9 @@
                     }
                 }
             }
+        },
+        "gcpProject": {
+            "type": "string"
         },
         "global": {
             "type": [
@@ -574,6 +608,9 @@
                 }
             }
         },
+        "provider": {
+            "type": "string"
+        },
         "rbac": {
             "type": "object",
             "additionalProperties": false,
@@ -700,6 +737,9 @@
                     "type": "string"
                 }
             }
+        },
+        "subscriptionID": {
+            "type": "string"
         },
         "tolerations": {
             "type": "array"
