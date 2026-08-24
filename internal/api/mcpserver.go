@@ -333,6 +333,12 @@ type MCPServerInfo struct {
 	// (auth status, connection status) is tracked in the Session Registry.
 	State string `json:"state,omitempty"`
 
+	// ProtocolVersion is the MCP revision this backend answered with during the
+	// handshake. It can be older than ClientProtocolVersion: a backend that
+	// supports only an earlier revision answers with that one. Empty when the
+	// server has no connected client.
+	ProtocolVersion string `json:"protocolVersion,omitempty"`
+
 	// StatusMessage provides a user-friendly, actionable message about the server's status.
 	// This field is populated based on the server's state and error information.
 	// Examples:

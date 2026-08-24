@@ -113,9 +113,32 @@ func (a *Adapter) ListMCPServers() []api.MCPServerInfo {
 	result := make([]api.MCPServerInfo, len(servers))
 	for i, server := range servers {
 		result[i] = convertCRDToInfo(&server)
+		result[i].ProtocolVersion = serviceProtocolVersion(server.Name)
 	}
 
 	return result
+}
+
+// serviceProtocolVersion returns the MCP revision the named server answered
+// with during its handshake, or "" when no service is running for it.
+//
+// It reads the live service rather than the CRD status so that the value
+// matches what core_service_status reports for the same server; the status
+// subresource syncs on an interval and would lag behind a reconnect that
+// negotiates a different revision.
+func serviceProtocolVersion(name string) string {
+	registry := api.GetServiceRegistry()
+	if registry == nil {
+		return ""
+	}
+
+	service, exists := registry.Get(name)
+	if !exists {
+		return ""
+	}
+
+	version, _ := service.GetServiceData()[api.ServiceDataProtocolVersion].(string)
+	return version
 }
 
 // GetMCPServer returns information about a specific MCP server
@@ -131,6 +154,7 @@ func (a *Adapter) GetMCPServer(name string) (*api.MCPServerInfo, error) {
 	}
 
 	info := convertCRDToInfo(server)
+	info.ProtocolVersion = serviceProtocolVersion(name)
 	return &info, nil
 }
 

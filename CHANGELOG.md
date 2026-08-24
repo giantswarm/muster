@@ -44,6 +44,12 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- muster asks for MCP protocol version `2025-11-25` instead of `2024-11-05` whenever it acts as an MCP client: every downstream transport (stdio, SSE, streamable HTTP, dynamic-auth) and the agent client. A backend that supports only an older revision answers with that one and keeps working. ([#1029](https://github.com/giantswarm/muster/issues/1029))
+
+- `core_service_status` and `core_mcpserver_get` report `protocolVersion` for a connected MCP server: the revision that backend answered with during the handshake. The value can differ per backend.
+
+- The aggregator no longer advertises the `resources.subscribe` capability. `resources/subscribe` now returns `METHOD_NOT_FOUND`. `resources.listChanged` is unchanged and still fires. ([#1030](https://github.com/giantswarm/muster/issues/1030))
+
 - muster refuses to start when a `tokenExchangeBroker` target lacks `dexTokenEndpoint`, naming the misconfigured audience, instead of surfacing an unattributed error on the first exchange request. The chart's `values.schema.json` requires the key as well.
 
 - A token-forwarding connect failure now logs the forwarded token's issuer (the `iss` claim only — never the token) with a hint that the backend must trust that issuer's JWKS, so a backend that does not yet trust muster's issuer is attributable from the log instead of a bare initialize error.
