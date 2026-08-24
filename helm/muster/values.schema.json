@@ -310,9 +310,6 @@
                                         "allowPrivateIPOIDC": {
                                             "type": "boolean"
                                         },
-                                        "allowedAudiences": {
-                                            "type": "array"
-                                        },
                                         "clientId": {
                                             "type": "string"
                                         },
@@ -324,6 +321,12 @@
                                         },
                                         "issuerUrl": {
                                             "type": "string"
+                                        },
+                                        "requestableAudiences": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "string"
+                                            }
                                         }
                                     }
                                 },

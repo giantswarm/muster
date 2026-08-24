@@ -13,6 +13,7 @@ import (
 	"slices"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	oauth "github.com/giantswarm/mcp-oauth"
@@ -68,14 +69,20 @@ func (m *mockMCPServerManager) ExecuteTool(ctx context.Context, toolName string,
 // a restart. mcp-oauth owns the scope formatting and its validation.
 //
 // It also pins the policy gate on the wired path: an MCPServer cannot add an
-// audience the operator did not allow.
+// audience the operator did not list.
 func TestNewDexProviderConfigResolvesAudiencesPerCall(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		resolveAudiencesPerCall(t)
+	})
+}
+
+func resolveAudiencesPerCall(t *testing.T) {
 	cfg := config.OAuthServerConfig{
 		Dex: config.DexConfig{
-			IssuerURL:        "https://dex.example.com",
-			ClientID:         "muster",
-			ClientSecret:     "secret",
-			AllowedAudiences: []string{"dex-k8s-authenticator"},
+			IssuerURL:            "https://dex.example.com",
+			ClientID:             "muster",
+			ClientSecret:         "secret",
+			RequestableAudiences: []string{"dex-k8s-authenticator"},
 		},
 	}
 
@@ -108,7 +115,7 @@ func TestNewDexProviderConfigResolvesAudiencesPerCall(t *testing.T) {
 					},
 				},
 				{
-					Name: "unallowed-mcp",
+					Name: "unlisted-audience-mcp",
 					Auth: &api.MCPServerAuth{
 						ForwardToken:      true,
 						RequiredAudiences: []string{"rogue-client"},
@@ -119,7 +126,64 @@ func TestNewDexProviderConfigResolvesAudiencesPerCall(t *testing.T) {
 	})
 	t.Cleanup(func() { api.RegisterMCPServerManager(nil) })
 
+	// The resolver caches its result, so the new audience reaches a login one
+	// TTL later. The bubble makes that wait instant.
+	time.Sleep(audienceResolverTTL)
+
 	assert.Equal(t, []string{"dex-k8s-authenticator"}, dexConfig.AudienceResolver())
+}
+
+// TestMemoizedAudienceResolverBoundsListCalls pins the cost of a per-request
+// resolver. api.CollectRequiredAudiences lists MCPServers through an uncached
+// Kubernetes client, so every login would otherwise reach the apiserver.
+func TestMemoizedAudienceResolverBoundsListCalls(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var calls int
+		resolve := memoizedAudienceResolver(audienceResolverTTL, func() []string {
+			calls++
+			return []string{"dex-k8s-authenticator"}
+		})
+
+		for range 5 {
+			require.Equal(t, []string{"dex-k8s-authenticator"}, resolve())
+		}
+		assert.Equal(t, 1, calls, "logins inside the TTL must share one list call")
+
+		time.Sleep(audienceResolverTTL)
+		require.Equal(t, []string{"dex-k8s-authenticator"}, resolve())
+		assert.Equal(t, 2, calls, "the first login after the TTL must refresh the set")
+	})
+}
+
+// TestMemoizedAudienceResolverReturnsACopy keeps a caller from writing into the
+// cache. The Dex provider appends to the slice it receives.
+func TestMemoizedAudienceResolverReturnsACopy(t *testing.T) {
+	resolve := memoizedAudienceResolver(time.Hour, func() []string {
+		return []string{"dex-k8s-authenticator"}
+	})
+
+	first := resolve()
+	first[0] = "overwritten"
+
+	assert.Equal(t, []string{"dex-k8s-authenticator"}, resolve())
+}
+
+// TestMemoizedAudienceResolverIsConcurrencySafe covers parallel logins through
+// the cache.
+func TestMemoizedAudienceResolverIsConcurrencySafe(t *testing.T) {
+	resolve := memoizedAudienceResolver(time.Hour, func() []string {
+		return []string{"dex-k8s-authenticator"}
+	})
+
+	var wg sync.WaitGroup
+	for range 32 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			assert.Equal(t, []string{"dex-k8s-authenticator"}, resolve())
+		}()
+	}
+	wg.Wait()
 }
 
 func TestNewDexProviderConfigConnectorID(t *testing.T) {
@@ -137,46 +201,46 @@ func TestNewDexProviderConfigConnectorID(t *testing.T) {
 	assert.Equal(t, "muster-glean", dexConfig.ConnectorID)
 }
 
-// TestAllowedAudiencesOnlyDeniesUnlistedAudiences pins the policy gate. An
+// TestRequestableAudiencesOnlyDeniesUnlistedAudiences pins the policy gate. An
 // MCPServer resource must not widen the audience of every user's forwarded ID
 // token, and an audience Dex refuses must not reach an authorization request,
 // because Dex fails the whole request and every login with it.
-func TestAllowedAudiencesOnlyDeniesUnlistedAudiences(t *testing.T) {
+func TestRequestableAudiencesOnlyDeniesUnlistedAudiences(t *testing.T) {
 	tests := []struct {
-		name     string
-		allowed  []string
-		required []string
-		want     []string
+		name        string
+		requestable []string
+		required    []string
+		want        []string
 	}{
 		{
-			name:     "an empty allowlist denies every audience",
-			allowed:  nil,
-			required: []string{"dex-k8s-authenticator"},
-			want:     []string{},
+			name:        "an empty list denies every audience",
+			requestable: nil,
+			required:    []string{"dex-k8s-authenticator"},
+			want:        []string{},
 		},
 		{
-			name:     "an allowed audience passes",
-			allowed:  []string{"dex-k8s-authenticator"},
-			required: []string{"dex-k8s-authenticator"},
-			want:     []string{"dex-k8s-authenticator"},
+			name:        "a requestable audience passes",
+			requestable: []string{"dex-k8s-authenticator"},
+			required:    []string{"dex-k8s-authenticator"},
+			want:        []string{"dex-k8s-authenticator"},
 		},
 		{
-			name:     "an unlisted audience is dropped and the rest survive",
-			allowed:  []string{"dex-k8s-authenticator"},
-			required: []string{"dex-k8s-authenticator", "attacker-client"},
-			want:     []string{"dex-k8s-authenticator"},
+			name:        "an unlisted audience is dropped and the rest survive",
+			requestable: []string{"dex-k8s-authenticator"},
+			required:    []string{"dex-k8s-authenticator", "attacker-client"},
+			want:        []string{"dex-k8s-authenticator"},
 		},
 		{
-			name:     "an allowlist entry no MCPServer asks for adds nothing",
-			allowed:  []string{"dex-k8s-authenticator", "unused-client"},
-			required: []string{"dex-k8s-authenticator"},
-			want:     []string{"dex-k8s-authenticator"},
+			name:        "a listed audience no MCPServer asks for adds nothing",
+			requestable: []string{"dex-k8s-authenticator", "unused-client"},
+			required:    []string{"dex-k8s-authenticator"},
+			want:        []string{"dex-k8s-authenticator"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resolve := allowedAudiencesOnly(slog.New(slog.DiscardHandler), tt.allowed,
+			resolve := requestableAudiencesOnly(slog.New(slog.DiscardHandler), tt.requestable,
 				func() []string { return slices.Clone(tt.required) })
 
 			assert.Equal(t, tt.want, resolve())
@@ -184,11 +248,11 @@ func TestAllowedAudiencesOnlyDeniesUnlistedAudiences(t *testing.T) {
 	}
 }
 
-// TestAllowedAudiencesOnlyLogsEachDenialOnce keeps a denied audience out of the
+// TestRequestableAudiencesOnlyLogsEachDenialOnce keeps a denied audience out of the
 // log on every later login. The resolver runs per authorization request.
-func TestAllowedAudiencesOnlyLogsEachDenialOnce(t *testing.T) {
+func TestRequestableAudiencesOnlyLogsEachDenialOnce(t *testing.T) {
 	handler := &countingHandler{}
-	resolve := allowedAudiencesOnly(slog.New(handler), []string{"dex-k8s-authenticator"},
+	resolve := requestableAudiencesOnly(slog.New(handler), []string{"dex-k8s-authenticator"},
 		func() []string { return []string{"dex-k8s-authenticator", "typo-client"} })
 
 	require.Equal(t, []string{"dex-k8s-authenticator"}, resolve())
@@ -199,18 +263,18 @@ func TestAllowedAudiencesOnlyLogsEachDenialOnce(t *testing.T) {
 	assert.Equal(t, 1, handler.count(), "a denied audience must be logged once, not once per login")
 }
 
-// TestAllowedAudiencesOnlyIsConcurrencySafe covers parallel logins through the
+// TestRequestableAudiencesOnlyIsConcurrencySafe covers parallel logins through the
 // gate, which owns a memo of the audiences it already logged.
-func TestAllowedAudiencesOnlyIsConcurrencySafe(t *testing.T) {
-	resolve := allowedAudiencesOnly(slog.New(slog.DiscardHandler), []string{"allowed-client"},
-		func() []string { return []string{"allowed-client", "denied-client"} })
+func TestRequestableAudiencesOnlyIsConcurrencySafe(t *testing.T) {
+	resolve := requestableAudiencesOnly(slog.New(slog.DiscardHandler), []string{"requestable-client"},
+		func() []string { return []string{"requestable-client", "denied-client"} })
 
 	var wg sync.WaitGroup
 	for range 32 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			assert.Equal(t, []string{"allowed-client"}, resolve())
+			assert.Equal(t, []string{"requestable-client"}, resolve())
 		}()
 	}
 	wg.Wait()

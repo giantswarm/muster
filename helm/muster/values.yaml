@@ -354,7 +354,10 @@ muster:
         # clients decides the set. Empty denies every cross-client audience.
         # Each entry must be a Dex client that lists muster's clientId in its
         # trustedPeers.
-        allowedAudiences: []
+        # This is the outbound list. oauth.server.trustedAudiences and
+        # oauth.server.trustedIssuers[].allowedAudiences govern inbound tokens
+        # and accept everything when empty.
+        requestableAudiences: []
 
       # Google OAuth provider configuration (used when provider is "google")
       google:

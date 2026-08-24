@@ -127,7 +127,8 @@ func newDexProviderConfig(cfg config.OAuthServerConfig, redirectURL string, caPo
 		ConnectorID:  cfg.Dex.ConnectorID,
 		Scopes:       slices.Clone(dexOAuthScopes),
 		AudienceResolver: auditedAudienceResolver(logger,
-			allowedAudiencesOnly(logger, cfg.Dex.AllowedAudiences, api.CollectRequiredAudiences)),
+			requestableAudiencesOnly(logger, cfg.Dex.RequestableAudiences,
+				memoizedAudienceResolver(audienceResolverTTL, api.CollectRequiredAudiences))),
 		AllowPrivateIP: cfg.Dex.AllowPrivateIPOIDC,
 		// Verify an internal-CA Dex during OIDC discovery / token calls
 		// against the operator's extra CA (only consulted when
@@ -136,13 +137,47 @@ func newDexProviderConfig(cfg config.OAuthServerConfig, redirectURL string, caPo
 	}
 }
 
+// audienceResolverTTL bounds how long one resolved audience set is reused.
+const audienceResolverTTL = 10 * time.Second
+
+// memoizedAudienceResolver reuses the audiences of the last call for ttl.
+//
+// The provider calls the resolver on every authorization request, and
+// api.CollectRequiredAudiences lists MCPServers through an uncached Kubernetes
+// client, so an unmemoized resolver puts an apiserver LIST on each login and
+// lets an unauthenticated request loop drive that traffic. The lock also
+// collapses concurrent logins onto one call.
+//
+// The ttl is the delay an MCPServer that registers after muster starts adds
+// before it reaches a login. Seconds are enough for that: the failure this
+// guards against is a set frozen for the process lifetime.
+func memoizedAudienceResolver(ttl time.Duration, resolve func() []string) func() []string {
+	var (
+		mu        sync.Mutex
+		cached    []string
+		fetchedAt time.Time
+	)
+
+	return func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+
+		if fetchedAt.IsZero() || time.Since(fetchedAt) >= ttl {
+			cached = resolve()
+			fetchedAt = time.Now()
+		}
+
+		return slices.Clone(cached)
+	}
+}
+
 // maxDeniedAudiencesLogged bounds the memo of denied audiences. A resolver that
 // reports changing denied values stops producing log lines at this point instead
 // of growing the memo without bound.
 const maxDeniedAudiencesLogged = 64
 
-// allowedAudiencesOnly keeps only the audiences the operator permits in
-// oauth.server.dex.allowedAudiences and logs each denial once.
+// requestableAudiencesOnly keeps only the audiences the operator permits in
+// oauth.server.dex.requestableAudiences and logs each denial once.
 //
 // Requesting an audience widens every user's forwarded ID token to that peer,
 // and every forwardToken backend receives that token. The knob therefore grants
@@ -152,11 +187,11 @@ const maxDeniedAudiencesLogged = 64
 // token, while an audience Dex refuses fails the whole authorization request and
 // every login with it.
 //
-// An empty allowlist denies everything, which is the fail-closed default.
-func allowedAudiencesOnly(logger *slog.Logger, allowed []string, resolve func() []string) func() []string {
-	allowedSet := make(map[string]struct{}, len(allowed))
-	for _, audience := range allowed {
-		allowedSet[audience] = struct{}{}
+// An empty list denies everything, which is the fail-closed default.
+func requestableAudiencesOnly(logger *slog.Logger, requestable []string, resolve func() []string) func() []string {
+	requestableSet := make(map[string]struct{}, len(requestable))
+	for _, audience := range requestable {
+		requestableSet[audience] = struct{}{}
 	}
 
 	var (
@@ -169,7 +204,7 @@ func allowedAudiencesOnly(logger *slog.Logger, allowed []string, resolve func() 
 		permitted := make([]string, 0, len(audiences))
 
 		for _, audience := range audiences {
-			if _, ok := allowedSet[audience]; ok {
+			if _, ok := requestableSet[audience]; ok {
 				permitted = append(permitted, audience)
 				continue
 			}
@@ -179,7 +214,7 @@ func allowedAudiencesOnly(logger *slog.Logger, allowed []string, resolve func() 
 				denied[audience] = struct{}{}
 				logger.Warn("Denying cross-client audience an MCPServer requires",
 					"audience", audience,
-					"reason", "not listed in oauth.server.dex.allowedAudiences",
+					"reason", "not listed in oauth.server.dex.requestableAudiences",
 					"effect", "the forwarded ID token carries only muster's own client, so that backend rejects it")
 			}
 			mu.Unlock()

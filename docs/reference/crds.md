@@ -122,7 +122,7 @@ status:
 
 Example: `requiredAudiences: ["dex-k8s-authenticator"]`.
 
-**Security**: Access control for `requiredAudiences` relies on three layers: (1) Kubernetes RBAC controls who can create/modify MCPServer CRDs, (2) muster requests an audience only when the operator lists it in `oauth.server.dex.allowedAudiences`, which is empty by default and denies every cross-client audience, and (3) the IdP's cross-client configuration determines which audiences it accepts. Layer 2 exists because a requested audience widens every user's forwarded ID token to that peer, and every `forwardToken` backend receives that token. Audience values must not contain whitespace characters and are validated before use.
+**Security**: Access control for `requiredAudiences` relies on three layers: (1) Kubernetes RBAC controls who can create/modify MCPServer CRDs, (2) muster requests an audience only when the operator lists it in `oauth.server.dex.requestableAudiences`, which is empty by default and denies every cross-client audience, and (3) the IdP's cross-client configuration determines which audiences it accepts. Layer 2 exists because a requested audience widens every user's forwarded ID token to that peer, and every `forwardToken` backend receives that token. Audience values must not contain whitespace characters and are validated before use.
 
 #### TokenExchangeConfig Fields
 
