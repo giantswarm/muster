@@ -310,6 +310,9 @@
                                         "allowPrivateIPOIDC": {
                                             "type": "boolean"
                                         },
+                                        "allowedAudiences": {
+                                            "type": "array"
+                                        },
                                         "clientId": {
                                             "type": "string"
                                         },

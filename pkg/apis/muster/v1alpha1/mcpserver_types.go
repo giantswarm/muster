@@ -165,7 +165,14 @@ type MCPServerAuth struct {
 	//     - "dex-k8s-authenticator"
 	//
 	// At user authentication, muster collects all requiredAudiences from MCPServers
-	// with forwardToken: true and requests them all from the IdP.
+	// with forwardToken: true and requests them from the IdP.
+	//
+	// An audience is requested only when the operator lists it in muster's
+	// oauth.server.dex.allowedAudiences. A requested audience widens every
+	// user's forwarded ID token to that peer, so the operator who owns the IdP
+	// clients decides the set. muster logs a denied audience and requests the
+	// rest; the backend behind a denied audience then rejects the token it
+	// receives.
 	RequiredAudiences []string `json:"requiredAudiences,omitempty" yaml:"requiredAudiences,omitempty"`
 
 	// TokenExchange enables SSO via RFC 8693 Token Exchange for cross-cluster SSO.

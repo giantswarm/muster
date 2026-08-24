@@ -107,6 +107,7 @@ A Helm chart for muster - Universal Control Plane for AI Agents built on MCP
 | muster.oauth.server.dex.clientSecret | string | `""` |  |
 | muster.oauth.server.dex.connectorId | string | `""` |  |
 | muster.oauth.server.dex.allowPrivateIPOIDC | bool | `false` |  |
+| muster.oauth.server.dex.allowedAudiences | list | `[]` |  |
 | muster.oauth.server.google.clientId | string | `""` |  |
 | muster.oauth.server.google.clientSecret | string | `""` |  |
 | muster.oauth.server.existingSecret | string | `""` |  |

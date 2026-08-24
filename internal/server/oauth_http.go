@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/oauth2"
@@ -117,26 +118,110 @@ var (
 // so an MCPServer that registers after muster starts still reaches the next
 // login. An ID token minted without its requiredAudiences carries only muster's
 // own client, and the backend behind that MCPServer rejects it.
-func newDexProviderConfig(cfg config.OAuthServerConfig, redirectURL string, caPool *x509.CertPool) *dex.Config {
-	dexConfig := &dex.Config{
-		IssuerURL:        cfg.Dex.IssuerURL,
-		ClientID:         cfg.Dex.ClientID,
-		ClientSecret:     cfg.Dex.ClientSecret,
-		RedirectURL:      redirectURL,
-		Scopes:           slices.Clone(dexOAuthScopes),
-		AudienceResolver: api.CollectRequiredAudiences,
-		AllowPrivateIP:   cfg.Dex.AllowPrivateIPOIDC,
+func newDexProviderConfig(cfg config.OAuthServerConfig, redirectURL string, caPool *x509.CertPool, logger *slog.Logger) *dex.Config {
+	return &dex.Config{
+		IssuerURL:    cfg.Dex.IssuerURL,
+		ClientID:     cfg.Dex.ClientID,
+		ClientSecret: cfg.Dex.ClientSecret,
+		RedirectURL:  redirectURL,
+		ConnectorID:  cfg.Dex.ConnectorID,
+		Scopes:       slices.Clone(dexOAuthScopes),
+		AudienceResolver: auditedAudienceResolver(logger,
+			allowedAudiencesOnly(logger, cfg.Dex.AllowedAudiences, api.CollectRequiredAudiences)),
+		AllowPrivateIP: cfg.Dex.AllowPrivateIPOIDC,
 		// Verify an internal-CA Dex during OIDC discovery / token calls
 		// against the operator's extra CA (only consulted when
 		// AllowPrivateIP is set and no explicit HTTPClient is provided).
 		RootCAs: caPool,
 	}
+}
 
-	if cfg.Dex.ConnectorID != "" {
-		dexConfig.ConnectorID = cfg.Dex.ConnectorID
+// maxDeniedAudiencesLogged bounds the memo of denied audiences. A resolver that
+// reports changing denied values stops producing log lines at this point instead
+// of growing the memo without bound.
+const maxDeniedAudiencesLogged = 64
+
+// allowedAudiencesOnly keeps only the audiences the operator permits in
+// oauth.server.dex.allowedAudiences and logs each denial once.
+//
+// Requesting an audience widens every user's forwarded ID token to that peer,
+// and every forwardToken backend receives that token. The knob therefore grants
+// authority, so it belongs to the operator who owns the Dex clients, not to
+// whoever can create an MCPServer resource. The gate also bounds the blast
+// radius of a wrong value: a denied audience costs its own backend a usable
+// token, while an audience Dex refuses fails the whole authorization request and
+// every login with it.
+//
+// An empty allowlist denies everything, which is the fail-closed default.
+func allowedAudiencesOnly(logger *slog.Logger, allowed []string, resolve func() []string) func() []string {
+	allowedSet := make(map[string]struct{}, len(allowed))
+	for _, audience := range allowed {
+		allowedSet[audience] = struct{}{}
 	}
 
-	return dexConfig
+	var (
+		mu     sync.Mutex
+		denied = make(map[string]struct{})
+	)
+
+	return func() []string {
+		audiences := resolve()
+		permitted := make([]string, 0, len(audiences))
+
+		for _, audience := range audiences {
+			if _, ok := allowedSet[audience]; ok {
+				permitted = append(permitted, audience)
+				continue
+			}
+
+			mu.Lock()
+			if _, seen := denied[audience]; !seen && len(denied) < maxDeniedAudiencesLogged {
+				denied[audience] = struct{}{}
+				logger.Warn("Denying cross-client audience an MCPServer requires",
+					"audience", audience,
+					"reason", "not listed in oauth.server.dex.allowedAudiences",
+					"effect", "the forwarded ID token carries only muster's own client, so that backend rejects it")
+			}
+			mu.Unlock()
+		}
+
+		return permitted
+	}
+}
+
+// auditedAudienceResolver logs the audience set whenever it differs from the
+// set the previous call reported, including the first call. The resolver runs on
+// every authorization request, so an unconditional log line would repeat the
+// set once per login; a set that never changes is logged once.
+//
+// Without this line no log records which audiences a login actually requested:
+// mcp-oauth logs only the audiences it rejects, and a set read at startup says
+// nothing about a set read per request.
+func auditedAudienceResolver(logger *slog.Logger, resolve func() []string) func() []string {
+	var (
+		mu       sync.Mutex
+		reported []string
+		logged   bool
+	)
+
+	return func() []string {
+		audiences := resolve()
+
+		mu.Lock()
+		defer mu.Unlock()
+
+		if logged && slices.Equal(reported, audiences) {
+			return audiences
+		}
+		reported = slices.Clone(audiences)
+		logged = true
+
+		logger.Info("Cross-client audiences requested from Dex",
+			"audiences", audiences,
+			"count", len(audiences))
+
+		return audiences
+	}
 }
 
 // OAuthHTTPServer wraps an MCP HTTP handler with OAuth 2.1 authentication.
@@ -631,18 +716,11 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 
 	switch cfg.Provider {
 	case OAuthProviderDex:
-		dexConfig := newDexProviderConfig(cfg, redirectURL, caPool)
-		for _, audience := range dexConfig.AudienceResolver() {
-			logger.Info("Requesting cross-client audience from MCPServer requiredAudiences",
-				"audience", audience)
-		}
-
-		provider, err = dex.NewProvider(dexConfig)
+		provider, err = dex.NewProvider(newDexProviderConfig(cfg, redirectURL, caPool, logger))
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("failed to create Dex provider: %w", err)
 		}
-		logger.Info("Using Dex OIDC provider", "issuer", cfg.Dex.IssuerURL,
-			"audience_source", "MCPServer requiredAudiences, re-read on every login")
+		logger.Info("Using Dex OIDC provider", "issuer", cfg.Dex.IssuerURL)
 
 	case OAuthProviderGoogle:
 		provider, err = google.NewProvider(&google.Config{

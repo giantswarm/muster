@@ -511,6 +511,21 @@ type DexConfig struct {
 	// where the public hostname resolves to an RFC 1918 address.
 	// Emits a CWE-918 startup warning when set.
 	AllowPrivateIPOIDC bool `yaml:"allowPrivateIPOIDC,omitempty"`
+
+	// AllowedAudiences lists the Dex cross-client audiences muster may request
+	// on a user's behalf. An audience an MCPServer asks for through
+	// spec.auth.requiredAudiences is requested only when it appears here.
+	//
+	// This is muster's own policy, not a copy of the peer's trustedPeers list in
+	// Dex. A requested audience widens every user's forwarded ID token to that
+	// peer, and every forwardToken backend receives that token, so the operator
+	// who owns the Dex clients decides the set. Whoever can write an MCPServer
+	// resource does not.
+	//
+	// Empty denies every cross-client audience: muster requests only its own
+	// client. A forwardToken backend that needs another audience then rejects
+	// the token it receives, and muster logs each denied audience.
+	AllowedAudiences []string `yaml:"allowedAudiences,omitempty"`
 }
 
 // GoogleConfig holds configuration for the Google OAuth provider.

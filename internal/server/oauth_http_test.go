@@ -7,8 +7,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -63,16 +66,20 @@ func (m *mockMCPServerManager) ExecuteTool(ctx context.Context, toolName string,
 // registers after muster starts. The Dex provider calls AudienceResolver on
 // every authorization request, so the audience must reach the resolver without
 // a restart. mcp-oauth owns the scope formatting and its validation.
+//
+// It also pins the policy gate on the wired path: an MCPServer cannot add an
+// audience the operator did not allow.
 func TestNewDexProviderConfigResolvesAudiencesPerCall(t *testing.T) {
 	cfg := config.OAuthServerConfig{
 		Dex: config.DexConfig{
-			IssuerURL:    "https://dex.example.com",
-			ClientID:     "muster",
-			ClientSecret: "secret",
+			IssuerURL:        "https://dex.example.com",
+			ClientID:         "muster",
+			ClientSecret:     "secret",
+			AllowedAudiences: []string{"dex-k8s-authenticator"},
 		},
 	}
 
-	dexConfig := newDexProviderConfig(cfg, "https://muster.example.com/oauth/callback", nil)
+	dexConfig := newDexProviderConfig(cfg, "https://muster.example.com/oauth/callback", nil, slog.New(slog.DiscardHandler))
 
 	require.NotNil(t, dexConfig.AudienceResolver)
 	assert.Equal(t, dexOAuthScopes, dexConfig.Scopes)
@@ -100,6 +107,13 @@ func TestNewDexProviderConfigResolvesAudiencesPerCall(t *testing.T) {
 						RequiredAudiences: []string{"not-forwarded"},
 					},
 				},
+				{
+					Name: "unallowed-mcp",
+					Auth: &api.MCPServerAuth{
+						ForwardToken:      true,
+						RequiredAudiences: []string{"rogue-client"},
+					},
+				},
 			}
 		},
 	})
@@ -118,9 +132,174 @@ func TestNewDexProviderConfigConnectorID(t *testing.T) {
 		},
 	}
 
-	dexConfig := newDexProviderConfig(cfg, "https://muster.example.com/oauth/callback", nil)
+	dexConfig := newDexProviderConfig(cfg, "https://muster.example.com/oauth/callback", nil, slog.New(slog.DiscardHandler))
 
 	assert.Equal(t, "muster-glean", dexConfig.ConnectorID)
+}
+
+// TestAllowedAudiencesOnlyDeniesUnlistedAudiences pins the policy gate. An
+// MCPServer resource must not widen the audience of every user's forwarded ID
+// token, and an audience Dex refuses must not reach an authorization request,
+// because Dex fails the whole request and every login with it.
+func TestAllowedAudiencesOnlyDeniesUnlistedAudiences(t *testing.T) {
+	tests := []struct {
+		name     string
+		allowed  []string
+		required []string
+		want     []string
+	}{
+		{
+			name:     "an empty allowlist denies every audience",
+			allowed:  nil,
+			required: []string{"dex-k8s-authenticator"},
+			want:     []string{},
+		},
+		{
+			name:     "an allowed audience passes",
+			allowed:  []string{"dex-k8s-authenticator"},
+			required: []string{"dex-k8s-authenticator"},
+			want:     []string{"dex-k8s-authenticator"},
+		},
+		{
+			name:     "an unlisted audience is dropped and the rest survive",
+			allowed:  []string{"dex-k8s-authenticator"},
+			required: []string{"dex-k8s-authenticator", "attacker-client"},
+			want:     []string{"dex-k8s-authenticator"},
+		},
+		{
+			name:     "an allowlist entry no MCPServer asks for adds nothing",
+			allowed:  []string{"dex-k8s-authenticator", "unused-client"},
+			required: []string{"dex-k8s-authenticator"},
+			want:     []string{"dex-k8s-authenticator"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resolve := allowedAudiencesOnly(slog.New(slog.DiscardHandler), tt.allowed,
+				func() []string { return slices.Clone(tt.required) })
+
+			assert.Equal(t, tt.want, resolve())
+		})
+	}
+}
+
+// TestAllowedAudiencesOnlyLogsEachDenialOnce keeps a denied audience out of the
+// log on every later login. The resolver runs per authorization request.
+func TestAllowedAudiencesOnlyLogsEachDenialOnce(t *testing.T) {
+	handler := &countingHandler{}
+	resolve := allowedAudiencesOnly(slog.New(handler), []string{"dex-k8s-authenticator"},
+		func() []string { return []string{"dex-k8s-authenticator", "typo-client"} })
+
+	require.Equal(t, []string{"dex-k8s-authenticator"}, resolve())
+	require.Equal(t, 1, handler.count())
+
+	resolve()
+	resolve()
+	assert.Equal(t, 1, handler.count(), "a denied audience must be logged once, not once per login")
+}
+
+// TestAllowedAudiencesOnlyIsConcurrencySafe covers parallel logins through the
+// gate, which owns a memo of the audiences it already logged.
+func TestAllowedAudiencesOnlyIsConcurrencySafe(t *testing.T) {
+	resolve := allowedAudiencesOnly(slog.New(slog.DiscardHandler), []string{"allowed-client"},
+		func() []string { return []string{"allowed-client", "denied-client"} })
+
+	var wg sync.WaitGroup
+	for range 32 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			assert.Equal(t, []string{"allowed-client"}, resolve())
+		}()
+	}
+	wg.Wait()
+}
+
+// countingHandler counts the records a logger emits. The audience resolver runs
+// on every authorization request, so the count is the assertion that matters.
+type countingHandler struct {
+	mu      sync.Mutex
+	records []string
+}
+
+func (h *countingHandler) Enabled(context.Context, slog.Level) bool { return true }
+
+func (h *countingHandler) Handle(_ context.Context, record slog.Record) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.records = append(h.records, record.Message)
+	return nil
+}
+
+func (h *countingHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+
+func (h *countingHandler) WithGroup(string) slog.Handler { return h }
+
+func (h *countingHandler) count() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.records)
+}
+
+// TestAuditedAudienceResolverLogsEachChange pins the forensics the per-request
+// resolver would otherwise cost: the audience set a login requests is logged
+// when it changes, and a login that requests an unchanged set logs nothing.
+func TestAuditedAudienceResolverLogsEachChange(t *testing.T) {
+	var (
+		mu        sync.Mutex
+		audiences []string
+	)
+	setAudiences := func(values ...string) {
+		mu.Lock()
+		defer mu.Unlock()
+		audiences = values
+	}
+	handler := &countingHandler{}
+
+	resolve := auditedAudienceResolver(slog.New(handler), func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return slices.Clone(audiences)
+	})
+
+	// An empty set is a state worth one line: it is what the gazelle instance
+	// reported, and it is indistinguishable from "no Dex audiences configured"
+	// without it.
+	require.Empty(t, resolve())
+	require.Equal(t, 1, handler.count())
+
+	resolve()
+	assert.Equal(t, 1, handler.count(), "an unchanged set must not log per login")
+
+	setAudiences("dex-k8s-authenticator")
+	assert.Equal(t, []string{"dex-k8s-authenticator"}, resolve())
+	assert.Equal(t, 2, handler.count())
+
+	resolve()
+	assert.Equal(t, 2, handler.count())
+
+	setAudiences("dex-k8s-authenticator", "another-client")
+	assert.Equal(t, []string{"dex-k8s-authenticator", "another-client"}, resolve())
+	assert.Equal(t, 3, handler.count())
+}
+
+// TestAuditedAudienceResolverIsConcurrencySafe covers parallel logins. The
+// provider calls the resolver from every authorization request handler.
+func TestAuditedAudienceResolverIsConcurrencySafe(t *testing.T) {
+	resolve := auditedAudienceResolver(slog.New(slog.DiscardHandler), func() []string {
+		return []string{"dex-k8s-authenticator"}
+	})
+
+	var wg sync.WaitGroup
+	for range 32 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			assert.Equal(t, []string{"dex-k8s-authenticator"}, resolve())
+		}()
+	}
+	wg.Wait()
 }
 
 func TestNewOAuthHTTPServer_DisabledReturnsError(t *testing.T) {
