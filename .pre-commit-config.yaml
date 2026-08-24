@@ -2,7 +2,7 @@
 #
 #    devctl
 #
-#    https://github.com/giantswarm/devctl/blob/bf24cde246ae924a8f2a208f497e18ccb50678a0/pkg/gen/input/precommit/internal/file/pre-commit-config.yaml.template
+#    https://github.com/giantswarm/devctl/blob/529e8924bb4b0b60fb205dbbfb874ffc09d73e09/pkg/gen/input/precommit/internal/file/pre-commit-config.yaml.template
 #
 minimum_pre_commit_version: '2.17'
 default_install_hook_types: [pre-commit, commit-msg]
@@ -99,7 +99,7 @@ repos:
         name: "generate + fix + normalize helm/muster/values.schema.json"
         language: golang
         additional_dependencies: ['github.com/giantswarm/schemalint/v2@v2.6.3']
-        files: ^helm/muster/(values\.yaml|\.schema\.yaml|values\.schema\.json)$
+        files: ^helm/muster/(values\.yaml|\.schema\.yaml|values\.schema\.json|zz_generated\.app-platform\.values\.yaml)$
         pass_filenames: false
         require_serial: true
         entry: sh -c
@@ -159,7 +159,7 @@ repos:
         name: "generate + fix + normalize helm/muster-crds/values.schema.json"
         language: golang
         additional_dependencies: ['github.com/giantswarm/schemalint/v2@v2.6.3']
-        files: ^helm/muster-crds/(values\.yaml|\.schema\.yaml|values\.schema\.json)$
+        files: ^helm/muster-crds/(values\.yaml|\.schema\.yaml|values\.schema\.json|zz_generated\.app-platform\.values\.yaml)$
         pass_filenames: false
         require_serial: true
         entry: sh -c
