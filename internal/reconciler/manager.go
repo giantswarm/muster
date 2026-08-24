@@ -269,7 +269,7 @@ func (m *Manager) resyncAll() {
 	m.mu.RUnlock()
 
 	for resourceType, lister := range listers {
-		for _, name := range lister.ResyncNames() {
+		for _, name := range lister.ResyncNames(m.ctx) {
 			m.queue.Add(ReconcileRequest{
 				Type:    resourceType,
 				Name:    name,

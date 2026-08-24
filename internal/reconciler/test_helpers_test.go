@@ -147,14 +147,14 @@ func NewMockMCPServerManager() *MockMCPServerManager {
 	}
 }
 
-func (m *MockMCPServerManager) ListMCPServers() []api.MCPServerInfo {
+func (m *MockMCPServerManager) ListMCPServers(context.Context) ([]api.MCPServerInfo, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	result := make([]api.MCPServerInfo, 0, len(m.mcpServers))
 	for _, server := range m.mcpServers {
 		result = append(result, *server)
 	}
-	return result
+	return result, nil
 }
 
 func (m *MockMCPServerManager) GetMCPServer(name string) (*api.MCPServerInfo, error) {

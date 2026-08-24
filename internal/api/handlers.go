@@ -1,6 +1,8 @@
 package api
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -316,6 +318,10 @@ func GetMCPServerManager() MCPServerManagerHandler {
 	return mcpServerManagerHandler
 }
 
+// ErrNoMCPServerManager reports that no MCPServer manager is registered yet, so
+// the set of required audiences is unknown rather than empty.
+var ErrNoMCPServerManager = errors.New("MCPServer manager not registered")
+
 // CollectRequiredAudiences collects all unique required audiences from MCPServers
 // that have forwardToken: true configured. This is used to determine which
 // cross-client audiences to request from Dex during OAuth authentication.
@@ -324,27 +330,33 @@ func GetMCPServerManager() MCPServerManagerHandler {
 // audiences, allowing the tokens to be forwarded to downstream MCPServers
 // that require specific audience claims (e.g., Kubernetes OIDC authentication).
 //
+// An error means the set is unknown, which is not the same as no MCPServer
+// needing an audience. A caller that mints a token from the result must not
+// treat the two alike: the audience is fixed at the authorization request, and
+// no refresh repairs a token minted without one.
+//
 // Returns:
 //   - []string: Unique list of required audiences from all SSO-enabled MCPServers
-//
-// If no MCPServer manager is registered, returns an empty slice.
+//   - error: ErrNoMCPServerManager before the manager registers, or the list error
 //
 // Thread-safe: Yes, uses registered MCPServerManager which is thread-safe.
 //
 // Example:
 //
-//	audiences := api.CollectRequiredAudiences()
+//	audiences, err := api.CollectRequiredAudiences(ctx)
 //	// Returns: ["dex-k8s-authenticator", "another-audience"]
-func CollectRequiredAudiences() []string {
+func CollectRequiredAudiences(ctx context.Context) ([]string, error) {
 	manager := GetMCPServerManager()
 	if manager == nil {
-		logging.Debug("API", "MCPServer manager not available, cannot collect required audiences")
-		return nil
+		return nil, ErrNoMCPServerManager
 	}
 
-	servers := manager.ListMCPServers()
+	servers, err := manager.ListMCPServers(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("collect required audiences: %w", err)
+	}
 	if len(servers) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	// Use a map to deduplicate audiences
@@ -377,7 +389,7 @@ func CollectRequiredAudiences() []string {
 		logging.Debug("API", "Collected %d required audiences from MCPServers: %v", len(audiences), audiences)
 	}
 
-	return audiences
+	return audiences, nil
 }
 
 // SubscribeToToolUpdates allows components to subscribe to tool availability change events.

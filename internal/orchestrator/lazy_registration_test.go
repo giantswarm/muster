@@ -17,12 +17,12 @@ type mockMCPServerManager struct {
 	servers map[string]api.MCPServerInfo
 }
 
-func (m *mockMCPServerManager) ListMCPServers() []api.MCPServerInfo {
+func (m *mockMCPServerManager) ListMCPServers(context.Context) ([]api.MCPServerInfo, error) {
 	servers := make([]api.MCPServerInfo, 0, len(m.servers))
 	for _, info := range m.servers {
 		servers = append(servers, info)
 	}
-	return servers
+	return servers, nil
 }
 
 func (m *mockMCPServerManager) GetMCPServer(name string) (*api.MCPServerInfo, error) {

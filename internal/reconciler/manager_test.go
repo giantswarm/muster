@@ -376,7 +376,7 @@ type mockResyncReconciler struct {
 	names []string
 }
 
-func (m *mockResyncReconciler) ResyncNames() []string {
+func (m *mockResyncReconciler) ResyncNames(context.Context) []string {
 	return m.names
 }
 

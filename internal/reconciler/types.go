@@ -153,7 +153,7 @@ type Reconciler interface {
 // resources whose runtime state still exists without a definition (heals
 // lost delete events).
 type ResyncLister interface {
-	ResyncNames() []string
+	ResyncNames(ctx context.Context) []string
 }
 
 // ChangeDetector is the interface for components that detect changes in resources.
