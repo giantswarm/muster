@@ -310,9 +310,6 @@ type OAuthServerConfig struct {
 	// SECURITY: only list client IDs you fully trust. Any JWT signed by the
 	// configured OIDC provider and carrying one of these audiences is treated
 	// as a valid muster bearer token.
-	//
-	// This governs inbound tokens. The audiences muster requests on a user's
-	// behalf are DexConfig.RequestableAudiences.
 	TrustedAudiences []string `yaml:"trustedAudiences,omitempty"`
 
 	// TrustedIssuers registers external OIDC issuers for RFC 8693 token exchange.
@@ -455,8 +452,6 @@ type TrustedIssuerConfig struct {
 	// JwksURL is the JWKS endpoint. Independent of Issuer.
 	JwksURL string `yaml:"jwksUrl,omitempty"`
 	// AllowedAudiences lists accepted aud values. Empty accepts any audience.
-	// This governs inbound tokens from this issuer, not the audiences muster
-	// requests (DexConfig.RequestableAudiences, which denies on empty).
 	AllowedAudiences []string `yaml:"allowedAudiences,omitempty"`
 	// AllowedScopes caps scopes for tokens from this issuer. Nil means no restriction.
 	AllowedScopes []string `yaml:"allowedScopes,omitempty"`
@@ -516,26 +511,6 @@ type DexConfig struct {
 	// where the public hostname resolves to an RFC 1918 address.
 	// Emits a CWE-918 startup warning when set.
 	AllowPrivateIPOIDC bool `yaml:"allowPrivateIPOIDC,omitempty"`
-
-	// RequestableAudiences lists the Dex cross-client audiences muster may
-	// request on a user's behalf. An audience an MCPServer asks for through
-	// spec.auth.requiredAudiences is requested only when it appears here.
-	//
-	// This is an outbound policy, and it is the only audience list in this
-	// config that denies on empty. TrustedIssuerConfig.AllowedAudiences and
-	// OAuthServerConfig.TrustedAudiences both govern inbound tokens and both
-	// accept everything when empty.
-	//
-	// This is muster's own policy, not a copy of the peer's trustedPeers list in
-	// Dex. A requested audience widens every user's forwarded ID token to that
-	// peer, and every forwardToken backend receives that token, so the operator
-	// who owns the Dex clients decides the set. Whoever can write an MCPServer
-	// resource does not.
-	//
-	// Empty denies every cross-client audience: muster requests only its own
-	// client. A forwardToken backend that needs another audience then rejects
-	// the token it receives, and muster logs each denied audience.
-	RequestableAudiences []string `yaml:"requestableAudiences,omitempty"`
 }
 
 // GoogleConfig holds configuration for the Google OAuth provider.

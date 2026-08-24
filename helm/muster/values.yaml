@@ -347,17 +347,6 @@ muster:
         # balancer (e.g. Azure internal LB) where the public hostname resolves to
         # an RFC 1918 address. Emits a CWE-918 startup warning when set.
         allowPrivateIPOIDC: false
-        # Dex cross-client audiences muster may request on a user's behalf.
-        # An MCPServer's spec.auth.requiredAudiences value is requested only
-        # when it is listed here. A requested audience widens every user's
-        # forwarded ID token to that peer, so the operator who owns the Dex
-        # clients decides the set. Empty denies every cross-client audience.
-        # Each entry must be a Dex client that lists muster's clientId in its
-        # trustedPeers.
-        # This is the outbound list. oauth.server.trustedAudiences and
-        # oauth.server.trustedIssuers[].allowedAudiences govern inbound tokens
-        # and accept everything when empty.
-        requestableAudiences: []  # @schema item: string
 
       # Google OAuth provider configuration (used when provider is "google")
       google:

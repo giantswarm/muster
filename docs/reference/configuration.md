@@ -155,7 +155,7 @@ dex (or their own IdP), never against muster.
 |-------|------|-------------|
 | `issuer` | `string` | Expected `iss` claim value. |
 | `jwksUrl` | `string` | JWKS endpoint. Independent of `issuer`. |
-| `allowedAudiences` | `[]string` | Accepted `aud` values for tokens **from** this issuer. Empty accepts any audience. Not the list of audiences muster requests, which is `dex.requestableAudiences`. |
+| `allowedAudiences` | `[]string` | Accepted `aud` values. Empty accepts any audience. |
 | `allowedScopes` | `[]string` | Scope ceiling for tokens from this issuer. Nil means no restriction. |
 | `allowedClaims` | `map[string]string` | Required claim name→pattern pairs. Keys are JWT claim names; values are exact strings or globs where `*` spans any chars including `/` and `?` matches one char. Absent or non-string claims are rejected. Empty means no restriction. |
 | `allowPrivateIPJWKS` | `bool` | Allow `jwksUrl` to resolve to a private or loopback address. Required for in-cluster Kubernetes SA trust where the JWKS endpoint is `https://kubernetes.default.svc/openid/v1/jwks`. Emits a startup warning when set. Default: `false`. |
@@ -211,24 +211,6 @@ By default the SSRF guard rejects an OIDC issuer URL that resolves to a private 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `dex.allowPrivateIPOIDC` | `bool` | `false` | Allow the Dex issuer URL to resolve to a private/loopback IP during OIDC discovery. This is the discovery-path counterpart to `allowPrivateIPJWKS`. Emits a CWE-918 startup warning when set; only enable it when the issuer is genuinely fronted by an internal-only load balancer. |
-
-#### Cross-Client Audiences (Dex)
-
-An MCPServer with `forwardToken: true` receives the user's Dex ID token byte-identical, so that token must carry the audience the backend validates. The MCPServer asks for it through `spec.auth.requiredAudiences`. muster requests it from Dex only when the operator lists it here.
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `dex.requestableAudiences` | `[]string` | `[]` | Dex cross-client audiences muster may request on a user's behalf. Empty denies every cross-client audience, so a `forwardToken` backend that needs one stops receiving it. Each entry must be a Dex client that lists muster's `clientId` in its `trustedPeers`. Each denied audience is logged once. |
-
-muster reads the set on every authorization request, so an MCPServer created after muster starts reaches the next login. The result is cached for 10 seconds.
-
-Three keys in this file carry audience lists. They are not interchangeable:
-
-| Key | Direction | Empty means |
-|-----|-----------|-------------|
-| `dex.requestableAudiences` | Outbound: audiences muster asks Dex for | Deny every cross-client audience |
-| `trustedAudiences` | Inbound: Dex ID tokens accepted as bearer tokens | Accept no direct Dex bearer token |
-| `trustedIssuers[].allowedAudiences` | Inbound: `aud` accepted from that issuer | Accept any audience |
 
 #### Silent Re-Authentication (CLI Flag)
 

@@ -321,12 +321,6 @@
                                         },
                                         "issuerUrl": {
                                             "type": "string"
-                                        },
-                                        "requestableAudiences": {
-                                            "type": "array",
-                                            "items": {
-                                                "type": "string"
-                                            }
                                         }
                                     }
                                 },

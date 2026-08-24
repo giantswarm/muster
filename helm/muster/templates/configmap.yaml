@@ -54,10 +54,6 @@ data:
             {{- if .Values.muster.oauth.server.dex.allowPrivateIPOIDC }}
             allowPrivateIPOIDC: true
             {{- end }}
-            {{- with .Values.muster.oauth.server.dex.requestableAudiences }}
-            requestableAudiences:
-              {{- toYaml . | nindent 14 }}
-            {{- end }}
           {{- else if eq .Values.muster.oauth.server.provider "google" }}
           google:
             clientId: {{ .Values.muster.oauth.server.google.clientId | quote }}
