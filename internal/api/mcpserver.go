@@ -270,6 +270,12 @@ func (t MCPServerType) IsRemote() bool {
 // omitted by clients (issue #1021). The key is shared with the developer portal.
 const RegisteredByAnnotation = "ui.giantswarm.io/registered-by"
 
+// RegisteredByEmailAnnotation records the email claim of the authenticated
+// identity that registered an MCPServer, when the token carried one. Display
+// metadata only — RegisteredByAnnotation holds the stable identifier
+// (issue #1048). The key is shared with the developer portal.
+const RegisteredByEmailAnnotation = "ui.giantswarm.io/registered-by-email"
+
 // MCPServerInfo contains consolidated MCP server information for API responses.
 // This type is used when returning server information through the API, providing
 // a flattened view of server configuration and runtime state that is convenient
@@ -371,6 +377,12 @@ type MCPServerInfo struct {
 	// read from the RegisteredByAnnotation. Empty when the server was created
 	// without an authenticated context (e.g. GitOps-applied CRs).
 	RegisteredBy string `json:"registeredBy,omitempty"`
+
+	// RegisteredByEmail is the email claim of the identity that registered
+	// this server, read from the RegisteredByEmailAnnotation. Display metadata
+	// only — RegisteredBy is the stable identifier. Empty when the token
+	// carried no email claim (e.g. Kubernetes ServiceAccount identities).
+	RegisteredByEmail string `json:"registeredByEmail,omitempty"`
 }
 
 // MCPServerManagerHandler defines the interface for MCP server management operations.
