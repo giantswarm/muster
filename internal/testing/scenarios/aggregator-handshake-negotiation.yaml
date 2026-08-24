@@ -3,7 +3,7 @@ description: |
   Pin the MCP handshake muster negotiates on both sides (issues #1029, #1030).
 
   Outbound: muster's client must ask a downstream server for protocol version
-  2025-11-25 (api.OutboundProtocolVersion), and must report the revision the
+  2025-11-25 (api.ClientProtocolVersion), and must report the revision the
   server answered with per backend. The old pin, 2024-11-05, predates
   structuredContent, outputSchema, and elicitation, so a strict downstream
   server may withhold all three. Both transports are probed because each

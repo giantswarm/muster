@@ -93,7 +93,7 @@ func (c *DynamicAuthClient) Initialize(ctx context.Context) error {
 
 	initResult, err := mcpClient.Initialize(ctx, mcp.InitializeRequest{
 		Params: mcp.InitializeParams{
-			ProtocolVersion: api.OutboundProtocolVersion,
+			ProtocolVersion: api.ClientProtocolVersion,
 			ClientInfo: mcp.Implementation{
 				Name:    "muster-aggregator",
 				Version: "1.0.0",

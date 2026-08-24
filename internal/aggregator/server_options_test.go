@@ -103,11 +103,11 @@ func hexTraceID(b []byte) string {
 }
 
 // TestMCPServerCapabilityOptions_DoesNotAdvertiseResourceSubscribe asserts the
-// aggregator's initialize response omits resources.subscribe (issue #1030).
-// mcp-go acknowledges resources/subscribe whenever the capability is
-// advertised, and the aggregator never emits notifications/resources/updated,
-// so advertising it strands a subscribing client. listChanged must stay on: it
-// is backed by notification_subscriber.
+// aggregator's initialize response omits resources.subscribe. mcp-go
+// acknowledges resources/subscribe whenever the capability is advertised, and
+// the aggregator never emits notifications/resources/updated, so advertising it
+// strands a subscribing client. listChanged must stay on: it is backed by
+// notification_subscriber.
 func TestMCPServerCapabilityOptions_DoesNotAdvertiseResourceSubscribe(t *testing.T) {
 	srv := server.NewMCPServer("muster-aggregator-test", "test", mcpServerCapabilityOptions()...)
 

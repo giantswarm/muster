@@ -75,7 +75,7 @@ func (c *StdioClient) Initialize(ctx context.Context) error {
 
 	initResult, err := mcpClient.Initialize(initCtx, mcp.InitializeRequest{
 		Params: mcp.InitializeParams{
-			ProtocolVersion: api.OutboundProtocolVersion,
+			ProtocolVersion: api.ClientProtocolVersion,
 			ClientInfo: mcp.Implementation{
 				Name:    "muster",
 				Version: "1.0.0",

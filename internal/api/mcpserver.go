@@ -334,7 +334,7 @@ type MCPServerInfo struct {
 	State string `json:"state,omitempty"`
 
 	// ProtocolVersion is the MCP revision this backend answered with during the
-	// handshake. It can be older than OutboundProtocolVersion: a backend that
+	// handshake. It can be older than ClientProtocolVersion: a backend that
 	// supports only an earlier revision answers with that one. Empty when the
 	// server has no connected client.
 	ProtocolVersion string `json:"protocolVersion,omitempty"`

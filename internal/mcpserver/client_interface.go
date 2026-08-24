@@ -37,7 +37,7 @@ type MCPClient interface {
 	OnNotification(handler func(mcp.JSONRPCNotification))
 	// NegotiatedProtocolVersion returns the MCP revision the server answered
 	// with during the handshake, or "" before a successful Initialize. It can
-	// be older than api.OutboundProtocolVersion: a server that supports only
+	// be older than api.ClientProtocolVersion: a server that supports only
 	// an earlier revision answers with that one, and the client accepts it.
 	NegotiatedProtocolVersion() string
 }

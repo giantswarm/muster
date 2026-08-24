@@ -660,8 +660,13 @@ func (r *testRunner) runTestToolStep(ctx context.Context, step TestStep, config 
 
 // validateTestToolExpectations validates expectations for test tool results:
 // success, error_contains, contains, and json_path. not_contains is not
-// evaluated here.
+// evaluated here; a step that declares it gets a warning instead of a silent
+// pass, so the gap is visible to whoever writes the scenario.
 func (r *testRunner) validateTestToolExpectations(expected TestExpectation, response interface{}, err error, logger TestLogger) bool {
+	if len(expected.NotContains) > 0 {
+		logger.Info("⚠️  not_contains is not evaluated for test_* steps and was ignored: %v\n", expected.NotContains)
+	}
+
 	// Determine if there's an error - either from Go error or from response isError field
 	hasError := err != nil
 	var responseMap map[string]interface{}

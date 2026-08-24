@@ -239,9 +239,10 @@ opts = append(opts, mcpServerCapabilityOptions()...)
 opts = append(opts, mcpServerOptions()...)
 mcpSrv := mcpserver.NewMCPServer("muster-aggregator", serverVersion, opts...)
 ```
-(see `internal/aggregator/server.go` lines 777–783 and
-`internal/aggregator/server_options.go` lines 35–41; cited in
-[internal/aggregator/server.go](../../../internal/aggregator/server.go))
+(see `AggregatorServer.Start` in
+[internal/aggregator/server.go](../../../internal/aggregator/server.go)
+and `mcpServerCapabilityOptions` in
+[internal/aggregator/server_options.go](../../../internal/aggregator/server_options.go))
 
 There is no `WithExtensions(…)` call here, and there is no inbound
 `extensions` map at all. The inbound `initialize` (`AfterInitialize`)
@@ -298,7 +299,7 @@ call:
 ```go
 initResult, err := mcpClient.Initialize(ctx, mcp.InitializeRequest{
     Params: mcp.InitializeParams{
-        ProtocolVersion: api.OutboundProtocolVersion,
+        ProtocolVersion: api.ClientProtocolVersion,
         ClientInfo: mcp.Implementation{
             Name:    "muster-aggregator",
             Version: "1.0.0",
@@ -307,16 +308,16 @@ initResult, err := mcpClient.Initialize(ctx, mcp.InitializeRequest{
     },
 })
 ```
-([internal/mcpserver/client_streamable_http.go](../../../internal/mcpserver/client_streamable_http.go),
-lines 92–101; identical patterns at
-[client_sse.go](../../../internal/mcpserver/client_sse.go) lines
-70–79,
-[client_stdio.go](../../../internal/mcpserver/client_stdio.go) lines
-76–85,
-[client_dynamic_auth.go](../../../internal/mcpserver/client_dynamic_auth.go)
-lines 94–103, and the agent's REPL client at
-[internal/agent/client.go](../../../internal/agent/client.go) lines
-415–430). The `initResult` is consumed for its `ServerInfo.Name`,
+(`StreamableHTTPClient.Initialize` in
+[internal/mcpserver/client_streamable_http.go](../../../internal/mcpserver/client_streamable_http.go);
+identical patterns in `SSEClient.Initialize`
+([client_sse.go](../../../internal/mcpserver/client_sse.go)),
+`StdioClient.Initialize`
+([client_stdio.go](../../../internal/mcpserver/client_stdio.go)),
+`DynamicAuthClient.Initialize`
+([client_dynamic_auth.go](../../../internal/mcpserver/client_dynamic_auth.go)),
+and the agent's REPL client `Client.initialize`
+([internal/agent/client.go](../../../internal/agent/client.go))). The `initResult` is consumed for its `ServerInfo.Name`,
 `ServerInfo.Version`, and `ProtocolVersion` —
 `initResult.Capabilities.Extensions` (or whatever the upgraded mcp-go
 field will be called) is dropped on the floor.
@@ -348,10 +349,9 @@ For 2026-07-28 the outbound clients have to:
 
 `internal/api/mcpserver.go` is muster's API-layer description of an
 upstream MCP server: `MCPServer` (the persisted definition at
-[internal/api/mcpserver.go](../../../internal/api/mcpserver.go),
-lines 12–72), the `MCPServerType` enum (lines 245–260, today
-`stdio` / `streamable-http` / `sse`), `MCPServerAuth` (lines 95–148),
-and the API-response shape `MCPServerInfo` (lines 272–364). The
+[internal/api/mcpserver.go](../../../internal/api/mcpserver.go)),
+the `MCPServerType` enum (today `stdio` / `streamable-http` / `sse`),
+`MCPServerAuth`, and the API-response shape `MCPServerInfo`. The
 runtime view that the aggregator gives to API consumers is
 deliberately about **process / connection state** — `State`,
 `StatusMessage`, `ConsecutiveFailures`, `SessionStatus`,
@@ -451,22 +451,20 @@ ordered so that an earlier item is a prerequisite for a later one.
    access to, and emits that as the inbound `ServerCapabilities.extensions`
    map. Wire it next to the existing
    `mcpserver.WithToolCapabilities` / `WithResourceCapabilities` /
-   `WithPromptCapabilities` calls in
-   [internal/aggregator/server.go](../../../internal/aggregator/server.go)
-   (lines 721–729) when mcp-go grows a `WithExtensions` equivalent.
+   `WithPromptCapabilities` calls in `mcpServerCapabilityOptions`
+   ([internal/aggregator/server_options.go](../../../internal/aggregator/server_options.go))
+   when mcp-go grows a `WithExtensions` equivalent.
 5. **Forward `extensions` on outbound `Initialize` / per-request
    `_meta`.** Replace the empty `mcp.ClientCapabilities{}` literal
-   in
-   [client_streamable_http.go](../../../internal/mcpserver/client_streamable_http.go)
-   (lines 91–104),
-   [client_sse.go](../../../internal/mcpserver/client_sse.go)
-   (lines 69–88),
-   [client_stdio.go](../../../internal/mcpserver/client_stdio.go)
-   (lines 75–88),
-   [client_dynamic_auth.go](../../../internal/mcpserver/client_dynamic_auth.go)
-   (lines 93–106), and the agent client
-   ([internal/agent/client.go](../../../internal/agent/client.go),
-   lines 400–417) with the inbound caller's extensions map (or a
+   in the `Initialize` method of
+   [client_streamable_http.go](../../../internal/mcpserver/client_streamable_http.go),
+   [client_sse.go](../../../internal/mcpserver/client_sse.go),
+   [client_stdio.go](../../../internal/mcpserver/client_stdio.go),
+   and
+   [client_dynamic_auth.go](../../../internal/mcpserver/client_dynamic_auth.go),
+   plus `Client.initialize` in the agent client
+   ([internal/agent/client.go](../../../internal/agent/client.go)),
+   with the inbound caller's extensions map (or a
    filtered subset). On a 2026-07-28 transport the same map travels
    in `_meta` on each request, not in `Initialize`.
 6. **Decide muster's native-support matrix.** Produce an ADR (likely
@@ -479,10 +477,10 @@ ordered so that an earlier item is a prerequisite for a later one.
 7. **Surface extensions in the muster API.** Once §2 stores the
    upstream extensions map, add an `Extensions` field to
    `MCPServerInfo`
-   ([internal/api/mcpserver.go](../../../internal/api/mcpserver.go),
-   lines 272–364) so that `muster get mcpserver <name>` and the
-   admin UI can show which extensions a given upstream advertises.
-   The `MCPServer` persisted definition (lines 12–72) does not need
+   ([internal/api/mcpserver.go](../../../internal/api/mcpserver.go))
+   so that `muster get mcpserver <name>` and the admin UI can show
+   which extensions a given upstream advertises.
+   The `MCPServer` persisted definition does not need
    an `Extensions` field — extensions are negotiated, not
    configured — but a future "deny-list of extensions to not forward"
    may belong there.

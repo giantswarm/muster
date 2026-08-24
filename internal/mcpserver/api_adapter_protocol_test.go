@@ -8,7 +8,7 @@ import (
 	"github.com/giantswarm/muster/internal/api"
 )
 
-// fakeServiceRegistry serves a fixed set of services to negotiatedProtocolVersion.
+// fakeServiceRegistry serves a fixed set of services to serviceProtocolVersion.
 type fakeServiceRegistry struct {
 	services map[string]api.ServiceInfo
 }
@@ -25,15 +25,15 @@ func (f *fakeServiceRegistry) GetByType(api.ServiceType) []api.ServiceInfo { ret
 // fakeServiceInfo reports a fixed service data map.
 type fakeServiceInfo struct {
 	name string
-	data map[string]interface{}
+	data map[string]any
 }
 
-func (f *fakeServiceInfo) GetName() string                        { return f.name }
-func (f *fakeServiceInfo) GetType() api.ServiceType               { return api.TypeMCPServer }
-func (f *fakeServiceInfo) GetState() api.ServiceState             { return api.StateRunning }
-func (f *fakeServiceInfo) GetHealth() api.HealthStatus            { return api.HealthHealthy }
-func (f *fakeServiceInfo) GetLastError() error                    { return nil }
-func (f *fakeServiceInfo) GetServiceData() map[string]interface{} { return f.data }
+func (f *fakeServiceInfo) GetName() string                { return f.name }
+func (f *fakeServiceInfo) GetType() api.ServiceType       { return api.TypeMCPServer }
+func (f *fakeServiceInfo) GetState() api.ServiceState     { return api.StateRunning }
+func (f *fakeServiceInfo) GetHealth() api.HealthStatus    { return api.HealthHealthy }
+func (f *fakeServiceInfo) GetLastError() error            { return nil }
+func (f *fakeServiceInfo) GetServiceData() map[string]any { return f.data }
 
 // withServiceRegistry swaps in a registry for the duration of the test.
 func withServiceRegistry(t *testing.T, registry api.ServiceRegistryHandler) {
@@ -42,7 +42,7 @@ func withServiceRegistry(t *testing.T, registry api.ServiceRegistryHandler) {
 	t.Cleanup(func() { api.RegisterServiceRegistry(previous) })
 }
 
-func TestNegotiatedProtocolVersion(t *testing.T) {
+func TestServiceProtocolVersion(t *testing.T) {
 	tests := []struct {
 		name     string
 		registry api.ServiceRegistryHandler
@@ -64,7 +64,7 @@ func TestNegotiatedProtocolVersion(t *testing.T) {
 		{
 			name: "connected server reports its negotiated revision",
 			registry: &fakeServiceRegistry{services: map[string]api.ServiceInfo{
-				"probe": &fakeServiceInfo{name: "probe", data: map[string]interface{}{
+				"probe": &fakeServiceInfo{name: "probe", data: map[string]any{
 					api.ServiceDataProtocolVersion: "2024-11-05",
 				}},
 			}},
@@ -74,7 +74,7 @@ func TestNegotiatedProtocolVersion(t *testing.T) {
 		{
 			name: "service data without the key",
 			registry: &fakeServiceRegistry{services: map[string]api.ServiceInfo{
-				"probe": &fakeServiceInfo{name: "probe", data: map[string]interface{}{
+				"probe": &fakeServiceInfo{name: "probe", data: map[string]any{
 					"clientReady": false,
 				}},
 			}},
@@ -89,7 +89,7 @@ func TestNegotiatedProtocolVersion(t *testing.T) {
 			// returns nil until the orchestrator registers one.
 			withServiceRegistry(t, tt.registry)
 
-			require.Equal(t, tt.want, negotiatedProtocolVersion(tt.server))
+			require.Equal(t, tt.want, serviceProtocolVersion(tt.server))
 		})
 	}
 }

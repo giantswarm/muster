@@ -117,7 +117,7 @@ func (c *mcpTestClient) connectWithOptions(ctx context.Context, endpoint, access
 	// Initialize the MCP protocol
 	initRequest := mcp.InitializeRequest{
 		Params: mcp.InitializeParams{
-			ProtocolVersion: api.OutboundProtocolVersion,
+			ProtocolVersion: api.ClientProtocolVersion,
 			ClientInfo: mcp.Implementation{
 				Name:    "muster-test-client",
 				Version: "1.0.0",

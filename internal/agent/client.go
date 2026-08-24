@@ -406,7 +406,7 @@ func (c *Client) InitializeAndLoadData(ctx context.Context) error {
 // exchanges capability information, and sets up the session for subsequent operations.
 //
 // The handshake includes:
-//   - Protocol version negotiation (api.OutboundProtocolVersion)
+//   - Protocol version negotiation (api.ClientProtocolVersion)
 //   - Client capability advertisement
 //   - Client identification (muster-agent or muster-cli)
 //   - Server capability discovery
@@ -415,7 +415,7 @@ func (c *Client) InitializeAndLoadData(ctx context.Context) error {
 func (c *Client) initialize(ctx context.Context) error {
 	req := mcp.InitializeRequest{
 		Params: mcp.InitializeParams{
-			ProtocolVersion: api.OutboundProtocolVersion,
+			ProtocolVersion: api.ClientProtocolVersion,
 			ClientInfo: mcp.Implementation{
 				Name: func() string {
 					// Set client name based on usage context

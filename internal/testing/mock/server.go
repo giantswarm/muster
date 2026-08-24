@@ -34,12 +34,6 @@ type Server struct {
 	// own ask is observable.
 	clientProtocolVersion string
 	clientName            string
-
-	// protocolVersion, when set, replaces the revision mcp-go would answer
-	// initialize with. It makes the mock stand in for a backend that supports
-	// only an older revision, which is otherwise unreachable because mcp-go
-	// echoes whatever the client asked for.
-	protocolVersion string
 }
 
 // NewServerFromFile creates a new mock MCP server from a configuration file
@@ -65,12 +59,11 @@ func NewServerFromFile(configPath string, debug bool) (*Server, error) {
 
 	hooks := &server.Hooks{}
 	mockServer := &Server{
-		name:            name,
-		tools:           configData.Tools,
-		toolHandlers:    make(map[string]*ToolHandler),
-		templateEngine:  template.New(),
-		debug:           debug,
-		protocolVersion: configData.ProtocolVersion,
+		name:           name,
+		tools:          configData.Tools,
+		toolHandlers:   make(map[string]*ToolHandler),
+		templateEngine: template.New(),
+		debug:          debug,
 	}
 	hooks.AddBeforeInitialize(func(_ context.Context, _ any, req *mcp.InitializeRequest) {
 		mockServer.mu.Lock()
@@ -79,8 +72,12 @@ func NewServerFromFile(configPath string, debug bool) (*Server, error) {
 		mockServer.mu.Unlock()
 	})
 	if configData.ProtocolVersion != "" {
-		// mcp-go builds the result, runs this hook, then serialises it, so
-		// overwriting the field here is what the client sees.
+		// protocol_version replaces the revision mcp-go would answer initialize
+		// with, so the mock can stand in for a backend that supports only an
+		// older revision. mcp-go otherwise echoes whatever the client asked for,
+		// which no down-negotiating backend does. mcp-go builds the result, runs
+		// this hook, then serialises it, so the overwrite here is what the
+		// client sees.
 		hooks.AddAfterInitialize(func(_ context.Context, _ any, _ *mcp.InitializeRequest, result *mcp.InitializeResult) {
 			result.ProtocolVersion = configData.ProtocolVersion
 		})

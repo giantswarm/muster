@@ -495,9 +495,13 @@ func (s *Service) GetServiceData() map[string]interface{} {
 		data["client"] = s.client
 		data["clientReady"] = true
 		// The negotiated revision can be older than the one muster asks for,
-		// so it is reported per backend rather than assumed.
+		// so it is reported per backend rather than assumed. An empty value
+		// means the handshake has not completed; the key stays absent so that
+		// core_service_status and core_mcpserver_get agree.
 		if versioned, ok := s.client.(interface{ NegotiatedProtocolVersion() string }); ok {
-			data[api.ServiceDataProtocolVersion] = versioned.NegotiatedProtocolVersion()
+			if version := versioned.NegotiatedProtocolVersion(); version != "" {
+				data[api.ServiceDataProtocolVersion] = version
+			}
 		}
 	} else {
 		data["clientReady"] = false
