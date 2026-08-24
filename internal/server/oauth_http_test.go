@@ -31,11 +31,11 @@ type mockMCPServerManager struct {
 	executeToolFn    func(ctx context.Context, toolName string, args map[string]interface{}) (*api.CallToolResult, error)
 }
 
-func (m *mockMCPServerManager) ListMCPServers() []api.MCPServerInfo {
+func (m *mockMCPServerManager) ListMCPServers(ctx context.Context) ([]api.MCPServerInfo, error) {
 	if m.listMCPServersFn != nil {
-		return m.listMCPServersFn()
+		return m.listMCPServersFn(), nil
 	}
-	return nil
+	return nil, nil
 }
 
 func (m *mockMCPServerManager) GetMCPServer(name string) (*api.MCPServerInfo, error) {
@@ -146,7 +146,8 @@ func TestCollectRequiredAudiencesIntegrationWithBuildDexScopes(t *testing.T) {
 		defer api.RegisterMCPServerManager(nil)
 
 		// Collect audiences (simulates what createOAuthServer does)
-		audiences := api.CollectRequiredAudiences()
+		audiences, err := api.CollectRequiredAudiences(t.Context())
+		require.NoError(t, err)
 
 		// Build Dex scopes (simulates what createOAuthServer does)
 		scopes := buildDexScopes(audiences)
@@ -179,7 +180,8 @@ func TestCollectRequiredAudiencesIntegrationWithBuildDexScopes(t *testing.T) {
 		})
 		defer api.RegisterMCPServerManager(nil)
 
-		audiences := api.CollectRequiredAudiences()
+		audiences, err := api.CollectRequiredAudiences(t.Context())
+		require.NoError(t, err)
 		scopes := buildDexScopes(audiences)
 
 		// Should only have base scopes, no cross-client scopes
@@ -210,7 +212,8 @@ func TestCollectRequiredAudiencesIntegrationWithBuildDexScopes(t *testing.T) {
 		})
 		defer api.RegisterMCPServerManager(nil)
 
-		audiences := api.CollectRequiredAudiences()
+		audiences, err := api.CollectRequiredAudiences(t.Context())
+		require.NoError(t, err)
 		scopes := buildDexScopes(audiences)
 
 		// Only valid audiences should be included (invalid ones filtered by API layer)

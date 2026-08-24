@@ -633,7 +633,13 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 	switch cfg.Provider {
 	case OAuthProviderDex:
 		// Build scopes including any required audiences from MCPServers
-		scopes := buildDexScopes(api.CollectRequiredAudiences())
+		audienceCtx, cancelAudiences := context.WithTimeout(context.Background(), 5*time.Second)
+		audiences, audiencesErr := api.CollectRequiredAudiences(audienceCtx)
+		cancelAudiences()
+		if audiencesErr != nil {
+			return nil, nil, nil, fmt.Errorf("collect required audiences for Dex scopes: %w", audiencesErr)
+		}
+		scopes := buildDexScopes(audiences)
 		for _, scope := range scopes {
 			if audience, ok := strings.CutPrefix(scope, dex.AudienceScopePrefix); ok {
 				logger.Info("Requesting cross-client audience from MCPServer requiredAudiences",
