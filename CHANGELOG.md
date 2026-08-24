@@ -19,6 +19,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Dex cross-client audience scopes are resolved on every authorization request instead of once when the OAuth server is built. An MCPServer with `forwardToken: true` that registers after muster starts now reaches the next login, so the forwarded ID token carries the audience its backend expects. Previously such an MCPServer was missed for the process lifetime, and the forwarded token carried only muster's own Dex client as its audience. Existing sessions are not repaired: a minted token cannot be upgraded, so affected users must log in again once.
+
 - Helm: the NetworkPolicy and CiliumNetworkPolicy now allow ingress to the prometheus metrics port when the prometheus exporter is enabled. Previously both policies allowed ingress only to the aggregator port, so Prometheus / Alloy scrapes of the `/metrics` endpoint were blocked (`up` = 0) even with the ServiceMonitor in place.
 
 - `oauth.mcpClient.cimd` settings now reach the OAuth proxy: operator-configured `cimd.scopes` are advertised in the served CIMD document (previously always the defaults), and a custom `cimd.path` no longer breaks CIMD self-hosting (the client ID was derived with the configured path while the OAuth manager recomputed it with the dropped, defaulted one, so the document could be skipped or mounted at the wrong path). The CIMD block was lost in the same config conversions as the `postLoginRedirectAllowlist` fix below; that duplication is now collapsed — the aggregator carries the merged `OAuthMCPClientConfig` unconverted (the `aggregator.OAuthProxyConfig` mirror struct is removed), so future `oauth.mcpClient` fields reach the OAuth manager without per-field plumbing.

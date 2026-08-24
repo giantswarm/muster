@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -109,35 +110,33 @@ var (
 	}
 )
 
-// buildDexScopes constructs the OAuth scopes to request from Dex.
-// It starts with the base dexOAuthScopes and appends cross-client audience scopes
-// for any required audiences from MCPServers with forwardToken: true.
+// newDexProviderConfig builds the Dex provider configuration.
 //
-// For example, if requiredAudiences contains ["dex-k8s-authenticator"], the returned
-// scopes will include "audience:server:client_id:dex-k8s-authenticator" which tells
-// Dex to issue tokens that are also valid for the Kubernetes authenticator client.
-//
-// Uses dex.FormatAudienceScopes() from mcp-oauth for security-validated formatting.
-// Invalid audiences are logged and skipped (does not fail startup).
-func buildDexScopes(requiredAudiences []string) []string {
-	scopes := make([]string, len(dexOAuthScopes))
-	copy(scopes, dexOAuthScopes)
-
-	if len(requiredAudiences) == 0 {
-		return scopes
+// AudienceResolver, not Scopes, carries the cross-client audiences of MCPServers
+// with forwardToken: true. The provider calls it on every authorization request,
+// so an MCPServer that registers after muster starts still reaches the next
+// login. An ID token minted without its requiredAudiences carries only muster's
+// own client, and the backend behind that MCPServer rejects it.
+func newDexProviderConfig(cfg config.OAuthServerConfig, redirectURL string, caPool *x509.CertPool) *dex.Config {
+	dexConfig := &dex.Config{
+		IssuerURL:        cfg.Dex.IssuerURL,
+		ClientID:         cfg.Dex.ClientID,
+		ClientSecret:     cfg.Dex.ClientSecret,
+		RedirectURL:      redirectURL,
+		Scopes:           slices.Clone(dexOAuthScopes),
+		AudienceResolver: api.CollectRequiredAudiences,
+		AllowPrivateIP:   cfg.Dex.AllowPrivateIPOIDC,
+		// Verify an internal-CA Dex during OIDC discovery / token calls
+		// against the operator's extra CA (only consulted when
+		// AllowPrivateIP is set and no explicit HTTPClient is provided).
+		RootCAs: caPool,
 	}
 
-	// Use mcp-oauth's security-validated audience scope formatting.
-	// This prevents scope injection attacks from malformed audience strings.
-	audienceScopes, err := dex.FormatAudienceScopes(requiredAudiences)
-	if err != nil {
-		// Log the error but don't fail startup - audiences come from MCPServer CRDs
-		// which should already be validated, but we handle errors gracefully.
-		logging.Warn("OAuth", "Failed to format audience scopes: %v (check MCPServer requiredAudiences values)", err)
-		return scopes
+	if cfg.Dex.ConnectorID != "" {
+		dexConfig.ConnectorID = cfg.Dex.ConnectorID
 	}
 
-	return append(scopes, audienceScopes...)
+	return dexConfig
 }
 
 // OAuthHTTPServer wraps an MCP HTTP handler with OAuth 2.1 authentication.
@@ -632,37 +631,18 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 
 	switch cfg.Provider {
 	case OAuthProviderDex:
-		// Build scopes including any required audiences from MCPServers
-		scopes := buildDexScopes(api.CollectRequiredAudiences())
-		for _, scope := range scopes {
-			if audience, ok := strings.CutPrefix(scope, dex.AudienceScopePrefix); ok {
-				logger.Info("Requesting cross-client audience from MCPServer requiredAudiences",
-					"audience", audience)
-			}
-		}
-
-		dexConfig := &dex.Config{
-			IssuerURL:      cfg.Dex.IssuerURL,
-			ClientID:       cfg.Dex.ClientID,
-			ClientSecret:   cfg.Dex.ClientSecret,
-			RedirectURL:    redirectURL,
-			Scopes:         scopes,
-			AllowPrivateIP: cfg.Dex.AllowPrivateIPOIDC,
-			// Verify an internal-CA Dex during OIDC discovery / token calls
-			// against the operator's extra CA (only consulted when
-			// AllowPrivateIP is set and no explicit HTTPClient is provided).
-			RootCAs: caPool,
-		}
-
-		if cfg.Dex.ConnectorID != "" {
-			dexConfig.ConnectorID = cfg.Dex.ConnectorID
+		dexConfig := newDexProviderConfig(cfg, redirectURL, caPool)
+		for _, audience := range dexConfig.AudienceResolver() {
+			logger.Info("Requesting cross-client audience from MCPServer requiredAudiences",
+				"audience", audience)
 		}
 
 		provider, err = dex.NewProvider(dexConfig)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("failed to create Dex provider: %w", err)
 		}
-		logger.Info("Using Dex OIDC provider", "issuer", cfg.Dex.IssuerURL)
+		logger.Info("Using Dex OIDC provider", "issuer", cfg.Dex.IssuerURL,
+			"audience_source", "MCPServer requiredAudiences, re-read on every login")
 
 	case OAuthProviderGoogle:
 		provider, err = google.NewProvider(&google.Config{
