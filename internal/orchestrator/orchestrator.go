@@ -130,8 +130,7 @@ func (o *Orchestrator) processAutoStartMCPServers(ctx context.Context) error {
 
 	mcpServers, err := mcpServerMgr.ListMCPServers(ctx)
 	if err != nil {
-		logging.Warn("Orchestrator", "Failed to list MCPServer definitions for auto-start processing: %v", err)
-		return nil
+		return fmt.Errorf("list MCPServer definitions for auto-start processing: %w", err)
 	}
 	logging.Info("Orchestrator", "Found %d MCPServer definitions for auto-start processing", len(mcpServers))
 
