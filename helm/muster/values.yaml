@@ -357,7 +357,7 @@ muster:
         # This is the outbound list. oauth.server.trustedAudiences and
         # oauth.server.trustedIssuers[].allowedAudiences govern inbound tokens
         # and accept everything when empty.
-        requestableAudiences: []
+        requestableAudiences: []  # @schema item: string
 
       # Google OAuth provider configuration (used when provider is "google")
       google:
