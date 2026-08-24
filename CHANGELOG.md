@@ -19,9 +19,11 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
-- Dex cross-client audience scopes are resolved on every authorization request instead of once when the OAuth server is built. An MCPServer with `forwardToken: true` that registers after muster starts now reaches the next login, so the forwarded ID token carries the audience its backend expects. Existing sessions are not repaired: affected users must log in again once. The resolved set is reused for 10 seconds, so a login costs no MCPServer list call in that window, and a read that fails serves the last known set instead of an empty one. The audience set a login requests is logged whenever it changes.
+- Dex cross-client audience scopes are resolved per authorization request instead of once when the OAuth server is built. An MCPServer with `forwardToken: true` that registers after muster starts now reaches the next login, so the forwarded ID token carries the audience its backend expects. Existing sessions are not repaired: affected users must log in again once. A background refresher re-reads the set every 10 seconds, so no login costs an MCPServer list call, and a read that fails serves the last known set instead of an empty one.
 
-- Listing MCPServers reports a read failure instead of reporting an empty list. `core_mcpserver_list` now returns an error when the MCPServer definitions cannot be read, and auto-start and periodic resync log the failure instead of treating it as "no MCPServers exist".
+- A change in the cross-client audiences muster requests from Dex is recorded as a `dex_audiences_changed` security audit event, alongside a log line. The set comes from MCPServer `requiredAudiences` and now changes without a muster restart.
+
+- Listing MCPServers reports a read failure instead of reporting an empty list. `core_mcpserver_list` now returns an error when the MCPServer definitions cannot be read, auto-start reports the failure instead of starting no servers silently, and periodic resync logs it instead of treating it as "no MCPServers exist".
 
 - Helm: the NetworkPolicy and CiliumNetworkPolicy now allow ingress to the prometheus metrics port when the prometheus exporter is enabled. Previously both policies allowed ingress only to the aggregator port, so Prometheus / Alloy scrapes of the `/metrics` endpoint were blocked (`up` = 0) even with the ServiceMonitor in place.
 
