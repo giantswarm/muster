@@ -117,7 +117,7 @@ var (
 // so an MCPServer that registers after muster starts still reaches the next
 // login. An ID token minted without its requiredAudiences carries only muster's
 // own client, and the backend behind that MCPServer rejects it.
-func newDexProviderConfig(cfg config.OAuthServerConfig, redirectURL string, caPool *x509.CertPool, logger *slog.Logger, collectAudiences func(context.Context) ([]string, error)) *dex.Config {
+func newDexProviderConfig(cfg config.OAuthServerConfig, redirectURL string, caPool *x509.CertPool, resolveAudiences func() []string) *dex.Config {
 	return &dex.Config{
 		IssuerURL:        cfg.Dex.IssuerURL,
 		ClientID:         cfg.Dex.ClientID,
@@ -125,7 +125,7 @@ func newDexProviderConfig(cfg config.OAuthServerConfig, redirectURL string, caPo
 		RedirectURL:      redirectURL,
 		ConnectorID:      cfg.Dex.ConnectorID,
 		Scopes:           slices.Clone(dexOAuthScopes),
-		AudienceResolver: newDexAudienceResolver(collectAudiences, logger).Resolve,
+		AudienceResolver: resolveAudiences,
 		AllowPrivateIP:   cfg.Dex.AllowPrivateIPOIDC,
 		// Verify an internal-CA Dex during OIDC discovery / token calls
 		// against the operator's extra CA (only consulted when
@@ -146,7 +146,8 @@ type OAuthHTTPServer struct {
 	mcpHandler       http.Handler
 	debug            bool
 	onAuthenticated  func(ctx context.Context, sessionID string)
-	dpopValkeyClient valkeygo.Client // non-nil only when DPoP uses Valkey-backed replay cache
+	dpopValkeyClient valkeygo.Client      // non-nil only when DPoP uses Valkey-backed replay cache
+	dexAudiences     *dexAudienceResolver // non-nil only under the Dex provider
 }
 
 // NewOAuthHTTPServer creates a new OAuth-enabled HTTP server that wraps
@@ -162,21 +163,22 @@ func NewOAuthHTTPServer(cfg config.OAuthServerConfig, mcpHandler http.Handler, d
 		return nil, err
 	}
 
-	oauthServer, tokenStore, dpopClient, err := createOAuthServer(cfg, opts)
+	components, err := createOAuthServer(cfg, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OAuth server: %w", err)
 	}
 
-	oauthHandler := oauthhandler.New(oauthServer, oauthServer.Logger)
+	oauthHandler := oauthhandler.New(components.server, components.server.Logger)
 
 	server := &OAuthHTTPServer{
 		config:           cfg,
-		oauthServer:      oauthServer,
+		oauthServer:      components.server,
 		oauthHandler:     oauthHandler,
-		tokenStore:       tokenStore,
+		tokenStore:       components.tokenStore,
 		mcpHandler:       mcpHandler,
 		debug:            debug,
-		dpopValkeyClient: dpopClient,
+		dpopValkeyClient: components.dpopValkey,
+		dexAudiences:     components.dexAudiences,
 	}
 
 	return server, nil
@@ -581,6 +583,12 @@ func (s *OAuthHTTPServer) GetTokenStore() storage.TokenStore {
 
 // Shutdown gracefully shuts down the server.
 func (s *OAuthHTTPServer) Shutdown(ctx context.Context) error {
+	// Stop the audience refresher before the OAuth server, so no refresh runs
+	// against a torn-down server.
+	if s.dexAudiences != nil {
+		s.dexAudiences.stop()
+	}
+
 	// Shutdown OAuth server (handles rate limiters, storage cleanup, etc.)
 	if s.oauthServer != nil {
 		if err := s.oauthServer.Shutdown(ctx); err != nil {
@@ -600,10 +608,19 @@ func (s *OAuthHTTPServer) Shutdown(ctx context.Context) error {
 	return nil
 }
 
+// oauthServerComponents holds what createOAuthServer builds and the caller owns.
+// dpopValkey is non-nil only when a Valkey-backed DPoP replay cache is created,
+// and dexAudiences only under the Dex provider. The caller closes the first and
+// stops the second.
+type oauthServerComponents struct {
+	server       *oauth.Server
+	tokenStore   storage.TokenStore
+	dpopValkey   valkeygo.Client
+	dexAudiences *dexAudienceResolver
+}
+
 // createOAuthServer creates an OAuth server using mcp-oauth library.
-// The returned valkeygo.Client is non-nil only when a Valkey-backed DPoP replay
-// cache is created; the caller must call Close() on it when done.
-func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) (*oauth.Server, storage.TokenStore, valkeygo.Client, error) {
+func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) (*oauthServerComponents, error) {
 	logger := slog.Default()
 
 	// mcp-oauth v1+ no longer reads a CA installed on http.DefaultTransport for
@@ -616,19 +633,25 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 		var poolErr error
 		caPool, poolErr = tlsutil.LoadCAPool(cfg.ExtraCAFile)
 		if poolErr != nil {
-			return nil, nil, nil, fmt.Errorf("load extra CA file for OAuth server: %w", poolErr)
+			return nil, fmt.Errorf("load extra CA file for OAuth server: %w", poolErr)
 		}
 	}
 
 	redirectURL := cfg.BaseURL + "/oauth/callback"
 	var provider providers.Provider
+	var dexAudiences *dexAudienceResolver
 	var err error
 
 	switch cfg.Provider {
 	case OAuthProviderDex:
-		provider, err = dex.NewProvider(newDexProviderConfig(cfg, redirectURL, caPool, logger, api.CollectRequiredAudiences))
+		// Prime before the provider exists, so the first login reads a set that
+		// was read at least once rather than an empty one.
+		dexAudiences = newDexAudienceResolver(api.CollectRequiredAudiences, logger)
+		dexAudiences.prime()
+
+		provider, err = dex.NewProvider(newDexProviderConfig(cfg, redirectURL, caPool, dexAudiences.Resolve))
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to create Dex provider: %w", err)
+			return nil, fmt.Errorf("failed to create Dex provider: %w", err)
 		}
 		logger.Info("Using Dex OIDC provider", "issuer", cfg.Dex.IssuerURL)
 
@@ -640,12 +663,12 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 			Scopes:       googleOAuthScopes,
 		})
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to create Google provider: %w", err)
+			return nil, fmt.Errorf("failed to create Google provider: %w", err)
 		}
 		logger.Info("Using Google OAuth provider")
 
 	default:
-		return nil, nil, nil, fmt.Errorf("unsupported OAuth provider: %s (supported: %s, %s)", cfg.Provider, OAuthProviderDex, OAuthProviderGoogle)
+		return nil, fmt.Errorf("unsupported OAuth provider: %s (supported: %s, %s)", cfg.Provider, OAuthProviderDex, OAuthProviderGoogle)
 	}
 
 	// Create storage backend based on configuration. Both memory.Store and
@@ -656,7 +679,7 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 	switch cfg.Storage.Type {
 	case storage.BackendValkey:
 		if cfg.Storage.Valkey.URL == "" {
-			return nil, nil, nil, fmt.Errorf("valkey URL is required when using valkey storage")
+			return nil, fmt.Errorf("valkey URL is required when using valkey storage")
 		}
 
 		valkeyConfig := valkey.Config{
@@ -681,11 +704,11 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 		if cfg.EncryptionKey != "" {
 			keyBytes, err := security.DecodeKey(cfg.EncryptionKey)
 			if err != nil {
-				return nil, nil, nil, fmt.Errorf("failed to decode encryption key: %w", err)
+				return nil, fmt.Errorf("failed to decode encryption key: %w", err)
 			}
 			encryptor, err := security.NewEncryptor(keyBytes)
 			if err != nil {
-				return nil, nil, nil, fmt.Errorf("failed to create encryptor: %w", err)
+				return nil, fmt.Errorf("failed to create encryptor: %w", err)
 			}
 			valkeyOpts = append(valkeyOpts, valkey.WithEncryptor(encryptor))
 			logger.Info("Token encryption at rest enabled for Valkey storage (AES-256-GCM)")
@@ -693,7 +716,7 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 
 		valkeyStore, err := valkey.New(valkeyConfig, valkeyOpts...)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to create Valkey storage: %w", err)
+			return nil, fmt.Errorf("failed to create Valkey storage: %w", err)
 		}
 
 		combinedStore = valkeyStore
@@ -704,11 +727,11 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 		if cfg.EncryptionKey != "" {
 			keyBytes, err := security.DecodeKey(cfg.EncryptionKey)
 			if err != nil {
-				return nil, nil, nil, fmt.Errorf("failed to decode encryption key: %w", err)
+				return nil, fmt.Errorf("failed to decode encryption key: %w", err)
 			}
 			encryptor, err := security.NewEncryptor(keyBytes)
 			if err != nil {
-				return nil, nil, nil, fmt.Errorf("failed to create encryptor: %w", err)
+				return nil, fmt.Errorf("failed to create encryptor: %w", err)
 			}
 			memOpts = append(memOpts, memory.WithEncryptor(encryptor))
 			logger.Info("Token encryption at rest enabled for in-memory storage (AES-256-GCM)")
@@ -717,14 +740,14 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 		logger.Info("Using in-memory storage backend")
 
 	default:
-		return nil, nil, nil, fmt.Errorf("unsupported OAuth storage type: %s (supported: %s, %s)", cfg.Storage.Type, storage.BackendMemory, storage.BackendValkey)
+		return nil, fmt.Errorf("unsupported OAuth storage type: %s (supported: %s, %s)", cfg.Storage.Type, storage.BackendMemory, storage.BackendValkey)
 	}
 
 	refreshTokenTTL := DefaultRefreshTokenTTL
 	if cfg.SessionDuration != "" {
 		parsed, err := time.ParseDuration(cfg.SessionDuration)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("invalid sessionDuration %q: %w", cfg.SessionDuration, err)
+			return nil, fmt.Errorf("invalid sessionDuration %q: %w", cfg.SessionDuration, err)
 		}
 		refreshTokenTTL = parsed
 		logger.Info("Using custom session duration", "duration", parsed)
@@ -737,7 +760,7 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 
 	builtOpts, err := buildOAuthServerOptions(cfg, logger, caPool)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, err
 	}
 
 	// DPoP replay cache is created here (not inside buildOAuthServerOptions) so
@@ -745,7 +768,7 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 	// to the caller for proper lifecycle management.
 	dpopCache, dpopClient, err := newDPoPReplayCache(cfg.Storage)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to create DPoP replay cache: %w", err)
+		return nil, fmt.Errorf("failed to create DPoP replay cache: %w", err)
 	}
 	builtOpts = append(builtOpts, oauthserver.WithDPoPReplayCache(dpopCache))
 	builtOpts = append(builtOpts, opts...)
@@ -755,7 +778,7 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 		if dpopClient != nil {
 			dpopClient.Close()
 		}
-		return nil, nil, nil, fmt.Errorf("failed to create OAuth server: %w", err)
+		return nil, fmt.Errorf("failed to create OAuth server: %w", err)
 	}
 
 	logEnabledOAuthOptions(logger)
@@ -764,7 +787,18 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 	// that a wiped client store self-heals. Best-effort; never fails startup.
 	seedBrokerClients(context.Background(), oauthSrv, cfg.TokenExchangeBroker, logger)
 
-	return oauthSrv, combinedStore, dpopClient, nil
+	// The auditor lives on the server, which needs the provider, which needs the
+	// resolver, so the refresher starts last.
+	if dexAudiences != nil {
+		dexAudiences.start(oauthSrv.Auditor)
+	}
+
+	return &oauthServerComponents{
+		server:       oauthSrv,
+		tokenStore:   combinedStore,
+		dpopValkey:   dpopClient,
+		dexAudiences: dexAudiences,
+	}, nil
 }
 
 // validateHTTPSRequirement ensures OAuth 2.1 HTTPS compliance.

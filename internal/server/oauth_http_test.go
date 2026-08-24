@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -34,7 +33,7 @@ func TestNewDexProviderConfigConnectorID(t *testing.T) {
 		},
 	}
 
-	dexConfig := newDexProviderConfig(cfg, "https://muster.example.com/oauth/callback", nil, slog.New(slog.DiscardHandler), staticCollector())
+	dexConfig := newDexProviderConfig(cfg, "https://muster.example.com/oauth/callback", nil, noAudiences)
 
 	assert.Equal(t, "muster-glean", dexConfig.ConnectorID)
 }
