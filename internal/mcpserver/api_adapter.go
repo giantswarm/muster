@@ -197,6 +197,7 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 	info.StatusMessage = generateStatusMessage(info.State, info.Error, server.Name)
 
 	info.RegisteredBy = server.Annotations[api.RegisteredByAnnotation]
+	info.RegisteredByEmail = server.Annotations[api.RegisteredByEmailAnnotation]
 
 	return info
 }
@@ -211,6 +212,17 @@ func subjectFromContext(ctx context.Context) string {
 	}
 	if userInfo, ok := oauthhandler.UserInfoFromContext(ctx); ok && userInfo != nil {
 		return userInfo.ID
+	}
+	return ""
+}
+
+// emailFromContext resolves the authenticated caller's email claim, if the
+// token carried one. Display metadata only — the subject is the stable
+// identifier. Returns "" for identities without an email (e.g. Kubernetes
+// ServiceAccounts) and unauthenticated transports.
+func emailFromContext(ctx context.Context) string {
+	if userInfo, ok := oauthhandler.UserInfoFromContext(ctx); ok && userInfo != nil {
+		return userInfo.Email
 	}
 	return ""
 }
@@ -663,9 +675,14 @@ func (a *Adapter) handleMCPServerCreate(ctx context.Context, args map[string]int
 
 	// Stamp the authenticated subject so registration is attributable even for
 	// clients that don't stamp it themselves (issue #1021). Update preserves it
-	// via its get-modify-update flow.
+	// via its get-modify-update flow. The email claim, when present, is stamped
+	// alongside as display metadata (issue #1048) — the subject stays the
+	// stable identifier.
 	if subject := subjectFromContext(ctx); subject != "" {
 		serverCRD.Annotations = map[string]string{api.RegisteredByAnnotation: subject}
+		if email := emailFromContext(ctx); email != "" {
+			serverCRD.Annotations[api.RegisteredByEmailAnnotation] = email
+		}
 	}
 
 	// Validate the definition
