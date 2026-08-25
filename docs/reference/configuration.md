@@ -274,6 +274,28 @@ aggregator:
   transport: "streamable-http"
 ```
 
+#### Writes-as-Caller (Transition Flag)
+
+When enabled, session-initiated MCPServer spec mutations
+(`core_mcpserver_create` / `_update` / `_delete`) are written against the
+Kubernetes API with the caller's own OIDC id_token as the bearer instead of
+muster's ServiceAccount: the apiserver authenticates the real user, Kubernetes
+RBAC authorizes the write, and the audit log records the true subject.
+Reads, `core_mcpserver_validate`, and muster's own controller writes (status
+reconciliation, service registration) are unaffected.
+
+```yaml
+writesAsCaller:
+  enabled: true                            # Default: false (legacy SA write path)
+  kubernetesAudience: "dex-k8s-authenticator"  # Audience the session token must carry (default shown)
+```
+
+Preconditions: the login scope set must request the `kubernetesAudience`
+cross-client audience, and the apiserver must trust the OIDC issuer. Sessions
+whose token lacks the audience receive an actionable re-login error; callers
+without RBAC permission receive a permission error naming the missing verb,
+resource, and namespace.
+
 ## MCP Server Configuration
 
 MCP servers can be configured through YAML files or Kubernetes CRDs. Each server requires:
