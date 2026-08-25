@@ -559,10 +559,11 @@ Start a specific service.
 **⚠️ Note:** Static services (aggregator) may not support start operations.
 
 **Writes-as-caller:** With `writesAsCaller` enabled, start on an MCPServer-backed
-service is a CR write with your own identity — it clears `spec.suspended` (or
-writes `spec.restartRequestedAt` when the server is down without being
-suspended) and the reconciler starts the service. Kubernetes RBAC authorizes
-the write and the apiserver audit log records you as the subject.
+service is a CR write with your own identity — it clears `spec.suspended` and,
+whenever the service is down, also writes `spec.restartRequestedAt` (the
+one-shot "make it run now" request), and the reconciler starts the service.
+Kubernetes RBAC authorizes the write and the apiserver audit log records you
+as the subject.
 
 ### `core_service_stop`
 Stop a specific service.

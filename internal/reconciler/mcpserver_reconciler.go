@@ -147,22 +147,30 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileReques
 			processedRestart = pending
 		}
 	} else {
-		result = r.reconcileResume(req, exists, existingService)
+		// startedThisPass tracks whether resume/create/update already
+		// (re)started the service in this pass, so a pending restart request
+		// is consumed instead of bouncing the service a second time.
+		var startedThisPass bool
+		result, startedThisPass = r.reconcileResume(req, exists, existingService)
 
-		if result.Error == nil {
+		if result.Error == nil && result.RequeueAfter == 0 {
+			var started bool
 			if !exists {
 				// Service doesn't exist, create it
-				result = r.reconcileCreate(ctx, req, mcpServerInfo)
+				result, started = r.reconcileCreate(ctx, req, mcpServerInfo)
 			} else {
 				// Service exists, check if update is needed
-				result = r.reconcileUpdate(ctx, req, mcpServerInfo, existingService)
+				result, started = r.reconcileUpdate(ctx, req, mcpServerInfo, existingService)
 			}
+			startedThisPass = startedThisPass || started
 		}
 
-		if result.Error == nil {
+		if result.Error == nil && result.RequeueAfter == 0 {
 			if pending := pendingRestart(mcpServerInfo); pending != nil {
-				restartResult := r.reconcileRestart(req, *pending)
-				if restartResult.Error != nil {
+				if startedThisPass {
+					logging.Info("MCPServerReconciler", "Consuming restart request for MCPServer %s: service was (re)started in this pass", req.Name)
+					processedRestart = pending
+				} else if restartResult := r.reconcileRestart(req, *pending); restartResult.Error != nil {
 					result = restartResult
 				} else {
 					processedRestart = pending
@@ -176,8 +184,10 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileReques
 
 	// If reconciliation succeeded, schedule periodic requeue for status sync.
 	// This implements the idiomatic Kubernetes controller pattern where status
-	// is periodically refreshed to ensure eventual consistency.
-	if result.Error == nil && !result.Requeue {
+	// is periodically refreshed to ensure eventual consistency. A shorter
+	// requeue already requested by a step (e.g. resume waiting out a stop in
+	// flight) is kept.
+	if result.Error == nil && !result.Requeue && result.RequeueAfter == 0 {
 		result.RequeueAfter = DefaultStatusSyncInterval
 	}
 
@@ -427,32 +437,41 @@ func (r *MCPServerReconciler) reconcileSuspend(req ReconcileRequest, exists bool
 // reconcileResume starts a service again after its spec.suspended flag went
 // back to false. No-op for servers this reconciler never saw suspended, so
 // servers stopped through the imperative core_service_stop path (still used
-// when writesAsCaller is off) stay stopped.
-func (r *MCPServerReconciler) reconcileResume(req ReconcileRequest, exists bool, existingService api.ServiceInfo) ReconcileResult {
+// when writesAsCaller is off) stay stopped. The bool reports whether a start
+// was performed in this pass.
+func (r *MCPServerReconciler) reconcileResume(req ReconcileRequest, exists bool, existingService api.ServiceInfo) (ReconcileResult, bool) {
 	if !r.isSuspended(req.Name) {
-		return ReconcileResult{}
+		return ReconcileResult{}, false
 	}
 
 	if exists && !api.IsDownState(existingService.GetState()) {
+		if existingService.GetState() == api.StateStopping {
+			// The suspend's stop is still completing; clearing the marker now
+			// would turn this resume into a silent no-op once the stop lands.
+			// Keep the marker and retry shortly.
+			logging.Debug("MCPServerReconciler", "Resume of MCPServer %s waiting for in-flight stop to settle", req.Name)
+			return ReconcileResult{RequeueAfter: 2 * time.Second}, false
+		}
 		// Already running or on its way up.
 		r.clearSuspended(req.Name)
-		return ReconcileResult{}
+		return ReconcileResult{}, false
 	}
 
 	logging.Info("MCPServerReconciler", "Resuming MCPServer service %s (spec.suspended=false)", req.Name)
 	if err := r.orchestratorAPI.StartService(req.Name); err != nil {
 		if api.IsAuthRequiredError(err) {
 			// Auth Required is a stable state, not a failure (see reconcileCreate).
+			// The start was attempted — a pending restart would hit the same wall.
 			r.clearSuspended(req.Name)
-			return ReconcileResult{}
+			return ReconcileResult{}, true
 		}
 		return ReconcileResult{
 			Error:   fmt.Errorf("failed to resume service: %w", err),
 			Requeue: true,
-		}
+		}, false
 	}
 	r.clearSuspended(req.Name)
-	return ReconcileResult{}
+	return ReconcileResult{}, true
 }
 
 // reconcileRestart performs the one-shot restart requested via
@@ -494,14 +513,15 @@ func (r *MCPServerReconciler) reconcileRestart(req ReconcileRequest, requestedAt
 	return ReconcileResult{}
 }
 
-// reconcileCreate handles creating a new MCPServer service.
-func (r *MCPServerReconciler) reconcileCreate(ctx context.Context, req ReconcileRequest, info *api.MCPServerInfo) ReconcileResult {
+// reconcileCreate handles creating a new MCPServer service. The bool reports
+// whether a start was performed (or attempted up to Auth Required) in this pass.
+func (r *MCPServerReconciler) reconcileCreate(ctx context.Context, req ReconcileRequest, info *api.MCPServerInfo) (ReconcileResult, bool) {
 	logging.Info("MCPServerReconciler", "Creating MCPServer service: %s", req.Name)
 
 	// Only create if AutoStart is enabled
 	if !info.AutoStart {
 		logging.Debug("MCPServerReconciler", "Skipping MCPServer %s: AutoStart=false", req.Name)
-		return ReconcileResult{}
+		return ReconcileResult{}, false
 	}
 
 	// Start the service via orchestrator
@@ -510,21 +530,23 @@ func (r *MCPServerReconciler) reconcileCreate(ctx context.Context, req Reconcile
 		// and will be activated via SSO when a user authenticates.
 		if api.IsAuthRequiredError(err) {
 			logging.Info("MCPServerReconciler", "MCPServer %s requires authentication (Auth Required)", req.Name)
-			return ReconcileResult{}
+			return ReconcileResult{}, true
 		}
 		logging.Debug("MCPServerReconciler", "Failed to start service %s: %v", req.Name, err)
 		return ReconcileResult{
 			Error:   fmt.Errorf("failed to start service: %w", err),
 			Requeue: true,
-		}
+		}, false
 	}
 
 	logging.Info("MCPServerReconciler", "Successfully created MCPServer service: %s", req.Name)
-	return ReconcileResult{}
+	return ReconcileResult{}, true
 }
 
-// reconcileUpdate handles updating an existing MCPServer service.
-func (r *MCPServerReconciler) reconcileUpdate(ctx context.Context, req ReconcileRequest, info *api.MCPServerInfo, existingService api.ServiceInfo) ReconcileResult {
+// reconcileUpdate handles updating an existing MCPServer service. The bool
+// reports whether a restart was performed (or attempted up to Auth Required)
+// in this pass.
+func (r *MCPServerReconciler) reconcileUpdate(ctx context.Context, req ReconcileRequest, info *api.MCPServerInfo, existingService api.ServiceInfo) (ReconcileResult, bool) {
 	logging.Debug("MCPServerReconciler", "Checking MCPServer service for updates: %s", req.Name)
 
 	newConfig := infoToMCPServer(info)
@@ -532,12 +554,12 @@ func (r *MCPServerReconciler) reconcileUpdate(ctx context.Context, req Reconcile
 	configurableService, ok := existingService.(api.ConfigurableService)
 	if !ok {
 		logging.Debug("MCPServerReconciler", "Service %s does not implement ConfigurableService, skipping update", req.Name)
-		return ReconcileResult{}
+		return ReconcileResult{}, false
 	}
 
 	if !configurableService.ConfigurationChanged(newConfig) {
 		logging.Debug("MCPServerReconciler", "MCPServer %s is up to date", req.Name)
-		return ReconcileResult{}
+		return ReconcileResult{}, false
 	}
 
 	logging.Info("MCPServerReconciler", "MCPServer %s configuration changed, updating and restarting", req.Name)
@@ -546,23 +568,23 @@ func (r *MCPServerReconciler) reconcileUpdate(ctx context.Context, req Reconcile
 		return ReconcileResult{
 			Error:   fmt.Errorf("failed to update service configuration: %w", err),
 			Requeue: true,
-		}
+		}, false
 	}
 	logging.Debug("MCPServerReconciler", "Updated configuration for MCPServer %s", req.Name)
 
 	if err := r.orchestratorAPI.RestartService(req.Name); err != nil {
 		if api.IsAuthRequiredError(err) {
 			logging.Info("MCPServerReconciler", "MCPServer %s requires authentication after config update", req.Name)
-			return ReconcileResult{}
+			return ReconcileResult{}, true
 		}
 		return ReconcileResult{
 			Error:   fmt.Errorf("failed to restart service: %w", err),
 			Requeue: true,
-		}
+		}, false
 	}
 
 	logging.Info("MCPServerReconciler", "Successfully updated MCPServer service: %s", req.Name)
-	return ReconcileResult{}
+	return ReconcileResult{}, true
 }
 
 // infoToMCPServer converts an MCPServerInfo (API/reconciler view) to an MCPServer

@@ -1,6 +1,9 @@
 package api
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // MCPServer represents a single MCP (Model Context Protocol) server definition and runtime state.
 // It consolidates MCPServerDefinition, MCPServerInfo, and MCPServerConfig into a unified type
@@ -432,4 +435,22 @@ type MCPServerManagerHandler interface {
 	// This allows MCP server operations to be performed through the aggregator
 	// tool system, enabling programmatic and user-driven server management.
 	ToolProvider
+}
+
+// MCPServerLifecycleAsCaller is the optional capability the registered
+// MCPServer manager gains when writes-as-caller is enabled (issue #1057):
+// lifecycle actions on MCPServer-backed services become CR spec writes
+// performed with the caller's own identity — authorized by k8s RBAC and
+// audited by the apiserver — instead of orchestrator mutations with muster's
+// privilege. handled=false means the caller must fall back to the imperative
+// path (flag off, or the name is a non-MCPServer service such as muster's own
+// aggregator); it is always accompanied by a nil result and a nil error.
+//
+// The implementing adapter pins this interface at compile time so a signature
+// drift cannot silently fail the type assertion and reopen the privileged
+// imperative path.
+type MCPServerLifecycleAsCaller interface {
+	StartMCPServerAsCaller(ctx context.Context, name string) (result *CallToolResult, handled bool, err error)
+	StopMCPServerAsCaller(ctx context.Context, name string) (result *CallToolResult, handled bool, err error)
+	RestartMCPServerAsCaller(ctx context.Context, name string) (result *CallToolResult, handled bool, err error)
 }

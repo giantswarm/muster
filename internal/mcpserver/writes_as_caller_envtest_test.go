@@ -185,6 +185,9 @@ func TestWritesAsCallerEnvtest(t *testing.T) {
 		}
 
 		// Start on the suspended server → resume: spec.suspended back to false.
+		// With no service registered (down), the start also writes
+		// spec.restartRequestedAt so the resume survives a lost in-memory
+		// suspension marker.
 		result, handled, err = adapter.StartMCPServerAsCaller(allowedCtx, "lifecycle-server")
 		if err != nil || !handled || result.IsError {
 			t.Fatalf("start: handled=%v err=%v result=%s", handled, err, resultText(t, result))
@@ -196,8 +199,8 @@ func TestWritesAsCallerEnvtest(t *testing.T) {
 		if after.Spec.Suspended {
 			t.Fatal("start did not clear spec.suspended")
 		}
-		if after.Spec.RestartRequestedAt != nil {
-			t.Fatal("resume must not also request a restart")
+		if after.Spec.RestartRequestedAt == nil {
+			t.Fatal("start on a down server must also write spec.restartRequestedAt")
 		}
 
 		// Restart → spec.restartRequestedAt, written as the caller.

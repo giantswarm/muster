@@ -16,36 +16,17 @@ import (
 // because authentication is session-scoped and must be done via the authenticate tool.
 //
 // Uses structured AuthRequiredError detection (ADR-008) instead of string matching.
+// The message text is shared with the CR-driven lifecycle path (issue #1057) so
+// both paths answer the same tool call with the same words.
 func formatOAuthAuthenticationError(name string, err error) *api.CallToolResult {
 	var authErr *mcpserver.AuthRequiredError
 	if errors.As(err, &authErr) {
 		return &api.CallToolResult{
-			Content: []interface{}{fmt.Sprintf(
-				"Service '%s' requires OAuth authentication.\n\n"+
-					"To connect to this server, use the core_auth_login tool:\n"+
-					"  core_auth_login(server=\"%s\")\n\n"+
-					"The service start/restart command cannot be used for OAuth-protected servers "+
-					"because authentication is session-scoped.",
-				name, name,
-			)},
+			Content: []interface{}{mcpserver.OAuthLoginGuidance(name)},
 			IsError: true,
 		}
 	}
 	return nil
-}
-
-// mcpServerLifecycleAsCaller is the optional capability the registered
-// MCPServer manager gains when writes-as-caller is enabled (issue #1057):
-// lifecycle actions on MCPServer-backed services become CR spec writes
-// performed with the caller's own identity — authorized by k8s RBAC and
-// audited by the apiserver — instead of direct orchestrator mutations with
-// muster's privilege. handled=false falls back to the imperative path (flag
-// off, or the name is not an MCPServer definition, e.g. muster's own
-// aggregator service).
-type mcpServerLifecycleAsCaller interface {
-	StartMCPServerAsCaller(ctx context.Context, name string) (result *api.CallToolResult, handled bool, err error)
-	StopMCPServerAsCaller(ctx context.Context, name string) (result *api.CallToolResult, handled bool, err error)
-	RestartMCPServerAsCaller(ctx context.Context, name string) (result *api.CallToolResult, handled bool, err error)
 }
 
 // Adapter adapts the orchestrator to implement api.ServiceManagerHandler.
@@ -239,7 +220,7 @@ func (a *Adapter) handleServiceStart(ctx context.Context, args map[string]interf
 		}, nil
 	}
 
-	if lc, ok := api.GetMCPServerManager().(mcpServerLifecycleAsCaller); ok {
+	if lc, ok := api.GetMCPServerManager().(api.MCPServerLifecycleAsCaller); ok {
 		if result, handled, err := lc.StartMCPServerAsCaller(ctx, name); handled {
 			return result, err
 		}
@@ -280,7 +261,7 @@ func (a *Adapter) handleServiceStop(ctx context.Context, args map[string]interfa
 		}, nil
 	}
 
-	if lc, ok := api.GetMCPServerManager().(mcpServerLifecycleAsCaller); ok {
+	if lc, ok := api.GetMCPServerManager().(api.MCPServerLifecycleAsCaller); ok {
 		if result, handled, err := lc.StopMCPServerAsCaller(ctx, name); handled {
 			return result, err
 		}
@@ -323,7 +304,7 @@ func (a *Adapter) handleServiceRestart(ctx context.Context, args map[string]inte
 		}, nil
 	}
 
-	if lc, ok := api.GetMCPServerManager().(mcpServerLifecycleAsCaller); ok {
+	if lc, ok := api.GetMCPServerManager().(api.MCPServerLifecycleAsCaller); ok {
 		if result, handled, err := lc.RestartMCPServerAsCaller(ctx, name); handled {
 			return result, err
 		}

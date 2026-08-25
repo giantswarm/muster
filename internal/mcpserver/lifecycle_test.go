@@ -48,19 +48,43 @@ func TestLifecycleAsCaller_NotHandledWhenFlagOff(t *testing.T) {
 	}
 }
 
-// TestLifecycleAsCaller_NotHandledForNonMCPServer pins that names without an
-// MCPServer definition (e.g. muster's own aggregator service) fall back to
-// the imperative path instead of erroring.
-func TestLifecycleAsCaller_NotHandledForNonMCPServer(t *testing.T) {
+// TestLifecycleAsCaller_NotHandledForInternalService pins that muster's own
+// internal services (e.g. the aggregator) fall back to the imperative path —
+// resolved from the registry, without any Kubernetes read.
+func TestLifecycleAsCaller_NotHandledForInternalService(t *testing.T) {
+	withServiceRegistry(t, &fakeServiceRegistry{services: map[string]api.ServiceInfo{
+		"aggregator": &fakeServiceInfo{name: "aggregator", typ: api.ServiceType("Aggregator")},
+	}})
 	h := newCallerHarness(t, nil, nil)
 	ctx := server.ContextWithIDToken(context.Background(), testJWT(t, DefaultKubernetesAudience))
 	for _, action := range []string{"start", "stop", "restart"} {
 		if _, handled, _ := lifecycleCall(t, h.adapter, ctx, action, "aggregator"); handled {
-			t.Errorf("%s: must not be handled for a name without an MCPServer definition", action)
+			t.Errorf("%s: must not be handled for muster's own internal services", action)
 		}
 	}
 	if len(h.tokensSeen) != 0 || len(h.updated) != 0 {
 		t.Fatal("fallback must not touch the caller client")
+	}
+}
+
+// TestLifecycleAsCaller_UnknownNameFailsClosed pins that names without an
+// MCPServer definition and without an internal service do NOT fall back to the
+// privileged imperative path: they get a not-found error. A deleted CR with a
+// lingering registry entry would otherwise reopen the side door.
+func TestLifecycleAsCaller_UnknownNameFailsClosed(t *testing.T) {
+	h := newCallerHarness(t, nil, nil)
+	ctx := server.ContextWithIDToken(context.Background(), testJWT(t, DefaultKubernetesAudience))
+	for _, action := range []string{"start", "stop", "restart"} {
+		result, handled, err := lifecycleCall(t, h.adapter, ctx, action, "ghost")
+		if err != nil || !handled {
+			t.Fatalf("%s: handled=%v err=%v", action, handled, err)
+		}
+		if !result.IsError || !strings.Contains(resultText(t, result), "not found") {
+			t.Errorf("%s: expected a not-found error, got: %s", action, resultText(t, result))
+		}
+	}
+	if len(h.updated) != 0 {
+		t.Fatal("unknown names must not write")
 	}
 }
 
@@ -90,24 +114,49 @@ func TestLifecycleAsCaller_StopWritesSuspended(t *testing.T) {
 }
 
 // TestLifecycleAsCaller_StartClearsSuspended: start on a suspended server is
-// the resume transition — spec.suspended back to false, no restart request.
+// the resume transition — spec.suspended back to false. When the service is
+// down, the write also carries spec.restartRequestedAt so the resume survives
+// a reconciler whose in-memory suspension marker was lost to a muster restart;
+// when the service is still up (stop not yet processed), only the flag is
+// cleared.
 func TestLifecycleAsCaller_StartClearsSuspended(t *testing.T) {
-	h := newCallerHarness(t, suspendedServer(), nil)
-	ctx := server.ContextWithIDToken(context.Background(), testJWT(t, DefaultKubernetesAudience))
+	t.Run("service down", func(t *testing.T) {
+		h := newCallerHarness(t, suspendedServer(), nil)
+		ctx := server.ContextWithIDToken(context.Background(), testJWT(t, DefaultKubernetesAudience))
 
-	result, handled, err := h.adapter.StartMCPServerAsCaller(ctx, "test-server")
-	if err != nil || !handled || result.IsError {
-		t.Fatalf("handled=%v err=%v result=%s", handled, err, resultText(t, result))
-	}
-	if len(h.updatedObjs) != 1 {
-		t.Fatalf("expected one caller-client update, got %d", len(h.updatedObjs))
-	}
-	if h.updatedObjs[0].Spec.Suspended {
-		t.Fatal("start did not clear spec.suspended")
-	}
-	if h.updatedObjs[0].Spec.RestartRequestedAt != nil {
-		t.Fatal("resume must not also request a restart")
-	}
+		result, handled, err := h.adapter.StartMCPServerAsCaller(ctx, "test-server")
+		if err != nil || !handled || result.IsError {
+			t.Fatalf("handled=%v err=%v result=%s", handled, err, resultText(t, result))
+		}
+		if len(h.updatedObjs) != 1 {
+			t.Fatalf("expected one caller-client update, got %d", len(h.updatedObjs))
+		}
+		if h.updatedObjs[0].Spec.Suspended {
+			t.Fatal("start did not clear spec.suspended")
+		}
+		if h.updatedObjs[0].Spec.RestartRequestedAt == nil {
+			t.Fatal("resume of a down service must also write spec.restartRequestedAt")
+		}
+	})
+
+	t.Run("service still running", func(t *testing.T) {
+		withServiceRegistry(t, &fakeServiceRegistry{services: map[string]api.ServiceInfo{
+			"test-server": &fakeServiceInfo{name: "test-server", state: api.StateRunning},
+		}})
+		h := newCallerHarness(t, suspendedServer(), nil)
+		ctx := server.ContextWithIDToken(context.Background(), testJWT(t, DefaultKubernetesAudience))
+
+		result, handled, err := h.adapter.StartMCPServerAsCaller(ctx, "test-server")
+		if err != nil || !handled || result.IsError {
+			t.Fatalf("handled=%v err=%v result=%s", handled, err, resultText(t, result))
+		}
+		if len(h.updatedObjs) != 1 || h.updatedObjs[0].Spec.Suspended {
+			t.Fatalf("expected one update clearing spec.suspended, got %+v", h.updatedObjs)
+		}
+		if h.updatedObjs[0].Spec.RestartRequestedAt != nil {
+			t.Fatal("canceling a not-yet-processed stop must not request a restart")
+		}
+	})
 }
 
 // TestLifecycleAsCaller_StartRequestsStartWhenDown: start on a server that is
@@ -152,7 +201,8 @@ func TestLifecycleAsCaller_StartNoOpStates(t *testing.T) {
 	}{
 		{api.StateRunning, false, "already running"},
 		{api.StateConnected, false, "already running"},
-		{api.StateStarting, false, "already starting"},
+		{api.StateStarting, false, `state "starting"`},
+		{api.StateStopping, false, `state "stopping"`},
 		{api.StateAuthRequired, true, "core_auth_login"},
 	}
 	for _, tc := range cases {
@@ -209,6 +259,28 @@ func TestLifecycleAsCaller_RestartSuspendedRefused(t *testing.T) {
 	}
 	if len(h.updated) != 0 {
 		t.Fatal("refused restart must not write")
+	}
+}
+
+// TestLifecycleAsCaller_RestartAuthRequiredRefused: restarting cannot
+// authenticate a session, so a server waiting on OAuth gets the same
+// core_auth_login guidance the imperative path gave, and no write happens.
+func TestLifecycleAsCaller_RestartAuthRequiredRefused(t *testing.T) {
+	withServiceRegistry(t, &fakeServiceRegistry{services: map[string]api.ServiceInfo{
+		"test-server": &fakeServiceInfo{name: "test-server", state: api.StateAuthRequired},
+	}})
+	h := newCallerHarness(t, existingServer(), nil)
+	ctx := server.ContextWithIDToken(context.Background(), testJWT(t, DefaultKubernetesAudience))
+
+	result, handled, err := h.adapter.RestartMCPServerAsCaller(ctx, "test-server")
+	if err != nil || !handled {
+		t.Fatalf("handled=%v err=%v", handled, err)
+	}
+	if !result.IsError || !strings.Contains(resultText(t, result), "core_auth_login") {
+		t.Fatalf("expected OAuth guidance, got: %s", resultText(t, result))
+	}
+	if len(h.updated) != 0 {
+		t.Fatal("auth-required restart must not write")
 	}
 }
 

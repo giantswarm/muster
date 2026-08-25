@@ -286,11 +286,11 @@ reconciliation, service registration) are unaffected.
 
 Service lifecycle actions on MCPServer-backed services are covered the same
 way: `core_service_stop` writes `spec.suspended: true`, `core_service_start`
-clears it (or writes `spec.restartRequestedAt` for a server that is down
-without being suspended), and `core_service_restart` writes
-`spec.restartRequestedAt` — all as the caller, with the reconciler performing
-the actual start/stop/restart. Lifecycle of muster's own internal services
-(e.g. the aggregator) keeps the imperative path.
+clears it (and also writes `spec.restartRequestedAt` when the service is
+down), and `core_service_restart` writes `spec.restartRequestedAt` — all as
+the caller, with the reconciler performing the actual start/stop/restart.
+Lifecycle of muster's own internal services (e.g. the aggregator) keeps the
+imperative path.
 
 ```yaml
 writesAsCaller:

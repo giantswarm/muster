@@ -622,7 +622,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			// type is optional for update; suspended/restartRequestedAt are the
 			// CR-driven lifecycle fields (issue #1055) and only settable here.
 			Args: append(mcpServerArgs(false),
-				api.ArgMetadata{Name: "suspended", Type: api.ArgTypeBoolean, Required: false, Description: "Desired lifecycle state: true stops the server's service and keeps it stopped; false (or omitted) resumes it"},
+				api.ArgMetadata{Name: "suspended", Type: api.ArgTypeBoolean, Required: false, Description: "Desired lifecycle state: true stops the server's service and keeps it stopped; false resumes it; omitted keeps the current value"},
 				api.ArgMetadata{Name: "restartRequestedAt", Type: api.ArgTypeString, Required: false, Description: "RFC 3339 timestamp requesting a one-shot restart; processed once by the reconciler"},
 			),
 		},
@@ -878,8 +878,11 @@ func (a *Adapter) handleMCPServerUpdate(ctx context.Context, args map[string]int
 		existing.Spec.Description = req.Description
 	}
 	existing.Spec.AutoStart = req.AutoStart
-	// Replace semantics like AutoStart: omitting suspended resumes the server.
-	existing.Spec.Suspended = req.Suspended
+	// Tri-state: only an explicit suspended value changes the lifecycle state,
+	// so unrelated updates don't silently resume a stopped server (issue #1057).
+	if req.Suspended != nil {
+		existing.Spec.Suspended = *req.Suspended
+	}
 	if req.RestartRequestedAt != nil {
 		existing.Spec.RestartRequestedAt = &metav1.Time{Time: *req.RestartRequestedAt}
 	}
