@@ -11,11 +11,47 @@
 #   - branch dev-chart push for the muster chart
 #   - the standalone muster-crds chart (build, ATS tests, branch + tag push),
 #     versioned in lockstep with muster off the same git tag
+#   - the envtest-backed RBAC integration job (test-envtest), which needs a
+#     real kube-apiserver from setup-envtest -- the generated go-build job
+#     only runs `make test`, so TestWritesAsCallerEnvtest self-skips there
+#     without KUBEBUILDER_ASSETS
 version: 2.1
+
+jobs:
+  # `make test` (run by the generated go-build job) doesn't set
+  # KUBEBUILDER_ASSETS, so TestWritesAsCallerEnvtest (added in #1060) self-skips
+  # via t.Skip() there. This job runs `make test-envtest`, which downloads a
+  # real kube-apiserver via setup-envtest and points KUBEBUILDER_ASSETS at it,
+  # so the RBAC integration test actually executes. Reuses the same
+  # `architect` image/context as go-build -- no extra module auth needed since
+  # github.com/giantswarm/muster and its Go module deps are public repos.
+  test-envtest:
+    executor: architect/architect
+    resource_class: medium
+    steps:
+    - checkout
+    - architect/tools-info
+    - architect/go-cache-restore
+    - run:
+        name: Run envtest-backed RBAC integration tests
+        command: make test-envtest
+    - architect/go-cache-save
 
 workflows:
   build:
     jobs:
+    # ---- envtest-backed RBAC integration test. Same filters as go-build
+    #      (runs on every branch and on release tags) since it's a test job
+    #      like go-build's own embedded `make test`, not a branch-only publish
+    #      step.
+    - test-envtest:
+        context: architect
+        requires:
+        - go-build
+        filters:
+          tags:
+            only: /^v.*/
+
     # ---- Branch builds: dev image for PR validation. split-china-push is
     #      safe on branches: registries-data marks Aliyun push_dev_image=false.
     - architect/push-to-registries:
