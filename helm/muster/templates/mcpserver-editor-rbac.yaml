@@ -1,0 +1,43 @@
+{{/*
+mcpserver-editor: who may register and manage MCPServer resources once the
+writes-as-caller transition flag (muster.writesAsCaller) is on.
+
+With the flag on, session-initiated MCPServer mutations — create/update/delete
+and CR-driven lifecycle (start/stop/restart) — are written against the
+Kubernetes API with the caller's own identity, so k8s RBAC authorizes each
+write. The default binding grants the Role to all authenticated users,
+preserving today's effective "any user can register" behavior: enabling
+enforcement is not a silent breaking change. Installations wanting admin-only
+registration narrow rbac.mcpServerEditor.subjects to an admin group.
+
+Inert while the flag is off: muster then writes with its own ServiceAccount
+and this Role is never consulted.
+*/}}
+{{- if and .Values.rbac.create .Values.rbac.mcpServerEditor.create -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: mcpserver-editor
+  namespace: {{ include "muster.namespace" . }}
+  labels:
+    {{- include "muster.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["muster.giantswarm.io"]
+    resources: ["mcpservers"]
+    verbs: ["create", "update", "patch", "delete"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: mcpserver-editor
+  namespace: {{ include "muster.namespace" . }}
+  labels:
+    {{- include "muster.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: mcpserver-editor
+subjects:
+  {{- toYaml .Values.rbac.mcpServerEditor.subjects | nindent 2 }}
+{{- end }}

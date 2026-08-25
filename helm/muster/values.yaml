@@ -46,6 +46,22 @@ rbac:
   # broker target credential secrets may reside.
   # A Role/RoleBinding granting `get` on secrets is created in each listed namespace.
   additionalSecretNamespaces: []
+  # mcpServerEditor ships the default answer to "who may register and manage
+  # MCP servers" once the writes-as-caller transition flag
+  # (muster.writesAsCaller) is on: a namespaced Role granting
+  # create/update/patch/delete on mcpservers, plus a RoleBinding. The default
+  # subjects bind all authenticated users, preserving today's effective "any
+  # user can register" behavior — flipping the flag is not a silent breaking
+  # change. Narrow subjects to an admin group for admin-only registration.
+  # Inert while the flag is off.
+  mcpServerEditor:
+    create: true
+    # RoleBinding subjects granted the mcpserver-editor Role. Standard
+    # rbac.authorization.k8s.io/v1 subjects (Group, User, or ServiceAccount).
+    subjects:  # @schema item: object ; itemProperties: {apiGroup: {type: string}, kind: {type: string}, name: {type: string}, namespace: {type: string}}
+      - apiGroup: rbac.authorization.k8s.io
+        kind: Group
+        name: system:authenticated
 
 podAnnotations: {}  # @schema additionalProperties: true
 podLabels: {}  # @schema additionalProperties: true
@@ -235,6 +251,25 @@ muster:
 
   # Enable debug logging
   debug: false
+
+  # Transition flag for the writes-as-caller rollout. When enabled,
+  # session-initiated MCPServer mutations (create/update/delete and CR-driven
+  # start/stop/restart) are written with the caller's own dex id_token: the
+  # apiserver authenticates the real user, k8s RBAC (see rbac.mcpServerEditor)
+  # authorizes the write, and the audit log records the true subject. Muster's
+  # own controllers (status reconciliation, service registration, startup
+  # sync) keep using the ServiceAccount either way.
+  #
+  # Default off. Flip per installation only after its preconditions are
+  # verified: the dex-k8s-authenticator audience is in the login scope set and
+  # the local apiserver trusts dex OIDC. The flag is transitional and will be
+  # removed once every installation has flipped.
+  writesAsCaller:
+    enabled: false
+    # Audience the session's dex id_token must carry to be accepted by the
+    # local kube-apiserver. Empty uses muster's default
+    # ("dex-k8s-authenticator").
+    kubernetesAudience: ""
 
   # Append a PEM file to muster's system trust pool at startup. Use this when
   # muster talks to backends served by an internal CA (for example, the SPIFFE

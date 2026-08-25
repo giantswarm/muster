@@ -109,5 +109,12 @@ data:
             {{- toYaml . | nindent 12 }}
           {{- end }}
         {{- end }}
+    {{- if .Values.muster.writesAsCaller.enabled }}
+    writesAsCaller:
+      enabled: true
+      {{- with .Values.muster.writesAsCaller.kubernetesAudience }}
+      kubernetesAudience: {{ . | quote }}
+      {{- end }}
+    {{- end }}
     namespace: {{ include "muster.namespace" . | quote }}
     kubernetes: true
