@@ -17,6 +17,8 @@ import (
 	"github.com/giantswarm/muster/internal/services"
 	"github.com/giantswarm/muster/internal/workflow"
 	"github.com/giantswarm/muster/pkg/logging"
+
+	ctrl "sigs.k8s.io/controller-runtime"
 )
 
 // Services holds all initialized services and APIs used by the application.
@@ -166,6 +168,20 @@ func InitializeServices(cfg *Config) (*Services, error) {
 
 	// Initialize and register MCPServer adapter using the muster client
 	mcpServerAdapter := mcpserverPkg.NewAdapterWithClient(musterClient, namespace)
+	if cfg.MusterConfig.WritesAsCaller.Enabled {
+		// Transition flag (issue #1056): session-initiated MCPServer spec
+		// mutations write with the caller's own dex id_token so k8s RBAC
+		// decides and the audit log records the real user. When no Kubernetes
+		// config is reachable the factory stays nil and mutations fail with an
+		// explicit configuration error rather than falling back to the SA.
+		var factory mcpserverPkg.CallerClientFactory
+		if restConfig, err := ctrl.GetConfig(); err == nil {
+			factory = mcpserverPkg.NewKubernetesCallerClientFactory(restConfig)
+		} else {
+			logging.Warn("Services", "writesAsCaller is enabled but no Kubernetes config is available: %v", err)
+		}
+		mcpServerAdapter.EnableWritesAsCaller(factory, cfg.MusterConfig.WritesAsCaller.KubernetesAudience)
+	}
 	mcpServerAdapter.Register()
 
 	// Initialize and register credentials adapter for loading OAuth client credentials from secrets

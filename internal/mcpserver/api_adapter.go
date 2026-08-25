@@ -73,6 +73,22 @@ func convertAPISecretRefToCRD(src *api.ClientCredentialsSecretRef) *musterv1alph
 type Adapter struct {
 	client    client.MusterClient
 	namespace string
+
+	// writesAsCaller switches session-initiated spec mutations
+	// (create/update/delete) from the shared SA-backed client to a per-call
+	// client bearing the caller's own dex id_token (issue #1056). Reads,
+	// validation, and muster's own controller writes are unaffected.
+	writesAsCaller     bool
+	kubernetesAudience string
+	callerClients      CallerClientFactory
+}
+
+// mcpServerWriter is the write surface the mutation handlers go through. The
+// SA-backed MusterClient and the per-call caller-bearer client both satisfy it.
+type mcpServerWriter interface {
+	CreateMCPServer(ctx context.Context, server *musterv1alpha1.MCPServer) error
+	UpdateMCPServer(ctx context.Context, server *musterv1alpha1.MCPServer) error
+	DeleteMCPServer(ctx context.Context, name, namespace string) error
 }
 
 // NewAdapterWithClient creates a new adapter with a specific client (for testing)
@@ -84,6 +100,71 @@ func NewAdapterWithClient(musterClient client.MusterClient, namespace string) *A
 		client:    musterClient,
 		namespace: namespace,
 	}
+}
+
+// EnableWritesAsCaller turns on the writes-as-caller transition flag.
+// factory may be nil when muster has no Kubernetes API access; mutations then
+// fail with an explicit configuration error instead of silently falling back
+// to the SA path. An empty kubernetesAudience selects the default.
+func (a *Adapter) EnableWritesAsCaller(factory CallerClientFactory, kubernetesAudience string) {
+	a.writesAsCaller = true
+	if kubernetesAudience == "" {
+		kubernetesAudience = DefaultKubernetesAudience
+	}
+	a.kubernetesAudience = kubernetesAudience
+	a.callerClients = factory
+}
+
+// mutationWriter resolves the write client a mutation must use. With
+// writes-as-caller off it is the shared SA-backed client (legacy path). With
+// it on, the session's dex id_token becomes the bearer of a per-call client,
+// so the apiserver authenticates the real user and k8s RBAC decides. A nil
+// writer is returned together with a ready-to-return tool error when the
+// session cannot produce a usable bearer.
+func (a *Adapter) mutationWriter(ctx context.Context) (mcpServerWriter, *api.CallToolResult) {
+	if !a.writesAsCaller {
+		return a.client, nil
+	}
+
+	token := callerTokenFromContext(ctx)
+	if token == "" {
+		result, _ := simpleError(reloginError(
+			"This installation writes MCP server changes with your own identity, but your session carries no token."))
+		return nil, result
+	}
+	if tokenMissingAudience(token, a.kubernetesAudience) {
+		result, _ := simpleError(reloginError(fmt.Sprintf(
+			"Your session token does not carry the %q audience required by the Kubernetes API.", a.kubernetesAudience)))
+		return nil, result
+	}
+	if a.callerClients == nil {
+		result, _ := simpleError("writes-as-caller is enabled but muster has no Kubernetes API access to perform the write with — check the muster deployment configuration")
+		return nil, result
+	}
+
+	callerClient, err := a.callerClients(token)
+	if err != nil {
+		result, _ := simpleError(fmt.Sprintf("Failed to prepare a Kubernetes client with your identity: %v", err))
+		return nil, result
+	}
+	return &callerWriter{client: callerClient, namespace: a.namespace}, nil
+}
+
+// describeWriteAuthError maps apiserver authn/authz failures on
+// caller-identity writes to actionable tool errors: 403 names the verb,
+// resource, and namespace; 401 asks for a re-login. Returns "" for every
+// other error so callers fall through to their existing handling.
+func (a *Adapter) describeWriteAuthError(err error, verb, name string) string {
+	switch {
+	case errors.IsForbidden(err):
+		return fmt.Sprintf(
+			"Permission denied: your user may not %s MCPServer %q (mcpservers.muster.giantswarm.io) in namespace %q. "+
+				"Ask a platform admin to grant you the mcpserver-editor role. API server response: %v",
+			verb, name, a.namespace, err)
+	case errors.IsUnauthorized(err):
+		return reloginError("The Kubernetes API rejected your session token.")
+	}
+	return ""
 }
 
 // Register registers the adapter with the API
@@ -567,9 +648,9 @@ func (a *Adapter) ExecuteTool(ctx context.Context, toolName string, args map[str
 	case "mcpserver_create":
 		return a.handleMCPServerCreate(ctx, args)
 	case "mcpserver_update":
-		return a.handleMCPServerUpdate(args)
+		return a.handleMCPServerUpdate(ctx, args)
 	case "mcpserver_delete":
-		return a.handleMCPServerDelete(args)
+		return a.handleMCPServerDelete(ctx, args)
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", toolName)
 	}
@@ -710,6 +791,11 @@ func (a *Adapter) handleMCPServerCreate(ctx context.Context, args map[string]int
 		}, nil
 	}
 
+	writer, errResult := a.mutationWriter(ctx)
+	if errResult != nil {
+		return errResult, nil
+	}
+
 	// Convert request to CRD once for reuse
 	serverCRD := a.convertRequestToCRD(&req)
 
@@ -730,10 +816,13 @@ func (a *Adapter) handleMCPServerCreate(ctx context.Context, args map[string]int
 		return simpleError(fmt.Sprintf("Invalid MCP server definition: %v", err))
 	}
 
-	// Create the new MCP server using the unified client
-	if err := a.client.CreateMCPServer(ctx, serverCRD); err != nil {
+	// Create the new MCP server with the resolved write identity
+	if err := writer.CreateMCPServer(ctx, serverCRD); err != nil {
 		if errors.IsAlreadyExists(err) {
 			return simpleError(fmt.Sprintf("MCP server '%s' already exists", req.Name))
+		}
+		if msg := a.describeWriteAuthError(err, "create", req.Name); msg != "" {
+			return simpleError(msg)
 		}
 		// Generate failure event
 		a.generateCRDEvent(req.Name, events.ReasonMCPServerFailed, events.EventData{
@@ -751,7 +840,7 @@ func (a *Adapter) handleMCPServerCreate(ctx context.Context, args map[string]int
 	return simpleOK(fmt.Sprintf("MCP server '%s' created successfully", req.Name))
 }
 
-func (a *Adapter) handleMCPServerUpdate(args map[string]interface{}) (*api.CallToolResult, error) {
+func (a *Adapter) handleMCPServerUpdate(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
 	var req api.MCPServerUpdateRequest
 	if err := api.ParseRequest(args, &req); err != nil {
 		return &api.CallToolResult{
@@ -760,8 +849,13 @@ func (a *Adapter) handleMCPServerUpdate(args map[string]interface{}) (*api.CallT
 		}, nil
 	}
 
-	// Get existing server first
-	ctx := context.Background()
+	writer, errResult := a.mutationWriter(ctx)
+	if errResult != nil {
+		return errResult, nil
+	}
+
+	// Get existing server first. The read stays on the SA client — only the
+	// spec mutation itself switches to the caller's identity.
 	existing, err := a.client.GetMCPServer(ctx, req.Name, a.namespace)
 	if err != nil {
 		if errors.IsNotFound(err) {
@@ -837,8 +931,11 @@ func (a *Adapter) handleMCPServerUpdate(args map[string]interface{}) (*api.CallT
 		return simpleError(fmt.Sprintf("Invalid MCP server definition: %v", err))
 	}
 
-	// Update the MCP server using the unified client
-	if err := a.client.UpdateMCPServer(ctx, existing); err != nil {
+	// Update the MCP server with the resolved write identity
+	if err := writer.UpdateMCPServer(ctx, existing); err != nil {
+		if msg := a.describeWriteAuthError(err, "update", req.Name); msg != "" {
+			return simpleError(msg)
+		}
 		// Generate failure event
 		a.generateCRDEvent(req.Name, events.ReasonMCPServerFailed, events.EventData{
 			Error:     err.Error(),
@@ -855,17 +952,24 @@ func (a *Adapter) handleMCPServerUpdate(args map[string]interface{}) (*api.CallT
 	return simpleOK(fmt.Sprintf("MCP server '%s' updated successfully", req.Name))
 }
 
-func (a *Adapter) handleMCPServerDelete(args map[string]interface{}) (*api.CallToolResult, error) {
+func (a *Adapter) handleMCPServerDelete(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
 	name, ok := args["name"].(string)
 	if !ok || name == "" {
 		return simpleError("name argument is required")
 	}
 
-	// Delete the MCP server using the unified client
-	ctx := context.Background()
-	if err := a.client.DeleteMCPServer(ctx, name, a.namespace); err != nil {
+	writer, errResult := a.mutationWriter(ctx)
+	if errResult != nil {
+		return errResult, nil
+	}
+
+	// Delete the MCP server with the resolved write identity
+	if err := writer.DeleteMCPServer(ctx, name, a.namespace); err != nil {
 		if errors.IsNotFound(err) {
 			return api.HandleErrorWithPrefix(api.NewMCPServerNotFoundError(name), "Failed to delete MCP server"), nil
+		}
+		if msg := a.describeWriteAuthError(err, "delete", name); msg != "" {
+			return simpleError(msg)
 		}
 		// Generate failure event
 		a.generateCRDEvent(name, events.ReasonMCPServerFailed, events.EventData{
