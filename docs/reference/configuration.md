@@ -284,6 +284,14 @@ RBAC authorizes the write, and the audit log records the true subject.
 Reads, `core_mcpserver_validate`, and muster's own controller writes (status
 reconciliation, service registration) are unaffected.
 
+Service lifecycle actions on MCPServer-backed services are covered the same
+way: `core_service_stop` writes `spec.suspended: true`, `core_service_start`
+clears it (and also writes `spec.restartRequestedAt` when the service is
+down), and `core_service_restart` writes `spec.restartRequestedAt` — all as
+the caller, with the reconciler performing the actual start/stop/restart.
+Lifecycle of muster's own internal services (e.g. the aggregator) keeps the
+imperative path.
+
 ```yaml
 writesAsCaller:
   enabled: true                            # Default: false (legacy SA write path)

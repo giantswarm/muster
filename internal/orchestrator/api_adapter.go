@@ -16,18 +16,13 @@ import (
 // because authentication is session-scoped and must be done via the authenticate tool.
 //
 // Uses structured AuthRequiredError detection (ADR-008) instead of string matching.
+// The message text is shared with the CR-driven lifecycle path (issue #1057) so
+// both paths answer the same tool call with the same words.
 func formatOAuthAuthenticationError(name string, err error) *api.CallToolResult {
 	var authErr *mcpserver.AuthRequiredError
 	if errors.As(err, &authErr) {
 		return &api.CallToolResult{
-			Content: []interface{}{fmt.Sprintf(
-				"Service '%s' requires OAuth authentication.\n\n"+
-					"To connect to this server, use the core_auth_login tool:\n"+
-					"  core_auth_login(server=\"%s\")\n\n"+
-					"The service start/restart command cannot be used for OAuth-protected servers "+
-					"because authentication is session-scoped.",
-				name, name,
-			)},
+			Content: []interface{}{mcpserver.OAuthLoginGuidance(name)},
 			IsError: true,
 		}
 	}
@@ -190,11 +185,11 @@ func (a *Adapter) ExecuteTool(ctx context.Context, toolName string, args map[str
 	case "service_list":
 		return a.handleServiceList()
 	case "service_start":
-		return a.handleServiceStart(args)
+		return a.handleServiceStart(ctx, args)
 	case "service_stop":
-		return a.handleServiceStop(args)
+		return a.handleServiceStop(ctx, args)
 	case "service_restart":
-		return a.handleServiceRestart(args)
+		return a.handleServiceRestart(ctx, args)
 	case "service_status":
 		return a.handleServiceStatus(args)
 	default:
@@ -216,13 +211,19 @@ func (a *Adapter) handleServiceList() (*api.CallToolResult, error) {
 	}, nil
 }
 
-func (a *Adapter) handleServiceStart(args map[string]interface{}) (*api.CallToolResult, error) {
+func (a *Adapter) handleServiceStart(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
 	name, ok := args["name"].(string)
 	if !ok {
 		return &api.CallToolResult{
 			Content: []interface{}{"name is required"},
 			IsError: true,
 		}, nil
+	}
+
+	if lc, ok := api.GetMCPServerManager().(api.MCPServerLifecycleAsCaller); ok {
+		if result, handled, err := lc.StartMCPServerAsCaller(ctx, name); handled {
+			return result, err
+		}
 	}
 
 	// A missing status is not fatal: StartService lazily registers MCPServer
@@ -251,13 +252,19 @@ func (a *Adapter) handleServiceStart(args map[string]interface{}) (*api.CallTool
 	}, nil
 }
 
-func (a *Adapter) handleServiceStop(args map[string]interface{}) (*api.CallToolResult, error) {
+func (a *Adapter) handleServiceStop(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
 	name, ok := args["name"].(string)
 	if !ok {
 		return &api.CallToolResult{
 			Content: []interface{}{"name is required"},
 			IsError: true,
 		}, nil
+	}
+
+	if lc, ok := api.GetMCPServerManager().(api.MCPServerLifecycleAsCaller); ok {
+		if result, handled, err := lc.StopMCPServerAsCaller(ctx, name); handled {
+			return result, err
+		}
 	}
 
 	status, err := a.GetServiceStatus(name)
@@ -288,13 +295,19 @@ func (a *Adapter) handleServiceStop(args map[string]interface{}) (*api.CallToolR
 	}, nil
 }
 
-func (a *Adapter) handleServiceRestart(args map[string]interface{}) (*api.CallToolResult, error) {
+func (a *Adapter) handleServiceRestart(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
 	name, ok := args["name"].(string)
 	if !ok {
 		return &api.CallToolResult{
 			Content: []interface{}{"name is required"},
 			IsError: true,
 		}, nil
+	}
+
+	if lc, ok := api.GetMCPServerManager().(api.MCPServerLifecycleAsCaller); ok {
+		if result, handled, err := lc.RestartMCPServerAsCaller(ctx, name); handled {
+			return result, err
+		}
 	}
 
 	if err := a.RestartService(name); err != nil {

@@ -22,15 +22,27 @@ func (f *fakeServiceRegistry) GetAll() []api.ServiceInfo { return nil }
 
 func (f *fakeServiceRegistry) GetByType(api.ServiceType) []api.ServiceInfo { return nil }
 
-// fakeServiceInfo reports a fixed service data map.
+// fakeServiceInfo reports a fixed service data map, state, and type.
 type fakeServiceInfo struct {
-	name string
-	data map[string]any
+	name  string
+	data  map[string]any
+	state api.ServiceState
+	typ   api.ServiceType
 }
 
-func (f *fakeServiceInfo) GetName() string                { return f.name }
-func (f *fakeServiceInfo) GetType() api.ServiceType       { return api.TypeMCPServer }
-func (f *fakeServiceInfo) GetState() api.ServiceState     { return api.StateRunning }
+func (f *fakeServiceInfo) GetName() string { return f.name }
+func (f *fakeServiceInfo) GetType() api.ServiceType {
+	if f.typ == "" {
+		return api.TypeMCPServer
+	}
+	return f.typ
+}
+func (f *fakeServiceInfo) GetState() api.ServiceState {
+	if f.state == "" {
+		return api.StateRunning
+	}
+	return f.state
+}
 func (f *fakeServiceInfo) GetHealth() api.HealthStatus    { return api.HealthHealthy }
 func (f *fakeServiceInfo) GetLastError() error            { return nil }
 func (f *fakeServiceInfo) GetServiceData() map[string]any { return f.data }

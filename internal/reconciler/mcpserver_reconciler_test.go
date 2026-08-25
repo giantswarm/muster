@@ -1172,6 +1172,143 @@ func TestMCPServerReconciler_RestartRequestProcessedOnce(t *testing.T) {
 	}
 }
 
+// TestMCPServerReconciler_RestartRequestStartsUnregisteredService: a restart
+// request on a server with no registered service (autoStart=false, never
+// started) is an explicit "make it run now" — the CR-driven core_service_start
+// writes it for exactly this case (issue #1057) — so the reconciler starts the
+// service and consumes the request.
+func TestMCPServerReconciler_RestartRequestStartsUnregisteredService(t *testing.T) {
+	mgr := NewMockMCPServerManager()
+	orchAPI := NewMockOrchestratorAPI()
+	registry := NewMockServiceRegistry()
+	statusUpdater := NewMockStatusUpdater()
+	reconciler := NewMCPServerReconciler(orchAPI, mgr, registry).
+		WithStatusUpdater(statusUpdater, "default")
+
+	requestedAt := time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC)
+	mgr.AddMCPServer(&api.MCPServerInfo{
+		Name:               "test-server",
+		Type:               "stdio",
+		Command:            "test-command",
+		AutoStart:          false,
+		RestartRequestedAt: &requestedAt,
+	})
+
+	result := reconciler.Reconcile(context.Background(), lifecycleReconcileRequest())
+
+	if result.Error != nil {
+		t.Errorf("unexpected error: %v", result.Error)
+	}
+	if !orchAPI.StartedServices["test-server"] {
+		t.Error("expected the restart request to start the unregistered service")
+	}
+	if orchAPI.RestartedServices["test-server"] {
+		t.Error("an unregistered service is started, not restarted")
+	}
+	if statusUpdater.LastUpdatedMCPServer == nil ||
+		statusUpdater.LastUpdatedMCPServer.Status.LastRestartedAt == nil ||
+		!statusUpdater.LastUpdatedMCPServer.Status.LastRestartedAt.Time.Equal(requestedAt) {
+		t.Error("expected the processed request to be mirrored into status.lastRestartedAt")
+	}
+}
+
+// TestMCPServerReconciler_RestartRequestConsumedWhenStartedThisPass: when the
+// same reconcile pass already started the service (create for a fresh
+// autoStart=true server), a pending restart request is consumed instead of
+// bouncing the service that was started microseconds earlier.
+func TestMCPServerReconciler_RestartRequestConsumedWhenStartedThisPass(t *testing.T) {
+	mgr := NewMockMCPServerManager()
+	orchAPI := NewMockOrchestratorAPI()
+	registry := NewMockServiceRegistry()
+	statusUpdater := NewMockStatusUpdater()
+	reconciler := NewMCPServerReconciler(orchAPI, mgr, registry).
+		WithStatusUpdater(statusUpdater, "default")
+
+	requestedAt := time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC)
+	mgr.AddMCPServer(&api.MCPServerInfo{
+		Name:               "test-server",
+		Type:               "stdio",
+		Command:            "test-command",
+		AutoStart:          true,
+		RestartRequestedAt: &requestedAt,
+	})
+
+	result := reconciler.Reconcile(context.Background(), lifecycleReconcileRequest())
+
+	if result.Error != nil {
+		t.Errorf("unexpected error: %v", result.Error)
+	}
+	if !orchAPI.StartedServices["test-server"] {
+		t.Error("expected create to start the service")
+	}
+	if orchAPI.RestartedServices["test-server"] {
+		t.Error("a service started in this pass must not be restarted on top")
+	}
+	if statusUpdater.LastUpdatedMCPServer == nil ||
+		statusUpdater.LastUpdatedMCPServer.Status.LastRestartedAt == nil ||
+		!statusUpdater.LastUpdatedMCPServer.Status.LastRestartedAt.Time.Equal(requestedAt) {
+		t.Error("the consumed request must still be mirrored into status.lastRestartedAt")
+	}
+}
+
+// TestMCPServerReconciler_ResumeWaitsForInFlightStop: a resume observed while
+// the suspend's stop is still completing (state stopping) must not clear the
+// suspension marker — that would leave the service down forever. It requeues
+// and starts the service once the stop has settled.
+func TestMCPServerReconciler_ResumeWaitsForInFlightStop(t *testing.T) {
+	mgr := NewMockMCPServerManager()
+	orchAPI := NewMockOrchestratorAPI()
+	registry := NewMockServiceRegistry()
+	reconciler := NewMCPServerReconciler(orchAPI, mgr, registry)
+
+	server := &api.MCPServerInfo{
+		Name:      "test-server",
+		Type:      "stdio",
+		Command:   "test-command",
+		AutoStart: false,
+		Suspended: true,
+	}
+	mgr.AddMCPServer(server)
+	svc := &MockServiceInfo{
+		Name:        "test-server",
+		ServiceType: api.TypeMCPServer,
+		State:       api.StateRunning,
+		Health:      api.HealthHealthy,
+	}
+	registry.AddService("test-server", svc)
+
+	ctx := context.Background()
+
+	// Suspend: the reconciler issues the stop; the service is still stopping.
+	if result := reconciler.Reconcile(ctx, lifecycleReconcileRequest()); result.Error != nil {
+		t.Fatalf("unexpected error on suspend: %v", result.Error)
+	}
+	svc.State = api.StateStopping
+
+	// Resume while the stop is in flight: no start yet, but a quick requeue —
+	// and the suspension marker must survive.
+	server.Suspended = false
+	result := reconciler.Reconcile(ctx, lifecycleReconcileRequest())
+	if result.Error != nil {
+		t.Fatalf("unexpected error on resume: %v", result.Error)
+	}
+	if orchAPI.StartedServices["test-server"] {
+		t.Fatal("must not start while the service is still stopping")
+	}
+	if result.RequeueAfter == 0 || result.RequeueAfter > 5*time.Second {
+		t.Fatalf("expected a short requeue while the stop settles, got %v", result.RequeueAfter)
+	}
+
+	// The stop has settled; the requeued reconcile must now start the service.
+	svc.State = api.StateStopped
+	if result := reconciler.Reconcile(ctx, lifecycleReconcileRequest()); result.Error != nil {
+		t.Fatalf("unexpected error on settled resume: %v", result.Error)
+	}
+	if !orchAPI.StartedServices["test-server"] {
+		t.Fatal("expected the settled resume to start the service")
+	}
+}
+
 func TestMCPServerReconciler_RestartRequestConsumedWhileSuspended(t *testing.T) {
 	mgr := NewMockMCPServerManager()
 	orchAPI := NewMockOrchestratorAPI()

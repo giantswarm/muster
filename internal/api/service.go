@@ -207,6 +207,20 @@ func IsActiveState(state ServiceState) bool {
 	return state == StateRunning || state == StateConnected
 }
 
+// IsDownState returns true if the given state means the service is not running
+// and not on its way up — the states from which an explicit start request must
+// actively start the service. Transitional states (starting, connecting,
+// retrying) and StateAuthRequired are not down: acting on them would interrupt
+// an in-flight start or a reachable server waiting for session authentication.
+func IsDownState(state ServiceState) bool {
+	switch state {
+	case StateStopped, StateDisconnected, StateFailed, StateError, StateUnreachable, StateUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
 // ServiceStateChangedEvent represents a service state transition event.
 // These events are published whenever a service changes state, allowing
 // components to react to service lifecycle changes.

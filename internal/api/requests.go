@@ -137,9 +137,10 @@ type MCPServerUpdateRequest struct {
 	Auth *MCPServerAuth `json:"auth,omitempty"`
 
 	// Suspended declares the desired lifecycle state of the server's service.
-	// Like AutoStart, this uses replace semantics: omitting it resumes a
-	// suspended server (issue #1055).
-	Suspended bool `json:"suspended,omitempty"`
+	// Tri-state: omitting it keeps the current value, so an unrelated update
+	// (description, headers) does not silently resume a server that was
+	// stopped through the CR-driven core_service_stop (issue #1057).
+	Suspended *bool `json:"suspended,omitempty"`
 
 	// RestartRequestedAt requests a one-shot restart of the server's service
 	// (RFC 3339 timestamp). Only applied when set (issue #1055).
