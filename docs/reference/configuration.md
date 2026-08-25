@@ -274,9 +274,9 @@ aggregator:
   transport: "streamable-http"
 ```
 
-#### Writes-as-Caller (Transition Flag)
+#### Writes-as-Caller
 
-When enabled, session-initiated MCPServer spec mutations
+In Kubernetes mode, session-initiated MCPServer spec mutations
 (`core_mcpserver_create` / `_update` / `_delete`) are written against the
 Kubernetes API with the caller's own OIDC id_token as the bearer instead of
 muster's ServiceAccount: the apiserver authenticates the real user, Kubernetes
@@ -292,9 +292,12 @@ the caller, with the reconciler performing the actual start/stop/restart.
 Lifecycle of muster's own internal services (e.g. the aggregator) keeps the
 imperative path.
 
+Caller-identity writes are always active in Kubernetes mode
+(`kubernetes: true`); in filesystem mode there is no apiserver and mutations
+write through the local client. The only knob is the audience override:
+
 ```yaml
 writesAsCaller:
-  enabled: true                            # Default: false (legacy SA write path)
   kubernetesAudience: "dex-k8s-authenticator"  # Audience the session token must carry (default shown)
 ```
 

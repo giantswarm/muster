@@ -76,7 +76,8 @@ type Adapter struct {
 
 	// writesAsCaller switches session-initiated spec mutations
 	// (create/update/delete) from the shared SA-backed client to a per-call
-	// client bearing the caller's own dex id_token (issue #1056). Reads,
+	// client bearing the caller's own dex id_token (issue #1056). Always set
+	// in Kubernetes mode; filesystem mode keeps the local client. Reads,
 	// validation, and muster's own controller writes are unaffected.
 	writesAsCaller     bool
 	kubernetesAudience string
@@ -102,10 +103,12 @@ func NewAdapterWithClient(musterClient client.MusterClient, namespace string) *A
 	}
 }
 
-// EnableWritesAsCaller turns on the writes-as-caller transition flag.
-// factory may be nil when muster has no Kubernetes API access; mutations then
-// fail with an explicit configuration error instead of silently falling back
-// to the SA path. An empty kubernetesAudience selects the default.
+// EnableWritesAsCaller switches session-initiated mutations to
+// caller-identity writes; the app layer calls it whenever muster runs in
+// Kubernetes mode. factory may be nil when muster has no Kubernetes API
+// access; mutations then fail with an explicit configuration error instead of
+// silently falling back to the SA path. An empty kubernetesAudience selects
+// the default.
 func (a *Adapter) EnableWritesAsCaller(factory CallerClientFactory, kubernetesAudience string) {
 	a.writesAsCaller = true
 	if kubernetesAudience == "" {
@@ -115,12 +118,12 @@ func (a *Adapter) EnableWritesAsCaller(factory CallerClientFactory, kubernetesAu
 	a.callerClients = factory
 }
 
-// mutationWriter resolves the write client a mutation must use. With
-// writes-as-caller off it is the shared SA-backed client (legacy path). With
-// it on, the session's dex id_token becomes the bearer of a per-call client,
-// so the apiserver authenticates the real user and k8s RBAC decides. A nil
-// writer is returned together with a ready-to-return tool error when the
-// session cannot produce a usable bearer.
+// mutationWriter resolves the write client a mutation must use. In
+// filesystem mode it is the shared local client. In Kubernetes mode the
+// session's dex id_token becomes the bearer of a per-call client, so the
+// apiserver authenticates the real user and k8s RBAC decides. A nil writer is
+// returned together with a ready-to-return tool error when the session cannot
+// produce a usable bearer.
 func (a *Adapter) mutationWriter(ctx context.Context) (mcpServerWriter, *api.CallToolResult) {
 	if !a.writesAsCaller {
 		return a.client, nil

@@ -23,8 +23,9 @@ import (
 // actual start/stop/restart from the spec fields.
 //
 // Each method returns handled=false when the action must fall back to the
-// orchestrator's imperative path: the writesAsCaller flag is off, or the name
-// is one of muster's own internal services (e.g. the aggregator). MCPServer
+// orchestrator's imperative path: muster runs in filesystem mode (no
+// caller-identity writes), or the name is one of muster's own internal
+// services (e.g. the aggregator). MCPServer
 // and unknown names never fall back — a deleted CR with a lingering registry
 // entry would otherwise reopen the privileged side door this feature closes.
 

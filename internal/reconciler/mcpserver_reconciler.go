@@ -54,8 +54,8 @@ type MCPServerReconciler struct {
 	// the service is started again — including autoStart=false servers that
 	// were running when they were suspended. Level-triggered "!suspended →
 	// start" is not an option: it would also start servers stopped through the
-	// imperative core_service_stop path, which still exists for installations
-	// without writesAsCaller (issue #1057 switched the tools over only there).
+	// imperative core_service_stop path, which still exists for filesystem
+	// mode (issue #1057 switched the tools over only for caller writes).
 	// ponytail: in-memory only — a suspend+resume that both happen while
 	// muster is down degrades to autoStart semantics, same as any stopped
 	// service across a restart.
@@ -437,7 +437,7 @@ func (r *MCPServerReconciler) reconcileSuspend(req ReconcileRequest, exists bool
 // reconcileResume starts a service again after its spec.suspended flag went
 // back to false. No-op for servers this reconciler never saw suspended, so
 // servers stopped through the imperative core_service_stop path (still used
-// when writesAsCaller is off) stay stopped. The bool reports whether a start
+// in filesystem mode) stay stopped. The bool reports whether a start
 // was performed in this pass.
 func (r *MCPServerReconciler) reconcileResume(req ReconcileRequest, exists bool, existingService api.ServiceInfo) (ReconcileResult, bool) {
 	if !r.isSuspended(req.Name) {

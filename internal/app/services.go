@@ -168,17 +168,19 @@ func InitializeServices(cfg *Config) (*Services, error) {
 
 	// Initialize and register MCPServer adapter using the muster client
 	mcpServerAdapter := mcpserverPkg.NewAdapterWithClient(musterClient, namespace)
-	if cfg.MusterConfig.WritesAsCaller.Enabled {
-		// Transition flag (issue #1056): session-initiated MCPServer spec
-		// mutations write with the caller's own dex id_token so k8s RBAC
-		// decides and the audit log records the real user. When no Kubernetes
-		// config is reachable the factory stays nil and mutations fail with an
-		// explicit configuration error rather than falling back to the SA.
+	if musterClient.IsKubernetesMode() {
+		// In Kubernetes mode, session-initiated MCPServer spec mutations
+		// always write with the caller's own dex id_token so k8s RBAC decides
+		// and the audit log records the real user (issues #1056/#1057). When
+		// no Kubernetes config is reachable the factory stays nil and
+		// mutations fail with an explicit configuration error rather than
+		// falling back to the SA. Filesystem mode has no apiserver and keeps
+		// writing through the local client.
 		var factory mcpserverPkg.CallerClientFactory
 		if restConfig, err := ctrl.GetConfig(); err == nil {
 			factory = mcpserverPkg.NewKubernetesCallerClientFactory(restConfig)
 		} else {
-			logging.Warn("Services", "writesAsCaller is enabled but no Kubernetes config is available: %v", err)
+			logging.Warn("Services", "kubernetes mode is active but no Kubernetes config is available for caller-identity writes: %v", err)
 		}
 		mcpServerAdapter.EnableWritesAsCaller(factory, cfg.MusterConfig.WritesAsCaller.KubernetesAudience)
 	}

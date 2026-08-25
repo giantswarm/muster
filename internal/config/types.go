@@ -7,20 +7,19 @@ type MusterConfig struct {
 	Aggregator     AggregatorConfig     `yaml:"aggregator"`
 	Namespace      string               `yaml:"namespace,omitempty"`      // Namespace for MCPServer and Workflow discovery
 	Kubernetes     bool                 `yaml:"kubernetes,omitempty"`     // Enable Kubernetes CRD mode (uses CRDs instead of filesystem)
-	WritesAsCaller WritesAsCallerConfig `yaml:"writesAsCaller,omitempty"` // Transition flag: MCPServer spec mutations write with the caller's identity
+	WritesAsCaller WritesAsCallerConfig `yaml:"writesAsCaller,omitempty"` // Caller-identity writes: kubernetesAudience override
 }
 
-// WritesAsCallerConfig is the transition flag for the writes-as-caller
-// rollout: when enabled, session-initiated MCPServer spec mutations
-// (create/update/delete) are written against the Kubernetes API with the
+// WritesAsCallerConfig configures caller-identity writes. In Kubernetes mode,
+// session-initiated MCPServer spec mutations (create/update/delete and
+// CR-driven lifecycle) are always written against the Kubernetes API with the
 // caller's own dex id_token as the bearer, so the apiserver authenticates the
 // real user, k8s RBAC authorizes the write, and the audit log records the
 // true subject. Muster's own controllers (status reconciliation, service
-// registration, startup sync) keep using the ServiceAccount client. The flag
-// is transitional: it is deleted once every installation has flipped.
+// registration, startup sync) keep using the ServiceAccount client. In
+// filesystem mode there is no apiserver and mutations write through the local
+// client.
 type WritesAsCallerConfig struct {
-	Enabled bool `yaml:"enabled,omitempty"`
-
 	// KubernetesAudience is the audience the session's dex id_token must carry
 	// to be accepted by the local kube-apiserver (requested via the login scope
 	// set's cross-client audience mechanism). Defaults to

@@ -488,9 +488,6 @@
                     "type": "object",
                     "additionalProperties": false,
                     "properties": {
-                        "enabled": {
-                            "type": "boolean"
-                        },
                         "kubernetesAudience": {
                             "type": "string"
                         }
