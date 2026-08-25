@@ -15,6 +15,7 @@ import (
 
 	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
 
+	"github.com/giantswarm/muster/internal/api"
 	kubernetesclient "github.com/giantswarm/muster/internal/client/kubernetes"
 	"github.com/giantswarm/muster/internal/server"
 )
@@ -161,6 +162,90 @@ func TestWritesAsCallerEnvtest(t *testing.T) {
 		}
 		if _, err := saClient.GetMCPServer(ctx, "denied-server", "default"); !apierrors.IsNotFound(err) {
 			t.Fatalf("denied create still wrote the CR: %v", err)
+		}
+	})
+
+	t.Run("lifecycle allowed user suspend-resume-restart", func(t *testing.T) {
+		result, err := adapter.ExecuteTool(allowedCtx, "mcpserver_create", createArgs("lifecycle-server"))
+		if err != nil || result.IsError {
+			t.Fatalf("setup create: err=%v result=%s", err, resultText(t, result))
+		}
+
+		// Stop → spec.suspended=true, written as the caller.
+		result, handled, err := adapter.StopMCPServerAsCaller(allowedCtx, "lifecycle-server")
+		if err != nil || !handled || result.IsError {
+			t.Fatalf("stop: handled=%v err=%v result=%s", handled, err, resultText(t, result))
+		}
+		after, err := saClient.GetMCPServer(ctx, "lifecycle-server", "default")
+		if err != nil {
+			t.Fatalf("get after stop: %v", err)
+		}
+		if !after.Spec.Suspended {
+			t.Fatal("stop did not set spec.suspended")
+		}
+
+		// Start on the suspended server → resume: spec.suspended back to false.
+		result, handled, err = adapter.StartMCPServerAsCaller(allowedCtx, "lifecycle-server")
+		if err != nil || !handled || result.IsError {
+			t.Fatalf("start: handled=%v err=%v result=%s", handled, err, resultText(t, result))
+		}
+		after, err = saClient.GetMCPServer(ctx, "lifecycle-server", "default")
+		if err != nil {
+			t.Fatalf("get after start: %v", err)
+		}
+		if after.Spec.Suspended {
+			t.Fatal("start did not clear spec.suspended")
+		}
+		if after.Spec.RestartRequestedAt != nil {
+			t.Fatal("resume must not also request a restart")
+		}
+
+		// Restart → spec.restartRequestedAt, written as the caller.
+		result, handled, err = adapter.RestartMCPServerAsCaller(allowedCtx, "lifecycle-server")
+		if err != nil || !handled || result.IsError {
+			t.Fatalf("restart: handled=%v err=%v result=%s", handled, err, resultText(t, result))
+		}
+		after, err = saClient.GetMCPServer(ctx, "lifecycle-server", "default")
+		if err != nil {
+			t.Fatalf("get after restart: %v", err)
+		}
+		if after.Spec.RestartRequestedAt == nil {
+			t.Fatal("restart did not write spec.restartRequestedAt")
+		}
+	})
+
+	t.Run("lifecycle denied user suspend-resume-restart", func(t *testing.T) {
+		lifecycle := func(action string) (*api.CallToolResult, bool, error) {
+			switch action {
+			case "start":
+				return adapter.StartMCPServerAsCaller(deniedCtx, "lifecycle-server")
+			case "stop":
+				return adapter.StopMCPServerAsCaller(deniedCtx, "lifecycle-server")
+			default:
+				return adapter.RestartMCPServerAsCaller(deniedCtx, "lifecycle-server")
+			}
+		}
+		before, err := saClient.GetMCPServer(ctx, "lifecycle-server", "default")
+		if err != nil {
+			t.Fatalf("get before: %v", err)
+		}
+		for _, action := range []string{"stop", "restart", "start"} {
+			result, handled, err := lifecycle(action)
+			if err != nil {
+				t.Fatalf("%s: %v", action, err)
+			}
+			if !handled || !result.IsError || !strings.Contains(resultText(t, result), "Permission denied") {
+				t.Fatalf("%s: expected permission error, got handled=%v: %s", action, handled, resultText(t, result))
+			}
+		}
+		after, err := saClient.GetMCPServer(ctx, "lifecycle-server", "default")
+		if err != nil {
+			t.Fatalf("get after: %v", err)
+		}
+		if after.Spec.Suspended != before.Spec.Suspended ||
+			!after.Spec.RestartRequestedAt.Equal(before.Spec.RestartRequestedAt) ||
+			after.ResourceVersion != before.ResourceVersion {
+			t.Fatal("denied lifecycle action still changed the CR")
 		}
 	})
 
