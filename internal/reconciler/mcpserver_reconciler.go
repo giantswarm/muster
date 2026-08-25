@@ -54,8 +54,8 @@ type MCPServerReconciler struct {
 	// the service is started again — including autoStart=false servers that
 	// were running when they were suspended. Level-triggered "!suspended →
 	// start" is not an option: it would also start servers stopped through the
-	// imperative core_service_stop tool, which must keep working unchanged
-	// until issue #1057 switches it over.
+	// imperative core_service_stop path, which still exists for installations
+	// without writesAsCaller (issue #1057 switched the tools over only there).
 	// ponytail: in-memory only — a suspend+resume that both happen while
 	// muster is down degrades to autoStart semantics, same as any stopped
 	// service across a restart.
@@ -378,17 +378,6 @@ func pendingRestart(info *api.MCPServerInfo) *time.Time {
 	return info.RestartRequestedAt
 }
 
-// isDownState reports whether a service state means "not running and not on
-// its way up" — the states from which resume must actively start the service.
-func isDownState(state api.ServiceState) bool {
-	switch state {
-	case api.StateStopped, api.StateDisconnected, api.StateFailed, api.StateError, api.StateUnreachable, api.StateUnknown:
-		return true
-	default:
-		return false
-	}
-}
-
 func (r *MCPServerReconciler) markSuspended(name string) {
 	r.suspendedMu.Lock()
 	defer r.suspendedMu.Unlock()
@@ -437,14 +426,14 @@ func (r *MCPServerReconciler) reconcileSuspend(req ReconcileRequest, exists bool
 
 // reconcileResume starts a service again after its spec.suspended flag went
 // back to false. No-op for servers this reconciler never saw suspended, so
-// servers stopped through the imperative core_service_stop tool stay stopped
-// (unchanged behavior until issue #1057 switches the tools over).
+// servers stopped through the imperative core_service_stop path (still used
+// when writesAsCaller is off) stay stopped.
 func (r *MCPServerReconciler) reconcileResume(req ReconcileRequest, exists bool, existingService api.ServiceInfo) ReconcileResult {
 	if !r.isSuspended(req.Name) {
 		return ReconcileResult{}
 	}
 
-	if exists && !isDownState(existingService.GetState()) {
+	if exists && !api.IsDownState(existingService.GetState()) {
 		// Already running or on its way up.
 		r.clearSuspended(req.Name)
 		return ReconcileResult{}
@@ -472,9 +461,22 @@ func (r *MCPServerReconciler) reconcileResume(req ReconcileRequest, exists bool,
 // restarts are retried and successful ones are never repeated.
 func (r *MCPServerReconciler) reconcileRestart(req ReconcileRequest, requestedAt time.Time) ReconcileResult {
 	if _, exists := r.serviceRegistry.Get(req.Name); !exists {
-		// Nothing to restart. Consume the request anyway so it doesn't fire a
-		// surprise restart when the service appears later.
-		logging.Info("MCPServerReconciler", "Ignoring restart request for MCPServer %s: no service registered", req.Name)
+		// No service registered (autoStart=false and never started). A restart
+		// request is an explicit "make it run now" — the CR-driven
+		// core_service_start writes it for exactly this case (issue #1057) —
+		// so start the service; StartService registers definitions lazily
+		// (issue #680).
+		logging.Info("MCPServerReconciler", "Starting unregistered MCPServer service %s (restartRequestedAt=%s)", req.Name, requestedAt.Format(time.RFC3339))
+		if err := r.orchestratorAPI.StartService(req.Name); err != nil {
+			if api.IsAuthRequiredError(err) {
+				logging.Info("MCPServerReconciler", "MCPServer %s requires authentication after requested start", req.Name)
+				return ReconcileResult{}
+			}
+			return ReconcileResult{
+				Error:   fmt.Errorf("failed to start service for restart request: %w", err),
+				Requeue: true,
+			}
+		}
 		return ReconcileResult{}
 	}
 

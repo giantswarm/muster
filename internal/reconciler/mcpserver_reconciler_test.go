@@ -1172,6 +1172,46 @@ func TestMCPServerReconciler_RestartRequestProcessedOnce(t *testing.T) {
 	}
 }
 
+// TestMCPServerReconciler_RestartRequestStartsUnregisteredService: a restart
+// request on a server with no registered service (autoStart=false, never
+// started) is an explicit "make it run now" — the CR-driven core_service_start
+// writes it for exactly this case (issue #1057) — so the reconciler starts the
+// service and consumes the request.
+func TestMCPServerReconciler_RestartRequestStartsUnregisteredService(t *testing.T) {
+	mgr := NewMockMCPServerManager()
+	orchAPI := NewMockOrchestratorAPI()
+	registry := NewMockServiceRegistry()
+	statusUpdater := NewMockStatusUpdater()
+	reconciler := NewMCPServerReconciler(orchAPI, mgr, registry).
+		WithStatusUpdater(statusUpdater, "default")
+
+	requestedAt := time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC)
+	mgr.AddMCPServer(&api.MCPServerInfo{
+		Name:               "test-server",
+		Type:               "stdio",
+		Command:            "test-command",
+		AutoStart:          false,
+		RestartRequestedAt: &requestedAt,
+	})
+
+	result := reconciler.Reconcile(context.Background(), lifecycleReconcileRequest())
+
+	if result.Error != nil {
+		t.Errorf("unexpected error: %v", result.Error)
+	}
+	if !orchAPI.StartedServices["test-server"] {
+		t.Error("expected the restart request to start the unregistered service")
+	}
+	if orchAPI.RestartedServices["test-server"] {
+		t.Error("an unregistered service is started, not restarted")
+	}
+	if statusUpdater.LastUpdatedMCPServer == nil ||
+		statusUpdater.LastUpdatedMCPServer.Status.LastRestartedAt == nil ||
+		!statusUpdater.LastUpdatedMCPServer.Status.LastRestartedAt.Time.Equal(requestedAt) {
+		t.Error("expected the processed request to be mirrored into status.lastRestartedAt")
+	}
+}
+
 func TestMCPServerReconciler_RestartRequestConsumedWhileSuspended(t *testing.T) {
 	mgr := NewMockMCPServerManager()
 	orchAPI := NewMockOrchestratorAPI()

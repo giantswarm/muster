@@ -34,6 +34,20 @@ func formatOAuthAuthenticationError(name string, err error) *api.CallToolResult 
 	return nil
 }
 
+// mcpServerLifecycleAsCaller is the optional capability the registered
+// MCPServer manager gains when writes-as-caller is enabled (issue #1057):
+// lifecycle actions on MCPServer-backed services become CR spec writes
+// performed with the caller's own identity — authorized by k8s RBAC and
+// audited by the apiserver — instead of direct orchestrator mutations with
+// muster's privilege. handled=false falls back to the imperative path (flag
+// off, or the name is not an MCPServer definition, e.g. muster's own
+// aggregator service).
+type mcpServerLifecycleAsCaller interface {
+	StartMCPServerAsCaller(ctx context.Context, name string) (result *api.CallToolResult, handled bool, err error)
+	StopMCPServerAsCaller(ctx context.Context, name string) (result *api.CallToolResult, handled bool, err error)
+	RestartMCPServerAsCaller(ctx context.Context, name string) (result *api.CallToolResult, handled bool, err error)
+}
+
 // Adapter adapts the orchestrator to implement api.ServiceManagerHandler.
 type Adapter struct {
 	orchestrator *Orchestrator
@@ -190,11 +204,11 @@ func (a *Adapter) ExecuteTool(ctx context.Context, toolName string, args map[str
 	case "service_list":
 		return a.handleServiceList()
 	case "service_start":
-		return a.handleServiceStart(args)
+		return a.handleServiceStart(ctx, args)
 	case "service_stop":
-		return a.handleServiceStop(args)
+		return a.handleServiceStop(ctx, args)
 	case "service_restart":
-		return a.handleServiceRestart(args)
+		return a.handleServiceRestart(ctx, args)
 	case "service_status":
 		return a.handleServiceStatus(args)
 	default:
@@ -216,13 +230,19 @@ func (a *Adapter) handleServiceList() (*api.CallToolResult, error) {
 	}, nil
 }
 
-func (a *Adapter) handleServiceStart(args map[string]interface{}) (*api.CallToolResult, error) {
+func (a *Adapter) handleServiceStart(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
 	name, ok := args["name"].(string)
 	if !ok {
 		return &api.CallToolResult{
 			Content: []interface{}{"name is required"},
 			IsError: true,
 		}, nil
+	}
+
+	if lc, ok := api.GetMCPServerManager().(mcpServerLifecycleAsCaller); ok {
+		if result, handled, err := lc.StartMCPServerAsCaller(ctx, name); handled {
+			return result, err
+		}
 	}
 
 	// A missing status is not fatal: StartService lazily registers MCPServer
@@ -251,13 +271,19 @@ func (a *Adapter) handleServiceStart(args map[string]interface{}) (*api.CallTool
 	}, nil
 }
 
-func (a *Adapter) handleServiceStop(args map[string]interface{}) (*api.CallToolResult, error) {
+func (a *Adapter) handleServiceStop(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
 	name, ok := args["name"].(string)
 	if !ok {
 		return &api.CallToolResult{
 			Content: []interface{}{"name is required"},
 			IsError: true,
 		}, nil
+	}
+
+	if lc, ok := api.GetMCPServerManager().(mcpServerLifecycleAsCaller); ok {
+		if result, handled, err := lc.StopMCPServerAsCaller(ctx, name); handled {
+			return result, err
+		}
 	}
 
 	status, err := a.GetServiceStatus(name)
@@ -288,13 +314,19 @@ func (a *Adapter) handleServiceStop(args map[string]interface{}) (*api.CallToolR
 	}, nil
 }
 
-func (a *Adapter) handleServiceRestart(args map[string]interface{}) (*api.CallToolResult, error) {
+func (a *Adapter) handleServiceRestart(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
 	name, ok := args["name"].(string)
 	if !ok {
 		return &api.CallToolResult{
 			Content: []interface{}{"name is required"},
 			IsError: true,
 		}, nil
+	}
+
+	if lc, ok := api.GetMCPServerManager().(mcpServerLifecycleAsCaller); ok {
+		if result, handled, err := lc.RestartMCPServerAsCaller(ctx, name); handled {
+			return result, err
+		}
 	}
 
 	if err := a.RestartService(name); err != nil {

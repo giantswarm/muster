@@ -78,12 +78,13 @@ func testJWT(t *testing.T, aud interface{}) string {
 // records the bearer it was handed, and the returned client records writes
 // through interceptors (optionally failing them with injectErr).
 type callerHarness struct {
-	adapter    *Adapter
-	sa         *stubMusterClient
-	tokensSeen []string
-	created    []string
-	updated    []string
-	deleted    []string
+	adapter     *Adapter
+	sa          *stubMusterClient
+	tokensSeen  []string
+	created     []string
+	updated     []string
+	updatedObjs []*musterv1alpha1.MCPServer
+	deleted     []string
 }
 
 func newCallerHarness(t *testing.T, existing *musterv1alpha1.MCPServer, injectErr error) *callerHarness {
@@ -101,11 +102,14 @@ func newCallerHarness(t *testing.T, existing *musterv1alpha1.MCPServer, injectEr
 			h.created = append(h.created, "create")
 			return nil
 		},
-		Update: func(context.Context, ctrlclient.WithWatch, ctrlclient.Object, ...ctrlclient.UpdateOption) error {
+		Update: func(_ context.Context, _ ctrlclient.WithWatch, obj ctrlclient.Object, _ ...ctrlclient.UpdateOption) error {
 			if injectErr != nil {
 				return injectErr
 			}
 			h.updated = append(h.updated, "update")
+			if server, ok := obj.(*musterv1alpha1.MCPServer); ok {
+				h.updatedObjs = append(h.updatedObjs, server.DeepCopy())
+			}
 			return nil
 		},
 		Delete: func(context.Context, ctrlclient.WithWatch, ctrlclient.Object, ...ctrlclient.DeleteOption) error {
