@@ -483,6 +483,18 @@
                             }
                         }
                     }
+                },
+                "writesAsCaller": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "enabled": {
+                            "type": "boolean"
+                        },
+                        "kubernetesAudience": {
+                            "type": "string"
+                        }
+                    }
                 }
             }
         },
@@ -620,6 +632,36 @@
                 },
                 "create": {
                     "type": "boolean"
+                },
+                "mcpServerEditor": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "create": {
+                            "type": "boolean"
+                        },
+                        "subjects": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "properties": {
+                                    "apiGroup": {
+                                        "type": "string"
+                                    },
+                                    "kind": {
+                                        "type": "string"
+                                    },
+                                    "name": {
+                                        "type": "string"
+                                    },
+                                    "namespace": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         },
