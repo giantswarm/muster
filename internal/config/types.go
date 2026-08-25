@@ -4,9 +4,29 @@ import "strings"
 
 // MusterConfig is the top-level configuration structure for muster.
 type MusterConfig struct {
-	Aggregator AggregatorConfig `yaml:"aggregator"`
-	Namespace  string           `yaml:"namespace,omitempty"`  // Namespace for MCPServer and Workflow discovery
-	Kubernetes bool             `yaml:"kubernetes,omitempty"` // Enable Kubernetes CRD mode (uses CRDs instead of filesystem)
+	Aggregator     AggregatorConfig     `yaml:"aggregator"`
+	Namespace      string               `yaml:"namespace,omitempty"`      // Namespace for MCPServer and Workflow discovery
+	Kubernetes     bool                 `yaml:"kubernetes,omitempty"`     // Enable Kubernetes CRD mode (uses CRDs instead of filesystem)
+	WritesAsCaller WritesAsCallerConfig `yaml:"writesAsCaller,omitempty"` // Transition flag: MCPServer spec mutations write with the caller's identity
+}
+
+// WritesAsCallerConfig is the transition flag for the writes-as-caller
+// rollout: when enabled, session-initiated MCPServer spec mutations
+// (create/update/delete) are written against the Kubernetes API with the
+// caller's own dex id_token as the bearer, so the apiserver authenticates the
+// real user, k8s RBAC authorizes the write, and the audit log records the
+// true subject. Muster's own controllers (status reconciliation, service
+// registration, startup sync) keep using the ServiceAccount client. The flag
+// is transitional: it is deleted once every installation has flipped.
+type WritesAsCallerConfig struct {
+	Enabled bool `yaml:"enabled,omitempty"`
+
+	// KubernetesAudience is the audience the session's dex id_token must carry
+	// to be accepted by the local kube-apiserver (requested via the login scope
+	// set's cross-client audience mechanism). Defaults to
+	// "dex-k8s-authenticator". A session token without this audience gets an
+	// actionable re-login error instead of a generic apiserver 401.
+	KubernetesAudience string `yaml:"kubernetesAudience,omitempty"`
 }
 
 // MCPServerType defines the type of MCP server.
