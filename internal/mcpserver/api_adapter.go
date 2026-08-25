@@ -167,6 +167,7 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 		ToolPrefix:          server.Spec.ToolPrefix,
 		Family:              convertCRDFamilyToAPI(server.Spec.Family),
 		AutoStart:           server.Spec.AutoStart,
+		Suspended:           server.Spec.Suspended,
 		Command:             server.Spec.Command,
 		Args:                server.Spec.Args,
 		URL:                 server.Spec.URL,
@@ -178,7 +179,17 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 		ConsecutiveFailures: server.Status.ConsecutiveFailures,
 	}
 
-	// Convert time fields from metav1.Time to time.Time
+	// Convert time fields from metav1.Time to time.Time. The lifecycle
+	// timestamps are normalized to UTC so their JSON rendering is stable
+	// regardless of the process's local timezone.
+	if server.Spec.RestartRequestedAt != nil {
+		t := server.Spec.RestartRequestedAt.UTC()
+		info.RestartRequestedAt = &t
+	}
+	if server.Status.LastRestartedAt != nil {
+		t := server.Status.LastRestartedAt.UTC()
+		info.LastRestartedAt = &t
+	}
 	if server.Status.LastAttempt != nil {
 		t := server.Status.LastAttempt.Time
 		info.LastAttempt = &t
@@ -527,7 +538,12 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "mcpserver_update",
 			Description: "Update an existing MCP server definition",
-			Args:        mcpServerArgs(false), // type is optional for update
+			// type is optional for update; suspended/restartRequestedAt are the
+			// CR-driven lifecycle fields (issue #1055) and only settable here.
+			Args: append(mcpServerArgs(false),
+				api.ArgMetadata{Name: "suspended", Type: api.ArgTypeBoolean, Required: false, Description: "Desired lifecycle state: true stops the server's service and keeps it stopped; false (or omitted) resumes it"},
+				api.ArgMetadata{Name: "restartRequestedAt", Type: api.ArgTypeString, Required: false, Description: "RFC 3339 timestamp requesting a one-shot restart; processed once by the reconciler"},
+			),
 		},
 		{
 			Name:        "mcpserver_delete",
@@ -768,6 +784,11 @@ func (a *Adapter) handleMCPServerUpdate(args map[string]interface{}) (*api.CallT
 		existing.Spec.Description = req.Description
 	}
 	existing.Spec.AutoStart = req.AutoStart
+	// Replace semantics like AutoStart: omitting suspended resumes the server.
+	existing.Spec.Suspended = req.Suspended
+	if req.RestartRequestedAt != nil {
+		existing.Spec.RestartRequestedAt = &metav1.Time{Time: *req.RestartRequestedAt}
+	}
 	if req.Command != "" {
 		existing.Spec.Command = req.Command
 	}
