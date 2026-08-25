@@ -1,0 +1,157 @@
+name: "mcpserver-suspend-resume-restart"
+description: "CR-driven lifecycle via spec.suspended and spec.restartRequestedAt (issue #1055)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "lifecycle", "suspend", "restart", "reconciler"]
+timeout: "3m"
+
+# Test Story: Lifecycle actions expressed as CR spec fields
+# Given: A running MCP server
+# When: spec.suspended is set to true (via core_mcpserver_update)
+# Then: The reconciler stops the service
+# When: spec.suspended is set back to false
+# Then: The reconciler starts the service again
+# When: spec.restartRequestedAt is written
+# Then: The reconciler restarts the service exactly once and mirrors the
+#       processed timestamp into status.lastRestartedAt
+#
+# The imperative core_service_start/_stop/_restart tools are intentionally not
+# used here: this scenario covers the declarative mechanism that issue #1057
+# will switch those tools onto.
+
+pre_configuration:
+  mcp_servers:
+    - name: "suspend-test-server"
+      config:
+        type: "streamable-http"
+        tools:
+          - name: "suspend_probe_tool"
+            input_schema:
+              type: "object"
+              properties:
+                message: { type: "string" }
+            responses:
+              - response:
+                  message: "alive: {{ .message }}"
+
+steps:
+  # Phase 1: Baseline - the pre-configured server is running
+  - id: "verify-initial-running"
+    tool: "core_service_status"
+    args:
+      name: "suspend-test-server"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "suspend-test-server"
+        state: "connected"
+
+  # Phase 2: Suspend via the CR spec
+  - id: "suspend-server"
+    description: "Set spec.suspended=true; the reconciler must stop the service"
+    tool: "core_mcpserver_update"
+    args:
+      name: "suspend-test-server"
+      type: "streamable-http"
+      autoStart: true
+      suspended: true
+    expected:
+      success: true
+
+  - id: "verify-suspended-stopped"
+    tool: "core_service_status"
+    args:
+      name: "suspend-test-server"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "suspend-test-server"
+        state: "disconnected"
+
+  - id: "verify-spec-suspended-visible"
+    tool: "core_mcpserver_get"
+    args:
+      name: "suspend-test-server"
+    expected:
+      success: true
+      json_path:
+        name: "suspend-test-server"
+        suspended: true
+
+  # Phase 3: Resume via the CR spec
+  - id: "resume-server"
+    description: "Set spec.suspended back to false; the reconciler must start the service"
+    tool: "core_mcpserver_update"
+    args:
+      name: "suspend-test-server"
+      type: "streamable-http"
+      autoStart: true
+      suspended: false
+    expected:
+      success: true
+
+  - id: "verify-resumed-running"
+    tool: "core_service_status"
+    args:
+      name: "suspend-test-server"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "suspend-test-server"
+        state: "connected"
+
+  # Phase 4: One-shot restart via the CR spec
+  - id: "request-restart"
+    description: "Write spec.restartRequestedAt; the reconciler restarts once and mirrors it into status"
+    tool: "core_mcpserver_update"
+    args:
+      name: "suspend-test-server"
+      type: "streamable-http"
+      autoStart: true
+      restartRequestedAt: "2026-01-02T15:04:05Z"
+    expected:
+      success: true
+
+  # status.lastRestartedAt catching up to spec.restartRequestedAt proves the
+  # reconciler processed the request (spec-is-desired / status-is-observed).
+  - id: "verify-restart-processed"
+    tool: "core_mcpserver_get"
+    args:
+      name: "suspend-test-server"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "suspend-test-server"
+        lastRestartedAt: "2026-01-02T15:04:05Z"
+
+  - id: "verify-running-after-restart"
+    tool: "core_service_status"
+    args:
+      name: "suspend-test-server"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "suspend-test-server"
+        state: "connected"
+
+  - id: "verify-tool-works-after-restart"
+    tool: "x_suspend-test-server_suspend_probe_tool"
+    args:
+      message: "post-restart"
+    expected:
+      success: true
+      contains: ["alive", "post-restart"]
+
+cleanup:
+  - id: "cleanup-stop-service"
+    tool: "core_service_stop"
+    args:
+      name: "suspend-test-server"
+    expected:
+      success: true
+    continue_on_failure: true

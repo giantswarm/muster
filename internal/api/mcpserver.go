@@ -293,6 +293,19 @@ type MCPServerInfo struct {
 	// AutoStart determines whether this MCP server should be automatically started
 	AutoStart bool `json:"autoStart,omitempty"`
 
+	// Suspended declares the desired lifecycle state of this server's service.
+	// When true, the reconciler stops the service and refuses to start it
+	// until the field is set back to false (issue #1055).
+	Suspended bool `json:"suspended,omitempty"`
+
+	// RestartRequestedAt requests a one-shot restart of this server's service.
+	// The reconciler acts only when it differs from LastRestartedAt.
+	RestartRequestedAt *time.Time `json:"restartRequestedAt,omitempty"`
+
+	// LastRestartedAt mirrors the RestartRequestedAt value most recently
+	// processed by the reconciler (from the CR status).
+	LastRestartedAt *time.Time `json:"lastRestartedAt,omitempty"`
+
 	// Command specifies the executable path for stdio type servers.
 	Command string `json:"command,omitempty"`
 

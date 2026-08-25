@@ -3,6 +3,7 @@ package reconciler
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -44,6 +45,21 @@ type MCPServerReconciler struct {
 
 	// serviceRegistry provides access to running services
 	serviceRegistry api.ServiceRegistryHandler
+
+	// suspendedMu guards suspended.
+	suspendedMu sync.Mutex
+
+	// suspended tracks servers currently held down because spec.suspended is
+	// true, so that the transition back to false is recognized as a resume and
+	// the service is started again — including autoStart=false servers that
+	// were running when they were suspended. Level-triggered "!suspended →
+	// start" is not an option: it would also start servers stopped through the
+	// imperative core_service_stop tool, which must keep working unchanged
+	// until issue #1057 switches it over.
+	// ponytail: in-memory only — a suspend+resume that both happen while
+	// muster is down degrades to autoStart semantics, same as any stopped
+	// service across a restart.
+	suspended map[string]bool
 }
 
 // NewMCPServerReconciler creates a new MCPServer reconciler.
@@ -57,6 +73,7 @@ func NewMCPServerReconciler(
 		orchestratorAPI:  orchestratorAPI,
 		mcpServerManager: mcpServerManager,
 		serviceRegistry:  serviceRegistry,
+		suspended:        make(map[string]bool),
 	}
 }
 
@@ -118,16 +135,44 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileReques
 	existingService, exists := r.serviceRegistry.Get(req.Name)
 
 	var result ReconcileResult
-	if !exists {
-		// Service doesn't exist, create it
-		result = r.reconcileCreate(ctx, req, mcpServerInfo)
+	var processedRestart *time.Time
+
+	if mcpServerInfo.Suspended {
+		result = r.reconcileSuspend(req, exists, existingService)
+		// A restart requested while suspended is consumed without action:
+		// suspension wins. Leaving it pending would fire a surprise restart
+		// whenever the server is resumed later.
+		if pending := pendingRestart(mcpServerInfo); pending != nil && result.Error == nil {
+			logging.Info("MCPServerReconciler", "Ignoring restart request for suspended MCPServer %s", req.Name)
+			processedRestart = pending
+		}
 	} else {
-		// Service exists, check if update is needed
-		result = r.reconcileUpdate(ctx, req, mcpServerInfo, existingService)
+		result = r.reconcileResume(req, exists, existingService)
+
+		if result.Error == nil {
+			if !exists {
+				// Service doesn't exist, create it
+				result = r.reconcileCreate(ctx, req, mcpServerInfo)
+			} else {
+				// Service exists, check if update is needed
+				result = r.reconcileUpdate(ctx, req, mcpServerInfo, existingService)
+			}
+		}
+
+		if result.Error == nil {
+			if pending := pendingRestart(mcpServerInfo); pending != nil {
+				restartResult := r.reconcileRestart(req, *pending)
+				if restartResult.Error != nil {
+					result = restartResult
+				} else {
+					processedRestart = pending
+				}
+			}
+		}
 	}
 
 	// Sync status back to CRD after reconciliation
-	r.syncStatus(ctx, req.Name, req.Namespace, result.Error)
+	r.syncStatus(ctx, req.Name, req.Namespace, result.Error, processedRestart)
 
 	// If reconciliation succeeded, schedule periodic requeue for status sync.
 	// This implements the idiomatic Kubernetes controller pattern where status
@@ -148,7 +193,7 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileReques
 // Status sync is a best-effort operation - failures are logged with backoff
 // to avoid log spam when a resource continuously fails. Failures are tracked
 // in metrics for monitoring.
-func (r *MCPServerReconciler) syncStatus(ctx context.Context, name, namespace string, reconcileErr error) {
+func (r *MCPServerReconciler) syncStatus(ctx context.Context, name, namespace string, reconcileErr error, processedRestart *time.Time) {
 	if r.StatusUpdater == nil {
 		return
 	}
@@ -172,7 +217,7 @@ func (r *MCPServerReconciler) syncStatus(ctx context.Context, name, namespace st
 		}
 
 		// Apply status from current service state
-		r.applyStatusFromService(server, name, reconcileErr)
+		r.applyStatusFromService(server, name, reconcileErr, processedRestart)
 
 		// Update the CRD status
 		if err := r.StatusUpdater.UpdateMCPServerStatus(ctx, server); err != nil {
@@ -199,7 +244,14 @@ func (r *MCPServerReconciler) syncStatus(ctx context.Context, name, namespace st
 //   - remote servers: Connected, Connecting, Disconnected, Failed
 //
 // Status is independent of user session state (which is tracked in Session Registry).
-func (r *MCPServerReconciler) applyStatusFromService(server *musterv1alpha1.MCPServer, name string, reconcileErr error) {
+func (r *MCPServerReconciler) applyStatusFromService(server *musterv1alpha1.MCPServer, name string, reconcileErr error, processedRestart *time.Time) {
+	// Record the processed restart request so it is not re-processed on the
+	// next reconcile (spec-is-desired / status-is-observed, issue #1055).
+	if processedRestart != nil {
+		t := metav1.NewTime(*processedRestart)
+		server.Status.LastRestartedAt = &t
+	}
+
 	// Get the current service state
 	service, exists := r.serviceRegistry.Get(name)
 
@@ -314,6 +366,132 @@ func (r *MCPServerReconciler) determineState(state api.ServiceState, serverType 
 	}
 }
 
+// pendingRestart returns the spec.restartRequestedAt value if it has not been
+// processed yet (differs from status.lastRestartedAt), nil otherwise.
+func pendingRestart(info *api.MCPServerInfo) *time.Time {
+	if info.RestartRequestedAt == nil {
+		return nil
+	}
+	if info.LastRestartedAt != nil && info.LastRestartedAt.Equal(*info.RestartRequestedAt) {
+		return nil
+	}
+	return info.RestartRequestedAt
+}
+
+// isDownState reports whether a service state means "not running and not on
+// its way up" — the states from which resume must actively start the service.
+func isDownState(state api.ServiceState) bool {
+	switch state {
+	case api.StateStopped, api.StateDisconnected, api.StateFailed, api.StateError, api.StateUnreachable, api.StateUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+func (r *MCPServerReconciler) markSuspended(name string) {
+	r.suspendedMu.Lock()
+	defer r.suspendedMu.Unlock()
+	r.suspended[name] = true
+}
+
+func (r *MCPServerReconciler) clearSuspended(name string) {
+	r.suspendedMu.Lock()
+	defer r.suspendedMu.Unlock()
+	delete(r.suspended, name)
+}
+
+func (r *MCPServerReconciler) isSuspended(name string) bool {
+	r.suspendedMu.Lock()
+	defer r.suspendedMu.Unlock()
+	return r.suspended[name]
+}
+
+// reconcileSuspend drives a server with spec.suspended=true to stopped and
+// records the suspension so a later spec.suspended=false is recognized as a
+// resume. Create/update reconciliation is skipped entirely while suspended;
+// config changes are picked up on resume by the following reconcile.
+func (r *MCPServerReconciler) reconcileSuspend(req ReconcileRequest, exists bool, existingService api.ServiceInfo) ReconcileResult {
+	// Mark first: even when nothing is running, resume must know this server
+	// is held down by suspension rather than by autoStart=false.
+	r.markSuspended(req.Name)
+
+	if !exists {
+		return ReconcileResult{}
+	}
+
+	state := existingService.GetState()
+	if state == api.StateStopped || state == api.StateStopping {
+		return ReconcileResult{}
+	}
+
+	logging.Info("MCPServerReconciler", "Suspending MCPServer service %s (spec.suspended=true)", req.Name)
+	if err := r.orchestratorAPI.StopService(req.Name); err != nil {
+		return ReconcileResult{
+			Error:   fmt.Errorf("failed to suspend service: %w", err),
+			Requeue: true,
+		}
+	}
+	return ReconcileResult{}
+}
+
+// reconcileResume starts a service again after its spec.suspended flag went
+// back to false. No-op for servers this reconciler never saw suspended, so
+// servers stopped through the imperative core_service_stop tool stay stopped
+// (unchanged behavior until issue #1057 switches the tools over).
+func (r *MCPServerReconciler) reconcileResume(req ReconcileRequest, exists bool, existingService api.ServiceInfo) ReconcileResult {
+	if !r.isSuspended(req.Name) {
+		return ReconcileResult{}
+	}
+
+	if exists && !isDownState(existingService.GetState()) {
+		// Already running or on its way up.
+		r.clearSuspended(req.Name)
+		return ReconcileResult{}
+	}
+
+	logging.Info("MCPServerReconciler", "Resuming MCPServer service %s (spec.suspended=false)", req.Name)
+	if err := r.orchestratorAPI.StartService(req.Name); err != nil {
+		if api.IsAuthRequiredError(err) {
+			// Auth Required is a stable state, not a failure (see reconcileCreate).
+			r.clearSuspended(req.Name)
+			return ReconcileResult{}
+		}
+		return ReconcileResult{
+			Error:   fmt.Errorf("failed to resume service: %w", err),
+			Requeue: true,
+		}
+	}
+	r.clearSuspended(req.Name)
+	return ReconcileResult{}
+}
+
+// reconcileRestart performs the one-shot restart requested via
+// spec.restartRequestedAt. The caller records the processed value in
+// status.lastRestartedAt only when this returns without error, so failed
+// restarts are retried and successful ones are never repeated.
+func (r *MCPServerReconciler) reconcileRestart(req ReconcileRequest, requestedAt time.Time) ReconcileResult {
+	if _, exists := r.serviceRegistry.Get(req.Name); !exists {
+		// Nothing to restart. Consume the request anyway so it doesn't fire a
+		// surprise restart when the service appears later.
+		logging.Info("MCPServerReconciler", "Ignoring restart request for MCPServer %s: no service registered", req.Name)
+		return ReconcileResult{}
+	}
+
+	logging.Info("MCPServerReconciler", "Restarting MCPServer service %s (restartRequestedAt=%s)", req.Name, requestedAt.Format(time.RFC3339))
+	if err := r.orchestratorAPI.RestartService(req.Name); err != nil {
+		if api.IsAuthRequiredError(err) {
+			logging.Info("MCPServerReconciler", "MCPServer %s requires authentication after requested restart", req.Name)
+			return ReconcileResult{}
+		}
+		return ReconcileResult{
+			Error:   fmt.Errorf("failed to restart service: %w", err),
+			Requeue: true,
+		}
+	}
+	return ReconcileResult{}
+}
+
 // reconcileCreate handles creating a new MCPServer service.
 func (r *MCPServerReconciler) reconcileCreate(ctx context.Context, req ReconcileRequest, info *api.MCPServerInfo) ReconcileResult {
 	logging.Info("MCPServerReconciler", "Creating MCPServer service: %s", req.Name)
@@ -408,6 +586,8 @@ func infoToMCPServer(info *api.MCPServerInfo) *api.MCPServer {
 // reconcileDelete handles deleting an MCPServer service.
 func (r *MCPServerReconciler) reconcileDelete(ctx context.Context, req ReconcileRequest) ReconcileResult {
 	logging.Info("MCPServerReconciler", "Deleting MCPServer service: %s", req.Name)
+
+	r.clearSuspended(req.Name)
 
 	// Check if service exists
 	_, exists := r.serviceRegistry.Get(req.Name)

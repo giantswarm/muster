@@ -99,6 +99,23 @@ type MCPServerSpec struct {
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=300
 	Timeout int `json:"timeout,omitempty" yaml:"timeout,omitempty"`
+
+	// Suspended declares the desired lifecycle state of this server's service.
+	// When true, the reconciler stops the service (and refuses to start it)
+	// until the field is set back to false. This is the CR-driven replacement
+	// for the imperative start/stop tools: writing it is authorized and
+	// audited by the apiserver like any other spec mutation (issue #1055).
+	// +kubebuilder:default=false
+	Suspended bool `json:"suspended,omitempty" yaml:"suspended,omitempty"`
+
+	// RestartRequestedAt requests a one-shot restart of this server's service.
+	// Restart is an action, not a steady state, so it cannot be a boolean: the
+	// caller writes a timestamp, which doubles as the audit record of when the
+	// restart was requested. The reconciler restarts the service only when this
+	// differs from status.lastRestartedAt, then mirrors the processed value
+	// into status — repeated reconciles of an already-processed request are
+	// no-ops (issue #1055).
+	RestartRequestedAt *metav1.Time `json:"restartRequestedAt,omitempty" yaml:"restartRequestedAt,omitempty"`
 }
 
 // MCPServerFamily groups equivalent MCP server instances under a shared
@@ -414,6 +431,11 @@ type MCPServerStatus struct {
 	// NextRetryAfter indicates the earliest time when the next retry should be attempted.
 	// This is calculated based on exponential backoff from ConsecutiveFailures.
 	NextRetryAfter *metav1.Time `json:"nextRetryAfter,omitempty" yaml:"nextRetryAfter,omitempty"`
+
+	// LastRestartedAt mirrors the spec.restartRequestedAt value most recently
+	// processed by the reconciler. A restart is performed only when the two
+	// differ (spec-is-desired / status-is-observed idiom, issue #1055).
+	LastRestartedAt *metav1.Time `json:"lastRestartedAt,omitempty" yaml:"lastRestartedAt,omitempty"`
 
 	// Conditions represent the latest available observations of the MCPServer's current state.
 	// Standard condition types:

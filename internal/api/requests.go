@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 )
 
 // Request types for all core API operations
@@ -134,6 +135,15 @@ type MCPServerUpdateRequest struct {
 
 	// Auth configures authentication behavior for this MCP server.
 	Auth *MCPServerAuth `json:"auth,omitempty"`
+
+	// Suspended declares the desired lifecycle state of the server's service.
+	// Like AutoStart, this uses replace semantics: omitting it resumes a
+	// suspended server (issue #1055).
+	Suspended bool `json:"suspended,omitempty"`
+
+	// RestartRequestedAt requests a one-shot restart of the server's service
+	// (RFC 3339 timestamp). Only applied when set (issue #1055).
+	RestartRequestedAt *time.Time `json:"restartRequestedAt,omitempty"`
 }
 
 // MCPServerValidateRequest represents a request to validate an MCP server definition
