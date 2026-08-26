@@ -85,6 +85,10 @@ type MCPServerCreateRequest struct {
 	// This field is only relevant when Type is "streamable-http" or "sse".
 	Headers map[string]string `json:"headers,omitempty"`
 
+	// Meta contains entries merged into the `params._meta` object of every
+	// outbound JSON-RPC request that carries `params`.
+	Meta map[string]string `json:"meta,omitempty"`
+
 	// Timeout specifies the connection timeout for remote operations (in seconds)
 	Timeout int `json:"timeout,omitempty"`
 
@@ -129,6 +133,10 @@ type MCPServerUpdateRequest struct {
 
 	// Headers contains HTTP headers to send with requests to remote MCP servers.
 	Headers map[string]string `json:"headers,omitempty"`
+
+	// Meta contains entries merged into the `params._meta` object of every
+	// outbound JSON-RPC request that carries `params`.
+	Meta map[string]string `json:"meta,omitempty"`
 
 	// Timeout specifies the connection timeout for remote operations (in seconds)
 	Timeout int `json:"timeout,omitempty"`
@@ -179,6 +187,10 @@ type MCPServerValidateRequest struct {
 
 	// Headers contains HTTP headers to send with requests to remote MCP servers.
 	Headers map[string]string `json:"headers,omitempty"`
+
+	// Meta contains entries merged into the `params._meta` object of every
+	// outbound JSON-RPC request that carries `params`.
+	Meta map[string]string `json:"meta,omitempty"`
 
 	// Timeout specifies the connection timeout for remote operations (in seconds)
 	Timeout int `json:"timeout,omitempty"`

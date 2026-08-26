@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"fmt"
+	"net/http"
 
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/pkg/logging"
@@ -22,6 +23,25 @@ type StreamableHTTPClient struct {
 	url        string
 	headers    map[string]string
 	headerFunc transport.HTTPHeaderFunc // Dynamic header function called on each request
+
+	// meta holds the spec.meta entries merged into params._meta of every
+	// outbound request. Consulted only when httpClientFunc is nil, because a
+	// client that builds its own transport chain injects them there.
+	meta map[string]string
+
+	// httpClientFunc, when set, supplies the HTTP client the transport uses
+	// instead of mcp-go's default. It is called on each connect attempt, under
+	// the client lock, so a per-connection credential can be resolved with the
+	// connect context. See newSigV4Client, its only caller today.
+	httpClientFunc func(context.Context) (*http.Client, error)
+}
+
+// WithMeta sets the entries merged into the params._meta object of every
+// outbound JSON-RPC request that carries params, and returns the client so a
+// construction site reads as one expression.
+func (c *StreamableHTTPClient) WithMeta(meta map[string]string) *StreamableHTTPClient {
+	c.meta = meta
+	return c
 }
 
 // NewStreamableHTTPClientWithHeaders creates a new StreamableHTTP-based MCP client with custom headers
@@ -67,6 +87,18 @@ func (c *StreamableHTTPClient) Initialize(ctx context.Context) error {
 		logging.Debug("StreamableHTTPClient", "Configured %d custom headers", len(c.headers))
 	}
 
+	if c.httpClientFunc != nil {
+		httpClient, err := c.httpClientFunc(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to build HTTP client: %w", err)
+		}
+		opts = append(opts, transport.WithHTTPBasicClient(httpClient))
+		logging.Debug("StreamableHTTPClient", "Configured custom HTTP client")
+	} else if httpClient := metaHTTPClient(c.meta); httpClient != nil {
+		opts = append(opts, transport.WithHTTPBasicClient(httpClient))
+		logging.Debug("StreamableHTTPClient", "Configured %d meta entries", len(c.meta))
+	}
+
 	// Enable receiving server-pushed notifications outside active requests.
 	// This opens a long-lived GET connection to the server per the MCP spec.
 	opts = append(opts, transport.WithContinuousListening())
@@ -93,8 +125,8 @@ func (c *StreamableHTTPClient) Initialize(ctx context.Context) error {
 		Params: mcp.InitializeParams{
 			ProtocolVersion: api.ClientProtocolVersion,
 			ClientInfo: mcp.Implementation{
-				Name:    "muster-aggregator",
-				Version: "1.0.0",
+				Name:    clientName,
+				Version: clientVersion,
 			},
 			Capabilities: mcp.ClientCapabilities{},
 		},

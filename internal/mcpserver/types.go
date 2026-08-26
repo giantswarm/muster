@@ -11,6 +11,22 @@ import (
 	"github.com/mark3labs/mcp-go/client/transport"
 )
 
+const (
+	// clientName is how muster identifies itself to a remote MCP server in the
+	// initialize handshake, and the identity sigV4RoleSessionName tracks so
+	// CloudTrail separates muster from other callers of the same role. The stdio
+	// client announces "muster" instead, which predates this constant.
+	clientName = "muster-aggregator"
+
+	// clientVersion is the client version muster reports in the handshake.
+	//
+	// A fixed string, not the build version: pkg/project.Version() holds that,
+	// and reporting it here would change what every backend records. Worth
+	// revisiting as its own change — a backend's logs currently cannot tell one
+	// muster build from another.
+	clientVersion = "1.0.0"
+)
+
 // McpDiscreteStatusUpdate is used to report discrete status changes from a running MCP process.
 // It focuses on the state, not verbose logs.
 type McpDiscreteStatusUpdate struct {

@@ -339,6 +339,105 @@ MCP Servers:
 - Check that the downstream server trusts muster's OAuth client ID
 - Run with `--debug` to see detailed SSO connection logs
 
+## AWS SigV4 Request Signing
+
+An AWS-hosted MCP server accepts no bearer token. It authenticates each request
+by an AWS Signature Version 4 signature. Set `auth.type: sigv4` to make muster
+sign every request that it sends to such a server.
+
+This is not SSO. The signature carries muster's own machine identity, not the
+identity of the user who made the call, so all users of the server share one AWS
+identity. CloudTrail records muster, not a named engineer.
+
+`auth.sigv4` is only valid with `type: streamable-http`. Muster rejects it
+together with `forwardToken`, `tokenExchange` or `authorizationServer`, because
+none of them apply to a machine identity. These rules hold in both Kubernetes
+and filesystem mode.
+
+A connection failure reports itself as such. A 401 from a SigV4 server is not
+"Auth Required" — there is no login flow to send a user to — so muster keeps the
+server in `Failed` and retries with backoff. Check the signing region, the
+assumed role and its policy.
+
+```yaml
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: aws-root
+spec:
+  type: streamable-http
+  url: "https://aws-mcp.eu-central-1.api.aws/mcp"
+  timeout: 120
+  auth:
+    type: sigv4
+    sigv4:
+      region: eu-central-1
+  meta:
+    AWS_REGION: eu-central-1
+```
+
+**Fields:**
+
+| Field | Required | Purpose |
+|-------|----------|---------|
+| `auth.sigv4.region` | yes | The signing region. It must match the region in `url`, because the endpoint checks the credential scope of the signature. |
+| `auth.sigv4.service` | no | The signing service name. It defaults to the first hostname label of `url`, so `aws-mcp.eu-central-1.api.aws` signs as `aws-mcp`. |
+| `auth.sigv4.roleArn` | no | An IAM role that muster assumes before it signs. Leave it empty to sign as muster's own identity. |
+| `meta` | see below | Entries merged into `params._meta` of every request that carries `params`. It is not a SigV4 field: see [Request metadata](#request-metadata). |
+
+Muster gets its base credentials from the default AWS credential chain. In
+Kubernetes that means IRSA: the pod identity webhook injects `AWS_ROLE_ARN` and
+`AWS_WEB_IDENTITY_TOKEN_FILE`, and the chain exchanges the projected token for
+credentials. Set `roleArn` to chain one more hop from there, which is how one
+muster reaches many accounts. Each account gets its own MCPServer, and a shared
+`family` puts them all behind one tool name with an account selector.
+
+**Set `meta` for the AWS-hosted server.** It takes the region that it operates
+in from `params._meta.AWS_REGION`. This region is a different value from the
+signing region, even when the two strings match: the signing region belongs to
+the endpoint, and the operating region belongs to the resources that the call
+reads. A value that a caller puts in `_meta` itself wins over the one in `meta`.
+
+Set it even though calls succeed without it. The backend falls back to its own
+region rather than failing, so a missing entry does not raise an error — it
+returns a correct-looking answer about the wrong region. Measured against
+`aws-mcp.eu-central-1.api.aws`: the same query for CloudWatch log groups
+returned nothing with no `meta`, and the one log group that exists in the
+account with `meta: {AWS_REGION: eu-north-1}`. An agent reads the first result
+as "there are none".
+
+## Request metadata
+
+`meta` is a remote-server field, not a SigV4 field. Muster merges its entries
+into the `params._meta` object of every outbound JSON-RPC request that carries
+`params`. Use it for a backend that reads call-scoped configuration from the MCP
+metadata field instead of from tool arguments.
+
+```yaml
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: regional-tools
+spec:
+  type: streamable-http
+  url: "https://mcp.example.com/mcp"
+  meta:
+    AWS_REGION: eu-central-1
+```
+
+Rules:
+
+- The merge applies to `type: streamable-http` and `type: sse`, with any auth
+  type and with none. A server that needs a login keeps its entries after the
+  login: the per-session connection carries them too.
+- An entry that the request already has in `_meta` wins, so a caller can
+  override one per call.
+- A request without `params` is left untouched. `initialize` does carry
+  `params`, so the handshake gets the entries as well.
+- `type: stdio` rejects the field. A stdio server speaks over a pipe, so no HTTP
+  transport can inject the entries, and muster refuses the definition instead of
+  accepting the map and dropping it.
+
 ## Using the CLI
 
 ### Creating Servers via CLI

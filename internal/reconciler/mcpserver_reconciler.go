@@ -635,21 +635,7 @@ func (r *MCPServerReconciler) reconcileUpdate(ctx context.Context, req Reconcile
 // infoToMCPServer converts an MCPServerInfo (API/reconciler view) to an MCPServer
 // (service-layer configuration struct).
 func infoToMCPServer(info *api.MCPServerInfo) *api.MCPServer {
-	return &api.MCPServer{
-		Name:        info.Name,
-		Type:        api.MCPServerType(info.Type),
-		Description: info.Description,
-		ToolPrefix:  info.ToolPrefix,
-		Family:      info.Family,
-		AutoStart:   info.AutoStart,
-		Command:     info.Command,
-		Args:        info.Args,
-		URL:         info.URL,
-		Env:         info.Env,
-		Headers:     info.Headers,
-		Timeout:     info.Timeout,
-		Auth:        info.Auth,
-	}
+	return info.ToMCPServer()
 }
 
 // reconcileDelete handles deleting an MCPServer service.

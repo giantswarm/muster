@@ -21,6 +21,18 @@ type SSEClient struct {
 	baseMCPClient
 	url     string
 	headers map[string]string
+
+	// meta holds the spec.meta entries merged into params._meta of every
+	// outbound request.
+	meta map[string]string
+}
+
+// WithMeta sets the entries merged into the params._meta object of every
+// outbound JSON-RPC request that carries params, and returns the client so a
+// construction site reads as one expression.
+func (c *SSEClient) WithMeta(meta map[string]string) *SSEClient {
+	c.meta = meta
+	return c
 }
 
 // NewSSEClientWithHeaders creates a new SSE-based MCP client with custom headers
@@ -52,6 +64,11 @@ func (c *SSEClient) Initialize(ctx context.Context) error {
 		logging.Debug("SSEClient", "Configured %d custom headers", len(c.headers))
 	}
 
+	if httpClient := metaHTTPClient(c.meta); httpClient != nil {
+		opts = append(opts, transport.WithHTTPClient(httpClient))
+		logging.Debug("SSEClient", "Configured %d meta entries", len(c.meta))
+	}
+
 	mcpClient, err := client.NewSSEMCPClient(c.url, opts...)
 	if err != nil {
 		return fmt.Errorf("failed to create SSE client: %w", err)
@@ -71,8 +88,8 @@ func (c *SSEClient) Initialize(ctx context.Context) error {
 		Params: mcp.InitializeParams{
 			ProtocolVersion: api.ClientProtocolVersion,
 			ClientInfo: mcp.Implementation{
-				Name:    "muster-aggregator",
-				Version: "1.0.0",
+				Name:    clientName,
+				Version: clientVersion,
 			},
 			Capabilities: mcp.ClientCapabilities{},
 		},

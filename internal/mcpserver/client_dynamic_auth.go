@@ -31,6 +31,18 @@ type DynamicAuthClient struct {
 	url        string
 	tokenStore transport.TokenStore
 	scope      string
+
+	// meta holds the spec.meta entries merged into params._meta of every
+	// outbound request.
+	meta map[string]string
+}
+
+// WithMeta sets the entries merged into the params._meta object of every
+// outbound JSON-RPC request that carries params, and returns the client so a
+// construction site reads as one expression.
+func (c *DynamicAuthClient) WithMeta(meta map[string]string) *DynamicAuthClient {
+	c.meta = meta
+	return c
 }
 
 // NewDynamicAuthClient creates a new StreamableHTTP-based MCP client with mcp-go's
@@ -71,6 +83,14 @@ func (c *DynamicAuthClient) Initialize(ctx context.Context) error {
 		}))
 	}
 
+	// The OAuth handler is separate from the transport's HTTP client, so a
+	// metadata-injecting client composes with bearer injection instead of
+	// replacing it.
+	if httpClient := metaHTTPClient(c.meta); httpClient != nil {
+		opts = append(opts, transport.WithHTTPBasicClient(httpClient))
+		logging.Debug("DynamicAuthClient", "Configured %d meta entries", len(c.meta))
+	}
+
 	opts = append(opts, transport.WithContinuousListening())
 
 	mcpClient, err := client.NewStreamableHttpClient(c.url, opts...)
@@ -95,8 +115,8 @@ func (c *DynamicAuthClient) Initialize(ctx context.Context) error {
 		Params: mcp.InitializeParams{
 			ProtocolVersion: api.ClientProtocolVersion,
 			ClientInfo: mcp.Implementation{
-				Name:    "muster-aggregator",
-				Version: "1.0.0",
+				Name:    clientName,
+				Version: clientVersion,
 			},
 			Capabilities: mcp.ClientCapabilities{},
 		},
