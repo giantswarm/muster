@@ -149,6 +149,8 @@ A Helm chart for muster - Universal Control Plane for AI Agents built on MCP
 | muster.observability.metrics.prometheus.serviceMonitor.enabled | bool | `false` |  |
 | muster.observability.metrics.prometheus.serviceMonitor.interval | string | `""` |  |
 | muster.observability.metrics.prometheus.serviceMonitor.labels | object | `{}` |  |
+| muster.observability.metrics.prometheus.prometheusRule.enabled | bool | `false` |  |
+| muster.observability.metrics.prometheus.prometheusRule.labels | object | `{}` |  |
 | crds.install | bool | `false` |  |
 | crds.annotations."helm.sh/resource-policy" | string | `"keep"` |  |
 | networkPolicy.enabled | bool | `false` |  |
