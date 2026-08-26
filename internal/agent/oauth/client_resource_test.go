@@ -41,7 +41,8 @@ func newMetadataServer(t *testing.T, issSupported bool) *httptest.Server {
 }
 
 // TestStartAuthFlow_SendsResource locks in RFC 8707 on the agent's
-// authorization request: the canonical form of the muster server URL.
+// authorization request: the muster server URL with the query and the fragment
+// dropped, which is the value mcp-go derives for the refresh request.
 func TestStartAuthFlow_SendsResource(t *testing.T) {
 	server := newMetadataServer(t, false)
 
@@ -62,7 +63,7 @@ func TestStartAuthFlow_SendsResource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse authorization URL: %v", err)
 	}
-	want := "https://mcp.example.com/v1/mcp"
+	want := "https://mcp.example.com/v1/mcp/"
 	if got := parsed.Query().Get("resource"); got != want {
 		t.Errorf("expected resource %q on the authorization URL, got %q", want, got)
 	}

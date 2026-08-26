@@ -465,27 +465,24 @@ func (c *Client) discoverOAuthMetadata(ctx context.Context, issuerURL string) (*
 // This is hosted on GitHub Pages and serves as the client_id for OAuth.
 const DefaultAgentClientID = "https://giantswarm.github.io/muster/muster-agent.json"
 
-// resourceIndicator returns the RFC 8707 `resource` value for a flow: the URI
-// the server declares in its RFC 9728 metadata, sent exactly as declared, or a
-// value derived from the server URL when the caller discovered none.
-//
-// A declared value is never rewritten. The authorization server compares it
-// against the identifier registered for that server, and mcp-go sends the
-// declared value verbatim on token refresh, so any normalization here would
-// bind the initial token and the refreshed token to different audiences.
+// resourceIndicator returns the RFC 8707 `resource` value for a flow, or an
+// empty string when the flow needs none. An unusable server URL is an error: a
+// value muster cannot form is worse than a wrong one, because it would bind the
+// token to an identifier the server does not recognize.
 func resourceIndicator(opts *AuthFlowOptions, serverURL string) (string, error) {
-	if opts != nil && opts.Resource != "" {
-		if err := pkgoauth.ValidateResourceURI(opts.Resource); err != nil {
-			return "", fmt.Errorf("the server declares an unusable RFC 8707 resource %q: %w", opts.Resource, err)
-		}
-		return opts.Resource, nil
+	declared := ""
+	if opts != nil {
+		declared = opts.Resource
 	}
 
-	canonical, err := pkgoauth.CanonicalResourceURI(serverURL)
-	if err != nil {
-		return "", fmt.Errorf("cannot derive an RFC 8707 resource indicator from %q: %w", serverURL, err)
+	resource, declaredErr, err := pkgoauth.ResolveResourceIndicator(declared, serverURL)
+	if declaredErr != nil {
+		slog.Warn("Server declares an unusable RFC 8707 resource, deriving one from the URL instead",
+			"resource", declared,
+			"error", declaredErr,
+		)
 	}
-	return canonical, nil
+	return resource, err
 }
 
 // buildAuthorizationURLWithOptions constructs the OAuth authorization URL with optional OIDC parameters.

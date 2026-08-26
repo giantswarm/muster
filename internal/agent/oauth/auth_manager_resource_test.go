@@ -101,9 +101,9 @@ func TestAuthManager_FallsBackToServerURL(t *testing.T) {
 	}
 	// NormalizeServerURL removes the transport path, so the fallback is the
 	// server's base URL.
-	want, err := pkgoauth.CanonicalResourceURI(musterServer.URL)
+	want, err := pkgoauth.DeriveResourceURI(musterServer.URL)
 	if err != nil {
-		t.Fatalf("CanonicalResourceURI: %v", err)
+		t.Fatalf("DeriveResourceURI: %v", err)
 	}
 	if got := parsed.Query().Get("resource"); got != want {
 		t.Errorf("expected resource %q on the authorization URL, got %q", want, got)

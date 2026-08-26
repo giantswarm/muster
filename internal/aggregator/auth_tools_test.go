@@ -315,6 +315,7 @@ func TestResourceIndicator(t *testing.T) {
 		declaredResource string
 		serverURL        string
 		want             string
+		wantErr          bool
 	}{
 		{
 			name:             "prefers the declared resource",
@@ -335,9 +336,9 @@ func TestResourceIndicator(t *testing.T) {
 			want:             "https://backend.example.com/mcp",
 		},
 		{
-			name:      "falls back to the server URL",
-			serverURL: "https://backend.example.com/mcp/",
-			want:      "https://backend.example.com/mcp",
+			name:      "derives the same value mcp-go derives on refresh",
+			serverURL: "https://backend.example.com:443/mcp/?tenant=a",
+			want:      "https://backend.example.com:443/mcp/",
 		},
 		{
 			name:             "falls back when the declared resource is unusable",
@@ -346,15 +347,29 @@ func TestResourceIndicator(t *testing.T) {
 			want:             "https://backend.example.com/mcp",
 		},
 		{
-			name:      "returns empty when nothing is usable",
+			name: "returns empty when the backend has no URL",
+			want: "",
+		},
+		{
+			name:      "fails on a URL no indicator can be derived from",
 			serverURL: "stdio",
-			want:      "",
+			wantErr:   true,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := resourceIndicator(tc.declaredResource, tc.serverURL); got != tc.want {
+			got, err := resourceIndicator(tc.declaredResource, tc.serverURL)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected an error for %q, got %q", tc.serverURL, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tc.want {
 				t.Errorf("expected %q, got %q", tc.want, got)
 			}
 		})

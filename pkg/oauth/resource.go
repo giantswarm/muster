@@ -45,46 +45,62 @@ func parseResourceURI(raw string) (*url.URL, error) {
 	return parsed, nil
 }
 
-// CanonicalResourceURI derives a resource identifier for an MCP server from a
+// DeriveResourceURI derives a resource identifier for an MCP server from a
 // URL, for the case where the server declares none. Use the declared value
 // unchanged whenever there is one, and reach for this only to derive one.
 //
-// The result is an absolute URI without a fragment, with a lowercase scheme
-// and host, without the default port for the scheme, and without a trailing
-// slash on the path. The most specific form available is preserved: a path
-// (for example /mcp) and a query stay on the URI, and percent-encoded
-// characters keep their encoding.
-func CanonicalResourceURI(raw string) (string, error) {
+// The derivation drops the query and the fragment and changes nothing else:
+// the scheme and host keep their case, an explicit port stays, and a trailing
+// slash on the path stays. That is the rule mcp-go applies to the same URL
+// when it derives its own indicator (client/transport/streamable_http.go
+// clears RawQuery and Fragment, and client/transport/oauth.go falls back to
+// that value when the metadata omits the field). mcp-go owns token refresh on
+// both the agent path and the backend path, so a derivation that normalized
+// anything further would bind the initial token and the refreshed token to
+// different audiences.
+func DeriveResourceURI(raw string) (string, error) {
 	parsed, err := parseResourceURI(raw)
 	if err != nil {
 		return "", err
 	}
 
-	scheme := strings.ToLower(parsed.Scheme)
-	host := stripDefaultPort(strings.ToLower(parsed.Host), scheme)
-
-	// EscapedPath preserves the encoding the caller sent, so a path segment
-	// that contains an encoded delimiter (%2F) stays distinct from one that
-	// contains the delimiter itself.
-	path := strings.TrimSuffix(parsed.EscapedPath(), "/")
-
-	canonical := scheme + "://" + host + path
-	if parsed.RawQuery != "" {
-		canonical += "?" + parsed.RawQuery
-	}
-	return canonical, nil
+	derived := *parsed
+	derived.RawQuery = ""
+	derived.ForceQuery = false
+	derived.Fragment = ""
+	derived.RawFragment = ""
+	return derived.String(), nil
 }
 
-// stripDefaultPort removes the port from a host when it is the default port
-// for the scheme. RFC 3986 §6.2.3 treats the two forms as equivalent, and the
-// authorization servers muster talks to normalize them the same way.
-func stripDefaultPort(host, scheme string) string {
-	switch {
-	case scheme == "https" && strings.HasSuffix(host, ":443"):
-		return strings.TrimSuffix(host, ":443")
-	case scheme == "http" && strings.HasSuffix(host, ":80"):
-		return strings.TrimSuffix(host, ":80")
-	default:
-		return host
+// ResolveResourceIndicator picks the RFC 8707 `resource` value for a target:
+// the URI the target declares in its RFC 9728 metadata, sent exactly as
+// declared, or a value derived from targetURL when the target declares none.
+//
+// A declared value is never rewritten. The authorization server compares it
+// against the identifier registered for that target, and mcp-go sends the
+// declared value verbatim on token refresh, so any normalization here would
+// bind the initial token and the refreshed token to different audiences.
+//
+// declaredErr is non-nil when a declared value existed but was unusable. The
+// result is then derived from targetURL instead, so a target that publishes a
+// malformed identifier still completes a login; callers log declaredErr. An
+// empty targetURL yields an empty value and no error, for a target that needs
+// no indicator.
+func ResolveResourceIndicator(declared, targetURL string) (resource string, declaredErr error, err error) {
+	if declared != "" {
+		declaredErr = ValidateResourceURI(declared)
+		if declaredErr == nil {
+			return declared, nil, nil
+		}
 	}
+
+	if targetURL == "" {
+		return "", declaredErr, nil
+	}
+
+	derived, err := DeriveResourceURI(targetURL)
+	if err != nil {
+		return "", declaredErr, fmt.Errorf("cannot derive an RFC 8707 resource indicator from %q: %w", targetURL, err)
+	}
+	return derived, declaredErr, nil
 }

@@ -288,7 +288,11 @@ still needs to follow the rules.
   discovers itself, exactly as declared. Muster must therefore send the
   declared value unchanged on the authorization and token requests as well:
   a value normalized on one path and verbatim on the other binds the initial
-  token and the refreshed token to different audiences.
+  token and the refreshed token to different audiences. The same constraint
+  applies when the metadata omits the field and both sides derive a value:
+  `pkg/oauth.DeriveResourceURI` drops the query and the fragment and changes
+  nothing else, which is what mcp-go does to the same URL
+  (`client/transport/streamable_http.go`).
 
 ### SEP-2350 — Scope accumulation on step-up
 

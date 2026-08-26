@@ -285,12 +285,18 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 	}
 
 	// No token or token was cleared - need to create an auth challenge
+	resource, err := resourceIndicator(authInfo.Resource, serverInfo.URL)
+	if err != nil {
+		logging.Error("AuthTools", err, "Cannot build an auth challenge for server %s", serverName)
+		return nil, err
+	}
+
 	challenge, err := oauthHandler.CreateAuthChallenge(ctx, api.AuthChallengeParams{
 		SessionID:  sessionID,
 		UserID:     sub,
 		ServerName: serverName,
 		Issuer:     authInfo.Issuer,
-		Resource:   resourceIndicator(authInfo.Resource, serverInfo.URL),
+		Resource:   resource,
 		Scope:      authInfo.Scope,
 	})
 	if err != nil {
@@ -321,37 +327,16 @@ func needsResourceMetadata(authInfo *AuthInfo, serverURL string) bool {
 	return authInfo.Issuer == "" || authInfo.Scope == "" || authInfo.Resource == ""
 }
 
-// resourceIndicator returns the RFC 8707 `resource` value for a backend: the
-// URI the backend declares in its RFC 9728 metadata, sent exactly as declared,
-// or a value derived from its configured URL when the metadata omits it or
-// when spec.auth.authorizationServer opts out of metadata discovery.
-//
-// A declared value is never rewritten. The authorization server compares it
-// against the identifier registered for that backend, and mcp-go sends the
-// declared value verbatim on token refresh, so any normalization here would
-// bind the initial token and the refreshed token to different audiences.
-//
-// An unusable URL yields an empty string. MCP 2026-07-28 requires sending the
-// parameter, but a value muster cannot form is worse than none: it would bind
-// the token to an identifier no backend recognizes.
-func resourceIndicator(declaredResource, serverURL string) string {
-	if declaredResource != "" {
-		err := pkgoauth.ValidateResourceURI(declaredResource)
-		if err == nil {
-			return declaredResource
-		}
-		logging.Warn("AuthTools", "Backend declares an unusable RFC 8707 resource %q, deriving one from the URL instead: %v", declaredResource, err)
+// resourceIndicator returns the RFC 8707 `resource` value for a backend, or an
+// empty string when the backend needs none. An unusable configured URL is an
+// error: a value muster cannot form is worse than a wrong one, because it would
+// bind the token to an identifier no backend recognizes.
+func resourceIndicator(declaredResource, serverURL string) (string, error) {
+	resource, declaredErr, err := pkgoauth.ResolveResourceIndicator(declaredResource, serverURL)
+	if declaredErr != nil {
+		logging.Warn("AuthTools", "Backend declares an unusable RFC 8707 resource %q, deriving one from the URL instead: %v", declaredResource, declaredErr)
 	}
-
-	if serverURL == "" {
-		return ""
-	}
-	canonical, err := pkgoauth.CanonicalResourceURI(serverURL)
-	if err != nil {
-		logging.Warn("AuthTools", "Cannot derive an RFC 8707 resource indicator from %q: %v", serverURL, err)
-		return ""
-	}
-	return canonical
+	return resource, err
 }
 
 // authChallengeResult builds the tool result for a pending auth challenge.
