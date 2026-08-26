@@ -2451,6 +2451,11 @@ type ProtectedResourceMetadata struct {
 	Resource string
 }
 
+// overrideMetadataClient serves the RFC 8414 §3.3 verification fetch for the
+// spec.auth.authorizationServer override. One client for the process means one
+// metadata cache, shared across backends and across logins.
+var overrideMetadataClient = pkgoauth.NewClient()
+
 // discoverProtectedResourceMetadata resolves the authorization server for an
 // MCP server. When override is non-nil it skips PRM probing and uses the
 // operator-pinned values, performing an RFC 8414 §3.3 self-verification fetch
@@ -2465,12 +2470,20 @@ func discoverProtectedResourceMetadata(ctx context.Context, serverURL string, ov
 		// discovery client applies the RFC 8414 §3.3 identity check, so a
 		// typo or a stale pin fails closed here instead of driving an OAuth
 		// flow against the wrong AS.
-		if _, err := pkgoauth.NewClient().DiscoverMetadata(ctx, issuer); err != nil {
+		if _, err := overrideMetadataClient.DiscoverMetadata(ctx, issuer); err != nil {
 			return nil, fmt.Errorf("authorizationServer override (spec.auth.authorizationServer.issuer=%q): %w", issuer, err)
 		}
 		logging.InfoWithAttrs("AuthTools", "oauth_authorization_server_override_used",
 			slog.String("issuer", issuer))
-		return &ProtectedResourceMetadata{Issuer: issuer, Scope: override.Scopes}, nil
+		// The override opts out of RFC 9728 discovery, so the backend never
+		// gets to declare its own resource identifier. The derived value is
+		// the only one available, and filling it here keeps the caller from
+		// probing for a resource this branch can never supply.
+		resource, err := pkgoauth.DeriveResourceURI(serverURL)
+		if err != nil {
+			logging.Debug("AuthTools", "Cannot derive a resource indicator from %s: %v", serverURL, err)
+		}
+		return &ProtectedResourceMetadata{Issuer: issuer, Scope: override.Scopes, Resource: resource}, nil
 	}
 
 	// Step 1: WWW-Authenticate on 401.

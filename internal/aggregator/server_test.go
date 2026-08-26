@@ -904,21 +904,29 @@ func TestGetOrCreateClientForToolCall_NoEvictionWhenTokenFresh(t *testing.T) {
 // the override MUST skip PRM probing and MUST verify the operator-pinned
 // issuer matches the AS metadata's `issuer` field per RFC 8414 §3.3.
 func TestDiscoverProtectedResourceMetadata_Override(t *testing.T) {
-	// Stub authorization server: serves /.well-known/oauth-authorization-server
-	// with a configurable advertised `issuer` value so tests can exercise the
-	// match and mismatch branches independently.
-	var advertisedIssuer string
-	asMux := http.NewServeMux()
-	asMux.HandleFunc("/.well-known/oauth-authorization-server", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = fmt.Fprintf(w, `{"issuer":%q,"authorization_endpoint":%q,"token_endpoint":%q,"code_challenge_methods_supported":["S256"]}`,
-			advertisedIssuer, advertisedIssuer+"/authorize", advertisedIssuer+"/token")
-	})
-	asServer := httptest.NewServer(asMux)
-	defer asServer.Close()
+	// Each subtest gets its own authorization server, so it has its own
+	// issuer and its own entry in the shared metadata cache.
+	newASServer := func(t *testing.T, advertisedIssuer func(ownURL string) string) *httptest.Server {
+		t.Helper()
+		var issuer string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/.well-known/oauth-authorization-server" {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(w, `{"issuer":%q,"authorization_endpoint":%q,"token_endpoint":%q,"code_challenge_methods_supported":["S256"]}`,
+				issuer, issuer+"/authorize", issuer+"/token")
+		}))
+		t.Cleanup(server.Close)
+		issuer = advertisedIssuer(server.URL)
+		return server
+	}
+
+	ownIssuer := func(ownURL string) string { return ownURL }
 
 	t.Run("override returns synthetic PRM when issuer matches AS metadata", func(t *testing.T) {
-		advertisedIssuer = asServer.URL
+		asServer := newASServer(t, ownIssuer)
 		override := &api.MCPServerAuthAuthorizationServer{
 			Issuer: asServer.URL,
 			Scopes: "openid offline_access",
@@ -927,10 +935,13 @@ func TestDiscoverProtectedResourceMetadata_Override(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, asServer.URL, md.Issuer)
 		assert.Equal(t, "openid offline_access", md.Scope)
+		// The override opts out of RFC 9728 discovery, so the resource is
+		// derived from the configured URL.
+		assert.Equal(t, "https://mcp.example.com/v1/mcp", md.Resource)
 	})
 
 	t.Run("override rejects when AS metadata reports a different issuer", func(t *testing.T) {
-		advertisedIssuer = "https://attacker.example.com"
+		asServer := newASServer(t, func(string) string { return "https://attacker.example.com" })
 		override := &api.MCPServerAuthAuthorizationServer{
 			Issuer: asServer.URL,
 		}
