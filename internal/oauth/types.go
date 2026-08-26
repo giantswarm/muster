@@ -69,4 +69,10 @@ type AuthRequiredResponse struct {
 
 	// Message is a human-readable description of why auth is needed.
 	Message string `json:"message,omitempty"`
+
+	// ClientIDMethod reports how muster identifies itself to the
+	// authorization server for this flow: "cimd" (AS advertises CIMD
+	// support), "dcr" (RFC 7591 registered credentials), or "cimd-fallback"
+	// (neither advertised — the AS may reject the sign-in).
+	ClientIDMethod string `json:"client_id_method,omitempty"`
 }

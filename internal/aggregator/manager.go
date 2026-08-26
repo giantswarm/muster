@@ -73,10 +73,11 @@ func NewAggregatorManager(config AggregatorConfig, orchestratorAPI api.Orchestra
 		if vClient := manager.aggregatorServer.getValkeyClient(); vClient != nil {
 			keyPrefix := manager.aggregatorServer.getValkeyKeyPrefix()
 			enc := manager.aggregatorServer.getValkeyEncryptor()
-			logging.Info("Aggregator-Manager", "Using Valkey-backed OAuth token and state stores")
+			logging.Info("Aggregator-Manager", "Using Valkey-backed OAuth token, state, and client credential stores")
 			oauthOpts = append(oauthOpts,
 				oauth.WithValkeyTokenStore(oauth.NewValkeyTokenStore(vClient, oauth.DefaultTokenStoreTTL, keyPrefix, enc)),
 				oauth.WithValkeyStateStore(oauth.NewValkeyStateStore(vClient, keyPrefix, enc)),
+				oauth.WithValkeyClientCredentialStore(oauth.NewValkeyClientCredentialStore(vClient, keyPrefix, enc)),
 			)
 		}
 
