@@ -90,14 +90,14 @@
                     "properties": {
                         "annotations": {
                             "type": "object",
-                            "additionalProperties": false
+                            "additionalProperties": true
                         },
                         "enabled": {
                             "type": "boolean"
                         },
                         "labels": {
                             "type": "object",
-                            "additionalProperties": false
+                            "additionalProperties": true
                         },
                         "timeout": {
                             "type": "string"
@@ -113,14 +113,14 @@
                     "properties": {
                         "annotations": {
                             "type": "object",
-                            "additionalProperties": false
+                            "additionalProperties": true
                         },
                         "hostnames": {
                             "type": "array"
                         },
                         "labels": {
                             "type": "object",
-                            "additionalProperties": false
+                            "additionalProperties": true
                         },
                         "parentRefs": {
                             "type": "array"
@@ -603,8 +603,18 @@
                 "enabled": {
                     "type": "boolean"
                 },
+                "maxUnavailable": {
+                    "type": [
+                        "integer",
+                        "string",
+                        "null"
+                    ]
+                },
                 "minAvailable": {
-                    "type": "integer"
+                    "type": [
+                        "integer",
+                        "string"
+                    ]
                 }
             }
         },

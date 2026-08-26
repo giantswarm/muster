@@ -11,23 +11,16 @@ helm-lint: ## Run Helm linter
 HELM_UNITTEST_VERSION := 1.0.3
 YQ_VERSION := v4.44.6
 
-# What CI runs (the chart-test job in .circleci/custom.yml). Deliberately not
-# the full helm-unittest suite: tests/pdb_test.yaml and tests/gateway_api_test.yaml
-# fail on main because values.schema.json rejects values those suites set
-# (free-form label/annotation maps, a percentage-string minAvailable, and an
-# undeclared maxUnavailable). Widen this to helm-test once those are fixed.
+# What CI runs (the chart-test job in .circleci/custom.yml).
 .PHONY: helm-test
-helm-test: helm-lint helm-alerting-test ## Run the chart checks that pass today (what CI runs).
+helm-test: helm-lint helm-unittest helm-promtool-test ## Run every chart check (what CI runs).
 
 .PHONY: helm-alerting-test
-helm-alerting-test: ## Run the PrometheusRule checks: its helm-unittest suite plus the promtool alert-rule tests.
+helm-alerting-test: ## Run only the PrometheusRule checks: its helm-unittest suite plus the promtool alert-rule tests.
 	@echo "Running PrometheusRule chart tests..."
 	@$(MAKE) --no-print-directory helm-plugin-unittest
 	@helm unittest helm/muster/ -f 'tests/prometheusrule_test.yaml'
 	@$(MAKE) --no-print-directory helm-promtool-test
-
-.PHONY: helm-test-all
-helm-test-all: helm-lint helm-unittest helm-promtool-test ## Run every chart check, including the suites that fail on main.
 
 .PHONY: helm-unittest
 helm-unittest: helm-plugin-unittest ## Run all helm-unittest suites in helm/muster/tests/.
