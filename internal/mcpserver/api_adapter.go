@@ -12,6 +12,7 @@ import (
 	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
 
 	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/callerwrite"
 	"github.com/giantswarm/muster/internal/client"
 	"github.com/giantswarm/muster/internal/events"
 	"github.com/giantswarm/muster/pkg/logging"
@@ -74,14 +75,12 @@ type Adapter struct {
 	client    client.MusterClient
 	namespace string
 
-	// writesAsCaller switches session-initiated spec mutations
-	// (create/update/delete) from the shared SA-backed client to a per-call
-	// client bearing the caller's own dex id_token (issue #1056). Always set
-	// in Kubernetes mode; filesystem mode keeps the local client. Reads,
-	// validation, and muster's own controller writes are unaffected.
-	writesAsCaller     bool
-	kubernetesAudience string
-	callerClients      CallerClientFactory
+	// gate switches session-initiated spec mutations (create/update/delete)
+	// from the shared SA-backed client to a per-call client bearing the
+	// caller's own dex id_token (issue #1056). Always enabled in Kubernetes
+	// mode; filesystem mode keeps the local client. Reads, validation, and
+	// muster's own controller writes are unaffected.
+	gate callerwrite.Gate
 }
 
 // mcpServerWriter is the write surface the mutation handlers go through. The
@@ -100,6 +99,7 @@ func NewAdapterWithClient(musterClient client.MusterClient, namespace string) *A
 	return &Adapter{
 		client:    musterClient,
 		namespace: namespace,
+		gate:      callerwrite.NewGate("MCP server changes"),
 	}
 }
 
@@ -109,13 +109,8 @@ func NewAdapterWithClient(musterClient client.MusterClient, namespace string) *A
 // access; mutations then fail with an explicit configuration error instead of
 // silently falling back to the SA path. An empty kubernetesAudience selects
 // the default.
-func (a *Adapter) EnableWritesAsCaller(factory CallerClientFactory, kubernetesAudience string) {
-	a.writesAsCaller = true
-	if kubernetesAudience == "" {
-		kubernetesAudience = DefaultKubernetesAudience
-	}
-	a.kubernetesAudience = kubernetesAudience
-	a.callerClients = factory
+func (a *Adapter) EnableWritesAsCaller(factory callerwrite.ClientFactory, kubernetesAudience string) {
+	a.gate.Enable(factory, kubernetesAudience)
 }
 
 // mutationWriter resolves the write client a mutation must use. In
@@ -125,29 +120,12 @@ func (a *Adapter) EnableWritesAsCaller(factory CallerClientFactory, kubernetesAu
 // returned together with a ready-to-return tool error when the session cannot
 // produce a usable bearer.
 func (a *Adapter) mutationWriter(ctx context.Context) (mcpServerWriter, *api.CallToolResult) {
-	if !a.writesAsCaller {
+	if !a.gate.Enabled() {
 		return a.client, nil
 	}
-
-	token := callerTokenFromContext(ctx)
-	if token == "" {
-		result, _ := simpleError(reloginError(
-			"This installation writes MCP server changes with your own identity, but your session carries no token."))
-		return nil, result
-	}
-	if tokenMissingAudience(token, a.kubernetesAudience) {
-		result, _ := simpleError(reloginError(fmt.Sprintf(
-			"Your session token does not carry the %q audience required by the Kubernetes API.", a.kubernetesAudience)))
-		return nil, result
-	}
-	if a.callerClients == nil {
-		result, _ := simpleError("writes-as-caller is enabled but muster has no Kubernetes API access to perform the write with — check the muster deployment configuration")
-		return nil, result
-	}
-
-	callerClient, err := a.callerClients(token)
-	if err != nil {
-		result, _ := simpleError(fmt.Sprintf("Failed to prepare a Kubernetes client with your identity: %v", err))
+	callerClient, errMsg := a.gate.Resolve(ctx)
+	if errMsg != "" {
+		result, _ := simpleError(errMsg)
 		return nil, result
 	}
 	return &callerWriter{client: callerClient, namespace: a.namespace}, nil
@@ -158,16 +136,8 @@ func (a *Adapter) mutationWriter(ctx context.Context) (mcpServerWriter, *api.Cal
 // resource, and namespace; 401 asks for a re-login. Returns "" for every
 // other error so callers fall through to their existing handling.
 func (a *Adapter) describeWriteAuthError(err error, verb, name string) string {
-	switch {
-	case errors.IsForbidden(err):
-		return fmt.Sprintf(
-			"Permission denied: your user may not %s MCPServer %q (mcpservers.muster.giantswarm.io) in namespace %q. "+
-				"Ask a platform admin to grant you the mcpserver-editor role. API server response: %v",
-			verb, name, a.namespace, err)
-	case errors.IsUnauthorized(err):
-		return reloginError("The Kubernetes API rejected your session token.")
-	}
-	return ""
+	return callerwrite.DescribeWriteAuthError(err, verb,
+		"MCPServer", "mcpservers.muster.giantswarm.io", name, a.namespace, "mcpserver-editor")
 }
 
 // Register registers the adapter with the API

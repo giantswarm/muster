@@ -8,6 +8,7 @@ import (
 
 	"github.com/giantswarm/muster/internal/aggregator"
 	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/callerwrite"
 	"github.com/giantswarm/muster/internal/client"
 	"github.com/giantswarm/muster/internal/config"
 	"github.com/giantswarm/muster/internal/events"
@@ -166,27 +167,34 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	eventAdapter := events.NewAdapter(musterClient, namespace)
 	eventAdapter.Register()
 
+	// In Kubernetes mode, session-initiated spec mutations — MCPServer and
+	// Workflow create/update/delete plus CR-driven lifecycle — always write
+	// with the caller's own dex id_token so k8s RBAC decides and the audit
+	// log records the real user (issues #1056/#1057/#1069). When no
+	// Kubernetes config is reachable the factory stays nil and mutations
+	// fail with an explicit configuration error rather than falling back to
+	// the SA. Filesystem mode has no apiserver and keeps writing through the
+	// local client.
+	var callerFactory callerwrite.ClientFactory
+	if musterClient.IsKubernetesMode() {
+		if restConfig, err := ctrl.GetConfig(); err == nil {
+			callerFactory = callerwrite.NewKubernetesClientFactory(restConfig)
+		} else {
+			logging.Warn("Services", "kubernetes mode is active but no Kubernetes config is available for caller-identity writes: %v", err)
+		}
+	}
+
 	// Create and register Workflow adapter using the muster client
 	workflowAdapter := workflow.NewAdapterWithClient(musterClient, namespace, toolCaller, toolChecker, cfg.ConfigPath)
+	if musterClient.IsKubernetesMode() {
+		workflowAdapter.EnableWritesAsCaller(callerFactory, cfg.MusterConfig.WritesAsCaller.KubernetesAudience)
+	}
 	workflowAdapter.Register()
 
 	// Initialize and register MCPServer adapter using the muster client
 	mcpServerAdapter := mcpserverPkg.NewAdapterWithClient(musterClient, namespace)
 	if musterClient.IsKubernetesMode() {
-		// In Kubernetes mode, session-initiated MCPServer spec mutations
-		// always write with the caller's own dex id_token so k8s RBAC decides
-		// and the audit log records the real user (issues #1056/#1057). When
-		// no Kubernetes config is reachable the factory stays nil and
-		// mutations fail with an explicit configuration error rather than
-		// falling back to the SA. Filesystem mode has no apiserver and keeps
-		// writing through the local client.
-		var factory mcpserverPkg.CallerClientFactory
-		if restConfig, err := ctrl.GetConfig(); err == nil {
-			factory = mcpserverPkg.NewKubernetesCallerClientFactory(restConfig)
-		} else {
-			logging.Warn("Services", "kubernetes mode is active but no Kubernetes config is available for caller-identity writes: %v", err)
-		}
-		mcpServerAdapter.EnableWritesAsCaller(factory, cfg.MusterConfig.WritesAsCaller.KubernetesAudience)
+		mcpServerAdapter.EnableWritesAsCaller(callerFactory, cfg.MusterConfig.WritesAsCaller.KubernetesAudience)
 	}
 	mcpServerAdapter.Register()
 

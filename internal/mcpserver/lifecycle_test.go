@@ -12,6 +12,7 @@ import (
 	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
 
 	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/callerwrite"
 	"github.com/giantswarm/muster/internal/server"
 )
 
@@ -56,7 +57,7 @@ func TestLifecycleAsCaller_NotHandledForInternalService(t *testing.T) {
 		"aggregator": &fakeServiceInfo{name: "aggregator", typ: api.ServiceType("Aggregator")},
 	}})
 	h := newCallerHarness(t, nil, nil)
-	ctx := server.ContextWithIDToken(context.Background(), testJWT(t, DefaultKubernetesAudience))
+	ctx := server.ContextWithIDToken(context.Background(), testJWT(t, callerwrite.DefaultKubernetesAudience))
 	for _, action := range []string{"start", "stop", "restart"} {
 		if _, handled, _ := lifecycleCall(t, h.adapter, ctx, action, "aggregator"); handled {
 			t.Errorf("%s: must not be handled for muster's own internal services", action)
@@ -73,7 +74,7 @@ func TestLifecycleAsCaller_NotHandledForInternalService(t *testing.T) {
 // lingering registry entry would otherwise reopen the side door.
 func TestLifecycleAsCaller_UnknownNameFailsClosed(t *testing.T) {
 	h := newCallerHarness(t, nil, nil)
-	ctx := server.ContextWithIDToken(context.Background(), testJWT(t, DefaultKubernetesAudience))
+	ctx := server.ContextWithIDToken(context.Background(), testJWT(t, callerwrite.DefaultKubernetesAudience))
 	for _, action := range []string{"start", "stop", "restart"} {
 		result, handled, err := lifecycleCall(t, h.adapter, ctx, action, "ghost")
 		if err != nil || !handled {
@@ -91,7 +92,7 @@ func TestLifecycleAsCaller_UnknownNameFailsClosed(t *testing.T) {
 // TestLifecycleAsCaller_StopWritesSuspended: core_service_stop becomes a
 // spec.suspended=true write carried by the caller's own bearer.
 func TestLifecycleAsCaller_StopWritesSuspended(t *testing.T) {
-	token := testJWT(t, DefaultKubernetesAudience)
+	token := testJWT(t, callerwrite.DefaultKubernetesAudience)
 	h := newCallerHarness(t, existingServer(), nil)
 	ctx := server.ContextWithIDToken(context.Background(), token)
 
@@ -122,7 +123,7 @@ func TestLifecycleAsCaller_StopWritesSuspended(t *testing.T) {
 func TestLifecycleAsCaller_StartClearsSuspended(t *testing.T) {
 	t.Run("service down", func(t *testing.T) {
 		h := newCallerHarness(t, suspendedServer(), nil)
-		ctx := server.ContextWithIDToken(context.Background(), testJWT(t, DefaultKubernetesAudience))
+		ctx := server.ContextWithIDToken(context.Background(), testJWT(t, callerwrite.DefaultKubernetesAudience))
 
 		result, handled, err := h.adapter.StartMCPServerAsCaller(ctx, "test-server")
 		if err != nil || !handled || result.IsError {
@@ -144,7 +145,7 @@ func TestLifecycleAsCaller_StartClearsSuspended(t *testing.T) {
 			"test-server": &fakeServiceInfo{name: "test-server", state: api.StateRunning},
 		}})
 		h := newCallerHarness(t, suspendedServer(), nil)
-		ctx := server.ContextWithIDToken(context.Background(), testJWT(t, DefaultKubernetesAudience))
+		ctx := server.ContextWithIDToken(context.Background(), testJWT(t, callerwrite.DefaultKubernetesAudience))
 
 		result, handled, err := h.adapter.StartMCPServerAsCaller(ctx, "test-server")
 		if err != nil || !handled || result.IsError {
@@ -175,7 +176,7 @@ func TestLifecycleAsCaller_StartRequestsStartWhenDown(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			withServiceRegistry(t, registry)
 			h := newCallerHarness(t, existingServer(), nil)
-			ctx := server.ContextWithIDToken(context.Background(), testJWT(t, DefaultKubernetesAudience))
+			ctx := server.ContextWithIDToken(context.Background(), testJWT(t, callerwrite.DefaultKubernetesAudience))
 
 			result, handled, err := h.adapter.StartMCPServerAsCaller(ctx, "test-server")
 			if err != nil || !handled || result.IsError {
@@ -232,7 +233,7 @@ func TestLifecycleAsCaller_StartNoOpStates(t *testing.T) {
 // spec.restartRequestedAt write; the field is the audit record of the request.
 func TestLifecycleAsCaller_RestartWritesTimestamp(t *testing.T) {
 	h := newCallerHarness(t, existingServer(), nil)
-	ctx := server.ContextWithIDToken(context.Background(), testJWT(t, DefaultKubernetesAudience))
+	ctx := server.ContextWithIDToken(context.Background(), testJWT(t, callerwrite.DefaultKubernetesAudience))
 
 	result, handled, err := h.adapter.RestartMCPServerAsCaller(ctx, "test-server")
 	if err != nil || !handled || result.IsError {
@@ -248,7 +249,7 @@ func TestLifecycleAsCaller_RestartWritesTimestamp(t *testing.T) {
 // up front and points at core_service_start.
 func TestLifecycleAsCaller_RestartSuspendedRefused(t *testing.T) {
 	h := newCallerHarness(t, suspendedServer(), nil)
-	ctx := server.ContextWithIDToken(context.Background(), testJWT(t, DefaultKubernetesAudience))
+	ctx := server.ContextWithIDToken(context.Background(), testJWT(t, callerwrite.DefaultKubernetesAudience))
 
 	result, handled, err := h.adapter.RestartMCPServerAsCaller(ctx, "test-server")
 	if err != nil || !handled {
@@ -270,7 +271,7 @@ func TestLifecycleAsCaller_RestartAuthRequiredRefused(t *testing.T) {
 		"test-server": &fakeServiceInfo{name: "test-server", state: api.StateAuthRequired},
 	}})
 	h := newCallerHarness(t, existingServer(), nil)
-	ctx := server.ContextWithIDToken(context.Background(), testJWT(t, DefaultKubernetesAudience))
+	ctx := server.ContextWithIDToken(context.Background(), testJWT(t, callerwrite.DefaultKubernetesAudience))
 
 	result, handled, err := h.adapter.RestartMCPServerAsCaller(ctx, "test-server")
 	if err != nil || !handled {
@@ -326,7 +327,7 @@ func TestLifecycleAsCaller_DeniedBeforeWrite(t *testing.T) {
 				t.Fatalf("handled=%v err=%v", handled, err)
 			}
 			text := resultText(t, result)
-			if !result.IsError || !strings.Contains(text, DefaultKubernetesAudience) || !strings.Contains(text, "re-login") {
+			if !result.IsError || !strings.Contains(text, callerwrite.DefaultKubernetesAudience) || !strings.Contains(text, "re-login") {
 				t.Fatalf("expected audience re-login error, got: %s", text)
 			}
 			if len(h.tokensSeen) != 0 {
@@ -352,7 +353,7 @@ func TestLifecycleAsCaller_ForbiddenMapsToPermissionError(t *testing.T) {
 				existing.Spec.Suspended = true
 			}
 			h := newCallerHarness(t, existing, forbidden)
-			ctx := server.ContextWithIDToken(context.Background(), testJWT(t, DefaultKubernetesAudience))
+			ctx := server.ContextWithIDToken(context.Background(), testJWT(t, callerwrite.DefaultKubernetesAudience))
 
 			result, handled, err := lifecycleCall(t, h.adapter, ctx, action, "test-server")
 			if err != nil || !handled {

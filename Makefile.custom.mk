@@ -39,7 +39,7 @@ muster-integration-test: build ## Run the muster integration suite (./muster tes
 test-envtest: ## Run the envtest-backed RBAC integration tests (downloads a kube-apiserver via setup-envtest).
 	@echo "Running envtest RBAC integration tests..."
 	KUBEBUILDER_ASSETS="$$(go run sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.24 use -p path)" \
-		go test ./internal/mcpserver/ -run TestWritesAsCallerEnvtest -count=1 -v
+		go test ./internal/mcpserver/ ./internal/workflow/ -run TestWritesAsCallerEnvtest -count=1 -v
 
 .PHONY: test-vet
 test-vet: ## Run go test and go vet

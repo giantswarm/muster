@@ -55,7 +55,7 @@ func OAuthLoginGuidance(name string) string {
 // handled=false means the caller must fall back to the imperative path. A
 // non-nil result is a ready-to-return tool error from the definition lookup.
 func (a *Adapter) lifecycleTarget(ctx context.Context, name string) (*musterv1alpha1.MCPServer, *api.CallToolResult, bool) {
-	if !a.writesAsCaller {
+	if !a.gate.Enabled() {
 		return nil, nil, false
 	}
 

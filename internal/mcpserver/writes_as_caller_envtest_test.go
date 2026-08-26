@@ -16,6 +16,7 @@ import (
 	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
 
 	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/callerwrite"
 	kubernetesclient "github.com/giantswarm/muster/internal/client/kubernetes"
 	"github.com/giantswarm/muster/internal/server"
 )
@@ -36,8 +37,8 @@ func TestWritesAsCallerEnvtest(t *testing.T) {
 	// Static token authentication: bearer → user. The tokens are JWT-shaped
 	// and carry the kubernetes audience so the adapter's audience precheck —
 	// the same code the dex path runs — passes and the apiserver decides.
-	allowedToken := testJWT(t, DefaultKubernetesAudience)
-	deniedToken := testJWT(t, []string{DefaultKubernetesAudience, "muster"})
+	allowedToken := testJWT(t, callerwrite.DefaultKubernetesAudience)
+	deniedToken := testJWT(t, []string{callerwrite.DefaultKubernetesAudience, "muster"})
 	tokenFile := filepath.Join(t.TempDir(), "tokens.csv")
 	tokens := fmt.Sprintf("%s,allowed-user,1000,\n%s,denied-user,1001,\n", allowedToken, deniedToken)
 	if err := os.WriteFile(tokenFile, []byte(tokens), 0o600); err != nil {
@@ -94,7 +95,7 @@ func TestWritesAsCallerEnvtest(t *testing.T) {
 	}
 
 	adapter := NewAdapterWithClient(saClient, "default")
-	adapter.EnableWritesAsCaller(NewKubernetesCallerClientFactory(adminCfg), "")
+	adapter.EnableWritesAsCaller(callerwrite.NewKubernetesClientFactory(adminCfg), "")
 
 	allowedCtx := server.ContextWithIDToken(ctx, allowedToken)
 	deniedCtx := server.ContextWithIDToken(ctx, deniedToken)

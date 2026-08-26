@@ -60,6 +60,20 @@ rbac:
       - apiGroup: rbac.authorization.k8s.io
         kind: Group
         name: system:authenticated
+  # workflowEditor ships the default answer to "who may create and manage
+  # workflows" under writes-as-caller: a namespaced Role granting
+  # create/update/patch/delete on workflows, plus a RoleBinding. The default
+  # subjects bind all authenticated users, preserving the pre-enforcement
+  # "any user can create" behavior. Narrow subjects to an admin group for
+  # admin-only workflow authoring.
+  workflowEditor:
+    create: true
+    # RoleBinding subjects granted the workflow-editor Role. Standard
+    # rbac.authorization.k8s.io/v1 subjects (Group, User, or ServiceAccount).
+    subjects:  # @schema item: object ; itemProperties: {apiGroup: {type: string}, kind: {type: string}, name: {type: string}, namespace: {type: string}}
+      - apiGroup: rbac.authorization.k8s.io
+        kind: Group
+        name: system:authenticated
 
 podAnnotations: {}  # @schema additionalProperties: true
 podLabels: {}  # @schema additionalProperties: true
