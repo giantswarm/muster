@@ -85,13 +85,30 @@ status:
   conditions: []          # Kubernetes standard conditions
 ```
 
+### Server types and where `stdio` applies
+
+`stdio` is CLI-only. A stdio server is started as a subprocess of the muster
+process, so a muster running in Kubernetes mode rejects it rather than executing
+arbitrary commands in its own pod under its ServiceAccount:
+
+- `mcpserver_validate`, `mcpserver_create`, and `mcpserver_update` fail with a
+  message naming the remote alternatives.
+- A stdio MCPServer applied directly with `kubectl` reconciles to
+  `status.state: Failed` and `status.lastError` explaining the rejection. No
+  subprocess is started.
+
+Filesystem mode — `muster serve` against a local config directory, which is what
+the CLI runs — accepts and starts `stdio` servers unchanged. In Kubernetes, run
+the MCP server as its own workload and register it with `streamable-http` or
+`sse`.
+
 ### Field Reference
 
 #### Spec Fields
 
 | Field | Type | Required | Description | Constraints |
 |-------|------|----------|-------------|-------------|
-| `type` | `string` | Yes | Execution method for the MCP server | Must be `stdio`, `streamable-http`, or `sse` |
+| `type` | `string` | Yes | Execution method for the MCP server | Must be `stdio`, `streamable-http`, or `sse`; `stdio` is rejected in Kubernetes mode (see below) |
 | `toolPrefix` | `string` | No | Per-server tool prefix used when `family` is unset | Pattern: `^[a-zA-Z][a-zA-Z0-9_-]*$` |
 | `family` | `object` | No | Family grouping for equivalent servers under a shared tool surface | `name` and `instanceArg` both required when set |
 | `family.name` | `string` | Yes (in `family`) | Family identifier | Pattern: `^[a-zA-Z][a-zA-Z0-9_-]*$` |

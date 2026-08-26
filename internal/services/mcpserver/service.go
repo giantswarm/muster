@@ -79,6 +79,12 @@ type Service struct {
 	// Immutable after construction; set via WithAuthRequiredHook.
 	onAuthRequired func(definition *api.MCPServer, authErr *mcpserver.AuthRequiredError)
 
+	// kubernetesMode mirrors the MusterClient's mode. It exists so the layer
+	// that actually spawns the subprocess can refuse a stdio definition
+	// (issue #1067) instead of trusting the gates upstream of it. Immutable
+	// after construction; set via WithKubernetesMode.
+	kubernetesMode bool
+
 	// healthEventMutex guards healthEventUnhealthy, which gates emission of
 	// MCPServerHealthCheckFailed to the healthy->unhealthy transition so the
 	// 30s health-check loop does not re-emit the same event every poll.
@@ -99,6 +105,16 @@ type Option func(*Service)
 func WithAuthRequiredHook(fn func(*api.MCPServer, *mcpserver.AuthRequiredError)) Option {
 	return func(s *Service) {
 		s.onAuthRequired = fn
+	}
+}
+
+// WithKubernetesMode tells the service whether muster runs against an
+// apiserver. In Kubernetes mode a stdio definition is refused rather than
+// started, because its subprocess would run inside the muster pod under
+// muster's ServiceAccount (issue #1067).
+func WithKubernetesMode(kubernetesMode bool) Option {
+	return func(s *Service) {
+		s.kubernetesMode = kubernetesMode
 	}
 }
 
@@ -339,6 +355,9 @@ func (s *Service) ValidateConfiguration() error {
 	// Type-specific validation
 	switch s.definition.Type {
 	case api.MCPServerTypeStdio:
+		if err := api.ValidateStdioAllowed(string(s.definition.Type), s.kubernetesMode); err != nil {
+			return err
+		}
 		if s.definition.Command == "" {
 			return fmt.Errorf("command is required for stdio type")
 		}
@@ -634,6 +653,13 @@ func (s *Service) getRemoteInitContext(ctx context.Context) (context.Context, co
 func (s *Service) createAndInitializeClient(ctx context.Context) error {
 	s.clientInitMutex.Lock()
 	defer s.clientInitMutex.Unlock()
+
+	// Refuse here and not only at admission: this is the call that spawns the
+	// process, so it also covers definitions that reached the orchestrator
+	// through a path with no aggregator tool call behind it (issue #1067).
+	if err := api.ValidateStdioAllowed(string(s.definition.Type), s.kubernetesMode); err != nil {
+		return err
+	}
 
 	// Build client configuration from service definition
 	// Note: Headers can be nil - the factory and client constructors handle nil maps gracefully

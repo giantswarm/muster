@@ -35,7 +35,13 @@ func (u IssuerURL) Normalize() string {
 // MCPServerSpec defines the desired state of MCPServer
 type MCPServerSpec struct {
 	// Type specifies how this MCP server should be executed.
-	// Supported values: "stdio" for local processes, "streamable-http" for HTTP-based servers, "sse" for Server-Sent Events
+	// Supported values: "stdio" for local processes, "streamable-http" for HTTP-based servers, "sse" for Server-Sent Events.
+	//
+	// "stdio" is CLI-only. A stdio server is started as a subprocess of the muster
+	// process, so a muster running in Kubernetes mode rejects it: the tool handlers
+	// fail the call, and a CR applied directly through the API server is reconciled
+	// to state Failed instead of spawning a process in the muster pod. Run the MCP
+	// server as its own workload and use "streamable-http" or "sse" instead.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Enum=stdio;streamable-http;sse
 	Type string `json:"type" yaml:"type"`

@@ -356,11 +356,14 @@ type MockStatusUpdater struct {
 }
 
 // NewMockStatusUpdater creates a new mock status updater.
+//
+// The mode defaults to filesystem: most reconciler tests use stdio fixtures,
+// which only Kubernetes mode refuses (issue #1067). Tests about the refusal set
+// KubernetesMode explicitly.
 func NewMockStatusUpdater() *MockStatusUpdater {
 	return &MockStatusUpdater{
-		MCPServers:     make(map[string]*musterv1alpha1.MCPServer),
-		Workflows:      make(map[string]*musterv1alpha1.Workflow),
-		KubernetesMode: true,
+		MCPServers: make(map[string]*musterv1alpha1.MCPServer),
+		Workflows:  make(map[string]*musterv1alpha1.Workflow),
 	}
 }
 

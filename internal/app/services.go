@@ -118,22 +118,27 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	toolChecker := api.NewToolChecker()
 	toolCaller := api.NewToolCaller()
 
-	orchConfig := orchestrator.Config{
-		Aggregator: cfg.MusterConfig.Aggregator,
-		Yolo:       cfg.Yolo,
-	}
-
-	orch := orchestrator.New(orchConfig)
-
-	// Get the service registry
-	registry := orch.GetServiceRegistry()
-
 	// Step 1: Create unified muster client once
 	// This avoids redundant Kubernetes connection attempts and CRD validation
 	musterClient, err := createMusterClientWithConfig(cfg.ConfigPath, cfg.Debug, *cfg.MusterConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create muster client: %w", err)
 	}
+
+	// The client is created first because the orchestrator needs its resolved
+	// mode: the configured Kubernetes flag can still fall back to the
+	// filesystem, and only the resolved mode decides whether stdio MCPServers
+	// may be started (issue #1067).
+	orchConfig := orchestrator.Config{
+		Aggregator:     cfg.MusterConfig.Aggregator,
+		Yolo:           cfg.Yolo,
+		KubernetesMode: musterClient.IsKubernetesMode(),
+	}
+
+	orch := orchestrator.New(orchConfig)
+
+	// Get the service registry
+	registry := orch.GetServiceRegistry()
 
 	// Step 2: Create and register adapters using the muster client
 	// This is critical - APIs need handlers to be registered first

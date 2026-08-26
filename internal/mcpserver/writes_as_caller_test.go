@@ -33,7 +33,15 @@ type stubMusterClient struct {
 	created  []string
 	updated  []string
 	deleted  []string
+
+	// filesystem flips the reported mode. It defaults to Kubernetes mode
+	// because every test in this file exercises the Kubernetes-mode write
+	// path; the mode now also decides whether a stdio definition is admitted
+	// at all (issue #1067).
+	filesystem bool
 }
+
+func (s *stubMusterClient) IsKubernetesMode() bool { return !s.filesystem }
 
 func (s *stubMusterClient) GetMCPServer(_ context.Context, name, namespace string) (*musterv1alpha1.MCPServer, error) {
 	if s.existing != nil && s.existing.Name == name {
@@ -141,8 +149,8 @@ func existingServer() *musterv1alpha1.MCPServer {
 	obj := &musterv1alpha1.MCPServer{}
 	obj.Name = "test-server"
 	obj.Namespace = "test-ns"
-	obj.Spec.Type = "stdio"
-	obj.Spec.Command = "echo"
+	obj.Spec.Type = "streamable-http"
+	obj.Spec.URL = "http://example.com/mcp"
 	return obj
 }
 
@@ -157,8 +165,8 @@ func TestWritesAsCaller_IdentityReachesWrite(t *testing.T) {
 		tool string
 		args map[string]interface{}
 	}{
-		{"mcpserver_create", map[string]interface{}{"name": "test-server", "type": "stdio", "command": "echo"}},
-		{"mcpserver_update", map[string]interface{}{"name": "test-server", "command": "echo2"}},
+		{"mcpserver_create", map[string]interface{}{"name": "test-server", "type": "streamable-http", "url": "http://example.com/mcp"}},
+		{"mcpserver_update", map[string]interface{}{"name": "test-server", "url": "http://example.com/mcp2"}},
 		{"mcpserver_delete", map[string]interface{}{"name": "test-server"}},
 	}
 
@@ -198,7 +206,7 @@ func TestWritesAsCaller_MissingAudience(t *testing.T) {
 			ctx := server.ContextWithIDToken(context.Background(), testJWT(t, aud))
 
 			result, err := h.adapter.ExecuteTool(ctx, "mcpserver_create",
-				map[string]interface{}{"name": "test-server", "type": "stdio", "command": "echo"})
+				map[string]interface{}{"name": "test-server", "type": "streamable-http", "url": "http://example.com/mcp"})
 			if err != nil {
 				t.Fatalf("ExecuteTool: %v", err)
 			}
@@ -241,8 +249,8 @@ func TestWritesAsCaller_ForbiddenMapsToPermissionError(t *testing.T) {
 		verb string
 		args map[string]interface{}
 	}{
-		{"mcpserver_create", "create", map[string]interface{}{"name": "test-server", "type": "stdio", "command": "echo"}},
-		{"mcpserver_update", "update", map[string]interface{}{"name": "test-server", "command": "echo2"}},
+		{"mcpserver_create", "create", map[string]interface{}{"name": "test-server", "type": "streamable-http", "url": "http://example.com/mcp"}},
+		{"mcpserver_update", "update", map[string]interface{}{"name": "test-server", "url": "http://example.com/mcp2"}},
 		{"mcpserver_delete", "delete", map[string]interface{}{"name": "test-server"}},
 	}
 
@@ -273,7 +281,7 @@ func TestWritesAsCaller_UnauthorizedMapsToRelogin(t *testing.T) {
 	ctx := server.ContextWithIDToken(context.Background(), testJWT(t, DefaultKubernetesAudience))
 
 	result, err := h.adapter.ExecuteTool(ctx, "mcpserver_create",
-		map[string]interface{}{"name": "test-server", "type": "stdio", "command": "echo"})
+		map[string]interface{}{"name": "test-server", "type": "streamable-http", "url": "http://example.com/mcp"})
 	if err != nil {
 		t.Fatalf("ExecuteTool: %v", err)
 	}
@@ -290,7 +298,7 @@ func TestWritesAsCaller_FlagOff(t *testing.T) {
 	ctx := server.ContextWithIDToken(context.Background(), testJWT(t, DefaultKubernetesAudience))
 
 	result, err := adapter.ExecuteTool(ctx, "mcpserver_create",
-		map[string]interface{}{"name": "another-server", "type": "stdio", "command": "echo"})
+		map[string]interface{}{"name": "another-server", "type": "streamable-http", "url": "http://example.com/mcp"})
 	if err != nil {
 		t.Fatalf("ExecuteTool: %v", err)
 	}
@@ -308,7 +316,7 @@ func TestWritesAsCaller_ValidateUntouched(t *testing.T) {
 	h := newCallerHarness(t, nil, nil)
 
 	result, err := h.adapter.ExecuteTool(context.Background(), "mcpserver_validate",
-		map[string]interface{}{"name": "test-server", "type": "stdio", "command": "echo"})
+		map[string]interface{}{"name": "test-server", "type": "streamable-http", "url": "http://example.com/mcp"})
 	if err != nil {
 		t.Fatalf("ExecuteTool: %v", err)
 	}
