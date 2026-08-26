@@ -164,3 +164,26 @@ A Helm chart for muster - Universal Control Plane for AI Agents built on MCP
 | networkPolicy.kubernetes.worldExcludedCIDRs[2] | string | `"192.168.0.0/16"` |  |
 | networkPolicy.kubernetes.worldExcludedCIDRs[3] | string | `"169.254.0.0/16"` |  |
 | networkPolicy.kubernetes.additionalEgress | list | `[]` |  |
+
+## MCP server types
+
+`MCPServer` resources support `type: streamable-http` and `type: sse` in a
+deployed muster. Both reach the MCP server over HTTP, so the server runs as its
+own workload with its own identity and its own RBAC.
+
+`type: stdio` is **CLI-only** and is rejected by this deployment. A stdio server
+is started as a subprocess of the muster process, so accepting one here would
+let anyone who may write `MCPServer` resources execute code inside the muster
+pod as muster's ServiceAccount. muster refuses it in three places:
+
+* `mcpserver_validate`, `mcpserver_create`, and `mcpserver_update` fail the tool
+  call with a message naming the remote alternatives.
+* a stdio `MCPServer` applied straight through the API server (bypassing the
+  aggregator) is reconciled to `status.state: Failed` with the same message,
+  and no subprocess is started.
+* the service layer refuses to build a stdio client at all.
+
+stdio keeps working when muster runs as a local CLI (`muster serve` against a
+config directory), which is what it exists for. To use an existing stdio MCP
+server from a deployed muster, run it as a Deployment behind a Service and
+register it with `type: streamable-http`.

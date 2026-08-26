@@ -55,6 +55,10 @@ type Orchestrator struct {
 	aggregator config.AggregatorConfig
 	yolo       bool
 
+	// kubernetesMode mirrors the MusterClient's mode, so MCPServer services
+	// are constructed knowing whether stdio is allowed at all (issue #1067).
+	kubernetesMode bool
+
 	// Service tracking
 	stopReasons map[string]StopReason
 
@@ -75,6 +79,11 @@ type Orchestrator struct {
 type Config struct {
 	Aggregator config.AggregatorConfig
 	Yolo       bool
+
+	// KubernetesMode reports whether muster runs against an apiserver. It comes
+	// from the MusterClient rather than from the config flag, so a configured
+	// Kubernetes mode that fell back to the filesystem keeps stdio working.
+	KubernetesMode bool
 }
 
 // New creates a new orchestrator.
@@ -85,6 +94,7 @@ func New(cfg Config) *Orchestrator {
 		registry:               registry,
 		aggregator:             cfg.Aggregator,
 		yolo:                   cfg.Yolo,
+		kubernetesMode:         cfg.KubernetesMode,
 		stopReasons:            make(map[string]StopReason),
 		stateChangeSubscribers: make([]chan<- ServiceStateChangedEvent, 0),
 	}
@@ -176,6 +186,14 @@ func (o *Orchestrator) createMCPServerService(ctx context.Context, mcpServerInfo
 // registerMCPServerService creates an MCPServer service from MCPServerInfo and
 // registers it in the service registry without starting it.
 func (o *Orchestrator) registerMCPServerService(mcpServerInfo api.MCPServerInfo) (services.Service, error) {
+	// Refused definitions are not registered at all: an entry in the registry
+	// would be retried by the backoff loop and startable through the
+	// imperative service tools, both of which would keep re-attempting a
+	// subprocess muster must not spawn in this mode (issue #1067).
+	if err := api.ValidateStdioAllowed(mcpServerInfo.Type, o.kubernetesMode); err != nil {
+		return nil, err
+	}
+
 	apiDef := &api.MCPServer{
 		Name:        mcpServerInfo.Name,
 		Type:        api.MCPServerType(mcpServerInfo.Type),
@@ -196,7 +214,9 @@ func (o *Orchestrator) registerMCPServerService(mcpServerInfo api.MCPServerInfo)
 	// is published so that the aggregator registry is populated before any
 	// subscriber (e.g. the reconciler or the test readiness check) observes the
 	// Auth Required state.
-	mcpService, err := mcpserver.NewService(apiDef, mcpserver.WithAuthRequiredHook(o.handleAuthRequiredServer))
+	mcpService, err := mcpserver.NewService(apiDef,
+		mcpserver.WithAuthRequiredHook(o.handleAuthRequiredServer),
+		mcpserver.WithKubernetesMode(o.kubernetesMode))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create MCPServer service: %w", err)
 	}

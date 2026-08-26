@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
@@ -266,6 +267,33 @@ const (
 // Remote servers use connected/disconnected states rather than running/stopped.
 func (t MCPServerType) IsRemote() bool {
 	return t == MCPServerTypeStreamableHTTP || t == MCPServerTypeSSE
+}
+
+// ErrStdioNotAllowedInKubernetesMode reports a "stdio" MCPServer submitted to a
+// muster running in Kubernetes mode. A stdio server is started as a subprocess
+// of the muster process, so accepting one in a deployed aggregator would turn
+// "may write MCPServer resources" into "may execute code in the muster pod as
+// muster's ServiceAccount" (issue #1067). The capability is removed rather than
+// narrowed to a command allowlist: the pod image ships muster, not a fleet of
+// MCP server binaries, and in-cluster servers are reached over HTTP.
+var ErrStdioNotAllowedInKubernetesMode = errors.New(
+	`type "stdio" is not supported in Kubernetes mode: a stdio server is started as a subprocess of the muster pod. ` +
+		`Run the MCP server as its own workload and register it with type "streamable-http" or "sse". ` +
+		`stdio stays available when muster runs as a local CLI (filesystem mode)`)
+
+// ValidateStdioAllowed reports whether a server type may run in the current
+// mode, returning ErrStdioNotAllowedInKubernetesMode for stdio in Kubernetes
+// mode and nil otherwise.
+//
+// Callers pass the mode they already hold — client.IsKubernetesMode() for the
+// tool handlers and reconciler, the flag plumbed down from it for the
+// orchestrator and the service — so admission, reconciliation, and process
+// start share one definition of the policy instead of three.
+func ValidateStdioAllowed(serverType string, kubernetesMode bool) error {
+	if kubernetesMode && serverType == string(MCPServerTypeStdio) {
+		return ErrStdioNotAllowedInKubernetesMode
+	}
+	return nil
 }
 
 // RegisteredByAnnotation records the authenticated subject that registered an

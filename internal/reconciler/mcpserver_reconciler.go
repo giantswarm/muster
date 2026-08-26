@@ -2,6 +2,7 @@ package reconciler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -133,6 +134,16 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileReques
 
 	// Check if service exists
 	existingService, exists := r.serviceRegistry.Get(req.Name)
+
+	// A definition this mode must not run never reaches create/update: a stdio
+	// CR applied straight through the apiserver bypasses the tool handlers'
+	// admission gate, so the reconciler is where it has to fail visibly
+	// instead of spawning a subprocess in the muster pod (issue #1067).
+	if rejectErr := api.ValidateStdioAllowed(mcpServerInfo.Type, r.isKubernetesMode()); rejectErr != nil {
+		result := r.reconcileReject(req, rejectErr, exists)
+		r.syncStatus(ctx, req.Name, req.Namespace, result.Error, nil)
+		return result
+	}
 
 	var result ReconcileResult
 	var processedRestart *time.Time
@@ -297,6 +308,13 @@ func (r *MCPServerReconciler) applyStatusFromService(server *musterv1alpha1.MCPS
 		if reconcileErr != nil {
 			// Sanitize error message to remove sensitive data before CRD exposure
 			server.Status.LastError = SanitizeErrorMessage(reconcileErr.Error())
+			// A definition muster refuses to run will never start, so it reads
+			// as Failed rather than as a server merely not started yet
+			// (issue #1067). Transient reconcile errors keep the stopped /
+			// disconnected reading and are retried.
+			if errors.Is(reconcileErr, api.ErrStdioNotAllowedInKubernetesMode) {
+				server.Status.State = musterv1alpha1.MCPServerStateFailed
+			}
 		}
 	}
 }
@@ -511,6 +529,33 @@ func (r *MCPServerReconciler) reconcileRestart(req ReconcileRequest, requestedAt
 		}
 	}
 	return ReconcileResult{}
+}
+
+// isKubernetesMode reports whether muster is running against an apiserver.
+// The status updater is the MusterClient itself in both modes, so it carries
+// the same signal the tool handlers gate on. A reconciler wired without one
+// (tests, filesystem-only setups) is treated as filesystem mode.
+func (r *MCPServerReconciler) isKubernetesMode() bool {
+	return r.StatusUpdater != nil && r.StatusUpdater.IsKubernetesMode()
+}
+
+// reconcileReject refuses a definition muster must not run in the current mode.
+//
+// Any service left over from an earlier muster version is torn down first, so
+// the subprocess does not survive the upgrade that introduced the rejection.
+// The error is returned for the CRD status; no requeue is requested because the
+// rejection is terminal until the spec changes, which triggers a fresh
+// reconcile on its own.
+func (r *MCPServerReconciler) reconcileReject(req ReconcileRequest, rejectErr error, exists bool) ReconcileResult {
+	logging.Warn("MCPServerReconciler", "Refusing MCPServer %s: %v", req.Name, rejectErr)
+
+	if exists {
+		if err := r.orchestratorAPI.RemoveService(req.Name); err != nil && !IsNotFoundError(err) {
+			logging.Error("MCPServerReconciler", err, "Failed to remove refused MCPServer service %s", req.Name)
+		}
+	}
+
+	return ReconcileResult{Error: rejectErr}
 }
 
 // reconcileCreate handles creating a new MCPServer service. The bool reports

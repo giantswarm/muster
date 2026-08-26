@@ -1005,6 +1005,12 @@ func (a *Adapter) validateMCPServer(server *musterv1alpha1.MCPServer) error {
 
 	switch server.Spec.Type {
 	case string(api.MCPServerTypeStdio):
+		// Rejected at admission time in Kubernetes mode, so mcpserver_validate
+		// reports it before a caller writes the CR and create/update fail the
+		// tool call instead of the connect attempt (issue #1067).
+		if err := api.ValidateStdioAllowed(server.Spec.Type, a.client.IsKubernetesMode()); err != nil {
+			return err
+		}
 		if server.Spec.Command == "" {
 			return fmt.Errorf("command is required for stdio type")
 		}

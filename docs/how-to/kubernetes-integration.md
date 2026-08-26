@@ -22,6 +22,12 @@ Muster can connect to Kubernetes clusters through an MCP server, providing AI ag
 
 Create an MCP server configuration for Kubernetes:
 
+> `type: stdio` below runs `mcp-kubernetes` as a subprocess of muster, which is
+> what the local CLI is for. A muster deployed *into* Kubernetes rejects stdio
+> MCPServers — there, run the Kubernetes MCP server as its own workload and
+> register it with `type: streamable-http`. See
+> [MCPServer CRD reference](../reference/crds.md#server-types-and-where-stdio-applies).
+
 ```yaml
 # kubernetes-mcp.yaml
 apiVersion: muster.giantswarm.io/v1alpha1

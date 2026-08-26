@@ -1,0 +1,94 @@
+name: "mcpserver-stdio-filesystem-mode-allowed"
+description: "stdio MCPServers stay accepted when muster runs as a local CLI"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "stdio", "validate", "create", "security", "core-api", "regression"]
+timeout: "2m"
+
+# Test Story: type "stdio" is CLI-only, and this is the CLI half.
+#
+# Issue #1067 removed stdio from Kubernetes mode: there, a stdio definition
+# would start a subprocess inside the muster pod under muster's ServiceAccount,
+# so mcpserver_validate/create/update refuse it and the reconciler fails the CR
+# instead of spawning. This suite runs `muster serve` from a config directory,
+# i.e. filesystem mode, which is exactly where launching subprocesses is the
+# point -- so nothing here may change.
+#
+# Given: muster running in filesystem mode
+# When:  I validate, create, read, and update a stdio MCPServer definition
+# Then:  Every call succeeds and none of them carries the Kubernetes-mode
+#        rejection
+#
+# The Kubernetes-mode half needs an apiserver and is covered by
+# TestWritesAsCallerEnvtest/"stdio refused before any write" (make test-envtest)
+# plus the unit gates in internal/mcpserver, internal/reconciler,
+# internal/orchestrator, and internal/services/mcpserver.
+
+steps:
+- id: "validate-stdio-definition"
+  description: "Validation accepts a stdio definition in filesystem mode"
+  tool: "core_mcpserver_validate"
+  args:
+    name: "stdio-fs-server"
+    type: "stdio"
+    command: "echo"
+    args: ["stdio-filesystem-mode"]
+    autoStart: false
+  expected:
+    success: true
+    not_contains: ["not supported in Kubernetes mode"]
+
+- id: "create-stdio-definition"
+  description: "Create the stdio MCP server"
+  tool: "core_mcpserver_create"
+  args:
+    name: "stdio-fs-server"
+    type: "stdio"
+    command: "echo"
+    args: ["stdio-filesystem-mode"]
+    autoStart: false
+  expected:
+    success: true
+    not_contains: ["not supported in Kubernetes mode"]
+
+- id: "get-stdio-definition"
+  description: "The definition is stored with its stdio type and command intact"
+  tool: "core_mcpserver_get"
+  args:
+    name: "stdio-fs-server"
+  expected:
+    success: true
+    json_path:
+      name: "stdio-fs-server"
+      type: "stdio"
+      command: "echo"
+
+- id: "update-stdio-definition"
+  description: "Updating a stdio definition is accepted too"
+  tool: "core_mcpserver_update"
+  args:
+    name: "stdio-fs-server"
+    type: "stdio"
+    command: "echo"
+    args: ["stdio-filesystem-mode-updated"]
+    autoStart: false
+  expected:
+    success: true
+    not_contains: ["not supported in Kubernetes mode"]
+
+- id: "list-includes-stdio-definition"
+  description: "The stdio server is listed like any other"
+  tool: "core_mcpserver_list"
+  expected:
+    success: true
+    contains: ["stdio-fs-server"]
+
+cleanup:
+- id: "delete-stdio-definition"
+  description: "Delete the stdio MCP server"
+  tool: "core_mcpserver_delete"
+  args:
+    name: "stdio-fs-server"
+  expected:
+    success: true
+  continue_on_failure: true

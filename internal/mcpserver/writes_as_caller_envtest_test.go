@@ -99,8 +99,10 @@ func TestWritesAsCallerEnvtest(t *testing.T) {
 	allowedCtx := server.ContextWithIDToken(ctx, allowedToken)
 	deniedCtx := server.ContextWithIDToken(ctx, deniedToken)
 
+	// Remote type: Kubernetes mode refuses stdio outright (issue #1067), so the
+	// fixture has to be a definition the aggregator would actually accept.
 	createArgs := func(name string) map[string]interface{} {
-		return map[string]interface{}{"name": name, "type": "stdio", "command": "echo"}
+		return map[string]interface{}{"name": name, "type": "streamable-http", "url": "http://example.com/mcp"}
 	}
 
 	t.Run("allowed user create-update-delete", func(t *testing.T) {
@@ -112,12 +114,12 @@ func TestWritesAsCallerEnvtest(t *testing.T) {
 		if err != nil {
 			t.Fatalf("created CR not found: %v", err)
 		}
-		if created.Spec.Command != "echo" {
+		if created.Spec.URL != "http://example.com/mcp" {
 			t.Fatalf("unexpected spec: %+v", created.Spec)
 		}
 
 		result, err = adapter.ExecuteTool(allowedCtx, "mcpserver_update",
-			map[string]interface{}{"name": "allowed-server", "command": "echo2"})
+			map[string]interface{}{"name": "allowed-server", "url": "http://example.com/mcp2"})
 		if err != nil || result.IsError {
 			t.Fatalf("update: err=%v result=%s", err, resultText(t, result))
 		}
@@ -125,7 +127,7 @@ func TestWritesAsCallerEnvtest(t *testing.T) {
 		if err != nil {
 			t.Fatalf("get after update: %v", err)
 		}
-		if updated.Spec.Command != "echo2" {
+		if updated.Spec.URL != "http://example.com/mcp2" {
 			t.Fatalf("update did not land: %+v", updated.Spec)
 		}
 
@@ -143,6 +145,62 @@ func TestWritesAsCallerEnvtest(t *testing.T) {
 		}
 		if _, err := saClient.GetMCPServer(ctx, "allowed-server", "default"); !apierrors.IsNotFound(err) {
 			t.Fatalf("CR still present after delete: %v", err)
+		}
+	})
+
+	t.Run("stdio refused before any write", func(t *testing.T) {
+		stdioArgs := map[string]interface{}{"name": "stdio-server", "type": "stdio", "command": "echo"}
+
+		// validate reports the rejection, so a caller can check before writing.
+		result, err := adapter.ExecuteTool(allowedCtx, "mcpserver_validate", stdioArgs)
+		if err != nil {
+			t.Fatalf("validate: %v", err)
+		}
+		if !result.IsError || !strings.Contains(resultText(t, result), "not supported in Kubernetes mode") {
+			t.Fatalf("validate accepted stdio in Kubernetes mode: %s", resultText(t, result))
+		}
+
+		// create fails the tool call for a user who *is* allowed to write
+		// mcpservers, and leaves no CR behind.
+		result, err = adapter.ExecuteTool(allowedCtx, "mcpserver_create", stdioArgs)
+		if err != nil {
+			t.Fatalf("create: %v", err)
+		}
+		text := resultText(t, result)
+		if !result.IsError {
+			t.Fatalf("create accepted stdio in Kubernetes mode: %s", text)
+		}
+		for _, want := range []string{"not supported in Kubernetes mode", "streamable-http", "sse"} {
+			if !strings.Contains(text, want) {
+				t.Errorf("rejection %q does not mention %q", text, want)
+			}
+		}
+		if _, err := saClient.GetMCPServer(ctx, "stdio-server", "default"); !apierrors.IsNotFound(err) {
+			t.Fatalf("refused stdio create still wrote the CR: %v", err)
+		}
+
+		// An update that switches an accepted server over to stdio is refused
+		// the same way — the gate is on the resulting spec, not on the request.
+		if result, err := adapter.ExecuteTool(allowedCtx, "mcpserver_create", createArgs("switch-server")); err != nil || result.IsError {
+			t.Fatalf("setup create: err=%v result=%s", err, resultText(t, result))
+		}
+		t.Cleanup(func() {
+			_, _ = adapter.ExecuteTool(allowedCtx, "mcpserver_delete", map[string]interface{}{"name": "switch-server"})
+		})
+		result, err = adapter.ExecuteTool(allowedCtx, "mcpserver_update",
+			map[string]interface{}{"name": "switch-server", "type": "stdio", "command": "echo"})
+		if err != nil {
+			t.Fatalf("update: %v", err)
+		}
+		if !result.IsError || !strings.Contains(resultText(t, result), "not supported in Kubernetes mode") {
+			t.Fatalf("update switched a server to stdio in Kubernetes mode: %s", resultText(t, result))
+		}
+		switched, err := saClient.GetMCPServer(ctx, "switch-server", "default")
+		if err != nil {
+			t.Fatalf("get after refused update: %v", err)
+		}
+		if switched.Spec.Type != "streamable-http" {
+			t.Fatalf("refused update still changed the spec: %+v", switched.Spec)
 		}
 	})
 
@@ -260,7 +318,7 @@ func TestWritesAsCallerEnvtest(t *testing.T) {
 		}
 
 		result, err = adapter.ExecuteTool(deniedCtx, "mcpserver_update",
-			map[string]interface{}{"name": "victim-server", "command": "evil"})
+			map[string]interface{}{"name": "victim-server", "url": "http://evil.example.com/mcp"})
 		if err != nil {
 			t.Fatalf("ExecuteTool: %v", err)
 		}
@@ -271,7 +329,7 @@ func TestWritesAsCallerEnvtest(t *testing.T) {
 		if err != nil {
 			t.Fatalf("get victim: %v", err)
 		}
-		if after.Spec.Command != "echo" {
+		if after.Spec.URL != "http://example.com/mcp" {
 			t.Fatalf("denied update still changed the spec: %+v", after.Spec)
 		}
 
