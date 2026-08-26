@@ -1,0 +1,105 @@
+name: "oauth-dcr-fallback"
+category: "behavioral"
+concept: "mcpserver"
+description: "DCR-only authorization server: muster registers itself via RFC 7591 instead of sending its CIMD URL as client_id"
+tags: ["oauth", "authentication", "mcpserver", "dcr"]
+timeout: "2m"
+
+# The IdP does NOT advertise client_id_metadata_document_supported, offers an
+# RFC 7591 registration endpoint, and rejects token requests from client_ids
+# that are not in its registry — the Miro-style "Client Not Registered"
+# behavior. The flow can only complete when muster registers itself via DCR
+# and uses the issued client_id consistently across the authorization request
+# and the code exchange.
+pre_configuration:
+  mock_oauth_servers:
+    - name: "dcr-only-idp"
+      scopes: ["openid", "profile", "mcp:read"]
+      auto_approve: true
+      pkce_required: true
+      token_lifetime: "1h"
+      supports_dcr: true
+      require_registered_client: true
+
+  mcp_servers:
+    - name: "dcr-protected-server"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "dcr-only-idp"
+          scope: "mcp:read"
+        tools:
+          - name: "get_data"
+            description: "Returns data that requires authentication"
+            responses:
+              - response:
+                  data: "authenticated-data"
+
+steps:
+  - id: verify-idp-running
+    description: "Verify the DCR-only IdP is running and has no registrations yet"
+    tool: "test_get_oauth_server_info"
+    args:
+      server: "dcr-only-idp"
+    expected:
+      success: true
+      json_path:
+        dcr_registrations: 0
+
+  - id: request-auth-challenge
+    description: "core_auth_login triggers DCR registration and returns a sign-in URL"
+    tool: "core_auth_login"
+    args:
+      server: "dcr-protected-server"
+    expected:
+      success: true
+      contains:
+        - "Authentication Required"
+
+  - id: verify-dcr-registration-happened
+    description: "Muster registered itself with the IdP via RFC 7591"
+    tool: "test_get_oauth_server_info"
+    args:
+      server: "dcr-only-idp"
+    expected:
+      success: true
+      json_path:
+        dcr_registrations: 1
+
+  - id: complete-oauth-flow
+    description: "Complete the OAuth flow — the strict token endpoint only accepts the DCR-registered client_id"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "dcr-protected-server"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  - id: establish-connection
+    description: "Establish the session connection with the stored token"
+    tool: "core_auth_login"
+    args:
+      server: "dcr-protected-server"
+    expected:
+      success: true
+
+  - id: call-protected-tool
+    description: "Call the protected tool after DCR-based authentication"
+    tool: "x_dcr-protected-server_get_data"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "authenticated-data"
+
+  - id: verify-no-repeat-registration
+    description: "The issuer-keyed credentials are reused — still exactly one registration"
+    tool: "test_get_oauth_server_info"
+    args:
+      server: "dcr-only-idp"
+    expected:
+      success: true
+      json_path:
+        dcr_registrations: 1

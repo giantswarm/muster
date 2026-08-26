@@ -210,8 +210,11 @@ func (c *Client) cacheMetadata(issuer string, metadata *Metadata) {
 		"token_endpoint", metadata.TokenEndpoint)
 }
 
-// ExchangeCode exchanges an authorization code for tokens.
-func (c *Client) ExchangeCode(ctx context.Context, tokenEndpoint, code, redirectURI, clientID, codeVerifier string) (*Token, error) {
+// ExchangeCode exchanges an authorization code for tokens. clientSecret is
+// empty for public clients (CIMD, or DCR registrations with
+// token_endpoint_auth_method "none"); when set it is sent as
+// client_secret_post, which every AS that issues secrets via DCR accepts.
+func (c *Client) ExchangeCode(ctx context.Context, tokenEndpoint, code, redirectURI, clientID, clientSecret, codeVerifier string) (*Token, error) {
 	data := url.Values{
 		"grant_type":    {"authorization_code"},
 		"code":          {code},
@@ -219,8 +222,66 @@ func (c *Client) ExchangeCode(ctx context.Context, tokenEndpoint, code, redirect
 		"client_id":     {clientID},
 		"code_verifier": {codeVerifier},
 	}
+	if clientSecret != "" {
+		data.Set(FormFieldClientSecret, clientSecret)
+	}
 
 	return c.doTokenRequest(ctx, tokenEndpoint, data)
+}
+
+// RegisterClient performs OAuth 2.0 Dynamic Client Registration (RFC 7591)
+// against the given registration endpoint. The metadata must not carry a
+// client_id — the authorization server assigns one in the response.
+func (c *Client) RegisterClient(ctx context.Context, registrationEndpoint string, metadata *ClientMetadata) (*ClientRegistrationResponse, error) {
+	body, err := json.Marshal(metadata)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal client metadata: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, registrationEndpoint, strings.NewReader(string(body)))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create registration request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("registration request failed: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read registration response: %w", err)
+	}
+
+	// RFC 7591 §3.2.1 specifies 201 Created; accept any 2xx for
+	// interoperability with servers that answer 200.
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		// RFC 7591 §3.2.2 error response.
+		var regErr struct {
+			Error            string `json:"error"`
+			ErrorDescription string `json:"error_description"`
+		}
+		if err := json.Unmarshal(respBody, &regErr); err == nil && regErr.Error != "" {
+			if regErr.ErrorDescription != "" {
+				return nil, fmt.Errorf("client registration failed: %s - %s", regErr.Error, regErr.ErrorDescription)
+			}
+			return nil, fmt.Errorf("client registration failed: %s", regErr.Error)
+		}
+		return nil, fmt.Errorf("client registration failed with status %d", resp.StatusCode)
+	}
+
+	var registration ClientRegistrationResponse
+	if err := json.Unmarshal(respBody, &registration); err != nil {
+		return nil, fmt.Errorf("failed to parse registration response: %w", err)
+	}
+	if registration.ClientID == "" {
+		return nil, fmt.Errorf("registration response is missing client_id")
+	}
+
+	return &registration, nil
 }
 
 // doTokenRequest performs a token endpoint request.

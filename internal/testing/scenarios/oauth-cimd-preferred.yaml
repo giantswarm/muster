@@ -1,0 +1,75 @@
+name: "oauth-cimd-preferred"
+category: "behavioral"
+concept: "mcpserver"
+description: "AS advertising CIMD support: muster keeps using its CIMD URL as client_id and never calls the registration endpoint"
+tags: ["oauth", "authentication", "mcpserver", "dcr"]
+timeout: "2m"
+
+# The IdP advertises BOTH client_id_metadata_document_supported and an
+# RFC 7591 registration endpoint. CIMD is spec-preferred and stateless, so
+# muster must use its CIMD URL as client_id and leave the registration
+# endpoint untouched.
+pre_configuration:
+  mock_oauth_servers:
+    - name: "cimd-idp"
+      scopes: ["openid", "profile", "mcp:read"]
+      auto_approve: true
+      pkce_required: true
+      token_lifetime: "1h"
+      supports_cimd: true
+      supports_dcr: true
+
+  mcp_servers:
+    - name: "cimd-protected-server"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "cimd-idp"
+          scope: "mcp:read"
+        tools:
+          - name: "get_data"
+            description: "Returns data that requires authentication"
+            responses:
+              - response:
+                  data: "authenticated-data"
+
+steps:
+  - id: request-auth-challenge
+    description: "core_auth_login returns a sign-in URL without registering a client"
+    tool: "core_auth_login"
+    args:
+      server: "cimd-protected-server"
+    expected:
+      success: true
+      contains:
+        - "Authentication Required"
+
+  - id: complete-oauth-flow
+    description: "Complete the OAuth flow with the CIMD URL as client_id"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "cimd-protected-server"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  - id: call-protected-tool
+    description: "Call the protected tool after CIMD-based authentication"
+    tool: "x_cimd-protected-server_get_data"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "authenticated-data"
+
+  - id: verify-no-dcr-registration
+    description: "The registration endpoint was never called — CIMD is preferred whenever advertised"
+    tool: "test_get_oauth_server_info"
+    args:
+      server: "cimd-idp"
+    expected:
+      success: true
+      json_path:
+        dcr_registrations: 0

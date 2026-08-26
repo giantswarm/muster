@@ -319,6 +319,19 @@ type MockOAuthServerConfig struct {
 	// JWKS, so muster's broker can validate its tokens as a trusted issuer.
 	// Automatically enabled (with UseTLS) when referenced by muster_broker.
 	SignTokens bool `yaml:"sign_tokens,omitempty"`
+
+	// SupportsCIMD advertises client_id_metadata_document_supported in the
+	// AS metadata (CIMD URLs are accepted as client_id).
+	SupportsCIMD bool `yaml:"supports_cimd,omitempty"`
+
+	// SupportsDCR advertises a registration_endpoint and serves RFC 7591
+	// Dynamic Client Registration.
+	SupportsDCR bool `yaml:"supports_dcr,omitempty"`
+
+	// RequireRegisteredClient makes the token endpoint reject client_ids
+	// that are neither the configured client_id nor DCR-registered —
+	// mimicking DCR-only authorization servers ("Client Not Registered").
+	RequireRegisteredClient bool `yaml:"require_registered_client,omitempty"`
 }
 
 // TrustedIssuerConfig defines a trusted issuer for RFC 8693 token exchange

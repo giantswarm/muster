@@ -28,9 +28,11 @@ import (
 //   - Transparent token refresh via the TokenStore
 type DynamicAuthClient struct {
 	baseMCPClient
-	url        string
-	tokenStore transport.TokenStore
-	scope      string
+	url          string
+	tokenStore   transport.TokenStore
+	scope        string
+	clientID     string
+	clientSecret string
 }
 
 // NewDynamicAuthClient creates a new StreamableHTTP-based MCP client with mcp-go's
@@ -41,13 +43,19 @@ type DynamicAuthClient struct {
 //   - url: The MCP server URL
 //   - tokenStore: Adapter providing OAuth tokens (implements transport.TokenStore)
 //   - scope: The OAuth scope for this connection
+//   - clientID: The OAuth client_id the tokens were issued under (CIMD URL or
+//     DCR-registered id); mcp-go sends it on token refresh requests
+//   - clientSecret: The client secret when the issuer registered muster as a
+//     confidential client via DCR; empty for public clients
 //
 // Returns a new DynamicAuthClient ready for initialization.
-func NewDynamicAuthClient(url string, tokenStore transport.TokenStore, scope string) *DynamicAuthClient {
+func NewDynamicAuthClient(url string, tokenStore transport.TokenStore, scope, clientID, clientSecret string) *DynamicAuthClient {
 	return &DynamicAuthClient{
-		url:        url,
-		tokenStore: tokenStore,
-		scope:      scope,
+		url:          url,
+		tokenStore:   tokenStore,
+		scope:        scope,
+		clientID:     clientID,
+		clientSecret: clientSecret,
 	}
 }
 
@@ -66,8 +74,10 @@ func (c *DynamicAuthClient) Initialize(ctx context.Context) error {
 	var opts []transport.StreamableHTTPCOption
 	if c.tokenStore != nil {
 		opts = append(opts, transport.WithHTTPOAuth(transport.OAuthConfig{
-			TokenStore: c.tokenStore,
-			Scopes:     []string{c.scope},
+			ClientID:     c.clientID,
+			ClientSecret: c.clientSecret,
+			TokenStore:   c.tokenStore,
+			Scopes:       []string{c.scope},
 		}))
 	}
 

@@ -109,6 +109,20 @@ type OAuthServerConfig struct {
 	// (e.g. muster's broker) can verify against this server's JWKS. Default false
 	// keeps the legacy alg:none ID tokens and empty JWKS used by most scenarios.
 	SignTokens bool
+
+	// SupportsCIMD advertises client_id_metadata_document_supported in the
+	// AS metadata, signalling that CIMD URLs are accepted as client_id.
+	SupportsCIMD bool
+
+	// SupportsDCR advertises a registration_endpoint in the AS metadata and
+	// serves RFC 7591 Dynamic Client Registration at /register.
+	SupportsDCR bool
+
+	// RequireRegisteredClient makes the token endpoint reject authorization
+	// codes issued to client_ids that are neither the configured ClientID
+	// nor a DCR-registered client — mimicking DCR-only authorization servers
+	// that treat unknown client_ids (e.g. CIMD URLs) as unregistered.
+	RequireRegisteredClient bool
 }
 
 // OAuthErrorSimulation allows simulating error conditions
@@ -139,6 +153,10 @@ type OAuthServer struct {
 	authCodes    map[string]*authCodeEntry // code -> entry
 	issuedTokens map[string]*issuedToken   // access_token -> token info
 
+	// DCR state (populated when config.SupportsDCR is true)
+	registeredClients map[string]*registeredClient // client_id -> registration
+	registrationCount int                          // total /register requests served
+
 	// clock is the clock used for time operations
 	clock Clock
 
@@ -149,6 +167,13 @@ type OAuthServer struct {
 	// JWT signing material (populated when config.SignTokens is true)
 	signingKey *ecdsa.PrivateKey
 	signingKID string
+}
+
+// registeredClient records one RFC 7591 dynamic client registration.
+type registeredClient struct {
+	ClientID        string
+	RedirectURIs    []string
+	ApplicationType string
 }
 
 type authCodeEntry struct {
@@ -201,10 +226,11 @@ func NewOAuthServer(config OAuthServerConfig) *OAuthServer {
 	}
 
 	s := &OAuthServer{
-		config:       config,
-		authCodes:    make(map[string]*authCodeEntry),
-		issuedTokens: make(map[string]*issuedToken),
-		clock:        clock,
+		config:            config,
+		authCodes:         make(map[string]*authCodeEntry),
+		issuedTokens:      make(map[string]*issuedToken),
+		registeredClients: make(map[string]*registeredClient),
+		clock:             clock,
 	}
 
 	if config.SignTokens {
@@ -270,6 +296,7 @@ func (s *OAuthServer) Start(ctx context.Context) (int, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/oauth-authorization-server", s.handleMetadata)
 	mux.HandleFunc("/.well-known/openid-configuration", s.handleMetadata)
+	mux.HandleFunc("/register", s.handleRegister)
 	mux.HandleFunc("/authorize", s.handleAuthorize)
 	mux.HandleFunc("/token", s.handleToken)
 	mux.HandleFunc("/userinfo", s.handleUserInfo)
@@ -614,8 +641,98 @@ func (s *OAuthServer) handleMetadata(w http.ResponseWriter, r *http.Request) {
 		"id_token_signing_alg_values_supported": []string{"RS256"},
 	}
 
+	if s.config.SupportsCIMD {
+		metadata["client_id_metadata_document_supported"] = true
+	}
+	if s.config.SupportsDCR {
+		metadata["registration_endpoint"] = s.config.Issuer + "/register"
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(metadata)
+}
+
+// handleRegister implements RFC 7591 Dynamic Client Registration. Only
+// served when SupportsDCR is enabled; the issued client_id is accepted at
+// the authorize and token endpoints.
+func (s *OAuthServer) handleRegister(w http.ResponseWriter, r *http.Request) {
+	if !s.config.SupportsDCR {
+		http.NotFound(w, r)
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		RedirectURIs    []string `json:"redirect_uris"`
+		ApplicationType string   `json:"application_type"`
+		ClientID        string   `json:"client_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			pkgoauth.JSONFieldError:            "invalid_client_metadata",
+			pkgoauth.JSONFieldErrorDescription: "request body is not valid JSON",
+		})
+		return
+	}
+
+	// RFC 7591 §2: the client must not pick its own client_id.
+	if req.ClientID != "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			pkgoauth.JSONFieldError:            "invalid_client_metadata",
+			pkgoauth.JSONFieldErrorDescription: "client_id must not be present on registration requests",
+		})
+		return
+	}
+
+	client := &registeredClient{
+		ClientID:        "dcr-" + generateOpaqueToken(),
+		RedirectURIs:    req.RedirectURIs,
+		ApplicationType: req.ApplicationType,
+	}
+
+	s.mu.Lock()
+	s.registeredClients[client.ClientID] = client
+	s.registrationCount++
+	s.mu.Unlock()
+
+	if s.config.Debug {
+		fmt.Fprintf(os.Stderr, "🔐 DCR registration: client_id=%s application_type=%s\n",
+			client.ClientID, client.ApplicationType)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"client_id":                  client.ClientID,
+		"redirect_uris":              client.RedirectURIs,
+		"token_endpoint_auth_method": "none",
+	})
+}
+
+// isAcceptedClientID reports whether the client_id is the statically
+// configured one or a DCR-registered one.
+func (s *OAuthServer) isAcceptedClientID(clientID string) bool {
+	if clientID == s.config.ClientID {
+		return true
+	}
+	s.mu.RLock()
+	_, registered := s.registeredClients[clientID]
+	s.mu.RUnlock()
+	return registered
+}
+
+// RegistrationCount returns the number of RFC 7591 registrations served.
+func (s *OAuthServer) RegistrationCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.registrationCount
 }
 
 // handleAuthorize handles authorization requests
@@ -644,8 +761,9 @@ func (s *OAuthServer) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate client ID
-	if s.config.ClientID != "" && clientID != s.config.ClientID {
+	// Validate client ID: the statically configured client is always
+	// accepted; DCR-registered clients are accepted too.
+	if s.config.ClientID != "" && !s.isAcceptedClientID(clientID) {
 		http.Error(w, "invalid_client", http.StatusBadRequest)
 		return
 	}
@@ -763,6 +881,19 @@ func (s *OAuthServer) handleAuthCodeExchange(w http.ResponseWriter, r *http.Requ
 	if s.config.Debug {
 		fmt.Fprintf(os.Stderr, "🔐 Token exchange request: code=%s..., client_id=%s\n",
 			code[:min(16, len(code))], clientID)
+	}
+
+	// DCR-only servers look unknown client_ids up as literal strings in
+	// their client registry and reject them — the "Client Not Registered"
+	// failure mode this flag exists to reproduce.
+	if s.config.RequireRegisteredClient && !s.isAcceptedClientID(clientID) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			pkgoauth.JSONFieldError:            pkgoauth.ErrInvalidClient,
+			pkgoauth.JSONFieldErrorDescription: "client not registered",
+		})
+		return
 	}
 
 	s.mu.Lock()

@@ -20,9 +20,35 @@
 //
 //   - TokenStore: In-memory storage for OAuth tokens, indexed by session and issuer
 //   - StateStore: Manages OAuth state parameters for CSRF protection
+//   - ClientCredentialStore: Issuer-keyed storage for DCR-issued client credentials
 //   - Client: Handles OAuth flows, code exchange, and token refresh
 //   - Handler: HTTP handler for the /oauth/callback endpoint
 //   - Manager: Coordinates OAuth flows and integrates with the aggregator
+//
+// # Client Identification (CIMD vs DCR)
+//
+// Muster identifies itself to upstream authorization servers per issuer, in
+// this order:
+//
+//  1. CIMD: when the AS metadata advertises
+//     client_id_metadata_document_supported, muster's self-hosted Client ID
+//     Metadata Document URL is used as client_id. This is stateless,
+//     secret-free, and portable across authorization servers (SEP-2352).
+//  2. DCR: otherwise, when the AS advertises a registration_endpoint, muster
+//     registers itself once via RFC 7591 Dynamic Client Registration
+//     (requesting token_endpoint_auth_method "none" and sending
+//     application_type "web" per SEP-837) and uses the issued credentials.
+//     Credentials are keyed by issuer and stored in the
+//     ClientCredentialStore (in-memory by default, Valkey-backed when
+//     configured) — they are never reused against a different issuer.
+//  3. Fallback: when the AS advertises neither, the CIMD URL is sent anyway
+//     (some servers resolve CIMDs without advertising the flag). The auth
+//     challenge marks this case ("cimd-fallback") so front-ends can warn
+//     that the AS may reject the sign-in.
+//
+// The resolved client_id (and secret, if any) is used consistently across
+// the authorization request, the authorization-code exchange, and mcp-go's
+// transport-level token refresh.
 //
 // # Security
 //
