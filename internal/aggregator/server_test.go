@@ -970,23 +970,84 @@ func TestDiscoverProtectedResourceMetadata(t *testing.T) {
 			resource, issuer)
 	}
 
-	t.Run("WWW-Authenticate resource_metadata= followed", func(t *testing.T) {
-		prmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = fmt.Fprint(w, prmBody("https://issuer.example", "https://mcp.example/v1/mcp"))
-		}))
-		defer prmServer.Close()
+	// newAdvertisingMCP starts a backend that answers a 401 with a
+	// WWW-Authenticate pointer and serves a PRM document of its own. The
+	// pointer and the declared resource are set after the start, because both
+	// are built from the backend's own URL.
+	newAdvertisingMCP := func(t *testing.T) (*httptest.Server, *string, *string) {
+		t.Helper()
+		pointer, resource := new(string), new(string)
 		mcp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer resource_metadata=%q`, prmServer.URL))
+			if strings.Contains(r.URL.Path, "/.well-known/oauth-protected-resource") {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = fmt.Fprint(w, prmBody("https://issuer.example", *resource))
+				return
+			}
+			w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer resource_metadata=%q`, *pointer))
 			w.WriteHeader(http.StatusUnauthorized)
 		}))
-		defer mcp.Close()
+		t.Cleanup(mcp.Close)
+		return mcp, pointer, resource
+	}
+
+	t.Run("WWW-Authenticate resource_metadata= followed", func(t *testing.T) {
+		mcp, pointer, resource := newAdvertisingMCP(t)
+		*pointer = mcp.URL + "/.well-known/oauth-protected-resource/v1/mcp"
+		*resource = mcp.URL + "/v1/mcp"
 
 		md, err := discoverProtectedResourceMetadata(context.Background(), mcp.URL+"/v1/mcp", nil)
 		require.NoError(t, err)
 		assert.Equal(t, "https://issuer.example", md.Issuer)
 		assert.Equal(t, "openid offline_access", md.Scope)
-		assert.Equal(t, "https://mcp.example/v1/mcp", md.Resource)
+		assert.Equal(t, mcp.URL+"/v1/mcp", md.Resource)
+	})
+
+	// RFC 9728 §3.2 requires a protected resource to serve its own metadata.
+	// The pointer comes from the backend's own header, so a document on
+	// another origin could name any authorization server and any resource
+	// identifier, and muster would ask for a token bound to a resource the
+	// backend does not own.
+	t.Run("WWW-Authenticate resource_metadata= on another origin is ignored", func(t *testing.T) {
+		var foreignHits atomic.Int32
+		foreign := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			foreignHits.Add(1)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprint(w, prmBody("https://attacker.example", "https://payments.example/api"))
+		}))
+		defer foreign.Close()
+
+		mcp, pointer, resource := newAdvertisingMCP(t)
+		*pointer = foreign.URL + "/.well-known/oauth-protected-resource"
+		*resource = mcp.URL + "/v1/mcp"
+
+		md, err := discoverProtectedResourceMetadata(context.Background(), mcp.URL+"/v1/mcp", nil)
+		require.NoError(t, err)
+		assert.Zero(t, foreignHits.Load(), "the foreign metadata document must never be fetched")
+		assert.Equal(t, "https://issuer.example", md.Issuer, "discovery falls through to the well-known path")
+		assert.Equal(t, mcp.URL+"/v1/mcp", md.Resource)
+	})
+
+	// The declared identifier is checked by origin and not by whole URI: an
+	// mcp-oauth backend serving at "<base>/v1/mcp" declares "<base>".
+	t.Run("resource declared by an advertised document is kept when it is the backend", func(t *testing.T) {
+		mcp, pointer, resource := newAdvertisingMCP(t)
+		*pointer = mcp.URL + "/.well-known/oauth-protected-resource/v1/mcp"
+		*resource = mcp.URL
+
+		md, err := discoverProtectedResourceMetadata(context.Background(), mcp.URL+"/v1/mcp", nil)
+		require.NoError(t, err)
+		assert.Equal(t, mcp.URL, md.Resource)
+	})
+
+	t.Run("resource declared by an advertised document is dropped when it is another party", func(t *testing.T) {
+		mcp, pointer, resource := newAdvertisingMCP(t)
+		*pointer = mcp.URL + "/.well-known/oauth-protected-resource/v1/mcp"
+		*resource = "https://payments.example/api"
+
+		md, err := discoverProtectedResourceMetadata(context.Background(), mcp.URL+"/v1/mcp", nil)
+		require.NoError(t, err)
+		assert.Equal(t, "https://issuer.example", md.Issuer, "the issuer of the advertised document is kept")
+		assert.Empty(t, md.Resource, "the caller then derives the indicator from the backend URL")
 	})
 
 	t.Run("path-based PRM well-known retains MCP URL path", func(t *testing.T) {

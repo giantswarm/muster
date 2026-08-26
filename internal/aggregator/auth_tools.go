@@ -320,6 +320,9 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 // resource belongs in this condition: without it muster falls back to the
 // configured URL even for a backend that declares a different canonical URI,
 // and binds the token to an identifier the backend does not answer to.
+// The 401 path never fills the resource, so a backend discovered that way is
+// probed again on every login. The probe is one request against a backend the
+// caller is already waiting on interactively, which is why it is not cached.
 func needsResourceMetadata(authInfo *AuthInfo, serverURL string) bool {
 	if serverURL == "" {
 		return false
@@ -332,11 +335,11 @@ func needsResourceMetadata(authInfo *AuthInfo, serverURL string) bool {
 // error: a value muster cannot form is worse than a wrong one, because it would
 // bind the token to an identifier no backend recognizes.
 func resourceIndicator(declaredResource, serverURL string) (string, error) {
-	resource, declaredErr, err := pkgoauth.ResolveResourceIndicator(declaredResource, serverURL)
-	if declaredErr != nil {
-		logging.Warn("AuthTools", "Backend declares an unusable RFC 8707 resource %q, deriving one from the URL instead: %v", declaredResource, declaredErr)
+	resolved, err := pkgoauth.ResolveResourceIndicator(declaredResource, serverURL)
+	if resolved.DeclaredErr != nil {
+		logging.Warn("AuthTools", "Backend declares an unusable RFC 8707 resource %q, deriving one from the URL instead: %v", declaredResource, resolved.DeclaredErr)
 	}
-	return resource, err
+	return resolved.Value, err
 }
 
 // authChallengeResult builds the tool result for a pending auth challenge.

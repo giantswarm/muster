@@ -184,9 +184,12 @@ still needs to follow the rules.
   before it acts on anything else in the response, so a response that
   cannot be attributed to the expected authorization server is rejected
   whole, error parameters included. The expected value is the issuer from
-  the server's own metadata, falling back to `OAuthState.Issuer`; the
-  comparison is a simple string comparison with no normalization. The
-  metadata is trustworthy for that comparison because
+  the server's own metadata, and the comparison is a simple string
+  comparison with no normalization. When the metadata is unreachable the
+  comparison falls back to `OAuthState.Issuer` and then ignores a trailing
+  slash on either side, because that value is operator-configured rather
+  than published by the server. The metadata is trustworthy for the first
+  comparison because
   `pkg/oauth.Client.DiscoverMetadata` applies the RFC 8414 §3.3 identity
   check and refuses a document whose `issuer` names a different server.
 - **Metadata side: implemented.** `pkg/oauth/types.go` `Metadata` carries
@@ -293,6 +296,22 @@ still needs to follow the rules.
   `pkg/oauth.DeriveResourceURI` drops the query and the fragment and changes
   nothing else, which is what mcp-go does to the same URL
   (`client/transport/streamable_http.go`).
+
+- **The declared value is only as trustworthy as its source.** RFC 9728 §3.2
+  requires a protected resource to serve its own metadata, so a document is
+  bound to a backend either by the origin-constructed well-known path or by
+  nothing at all. muster therefore follows a `resource_metadata=` pointer
+  from a `WWW-Authenticate` header only when it is on the backend's own
+  scheme and host (`pkg/oauth.ValidateAdvertisedMetadataURL`), and accepts a
+  `resource` from such a document only when it is on that same origin
+  (`pkg/oauth.ValidateAdvertisedResource`). mcp-go applies the same two
+  checks (`client/transport/oauth.go` `validateAdvertisedPRMURL`, and the
+  `explicitMetadataURL` branch of its discovery). muster compares the origin
+  rather than the whole URI on the second check, because a backend
+  legitimately declares an identifier whose path differs from its MCP
+  endpoint: an mcp-oauth backend serving at `<base>/mcp` declares `<base>`.
+  A rejected pointer falls through to the well-known path; a rejected
+  resource is dropped and the indicator is derived from the backend URL.
 
 ### SEP-2350 — Scope accumulation on step-up
 

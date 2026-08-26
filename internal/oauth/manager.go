@@ -370,44 +370,6 @@ func (m *Manager) SetAuthCompletionCallback(callback AuthCompletionCallback) {
 	logging.Debug("OAuth", "Auth completion callback registered")
 }
 
-// HandleCallback processes an OAuth callback and stores the token.
-// Note: This is a programmatic API for testing. The production flow uses
-// Handler.HandleCallback which is the actual HTTP endpoint and handles
-// the auth completion callback invocation.
-func (m *Manager) HandleCallback(ctx context.Context, code, state string) error {
-	if m == nil {
-		return fmt.Errorf("OAuth proxy is disabled")
-	}
-
-	// Validate state (returns the full state including issuer and code verifier)
-	stateData := m.client.stateStore.ValidateState(state)
-	if stateData == nil {
-		return fmt.Errorf("invalid or expired state")
-	}
-
-	// Validate we have the required data
-	if stateData.Issuer == "" {
-		return fmt.Errorf("missing issuer in state")
-	}
-	if stateData.CodeVerifier == "" {
-		return fmt.Errorf("missing code verifier in state")
-	}
-
-	// Exchange code for token using issuer and code verifier from state
-	token, err := m.client.ExchangeCode(ctx, code, stateData.CodeVerifier, stateData.Issuer, stateData.Resource)
-	if err != nil {
-		return fmt.Errorf("token exchange failed: %w", err)
-	}
-
-	// Store the token keyed by session ID, with user ID for reverse lookup
-	m.client.StoreToken(stateData.SessionID, stateData.UserID, token)
-
-	logging.Info("OAuth", "Successfully completed OAuth flow for session=%s server=%s",
-		logging.TruncateIdentifier(stateData.SessionID), stateData.ServerName)
-
-	return nil
-}
-
 // ExchangeTokenForRemoteCluster exchanges a local token for one valid on a remote cluster.
 // This implements RFC 8693 Token Exchange for cross-cluster SSO scenarios.
 //

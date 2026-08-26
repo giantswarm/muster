@@ -458,36 +458,6 @@ func TestManager_CreateAuthChallenge_NilManager(t *testing.T) {
 	}
 }
 
-func TestManager_HandleCallback_NilManager(t *testing.T) {
-	var manager *Manager
-	ctx := context.Background()
-	err := manager.HandleCallback(ctx, "code", "state")
-	if err == nil {
-		t.Error("Expected error for nil manager")
-	}
-}
-
-func TestManager_HandleCallback_InvalidState(t *testing.T) {
-	cfg := config.OAuthMCPClientConfig{
-		Enabled:      true,
-		PublicURL:    "https://muster.example.com",
-		ClientID:     "client-id",
-		CallbackPath: "/oauth/proxy/callback",
-	}
-
-	manager := NewManager(cfg)
-	if manager == nil {
-		t.Fatal("Expected non-nil manager")
-	}
-	defer manager.Stop()
-
-	ctx := context.Background()
-	err := manager.HandleCallback(ctx, "code", "invalid-state")
-	if err == nil {
-		t.Error("Expected error for invalid state")
-	}
-}
-
 func TestManager_CreateAuthChallenge(t *testing.T) {
 	cfg := config.OAuthMCPClientConfig{
 		Enabled:      true,

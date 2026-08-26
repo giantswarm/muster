@@ -475,14 +475,14 @@ func resourceIndicator(opts *AuthFlowOptions, serverURL string) (string, error) 
 		declared = opts.Resource
 	}
 
-	resource, declaredErr, err := pkgoauth.ResolveResourceIndicator(declared, serverURL)
-	if declaredErr != nil {
+	resolved, err := pkgoauth.ResolveResourceIndicator(declared, serverURL)
+	if resolved.DeclaredErr != nil {
 		slog.Warn("Server declares an unusable RFC 8707 resource, deriving one from the URL instead",
 			"resource", declared,
-			"error", declaredErr,
+			"error", resolved.DeclaredErr,
 		)
 	}
-	return resource, err
+	return resolved.Value, err
 }
 
 // buildAuthorizationURLWithOptions constructs the OAuth authorization URL with optional OIDC parameters.

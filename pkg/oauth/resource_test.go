@@ -155,3 +155,64 @@ func TestValidateResourceURI(t *testing.T) {
 		})
 	}
 }
+
+// TestResolveResourceIndicator pins the choice between a declared value and a
+// derived one. A declared value that parses is sent exactly as declared; one
+// that does not is reported and the login still proceeds with a derived value.
+func TestResolveResourceIndicator(t *testing.T) {
+	tests := []struct {
+		name           string
+		declared       string
+		targetURL      string
+		want           string
+		wantDeclaredEr bool
+		wantErr        bool
+	}{
+		{
+			name:      "declared value wins and is not rewritten",
+			declared:  "https://mcp.example.com:443/mcp/",
+			targetURL: "https://mcp.example.com/mcp",
+			want:      "https://mcp.example.com:443/mcp/",
+		},
+		{
+			name:      "no declared value derives from the target",
+			targetURL: "https://mcp.example.com/mcp?tenant=a#frag",
+			want:      "https://mcp.example.com/mcp",
+		},
+		{
+			name:           "unusable declared value falls back to a derived one",
+			declared:       "not-a-uri",
+			targetURL:      "https://mcp.example.com/mcp",
+			want:           "https://mcp.example.com/mcp",
+			wantDeclaredEr: true,
+		},
+		{
+			name:           "unusable declared value and no target yields nothing",
+			declared:       "not-a-uri",
+			wantDeclaredEr: true,
+		},
+		{
+			name: "no declared value and no target yields nothing",
+		},
+		{
+			name:      "unusable target is an error",
+			targetURL: "not-a-uri",
+			wantErr:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ResolveResourceIndicator(tt.declared, tt.targetURL)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("error = %v, wantErr = %v", err, tt.wantErr)
+			}
+			if got.Value != tt.want {
+				t.Errorf("Value = %q, want %q", got.Value, tt.want)
+			}
+			if (got.DeclaredErr != nil) != tt.wantDeclaredEr {
+				t.Errorf("DeclaredErr = %v, want one = %v", got.DeclaredErr, tt.wantDeclaredEr)
+			}
+		})
+	}
+}

@@ -2550,10 +2550,28 @@ func tryWWWAuthenticate(ctx context.Context, httpClient *http.Client, serverURL 
 		logging.Debug("AuthTools", "WWW-Authenticate probe: %s carried no resource_metadata= pointer (parse err=%v)", serverURL, err)
 		return nil
 	}
+	// The pointer comes from the backend's own header, so it is untrusted
+	// input. A document on another origin can name any authorization server
+	// and any resource identifier, which would bind the token to something
+	// this backend does not own.
+	if err := pkgoauth.ValidateAdvertisedMetadataURL(challenge.ResourceMetadataURL, serverURL); err != nil {
+		logging.Warn("AuthTools", "WWW-Authenticate probe: ignoring the resource_metadata pointer of %s: %v", serverURL, err)
+		return nil
+	}
 	md, err := fetchProtectedResourceMetadata(ctx, httpClient, challenge.ResourceMetadataURL)
 	if err != nil {
 		logging.Debug("AuthTools", "WWW-Authenticate probe: fetch %s failed: %v", challenge.ResourceMetadataURL, err)
 		return nil
+	}
+	// A document the well-known path reaches is bound to the backend by the
+	// URL construction. This one was only pointed at, so a resource it
+	// declares must still identify the backend. An omitted field is not a
+	// failure: the caller then derives the indicator from the backend URL.
+	if md.Resource != "" {
+		if err := pkgoauth.ValidateAdvertisedResource(md.Resource, serverURL); err != nil {
+			logging.Warn("AuthTools", "WWW-Authenticate probe: dropping the resource declared by %s: %v", serverURL, err)
+			md.Resource = ""
+		}
 	}
 	return md
 }

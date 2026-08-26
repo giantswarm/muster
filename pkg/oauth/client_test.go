@@ -195,12 +195,10 @@ func TestDiscoverMetadata(t *testing.T) {
 
 		// Make concurrent requests
 		var wg sync.WaitGroup
-		for i := 0; i < 5; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+		for range 5 {
+			wg.Go(func() {
 				_, _ = c.DiscoverMetadata(context.Background(), server.URL)
-			}()
+			})
 		}
 		wg.Wait()
 

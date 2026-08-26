@@ -189,6 +189,12 @@ func (c *Client) doDiscoverMetadata(ctx context.Context, issuer string) (*Metada
 // `issuer` value in the metadata document must identify the authorization
 // server the document was retrieved for. A trailing slash on either side is
 // not a difference; nothing else is normalized.
+//
+// The trailing slash is tolerated here and not on the RFC 9207 `iss`
+// comparison because the two sides differ in origin. The requested issuer is
+// an operator-configured string, and an operator who writes the trailing
+// slash means the same server. The `iss` value comes from the authorization
+// server itself, which must send the identifier it publishes.
 func verifyIssuerIdentity(requested, advertised string) error {
 	if advertised == "" {
 		return fmt.Errorf("AS metadata for %q carries no issuer (RFC 8414 §3.3)", requested)

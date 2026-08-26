@@ -72,6 +72,18 @@ func DeriveResourceURI(raw string) (string, error) {
 	return derived.String(), nil
 }
 
+// ResourceIndicator is the outcome of resolving an RFC 8707 `resource` value
+// for a target.
+type ResourceIndicator struct {
+	// Value is the indicator to send, or empty for a target that needs none.
+	Value string
+
+	// DeclaredErr is set when the target declared a value that was unusable.
+	// Value then holds one derived from the target URL instead, so the login
+	// still completes; callers log DeclaredErr.
+	DeclaredErr error
+}
+
 // ResolveResourceIndicator picks the RFC 8707 `resource` value for a target:
 // the URI the target declares in its RFC 9728 metadata, sent exactly as
 // declared, or a value derived from targetURL when the target declares none.
@@ -81,26 +93,86 @@ func DeriveResourceURI(raw string) (string, error) {
 // declared value verbatim on token refresh, so any normalization here would
 // bind the initial token and the refreshed token to different audiences.
 //
-// declaredErr is non-nil when a declared value existed but was unusable. The
-// result is then derived from targetURL instead, so a target that publishes a
-// malformed identifier still completes a login; callers log declaredErr. An
-// empty targetURL yields an empty value and no error, for a target that needs
-// no indicator.
-func ResolveResourceIndicator(declared, targetURL string) (resource string, declaredErr error, err error) {
+// An empty targetURL yields an empty value and no error, for a target that
+// needs no indicator.
+func ResolveResourceIndicator(declared, targetURL string) (ResourceIndicator, error) {
+	result := ResourceIndicator{}
 	if declared != "" {
-		declaredErr = ValidateResourceURI(declared)
-		if declaredErr == nil {
-			return declared, nil, nil
+		result.DeclaredErr = ValidateResourceURI(declared)
+		if result.DeclaredErr == nil {
+			result.Value = declared
+			return result, nil
 		}
 	}
 
 	if targetURL == "" {
-		return "", declaredErr, nil
+		return result, nil
 	}
 
 	derived, err := DeriveResourceURI(targetURL)
 	if err != nil {
-		return "", declaredErr, fmt.Errorf("cannot derive an RFC 8707 resource indicator from %q: %w", targetURL, err)
+		return result, fmt.Errorf("cannot derive an RFC 8707 resource indicator from %q: %w", targetURL, err)
 	}
-	return derived, declaredErr, nil
+	result.Value = derived
+	return result, nil
+}
+
+// sameOrigin reports whether candidate carries the scheme and the host of
+// serverURL. Both must be absolute: url.Parse accepts a relative reference
+// without an error, and two empty values would otherwise match each other.
+func sameOrigin(candidate, serverURL string) error {
+	server, err := url.Parse(strings.TrimSpace(serverURL))
+	if err != nil {
+		return fmt.Errorf("invalid MCP server URL %q: %w", serverURL, err)
+	}
+	if server.Scheme == "" || server.Host == "" {
+		return fmt.Errorf("MCP server URL %q is not absolute, so no origin can be compared", serverURL)
+	}
+
+	parsed, err := url.Parse(strings.TrimSpace(candidate))
+	if err != nil {
+		return fmt.Errorf("invalid URI %q: %w", candidate, err)
+	}
+	if parsed.Scheme == "" || parsed.Host == "" {
+		return fmt.Errorf("URI %q is not absolute", candidate)
+	}
+	if !strings.EqualFold(parsed.Scheme, server.Scheme) || !strings.EqualFold(parsed.Host, server.Host) {
+		return fmt.Errorf("%q is not on the origin of the MCP server %q", candidate, serverURL)
+	}
+	return nil
+}
+
+// ValidateAdvertisedMetadataURL reports whether a protected resource metadata
+// URL taken from an untrusted source may be fetched for a given MCP server.
+// The candidate must be absolute and must share the server's scheme and host.
+//
+// RFC 9728 §3.2 requires a protected resource to serve its own metadata. A
+// resource that points a client at another origin is either misconfigured or
+// hostile: the document it names states both the authorization server to use
+// and the resource identifier to bind the token to, so following it lets the
+// resource obtain a token for something it does not own.
+func ValidateAdvertisedMetadataURL(candidate, serverURL string) error {
+	if err := sameOrigin(candidate, serverURL); err != nil {
+		return fmt.Errorf("advertised metadata URL: %w", err)
+	}
+	return nil
+}
+
+// ValidateAdvertisedResource reports whether a resource identifier declared in
+// a metadata document that an untrusted pointer named may be used for a given
+// MCP server. The declared value must be on the server's own origin.
+//
+// A document the well-known path reaches is bound to the server by the URL
+// construction. One an advertised pointer named is not, so the identifier it
+// declares is checked here. The rule is the origin and not the whole URI,
+// because a server legitimately declares an identifier whose path differs from
+// its MCP endpoint: an mcp-oauth backend serving at "<base>/mcp" declares
+// "<base>". What the check does refuse is an identifier belonging to another
+// party, which is the value that would turn muster's token into one minted for
+// a resource the backend does not own.
+func ValidateAdvertisedResource(declared, serverURL string) error {
+	if err := sameOrigin(declared, serverURL); err != nil {
+		return fmt.Errorf("declared resource: %w", err)
+	}
+	return nil
 }

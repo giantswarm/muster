@@ -224,3 +224,73 @@ func TestClient_GenerateAuthURL_SendsResource(t *testing.T) {
 		t.Errorf("expected resource %q recorded with the state, got %q", callbackTestResource, state.Resource)
 	}
 }
+
+// TestHandler_HandleCallback_IssFallbackIgnoresTrailingSlash covers the branch
+// where the authorization server metadata is unreachable. The comparison then
+// falls back to the issuer recorded with the state, which is operator
+// configured and may carry a trailing slash the server does not put on its own
+// identifier. That one difference must not fail a correct response.
+//
+// A response that passes the check goes on to the token request, which cannot
+// reach the closed server either, so the two outcomes are told apart by the
+// message on the error page.
+func TestHandler_HandleCallback_IssFallbackIgnoresTrailingSlash(t *testing.T) {
+	// The server is closed at once, so metadata discovery cannot reach it.
+	authServer := newAuthorizationServer(t, authorizationServerOptions{})
+	issuer := authServer.URL
+	authServer.Close()
+
+	const (
+		issAccepted = "Failed to complete authentication"
+		issRejected = "could not be verified"
+	)
+
+	tests := []struct {
+		name        string
+		stateIssuer string
+		iss         string
+		wantInBody  string
+	}{
+		{
+			name:        "recorded issuer carries a trailing slash",
+			stateIssuer: issuer + "/",
+			iss:         issuer,
+			wantInBody:  issAccepted,
+		},
+		{
+			name:        "response carries a trailing slash",
+			stateIssuer: issuer,
+			iss:         issuer + "/",
+			wantInBody:  issAccepted,
+		},
+		{
+			name:        "another authorization server",
+			stateIssuer: issuer,
+			iss:         "https://evil.example.com",
+			wantInBody:  issRejected,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
+			defer client.Stop()
+
+			handler := NewHandler(client)
+			encodedState := storeCallbackState(t, client, tc.stateIssuer)
+
+			query := url.Values{
+				"code":  {"auth-code"},
+				"state": {encodedState},
+				"iss":   {tc.iss},
+			}
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/oauth/callback?"+query.Encode(), nil)
+			recorder := httptest.NewRecorder()
+			handler.HandleCallback(recorder, request)
+
+			if !strings.Contains(recorder.Body.String(), tc.wantInBody) {
+				t.Errorf("expected the error page to say %q", tc.wantInBody)
+			}
+		})
+	}
+}

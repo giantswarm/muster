@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -186,12 +187,7 @@ type Metadata struct {
 // proceed if `code_challenge_methods_supported` is absent — overriding the
 // OAuth 2.1 default-true convention. An empty / missing list returns false.
 func (m *Metadata) SupportsS256PKCE() bool {
-	for _, method := range m.CodeChallengeMethodsSupported {
-		if method == "S256" {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(m.CodeChallengeMethodsSupported, "S256")
 }
 
 // AuthChallenge represents parsed information from a WWW-Authenticate header.

@@ -191,10 +191,20 @@ func probeEndpoint(ctx context.Context, httpClient *http.Client, serverURL strin
 
 	// The resource metadata is the only place the server states its own
 	// canonical resource identifier, so it is fetched even when the
-	// challenge already names the issuer.
+	// challenge already names the issuer. The pointer comes from the
+	// server's own header, so it is untrusted input: a document on another
+	// origin can name any authorization server and any resource identifier.
 	var metadata *protectedResourceMetadata
 	if challenge.ResourceMetadataURL != "" {
-		metadata = fetchResourceMetadata(ctx, httpClient, challenge.ResourceMetadataURL)
+		if err := pkgoauth.ValidateAdvertisedMetadataURL(challenge.ResourceMetadataURL, serverURL); err != nil {
+			slog.Warn("Ignoring the resource_metadata pointer of an MCP server",
+				"server_url", serverURL,
+				"error", err,
+			)
+		} else {
+			metadata = fetchResourceMetadata(ctx, httpClient, challenge.ResourceMetadataURL)
+			metadata.dropForeignResource(serverURL)
+		}
 	}
 
 	// If we have a direct issuer, use it
@@ -255,6 +265,25 @@ func (m *protectedResourceMetadata) resourceIdentifier() string {
 		return ""
 	}
 	return m.Resource
+}
+
+// dropForeignResource clears a declared resource that does not identify the
+// server the document was fetched for. A document the well-known path reaches
+// is bound to the server by the URL construction; one an advertised pointer
+// named is not, so it must still say it belongs to that server. An omitted
+// field is not a failure: the caller then derives the indicator from the
+// server URL.
+func (m *protectedResourceMetadata) dropForeignResource(serverURL string) {
+	if m == nil || m.Resource == "" {
+		return
+	}
+	if err := pkgoauth.ValidateAdvertisedResource(m.Resource, serverURL); err != nil {
+		slog.Warn("Dropping the resource declared by advertised MCP server metadata",
+			"server_url", serverURL,
+			"error", err,
+		)
+		m.Resource = ""
+	}
 }
 
 // fetchResourceMetadata fetches an RFC 9728 protected resource metadata
@@ -338,9 +367,11 @@ func (m *AuthManager) startAuthFlowWithOptions(ctx context.Context, opts *AuthFl
 	// resource identifier. Passing it here keeps the token bound to the
 	// value the server validates against, instead of one derived from the
 	// endpoint URL the user happened to type.
-	flowOpts := AuthFlowOptions{Resource: m.resource}
+	flowOpts := AuthFlowOptions{}
 	if opts != nil {
 		flowOpts = *opts
+	}
+	if m.resource != "" {
 		flowOpts.Resource = m.resource
 	}
 
