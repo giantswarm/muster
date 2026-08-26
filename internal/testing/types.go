@@ -436,7 +436,11 @@ type TestExpectation struct {
 	NotContains []string `yaml:"not_contains,omitempty"`
 	// JSONPath allows checking specific JSON response fields
 	JSONPath map[string]interface{} `yaml:"json_path,omitempty"`
-	// StatusCode for HTTP-based expectations
+	// StatusCode is not supported and is rejected at load time by
+	// validateStep. It is kept as a field so that a scenario declaring
+	// status_code fails with an explanation instead of having the key silently
+	// dropped by the non-strict YAML decode. Assert an HTTP status that a test
+	// tool reports in its payload with JSONPath instead.
 	StatusCode int `yaml:"status_code,omitempty"`
 	// WaitForState enables polling for state changes with timeout
 	WaitForState time.Duration `yaml:"wait_for_state,omitempty"`
