@@ -683,11 +683,21 @@ func (h *TestToolsHandler) handleGetOAuthServerInfo(ctx context.Context, args ma
 		return nil, fmt.Errorf("OAuth server %s not found", serverName)
 	}
 
-	return map[string]interface{}{
+	result := map[string]interface{}{
 		api.FieldName: info.Name,
 		"port":        info.Port,
 		"issuer_url":  info.IssuerURL,
-	}, nil
+	}
+
+	// Live DCR state, so scenarios can assert whether (and how often)
+	// muster registered itself via RFC 7591.
+	if h.instanceManager != nil {
+		if server := h.instanceManager.GetMockOAuthServer(h.currentInstance.ID, serverName); server != nil {
+			result["dcr_registrations"] = server.RegistrationCount()
+		}
+	}
+
+	return result, nil
 }
 
 // handleAdvanceOAuthClock advances the mock OAuth server's clock for testing token expiry.
