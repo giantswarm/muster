@@ -212,7 +212,6 @@ func (am *AggregatorManager) GetServiceData() map[string]interface{} {
 	data := map[string]interface{}{
 		"port": am.config.Port,
 		"host": am.config.Host,
-		"yolo": am.config.Yolo,
 	}
 
 	// Add aggregator server metrics if available
@@ -227,19 +226,6 @@ func (am *AggregatorManager) GetServiceData() map[string]interface{} {
 		data["tools"] = len(tools)
 		data["resources"] = len(resources)
 		data["prompts"] = len(prompts)
-
-		// Get detailed tool status information
-		toolsWithStatus := am.aggregatorServer.GetToolsWithStatus()
-		data["tools_with_status"] = toolsWithStatus
-
-		// Count blocked tools for security monitoring
-		blockedCount := 0
-		for _, t := range toolsWithStatus {
-			if t.Blocked {
-				blockedCount++
-			}
-		}
-		data["blocked_tools"] = blockedCount
 
 		// Calculate server connectivity statistics
 		totalServers := 0

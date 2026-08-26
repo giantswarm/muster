@@ -53,7 +53,6 @@ type Orchestrator struct {
 
 	// Configuration
 	aggregator config.AggregatorConfig
-	yolo       bool
 
 	// kubernetesMode mirrors the MusterClient's mode, so MCPServer services
 	// are constructed knowing whether stdio is allowed at all (issue #1067).
@@ -78,7 +77,6 @@ type Orchestrator struct {
 // Config holds the configuration for the orchestrator.
 type Config struct {
 	Aggregator config.AggregatorConfig
-	Yolo       bool
 
 	// KubernetesMode reports whether muster runs against an apiserver. It comes
 	// from the MusterClient rather than from the config flag, so a configured
@@ -93,7 +91,6 @@ func New(cfg Config) *Orchestrator {
 	return &Orchestrator{
 		registry:               registry,
 		aggregator:             cfg.Aggregator,
-		yolo:                   cfg.Yolo,
 		kubernetesMode:         cfg.KubernetesMode,
 		stopReasons:            make(map[string]StopReason),
 		stateChangeSubscribers: make([]chan<- ServiceStateChangedEvent, 0),

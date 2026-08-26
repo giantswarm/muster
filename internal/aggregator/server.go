@@ -66,7 +66,6 @@ type oauthServer interface {
 //   - Managing multiple transport protocols (SSE, stdio, streamable-http)
 //   - Integrating core muster tools alongside external MCP servers
 //   - Providing intelligent name collision resolution
-//   - Implementing security filtering through the denylist system
 //   - Real-time capability updates when backend servers change
 //   - User-scoped tool visibility for OAuth-protected servers
 //
@@ -1747,45 +1746,6 @@ func (a *AggregatorServer) sessionToolFilter(ctx context.Context, _ []mcp.Tool) 
 	return allTools
 }
 
-// GetToolsWithStatus returns all available tools along with their security blocking status.
-//
-// This method provides enhanced tool information that includes whether each tool
-// is blocked by the security denylist. The blocking status depends on:
-//   - The tool's classification as destructive in the denylist
-//   - The current yolo mode setting (yolo=true allows all tools)
-//
-// The tool names are resolved to their original names (before prefixing) for
-// accurate denylist checking, ensuring consistent security behavior regardless
-// of how tools are exposed.
-//
-// Returns a slice of ToolWithStatus containing both tool definitions and security status.
-func (a *AggregatorServer) GetToolsWithStatus() []ToolWithStatus {
-	a.mu.RLock()
-	yolo := a.config.Yolo
-	a.mu.RUnlock()
-
-	tools := a.registry.GetAllTools()
-	result := make([]ToolWithStatus, 0, len(tools))
-
-	for _, tool := range tools {
-		// Resolve the tool to get the original name for accurate denylist checking
-		var originalName string
-		if _, origName, err := a.registry.ResolveToolName(tool.Name); err == nil {
-			originalName = origName
-		} else {
-			// If we can't resolve, use the exposed name as fallback
-			originalName = tool.Name
-		}
-
-		result = append(result, ToolWithStatus{
-			Tool:    tool,
-			Blocked: !yolo && isDestructiveTool(originalName),
-		})
-	}
-
-	return result
-}
-
 // GetResources returns all available resources from all registered backend servers.
 //
 // This method aggregates resources from all connected backend servers, applying
@@ -1806,40 +1766,6 @@ func (a *AggregatorServer) GetResources() []mcp.Resource {
 // Returns a slice of MCP prompts ready for client consumption.
 func (a *AggregatorServer) GetPrompts() []mcp.Prompt {
 	return a.registry.GetAllPrompts()
-}
-
-// ToggleToolBlock toggles the blocked status of a specific tool (placeholder implementation).
-//
-// This method is intended to provide runtime control over individual tool blocking,
-// allowing administrators to override the default denylist behavior for specific tools.
-// Currently, this functionality is not fully implemented and returns an error.
-//
-// Future Enhancement:
-// The full implementation would maintain a runtime override list that could
-// selectively enable or disable specific tools regardless of the global yolo setting.
-//
-// Args:
-//   - toolName: Name of the tool to toggle blocking status for
-//
-// Returns an error indicating the feature is not yet implemented.
-func (a *AggregatorServer) ToggleToolBlock(toolName string) error {
-	// For now, we can only toggle between fully enabled (yolo) or default denylist
-	// In a future enhancement, we could maintain a runtime override list
-	// For now, we just return an error indicating this needs more work
-	return fmt.Errorf("individual tool blocking toggle not yet implemented")
-}
-
-// IsYoloMode returns whether yolo mode is currently enabled.
-//
-// Yolo mode disables the security denylist, allowing all tools to be executed
-// regardless of their destructive potential. This mode should only be enabled
-// in development or testing environments where the risk is acceptable.
-//
-// Returns true if yolo mode is enabled, false if security filtering is active.
-func (a *AggregatorServer) IsYoloMode() bool {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-	return a.config.Yolo
 }
 
 // CallToolInternal provides internal tool calling capability for muster components.

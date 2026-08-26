@@ -95,7 +95,6 @@ agent: "Connect to monitoring in cluster"
 ## 🛡️ Smart Access Control & Context Optimization
 
 ### **Tool Filtering**
-- **Denylist Protection**: Block destructive tools by default (override with `--yolo`)
 - **Context-Aware Loading**: Only load tools when needed to minimize agent context
 - **Project-Based Control**: Different tool sets for different projects
 
