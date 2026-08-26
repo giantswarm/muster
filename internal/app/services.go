@@ -131,7 +131,6 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	// may be started (issue #1067).
 	orchConfig := orchestrator.Config{
 		Aggregator:     cfg.MusterConfig.Aggregator,
-		Yolo:           cfg.Yolo,
 		KubernetesMode: musterClient.IsKubernetesMode(),
 	}
 
@@ -232,7 +231,6 @@ func InitializeServices(cfg *Config) (*Services, error) {
 			Transport:    cfg.MusterConfig.Aggregator.Transport,
 			MusterPrefix: cfg.MusterConfig.Aggregator.MusterPrefix,
 			Version:      cfg.Version,
-			Yolo:         cfg.Yolo,
 			ConfigDir:    cfg.ConfigPath,
 			Debug:        cfg.Debug,
 			OAuth:        mergedOAuthMCPClientConfig,

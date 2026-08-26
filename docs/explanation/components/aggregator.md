@@ -71,9 +71,8 @@ The `list_tools` response includes:
 4. **MCP Server Discovery**: Automatically discover and connect to configured external MCP servers
 5. **Tool Aggregation**: Collect and register tools from all sources into a unified registry
 6. **Session-Scoped Visibility**: Manage tool visibility based on authentication state
-7. **Tool Filtering**: Apply denylists and access controls to tool availability
-8. **Request Routing**: Route tool calls to appropriate handlers (core, workflow engine, or external servers)
-9. **Response Wrapping**: Wrap tool responses in structured JSON for consistent handling
+7. **Request Routing**: Route tool calls to appropriate handlers (core, workflow engine, or external servers)
+8. **Response Wrapping**: Wrap tool responses in structured JSON for consistent handling
 
 ### Component Structure
 
@@ -83,7 +82,6 @@ internal/aggregator/
 ├── registry.go        # Tool registration and management
 ├── tool_factory.go    # Dynamic tool creation and proxying
 ├── event_handler.go   # Server lifecycle event processing
-├── denylist.go        # Tool filtering and access control
 ├── manager.go         # High-level orchestration
 └── types.go          # Core data structures
 ```
@@ -105,7 +103,6 @@ internal/aggregator/
 type Registry struct {
     tools     map[string]*ToolEntry
     servers   map[string]*ServerEntry
-    denylist  *Denylist
     mutex     sync.RWMutex
 }
 
@@ -173,7 +170,6 @@ func (f *ToolFactory) handleListTools(ctx context.Context, args map[string]inter
 ```go
 type EventHandler struct {
     registry   *Registry
-    denylist   *Denylist
     notifier   EventNotifier
 }
 
@@ -181,72 +177,13 @@ func (h *EventHandler) HandleServerConnected(serverID string, tools []*ToolDefin
     h.logger.Info("Server connected", "server_id", serverID, "tool_count", len(tools))
 
     for _, tool := range tools {
-        if h.denylist.IsAllowed(tool.Name) {
-            if err := h.registry.RegisterTool(serverID, tool.Name, tool.Schema); err != nil {
-                h.logger.Error("Failed to register tool", "tool", tool.Name, "error", err)
-            }
+        if err := h.registry.RegisterTool(serverID, tool.Name, tool.Schema); err != nil {
+            h.logger.Error("Failed to register tool", "tool", tool.Name, "error", err)
         }
     }
 
     h.notifier.NotifyServerStateChange(serverID, "connected")
     return nil
-}
-```
-
-### Denylist (`denylist.go`)
-
-**Purpose**: Implement fine-grained access control for tool availability
-
-**Configuration Format**:
-```yaml
-denylist:
-  # Block all tools from specific servers
-  servers:
-    - "untrusted-server"
-
-  # Block specific tools by name
-  tools:
-    - "dangerous_command"
-    - "system_admin_*"  # Wildcard patterns supported
-
-  # Block tools by pattern
-  patterns:
-    - "^admin_.*"       # Regex patterns
-    - ".*_delete$"
-```
-
-**Implementation**:
-```go
-type Denylist struct {
-    BlockedServers []string          `yaml:"servers"`
-    BlockedTools   []string          `yaml:"tools"`
-    BlockedPatterns []string         `yaml:"patterns"`
-    compiledPatterns []*regexp.Regexp
-}
-
-func (d *Denylist) IsAllowed(toolName, serverID string) bool {
-    // Check server blocklist
-    for _, blocked := range d.BlockedServers {
-        if blocked == serverID {
-            return false
-        }
-    }
-
-    // Check tool name blocklist
-    for _, blocked := range d.BlockedTools {
-        if matched, _ := filepath.Match(blocked, toolName); matched {
-            return false
-        }
-    }
-
-    // Check regex patterns
-    for _, pattern := range d.compiledPatterns {
-        if pattern.MatchString(toolName) {
-            return false
-        }
-    }
-
-    return true
 }
 ```
 
@@ -295,18 +232,14 @@ type MCPClient interface {
 ### Tool Discovery Flow
 
 1. **Agent Request**: AI agent calls `list_tools` meta-tool
-2. **Filter Application**: Apply denylist and access controls
-3. **Registry Query**: Query tool registry with filters
-4. **Response Generation**: Format and return tool list
+2. **Registry Query**: Query tool registry with filters
+3. **Response Generation**: Format and return tool list
 
 ```go
 func (s *Server) HandleListTools(ctx context.Context, request *ListToolsRequest) (*ListToolsResponse, error) {
-    // Apply access controls
-    allowed := s.denylist.FilterTools(request.Patterns)
-
     // Query registry
     tools, err := s.registry.ListTools(&ToolFilter{
-        Patterns:    allowed,
+        Patterns:    request.Patterns,
         ServerIDs:   request.ServerFilter,
         Categories:  request.Categories,
     })
@@ -369,11 +302,6 @@ aggregator:
     port: 8080
     protocol: "stdio"  # or "http", "websocket"
 
-  # Tool filtering configuration
-  denylist:
-    enabled: true
-    config_file: "/etc/muster/denylist.yaml"
-
   # Server discovery configuration
   discovery:
     auto_discovery: true
@@ -387,27 +315,6 @@ aggregator:
     connection_pool_size: 10
 ```
 
-### Tool Filter Configuration
-
-```yaml
-# Example denylist configuration
-denylist:
-  servers:
-    - "development-server"    # Block entire server
-
-  tools:
-    - "admin_*"              # Block admin tools (wildcard)
-    - "dangerous_command"     # Block specific tool
-
-  patterns:
-    - "^system_.*"           # Block system tools (regex)
-    - ".*_delete$"           # Block delete operations
-
-  categories:
-    - "administrative"       # Block by category
-    - "destructive"
-```
-
 ## Error Handling
 
 ### Error Categories
@@ -415,7 +322,7 @@ denylist:
 1. **Connection Errors**: MCP server unavailable or disconnected
 2. **Tool Errors**: Tool not found or execution failure
 3. **Configuration Errors**: Invalid configuration or missing dependencies
-4. **Authorization Errors**: Tool blocked by denylist or access controls
+4. **Authorization Errors**: Caller not authorized for the requested tool
 
 ### Error Response Format
 

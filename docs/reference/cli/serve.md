@@ -30,11 +30,6 @@ The aggregator server provides a unified MCP interface that other muster command
   - Useful for programmatic usage or when console output needs to be suppressed
   - Does **not** silence OTLP. When OTLP is configured (via `OTEL_EXPORTER_OTLP_*` or `OTEL_LOGS_EXPORTER`), log records still flow to the collector. To disable OTLP, unset those env vars or set `OTEL_SDK_DISABLED=true`.
 
-### Security and Safety
-- `--yolo`: Disable denylist for destructive tool calls
-  - Default: `false`
-  - **WARNING**: Use with extreme caution. This removes safety restrictions on potentially destructive operations
-
 ## Configuration
 
 The serve command uses configuration from `config.yaml` in the configuration directory:
@@ -311,16 +306,6 @@ muster serve --config-path /opt/muster/config
 
 # Development with debug and custom path
 muster serve --debug --config-path ./test-config
-```
-
-### Security Considerations
-
-```bash
-# Production: Run without --yolo flag
-muster serve --config-path /etc/muster
-
-# Development: Use --yolo for testing only
-muster serve --debug --yolo --config-path ./dev-config
 ```
 
 ### Monitoring and Health Checks

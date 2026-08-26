@@ -6,7 +6,7 @@ After=muster.socket
 
 [Service]
 Type=simple
-ExecStart="%h/go/bin/muster" serve --debug --yolo --config-path "%h/.config/muster"
+ExecStart="%h/go/bin/muster" serve --debug --config-path "%h/.config/muster"
 Restart=always
 RestartSec=5
 Environment=PATH=%h/go/bin:/usr/local/bin:/usr/bin:/bin

@@ -97,7 +97,6 @@ agent: "Show me failing pods in default namespace"
 
 ### 🛡️ Smart Access Control
 
-- **Tool Filtering**: Block destructive tools by default (override with `--yolo`)
 - **Project-Based Control**: Different tool sets for different projects
 - **Context Optimization**: Only load tools when needed
 
