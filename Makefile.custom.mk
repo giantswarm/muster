@@ -8,6 +8,45 @@ helm-lint: ## Run Helm linter
 	@echo "Running Helm linter..."
 	@helm lint helm/muster/
 
+HELM_UNITTEST_VERSION := 1.0.3
+YQ_VERSION := v4.44.6
+
+# What CI runs (the chart-test job in .circleci/custom.yml). Deliberately not
+# the full helm-unittest suite: tests/pdb_test.yaml and tests/gateway_api_test.yaml
+# fail on main because values.schema.json rejects values those suites set
+# (free-form label/annotation maps, a percentage-string minAvailable, and an
+# undeclared maxUnavailable). Widen this to helm-test once those are fixed.
+.PHONY: helm-test
+helm-test: helm-lint helm-alerting-test ## Run the chart checks that pass today (what CI runs).
+
+.PHONY: helm-alerting-test
+helm-alerting-test: ## Run the PrometheusRule checks: its helm-unittest suite plus the promtool alert-rule tests.
+	@echo "Running PrometheusRule chart tests..."
+	@$(MAKE) --no-print-directory helm-plugin-unittest
+	@helm unittest helm/muster/ -f 'tests/prometheusrule_test.yaml'
+	@$(MAKE) --no-print-directory helm-promtool-test
+
+.PHONY: helm-test-all
+helm-test-all: helm-lint helm-unittest helm-promtool-test ## Run every chart check, including the suites that fail on main.
+
+.PHONY: helm-unittest
+helm-unittest: helm-plugin-unittest ## Run all helm-unittest suites in helm/muster/tests/.
+	@echo "Running helm unittest..."
+	@helm unittest helm/muster/
+
+.PHONY: helm-plugin-unittest
+helm-plugin-unittest:
+	@helm plugin list | grep -q '^unittest' || helm plugin install https://github.com/helm-unittest/helm-unittest --version $(HELM_UNITTEST_VERSION)
+
+# Separate from helm-unittest: the alert expressions need a PromQL engine to
+# say anything, and only promtool has one. helm-unittest can assert that the
+# rule renders; only this can assert that it fires when a backend breaks and
+# stays quiet when one is merely waiting for auth.
+.PHONY: helm-promtool-test
+helm-promtool-test: ## Run the promtool unit tests for the PrometheusRule (requires promtool and mikefarah/yq).
+	@echo "Running promtool alert rule tests..."
+	@bash helm/muster/tests/promtool/run.sh
+
 ##@ Testing
 
 # The architect go-build job runs `make test` (test_target: test). Extend that
