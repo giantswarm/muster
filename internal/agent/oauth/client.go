@@ -466,16 +466,19 @@ func (c *Client) discoverOAuthMetadata(ctx context.Context, issuerURL string) (*
 const DefaultAgentClientID = "https://giantswarm.github.io/muster/muster-agent.json"
 
 // resourceIndicator returns the RFC 8707 `resource` value for a flow: the URI
-// the server declares in its RFC 9728 metadata when the caller discovered one,
-// and the canonical form of the server URL otherwise. Both are canonicalized,
-// so a declared value that carries a trailing slash still matches.
+// the server declares in its RFC 9728 metadata, sent exactly as declared, or a
+// value derived from the server URL when the caller discovered none.
+//
+// A declared value is never rewritten. The authorization server compares it
+// against the identifier registered for that server, and mcp-go sends the
+// declared value verbatim on token refresh, so any normalization here would
+// bind the initial token and the refreshed token to different audiences.
 func resourceIndicator(opts *AuthFlowOptions, serverURL string) (string, error) {
 	if opts != nil && opts.Resource != "" {
-		canonical, err := pkgoauth.CanonicalResourceURI(opts.Resource)
-		if err != nil {
+		if err := pkgoauth.ValidateResourceURI(opts.Resource); err != nil {
 			return "", fmt.Errorf("the server declares an unusable RFC 8707 resource %q: %w", opts.Resource, err)
 		}
-		return canonical, nil
+		return opts.Resource, nil
 	}
 
 	canonical, err := pkgoauth.CanonicalResourceURI(serverURL)

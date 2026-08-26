@@ -323,6 +323,18 @@ func TestResourceIndicator(t *testing.T) {
 			want:             "https://backend.example.com/mcp",
 		},
 		{
+			name:             "sends a declared resource that is not canonical unchanged",
+			declaredResource: "https://backend.example.com:443/mcp/",
+			serverURL:        "https://backend.example.com/mcp",
+			want:             "https://backend.example.com:443/mcp/",
+		},
+		{
+			name:             "falls back when the declared resource carries a fragment",
+			declaredResource: "https://backend.example.com/mcp#a",
+			serverURL:        "https://backend.example.com/mcp",
+			want:             "https://backend.example.com/mcp",
+		},
+		{
 			name:      "falls back to the server URL",
 			serverURL: "https://backend.example.com/mcp/",
 			want:      "https://backend.example.com/mcp",

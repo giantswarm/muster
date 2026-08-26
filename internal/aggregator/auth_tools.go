@@ -322,26 +322,36 @@ func needsResourceMetadata(authInfo *AuthInfo, serverURL string) bool {
 }
 
 // resourceIndicator returns the RFC 8707 `resource` value for a backend: the
-// canonical URI the backend declares in its RFC 9728 metadata, or the
-// canonical form of its configured URL when the metadata omits it or when
-// spec.auth.authorizationServer opts out of metadata discovery.
+// URI the backend declares in its RFC 9728 metadata, sent exactly as declared,
+// or a value derived from its configured URL when the metadata omits it or
+// when spec.auth.authorizationServer opts out of metadata discovery.
+//
+// A declared value is never rewritten. The authorization server compares it
+// against the identifier registered for that backend, and mcp-go sends the
+// declared value verbatim on token refresh, so any normalization here would
+// bind the initial token and the refreshed token to different audiences.
 //
 // An unusable URL yields an empty string. MCP 2026-07-28 requires sending the
-// parameter, but a value muster cannot canonicalize is worse than none: it
-// would bind the token to an identifier no backend recognizes.
+// parameter, but a value muster cannot form is worse than none: it would bind
+// the token to an identifier no backend recognizes.
 func resourceIndicator(declaredResource, serverURL string) string {
-	for _, candidate := range []string{declaredResource, serverURL} {
-		if candidate == "" {
-			continue
+	if declaredResource != "" {
+		err := pkgoauth.ValidateResourceURI(declaredResource)
+		if err == nil {
+			return declaredResource
 		}
-		canonical, err := pkgoauth.CanonicalResourceURI(candidate)
-		if err != nil {
-			logging.Warn("AuthTools", "Cannot use %q as an RFC 8707 resource indicator: %v", candidate, err)
-			continue
-		}
-		return canonical
+		logging.Warn("AuthTools", "Backend declares an unusable RFC 8707 resource %q, deriving one from the URL instead: %v", declaredResource, err)
 	}
-	return ""
+
+	if serverURL == "" {
+		return ""
+	}
+	canonical, err := pkgoauth.CanonicalResourceURI(serverURL)
+	if err != nil {
+		logging.Warn("AuthTools", "Cannot derive an RFC 8707 resource indicator from %q: %v", serverURL, err)
+		return ""
+	}
+	return canonical
 }
 
 // authChallengeResult builds the tool result for a pending auth challenge.

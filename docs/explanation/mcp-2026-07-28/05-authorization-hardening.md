@@ -193,6 +193,13 @@ still needs to follow the rules.
   `authorization_response_iss_parameter_supported`, and both the proxy and
   the agent refuse a response that omits `iss` when the server advertises
   the flag.
+- **Coverage caveat.** An authorization server that neither sends `iss` nor
+  advertises the flag is accepted without a comparison, which is most
+  deployed servers today, dex included. The check therefore adds nothing
+  against them. What does protect those flows is unrelated to `iss`: the
+  issuer is recorded with the flow state, and the code is redeemed only at
+  the token endpoint of that issuer's own metadata, so a response
+  redirected from a different authorization server cannot be exchanged.
 
 ### SEP-837 — `application_type` in DCR
 
@@ -273,6 +280,15 @@ still needs to follow the rules.
   parsed by `pkg/oauth/www_authenticate.go` are inbound, from upstream
   MCP servers); this is therefore a guardrail to keep in mind when the
   inbound-auth surface grows.
+
+- **Refresh carries the resource indicator, from mcp-go.** mcp-go owns token
+  refresh for both the agent and the backends, and its
+  `OAuthHandler.refreshToken` puts the RFC 8707 `resource` on the refresh
+  request. It takes the value from the protected resource metadata it
+  discovers itself, exactly as declared. Muster must therefore send the
+  declared value unchanged on the authorization and token requests as well:
+  a value normalized on one path and verbatim on the other binds the initial
+  token and the refreshed token to different audiences.
 
 ### SEP-2350 — Scope accumulation on step-up
 

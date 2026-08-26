@@ -38,7 +38,11 @@ func newProtectedMusterServer(t *testing.T, authorizationServer, declaredResourc
 // resource identifier, so a derived value produces a token it then refuses.
 func TestAuthManager_SendsDeclaredResource(t *testing.T) {
 	authServer := newMetadataServer(t, false)
-	const declaredResource = "https://muster.example.com/mcp"
+	// Deliberately not canonical: a trailing slash and an explicit default
+	// port. muster must send it as declared, because the authorization server
+	// compares it against the identifier registered for that server, and
+	// mcp-go sends the same declared value on token refresh.
+	const declaredResource = "https://muster.example.com:443/mcp/"
 	musterServer := newProtectedMusterServer(t, authServer.URL, declaredResource)
 
 	manager, err := NewAuthManager(AuthManagerConfig{TokenStorageDir: t.TempDir()})

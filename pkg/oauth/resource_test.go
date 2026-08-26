@@ -121,3 +121,55 @@ func TestCanonicalResourceURI_RejectsUserinfo(t *testing.T) {
 		t.Fatal("expected userinfo to be refused")
 	}
 }
+
+// TestValidateResourceURI covers the checks a declared resource identifier
+// must pass. A value that is valid but not canonical passes unchanged: the
+// declaring server, not muster, decides its own identifier.
+func TestValidateResourceURI(t *testing.T) {
+	tests := []struct {
+		name    string
+		raw     string
+		wantErr bool
+	}{
+		{
+			name: "accepts a value that is not canonical",
+			raw:  "https://MCP.example.com:443/mcp/",
+		},
+		{
+			name: "accepts a query",
+			raw:  "https://mcp.example.com/mcp?tenant=a",
+		},
+		{
+			name:    "refuses a fragment",
+			raw:     "https://mcp.example.com/mcp#section",
+			wantErr: true,
+		},
+		{
+			name:    "refuses userinfo",
+			raw:     "https://user:pass@mcp.example.com/mcp",
+			wantErr: true,
+		},
+		{
+			name:    "refuses a relative URI",
+			raw:     "/mcp",
+			wantErr: true,
+		},
+		{
+			name:    "refuses an empty value",
+			raw:     "   ",
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateResourceURI(tc.raw)
+			if tc.wantErr && err == nil {
+				t.Fatalf("expected %q to be refused", tc.raw)
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("expected %q to be accepted, got: %v", tc.raw, err)
+			}
+		})
+	}
+}
