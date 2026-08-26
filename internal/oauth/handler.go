@@ -272,7 +272,7 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) validateResponseIssuer(ctx context.Context, state *OAuthState, iss string) error {
 	metadata, err := h.client.DiscoverMetadata(ctx, state.Issuer)
 	if (err != nil || metadata == nil) && iss == "" {
-		return fmt.Errorf("no iss on the response and AS metadata for %q is unavailable: %w", state.Issuer, err)
+		return fmt.Errorf("no iss on the response and AS metadata for %q is unavailable: %v", state.Issuer, err)
 	}
 
 	if iss == "" {
