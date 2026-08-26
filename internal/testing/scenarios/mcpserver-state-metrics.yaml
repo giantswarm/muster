@@ -146,10 +146,9 @@ steps:
   # callback observes, so a forgotten server drops off the endpoint entirely.
   #
   # Absence is asserted as "exactly one series remains, and it is the healthy
-  # server" rather than with not_contains: not_contains is validated by the
-  # scenario loader but never evaluated for test_* steps, so an absence
-  # assertion written that way would silently pass. line_count plus the
-  # positive match is an equivalent and actually-enforced proof.
+  # server" rather than with not_contains, because line_count plus the positive
+  # match also rules out any other series the filter might match, not just the
+  # deleted one.
   - id: "verify-deleted-server-stops-reporting"
     description: "The deleted server no longer appears, so its alert resolves instead of firing forever"
     tool: "test_scrape_metrics"

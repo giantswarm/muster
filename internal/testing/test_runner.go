@@ -708,14 +708,8 @@ func (r *testRunner) callTestToolWithWait(ctx context.Context, handler *TestTool
 }
 
 // validateTestToolExpectations validates expectations for test tool results:
-// success, error_contains, contains, and json_path. not_contains is not
-// evaluated here; a step that declares it gets a warning instead of a silent
-// pass, so the gap is visible to whoever writes the scenario.
+// success, error_contains, contains, not_contains, and json_path.
 func (r *testRunner) validateTestToolExpectations(expected TestExpectation, response interface{}, err error, logger TestLogger) bool {
-	if len(expected.NotContains) > 0 {
-		logger.Info("⚠️  not_contains is not evaluated for test_* steps and was ignored: %v\n", expected.NotContains)
-	}
-
 	// Determine if there's an error - either from Go error or from response isError field
 	hasError := err != nil
 	var responseMap map[string]interface{}
@@ -788,6 +782,16 @@ func (r *testRunner) validateTestToolExpectations(expected TestExpectation, resp
 			if !containsText(responseStr, expectedText) {
 				if r.debug {
 					logger.Debug("❌ Test tool response does not contain expected text '%s'\n", expectedText)
+				}
+				return false
+			}
+		}
+
+		// Check not contains expectations
+		for _, unexpectedText := range expected.NotContains {
+			if containsText(responseStr, unexpectedText) {
+				if r.debug {
+					logger.Debug("❌ Test tool response contains unexpected text '%s'\n", unexpectedText)
 				}
 				return false
 			}
