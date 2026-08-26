@@ -204,6 +204,7 @@ func (a *APIAdapter) RegisterServerPendingAuth(registration api.PendingAuthRegis
 			Issuer:              registration.AuthInfo.Issuer,
 			Scope:               registration.AuthInfo.Scope,
 			ResourceMetadataURL: registration.AuthInfo.ResourceMetadataURL,
+			Resource:            registration.AuthInfo.Resource,
 		}
 	}
 

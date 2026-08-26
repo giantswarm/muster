@@ -598,6 +598,11 @@ type AuthInfo struct {
 
 	// ResourceMetadataURL is the URL to fetch OAuth metadata (MCP-specific)
 	ResourceMetadataURL string `json:"resource_metadata_url,omitempty"`
+
+	// Resource is the canonical URI the server declares for itself in its
+	// RFC 9728 metadata. It is the RFC 8707 `resource` value muster sends on
+	// authorization and token requests for this server.
+	Resource string `json:"resource,omitempty"`
 }
 
 // ReconcileManagerHandler provides access to reconciliation status and control.
