@@ -88,6 +88,7 @@ A Helm chart for muster - Universal Control Plane for AI Agents built on MCP
 | autoscaling.targetCPUUtilizationPercentage | int | `80` |  |
 | podDisruptionBudget.enabled | bool | `false` |  |
 | podDisruptionBudget.minAvailable | int | `1` |  |
+| podDisruptionBudget.maxUnavailable | string | `nil` |  |
 | volumes | list | `[]` |  |
 | volumeMounts | list | `[]` |  |
 | nodeSelector | object | `{}` |  |
