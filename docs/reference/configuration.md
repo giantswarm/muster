@@ -292,6 +292,13 @@ the caller, with the reconciler performing the actual start/stop/restart.
 Lifecycle of muster's own internal services (e.g. the aggregator) keeps the
 imperative path.
 
+Workflow spec mutations (`core_workflow_create` / `_update` / `_delete`) go
+through the same gate: the write happens with the caller's identity, and the
+chart ships a `workflow-editor` Role/RoleBinding mirroring `mcpserver-editor`
+(bound to `system:authenticated` by default; narrow
+`rbac.workflowEditor.subjects` for admin-only workflow authoring).
+`core_workflow_validate`, reads, and workflow execution are unaffected.
+
 Caller-identity writes are always active in Kubernetes mode
 (`kubernetes: true`); in filesystem mode there is no apiserver and mutations
 write through the local client. The only knob is the audience override:

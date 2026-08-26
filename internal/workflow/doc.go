@@ -116,45 +116,24 @@
 //
 // ## Creating Workflows
 //
-//	workflow := api.Workflow{
-//	    Name:        "deploy-app",
-//	    Description: "Deploy application to environment",
-//	    Args: map[string]api.ArgDefinition{
-//	        "environment": {
-//	            Type:        "string",
-//	            Description: "Target environment",
-//	            Default:     "development",
-//	            Required:    false,
-//	        },
-//	        "version": {
-//	            Type:        "string",
-//	            Description: "Application version",
-//	            Required:    true,
-//	        },
-//	    },
-//	    Steps: []api.WorkflowStep{
-//	        {
-//	            ID:   "validate",
-//	            Tool: "validate_environment",
-//	            Args: map[string]interface{}{
-//	                "environment": "{{.environment}}",
-//	            },
-//	        },
-//	        {
-//	            ID:   "deploy",
-//	            Tool: "deploy_application",
-//	            Args: map[string]interface{}{
-//	                "environment": "{{.environment}}",
-//	                "version":     "{{.version}}",
-//	            },
-//	        },
-//	    },
-//	}
+// Workflow spec mutations must carry the calling session's identity so
+// Kubernetes-mode installations write them with the caller's own credentials
+// (issue #1069). They are therefore only reachable through the tool dispatch,
+// never as direct handler methods:
 //
 //	workflowHandler := api.GetWorkflow()
-//	if err := workflowHandler.CreateWorkflowFromStructured(workflowData); err != nil {
-//	    log.Fatal(err)
-//	}
+//	provider := workflowHandler.(api.ToolProvider)
+//	result, err := provider.ExecuteTool(ctx, "workflow_create", map[string]interface{}{
+//	    "name":        "deploy-app",
+//	    "description": "Deploy application to environment",
+//	    "steps": []interface{}{
+//	        map[string]interface{}{
+//	            "id":   "deploy",
+//	            "tool": "deploy_application",
+//	            "args": map[string]interface{}{"environment": "{{.environment}}"},
+//	        },
+//	    },
+//	})
 //
 // ## Executing Workflows
 //

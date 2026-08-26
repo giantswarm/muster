@@ -39,6 +39,10 @@ A Helm chart for muster - Universal Control Plane for AI Agents built on MCP
 | rbac.mcpServerEditor.subjects[0].apiGroup | string | `"rbac.authorization.k8s.io"` |  |
 | rbac.mcpServerEditor.subjects[0].kind | string | `"Group"` |  |
 | rbac.mcpServerEditor.subjects[0].name | string | `"system:authenticated"` |  |
+| rbac.workflowEditor.create | bool | `true` |  |
+| rbac.workflowEditor.subjects[0].apiGroup | string | `"rbac.authorization.k8s.io"` |  |
+| rbac.workflowEditor.subjects[0].kind | string | `"Group"` |  |
+| rbac.workflowEditor.subjects[0].name | string | `"system:authenticated"` |  |
 | podAnnotations | object | `{}` |  |
 | podLabels | object | `{}` |  |
 | podSecurityContext.runAsUser | int | `1000` |  |

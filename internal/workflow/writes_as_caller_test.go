@@ -1,4 +1,4 @@
-package mcpserver
+package workflow
 
 import (
 	"context"
@@ -30,38 +30,32 @@ import (
 // must never fall back to the SA client for writes.
 type stubMusterClient struct {
 	client.MusterClient
-	existing *musterv1alpha1.MCPServer
+	existing *musterv1alpha1.Workflow
 	created  []string
 	updated  []string
 	deleted  []string
-
-	// filesystem flips the reported mode. It defaults to Kubernetes mode
-	// because every test in this file exercises the Kubernetes-mode write
-	// path; the mode now also decides whether a stdio definition is admitted
-	// at all (issue #1067).
-	filesystem bool
 }
 
-func (s *stubMusterClient) IsKubernetesMode() bool { return !s.filesystem }
+func (s *stubMusterClient) IsKubernetesMode() bool { return true }
 
-func (s *stubMusterClient) GetMCPServer(_ context.Context, name, namespace string) (*musterv1alpha1.MCPServer, error) {
+func (s *stubMusterClient) GetWorkflow(_ context.Context, name, namespace string) (*musterv1alpha1.Workflow, error) {
 	if s.existing != nil && s.existing.Name == name {
 		return s.existing.DeepCopy(), nil
 	}
-	return nil, apierrors.NewNotFound(schema.GroupResource{Group: "muster.giantswarm.io", Resource: "mcpservers"}, name)
+	return nil, apierrors.NewNotFound(schema.GroupResource{Group: "muster.giantswarm.io", Resource: "workflows"}, name)
 }
 
-func (s *stubMusterClient) CreateMCPServer(_ context.Context, obj *musterv1alpha1.MCPServer) error {
+func (s *stubMusterClient) CreateWorkflow(_ context.Context, obj *musterv1alpha1.Workflow) error {
 	s.created = append(s.created, obj.Name)
 	return nil
 }
 
-func (s *stubMusterClient) UpdateMCPServer(_ context.Context, obj *musterv1alpha1.MCPServer) error {
+func (s *stubMusterClient) UpdateWorkflow(_ context.Context, obj *musterv1alpha1.Workflow) error {
 	s.updated = append(s.updated, obj.Name)
 	return nil
 }
 
-func (s *stubMusterClient) DeleteMCPServer(_ context.Context, name, _ string) error {
+func (s *stubMusterClient) DeleteWorkflow(_ context.Context, name, _ string) error {
 	s.deleted = append(s.deleted, name)
 	return nil
 }
@@ -87,16 +81,15 @@ func testJWT(t *testing.T, aud interface{}) string {
 // records the bearer it was handed, and the returned client records writes
 // through interceptors (optionally failing them with injectErr).
 type callerHarness struct {
-	adapter     *Adapter
-	sa          *stubMusterClient
-	tokensSeen  []string
-	created     []string
-	updated     []string
-	updatedObjs []*musterv1alpha1.MCPServer
-	deleted     []string
+	adapter    *Adapter
+	sa         *stubMusterClient
+	tokensSeen []string
+	created    []string
+	updated    []string
+	deleted    []string
 }
 
-func newCallerHarness(t *testing.T, existing *musterv1alpha1.MCPServer, injectErr error) *callerHarness {
+func newCallerHarness(t *testing.T, existing *musterv1alpha1.Workflow, injectErr error) *callerHarness {
 	t.Helper()
 	scheme := runtime.NewScheme()
 	utilruntime.Must(musterv1alpha1.AddToScheme(scheme))
@@ -111,14 +104,11 @@ func newCallerHarness(t *testing.T, existing *musterv1alpha1.MCPServer, injectEr
 			h.created = append(h.created, "create")
 			return nil
 		},
-		Update: func(_ context.Context, _ ctrlclient.WithWatch, obj ctrlclient.Object, _ ...ctrlclient.UpdateOption) error {
+		Update: func(context.Context, ctrlclient.WithWatch, ctrlclient.Object, ...ctrlclient.UpdateOption) error {
 			if injectErr != nil {
 				return injectErr
 			}
 			h.updated = append(h.updated, "update")
-			if server, ok := obj.(*musterv1alpha1.MCPServer); ok {
-				h.updatedObjs = append(h.updatedObjs, server.DeepCopy())
-			}
 			return nil
 		},
 		Delete: func(context.Context, ctrlclient.WithWatch, ctrlclient.Object, ...ctrlclient.DeleteOption) error {
@@ -130,7 +120,8 @@ func newCallerHarness(t *testing.T, existing *musterv1alpha1.MCPServer, injectEr
 		},
 	}).Build()
 
-	h.adapter = NewAdapterWithClient(h.sa, "test-ns")
+	h.adapter = NewAdapterWithClient(h.sa, "test-ns", nil, nil, "")
+	t.Cleanup(h.adapter.stopGC)
 	h.adapter.EnableWritesAsCaller(func(bearerToken string) (ctrlclient.Client, error) {
 		h.tokensSeen = append(h.tokensSeen, bearerToken)
 		return fakeClient, nil
@@ -146,13 +137,22 @@ func resultText(t *testing.T, result *api.CallToolResult) string {
 	return fmt.Sprintf("%v", result.Content[0])
 }
 
-func existingServer() *musterv1alpha1.MCPServer {
-	obj := &musterv1alpha1.MCPServer{}
-	obj.Name = "test-server"
+func existingWorkflow() *musterv1alpha1.Workflow {
+	obj := &musterv1alpha1.Workflow{}
+	obj.Name = "test-workflow"
 	obj.Namespace = "test-ns"
-	obj.Spec.Type = "streamable-http"
-	obj.Spec.URL = "http://example.com/mcp"
+	obj.Spec.Steps = []musterv1alpha1.WorkflowStep{{ID: "s1", Tool: "core_service_list"}}
 	return obj
+}
+
+// workflowArgs is a minimal valid workflow definition for create/update.
+func workflowArgs(name string) map[string]interface{} {
+	return map[string]interface{}{
+		"name": name,
+		"steps": []interface{}{
+			map[string]interface{}{"id": "s1", "tool": "core_service_list"},
+		},
+	}
 }
 
 // TestWritesAsCaller_IdentityReachesWrite is the regression guard against the
@@ -166,14 +166,14 @@ func TestWritesAsCaller_IdentityReachesWrite(t *testing.T) {
 		tool string
 		args map[string]interface{}
 	}{
-		{"mcpserver_create", map[string]interface{}{"name": "test-server", "type": "streamable-http", "url": "http://example.com/mcp"}},
-		{"mcpserver_update", map[string]interface{}{"name": "test-server", "url": "http://example.com/mcp2"}},
-		{"mcpserver_delete", map[string]interface{}{"name": "test-server"}},
+		{"workflow_create", workflowArgs("test-workflow")},
+		{"workflow_update", workflowArgs("test-workflow")},
+		{"workflow_delete", map[string]interface{}{"name": "test-workflow"}},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.tool, func(t *testing.T) {
-			h := newCallerHarness(t, existingServer(), nil)
+			h := newCallerHarness(t, existingWorkflow(), nil)
 			ctx := server.ContextWithIDToken(context.Background(), token)
 
 			result, err := h.adapter.ExecuteTool(ctx, tc.tool, tc.args)
@@ -203,11 +203,10 @@ func TestWritesAsCaller_MissingAudience(t *testing.T) {
 		"no-aud":           nil,
 	} {
 		t.Run(name, func(t *testing.T) {
-			h := newCallerHarness(t, existingServer(), nil)
+			h := newCallerHarness(t, existingWorkflow(), nil)
 			ctx := server.ContextWithIDToken(context.Background(), testJWT(t, aud))
 
-			result, err := h.adapter.ExecuteTool(ctx, "mcpserver_create",
-				map[string]interface{}{"name": "test-server", "type": "streamable-http", "url": "http://example.com/mcp"})
+			result, err := h.adapter.ExecuteTool(ctx, "workflow_create", workflowArgs("test-workflow"))
 			if err != nil {
 				t.Fatalf("ExecuteTool: %v", err)
 			}
@@ -228,10 +227,10 @@ func TestWritesAsCaller_MissingAudience(t *testing.T) {
 }
 
 func TestWritesAsCaller_NoSessionToken(t *testing.T) {
-	h := newCallerHarness(t, existingServer(), nil)
+	h := newCallerHarness(t, existingWorkflow(), nil)
 
-	result, err := h.adapter.ExecuteTool(context.Background(), "mcpserver_delete",
-		map[string]interface{}{"name": "test-server"})
+	result, err := h.adapter.ExecuteTool(context.Background(), "workflow_delete",
+		map[string]interface{}{"name": "test-workflow"})
 	if err != nil {
 		t.Fatalf("ExecuteTool: %v", err)
 	}
@@ -242,22 +241,22 @@ func TestWritesAsCaller_NoSessionToken(t *testing.T) {
 
 func TestWritesAsCaller_ForbiddenMapsToPermissionError(t *testing.T) {
 	forbidden := apierrors.NewForbidden(
-		schema.GroupResource{Group: "muster.giantswarm.io", Resource: "mcpservers"},
-		"test-server", fmt.Errorf(`User "alice" cannot create resource "mcpservers"`))
+		schema.GroupResource{Group: "muster.giantswarm.io", Resource: "workflows"},
+		"test-workflow", fmt.Errorf(`User "alice" cannot create resource "workflows"`))
 
 	cases := []struct {
 		tool string
 		verb string
 		args map[string]interface{}
 	}{
-		{"mcpserver_create", "create", map[string]interface{}{"name": "test-server", "type": "streamable-http", "url": "http://example.com/mcp"}},
-		{"mcpserver_update", "update", map[string]interface{}{"name": "test-server", "url": "http://example.com/mcp2"}},
-		{"mcpserver_delete", "delete", map[string]interface{}{"name": "test-server"}},
+		{"workflow_create", "create", workflowArgs("test-workflow")},
+		{"workflow_update", "update", workflowArgs("test-workflow")},
+		{"workflow_delete", "delete", map[string]interface{}{"name": "test-workflow"}},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.tool, func(t *testing.T) {
-			h := newCallerHarness(t, existingServer(), forbidden)
+			h := newCallerHarness(t, existingWorkflow(), forbidden)
 			ctx := server.ContextWithIDToken(context.Background(), testJWT(t, callerwrite.DefaultKubernetesAudience))
 
 			result, err := h.adapter.ExecuteTool(ctx, tc.tool, tc.args)
@@ -268,7 +267,7 @@ func TestWritesAsCaller_ForbiddenMapsToPermissionError(t *testing.T) {
 				t.Fatal("expected a tool error on 403")
 			}
 			text := resultText(t, result)
-			for _, want := range []string{"Permission denied", tc.verb, "mcpservers.muster.giantswarm.io", `"test-ns"`, "mcpserver-editor"} {
+			for _, want := range []string{"Permission denied", tc.verb, "workflows.muster.giantswarm.io", `"test-ns"`, "workflow-editor"} {
 				if !strings.Contains(text, want) {
 					t.Errorf("403 mapping %q does not mention %q", text, want)
 				}
@@ -278,11 +277,10 @@ func TestWritesAsCaller_ForbiddenMapsToPermissionError(t *testing.T) {
 }
 
 func TestWritesAsCaller_UnauthorizedMapsToRelogin(t *testing.T) {
-	h := newCallerHarness(t, existingServer(), apierrors.NewUnauthorized("token expired"))
+	h := newCallerHarness(t, existingWorkflow(), apierrors.NewUnauthorized("token expired"))
 	ctx := server.ContextWithIDToken(context.Background(), testJWT(t, callerwrite.DefaultKubernetesAudience))
 
-	result, err := h.adapter.ExecuteTool(ctx, "mcpserver_create",
-		map[string]interface{}{"name": "test-server", "type": "streamable-http", "url": "http://example.com/mcp"})
+	result, err := h.adapter.ExecuteTool(ctx, "workflow_create", workflowArgs("test-workflow"))
 	if err != nil {
 		t.Fatalf("ExecuteTool: %v", err)
 	}
@@ -291,33 +289,32 @@ func TestWritesAsCaller_UnauthorizedMapsToRelogin(t *testing.T) {
 	}
 }
 
-// TestWritesAsCaller_FlagOff pins the legacy behavior: with the flag off the
-// SA client performs the write even when the session carries a token.
+// TestWritesAsCaller_FlagOff pins the filesystem-mode behavior: with the gate
+// off the SA client performs the write even when the session carries a token.
 func TestWritesAsCaller_FlagOff(t *testing.T) {
-	sa := &stubMusterClient{existing: existingServer()}
-	adapter := NewAdapterWithClient(sa, "test-ns")
+	sa := &stubMusterClient{existing: existingWorkflow()}
+	adapter := NewAdapterWithClient(sa, "test-ns", nil, nil, "")
+	t.Cleanup(adapter.stopGC)
 	ctx := server.ContextWithIDToken(context.Background(), testJWT(t, callerwrite.DefaultKubernetesAudience))
 
-	result, err := adapter.ExecuteTool(ctx, "mcpserver_create",
-		map[string]interface{}{"name": "another-server", "type": "streamable-http", "url": "http://example.com/mcp"})
+	result, err := adapter.ExecuteTool(ctx, "workflow_create", workflowArgs("another-workflow"))
 	if err != nil {
 		t.Fatalf("ExecuteTool: %v", err)
 	}
 	if result.IsError {
 		t.Fatalf("unexpected tool error: %s", resultText(t, result))
 	}
-	if len(sa.created) != 1 || sa.created[0] != "another-server" {
-		t.Fatalf("SA client did not perform the write with the flag off: %v", sa.created)
+	if len(sa.created) != 1 || sa.created[0] != "another-workflow" {
+		t.Fatalf("SA client did not perform the write with the gate off: %v", sa.created)
 	}
 }
 
 // TestWritesAsCaller_ValidateUntouched pins that validation stays available to
-// callers who cannot write: no token, flag on, validate still succeeds.
+// callers who cannot write: no token, gate on, validate still succeeds.
 func TestWritesAsCaller_ValidateUntouched(t *testing.T) {
 	h := newCallerHarness(t, nil, nil)
 
-	result, err := h.adapter.ExecuteTool(context.Background(), "mcpserver_validate",
-		map[string]interface{}{"name": "test-server", "type": "streamable-http", "url": "http://example.com/mcp"})
+	result, err := h.adapter.ExecuteTool(context.Background(), "workflow_validate", workflowArgs("test-workflow"))
 	if err != nil {
 		t.Fatalf("ExecuteTool: %v", err)
 	}
