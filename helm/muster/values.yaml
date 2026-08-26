@@ -48,28 +48,41 @@ rbac:
   additionalSecretNamespaces: []
   # mcpServerEditor ships the default answer to "who may register and manage
   # MCP servers" under writes-as-caller: a namespaced Role granting
-  # create/update/patch/delete on mcpservers, plus a RoleBinding. The default
-  # subjects bind all authenticated users, preserving the pre-enforcement
-  # "any user can register" behavior. Narrow subjects to an admin group for
-  # admin-only registration.
+  # create/update/patch/delete on mcpservers, plus a RoleBinding.
+  #
+  # Who to bind is a real trade-off. Everyone bound here registers servers
+  # into a SHARED aggregator: other users see those servers and are routed
+  # through them. Shared multi-team installs should narrow subjects to an
+  # admin group. The default binds all authenticated users — a deliberate
+  # fit for single-team installs where every SSO user is trusted to
+  # register, and the compatible default for existing installs. An empty
+  # subjects list fails the render rather than shipping a binding bound to
+  # nobody; set create=false to manage access out of band instead.
   mcpServerEditor:
     create: true
     # RoleBinding subjects granted the mcpserver-editor Role. Standard
     # rbac.authorization.k8s.io/v1 subjects (Group, User, or ServiceAccount).
+    # Must not be empty while create is true.
     subjects:  # @schema item: object ; itemProperties: {apiGroup: {type: string}, kind: {type: string}, name: {type: string}, namespace: {type: string}}
       - apiGroup: rbac.authorization.k8s.io
         kind: Group
         name: system:authenticated
   # workflowEditor ships the default answer to "who may create and manage
   # workflows" under writes-as-caller: a namespaced Role granting
-  # create/update/patch/delete on workflows, plus a RoleBinding. The default
-  # subjects bind all authenticated users, preserving the pre-enforcement
-  # "any user can create" behavior. Narrow subjects to an admin group for
-  # admin-only workflow authoring.
+  # create/update/patch/delete on workflows, plus a RoleBinding.
+  #
+  # Same trade-off as mcpServerEditor: workflows authored here are visible
+  # to and runnable by other users of a shared aggregator. Shared
+  # multi-team installs should narrow subjects to an admin group; the
+  # default binds all authenticated users, the deliberate fit for
+  # single-team installs and the compatible default for existing ones. An
+  # empty subjects list fails the render rather than shipping a binding
+  # bound to nobody; set create=false to manage access out of band.
   workflowEditor:
     create: true
     # RoleBinding subjects granted the workflow-editor Role. Standard
     # rbac.authorization.k8s.io/v1 subjects (Group, User, or ServiceAccount).
+    # Must not be empty while create is true.
     subjects:  # @schema item: object ; itemProperties: {apiGroup: {type: string}, kind: {type: string}, name: {type: string}, namespace: {type: string}}
       - apiGroup: rbac.authorization.k8s.io
         kind: Group
