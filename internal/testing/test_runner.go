@@ -623,8 +623,11 @@ func (r *testRunner) runTestToolStep(ctx context.Context, step TestStep, config 
 		}
 	}
 
-	// Execute the test tool
-	response, err := testToolsHandler.HandleTestTool(stepCtx, step.Tool, resolvedArgs)
+	// Execute the test tool, re-invoking it until expectations hold when the
+	// step declares wait_for_state. Test tools observe eventually-consistent
+	// state just like the regular tools do -- an exported metric reflects a
+	// reconcile that has already happened, but only from the next collection.
+	response, err := r.callTestToolWithWait(stepCtx, testToolsHandler, step, resolvedArgs, logger)
 
 	// Wrap the response in MCP-compatible format
 	wrappedResult := WrapTestToolResult(response, err)
@@ -656,6 +659,52 @@ func (r *testRunner) runTestToolStep(ctx context.Context, step TestStep, config 
 	}
 
 	return result
+}
+
+// testToolPollInterval is how often a wait_for_state test-tool step re-invokes
+// its tool. Matches the 1s interval the regular tool path polls at.
+const testToolPollInterval = 1 * time.Second
+
+// callTestToolWithWait invokes a test tool once, or repeatedly until its
+// expectations hold when the step sets wait_for_state.
+//
+// Mirrors validateExpectationsWithClient's polling for regular tool steps. The
+// last response is returned either way, so a timeout is reported by the normal
+// validation path with the actual response attached rather than as a bare
+// timeout.
+func (r *testRunner) callTestToolWithWait(ctx context.Context, handler *TestToolsHandler, step TestStep, args map[string]interface{}, logger TestLogger) (interface{}, error) {
+	response, err := handler.HandleTestTool(ctx, step.Tool, args)
+	if step.Expected.WaitForState <= 0 {
+		return response, err
+	}
+	if err == nil && r.validateTestToolExpectations(step.Expected, response, nil, logger) {
+		return response, nil
+	}
+
+	waitCtx, cancel := context.WithTimeout(ctx, step.Expected.WaitForState)
+	defer cancel()
+
+	ticker := time.NewTicker(testToolPollInterval)
+	defer ticker.Stop()
+
+	if r.debug {
+		logger.Debug("🔄 Polling test tool %s for up to %v\n", step.Tool, step.Expected.WaitForState)
+	}
+
+	for {
+		select {
+		case <-waitCtx.Done():
+			if r.debug {
+				logger.Debug("⏰ Test tool %s did not meet expectations within %v\n", step.Tool, step.Expected.WaitForState)
+			}
+			return response, err
+		case <-ticker.C:
+			response, err = handler.HandleTestTool(waitCtx, step.Tool, args)
+			if err == nil && r.validateTestToolExpectations(step.Expected, response, nil, logger) {
+				return response, nil
+			}
+		}
+	}
 }
 
 // validateTestToolExpectations validates expectations for test tool results:

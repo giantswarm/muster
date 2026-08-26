@@ -15,6 +15,10 @@
 #     real kube-apiserver from setup-envtest -- the generated go-build job
 #     only runs `make test`, so TestWritesAsCallerEnvtest self-skips there
 #     without KUBEBUILDER_ASSETS
+#   - the chart test job (chart-test), which runs the helm-unittest suites and
+#     the promtool alert-rule tests. Neither is reachable from `make test`:
+#     both need helm plugins and promtool, which the architect go image does
+#     not carry.
 version: 2.1
 
 jobs:
@@ -37,9 +41,50 @@ jobs:
         command: make test-envtest
     - architect/go-cache-save
 
+  # Chart checks: helm lint, the helm-unittest suites in helm/muster/tests/, and
+  # the promtool unit tests for the PrometheusRule. Runs in a plain container
+  # rather than the architect executor because the dependencies are helm plugins
+  # and a promtool binary, not Go tooling -- nothing here needs the Go cache or
+  # module auth. Pinned versions so a plugin release cannot turn CI red on an
+  # unrelated PR.
+  chart-test:
+    docker:
+      - image: cimg/base:current
+    resource_class: small
+    environment:
+      HELM_VERSION: v3.16.0
+      PROMETHEUS_VERSION: 3.6.0
+      YQ_VERSION: v4.44.6
+    steps:
+      - checkout
+      - run:
+          name: Install helm, promtool and yq
+          command: |
+            set -euxo pipefail
+            curl -sSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" | tar -xz -C /tmp
+            sudo install -m 0755 /tmp/linux-amd64/helm /usr/local/bin/helm
+            curl -sSL "https://github.com/prometheus/prometheus/releases/download/v${PROMETHEUS_VERSION}/prometheus-${PROMETHEUS_VERSION}.linux-amd64.tar.gz" | tar -xz -C /tmp
+            sudo install -m 0755 "/tmp/prometheus-${PROMETHEUS_VERSION}.linux-amd64/promtool" /usr/local/bin/promtool
+            # mikefarah/yq -- cimg/base ships no yq, and the python jq wrapper
+            # of the same name does not understand `yq eval`.
+            sudo curl -sSLo /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+            sudo chmod 0755 /usr/local/bin/yq
+            helm version --short && promtool --version && yq --version
+      - run:
+          name: Run chart tests
+          command: make helm-test
+
 workflows:
   build:
     jobs:
+    # ---- Chart checks. Independent of go-build: a chart-only PR gets the
+    #      signal without waiting on the Go matrix, and a Go-only PR still
+    #      proves the chart renders. Same tag filter as the other test jobs.
+    - chart-test:
+        filters:
+          tags:
+            only: /^v.*/
+
     # ---- envtest-backed RBAC integration test. Same filters as go-build
     #      (runs on every branch and on release tags) since it's a test job
     #      like go-build's own embedded `make test`, not a branch-only publish

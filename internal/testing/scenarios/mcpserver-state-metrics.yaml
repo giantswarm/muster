@@ -1,0 +1,176 @@
+name: "mcpserver-state-metrics"
+description: "MCPServer connection state is exported as Prometheus metrics the alert rules can fire on"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "observability", "metrics", "reconciler", "alerting"]
+timeout: "3m"
+
+# Test Story: a broken MCP backend has to be visible to monitoring
+#
+# Given: a healthy MCP server and an unreachable one
+# Then:  muster_mcpserver_state exports 1 for each, labelled with the state,
+#        so the healthy one reads Connected and the broken one Failed
+# When:  the broken server is deleted
+# Then:  it stops being exported, so deleting a server resolves its alert
+#        instead of leaving a series that pins it firing forever
+#
+# This closes the detection gap behind giantswarm/giantswarm#37521: 21
+# MCPServers sat in status.state Failed for two days with the reason recorded
+# in status.lastError, and nothing could alert on it.
+#
+# The assertions deliberately run against the process's real Prometheus
+# endpoint (test_scrape_metrics), not against internal state. That is what
+# pins the exported names and labels the PrometheusRule expressions in
+# helm/muster/templates/prometheusrule.yaml select on — the OTel Prometheus
+# exporter rewrites muster.mcpserver.state to muster_mcpserver_state and
+# mcpserver.name to mcpserver_name, and only a scrape proves it.
+
+pre_configuration:
+  mcp_servers:
+    - name: "metrics-healthy-server"
+      config:
+        type: "streamable-http"
+        tools:
+          - name: "healthy_probe_tool"
+            input_schema:
+              type: "object"
+              properties:
+                message: { type: "string" }
+            responses:
+              - response:
+                  message: "alive: {{ .message }}"
+
+steps:
+  - id: "verify-healthy-connected"
+    description: "Baseline: the pre-configured server reaches Connected"
+    tool: "core_service_status"
+    args:
+      name: "metrics-healthy-server"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "metrics-healthy-server"
+        state: "connected"
+
+  # A URL nothing listens on: the connection attempt fails outright, which is
+  # the shape of the incident (TLS handshake failure against a reachable host
+  # produced the same Failed state).
+  - id: "create-unreachable-server"
+    description: "Add a server whose endpoint cannot be reached"
+    tool: "core_mcpserver_create"
+    args:
+      name: "metrics-broken-server"
+      type: "streamable-http"
+      url: "http://127.0.0.1:1/mcp"
+      autoStart: true
+    expected:
+      success: true
+
+  - id: "verify-broken-failed"
+    description: "The reconciler records the unreachable server as Failed"
+    tool: "core_mcpserver_get"
+    args:
+      name: "metrics-broken-server"
+    expected:
+      success: true
+      wait_for_state: "60s"
+      json_path:
+        name: "metrics-broken-server"
+        state: "Failed"
+
+  # The exported name and label set are the contract the PrometheusRule depends
+  # on. wait_for_state polls the scrape: a state the reconciler just wrote
+  # reaches the exporter on the next collection, not synchronously.
+  - id: "verify-failed-state-exported"
+    description: "muster_mcpserver_state exports the Failed server with the labels the alert selects on"
+    tool: "test_scrape_metrics"
+    args:
+      filter: "muster_mcpserver_state"
+    expected:
+      success: true
+      wait_for_state: "60s"
+      contains:
+        - 'muster_mcpserver_state{'
+        - 'mcpserver_name="metrics-broken-server"'
+        - 'state="Failed"'
+
+  - id: "verify-healthy-state-exported"
+    description: "The healthy server is exported too, as Connected — the gauge covers every known server, not only broken ones"
+    tool: "test_scrape_metrics"
+    args:
+      filter: "muster_mcpserver_state"
+    expected:
+      success: true
+      wait_for_state: "60s"
+      contains:
+        - 'mcpserver_name="metrics-healthy-server"'
+        - 'state="Connected"'
+
+  - id: "verify-transitions-counter-exported"
+    description: "The transition counter is exported so flapping is visible, not just steady-state failure"
+    tool: "test_scrape_metrics"
+    args:
+      filter: "muster_mcpserver_state_transitions_total"
+    expected:
+      success: true
+      wait_for_state: "60s"
+      contains:
+        - 'muster_mcpserver_state_transitions_total{'
+        - 'mcpserver_name="metrics-broken-server"'
+        - 'state="Failed"'
+
+  # A metric-borne "namespace" label would be renamed to exported_namespace by
+  # the Prometheus Operator's scrape config, silently breaking the alert
+  # descriptions. The reconciler emits the prefixed form to avoid that; assert
+  # the prefix actually survives to the wire.
+  - id: "verify-namespace-label-is-prefixed"
+    description: "The namespace attribute is exported as mcpserver_namespace, not as a bare namespace label"
+    tool: "test_scrape_metrics"
+    args:
+      filter: "muster_mcpserver_state{"
+    expected:
+      success: true
+      contains:
+        - "mcpserver_namespace="
+
+  - id: "delete-broken-server"
+    description: "Delete the broken server"
+    tool: "core_mcpserver_delete"
+    args:
+      name: "metrics-broken-server"
+    expected:
+      success: true
+
+  # The stale-series guarantee. An asynchronous gauge only exports what its
+  # callback observes, so a forgotten server drops off the endpoint entirely.
+  #
+  # Absence is asserted as "exactly one series remains, and it is the healthy
+  # server" rather than with not_contains: not_contains is validated by the
+  # scenario loader but never evaluated for test_* steps, so an absence
+  # assertion written that way would silently pass. line_count plus the
+  # positive match is an equivalent and actually-enforced proof.
+  - id: "verify-deleted-server-stops-reporting"
+    description: "The deleted server no longer appears, so its alert resolves instead of firing forever"
+    tool: "test_scrape_metrics"
+    args:
+      filter: "muster_mcpserver_state{"
+    expected:
+      success: true
+      wait_for_state: "60s"
+      contains:
+        - 'mcpserver_name="metrics-healthy-server"'
+      json_path:
+        line_count: 1
+
+  - id: "verify-healthy-server-still-works"
+    description: "Reporting on the deleted server stopped without disturbing the healthy one"
+    tool: "x_metrics-healthy-server_healthy_probe_tool"
+    args:
+      message: "post-delete"
+    expected:
+      success: true
+      contains: ["alive", "post-delete"]
+
+# No cleanup block: deleting the broken server is a test step, and the healthy
+# server goes away with the instance.

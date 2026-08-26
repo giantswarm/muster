@@ -216,6 +216,10 @@ type MusterInstance struct {
 	ConfigPath string
 	// Port is the port the instance is listening on
 	Port int
+	// MetricsPort is the port the instance serves its Prometheus /metrics
+	// endpoint on. The harness always enables the prometheus exporter so
+	// scenarios can assert on exported metrics (see test_scrape_metrics).
+	MetricsPort int
 	// Endpoint is the full MCP endpoint URL
 	Endpoint string
 	// Process is the running muster serve process

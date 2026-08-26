@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/retry"
 
@@ -14,6 +15,7 @@ import (
 
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/pkg/observability"
 )
 
 // MCPServerManager is an interface for accessing MCPServer definitions.
@@ -61,6 +63,10 @@ type MCPServerReconciler struct {
 	// muster is down degrades to autoStart semantics, same as any stopped
 	// service across a restart.
 	suspended map[string]bool
+
+	// stateMetrics publishes status.state as OTel metrics so a server stuck in
+	// Failed is alertable, not just visible to whoever runs kubectl.
+	stateMetrics *mcpServerStateMetrics
 }
 
 // NewMCPServerReconciler creates a new MCPServer reconciler.
@@ -75,7 +81,15 @@ func NewMCPServerReconciler(
 		mcpServerManager: mcpServerManager,
 		serviceRegistry:  serviceRegistry,
 		suspended:        make(map[string]bool),
+		stateMetrics:     newMCPServerStateMetrics(otel.Meter(observability.TracerName)),
 	}
+}
+
+// Close releases the reconciler's metric callback registration. It is called by
+// Manager.Stop via the io.Closer type assertion; a reconciler that is never
+// registered with a Manager does not need it (the process is exiting).
+func (r *MCPServerReconciler) Close() error {
+	return r.stateMetrics.close()
 }
 
 // WithStatusUpdater sets the status updater for syncing status back to CRDs.
@@ -142,6 +156,7 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileReques
 	if rejectErr := api.ValidateStdioAllowed(mcpServerInfo.Type, r.isKubernetesMode()); rejectErr != nil {
 		result := r.reconcileReject(req, rejectErr, exists)
 		r.syncStatus(ctx, req.Name, req.Namespace, result.Error, nil)
+		r.recordState(ctx, req, mcpServerInfo.Type, result.Error)
 		return result
 	}
 
@@ -192,6 +207,7 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileReques
 
 	// Sync status back to CRD after reconciliation
 	r.syncStatus(ctx, req.Name, req.Namespace, result.Error, processedRestart)
+	r.recordState(ctx, req, mcpServerInfo.Type, result.Error)
 
 	// If reconciliation succeeded, schedule periodic requeue for status sync.
 	// This implements the idiomatic Kubernetes controller pattern where status
@@ -273,16 +289,14 @@ func (r *MCPServerReconciler) applyStatusFromService(server *musterv1alpha1.MCPS
 		server.Status.LastRestartedAt = &t
 	}
 
+	// Set State based on infrastructure state and server type. State
+	// terminology differs based on server type (stdio vs remote).
+	server.Status.State = r.observedState(name, server.Spec.Type, reconcileErr)
+
 	// Get the current service state
 	service, exists := r.serviceRegistry.Get(name)
 
 	if exists {
-		state := service.GetState()
-
-		// Set State based on infrastructure state and server type
-		// State terminology differs based on server type (stdio vs remote)
-		server.Status.State = r.determineState(state, server.Spec.Type)
-
 		if service.GetLastError() != nil {
 			// Sanitize error message to remove sensitive data before CRD exposure
 			// Note: Per-user auth errors are tracked in Session Registry, not here
@@ -292,31 +306,64 @@ func (r *MCPServerReconciler) applyStatusFromService(server *musterv1alpha1.MCPS
 		}
 
 		// Update LastConnected if service is running/connected
-		if api.IsActiveState(state) {
+		if api.IsActiveState(service.GetState()) {
 			now := metav1.NewTime(time.Now())
 			server.Status.LastConnected = &now
 		}
 
-	} else {
-		// Service doesn't exist - use appropriate initial state based on server type
-		isRemote := server.Spec.Type == "streamable-http" || server.Spec.Type == "sse"
-		if isRemote {
-			server.Status.State = musterv1alpha1.MCPServerStateDisconnected
-		} else {
-			server.Status.State = musterv1alpha1.MCPServerStateStopped
-		}
-		if reconcileErr != nil {
-			// Sanitize error message to remove sensitive data before CRD exposure
-			server.Status.LastError = SanitizeErrorMessage(reconcileErr.Error())
-			// A definition muster refuses to run will never start, so it reads
-			// as Failed rather than as a server merely not started yet
-			// (issue #1067). Transient reconcile errors keep the stopped /
-			// disconnected reading and are retried.
-			if errors.Is(reconcileErr, api.ErrStdioNotAllowedInKubernetesMode) {
-				server.Status.State = musterv1alpha1.MCPServerStateFailed
-			}
-		}
+	} else if reconcileErr != nil {
+		// Sanitize error message to remove sensitive data before CRD exposure
+		server.Status.LastError = SanitizeErrorMessage(reconcileErr.Error())
 	}
+}
+
+// observedState derives the state the reconciler currently sees for one
+// MCPServer.
+//
+// This is the single decision site for status.state: applyStatusFromService
+// writes its result to the CRD and recordState reports it as a metric, so the
+// alert can never disagree with what `kubectl get mcpserver` shows. It takes
+// the server type as an argument rather than reading a CRD object, because the
+// metric is also recorded in filesystem mode, where there is no CRD to sync
+// status to.
+func (r *MCPServerReconciler) observedState(name, serverType string, reconcileErr error) musterv1alpha1.MCPServerStateValue {
+	if service, exists := r.serviceRegistry.Get(name); exists {
+		return r.determineState(service.GetState(), serverType)
+	}
+
+	// Service doesn't exist - use appropriate initial state based on server type.
+	// A definition muster refuses to run will never start, so it reads as Failed
+	// rather than as a server merely not started yet (issue #1067). Transient
+	// reconcile errors keep the stopped / disconnected reading and are retried.
+	if reconcileErr != nil && errors.Is(reconcileErr, api.ErrStdioNotAllowedInKubernetesMode) {
+		return musterv1alpha1.MCPServerStateFailed
+	}
+	if serverType == "streamable-http" || serverType == "sse" {
+		return musterv1alpha1.MCPServerStateDisconnected
+	}
+	return musterv1alpha1.MCPServerStateStopped
+}
+
+// recordState publishes the reconciler's view of one MCPServer's state as a
+// metric.
+//
+// Called alongside every syncStatus so the gauge tracks the CRD status field,
+// but unconditionally: syncStatus returns early without a StatusUpdater
+// (filesystem mode), where the metric is the only external view of state there
+// is.
+func (r *MCPServerReconciler) recordState(ctx context.Context, req ReconcileRequest, serverType string, reconcileErr error) {
+	r.stateMetrics.record(ctx, r.metricKey(req), r.observedState(req.Name, serverType, reconcileErr))
+}
+
+// metricKey builds the metric identity for a reconcile request, falling back to
+// the reconciler's configured namespace so the attribute is never empty (the
+// filesystem change detector does not set one).
+func (r *MCPServerReconciler) metricKey(req ReconcileRequest) stateKey {
+	namespace := req.Namespace
+	if namespace == "" {
+		namespace = r.Namespace
+	}
+	return stateKey{name: req.Name, namespace: namespace}
 }
 
 // determineState converts service state to MCPServer State using context-appropriate terminology.
@@ -657,6 +704,12 @@ func (r *MCPServerReconciler) reconcileDelete(ctx context.Context, req Reconcile
 	logging.Info("MCPServerReconciler", "Deleting MCPServer service: %s", req.Name)
 
 	r.clearSuspended(req.Name)
+
+	// Stop reporting state for a resource that no longer exists, so a Failed
+	// server that is deleted rather than fixed does not keep an alert firing.
+	// Done before the early returns below: every path out of here means the
+	// definition is gone.
+	r.stateMetrics.forget(r.metricKey(req))
 
 	// Check if service exists
 	_, exists := r.serviceRegistry.Get(req.Name)

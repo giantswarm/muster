@@ -699,6 +699,20 @@ muster:
           # selecting the right Prometheus instance in a multi-tenant
           # cluster.
           labels: {}  # @schema additionalProperties: true
+        # PrometheusRule with the MCPServer connection-state alerts
+        # (MusterMCPServerFailed, MusterMCPServerFlapping). Fires on
+        # muster's own muster_mcpserver_state /
+        # muster_mcpserver_state_transitions_total metrics, so the
+        # Prometheus that loads the rule has to be receiving them —
+        # either by scraping the endpoint above, or via OTLP to a
+        # remote-write target. Gated separately from serviceMonitor so
+        # the OTLP path can have rules without a local scrape.
+        prometheusRule:
+          enabled: false
+          # Extra labels applied to the PrometheusRule — on
+          # Prometheus-Operator clusters this is how a rule is matched
+          # to the right Prometheus instance (ruleSelector).
+          labels: {}  # @schema additionalProperties: true
 
 # CRD ownership. The muster application chart ships the MCPServer and Workflow
 # CustomResourceDefinitions in the Helm 3 `crds/` directory (helm/muster/crds/),

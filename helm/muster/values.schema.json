@@ -444,6 +444,19 @@
                                         "port": {
                                             "type": "integer"
                                         },
+                                        "prometheusRule": {
+                                            "type": "object",
+                                            "additionalProperties": false,
+                                            "properties": {
+                                                "enabled": {
+                                                    "type": "boolean"
+                                                },
+                                                "labels": {
+                                                    "type": "object",
+                                                    "additionalProperties": true
+                                                }
+                                            }
+                                        },
                                         "serviceMonitor": {
                                             "type": "object",
                                             "additionalProperties": false,

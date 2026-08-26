@@ -1,0 +1,159 @@
+suite: PrometheusRule template tests
+templates:
+  - templates/prometheusrule.yaml
+tests:
+  - it: renders nothing by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # The rule is gated on its own value, not on the prometheus exporter: the
+  # metrics can reach the Prometheus that loads the rule over OTLP instead of a
+  # scrape. Enabling the ServiceMonitor alone must not pull the rule in either.
+  - it: renders nothing when only the ServiceMonitor is enabled
+    set:
+      muster.observability.metrics.exporter: "prometheus"
+      muster.observability.metrics.prometheus.serviceMonitor.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders without the prometheus exporter, for the OTLP remote-write path
+    set:
+      muster.observability.metrics.exporter: "otlp"
+      muster.observability.metrics.prometheus.prometheusRule.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: kind
+          value: PrometheusRule
+      - equal:
+          path: apiVersion
+          value: monitoring.coreos.com/v1
+
+  - it: defines both MCPServer state alerts in one group
+    set:
+      muster.observability.metrics.prometheus.prometheusRule.enabled: true
+    asserts:
+      - lengthEqual:
+          path: spec.groups
+          count: 1
+      - equal:
+          path: spec.groups[0].name
+          value: muster
+      - lengthEqual:
+          path: spec.groups[0].rules
+          count: 2
+      - equal:
+          path: spec.groups[0].rules[0].alert
+          value: MusterMCPServerFailed
+      - equal:
+          path: spec.groups[0].rules[1].alert
+          value: MusterMCPServerFlapping
+
+  # The expression is the contract between the chart and internal/reconciler:
+  # the metric name and the label the reconciler emits the state under. If the
+  # Go side renames either, this test is what catches it.
+  - it: alerts on sustained Failed state with a rollout-proof window
+    set:
+      muster.observability.metrics.prometheus.prometheusRule.enabled: true
+    asserts:
+      - equal:
+          path: spec.groups[0].rules[0].expr
+          value: |-
+            muster_mcpserver_state{state="Failed"} == 1
+      - equal:
+          path: spec.groups[0].rules[0].for
+          value: 20m
+
+  - it: alerts on repeated transitions into Failed
+    set:
+      muster.observability.metrics.prometheus.prometheusRule.enabled: true
+    asserts:
+      - equal:
+          path: spec.groups[0].rules[1].expr
+          value: |-
+            increase(muster_mcpserver_state_transitions_total{state="Failed"}[1h]) > 5
+      - equal:
+          path: spec.groups[0].rules[1].for
+          value: 10m
+
+  # Auth Required is a normal steady state for on-behalf-of servers with no
+  # active user session, and every server shows it briefly after a restart.
+  # Alerting on it would be pure noise, so no expression may select it.
+  - it: never alerts on Auth Required or any other non-Failed state
+    set:
+      muster.observability.metrics.prometheus.prometheusRule.enabled: true
+    asserts:
+      - notMatchRegex:
+          path: spec.groups[0].rules[0].expr
+          pattern: "Auth Required|Connecting|Disconnected|Stopped|Starting"
+      - notMatchRegex:
+          path: spec.groups[0].rules[1].expr
+          pattern: "Auth Required|Connecting|Disconnected|Stopped|Starting"
+
+  - it: carries the Giant Swarm routing labels on every alert
+    set:
+      muster.observability.metrics.prometheus.prometheusRule.enabled: true
+    asserts:
+      - equal:
+          path: spec.groups[0].rules[0].labels
+          value:
+            area: platform
+            cancel_if_monitoring_agent_down: "true"
+            cancel_if_outside_working_hours: "false"
+            severity: notify
+            team: bumblebee
+            topic: muster
+      - equal:
+          path: spec.groups[0].rules[1].labels
+          value:
+            area: platform
+            cancel_if_monitoring_agent_down: "true"
+            cancel_if_outside_working_hours: "false"
+            severity: notify
+            team: bumblebee
+            topic: muster
+
+  # An alert with a dead runbook link is half an alert. Both point at a runbook
+  # that exists in giantswarm/giantswarm, with the interactive-variable query
+  # string the intranet uses to prefill installation and cluster.
+  - it: points both alerts at the runbook
+    set:
+      muster.observability.metrics.prometheus.prometheusRule.enabled: true
+    asserts:
+      - equal:
+          path: spec.groups[0].rules[0].annotations.runbook_url
+          value: 'https://intranet.giantswarm.io/docs/support-and-ops/runbooks/muster-mcpserver-failed/?INSTALLATION={{ $labels.installation }}&CLUSTER={{ $labels.cluster_id }}'
+      - equal:
+          path: spec.groups[0].rules[1].annotations.runbook_url
+          value: 'https://intranet.giantswarm.io/docs/support-and-ops/runbooks/muster-mcpserver-failed/?INSTALLATION={{ $labels.installation }}&CLUSTER={{ $labels.cluster_id }}'
+
+  # The description has to name the offending MCPServer, and it has to use the
+  # prefixed labels the reconciler emits — a bare {{ $labels.namespace }} would
+  # silently render muster's own namespace after the Prometheus Operator
+  # overwrites target-metadata labels on scrape.
+  - it: names the MCPServer in both descriptions using the prefixed labels
+    set:
+      muster.observability.metrics.prometheus.prometheusRule.enabled: true
+    asserts:
+      - matchRegex:
+          path: spec.groups[0].rules[0].annotations.description
+          pattern: '\{\{ \$labels\.mcpserver_namespace \}\}/\{\{ \$labels\.mcpserver_name \}\}'
+      - matchRegex:
+          path: spec.groups[0].rules[1].annotations.description
+          pattern: '\{\{ \$labels\.mcpserver_namespace \}\}/\{\{ \$labels\.mcpserver_name \}\}'
+
+  - it: applies extra labels for Prometheus ruleSelector matching
+    set:
+      muster.observability.metrics.prometheus.prometheusRule.enabled: true
+      muster.observability.metrics.prometheus.prometheusRule.labels:
+        prometheus: platform
+    asserts:
+      - equal:
+          path: metadata.labels.prometheus
+          value: platform
+      - equal:
+          path: metadata.labels["application.giantswarm.io/team"]
+          value: bumblebee
