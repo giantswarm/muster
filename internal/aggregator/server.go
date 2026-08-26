@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"slices"
 	"sort"
@@ -2492,17 +2491,10 @@ func discoverProtectedResourceMetadata(ctx context.Context, serverURL string, ov
 	}
 
 	// Step 2 + 3: well-known paths (path-based first per MCP spec, then root).
-	parsed, err := url.Parse(serverURL)
+	wellKnown, err := pkgoauth.ProtectedResourceMetadataURLs(serverURL)
 	if err != nil {
 		return nil, fmt.Errorf("parse server URL: %w", err)
 	}
-	host := parsed.Scheme + "://" + parsed.Host
-	path := strings.TrimRight(parsed.Path, "/")
-	wellKnown := []string{}
-	if path != "" {
-		wellKnown = append(wellKnown, host+pkgoauth.WellKnownProtectedResource+path)
-	}
-	wellKnown = append(wellKnown, host+pkgoauth.WellKnownProtectedResource)
 
 	var lastErr error
 	for _, u := range wellKnown {

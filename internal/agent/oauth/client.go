@@ -243,7 +243,11 @@ func (c *Client) StartAuthFlowWithOptions(ctx context.Context, serverURL, issuer
 	// The muster server declares its own RFC 8707 identifier in its RFC 9728
 	// metadata, and validates incoming tokens against that value. Prefer it;
 	// derive from the server URL only when the metadata omits it.
-	resource, err := resourceIndicator(opts, serverURL)
+	declaredResource := ""
+	if opts != nil {
+		declaredResource = opts.Resource
+	}
+	resource, err := resourceIndicator(declaredResource, serverURL)
 	if err != nil {
 		callbackServer.Stop()
 		return "", err
@@ -469,12 +473,7 @@ const DefaultAgentClientID = "https://giantswarm.github.io/muster/muster-agent.j
 // empty string when the flow needs none. An unusable server URL is an error: a
 // value muster cannot form is worse than a wrong one, because it would bind the
 // token to an identifier the server does not recognize.
-func resourceIndicator(opts *AuthFlowOptions, serverURL string) (string, error) {
-	declared := ""
-	if opts != nil {
-		declared = opts.Resource
-	}
-
+func resourceIndicator(declared, serverURL string) (string, error) {
 	resolved, err := pkgoauth.ResolveResourceIndicator(declared, serverURL)
 	if resolved.DeclaredErr != nil {
 		slog.Warn("Server declares an unusable RFC 8707 resource, deriving one from the URL instead",

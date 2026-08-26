@@ -176,3 +176,26 @@ func ValidateAdvertisedResource(declared, serverURL string) error {
 	}
 	return nil
 }
+
+// ProtectedResourceMetadataURLs returns the RFC 9728 well-known URLs to probe
+// for an MCP server, most specific first: the path-inserted form the MCP
+// specification mandates, then the root form for a server that serves one
+// document for every path. A document these URLs reach is bound to the server
+// by the URL construction, which is why its declared resource needs no further
+// origin check.
+func ProtectedResourceMetadataURLs(serverURL string) ([]string, error) {
+	parsed, err := parseResourceURI(serverURL)
+	if err != nil {
+		return nil, err
+	}
+
+	root := parsed.Scheme + "://" + parsed.Host
+	path := strings.TrimSuffix(parsed.EscapedPath(), "/")
+	if path == "" {
+		return []string{root + WellKnownProtectedResource}, nil
+	}
+	return []string{
+		root + WellKnownProtectedResource + path,
+		root + WellKnownProtectedResource,
+	}, nil
+}

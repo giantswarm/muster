@@ -95,7 +95,7 @@ func TestProbeEndpoint_IgnoresForeignMetadataPointer(t *testing.T) {
 	if hits := foreignHits.Load(); hits != 0 {
 		t.Errorf("expected the foreign metadata document never to be fetched, got %d requests", hits)
 	}
-	want, err := pkgoauth.DeriveResourceURI(musterServer.URL)
+	want, err := pkgoauth.DeriveResourceURI(musterServer.URL + "/mcp")
 	if err != nil {
 		t.Fatalf("DeriveResourceURI: %v", err)
 	}
@@ -117,7 +117,7 @@ func TestProbeEndpoint_DropsForeignDeclaredResource(t *testing.T) {
 
 	got := resourceOnAuthURL(t, musterServer.URL+"/mcp")
 
-	want, err := pkgoauth.DeriveResourceURI(musterServer.URL)
+	want, err := pkgoauth.DeriveResourceURI(musterServer.URL + "/mcp")
 	if err != nil {
 		t.Fatalf("DeriveResourceURI: %v", err)
 	}
@@ -141,5 +141,67 @@ func TestProbeEndpoint_KeepsOwnDeclaredResource(t *testing.T) {
 
 	if got != musterServer.declaredResource {
 		t.Errorf("expected resource %q on the authorization URL, got %q", musterServer.declaredResource, got)
+	}
+}
+
+// TestProbeEndpoint_ReadsResourceFromWellKnown covers a 401 that names the
+// issuer in its realm and carries no resource_metadata pointer. The header
+// never states the resource identifier, so the well-known document is read
+// for it: mcp-go reads the same document and puts that value on the refresh
+// request.
+func TestProbeEndpoint_ReadsResourceFromWellKnown(t *testing.T) {
+	authServer := newMetadataServer(t, false)
+
+	const declaredResource = "https://muster.example.com/mcp"
+	musterServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/.well-known/oauth-protected-resource/mcp" {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"resource":              declaredResource,
+				"authorization_servers": []string{authServer.URL},
+			})
+			return
+		}
+		w.Header().Set("WWW-Authenticate", `Bearer realm="`+authServer.URL+`"`)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(musterServer.Close)
+
+	if got := resourceOnAuthURL(t, musterServer.URL+"/mcp"); got != declaredResource {
+		t.Errorf("expected resource %q on the authorization URL, got %q", declaredResource, got)
+	}
+}
+
+// TestCheckConnection_ClearsResourceOfPreviousServer pins that a resource
+// declared by one server never reaches a login against another one. The
+// second server publishes no metadata, so its login must carry an indicator
+// derived from its own URL.
+func TestCheckConnection_ClearsResourceOfPreviousServer(t *testing.T) {
+	authServer := newMetadataServer(t, false)
+	declaring := newProtectedMusterServer(t, authServer.URL, "https://declared.example.com/mcp")
+
+	silent := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(silent.Close)
+
+	manager, err := NewAuthManager(AuthManagerConfig{TokenStorageDir: t.TempDir()})
+	if err != nil {
+		t.Fatalf("NewAuthManager: %v", err)
+	}
+	t.Cleanup(func() { _ = manager.Close() })
+
+	if _, err := manager.CheckConnection(t.Context(), declaring.URL+"/mcp"); err != nil {
+		t.Fatalf("CheckConnection: %v", err)
+	}
+	if _, err := manager.CheckConnection(t.Context(), silent.URL+"/mcp"); err != nil {
+		t.Fatalf("CheckConnection: %v", err)
+	}
+
+	manager.mu.RLock()
+	got := manager.resource
+	manager.mu.RUnlock()
+	if got != "" {
+		t.Errorf("expected the resource of the first server to be cleared, got %q", got)
 	}
 }

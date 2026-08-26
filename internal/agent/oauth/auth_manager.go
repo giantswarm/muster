@@ -112,6 +112,9 @@ func (m *AuthManager) CheckConnection(ctx context.Context, serverURL string) (Au
 
 	normalizedURL := normalizeServerURL(serverURL)
 	m.serverURL = normalizedURL
+	// The indicator belongs to the server this call probes, so a value left
+	// from an earlier server must not survive into the next login.
+	m.resource = ""
 
 	if m.client.HasValidToken(normalizedURL) {
 		m.state = AuthStateAuthenticated
@@ -122,7 +125,17 @@ func (m *AuthManager) CheckConnection(ctx context.Context, serverURL string) (Au
 	discovered := m.discoverAuthChallenge(ctx, serverURL)
 	if discovered != nil {
 		m.authChallenge = discovered.challenge
-		m.resource = discovered.resource
+		// The URL is the one the caller passed, not the normalized form,
+		// because mcp-go derives its own indicator from the endpoint it
+		// connects to and sends that value on token refresh.
+		resource, err := resourceIndicator(discovered.resource, serverURL)
+		if err != nil {
+			slog.Warn("Cannot derive an RFC 8707 resource indicator",
+				"server_url", serverURL,
+				"error", err,
+			)
+		}
+		m.resource = resource
 		m.state = AuthStatePendingAuth
 		return m.state, nil
 	}
@@ -209,6 +222,14 @@ func probeEndpoint(ctx context.Context, httpClient *http.Client, serverURL strin
 
 	// If we have a direct issuer, use it
 	if challenge.GetIssuer() != "" {
+		if metadata == nil {
+			// The header named the issuer, so discovery is over, but it
+			// never carries the resource identifier. mcp-go reads that from
+			// the well-known document whatever the header said, and puts it
+			// on the refresh request, so muster reads the same document to
+			// keep both requests on one audience.
+			metadata = fetchWellKnownResourceMetadata(ctx, httpClient, serverURL)
+		}
 		return &discoveredAuth{challenge: challenge, resource: metadata.resourceIdentifier()}
 	}
 
@@ -220,13 +241,10 @@ func probeEndpoint(ctx context.Context, httpClient *http.Client, serverURL strin
 	return nil
 }
 
-// discoverFromResourceMetadata fetches /.well-known/oauth-protected-resource from
-// the server's base URL (RFC 9728) and extracts the authorization server issuer.
+// discoverFromResourceMetadata reads the server's own RFC 9728 document from
+// the well-known paths and extracts the authorization server issuer.
 func discoverFromResourceMetadata(ctx context.Context, httpClient *http.Client, serverURL string) *discoveredAuth {
-	baseURL := pkgoauth.NormalizeServerURL(serverURL)
-	metadataURL := baseURL + "/.well-known/oauth-protected-resource"
-
-	metadata := fetchResourceMetadata(ctx, httpClient, metadataURL)
+	metadata := fetchWellKnownResourceMetadata(ctx, httpClient, serverURL)
 	if metadata == nil || metadata.issuer() == "" {
 		return nil
 	}
@@ -284,6 +302,28 @@ func (m *protectedResourceMetadata) dropForeignResource(serverURL string) {
 		)
 		m.Resource = ""
 	}
+}
+
+// fetchWellKnownResourceMetadata fetches the server's own RFC 9728 document
+// from the well-known paths, the path-inserted form first. A document these
+// URLs reach is bound to the server by the URL construction, so what it
+// declares needs no further origin check. Returns nil when no path serves a
+// readable document.
+func fetchWellKnownResourceMetadata(ctx context.Context, httpClient *http.Client, serverURL string) *protectedResourceMetadata {
+	candidates, err := pkgoauth.ProtectedResourceMetadataURLs(serverURL)
+	if err != nil {
+		slog.Debug("Cannot build RFC 9728 well-known URLs",
+			"server_url", serverURL,
+			"error", err,
+		)
+		return nil
+	}
+	for _, candidate := range candidates {
+		if metadata := fetchResourceMetadata(ctx, httpClient, candidate); metadata != nil {
+			return metadata
+		}
+	}
+	return nil
 }
 
 // fetchResourceMetadata fetches an RFC 9728 protected resource metadata

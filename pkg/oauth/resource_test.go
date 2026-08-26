@@ -1,6 +1,9 @@
 package oauth
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 // TestDeriveResourceURI pins the derivation to the rule mcp-go applies to the
 // same URL: drop the query and the fragment, change nothing else. mcp-go sends
@@ -214,5 +217,53 @@ func TestResolveResourceIndicator(t *testing.T) {
 				t.Errorf("DeclaredErr = %v, want one = %v", got.DeclaredErr, tt.wantDeclaredEr)
 			}
 		})
+	}
+}
+
+func TestProtectedResourceMetadataURLs(t *testing.T) {
+	tests := []struct {
+		name      string
+		serverURL string
+		want      []string
+	}{
+		{
+			name:      "path-inserted first, then root",
+			serverURL: "https://mcp.example.com/v1/mcp",
+			want: []string{
+				"https://mcp.example.com/.well-known/oauth-protected-resource/v1/mcp",
+				"https://mcp.example.com/.well-known/oauth-protected-resource",
+			},
+		},
+		{
+			name:      "trailing slash is not a path segment",
+			serverURL: "https://mcp.example.com/mcp/",
+			want: []string{
+				"https://mcp.example.com/.well-known/oauth-protected-resource/mcp",
+				"https://mcp.example.com/.well-known/oauth-protected-resource",
+			},
+		},
+		{
+			name:      "no path yields the root form only",
+			serverURL: "https://mcp.example.com/",
+			want:      []string{"https://mcp.example.com/.well-known/oauth-protected-resource"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ProtectedResourceMetadataURLs(tt.serverURL)
+			if err != nil {
+				t.Fatalf("ProtectedResourceMetadataURLs: %v", err)
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("expected %v, got %v", tt.want, got)
+			}
+		})
+	}
+}
+
+func TestProtectedResourceMetadataURLs_RejectsRelativeURL(t *testing.T) {
+	if _, err := ProtectedResourceMetadataURLs("/mcp"); err == nil {
+		t.Error("expected a relative URL to be refused")
 	}
 }

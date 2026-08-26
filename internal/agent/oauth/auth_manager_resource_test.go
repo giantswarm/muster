@@ -99,9 +99,9 @@ func TestAuthManager_FallsBackToServerURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse authorization URL: %v", err)
 	}
-	// NormalizeServerURL removes the transport path, so the fallback is the
-	// server's base URL.
-	want, err := pkgoauth.DeriveResourceURI(musterServer.URL)
+	// The fallback is derived from the endpoint URL, which is the value
+	// mcp-go derives for the refresh request.
+	want, err := pkgoauth.DeriveResourceURI(musterServer.URL + "/mcp")
 	if err != nil {
 		t.Fatalf("DeriveResourceURI: %v", err)
 	}
