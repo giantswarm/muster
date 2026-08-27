@@ -599,12 +599,18 @@ type MCPServerManagerHandler interface {
 	// ListMCPServers returns information about all registered MCP servers.
 	// This includes both configuration and runtime state information for each server.
 	//
+	// An error means the set could not be read. That is not the same as an
+	// empty set, and a caller must not treat it as one.
+	//
 	// Returns:
 	//   - []MCPServerInfo: Slice of server information (empty if no servers exist)
-	ListMCPServers() []MCPServerInfo
+	//   - error: nil on success, or an error if the servers could not be listed
+	ListMCPServers(ctx context.Context) ([]MCPServerInfo, error)
 
 	// GetMCPServer retrieves detailed information about a specific MCP server.
 	// This includes both configuration and runtime state for the requested server.
+	//
+	// The read reaches the definition source, so the caller's context bounds it.
 	//
 	// Args:
 	//   - name: The unique name of the MCP server to retrieve
@@ -612,7 +618,7 @@ type MCPServerManagerHandler interface {
 	// Returns:
 	//   - *MCPServerInfo: Server information, or nil if server not found
 	//   - error: nil on success, or an error if the server could not be retrieved
-	GetMCPServer(name string) (*MCPServerInfo, error)
+	GetMCPServer(ctx context.Context, name string) (*MCPServerInfo, error)
 
 	// ToolProvider interface for exposing MCP server management tools.
 	// This allows MCP server operations to be performed through the aggregator
