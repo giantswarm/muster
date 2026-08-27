@@ -30,6 +30,7 @@ type dcrTestServer struct {
 	issueSecret        bool
 
 	registrationCount atomic.Int64
+	tokenCount        atomic.Int64
 	lastRegistration  atomic.Value // *pkgoauth.ClientMetadata
 }
 
@@ -95,6 +96,7 @@ func newDCRTestServer(t *testing.T) *dcrTestServer {
 			_ = json.NewEncoder(w).Encode(resp)
 
 		case "/token":
+			s.tokenCount.Add(1)
 			_ = r.ParseForm()
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]any{
