@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/giantswarm/muster/pkg/logging"
 )
@@ -134,6 +135,17 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	// Validate and extract state
 	state := h.client.stateStore.ValidateState(stateParam)
 	if state == nil {
+		// Browsers and IdP redirect pages deliver the callback navigation
+		// more than once (double redirect, prefetch); the first delivery
+		// consumed the single-use state. A flow that recently completed
+		// re-renders its outcome instead of a scary error over a successful
+		// sign-in. The code exchange is NOT re-run — the completion record
+		// carries no secrets, only what finishSuccess renders.
+		if done := h.client.stateStore.Completed(stateParam); done != nil {
+			logging.Info("OAuth", "Duplicate OAuth callback delivery for completed flow (server=%s) — re-rendering the outcome", done.ServerName)
+			h.finishSuccess(w, r, &OAuthState{ServerName: done.ServerName, RedirectURI: done.RedirectURI})
+			return
+		}
 		logging.Warn("OAuth", "OAuth callback with invalid or expired state")
 		h.renderErrorPage(w, "Authentication session expired. Please try again.")
 		return
@@ -179,7 +191,16 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := h.client.ExchangeCode(r.Context(), code, state.CodeVerifier, state.Issuer, state.Resource)
+	// Detached from the request's cancellation: browsers and IdP redirect
+	// pages re-navigate to the callback, aborting the first request while it
+	// is still exchanging the code or establishing the session connection.
+	// The single-use state is already consumed — the flow can only complete
+	// on this request, so it must run to completion even if the client hangs
+	// up. Bounded so nothing leaks.
+	ctx, cancelFlow := context.WithTimeout(context.WithoutCancel(r.Context()), 2*time.Minute)
+	defer cancelFlow()
+
+	token, err := h.client.ExchangeCode(ctx, code, state.CodeVerifier, state.Issuer, state.Resource)
 	if err != nil {
 		logging.Error("OAuth", err, "Failed to exchange authorization code")
 		h.renderErrorPage(w, "Failed to complete authentication. Please try again.")
@@ -187,6 +208,14 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.client.StoreToken(state.SessionID, state.UserID, token)
+
+	// Recorded before the completion callback: a duplicate delivery arrives
+	// within milliseconds, while the callback is still establishing the
+	// session connection.
+	h.client.stateStore.MarkCompleted(stateParam, &CompletedFlow{
+		ServerName:  state.ServerName,
+		RedirectURI: state.RedirectURI,
+	})
 
 	logging.Info("OAuth", "Successfully authenticated session=%s server=%s",
 		logging.TruncateIdentifier(state.SessionID), state.ServerName)
@@ -197,7 +226,7 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		h.manager.mu.RUnlock()
 
 		if callback != nil {
-			if err := callback(r.Context(), state.SessionID, state.UserID, state.ServerName, token.AccessToken); err != nil {
+			if err := callback(ctx, state.SessionID, state.UserID, state.ServerName, token.AccessToken); err != nil {
 				logging.Warn("OAuth", "Auth completion callback failed for session=%s server=%s: %v",
 					logging.TruncateIdentifier(state.SessionID), state.ServerName, err)
 			}

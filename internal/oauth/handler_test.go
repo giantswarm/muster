@@ -1,6 +1,7 @@
 package oauth
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/giantswarm/muster/internal/config"
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 )
 
@@ -620,5 +622,186 @@ func TestHandler_FinishSuccess_NoRedirectRendersSuccessPage(t *testing.T) {
 	}
 	if !strings.Contains(rr.Body.String(), "test-server") {
 		t.Errorf("Expected success page to mention the server, got %q", rr.Body.String())
+	}
+}
+
+// startCallbackFlow drives GenerateAuthURL against the stub AS and returns
+// the handler plus the callback path a browser would be redirected to.
+func startCallbackFlow(t *testing.T, client *Client, issuer string) string {
+	t.Helper()
+	startURL, _, err := client.GenerateAuthURL(context.Background(), AuthChallengeParams{
+		SessionID:  "session-1",
+		UserID:     "user-1",
+		ServerName: "server-1",
+		Issuer:     issuer,
+		Resource:   "https://backend.example.com",
+		Scope:      "openid",
+	})
+	if err != nil {
+		t.Fatalf("GenerateAuthURL failed: %v", err)
+	}
+	parsed, err := url.Parse(startURL)
+	if err != nil {
+		t.Fatalf("failed to parse start URL: %v", err)
+	}
+	state := parsed.Query().Get("state")
+	if state == "" {
+		t.Fatal("start URL carries no state")
+	}
+	return "/oauth/proxy/callback?code=code-1&state=" + url.QueryEscape(state)
+}
+
+// Browsers and IdP redirect pages deliver the callback navigation more than
+// once (observed live: a second navigation 430ms after the first). The
+// duplicate must re-render the success outcome, not "session expired" over a
+// successful sign-in — and the code exchange must run exactly once.
+func TestHandler_HandleCallback_DuplicateDeliveryRendersOutcome(t *testing.T) {
+	as := newDCRTestServer(t)
+	as.advertiseCIMD = true
+
+	client := NewClient("https://muster.example.com/.well-known/oauth-client.json",
+		"https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
+	defer client.Stop()
+	handler := NewHandler(client)
+
+	callbackPath := startCallbackFlow(t, client, as.server.URL)
+
+	first := httptest.NewRecorder()
+	handler.HandleCallback(first, httptest.NewRequest("GET", callbackPath, nil))
+	if first.Code != http.StatusOK || !strings.Contains(first.Body.String(), "Authentication Successful") {
+		t.Fatalf("first delivery: expected success page, got status %d body %q", first.Code, first.Body.String())
+	}
+
+	second := httptest.NewRecorder()
+	handler.HandleCallback(second, httptest.NewRequest("GET", callbackPath, nil))
+	if second.Code != http.StatusOK {
+		t.Errorf("duplicate delivery: expected status %d, got %d (body %q)", http.StatusOK, second.Code, second.Body.String())
+	}
+	if !strings.Contains(second.Body.String(), "Authentication Successful") {
+		t.Errorf("duplicate delivery: expected the success outcome re-rendered, got %q", second.Body.String())
+	}
+	if !strings.Contains(second.Body.String(), "server-1") {
+		t.Errorf("duplicate delivery: expected the server name on the page, got %q", second.Body.String())
+	}
+
+	if n := as.tokenCount.Load(); n != 1 {
+		t.Errorf("expected exactly one code exchange, got %d", n)
+	}
+
+	// A state that never completed still renders the error page.
+	unknown := httptest.NewRecorder()
+	handler.HandleCallback(unknown, httptest.NewRequest("GET", "/oauth/proxy/callback?code=x&state=never-issued", nil))
+	if unknown.Code != http.StatusBadRequest {
+		t.Errorf("unknown state: expected status %d, got %d", http.StatusBadRequest, unknown.Code)
+	}
+}
+
+// A flow that recorded a post-login redirect re-issues the same redirect on a
+// duplicate delivery, so the second navigation lands where the first did.
+func TestHandler_HandleCallback_DuplicateDeliveryRepeatsRedirect(t *testing.T) {
+	as := newDCRTestServer(t)
+	as.advertiseCIMD = true
+
+	client := NewClient("https://muster.example.com/.well-known/oauth-client.json",
+		"https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
+	defer client.Stop()
+	handler := NewHandler(client)
+	prefix, err := parsePostLoginRedirect("https://portal.example.com/servers")
+	if err != nil {
+		t.Fatalf("parsePostLoginRedirect: %v", err)
+	}
+	handler.SetPostLoginRedirectAllowlist([]*url.URL{prefix})
+
+	callbackPath := startCallbackFlow(t, client, as.server.URL)
+	state := httptest.NewRequest("GET", callbackPath, nil).URL.Query().Get("state")
+
+	// The browser reaches the start endpoint with an allowlisted redirect
+	// target, which is recorded on the state.
+	start := httptest.NewRecorder()
+	handler.HandleStart(start, httptest.NewRequest("GET",
+		"/oauth/proxy/start?state="+url.QueryEscape(state)+"&redirect="+url.QueryEscape("https://portal.example.com/servers"), nil))
+	if start.Code != http.StatusFound {
+		t.Fatalf("start endpoint: expected redirect, got %d", start.Code)
+	}
+
+	first := httptest.NewRecorder()
+	handler.HandleCallback(first, httptest.NewRequest("GET", callbackPath, nil))
+	if first.Code != http.StatusSeeOther {
+		t.Fatalf("first delivery: expected redirect %d, got %d (body %q)", http.StatusSeeOther, first.Code, first.Body.String())
+	}
+
+	second := httptest.NewRecorder()
+	handler.HandleCallback(second, httptest.NewRequest("GET", callbackPath, nil))
+	if second.Code != http.StatusSeeOther {
+		t.Fatalf("duplicate delivery: expected redirect %d, got %d (body %q)", http.StatusSeeOther, second.Code, second.Body.String())
+	}
+	if got, want := second.Header().Get("Location"), first.Header().Get("Location"); got != want {
+		t.Errorf("duplicate delivery: expected Location %q, got %q", want, got)
+	}
+}
+
+// The browser aborting the callback request (re-navigation, closed tab) must
+// not cancel the flow: the state is already consumed, so the exchange and the
+// session-connection setup can only complete on this request.
+func TestHandler_HandleCallback_SurvivesClientDisconnect(t *testing.T) {
+	as := newDCRTestServer(t)
+	as.advertiseCIMD = true
+
+	manager := NewManager(config.OAuthMCPClientConfig{
+		Enabled:      true,
+		PublicURL:    "https://muster.example.com",
+		ClientID:     "https://muster.example.com/.well-known/oauth-client.json",
+		CallbackPath: "/oauth/proxy/callback",
+	})
+	defer manager.Stop()
+
+	reqCtx, abortRequest := context.WithCancel(context.Background())
+	defer abortRequest()
+	callbackCtxErr := make(chan error, 1)
+	manager.SetAuthCompletionCallback(func(ctx context.Context, sessionID, userID, serverName, accessToken string) error {
+		// The browser re-navigates mid-callback: the request context dies
+		// while the session connection is being established.
+		abortRequest()
+		callbackCtxErr <- ctx.Err()
+		return nil
+	})
+
+	callbackPath := startCallbackFlow(t, manager.client, as.server.URL)
+
+	rr := httptest.NewRecorder()
+	manager.handler.HandleCallback(rr, httptest.NewRequest("GET", callbackPath, nil).WithContext(reqCtx))
+
+	if err := <-callbackCtxErr; err != nil {
+		t.Errorf("completion callback context must survive the client disconnect, got %v", err)
+	}
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected status %d, got %d (body %q)", http.StatusOK, rr.Code, rr.Body.String())
+	}
+}
+
+// Even a request whose context is already dead when processing starts (the
+// connection dropped right after delivery) completes the consumed flow.
+func TestHandler_HandleCallback_ExchangeSurvivesClientDisconnect(t *testing.T) {
+	as := newDCRTestServer(t)
+	as.advertiseCIMD = true
+
+	client := NewClient("https://muster.example.com/.well-known/oauth-client.json",
+		"https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
+	defer client.Stop()
+	handler := NewHandler(client)
+
+	callbackPath := startCallbackFlow(t, client, as.server.URL)
+
+	deadCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	rr := httptest.NewRecorder()
+	handler.HandleCallback(rr, httptest.NewRequest("GET", callbackPath, nil).WithContext(deadCtx))
+
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "Authentication Successful") {
+		t.Errorf("expected the flow to complete despite the dead request context, got status %d body %q", rr.Code, rr.Body.String())
+	}
+	if n := as.tokenCount.Load(); n != 1 {
+		t.Errorf("expected the code exchange to have run, got %d", n)
 	}
 }

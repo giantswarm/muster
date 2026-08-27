@@ -31,6 +31,18 @@ type StateStorer interface {
 	// expired, or absent. The TTL is unchanged.
 	Update(encodedState string, mutate func(*OAuthState)) *OAuthState
 
+	// MarkCompleted records that the flow behind an encoded state finished
+	// successfully. Browsers and IdP redirect pages deliver the callback
+	// navigation more than once; the record lets a duplicate delivery of an
+	// already-consumed state render the flow's outcome again instead of an
+	// error. The record expires after completionGrace.
+	MarkCompleted(encodedState string, done *CompletedFlow)
+
+	// Completed returns the recorded outcome for an encoded state whose flow
+	// recently completed, or nil. The record is not consumed — every
+	// duplicate within the grace window renders the same outcome.
+	Completed(encodedState string) *CompletedFlow
+
 	// Delete removes a state entry by nonce.
 	Delete(nonce string)
 
@@ -60,6 +72,33 @@ type StateParams struct {
 	CodeVerifier string
 }
 
+// CompletedFlow is what a duplicate callback delivery needs to re-render a
+// completed flow's outcome: the server name for the success page and the
+// allowlist-validated post-login redirect target, if the flow recorded one.
+// Deliberately no tokens, code verifier, or session identifiers.
+type CompletedFlow struct {
+	ServerName  string `json:"srv"`
+	RedirectURI string `json:"ru,omitempty"`
+}
+
+// completionGrace bounds how long a completed flow's outcome is re-rendered
+// for duplicate callback deliveries. Duplicates arrive within milliseconds
+// (double navigation) — minutes is generous without keeping records around.
+const completionGrace = 2 * time.Minute
+
+// decodeStateNonce extracts the nonce from an encoded state parameter.
+func decodeStateNonce(encodedState string) (string, error) {
+	stateJSON, err := base64.URLEncoding.DecodeString(encodedState)
+	if err != nil {
+		return "", err
+	}
+	var state OAuthState
+	if err := json.Unmarshal(stateJSON, &state); err != nil {
+		return "", err
+	}
+	return state.Nonce, nil
+}
+
 // StateStore provides thread-safe in-memory storage for OAuth state parameters.
 // State parameters are used to link OAuth callbacks to original requests
 // and provide CSRF protection.
@@ -71,15 +110,26 @@ type StateStore struct {
 	mu     sync.RWMutex
 	states map[string]*OAuthState
 
+	// completed records recently finished flows by nonce, so duplicate
+	// callback deliveries can re-render the outcome (see MarkCompleted).
+	completed map[string]*completedEntry
+
 	// Expiration configuration
 	stateExpiry time.Duration
 	stopCleanup chan struct{}
+}
+
+// completedEntry is one recently completed flow with its recording time.
+type completedEntry struct {
+	flow *CompletedFlow
+	at   time.Time
 }
 
 // NewStateStore creates a new state store with default expiration.
 func NewStateStore() *StateStore {
 	ss := &StateStore{
 		states:      make(map[string]*OAuthState),
+		completed:   make(map[string]*completedEntry),
 		stateExpiry: 10 * time.Minute, // State expires after 10 minutes
 		stopCleanup: make(chan struct{}),
 	}
@@ -209,6 +259,35 @@ func (ss *StateStore) Update(encodedState string, mutate func(*OAuthState)) *OAu
 	return &updated
 }
 
+// MarkCompleted records a finished flow's outcome for duplicate callback
+// deliveries (see StateStorer).
+func (ss *StateStore) MarkCompleted(encodedState string, done *CompletedFlow) {
+	nonce, err := decodeStateNonce(encodedState)
+	if err != nil {
+		logging.Warn("OAuth", "Failed to decode state for completion record: %v", err)
+		return
+	}
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+	ss.completed[nonce] = &completedEntry{flow: done, at: time.Now()}
+}
+
+// Completed returns the recorded outcome for a recently completed flow, or
+// nil (see StateStorer).
+func (ss *StateStore) Completed(encodedState string) *CompletedFlow {
+	nonce, err := decodeStateNonce(encodedState)
+	if err != nil {
+		return nil
+	}
+	ss.mu.RLock()
+	defer ss.mu.RUnlock()
+	entry, exists := ss.completed[nonce]
+	if !exists || time.Since(entry.at) > completionGrace {
+		return nil
+	}
+	return entry.flow
+}
+
 // Delete removes a state from the store.
 func (ss *StateStore) Delete(nonce string) {
 	ss.mu.Lock()
@@ -246,6 +325,11 @@ func (ss *StateStore) cleanup() {
 		if time.Since(state.CreatedAt) > ss.stateExpiry {
 			delete(ss.states, nonce)
 			count++
+		}
+	}
+	for nonce, entry := range ss.completed {
+		if time.Since(entry.at) > completionGrace {
+			delete(ss.completed, nonce)
 		}
 	}
 
