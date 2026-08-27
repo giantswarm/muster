@@ -139,11 +139,11 @@ func (a *Adapter) CallTool(ctx context.Context, name string, args map[string]int
 // ListResources returns all available resources for the current session.
 // This delegates to the data provider (aggregator) which handles session-scoped
 // resource visibility for OAuth-protected servers.
-func (a *Adapter) ListResources(ctx context.Context) ([]mcp.Resource, error) {
+func (a *Adapter) ListResources(ctx context.Context) ([]api.ResourceOrigin, error) {
 	provider, err := a.getDataProvider()
 	if err != nil {
 		logging.Warn("metatools", "ListResources: %v", err)
-		return []mcp.Resource{}, nil
+		return []api.ResourceOrigin{}, nil
 	}
 
 	resources := provider.ListResourcesForContext(ctx)
@@ -153,22 +153,23 @@ func (a *Adapter) ListResources(ctx context.Context) ([]mcp.Resource, error) {
 
 // GetResource retrieves the contents of a resource by URI.
 // This delegates to the data provider (aggregator) for resource access.
-func (a *Adapter) GetResource(ctx context.Context, uri string) (*mcp.ReadResourceResult, error) {
+//
+// A failed read is reported as an error rather than as empty contents: an
+// unreadable resource and a resource that is genuinely empty are different
+// answers, and collapsing them hides real failures -- an ambiguous URI, a
+// disconnected backend -- behind a blank but apparently successful response.
+func (a *Adapter) GetResource(ctx context.Context, uri, serverName string) (*mcp.ReadResourceResult, error) {
 	provider, err := a.getDataProvider()
 	if err != nil {
 		logging.Warn("metatools", "GetResource: %v", err)
-		return &mcp.ReadResourceResult{
-			Contents: []mcp.ResourceContents{},
-		}, nil
+		return nil, err
 	}
 
 	logging.Debug("metatools", "GetResource: reading resource %s", uri)
-	result, err := provider.ReadResource(ctx, uri)
+	result, err := provider.ReadResource(ctx, uri, serverName)
 	if err != nil {
 		logging.Error("metatools", err, "GetResource failed for %s", uri)
-		return &mcp.ReadResourceResult{
-			Contents: []mcp.ResourceContents{},
-		}, nil
+		return nil, err
 	}
 
 	return result, nil
@@ -191,22 +192,21 @@ func (a *Adapter) ListPrompts(ctx context.Context) ([]mcp.Prompt, error) {
 
 // GetPrompt executes a prompt with the provided arguments.
 // This delegates to the data provider (aggregator) for prompt execution.
+//
+// As with GetResource, a failed prompt fetch is reported rather than being
+// flattened into an empty message list.
 func (a *Adapter) GetPrompt(ctx context.Context, name string, args map[string]string) (*mcp.GetPromptResult, error) {
 	provider, err := a.getDataProvider()
 	if err != nil {
 		logging.Warn("metatools", "GetPrompt: %v", err)
-		return &mcp.GetPromptResult{
-			Messages: []mcp.PromptMessage{},
-		}, nil
+		return nil, err
 	}
 
 	logging.Debug("metatools", "GetPrompt: getting prompt %s with args %v", name, args)
 	result, err := provider.GetPrompt(ctx, name, args)
 	if err != nil {
 		logging.Error("metatools", err, "GetPrompt failed for %s", name)
-		return &mcp.GetPromptResult{
-			Messages: []mcp.PromptMessage{},
-		}, nil
+		return nil, err
 	}
 
 	return result, nil

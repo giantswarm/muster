@@ -44,8 +44,8 @@ type MetaToolsDataProvider interface {
 	//   - ctx: Context containing session information
 	//
 	// Returns:
-	//   - []mcp.Resource: List of available resources for the session
-	ListResourcesForContext(ctx context.Context) []mcp.Resource
+	//   - []ResourceOrigin: Available resources for the session, each tagged with its source server
+	ListResourcesForContext(ctx context.Context) []ResourceOrigin
 
 	// ReadResource retrieves the contents of a resource by URI.
 	//
@@ -56,7 +56,7 @@ type MetaToolsDataProvider interface {
 	// Returns:
 	//   - *mcp.ReadResourceResult: The resource contents
 	//   - error: Error if retrieval fails
-	ReadResource(ctx context.Context, uri string) (*mcp.ReadResourceResult, error)
+	ReadResource(ctx context.Context, uri, serverName string) (*mcp.ReadResourceResult, error)
 
 	// ListPromptsForContext returns all available prompts for the current session context.
 	// The returned prompts are session-aware based on authentication state.
@@ -189,7 +189,7 @@ type MetaToolsHandler interface {
 	// Returns:
 	//   - []mcp.Resource: List of available resources
 	//   - error: Error if listing fails
-	ListResources(ctx context.Context) ([]mcp.Resource, error)
+	ListResources(ctx context.Context) ([]ResourceOrigin, error)
 
 	// GetResource retrieves the contents of a resource by URI.
 	//
@@ -200,7 +200,7 @@ type MetaToolsHandler interface {
 	// Returns:
 	//   - *mcp.ReadResourceResult: The resource contents
 	//   - error: Error if retrieval fails
-	GetResource(ctx context.Context, uri string) (*mcp.ReadResourceResult, error)
+	GetResource(ctx context.Context, uri, serverName string) (*mcp.ReadResourceResult, error)
 
 	// Prompt operations
 
@@ -239,4 +239,18 @@ type MetaToolsHandler interface {
 	// Returns:
 	//   - []ServerAuthInfo: List of servers requiring authentication
 	ListServersRequiringAuth(ctx context.Context) []ServerAuthInfo
+}
+
+// ResourceOrigin pairs an aggregated resource with the server exposing it.
+//
+// Tool and prompt names carry an "x_<server>_" prefix that identifies their
+// origin, but resource URIs do not: ExposedResourceURI passes any URI with a
+// scheme through unchanged, and MCP resource URIs always have one. Callers
+// listing aggregated resources therefore cannot recover the source server from
+// the URI alone, and two servers may legitimately expose the same URI. This
+// type carries the attribution alongside the resource instead of encoding it
+// into the identifier.
+type ResourceOrigin struct {
+	Resource mcp.Resource
+	Server   string
 }

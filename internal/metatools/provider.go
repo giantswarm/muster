@@ -153,7 +153,7 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 		// Resource tools
 		{
 			Name:        "list_resources",
-			Description: "List all available resources from connected MCP servers",
+			Description: "List all available resources from connected MCP servers, each tagged with the server exposing it",
 			Args:        []api.ArgMetadata{},
 		},
 		{
@@ -166,6 +166,12 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 					Required:    true,
 					Description: "URI of the resource to describe",
 				},
+				{
+					Name:        "server",
+					Type:        api.ArgTypeString,
+					Required:    false,
+					Description: "Server to describe the resource from. Only needed when several servers expose the same URI; list_resources reports the server for every entry",
+				},
 			},
 		},
 		{
@@ -177,6 +183,12 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 					Type:        api.ArgTypeString,
 					Required:    true,
 					Description: "URI of the resource to retrieve",
+				},
+				{
+					Name:        "server",
+					Type:        api.ArgTypeString,
+					Required:    false,
+					Description: "Server to read from. Only needed when several servers expose the same URI; list_resources reports the server for every entry",
 				},
 			},
 		},

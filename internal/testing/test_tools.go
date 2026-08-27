@@ -1916,13 +1916,18 @@ func (h *TestToolsHandler) handleCallMetaTool(ctx context.Context, args map[stri
 		return nil, fmt.Errorf("meta-tool %s returned error: %s", toolName, text.String())
 	}
 
-	var parsed map[string]interface{}
-	if err := json.Unmarshal([]byte(text.String()), &parsed); err != nil {
-		return nil, fmt.Errorf("meta-tool %s response is not a JSON object: %w (body: %s)", toolName, err, text.String())
-	}
-
 	if h.debug {
 		h.logger.Debug("🧪 meta-tool %s returned: %s\n", toolName, text.String())
+	}
+
+	// Meta-tools do not share one response shape: filter_tools returns an
+	// object, the list_* tools return an array, and get_resource returns the
+	// resource body verbatim. Objects are returned decoded so json_path can
+	// resolve against them; anything else is handed back as raw text, which
+	// contains / not_contains match on directly.
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(text.String()), &parsed); err != nil {
+		return text.String(), nil
 	}
 
 	return parsed, nil

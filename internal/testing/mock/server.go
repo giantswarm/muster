@@ -46,8 +46,9 @@ func NewServerFromFile(configPath string, debug bool) (*Server, error) {
 
 	// Parse the config structure that contains tools directly
 	var configData struct {
-		Tools           []ToolConfig `yaml:"tools"`
-		ProtocolVersion string       `yaml:"protocol_version"`
+		Tools           []ToolConfig     `yaml:"tools"`
+		Resources       []ResourceConfig `yaml:"resources"`
+		ProtocolVersion string           `yaml:"protocol_version"`
 	}
 	if err := yaml.Unmarshal(content, &configData); err != nil {
 		return nil, fmt.Errorf("failed to parse mock config file %s: %w", configPath, err)
@@ -87,7 +88,7 @@ func NewServerFromFile(configPath string, debug bool) (*Server, error) {
 		fmt.Sprintf("mock-%s", name),
 		"1.0.0",
 		server.WithToolCapabilities(true),
-		server.WithResourceCapabilities(false, false),
+		server.WithResourceCapabilities(false, len(configData.Resources) > 0),
 		server.WithPromptCapabilities(false),
 		server.WithHooks(hooks),
 	)
@@ -105,9 +106,32 @@ func NewServerFromFile(configPath string, debug bool) (*Server, error) {
 		mcpServer.AddTool(toolWithSchema(toolConfig), mockServer.createToolHandler(toolConfig.Name))
 	}
 
+	// Register static resources. Unlike tools these have no handler config --
+	// a read returns the configured text verbatim.
+	for _, resourceConfig := range configData.Resources {
+		mimeType := resourceConfig.MIMEType
+		if mimeType == "" {
+			mimeType = "text/plain"
+		}
+		resource := mcp.NewResource(
+			resourceConfig.URI,
+			resourceConfig.Name,
+			mcp.WithResourceDescription(resourceConfig.Description),
+			mcp.WithMIMEType(mimeType),
+		)
+		uri, text := resourceConfig.URI, resourceConfig.Text
+		mcpServer.AddResource(resource, func(_ context.Context, _ mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+			return []mcp.ResourceContents{mcp.TextResourceContents{
+				URI:      uri,
+				MIMEType: mimeType,
+				Text:     text,
+			}}, nil
+		})
+	}
+
 	if debug {
 		// Ensure debug output goes to stderr to not interfere with MCP protocol on stdout
-		fmt.Fprintf(os.Stderr, "🔧 Mock MCP server '%s' initialized with %d tools from %s\n", name, len(mockServer.toolHandlers), configPath)
+		fmt.Fprintf(os.Stderr, "🔧 Mock MCP server '%s' initialized with %d tools and %d resources from %s\n", name, len(mockServer.toolHandlers), len(configData.Resources), configPath)
 		for toolName := range mockServer.toolHandlers {
 			fmt.Fprintf(os.Stderr, "  • %s\n", toolName)
 		}

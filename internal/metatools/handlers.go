@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/giantswarm/muster/internal/api"
@@ -556,6 +557,9 @@ func (p *Provider) handleDescribeResource(ctx context.Context, args map[string]a
 		return errorResult("uri argument is required"), nil
 	}
 
+	// Optional: disambiguates a URI exposed by more than one server.
+	serverName, _ := args["server"].(string)
+
 	handler, errResult := p.getHandler()
 	if errResult != nil {
 		return errResult, nil
@@ -566,12 +570,38 @@ func (p *Provider) handleDescribeResource(ctx context.Context, args map[string]a
 		return errorResult(fmt.Sprintf("Failed to list resources: %v", err)), nil
 	}
 
-	resource := p.formatters.FindResource(resources, uri)
-	if resource == nil {
+	matches := p.formatters.FindResource(resources, uri)
+	if len(matches) == 0 {
 		return errorResult(fmt.Sprintf("Resource not found: %s", uri)), nil
 	}
 
-	jsonData, err := p.formatters.FormatResourceDetailJSON(*resource)
+	// A URI carrying a scheme is exposed unprefixed, so several servers can
+	// advertise the same one. Report the choice instead of describing whichever
+	// happened to be listed first.
+	resource := matches[0]
+	if len(matches) > 1 {
+		if serverName == "" {
+			servers := make([]string, len(matches))
+			for i, m := range matches {
+				servers[i] = m.Server
+			}
+			sort.Strings(servers)
+			return errorResult(fmt.Sprintf("Resource %s is exposed by servers %s; the \"server\" argument is required",
+				uri, strings.Join(servers, ", "))), nil
+		}
+		found := false
+		for _, m := range matches {
+			if m.Server == serverName {
+				resource, found = m, true
+				break
+			}
+		}
+		if !found {
+			return errorResult(fmt.Sprintf("Resource %s is not available on server %q", uri, serverName)), nil
+		}
+	}
+
+	jsonData, err := p.formatters.FormatResourceDetailJSON(resource)
 	if err != nil {
 		return errorResult(fmt.Sprintf("Failed to format resource info: %v", err)), nil
 	}
@@ -587,12 +617,15 @@ func (p *Provider) handleGetResource(ctx context.Context, args map[string]any) (
 		return errorResult("uri argument is required"), nil
 	}
 
+	// Optional: disambiguates a URI exposed by more than one server.
+	serverName, _ := args["server"].(string)
+
 	handler, errResult := p.getHandler()
 	if errResult != nil {
 		return errResult, nil
 	}
 
-	result, err := handler.GetResource(ctx, uri)
+	result, err := handler.GetResource(ctx, uri, serverName)
 	if err != nil {
 		return errorResult(fmt.Sprintf("Resource retrieval failed: %v", err)), nil
 	}

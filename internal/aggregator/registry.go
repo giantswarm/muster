@@ -21,6 +21,11 @@ import (
 
 // resolvedName stores the reverse mapping from an exposed (prefixed) name
 // back to its origin server and original name.
+// resourceServerArg is the argument name callers pass to get_resource to pick
+// one of several servers exposing the same resource URI, matching the "server"
+// selector the aggregator injects into family-grouped tools.
+const resourceServerArg = "server"
+
 type resolvedName struct {
 	serverName   string
 	originalName string
@@ -82,6 +87,18 @@ type ServerRegistry struct {
 	// through to nameMapping. Keys are exposed names (e.g.
 	// x_kubernetes_list_pods). Protected by nameMu.
 	familyMappings map[string]*familyBucket
+
+	// resourceMappings indexes every exposed resource URI back to the servers
+	// providing it. Unlike tool and prompt names, resource URIs are frequently
+	// NOT prefixed -- ExposedResourceURI passes any URI carrying a scheme
+	// through unchanged, and in practice every MCP resource URI has one. A
+	// single map[string]resolvedName would therefore let two servers exposing
+	// the same URI (e.g. two instances of the same backend, both serving
+	// "board://schema") silently overwrite each other, routing every read to
+	// whichever registered last. Keying by URI with a slice of providers keeps
+	// both reachable and lets ResolveResourceName report the ambiguity instead
+	// of guessing. Protected by nameMu.
+	resourceMappings map[string][]resolvedName
 }
 
 // NewServerRegistry creates a new server registry with the specified global prefix.
@@ -105,6 +122,8 @@ func NewServerRegistry(musterPrefix string) *ServerRegistry {
 		serverFamilies: make(map[string]*api.MCPServerFamily),
 		musterPrefix:   musterPrefix,
 		familyMappings: make(map[string]*familyBucket),
+
+		resourceMappings: make(map[string][]resolvedName),
 	}
 }
 
@@ -132,17 +151,40 @@ func (r *ServerRegistry) ExposedPromptName(serverName, promptName string) string
 
 // ExposedResourceURI returns the fully prefixed URI for a resource and records
 // the reverse mapping for later resolution. URIs with a scheme (e.g. http://)
-// are returned unchanged.
+// are returned unchanged -- prefixing them would produce an invalid scheme
+// (RFC 3986 allows only ALPHA / DIGIT / "+" / "-" / "." after the first
+// letter, so the underscore-separated tool convention cannot be reused) and
+// would break clients that read a resource by the URI they were handed.
+//
+// Because of that pass-through, distinct servers can legitimately expose the
+// same URI. The reverse mapping therefore records every provider rather than
+// the most recent one; see resourceMappings.
 func (r *ServerRegistry) ExposedResourceURI(serverName, resourceURI string) string {
 	r.nameMu.Lock()
 	defer r.nameMu.Unlock()
-	if strings.Contains(resourceURI, "://") {
-		r.nameMapping[resourceURI] = resolvedName{serverName: serverName, originalName: resourceURI, itemType: metatools.ItemKindResource}
-		return resourceURI
+
+	exposed := resourceURI
+	if !strings.Contains(resourceURI, "://") {
+		exposed = r.buildExposedNameLocked(serverName, resourceURI)
 	}
-	exposed := r.buildExposedNameLocked(serverName, resourceURI)
-	r.nameMapping[exposed] = resolvedName{serverName: serverName, originalName: resourceURI, itemType: metatools.ItemKindResource}
+	r.recordResourceProviderLocked(exposed, serverName, resourceURI)
 	return exposed
+}
+
+// recordResourceProviderLocked adds serverName to the provider list for an
+// exposed resource URI, replacing any existing entry for the same server so
+// re-registration (reconnect, capability refresh) stays idempotent.
+// Caller must hold nameMu.
+func (r *ServerRegistry) recordResourceProviderLocked(exposedURI, serverName, originalURI string) {
+	entry := resolvedName{serverName: serverName, originalName: originalURI, itemType: metatools.ItemKindResource}
+	providers := r.resourceMappings[exposedURI]
+	for i, p := range providers {
+		if p.serverName == serverName {
+			providers[i] = entry
+			return
+		}
+	}
+	r.resourceMappings[exposedURI] = append(providers, entry)
 }
 
 // buildExposedNameLocked constructs {musterPrefix}_{serverPrefix}_{name}.
@@ -989,18 +1031,79 @@ func (r *ServerRegistry) ResolvePromptName(exposedName string) (serverName, orig
 //   - exposedURI: The prefixed resource URI as seen by clients
 //
 // Returns the server name, original resource URI, and nil error if resolution succeeds.
-// Returns empty strings and an error if the URI cannot be resolved or refers to a different item type.
+// Returns empty strings and an error if the URI cannot be resolved, is ambiguous
+// (exposed by more than one server), or refers to a different item type.
 func (r *ServerRegistry) ResolveResourceName(exposedURI string) (serverName, originalURI string, err error) {
 	r.nameMu.RLock()
-	m, ok := r.nameMapping[exposedURI]
+	providers := r.resourceMappings[exposedURI]
+	m, otherKind := r.nameMapping[exposedURI]
 	r.nameMu.RUnlock()
-	if !ok {
+
+	switch {
+	case len(providers) == 1:
+		return providers[0].serverName, providers[0].originalName, nil
+	case len(providers) > 1:
+		names := make([]string, len(providers))
+		for i, p := range providers {
+			names[i] = p.serverName
+		}
+		sort.Strings(names)
+		return "", "", fmt.Errorf("resource %s is exposed by servers %s; the %q parameter is required",
+			exposedURI, strings.Join(names, ", "), resourceServerArg)
+	case otherKind:
+		return "", "", fmt.Errorf("URI %s is a %s, not a resource", exposedURI, m.itemType)
+	default:
 		return "", "", fmt.Errorf("unknown name: %s", exposedURI)
 	}
-	if m.itemType != metatools.ItemKindResource {
-		return "", "", fmt.Errorf("URI %s is a %s, not a resource", exposedURI, m.itemType)
+}
+
+// ResolveResourceNameForServer resolves an exposed resource URI when the caller
+// has already specified which backend server to read from. This is the
+// disambiguating counterpart to ResolveResourceName, mirroring
+// ResolveToolNameForServer: an ambiguous URI resolves here rather than being
+// guessed at.
+//
+// Returns an error if the URI is unknown, or if the requested server is not
+// among the servers exposing it.
+func (r *ServerRegistry) ResolveResourceNameForServer(exposedURI, serverName string) (originalURI string, err error) {
+	r.nameMu.RLock()
+	defer r.nameMu.RUnlock()
+
+	providers, ok := r.resourceMappings[exposedURI]
+	if !ok {
+		return "", fmt.Errorf("unknown name: %s", exposedURI)
 	}
-	return m.serverName, m.originalName, nil
+	for _, p := range providers {
+		if p.serverName == serverName {
+			return p.originalName, nil
+		}
+	}
+	available := make([]string, len(providers))
+	for i, p := range providers {
+		available[i] = p.serverName
+	}
+	sort.Strings(available)
+	return "", fmt.Errorf("resource %s is not available on server %q (available: %s)",
+		exposedURI, serverName, strings.Join(available, ", "))
+}
+
+// GetResourceServerNames returns the sorted set of server names exposing the
+// given resource URI, or nil if the URI is unknown. Used to attribute an
+// aggregated resource listing back to its source servers.
+func (r *ServerRegistry) GetResourceServerNames(exposedURI string) []string {
+	r.nameMu.RLock()
+	defer r.nameMu.RUnlock()
+
+	providers, ok := r.resourceMappings[exposedURI]
+	if !ok {
+		return nil
+	}
+	out := make([]string, len(providers))
+	for i, p := range providers {
+		out[i] = p.serverName
+	}
+	sort.Strings(out)
+	return out
 }
 
 // notifyUpdate sends a notification through the update channel to inform subscribers
@@ -1214,11 +1317,26 @@ func (r *ServerRegistry) GetAllToolsForSession(ctx context.Context, store oauths
 //
 // For OAuth servers, resources are read from the CapabilityStore.
 // For non-OAuth servers, resources are read from ServerInfo.Resources.
-func (r *ServerRegistry) GetAllResourcesForSession(ctx context.Context, store oauthstore.CapabilityStore, sessionID string) []mcp.Resource {
+//
+// Each entry is tagged with its source server: resource URIs are not prefixed
+// when they carry a scheme, so the URI alone does not identify where the
+// resource came from, and two servers may expose the same one.
+func (r *ServerRegistry) GetAllResourcesForSession(ctx context.Context, store oauthstore.CapabilityStore, sessionID string) []api.ResourceOrigin {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	var allResources []mcp.Resource
+	var allResources []api.ResourceOrigin
+
+	appendResources := func(serverName string, resources []mcp.Resource) {
+		for _, resource := range resources {
+			exposedResource := resource
+			exposedResource.URI = r.ExposedResourceURI(serverName, resource.URI)
+			allResources = append(allResources, api.ResourceOrigin{
+				Resource: exposedResource,
+				Server:   serverName,
+			})
+		}
+	}
 
 	for serverName, info := range r.servers {
 		if info.RequiresSessionAuth() {
@@ -1229,11 +1347,7 @@ func (r *ServerRegistry) GetAllResourcesForSession(ctx context.Context, store oa
 			if err != nil || caps == nil {
 				continue
 			}
-			for _, resource := range caps.Resources {
-				exposedResource := resource
-				exposedResource.URI = r.ExposedResourceURI(serverName, resource.URI)
-				allResources = append(allResources, exposedResource)
-			}
+			appendResources(serverName, caps.Resources)
 			continue
 		}
 
@@ -1242,11 +1356,7 @@ func (r *ServerRegistry) GetAllResourcesForSession(ctx context.Context, store oa
 		}
 
 		info.mu.RLock()
-		for _, resource := range info.Resources {
-			exposedResource := resource
-			exposedResource.URI = r.ExposedResourceURI(serverName, resource.URI)
-			allResources = append(allResources, exposedResource)
-		}
+		appendResources(serverName, info.Resources)
 		info.mu.RUnlock()
 	}
 
