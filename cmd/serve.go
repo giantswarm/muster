@@ -32,10 +32,6 @@ var serveDebug bool
 // configured, is unaffected — that's controlled via OTEL_* env vars.
 var serveSilent bool
 
-// yolo disables the denylist for destructive tool calls.
-// When enabled, all MCP tools can be executed without restrictions.
-var serveYolo bool
-
 // configPath specifies the configuration directory.
 // The directory should contain config.yaml and subdirectories: mcpservers/, workflows/
 var serveConfigPath string
@@ -134,7 +130,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	defer otelShutdown("meter", shutdownMeter)
 
 	// Create application configuration without cluster arguments
-	cfg := app.NewConfig(serveDebug, serveYolo, serveConfigPath).
+	cfg := app.NewConfig(serveDebug, serveConfigPath).
 		WithVersion(GetVersion()).
 		WithOAuthMCPClient(serveOAuthMCPClientEnabled, serveOAuthMCPClientPublicURL, serveOAuthMCPClientID).
 		WithOAuthServer(serveOAuthServerEnabled, serveOAuthServerBaseURL).
@@ -168,7 +164,6 @@ func init() {
 	// Register command flags
 	serveCmd.Flags().BoolVar(&serveDebug, "debug", false, "Enable general debug logging")
 	serveCmd.Flags().BoolVar(&serveSilent, "silent", false, "Disable console log output. Does not silence OTLP — unset OTEL_EXPORTER_OTLP_* or set OTEL_SDK_DISABLED=true for that.")
-	serveCmd.Flags().BoolVar(&serveYolo, "yolo", false, "Disable denylist for destructive tool calls (use with caution)")
 	serveCmd.Flags().StringVar(&serveConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
 
 	// OAuth MCP Client/Proxy flags (for authenticating TO remote MCP servers - ADR 004)

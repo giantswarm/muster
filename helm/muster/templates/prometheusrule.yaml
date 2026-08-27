@@ -1,0 +1,74 @@
+{{- if .Values.muster.observability.metrics.prometheus.prometheusRule.enabled }}
+# Alerts on muster's own view of its MCP backends.
+#
+# muster records every backend's connection state in MCPServer.status.state and
+# now exports it as muster_mcpserver_state; these rules are what turns that from
+# a field somebody has to run kubectl to see into something that pages. Before
+# them a backend could sit Failed indefinitely with the error text right there
+# in status.lastError and nothing would say so.
+#
+# Only "Failed" is alerted on. "Auth Required" is a normal steady state for
+# on-behalf-of servers with no active user session, and every server passes
+# through it briefly after a muster restart, so alerting on it would be pure
+# noise. The transitional states (Connecting, Starting) are covered by the
+# `for:` windows below rather than by being excluded.
+#
+# Gated on its own value rather than on the prometheus exporter: metrics may
+# reach the Prometheus that loads this rule via OTLP instead of a scrape, in
+# which case muster.observability.metrics.exporter never mentions prometheus.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "muster.fullname" . }}
+  labels:
+    {{- include "muster.labels" . | nindent 4 }}
+    {{- with .Values.muster.observability.metrics.prometheus.prometheusRule.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: muster
+      rules:
+        # The window has to ride out a muster rollout: every MCPServer is
+        # re-reconciled from scratch after a restart, and a backend that is
+        # slow to answer its first handshake reads as Failed until it does.
+        # 20m is comfortably longer than a rollout plus initial connect
+        # backoff, and still two orders of magnitude below the ~2 days this
+        # went unnoticed for.
+        - alert: MusterMCPServerFailed
+          annotations:
+            description: '{{`MCPServer {{ $labels.mcpserver_namespace }}/{{ $labels.mcpserver_name }} has been in state Failed for 20m; the MCP backend is unreachable and its tools are unavailable to agents. The reason muster recorded is in the CR status.lastError field.`}}'
+            runbook_url: '{{`https://intranet.giantswarm.io/docs/support-and-ops/runbooks/muster-mcpserver-failed/?INSTALLATION={{ $labels.installation }}&CLUSTER={{ $labels.cluster_id }}`}}'
+          expr: |-
+            muster_mcpserver_state{state="Failed"} == 1
+          for: 20m
+          labels:
+            area: platform
+            cancel_if_monitoring_agent_down: "true"
+            cancel_if_outside_working_hours: "false"
+            severity: notify
+            team: bumblebee
+            topic: muster
+        # Steady-state Failed is not the only way a backend is broken: one that
+        # reconnects and drops every few minutes never satisfies the 20m window
+        # above, but is just as unusable. muster_mcpserver_state_transitions_total
+        # counts entries into each state, so the churn is visible even when no
+        # single scrape catches the server down.
+        #
+        # A muster restart contributes exactly one Failed transition per broken
+        # server, well under the threshold, so rollouts do not trip this.
+        - alert: MusterMCPServerFlapping
+          annotations:
+            description: '{{`MCPServer {{ $labels.mcpserver_namespace }}/{{ $labels.mcpserver_name }} entered state Failed {{ $value | printf "%.0f" }} times in the last hour; the MCP backend is connecting and dropping repeatedly.`}}'
+            runbook_url: '{{`https://intranet.giantswarm.io/docs/support-and-ops/runbooks/muster-mcpserver-failed/?INSTALLATION={{ $labels.installation }}&CLUSTER={{ $labels.cluster_id }}`}}'
+          expr: |-
+            increase(muster_mcpserver_state_transitions_total{state="Failed"}[1h]) > 5
+          for: 10m
+          labels:
+            area: platform
+            cancel_if_monitoring_agent_down: "true"
+            cancel_if_outside_working_hours: "false"
+            severity: notify
+            team: bumblebee
+            topic: muster
+{{- end }}

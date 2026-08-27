@@ -256,7 +256,7 @@ func TestClient_GenerateAuthURL(t *testing.T) {
 	defer client.Stop()
 
 	ctx := context.Background()
-	authURL, err := client.GenerateAuthURL(ctx, AuthChallengeParams{
+	authURL, resolved, err := client.GenerateAuthURL(ctx, AuthChallengeParams{
 		SessionID:  testSubject,
 		UserID:     "test-user",
 		ServerName: testServerName,
@@ -266,6 +266,12 @@ func TestClient_GenerateAuthURL(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("Failed to generate auth URL: %v", err)
+	}
+
+	// The AS advertises neither CIMD support nor a registration endpoint, so
+	// the status-quo fallback (CIMD URL as client_id) is used.
+	if resolved.Method != ClientIDMethodCIMDFallback {
+		t.Errorf("Expected clientIDMethod %q, got %q", ClientIDMethodCIMDFallback, resolved.Method)
 	}
 
 	// The user-facing URL is the muster-hosted start endpoint carrying the state.
@@ -338,7 +344,7 @@ func TestClient_GenerateAuthURL_RefusesWithoutS256PKCE(t *testing.T) {
 	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
 
-	_, err := client.GenerateAuthURL(t.Context(), AuthChallengeParams{
+	_, _, err := client.GenerateAuthURL(t.Context(), AuthChallengeParams{
 		SessionID:  testSubject,
 		UserID:     "test-user",
 		ServerName: testServerName,

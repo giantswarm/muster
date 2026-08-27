@@ -2,6 +2,7 @@ package aggregator
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -99,4 +100,35 @@ func hexTraceID(b []byte) string {
 		out[i*2+1] = hexchars[x&0x0f]
 	}
 	return string(out)
+}
+
+// TestMCPServerCapabilityOptions_DoesNotAdvertiseResourceSubscribe asserts the
+// aggregator's initialize response omits resources.subscribe. mcp-go
+// acknowledges resources/subscribe whenever the capability is advertised, and
+// the aggregator never emits notifications/resources/updated, so advertising it
+// strands a subscribing client. listChanged must stay on: it is backed by
+// notification_subscriber.
+func TestMCPServerCapabilityOptions_DoesNotAdvertiseResourceSubscribe(t *testing.T) {
+	srv := server.NewMCPServer("muster-aggregator-test", "test", mcpServerCapabilityOptions()...)
+
+	initBody := fmt.Appendf(nil,
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":%q,"clientInfo":{"name":"t","version":"1"},"capabilities":{}}}`,
+		mcp.LATEST_PROTOCOL_VERSION,
+	)
+	raw, err := json.Marshal(srv.HandleMessage(t.Context(), initBody))
+	require.NoError(t, err)
+
+	var resp struct {
+		Result mcp.InitializeResult `json:"result"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &resp))
+
+	require.NotNil(t, resp.Result.Capabilities.Resources,
+		"resources capability must still be advertised")
+	require.False(t, resp.Result.Capabilities.Resources.Subscribe,
+		"resources.subscribe must stay off until the aggregator relays subscriptions and emits notifications/resources/updated")
+	require.True(t, resp.Result.Capabilities.Resources.ListChanged,
+		"resources.listChanged is wired via notification_subscriber and must stay on")
+	require.NotNil(t, resp.Result.Capabilities.Tools)
+	require.NotNil(t, resp.Result.Capabilities.Prompts)
 }

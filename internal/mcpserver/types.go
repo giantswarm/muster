@@ -11,6 +11,10 @@ import (
 	"github.com/mark3labs/mcp-go/client/transport"
 )
 
+// clientVersion is the version every MCP client in this package reports in
+// the initialize handshake's clientInfo.
+const clientVersion = "1.0.0"
+
 // McpDiscreteStatusUpdate is used to report discrete status changes from a running MCP process.
 // It focuses on the state, not verbose logs.
 type McpDiscreteStatusUpdate struct {

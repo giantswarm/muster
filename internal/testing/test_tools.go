@@ -66,6 +66,15 @@ const (
 	// scenarios need this direct path. The meta-tool's JSON result is parsed and
 	// returned so scenarios can assert on it with json_path / contains.
 	TestToolCallMetaTool = "test_call_meta_tool"
+	// TestToolGetServerInfo returns the protocol version and server capabilities
+	// negotiated during the current session's initialize handshake.
+	TestToolGetServerInfo = "test_get_server_info"
+	// TestToolScrapeMetrics scrapes the instance's Prometheus /metrics endpoint
+	// and returns the matching exposition lines, so a scenario can assert on
+	// what muster actually exports rather than on internal state. Optional
+	// "filter" argument narrows the body to lines containing that substring;
+	// without it the whole scrape is returned.
+	TestToolScrapeMetrics = "test_scrape_metrics"
 )
 
 // TestToolsHandler handles test-specific tools that operate on mock infrastructure.
@@ -182,10 +191,12 @@ func IsTestTool(toolName string) bool {
 		TestToolAddMockTool,
 		TestToolRemoveMockTool,
 		TestToolCallMetaTool,
+		TestToolGetServerInfo,
 		TestToolMintToken,
 		TestToolBrokerTokenExchange,
 		TestToolCallProtectedMCP,
-		TestToolReconnectWithToken:
+		TestToolReconnectWithToken,
+		TestToolScrapeMetrics:
 		return true
 	}
 	return false
@@ -228,6 +239,10 @@ func (h *TestToolsHandler) HandleTestTool(ctx context.Context, toolName string, 
 		return h.handleRemoveMockTool(ctx, args)
 	case TestToolCallMetaTool:
 		return h.handleCallMetaTool(ctx, args)
+	case TestToolScrapeMetrics:
+		return h.handleScrapeMetrics(ctx, args)
+	case TestToolGetServerInfo:
+		return h.handleGetServerInfo(ctx, args)
 	case TestToolMintToken:
 		return h.handleMintToken(ctx, args)
 	case TestToolBrokerTokenExchange:
@@ -668,11 +683,21 @@ func (h *TestToolsHandler) handleGetOAuthServerInfo(ctx context.Context, args ma
 		return nil, fmt.Errorf("OAuth server %s not found", serverName)
 	}
 
-	return map[string]interface{}{
+	result := map[string]interface{}{
 		api.FieldName: info.Name,
 		"port":        info.Port,
 		"issuer_url":  info.IssuerURL,
-	}, nil
+	}
+
+	// Live DCR state, so scenarios can assert whether (and how often)
+	// muster registered itself via RFC 7591.
+	if h.instanceManager != nil {
+		if server := h.instanceManager.GetMockOAuthServer(h.currentInstance.ID, serverName); server != nil {
+			result["dcr_registrations"] = server.RegistrationCount()
+		}
+	}
+
+	return result, nil
 }
 
 // handleAdvanceOAuthClock advances the mock OAuth server's clock for testing token expiry.
@@ -1139,6 +1164,100 @@ func (h *TestToolsHandler) handleGetCurrentUser(ctx context.Context, args map[st
 		"current_user":    h.currentUser,
 		"available_users": available,
 		"total_users":     len(h.userClients),
+	}, nil
+}
+
+// handleGetServerInfo reports the protocol version and capabilities the
+// aggregator returned in the initialize response for the active session.
+func (h *TestToolsHandler) handleGetServerInfo(_ context.Context, _ map[string]interface{}) (interface{}, error) {
+	client := h.GetCurrentClient()
+	if client == nil {
+		return nil, fmt.Errorf("no MCP client available for user %q", h.currentUser)
+	}
+
+	initResult := client.InitializeResult()
+	if initResult == nil {
+		return nil, fmt.Errorf("MCP client for user %q has no initialize result", h.currentUser)
+	}
+
+	result := map[string]interface{}{
+		api.FieldSuccess:   true,
+		"protocol_version": initResult.ProtocolVersion,
+		"server_name":      initResult.ServerInfo.Name,
+		"has_tools":        initResult.Capabilities.Tools != nil,
+		"has_prompts":      initResult.Capabilities.Prompts != nil,
+		"has_resources":    initResult.Capabilities.Resources != nil,
+	}
+	if resources := initResult.Capabilities.Resources; resources != nil {
+		result["resources_subscribe"] = resources.Subscribe
+		result["resources_list_changed"] = resources.ListChanged
+	}
+
+	return result, nil
+}
+
+// handleScrapeMetrics fetches the instance's Prometheus /metrics endpoint and
+// returns the exposition text, optionally narrowed to lines containing the
+// "filter" substring.
+//
+// This is the seam that lets a scenario assert on metrics end to end: the
+// scrape goes through the real OTel Prometheus exporter in the real muster
+// serve process, so it catches naming and label translation that a Go test
+// against an in-memory reader cannot (dots becoming underscores, _total
+// suffixes, attribute-to-label mapping).
+//
+// A newly reconciled state can take a moment to reach the exporter, so
+// scenarios pair this with a retry on the step.
+func (h *TestToolsHandler) handleScrapeMetrics(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+	if h.currentInstance == nil {
+		return nil, fmt.Errorf("no muster instance available to scrape")
+	}
+	if h.currentInstance.MetricsPort == 0 {
+		return nil, fmt.Errorf("muster instance %s has no metrics port", h.currentInstance.ID)
+	}
+
+	filter, _ := args["filter"].(string)
+	endpoint := fmt.Sprintf("http://127.0.0.1:%d/metrics", h.currentInstance.MetricsPort)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build metrics request: %w", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("scrape %s: %w", endpoint, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read metrics response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("scrape %s returned %d", endpoint, resp.StatusCode)
+	}
+
+	// Comments (# HELP / # TYPE) are dropped: a scenario asserting on a metric
+	// name would otherwise match its own HELP line and pass without the metric
+	// ever being exported.
+	var matched []string
+	for _, line := range strings.Split(string(body), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if filter != "" && !strings.Contains(line, filter) {
+			continue
+		}
+		matched = append(matched, line)
+	}
+
+	return map[string]interface{}{
+		api.FieldSuccess: true,
+		"endpoint":       endpoint,
+		"filter":         filter,
+		"line_count":     len(matched),
+		"metrics":        matched,
 	}, nil
 }
 

@@ -12,6 +12,7 @@ import (
 	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
 
 	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/callerwrite"
 	"github.com/giantswarm/muster/internal/client"
 	"github.com/giantswarm/muster/internal/events"
 	"github.com/giantswarm/muster/pkg/logging"
@@ -19,7 +20,10 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"gopkg.in/yaml.v3"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/util/retry"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // fieldOutput is the argument/field name for both the per-step output flag and
@@ -45,12 +49,49 @@ type Adapter struct {
 	executionTracker *ExecutionTracker
 	toolChecker      ToolAvailabilityChecker
 
+	// gate switches session-initiated spec mutations (create/update/delete)
+	// from the shared SA-backed client to a per-call client bearing the
+	// caller's own dex id_token (issue #1069), exactly like MCPServer
+	// mutations. Always enabled in Kubernetes mode; filesystem mode keeps the
+	// local client. Reads, validation, execution, and muster's own controller
+	// writes are unaffected.
+	gate callerwrite.Gate
+
 	// Prevent circular dependency during tool generation
 	generatingTools bool
 	mu              sync.RWMutex
 
 	// stopGC cancels the background retention GC goroutine on Stop.
 	stopGC context.CancelFunc
+}
+
+// workflowWriter is the write surface the mutation handlers go through. The
+// SA-backed MusterClient and the per-call caller-bearer client both satisfy it.
+type workflowWriter interface {
+	CreateWorkflow(ctx context.Context, workflow *musterv1alpha1.Workflow) error
+	UpdateWorkflow(ctx context.Context, workflow *musterv1alpha1.Workflow) error
+	DeleteWorkflow(ctx context.Context, name, namespace string) error
+}
+
+// callerWriter adapts a per-call controller-runtime client to the write
+// surface the mutation handlers use.
+type callerWriter struct {
+	client ctrlclient.Client
+}
+
+func (w *callerWriter) CreateWorkflow(ctx context.Context, obj *musterv1alpha1.Workflow) error {
+	return w.client.Create(ctx, obj)
+}
+
+func (w *callerWriter) UpdateWorkflow(ctx context.Context, obj *musterv1alpha1.Workflow) error {
+	return w.client.Update(ctx, obj)
+}
+
+func (w *callerWriter) DeleteWorkflow(ctx context.Context, name, namespace string) error {
+	obj := &musterv1alpha1.Workflow{}
+	obj.Name = name
+	obj.Namespace = namespace
+	return w.client.Delete(ctx, obj)
 }
 
 // ToolAvailabilityChecker interface for checking tool availability
@@ -75,6 +116,7 @@ func NewAdapterWithClient(musterClient client.MusterClient, namespace string, to
 		namespace:        namespace,
 		executionTracker: NewExecutionTracker(newExecutionStorage(musterClient, namespace, configPath)),
 		toolChecker:      toolChecker,
+		gate:             callerwrite.NewGate("workflow changes"),
 	}
 
 	adapter.executor = NewWorkflowExecutor(toolCaller, adapter)
@@ -86,6 +128,42 @@ func NewAdapterWithClient(musterClient client.MusterClient, namespace string, to
 	go adapter.runRetentionGC(gcCtx)
 
 	return adapter
+}
+
+// EnableWritesAsCaller switches session-initiated mutations to
+// caller-identity writes; the app layer calls it whenever muster runs in
+// Kubernetes mode. factory may be nil when muster has no Kubernetes API
+// access; mutations then fail with an explicit configuration error instead of
+// silently falling back to the SA path. An empty kubernetesAudience selects
+// the default.
+func (a *Adapter) EnableWritesAsCaller(factory callerwrite.ClientFactory, kubernetesAudience string) {
+	a.gate.Enable(factory, kubernetesAudience)
+}
+
+// mutationWriter resolves the write client a mutation must use. In
+// filesystem mode it is the shared local client. In Kubernetes mode the
+// session's dex id_token becomes the bearer of a per-call client, so the
+// apiserver authenticates the real user and k8s RBAC decides. A nil writer is
+// returned together with a ready-to-return tool error when the session cannot
+// produce a usable bearer.
+func (a *Adapter) mutationWriter(ctx context.Context) (workflowWriter, *api.CallToolResult) {
+	if !a.gate.Enabled() {
+		return a.client, nil
+	}
+	callerClient, errMsg := a.gate.Resolve(ctx)
+	if errMsg != "" {
+		return nil, &api.CallToolResult{Content: []interface{}{errMsg}, IsError: true}
+	}
+	return &callerWriter{client: callerClient}, nil
+}
+
+// describeWriteAuthError maps apiserver authn/authz failures on
+// caller-identity writes to actionable tool errors: 403 names the verb,
+// resource, and namespace; 401 asks for a re-login. Returns "" for every
+// other error so callers fall through to their existing handling.
+func (a *Adapter) describeWriteAuthError(err error, verb, name string) string {
+	return callerwrite.DescribeWriteAuthError(err, verb,
+		"Workflow", "workflows.muster.giantswarm.io", name, a.namespace, "workflow-editor")
 }
 
 // runRetentionGC periodically prunes execution records that violate the default
@@ -313,8 +391,12 @@ func (a *Adapter) getWorkflow(ctx context.Context, name string) (*api.Workflow, 
 	return workflow, nil
 }
 
-// CreateWorkflowFromStructured creates a new workflow from structured arguments
-func (a *Adapter) CreateWorkflowFromStructured(args map[string]interface{}) error {
+// createWorkflow validates the structured arguments, converts them to a
+// Workflow CR, and creates it through writer — the caller's own identity for
+// session-initiated mutations in Kubernetes mode, the shared local client in
+// filesystem mode. Write errors are returned unwrapped enough for the caller
+// to map apiserver authn/authz failures (describeWriteAuthError).
+func (a *Adapter) createWorkflow(ctx context.Context, writer workflowWriter, args map[string]interface{}) error {
 	// Validate the workflow before creating it
 	if err := a.ValidateWorkflowFromStructured(args); err != nil {
 		return fmt.Errorf("validation failed: %w", err)
@@ -333,9 +415,8 @@ func (a *Adapter) CreateWorkflowFromStructured(args map[string]interface{}) erro
 		Kind:       "Workflow",
 	}
 
-	// Create the CRD
-	ctx := context.Background()
-	if err := a.client.CreateWorkflow(ctx, workflowCRD); err != nil {
+	// Create the CRD with the resolved write identity
+	if err := writer.CreateWorkflow(ctx, workflowCRD); err != nil {
 		// Generate failure event
 		a.generateCRDEvent(wf.Name, events.ReasonWorkflowValidationFailed, events.EventData{
 			Error:     err.Error(),
@@ -353,8 +434,15 @@ func (a *Adapter) CreateWorkflowFromStructured(args map[string]interface{}) erro
 	return nil
 }
 
-// UpdateWorkflowFromStructured updates an existing workflow from structured arguments
-func (a *Adapter) UpdateWorkflowFromStructured(name string, args map[string]interface{}) error {
+// updateWorkflow validates the structured arguments and updates the named
+// Workflow CR through writer (see createWorkflow for the identity contract).
+//
+// The update is a get-modify-write: the read of the current CR stays on the
+// SA client — only the spec mutation itself switches to the caller's identity
+// — and carries the resourceVersion the apiserver requires for CR updates (a
+// fresh object without one is rejected). Conflicts with muster's own status
+// reconciler bumping the resourceVersion are retried on a fresh read.
+func (a *Adapter) updateWorkflow(ctx context.Context, writer workflowWriter, name string, args map[string]interface{}) error {
 	// Validate the workflow before updating it
 	if err := a.ValidateWorkflowFromStructured(args); err != nil {
 		return fmt.Errorf("validation failed: %w", err)
@@ -369,12 +457,22 @@ func (a *Adapter) UpdateWorkflowFromStructured(name string, args map[string]inte
 	// Ensure the name matches
 	wf.Name = name
 
-	// Convert to CRD
-	workflowCRD := a.convertWorkflowToCRD(&wf)
+	// Convert to CRD; only its spec is applied onto the live object.
+	desired := a.convertWorkflowToCRD(&wf)
 
-	// Update the CRD
-	ctx := context.Background()
-	if err := a.client.UpdateWorkflow(ctx, workflowCRD); err != nil {
+	apply := func() error {
+		existing, err := a.client.GetWorkflow(ctx, name, a.namespace)
+		if err != nil {
+			return err
+		}
+		existing.Spec = desired.Spec
+		return writer.UpdateWorkflow(ctx, existing)
+	}
+	err = apply()
+	if apierrors.IsConflict(err) {
+		err = retry.RetryOnConflict(retry.DefaultRetry, apply)
+	}
+	if err != nil {
 		// Generate failure event
 		a.generateCRDEvent(wf.Name, events.ReasonWorkflowValidationFailed, events.EventData{
 			Error:     err.Error(),
@@ -559,10 +657,10 @@ func validateWorkflowSubSteps(label string, subs []api.WorkflowSubStep) error {
 	return nil
 }
 
-// DeleteWorkflow deletes a workflow
-func (a *Adapter) DeleteWorkflow(name string) error {
-	ctx := context.Background()
-	if err := a.client.DeleteWorkflow(ctx, name, a.namespace); err != nil {
+// deleteWorkflow deletes the named Workflow CR through writer (see
+// createWorkflow for the identity contract).
+func (a *Adapter) deleteWorkflow(ctx context.Context, writer workflowWriter, name string) error {
+	if err := writer.DeleteWorkflow(ctx, name, a.namespace); err != nil {
 		// Generate failure event
 		a.generateCRDEvent(name, events.ReasonWorkflowValidationFailed, events.EventData{
 			Error:     err.Error(),
@@ -1436,11 +1534,11 @@ func (a *Adapter) ExecuteTool(ctx context.Context, toolName string, args map[str
 	case toolName == "workflow_get":
 		return a.handleGet(ctx, args)
 	case toolName == "workflow_create":
-		return a.handleCreate(args)
+		return a.handleCreate(ctx, args)
 	case toolName == "workflow_update":
-		return a.handleUpdate(args)
+		return a.handleUpdate(ctx, args)
 	case toolName == "workflow_delete":
-		return a.handleDelete(args)
+		return a.handleDelete(ctx, args)
 	case toolName == "workflow_validate":
 		return a.handleValidate(args)
 	case toolName == "workflow_available":
@@ -1553,7 +1651,7 @@ func (a *Adapter) handleGet(ctx context.Context, args map[string]interface{}) (*
 	}, nil
 }
 
-func (a *Adapter) handleCreate(args map[string]interface{}) (*api.CallToolResult, error) {
+func (a *Adapter) handleCreate(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
 	var req api.WorkflowCreateRequest
 	if err := api.ParseRequest(args, &req); err != nil {
 		return &api.CallToolResult{
@@ -1562,14 +1660,22 @@ func (a *Adapter) handleCreate(args map[string]interface{}) (*api.CallToolResult
 		}, nil
 	}
 
+	writer, errResult := a.mutationWriter(ctx)
+	if errResult != nil {
+		return errResult, nil
+	}
+
 	// Convert structured arguments to api.Workflow
 	wf, err := convertToWorkflow(args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create workflow: %w", err)
 	}
 
-	// Create workflow through adapter
-	if err := a.CreateWorkflowFromStructured(args); err != nil {
+	// Create the workflow with the resolved write identity
+	if err := a.createWorkflow(ctx, writer, args); err != nil {
+		if msg := a.describeWriteAuthError(err, "create", req.Name); msg != "" {
+			return &api.CallToolResult{Content: []interface{}{msg}, IsError: true}, nil
+		}
 		return nil, fmt.Errorf("failed to create workflow: %w", err)
 	}
 
@@ -1594,7 +1700,7 @@ func (a *Adapter) handleCreate(args map[string]interface{}) (*api.CallToolResult
 	}, nil
 }
 
-func (a *Adapter) handleUpdate(args map[string]interface{}) (*api.CallToolResult, error) {
+func (a *Adapter) handleUpdate(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
 	var req api.WorkflowUpdateRequest
 	if err := api.ParseRequest(args, &req); err != nil {
 		return &api.CallToolResult{
@@ -1603,7 +1709,15 @@ func (a *Adapter) handleUpdate(args map[string]interface{}) (*api.CallToolResult
 		}, nil
 	}
 
-	if err := a.UpdateWorkflowFromStructured(req.Name, args); err != nil {
+	writer, errResult := a.mutationWriter(ctx)
+	if errResult != nil {
+		return errResult, nil
+	}
+
+	if err := a.updateWorkflow(ctx, writer, req.Name, args); err != nil {
+		if msg := a.describeWriteAuthError(err, "update", req.Name); msg != "" {
+			return &api.CallToolResult{Content: []interface{}{msg}, IsError: true}, nil
+		}
 		return api.HandleErrorWithPrefix(err, "Failed to update workflow"), nil
 	}
 
@@ -1613,7 +1727,7 @@ func (a *Adapter) handleUpdate(args map[string]interface{}) (*api.CallToolResult
 	}, nil
 }
 
-func (a *Adapter) handleDelete(args map[string]interface{}) (*api.CallToolResult, error) {
+func (a *Adapter) handleDelete(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
 	name, ok := args["name"].(string)
 	if !ok {
 		return &api.CallToolResult{
@@ -1622,7 +1736,15 @@ func (a *Adapter) handleDelete(args map[string]interface{}) (*api.CallToolResult
 		}, nil
 	}
 
-	if err := a.DeleteWorkflow(name); err != nil {
+	writer, errResult := a.mutationWriter(ctx)
+	if errResult != nil {
+		return errResult, nil
+	}
+
+	if err := a.deleteWorkflow(ctx, writer, name); err != nil {
+		if msg := a.describeWriteAuthError(err, "delete", name); msg != "" {
+			return &api.CallToolResult{Content: []interface{}{msg}, IsError: true}, nil
+		}
 		return api.HandleErrorWithPrefix(err, "Failed to delete workflow"), nil
 	}
 

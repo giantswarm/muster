@@ -1,0 +1,44 @@
+{{/*
+mcpserver-editor: who may register and manage MCPServer resources.
+
+Session-initiated MCPServer mutations — create/update/delete and CR-driven
+lifecycle (start/stop/restart) — are written against the Kubernetes API with
+the caller's own identity, so k8s RBAC authorizes each write. The default
+binding grants the Role to all authenticated users, preserving the
+pre-enforcement "any user can register" behavior. Installations wanting
+admin-only registration narrow rbac.mcpServerEditor.subjects to an admin
+group. An empty subjects list fails the render: a RoleBinding bound to
+nobody looks enforced while granting nothing, so the chart forces the
+choice to be explicit.
+*/}}
+{{- if and .Values.rbac.create .Values.rbac.mcpServerEditor.create -}}
+{{- if not .Values.rbac.mcpServerEditor.subjects }}
+{{- fail "rbac.mcpServerEditor.subjects must not be empty while the mcpserver-editor RoleBinding is created. Bind an admin group for admin-only registration, bind group system:authenticated to deliberately let every authenticated user register MCP servers, or set rbac.mcpServerEditor.create=false to manage access out of band." }}
+{{- end }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: mcpserver-editor
+  namespace: {{ include "muster.namespace" . }}
+  labels:
+    {{- include "muster.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["muster.giantswarm.io"]
+    resources: ["mcpservers"]
+    verbs: ["create", "update", "patch", "delete"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: mcpserver-editor
+  namespace: {{ include "muster.namespace" . }}
+  labels:
+    {{- include "muster.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: mcpserver-editor
+subjects:
+  {{- toYaml .Values.rbac.mcpServerEditor.subjects | nindent 2 }}
+{{- end }}

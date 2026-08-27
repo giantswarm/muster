@@ -455,12 +455,22 @@ Concrete work items, grouped by SEP and ordered by risk:
   `docs/explanation/decisions/005-muster-auth.md`), SEP-2207 / SEP-2350
   guardrails on what *not* to include need to be applied to whatever
   code path generates those payloads.
-- **CIMD-vs-DCR matrix.** SEP-2352 is favourable to muster precisely
+- **CIMD-vs-DCR matrix.** ~~SEP-2352 is favourable to muster precisely
   because the proxy uses CIMD. The reverse question is whether muster
   should ever fall back to DCR for authorization servers that refuse to
   resolve a CIMD URL, and if so, where the per-AS DCR state lives. That
   is the only path on which SEP-837 (`application_type`) becomes a
-  blocking concern instead of a defensive one.
+  blocking concern instead of a defensive one.~~ **Resolved** (issue
+  #1083): the server-side proxy now checks
+  `client_id_metadata_document_supported` on the discovered AS metadata
+  and prefers CIMD whenever advertised; otherwise it registers itself via
+  RFC 7591 when a `registration_endpoint` is advertised (requesting
+  `token_endpoint_auth_method: none`, sending `application_type: "web"`
+  per SEP-837), storing the issued credentials keyed by issuer per
+  SEP-2352 (`internal/oauth/credential_store.go`, Valkey-backed when
+  configured). When neither is advertised the CIMD URL is sent as before,
+  and the auth challenge marks the flow `cimd-fallback` so front-ends can
+  warn up front.
 
 ## 6. References
 

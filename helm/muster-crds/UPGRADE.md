@@ -26,7 +26,7 @@ updates `crds/` on `helm upgrade` — that is exactly why this standalone chart
 users instead set `install.crds`/`upgrade.crds: CreateReplace` on the muster
 HelmRelease.
 
-In an umbrella chart (`agentic-platform-crds`), encode the ordering with an
+In an umbrella chart, encode the ordering with an
 explicit dependency ordering or a sync wave so the CRD chart always lands first.
 
 ## CRD schema-deprecation ratchet

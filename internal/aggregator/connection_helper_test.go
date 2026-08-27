@@ -62,6 +62,10 @@ func (m *mockOAuthHandler) CreateAuthChallenge(_ context.Context, _ api.AuthChal
 	return nil, nil
 }
 
+func (m *mockOAuthHandler) GetClientCredentialsForIssuer(_ context.Context, _ string) (string, string) {
+	return "", ""
+}
+
 func (m *mockOAuthHandler) ExchangeTokenForRemoteCluster(_ context.Context, _, _ string, _ *api.TokenExchangeConfig) (string, error) {
 	return "", nil
 }

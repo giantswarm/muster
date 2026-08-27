@@ -344,8 +344,17 @@ func resourceIndicator(declaredResource, serverURL string) (string, error) {
 
 // authChallengeResult builds the tool result for a pending auth challenge.
 // The sign-in URL is carried both in the prose and as structuredContent.authUrl
-// so clients can read it without parsing the text.
+// so clients can read it without parsing the text. structuredContent also
+// carries clientIdMethod ("cimd", "dcr", "cimd-fallback", or "dcr-failed") so front-ends
+// can tell users how muster identifies itself to the authorization server —
+// and warn up front when the AS advertises neither mechanism.
 func authChallengeResult(serverName string, challenge *api.AuthChallenge) *api.CallToolResult {
+	structured := map[string]any{
+		"authUrl": challenge.AuthURL,
+	}
+	if challenge.ClientIDMethod != "" {
+		structured["clientIdMethod"] = challenge.ClientIDMethod
+	}
 	return &api.CallToolResult{
 		Content: []any{fmt.Sprintf(
 			"Authentication Required\n\n"+
@@ -358,10 +367,8 @@ func authChallengeResult(serverName string, challenge *api.AuthChallenge) *api.C
 			challenge.Message,
 			challenge.AuthURL,
 		)},
-		IsError: false,
-		StructuredContent: map[string]any{
-			"authUrl": challenge.AuthURL,
-		},
+		IsError:           false,
+		StructuredContent: structured,
 	}
 }
 

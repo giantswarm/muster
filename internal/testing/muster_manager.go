@@ -242,9 +242,27 @@ func (m *musterInstanceManager) CreateInstance(ctx context.Context, scenarioName
 		return nil, fmt.Errorf("failed to find available port: %w", err)
 	}
 
+	// A second reserved port for the instance's Prometheus /metrics endpoint,
+	// so scenarios can assert on exported metrics (see test_scrape_metrics).
+	// Reserved through the same allocator as the MCP port, so parallel
+	// instances cannot collide on it.
+	metricsPort, err := m.findAvailablePort(instanceID, logger)
+	if err != nil {
+		m.releasePort(port, instanceID, logger)
+		return nil, fmt.Errorf("failed to find available metrics port: %w", err)
+	}
+
+	// releasePorts hands both reservations back. Used by every cleanup path
+	// from here on; the MkdirAll failure below previously leaked the MCP port.
+	releasePorts := func() {
+		m.releasePort(port, instanceID, logger)
+		m.releasePort(metricsPort, instanceID, logger)
+	}
+
 	// Create instance configuration directory
 	configPath := filepath.Join(m.tempDir, instanceID)
 	if err := os.MkdirAll(configPath, 0755); err != nil { //nolint:gosec
+		releasePorts()
 		return nil, fmt.Errorf("failed to create config directory: %w", err)
 	}
 
@@ -255,7 +273,7 @@ func (m *musterInstanceManager) CreateInstance(ctx context.Context, scenarioName
 	// Start mock OAuth servers FIRST (before HTTP servers, as they may depend on OAuth)
 	mockOAuthServerInfo, err := m.startMockOAuthServers(ctx, instanceID, config, logger)
 	if err != nil {
-		m.releasePort(port, instanceID, logger)
+		releasePorts()
 		_ = os.RemoveAll(configPath)
 		return nil, fmt.Errorf("failed to start mock OAuth servers: %w", err)
 	}
@@ -265,7 +283,7 @@ func (m *musterInstanceManager) CreateInstance(ctx context.Context, scenarioName
 	mockHTTPServerInfo, err := m.startMockHTTPServersWithOAuth(ctx, instanceID, configPath, port, config, mockOAuthServerInfo, logger)
 	if err != nil {
 		m.stopMockOAuthServers(ctx, instanceID, logger)
-		m.releasePort(port, instanceID, logger)
+		releasePorts()
 		_ = os.RemoveAll(configPath)
 		return nil, fmt.Errorf("failed to start mock HTTP servers: %w", err)
 	}
@@ -274,17 +292,17 @@ func (m *musterInstanceManager) CreateInstance(ctx context.Context, scenarioName
 	if err := m.generateConfigFilesWithMocks(configPath, config, port, mockHTTPServerInfo, instanceID, logger); err != nil {
 		// Clean up mock HTTP servers on failure
 		m.stopMockHTTPServers(ctx, instanceID, logger)
-		m.releasePort(port, instanceID, logger)
+		releasePorts()
 		_ = os.RemoveAll(configPath)
 		return nil, fmt.Errorf("failed to generate config files: %w", err)
 	}
 
 	// Start muster serve process with log capture
-	managedProc, err := m.startMusterProcess(ctx, configPath, port, logger)
+	managedProc, err := m.startMusterProcess(ctx, configPath, port, metricsPort, logger)
 	if err != nil {
 		// Clean up on failure: stop mock servers, release port and remove config directory
 		m.stopMockHTTPServers(ctx, instanceID, logger)
-		m.releasePort(port, instanceID, logger)
+		releasePorts()
 		_ = os.RemoveAll(configPath)
 		return nil, fmt.Errorf("failed to start muster process: %w", err)
 	}
@@ -311,6 +329,7 @@ func (m *musterInstanceManager) CreateInstance(ctx context.Context, scenarioName
 		ID:                     instanceID,
 		ConfigPath:             configPath,
 		Port:                   port,
+		MetricsPort:            metricsPort,
 		Endpoint:               fmt.Sprintf("http://localhost:%d/mcp", port),
 		Process:                managedProc.cmd.Process,
 		StartTime:              time.Now(),
@@ -375,8 +394,9 @@ func (m *musterInstanceManager) DestroyInstance(ctx context.Context, instance *M
 	// Stop mock OAuth servers for this instance
 	m.stopMockOAuthServers(ctx, instance.ID, logger)
 
-	// Release the reserved port
+	// Release the reserved ports
 	m.releasePort(instance.Port, instance.ID, logger)
+	m.releasePort(instance.MetricsPort, instance.ID, logger)
 
 	// Clean up configuration directory unless keepTempConfig is true
 	if m.keepTempConfig {
@@ -778,6 +798,24 @@ func capturedLogTail(mp *managedProcess) string {
 	return "\n--- captured muster output ---\n" + out
 }
 
+// InstanceExitStatus reports whether the instance's muster serve process has
+// already exited, and with what result. Reading waitErr is safe only after
+// observing the closed exited channel.
+func (m *musterInstanceManager) InstanceExitStatus(instance *MusterInstance) (bool, error) {
+	m.mu.RLock()
+	managedProc := m.processes[instance.ID]
+	m.mu.RUnlock()
+	if managedProc == nil {
+		return false, nil
+	}
+	select {
+	case <-managedProc.exited:
+		return true, managedProc.waitErr
+	default:
+		return false, nil
+	}
+}
+
 // processExitedError builds the standard error returned from WaitForReady when
 // the muster serve process terminates before the instance becomes ready. It
 // surfaces the wait result and a bounded tail of the captured output, and shows
@@ -951,7 +989,7 @@ func (m *musterInstanceManager) releasePort(port int, instanceID string, logger 
 // port is the reserved port muster serve will bind. The probe listener held open
 // for it (see findAvailablePort) is closed immediately before exec so the child
 // can take the port over with a near-zero race window.
-func (m *musterInstanceManager) startMusterProcess(ctx context.Context, configPath string, port int, logger TestLogger) (*managedProcess, error) {
+func (m *musterInstanceManager) startMusterProcess(ctx context.Context, configPath string, port, metricsPort int, logger TestLogger) (*managedProcess, error) {
 	// Get the path to the muster binary
 	musterPath, err := m.getMusterBinaryPath()
 	if err != nil {
@@ -985,9 +1023,19 @@ func (m *musterInstanceManager) startMusterProcess(ctx context.Context, configPa
 	// up to a 30s orchestrator tick before the retry, blowing past scenario
 	// wait_for_state budgets. Fast-retry inside the harness so transient
 	// failures recover in seconds.
+	//
+	// The OTEL_* trio turns on the self-hosted Prometheus exporter on
+	// metricsPort. It is enabled for every instance rather than per scenario:
+	// muster resolves the exporter once at startup from the environment, and an
+	// unscraped exporter costs one idle listener. This is what makes exported
+	// metrics assertable end to end, through the real OTel pipeline, rather
+	// than only in Go unit tests.
 	cmd.Env = append(os.Environ(),
 		"MUSTER_MCPSERVER_INITIAL_BACKOFF=1s",
 		"MUSTER_ORCHESTRATOR_RETRY_INTERVAL=1s",
+		"OTEL_METRICS_EXPORTER=prometheus",
+		"OTEL_EXPORTER_PROMETHEUS_HOST=127.0.0.1",
+		fmt.Sprintf("OTEL_EXPORTER_PROMETHEUS_PORT=%d", metricsPort),
 	)
 
 	// Configure the process attributes (platform-specific)
@@ -1009,6 +1057,7 @@ func (m *musterInstanceManager) startMusterProcess(ctx context.Context, configPa
 	// muster serve binds it immediately, leaving only a process-startup-sized
 	// race window.
 	m.closeReservedListener(port)
+	m.closeReservedListener(metricsPort)
 
 	// Start the process
 	if err := cmd.Start(); err != nil {
@@ -1746,6 +1795,14 @@ func (m *musterInstanceManager) extractExpectedToolsWithHTTPMocks(config *Muster
 			continue
 		}
 
+		// Servers opted out of readiness never gate startup on their tools.
+		if !serverExpectsReadiness(mcpServer) {
+			if m.debug {
+				m.logger.Debug("🙈 Server %s: expect_ready=false, not gating readiness on its tools\n", mcpServer.Name)
+			}
+			continue
+		}
+
 		// Family-grouped servers expose tools as x_<family.name>_<tool>; non-
 		// family servers retain per-server prefixing as x_<server>_<tool>.
 		familyName := ""
@@ -1813,6 +1870,19 @@ func (m *musterInstanceManager) Cleanup() error {
 	return nil
 }
 
+// serverExpectsReadiness reports whether instance readiness should gate on
+// this pre-configured server (its state and its tools). Scenarios opt a
+// server out with expect_ready: false when it only exists as a network
+// target -- e.g. the SSE mock the transport-detection scenario probes:
+// muster's SSE session/tool aggregation is not reliable enough to gate on
+// (the standing reason mcpserver-sse-tool-call-lifecycle.yaml is skipped),
+// and the scenario only needs the mock's HTTP endpoint up, which the
+// harness already waits for when starting it.
+func serverExpectsReadiness(mcpServer MCPServerConfig) bool {
+	expectReady, ok := mcpServer.Config["expect_ready"].(bool)
+	return !ok || expectReady
+}
+
 // extractExpectedMCPServers extracts all MCP server names from the configuration.
 // This includes OAuth-protected servers that may be in "auth_required" state.
 // The returned list is used by WaitForReady to ensure servers are registered before tests run.
@@ -1825,7 +1895,11 @@ func (m *musterInstanceManager) extractExpectedMCPServers(config *MusterPreConfi
 
 	// Extract all MCP server names from configuration
 	for _, mcpServer := range config.MCPServers {
-		expectedServers = append(expectedServers, mcpServer.Name)
+		// Servers opted out of readiness (expect_ready: false) are registered
+		// and started but never gate readiness -- see extractExpectedToolsWithHTTPMocks.
+		if serverExpectsReadiness(mcpServer) {
+			expectedServers = append(expectedServers, mcpServer.Name)
+		}
 	}
 
 	if m.debug && len(expectedServers) > 0 {

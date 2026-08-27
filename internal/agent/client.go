@@ -14,6 +14,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 
 	agentoauth "github.com/giantswarm/muster/internal/agent/oauth"
+	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/metatools"
 )
 
@@ -405,7 +406,7 @@ func (c *Client) InitializeAndLoadData(ctx context.Context) error {
 // exchanges capability information, and sets up the session for subsequent operations.
 //
 // The handshake includes:
-//   - Protocol version negotiation (currently "2024-11-05")
+//   - Protocol version negotiation (api.ClientProtocolVersion)
 //   - Client capability advertisement
 //   - Client identification (muster-agent or muster-cli)
 //   - Server capability discovery
@@ -413,12 +414,8 @@ func (c *Client) InitializeAndLoadData(ctx context.Context) error {
 // This method is called automatically by Connect() and Run() methods.
 func (c *Client) initialize(ctx context.Context) error {
 	req := mcp.InitializeRequest{
-		Params: struct {
-			ProtocolVersion string                 `json:"protocolVersion"`
-			Capabilities    mcp.ClientCapabilities `json:"capabilities"`
-			ClientInfo      mcp.Implementation     `json:"clientInfo"`
-		}{
-			ProtocolVersion: "2024-11-05",
+		Params: mcp.InitializeParams{
+			ProtocolVersion: api.ClientProtocolVersion,
 			ClientInfo: mcp.Implementation{
 				Name: func() string {
 					// Set client name based on usage context

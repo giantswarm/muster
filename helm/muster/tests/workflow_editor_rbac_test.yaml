@@ -1,0 +1,98 @@
+suite: workflow-editor RBAC template tests
+templates:
+  - templates/workflow-editor-rbac.yaml
+
+tests:
+  - it: ships the workflow-editor Role and default RoleBinding
+    asserts:
+      - hasDocuments:
+          count: 2
+      - isKind:
+          of: Role
+        documentIndex: 0
+      - equal:
+          path: metadata.name
+          value: workflow-editor
+        documentIndex: 0
+      - equal:
+          path: rules
+          value:
+            - apiGroups: ["muster.giantswarm.io"]
+              resources: ["workflows"]
+              verbs: ["create", "update", "patch", "delete"]
+        documentIndex: 0
+      - isKind:
+          of: RoleBinding
+        documentIndex: 1
+      - equal:
+          path: metadata.name
+          value: workflow-editor
+        documentIndex: 1
+      - equal:
+          path: roleRef.name
+          value: workflow-editor
+        documentIndex: 1
+      - equal:
+          path: subjects
+          value:
+            - apiGroup: rbac.authorization.k8s.io
+              kind: Group
+              name: system:authenticated
+        documentIndex: 1
+
+  - it: places Role and RoleBinding in the discovery namespace
+    set:
+      muster.namespace: mcp-servers
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: mcp-servers
+        documentIndex: 0
+      - equal:
+          path: metadata.namespace
+          value: mcp-servers
+        documentIndex: 1
+
+  - it: narrows the binding to custom subjects
+    set:
+      rbac.workflowEditor.subjects:
+        - apiGroup: rbac.authorization.k8s.io
+          kind: Group
+          name: platform-admins
+    asserts:
+      - equal:
+          path: subjects
+          value:
+            - apiGroup: rbac.authorization.k8s.io
+              kind: Group
+              name: platform-admins
+        documentIndex: 1
+
+  - it: fails when subjects is empty so the binding cannot silently grant nobody
+    set:
+      rbac.workflowEditor.subjects: []
+    asserts:
+      - failedTemplate:
+          errorMessage: "rbac.workflowEditor.subjects must not be empty while the workflow-editor RoleBinding is created. Bind an admin group for admin-only workflow authoring, bind group system:authenticated to deliberately let every authenticated user author workflows, or set rbac.workflowEditor.create=false to manage access out of band."
+
+  - it: creates nothing when rbac.workflowEditor.create is false
+    set:
+      rbac.workflowEditor.create: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: allows empty subjects when the binding is not created
+    set:
+      rbac.workflowEditor.create: false
+      rbac.workflowEditor.subjects: []
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: creates nothing when rbac.create is false
+    set:
+      rbac.create: false
+    asserts:
+      - hasDocuments:
+          count: 0

@@ -50,7 +50,6 @@
 //		Port:         8080,
 //		Host:         "localhost",
 //		Transport:    "sse",
-//		Yolo:         false,
 //		MusterPrefix: "x",
 //	}
 //
@@ -118,28 +117,6 @@
 // Streamable HTTP provides HTTP-based streaming protocol support with full bidirectional
 // communication. This is the default transport for maximum compatibility.
 //
-// # Security Model
-//
-// ## Denylist System
-//
-// The aggregator implements a "secure by default" approach with a comprehensive denylist
-// of potentially destructive tools. This prevents accidental execution of dangerous
-// operations in production environments.
-//
-// Categories of blocked operations:
-//   - Kubernetes resource modification (kubectl apply, delete, patch)
-//   - Cluster API lifecycle operations (create/delete clusters)
-//   - Helm package management (install, uninstall, upgrade)
-//   - Flux GitOps operations (reconcile, suspend, resume)
-//   - System maintenance operations (cleanup, incident creation)
-//
-// ## Yolo Mode
-//
-// The --yolo flag disables the security denylist for development environments where
-// destructive operations may be needed. This should never be used in production.
-//
-//	config.Yolo = true  // Disables all security restrictions
-//
 // # Integration with Muster Architecture
 //
 // ## Central API Pattern
@@ -206,7 +183,6 @@
 // The aggregator provides comprehensive service monitoring data including:
 //   - Tool/resource/prompt counts and status
 //   - Server connectivity statistics
-//   - Security filtering statistics (blocked tools)
 //   - Transport endpoint information
 //   - Event handler status
 //
@@ -215,7 +191,6 @@
 // Structured logging provides visibility into:
 //   - Server registration/deregistration events
 //   - Capability update operations
-//   - Security filtering actions
 //   - Error conditions and recovery
 //
 // # Thread Safety
@@ -232,7 +207,6 @@
 //		Port         int    // Server port (default: 8080)
 //		Host         string // Bind address (default: localhost)
 //		Transport    string // Protocol: "sse", "stdio", "streamable-http"
-//		Yolo         bool   // Disable security denylist (development only)
 //		ConfigDir    string // Directory for workflow definitions
 //		MusterPrefix string // Global prefix for all tools (default: "x")
 //	}
@@ -244,7 +218,6 @@
 //		Port:         8080,
 //		Host:         "localhost",
 //		Transport:    "sse",
-//		Yolo:         false,
 //		ConfigDir:    "/etc/muster/workflows",
 //		MusterPrefix: "x",
 //	}

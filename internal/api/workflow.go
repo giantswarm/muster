@@ -410,36 +410,13 @@ type WorkflowHandler interface {
 	GetWorkflow(name string) (*Workflow, error)
 
 	// Workflow lifecycle management
-
-	// CreateWorkflowFromStructured creates a new workflow from structured args.
-	// This allows dynamic workflow creation at runtime.
 	//
-	// Args:
-	//   - args: Structured workflow definition args
-	//
-	// Returns:
-	//   - error: Error if the workflow definition is invalid or creation fails
-	CreateWorkflowFromStructured(args map[string]interface{}) error
-
-	// UpdateWorkflowFromStructured updates an existing workflow from structured args.
-	// This allows runtime modification of workflow definitions.
-	//
-	// Args:
-	//   - name: The name of the workflow to update
-	//   - args: Updated workflow definition args
-	//
-	// Returns:
-	//   - error: Error if the workflow doesn't exist or update fails
-	UpdateWorkflowFromStructured(name string, args map[string]interface{}) error
-
-	// DeleteWorkflow removes a workflow definition from the system.
-	//
-	// Args:
-	//   - name: The name of the workflow to delete
-	//
-	// Returns:
-	//   - error: Error if the workflow doesn't exist or deletion fails
-	DeleteWorkflow(name string) error
+	// Workflow spec mutations (create/update/delete) are deliberately NOT part
+	// of this interface: they must carry the calling session's identity so the
+	// write happens with the caller's own credentials in Kubernetes mode
+	// (issue #1069). They are reachable only through the ToolProvider's
+	// ExecuteTool (workflow_create / workflow_update / workflow_delete), which
+	// threads the request context into the caller-identity write gate.
 
 	// ValidateWorkflowFromStructured validates a workflow definition without creating it.
 	// This is useful for validation during workflow development and testing.

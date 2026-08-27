@@ -1,6 +1,10 @@
 package api
 
-import "time"
+import (
+	"context"
+	"errors"
+	"time"
+)
 
 // MCPServer represents a single MCP (Model Context Protocol) server definition and runtime state.
 // It consolidates MCPServerDefinition, MCPServerInfo, and MCPServerConfig into a unified type
@@ -265,10 +269,43 @@ func (t MCPServerType) IsRemote() bool {
 	return t == MCPServerTypeStreamableHTTP || t == MCPServerTypeSSE
 }
 
+// ErrStdioNotAllowedInKubernetesMode reports a "stdio" MCPServer submitted to a
+// muster running in Kubernetes mode. A stdio server is started as a subprocess
+// of the muster process, so accepting one in a deployed aggregator would turn
+// "may write MCPServer resources" into "may execute code in the muster pod as
+// muster's ServiceAccount" (issue #1067). The capability is removed rather than
+// narrowed to a command allowlist: the pod image ships muster, not a fleet of
+// MCP server binaries, and in-cluster servers are reached over HTTP.
+var ErrStdioNotAllowedInKubernetesMode = errors.New(
+	`type "stdio" is not supported in Kubernetes mode: a stdio server is started as a subprocess of the muster pod. ` +
+		`Run the MCP server as its own workload and register it with type "streamable-http" or "sse". ` +
+		`stdio stays available when muster runs as a local CLI (filesystem mode)`)
+
+// ValidateStdioAllowed reports whether a server type may run in the current
+// mode, returning ErrStdioNotAllowedInKubernetesMode for stdio in Kubernetes
+// mode and nil otherwise.
+//
+// Callers pass the mode they already hold — client.IsKubernetesMode() for the
+// tool handlers and reconciler, the flag plumbed down from it for the
+// orchestrator and the service — so admission, reconciliation, and process
+// start share one definition of the policy instead of three.
+func ValidateStdioAllowed(serverType string, kubernetesMode bool) error {
+	if kubernetesMode && serverType == string(MCPServerTypeStdio) {
+		return ErrStdioNotAllowedInKubernetesMode
+	}
+	return nil
+}
+
 // RegisteredByAnnotation records the authenticated subject that registered an
 // MCPServer. Stamped server-side on create so attribution cannot be spoofed or
 // omitted by clients (issue #1021). The key is shared with the developer portal.
 const RegisteredByAnnotation = "ui.giantswarm.io/registered-by"
+
+// RegisteredByEmailAnnotation records the email claim of the authenticated
+// identity that registered an MCPServer, when the token carried one. Display
+// metadata only — RegisteredByAnnotation holds the stable identifier
+// (issue #1048). The key is shared with the developer portal.
+const RegisteredByEmailAnnotation = "ui.giantswarm.io/registered-by-email"
 
 // MCPServerInfo contains consolidated MCP server information for API responses.
 // This type is used when returning server information through the API, providing
@@ -286,6 +323,19 @@ type MCPServerInfo struct {
 
 	// AutoStart determines whether this MCP server should be automatically started
 	AutoStart bool `json:"autoStart,omitempty"`
+
+	// Suspended declares the desired lifecycle state of this server's service.
+	// When true, the reconciler stops the service and refuses to start it
+	// until the field is set back to false (issue #1055).
+	Suspended bool `json:"suspended,omitempty"`
+
+	// RestartRequestedAt requests a one-shot restart of this server's service.
+	// The reconciler acts only when it differs from LastRestartedAt.
+	RestartRequestedAt *time.Time `json:"restartRequestedAt,omitempty"`
+
+	// LastRestartedAt mirrors the RestartRequestedAt value most recently
+	// processed by the reconciler (from the CR status).
+	LastRestartedAt *time.Time `json:"lastRestartedAt,omitempty"`
 
 	// Command specifies the executable path for stdio type servers.
 	Command string `json:"command,omitempty"`
@@ -326,6 +376,12 @@ type MCPServerInfo struct {
 	// Note: State reflects infrastructure availability only. Per-user session state
 	// (auth status, connection status) is tracked in the Session Registry.
 	State string `json:"state,omitempty"`
+
+	// ProtocolVersion is the MCP revision this backend answered with during the
+	// handshake. It can be older than ClientProtocolVersion: a backend that
+	// supports only an earlier revision answers with that one. Empty when the
+	// server has no connected client.
+	ProtocolVersion string `json:"protocolVersion,omitempty"`
 
 	// StatusMessage provides a user-friendly, actionable message about the server's status.
 	// This field is populated based on the server's state and error information.
@@ -371,6 +427,12 @@ type MCPServerInfo struct {
 	// read from the RegisteredByAnnotation. Empty when the server was created
 	// without an authenticated context (e.g. GitOps-applied CRs).
 	RegisteredBy string `json:"registeredBy,omitempty"`
+
+	// RegisteredByEmail is the email claim of the identity that registered
+	// this server, read from the RegisteredByEmailAnnotation. Display metadata
+	// only — RegisteredBy is the stable identifier. Empty when the token
+	// carried no email claim (e.g. Kubernetes ServiceAccount identities).
+	RegisteredByEmail string `json:"registeredByEmail,omitempty"`
 }
 
 // MCPServerManagerHandler defines the interface for MCP server management operations.
@@ -401,4 +463,22 @@ type MCPServerManagerHandler interface {
 	// This allows MCP server operations to be performed through the aggregator
 	// tool system, enabling programmatic and user-driven server management.
 	ToolProvider
+}
+
+// MCPServerLifecycleAsCaller is the optional capability the registered
+// MCPServer manager gains when writes-as-caller is enabled (issue #1057):
+// lifecycle actions on MCPServer-backed services become CR spec writes
+// performed with the caller's own identity — authorized by k8s RBAC and
+// audited by the apiserver — instead of orchestrator mutations with muster's
+// privilege. handled=false means the caller must fall back to the imperative
+// path (flag off, or the name is a non-MCPServer service such as muster's own
+// aggregator); it is always accompanied by a nil result and a nil error.
+//
+// The implementing adapter pins this interface at compile time so a signature
+// drift cannot silently fail the type assertion and reopen the privileged
+// imperative path.
+type MCPServerLifecycleAsCaller interface {
+	StartMCPServerAsCaller(ctx context.Context, name string) (result *CallToolResult, handled bool, err error)
+	StopMCPServerAsCaller(ctx context.Context, name string) (result *CallToolResult, handled bool, err error)
+	RestartMCPServerAsCaller(ctx context.Context, name string) (result *CallToolResult, handled bool, err error)
 }

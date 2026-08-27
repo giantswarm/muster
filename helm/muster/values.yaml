@@ -2,6 +2,11 @@
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
 
+# Umbrella-chart toggle. App-of-apps meta-charts (agent-platform) forward their
+# component values block verbatim, including this on/off key. The muster chart
+# itself ignores it; it exists so the values schema accepts such forwarded blocks.
+enabled: true
+
 replicaCount: 1
 
 image:
@@ -41,9 +46,50 @@ rbac:
   # broker target credential secrets may reside.
   # A Role/RoleBinding granting `get` on secrets is created in each listed namespace.
   additionalSecretNamespaces: []
+  # mcpServerEditor ships the default answer to "who may register and manage
+  # MCP servers" under writes-as-caller: a namespaced Role granting
+  # create/update/patch/delete on mcpservers, plus a RoleBinding.
+  #
+  # Who to bind is a real trade-off. Everyone bound here registers servers
+  # into a SHARED aggregator: other users see those servers and are routed
+  # through them. Shared multi-team installs should narrow subjects to an
+  # admin group. The default binds all authenticated users — a deliberate
+  # fit for single-team installs where every SSO user is trusted to
+  # register, and the compatible default for existing installs. An empty
+  # subjects list fails the render rather than shipping a binding bound to
+  # nobody; set create=false to manage access out of band instead.
+  mcpServerEditor:
+    create: true
+    # RoleBinding subjects granted the mcpserver-editor Role. Standard
+    # rbac.authorization.k8s.io/v1 subjects (Group, User, or ServiceAccount).
+    # Must not be empty while create is true.
+    subjects:  # @schema item: object ; itemProperties: {apiGroup: {type: string}, kind: {type: string}, name: {type: string}, namespace: {type: string}}
+      - apiGroup: rbac.authorization.k8s.io
+        kind: Group
+        name: system:authenticated
+  # workflowEditor ships the default answer to "who may create and manage
+  # workflows" under writes-as-caller: a namespaced Role granting
+  # create/update/patch/delete on workflows, plus a RoleBinding.
+  #
+  # Same trade-off as mcpServerEditor: workflows authored here are visible
+  # to and runnable by other users of a shared aggregator. Shared
+  # multi-team installs should narrow subjects to an admin group; the
+  # default binds all authenticated users, the deliberate fit for
+  # single-team installs and the compatible default for existing ones. An
+  # empty subjects list fails the render rather than shipping a binding
+  # bound to nobody; set create=false to manage access out of band.
+  workflowEditor:
+    create: true
+    # RoleBinding subjects granted the workflow-editor Role. Standard
+    # rbac.authorization.k8s.io/v1 subjects (Group, User, or ServiceAccount).
+    # Must not be empty while create is true.
+    subjects:  # @schema item: object ; itemProperties: {apiGroup: {type: string}, kind: {type: string}, name: {type: string}, namespace: {type: string}}
+      - apiGroup: rbac.authorization.k8s.io
+        kind: Group
+        name: system:authenticated
 
-podAnnotations: {}
-podLabels: {}
+podAnnotations: {}  # @schema additionalProperties: true
+podLabels: {}  # @schema additionalProperties: true
 
 podSecurityContext:
   runAsUser: 1000
@@ -141,10 +187,10 @@ gatewayAPI:
     rules: []
 
     # Additional annotations for the HTTPRoute
-    annotations: {}
+    annotations: {}  # @schema additionalProperties: true
 
     # Additional labels for the HTTPRoute
-    labels: {}
+    labels: {}  # @schema additionalProperties: true
 
   # BackendTrafficPolicy for Envoy Gateway (optional)
   # Provides timeout configuration at the backend level
@@ -161,10 +207,10 @@ gatewayAPI:
     timeout: "0s"
 
     # Additional annotations for the BackendTrafficPolicy
-    annotations: {}
+    annotations: {}  # @schema additionalProperties: true
 
     # Additional labels for the BackendTrafficPolicy
-    labels: {}
+    labels: {}  # @schema additionalProperties: true
 
 # Number of old ReplicaSets retained for rollback. Keep tight so frequent
 # rollouts don't leak zero-replica ReplicaSets across the cluster.
@@ -197,10 +243,11 @@ podDisruptionBudget:
   enabled: false
   # Minimum number of pods that must remain available during disruption
   # Can be an integer or a percentage (e.g., "50%")
-  minAvailable: 1
+  minAvailable: 1  # @schema type: [integer, string]
   # Maximum number of pods that can be unavailable during disruption
-  # Cannot be used together with minAvailable
-  # maxUnavailable: 1
+  # Can be an integer or a percentage (e.g., "50%")
+  # Cannot be used together with minAvailable, so it is unset by default
+  maxUnavailable:  # @schema type: [integer, string, null]
 
 # Additional volumes on the output Deployment definition.
 volumes: []
@@ -208,7 +255,7 @@ volumes: []
 # Additional volumeMounts on the output Deployment definition.
 volumeMounts: []
 
-nodeSelector: {}
+nodeSelector: {}  # @schema additionalProperties: true
 
 tolerations: []
 
@@ -230,6 +277,23 @@ muster:
 
   # Enable debug logging
   debug: false
+
+  # Caller-identity writes (always on in Kubernetes deployments):
+  # session-initiated MCPServer mutations (create/update/delete and CR-driven
+  # start/stop/restart) are written with the caller's own dex id_token: the
+  # apiserver authenticates the real user, k8s RBAC (see rbac.mcpServerEditor)
+  # authorizes the write, and the audit log records the true subject. Muster's
+  # own controllers (status reconciliation, service registration, startup
+  # sync) keep using the ServiceAccount.
+  #
+  # Preconditions: the login scope set requests the kubernetesAudience
+  # cross-client audience and the local apiserver trusts dex OIDC. Sessions
+  # whose token lacks the audience get an actionable re-login error.
+  writesAsCaller:
+    # Audience the session's dex id_token must carry to be accepted by the
+    # local kube-apiserver. Empty uses muster's default
+    # ("dex-k8s-authenticator").
+    kubernetesAudience: ""
 
   # Append a PEM file to muster's system trust pool at startup. Use this when
   # muster talks to backends served by an internal CA (for example, the SPIFFE
@@ -372,7 +436,7 @@ muster:
       # oversight. The requirement is that every critical record is
       # reconstructable at startup, so a Valkey restart, PVC recreation, or
       # fresh install is non-fatal. Valkey is deployed outside this chart (as a
-      # sibling component of the agentic-platform umbrella), so persistence
+      # sibling component of the agent-platform umbrella), so persistence
       # tuning would live there, not here.
       #
       # Why not AOF (appendonly yes)? It does NOT protect the data that is lost
@@ -580,7 +644,7 @@ muster:
       #     portal-backend:
       #       clientCredentialsSecretRef:
       #         name: muster-broker-clients   # keys default to client-id/client-secret
-      tokenExchangeBroker: {}
+      tokenExchangeBroker: {}  # @schema additionalProperties: true
 
       # CIDRs from which X-Forwarded-Proto and X-Forwarded-Host headers are
       # trusted for DPoP htu URL reconstruction. Required when muster runs
@@ -648,7 +712,21 @@ muster:
           # Extra labels applied to the ServiceMonitor — useful for
           # selecting the right Prometheus instance in a multi-tenant
           # cluster.
-          labels: {}
+          labels: {}  # @schema additionalProperties: true
+        # PrometheusRule with the MCPServer connection-state alerts
+        # (MusterMCPServerFailed, MusterMCPServerFlapping). Fires on
+        # muster's own muster_mcpserver_state /
+        # muster_mcpserver_state_transitions_total metrics, so the
+        # Prometheus that loads the rule has to be receiving them —
+        # either by scraping the endpoint above, or via OTLP to a
+        # remote-write target. Gated separately from serviceMonitor so
+        # the OTLP path can have rules without a local scrape.
+        prometheusRule:
+          enabled: false
+          # Extra labels applied to the PrometheusRule — on
+          # Prometheus-Operator clusters this is how a rule is matched
+          # to the right Prometheus instance (ruleSelector).
+          labels: {}  # @schema additionalProperties: true
 
 # CRD ownership. The muster application chart ships the MCPServer and Workflow
 # CustomResourceDefinitions in the Helm 3 `crds/` directory (helm/muster/crds/),

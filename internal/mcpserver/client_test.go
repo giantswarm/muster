@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	mcpclient "github.com/mark3labs/mcp-go/client"
+
 	"github.com/giantswarm/muster/internal/api"
 
 	"github.com/stretchr/testify/assert"
@@ -185,7 +187,7 @@ func TestNewSSEClientWithNilHeaders(t *testing.T) {
 
 // TestNewDynamicAuthClientWithNilStore tests that nil token store is handled gracefully
 func TestNewDynamicAuthClientWithNilStore(t *testing.T) {
-	client := NewDynamicAuthClient("http://example.com/mcp", nil, "openid")
+	client := NewDynamicAuthClient("http://example.com/mcp", nil, "openid", "https://muster.example.com/.well-known/oauth-client.json", "")
 
 	assert.NotNil(t, client)
 	assert.Equal(t, "http://example.com/mcp", client.url)
@@ -218,6 +220,29 @@ func TestBaseMCPClientCloseNotConnected(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+// TestBaseMCPClientNegotiatedProtocolVersion covers the three states the
+// accessor reports: before a handshake, while connected, and after a close.
+func TestBaseMCPClientNegotiatedProtocolVersion(t *testing.T) {
+	base := &baseMCPClient{}
+
+	assert.Empty(t, base.NegotiatedProtocolVersion())
+
+	// A recorded revision stays invisible while the client is disconnected:
+	// there is no live handshake behind it.
+	base.negotiatedProtocolVersion = "2024-11-05"
+	assert.Empty(t, base.NegotiatedProtocolVersion())
+
+	inner, err := mcpclient.NewSSEMCPClient("http://127.0.0.1:1/mcp")
+	require.NoError(t, err)
+	base.client = inner
+	base.connected = true
+	assert.Equal(t, "2024-11-05", base.NegotiatedProtocolVersion())
+
+	_ = base.closeClient()
+	assert.Empty(t, base.NegotiatedProtocolVersion())
+	assert.Empty(t, base.negotiatedProtocolVersion)
+}
+
 // TestClientOperationsWithoutConnection tests that all operations fail gracefully when not connected
 func TestClientOperationsWithoutConnection(t *testing.T) {
 	t.Run("StdioClient", func(t *testing.T) {
@@ -236,7 +261,7 @@ func TestClientOperationsWithoutConnection(t *testing.T) {
 	})
 
 	t.Run("DynamicAuthClient", func(t *testing.T) {
-		client := NewDynamicAuthClient("http://example.com/mcp", nil, "openid")
+		client := NewDynamicAuthClient("http://example.com/mcp", nil, "openid", "https://muster.example.com/.well-known/oauth-client.json", "")
 		testClientNotConnected(t, client)
 	})
 }

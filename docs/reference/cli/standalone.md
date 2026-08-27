@@ -30,7 +30,6 @@ The `standalone` command inherits **all flags** from both the `serve` and `agent
 - `--config-path` (string): Custom configuration directory path
   - Default: `~/.config/muster`
 - `--debug`: Enable debug-level logging and verbose output
-- `--yolo`: Disable denylist for destructive tool calls
 
 ### Agent Configuration (from `agent`)
 - `--endpoint` (string): Aggregator MCP endpoint URL

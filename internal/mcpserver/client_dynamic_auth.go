@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/pkg/logging"
 	"github.com/giantswarm/muster/pkg/observability"
 
@@ -27,9 +28,11 @@ import (
 //   - Transparent token refresh via the TokenStore
 type DynamicAuthClient struct {
 	baseMCPClient
-	url        string
-	tokenStore transport.TokenStore
-	scope      string
+	url          string
+	tokenStore   transport.TokenStore
+	scope        string
+	clientID     string
+	clientSecret string
 }
 
 // NewDynamicAuthClient creates a new StreamableHTTP-based MCP client with mcp-go's
@@ -40,13 +43,19 @@ type DynamicAuthClient struct {
 //   - url: The MCP server URL
 //   - tokenStore: Adapter providing OAuth tokens (implements transport.TokenStore)
 //   - scope: The OAuth scope for this connection
+//   - clientID: The OAuth client_id the tokens were issued under (CIMD URL or
+//     DCR-registered id); mcp-go sends it on token refresh requests
+//   - clientSecret: The client secret when the issuer registered muster as a
+//     confidential client via DCR; empty for public clients
 //
 // Returns a new DynamicAuthClient ready for initialization.
-func NewDynamicAuthClient(url string, tokenStore transport.TokenStore, scope string) *DynamicAuthClient {
+func NewDynamicAuthClient(url string, tokenStore transport.TokenStore, scope, clientID, clientSecret string) *DynamicAuthClient {
 	return &DynamicAuthClient{
-		url:        url,
-		tokenStore: tokenStore,
-		scope:      scope,
+		url:          url,
+		tokenStore:   tokenStore,
+		scope:        scope,
+		clientID:     clientID,
+		clientSecret: clientSecret,
 	}
 }
 
@@ -65,8 +74,10 @@ func (c *DynamicAuthClient) Initialize(ctx context.Context) error {
 	var opts []transport.StreamableHTTPCOption
 	if c.tokenStore != nil {
 		opts = append(opts, transport.WithHTTPOAuth(transport.OAuthConfig{
-			TokenStore: c.tokenStore,
-			Scopes:     []string{c.scope},
+			ClientID:     c.clientID,
+			ClientSecret: c.clientSecret,
+			TokenStore:   c.tokenStore,
+			Scopes:       []string{c.scope},
 		}))
 	}
 
@@ -91,15 +102,11 @@ func (c *DynamicAuthClient) Initialize(ctx context.Context) error {
 	}
 
 	initResult, err := mcpClient.Initialize(ctx, mcp.InitializeRequest{
-		Params: struct {
-			ProtocolVersion string                 `json:"protocolVersion"`
-			Capabilities    mcp.ClientCapabilities `json:"capabilities"`
-			ClientInfo      mcp.Implementation     `json:"clientInfo"`
-		}{
-			ProtocolVersion: "2024-11-05",
+		Params: mcp.InitializeParams{
+			ProtocolVersion: api.ClientProtocolVersion,
 			ClientInfo: mcp.Implementation{
 				Name:    "muster-aggregator",
-				Version: "1.0.0",
+				Version: clientVersion,
 			},
 			Capabilities: mcp.ClientCapabilities{},
 		},
@@ -117,6 +124,7 @@ func (c *DynamicAuthClient) Initialize(ctx context.Context) error {
 
 	c.client = mcpClient
 	c.connected = true
+	c.negotiatedProtocolVersion = initResult.ProtocolVersion
 	c.wireNotificationHandler()
 
 	logging.Debug("DynamicAuthClient", "StreamableHTTP client initialized with OAuth handler. Server: %s, Version: %s",

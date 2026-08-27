@@ -274,6 +274,46 @@ aggregator:
   transport: "streamable-http"
 ```
 
+#### Writes-as-Caller
+
+In Kubernetes mode, session-initiated MCPServer spec mutations
+(`core_mcpserver_create` / `_update` / `_delete`) are written against the
+Kubernetes API with the caller's own OIDC id_token as the bearer instead of
+muster's ServiceAccount: the apiserver authenticates the real user, Kubernetes
+RBAC authorizes the write, and the audit log records the true subject.
+Reads, `core_mcpserver_validate`, and muster's own controller writes (status
+reconciliation, service registration) are unaffected.
+
+Service lifecycle actions on MCPServer-backed services are covered the same
+way: `core_service_stop` writes `spec.suspended: true`, `core_service_start`
+clears it (and also writes `spec.restartRequestedAt` when the service is
+down), and `core_service_restart` writes `spec.restartRequestedAt` — all as
+the caller, with the reconciler performing the actual start/stop/restart.
+Lifecycle of muster's own internal services (e.g. the aggregator) keeps the
+imperative path.
+
+Workflow spec mutations (`core_workflow_create` / `_update` / `_delete`) go
+through the same gate: the write happens with the caller's identity, and the
+chart ships a `workflow-editor` Role/RoleBinding mirroring `mcpserver-editor`
+(bound to `system:authenticated` by default; narrow
+`rbac.workflowEditor.subjects` for admin-only workflow authoring).
+`core_workflow_validate`, reads, and workflow execution are unaffected.
+
+Caller-identity writes are always active in Kubernetes mode
+(`kubernetes: true`); in filesystem mode there is no apiserver and mutations
+write through the local client. The only knob is the audience override:
+
+```yaml
+writesAsCaller:
+  kubernetesAudience: "dex-k8s-authenticator"  # Audience the session token must carry (default shown)
+```
+
+Preconditions: the login scope set must request the `kubernetesAudience`
+cross-client audience, and the apiserver must trust the OIDC issuer. Sessions
+whose token lacks the audience receive an actionable re-login error; callers
+without RBAC permission receive a permission error naming the missing verb,
+resource, and namespace.
+
 ## MCP Server Configuration
 
 MCP servers can be configured through YAML files or Kubernetes CRDs. Each server requires:

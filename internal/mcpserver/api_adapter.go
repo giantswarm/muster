@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	oauthhandler "github.com/giantswarm/mcp-oauth/handler"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -12,6 +13,7 @@ import (
 	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
 
 	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/callerwrite"
 	"github.com/giantswarm/muster/internal/client"
 	"github.com/giantswarm/muster/internal/events"
 	"github.com/giantswarm/muster/pkg/logging"
@@ -73,6 +75,21 @@ func convertAPISecretRefToCRD(src *api.ClientCredentialsSecretRef) *musterv1alph
 type Adapter struct {
 	client    client.MusterClient
 	namespace string
+
+	// gate switches session-initiated spec mutations (create/update/delete)
+	// from the shared SA-backed client to a per-call client bearing the
+	// caller's own dex id_token (issue #1056). Always enabled in Kubernetes
+	// mode; filesystem mode keeps the local client. Reads, validation, and
+	// muster's own controller writes are unaffected.
+	gate callerwrite.Gate
+}
+
+// mcpServerWriter is the write surface the mutation handlers go through. The
+// SA-backed MusterClient and the per-call caller-bearer client both satisfy it.
+type mcpServerWriter interface {
+	CreateMCPServer(ctx context.Context, server *musterv1alpha1.MCPServer) error
+	UpdateMCPServer(ctx context.Context, server *musterv1alpha1.MCPServer) error
+	DeleteMCPServer(ctx context.Context, name, namespace string) error
 }
 
 // NewAdapterWithClient creates a new adapter with a specific client (for testing)
@@ -83,7 +100,45 @@ func NewAdapterWithClient(musterClient client.MusterClient, namespace string) *A
 	return &Adapter{
 		client:    musterClient,
 		namespace: namespace,
+		gate:      callerwrite.NewGate("MCP server changes"),
 	}
+}
+
+// EnableWritesAsCaller switches session-initiated mutations to
+// caller-identity writes; the app layer calls it whenever muster runs in
+// Kubernetes mode. factory may be nil when muster has no Kubernetes API
+// access; mutations then fail with an explicit configuration error instead of
+// silently falling back to the SA path. An empty kubernetesAudience selects
+// the default.
+func (a *Adapter) EnableWritesAsCaller(factory callerwrite.ClientFactory, kubernetesAudience string) {
+	a.gate.Enable(factory, kubernetesAudience)
+}
+
+// mutationWriter resolves the write client a mutation must use. In
+// filesystem mode it is the shared local client. In Kubernetes mode the
+// session's dex id_token becomes the bearer of a per-call client, so the
+// apiserver authenticates the real user and k8s RBAC decides. A nil writer is
+// returned together with a ready-to-return tool error when the session cannot
+// produce a usable bearer.
+func (a *Adapter) mutationWriter(ctx context.Context) (mcpServerWriter, *api.CallToolResult) {
+	if !a.gate.Enabled() {
+		return a.client, nil
+	}
+	callerClient, errMsg := a.gate.Resolve(ctx)
+	if errMsg != "" {
+		result, _ := simpleError(errMsg)
+		return nil, result
+	}
+	return &callerWriter{client: callerClient, namespace: a.namespace}, nil
+}
+
+// describeWriteAuthError maps apiserver authn/authz failures on
+// caller-identity writes to actionable tool errors: 403 names the verb,
+// resource, and namespace; 401 asks for a re-login. Returns "" for every
+// other error so callers fall through to their existing handling.
+func (a *Adapter) describeWriteAuthError(err error, verb, name string) string {
+	return callerwrite.DescribeWriteAuthError(err, verb,
+		"MCPServer", "mcpservers.muster.giantswarm.io", name, a.namespace, "mcpserver-editor")
 }
 
 // Register registers the adapter with the API
@@ -113,9 +168,32 @@ func (a *Adapter) ListMCPServers() []api.MCPServerInfo {
 	result := make([]api.MCPServerInfo, len(servers))
 	for i, server := range servers {
 		result[i] = convertCRDToInfo(&server)
+		result[i].ProtocolVersion = serviceProtocolVersion(server.Name)
 	}
 
 	return result
+}
+
+// serviceProtocolVersion returns the MCP revision the named server answered
+// with during its handshake, or "" when no service is running for it.
+//
+// It reads the live service rather than the CRD status so that the value
+// matches what core_service_status reports for the same server; the status
+// subresource syncs on an interval and would lag behind a reconnect that
+// negotiates a different revision.
+func serviceProtocolVersion(name string) string {
+	registry := api.GetServiceRegistry()
+	if registry == nil {
+		return ""
+	}
+
+	service, exists := registry.Get(name)
+	if !exists {
+		return ""
+	}
+
+	version, _ := service.GetServiceData()[api.ServiceDataProtocolVersion].(string)
+	return version
 }
 
 // GetMCPServer returns information about a specific MCP server
@@ -131,6 +209,7 @@ func (a *Adapter) GetMCPServer(name string) (*api.MCPServerInfo, error) {
 	}
 
 	info := convertCRDToInfo(server)
+	info.ProtocolVersion = serviceProtocolVersion(name)
 	return &info, nil
 }
 
@@ -143,6 +222,7 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 		ToolPrefix:          server.Spec.ToolPrefix,
 		Family:              convertCRDFamilyToAPI(server.Spec.Family),
 		AutoStart:           server.Spec.AutoStart,
+		Suspended:           server.Spec.Suspended,
 		Command:             server.Spec.Command,
 		Args:                server.Spec.Args,
 		URL:                 server.Spec.URL,
@@ -154,7 +234,17 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 		ConsecutiveFailures: server.Status.ConsecutiveFailures,
 	}
 
-	// Convert time fields from metav1.Time to time.Time
+	// Convert time fields from metav1.Time to time.Time. The lifecycle
+	// timestamps are normalized to UTC so their JSON rendering is stable
+	// regardless of the process's local timezone.
+	if server.Spec.RestartRequestedAt != nil {
+		t := server.Spec.RestartRequestedAt.UTC()
+		info.RestartRequestedAt = &t
+	}
+	if server.Status.LastRestartedAt != nil {
+		t := server.Status.LastRestartedAt.UTC()
+		info.LastRestartedAt = &t
+	}
 	if server.Status.LastAttempt != nil {
 		t := server.Status.LastAttempt.Time
 		info.LastAttempt = &t
@@ -197,6 +287,7 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 	info.StatusMessage = generateStatusMessage(info.State, info.Error, server.Name)
 
 	info.RegisteredBy = server.Annotations[api.RegisteredByAnnotation]
+	info.RegisteredByEmail = server.Annotations[api.RegisteredByEmailAnnotation]
 
 	return info
 }
@@ -211,6 +302,17 @@ func subjectFromContext(ctx context.Context) string {
 	}
 	if userInfo, ok := oauthhandler.UserInfoFromContext(ctx); ok && userInfo != nil {
 		return userInfo.ID
+	}
+	return ""
+}
+
+// emailFromContext resolves the authenticated caller's email claim, if the
+// token carried one. Display metadata only — the subject is the stable
+// identifier. Returns "" for identities without an email (e.g. Kubernetes
+// ServiceAccounts) and unauthenticated transports.
+func emailFromContext(ctx context.Context) string {
+	if userInfo, ok := oauthhandler.UserInfoFromContext(ctx); ok && userInfo != nil {
+		return userInfo.Email
 	}
 	return ""
 }
@@ -484,6 +586,19 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Args:        mcpServerArgs(true), // type is required for validation
 		},
 		{
+			Name:        "mcpserver_detect",
+			Description: "Probe a remote MCP server URL to detect its transport (streamable-http or sse). Detection never fails on unreachable servers: the result reports transport \"unknown\" instead, so callers can fall back to manual selection.",
+			Args: []api.ArgMetadata{
+				{Name: "url", Type: api.ArgTypeString, Required: true, Description: "Server endpoint URL to probe"},
+				{Name: "headers", Type: api.ArgTypeObject, Required: false, Description: "HTTP headers to send with the probe requests", Schema: map[string]interface{}{
+					api.SchemaKeyType:                 string(api.ArgTypeObject),
+					api.SchemaKeyAdditionalProperties: map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeString)},
+					api.SchemaKeyDescription:          "HTTP headers for the probe requests",
+				}},
+				{Name: "timeout", Type: api.ArgTypeInteger, Required: false, Description: "Overall detection timeout in seconds (default 10)"},
+			},
+		},
+		{
 			Name:        "mcpserver_create",
 			Description: "Create a new MCP server definition",
 			Args:        mcpServerArgs(true), // type is required for creation
@@ -491,7 +606,12 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "mcpserver_update",
 			Description: "Update an existing MCP server definition",
-			Args:        mcpServerArgs(false), // type is optional for update
+			// type is optional for update; suspended/restartRequestedAt are the
+			// CR-driven lifecycle fields (issue #1055) and only settable here.
+			Args: append(mcpServerArgs(false),
+				api.ArgMetadata{Name: "suspended", Type: api.ArgTypeBoolean, Required: false, Description: "Desired lifecycle state: true stops the server's service and keeps it stopped; false resumes it; omitted keeps the current value"},
+				api.ArgMetadata{Name: "restartRequestedAt", Type: api.ArgTypeString, Required: false, Description: "RFC 3339 timestamp requesting a one-shot restart; processed once by the reconciler"},
+			),
 		},
 		{
 			Name:        "mcpserver_delete",
@@ -512,12 +632,14 @@ func (a *Adapter) ExecuteTool(ctx context.Context, toolName string, args map[str
 		return a.handleMCPServerGet(args)
 	case "mcpserver_validate":
 		return a.handleMCPServerValidate(args)
+	case "mcpserver_detect":
+		return a.handleMCPServerDetect(ctx, args)
 	case "mcpserver_create":
 		return a.handleMCPServerCreate(ctx, args)
 	case "mcpserver_update":
-		return a.handleMCPServerUpdate(args)
+		return a.handleMCPServerUpdate(ctx, args)
 	case "mcpserver_delete":
-		return a.handleMCPServerDelete(args)
+		return a.handleMCPServerDelete(ctx, args)
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", toolName)
 	}
@@ -649,6 +771,32 @@ func (a *Adapter) handleMCPServerValidate(args map[string]interface{}) (*api.Cal
 	}, nil
 }
 
+// handleMCPServerDetect probes a remote URL to detect its MCP transport.
+// The result is returned both as JSON text content and as structuredContent;
+// only a missing/invalid url argument is a tool error — an unreachable or
+// unclassifiable server yields a success result with transport "unknown".
+func (a *Adapter) handleMCPServerDetect(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
+	var req api.MCPServerDetectRequest
+	if err := api.ParseRequest(args, &req); err != nil {
+		return &api.CallToolResult{
+			Content: []interface{}{err.Error()},
+			IsError: true,
+		}, nil
+	}
+
+	if req.URL == "" {
+		return simpleError("url argument is required")
+	}
+
+	result := DetectTransport(ctx, req.URL, req.Headers, time.Duration(req.Timeout)*time.Second)
+
+	return &api.CallToolResult{
+		Content:           []interface{}{result},
+		StructuredContent: result,
+		IsError:           false,
+	}, nil
+}
+
 func (a *Adapter) handleMCPServerCreate(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
 	var req api.MCPServerCreateRequest
 	if err := api.ParseRequest(args, &req); err != nil {
@@ -658,14 +806,24 @@ func (a *Adapter) handleMCPServerCreate(ctx context.Context, args map[string]int
 		}, nil
 	}
 
+	writer, errResult := a.mutationWriter(ctx)
+	if errResult != nil {
+		return errResult, nil
+	}
+
 	// Convert request to CRD once for reuse
 	serverCRD := a.convertRequestToCRD(&req)
 
 	// Stamp the authenticated subject so registration is attributable even for
 	// clients that don't stamp it themselves (issue #1021). Update preserves it
-	// via its get-modify-update flow.
+	// via its get-modify-update flow. The email claim, when present, is stamped
+	// alongside as display metadata (issue #1048) — the subject stays the
+	// stable identifier.
 	if subject := subjectFromContext(ctx); subject != "" {
 		serverCRD.Annotations = map[string]string{api.RegisteredByAnnotation: subject}
+		if email := emailFromContext(ctx); email != "" {
+			serverCRD.Annotations[api.RegisteredByEmailAnnotation] = email
+		}
 	}
 
 	// Validate the definition
@@ -673,10 +831,13 @@ func (a *Adapter) handleMCPServerCreate(ctx context.Context, args map[string]int
 		return simpleError(fmt.Sprintf("Invalid MCP server definition: %v", err))
 	}
 
-	// Create the new MCP server using the unified client
-	if err := a.client.CreateMCPServer(ctx, serverCRD); err != nil {
+	// Create the new MCP server with the resolved write identity
+	if err := writer.CreateMCPServer(ctx, serverCRD); err != nil {
 		if errors.IsAlreadyExists(err) {
 			return simpleError(fmt.Sprintf("MCP server '%s' already exists", req.Name))
+		}
+		if msg := a.describeWriteAuthError(err, "create", req.Name); msg != "" {
+			return simpleError(msg)
 		}
 		// Generate failure event
 		a.generateCRDEvent(req.Name, events.ReasonMCPServerFailed, events.EventData{
@@ -694,7 +855,7 @@ func (a *Adapter) handleMCPServerCreate(ctx context.Context, args map[string]int
 	return simpleOK(fmt.Sprintf("MCP server '%s' created successfully", req.Name))
 }
 
-func (a *Adapter) handleMCPServerUpdate(args map[string]interface{}) (*api.CallToolResult, error) {
+func (a *Adapter) handleMCPServerUpdate(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
 	var req api.MCPServerUpdateRequest
 	if err := api.ParseRequest(args, &req); err != nil {
 		return &api.CallToolResult{
@@ -703,8 +864,13 @@ func (a *Adapter) handleMCPServerUpdate(args map[string]interface{}) (*api.CallT
 		}, nil
 	}
 
-	// Get existing server first
-	ctx := context.Background()
+	writer, errResult := a.mutationWriter(ctx)
+	if errResult != nil {
+		return errResult, nil
+	}
+
+	// Get existing server first. The read stays on the SA client — only the
+	// spec mutation itself switches to the caller's identity.
 	existing, err := a.client.GetMCPServer(ctx, req.Name, a.namespace)
 	if err != nil {
 		if errors.IsNotFound(err) {
@@ -727,6 +893,14 @@ func (a *Adapter) handleMCPServerUpdate(args map[string]interface{}) (*api.CallT
 		existing.Spec.Description = req.Description
 	}
 	existing.Spec.AutoStart = req.AutoStart
+	// Tri-state: only an explicit suspended value changes the lifecycle state,
+	// so unrelated updates don't silently resume a stopped server (issue #1057).
+	if req.Suspended != nil {
+		existing.Spec.Suspended = *req.Suspended
+	}
+	if req.RestartRequestedAt != nil {
+		existing.Spec.RestartRequestedAt = &metav1.Time{Time: *req.RestartRequestedAt}
+	}
 	if req.Command != "" {
 		existing.Spec.Command = req.Command
 	}
@@ -775,8 +949,11 @@ func (a *Adapter) handleMCPServerUpdate(args map[string]interface{}) (*api.CallT
 		return simpleError(fmt.Sprintf("Invalid MCP server definition: %v", err))
 	}
 
-	// Update the MCP server using the unified client
-	if err := a.client.UpdateMCPServer(ctx, existing); err != nil {
+	// Update the MCP server with the resolved write identity
+	if err := writer.UpdateMCPServer(ctx, existing); err != nil {
+		if msg := a.describeWriteAuthError(err, "update", req.Name); msg != "" {
+			return simpleError(msg)
+		}
 		// Generate failure event
 		a.generateCRDEvent(req.Name, events.ReasonMCPServerFailed, events.EventData{
 			Error:     err.Error(),
@@ -793,17 +970,24 @@ func (a *Adapter) handleMCPServerUpdate(args map[string]interface{}) (*api.CallT
 	return simpleOK(fmt.Sprintf("MCP server '%s' updated successfully", req.Name))
 }
 
-func (a *Adapter) handleMCPServerDelete(args map[string]interface{}) (*api.CallToolResult, error) {
+func (a *Adapter) handleMCPServerDelete(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
 	name, ok := args["name"].(string)
 	if !ok || name == "" {
 		return simpleError("name argument is required")
 	}
 
-	// Delete the MCP server using the unified client
-	ctx := context.Background()
-	if err := a.client.DeleteMCPServer(ctx, name, a.namespace); err != nil {
+	writer, errResult := a.mutationWriter(ctx)
+	if errResult != nil {
+		return errResult, nil
+	}
+
+	// Delete the MCP server with the resolved write identity
+	if err := writer.DeleteMCPServer(ctx, name, a.namespace); err != nil {
 		if errors.IsNotFound(err) {
 			return api.HandleErrorWithPrefix(api.NewMCPServerNotFoundError(name), "Failed to delete MCP server"), nil
+		}
+		if msg := a.describeWriteAuthError(err, "delete", name); msg != "" {
+			return simpleError(msg)
 		}
 		// Generate failure event
 		a.generateCRDEvent(name, events.ReasonMCPServerFailed, events.EventData{
@@ -833,6 +1017,12 @@ func (a *Adapter) validateMCPServer(server *musterv1alpha1.MCPServer) error {
 
 	switch server.Spec.Type {
 	case string(api.MCPServerTypeStdio):
+		// Rejected at admission time in Kubernetes mode, so mcpserver_validate
+		// reports it before a caller writes the CR and create/update fail the
+		// tool call instead of the connect attempt (issue #1067).
+		if err := api.ValidateStdioAllowed(server.Spec.Type, a.client.IsKubernetesMode()); err != nil {
+			return err
+		}
 		if server.Spec.Command == "" {
 			return fmt.Errorf("command is required for stdio type")
 		}

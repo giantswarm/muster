@@ -58,6 +58,9 @@ func (m *stubOAuthHandler) Stop()                                               
 func (m *stubOAuthHandler) CreateAuthChallenge(_ context.Context, _ api.AuthChallengeParams) (*api.AuthChallenge, error) {
 	return nil, nil
 }
+func (m *stubOAuthHandler) GetClientCredentialsForIssuer(_ context.Context, _ string) (string, string) {
+	return "", ""
+}
 func (m *stubOAuthHandler) ExchangeTokenForRemoteCluster(_ context.Context, _, _ string, _ *api.TokenExchangeConfig) (string, error) {
 	return "", nil
 }

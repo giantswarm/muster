@@ -288,6 +288,7 @@ func TestExchangeCode(t *testing.T) {
 			"auth-code",
 			"http://localhost:8080/callback",
 			"test-client",
+			"",
 			"verifier123",
 			"https://mcp.example.com/mcp",
 		)
@@ -320,6 +321,7 @@ func TestExchangeCode(t *testing.T) {
 			"invalid-code",
 			"http://localhost:8080/callback",
 			"test-client",
+			"",
 			"verifier123",
 			"https://mcp.example.com/mcp",
 		)

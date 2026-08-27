@@ -315,17 +315,42 @@ func (r *testReporter) ReportScenarioResult(scenarioResult TestScenarioResult) {
 			}
 			r.bufferMutex.Unlock()
 
+			line := fmt.Sprintf("🎯 %s... %s (%v)", scenarioResult.Scenario.Name, symbol, scenarioResult.Duration)
 			if exists {
-				fmt.Printf("%s%s (%v)\n", bufferedStart, symbol, scenarioResult.Duration)
-			} else {
-				// Fallback if buffer missing (shouldn't happen)
-				fmt.Printf("🎯 %s... %s (%v)\n", scenarioResult.Scenario.Name, symbol, scenarioResult.Duration)
+				line = fmt.Sprintf("%s%s (%v)", bufferedStart, symbol, scenarioResult.Duration)
 			}
+			// On failure, append the failing step and error so CI logs are
+			// diagnosable without re-running with --verbose.
+			line += r.failureSummary(scenarioResult)
+			fmt.Printf("%s\n", line)
 		} else {
 			// Sequential mode - just print the result (start was already printed)
 			fmt.Printf("%s (%v)\n", symbol, scenarioResult.Duration)
 		}
 	}
+}
+
+// failureSummary renders a compact multi-line diagnosis of a failed scenario
+// for the parallel-mode one-liner: the failing step (id, tool, error) and the
+// scenario error. Returns "" for passing scenarios.
+func (r *testReporter) failureSummary(scenarioResult TestScenarioResult) string {
+	if scenarioResult.Result == ResultPassed {
+		return ""
+	}
+	var b strings.Builder
+	for _, sr := range scenarioResult.StepResults {
+		if sr.Result == ResultFailed || sr.Result == ResultError {
+			fmt.Fprintf(&b, "\n   ↳ failed step: %s (tool: %s)", sr.Step.ID, sr.Step.Tool)
+			if sr.Error != "" {
+				fmt.Fprintf(&b, ": %s", r.trimLogs(sr.Error, 300))
+			}
+			break
+		}
+	}
+	if scenarioResult.Error != "" {
+		fmt.Fprintf(&b, "\n   ↳ scenario error: %s", r.trimLogs(scenarioResult.Error, 300))
+	}
+	return b.String()
 }
 
 // trimLogs trims logs to a reasonable length for display

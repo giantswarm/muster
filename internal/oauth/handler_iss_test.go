@@ -192,7 +192,7 @@ func TestClient_GenerateAuthURL_SendsResource(t *testing.T) {
 	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
 
-	startURL, err := client.GenerateAuthURL(t.Context(), AuthChallengeParams{
+	startURL, _, err := client.GenerateAuthURL(t.Context(), AuthChallengeParams{
 		SessionID:  "session-1",
 		UserID:     "user-1",
 		ServerName: "test-server",

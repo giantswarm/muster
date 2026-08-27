@@ -120,6 +120,12 @@ type ServerInfo struct {
 	// LastUpdate tracks when the server information was last refreshed
 	LastUpdate time.Time
 
+	// RegisteredAt records when this registry entry was created (set once by
+	// Register/RegisterPendingAuth, never refreshed). Deregistration requests
+	// skip entries created after the request began, so a concurrent
+	// re-registration is not clobbered by a stale deregister.
+	RegisteredAt time.Time
+
 	// ToolPrefix is the configured prefix for tools from this server.
 	// This is used for name collision resolution.
 	ToolPrefix string
@@ -239,11 +245,6 @@ type AggregatorConfig struct {
 	// Supported values: "sse", "streamable-http", "stdio"
 	Transport string
 
-	// Yolo disables the security denylist for destructive tools.
-	// When true, all tools are allowed regardless of their destructive nature.
-	// This should only be enabled in development environments.
-	Yolo bool
-
 	// ConfigDir is the user configuration directory for workflows and other configs.
 	// This is used to load workflow definitions and make them available as tools.
 	ConfigDir string
@@ -323,18 +324,6 @@ const (
 	// EventDeregister indicates a server is being removed from the aggregator
 	EventDeregister
 )
-
-// ToolWithStatus represents a tool along with its security blocking status.
-// This is used to provide visibility into which tools are available
-// and which are blocked by the security denylist.
-type ToolWithStatus struct {
-	// Tool contains the MCP tool definition
-	Tool mcp.Tool
-
-	// Blocked indicates whether this tool is blocked by the security denylist.
-	// Blocked tools cannot be executed unless the Yolo flag is enabled.
-	Blocked bool
-}
 
 // AuthInfo is an alias to the mcpserver AuthInfo type for OAuth authentication.
 // It contains OAuth authentication information extracted from a 401 response.

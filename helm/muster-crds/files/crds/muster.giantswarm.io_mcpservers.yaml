@@ -314,6 +314,26 @@ spec:
                   Headers contains HTTP headers to send with requests to remote MCP servers.
                   This field is only relevant when Type is "streamable-http" or "sse".
                 type: object
+              restartRequestedAt:
+                description: |-
+                  RestartRequestedAt requests a one-shot restart of this server's service.
+                  Restart is an action, not a steady state, so it cannot be a boolean: the
+                  caller writes a timestamp, which doubles as the audit record of when the
+                  restart was requested. The reconciler restarts the service only when this
+                  differs from status.lastRestartedAt, then mirrors the processed value
+                  into status — repeated reconciles of an already-processed request are
+                  no-ops (issue #1055).
+                format: date-time
+                type: string
+              suspended:
+                default: false
+                description: |-
+                  Suspended declares the desired lifecycle state of this server's service.
+                  When true, the reconciler stops the service (and refuses to start it)
+                  until the field is set back to false. This is the CR-driven replacement
+                  for the imperative start/stop tools: writing it is authorized and
+                  audited by the apiserver like any other spec mutation (issue #1055).
+                type: boolean
               timeout:
                 default: 30
                 description: Timeout specifies the connection timeout for remote operations
@@ -331,7 +351,13 @@ spec:
               type:
                 description: |-
                   Type specifies how this MCP server should be executed.
-                  Supported values: "stdio" for local processes, "streamable-http" for HTTP-based servers, "sse" for Server-Sent Events
+                  Supported values: "stdio" for local processes, "streamable-http" for HTTP-based servers, "sse" for Server-Sent Events.
+
+                  "stdio" is CLI-only. A stdio server is started as a subprocess of the muster
+                  process, so a muster running in Kubernetes mode rejects it: the tool handlers
+                  fail the call, and a CR applied directly through the API server is reconciled
+                  to state Failed instead of spawning a process in the muster pod. Run the MCP
+                  server as its own workload and use "streamable-http" or "sse" instead.
                 enum:
                 - stdio
                 - streamable-http
@@ -448,6 +474,13 @@ spec:
                   LastError contains any error message from the most recent server operation.
                   Note: Per-user authentication errors are tracked in the Session Registry,
                   not here. This field only contains infrastructure-level errors.
+                type: string
+              lastRestartedAt:
+                description: |-
+                  LastRestartedAt mirrors the spec.restartRequestedAt value most recently
+                  processed by the reconciler. A restart is performed only when the two
+                  differ (spec-is-desired / status-is-observed idiom, issue #1055).
+                format: date-time
                 type: string
               nextRetryAfter:
                 description: |-

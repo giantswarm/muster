@@ -57,6 +57,10 @@ func (m *issuerMockOAuthHandler) CreateAuthChallenge(_ context.Context, _ api.Au
 	return nil, nil
 }
 
+func (m *issuerMockOAuthHandler) GetClientCredentialsForIssuer(_ context.Context, _ string) (string, string) {
+	return "", ""
+}
+
 func (m *issuerMockOAuthHandler) GetHTTPHandler() http.Handler {
 	return nil
 }

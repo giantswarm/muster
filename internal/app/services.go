@@ -8,6 +8,7 @@ import (
 
 	"github.com/giantswarm/muster/internal/aggregator"
 	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/callerwrite"
 	"github.com/giantswarm/muster/internal/client"
 	"github.com/giantswarm/muster/internal/config"
 	"github.com/giantswarm/muster/internal/events"
@@ -17,6 +18,8 @@ import (
 	"github.com/giantswarm/muster/internal/services"
 	"github.com/giantswarm/muster/internal/workflow"
 	"github.com/giantswarm/muster/pkg/logging"
+
+	ctrl "sigs.k8s.io/controller-runtime"
 )
 
 // Services holds all initialized services and APIs used by the application.
@@ -116,22 +119,26 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	toolChecker := api.NewToolChecker()
 	toolCaller := api.NewToolCaller()
 
-	orchConfig := orchestrator.Config{
-		Aggregator: cfg.MusterConfig.Aggregator,
-		Yolo:       cfg.Yolo,
-	}
-
-	orch := orchestrator.New(orchConfig)
-
-	// Get the service registry
-	registry := orch.GetServiceRegistry()
-
 	// Step 1: Create unified muster client once
 	// This avoids redundant Kubernetes connection attempts and CRD validation
 	musterClient, err := createMusterClientWithConfig(cfg.ConfigPath, cfg.Debug, *cfg.MusterConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create muster client: %w", err)
 	}
+
+	// The client is created first because the orchestrator needs its resolved
+	// mode: the configured Kubernetes flag can still fall back to the
+	// filesystem, and only the resolved mode decides whether stdio MCPServers
+	// may be started (issue #1067).
+	orchConfig := orchestrator.Config{
+		Aggregator:     cfg.MusterConfig.Aggregator,
+		KubernetesMode: musterClient.IsKubernetesMode(),
+	}
+
+	orch := orchestrator.New(orchConfig)
+
+	// Get the service registry
+	registry := orch.GetServiceRegistry()
 
 	// Step 2: Create and register adapters using the muster client
 	// This is critical - APIs need handlers to be registered first
@@ -160,12 +167,35 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	eventAdapter := events.NewAdapter(musterClient, namespace)
 	eventAdapter.Register()
 
+	// In Kubernetes mode, session-initiated spec mutations — MCPServer and
+	// Workflow create/update/delete plus CR-driven lifecycle — always write
+	// with the caller's own dex id_token so k8s RBAC decides and the audit
+	// log records the real user (issues #1056/#1057/#1069). When no
+	// Kubernetes config is reachable the factory stays nil and mutations
+	// fail with an explicit configuration error rather than falling back to
+	// the SA. Filesystem mode has no apiserver and keeps writing through the
+	// local client.
+	var callerFactory callerwrite.ClientFactory
+	if musterClient.IsKubernetesMode() {
+		if restConfig, err := ctrl.GetConfig(); err == nil {
+			callerFactory = callerwrite.NewKubernetesClientFactory(restConfig)
+		} else {
+			logging.Warn("Services", "kubernetes mode is active but no Kubernetes config is available for caller-identity writes: %v", err)
+		}
+	}
+
 	// Create and register Workflow adapter using the muster client
 	workflowAdapter := workflow.NewAdapterWithClient(musterClient, namespace, toolCaller, toolChecker, cfg.ConfigPath)
+	if musterClient.IsKubernetesMode() {
+		workflowAdapter.EnableWritesAsCaller(callerFactory, cfg.MusterConfig.WritesAsCaller.KubernetesAudience)
+	}
 	workflowAdapter.Register()
 
 	// Initialize and register MCPServer adapter using the muster client
 	mcpServerAdapter := mcpserverPkg.NewAdapterWithClient(musterClient, namespace)
+	if musterClient.IsKubernetesMode() {
+		mcpServerAdapter.EnableWritesAsCaller(callerFactory, cfg.MusterConfig.WritesAsCaller.KubernetesAudience)
+	}
 	mcpServerAdapter.Register()
 
 	// Initialize and register credentials adapter for loading OAuth client credentials from secrets
@@ -209,7 +239,6 @@ func InitializeServices(cfg *Config) (*Services, error) {
 			Transport:    cfg.MusterConfig.Aggregator.Transport,
 			MusterPrefix: cfg.MusterConfig.Aggregator.MusterPrefix,
 			Version:      cfg.Version,
-			Yolo:         cfg.Yolo,
 			ConfigDir:    cfg.ConfigPath,
 			Debug:        cfg.Debug,
 			OAuth:        mergedOAuthMCPClientConfig,

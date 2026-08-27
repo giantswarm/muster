@@ -367,7 +367,6 @@ Muster follows a philosophy of progressive enhancement:
 - `server.go`: MCP protocol implementation
 - `tool_factory.go`: Dynamic tool creation and proxying
 - `event_handler.go`: Server lifecycle event processing
-- `denylist.go`: Tool filtering and access control
 
 **Tool Aggregation Flow:**
 1. Discover available MCP servers
@@ -486,7 +485,7 @@ type EventHandler interface {
 1. **Server Enumeration**: Discover available MCP servers
 2. **Tool Collection**: Gather tool definitions from each server
 3. **Aggregation**: Merge tools into unified registry
-4. **Filtering**: Apply access controls and denylists
+4. **Filtering**: Apply session-scoped visibility rules
 5. **Publication**: Make tools available through meta-tools
 
 ### Execution Flow

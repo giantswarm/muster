@@ -85,13 +85,30 @@ status:
   conditions: []          # Kubernetes standard conditions
 ```
 
+### Server types and where `stdio` applies
+
+`stdio` is CLI-only. A stdio server is started as a subprocess of the muster
+process, so a muster running in Kubernetes mode rejects it rather than executing
+arbitrary commands in its own pod under its ServiceAccount:
+
+- `mcpserver_validate`, `mcpserver_create`, and `mcpserver_update` fail with a
+  message naming the remote alternatives.
+- A stdio MCPServer applied directly with `kubectl` reconciles to
+  `status.state: Failed` and `status.lastError` explaining the rejection. No
+  subprocess is started.
+
+Filesystem mode — `muster serve` against a local config directory, which is what
+the CLI runs — accepts and starts `stdio` servers unchanged. In Kubernetes, run
+the MCP server as its own workload and register it with `streamable-http` or
+`sse`.
+
 ### Field Reference
 
 #### Spec Fields
 
 | Field | Type | Required | Description | Constraints |
 |-------|------|----------|-------------|-------------|
-| `type` | `string` | Yes | Execution method for the MCP server | Must be `stdio`, `streamable-http`, or `sse` |
+| `type` | `string` | Yes | Execution method for the MCP server | Must be `stdio`, `streamable-http`, or `sse`; `stdio` is rejected in Kubernetes mode (see below) |
 | `toolPrefix` | `string` | No | Per-server tool prefix used when `family` is unset | Pattern: `^[a-zA-Z][a-zA-Z0-9_-]*$` |
 | `family` | `object` | No | Family grouping for equivalent servers under a shared tool surface | `name` and `instanceArg` both required when set |
 | `family.name` | `string` | Yes (in `family`) | Family identifier | Pattern: `^[a-zA-Z][a-zA-Z0-9_-]*$` |
@@ -105,6 +122,8 @@ status:
 | `headers` | `map[string]string` | No | HTTP headers for remote servers | Only for streamable-http and sse servers |
 | `timeout` | `integer` | No | Connection timeout in seconds | Min: 1, Max: 300, Default: 30 |
 | `auth` | `MCPServerAuth` | No | Authentication configuration | Only for streamable-http and sse servers |
+| `suspended` | `boolean` | No | Desired lifecycle state: `true` stops the server's service and keeps it stopped; setting it back to `false` resumes it | Default: `false` |
+| `restartRequestedAt` | `timestamp` | No | Requests a one-shot restart; processed once by the reconciler, which mirrors the value into `status.lastRestartedAt` | RFC 3339 timestamp |
 
 #### MCPServerAuth Fields
 
@@ -202,6 +221,7 @@ roleRef:
 | `lastError` | `string` | Error message from the most recent operation |
 | `lastConnected` | `*metav1.Time` | When the server was last successfully connected |
 | `restartCount` | `int` | Number of times the server has been restarted |
+| `lastRestartedAt` | `*metav1.Time` | The `spec.restartRequestedAt` value most recently processed by the reconciler; a restart runs only when the two differ |
 | `conditions` | `[]metav1.Condition` | Standard Kubernetes conditions |
 
 ##### CRD State Values

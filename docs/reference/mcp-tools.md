@@ -393,6 +393,8 @@ Update an existing MCP server definition. Only provided fields are updated.
 - `command` (array of strings, optional) - New command and arguments
 - `env` (object, optional) - Updated environment variables (replaces existing)
 - `autoStart` (boolean, optional) - Auto-start setting
+- `suspended` (boolean, optional) - Desired lifecycle state: `true` stops the server's service and keeps it stopped; `false` (or omitted) resumes it
+- `restartRequestedAt` (string, optional) - RFC 3339 timestamp requesting a one-shot restart; processed once by the reconciler
 
 **Returns:** Updated MCP server definition
 
@@ -475,6 +477,54 @@ Validate MCP server configuration without creating or modifying the server.
 - Check environment variable formats
 - Ensure name uniqueness
 
+### `core_mcpserver_detect`
+Probe a remote MCP server URL to detect which transport it speaks
+(`streamable-http` or `sse`), so callers don't need to know it up front.
+Detection never fails on unreachable or unclassifiable servers: the result
+reports transport `unknown` instead, so callers can fall back to manual
+selection.
+
+**Arguments:**
+- `url` (string, required) - Server endpoint URL to probe
+- `headers` (object, optional) - HTTP headers to send with the probe requests
+- `timeout` (integer, optional) - Overall detection timeout in seconds (default 10)
+
+**Returns:** Detection result object:
+- `url` (string) - The probed endpoint
+- `transport` (string) - `streamable-http`, `sse`, or `unknown`
+- `reachable` (boolean) - Whether the server answered a probe at the HTTP level
+- `requiresAuth` (boolean) - Whether a probe was answered with a 401 challenge
+- `serverName`, `serverVersion` (string, optional) - Server info from a completed handshake
+- `detail` (string) - Human-readable explanation of the verdict
+
+**Example Request:**
+```json
+{
+  "name": "core_mcpserver_detect",
+  "arguments": {
+    "url": "https://mcp.example.com/mcp"
+  }
+}
+```
+
+**Example Response:**
+```json
+{
+  "url": "https://mcp.example.com/mcp",
+  "transport": "streamable-http",
+  "reachable": true,
+  "requiresAuth": false,
+  "serverName": "example-server",
+  "serverVersion": "1.4.2",
+  "detail": "initialize handshake succeeded over streamable-http"
+}
+```
+
+**Use Cases:**
+- Pre-select the transport in registration UIs once the user enters a URL
+- Verify a URL actually speaks MCP before registering it
+- Distinguish OAuth-protected servers (401 challenge) from unreachable ones
+
 ---
 
 ## Service Tools
@@ -556,6 +606,13 @@ Start a specific service.
 
 **⚠️ Note:** Static services (aggregator) may not support start operations.
 
+**Writes-as-caller:** In Kubernetes mode, start on an MCPServer-backed
+service is a CR write with your own identity — it clears `spec.suspended` and,
+whenever the service is down, also writes `spec.restartRequestedAt` (the
+one-shot "make it run now" request), and the reconciler starts the service.
+Kubernetes RBAC authorizes the write and the apiserver audit log records you
+as the subject.
+
 ### `core_service_stop`
 Stop a specific service.
 
@@ -581,6 +638,10 @@ Stop a specific service.
 
 **⚠️ Warning:** Stopping critical services (aggregator, MCP servers) may disrupt tool availability.
 
+**Writes-as-caller:** In Kubernetes mode, stop on an MCPServer-backed
+service writes `spec.suspended: true` with your own identity; the reconciler
+stops the service and keeps it stopped until it is resumed.
+
 ### `core_service_restart`
 Restart a specific service (stop then start operation).
 
@@ -603,6 +664,11 @@ Restart a specific service (stop then start operation).
 - Apply configuration changes that require restart
 - Recover from service errors or hangs
 - Refresh connections or reinitialize state
+
+**Writes-as-caller:** In Kubernetes mode, restart on an
+MCPServer-backed service writes `spec.restartRequestedAt` with your own
+identity; the reconciler restarts the service once and mirrors the processed
+value into `status.lastRestartedAt`.
 
 ### `core_service_status`
 Get current status information for a specific service.

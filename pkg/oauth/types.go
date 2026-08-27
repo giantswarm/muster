@@ -179,6 +179,11 @@ type Metadata struct {
 	// authorization responses. When true, a response without `iss` must be
 	// rejected.
 	AuthorizationResponseIssParameterSupported bool `json:"authorization_response_iss_parameter_supported,omitempty"`
+	// ClientIDMetadataDocumentSupported reports whether the authorization
+	// server resolves Client ID Metadata Document URLs as client_id values
+	// (MCP authorization / SEP-991). When absent or false, the AS may treat a
+	// CIMD URL as an unknown literal client identifier and reject the flow.
+	ClientIDMetadataDocumentSupported bool `json:"client_id_metadata_document_supported,omitempty"`
 }
 
 // SupportsS256PKCE reports whether the AS metadata advertises S256 PKCE.
@@ -262,9 +267,11 @@ type PKCEChallenge struct {
 }
 
 // ClientMetadata represents OAuth 2.0 Client Metadata as defined in RFC 7591.
-// Used for Client ID Metadata Documents (CIMD) in MCP OAuth.
+// Used for Client ID Metadata Documents (CIMD) in MCP OAuth and as the request
+// body for Dynamic Client Registration. ClientID is omitted on DCR requests
+// (RFC 7591 forbids it there); the AS assigns it in the response.
 type ClientMetadata struct {
-	ClientID                string   `json:"client_id"`
+	ClientID                string   `json:"client_id,omitempty"`
 	ClientName              string   `json:"client_name,omitempty"`
 	ClientURI               string   `json:"client_uri,omitempty"`
 	RedirectURIs            []string `json:"redirect_uris"`
@@ -277,6 +284,64 @@ type ClientMetadata struct {
 	TermsOfServiceURI       string   `json:"tos_uri,omitempty"`
 	SoftwareID              string   `json:"software_id,omitempty"`
 	SoftwareVersion         string   `json:"software_version,omitempty"`
+
+	// ApplicationType is the OIDC DCR client type hint ("web" or "native").
+	// MCP (SEP-837) requires clients to send it on DCR requests to OIDC-aware
+	// servers; muster's server-side proxy is a remote browser-based client,
+	// so it sends "web". Non-OIDC servers ignore the field.
+	ApplicationType string `json:"application_type,omitempty"`
+}
+
+// ClientRegistrationResponse is the RFC 7591 §3.2.1 client information
+// response returned by an authorization server's registration endpoint.
+type ClientRegistrationResponse struct {
+	ClientID              string `json:"client_id"`
+	ClientSecret          string `json:"client_secret,omitempty"`
+	ClientIDIssuedAt      int64  `json:"client_id_issued_at,omitempty"`
+	ClientSecretExpiresAt int64  `json:"client_secret_expires_at,omitempty"`
+
+	// RegistrationAccessToken and RegistrationClientURI enable RFC 7592
+	// management of the registration. Stored for completeness; muster does
+	// not manage registrations after creation.
+	RegistrationAccessToken string `json:"registration_access_token,omitempty"`
+	RegistrationClientURI   string `json:"registration_client_uri,omitempty"`
+}
+
+// ClientCredentials are issuer-bound OAuth client credentials obtained via
+// Dynamic Client Registration. Per SEP-2352 ("Authorization Server Binding"),
+// DCR-issued credentials MUST be keyed by the issuer they were registered
+// with and MUST NOT be reused against a different authorization server.
+type ClientCredentials struct {
+	// Issuer is the authorization server these credentials were issued by.
+	Issuer string `json:"issuer"`
+
+	// ClientID is the registered client identifier.
+	ClientID string `json:"client_id"`
+
+	// ClientSecret is set only when the AS issued one; muster requests
+	// token_endpoint_auth_method "none" but must honor what it gets.
+	ClientSecret string `json:"client_secret,omitempty"`
+
+	// ClientSecretExpiresAt is when the secret expires (RFC 7591); zero
+	// means no expiry.
+	ClientSecretExpiresAt time.Time `json:"client_secret_expires_at,omitempty"`
+
+	// RegistrationAccessToken and RegistrationClientURI enable RFC 7592
+	// management of the registration (unused today, kept for completeness).
+	RegistrationAccessToken string `json:"registration_access_token,omitempty"`
+	RegistrationClientURI   string `json:"registration_client_uri,omitempty"`
+
+	// CreatedAt is when muster performed the registration.
+	CreatedAt time.Time `json:"created_at,omitempty"`
+}
+
+// IsExpired reports whether the credentials carry an expired client secret.
+// Credentials without a secret (public clients) never expire.
+func (c *ClientCredentials) IsExpired() bool {
+	if c.ClientSecret == "" || c.ClientSecretExpiresAt.IsZero() {
+		return false
+	}
+	return time.Now().After(c.ClientSecretExpiresAt)
 }
 
 // SessionServerStatus represents the per-user session authentication status

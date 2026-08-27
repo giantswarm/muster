@@ -135,3 +135,17 @@ tests:
       - matchRegex:
           path: data["config.yaml"]
           pattern: "muster-broker-clients"
+
+  - it: omits writesAsCaller by default (muster's built-in audience default applies)
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "writesAsCaller:"
+
+  - it: renders writesAsCaller kubernetesAudience override
+    set:
+      muster.writesAsCaller.kubernetesAudience: "custom-audience"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "writesAsCaller:\n  kubernetesAudience: \"custom-audience\""

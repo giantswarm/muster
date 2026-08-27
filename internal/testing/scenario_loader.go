@@ -184,6 +184,16 @@ func (l *scenarioLoader) validateStep(step TestStep, index int) error {
 		return fmt.Errorf("step tool is required")
 	}
 
+	// status_code has never been evaluated for either step kind: neither an MCP
+	// tool result nor a test_* tool result carries an HTTP status. Rejecting it
+	// here keeps a scenario that declares it from passing vacuously, which is
+	// what every unenforced expectation kind did before (#1038). Test tools that
+	// do HTTP put the status in their result payload, so assert it with
+	// json_path instead.
+	if step.Expected.StatusCode != 0 {
+		return fmt.Errorf("status_code is not a supported expectation; assert the status with json_path (e.g. json_path: {status_code: %d})", step.Expected.StatusCode)
+	}
+
 	// Validate retry configuration if present
 	if step.Retry != nil {
 		if step.Retry.Count < 0 {

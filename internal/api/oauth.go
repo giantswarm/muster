@@ -75,6 +75,13 @@ type OAuthHandler interface {
 	// Returns the challenge containing the auth URL for the user to visit.
 	CreateAuthChallenge(ctx context.Context, params AuthChallengeParams) (*AuthChallenge, error)
 
+	// GetClientCredentialsForIssuer returns the client_id and client_secret
+	// the OAuth flows use against the given issuer (the CIMD URL, or
+	// DCR-issued credentials), without triggering a new registration. Used
+	// to configure transport-level token refresh so it presents the same
+	// client identification the token was issued under.
+	GetClientCredentialsForIssuer(ctx context.Context, issuer string) (clientID, clientSecret string)
+
 	// GetHTTPHandler returns the HTTP handler for OAuth callback endpoints.
 	GetHTTPHandler() http.Handler
 

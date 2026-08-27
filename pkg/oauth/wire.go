@@ -13,6 +13,7 @@ const (
 const (
 	FormFieldGrantType     = "grant_type"
 	FormFieldClientID      = "client_id"
+	FormFieldClientSecret  = "client_secret"
 	FormFieldCode          = "code"
 	FormFieldCodeVerifier  = "code_verifier"
 	FormFieldRefreshToken  = "refresh_token"

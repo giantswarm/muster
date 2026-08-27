@@ -1,0 +1,43 @@
+{{/*
+workflow-editor: who may create and manage Workflow resources.
+
+Session-initiated Workflow mutations — create/update/delete — are written
+against the Kubernetes API with the caller's own identity, so k8s RBAC
+authorizes each write. The default binding grants the Role to all
+authenticated users, preserving the pre-enforcement "any user can create"
+behavior. Installations wanting admin-only workflow authoring narrow
+rbac.workflowEditor.subjects to an admin group. An empty subjects list
+fails the render: a RoleBinding bound to nobody looks enforced while
+granting nothing, so the chart forces the choice to be explicit.
+*/}}
+{{- if and .Values.rbac.create .Values.rbac.workflowEditor.create -}}
+{{- if not .Values.rbac.workflowEditor.subjects }}
+{{- fail "rbac.workflowEditor.subjects must not be empty while the workflow-editor RoleBinding is created. Bind an admin group for admin-only workflow authoring, bind group system:authenticated to deliberately let every authenticated user author workflows, or set rbac.workflowEditor.create=false to manage access out of band." }}
+{{- end }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: workflow-editor
+  namespace: {{ include "muster.namespace" . }}
+  labels:
+    {{- include "muster.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["muster.giantswarm.io"]
+    resources: ["workflows"]
+    verbs: ["create", "update", "patch", "delete"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: workflow-editor
+  namespace: {{ include "muster.namespace" . }}
+  labels:
+    {{- include "muster.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: workflow-editor
+subjects:
+  {{- toYaml .Values.rbac.workflowEditor.subjects | nindent 2 }}
+{{- end }}

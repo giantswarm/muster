@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 )
 
 // Request types for all core API operations
@@ -134,6 +135,16 @@ type MCPServerUpdateRequest struct {
 
 	// Auth configures authentication behavior for this MCP server.
 	Auth *MCPServerAuth `json:"auth,omitempty"`
+
+	// Suspended declares the desired lifecycle state of the server's service.
+	// Tri-state: omitting it keeps the current value, so an unrelated update
+	// (description, headers) does not silently resume a server that was
+	// stopped through the CR-driven core_service_stop (issue #1057).
+	Suspended *bool `json:"suspended,omitempty"`
+
+	// RestartRequestedAt requests a one-shot restart of the server's service
+	// (RFC 3339 timestamp). Only applied when set (issue #1055).
+	RestartRequestedAt *time.Time `json:"restartRequestedAt,omitempty"`
 }
 
 // MCPServerValidateRequest represents a request to validate an MCP server definition
@@ -177,6 +188,20 @@ type MCPServerValidateRequest struct {
 
 	// Auth configures authentication behavior for this MCP server.
 	Auth *MCPServerAuth `json:"auth,omitempty"`
+}
+
+// MCPServerDetectRequest represents a request to probe a remote MCP server
+// URL and detect which transport (streamable-http or sse) it speaks.
+type MCPServerDetectRequest struct {
+	// URL is the endpoint to probe (required).
+	URL string `json:"url" validate:"required"`
+
+	// Headers contains HTTP headers to send with the probe requests,
+	// mirroring the headers the registered server would be configured with.
+	Headers map[string]string `json:"headers,omitempty"`
+
+	// Timeout bounds the whole detection run in seconds (default 10).
+	Timeout int `json:"timeout,omitempty"`
 }
 
 // Workflow Request Types
