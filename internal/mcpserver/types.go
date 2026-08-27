@@ -136,13 +136,18 @@ func CheckForAuthRequiredError(ctx context.Context, err error, url string) *Auth
 		return nil
 	}
 
+	// The wrapped Err keeps transport.ErrUnauthorized in the chain so callers
+	// that test with pkgoauth.IsOAuthUnauthorizedError / errors.Is still
+	// recognize an AuthRequiredError as a 401 — core_auth_login relies on this
+	// to clear a stored-but-rejected token and issue a fresh auth challenge
+	// instead of dead-ending with "try again".
 	var oauthErr *transport.OAuthAuthorizationRequiredError
 	if errors.As(err, &oauthErr) {
 		authInfo := extractAuthInfoFromHandler(ctx, oauthErr.Handler)
 		return &AuthRequiredError{
 			URL:      url,
 			AuthInfo: authInfo,
-			Err:      fmt.Errorf("server returned 401 Unauthorized"),
+			Err:      fmt.Errorf("server returned 401 Unauthorized: %w", transport.ErrUnauthorized),
 		}
 	}
 
@@ -152,7 +157,7 @@ func CheckForAuthRequiredError(ctx context.Context, err error, url string) *Auth
 		return &AuthRequiredError{
 			URL:      url,
 			AuthInfo: AuthInfo{},
-			Err:      fmt.Errorf("server returned 401 Unauthorized"),
+			Err:      fmt.Errorf("server returned 401 Unauthorized: %w", transport.ErrUnauthorized),
 		}
 	}
 

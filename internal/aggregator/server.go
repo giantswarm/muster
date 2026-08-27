@@ -2983,7 +2983,8 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 		scope := serverInfo.AuthInfo.Scope
 		tokenStore := internalmcp.NewMusterTokenStore(sessionID, sub, issuer, oauthHandler)
 		clientID, clientSecret := oauthHandler.GetClientCredentialsForIssuer(ctx, issuer)
-		client = internalmcp.NewDynamicAuthClient(serverInfo.URL, tokenStore, scope, clientID, clientSecret)
+		client = internalmcp.NewDynamicAuthClient(serverInfo.URL, tokenStore, scope, clientID, clientSecret).
+			WithAuthLossHandler(a.makeSessionAuthLossHandler(sessionID, serverName))
 
 	} else {
 		return nil, nil, fmt.Errorf("unable to determine auth method for server %s", serverName)

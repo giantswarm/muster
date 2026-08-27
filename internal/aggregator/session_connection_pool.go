@@ -278,6 +278,20 @@ func (p *SessionConnectionPool) EvictSession(sessionID string) {
 	}
 }
 
+// HasServer reports whether any session currently holds a pooled connection
+// to the given server. Used to decide whether an authentication loss on one
+// session was the server's last live connection.
+func (p *SessionConnectionPool) HasServer(serverName string) bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	for key := range p.pool {
+		if key.ServerName == serverName {
+			return true
+		}
+	}
+	return false
+}
+
 // EvictServer removes and closes all pooled entries for the given server
 // across every session.
 func (p *SessionConnectionPool) EvictServer(serverName string) {

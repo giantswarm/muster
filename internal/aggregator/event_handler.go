@@ -319,7 +319,7 @@ func (eh *EventHandler) generateEvent(serviceName string, reason events.EventRea
 		namespace = metav1.NamespaceDefault
 	}
 	objectRef := api.ObjectReference{
-		Kind:      "MCPServer",
+		Kind:      mcpServerKind,
 		Name:      serviceName,
 		Namespace: namespace,
 	}
@@ -343,5 +343,5 @@ func (eh *EventHandler) generateEvent(serviceName string, reason events.EventRea
 //
 // Returns true if the event is related to an MCP service, false otherwise.
 func (eh *EventHandler) isMCPServiceEvent(event api.ServiceStateChangedEvent) bool {
-	return event.ServiceType == "MCPServer"
+	return event.ServiceType == mcpServerKind
 }

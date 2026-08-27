@@ -102,6 +102,7 @@ func (c *StreamableHTTPClient) Initialize(ctx context.Context) error {
 	// Enable receiving server-pushed notifications outside active requests.
 	// This opens a long-lived GET connection to the server per the MCP spec.
 	opts = append(opts, transport.WithContinuousListening())
+	opts = append(opts, transport.WithHTTPLogger(mcpTransportLogger(c.url)))
 
 	mcpClient, err := client.NewStreamableHttpClient(c.url, opts...)
 	if err != nil {

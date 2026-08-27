@@ -25,6 +25,11 @@ import (
 // requireSessionContextResult so the wording stays in sync.
 const errMissingSession = "Error: authentication context missing — no active session"
 
+// mcpServerKind is the MCPServer CRD kind. It is also the service type the
+// orchestrator reports for MCPServer-backed services, so state-change events
+// carry the same string.
+const mcpServerKind = "MCPServer"
+
 // requireSessionContext extracts sessionID and subject from ctx,
 // returning an error that names serverName when either is missing.
 func requireSessionContext(ctx context.Context, serverName string) (sessionID, sub string, err error) {
@@ -124,7 +129,9 @@ func establishConnection(
 	if oauthHandler != nil && oauthHandler.IsEnabled() && issuer != "" {
 		tokenStore := internalmcp.NewMusterTokenStore(sessionID, sub, issuer, oauthHandler)
 		clientID, clientSecret := oauthHandler.GetClientCredentialsForIssuer(ctx, issuer)
-		client = internalmcp.NewDynamicAuthClient(serverURL, tokenStore, scope, clientID, clientSecret).WithMeta(meta)
+		client = internalmcp.NewDynamicAuthClient(serverURL, tokenStore, scope, clientID, clientSecret).
+			WithMeta(meta).
+			WithAuthLossHandler(a.makeSessionAuthLossHandler(sessionID, serverName))
 		logging.Debug("Connection", "Using DynamicAuthClient for session %s, server %s (issuer=%s)",
 			logging.TruncateIdentifier(sessionID), serverName, issuer)
 	} else {
@@ -451,7 +458,7 @@ func emitTokenForwardingEvent(serverName, namespace string, success bool, errorM
 	}
 
 	objRef := api.ObjectReference{
-		Kind:      "MCPServer",
+		Kind:      mcpServerKind,
 		Name:      serverName,
 		Namespace: namespace,
 	}
@@ -753,7 +760,7 @@ func emitTokenExchangeEvent(serverName, namespace string, success bool, errorMsg
 	}
 
 	objRef := api.ObjectReference{
-		Kind:      "MCPServer",
+		Kind:      mcpServerKind,
 		Name:      serverName,
 		Namespace: namespace,
 	}
@@ -1164,6 +1171,78 @@ func notifyMCPServerConnected(serverName, authMethod string) {
 		logging.Warn("Connection", "Failed to update MCPServer %s state after %s: %v",
 			serverName, authMethod, err)
 	}
+}
+
+// makeSessionAuthLossHandler builds the WithAuthLossHandler callback for one
+// session-scoped OAuth (DynamicAuthClient) connection. When the connection's
+// authentication is observed lost — the stored token vanished (e.g. the token
+// store's backing service lost its data) or the server keeps rejecting it —
+// the handler retires the connection instead of letting mcp-go's continuous
+// listener retry once per second forever: a lost grant is terminal until a
+// human re-authenticates via core_auth_login.
+//
+// It logs the transition once at WARN, evicts the pooled client (closing it
+// stops the listener), revokes the session's authenticated mark (without this
+// core_auth_login answers "already authenticated" and the user cannot
+// re-authenticate), and — when this was the server's last live session
+// connection — syncs the service state back to Auth Required so the CRD
+// status and the connection-state metric stay accurate. notifyMCPServerConnected
+// is the exact counterpart on the way up.
+func (a *AggregatorServer) makeSessionAuthLossHandler(sessionID, serverName string) func(reason string) {
+	return func(reason string) {
+		logging.Warn("Connection", "Session %s lost authentication to MCP server %s (%s); closing the connection — re-authenticate via core_auth_login",
+			logging.TruncateIdentifier(sessionID), serverName, reason)
+
+		if a.authStore != nil {
+			if err := a.authStore.Revoke(context.Background(), sessionID, serverName); err != nil {
+				logging.Warn("Connection", "Failed to revoke session auth mark for %s/%s: %v",
+					logging.TruncateIdentifier(sessionID), serverName, err)
+			}
+		}
+
+		if a.connPool != nil {
+			a.connPool.Evict(sessionID, serverName)
+			if a.connPool.HasServer(serverName) {
+				// Another session still holds a live connection, so the
+				// server-level state remains whatever that connection proves.
+				return
+			}
+		}
+		a.notifyMCPServerAuthRequired(serverName, reason)
+	}
+}
+
+// notifyMCPServerAuthRequired syncs the service state to Auth Required after
+// the server's last authenticated session connection was lost, and emits the
+// CRD event operators find in `kubectl describe`. Best-effort, like
+// notifyMCPServerConnected.
+func (a *AggregatorServer) notifyMCPServerAuthRequired(serverName, reason string) {
+	if err := api.UpdateMCPServerState(serverName, api.StateAuthRequired, api.HealthUnknown, nil); err != nil {
+		logging.Warn("Connection", "Failed to update MCPServer %s state after authentication loss: %v",
+			serverName, err)
+	}
+
+	eventManager := api.GetEventManager()
+	if eventManager == nil {
+		return
+	}
+	namespace := ""
+	if serverInfo, exists := a.registry.GetServerInfo(serverName); exists {
+		namespace = serverInfo.GetNamespace()
+	}
+	if namespace == "" {
+		namespace = eventManager.DefaultNamespace()
+	}
+	if namespace == "" {
+		namespace = metav1.NamespaceDefault
+	}
+	_ = eventManager.CreateEventWithData(context.Background(), api.ObjectReference{
+		Kind:      mcpServerKind,
+		Name:      serverName,
+		Namespace: namespace,
+	}, string(events.ReasonMCPServerAuthRequired), api.EventData{
+		Error: reason,
+	})
 }
 
 // loadTokenExchangeCredentials loads OAuth client credentials from a Kubernetes secret
