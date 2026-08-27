@@ -658,7 +658,10 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 						logger.Debug("🔍 Failed to list tools: %v\n", err)
 					}
 					allReady = false
-					notReadyReasons = append(notReadyReasons, "tools check failed")
+					// Carry the error: "tools check failed" alone cannot
+					// distinguish an aggregator that is still starting from one
+					// that is answering but short a tool.
+					notReadyReasons = append(notReadyReasons, fmt.Sprintf("tools check failed: %v", err))
 				} else {
 					missingTools := m.findMissingTools(expectedTools, availableTools)
 					if len(missingTools) > 0 {
@@ -676,7 +679,7 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 						logger.Debug("🔍 Failed to list workflows: %v\n", err)
 					}
 					allReady = false
-					notReadyReasons = append(notReadyReasons, "workflows check failed")
+					notReadyReasons = append(notReadyReasons, fmt.Sprintf("workflows check failed: %v", err))
 				} else {
 					for _, workflowName := range expectedWorkflows {
 						found := false
@@ -704,7 +707,7 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 						logger.Debug("🔍 Failed to list MCP servers: %v\n", err)
 					}
 					allReady = false
-					notReadyReasons = append(notReadyReasons, "MCP servers check failed")
+					notReadyReasons = append(notReadyReasons, fmt.Sprintf("MCP servers check failed: %v", err))
 				} else {
 					missingServers := m.findMissingMCPServers(expectedMCPServers, serverStates)
 					if len(missingServers) > 0 {
