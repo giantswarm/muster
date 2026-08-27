@@ -217,6 +217,7 @@ func (a *APIAdapter) RegisterServerPendingAuth(registration api.PendingAuthRegis
 		URL:        registration.URL,
 		AuthInfo:   aggregatorAuthInfo,
 		AuthConfig: registration.AuthConfig,
+		Meta:       registration.Meta,
 	})
 }
 

@@ -163,23 +163,37 @@ func (s *Service) Start(ctx context.Context) error {
 	// Create and initialize the MCP client (this starts the process AND establishes MCP communication)
 	if err := s.createAndInitializeClient(ctx); err != nil {
 		// Check if this is an auth required error - this is a special case
-		// where the server exists but needs OAuth before it can connect
+		// where the server exists but needs OAuth before it can connect.
+		//
+		// A machine identity is excluded: its credential is muster's own, so
+		// there is no user to send to a login flow and a 401 means the signing
+		// configuration or the assumed role is wrong. Classifying that here,
+		// where the error is first seen, keeps the CR status, the aggregator
+		// registry and the event stream from disagreeing about whether the
+		// server is waiting for a user. It falls through to the failure
+		// handling below instead.
 		if authErr, ok := err.(*mcpserver.AuthRequiredError); ok {
-			// Auth errors should not count as connectivity failures
-			// Use StateAuthRequired to indicate the server IS reachable but needs authentication.
-			// This maps to CRD state "Auth Required" per issue #337 - a 401 response proves
-			// the server is reachable at the network level, but authentication is needed.
-			if s.onAuthRequired != nil {
-				s.onAuthRequired(s.definition, authErr)
+			if !s.definition.Auth.CanAuthenticateInteractively() {
+				s.LogWarn("Server answered 401, but auth type %q has no interactive login: "+
+					"treating it as a connection failure. Check the signing region, the assumed role and its policy",
+					s.definition.Auth.Type)
+			} else {
+				// Auth errors should not count as connectivity failures
+				// Use StateAuthRequired to indicate the server IS reachable but needs authentication.
+				// This maps to CRD state "Auth Required" per issue #337 - a 401 response proves
+				// the server is reachable at the network level, but authentication is needed.
+				if s.onAuthRequired != nil {
+					s.onAuthRequired(s.definition, authErr)
+				}
+				s.UpdateState(services.StateAuthRequired, services.HealthUnknown, nil)
+				s.LogInfo("MCP server requires authentication")
+				// Generate auth required event
+				s.generateEvent(events.ReasonMCPServerAuthRequired, events.EventData{
+					Error: "authentication required",
+				})
+				// Return the auth error for the caller to handle
+				return authErr
 			}
-			s.UpdateState(services.StateAuthRequired, services.HealthUnknown, nil)
-			s.LogInfo("MCP server requires authentication")
-			// Generate auth required event
-			s.generateEvent(events.ReasonMCPServerAuthRequired, events.EventData{
-				Error: "authentication required",
-			})
-			// Return the auth error for the caller to handle
-			return authErr
 		}
 
 		// Track consecutive failures for remote servers (transient errors only)
@@ -352,6 +366,10 @@ func (s *Service) ValidateConfiguration() error {
 		return fmt.Errorf("MCP server name is required")
 	}
 
+	if err := api.ValidateSigV4(string(s.definition.Type), s.definition.Auth); err != nil {
+		return err
+	}
+
 	// Type-specific validation
 	switch s.definition.Type {
 	case api.MCPServerTypeStdio:
@@ -432,6 +450,10 @@ func (s *Service) ConfigurationChanged(newConfig interface{}) bool {
 		s.LogDebug("Config change detected: headers changed")
 		return true
 	}
+	if !maps.Equal(cur.Meta, newDef.Meta) {
+		s.LogDebug("Config change detected: meta changed")
+		return true
+	}
 	if cur.Timeout != newDef.Timeout {
 		s.LogDebug("Config change detected: timeout changed from %d to %d", cur.Timeout, newDef.Timeout)
 		return true
@@ -495,6 +517,7 @@ func (s *Service) GetServiceData() map[string]interface{} {
 		"url":         s.definition.URL,
 		"env":         s.definition.Env,
 		"headers":     s.definition.Headers,
+		"meta":        s.definition.Meta,
 		"timeout":     s.definition.Timeout,
 		"description": s.definition.Description,
 	}
@@ -669,6 +692,8 @@ func (s *Service) createAndInitializeClient(ctx context.Context) error {
 		Env:     s.definition.Env,
 		URL:     s.definition.URL,
 		Headers: s.definition.Headers,
+		Meta:    s.definition.Meta,
+		Auth:    s.definition.Auth,
 	}
 
 	// Use factory to create the appropriate client type
@@ -802,6 +827,23 @@ func (s *Service) isTransientConnectivityError(err error) bool {
 	// Configuration errors should fail fast, not count towards unreachable
 	if s.isConfigurationError(err) {
 		return false
+	}
+
+	// A credential that could not be resolved is retryable: the causes are all
+	// external and fixable while muster keeps running (a projected token not
+	// there yet, a role not deployed, an STS outage), so the server must not
+	// settle into a failure that only a pod restart clears.
+	if errors.Is(err, mcpserver.ErrAWSCredentialsUnavailable) {
+		return true
+	}
+
+	// A 401 only reaches here for an auth type with no interactive login: the
+	// interactive path returns before the failure handling. For a machine
+	// identity that means the signing configuration or the credential is wrong,
+	// both of which change without a restart, so keep retrying with backoff.
+	var authErr *mcpserver.AuthRequiredError
+	if errors.As(err, &authErr) {
+		return true
 	}
 
 	errStr := strings.ToLower(err.Error())

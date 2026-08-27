@@ -1,0 +1,181 @@
+name: "mcpserver-sigv4-auth"
+description: "MCPServer accepts spec.auth.sigv4 for AWS-signed backends, and rejects the combinations that cannot work"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "create", "sigv4", "aws", "authentication", "validation"]
+timeout: "2m"
+
+steps:
+- id: "create-with-sigv4"
+  description: "Create an MCPServer that signs with SigV4, deriving the service from the hostname"
+  tool: "core_mcpserver_create"
+  args:
+    name: "aws-signed-server"
+    type: "streamable-http"
+    url: "https://aws-mcp.eu-central-1.api.aws/mcp"
+    timeout: 120
+    autoStart: false
+    auth:
+      type: "sigv4"
+      sigv4:
+        region: "eu-central-1"
+        roleArn: "arn:aws:iam::123456789012:role/ExampleReadOnlyRole"
+    meta:
+      AWS_REGION: "eu-central-1"
+  expected:
+    success: true
+
+- id: "verify-sigv4-roundtrips"
+  description: "Verify the sigv4 block and the meta map both survive a get"
+  tool: "core_mcpserver_get"
+  args:
+    name: "aws-signed-server"
+  expected:
+    success: true
+    json_path:
+      name: "aws-signed-server"
+    contains:
+      - "sigv4"
+      - "eu-central-1"
+      - "arn:aws:iam::123456789012:role/ExampleReadOnlyRole"
+      - "AWS_REGION"
+
+- id: "create-sigv4-without-region"
+  description: "Reject sigv4 with no region: the endpoint checks the credential scope, so it cannot be defaulted"
+  tool: "core_mcpserver_create"
+  args:
+    name: "sigv4-no-region"
+    type: "streamable-http"
+    url: "https://aws-mcp.eu-central-1.api.aws/mcp"
+    autoStart: false
+    auth:
+      type: "sigv4"
+  expected:
+    success: false
+    error_contains: ["region", "required"]
+
+- id: "create-sigv4-on-sse"
+  description: "Reject sigv4 on an sse server, which would otherwise connect unsigned"
+  tool: "core_mcpserver_create"
+  args:
+    name: "sigv4-on-sse"
+    type: "sse"
+    url: "https://aws-mcp.eu-central-1.api.aws/mcp"
+    autoStart: false
+    auth:
+      type: "sigv4"
+      sigv4:
+        region: "eu-central-1"
+  expected:
+    success: false
+    error_contains: ["streamable-http"]
+
+- id: "create-sigv4-with-forward-token"
+  description: "Reject sigv4 together with forwardToken: a machine identity relays no caller token"
+  tool: "core_mcpserver_create"
+  args:
+    name: "sigv4-and-forward-token"
+    type: "streamable-http"
+    url: "https://aws-mcp.eu-central-1.api.aws/mcp"
+    autoStart: false
+    auth:
+      type: "sigv4"
+      forwardToken: true
+      sigv4:
+        region: "eu-central-1"
+  expected:
+    success: false
+    error_contains: ["forwardToken"]
+
+- id: "create-sigv4-with-authorization-server"
+  description: "Reject sigv4 together with authorizationServer: a machine identity flow has no authorization server"
+  tool: "core_mcpserver_create"
+  args:
+    name: "sigv4-and-authorization-server"
+    type: "streamable-http"
+    url: "https://aws-mcp.eu-central-1.api.aws/mcp"
+    autoStart: false
+    auth:
+      type: "sigv4"
+      sigv4:
+        region: "eu-central-1"
+      authorizationServer:
+        issuer: "https://cf.mcp.example.com"
+  expected:
+    success: false
+    error_contains: ["authorizationServer"]
+
+- id: "create-sigv4-block-under-oauth"
+  description: "Reject a sigv4 block under another auth type, so the spec cannot claim signing it will not do"
+  tool: "core_mcpserver_create"
+  args:
+    name: "sigv4-block-under-oauth"
+    type: "streamable-http"
+    url: "https://mcp.example.com/mcp"
+    autoStart: false
+    auth:
+      type: "oauth"
+      sigv4:
+        region: "eu-central-1"
+  expected:
+    success: false
+    error_contains: ["sigv4"]
+
+- id: "create-meta-on-plain-streamable-http"
+  description: "Accept meta without sigv4: injection is a shared HTTP transport, not a signing feature"
+  tool: "core_mcpserver_create"
+  args:
+    name: "plain-server-with-meta"
+    type: "streamable-http"
+    url: "https://mcp.example.com/mcp"
+    autoStart: false
+    meta:
+      AWS_REGION: "eu-central-1"
+  expected:
+    success: true
+
+- id: "create-meta-on-stdio"
+  description: "Reject meta on a stdio server, which has no HTTP transport to inject it"
+  tool: "core_mcpserver_create"
+  args:
+    name: "stdio-with-meta"
+    type: "stdio"
+    command: "echo"
+    autoStart: false
+    meta:
+      AWS_REGION: "eu-central-1"
+  expected:
+    success: false
+    error_contains: ["meta", "stdio"]
+
+- id: "validate-sigv4-definition"
+  description: "mcpserver_validate agrees with create, so a caller learns before writing the CR"
+  tool: "core_mcpserver_validate"
+  args:
+    name: "sigv4-validate-only"
+    type: "sse"
+    url: "https://aws-mcp.eu-central-1.api.aws/mcp"
+    auth:
+      type: "sigv4"
+      sigv4:
+        region: "eu-central-1"
+  expected:
+    success: false
+    error_contains: ["streamable-http"]
+
+cleanup:
+- id: "cleanup-aws-signed-server"
+  description: "Delete the SigV4 server"
+  tool: "core_mcpserver_delete"
+  args:
+    name: "aws-signed-server"
+  expected:
+    success: true
+
+- id: "cleanup-plain-server-with-meta"
+  description: "Delete the plain server that carries meta"
+  tool: "core_mcpserver_delete"
+  args:
+    name: "plain-server-with-meta"
+  expected:
+    success: true

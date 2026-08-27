@@ -2863,7 +2863,7 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 	)
 	headerFunc := makeTokenExchangeHeaderFunc(serverName, exchangedToken, tokenExpiry, reexchange, onStaleToken)
 
-	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
+	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithMeta(serverInfo.Meta)
 	return client, tokenExpiry, exchangedToken, nil
 }
 
