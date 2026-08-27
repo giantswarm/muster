@@ -221,6 +221,25 @@ func (a *APIAdapter) RegisterServerPendingAuth(registration api.PendingAuthRegis
 	})
 }
 
+// DeregisterServer removes a server from the aggregator.
+func (a *APIAdapter) DeregisterServer(name string) error {
+	if a.service == nil {
+		return fmt.Errorf("aggregator service not available")
+	}
+
+	manager := a.service.GetManager()
+	if manager == nil {
+		return fmt.Errorf("aggregator manager not available")
+	}
+
+	server := manager.GetAggregatorServer()
+	if server == nil {
+		return fmt.Errorf("aggregator server not available")
+	}
+
+	return server.DeregisterServer(name)
+}
+
 // Register registers this adapter with the API package
 func (a *APIAdapter) Register() {
 	api.RegisterAggregator(a)

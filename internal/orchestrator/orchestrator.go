@@ -534,8 +534,34 @@ func (o *Orchestrator) RemoveService(name string) error {
 		return err
 	}
 
+	o.deregisterFromAggregator(name)
+
 	logging.Info("Orchestrator", "Removed service: %s", name)
 	return nil
+}
+
+// deregisterFromAggregator drops a removed service's aggregator registration.
+//
+// The aggregator normally deregisters on service state-change events, but it
+// deliberately ignores those for servers in auth_required state so that a
+// server waiting for OAuth keeps the pending-auth entry handleAuthRequiredServer
+// created for it. Removing the service produces exactly such an event — Stop
+// publishes a state change the aggregator declines to act on — so without this
+// call the entry outlives the definition and keeps prompting for a sign-in to a
+// server that no longer exists (issue #1093).
+//
+// Servers that were never registered (autoStart=false, or removed while
+// starting) report "not found"; that is the expected outcome for them, not a
+// failure worth surfacing.
+func (o *Orchestrator) deregisterFromAggregator(name string) {
+	aggregator := api.GetAggregator()
+	if aggregator == nil {
+		return
+	}
+
+	if err := aggregator.DeregisterServer(name); err != nil {
+		logging.Debug("Orchestrator", "Nothing to deregister from aggregator for %s: %v", name, err)
+	}
 }
 
 // RestartService restarts a specific service by name.
