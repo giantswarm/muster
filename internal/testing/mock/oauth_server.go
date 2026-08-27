@@ -129,6 +129,12 @@ type OAuthServerConfig struct {
 	// mimicking authorization servers (e.g. Miro's) that reject scopes they
 	// don't know instead of ignoring them.
 	RejectRegistrationScope bool
+
+	// AdvertiseIssParameter advertises
+	// authorization_response_iss_parameter_supported in the AS metadata, so a
+	// client must refuse an authorization response that carries no RFC 9207
+	// `iss` parameter.
+	AdvertiseIssParameter bool
 }
 
 // OAuthErrorSimulation allows simulating error conditions
@@ -652,6 +658,9 @@ func (s *OAuthServer) handleMetadata(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.config.SupportsDCR {
 		metadata["registration_endpoint"] = s.config.Issuer + "/register"
+	}
+	if s.config.AdvertiseIssParameter {
+		metadata["authorization_response_iss_parameter_supported"] = true
 	}
 
 	w.Header().Set("Content-Type", "application/json")

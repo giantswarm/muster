@@ -1,0 +1,91 @@
+name: "oauth-iss-validated"
+category: "behavioral"
+concept: "mcpserver"
+description: "RFC 9207: a mismatched iss is refused and a matching iss completes the flow"
+tags: ["oauth", "authentication", "mcpserver", "iss"]
+timeout: "2m"
+
+# The `iss` check runs before anything else on the authorization response is
+# read, so a response attributed to another authorization server is rejected
+# whole. A response that carries the expected issuer completes normally.
+pre_configuration:
+  mock_oauth_servers:
+    - name: "iss-checked-idp"
+      scopes: ["openid", "profile", "mcp:read"]
+      auto_approve: true
+      pkce_required: true
+      token_lifetime: "1h"
+      advertise_iss_parameter: true
+
+  mcp_servers:
+    - name: "iss-checked-server"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "iss-checked-idp"
+          scope: "mcp:read"
+        tools:
+          - name: "get_data"
+            description: "Returns data that requires authentication"
+            responses:
+              - response:
+                  data: "authenticated-data"
+
+steps:
+  - id: request-auth-challenge
+    description: "core_auth_login issues a sign-in challenge"
+    tool: "core_auth_login"
+    args:
+      server: "iss-checked-server"
+    expected:
+      success: true
+      contains:
+        - "Authentication Required"
+
+  - id: callback-with-foreign-iss-is-refused
+    description: "An iss naming another authorization server is refused"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "iss-checked-server"
+      iss: "https://foreign-as.example.com"
+    expected:
+      success: false
+
+  - id: request-second-auth-challenge
+    description: "The refused delivery consumed the single-use state, so the flow starts again"
+    tool: "core_auth_login"
+    args:
+      server: "iss-checked-server"
+    expected:
+      success: true
+      contains:
+        - "Authentication Required"
+
+  - id: callback-with-matching-iss-completes
+    description: "The expected issuer on the response completes the flow"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "iss-checked-server"
+      send_iss: true
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  - id: establish-connection
+    description: "Establish the session connection with the stored token"
+    tool: "core_auth_login"
+    args:
+      server: "iss-checked-server"
+    expected:
+      success: true
+
+  - id: call-protected-tool
+    description: "Call the protected tool after the validated callback"
+    tool: "x_iss-checked-server_get_data"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "authenticated-data"
