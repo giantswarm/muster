@@ -609,6 +609,12 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 	resourceTicker := time.NewTicker(100 * time.Millisecond)
 	defer resourceTicker.Stop()
 
+	// Retained across ticks so the timeout error can say what was still
+	// missing. Without it the failure reads only "timeout waiting for all
+	// expected resources", which names neither the server nor the tool and
+	// makes every occurrence a log dig.
+	var lastNotReadyReasons []string
+
 	for {
 		select {
 		case <-resourceCtx.Done():
@@ -628,7 +634,11 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 					}
 				}
 			}
-			return fmt.Errorf("timeout waiting for all expected resources to be available")
+			if len(lastNotReadyReasons) > 0 {
+				return fmt.Errorf("timeout waiting for all expected resources to be available after %s: %s",
+					resourceTimeout, strings.Join(lastNotReadyReasons, "; "))
+			}
+			return fmt.Errorf("timeout waiting for all expected resources to be available after %s", resourceTimeout)
 		case <-procExited:
 			// The process died while we were waiting for its resources to
 			// register — surface the crash immediately rather than polling a
@@ -703,6 +713,8 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 					}
 				}
 			}
+
+			lastNotReadyReasons = notReadyReasons
 
 			if allReady {
 				if m.debug {
