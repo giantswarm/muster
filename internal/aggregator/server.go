@@ -1705,7 +1705,7 @@ func (a *AggregatorServer) GetResourcesForSession(ctx context.Context, sessionID
 
 // GetPromptsForSession returns a session-specific view of all available prompts.
 // For OAuth servers, prompts are read from the CapabilityStore keyed by session ID.
-func (a *AggregatorServer) GetPromptsForSession(ctx context.Context, sessionID string) []mcp.Prompt {
+func (a *AggregatorServer) GetPromptsForSession(ctx context.Context, sessionID string) []api.PromptOrigin {
 	return a.registry.GetAllPromptsForSession(ctx, a.capabilityStore, sessionID)
 }
 
@@ -3180,7 +3180,7 @@ func (a *AggregatorServer) ListResourcesForContext(ctx context.Context) []api.Re
 }
 
 // ListPromptsForContext returns all available prompts for the current session context.
-func (a *AggregatorServer) ListPromptsForContext(ctx context.Context) []mcp.Prompt {
+func (a *AggregatorServer) ListPromptsForContext(ctx context.Context) []api.PromptOrigin {
 	sessionID := getSessionIDFromContext(ctx)
 	if sessionID == "" {
 		logging.Warn("Aggregator", "ListPromptsForContext: no session ID in context — returning empty")

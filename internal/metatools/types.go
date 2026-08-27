@@ -146,11 +146,13 @@ type FilterResourcesResponse struct {
 
 // PromptInfo is one entry in a filter_prompts response.
 //
-// Prompt names are prefixed "x_<server>_<name>", so unlike resources they can
-// be scoped to a server by pattern alone, exactly as tool names are.
+// Server carries the source server explicitly. The exposed name is prefixed
+// with the server's *configured* tool prefix rather than its name, so the name
+// alone does not identify the server.
 type PromptInfo struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
+	Server      string `json:"server"`
 }
 
 // FilterPromptsResponse is the response structure from the filter_prompts

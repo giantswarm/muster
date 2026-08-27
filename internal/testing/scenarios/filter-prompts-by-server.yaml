@@ -1,0 +1,120 @@
+name: "filter-prompts-by-server"
+description: "filter_prompts scopes prompts by their source server, which the exposed name does not encode: a prompt name carries the server's configured toolPrefix, not its name, so matching the server name against the name finds nothing whenever the two differ (#1096)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["metatools", "filter_prompts", "list_prompts", "prompts", "attribution", "toolPrefix"]
+timeout: "5m"
+
+# Regression guard for the prompt half of #1096:
+#
+# Given: A server named "promptserver" configured with toolPrefix "pp", so its
+#        prompts are exposed as "x_pp_<name>" -- the server name appears nowhere
+#        in the exposed name.
+# When:  filter_prompts is scoped to server "promptserver".
+# Then:  Its prompts come back, and list_prompts names the source server.
+#
+# An earlier implementation derived the server from the exposed name by
+# matching "*_<serverName>_*", which silently returned nothing for exactly this
+# (normal) configuration.
+
+pre_configuration:
+  mcp_servers:
+    - name: "promptserver"
+      config:
+        toolPrefix: "pp"
+        tools:
+          - name: "ping"
+            description: "Keeps promptserver in the tool catalogue."
+            responses: [{ response: { ok: true } }]
+        prompts:
+          - name: "triage"
+            description: "Triage an incoming issue."
+            text: "Triage this issue."
+          - name: "summarize"
+            description: "Summarize a thread."
+            text: "Summarize this thread."
+    - name: "otherserver"
+      config:
+        tools:
+          - name: "ping"
+            description: "Keeps otherserver in the tool catalogue."
+            responses: [{ response: { ok: true } }]
+        prompts:
+          - name: "unrelated"
+            description: "A prompt from a different server."
+            text: "Unrelated."
+
+steps:
+  - id: "wait-for-mock-servers"
+    description: "Both prompt-exposing servers must be connected"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["promptserver", "otherserver"]
+
+  # The configured prefix, not the server name, is what lands in the name.
+  - id: "prompt-names-carry-the-configured-prefix"
+    description: "list_prompts exposes the toolPrefix-based name and the true source server"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "list_prompts"
+      arguments: {}
+    expected:
+      success: true
+      contains: ["x_pp_triage", "promptserver"]
+      not_contains: ["x_promptserver_triage"]
+
+  # The regression: scoping by server must not go via the exposed name.
+  - id: "server-filter-finds-prefix-divergent-prompts"
+    description: "filter_prompts scopes to a server whose prefix differs from its name"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_prompts"
+      arguments:
+        server: "promptserver"
+        limit: 50
+    expected:
+      success: true
+      json_path:
+        total: 2
+      contains: ["x_pp_triage", "x_pp_summarize"]
+      not_contains: ["unrelated"]
+
+  - id: "server-filter-excludes-other-servers"
+    description: "The other server's prompts are reported under their own server"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_prompts"
+      arguments:
+        server: "otherserver"
+        limit: 50
+    expected:
+      success: true
+      json_path:
+        total: 1
+      contains: ["otherserver"]
+      not_contains: ["x_pp_triage"]
+
+  - id: "pattern-still-globs-the-exposed-name"
+    description: "A name glob narrows independently of the server filter"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_prompts"
+      arguments:
+        pattern: "*_triage"
+        limit: 50
+    expected:
+      success: true
+      json_path:
+        total: 1
+      contains: ["x_pp_triage"]
+
+  - id: "counts-are-reported-per-server"
+    description: "core_mcpserver_list carries prompt counts"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["promptsCount"]

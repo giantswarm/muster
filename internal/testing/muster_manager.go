@@ -1804,7 +1804,14 @@ func (m *musterInstanceManager) extractExpectedToolsWithHTTPMocks(config *Muster
 		}
 
 		// Family-grouped servers expose tools as x_<family.name>_<tool>; non-
-		// family servers retain per-server prefixing as x_<server>_<tool>.
+		// family servers use x_<toolPrefix>_<tool>, falling back to the server
+		// name when spec.toolPrefix is unset. Mirroring the toolPrefix here
+		// matters: without it, readiness waits for a name the aggregator never
+		// exposes and the instance never comes up.
+		serverPrefix := mcpServer.Name
+		if toolPrefix, ok := mcpServer.Config["toolPrefix"].(string); ok && toolPrefix != "" {
+			serverPrefix = toolPrefix
+		}
 		familyName := ""
 		familyInstanceArg := ""
 		if family, ok := mcpServer.Config["family"].(map[string]interface{}); ok {
@@ -1842,7 +1849,7 @@ func (m *musterInstanceManager) extractExpectedToolsWithHTTPMocks(config *Muster
 							if grouped {
 								prefixedName = fmt.Sprintf("x_%s_%s", familyName, name)
 							} else {
-								prefixedName = fmt.Sprintf("x_%s_%s", mcpServer.Name, name)
+								prefixedName = fmt.Sprintf("x_%s_%s", serverPrefix, name)
 							}
 							expectedTools = append(expectedTools, prefixedName)
 						}

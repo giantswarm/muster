@@ -767,9 +767,12 @@ func (p *Provider) handleFilterResources(ctx context.Context, args map[string]an
 
 // handleFilterPrompts handles the filter_prompts meta-tool.
 //
-// Prompt names are prefixed "x_<server>_<name>", so a pattern selects one
-// server's prompts exactly as it does for tools. The "server" argument is
-// accepted for symmetry with filter_resources and matches the same prefix.
+// The "server" argument matches the source server recorded on each prompt, not
+// the exposed name. A prompt name is prefixed with the server's *configured*
+// tool prefix (spec.toolPrefix) rather than its name -- a server named
+// "gazelle-mcp-pro" with prefix "pro" exposes "x_pro_<name>" -- so matching the
+// server name against the exposed name would find nothing for any server whose
+// prefix differs from its name. "pattern" still globs the exposed name.
 func (p *Provider) handleFilterPrompts(ctx context.Context, args map[string]any) (*api.CallToolResult, error) {
 	opts, errResult := parseCapabilityFilterArgs(args)
 	if errResult != nil {
@@ -786,23 +789,27 @@ func (p *Provider) handleFilterPrompts(ctx context.Context, args map[string]any)
 		return errorResult(fmt.Sprintf("Failed to list prompts: %v", err)), nil
 	}
 
-	matched := make([]mcp.Prompt, 0, len(prompts))
-	for _, prompt := range prompts {
-		if opts.Server != "" && !matchesPattern(prompt.Name, serverPromptPattern(opts.Server), opts.CaseSensitive) {
+	matched := make([]api.PromptOrigin, 0, len(prompts))
+	for _, origin := range prompts {
+		if opts.Server != "" && origin.Server != opts.Server {
 			continue
 		}
-		if !matchesPattern(prompt.Name, opts.Pattern, opts.CaseSensitive) {
+		if !matchesPattern(origin.Prompt.Name, opts.Pattern, opts.CaseSensitive) {
 			continue
 		}
-		matched = append(matched, prompt)
+		matched = append(matched, origin)
 	}
 
 	start, end, truncated := paginate(len(matched), opts.Limit, opts.Offset)
 	page := matched[start:end]
 
 	infos := make([]PromptInfo, 0, len(page))
-	for _, prompt := range page {
-		infos = append(infos, PromptInfo{Name: prompt.Name, Description: prompt.Description})
+	for _, origin := range page {
+		infos = append(infos, PromptInfo{
+			Name:        origin.Prompt.Name,
+			Description: origin.Prompt.Description,
+			Server:      origin.Server,
+		})
 	}
 
 	resp := FilterPromptsResponse{
@@ -819,14 +826,6 @@ func (p *Provider) handleFilterPrompts(ctx context.Context, args map[string]any)
 		return errorResult(fmt.Sprintf("Failed to format filtered prompts: %v", err)), nil
 	}
 	return textResult(string(jsonData)), nil
-}
-
-// serverPromptPattern builds the glob matching every prompt exposed by one
-// server. It mirrors the "x_<server>_" prefix ExposedPromptName applies; the
-// muster prefix is fixed at the aggregator's configured value, so the leading
-// segment is globbed rather than assumed to be "x".
-func serverPromptPattern(serverName string) string {
-	return fmt.Sprintf("*_%s_*", serverName)
 }
 
 // handleListPrompts handles the list_prompts meta-tool.

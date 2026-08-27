@@ -48,6 +48,7 @@ func NewServerFromFile(configPath string, debug bool) (*Server, error) {
 	var configData struct {
 		Tools           []ToolConfig     `yaml:"tools"`
 		Resources       []ResourceConfig `yaml:"resources"`
+		Prompts         []PromptConfig   `yaml:"prompts"`
 		ProtocolVersion string           `yaml:"protocol_version"`
 	}
 	if err := yaml.Unmarshal(content, &configData); err != nil {
@@ -89,7 +90,7 @@ func NewServerFromFile(configPath string, debug bool) (*Server, error) {
 		"1.0.0",
 		server.WithToolCapabilities(true),
 		server.WithResourceCapabilities(false, len(configData.Resources) > 0),
-		server.WithPromptCapabilities(false),
+		server.WithPromptCapabilities(len(configData.Prompts) > 0),
 		server.WithHooks(hooks),
 	)
 	mockServer.mcpServer = mcpServer
@@ -126,6 +127,21 @@ func NewServerFromFile(configPath string, debug bool) (*Server, error) {
 				MIMEType: mimeType,
 				Text:     text,
 			}}, nil
+		})
+	}
+
+	// Register static prompts. As with resources these have no handler config --
+	// a fetch returns the configured text verbatim.
+	for _, promptConfig := range configData.Prompts {
+		prompt := mcp.NewPrompt(
+			promptConfig.Name,
+			mcp.WithPromptDescription(promptConfig.Description),
+		)
+		description, text := promptConfig.Description, promptConfig.Text
+		mcpServer.AddPrompt(prompt, func(_ context.Context, _ mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+			return mcp.NewGetPromptResult(description, []mcp.PromptMessage{
+				mcp.NewPromptMessage(mcp.RoleUser, mcp.NewTextContent(text)),
+			}), nil
 		})
 	}
 

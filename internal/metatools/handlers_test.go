@@ -16,7 +16,7 @@ import (
 type mockMetaToolsHandler struct {
 	tools     []mcp.Tool
 	resources []api.ResourceOrigin
-	prompts   []mcp.Prompt
+	prompts   []api.PromptOrigin
 
 	callToolResult *mcp.CallToolResult
 	callToolError  error
@@ -50,7 +50,7 @@ func (m *mockMetaToolsHandler) GetResource(ctx context.Context, uri, serverName 
 	return m.getResourceResult, nil
 }
 
-func (m *mockMetaToolsHandler) ListPrompts(ctx context.Context) ([]mcp.Prompt, error) {
+func (m *mockMetaToolsHandler) ListPrompts(ctx context.Context) ([]api.PromptOrigin, error) {
 	return m.prompts, nil
 }
 
@@ -502,8 +502,8 @@ func TestProvider_HandleListPrompts(t *testing.T) {
 	ctx := context.Background()
 
 	mock := &mockMetaToolsHandler{
-		prompts: []mcp.Prompt{
-			{Name: "prompt1", Description: "First prompt"},
+		prompts: []api.PromptOrigin{
+			{Prompt: mcp.Prompt{Name: "prompt1", Description: "First prompt"}, Server: "alpha"},
 		},
 	}
 	cleanup := registerMockHandler(mock)
@@ -519,6 +519,7 @@ func TestProvider_HandleListPrompts(t *testing.T) {
 	err = json.Unmarshal([]byte(content), &parsed)
 	require.NoError(t, err)
 	assert.Len(t, parsed, 1)
+	assert.Equal(t, "alpha", parsed[0]["server"], "listing must attribute each prompt to its source server")
 }
 
 func TestProvider_HandleDescribePrompt(t *testing.T) {
@@ -526,8 +527,8 @@ func TestProvider_HandleDescribePrompt(t *testing.T) {
 	ctx := context.Background()
 
 	mock := &mockMetaToolsHandler{
-		prompts: []mcp.Prompt{
-			{Name: "test_prompt", Description: "Test prompt"},
+		prompts: []api.PromptOrigin{
+			{Prompt: mcp.Prompt{Name: "test_prompt", Description: "Test prompt"}, Server: "alpha"},
 		},
 	}
 	cleanup := registerMockHandler(mock)

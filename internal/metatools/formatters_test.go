@@ -96,15 +96,15 @@ func TestFormatters_FormatPromptsListJSON(t *testing.T) {
 	formatters := NewFormatters()
 
 	t.Run("empty prompts list", func(t *testing.T) {
-		result, err := formatters.FormatPromptsListJSON([]mcp.Prompt{})
+		result, err := formatters.FormatPromptsListJSON([]api.PromptOrigin{})
 		require.NoError(t, err)
 		assert.Equal(t, "No prompts available", result)
 	})
 
 	t.Run("with prompts", func(t *testing.T) {
-		prompts := []mcp.Prompt{
-			{Name: "prompt1", Description: "First prompt"},
-			{Name: "prompt2", Description: "Second prompt"},
+		prompts := []api.PromptOrigin{
+			{Prompt: mcp.Prompt{Name: "prompt1", Description: "First prompt"}, Server: "alpha"},
+			{Prompt: mcp.Prompt{Name: "prompt2", Description: "Second prompt"}, Server: "beta"},
 		}
 
 		result, err := formatters.FormatPromptsListJSON(prompts)
@@ -117,6 +117,10 @@ func TestFormatters_FormatPromptsListJSON(t *testing.T) {
 		assert.Len(t, parsed, 2)
 		assert.Equal(t, "prompt1", parsed[0]["name"])
 		assert.Equal(t, "First prompt", parsed[0]["description"])
+		// The exposed name is prefixed with the server's configured tool
+		// prefix, not its name, so attribution has to be carried explicitly.
+		assert.Equal(t, "alpha", parsed[0]["server"])
+		assert.Equal(t, "beta", parsed[1]["server"])
 	})
 }
 
@@ -179,9 +183,12 @@ func TestFormatters_FormatPromptDetailJSON(t *testing.T) {
 	formatters := NewFormatters()
 
 	t.Run("without arguments", func(t *testing.T) {
-		prompt := mcp.Prompt{
-			Name:        "test_prompt",
-			Description: "A test prompt",
+		prompt := api.PromptOrigin{
+			Prompt: mcp.Prompt{
+				Name:        "test_prompt",
+				Description: "A test prompt",
+			},
+			Server: "alpha",
 		}
 
 		result, err := formatters.FormatPromptDetailJSON(prompt)
@@ -197,13 +204,16 @@ func TestFormatters_FormatPromptDetailJSON(t *testing.T) {
 	})
 
 	t.Run("with arguments", func(t *testing.T) {
-		prompt := mcp.Prompt{
-			Name:        "test_prompt",
-			Description: "A test prompt",
-			Arguments: []mcp.PromptArgument{
-				{Name: "arg1", Description: "First argument", Required: true},
-				{Name: "arg2", Description: "Second argument", Required: false},
+		prompt := api.PromptOrigin{
+			Prompt: mcp.Prompt{
+				Name:        "test_prompt",
+				Description: "A test prompt",
+				Arguments: []mcp.PromptArgument{
+					{Name: "arg1", Description: "First argument", Required: true},
+					{Name: "arg2", Description: "Second argument", Required: false},
+				},
 			},
+			Server: "alpha",
 		}
 
 		result, err := formatters.FormatPromptDetailJSON(prompt)
@@ -281,15 +291,16 @@ func TestFormatters_FindResource(t *testing.T) {
 func TestFormatters_FindPrompt(t *testing.T) {
 	formatters := NewFormatters()
 
-	prompts := []mcp.Prompt{
-		{Name: "prompt1", Description: "First prompt"},
-		{Name: "prompt2", Description: "Second prompt"},
+	prompts := []api.PromptOrigin{
+		{Prompt: mcp.Prompt{Name: "prompt1", Description: "First prompt"}, Server: "alpha"},
+		{Prompt: mcp.Prompt{Name: "prompt2", Description: "Second prompt"}, Server: "beta"},
 	}
 
 	t.Run("finds existing prompt", func(t *testing.T) {
 		prompt := formatters.FindPrompt(prompts, "prompt1")
 		require.NotNil(t, prompt)
-		assert.Equal(t, "prompt1", prompt.Name)
+		assert.Equal(t, "prompt1", prompt.Prompt.Name)
+		assert.Equal(t, "alpha", prompt.Server)
 	})
 
 	t.Run("returns nil for non-existent prompt", func(t *testing.T) {

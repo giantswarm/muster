@@ -65,8 +65,8 @@ type MetaToolsDataProvider interface {
 	//   - ctx: Context containing session information
 	//
 	// Returns:
-	//   - []mcp.Prompt: List of available prompts for the session
-	ListPromptsForContext(ctx context.Context) []mcp.Prompt
+	//   - []PromptOrigin: Available prompts for the session, each tagged with its source server
+	ListPromptsForContext(ctx context.Context) []PromptOrigin
 
 	// GetPrompt executes a prompt with the provided arguments.
 	//
@@ -213,7 +213,7 @@ type MetaToolsHandler interface {
 	// Returns:
 	//   - []mcp.Prompt: List of available prompts
 	//   - error: Error if listing fails
-	ListPrompts(ctx context.Context) ([]mcp.Prompt, error)
+	ListPrompts(ctx context.Context) ([]PromptOrigin, error)
 
 	// GetPrompt executes a prompt with the provided arguments.
 	//
@@ -253,4 +253,17 @@ type MetaToolsHandler interface {
 type ResourceOrigin struct {
 	Resource mcp.Resource
 	Server   string
+}
+
+// PromptOrigin pairs an aggregated prompt with the server exposing it.
+//
+// A prompt name is prefixed, but with the server's *configured* tool prefix
+// (spec.toolPrefix) rather than its name -- a server named "gazelle-mcp-pro"
+// with prefix "pro" exposes "x_pro_<name>". Deriving the source server by
+// matching the server name against the exposed name therefore fails for every
+// server whose prefix differs from its name, which is the common case. Carry
+// the attribution explicitly instead, as ResourceOrigin does.
+type PromptOrigin struct {
+	Prompt mcp.Prompt
+	Server string
 }
