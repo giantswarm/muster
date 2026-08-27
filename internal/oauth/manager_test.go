@@ -13,6 +13,7 @@ const (
 	testServerName = "mcp-kubernetes"
 	testIssuer     = "https://auth.example.com"
 	testScopes     = "openid profile"
+	testResource   = "https://mcp.example.com/mcp"
 	testSubject    = "user-123"
 )
 
@@ -447,39 +448,13 @@ func TestManager_GetCIMDHandler_NilManager(t *testing.T) {
 func TestManager_CreateAuthChallenge_NilManager(t *testing.T) {
 	var manager *Manager
 	ctx := context.Background()
-	_, err := manager.CreateAuthChallenge(ctx, "user@example.com", "test-user", "server", "", "")
+	_, err := manager.CreateAuthChallenge(ctx, AuthChallengeParams{
+		SessionID:  "user@example.com",
+		UserID:     "test-user",
+		ServerName: "server",
+	})
 	if err == nil {
 		t.Error("Expected error for nil manager")
-	}
-}
-
-func TestManager_HandleCallback_NilManager(t *testing.T) {
-	var manager *Manager
-	ctx := context.Background()
-	err := manager.HandleCallback(ctx, "code", "state")
-	if err == nil {
-		t.Error("Expected error for nil manager")
-	}
-}
-
-func TestManager_HandleCallback_InvalidState(t *testing.T) {
-	cfg := config.OAuthMCPClientConfig{
-		Enabled:      true,
-		PublicURL:    "https://muster.example.com",
-		ClientID:     "client-id",
-		CallbackPath: "/oauth/proxy/callback",
-	}
-
-	manager := NewManager(cfg)
-	if manager == nil {
-		t.Fatal("Expected non-nil manager")
-	}
-	defer manager.Stop()
-
-	ctx := context.Background()
-	err := manager.HandleCallback(ctx, "code", "invalid-state")
-	if err == nil {
-		t.Error("Expected error for invalid state")
 	}
 }
 
@@ -503,7 +478,14 @@ func TestManager_CreateAuthChallenge(t *testing.T) {
 	scope := testScopes
 
 	ctx := context.Background()
-	_, err := manager.CreateAuthChallenge(ctx, testSubject, "test-user", "mcp-server", issuer, scope)
+	_, err := manager.CreateAuthChallenge(ctx, AuthChallengeParams{
+		SessionID:  testSubject,
+		UserID:     "test-user",
+		ServerName: "mcp-server",
+		Issuer:     issuer,
+		Resource:   testResource,
+		Scope:      scope,
+	})
 	// Expected to fail because the issuer doesn't return valid metadata
 	if err == nil {
 		// If it succeeds (unlikely), that's also fine

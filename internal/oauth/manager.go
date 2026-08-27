@@ -338,21 +338,21 @@ func (m *Manager) StoreToken(sessionID, userID, issuer string, token *pkgoauth.T
 
 // CreateAuthChallenge creates an authentication challenge for a 401 response.
 // Returns the auth URL the user should visit and the challenge response.
-func (m *Manager) CreateAuthChallenge(ctx context.Context, sessionID, userID, serverName, issuer, scope string) (*AuthRequiredResponse, error) {
+func (m *Manager) CreateAuthChallenge(ctx context.Context, params AuthChallengeParams) (*AuthRequiredResponse, error) {
 	if m == nil {
 		return nil, fmt.Errorf("OAuth proxy is disabled")
 	}
 
 	// Register server config if we got it from the 401
-	m.RegisterServer(serverName, issuer, scope)
+	m.RegisterServer(params.ServerName, params.Issuer, params.Scope)
 
 	// Generate authorization URL (code verifier is stored with the state)
-	authURL, resolved, err := m.client.GenerateAuthURL(ctx, sessionID, userID, serverName, issuer, scope)
+	authURL, resolved, err := m.client.GenerateAuthURL(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate auth URL: %w", err)
 	}
 
-	message := fmt.Sprintf("Authentication required for %s. Please visit the link below to authenticate.", serverName)
+	message := fmt.Sprintf("Authentication required for %s. Please visit the link below to authenticate.", params.ServerName)
 	switch resolved.Method {
 	case ClientIDMethodCIMDFallback:
 		message += " Note: this server's authorization server advertises neither Client ID Metadata Document support nor dynamic client registration; the sign-in may be rejected if it requires pre-registered clients."
@@ -363,13 +363,13 @@ func (m *Manager) CreateAuthChallenge(ctx context.Context, sessionID, userID, se
 	challenge := &AuthRequiredResponse{
 		Status:         "auth_required",
 		AuthURL:        authURL,
-		ServerName:     serverName,
+		ServerName:     params.ServerName,
 		Message:        message,
 		ClientIDMethod: resolved.Method,
 	}
 
 	logging.Info("OAuth", "Created auth challenge for session=%s server=%s",
-		logging.TruncateIdentifier(sessionID), serverName)
+		logging.TruncateIdentifier(params.SessionID), params.ServerName)
 
 	return challenge, nil
 }
@@ -386,44 +386,6 @@ func (m *Manager) SetAuthCompletionCallback(callback AuthCompletionCallback) {
 
 	m.authCompletionCallback = callback
 	logging.Debug("OAuth", "Auth completion callback registered")
-}
-
-// HandleCallback processes an OAuth callback and stores the token.
-// Note: This is a programmatic API for testing. The production flow uses
-// Handler.HandleCallback which is the actual HTTP endpoint and handles
-// the auth completion callback invocation.
-func (m *Manager) HandleCallback(ctx context.Context, code, state string) error {
-	if m == nil {
-		return fmt.Errorf("OAuth proxy is disabled")
-	}
-
-	// Validate state (returns the full state including issuer and code verifier)
-	stateData := m.client.stateStore.ValidateState(state)
-	if stateData == nil {
-		return fmt.Errorf("invalid or expired state")
-	}
-
-	// Validate we have the required data
-	if stateData.Issuer == "" {
-		return fmt.Errorf("missing issuer in state")
-	}
-	if stateData.CodeVerifier == "" {
-		return fmt.Errorf("missing code verifier in state")
-	}
-
-	// Exchange code for token using issuer and code verifier from state
-	token, err := m.client.ExchangeCode(ctx, code, stateData.CodeVerifier, stateData.Issuer)
-	if err != nil {
-		return fmt.Errorf("token exchange failed: %w", err)
-	}
-
-	// Store the token keyed by session ID, with user ID for reverse lookup
-	m.client.StoreToken(stateData.SessionID, stateData.UserID, token)
-
-	logging.Info("OAuth", "Successfully completed OAuth flow for session=%s server=%s",
-		logging.TruncateIdentifier(stateData.SessionID), stateData.ServerName)
-
-	return nil
 }
 
 // ExchangeTokenForRemoteCluster exchanges a local token for one valid on a remote cluster.

@@ -73,7 +73,7 @@ type OAuthHandler interface {
 
 	// CreateAuthChallenge creates an authentication challenge for a 401 response.
 	// Returns the challenge containing the auth URL for the user to visit.
-	CreateAuthChallenge(ctx context.Context, sessionID, userID, serverName, issuer, scope string) (*AuthChallenge, error)
+	CreateAuthChallenge(ctx context.Context, params AuthChallengeParams) (*AuthChallenge, error)
 
 	// GetClientCredentialsForIssuer returns the client_id and client_secret
 	// the OAuth flows use against the given issuer (the CIMD URL, or

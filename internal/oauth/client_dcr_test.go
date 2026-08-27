@@ -148,7 +148,13 @@ func TestClient_GenerateAuthURL_PrefersCIMDWhenAdvertised(t *testing.T) {
 		"https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
 
-	startURL, resolved, err := client.GenerateAuthURL(context.Background(), "session-1", "user-1", "server-1", as.server.URL, "openid")
+	startURL, resolved, err := client.GenerateAuthURL(context.Background(), AuthChallengeParams{
+		SessionID:  "session-1",
+		UserID:     "user-1",
+		ServerName: "server-1",
+		Issuer:     as.server.URL,
+		Scope:      "openid",
+	})
 	if err != nil {
 		t.Fatalf("GenerateAuthURL failed: %v", err)
 	}
@@ -171,7 +177,13 @@ func TestClient_GenerateAuthURL_FallsBackToDCR(t *testing.T) {
 		"https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
 
-	startURL, resolved, err := client.GenerateAuthURL(context.Background(), "session-1", "user-1", "server-1", as.server.URL, "openid")
+	startURL, resolved, err := client.GenerateAuthURL(context.Background(), AuthChallengeParams{
+		SessionID:  "session-1",
+		UserID:     "user-1",
+		ServerName: "server-1",
+		Issuer:     as.server.URL,
+		Scope:      "openid",
+	})
 	if err != nil {
 		t.Fatalf("GenerateAuthURL failed: %v", err)
 	}
@@ -203,7 +215,13 @@ func TestClient_GenerateAuthURL_FallsBackToDCR(t *testing.T) {
 	}
 
 	// A second flow for the same issuer reuses the stored credentials.
-	_, resolved2, err := client.GenerateAuthURL(context.Background(), "session-2", "user-2", "server-1", as.server.URL, "openid")
+	_, resolved2, err := client.GenerateAuthURL(context.Background(), AuthChallengeParams{
+		SessionID:  "session-2",
+		UserID:     "user-2",
+		ServerName: "server-1",
+		Issuer:     as.server.URL,
+		Scope:      "openid",
+	})
 	if err != nil {
 		t.Fatalf("second GenerateAuthURL failed: %v", err)
 	}
@@ -224,7 +242,13 @@ func TestClient_GenerateAuthURL_DCRFailedWhenRegistrationRejected(t *testing.T) 
 		"https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
 
-	startURL, resolved, err := client.GenerateAuthURL(context.Background(), "session-1", "user-1", "server-1", as.server.URL, "openid")
+	startURL, resolved, err := client.GenerateAuthURL(context.Background(), AuthChallengeParams{
+		SessionID:  "session-1",
+		UserID:     "user-1",
+		ServerName: "server-1",
+		Issuer:     as.server.URL,
+		Scope:      "openid",
+	})
 	if err != nil {
 		t.Fatalf("GenerateAuthURL failed: %v", err)
 	}
@@ -257,7 +281,13 @@ func TestClient_GenerateAuthURL_OmitsScopeFromRegistration(t *testing.T) {
 		"https://muster.example.com", "/oauth/proxy/callback", "openid profile email groups offline_access")
 	defer client.Stop()
 
-	startURL, resolved, err := client.GenerateAuthURL(context.Background(), "session-1", "user-1", "server-1", as.server.URL, "mcp:read")
+	startURL, resolved, err := client.GenerateAuthURL(context.Background(), AuthChallengeParams{
+		SessionID:  "session-1",
+		UserID:     "user-1",
+		ServerName: "server-1",
+		Issuer:     as.server.URL,
+		Scope:      "mcp:read",
+	})
 	if err != nil {
 		t.Fatalf("GenerateAuthURL failed: %v", err)
 	}
@@ -287,14 +317,20 @@ func TestClient_ExchangeCode_UsesDCRCredentials(t *testing.T) {
 	defer client.Stop()
 
 	// The auth flow registers via DCR and stores the credentials.
-	_, _, err := client.GenerateAuthURL(context.Background(), "session-1", "user-1", "server-1", as.server.URL, "openid")
+	_, _, err := client.GenerateAuthURL(context.Background(), AuthChallengeParams{
+		SessionID:  "session-1",
+		UserID:     "user-1",
+		ServerName: "server-1",
+		Issuer:     as.server.URL,
+		Scope:      "openid",
+	})
 	if err != nil {
 		t.Fatalf("GenerateAuthURL failed: %v", err)
 	}
 
 	// The code exchange must present the same registered credentials. The
 	// stub token endpoint echoes client_id|client_secret in the access token.
-	token, err := client.ExchangeCode(context.Background(), "code-1", "verifier-1", as.server.URL)
+	token, err := client.ExchangeCode(context.Background(), "code-1", "verifier-1", as.server.URL, "")
 	if err != nil {
 		t.Fatalf("ExchangeCode failed: %v", err)
 	}
@@ -323,7 +359,13 @@ func TestClient_GetClientCredentialsForIssuer(t *testing.T) {
 	}
 
 	// After a flow registered via DCR, the stored credentials are returned.
-	if _, _, err := client.GenerateAuthURL(context.Background(), "session-1", "user-1", "server-1", as.server.URL, "openid"); err != nil {
+	if _, _, err := client.GenerateAuthURL(context.Background(), AuthChallengeParams{
+		SessionID:  "session-1",
+		UserID:     "user-1",
+		ServerName: "server-1",
+		Issuer:     as.server.URL,
+		Scope:      "openid",
+	}); err != nil {
 		t.Fatalf("GenerateAuthURL failed: %v", err)
 	}
 	clientID, secret = client.GetClientCredentialsForIssuer(context.Background(), as.server.URL)

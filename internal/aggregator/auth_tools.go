@@ -195,11 +195,12 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		authInfo = &AuthInfo{}
 	}
 
-	// If issuer or scope is empty, try to discover it from the server's resource metadata.
-	// When spec.auth.authorizationServer is set on the MCPServer CR, the override
-	// branch in discoverProtectedResourceMetadata bypasses PRM probing and uses
-	// the operator-pinned issuer directly (with RFC 8414 §3.3 self-verification).
-	if (authInfo.Issuer == "" || authInfo.Scope == "") && serverInfo.URL != "" {
+	// Fill in whatever the flow still lacks from the server's resource
+	// metadata. When spec.auth.authorizationServer is set on the MCPServer CR,
+	// the override branch in discoverProtectedResourceMetadata bypasses PRM
+	// probing and uses the operator-pinned issuer directly (with RFC 8414 §3.3
+	// self-verification).
+	if needsResourceMetadata(authInfo, serverInfo.URL) {
 		var override *api.MCPServerAuthAuthorizationServer
 		if serverInfo.AuthConfig != nil {
 			override = serverInfo.AuthConfig.AuthorizationServer
@@ -215,6 +216,9 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 			if authInfo.Scope == "" && metadata.Scope != "" {
 				authInfo.Scope = metadata.Scope
 				logging.Info("AuthTools", "Discovered required scope for %s: %s", serverName, metadata.Scope)
+			}
+			if authInfo.Resource == "" && metadata.Resource != "" {
+				authInfo.Resource = metadata.Resource
 			}
 		}
 	}
@@ -281,7 +285,20 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 	}
 
 	// No token or token was cleared - need to create an auth challenge
-	challenge, err := oauthHandler.CreateAuthChallenge(ctx, sessionID, sub, serverName, authInfo.Issuer, authInfo.Scope)
+	resource, err := resourceIndicator(authInfo.Resource, serverInfo.URL)
+	if err != nil {
+		logging.Error("AuthTools", err, "Cannot build an auth challenge for server %s", serverName)
+		return nil, err
+	}
+
+	challenge, err := oauthHandler.CreateAuthChallenge(ctx, api.AuthChallengeParams{
+		SessionID:  sessionID,
+		UserID:     sub,
+		ServerName: serverName,
+		Issuer:     authInfo.Issuer,
+		Resource:   resource,
+		Scope:      authInfo.Scope,
+	})
 	if err != nil {
 		logging.Error("AuthTools", err, "Failed to create auth challenge for server %s", serverName)
 		if p.aggregator.authMetrics != nil {
@@ -295,6 +312,34 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 
 	// Return the auth challenge as a tool result with the sign-in link
 	return authChallengeResult(serverName, challenge), nil
+}
+
+// needsResourceMetadata reports whether an RFC 9728 probe can still add
+// something to the flow. The 401 path supplies issuer and scope from the
+// authorization server metadata but never the resource identifier, so the
+// resource belongs in this condition: without it muster falls back to the
+// configured URL even for a backend that declares a different canonical URI,
+// and binds the token to an identifier the backend does not answer to.
+// The 401 path never fills the resource, so a backend discovered that way is
+// probed again on every login. The probe is one request against a backend the
+// caller is already waiting on interactively, which is why it is not cached.
+func needsResourceMetadata(authInfo *AuthInfo, serverURL string) bool {
+	if serverURL == "" {
+		return false
+	}
+	return authInfo.Issuer == "" || authInfo.Scope == "" || authInfo.Resource == ""
+}
+
+// resourceIndicator returns the RFC 8707 `resource` value for a backend, or an
+// empty string when the backend needs none. An unusable configured URL is an
+// error: a value muster cannot form is worse than a wrong one, because it would
+// bind the token to an identifier no backend recognizes.
+func resourceIndicator(declaredResource, serverURL string) (string, error) {
+	resolved, err := pkgoauth.ResolveResourceIndicator(declaredResource, serverURL)
+	if resolved.DeclaredErr != nil {
+		logging.Warn("AuthTools", "Backend declares an unusable RFC 8707 resource %q, deriving one from the URL instead: %v", declaredResource, resolved.DeclaredErr)
+	}
+	return resolved.Value, err
 }
 
 // authChallengeResult builds the tool result for a pending auth challenge.

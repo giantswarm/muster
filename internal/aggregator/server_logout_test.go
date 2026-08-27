@@ -396,7 +396,7 @@ func (d *deleteCaptureMockHandler) GetClientCredentialsForIssuer(_ context.Conte
 	return "", ""
 }
 
-func (d *deleteCaptureMockHandler) CreateAuthChallenge(_ context.Context, _, _, _, _, _ string) (*api.AuthChallenge, error) {
+func (d *deleteCaptureMockHandler) CreateAuthChallenge(_ context.Context, _ api.AuthChallengeParams) (*api.AuthChallenge, error) {
 	return nil, nil
 }
 func (d *deleteCaptureMockHandler) GetHTTPHandler() http.Handler      { return nil }
@@ -449,7 +449,7 @@ func (c *clearCaptureMockHandler) GetClientCredentialsForIssuer(_ context.Contex
 	return "", ""
 }
 
-func (c *clearCaptureMockHandler) CreateAuthChallenge(_ context.Context, _, _, _, _, _ string) (*api.AuthChallenge, error) {
+func (c *clearCaptureMockHandler) CreateAuthChallenge(_ context.Context, _ api.AuthChallengeParams) (*api.AuthChallenge, error) {
 	return nil, nil
 }
 func (c *clearCaptureMockHandler) GetHTTPHandler() http.Handler      { return nil }

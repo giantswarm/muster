@@ -178,22 +178,31 @@ still needs to follow the rules.
   lines 299-318 implement the "compare if present, reject on mismatch"
   policy that SEP-2468 specifies, including the explicit note that empty
   `iss` is treated as "not advertised", not as a mismatch.
-- **Server-side: gap.** The proxy callback at
+- **Server-side: implemented.** The proxy callback at
   [internal/oauth/handler.go](../../../internal/oauth/handler.go)
-  `HandleCallback` (lines 56-132) reads only `code`, `state`,
-  `error`, and `error_description` from the redirect URL. It never reads or
-  validates `iss`. The proxy is precisely the multi-AS client this SEP is
-  aimed at: every remote MCP server registered with
-  `Manager.RegisterServer` (`internal/oauth/manager.go` lines 179-196) can
-  point to a different `Issuer`, and the auth flow uses
-  `OAuthState.Issuer` to drive token exchange
-  ([internal/oauth/types.go](../../../internal/oauth/types.go) lines 21-46,
-  see `state.Issuer` reads in `handler.go` lines 94-105).
-- **Metadata side:** `pkg/oauth/types.go` `Metadata`
-  (lines 142-189) does not yet carry
-  `authorization_response_iss_parameter_supported`. The SEP recommends
-  reflecting this flag so a future "MUST be present" tightening is
-  detectable per-AS.
+  `HandleCallback` reads `iss` and hands it to `validateResponseIssuer`
+  before it acts on anything else in the response, so a response that
+  cannot be attributed to the expected authorization server is rejected
+  whole, error parameters included. The expected value is the issuer from
+  the server's own metadata, and the comparison is a simple string
+  comparison with no normalization. When the metadata is unreachable the
+  comparison falls back to `OAuthState.Issuer` and then ignores a trailing
+  slash on either side, because that value is operator-configured rather
+  than published by the server. The metadata is trustworthy for the first
+  comparison because
+  `pkg/oauth.Client.DiscoverMetadata` applies the RFC 8414 §3.3 identity
+  check and refuses a document whose `issuer` names a different server.
+- **Metadata side: implemented.** `pkg/oauth/types.go` `Metadata` carries
+  `authorization_response_iss_parameter_supported`, and both the proxy and
+  the agent refuse a response that omits `iss` when the server advertises
+  the flag.
+- **Coverage caveat.** An authorization server that neither sends `iss` nor
+  advertises the flag is accepted without a comparison, which is most
+  deployed servers today, dex included. The check therefore adds nothing
+  against them. What does protect those flows is unrelated to `iss`: the
+  issuer is recorded with the flow state, and the code is redeemed only at
+  the token endpoint of that issuer's own metadata, so a response
+  redirected from a different authorization server cannot be exchanged.
 
 ### SEP-837 — `application_type` in DCR
 
@@ -275,6 +284,35 @@ still needs to follow the rules.
   MCP servers); this is therefore a guardrail to keep in mind when the
   inbound-auth surface grows.
 
+- **Refresh carries the resource indicator, from mcp-go.** mcp-go owns token
+  refresh for both the agent and the backends, and its
+  `OAuthHandler.refreshToken` puts the RFC 8707 `resource` on the refresh
+  request. It takes the value from the protected resource metadata it
+  discovers itself, exactly as declared. Muster must therefore send the
+  declared value unchanged on the authorization and token requests as well:
+  a value normalized on one path and verbatim on the other binds the initial
+  token and the refreshed token to different audiences. The same constraint
+  applies when the metadata omits the field and both sides derive a value:
+  `pkg/oauth.DeriveResourceURI` drops the query and the fragment and changes
+  nothing else, which is what mcp-go does to the same URL
+  (`client/transport/streamable_http.go`).
+
+- **The declared value is only as trustworthy as its source.** RFC 9728 §3.2
+  requires a protected resource to serve its own metadata, so a document is
+  bound to a backend either by the origin-constructed well-known path or by
+  nothing at all. muster therefore follows a `resource_metadata=` pointer
+  from a `WWW-Authenticate` header only when it is on the backend's own
+  scheme and host (`pkg/oauth.ValidateAdvertisedMetadataURL`), and accepts a
+  `resource` from such a document only when it is on that same origin
+  (`pkg/oauth.ValidateAdvertisedResource`). mcp-go applies the same two
+  checks (`client/transport/oauth.go` `validateAdvertisedPRMURL`, and the
+  `explicitMetadataURL` branch of its discovery). muster compares the origin
+  rather than the whole URI on the second check, because a backend
+  legitimately declares an identifier whose path differs from its MCP
+  endpoint: an mcp-oauth backend serving at `<base>/mcp` declares `<base>`.
+  A rejected pointer falls through to the well-known path; a rejected
+  resource is dropped and the indicator is derived from the backend URL.
+
 ### SEP-2350 — Scope accumulation on step-up
 
 - **Parser: existing.** `pkg/oauth/www_authenticate.go` lines 26-71 parses
@@ -313,26 +351,7 @@ still needs to follow the rules.
 
 Concrete work items, grouped by SEP and ordered by risk:
 
-1. **SEP-2468 — server-side proxy `iss` validation (highest priority).**
-   - In [internal/oauth/handler.go](../../../internal/oauth/handler.go)
-     `HandleCallback`, extract `r.URL.Query().Get("iss")` alongside
-     `code` / `state`.
-   - Compare against `state.Issuer` (and against the discovered
-     `Metadata.Issuer` when available — SEP-2468 mandates an exact match
-     against the issuer-metadata document the client validated per RFC
-     8414 §3.3). Mirror the agent's "empty = not advertised, present =
-     must match" rule
-     ([internal/agent/oauth/client.go](../../../internal/agent/oauth/client.go)
-     lines 299-318).
-   - On mismatch: render the existing error page and abort *before*
-     calling `ExchangeCode`, identical to the agent's
-     `cancelCurrentFlow()` path.
-   - Add an `IssParameterSupported bool` field to
-     [pkg/oauth/types.go](../../../pkg/oauth/types.go) `Metadata` so the
-     parsed metadata reflects the AS flag and enables a future tightening
-     to "reject when absent and advertised".
-
-2. **SEP-837 — `application_type` plumbed through CIMD and (future) DCR.**
+1. **SEP-837 — `application_type` plumbed through CIMD and (future) DCR.**
    - Add an optional `ApplicationType string` field to
      [pkg/oauth/types.go](../../../pkg/oauth/types.go) `ClientMetadata`.
    - The server-side proxy's CIMD is published at the public muster URL
@@ -345,7 +364,7 @@ Concrete work items, grouped by SEP and ordered by risk:
      `cmd/auth_login.go` and `cmd/auth_helpers.go` are the right seam to
      thread that intent through `internal/agent/oauth/client.go`.
 
-3. **SEP-2207 — opportunistic `offline_access` for the server-side proxy.**
+2. **SEP-2207 — opportunistic `offline_access` for the server-side proxy.**
    - In
      [internal/oauth/client.go](../../../internal/oauth/client.go)
      `GenerateAuthURL`, after `DiscoverMetadata`, check whether the
@@ -360,7 +379,7 @@ Concrete work items, grouped by SEP and ordered by risk:
      (`internal/aggregator/auth_resource.go` /
      `internal/aggregator/auth_tools.go`).
 
-4. **SEP-2350 — scope accumulation in the outbound retry.**
+3. **SEP-2350 — scope accumulation in the outbound retry.**
    - Where muster sees an upstream `insufficient_scope` from a remote MCP
      server, look up the existing tokens for that
      `(SessionID, Issuer, *)` via
@@ -376,7 +395,7 @@ Concrete work items, grouped by SEP and ordered by risk:
      hierarchy collapsing on the client side (the AS handles that — see
      SEP-2350's note).
 
-5. **SEP-2352 — explicit error on AS migration.**
+4. **SEP-2352 — explicit error on AS migration.**
    - In `Manager.RegisterServer`
      ([internal/oauth/manager.go](../../../internal/oauth/manager.go)
      lines 179-196), when an existing entry's `Issuer` does not match
@@ -392,7 +411,7 @@ Concrete work items, grouped by SEP and ordered by risk:
      [internal/oauth/doc.go](../../../internal/oauth/doc.go) — it is the
      primary architectural reason the SEP-2352 burden on muster is small.
 
-6. **SEP-2351 — documentation only.**
+5. **SEP-2351 — documentation only.**
    - No behavioural change. When updating any user-facing docs that
      mention the well-known suffix
      (`docs/contributing/testing/oauth-testing.md` and decision record
@@ -423,14 +442,6 @@ Concrete work items, grouped by SEP and ordered by risk:
   `auth://status`, or both? SEP-2352 says "surface an error rather than
   silently attempt to use mismatched credentials" — translating that into
   muster's per-server UI vocabulary needs a product call.
-- **Strictness toggle for `iss`.** SEP-2468 explicitly leaves "reject
-  responses that omit `iss` from servers that advertise support" as a
-  near-future tightening. Should muster ship that strict mode now (behind
-  config) so operators can opt in per environment? The data already
-  exists (RFC 8414 metadata) but the discovery path
-  ([pkg/oauth/client.go](../../../pkg/oauth/client.go) lines 80-165) does
-  not yet surface the AS flag through
-  [pkg/oauth/types.go](../../../pkg/oauth/types.go) `Metadata`.
 - **Scope accumulation across `Scope` keys.** Tokens are stored under
   `TokenKey{SessionID, Issuer, Scope}` — meaning a step-up that asks for
   a wider scope produces a *new* token-store entry rather than

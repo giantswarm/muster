@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"slices"
 	"sort"
@@ -2385,6 +2384,11 @@ type ProtectedResourceMetadata struct {
 	Resource string
 }
 
+// overrideMetadataClient serves the RFC 8414 §3.3 verification fetch for the
+// spec.auth.authorizationServer override. One client for the process means one
+// metadata cache, shared across backends and across logins.
+var overrideMetadataClient = pkgoauth.NewClient()
+
 // discoverProtectedResourceMetadata resolves the authorization server for an
 // MCP server. When override is non-nil it skips PRM probing and uses the
 // operator-pinned values, performing an RFC 8414 §3.3 self-verification fetch
@@ -2395,20 +2399,24 @@ func discoverProtectedResourceMetadata(ctx context.Context, serverURL string, ov
 
 	if override != nil {
 		issuer := strings.TrimSuffix(override.Issuer, "/")
-		// RFC 8414 §3.3 self-verification: fetch AS metadata at the pinned
-		// issuer and confirm it advertises the same issuer back. A typo or
-		// stale pin fails closed instead of driving an OAuth flow against
-		// the wrong AS.
-		md, err := pkgoauth.NewClient().DiscoverMetadata(ctx, issuer)
-		if err != nil {
-			return nil, fmt.Errorf("authorizationServer override: %w", err)
-		}
-		if got := strings.TrimSuffix(md.Issuer, "/"); got != issuer {
-			return nil, fmt.Errorf("authorizationServer override: issuer mismatch — spec.auth.authorizationServer.issuer=%q but AS metadata reports issuer=%q", issuer, md.Issuer)
+		// Fetching AS metadata at the pinned issuer also verifies it: the
+		// discovery client applies the RFC 8414 §3.3 identity check, so a
+		// typo or a stale pin fails closed here instead of driving an OAuth
+		// flow against the wrong AS.
+		if _, err := overrideMetadataClient.DiscoverMetadata(ctx, issuer); err != nil {
+			return nil, fmt.Errorf("authorizationServer override (spec.auth.authorizationServer.issuer=%q): %w", issuer, err)
 		}
 		logging.InfoWithAttrs("AuthTools", "oauth_authorization_server_override_used",
 			slog.String("issuer", issuer))
-		return &ProtectedResourceMetadata{Issuer: issuer, Scope: override.Scopes}, nil
+		// The override opts out of RFC 9728 discovery, so the backend never
+		// gets to declare its own resource identifier. The derived value is
+		// the only one available, and filling it here keeps the caller from
+		// probing for a resource this branch can never supply.
+		resource, err := pkgoauth.DeriveResourceURI(serverURL)
+		if err != nil {
+			logging.Debug("AuthTools", "Cannot derive a resource indicator from %s: %v", serverURL, err)
+		}
+		return &ProtectedResourceMetadata{Issuer: issuer, Scope: override.Scopes, Resource: resource}, nil
 	}
 
 	// Step 1: WWW-Authenticate on 401.
@@ -2417,17 +2425,10 @@ func discoverProtectedResourceMetadata(ctx context.Context, serverURL string, ov
 	}
 
 	// Step 2 + 3: well-known paths (path-based first per MCP spec, then root).
-	parsed, err := url.Parse(serverURL)
+	wellKnown, err := pkgoauth.ProtectedResourceMetadataURLs(serverURL)
 	if err != nil {
 		return nil, fmt.Errorf("parse server URL: %w", err)
 	}
-	host := parsed.Scheme + "://" + parsed.Host
-	path := strings.TrimRight(parsed.Path, "/")
-	wellKnown := []string{}
-	if path != "" {
-		wellKnown = append(wellKnown, host+pkgoauth.WellKnownProtectedResource+path)
-	}
-	wellKnown = append(wellKnown, host+pkgoauth.WellKnownProtectedResource)
 
 	var lastErr error
 	for _, u := range wellKnown {
@@ -2475,10 +2476,28 @@ func tryWWWAuthenticate(ctx context.Context, httpClient *http.Client, serverURL 
 		logging.Debug("AuthTools", "WWW-Authenticate probe: %s carried no resource_metadata= pointer (parse err=%v)", serverURL, err)
 		return nil
 	}
+	// The pointer comes from the backend's own header, so it is untrusted
+	// input. A document on another origin can name any authorization server
+	// and any resource identifier, which would bind the token to something
+	// this backend does not own.
+	if err := pkgoauth.ValidateAdvertisedMetadataURL(challenge.ResourceMetadataURL, serverURL); err != nil {
+		logging.Warn("AuthTools", "WWW-Authenticate probe: ignoring the resource_metadata pointer of %s: %v", serverURL, err)
+		return nil
+	}
 	md, err := fetchProtectedResourceMetadata(ctx, httpClient, challenge.ResourceMetadataURL)
 	if err != nil {
 		logging.Debug("AuthTools", "WWW-Authenticate probe: fetch %s failed: %v", challenge.ResourceMetadataURL, err)
 		return nil
+	}
+	// A document the well-known path reaches is bound to the backend by the
+	// URL construction. This one was only pointed at, so a resource it
+	// declares must still identify the backend. An omitted field is not a
+	// failure: the caller then derives the indicator from the backend URL.
+	if md.Resource != "" {
+		if err := pkgoauth.ValidateAdvertisedResource(md.Resource, serverURL); err != nil {
+			logging.Warn("AuthTools", "WWW-Authenticate probe: dropping the resource declared by %s: %v", serverURL, err)
+			md.Resource = ""
+		}
 	}
 	return md
 }

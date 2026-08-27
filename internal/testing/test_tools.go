@@ -404,6 +404,20 @@ func (h *TestToolsHandler) handleSimulateOAuthCallback(ctx context.Context, args
 
 	callbackURL := fmt.Sprintf("%s?code=%s&state=%s", redirectURI, url.QueryEscape(authCode), url.QueryEscape(state))
 
+	// RFC 9207: the `iss` parameter is absent unless a scenario asks for it.
+	// "send_iss" sends the mock server's own issuer, which is what a
+	// conforming authorization server returns; "iss" sends a literal value,
+	// for the mismatch case.
+	issParam := ""
+	if literal, ok := args["iss"].(string); ok && literal != "" {
+		issParam = literal
+	} else if send, ok := args["send_iss"].(bool); ok && send {
+		issParam = oauthServer.GetIssuerURL()
+	}
+	if issParam != "" {
+		callbackURL += "&iss=" + url.QueryEscape(issParam)
+	}
+
 	client := &http.Client{
 		Timeout: 30 * time.Second,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {

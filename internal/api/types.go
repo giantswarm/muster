@@ -518,6 +518,31 @@ type GetWorkflowExecutionRequest struct {
 	StepID string `json:"step_id,omitempty"`
 }
 
+// AuthChallengeParams carries the per-flow values an authentication challenge
+// is built from. The fields are grouped in a struct because they are all
+// strings: a transposed pair, such as resource and scope, would fail only at
+// the authorization server.
+type AuthChallengeParams struct {
+	// SessionID links the OAuth flow to the caller's login session.
+	SessionID string
+
+	// UserID is the authenticated user's identity (sub claim).
+	UserID string
+
+	// ServerName is the MCP server that requires authentication.
+	ServerName string
+
+	// Issuer is the authorization server the flow runs against.
+	Issuer string
+
+	// Resource is the canonical URI of the MCP server the token is for. It
+	// goes on the authorization request and on the token request (RFC 8707).
+	Resource string
+
+	// Scope is the space-separated scope list to request.
+	Scope string
+}
+
 // AuthChallenge represents an authentication challenge returned when
 // a remote MCP server requires OAuth authentication.
 type AuthChallenge struct {
@@ -580,6 +605,11 @@ type AuthInfo struct {
 
 	// ResourceMetadataURL is the URL to fetch OAuth metadata (MCP-specific)
 	ResourceMetadataURL string `json:"resource_metadata_url,omitempty"`
+
+	// Resource is the canonical URI the server declares for itself in its
+	// RFC 9728 metadata. It is the RFC 8707 `resource` value muster sends on
+	// authorization and token requests for this server.
+	Resource string `json:"resource,omitempty"`
 }
 
 // ReconcileManagerHandler provides access to reconciliation status and control.

@@ -262,6 +262,7 @@ func (o *Orchestrator) handleAuthRequiredServer(definition *api.MCPServer, authE
 		Issuer:              authErr.AuthInfo.Issuer,
 		Scope:               authErr.AuthInfo.Scope,
 		ResourceMetadataURL: authErr.AuthInfo.ResourceMetadataURL,
+		Resource:            authErr.AuthInfo.Resource,
 	}
 
 	if err := aggregator.RegisterServerPendingAuth(api.PendingAuthRegistration{

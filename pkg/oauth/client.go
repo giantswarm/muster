@@ -148,10 +148,25 @@ func (c *Client) doDiscoverMetadata(ctx context.Context, issuer string) (*Metada
 		}
 	}
 
-	var lastErr error
+	var lastErr, identityErr error
 	for _, wellKnownURL := range candidates {
 		metadata, err := c.fetchMetadata(ctx, wellKnownURL)
 		if err == nil {
+			// RFC 8414 §3.3: the issuer in the document must equal the
+			// issuer the document was fetched for. Without this check a
+			// server can name any issuer it likes, and every later
+			// comparison against metadata.Issuer (the RFC 9207 `iss`
+			// check, audience binding) inherits that claim.
+			if err := verifyIssuerIdentity(issuer, metadata.Issuer); err != nil {
+				c.logger.Warn("AS metadata rejected: issuer identity mismatch",
+					"issuer", issuer,
+					"url", wellKnownURL,
+					"error", err)
+				if identityErr == nil {
+					identityErr = err
+				}
+				continue
+			}
 			c.cacheMetadata(issuer, metadata)
 			return metadata, nil
 		}
@@ -161,7 +176,33 @@ func (c *Client) doDiscoverMetadata(ctx context.Context, issuer string) (*Metada
 			"error", err)
 		lastErr = err
 	}
+	// A served document that fails the identity check is the more specific
+	// diagnosis than a 404 on a well-known form the server does not use, so
+	// it wins when both happened.
+	if identityErr != nil {
+		return nil, identityErr
+	}
 	return nil, fmt.Errorf("failed to discover OAuth metadata for %s: %w", issuer, lastErr)
+}
+
+// verifyIssuerIdentity applies the RFC 8414 §3.3 self-verification: the
+// `issuer` value in the metadata document must identify the authorization
+// server the document was retrieved for. A trailing slash on either side is
+// not a difference; nothing else is normalized.
+//
+// The trailing slash is tolerated here and not on the RFC 9207 `iss`
+// comparison because the two sides differ in origin. The requested issuer is
+// an operator-configured string, and an operator who writes the trailing
+// slash means the same server. The `iss` value comes from the authorization
+// server itself, which must send the identifier it publishes.
+func verifyIssuerIdentity(requested, advertised string) error {
+	if advertised == "" {
+		return fmt.Errorf("AS metadata for %q carries no issuer (RFC 8414 §3.3)", requested)
+	}
+	if strings.TrimSuffix(advertised, "/") != strings.TrimSuffix(requested, "/") {
+		return fmt.Errorf("AS metadata issuer mismatch: fetched for %q but the document reports %q (RFC 8414 §3.3)", requested, advertised)
+	}
+	return nil
 }
 
 // fetchMetadata fetches metadata from a specific URL.
@@ -210,11 +251,17 @@ func (c *Client) cacheMetadata(issuer string, metadata *Metadata) {
 		"token_endpoint", metadata.TokenEndpoint)
 }
 
-// ExchangeCode exchanges an authorization code for tokens. clientSecret is
-// empty for public clients (CIMD, or DCR registrations with
+// ExchangeCode exchanges an authorization code for tokens.
+//
+// clientSecret is empty for public clients (CIMD, or DCR registrations with
 // token_endpoint_auth_method "none"); when set it is sent as
 // client_secret_post, which every AS that issues secrets via DCR accepts.
-func (c *Client) ExchangeCode(ctx context.Context, tokenEndpoint, code, redirectURI, clientID, clientSecret, codeVerifier string) (*Token, error) {
+//
+// resource is the canonical URI of the MCP server the token is for. MCP
+// 2026-07-28 requires the RFC 8707 `resource` parameter on the token request
+// regardless of whether the authorization server supports it, so it is sent
+// whenever the caller supplies one.
+func (c *Client) ExchangeCode(ctx context.Context, tokenEndpoint, code, redirectURI, clientID, clientSecret, codeVerifier, resource string) (*Token, error) {
 	data := url.Values{
 		"grant_type":    {"authorization_code"},
 		"code":          {code},
@@ -224,6 +271,9 @@ func (c *Client) ExchangeCode(ctx context.Context, tokenEndpoint, code, redirect
 	}
 	if clientSecret != "" {
 		data.Set(FormFieldClientSecret, clientSecret)
+	}
+	if resource != "" {
+		data.Set("resource", resource)
 	}
 
 	return c.doTokenRequest(ctx, tokenEndpoint, data)
@@ -336,26 +386,61 @@ func (c *Client) doTokenRequest(ctx context.Context, tokenEndpoint string, data 
 	return &token, nil
 }
 
+// AuthorizationRequest carries the parameters of an OAuth authorization
+// request. The fields are grouped in a struct because several of them are
+// URLs that are easy to transpose in a positional argument list.
+type AuthorizationRequest struct {
+	// AuthorizationEndpoint is the authorization endpoint of the AS.
+	AuthorizationEndpoint string
+
+	// ClientID identifies the client. Muster uses its CIMD URL.
+	ClientID string
+
+	// RedirectURI is where the AS returns the authorization response.
+	RedirectURI string
+
+	// State is the opaque CSRF value returned on the authorization response.
+	State string
+
+	// Scope is the space-separated scope list, optional.
+	Scope string
+
+	// Resource is the canonical URI of the MCP server the token is for
+	// (RFC 8707). Empty omits the parameter.
+	Resource string
+
+	// PKCE holds the code challenge, optional.
+	PKCE *PKCEChallenge
+}
+
 // BuildAuthorizationURL constructs an OAuth authorization URL.
-func (c *Client) BuildAuthorizationURL(authEndpoint, clientID, redirectURI, state, scope string, pkce *PKCEChallenge) (string, error) {
-	authURL, err := url.Parse(authEndpoint)
+//
+// MCP 2026-07-28 requires the RFC 8707 `resource` parameter on the
+// authorization request regardless of whether the authorization server
+// supports it, so it is sent whenever the caller supplies one.
+func (c *Client) BuildAuthorizationURL(request AuthorizationRequest) (string, error) {
+	authURL, err := url.Parse(request.AuthorizationEndpoint)
 	if err != nil {
 		return "", fmt.Errorf("invalid authorization endpoint: %w", err)
 	}
 
 	query := authURL.Query()
 	query.Set("response_type", "code")
-	query.Set("client_id", clientID)
-	query.Set("redirect_uri", redirectURI)
-	query.Set("state", state)
+	query.Set("client_id", request.ClientID)
+	query.Set("redirect_uri", request.RedirectURI)
+	query.Set("state", request.State)
 
-	if scope != "" {
-		query.Set("scope", scope)
+	if request.Scope != "" {
+		query.Set("scope", request.Scope)
 	}
 
-	if pkce != nil {
-		query.Set("code_challenge", pkce.CodeChallenge)
-		query.Set("code_challenge_method", pkce.CodeChallengeMethod)
+	if request.Resource != "" {
+		query.Set("resource", request.Resource)
+	}
+
+	if request.PKCE != nil {
+		query.Set("code_challenge", request.PKCE.CodeChallenge)
+		query.Set("code_challenge_method", request.PKCE.CodeChallengeMethod)
 	}
 
 	authURL.RawQuery = query.Encode()
