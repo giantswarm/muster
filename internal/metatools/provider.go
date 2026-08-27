@@ -157,6 +157,42 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 			Args:        []api.ArgMetadata{},
 		},
 		{
+			Name:        "filter_resources",
+			Description: "Filter aggregated resources by URI pattern and/or source server. Resource URIs carrying a scheme are exposed unprefixed, so the \"server\" argument -- not the URI -- is the reliable way to scope to one server",
+			Args: []api.ArgMetadata{
+				{
+					Name:        "pattern",
+					Type:        api.ArgTypeString,
+					Required:    false,
+					Description: "Glob pattern to match against the resource URI (e.g. \"board://*\")",
+				},
+				{
+					Name:        ArgServer,
+					Type:        api.ArgTypeString,
+					Required:    false,
+					Description: "Only return resources exposed by this server",
+				},
+				{
+					Name:        "case_sensitive",
+					Type:        api.ArgTypeBoolean,
+					Required:    false,
+					Description: "Match case-sensitively (default false)",
+				},
+				{
+					Name:        "limit",
+					Type:        api.ArgTypeNumber,
+					Required:    false,
+					Description: "Maximum number of results to return per page",
+				},
+				{
+					Name:        "offset",
+					Type:        api.ArgTypeNumber,
+					Required:    false,
+					Description: "Number of matches to skip before the returned page",
+				},
+			},
+		},
+		{
 			Name:        "describe_resource",
 			Description: "Get detailed information about a specific resource",
 			Args: []api.ArgMetadata{
@@ -167,7 +203,7 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 					Description: "URI of the resource to describe",
 				},
 				{
-					Name:        "server",
+					Name:        ArgServer,
 					Type:        api.ArgTypeString,
 					Required:    false,
 					Description: "Server to describe the resource from. Only needed when several servers expose the same URI; list_resources reports the server for every entry",
@@ -185,7 +221,7 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 					Description: "URI of the resource to retrieve",
 				},
 				{
-					Name:        "server",
+					Name:        ArgServer,
 					Type:        api.ArgTypeString,
 					Required:    false,
 					Description: "Server to read from. Only needed when several servers expose the same URI; list_resources reports the server for every entry",
@@ -198,6 +234,42 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 			Name:        "list_prompts",
 			Description: "List all available prompts from connected MCP servers",
 			Args:        []api.ArgMetadata{},
+		},
+		{
+			Name:        "filter_prompts",
+			Description: "Filter aggregated prompts by name pattern and/or source server. Prompt names are prefixed \"x_<server>_<name>\", so a pattern scopes to one server exactly as it does for tools",
+			Args: []api.ArgMetadata{
+				{
+					Name:        "pattern",
+					Type:        api.ArgTypeString,
+					Required:    false,
+					Description: "Glob pattern to match against the prompt name (e.g. \"x_myserver_*\")",
+				},
+				{
+					Name:        ArgServer,
+					Type:        api.ArgTypeString,
+					Required:    false,
+					Description: "Only return prompts exposed by this server",
+				},
+				{
+					Name:        "case_sensitive",
+					Type:        api.ArgTypeBoolean,
+					Required:    false,
+					Description: "Match case-sensitively (default false)",
+				},
+				{
+					Name:        "limit",
+					Type:        api.ArgTypeNumber,
+					Required:    false,
+					Description: "Maximum number of results to return per page",
+				},
+				{
+					Name:        "offset",
+					Type:        api.ArgTypeNumber,
+					Required:    false,
+					Description: "Number of matches to skip before the returned page",
+				},
+			},
 		},
 		{
 			Name:        "describe_prompt",

@@ -268,7 +268,7 @@ func (f *Formatters) FormatResourceDetailJSON(origin api.ResourceOrigin) (string
 		api.FieldName:            resource.Name,
 		api.SchemaKeyDescription: resource.Description,
 		api.FieldMimeType:        resource.MIMEType,
-		"server":                 origin.Server,
+		ArgServer:                origin.Server,
 	}
 
 	jsonData, err := json.MarshalIndent(resourceInfo, "", "  ")

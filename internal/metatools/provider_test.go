@@ -17,8 +17,8 @@ func TestProvider_GetTools(t *testing.T) {
 	provider := NewProvider()
 	tools := provider.GetTools()
 
-	// Verify we have all 11 meta-tools
-	assert.Len(t, tools, 11, "Expected 11 meta-tools")
+	// Verify we have all 13 meta-tools
+	assert.Len(t, tools, 13, "Expected 13 meta-tools")
 
 	// Create a map for easy lookup
 	toolMap := make(map[string]bool)
@@ -34,9 +34,11 @@ func TestProvider_GetTools(t *testing.T) {
 		"filter_tools",
 		"call_tool",
 		"list_resources",
+		"filter_resources",
 		"describe_resource",
 		"get_resource",
 		"list_prompts",
+		"filter_prompts",
 		"describe_prompt",
 		"get_prompt",
 	}

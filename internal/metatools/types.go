@@ -114,6 +114,68 @@ type FilterCriteria struct {
 	Offset            int               `json:"offset"`
 }
 
+// ArgServer is the argument name selecting which MCP server a resource or
+// prompt request applies to, and the response field naming the server an
+// aggregated capability came from. Resource URIs carrying a scheme are exposed
+// unprefixed, so this is the only way to express "this server's resources".
+const ArgServer = "server"
+
+// ResourceInfo is one entry in a filter_resources response.
+//
+// Server is always populated: resource URIs carrying a scheme are exposed
+// unprefixed, so unlike a tool or prompt name the URI does not identify where
+// the resource came from, and two servers can expose the same one.
+type ResourceInfo struct {
+	URI         string `json:"uri"`
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+	MIMEType    string `json:"mimeType,omitempty"`
+	Server      string `json:"server"`
+}
+
+// FilterResourcesResponse is the response structure from the filter_resources
+// meta-tool, mirroring FilterToolsResponse.
+type FilterResourcesResponse struct {
+	Filters        CapabilityFilterCriteria `json:"filters"`
+	TotalResources int                      `json:"total_resources"`
+	FilteredCount  int                      `json:"filtered_count"`
+	Total          int                      `json:"total"`
+	Truncated      bool                     `json:"truncated"`
+	Resources      []ResourceInfo           `json:"resources"`
+}
+
+// PromptInfo is one entry in a filter_prompts response.
+//
+// Prompt names are prefixed "x_<server>_<name>", so unlike resources they can
+// be scoped to a server by pattern alone, exactly as tool names are.
+type PromptInfo struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
+// FilterPromptsResponse is the response structure from the filter_prompts
+// meta-tool, mirroring FilterToolsResponse.
+type FilterPromptsResponse struct {
+	Filters       CapabilityFilterCriteria `json:"filters"`
+	TotalPrompts  int                      `json:"total_prompts"`
+	FilteredCount int                      `json:"filtered_count"`
+	Total         int                      `json:"total"`
+	Truncated     bool                     `json:"truncated"`
+	Prompts       []PromptInfo             `json:"prompts"`
+}
+
+// CapabilityFilterCriteria describes the filter parameters applied by
+// filter_resources and filter_prompts. It is deliberately narrower than
+// FilterCriteria: neither relevance ranking nor label facets apply to
+// resources or prompts.
+type CapabilityFilterCriteria struct {
+	Pattern       string `json:"pattern,omitempty"`
+	Server        string `json:"server,omitempty"`
+	CaseSensitive bool   `json:"case_sensitive"`
+	Limit         int    `json:"limit"`
+	Offset        int    `json:"offset"`
+}
+
 // DescribeToolResponse is the response structure from the describe_tool meta-tool.
 type DescribeToolResponse struct {
 	Name        string      `json:"name"`

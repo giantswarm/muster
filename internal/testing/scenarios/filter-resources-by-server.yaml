@@ -1,0 +1,157 @@
+name: "filter-resources-by-server"
+description: "filter_resources scopes aggregated resources by source server and URI pattern -- the only reliable per-server scoping for resources, whose scheme'd URIs are exposed unprefixed -- and core_mcpserver_list reports per-server resource and prompt counts alongside toolsCount (#1096)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["metatools", "filter_resources", "resources", "attribution", "counts"]
+timeout: "5m"
+
+# Acceptance for the discovery half of #1096:
+#
+# Given: Two servers expose resources, one of them sharing a URI with the other.
+# When:  filter_resources scopes by server and by URI pattern.
+# Then:  Each server's own resources come back, the shared URI appears once per
+#        server rather than collapsing, and core_mcpserver_list carries the
+#        per-server resource count that previously only existed for tools.
+
+pre_configuration:
+  mcp_servers:
+    - name: "alpha"
+      config:
+        tools:
+          - name: "ping"
+            description: "Keeps alpha in the tool catalogue."
+            responses: [{ response: { ok: true } }]
+        resources:
+          - uri: "board://schema"
+            name: "Board schema (alpha)"
+            description: "Schema served by alpha."
+            text: "alpha-schema"
+          - uri: "board://overview"
+            name: "Board overview (alpha)"
+            description: "Overview served by alpha."
+            text: "alpha-overview"
+          - uri: "notes://alpha"
+            name: "Notes (alpha)"
+            description: "Notes served by alpha."
+            text: "alpha-notes"
+    - name: "beta"
+      config:
+        tools:
+          - name: "ping"
+            description: "Keeps beta in the tool catalogue."
+            responses: [{ response: { ok: true } }]
+        resources:
+          - uri: "board://schema"
+            name: "Board schema (beta)"
+            description: "Schema served by beta."
+            text: "beta-schema"
+
+steps:
+  - id: "wait-for-mock-servers"
+    description: "Both servers must be connected before filtering"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["alpha", "beta"]
+
+  # Four resources across two servers; the shared URI counts once per server.
+  - id: "unfiltered-sees-every-resource"
+    description: "Without filters every aggregated resource is reported"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_resources"
+      arguments:
+        limit: 50
+    expected:
+      success: true
+      json_path:
+        total_resources: 4
+        total: 4
+        truncated: false
+
+  # A URI pattern cannot separate the two servers here -- both expose
+  # board://schema -- which is exactly why the server filter exists.
+  - id: "server-filter-scopes-to-alpha"
+    description: "filter_resources scopes to one server's resources"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_resources"
+      arguments:
+        server: "alpha"
+        limit: 50
+    expected:
+      success: true
+      json_path:
+        total: 3
+      contains: ["Board schema (alpha)", "notes://alpha"]
+      not_contains: ["Board schema (beta)"]
+
+  - id: "server-filter-scopes-to-beta"
+    description: "The colliding server is reported independently, not collapsed"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_resources"
+      arguments:
+        server: "beta"
+        limit: 50
+    expected:
+      success: true
+      json_path:
+        total: 1
+      contains: ["Board schema (beta)"]
+      not_contains: ["Board schema (alpha)"]
+
+  - id: "pattern-filter-globs-the-uri"
+    description: "A URI glob narrows across servers"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_resources"
+      arguments:
+        pattern: "board://*"
+        limit: 50
+    expected:
+      success: true
+      json_path:
+        total: 3
+      not_contains: ["notes://alpha"]
+
+  - id: "server-and-pattern-combine"
+    description: "Server and pattern filters intersect"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_resources"
+      arguments:
+        server: "alpha"
+        pattern: "board://*"
+        limit: 50
+    expected:
+      success: true
+      json_path:
+        total: 2
+      not_contains: ["notes://alpha"]
+
+  - id: "paging-reports-more-matches"
+    description: "limit/offset page the matches and flag remaining ones"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_resources"
+      arguments:
+        server: "alpha"
+        limit: 2
+        offset: 0
+    expected:
+      success: true
+      json_path:
+        total: 3
+        filtered_count: 2
+        truncated: true
+
+  - id: "counts-are-reported-per-server"
+    description: "core_mcpserver_list carries resource counts, not just toolsCount"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["resourcesCount"]
