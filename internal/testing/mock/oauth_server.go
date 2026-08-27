@@ -123,6 +123,12 @@ type OAuthServerConfig struct {
 	// nor a DCR-registered client — mimicking DCR-only authorization servers
 	// that treat unknown client_ids (e.g. CIMD URLs) as unregistered.
 	RequireRegisteredClient bool
+
+	// RejectRegistrationScope makes the registration endpoint reject RFC 7591
+	// requests that carry a scope member with invalid_client_metadata —
+	// mimicking authorization servers (e.g. Miro's) that reject scopes they
+	// don't know instead of ignoring them.
+	RejectRegistrationScope bool
 }
 
 // OAuthErrorSimulation allows simulating error conditions
@@ -669,6 +675,7 @@ func (s *OAuthServer) handleRegister(w http.ResponseWriter, r *http.Request) {
 		RedirectURIs    []string `json:"redirect_uris"`
 		ApplicationType string   `json:"application_type"`
 		ClientID        string   `json:"client_id"`
+		Scope           string   `json:"scope"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -687,6 +694,17 @@ func (s *OAuthServer) handleRegister(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]string{
 			pkgoauth.JSONFieldError:            "invalid_client_metadata",
 			pkgoauth.JSONFieldErrorDescription: "client_id must not be present on registration requests",
+		})
+		return
+	}
+
+	// Miro-style strictness: any scope member is rejected as unknown.
+	if s.config.RejectRegistrationScope && req.Scope != "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			pkgoauth.JSONFieldError:            "invalid_client_metadata",
+			pkgoauth.JSONFieldErrorDescription: "Requested scopes are not valid: " + req.Scope,
 		})
 		return
 	}

@@ -37,14 +37,17 @@
 //  2. DCR: otherwise, when the AS advertises a registration_endpoint, muster
 //     registers itself once via RFC 7591 Dynamic Client Registration
 //     (requesting token_endpoint_auth_method "none" and sending
-//     application_type "web" per SEP-837) and uses the issued credentials.
-//     Credentials are keyed by issuer and stored in the
+//     application_type "web" per SEP-837, with no scope — RFC 7591 makes it
+//     optional and ASes reject scopes they don't know) and uses the issued
+//     credentials. Credentials are keyed by issuer and stored in the
 //     ClientCredentialStore (in-memory by default, Valkey-backed when
 //     configured) — they are never reused against a different issuer.
 //  3. Fallback: when the AS advertises neither, the CIMD URL is sent anyway
 //     (some servers resolve CIMDs without advertising the flag). The auth
 //     challenge marks this case ("cimd-fallback") so front-ends can warn
-//     that the AS may reject the sign-in.
+//     that the AS may reject the sign-in. A rejected registration falls
+//     back the same way but is marked "dcr-failed", with the AS's rejection
+//     carried in the challenge message.
 //
 // The resolved client_id (and secret, if any) is used consistently across
 // the authorization request, the authorization-code exchange, and mcp-go's

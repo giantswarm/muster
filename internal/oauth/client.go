@@ -36,6 +36,13 @@ const (
 	// resolve CIMDs without advertising the flag), but the AS may reject the
 	// flow with a client-not-registered error.
 	ClientIDMethodCIMDFallback = "cimd-fallback"
+
+	// ClientIDMethodDCRFailed: the AS advertises a registration endpoint but
+	// rejected muster's RFC 7591 registration request. Muster sends the CIMD
+	// URL anyway, like the plain fallback, but the challenge carries the
+	// rejection so front-ends can show the real reason instead of claiming
+	// the AS supports neither mechanism.
+	ClientIDMethodDCRFailed = "dcr-failed"
 )
 
 // resolvedClient is the client identification chosen for one issuer.
@@ -43,6 +50,10 @@ type resolvedClient struct {
 	ClientID     string
 	ClientSecret string
 	Method       string
+
+	// RegistrationError is the RFC 7591 rejection that led to
+	// ClientIDMethodDCRFailed; nil for every other method.
+	RegistrationError error
 }
 
 // Client handles OAuth 2.1 flows for remote MCP server authentication.
@@ -177,7 +188,7 @@ func (c *Client) resolveClient(ctx context.Context, issuer string, metadata *pkg
 		if err != nil {
 			logging.Warn("OAuth", "Dynamic client registration with %s failed, falling back to CIMD URL as client_id: %v",
 				issuer, err)
-			return &resolvedClient{ClientID: c.clientID, Method: ClientIDMethodCIMDFallback}
+			return &resolvedClient{ClientID: c.clientID, Method: ClientIDMethodDCRFailed, RegistrationError: err}
 		}
 
 		creds := &pkgoauth.ClientCredentials{
@@ -202,13 +213,13 @@ func (c *Client) resolveClient(ctx context.Context, issuer string, metadata *pkg
 }
 
 // GenerateAuthURL creates an OAuth authorization URL for user authentication.
-// Returns the URL and the client identification method used (one of the
-// ClientIDMethod* constants). The code verifier is stored with the state for
-// later retrieval.
-func (c *Client) GenerateAuthURL(ctx context.Context, sessionID, userID, serverName, issuer, scope string) (string, string, error) {
+// Returns the URL and the resolved client identification (its Method is one
+// of the ClientIDMethod* constants). The code verifier is stored with the
+// state for later retrieval.
+func (c *Client) GenerateAuthURL(ctx context.Context, sessionID, userID, serverName, issuer, scope string) (string, *resolvedClient, error) {
 	metadata, err := c.oauthClient.DiscoverMetadata(ctx, issuer)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to fetch OAuth metadata: %w", err)
+		return "", nil, fmt.Errorf("failed to fetch OAuth metadata: %w", err)
 	}
 
 	// MCP 2025-11-25 §"Authorization Code Protection" requires refusing the
@@ -216,7 +227,7 @@ func (c *Client) GenerateAuthURL(ctx context.Context, sessionID, userID, serverN
 	// doesn't list it may silently ignore code_challenge_method=S256 and
 	// produce confusing token-endpoint errors later.
 	if !metadata.SupportsS256PKCE() {
-		return "", "", fmt.Errorf("authorization server %q does not advertise S256 PKCE in code_challenge_methods_supported (MCP 2025-11-25 requires refusal)", issuer)
+		return "", nil, fmt.Errorf("authorization server %q does not advertise S256 PKCE in code_challenge_methods_supported (MCP 2025-11-25 requires refusal)", issuer)
 	}
 
 	// Resolve the client identification for this issuer, registering via
@@ -225,7 +236,7 @@ func (c *Client) GenerateAuthURL(ctx context.Context, sessionID, userID, serverN
 
 	pkce, err := pkgoauth.GeneratePKCE()
 	if err != nil {
-		return "", "", fmt.Errorf("failed to generate PKCE: %w", err)
+		return "", nil, fmt.Errorf("failed to generate PKCE: %w", err)
 	}
 
 	// The upstream authorization URL is stored with the state in a single
@@ -245,13 +256,13 @@ func (c *Client) GenerateAuthURL(ctx context.Context, sessionID, userID, serverN
 			)
 		})
 	if err != nil {
-		return "", "", fmt.Errorf("failed to generate state: %w", err)
+		return "", nil, fmt.Errorf("failed to generate state: %w", err)
 	}
 
 	logging.Debug("OAuth", "Generated auth URL for session=%s server=%s issuer=%s clientIdMethod=%s",
 		logging.TruncateIdentifier(sessionID), serverName, issuer, resolved.Method)
 
-	return c.GetStartURL(state), resolved.Method, nil
+	return c.GetStartURL(state), resolved, nil
 }
 
 // GetStartURL returns the muster-hosted start URL for an encoded state. The
@@ -341,9 +352,16 @@ func (c *Client) GetClientMetadata() *pkgoauth.ClientMetadata {
 // PKCE, and staying secret-free keeps the DCR path as close to the CIMD path
 // as the AS allows. ASes that insist on issuing a secret still can; the
 // response's client_secret is honored either way.
+//
+// scope is omitted as well: RFC 7591 makes it optional, and ASes reject
+// registrations naming scopes they don't know (Miro answers
+// invalid_client_metadata for the dex-oriented CIMD scopes). The
+// authorization request carries the per-server scope discovered from the
+// protected-resource metadata, so registration never needs one.
 func (c *Client) GetRegistrationMetadata() *pkgoauth.ClientMetadata {
 	metadata := c.GetClientMetadata()
 	metadata.ClientID = ""
+	metadata.Scope = ""
 	return metadata
 }
 
