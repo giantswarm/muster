@@ -30,8 +30,8 @@ pre_configuration:
         type: "sse"
         # The SSE server only exists as a probe target; SSE tool aggregation
         # is not reliable yet (see mcpserver-sse-tool-call-lifecycle.yaml),
-        # so readiness must not gate on its tools becoming available.
-        expect_tools: false
+        # so readiness must not gate on this server at all (expect_ready: false).
+        expect_ready: false
         tools:
           - name: "probe_target_tool"
             description: "Marker tool so the mock server has something to serve"
