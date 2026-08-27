@@ -21,6 +21,24 @@ type ToolConfig struct {
 	EchoHandshake bool `yaml:"echo_handshake,omitempty"`
 }
 
+// ResourceConfig defines a static MCP resource served by the mock server.
+//
+// Resources exist in the mock so scenarios can exercise the aggregator's
+// resource paths -- notably that a URI carrying a scheme is exposed unprefixed,
+// which lets two servers advertise the same URI.
+type ResourceConfig struct {
+	// URI is the resource identifier, e.g. "board://schema"
+	URI string `yaml:"uri"`
+	// Name is the human-readable resource name
+	Name string `yaml:"name"`
+	// Description describes what the resource holds
+	Description string `yaml:"description"`
+	// MIMEType of the resource contents, defaulting to text/plain
+	MIMEType string `yaml:"mime_type"`
+	// Text is the resource body returned on read
+	Text string `yaml:"text"`
+}
+
 // ToolResponse defines a conditional response for a mock tool
 type ToolResponse struct {
 	// Condition defines arg matching for this response (optional)

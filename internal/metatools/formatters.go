@@ -139,11 +139,11 @@ func (f *Formatters) FormatToolsListWithAuthJSON(tools []mcp.Tool, serversRequir
 //   - resources: Slice of resources to format
 //
 // Returns:
-//   - JSON string containing array of resource objects with URI, name, description, and MIME type
+//   - JSON string containing array of resource objects with URI, name, description, MIME type, and source server
 //   - error: JSON marshaling errors (should be rare)
 //
 // If no resources are available, returns a simple message string.
-func (f *Formatters) FormatResourcesListJSON(resources []mcp.Resource) (string, error) {
+func (f *Formatters) FormatResourcesListJSON(resources []api.ResourceOrigin) (string, error) {
 	if len(resources) == 0 {
 		return "No resources available", nil
 	}
@@ -153,10 +153,12 @@ func (f *Formatters) FormatResourcesListJSON(resources []mcp.Resource) (string, 
 		Name        string `json:"name"`
 		Description string `json:"description,omitempty"`
 		MIMEType    string `json:"mimeType,omitempty"`
+		Server      string `json:"server,omitempty"`
 	}
 
 	resourceList := make([]ResourceInfo, len(resources))
-	for i, resource := range resources {
+	for i, origin := range resources {
+		resource := origin.Resource
 		desc := resource.Description
 		if desc == "" {
 			desc = resource.Name
@@ -166,6 +168,7 @@ func (f *Formatters) FormatResourcesListJSON(resources []mcp.Resource) (string, 
 			Name:        resource.Name,
 			Description: desc,
 			MIMEType:    resource.MIMEType,
+			Server:      origin.Server,
 		}
 	}
 
@@ -258,12 +261,14 @@ func (f *Formatters) FormatToolDetailJSON(tool mcp.Tool) (string, error) {
 // Returns:
 //   - JSON string containing complete resource information
 //   - error: JSON marshaling errors (should be rare)
-func (f *Formatters) FormatResourceDetailJSON(resource mcp.Resource) (string, error) {
+func (f *Formatters) FormatResourceDetailJSON(origin api.ResourceOrigin) (string, error) {
+	resource := origin.Resource
 	resourceInfo := map[string]interface{}{
 		"uri":                    resource.URI,
 		api.FieldName:            resource.Name,
 		api.SchemaKeyDescription: resource.Description,
 		api.FieldMimeType:        resource.MIMEType,
+		"server":                 origin.Server,
 	}
 
 	jsonData, err := json.MarshalIndent(resourceInfo, "", "  ")
@@ -341,13 +346,14 @@ func (f *Formatters) FindTool(tools []mcp.Tool, name string) *mcp.Tool {
 //   - Pointer to the found resource, or nil if not found
 //
 // The search is case-sensitive and requires exact URI matching.
-func (f *Formatters) FindResource(resources []mcp.Resource, uri string) *mcp.Resource {
-	for _, resource := range resources {
-		if resource.URI == uri {
-			return &resource
+func (f *Formatters) FindResource(resources []api.ResourceOrigin, uri string) []api.ResourceOrigin {
+	var matches []api.ResourceOrigin
+	for _, origin := range resources {
+		if origin.Resource.URI == uri {
+			matches = append(matches, origin)
 		}
 	}
-	return nil
+	return matches
 }
 
 // FindPrompt searches for a prompt by name in the provided prompt list.

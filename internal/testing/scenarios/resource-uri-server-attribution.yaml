@@ -1,0 +1,156 @@
+name: "resource-uri-server-attribution"
+description: "Resource URIs carrying a scheme are exposed unprefixed, so two servers can advertise the same URI: list_resources attributes every entry to its source server, and get_resource requires a server selector instead of silently returning whichever server registered last (#1096)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["metatools", "list_resources", "get_resource", "describe_resource", "resources", "attribution", "collision"]
+timeout: "5m"
+
+# Acceptance for #1096:
+#
+# Given: Two servers each expose a resource at the identical URI "board://schema".
+#        ExposedResourceURI passes scheme'd URIs through unprefixed, so unlike
+#        tool names these two do NOT become distinct exposed identifiers.
+# When:  The aggregated resources are listed and read.
+# Then:  The listing names the source server for each entry, an unqualified read
+#        reports the ambiguity, and a server-qualified read returns that
+#        server's own content.
+#
+# Before the fix a single URI-keyed map held one provider, so the second
+# registration overwrote the first and every read returned boardsb's content as
+# a successful response -- the wrong board, with no error.
+
+pre_configuration:
+  mcp_servers:
+    - name: "boardsa"
+      config:
+        tools:
+          - name: "ping"
+            description: "Keeps boardsa present in the tool catalogue."
+            responses: [{ response: { ok: true } }]
+        resources:
+          - uri: "board://schema"
+            name: "Board schema (boardsa)"
+            description: "Field schema served by boardsa."
+            mime_type: "text/plain"
+            text: "schema-body-from-boardsa"
+          - uri: "boardsa-only://overview"
+            name: "Board overview (boardsa)"
+            description: "Only boardsa exposes this URI."
+            mime_type: "text/plain"
+            text: "overview-body-from-boardsa"
+    - name: "boardsb"
+      config:
+        tools:
+          - name: "ping"
+            description: "Keeps boardsb present in the tool catalogue."
+            responses: [{ response: { ok: true } }]
+        resources:
+          - uri: "board://schema"
+            name: "Board schema (boardsb)"
+            description: "Field schema served by boardsb."
+            mime_type: "text/plain"
+            text: "schema-body-from-boardsb"
+
+steps:
+  - id: "wait-for-mock-servers"
+    description: "Both resource-exposing servers must be connected before listing"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["boardsa", "boardsb"]
+
+  # The URI alone cannot identify the origin, so the listing has to carry it.
+  - id: "listing-attributes-each-resource"
+    description: "list_resources reports the source server for every entry"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "list_resources"
+      arguments: {}
+    expected:
+      success: true
+      contains:
+        - "board://schema"
+        - "boardsa-only://overview"
+        - "boardsa"
+        - "boardsb"
+
+  # The core of the bug: an unqualified read used to succeed with one server's
+  # content chosen arbitrarily.
+  - id: "ambiguous-read-is-refused"
+    description: "get_resource without a server names the candidates instead of guessing"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "get_resource"
+      arguments:
+        uri: "board://schema"
+    expected:
+      success: false
+      error_contains:
+        - "boardsa"
+        - "boardsb"
+        - "server"
+
+  - id: "qualified-read-returns-boardsa"
+    description: "A server-qualified read returns boardsa's own content"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "get_resource"
+      arguments:
+        uri: "board://schema"
+        server: "boardsa"
+    expected:
+      success: true
+      contains: ["schema-body-from-boardsa"]
+      not_contains: ["schema-body-from-boardsb"]
+
+  - id: "qualified-read-returns-boardsb"
+    description: "The colliding server stays reachable rather than being overwritten"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "get_resource"
+      arguments:
+        uri: "board://schema"
+        server: "boardsb"
+    expected:
+      success: true
+      contains: ["schema-body-from-boardsb"]
+      not_contains: ["schema-body-from-boardsa"]
+
+  # A URI only one server exposes needs no selector.
+  - id: "unambiguous-read-needs-no-server"
+    description: "A URI exposed by a single server reads without a selector"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "get_resource"
+      arguments:
+        uri: "boardsa-only://overview"
+    expected:
+      success: true
+      contains: ["overview-body-from-boardsa"]
+
+  - id: "describe-reports-the-ambiguity"
+    description: "describe_resource refuses a colliding URI the same way get_resource does"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "describe_resource"
+      arguments:
+        uri: "board://schema"
+    expected:
+      success: false
+      error_contains:
+        - "boardsa"
+        - "boardsb"
+
+  - id: "describe-qualified-reports-the-server"
+    description: "A server-qualified describe reports that server as the origin"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "describe_resource"
+      arguments:
+        uri: "board://schema"
+        server: "boardsb"
+    expected:
+      success: true
+      contains: ["boardsb"]

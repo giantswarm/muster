@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/giantswarm/muster/internal/api"
+
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -49,14 +51,14 @@ func TestFormatters_FormatResourcesListJSON(t *testing.T) {
 	formatters := NewFormatters()
 
 	t.Run("empty resources list", func(t *testing.T) {
-		result, err := formatters.FormatResourcesListJSON([]mcp.Resource{})
+		result, err := formatters.FormatResourcesListJSON([]api.ResourceOrigin{})
 		require.NoError(t, err)
 		assert.Equal(t, "No resources available", result)
 	})
 
 	t.Run("with resources", func(t *testing.T) {
-		resources := []mcp.Resource{
-			{URI: "file://test.txt", Name: "test.txt", Description: "Test file", MIMEType: "text/plain"},
+		resources := []api.ResourceOrigin{
+			{Resource: mcp.Resource{URI: "file://test.txt", Name: "test.txt", Description: "Test file", MIMEType: "text/plain"}, Server: "files"},
 		}
 
 		result, err := formatters.FormatResourcesListJSON(resources)
@@ -71,11 +73,12 @@ func TestFormatters_FormatResourcesListJSON(t *testing.T) {
 		assert.Equal(t, "test.txt", parsed[0]["name"])
 		assert.Equal(t, "Test file", parsed[0]["description"])
 		assert.Equal(t, "text/plain", parsed[0]["mimeType"])
+		assert.Equal(t, "files", parsed[0]["server"])
 	})
 
 	t.Run("uses name as description fallback", func(t *testing.T) {
-		resources := []mcp.Resource{
-			{URI: "file://test.txt", Name: "test.txt", Description: ""},
+		resources := []api.ResourceOrigin{
+			{Resource: mcp.Resource{URI: "file://test.txt", Name: "test.txt", Description: ""}, Server: "files"},
 		}
 
 		result, err := formatters.FormatResourcesListJSON(resources)
@@ -149,11 +152,14 @@ func TestFormatters_FormatToolDetailJSON(t *testing.T) {
 func TestFormatters_FormatResourceDetailJSON(t *testing.T) {
 	formatters := NewFormatters()
 
-	resource := mcp.Resource{
-		URI:         "file://test.txt",
-		Name:        "test.txt",
-		Description: "Test file",
-		MIMEType:    "text/plain",
+	resource := api.ResourceOrigin{
+		Resource: mcp.Resource{
+			URI:         "file://test.txt",
+			Name:        "test.txt",
+			Description: "Test file",
+			MIMEType:    "text/plain",
+		},
+		Server: "files",
 	}
 
 	result, err := formatters.FormatResourceDetailJSON(resource)
@@ -246,20 +252,29 @@ func TestFormatters_FindTool(t *testing.T) {
 func TestFormatters_FindResource(t *testing.T) {
 	formatters := NewFormatters()
 
-	resources := []mcp.Resource{
-		{URI: "file://a.txt", Name: "a.txt"},
-		{URI: "file://b.txt", Name: "b.txt"},
+	resources := []api.ResourceOrigin{
+		{Resource: mcp.Resource{URI: "file://a.txt", Name: "a.txt"}, Server: "files"},
+		{Resource: mcp.Resource{URI: "file://b.txt", Name: "b.txt"}, Server: "files"},
+		{Resource: mcp.Resource{URI: "file://a.txt", Name: "a.txt"}, Server: "archive"},
 	}
 
 	t.Run("finds existing resource", func(t *testing.T) {
-		resource := formatters.FindResource(resources, "file://a.txt")
-		require.NotNil(t, resource)
-		assert.Equal(t, "file://a.txt", resource.URI)
+		matches := formatters.FindResource(resources, "file://b.txt")
+		require.Len(t, matches, 1)
+		assert.Equal(t, "file://b.txt", matches[0].Resource.URI)
+		assert.Equal(t, "files", matches[0].Server)
 	})
 
-	t.Run("returns nil for non-existent resource", func(t *testing.T) {
-		resource := formatters.FindResource(resources, "file://c.txt")
-		assert.Nil(t, resource)
+	t.Run("returns every server exposing the same URI", func(t *testing.T) {
+		matches := formatters.FindResource(resources, "file://a.txt")
+		require.Len(t, matches, 2, "a colliding URI must not collapse to one server")
+		assert.ElementsMatch(t, []string{"files", "archive"},
+			[]string{matches[0].Server, matches[1].Server})
+	})
+
+	t.Run("returns nothing for non-existent resource", func(t *testing.T) {
+		matches := formatters.FindResource(resources, "file://c.txt")
+		assert.Empty(t, matches)
 	})
 }
 

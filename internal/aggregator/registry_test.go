@@ -701,3 +701,104 @@ func TestServerRegistry_DeregisterRequestedAt(t *testing.T) {
 		require.False(t, exists)
 	})
 }
+
+// TestServerRegistry_ResolveResourceName covers the fact that resource URIs
+// carrying a scheme are exposed unprefixed, so two servers can advertise the
+// same URI. Before providers were tracked as a list, the second registration
+// overwrote the first and every read resolved to whichever server registered
+// last -- returning another server's content as a successful response.
+func TestServerRegistry_ResolveResourceName(t *testing.T) {
+	newRegistry := func() *ServerRegistry {
+		registry := NewServerRegistry("x")
+		registry.SetServerPrefix("boardsA", "boardsA")
+		registry.SetServerPrefix("boardsB", "boardsB")
+		return registry
+	}
+
+	t.Run("scheme'd URI is exposed unchanged", func(t *testing.T) {
+		registry := newRegistry()
+		assert.Equal(t, "board://schema", registry.ExposedResourceURI("boardsA", "board://schema"))
+	})
+
+	t.Run("schemeless URI is prefixed", func(t *testing.T) {
+		registry := newRegistry()
+		assert.Equal(t, "x_boardsA_notes", registry.ExposedResourceURI("boardsA", "notes"))
+	})
+
+	t.Run("unambiguous URI resolves to its server", func(t *testing.T) {
+		registry := newRegistry()
+		registry.ExposedResourceURI("boardsA", "board://schema")
+
+		server, original, err := registry.ResolveResourceName("board://schema")
+		require.NoError(t, err)
+		assert.Equal(t, "boardsA", server)
+		assert.Equal(t, "board://schema", original)
+	})
+
+	t.Run("colliding URI reports the ambiguity instead of guessing", func(t *testing.T) {
+		registry := newRegistry()
+		registry.ExposedResourceURI("boardsA", "board://schema")
+		registry.ExposedResourceURI("boardsB", "board://schema")
+
+		_, _, err := registry.ResolveResourceName("board://schema")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "boardsA")
+		assert.Contains(t, err.Error(), "boardsB")
+		assert.Contains(t, err.Error(), `"server" parameter is required`)
+	})
+
+	t.Run("colliding URI stays readable per server", func(t *testing.T) {
+		registry := newRegistry()
+		registry.ExposedResourceURI("boardsA", "board://schema")
+		registry.ExposedResourceURI("boardsB", "board://schema")
+
+		for _, server := range []string{"boardsA", "boardsB"} {
+			original, err := registry.ResolveResourceNameForServer("board://schema", server)
+			require.NoError(t, err, "server %s must remain reachable", server)
+			assert.Equal(t, "board://schema", original)
+		}
+	})
+
+	t.Run("re-registration is idempotent", func(t *testing.T) {
+		registry := newRegistry()
+		registry.ExposedResourceURI("boardsA", "board://schema")
+		registry.ExposedResourceURI("boardsA", "board://schema")
+
+		server, _, err := registry.ResolveResourceName("board://schema")
+		require.NoError(t, err, "re-registering one server must not look like a collision")
+		assert.Equal(t, "boardsA", server)
+	})
+
+	t.Run("unknown server is rejected", func(t *testing.T) {
+		registry := newRegistry()
+		registry.ExposedResourceURI("boardsA", "board://schema")
+
+		_, err := registry.ResolveResourceNameForServer("board://schema", "boardsB")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "boardsA")
+	})
+
+	t.Run("unknown URI is rejected", func(t *testing.T) {
+		registry := newRegistry()
+		_, _, err := registry.ResolveResourceName("board://missing")
+		assert.Error(t, err)
+	})
+
+	t.Run("a tool name is not a resource", func(t *testing.T) {
+		registry := newRegistry()
+		registry.ExposedToolName("boardsA", "list_items")
+
+		_, _, err := registry.ResolveResourceName("x_boardsA_list_items")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not a resource")
+	})
+
+	t.Run("GetResourceServerNames reports every provider", func(t *testing.T) {
+		registry := newRegistry()
+		registry.ExposedResourceURI("boardsB", "board://schema")
+		registry.ExposedResourceURI("boardsA", "board://schema")
+
+		assert.Equal(t, []string{"boardsA", "boardsB"}, registry.GetResourceServerNames("board://schema"))
+		assert.Nil(t, registry.GetResourceServerNames("board://missing"))
+	})
+}

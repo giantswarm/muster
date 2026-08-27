@@ -1699,7 +1699,7 @@ func (a *AggregatorServer) GetToolsForSession(ctx context.Context, sessionID str
 
 // GetResourcesForSession returns a session-specific view of all available resources.
 // For OAuth servers, resources are read from the CapabilityStore keyed by session ID.
-func (a *AggregatorServer) GetResourcesForSession(ctx context.Context, sessionID string) []mcp.Resource {
+func (a *AggregatorServer) GetResourcesForSession(ctx context.Context, sessionID string) []api.ResourceOrigin {
 	return a.registry.GetAllResourcesForSession(ctx, a.capabilityStore, sessionID)
 }
 
@@ -3170,7 +3170,7 @@ func (a *AggregatorServer) ListToolsForContext(ctx context.Context) []mcp.Tool {
 }
 
 // ListResourcesForContext returns all available resources for the current session context.
-func (a *AggregatorServer) ListResourcesForContext(ctx context.Context) []mcp.Resource {
+func (a *AggregatorServer) ListResourcesForContext(ctx context.Context) []api.ResourceOrigin {
 	sessionID := getSessionIDFromContext(ctx)
 	if sessionID == "" {
 		logging.Warn("Aggregator", "ListResourcesForContext: no session ID in context — returning empty")
@@ -3191,9 +3191,20 @@ func (a *AggregatorServer) ListPromptsForContext(ctx context.Context) []mcp.Prom
 
 // ReadResource retrieves the contents of a resource by URI.
 // This resolves the resource URI to its origin server and reads the content.
-func (a *AggregatorServer) ReadResource(ctx context.Context, uri string) (*mcp.ReadResourceResult, error) {
+//
+// serverName selects the backend when several servers expose the same URI --
+// resource URIs carrying a scheme are not prefixed, so collisions are possible.
+// Pass an empty string when the URI is unambiguous; an ambiguous URI without a
+// selector is an error rather than an arbitrary pick.
+func (a *AggregatorServer) ReadResource(ctx context.Context, uri, serverName string) (*mcp.ReadResourceResult, error) {
 	// Resolve the exposed URI back to server and original URI
-	serverName, originalURI, err := a.registry.ResolveResourceName(uri)
+	var originalURI string
+	var err error
+	if serverName != "" {
+		originalURI, err = a.registry.ResolveResourceNameForServer(uri, serverName)
+	} else {
+		serverName, originalURI, err = a.registry.ResolveResourceName(uri)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve resource URI: %w", err)
 	}

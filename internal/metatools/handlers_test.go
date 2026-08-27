@@ -15,7 +15,7 @@ import (
 // mockMetaToolsHandler implements api.MetaToolsHandler for testing
 type mockMetaToolsHandler struct {
 	tools     []mcp.Tool
-	resources []mcp.Resource
+	resources []api.ResourceOrigin
 	prompts   []mcp.Prompt
 
 	callToolResult *mcp.CallToolResult
@@ -39,11 +39,11 @@ func (m *mockMetaToolsHandler) CallTool(ctx context.Context, name string, args m
 	return m.callToolResult, nil
 }
 
-func (m *mockMetaToolsHandler) ListResources(ctx context.Context) ([]mcp.Resource, error) {
+func (m *mockMetaToolsHandler) ListResources(ctx context.Context) ([]api.ResourceOrigin, error) {
 	return m.resources, nil
 }
 
-func (m *mockMetaToolsHandler) GetResource(ctx context.Context, uri string) (*mcp.ReadResourceResult, error) {
+func (m *mockMetaToolsHandler) GetResource(ctx context.Context, uri, serverName string) (*mcp.ReadResourceResult, error) {
 	if m.getResourceError != nil {
 		return nil, m.getResourceError
 	}
@@ -381,8 +381,8 @@ func TestProvider_HandleListResources(t *testing.T) {
 	ctx := context.Background()
 
 	mock := &mockMetaToolsHandler{
-		resources: []mcp.Resource{
-			{URI: "file://test.txt", Name: "test.txt", Description: "Test file"},
+		resources: []api.ResourceOrigin{
+			{Resource: mcp.Resource{URI: "file://test.txt", Name: "test.txt", Description: "Test file"}, Server: "files"},
 		},
 	}
 	cleanup := registerMockHandler(mock)
@@ -399,6 +399,7 @@ func TestProvider_HandleListResources(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, parsed, 1)
 	assert.Equal(t, "file://test.txt", parsed[0]["uri"])
+	assert.Equal(t, "files", parsed[0]["server"], "listing must attribute each resource to its source server")
 }
 
 func TestProvider_HandleDescribeResource(t *testing.T) {
@@ -406,8 +407,8 @@ func TestProvider_HandleDescribeResource(t *testing.T) {
 	ctx := context.Background()
 
 	mock := &mockMetaToolsHandler{
-		resources: []mcp.Resource{
-			{URI: "file://test.txt", Name: "test.txt", Description: "Test file"},
+		resources: []api.ResourceOrigin{
+			{Resource: mcp.Resource{URI: "file://test.txt", Name: "test.txt", Description: "Test file"}, Server: "files"},
 		},
 	}
 	cleanup := registerMockHandler(mock)

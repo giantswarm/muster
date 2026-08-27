@@ -108,13 +108,17 @@ func TestAdapter_ListResources(t *testing.T) {
 	assert.Empty(t, resources)
 }
 
+// A read that could not be served reports an error. It previously returned an
+// empty-but-successful result, which made an unreadable resource
+// indistinguishable from an empty one and hid failures -- an ambiguous URI, a
+// missing provider -- behind a blank success.
 func TestAdapter_GetResource(t *testing.T) {
 	adapter := NewAdapter()
 	ctx := context.Background()
 
-	result, err := adapter.GetResource(ctx, "file://test.txt")
-	require.NoError(t, err)
-	assert.Empty(t, result.Contents)
+	result, err := adapter.GetResource(ctx, "file://test.txt", "")
+	require.Error(t, err, "an unavailable provider must not read as an empty resource")
+	assert.Nil(t, result)
 }
 
 func TestAdapter_ListPrompts(t *testing.T) {
@@ -126,11 +130,13 @@ func TestAdapter_ListPrompts(t *testing.T) {
 	assert.Empty(t, prompts)
 }
 
+// As with GetResource, a prompt that could not be fetched reports an error
+// rather than an empty message list.
 func TestAdapter_GetPrompt(t *testing.T) {
 	adapter := NewAdapter()
 	ctx := context.Background()
 
 	result, err := adapter.GetPrompt(ctx, "test_prompt", nil)
-	require.NoError(t, err)
-	assert.Empty(t, result.Messages)
+	require.Error(t, err, "an unavailable provider must not read as an empty prompt")
+	assert.Nil(t, result)
 }
