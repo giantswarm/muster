@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -59,6 +60,11 @@ type MCPServer struct {
 	// This field is only relevant when Type is "streamable-http" or "sse".
 	Headers map[string]string `yaml:"headers,omitempty" json:"headers,omitempty"`
 
+	// Meta contains entries merged into the `params._meta` object of every
+	// outbound JSON-RPC request that carries `params`. Remote types only; see
+	// ValidateMetaAllowed and the v1alpha1 CRD field of the same name.
+	Meta map[string]string `yaml:"meta,omitempty" json:"meta,omitempty"`
+
 	// Auth configures authentication behavior for this MCP server.
 	// This is only relevant for remote servers (streamable-http or sse).
 	Auth *MCPServerAuth `yaml:"auth,omitempty" json:"auth,omitempty"`
@@ -96,11 +102,16 @@ type MCPServerFamily struct {
 //   - SSO Token Exchange (RFC 8693): Muster exchanges its token for one valid on the
 //     remote cluster's Dex. Enable with TokenExchange config. Requires the remote Dex
 //     to have an OIDC connector configured for the local cluster's Dex.
+//
+// AWS SigV4 (Type: MCPServerAuthTypeSigV4) is not one of them: it signs as
+// muster's own machine identity rather than relaying the caller's, so it uses
+// the shared global client instead of the session-scoped machinery.
 type MCPServerAuth struct {
 	// Type specifies the authentication type.
 	// Supported values:
 	//   - "oauth": OAuth 2.0/OIDC authentication
 	//   - "none": No authentication
+	//   - "sigv4": AWS Signature Version 4 request signing, see SigV4
 	Type string `yaml:"type,omitempty" json:"type,omitempty"`
 
 	// ForwardToken enables SSO via Token Forwarding.
@@ -149,6 +160,28 @@ type MCPServerAuth struct {
 	// of the same name for full semantics. When set, muster's per-server OAuth
 	// login flow skips PRM probing and uses these values directly.
 	AuthorizationServer *MCPServerAuthAuthorizationServer `yaml:"authorizationServer,omitempty" json:"authorizationServer,omitempty"`
+
+	// SigV4 configures AWS Signature Version 4 request signing. Required when
+	// Type is MCPServerAuthTypeSigV4, and rejected otherwise. See the v1alpha1
+	// CRD field of the same name for full semantics.
+	SigV4 *MCPServerSigV4 `yaml:"sigv4,omitempty" json:"sigv4,omitempty"`
+}
+
+// MCPServerAuthTypeSigV4 is the MCPServerAuth.Type value that selects AWS
+// Signature Version 4 request signing.
+const MCPServerAuthTypeSigV4 = "sigv4"
+
+// MCPServerSigV4 configures AWS Signature Version 4 signing for an MCP server.
+// See the v1alpha1 CRD type of the same name for full semantics.
+type MCPServerSigV4 struct {
+	// Region is the SigV4 signing region.
+	Region string `yaml:"region" json:"region"`
+
+	// Service is the SigV4 signing service name.
+	Service string `yaml:"service,omitempty" json:"service,omitempty"`
+
+	// RoleARN is the role assumed before signing, if any.
+	RoleARN string `yaml:"roleArn,omitempty" json:"roleArn,omitempty"`
 }
 
 // MCPServerAuthAuthorizationServer pins the OAuth authorization server for an
@@ -296,6 +329,124 @@ func ValidateStdioAllowed(serverType string, kubernetesMode bool) error {
 	return nil
 }
 
+// ToMCPServer converts the API/reconciler view of a server into the
+// service-layer configuration struct.
+//
+// One definition on purpose. The orchestrator's registration path and the
+// reconciler's update path both need this conversion, they cannot import each
+// other, and while each kept its own copy a new spec field reached the service
+// through one path and was silently dropped by the other.
+func (i MCPServerInfo) ToMCPServer() *MCPServer {
+	return &MCPServer{
+		Name:        i.Name,
+		Type:        MCPServerType(i.Type),
+		Description: i.Description,
+		ToolPrefix:  i.ToolPrefix,
+		Family:      i.Family,
+		AutoStart:   i.AutoStart,
+		Command:     i.Command,
+		Args:        i.Args,
+		URL:         i.URL,
+		Env:         i.Env,
+		Headers:     i.Headers,
+		Meta:        i.Meta,
+		Timeout:     i.Timeout,
+		Auth:        i.Auth,
+	}
+}
+
+// CanAuthenticateInteractively reports whether a 401 from a server with this
+// auth configuration can be resolved by a user completing a login flow.
+//
+// It is false for a machine identity: the credential is muster's own, so there
+// is no user to send to an authorization server and no pending-auth state to
+// reach. A 401 from such a server is an ordinary connect failure — the region,
+// the assumed role or its policy is wrong — and every consumer of the
+// auth-required signal has to agree on that, or the CR reports "Auth Required"
+// while the aggregator refuses to register it.
+//
+// A nil receiver means no auth is configured, which is the OAuth-capable
+// default: a 401 from an unconfigured server is what triggers discovery.
+func (a *MCPServerAuth) CanAuthenticateInteractively() bool {
+	if a == nil {
+		return true
+	}
+	return a.Type != MCPServerAuthTypeSigV4
+}
+
+// ValidateMetaAllowed reports whether spec.meta is usable with the given
+// server type.
+//
+// Injection happens in an HTTP round tripper, so a stdio server — which speaks
+// over a pipe and has no round tripper — would accept the map and drop it.
+// Rejected rather than ignored, because a dropped entry fails nowhere: the
+// AWS-hosted backend falls back to its own region and returns a correct-looking
+// answer about the wrong one. That silence is the whole reason the field is
+// checked here rather than left to the connect attempt.
+//
+// The CRD states the same rule in CEL, which only runs in Kubernetes mode.
+// Keep the two in step, as ValidateSigV4 and ValidateStdioAllowed do.
+func ValidateMetaAllowed(serverType string, meta map[string]string) error {
+	if len(meta) == 0 {
+		return nil
+	}
+	if serverType == string(MCPServerTypeStdio) {
+		return fmt.Errorf("meta is only allowed when type is %q or %q, not %q: the entries are merged into params._meta by an HTTP transport, which a stdio server does not have",
+			MCPServerTypeStreamableHTTP, MCPServerTypeSSE, serverType)
+	}
+	return nil
+}
+
+// ValidateSigV4 reports whether an auth configuration that selects SigV4 is
+// usable with the given server type, and returns nil for every other auth type.
+//
+// The CRD states the same rules in CEL, but CEL only runs in Kubernetes mode.
+// This function is the definition that also holds in filesystem mode, so
+// admission and client construction share it instead of restating it — the same
+// arrangement ValidateStdioAllowed uses. Keep the two in step: a rule that
+// lives only in CEL is a rule a filesystem-mode muster does not enforce.
+func ValidateSigV4(serverType string, auth *MCPServerAuth) error {
+	if auth == nil {
+		return nil
+	}
+	if auth.Type != MCPServerAuthTypeSigV4 {
+		if auth.SigV4 != nil {
+			return fmt.Errorf("auth.sigv4 is only allowed when auth.type is %q", MCPServerAuthTypeSigV4)
+		}
+		return nil
+	}
+	// Signing needs a body and a single request-response exchange, which is what
+	// streamable-http gives. SSE would leave the credential unused rather than
+	// fail, so refuse it here instead of connecting unsigned.
+	if serverType != string(MCPServerTypeStreamableHTTP) {
+		return fmt.Errorf("auth.type %q is only allowed when type is %q, not %q",
+			MCPServerAuthTypeSigV4, MCPServerTypeStreamableHTTP, serverType)
+	}
+	// A missing region cannot be defaulted: the endpoint checks the signature's
+	// credential scope, so a guess would surface as a signature error rather
+	// than a configuration error.
+	if auth.SigV4 == nil || auth.SigV4.Region == "" {
+		return fmt.Errorf("auth.sigv4.region is required when auth.type is %q", MCPServerAuthTypeSigV4)
+	}
+	// Rejected rather than ignored. Both relay the caller's identity, which a
+	// machine identity does not have, so accepting them would leave a spec that
+	// says the caller's token is forwarded and a wire that signs as muster.
+	if auth.ForwardToken {
+		return fmt.Errorf("auth.forwardToken does not apply when auth.type is %q: the request signs as muster's own machine identity, not the caller's", MCPServerAuthTypeSigV4)
+	}
+	if auth.TokenExchange != nil {
+		return fmt.Errorf("auth.tokenExchange does not apply when auth.type is %q: the request signs as muster's own machine identity, not the caller's", MCPServerAuthTypeSigV4)
+	}
+	// The CRD reaches the same conclusion by a different route — its
+	// authorizationServer rule requires type "oauth", which the sigv4 pairing
+	// rule excludes — but that reasoning lives only in CEL. State it here so
+	// filesystem mode rejects it too instead of silently ignoring the block.
+	if auth.AuthorizationServer != nil {
+		return fmt.Errorf("auth.authorizationServer does not apply when auth.type is %q: there is no authorization server in a machine identity flow", MCPServerAuthTypeSigV4)
+	}
+	return nil
+}
+
 // RegisteredByAnnotation records the authenticated subject that registered an
 // MCPServer. Stamped server-side on create so attribution cannot be spoofed or
 // omitted by clients (issue #1021). The key is shared with the developer portal.
@@ -351,6 +502,10 @@ type MCPServerInfo struct {
 
 	// Headers contains HTTP headers to send with requests to remote MCP servers.
 	Headers map[string]string `json:"headers,omitempty"`
+
+	// Meta contains entries merged into the `params._meta` object of every
+	// outbound JSON-RPC request that carries `params`.
+	Meta map[string]string `json:"meta,omitempty"`
 
 	// Auth configures authentication behavior for this MCP server.
 	Auth *MCPServerAuth `json:"auth,omitempty"`

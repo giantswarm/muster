@@ -140,6 +140,41 @@ spec:
                     items:
                       type: string
                     type: array
+                  sigv4:
+                    description: |-
+                      SigV4 configures AWS Signature Version 4 request signing. Required when
+                      Type is "sigv4", and rejected otherwise.
+
+                      Unlike the OAuth mechanisms above, this is a machine identity: every
+                      request signs as muster itself, not as the calling user, so it never
+                      touches the session-scoped client machinery. Only valid together with
+                      spec.type "streamable-http".
+
+                      ForwardToken and TokenExchange are rejected alongside it by the rule
+                      above. AuthorizationServer needs no rule of its own: it already requires
+                      Type "oauth", which the sigv4 pairing rule excludes.
+                    properties:
+                      region:
+                        description: |-
+                          Region is the SigV4 signing region. It must match the region in URL,
+                          because the signature's credential scope is checked against the
+                          endpoint. This is not the region the backend operates in — that is
+                          MCPServerSpec.Meta.
+                        type: string
+                      roleArn:
+                        description: |-
+                          RoleARN, when set, is assumed from the pod's base credentials before
+                          signing. Leave empty to sign as the pod's own identity.
+                        type: string
+                      service:
+                        description: |-
+                          Service is the SigV4 signing service name. It defaults to the first
+                          hostname label of URL, which is how AWS's own clients derive it:
+                          aws-mcp.eu-central-1.api.aws signs as service "aws-mcp".
+                        type: string
+                    required:
+                    - region
+                    type: object
                   tokenExchange:
                     description: |-
                       TokenExchange enables SSO via RFC 8693 Token Exchange for cross-cluster SSO.
@@ -235,9 +270,12 @@ spec:
                       Supported values:
                         - "oauth": OAuth 2.0/OIDC authentication
                         - "none": No authentication
+                        - "sigv4": AWS Signature Version 4, signed with muster's own machine
+                          identity. See SigV4.
                     enum:
                     - oauth
                     - none
+                    - sigv4
                     type: string
                 type: object
                 x-kubernetes-validations:
@@ -251,6 +289,12 @@ spec:
                     or the other, not both
                   rule: '!(has(self.tokenExchange) && has(self.tokenExchange.enabled)
                     && self.tokenExchange.enabled == true && has(self.authorizationServer))'
+                - message: type 'sigv4' requires the sigv4 block, and the sigv4 block
+                    requires type 'sigv4'
+                  rule: has(self.sigv4) == (self.type == 'sigv4')
+                - message: sigv4 signs as muster's own machine identity, so forwardToken
+                    and tokenExchange do not apply
+                  rule: '!has(self.sigv4) || (self.forwardToken == false && !has(self.tokenExchange))'
               autoStart:
                 default: false
                 description: |-
@@ -313,6 +357,33 @@ spec:
                 description: |-
                   Headers contains HTTP headers to send with requests to remote MCP servers.
                   This field is only relevant when Type is "streamable-http" or "sse".
+                type: object
+              meta:
+                additionalProperties:
+                  type: string
+                description: |-
+                  Meta contains entries merged into the `params._meta` object of every
+                  outbound JSON-RPC request that carries `params`. It carries call-scoped
+                  configuration to a backend that reads it from the MCP metadata field
+                  instead of from tool arguments.
+
+                  An entry already present in a request's `_meta` wins, so a caller can
+                  still override per call. Requests without `params` are left untouched.
+
+                  The injection happens in an HTTP round tripper shared by every remote
+                  client, so it applies to `streamable-http` and `sse` alike, with or
+                  without auth. For a SigV4 server the round tripper sits in front of the
+                  signer, because the body has to be rewritten before it is signed.
+
+                  A stdio server has no HTTP transport, so the CEL rule above rejects the
+                  field there rather than accepting and dropping it.
+
+                  The AWS-hosted MCP server is the motivating case: it takes the region it
+                  operates in from `params._meta.AWS_REGION`, and its tools declare no
+                  region argument, so without this a call fails with NoRegionError. That
+                  operating region is a different value from Auth.SigV4.Region, which is
+                  the signing region — the two default to the same string but resolve
+                  independently, endpoint-first for signing and config-first for operating.
                 type: object
               restartRequestedAt:
                 description: |-
@@ -520,6 +591,11 @@ spec:
           rule: self.spec.type == 'stdio' || !has(self.spec.args)
         - message: headers field is only allowed when type is streamable-http or sse
           rule: self.spec.type != 'stdio' || !has(self.spec.headers)
+        - message: meta field is only allowed when type is streamable-http or sse
+          rule: self.spec.type != 'stdio' || !has(self.spec.meta)
+        - message: auth.sigv4 is only allowed when type is streamable-http
+          rule: '!has(self.spec.auth) || !has(self.spec.auth.sigv4) || self.spec.type
+            == ''streamable-http'''
     served: true
     storage: true
     subresources:

@@ -116,18 +116,22 @@ func establishConnection(
 
 	oauthHandler := api.GetOAuthHandler()
 
+	// spec.meta belongs to the server, not to the session, so it is read from
+	// the registry entry rather than passed down every call path.
+	meta := registeredMeta(a, serverName)
+
 	var client internalmcp.MCPClient
 	if oauthHandler != nil && oauthHandler.IsEnabled() && issuer != "" {
 		tokenStore := internalmcp.NewMusterTokenStore(sessionID, sub, issuer, oauthHandler)
 		clientID, clientSecret := oauthHandler.GetClientCredentialsForIssuer(ctx, issuer)
-		client = internalmcp.NewDynamicAuthClient(serverURL, tokenStore, scope, clientID, clientSecret)
+		client = internalmcp.NewDynamicAuthClient(serverURL, tokenStore, scope, clientID, clientSecret).WithMeta(meta)
 		logging.Debug("Connection", "Using DynamicAuthClient for session %s, server %s (issuer=%s)",
 			logging.TruncateIdentifier(sessionID), serverName, issuer)
 	} else {
 		headers := map[string]string{
 			pkgoauth.HeaderAuthorization: pkgoauth.SchemeBearer + " " + accessToken,
 		}
-		client = internalmcp.NewStreamableHTTPClientWithHeaders(serverURL, headers)
+		client = internalmcp.NewStreamableHTTPClientWithHeaders(serverURL, headers).WithMeta(meta)
 		logging.Debug("Connection", "Using static auth headers for session %s, server %s",
 			logging.TruncateIdentifier(sessionID), serverName)
 	}
@@ -661,7 +665,7 @@ func EstablishConnectionWithTokenExchange(
 
 	headerFunc := makeTokenExchangeHeaderFunc(serverInfo.Name, exchangedToken, tokenExpiry, reexchange, onStaleToken)
 
-	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
+	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithMeta(serverInfo.Meta)
 
 	// Try to initialize the client with the exchanged token
 	if err := client.Initialize(ctx); err != nil {
@@ -964,7 +968,22 @@ func (a *AggregatorServer) newTokenForwardingClient(
 	}
 
 	headerFunc := makeTokenForwardingHeaderFunc(sessionID, musterIssuer, serverInfo.Name, token, refresher, onStaleToken)
-	return internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc), token, nil
+	return internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithMeta(serverInfo.Meta), token, nil
+}
+
+// registeredMeta returns the spec.meta entries recorded for a server, or nil
+// when the aggregator holds no entry for it. establishConnection is reached
+// with a name and a URL rather than a registry entry, so it looks the entries
+// up here instead of taking one more parameter through both call paths.
+func registeredMeta(a *AggregatorServer, serverName string) map[string]string {
+	if a == nil || a.registry == nil {
+		return nil
+	}
+	serverInfo, ok := a.registry.GetServerInfo(serverName)
+	if !ok || serverInfo == nil {
+		return nil
+	}
+	return serverInfo.Meta
 }
 
 // forwardedTokenDiagnostic identifies a forwarded token by its issuer claim

@@ -153,6 +153,13 @@ type PendingAuthRegistration struct {
 
 	// AuthConfig describes how to forward or exchange tokens, when set.
 	AuthConfig *MCPServerAuth
+
+	// Meta carries MCPServer.Meta to the session-scoped clients. A pending-auth
+	// server serves its tool calls from a per-session client the aggregator
+	// builds, not from the one the client factory built, so the entries have to
+	// travel with the registration or spec.meta would stop applying the moment
+	// a server needs a login.
+	Meta map[string]string
 }
 
 // CallTool implements the ToolCaller interface by delegating to the aggregator handler.

@@ -71,6 +71,100 @@ func convertAPISecretRefToCRD(src *api.ClientCredentialsSecretRef) *musterv1alph
 	}
 }
 
+// convertCRDSigV4ToAPI converts a CRD MCPServerSigV4 to an API MCPServerSigV4.
+// Returns nil if the input is nil.
+func convertCRDSigV4ToAPI(src *musterv1alpha1.MCPServerSigV4) *api.MCPServerSigV4 {
+	if src == nil {
+		return nil
+	}
+	return &api.MCPServerSigV4{
+		Region:  src.Region,
+		Service: src.Service,
+		RoleARN: src.RoleARN,
+	}
+}
+
+// convertAPISigV4ToCRD converts an API MCPServerSigV4 to a CRD MCPServerSigV4.
+// Returns nil if the input is nil.
+func convertAPISigV4ToCRD(src *api.MCPServerSigV4) *musterv1alpha1.MCPServerSigV4 {
+	if src == nil {
+		return nil
+	}
+	return &musterv1alpha1.MCPServerSigV4{
+		Region:  src.Region,
+		Service: src.Service,
+		RoleARN: src.RoleARN,
+	}
+}
+
+// convertCRDAuthToAPI converts a CRD MCPServerAuth to an API MCPServerAuth.
+// Returns nil if the input is nil.
+func convertCRDAuthToAPI(src *musterv1alpha1.MCPServerAuth) *api.MCPServerAuth {
+	if src == nil {
+		return nil
+	}
+	auth := &api.MCPServerAuth{
+		Type:              src.Type,
+		ForwardToken:      src.ForwardToken,
+		RequiredAudiences: src.RequiredAudiences,
+		SigV4:             convertCRDSigV4ToAPI(src.SigV4),
+	}
+	if src.TokenExchange != nil {
+		auth.TokenExchange = &api.TokenExchangeConfig{
+			Enabled:                    src.TokenExchange.Enabled,
+			DexTokenEndpoint:           src.TokenExchange.DexTokenEndpoint,
+			ExpectedIssuer:             src.TokenExchange.ExpectedIssuer,
+			ConnectorID:                src.TokenExchange.ConnectorID,
+			Scopes:                     src.TokenExchange.Scopes,
+			ClientCredentialsSecretRef: convertCRDSecretRefToAPI(src.TokenExchange.ClientCredentialsSecretRef),
+		}
+	}
+	if src.AuthorizationServer != nil {
+		auth.AuthorizationServer = &api.MCPServerAuthAuthorizationServer{
+			Issuer: src.AuthorizationServer.Issuer.Normalize(),
+			Scopes: src.AuthorizationServer.Scopes,
+		}
+	}
+	return auth
+}
+
+// convertAPIAuthToCRD converts an API MCPServerAuth to a CRD MCPServerAuth.
+// Returns nil if the input is nil.
+//
+// Create and update share this so a new auth field cannot reach the CR through
+// one path and be dropped by the other.
+func convertAPIAuthToCRD(src *api.MCPServerAuth) *musterv1alpha1.MCPServerAuth {
+	if src == nil {
+		return nil
+	}
+	auth := &musterv1alpha1.MCPServerAuth{
+		Type:              src.Type,
+		ForwardToken:      src.ForwardToken,
+		RequiredAudiences: src.RequiredAudiences,
+		SigV4:             convertAPISigV4ToCRD(src.SigV4),
+	}
+	if src.TokenExchange != nil {
+		auth.TokenExchange = &musterv1alpha1.TokenExchangeConfig{
+			Enabled:                    src.TokenExchange.Enabled,
+			DexTokenEndpoint:           src.TokenExchange.DexTokenEndpoint,
+			ExpectedIssuer:             src.TokenExchange.ExpectedIssuer,
+			ConnectorID:                src.TokenExchange.ConnectorID,
+			Scopes:                     src.TokenExchange.Scopes,
+			ClientCredentialsSecretRef: convertAPISecretRefToCRD(src.TokenExchange.ClientCredentialsSecretRef),
+		}
+	}
+	if src.AuthorizationServer != nil {
+		// Normalize is the canonical form, so use it rather than restating what
+		// it does — convertCRDAuthToAPI already calls it in the other direction.
+		issuer := musterv1alpha1.IssuerURL(src.AuthorizationServer.Issuer)
+		auth.AuthorizationServer = &musterv1alpha1.MCPServerAuthAuthorizationServer{
+			Issuer: musterv1alpha1.IssuerURL(issuer.Normalize()),
+			Scopes: src.AuthorizationServer.Scopes,
+		}
+	}
+	return auth
+}
+
 // Adapter provides MCP server management functionality using the unified client
 type Adapter struct {
 	client    client.MusterClient
@@ -228,6 +322,7 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 		URL:                 server.Spec.URL,
 		Env:                 server.Spec.Env,
 		Headers:             server.Spec.Headers,
+		Meta:                server.Spec.Meta,
 		Timeout:             server.Spec.Timeout,
 		Error:               server.Status.LastError,
 		State:               string(server.Status.State),
@@ -254,37 +349,10 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 		info.NextRetryAfter = &t
 	}
 
-	// Convert auth configuration if present
-	if server.Spec.Auth != nil {
-		info.Auth = &api.MCPServerAuth{
-			Type:              server.Spec.Auth.Type,
-			ForwardToken:      server.Spec.Auth.ForwardToken,
-			RequiredAudiences: server.Spec.Auth.RequiredAudiences,
-		}
-		// Convert TokenExchange config if present
-		if server.Spec.Auth.TokenExchange != nil {
-			info.Auth.TokenExchange = &api.TokenExchangeConfig{
-				Enabled:          server.Spec.Auth.TokenExchange.Enabled,
-				DexTokenEndpoint: server.Spec.Auth.TokenExchange.DexTokenEndpoint,
-				ExpectedIssuer:   server.Spec.Auth.TokenExchange.ExpectedIssuer,
-				ConnectorID:      server.Spec.Auth.TokenExchange.ConnectorID,
-				Scopes:           server.Spec.Auth.TokenExchange.Scopes,
-			}
-			info.Auth.TokenExchange.ClientCredentialsSecretRef = convertCRDSecretRefToAPI(
-				server.Spec.Auth.TokenExchange.ClientCredentialsSecretRef,
-			)
-		}
-		// Convert AuthorizationServer override if present
-		if server.Spec.Auth.AuthorizationServer != nil {
-			info.Auth.AuthorizationServer = &api.MCPServerAuthAuthorizationServer{
-				Issuer: server.Spec.Auth.AuthorizationServer.Issuer.Normalize(),
-				Scopes: server.Spec.Auth.AuthorizationServer.Scopes,
-			}
-		}
-	}
+	info.Auth = convertCRDAuthToAPI(server.Spec.Auth)
 
 	// Generate user-friendly status message based on state and error
-	info.StatusMessage = generateStatusMessage(info.State, info.Error, server.Name)
+	info.StatusMessage = generateStatusMessage(info.State, info.Error, server.Name, info.Auth)
 
 	info.RegisteredBy = server.Annotations[api.RegisteredByAnnotation]
 	info.RegisteredByEmail = server.Annotations[api.RegisteredByEmailAnnotation]
@@ -325,7 +393,7 @@ func emailFromContext(ctx context.Context) string {
 //   - Starting/Connecting: In progress
 //   - Stopped/Disconnected: Not running (no message needed)
 //   - Failed: Infrastructure unavailable (include error context)
-func generateStatusMessage(state, errorMsg, serverName string) string {
+func generateStatusMessage(state, errorMsg, serverName string, auth *api.MCPServerAuth) string {
 	switch state {
 	case "Running", "Connected":
 		return ""
@@ -334,14 +402,19 @@ func generateStatusMessage(state, errorMsg, serverName string) string {
 	case "Stopped", "Disconnected":
 		return ""
 	case "Failed":
-		return generateFailedMessage(errorMsg, serverName)
+		return generateFailedMessage(errorMsg, serverName, auth)
 	default:
 		return ""
 	}
 }
 
-// generateFailedMessage creates a user-friendly message for failed servers
-func generateFailedMessage(errorMsg, serverName string) string {
+// generateFailedMessage creates a user-friendly message for failed servers.
+//
+// auth decides what a 401 means. For an auth type with no interactive login the
+// advice cannot be "run muster auth login" — there is no user credential to
+// obtain, and the real cause is the signing configuration or the identity muster
+// signs as.
+func generateFailedMessage(errorMsg, serverName string, auth *api.MCPServerAuth) string {
 	if errorMsg == "" {
 		return "Server failed to start"
 	}
@@ -359,6 +432,9 @@ func generateFailedMessage(errorMsg, serverName string) string {
 	case strings.Contains(lowerErr, "permission denied"):
 		return "Permission denied - check file permissions"
 	case strings.Contains(lowerErr, "401") || strings.Contains(lowerErr, "unauthorized"):
+		if !auth.CanAuthenticateInteractively() {
+			return "Endpoint rejected muster's credential - check the signing region, the assumed role and its policy"
+		}
 		return fmt.Sprintf("Authentication required - run: muster auth login --server %s", serverName)
 	case strings.Contains(lowerErr, "403") || strings.Contains(lowerErr, "forbidden"):
 		return "Access forbidden - check server permissions and credentials"
@@ -395,37 +471,10 @@ func (a *Adapter) convertRequestToCRD(req *api.MCPServerCreateRequest) *musterv1
 			URL:         req.URL,
 			Env:         req.Env,
 			Headers:     req.Headers,
+			Meta:        req.Meta,
 			Timeout:     req.Timeout,
+			Auth:        convertAPIAuthToCRD(req.Auth),
 		},
-	}
-
-	// Convert auth configuration if present
-	if req.Auth != nil {
-		crd.Spec.Auth = &musterv1alpha1.MCPServerAuth{
-			Type:              req.Auth.Type,
-			ForwardToken:      req.Auth.ForwardToken,
-			RequiredAudiences: req.Auth.RequiredAudiences,
-		}
-
-		// Convert TokenExchange if present
-		if req.Auth.TokenExchange != nil {
-			crd.Spec.Auth.TokenExchange = &musterv1alpha1.TokenExchangeConfig{
-				Enabled:                    req.Auth.TokenExchange.Enabled,
-				DexTokenEndpoint:           req.Auth.TokenExchange.DexTokenEndpoint,
-				ExpectedIssuer:             req.Auth.TokenExchange.ExpectedIssuer,
-				ConnectorID:                req.Auth.TokenExchange.ConnectorID,
-				Scopes:                     req.Auth.TokenExchange.Scopes,
-				ClientCredentialsSecretRef: convertAPISecretRefToCRD(req.Auth.TokenExchange.ClientCredentialsSecretRef),
-			}
-		}
-
-		// Convert AuthorizationServer override if present
-		if req.Auth.AuthorizationServer != nil {
-			crd.Spec.Auth.AuthorizationServer = &musterv1alpha1.MCPServerAuthAuthorizationServer{
-				Issuer: musterv1alpha1.IssuerURL(strings.TrimSuffix(req.Auth.AuthorizationServer.Issuer, "/")),
-				Scopes: req.Auth.AuthorizationServer.Scopes,
-			}
-		}
 	}
 
 	return crd
@@ -474,15 +523,39 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 			api.SchemaKeyAdditionalProperties: map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeString)},
 			api.SchemaKeyDescription:          "HTTP headers for remote servers",
 		}},
+		{Name: "meta", Type: api.ArgTypeObject, Required: false, Description: "Entries merged into the params._meta object of every outbound JSON-RPC request that carries params (applied by the sigv4 transport only)", Schema: map[string]interface{}{
+			api.SchemaKeyType:                 string(api.ArgTypeObject),
+			api.SchemaKeyAdditionalProperties: map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeString)},
+			api.SchemaKeyDescription:          "Request metadata passthrough, for backends that read call-scoped configuration from params._meta instead of from tool arguments. A value already present in a request wins. Injection happens in the sigv4 signing transport, so it takes effect only when auth.type is sigv4.",
+		}},
 		{Name: "timeout", Type: api.ArgTypeInteger, Required: false, Description: "Connection timeout in seconds"},
 		{Name: "auth", Type: api.ArgTypeObject, Required: false, Description: "Authentication configuration for remote servers", Schema: map[string]interface{}{
 			api.SchemaKeyType:        string(api.ArgTypeObject),
-			api.SchemaKeyDescription: "Authentication configuration (oauth or none)",
+			api.SchemaKeyDescription: "Authentication configuration (oauth, none or sigv4)",
 			api.SchemaKeyProperties: map[string]interface{}{
 				api.SchemaKeyType: map[string]interface{}{
 					api.SchemaKeyType:        string(api.ArgTypeString),
-					api.SchemaKeyDescription: "Authentication type: oauth or none",
-					api.SchemaKeyEnum:        []string{"oauth", "none"},
+					api.SchemaKeyDescription: "Authentication type: oauth, none or sigv4",
+					api.SchemaKeyEnum:        []string{"oauth", "none", api.MCPServerAuthTypeSigV4},
+				},
+				"sigv4": map[string]interface{}{
+					api.SchemaKeyType:        string(api.ArgTypeObject),
+					api.SchemaKeyDescription: "AWS Signature Version 4 request signing, using muster's own machine identity. Required when type is sigv4, and rejected otherwise. Only valid with type streamable-http.",
+					api.SchemaKeyProperties: map[string]interface{}{
+						"region": map[string]interface{}{
+							api.SchemaKeyType:        string(api.ArgTypeString),
+							api.SchemaKeyDescription: "SigV4 signing region; must match the region in the server URL",
+						},
+						"service": map[string]interface{}{
+							api.SchemaKeyType:        string(api.ArgTypeString),
+							api.SchemaKeyDescription: "SigV4 signing service name; defaults to the first hostname label of the server URL",
+						},
+						"roleArn": map[string]interface{}{
+							api.SchemaKeyType:        string(api.ArgTypeString),
+							api.SchemaKeyDescription: "IAM role assumed from the pod's base credentials before signing; empty signs as the pod's own identity",
+						},
+					},
+					api.SchemaKeyRequired: []string{"region"},
 				},
 				"forwardToken": map[string]interface{}{
 					api.SchemaKeyType:        string(api.ArgTypeBoolean),
@@ -753,6 +826,7 @@ func (a *Adapter) handleMCPServerValidate(args map[string]interface{}) (*api.Cal
 		URL:         req.URL,
 		Env:         req.Env,
 		Headers:     req.Headers,
+		Meta:        req.Meta,
 		Timeout:     req.Timeout,
 		Auth:        req.Auth,
 	})
@@ -916,32 +990,15 @@ func (a *Adapter) handleMCPServerUpdate(ctx context.Context, args map[string]int
 	if req.Headers != nil {
 		existing.Spec.Headers = req.Headers
 	}
+	if req.Meta != nil {
+		existing.Spec.Meta = req.Meta
+	}
 	if req.Timeout > 0 {
 		existing.Spec.Timeout = req.Timeout
 	}
 	// Update auth configuration if provided
 	if req.Auth != nil {
-		existing.Spec.Auth = &musterv1alpha1.MCPServerAuth{
-			Type:              req.Auth.Type,
-			ForwardToken:      req.Auth.ForwardToken,
-			RequiredAudiences: req.Auth.RequiredAudiences,
-		}
-		if req.Auth.TokenExchange != nil {
-			existing.Spec.Auth.TokenExchange = &musterv1alpha1.TokenExchangeConfig{
-				Enabled:                    req.Auth.TokenExchange.Enabled,
-				DexTokenEndpoint:           req.Auth.TokenExchange.DexTokenEndpoint,
-				ExpectedIssuer:             req.Auth.TokenExchange.ExpectedIssuer,
-				ConnectorID:                req.Auth.TokenExchange.ConnectorID,
-				Scopes:                     req.Auth.TokenExchange.Scopes,
-				ClientCredentialsSecretRef: convertAPISecretRefToCRD(req.Auth.TokenExchange.ClientCredentialsSecretRef),
-			}
-		}
-		if req.Auth.AuthorizationServer != nil {
-			existing.Spec.Auth.AuthorizationServer = &musterv1alpha1.MCPServerAuthAuthorizationServer{
-				Issuer: musterv1alpha1.IssuerURL(strings.TrimSuffix(req.Auth.AuthorizationServer.Issuer, "/")),
-				Scopes: req.Auth.AuthorizationServer.Scopes,
-			}
-		}
+		existing.Spec.Auth = convertAPIAuthToCRD(req.Auth)
 	}
 
 	// Validate the updated definition (reuse existing CRD object)
@@ -1040,7 +1097,13 @@ func (a *Adapter) validateMCPServer(server *musterv1alpha1.MCPServer) error {
 			server.Spec.Type, api.MCPServerTypeStdio, api.MCPServerTypeStreamableHTTP, api.MCPServerTypeSSE)
 	}
 
-	return nil
+	// Reported before the CR is written, so mcpserver_validate and the failing
+	// create/update agree with what the connect attempt would do. The CRD says
+	// the same in CEL, which does not run in filesystem mode.
+	if err := api.ValidateMetaAllowed(server.Spec.Type, server.Spec.Meta); err != nil {
+		return err
+	}
+	return api.ValidateSigV4(server.Spec.Type, convertCRDAuthToAPI(server.Spec.Auth))
 }
 
 // helper to create simple error CallToolResult

@@ -96,6 +96,30 @@ type MCPServerSpec struct {
 	// This field is only relevant when Type is "streamable-http" or "sse".
 	Headers map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
 
+	// Meta contains entries merged into the `params._meta` object of every
+	// outbound JSON-RPC request that carries `params`. It carries call-scoped
+	// configuration to a backend that reads it from the MCP metadata field
+	// instead of from tool arguments.
+	//
+	// An entry already present in a request's `_meta` wins, so a caller can
+	// still override per call. Requests without `params` are left untouched.
+	//
+	// The injection happens in an HTTP round tripper shared by every remote
+	// client, so it applies to `streamable-http` and `sse` alike, with or
+	// without auth. For a SigV4 server the round tripper sits in front of the
+	// signer, because the body has to be rewritten before it is signed.
+	//
+	// A stdio server has no HTTP transport, so the CEL rule above rejects the
+	// field there rather than accepting and dropping it.
+	//
+	// The AWS-hosted MCP server is the motivating case: it takes the region it
+	// operates in from `params._meta.AWS_REGION`, and its tools declare no
+	// region argument, so without this a call fails with NoRegionError. That
+	// operating region is a different value from Auth.SigV4.Region, which is
+	// the signing region — the two default to the same string but resolve
+	// independently, endpoint-first for signing and config-first for operating.
+	Meta map[string]string `json:"meta,omitempty" yaml:"meta,omitempty"`
+
 	// Auth configures authentication behavior for this MCP server.
 	// This is only relevant for remote servers (streamable-http or sse).
 	Auth *MCPServerAuth `json:"auth,omitempty" yaml:"auth,omitempty"`
@@ -151,12 +175,16 @@ type MCPServerFamily struct {
 // +kubebuilder:validation:XValidation:rule="!has(self.authorizationServer) || self.type == 'oauth'",message="authorizationServer is only valid when type is oauth"
 // +kubebuilder:validation:XValidation:rule="!(has(self.forwardToken) && self.forwardToken == true && has(self.authorizationServer))",message="forwardToken bypasses per-backend OAuth; set one or the other, not both"
 // +kubebuilder:validation:XValidation:rule="!(has(self.tokenExchange) && has(self.tokenExchange.enabled) && self.tokenExchange.enabled == true && has(self.authorizationServer))",message="tokenExchange has its own issuer/endpoint config; set one or the other, not both"
+// +kubebuilder:validation:XValidation:rule="has(self.sigv4) == (self.type == 'sigv4')",message="type 'sigv4' requires the sigv4 block, and the sigv4 block requires type 'sigv4'"
+// +kubebuilder:validation:XValidation:rule="!has(self.sigv4) || (self.forwardToken == false && !has(self.tokenExchange))",message="sigv4 signs as muster's own machine identity, so forwardToken and tokenExchange do not apply"
 type MCPServerAuth struct {
 	// Type specifies the authentication type.
 	// Supported values:
 	//   - "oauth": OAuth 2.0/OIDC authentication
 	//   - "none": No authentication
-	// +kubebuilder:validation:Enum=oauth;none
+	//   - "sigv4": AWS Signature Version 4, signed with muster's own machine
+	//     identity. See SigV4.
+	// +kubebuilder:validation:Enum=oauth;none;sigv4
 	// +kubebuilder:default=none
 	Type string `json:"type,omitempty" yaml:"type,omitempty"`
 
@@ -222,6 +250,42 @@ type MCPServerAuth struct {
 	// Use case: Atlassian Remote MCP and similar backends that publish RFC 8414
 	// metadata at their resource origin instead of via RFC 9728.
 	AuthorizationServer *MCPServerAuthAuthorizationServer `json:"authorizationServer,omitempty" yaml:"authorizationServer,omitempty"`
+
+	// SigV4 configures AWS Signature Version 4 request signing. Required when
+	// Type is "sigv4", and rejected otherwise.
+	//
+	// Unlike the OAuth mechanisms above, this is a machine identity: every
+	// request signs as muster itself, not as the calling user, so it never
+	// touches the session-scoped client machinery. Only valid together with
+	// spec.type "streamable-http".
+	//
+	// ForwardToken and TokenExchange are rejected alongside it by the rule
+	// above. AuthorizationServer needs no rule of its own: it already requires
+	// Type "oauth", which the sigv4 pairing rule excludes.
+	SigV4 *MCPServerSigV4 `json:"sigv4,omitempty" yaml:"sigv4,omitempty"`
+}
+
+// MCPServerSigV4 configures AWS Signature Version 4 signing for an MCP server.
+//
+// Everything here is AWS-specific because SigV4 is AWS. MCPServerAuth.Type is
+// an enum, so another provider's signing scheme gets its own sub-struct rather
+// than sharing these fields.
+type MCPServerSigV4 struct {
+	// Region is the SigV4 signing region. It must match the region in URL,
+	// because the signature's credential scope is checked against the
+	// endpoint. This is not the region the backend operates in — that is
+	// MCPServerSpec.Meta.
+	// +kubebuilder:validation:Required
+	Region string `json:"region" yaml:"region"`
+
+	// Service is the SigV4 signing service name. It defaults to the first
+	// hostname label of URL, which is how AWS's own clients derive it:
+	// aws-mcp.eu-central-1.api.aws signs as service "aws-mcp".
+	Service string `json:"service,omitempty" yaml:"service,omitempty"`
+
+	// RoleARN, when set, is assumed from the pod's base credentials before
+	// signing. Leave empty to sign as the pod's own identity.
+	RoleARN string `json:"roleArn,omitempty" yaml:"roleArn,omitempty"`
 }
 
 // MCPServerAuthAuthorizationServer pins the OAuth authorization server for an
@@ -461,6 +525,8 @@ type MCPServerStatus struct {
 // +kubebuilder:validation:XValidation:rule="self.spec.type == 'stdio' || has(self.spec.url)",message="url is required when type is streamable-http or sse"
 // +kubebuilder:validation:XValidation:rule="self.spec.type == 'stdio' || !has(self.spec.args)",message="args field is only allowed when type is stdio"
 // +kubebuilder:validation:XValidation:rule="self.spec.type != 'stdio' || !has(self.spec.headers)",message="headers field is only allowed when type is streamable-http or sse"
+// +kubebuilder:validation:XValidation:rule="self.spec.type != 'stdio' || !has(self.spec.meta)",message="meta field is only allowed when type is streamable-http or sse"
+// +kubebuilder:validation:XValidation:rule="!has(self.spec.auth) || !has(self.spec.auth.sigv4) || self.spec.type == 'streamable-http'",message="auth.sigv4 is only allowed when type is streamable-http"
 
 // MCPServer is the Schema for the mcpservers API
 type MCPServer struct {

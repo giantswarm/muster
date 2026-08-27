@@ -11,6 +11,28 @@
 //   - **Streamable-HTTP**: Connect to external MCP servers via HTTP transport
 //   - **SSE**: Connect to external MCP servers via Server-Sent Events transport
 //
+// # Authentication
+//
+// Remote servers may be OAuth-protected, in which case the aggregator drives a
+// per-user login flow and this package supplies the token on each request.
+//
+// A streamable-HTTP server may instead sign each request with AWS Signature
+// Version 4 (auth.type "sigv4"). That is a machine identity: the credential is
+// muster's own rather than the caller's, so it uses the shared global client and
+// never the session-scoped machinery. This package therefore also owns the AWS
+// credential resolution for it — a process-wide default configuration, an
+// optional per-server assume-role hop, and a signing http.RoundTripper. See
+// sigv4_credentials.go and sigv4_transport.go.
+//
+// # Request metadata
+//
+// A remote server may declare spec.meta, whose entries are merged into the
+// params._meta object of every outbound JSON-RPC request that carries params.
+// The merge is an http.RoundTripper shared by every remote client here, so it
+// applies whatever the auth type is. For a SigV4 server it wraps the signing
+// transport, because the body has to be rewritten before it is signed. See
+// meta_transport.go.
+//
 // # Configuration Structure
 //
 // MCP servers are defined using the MCPServer CRD or YAML configuration files. Each server

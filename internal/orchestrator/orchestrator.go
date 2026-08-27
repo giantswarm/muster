@@ -191,21 +191,7 @@ func (o *Orchestrator) registerMCPServerService(mcpServerInfo api.MCPServerInfo)
 		return nil, err
 	}
 
-	apiDef := &api.MCPServer{
-		Name:        mcpServerInfo.Name,
-		Type:        api.MCPServerType(mcpServerInfo.Type),
-		Description: mcpServerInfo.Description,
-		ToolPrefix:  mcpServerInfo.ToolPrefix,
-		Family:      mcpServerInfo.Family,
-		AutoStart:   mcpServerInfo.AutoStart,
-		Command:     mcpServerInfo.Command,
-		Args:        mcpServerInfo.Args,
-		URL:         mcpServerInfo.URL,
-		Env:         mcpServerInfo.Env,
-		Headers:     mcpServerInfo.Headers,
-		Timeout:     mcpServerInfo.Timeout,
-		Auth:        mcpServerInfo.Auth,
-	}
+	apiDef := mcpServerInfo.ToMCPServer()
 
 	// The auth-required hook registers pending auth before the state-change event
 	// is published so that the aggregator registry is populated before any
@@ -258,6 +244,20 @@ func (o *Orchestrator) handleAuthRequiredServer(definition *api.MCPServer, authE
 		return
 	}
 
+	// The service layer already declines to report auth-required for an auth
+	// type with no login flow, so this hook should never see one. Refuse it
+	// anyway: registering here sets ServerInfo.AuthConfig, which flips
+	// RequiresSessionAuth to true and routes every later call through the
+	// session-scoped clients — and those carry no signing transport, so the
+	// server would stay broken for the process lifetime while telling users to
+	// run core_auth_login against an endpoint that has no OAuth.
+	if !definition.Auth.CanAuthenticateInteractively() {
+		logging.Error("Orchestrator", nil,
+			"Refusing to register MCPServer %s for interactive auth: its auth type has no login flow. "+
+				"This should have been classified as a connection failure earlier.", definition.Name)
+		return
+	}
+
 	authInfo := &api.AuthInfo{
 		Issuer:              authErr.AuthInfo.Issuer,
 		Scope:               authErr.AuthInfo.Scope,
@@ -271,6 +271,7 @@ func (o *Orchestrator) handleAuthRequiredServer(definition *api.MCPServer, authE
 		Family:     definition.Family,
 		AuthInfo:   authInfo,
 		AuthConfig: definition.Auth,
+		Meta:       definition.Meta,
 	}); err != nil {
 		logging.Error("Orchestrator", err, "Failed to register pending auth server: %s", definition.Name)
 		return

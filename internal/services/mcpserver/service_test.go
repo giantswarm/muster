@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -146,6 +147,34 @@ func TestValidateConfiguration(t *testing.T) {
 				// Note: timeout defaults to DefaultRemoteTimeout when not specified
 			},
 			wantErr: false,
+		},
+		{
+			name: "valid sigv4 server",
+			def: &api.MCPServer{
+				Name: "test-server",
+				Type: api.MCPServerTypeStreamableHTTP,
+				URL:  "https://aws-mcp.eu-central-1.api.aws/mcp",
+				Auth: &api.MCPServerAuth{
+					Type:  api.MCPServerAuthTypeSigV4,
+					SigV4: &api.MCPServerSigV4{Region: "eu-central-1"},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			// One row is enough: api.ValidateSigV4 owns the rules and is tested
+			// in internal/api. This only pins that the delegation happens.
+			name: "sigv4 server missing region",
+			def: &api.MCPServer{
+				Name: "test-server",
+				Type: api.MCPServerTypeStreamableHTTP,
+				URL:  "https://aws-mcp.eu-central-1.api.aws/mcp",
+				Auth: &api.MCPServerAuth{
+					Type:  api.MCPServerAuthTypeSigV4,
+					SigV4: &api.MCPServerSigV4{},
+				},
+			},
+			wantErr: true,
 		},
 	}
 
@@ -1285,4 +1314,46 @@ func TestStartAuthRequiredHookReceivesCurrentDefinition(t *testing.T) {
 	require.NotNil(t, hookDefinition.Load())
 	require.Equal(t, "after-update", hookDefinition.Load().ToolPrefix,
 		"hook must receive the current definition, not a creation-time snapshot")
+}
+
+// TestSigV4FailuresAreRetryable pins that a SigV4 server does not settle into a
+// permanent failure. Neither error matches the message-based transient patterns,
+// so before they were classified explicitly the retry backoff was never set and
+// the orchestrator skipped the server until the pod restarted.
+func TestSigV4FailuresAreRetryable(t *testing.T) {
+	svc, err := NewService(&api.MCPServer{
+		Name: "aws",
+		Type: api.MCPServerTypeStreamableHTTP,
+		URL:  "https://aws-mcp.eu-central-1.api.aws/mcp",
+		Auth: &api.MCPServerAuth{
+			Type:  api.MCPServerAuthTypeSigV4,
+			SigV4: &api.MCPServerSigV4{Region: "eu-central-1"},
+		},
+	})
+	require.NoError(t, err)
+
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{
+			name: "credentials that cannot be resolved",
+			err: fmt.Errorf("failed to initialize streamable-http MCP client: %w",
+				fmt.Errorf("%w: AccessDenied", mcpserver.ErrAWSCredentialsUnavailable)),
+		},
+		{
+			name: "a 401 from a machine identity",
+			err: &mcpserver.AuthRequiredError{
+				URL: "https://aws-mcp.eu-central-1.api.aws/mcp",
+				Err: errors.New("unauthorized"),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.True(t, svc.isTransientConnectivityError(tt.err),
+				"must be retryable, or the reconnect backoff never runs")
+		})
+	}
 }

@@ -1146,6 +1146,7 @@ func (r *ServerRegistry) RegisterPendingAuth(registration PendingAuthRegistratio
 		Family:       cloneFamily(registration.Family),
 		AuthInfo:     registration.AuthInfo,
 		AuthConfig:   authConfig,
+		Meta:         registration.Meta,
 		RegisteredAt: time.Now(),
 	}
 
