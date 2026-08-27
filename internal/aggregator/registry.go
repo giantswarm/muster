@@ -1367,11 +1367,22 @@ func (r *ServerRegistry) GetAllResourcesForSession(ctx context.Context, store oa
 //
 // For OAuth servers, prompts are read from the CapabilityStore.
 // For non-OAuth servers, prompts are read from ServerInfo.Prompts.
-func (r *ServerRegistry) GetAllPromptsForSession(ctx context.Context, store oauthstore.CapabilityStore, sessionID string) []mcp.Prompt {
+func (r *ServerRegistry) GetAllPromptsForSession(ctx context.Context, store oauthstore.CapabilityStore, sessionID string) []api.PromptOrigin {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	var allPrompts []mcp.Prompt
+	var allPrompts []api.PromptOrigin
+
+	appendPrompts := func(serverName string, prompts []mcp.Prompt) {
+		for _, prompt := range prompts {
+			exposedPrompt := prompt
+			exposedPrompt.Name = r.ExposedPromptName(serverName, prompt.Name)
+			allPrompts = append(allPrompts, api.PromptOrigin{
+				Prompt: exposedPrompt,
+				Server: serverName,
+			})
+		}
+	}
 
 	for serverName, info := range r.servers {
 		if info.RequiresSessionAuth() {
@@ -1382,11 +1393,7 @@ func (r *ServerRegistry) GetAllPromptsForSession(ctx context.Context, store oaut
 			if err != nil || caps == nil {
 				continue
 			}
-			for _, prompt := range caps.Prompts {
-				exposedPrompt := prompt
-				exposedPrompt.Name = r.ExposedPromptName(serverName, prompt.Name)
-				allPrompts = append(allPrompts, exposedPrompt)
-			}
+			appendPrompts(serverName, caps.Prompts)
 			continue
 		}
 
@@ -1395,11 +1402,7 @@ func (r *ServerRegistry) GetAllPromptsForSession(ctx context.Context, store oaut
 		}
 
 		info.mu.RLock()
-		for _, prompt := range info.Prompts {
-			exposedPrompt := prompt
-			exposedPrompt.Name = r.ExposedPromptName(serverName, prompt.Name)
-			allPrompts = append(allPrompts, exposedPrompt)
-		}
+		appendPrompts(serverName, info.Prompts)
 		info.mu.RUnlock()
 	}
 

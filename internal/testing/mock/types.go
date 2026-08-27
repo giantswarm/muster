@@ -39,6 +39,21 @@ type ResourceConfig struct {
 	Text string `yaml:"text"`
 }
 
+// PromptConfig defines a static MCP prompt served by the mock server.
+//
+// Prompts exist in the mock so scenarios can exercise the aggregator's prompt
+// paths -- notably that an exposed prompt name carries the server's configured
+// tool prefix rather than its name, so attribution cannot be derived from the
+// name alone.
+type PromptConfig struct {
+	// Name is the prompt name as the backend server exposes it
+	Name string `yaml:"name"`
+	// Description describes what the prompt does
+	Description string `yaml:"description"`
+	// Text is the message body returned when the prompt is fetched
+	Text string `yaml:"text"`
+}
+
 // ToolResponse defines a conditional response for a mock tool
 type ToolResponse struct {
 	// Condition defines arg matching for this response (optional)

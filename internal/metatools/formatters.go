@@ -192,21 +192,23 @@ func (f *Formatters) FormatResourcesListJSON(resources []api.ResourceOrigin) (st
 //   - error: JSON marshaling errors (should be rare)
 //
 // If no prompts are available, returns a simple message string.
-func (f *Formatters) FormatPromptsListJSON(prompts []mcp.Prompt) (string, error) {
+func (f *Formatters) FormatPromptsListJSON(prompts []api.PromptOrigin) (string, error) {
 	if len(prompts) == 0 {
 		return "No prompts available", nil
 	}
 
-	type PromptInfo struct {
+	type promptListEntry struct {
 		Name        string `json:"name"`
 		Description string `json:"description"`
+		Server      string `json:"server"`
 	}
 
-	promptList := make([]PromptInfo, len(prompts))
-	for i, prompt := range prompts {
-		promptList[i] = PromptInfo{
-			Name:        prompt.Name,
-			Description: prompt.Description,
+	promptList := make([]promptListEntry, len(prompts))
+	for i, origin := range prompts {
+		promptList[i] = promptListEntry{
+			Name:        origin.Prompt.Name,
+			Description: origin.Prompt.Description,
+			Server:      origin.Server,
 		}
 	}
 
@@ -289,10 +291,12 @@ func (f *Formatters) FormatResourceDetailJSON(origin api.ResourceOrigin) (string
 // Returns:
 //   - JSON string containing complete prompt information including arguments
 //   - error: JSON marshaling errors (should be rare)
-func (f *Formatters) FormatPromptDetailJSON(prompt mcp.Prompt) (string, error) {
+func (f *Formatters) FormatPromptDetailJSON(origin api.PromptOrigin) (string, error) {
+	prompt := origin.Prompt
 	promptInfo := map[string]interface{}{
 		api.FieldName:            prompt.Name,
 		api.SchemaKeyDescription: prompt.Description,
+		ArgServer:                origin.Server,
 	}
 
 	if len(prompt.Arguments) > 0 {
@@ -367,10 +371,10 @@ func (f *Formatters) FindResource(resources []api.ResourceOrigin, uri string) []
 //   - Pointer to the found prompt, or nil if not found
 //
 // The search is case-sensitive and requires exact name matching.
-func (f *Formatters) FindPrompt(prompts []mcp.Prompt, name string) *mcp.Prompt {
-	for _, prompt := range prompts {
-		if prompt.Name == name {
-			return &prompt
+func (f *Formatters) FindPrompt(prompts []api.PromptOrigin, name string) *api.PromptOrigin {
+	for _, origin := range prompts {
+		if origin.Prompt.Name == name {
+			return &origin
 		}
 	}
 	return nil

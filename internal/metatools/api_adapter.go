@@ -178,11 +178,11 @@ func (a *Adapter) GetResource(ctx context.Context, uri, serverName string) (*mcp
 // ListPrompts returns all available prompts for the current session.
 // This delegates to the data provider (aggregator) which handles session-scoped
 // prompt visibility for OAuth-protected servers.
-func (a *Adapter) ListPrompts(ctx context.Context) ([]mcp.Prompt, error) {
+func (a *Adapter) ListPrompts(ctx context.Context) ([]api.PromptOrigin, error) {
 	provider, err := a.getDataProvider()
 	if err != nil {
 		logging.Warn("metatools", "ListPrompts: %v", err)
-		return []mcp.Prompt{}, nil
+		return []api.PromptOrigin{}, nil
 	}
 
 	prompts := provider.ListPromptsForContext(ctx)

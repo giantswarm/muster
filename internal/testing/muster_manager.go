@@ -609,6 +609,12 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 	resourceTicker := time.NewTicker(100 * time.Millisecond)
 	defer resourceTicker.Stop()
 
+	// Retained across ticks so the timeout error can say what was still
+	// missing. Without it the failure reads only "timeout waiting for all
+	// expected resources", which names neither the server nor the tool and
+	// makes every occurrence a log dig.
+	var lastNotReadyReasons []string
+
 	for {
 		select {
 		case <-resourceCtx.Done():
@@ -628,7 +634,11 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 					}
 				}
 			}
-			return fmt.Errorf("timeout waiting for all expected resources to be available")
+			if len(lastNotReadyReasons) > 0 {
+				return fmt.Errorf("timeout waiting for all expected resources to be available after %s: %s",
+					resourceTimeout, strings.Join(lastNotReadyReasons, "; "))
+			}
+			return fmt.Errorf("timeout waiting for all expected resources to be available after %s", resourceTimeout)
 		case <-procExited:
 			// The process died while we were waiting for its resources to
 			// register — surface the crash immediately rather than polling a
@@ -648,7 +658,10 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 						logger.Debug("🔍 Failed to list tools: %v\n", err)
 					}
 					allReady = false
-					notReadyReasons = append(notReadyReasons, "tools check failed")
+					// Carry the error: "tools check failed" alone cannot
+					// distinguish an aggregator that is still starting from one
+					// that is answering but short a tool.
+					notReadyReasons = append(notReadyReasons, fmt.Sprintf("tools check failed: %v", err))
 				} else {
 					missingTools := m.findMissingTools(expectedTools, availableTools)
 					if len(missingTools) > 0 {
@@ -666,7 +679,7 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 						logger.Debug("🔍 Failed to list workflows: %v\n", err)
 					}
 					allReady = false
-					notReadyReasons = append(notReadyReasons, "workflows check failed")
+					notReadyReasons = append(notReadyReasons, fmt.Sprintf("workflows check failed: %v", err))
 				} else {
 					for _, workflowName := range expectedWorkflows {
 						found := false
@@ -694,7 +707,7 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 						logger.Debug("🔍 Failed to list MCP servers: %v\n", err)
 					}
 					allReady = false
-					notReadyReasons = append(notReadyReasons, "MCP servers check failed")
+					notReadyReasons = append(notReadyReasons, fmt.Sprintf("MCP servers check failed: %v", err))
 				} else {
 					missingServers := m.findMissingMCPServers(expectedMCPServers, serverStates)
 					if len(missingServers) > 0 {
@@ -703,6 +716,8 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 					}
 				}
 			}
+
+			lastNotReadyReasons = notReadyReasons
 
 			if allReady {
 				if m.debug {
@@ -1804,7 +1819,14 @@ func (m *musterInstanceManager) extractExpectedToolsWithHTTPMocks(config *Muster
 		}
 
 		// Family-grouped servers expose tools as x_<family.name>_<tool>; non-
-		// family servers retain per-server prefixing as x_<server>_<tool>.
+		// family servers use x_<toolPrefix>_<tool>, falling back to the server
+		// name when spec.toolPrefix is unset. Mirroring the toolPrefix here
+		// matters: without it, readiness waits for a name the aggregator never
+		// exposes and the instance never comes up.
+		serverPrefix := mcpServer.Name
+		if toolPrefix, ok := mcpServer.Config["toolPrefix"].(string); ok && toolPrefix != "" {
+			serverPrefix = toolPrefix
+		}
 		familyName := ""
 		familyInstanceArg := ""
 		if family, ok := mcpServer.Config["family"].(map[string]interface{}); ok {
@@ -1842,7 +1864,7 @@ func (m *musterInstanceManager) extractExpectedToolsWithHTTPMocks(config *Muster
 							if grouped {
 								prefixedName = fmt.Sprintf("x_%s_%s", familyName, name)
 							} else {
-								prefixedName = fmt.Sprintf("x_%s_%s", mcpServer.Name, name)
+								prefixedName = fmt.Sprintf("x_%s_%s", serverPrefix, name)
 							}
 							expectedTools = append(expectedTools, prefixedName)
 						}
