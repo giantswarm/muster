@@ -272,3 +272,56 @@ func TestStateStore_Update_InvalidState(t *testing.T) {
 		t.Error("Update must return nil for an unknown state")
 	}
 }
+
+func TestStateStore_CompletedFlowRecord(t *testing.T) {
+	ss := NewStateStore()
+	defer ss.Stop()
+
+	encoded, err := ss.GenerateState("session-1", "user-1", "server-1", "https://idp.example.com", "verifier", nil)
+	if err != nil {
+		t.Fatalf("GenerateState: %v", err)
+	}
+
+	if ss.Completed(encoded) != nil {
+		t.Error("no completion recorded yet — Completed must return nil")
+	}
+
+	ss.MarkCompleted(encoded, &CompletedFlow{ServerName: "server-1", RedirectURI: "https://portal.example.com/servers"})
+
+	// Every duplicate within the grace window sees the same outcome — the
+	// record is not consumed.
+	for range 2 {
+		done := ss.Completed(encoded)
+		if done == nil {
+			t.Fatal("expected the completion record")
+		}
+		if done.ServerName != "server-1" || done.RedirectURI != "https://portal.example.com/servers" {
+			t.Errorf("unexpected completion record: %+v", done)
+		}
+	}
+
+	// Expired records are neither returned nor kept around.
+	nonce, err := decodeStateNonce(encoded)
+	if err != nil {
+		t.Fatalf("decodeStateNonce: %v", err)
+	}
+	ss.mu.Lock()
+	ss.completed[nonce].at = time.Now().Add(-completionGrace - time.Minute)
+	ss.mu.Unlock()
+
+	if ss.Completed(encoded) != nil {
+		t.Error("expired completion record must not be returned")
+	}
+	ss.cleanup()
+	ss.mu.RLock()
+	_, exists := ss.completed[nonce]
+	ss.mu.RUnlock()
+	if exists {
+		t.Error("cleanup must purge expired completion records")
+	}
+
+	// Garbage input is not an error, just a miss.
+	if ss.Completed("not-a-real-state") != nil {
+		t.Error("Completed must return nil for undecodable state")
+	}
+}
