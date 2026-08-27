@@ -1,0 +1,107 @@
+name: "oauth-delete-clears-pending-auth"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  Verify that deleting an OAuth-protected MCP server clears its pending-auth
+  registration from the aggregator.
+
+  Deregistration is driven by service state-change events, and the aggregator
+  deliberately ignores those for servers in auth_required state so a server
+  waiting for OAuth keeps its pending-auth entry across a restart (see
+  oauth-restart-preserves-pending-auth). A delete produces exactly such an
+  event, so without an explicit deregistration the entry outlives the
+  definition: the server disappears from core_mcpserver_list but keeps showing
+  up in list_tools' servers_requiring_auth, prompting clients to sign in to a
+  server that no longer exists.
+tags: ["oauth", "authentication", "mcpserver", "delete"]
+timeout: "2m"
+
+pre_configuration:
+  mock_oauth_servers:
+    - name: "ghost-idp"
+      scopes: ["openid", "profile"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "ghost-client"
+
+  mcp_servers:
+    - name: "ghost-oauth-server"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "ghost-idp"
+        tools:
+          - name: "get_secret"
+            description: "Returns a secret value that requires authentication"
+            responses:
+              - response:
+                  secret: "ghost-secret"
+
+steps:
+  - id: "verify-server-registered"
+    description: "The protected server exists as a definition before the delete"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "ghost-oauth-server"
+
+  # The server 401s on initialisation, so it holds a pending-auth registration
+  # and contributes no tools. Its only appearance in list_tools is the
+  # servers_requiring_auth entry this scenario is about.
+  - id: "verify-auth-prompt-present"
+    description: "list_tools reports the server as requiring authentication"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "list_tools"
+      arguments: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains:
+        - "ghost-oauth-server"
+
+  - id: "delete-protected-server"
+    description: "Delete the OAuth-protected server"
+    tool: "core_mcpserver_delete"
+    args:
+      name: "ghost-oauth-server"
+    expected:
+      success: true
+
+  - id: "verify-definition-gone"
+    description: "The definition is gone"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      not_contains:
+        - "ghost-oauth-server"
+
+  # The regression: this kept listing the deleted server, so every client was
+  # still told to sign in to it.
+  - id: "verify-auth-prompt-cleared"
+    description: "list_tools no longer asks for authentication to the deleted server"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "list_tools"
+      arguments: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      not_contains:
+        - "ghost-oauth-server"
+
+  - id: "verify-login-refused"
+    description: "core_auth_login has nothing left to authenticate against"
+    tool: "core_auth_login"
+    args:
+      server: "ghost-oauth-server"
+    expected:
+      success: false
+      error_contains:
+        - "not found"

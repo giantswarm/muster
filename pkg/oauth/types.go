@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -173,6 +174,11 @@ type Metadata struct {
 	// CodeChallengeMethodsSupported lists the PKCE code challenge methods.
 	CodeChallengeMethodsSupported []string `json:"code_challenge_methods_supported,omitempty"`
 
+	// AuthorizationResponseIssParameterSupported reports whether the
+	// authorization server sends the RFC 9207 `iss` parameter on
+	// authorization responses. When true, a response without `iss` must be
+	// rejected.
+	AuthorizationResponseIssParameterSupported bool `json:"authorization_response_iss_parameter_supported,omitempty"`
 	// ClientIDMetadataDocumentSupported reports whether the authorization
 	// server resolves Client ID Metadata Document URLs as client_id values
 	// (MCP authorization / SEP-991). When absent or false, the AS may treat a
@@ -186,12 +192,7 @@ type Metadata struct {
 // proceed if `code_challenge_methods_supported` is absent — overriding the
 // OAuth 2.1 default-true convention. An empty / missing list returns false.
 func (m *Metadata) SupportsS256PKCE() bool {
-	for _, method := range m.CodeChallengeMethodsSupported {
-		if method == "S256" {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(m.CodeChallengeMethodsSupported, "S256")
 }
 
 // AuthChallenge represents parsed information from a WWW-Authenticate header.

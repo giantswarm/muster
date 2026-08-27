@@ -1,0 +1,63 @@
+name: "oauth-iss-required-missing"
+category: "behavioral"
+concept: "mcpserver"
+description: "RFC 9207: an authorization response without iss is refused when the authorization server advertises the parameter"
+tags: ["oauth", "authentication", "mcpserver", "iss"]
+timeout: "2m"
+
+# RFC 9207 permits refusing a response that carries no `iss` only when the
+# authorization server declares support for the parameter. A server that
+# advertises it and then omits it leaves the response unattributable, so the
+# flow fails closed and stores no token.
+pre_configuration:
+  mock_oauth_servers:
+    - name: "iss-strict-idp"
+      scopes: ["openid", "profile", "mcp:read"]
+      auto_approve: true
+      pkce_required: true
+      token_lifetime: "1h"
+      advertise_iss_parameter: true
+
+  mcp_servers:
+    - name: "iss-strict-server"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "iss-strict-idp"
+          scope: "mcp:read"
+        tools:
+          - name: "get_data"
+            description: "Returns data that requires authentication"
+            responses:
+              - response:
+                  data: "authenticated-data"
+
+steps:
+  - id: request-auth-challenge
+    description: "core_auth_login issues a sign-in challenge"
+    tool: "core_auth_login"
+    args:
+      server: "iss-strict-server"
+    expected:
+      success: true
+      contains:
+        - "Authentication Required"
+
+  - id: callback-without-iss-is-refused
+    description: "The response carries no iss although the server advertises it, so muster refuses it"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "iss-strict-server"
+    expected:
+      success: false
+
+  - id: server-stays-unauthenticated
+    description: "The refused response stored no token, so a login still returns a challenge"
+    tool: "core_auth_login"
+    args:
+      server: "iss-strict-server"
+    expected:
+      success: true
+      contains:
+        - "Authentication Required"

@@ -226,3 +226,18 @@ to an empty list **fails the render**: a RoleBinding bound to nobody looks
 enforced while granting nothing. To manage the grants entirely out of band,
 set `rbac.mcpServerEditor.create: false` / `rbac.workflowEditor.create: false`
 and bind the verbs yourself.
+
+## CRD lifecycle
+
+This chart owns its CRDs. They live in the Helm 3 `crds/` directory, so
+`helm install` creates them and `helm upgrade` never touches them again. The
+`crds.install` and `crds.annotations` values are an inert shim from an earlier
+design and change nothing.
+
+Two supported ways exist to upgrade the CRDs with the app:
+
+* Flux: set `install.crds` and `upgrade.crds` to `CreateReplace` on the muster
+  `HelmRelease`. This is the default path on Giant Swarm installations.
+* Plain Helm: install the standalone `muster-crds` chart before this one, then
+  upgrade it first on every release. Its CRDs are templated, so they upgrade.
+  See `helm/muster-crds/README.md`.

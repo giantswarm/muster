@@ -52,7 +52,9 @@ runs when muster first reaches the backend, so:
 configuration.
 
 The override does **not** change the [RFC 8707][rfc8707] `resource` parameter
-sent on auth/token requests; that remains the canonical MCP server URL.
+sent on auth/token requests. It remains the configured MCP server URL with the
+query and the fragment dropped, which is also what mcp-go sends on token
+refresh.
 
 ## Reporting non-compliant backends
 

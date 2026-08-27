@@ -5,6 +5,7 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"fmt"
 	"html"
 	"html/template"
 	"net/http"
@@ -111,77 +112,22 @@ func (h *Handler) HandleStart(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, state.AuthorizationURL, http.StatusFound) //nolint:gosec // G710: server-side stored URL, not request input
 }
 
-// redirectAllowed reports whether a caller-supplied post-login redirect
-// target matches the operator allowlist: absolute http(s), no userinfo,
-// scheme/host equal to an entry, and the entry's path extended at a segment
-// boundary. Matching uses the escaped path form so percent-encoded slashes
-// cannot fake a boundary, and dot segments are rejected outright: browsers
-// resolve them before navigation, which would void the path constraint. The
-// target's query is unconstrained so front-ends can carry their own
-// correlation state.
-func (h *Handler) redirectAllowed(raw string) bool {
-	target, err := url.Parse(raw)
-	if err != nil || target.User != nil || target.Host == "" ||
-		(target.Scheme != "https" && target.Scheme != "http") {
-		return false
-	}
-	targetPath := target.EscapedPath()
-	if hasDotSegment(targetPath) {
-		return false
-	}
-	for _, entry := range h.postLoginRedirectAllowlist {
-		if target.Scheme == entry.Scheme && target.Host == entry.Host &&
-			pathExtendsPrefix(targetPath, entry.EscapedPath()) {
-			return true
-		}
-	}
-	return false
-}
-
-// hasDotSegment reports whether an escaped URL path contains a "." or ".."
-// segment, in plain or %2e-encoded form (browsers treat "%2e%2e" and mixed
-// spellings as dot segments during navigation).
-func hasDotSegment(escapedPath string) bool {
-	for segment := range strings.SplitSeq(escapedPath, "/") {
-		decoded := strings.ReplaceAll(strings.ToLower(segment), "%2e", ".")
-		if decoded == "." || decoded == ".." {
-			return true
-		}
-	}
-	return false
-}
-
-// pathExtendsPrefix reports whether an escaped target path equals an escaped
-// entry path or extends it at a segment boundary: entry "/connectors"
-// matches "/connectors" and "/connectors/complete" but not "/connectorsevil".
-// An entry path of "" or "/" admits every path on the entry's host.
-func pathExtendsPrefix(targetPath, entryPath string) bool {
-	entryPath = strings.TrimSuffix(entryPath, "/")
-	if entryPath == "" {
-		return true
-	}
-	return targetPath == entryPath || strings.HasPrefix(targetPath, entryPath+"/")
-}
-
 // HandleCallback handles the OAuth callback endpoint.
 // This is called by the browser after the user authenticates with the IdP.
+//
+// The RFC 9207 `iss` check runs before anything else is read from the
+// response: an authorization response that does not come from the expected
+// authorization server is rejected whole, including its error parameters.
 func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	// Extract query parameters
 	code := r.URL.Query().Get("code")
 	stateParam := r.URL.Query().Get("state")
+	issParam := r.URL.Query().Get("iss")
 	errorParam := r.URL.Query().Get("error")
 	errorDesc := r.URL.Query().Get("error_description")
 
-	// Handle OAuth errors - use generic message to avoid leaking sensitive info
-	if errorParam != "" {
-		logging.Warn("OAuth", "OAuth callback received error: %s - %s", errorParam, errorDesc)
-		h.renderErrorPage(w, "Authentication was denied or failed. Please try again.")
-		return
-	}
-
-	// Validate required parameters
-	if code == "" || stateParam == "" {
-		logging.Warn("OAuth", "OAuth callback missing code or state parameter")
+	if stateParam == "" {
+		logging.Warn("OAuth", "OAuth callback missing state parameter")
 		h.renderErrorPage(w, "Invalid callback: missing required parameters")
 		return
 	}
@@ -205,6 +151,31 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if state.Issuer == "" {
+		logging.Warn("OAuth", "Missing issuer in state for nonce=%s", state.Nonce)
+		h.renderErrorPage(w, "Authentication session invalid. Please try again.")
+		return
+	}
+
+	if err := h.validateResponseIssuer(r.Context(), state, issParam); err != nil {
+		logging.Warn("OAuth", "Rejecting OAuth callback for server=%s: %v", state.ServerName, err)
+		h.renderErrorPage(w, "Authentication response could not be verified. Please try again.")
+		return
+	}
+
+	// Handle OAuth errors - use generic message to avoid leaking sensitive info
+	if errorParam != "" {
+		logging.Warn("OAuth", "OAuth callback received error: %s - %s", errorParam, errorDesc)
+		h.renderErrorPage(w, "Authentication was denied or failed. Please try again.")
+		return
+	}
+
+	if code == "" {
+		logging.Warn("OAuth", "OAuth callback missing code parameter")
+		h.renderErrorPage(w, "Invalid callback: missing required parameters")
+		return
+	}
+
 	logging.Debug("OAuth", "Processing OAuth callback for session=%s server=%s issuer=%s",
 		logging.TruncateIdentifier(state.SessionID), state.ServerName, state.Issuer)
 
@@ -214,11 +185,6 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if state.Issuer == "" {
-		logging.Warn("OAuth", "Missing issuer in state for nonce=%s", state.Nonce)
-		h.renderErrorPage(w, "Authentication session invalid. Please try again.")
-		return
-	}
 	if state.CodeVerifier == "" {
 		logging.Warn("OAuth", "Missing code verifier in state for nonce=%s", state.Nonce)
 		h.renderErrorPage(w, "Authentication session invalid. Please try again.")
@@ -234,7 +200,7 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	ctx, cancelFlow := context.WithTimeout(context.WithoutCancel(r.Context()), 2*time.Minute)
 	defer cancelFlow()
 
-	token, err := h.client.ExchangeCode(ctx, code, state.CodeVerifier, state.Issuer)
+	token, err := h.client.ExchangeCode(ctx, code, state.CodeVerifier, state.Issuer, state.Resource)
 	if err != nil {
 		logging.Error("OAuth", err, "Failed to exchange authorization code")
 		h.renderErrorPage(w, "Failed to complete authentication. Please try again.")
@@ -270,31 +236,46 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	h.finishSuccess(w, r, state)
 }
 
-// finishSuccess completes a successful callback: a redirect to the flow's
-// recorded post-login target when the start endpoint accepted one, the
-// static success page otherwise. The target was allowlist-validated at the
-// start endpoint; the callback never reads it from request input.
-func (h *Handler) finishSuccess(w http.ResponseWriter, r *http.Request, state *OAuthState) {
-	if state.RedirectURI != "" {
-		target, err := url.Parse(state.RedirectURI)
-		if err == nil {
-			http.Redirect(w, r, postLoginRedirectTarget(target, state.ServerName), http.StatusSeeOther) //nolint:gosec // G710: allowlist-validated at the start endpoint, stored server-side
-			return
-		}
-		logging.Warn("OAuth", "Ignoring unparseable post-login redirect target: %v", err)
+// validateResponseIssuer applies the RFC 9207 check to an authorization
+// response. A present `iss` must equal the issuer identifier of the
+// authorization server the flow was sent to, by simple string comparison
+// against the issuer the server publishes in its own metadata. An absent
+// `iss` is refused when the server advertises
+// authorization_response_iss_parameter_supported, and accepted otherwise:
+// most deployed authorization servers still omit the parameter.
+//
+// The expected value is the issuer from the server's own metadata. When the
+// metadata is not reachable the comparison falls back to the issuer recorded
+// with the state, and then ignores a trailing slash on either side, because
+// that value is operator-configured rather than published by the server.
+func (h *Handler) validateResponseIssuer(ctx context.Context, state *OAuthState, iss string) error {
+	metadata, err := h.client.DiscoverMetadata(ctx, state.Issuer)
+	if (err != nil || metadata == nil) && iss == "" {
+		return fmt.Errorf("no iss on the response and AS metadata for %q is unavailable: %v", state.Issuer, err)
 	}
-	h.renderSuccessPage(w, state.ServerName)
-}
 
-// postLoginRedirectTarget appends the connected server's name to the
-// post-login redirect URL, preserving any query parameters already on it
-// (front-ends carry their own correlation state there).
-func postLoginRedirectTarget(base *url.URL, serverName string) string {
-	target := *base
-	query := target.Query()
-	query.Set("server", serverName)
-	target.RawQuery = query.Encode()
-	return target.String()
+	if iss == "" {
+		if metadata.AuthorizationResponseIssParameterSupported {
+			return fmt.Errorf("no iss on the response although %q advertises authorization_response_iss_parameter_supported", state.Issuer)
+		}
+		return nil
+	}
+
+	if err == nil && metadata != nil && metadata.Issuer != "" {
+		if iss != metadata.Issuer {
+			return fmt.Errorf("iss mismatch: response carried %q, expected %q", iss, metadata.Issuer)
+		}
+		return nil
+	}
+
+	// The metadata is unreachable, so the recorded issuer is all there is to
+	// compare against. It is operator-configured and may carry a trailing
+	// slash the authorization server does not put on its own identifier, so
+	// that one difference is ignored here. Nothing else is normalized.
+	if strings.TrimSuffix(iss, "/") != strings.TrimSuffix(state.Issuer, "/") {
+		return fmt.Errorf("iss mismatch: response carried %q, expected %q", iss, state.Issuer)
+	}
+	return nil
 }
 
 // setSecurityHeaders sets recommended security headers for HTML responses.

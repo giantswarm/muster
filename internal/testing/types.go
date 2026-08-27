@@ -338,6 +338,11 @@ type MockOAuthServerConfig struct {
 	// mimicking authorization servers (e.g. Miro's) that reject scopes they
 	// don't know instead of ignoring them.
 	RejectRegistrationScope bool `yaml:"reject_registration_scope,omitempty"`
+
+	// AdvertiseIssParameter advertises
+	// authorization_response_iss_parameter_supported in the AS metadata. A
+	// callback without an `iss` parameter must then be refused.
+	AdvertiseIssParameter bool `yaml:"advertise_iss_parameter,omitempty"`
 }
 
 // TrustedIssuerConfig defines a trusted issuer for RFC 8693 token exchange

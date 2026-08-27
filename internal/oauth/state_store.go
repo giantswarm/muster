@@ -18,7 +18,7 @@ type StateStorer interface {
 	// buildAuthorizationURL is non-nil it is called with the encoded state
 	// and its result is stored as the flow's upstream authorization URL, so
 	// state and URL land in a single write; an error aborts without storing.
-	GenerateState(sessionID, userID, serverName, issuer, codeVerifier string,
+	GenerateState(params StateParams,
 		buildAuthorizationURL func(encodedState string) (string, error)) (encodedState string, err error)
 
 	// ValidateState validates an encoded state from a callback. Returns the
@@ -48,6 +48,28 @@ type StateStorer interface {
 
 	// Stop releases resources (background goroutines, connections, etc.).
 	Stop()
+}
+
+// StateParams carries the per-flow values recorded with a new OAuth state.
+type StateParams struct {
+	// SessionID links the OAuth flow to the login session.
+	SessionID string
+
+	// UserID is the user's identity (sub claim).
+	UserID string
+
+	// ServerName is the MCP server that requires authentication.
+	ServerName string
+
+	// Issuer is the authorization server the flow runs against. The
+	// callback compares the RFC 9207 `iss` parameter against it.
+	Issuer string
+
+	// Resource is the canonical URI of the MCP server (RFC 8707).
+	Resource string
+
+	// CodeVerifier is the PKCE code verifier for this flow.
+	CodeVerifier string
 }
 
 // CompletedFlow is what a duplicate callback delivery needs to re-render a
@@ -121,13 +143,7 @@ func NewStateStore() *StateStore {
 // GenerateState creates a new OAuth state parameter and stores it.
 // Returns the encoded state string to include in the authorization URL.
 // The nonce is embedded within the encoded state and used for server-side lookup.
-//
-// Args:
-//   - subject: The user's identity
-//   - serverName: The MCP server name requiring authentication
-//   - issuer: The OAuth issuer URL
-//   - codeVerifier: The PKCE code verifier for this flow
-func (ss *StateStore) GenerateState(sessionID, userID, serverName, issuer, codeVerifier string,
+func (ss *StateStore) GenerateState(params StateParams,
 	buildAuthorizationURL func(encodedState string) (string, error)) (encodedState string, err error) {
 	nonceBytes := make([]byte, 32)
 	if _, err := rand.Read(nonceBytes); err != nil {
@@ -136,13 +152,14 @@ func (ss *StateStore) GenerateState(sessionID, userID, serverName, issuer, codeV
 
 	nonce := base64.URLEncoding.EncodeToString(nonceBytes)
 	state := &OAuthState{
-		SessionID:    sessionID,
-		UserID:       userID,
-		ServerName:   serverName,
+		SessionID:    params.SessionID,
+		UserID:       params.UserID,
+		ServerName:   params.ServerName,
 		Nonce:        nonce,
 		CreatedAt:    time.Now(),
-		Issuer:       issuer,
-		CodeVerifier: codeVerifier,
+		Issuer:       params.Issuer,
+		Resource:     params.Resource,
+		CodeVerifier: params.CodeVerifier,
 	}
 
 	stateJSON, err := json.Marshal(state)
@@ -163,7 +180,8 @@ func (ss *StateStore) GenerateState(sessionID, userID, serverName, issuer, codeV
 	ss.states[nonce] = state
 	ss.mu.Unlock()
 
-	logging.Debug("OAuth", "Generated state for session=%s server=%s issuer=%s", logging.TruncateIdentifier(sessionID), serverName, issuer)
+	logging.Debug("OAuth", "Generated state for session=%s server=%s issuer=%s resource=%s",
+		logging.TruncateIdentifier(params.SessionID), params.ServerName, params.Issuer, params.Resource)
 	return encodedState, nil
 }
 

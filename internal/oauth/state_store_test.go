@@ -17,7 +17,7 @@ func TestStateStore_GenerateAndValidate(t *testing.T) {
 	codeVerifier := "test-code-verifier-abc123"
 
 	// Generate state
-	encodedState, err := ss.GenerateState(subject, "test-user", serverName, issuer, codeVerifier, nil)
+	encodedState, err := ss.GenerateState(StateParams{SessionID: subject, UserID: "test-user", ServerName: serverName, Issuer: issuer, CodeVerifier: codeVerifier}, nil)
 	if err != nil {
 		t.Fatalf("Failed to generate state: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestStateStore_ValidateRemovesState(t *testing.T) {
 	ss := NewStateStore()
 	defer ss.Stop()
 
-	encodedState, err := ss.GenerateState("user@example.com", "test-user", "server", "issuer", "verifier", nil)
+	encodedState, err := ss.GenerateState(StateParams{SessionID: "user@example.com", UserID: "test-user", ServerName: "server", Issuer: "issuer", CodeVerifier: "verifier"}, nil)
 	if err != nil {
 		t.Fatalf("Failed to generate state: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestStateStore_CodeVerifierNotInEncodedState(t *testing.T) {
 
 	codeVerifier := "super-secret-verifier"
 
-	encodedState, err := ss.GenerateState("user@example.com", "test-user", "server", "issuer", codeVerifier, nil)
+	encodedState, err := ss.GenerateState(StateParams{SessionID: "user@example.com", UserID: "test-user", ServerName: "server", Issuer: "issuer", CodeVerifier: codeVerifier}, nil)
 	if err != nil {
 		t.Fatalf("Failed to generate state: %v", err)
 	}
@@ -157,7 +157,7 @@ func TestStateStore_Delete(t *testing.T) {
 	ss := NewStateStore()
 	defer ss.Stop()
 
-	encodedState, err := ss.GenerateState("user@example.com", "test-user", "server", "issuer", "verifier", nil)
+	encodedState, err := ss.GenerateState(StateParams{SessionID: "user@example.com", UserID: "test-user", ServerName: "server", Issuer: "issuer", CodeVerifier: "verifier"}, nil)
 	if err != nil {
 		t.Fatalf("Failed to generate state: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestStateStore_Delete(t *testing.T) {
 	}
 
 	// Regenerate a new state for the delete test
-	encodedState2, err := ss.GenerateState("user@example.com", "test-user", "server", "issuer", "verifier", nil)
+	encodedState2, err := ss.GenerateState(StateParams{SessionID: "user@example.com", UserID: "test-user", ServerName: "server", Issuer: "issuer", CodeVerifier: "verifier"}, nil)
 	if err != nil {
 		t.Fatalf("Failed to generate state: %v", err)
 	}
@@ -197,7 +197,7 @@ func TestStateStore_UniqueNonces(t *testing.T) {
 
 	// Generate multiple states and verify nonces are unique
 	for i := 0; i < 100; i++ {
-		encodedState, err := ss.GenerateState("user@example.com", "test-user", "server", "issuer", "verifier", nil)
+		encodedState, err := ss.GenerateState(StateParams{SessionID: "user@example.com", UserID: "test-user", ServerName: "server", Issuer: "issuer", CodeVerifier: "verifier"}, nil)
 		if err != nil {
 			t.Fatalf("Failed to generate state: %v", err)
 		}
@@ -220,7 +220,7 @@ func TestStateStore_Cleanup(t *testing.T) {
 	defer ss.Stop()
 
 	// Generate a state
-	_, err := ss.GenerateState("user@example.com", "test-user", "server", "https://issuer.com", "verifier", nil)
+	_, err := ss.GenerateState(StateParams{SessionID: "user@example.com", UserID: "test-user", ServerName: "server", Issuer: "https://issuer.com", CodeVerifier: "verifier"}, nil)
 	if err != nil {
 		t.Fatalf("Failed to generate state: %v", err)
 	}
@@ -233,7 +233,7 @@ func TestStateStore_Update(t *testing.T) {
 	ss := NewStateStore()
 	defer ss.Stop()
 
-	encodedState, err := ss.GenerateState("session-1", "user-1", "test-server", "https://idp.example.com", "verifier", nil)
+	encodedState, err := ss.GenerateState(StateParams{SessionID: "session-1", UserID: "user-1", ServerName: "test-server", Issuer: "https://idp.example.com", CodeVerifier: "verifier"}, nil)
 	if err != nil {
 		t.Fatalf("GenerateState: %v", err)
 	}
@@ -277,7 +277,7 @@ func TestStateStore_CompletedFlowRecord(t *testing.T) {
 	ss := NewStateStore()
 	defer ss.Stop()
 
-	encoded, err := ss.GenerateState("session-1", "user-1", "server-1", "https://idp.example.com", "verifier", nil)
+	encoded, err := ss.GenerateState(StateParams{SessionID: "session-1", UserID: "user-1", ServerName: "server-1", Issuer: "https://idp.example.com", CodeVerifier: "verifier"}, nil)
 	if err != nil {
 		t.Fatalf("GenerateState: %v", err)
 	}

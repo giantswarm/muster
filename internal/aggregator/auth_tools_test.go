@@ -53,7 +53,7 @@ func (m *issuerMockOAuthHandler) DeleteTokensByUser(_ string) {
 func (m *issuerMockOAuthHandler) DeleteTokensBySession(_ string) {
 }
 
-func (m *issuerMockOAuthHandler) CreateAuthChallenge(_ context.Context, _, _, _, _, _ string) (*api.AuthChallenge, error) {
+func (m *issuerMockOAuthHandler) CreateAuthChallenge(_ context.Context, _ api.AuthChallengeParams) (*api.AuthChallenge, error) {
 	return nil, nil
 }
 
@@ -310,5 +310,119 @@ func TestAuthChallengeResult_StructuredAuthURL(t *testing.T) {
 	text, ok := result.Content[0].(string)
 	if !ok || !strings.Contains(text, "https://example.com/oauth/start?state=abc") {
 		t.Errorf("expected sign-in URL in prose content, got %v", result.Content[0])
+	}
+}
+
+func TestResourceIndicator(t *testing.T) {
+	tests := []struct {
+		name             string
+		declaredResource string
+		serverURL        string
+		want             string
+		wantErr          bool
+	}{
+		{
+			name:             "prefers the declared resource",
+			declaredResource: "https://backend.example.com/mcp",
+			serverURL:        "https://backend.example.com/mcp/",
+			want:             "https://backend.example.com/mcp",
+		},
+		{
+			name:             "sends a declared resource that is not canonical unchanged",
+			declaredResource: "https://backend.example.com:443/mcp/",
+			serverURL:        "https://backend.example.com/mcp",
+			want:             "https://backend.example.com:443/mcp/",
+		},
+		{
+			name:             "falls back when the declared resource carries a fragment",
+			declaredResource: "https://backend.example.com/mcp#a",
+			serverURL:        "https://backend.example.com/mcp",
+			want:             "https://backend.example.com/mcp",
+		},
+		{
+			name:      "derives the same value mcp-go derives on refresh",
+			serverURL: "https://backend.example.com:443/mcp/?tenant=a",
+			want:      "https://backend.example.com:443/mcp/",
+		},
+		{
+			name:             "falls back when the declared resource is unusable",
+			declaredResource: "not a uri",
+			serverURL:        "https://backend.example.com/mcp",
+			want:             "https://backend.example.com/mcp",
+		},
+		{
+			name: "returns empty when the backend has no URL",
+			want: "",
+		},
+		{
+			name:      "fails on a URL no indicator can be derived from",
+			serverURL: "stdio",
+			wantErr:   true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := resourceIndicator(tc.declaredResource, tc.serverURL)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected an error for %q, got %q", tc.serverURL, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("expected %q, got %q", tc.want, got)
+			}
+		})
+	}
+}
+
+func TestNeedsResourceMetadata(t *testing.T) {
+	tests := []struct {
+		name      string
+		authInfo  AuthInfo
+		serverURL string
+		want      bool
+	}{
+		{
+			name:      "resource missing although the 401 supplied issuer and scope",
+			authInfo:  AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
+			serverURL: "https://backend.example.com/mcp",
+			want:      true,
+		},
+		{
+			name:      "nothing left to discover",
+			authInfo:  AuthInfo{Issuer: "https://dex.example.com", Scope: "openid", Resource: "https://backend.example.com/mcp"},
+			serverURL: "https://backend.example.com/mcp",
+			want:      false,
+		},
+		{
+			name:      "issuer missing",
+			authInfo:  AuthInfo{Scope: "openid", Resource: "https://backend.example.com/mcp"},
+			serverURL: "https://backend.example.com/mcp",
+			want:      true,
+		},
+		{
+			name:      "scope missing",
+			authInfo:  AuthInfo{Issuer: "https://dex.example.com", Resource: "https://backend.example.com/mcp"},
+			serverURL: "https://backend.example.com/mcp",
+			want:      true,
+		},
+		{
+			name:     "no URL to probe",
+			authInfo: AuthInfo{},
+			want:     false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := needsResourceMetadata(&tc.authInfo, tc.serverURL); got != tc.want {
+				t.Errorf("expected %v, got %v", tc.want, got)
+			}
+		})
 	}
 }

@@ -569,8 +569,10 @@ func (am *AggregatorManager) ManualRefresh(ctx context.Context) error {
 	return am.registerHealthyMCPServers(ctx)
 }
 
-// retryFailedRegistrations runs a periodic background task that attempts to
-// register services that are healthy but not yet registered with the aggregator.
+// retryFailedRegistrations runs a periodic background task that reconciles the
+// aggregator registry against the service registry in both directions: it
+// registers services that are healthy but not yet registered, and drops
+// registrations whose service no longer exists.
 //
 // This mechanism provides resilience against temporary failures during
 // initial registration or when services recover from unhealthy states.
@@ -588,6 +590,42 @@ func (am *AggregatorManager) retryFailedRegistrations(ctx context.Context) {
 			return
 		case <-ticker.C:
 			am.attemptPendingRegistrations(ctx)
+			am.pruneOrphanedRegistrations()
+		}
+	}
+}
+
+// pruneOrphanedRegistrations deregisters aggregator entries whose MCPServer
+// service no longer exists in the service registry.
+//
+// Deregistration is otherwise driven purely by service state-change events, and
+// the event handler deliberately skips servers in auth_required state so a
+// server waiting for OAuth keeps its pending-auth entry (see
+// EventHandler.processEvent). Deleting such a server produces exactly that
+// event: RemoveService stops the service — publishing a state change the
+// handler declines to act on — and then unregisters it, leaving the aggregator
+// entry behind with nothing left to ever remove it. The server then lingers in
+// list_tools' servers_requiring_auth and auth://status, prompting sign-ins for
+// a definition that no longer exists, until muster restarts (issue #1093).
+//
+// Both registration paths require a live service (registerSingleServer reads
+// the service's MCP client; the pending-auth registration is driven by the
+// service's own auth-required hook), so a registry entry without a service is
+// always stale. Reconciling on the tick rather than at delete time also heals
+// entries orphaned by a missed event or by an earlier muster version.
+func (am *AggregatorManager) pruneOrphanedRegistrations() {
+	if am.serviceRegistry == nil || am.aggregatorServer == nil {
+		return
+	}
+
+	for name := range am.aggregatorServer.GetRegistry().GetAllServers() {
+		if _, exists := am.serviceRegistry.Get(name); exists {
+			continue
+		}
+
+		logging.Info("Aggregator-Manager", "Deregistering %s - no service exists for this registration", name)
+		if err := am.deregisterSingleServer(name); err != nil {
+			logging.Debug("Aggregator-Manager", "Failed to deregister orphaned server %s: %v", name, err)
 		}
 	}
 }

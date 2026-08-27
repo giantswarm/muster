@@ -216,7 +216,11 @@ func (c *Client) resolveClient(ctx context.Context, issuer string, metadata *pkg
 // Returns the URL and the resolved client identification (its Method is one
 // of the ClientIDMethod* constants). The code verifier is stored with the
 // state for later retrieval.
-func (c *Client) GenerateAuthURL(ctx context.Context, sessionID, userID, serverName, issuer, scope string) (string, *resolvedClient, error) {
+//
+// params.Resource is recorded with the state so the token request carries the
+// same RFC 8707 value as the authorization request.
+func (c *Client) GenerateAuthURL(ctx context.Context, params AuthChallengeParams) (string, *resolvedClient, error) {
+	issuer := params.Issuer
 	metadata, err := c.oauthClient.DiscoverMetadata(ctx, issuer)
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to fetch OAuth metadata: %w", err)
@@ -244,23 +248,32 @@ func (c *Client) GenerateAuthURL(ctx context.Context, sessionID, userID, serverN
 	// redirects the browser there. The extra hop lets the initiating
 	// front-end attach an allowlisted post-login redirect target to the flow
 	// (the "redirect" query parameter on the start URL).
-	state, err := c.stateStore.GenerateState(sessionID, userID, serverName, issuer, pkce.CodeVerifier,
+	stateParams := StateParams{
+		SessionID:    params.SessionID,
+		UserID:       params.UserID,
+		ServerName:   params.ServerName,
+		Issuer:       issuer,
+		Resource:     params.Resource,
+		CodeVerifier: pkce.CodeVerifier,
+	}
+	state, err := c.stateStore.GenerateState(stateParams,
 		func(encodedState string) (string, error) {
-			return c.oauthClient.BuildAuthorizationURL(
-				metadata.AuthorizationEndpoint,
-				resolved.ClientID,
-				c.GetRedirectURI(),
-				encodedState,
-				scope,
-				pkce,
-			)
+			return c.oauthClient.BuildAuthorizationURL(pkgoauth.AuthorizationRequest{
+				AuthorizationEndpoint: metadata.AuthorizationEndpoint,
+				ClientID:              resolved.ClientID,
+				RedirectURI:           c.GetRedirectURI(),
+				State:                 encodedState,
+				Scope:                 params.Scope,
+				Resource:              params.Resource,
+				PKCE:                  pkce,
+			})
 		})
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to generate state: %w", err)
 	}
 
-	logging.Debug("OAuth", "Generated auth URL for session=%s server=%s issuer=%s clientIdMethod=%s",
-		logging.TruncateIdentifier(sessionID), serverName, issuer, resolved.Method)
+	logging.Debug("OAuth", "Generated auth URL for session=%s server=%s issuer=%s resource=%s clientIdMethod=%s",
+		logging.TruncateIdentifier(params.SessionID), params.ServerName, issuer, params.Resource, resolved.Method)
 
 	return c.GetStartURL(state), resolved, nil
 }
@@ -272,8 +285,10 @@ func (c *Client) GetStartURL(encodedState string) string {
 		"?state=" + url.QueryEscape(encodedState)
 }
 
-// ExchangeCode exchanges an authorization code for tokens.
-func (c *Client) ExchangeCode(ctx context.Context, code, codeVerifier, issuer string) (*pkgoauth.Token, error) {
+// ExchangeCode exchanges an authorization code for tokens. resource is the
+// RFC 8707 indicator recorded with the flow's state; it must match the value
+// sent on the authorization request.
+func (c *Client) ExchangeCode(ctx context.Context, code, codeVerifier, issuer, resource string) (*pkgoauth.Token, error) {
 	// Fetch OAuth metadata using shared client
 	metadata, err := c.oauthClient.DiscoverMetadata(ctx, issuer)
 	if err != nil {
@@ -294,6 +309,7 @@ func (c *Client) ExchangeCode(ctx context.Context, code, codeVerifier, issuer st
 		resolved.ClientID,
 		resolved.ClientSecret,
 		codeVerifier,
+		resource,
 	)
 	if err != nil {
 		return nil, err
