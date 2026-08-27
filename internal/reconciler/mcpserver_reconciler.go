@@ -21,8 +21,8 @@ import (
 // MCPServerManager is an interface for accessing MCPServer definitions.
 // This is an alias for the api.MCPServerManagerHandler interface.
 type MCPServerManager interface {
-	ListMCPServers() []api.MCPServerInfo
-	GetMCPServer(name string) (*api.MCPServerInfo, error)
+	ListMCPServers(ctx context.Context) ([]api.MCPServerInfo, error)
+	GetMCPServer(ctx context.Context, name string) (*api.MCPServerInfo, error)
 }
 
 // MCPServerReconciler reconciles MCPServer resources.
@@ -107,9 +107,16 @@ func (r *MCPServerReconciler) GetResourceType() ResourceType {
 // names and all registered MCPServer service names. Including registry-only
 // names lets resync heal a lost delete event (service running without a
 // definition); definition names heal lost create/update events.
-func (r *MCPServerReconciler) ResyncNames() []string {
+//
+// A failed definition list drops only the definition half of the union: the
+// registry half still heals lost delete events, and the next resync retries.
+func (r *MCPServerReconciler) ResyncNames(ctx context.Context) []string {
 	seen := make(map[string]struct{})
-	for _, info := range r.mcpServerManager.ListMCPServers() {
+	definitions, err := r.mcpServerManager.ListMCPServers(ctx)
+	if err != nil {
+		logging.Warn("MCPServerReconciler", "Failed to list MCPServer definitions for resync: %v", err)
+	}
+	for _, info := range definitions {
 		seen[info.Name] = struct{}{}
 	}
 	for _, svc := range r.serviceRegistry.GetAll() {
@@ -134,7 +141,7 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileReques
 	logging.Info("MCPServerReconciler", "Reconciling MCPServer: %s", req.Name)
 
 	// Fetch the desired state from the definition source
-	mcpServerInfo, err := r.mcpServerManager.GetMCPServer(req.Name)
+	mcpServerInfo, err := r.mcpServerManager.GetMCPServer(ctx, req.Name)
 	if err != nil {
 		// If not found, this might be a delete operation
 		if IsNotFoundError(err) {

@@ -249,14 +249,10 @@ func (a *Adapter) Close() error {
 }
 
 // ListMCPServers returns all MCP server definitions
-func (a *Adapter) ListMCPServers() []api.MCPServerInfo {
-	ctx := context.Background()
-
+func (a *Adapter) ListMCPServers(ctx context.Context) ([]api.MCPServerInfo, error) {
 	servers, err := a.client.ListMCPServers(ctx, a.namespace)
 	if err != nil {
-		// Log error and return empty list
-		logging.Warn("MCPServer", "Failed to list MCPServers: %v", err)
-		return []api.MCPServerInfo{}
+		return nil, fmt.Errorf("failed to list MCPServers: %w", err)
 	}
 
 	result := make([]api.MCPServerInfo, len(servers))
@@ -265,7 +261,7 @@ func (a *Adapter) ListMCPServers() []api.MCPServerInfo {
 		result[i].ProtocolVersion = serviceProtocolVersion(server.Name)
 	}
 
-	return result
+	return result, nil
 }
 
 // serviceProtocolVersion returns the MCP revision the named server answered
@@ -291,9 +287,7 @@ func serviceProtocolVersion(name string) string {
 }
 
 // GetMCPServer returns information about a specific MCP server
-func (a *Adapter) GetMCPServer(name string) (*api.MCPServerInfo, error) {
-	ctx := context.Background()
-
+func (a *Adapter) GetMCPServer(ctx context.Context, name string) (*api.MCPServerInfo, error) {
 	server, err := a.client.GetMCPServer(ctx, name, a.namespace)
 	if err != nil {
 		if errors.IsNotFound(err) {
@@ -700,9 +694,9 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 func (a *Adapter) ExecuteTool(ctx context.Context, toolName string, args map[string]interface{}) (*api.CallToolResult, error) {
 	switch toolName {
 	case "mcpserver_list":
-		return a.handleMCPServerList(args)
+		return a.handleMCPServerList(ctx, args)
 	case "mcpserver_get":
-		return a.handleMCPServerGet(args)
+		return a.handleMCPServerGet(ctx, args)
 	case "mcpserver_validate":
 		return a.handleMCPServerValidate(args)
 	case "mcpserver_detect":
@@ -720,8 +714,11 @@ func (a *Adapter) ExecuteTool(ctx context.Context, toolName string, args map[str
 
 // Tool handlers
 
-func (a *Adapter) handleMCPServerList(args map[string]interface{}) (*api.CallToolResult, error) {
-	allServers := a.ListMCPServers()
+func (a *Adapter) handleMCPServerList(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
+	allServers, err := a.ListMCPServers(ctx)
+	if err != nil {
+		return api.HandleErrorWithPrefix(err, "Failed to list MCP servers"), nil
+	}
 
 	// Check showAll parameter (default: false)
 	showAll := false
@@ -783,7 +780,7 @@ func adjustServerForDisplay(server api.MCPServerInfo, verbose bool) api.MCPServe
 	return server
 }
 
-func (a *Adapter) handleMCPServerGet(args map[string]interface{}) (*api.CallToolResult, error) {
+func (a *Adapter) handleMCPServerGet(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
 	name, ok := args["name"].(string)
 	if !ok {
 		return &api.CallToolResult{
@@ -792,7 +789,7 @@ func (a *Adapter) handleMCPServerGet(args map[string]interface{}) (*api.CallTool
 		}, nil
 	}
 
-	mcpServer, err := a.GetMCPServer(name)
+	mcpServer, err := a.GetMCPServer(ctx, name)
 	if err != nil {
 		return api.HandleErrorWithPrefix(err, "Failed to get MCP server"), nil
 	}

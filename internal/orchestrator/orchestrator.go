@@ -135,7 +135,10 @@ func (o *Orchestrator) processAutoStartMCPServers(ctx context.Context) error {
 		return nil
 	}
 
-	mcpServers := mcpServerMgr.ListMCPServers()
+	mcpServers, err := mcpServerMgr.ListMCPServers(ctx)
+	if err != nil {
+		return fmt.Errorf("list MCPServer definitions for auto-start processing: %w", err)
+	}
 	logging.Info("Orchestrator", "Found %d MCPServer definitions for auto-start processing", len(mcpServers))
 
 	for _, mcpServerInfo := range mcpServers {
@@ -224,7 +227,7 @@ func (o *Orchestrator) registerMCPServerFromDefinition(name string) (services.Se
 		return nil, fmt.Errorf("service %s not found", name)
 	}
 
-	mcpServerInfo, err := mcpServerMgr.GetMCPServer(name)
+	mcpServerInfo, err := mcpServerMgr.GetMCPServer(o.ctx, name)
 	if err != nil || mcpServerInfo == nil {
 		return nil, fmt.Errorf("service %s not found", name)
 	}

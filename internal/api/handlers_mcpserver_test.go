@@ -2,25 +2,29 @@ package api
 
 import (
 	"context"
+	"errors"
 	"testing"
 )
 
+// errListFailed stands in for an apiserver read failure.
+var errListFailed = errors.New("list failed")
+
 // mockMCPServerManager implements MCPServerManagerHandler for testing.
 type mockMCPServerManager struct {
-	listMCPServersFn func() []MCPServerInfo
+	listMCPServersFn func() ([]MCPServerInfo, error)
 	getMCPServerFn   func(name string) (*MCPServerInfo, error)
 	getToolsFn       func() []ToolMetadata
 	executeToolFn    func(ctx context.Context, toolName string, args map[string]interface{}) (*CallToolResult, error)
 }
 
-func (m *mockMCPServerManager) ListMCPServers() []MCPServerInfo {
+func (m *mockMCPServerManager) ListMCPServers(context.Context) ([]MCPServerInfo, error) {
 	if m.listMCPServersFn != nil {
 		return m.listMCPServersFn()
 	}
-	return nil
+	return nil, nil
 }
 
-func (m *mockMCPServerManager) GetMCPServer(name string) (*MCPServerInfo, error) {
+func (m *mockMCPServerManager) GetMCPServer(_ context.Context, name string) (*MCPServerInfo, error) {
 	if m.getMCPServerFn != nil {
 		return m.getMCPServerFn(name)
 	}
@@ -43,26 +47,38 @@ func (m *mockMCPServerManager) ExecuteTool(ctx context.Context, toolName string,
 
 func TestCollectRequiredAudiences(t *testing.T) {
 	tests := []struct {
-		name     string
-		setup    func()
-		expected []string
+		name        string
+		setup       func()
+		expected    []string
+		expectedErr error
 	}{
 		{
-			name: "no manager registered returns nil",
+			name: "no manager registered reports the set is unknown",
 			setup: func() {
 				// Ensure no manager is registered
 				handlerMutex.Lock()
 				mcpServerManagerHandler = nil
 				handlerMutex.Unlock()
 			},
-			expected: nil,
+			expectedErr: ErrNoMCPServerManager,
+		},
+		{
+			name: "a failed list is an error, not an empty set",
+			setup: func() {
+				RegisterMCPServerManager(&mockMCPServerManager{
+					listMCPServersFn: func() ([]MCPServerInfo, error) {
+						return nil, errListFailed
+					},
+				})
+			},
+			expectedErr: errListFailed,
 		},
 		{
 			name: "no servers returns nil",
 			setup: func() {
 				RegisterMCPServerManager(&mockMCPServerManager{
-					listMCPServersFn: func() []MCPServerInfo {
-						return []MCPServerInfo{}
+					listMCPServersFn: func() ([]MCPServerInfo, error) {
+						return []MCPServerInfo{}, nil
 					},
 				})
 			},
@@ -72,7 +88,7 @@ func TestCollectRequiredAudiences(t *testing.T) {
 			name: "servers without forwardToken returns empty",
 			setup: func() {
 				RegisterMCPServerManager(&mockMCPServerManager{
-					listMCPServersFn: func() []MCPServerInfo {
+					listMCPServersFn: func() ([]MCPServerInfo, error) {
 						return []MCPServerInfo{
 							{
 								Name: "server1",
@@ -85,7 +101,7 @@ func TestCollectRequiredAudiences(t *testing.T) {
 								Name: "server2",
 								Auth: nil, // No auth config
 							},
-						}
+						}, nil
 					},
 				})
 			},
@@ -95,7 +111,7 @@ func TestCollectRequiredAudiences(t *testing.T) {
 			name: "servers with forwardToken returns audiences",
 			setup: func() {
 				RegisterMCPServerManager(&mockMCPServerManager{
-					listMCPServersFn: func() []MCPServerInfo {
+					listMCPServersFn: func() ([]MCPServerInfo, error) {
 						return []MCPServerInfo{
 							{
 								Name: "server1",
@@ -104,7 +120,7 @@ func TestCollectRequiredAudiences(t *testing.T) {
 									RequiredAudiences: []string{"dex-k8s-authenticator"},
 								},
 							},
-						}
+						}, nil
 					},
 				})
 			},
@@ -114,7 +130,7 @@ func TestCollectRequiredAudiences(t *testing.T) {
 			name: "multiple servers with forwardToken returns deduplicated sorted audiences",
 			setup: func() {
 				RegisterMCPServerManager(&mockMCPServerManager{
-					listMCPServersFn: func() []MCPServerInfo {
+					listMCPServersFn: func() ([]MCPServerInfo, error) {
 						return []MCPServerInfo{
 							{
 								Name: "server1",
@@ -137,7 +153,7 @@ func TestCollectRequiredAudiences(t *testing.T) {
 									RequiredAudiences: []string{"ignored-audience"},
 								},
 							},
-						}
+						}, nil
 					},
 				})
 			},
@@ -147,7 +163,7 @@ func TestCollectRequiredAudiences(t *testing.T) {
 			name: "empty string audiences are filtered",
 			setup: func() {
 				RegisterMCPServerManager(&mockMCPServerManager{
-					listMCPServersFn: func() []MCPServerInfo {
+					listMCPServersFn: func() ([]MCPServerInfo, error) {
 						return []MCPServerInfo{
 							{
 								Name: "server1",
@@ -156,7 +172,7 @@ func TestCollectRequiredAudiences(t *testing.T) {
 									RequiredAudiences: []string{"valid-audience", "", "another-audience"},
 								},
 							},
-						}
+						}, nil
 					},
 				})
 			},
@@ -166,7 +182,7 @@ func TestCollectRequiredAudiences(t *testing.T) {
 			name: "server with forwardToken but no requiredAudiences returns empty",
 			setup: func() {
 				RegisterMCPServerManager(&mockMCPServerManager{
-					listMCPServersFn: func() []MCPServerInfo {
+					listMCPServersFn: func() ([]MCPServerInfo, error) {
 						return []MCPServerInfo{
 							{
 								Name: "server1",
@@ -175,7 +191,7 @@ func TestCollectRequiredAudiences(t *testing.T) {
 									RequiredAudiences: nil,
 								},
 							},
-						}
+						}, nil
 					},
 				})
 			},
@@ -189,9 +205,22 @@ func TestCollectRequiredAudiences(t *testing.T) {
 			tt.setup()
 
 			// Execute
-			result := CollectRequiredAudiences()
+			result, err := CollectRequiredAudiences(t.Context())
 
 			// Verify
+			if tt.expectedErr != nil {
+				if !errors.Is(err, tt.expectedErr) {
+					t.Errorf("expected error %v, got %v", tt.expectedErr, err)
+				}
+				if result != nil {
+					t.Errorf("expected no audiences alongside the error, got %v", result)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
 			if tt.expected == nil {
 				if result != nil {
 					t.Errorf("expected nil, got %v", result)
@@ -227,7 +256,7 @@ func TestCollectRequiredAudiences(t *testing.T) {
 func TestCollectRequiredAudiencesWithInvalidAudiences(t *testing.T) {
 	// Test that invalid audiences (spaces, special chars, etc.) are filtered out
 	RegisterMCPServerManager(&mockMCPServerManager{
-		listMCPServersFn: func() []MCPServerInfo {
+		listMCPServersFn: func() ([]MCPServerInfo, error) {
 			return []MCPServerInfo{
 				{
 					Name: "server1",
@@ -246,11 +275,14 @@ func TestCollectRequiredAudiencesWithInvalidAudiences(t *testing.T) {
 						},
 					},
 				},
-			}
+			}, nil
 		},
 	})
 
-	result := CollectRequiredAudiences()
+	result, err := CollectRequiredAudiences(t.Context())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	// Only audiences matching [a-zA-Z0-9_-] should be included
 	expected := []string{"valid-123", "valid-audience", "valid_audience_2"}
