@@ -332,6 +332,12 @@ type MockOAuthServerConfig struct {
 	// that are neither the configured client_id nor DCR-registered —
 	// mimicking DCR-only authorization servers ("Client Not Registered").
 	RequireRegisteredClient bool `yaml:"require_registered_client,omitempty"`
+
+	// RejectRegistrationScope makes the registration endpoint reject RFC 7591
+	// requests that carry a scope member with invalid_client_metadata —
+	// mimicking authorization servers (e.g. Miro's) that reject scopes they
+	// don't know instead of ignoring them.
+	RejectRegistrationScope bool `yaml:"reject_registration_scope,omitempty"`
 }
 
 // TrustedIssuerConfig defines a trusted issuer for RFC 8693 token exchange

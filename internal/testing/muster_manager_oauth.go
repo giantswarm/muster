@@ -73,6 +73,7 @@ func (m *musterInstanceManager) startMockOAuthServers(
 			SupportsCIMD:            oauthCfg.SupportsCIMD,
 			SupportsDCR:             oauthCfg.SupportsDCR,
 			RequireRegisteredClient: oauthCfg.RequireRegisteredClient,
+			RejectRegistrationScope: oauthCfg.RejectRegistrationScope,
 		}
 
 		// Use mock clock if configured (enables test_advance_oauth_clock tool)

@@ -300,7 +300,7 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 // authChallengeResult builds the tool result for a pending auth challenge.
 // The sign-in URL is carried both in the prose and as structuredContent.authUrl
 // so clients can read it without parsing the text. structuredContent also
-// carries clientIdMethod ("cimd", "dcr", or "cimd-fallback") so front-ends
+// carries clientIdMethod ("cimd", "dcr", "cimd-fallback", or "dcr-failed") so front-ends
 // can tell users how muster identifies itself to the authorization server —
 // and warn up front when the AS advertises neither mechanism.
 func authChallengeResult(serverName string, challenge *api.AuthChallenge) *api.CallToolResult {

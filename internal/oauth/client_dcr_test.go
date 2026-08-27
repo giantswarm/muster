@@ -25,7 +25,8 @@ type dcrTestServer struct {
 	advertiseDCR  bool
 
 	// Registration behavior
-	registrationStatus int // 0 → 201
+	registrationStatus int  // 0 → 201
+	rejectScope        bool // reject requests carrying a scope member (Miro-style)
 	issueSecret        bool
 
 	registrationCount atomic.Int64
@@ -73,6 +74,16 @@ func newDCRTestServer(t *testing.T) *dcrTestServer {
 				return
 			}
 
+			if s.rejectScope && req.Scope != "" {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]string{
+					"error":             "invalid_client_metadata",
+					"error_description": "Requested scopes are not valid: " + req.Scope,
+				})
+				return
+			}
+
 			resp := map[string]any{
 				"client_id": "dcr-client-123",
 			}
@@ -100,9 +111,9 @@ func newDCRTestServer(t *testing.T) *dcrTestServer {
 	return s
 }
 
-// upstreamClientID extracts the client_id from the upstream authorization URL
+// upstreamAuthQuery extracts the query of the upstream authorization URL
 // stored with the state behind a muster-hosted start URL.
-func upstreamClientID(t *testing.T, client *Client, startURL string) string {
+func upstreamAuthQuery(t *testing.T, client *Client, startURL string) url.Values {
 	t.Helper()
 	parsed, err := url.Parse(startURL)
 	if err != nil {
@@ -116,7 +127,14 @@ func upstreamClientID(t *testing.T, client *Client, startURL string) string {
 	if err != nil {
 		t.Fatalf("failed to parse upstream URL: %v", err)
 	}
-	return upstream.Query().Get("client_id")
+	return upstream.Query()
+}
+
+// upstreamClientID extracts the client_id from the upstream authorization URL
+// stored with the state behind a muster-hosted start URL.
+func upstreamClientID(t *testing.T, client *Client, startURL string) string {
+	t.Helper()
+	return upstreamAuthQuery(t, client, startURL).Get("client_id")
 }
 
 func TestClient_GenerateAuthURL_PrefersCIMDWhenAdvertised(t *testing.T) {
@@ -128,12 +146,12 @@ func TestClient_GenerateAuthURL_PrefersCIMDWhenAdvertised(t *testing.T) {
 		"https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
 
-	startURL, method, err := client.GenerateAuthURL(context.Background(), "session-1", "user-1", "server-1", as.server.URL, "openid")
+	startURL, resolved, err := client.GenerateAuthURL(context.Background(), "session-1", "user-1", "server-1", as.server.URL, "openid")
 	if err != nil {
 		t.Fatalf("GenerateAuthURL failed: %v", err)
 	}
-	if method != ClientIDMethodCIMD {
-		t.Errorf("expected method %q, got %q", ClientIDMethodCIMD, method)
+	if resolved.Method != ClientIDMethodCIMD {
+		t.Errorf("expected method %q, got %q", ClientIDMethodCIMD, resolved.Method)
 	}
 	if got := upstreamClientID(t, client, startURL); got != "https://muster.example.com/.well-known/oauth-client.json" {
 		t.Errorf("expected CIMD URL as client_id, got %q", got)
@@ -151,19 +169,20 @@ func TestClient_GenerateAuthURL_FallsBackToDCR(t *testing.T) {
 		"https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
 
-	startURL, method, err := client.GenerateAuthURL(context.Background(), "session-1", "user-1", "server-1", as.server.URL, "openid")
+	startURL, resolved, err := client.GenerateAuthURL(context.Background(), "session-1", "user-1", "server-1", as.server.URL, "openid")
 	if err != nil {
 		t.Fatalf("GenerateAuthURL failed: %v", err)
 	}
-	if method != ClientIDMethodDCR {
-		t.Errorf("expected method %q, got %q", ClientIDMethodDCR, method)
+	if resolved.Method != ClientIDMethodDCR {
+		t.Errorf("expected method %q, got %q", ClientIDMethodDCR, resolved.Method)
 	}
 	if got := upstreamClientID(t, client, startURL); got != "dcr-client-123" {
 		t.Errorf("expected DCR-issued client_id, got %q", got)
 	}
 
 	// SEP-837: registration requests from the server-side proxy carry
-	// application_type "web"; RFC 7591 forbids client_id on the request.
+	// application_type "web"; RFC 7591 forbids client_id on the request, and
+	// scope is omitted — ASes like Miro's reject scopes they don't know.
 	reg, _ := as.lastRegistration.Load().(*pkgoauth.ClientMetadata)
 	if reg == nil {
 		t.Fatal("expected a registration request to have been recorded")
@@ -174,24 +193,27 @@ func TestClient_GenerateAuthURL_FallsBackToDCR(t *testing.T) {
 	if reg.ClientID != "" {
 		t.Errorf("DCR request must not carry client_id, got %q", reg.ClientID)
 	}
+	if reg.Scope != "" {
+		t.Errorf("DCR request must not carry scope, got %q", reg.Scope)
+	}
 	if reg.TokenEndpointAuthMethod != "none" {
 		t.Errorf("expected token_endpoint_auth_method none, got %q", reg.TokenEndpointAuthMethod)
 	}
 
 	// A second flow for the same issuer reuses the stored credentials.
-	_, method2, err := client.GenerateAuthURL(context.Background(), "session-2", "user-2", "server-1", as.server.URL, "openid")
+	_, resolved2, err := client.GenerateAuthURL(context.Background(), "session-2", "user-2", "server-1", as.server.URL, "openid")
 	if err != nil {
 		t.Fatalf("second GenerateAuthURL failed: %v", err)
 	}
-	if method2 != ClientIDMethodDCR {
-		t.Errorf("expected method %q on reuse, got %q", ClientIDMethodDCR, method2)
+	if resolved2.Method != ClientIDMethodDCR {
+		t.Errorf("expected method %q on reuse, got %q", ClientIDMethodDCR, resolved2.Method)
 	}
 	if n := as.registrationCount.Load(); n != 1 {
 		t.Errorf("expected exactly one DCR registration, got %d", n)
 	}
 }
 
-func TestClient_GenerateAuthURL_CIMDFallbackWhenRegistrationFails(t *testing.T) {
+func TestClient_GenerateAuthURL_DCRFailedWhenRegistrationRejected(t *testing.T) {
 	as := newDCRTestServer(t)
 	as.advertiseDCR = true
 	as.registrationStatus = http.StatusBadRequest
@@ -200,15 +222,56 @@ func TestClient_GenerateAuthURL_CIMDFallbackWhenRegistrationFails(t *testing.T) 
 		"https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
 
-	startURL, method, err := client.GenerateAuthURL(context.Background(), "session-1", "user-1", "server-1", as.server.URL, "openid")
+	startURL, resolved, err := client.GenerateAuthURL(context.Background(), "session-1", "user-1", "server-1", as.server.URL, "openid")
 	if err != nil {
 		t.Fatalf("GenerateAuthURL failed: %v", err)
 	}
-	if method != ClientIDMethodCIMDFallback {
-		t.Errorf("expected method %q, got %q", ClientIDMethodCIMDFallback, method)
+	// A rejected registration is reported as "dcr-failed" — not as
+	// "cimd-fallback", which would falsely claim the AS advertises neither
+	// mechanism — and carries the AS's rejection for the challenge message.
+	if resolved.Method != ClientIDMethodDCRFailed {
+		t.Errorf("expected method %q, got %q", ClientIDMethodDCRFailed, resolved.Method)
+	}
+	if resolved.RegistrationError == nil {
+		t.Error("expected the registration rejection to be carried on the resolved client")
+	} else if !strings.Contains(resolved.RegistrationError.Error(), "invalid_client_metadata") {
+		t.Errorf("expected the AS's error on the resolved client, got %v", resolved.RegistrationError)
 	}
 	if got := upstreamClientID(t, client, startURL); got != "https://muster.example.com/.well-known/oauth-client.json" {
 		t.Errorf("expected CIMD URL as fallback client_id, got %q", got)
+	}
+}
+
+func TestClient_GenerateAuthURL_OmitsScopeFromRegistration(t *testing.T) {
+	// Miro-style AS: any scope member on the RFC 7591 request is rejected
+	// with invalid_client_metadata. Registration must still succeed because
+	// muster omits scope entirely — the per-server scope rides on the
+	// authorization request instead.
+	as := newDCRTestServer(t)
+	as.advertiseDCR = true
+	as.rejectScope = true
+
+	client := NewClient("https://muster.example.com/.well-known/oauth-client.json",
+		"https://muster.example.com", "/oauth/proxy/callback", "openid profile email groups offline_access")
+	defer client.Stop()
+
+	startURL, resolved, err := client.GenerateAuthURL(context.Background(), "session-1", "user-1", "server-1", as.server.URL, "mcp:read")
+	if err != nil {
+		t.Fatalf("GenerateAuthURL failed: %v", err)
+	}
+	if resolved.Method != ClientIDMethodDCR {
+		t.Errorf("expected method %q, got %q", ClientIDMethodDCR, resolved.Method)
+	}
+	authQuery := upstreamAuthQuery(t, client, startURL)
+	if got := authQuery.Get("client_id"); got != "dcr-client-123" {
+		t.Errorf("expected DCR-issued client_id, got %q", got)
+	}
+	if reg, _ := as.lastRegistration.Load().(*pkgoauth.ClientMetadata); reg == nil || reg.Scope != "" {
+		t.Errorf("registration request must not carry scope, got %+v", reg)
+	}
+	// The per-server scope still rides on the authorization request.
+	if got := authQuery.Get("scope"); got != "mcp:read" {
+		t.Errorf("expected the per-server scope on the authorization request, got %q", got)
 	}
 }
 

@@ -72,7 +72,8 @@ type AuthRequiredResponse struct {
 
 	// ClientIDMethod reports how muster identifies itself to the
 	// authorization server for this flow: "cimd" (AS advertises CIMD
-	// support), "dcr" (RFC 7591 registered credentials), or "cimd-fallback"
-	// (neither advertised — the AS may reject the sign-in).
+	// support), "dcr" (RFC 7591 registered credentials), "cimd-fallback"
+	// (neither advertised — the AS may reject the sign-in), or "dcr-failed"
+	// (the AS rejected muster's registration; the CIMD URL is sent anyway).
 	ClientIDMethod string `json:"client_id_method,omitempty"`
 }

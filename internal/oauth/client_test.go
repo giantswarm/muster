@@ -256,15 +256,15 @@ func TestClient_GenerateAuthURL(t *testing.T) {
 	defer client.Stop()
 
 	ctx := context.Background()
-	authURL, clientIDMethod, err := client.GenerateAuthURL(ctx, testSubject, "test-user", testServerName, server.URL, testScopes)
+	authURL, resolved, err := client.GenerateAuthURL(ctx, testSubject, "test-user", testServerName, server.URL, testScopes)
 	if err != nil {
 		t.Fatalf("Failed to generate auth URL: %v", err)
 	}
 
 	// The AS advertises neither CIMD support nor a registration endpoint, so
 	// the status-quo fallback (CIMD URL as client_id) is used.
-	if clientIDMethod != ClientIDMethodCIMDFallback {
-		t.Errorf("Expected clientIDMethod %q, got %q", ClientIDMethodCIMDFallback, clientIDMethod)
+	if resolved.Method != ClientIDMethodCIMDFallback {
+		t.Errorf("Expected clientIDMethod %q, got %q", ClientIDMethodCIMDFallback, resolved.Method)
 	}
 
 	// The user-facing URL is the muster-hosted start endpoint carrying the state.
