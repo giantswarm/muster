@@ -137,6 +137,7 @@ For container orchestration environments.
 ```bash
 kubectl apply -f https://raw.githubusercontent.com/giantswarm/muster/main/helm/muster-crds/files/crds/muster.giantswarm.io_mcpservers.yaml
 kubectl apply -f https://raw.githubusercontent.com/giantswarm/muster/main/helm/muster-crds/files/crds/muster.giantswarm.io_workflows.yaml
+kubectl apply -f https://raw.githubusercontent.com/giantswarm/muster/main/helm/muster-crds/files/crds/muster.giantswarm.io_workflowexecutions.yaml
 ```
 
 #### Deploy Muster Server
@@ -427,6 +428,7 @@ sudo systemctl start muster
 # Update CRDs
 kubectl apply -f https://raw.githubusercontent.com/giantswarm/muster/main/helm/muster-crds/files/crds/muster.giantswarm.io_mcpservers.yaml
 kubectl apply -f https://raw.githubusercontent.com/giantswarm/muster/main/helm/muster-crds/files/crds/muster.giantswarm.io_workflows.yaml
+kubectl apply -f https://raw.githubusercontent.com/giantswarm/muster/main/helm/muster-crds/files/crds/muster.giantswarm.io_workflowexecutions.yaml
 
 # Update deployment image
 kubectl set image deployment/muster-server muster=giantswarm/muster:latest -n muster-system
