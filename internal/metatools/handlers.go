@@ -64,12 +64,16 @@ func (p *Provider) ExecuteTool(ctx context.Context, toolName string, args map[st
 		return p.handleCallTool(ctx, args)
 	case "list_resources":
 		return p.handleListResources(ctx, args)
+	case "filter_resources":
+		return p.handleFilterResources(ctx, args)
 	case "describe_resource":
 		return p.handleDescribeResource(ctx, args)
 	case "get_resource":
 		return p.handleGetResource(ctx, args)
 	case "list_prompts":
 		return p.handleListPrompts(ctx, args)
+	case "filter_prompts":
+		return p.handleFilterPrompts(ctx, args)
 	case "describe_prompt":
 		return p.handleDescribePrompt(ctx, args)
 	case "get_prompt":
@@ -558,7 +562,7 @@ func (p *Provider) handleDescribeResource(ctx context.Context, args map[string]a
 	}
 
 	// Optional: disambiguates a URI exposed by more than one server.
-	serverName, _ := args["server"].(string)
+	serverName, _ := args[ArgServer].(string)
 
 	handler, errResult := p.getHandler()
 	if errResult != nil {
@@ -618,7 +622,7 @@ func (p *Provider) handleGetResource(ctx context.Context, args map[string]any) (
 	}
 
 	// Optional: disambiguates a URI exposed by more than one server.
-	serverName, _ := args["server"].(string)
+	serverName, _ := args[ArgServer].(string)
 
 	handler, errResult := p.getHandler()
 	if errResult != nil {
@@ -641,6 +645,188 @@ func (p *Provider) handleGetResource(ctx context.Context, args map[string]any) (
 	}
 
 	return textResult(strings.Join(contentTexts, "\n")), nil
+}
+
+// capabilityFilterArgs parses the arguments shared by filter_resources and
+// filter_prompts. Unlike filter_tools these take no relevance query or label
+// facets -- resources and prompts carry neither.
+func parseCapabilityFilterArgs(args map[string]any) (CapabilityFilterCriteria, *api.CallToolResult) {
+	opts := CapabilityFilterCriteria{Limit: defaultFilterLimit}
+
+	if v, ok := args["pattern"].(string); ok {
+		opts.Pattern = v
+	}
+	if v, ok := args[ArgServer].(string); ok {
+		opts.Server = v
+	}
+	if v, ok := args["case_sensitive"].(bool); ok {
+		opts.CaseSensitive = v
+	}
+	if v, ok := args["limit"]; ok {
+		limit, err := toInt(v)
+		if err != nil {
+			return opts, errorResult("limit must be a number")
+		}
+		if limit < 1 {
+			return opts, errorResult("limit must be at least 1")
+		}
+		opts.Limit = limit
+	}
+	if v, ok := args["offset"]; ok {
+		offset, err := toInt(v)
+		if err != nil {
+			return opts, errorResult("offset must be a number")
+		}
+		if offset < 0 {
+			return opts, errorResult("offset must be at least 0")
+		}
+		opts.Offset = offset
+	}
+
+	if opts.Pattern != "" {
+		if _, err := filepath.Match(opts.Pattern, ""); err != nil {
+			return opts, errorResult(fmt.Sprintf("Invalid pattern %q: %v", opts.Pattern, err))
+		}
+	}
+	return opts, nil
+}
+
+// paginate returns the [start:end) window of total items for the given
+// limit/offset, plus whether matches remain beyond the returned page.
+func paginate(total, limit, offset int) (start, end int, truncated bool) {
+	start = min(offset, total)
+	end = total
+	if limit > 0 && start+limit < end {
+		end = start + limit
+	}
+	return start, end, end < total
+}
+
+// handleFilterResources handles the filter_resources meta-tool.
+//
+// Resources are scoped by source server rather than by name prefix: a URI
+// carrying a scheme is exposed unprefixed, so unlike filter_tools a pattern
+// alone cannot select one server's resources. The "server" argument is the
+// reliable way to do that; "pattern" additionally globs the URI.
+func (p *Provider) handleFilterResources(ctx context.Context, args map[string]any) (*api.CallToolResult, error) {
+	opts, errResult := parseCapabilityFilterArgs(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+
+	handler, errResult := p.getHandler()
+	if errResult != nil {
+		return errResult, nil
+	}
+
+	resources, err := handler.ListResources(ctx)
+	if err != nil {
+		return errorResult(fmt.Sprintf("Failed to list resources: %v", err)), nil
+	}
+
+	matched := make([]api.ResourceOrigin, 0, len(resources))
+	for _, origin := range resources {
+		if opts.Server != "" && origin.Server != opts.Server {
+			continue
+		}
+		if !matchesPattern(origin.Resource.URI, opts.Pattern, opts.CaseSensitive) {
+			continue
+		}
+		matched = append(matched, origin)
+	}
+
+	start, end, truncated := paginate(len(matched), opts.Limit, opts.Offset)
+	page := matched[start:end]
+
+	infos := make([]ResourceInfo, 0, len(page))
+	for _, origin := range page {
+		infos = append(infos, ResourceInfo{
+			URI:         origin.Resource.URI,
+			Name:        origin.Resource.Name,
+			Description: origin.Resource.Description,
+			MIMEType:    origin.Resource.MIMEType,
+			Server:      origin.Server,
+		})
+	}
+
+	resp := FilterResourcesResponse{
+		Filters:        opts,
+		TotalResources: len(resources),
+		FilteredCount:  len(infos),
+		Total:          len(matched),
+		Truncated:      truncated,
+		Resources:      infos,
+	}
+
+	jsonData, err := json.MarshalIndent(resp, "", "  ")
+	if err != nil {
+		return errorResult(fmt.Sprintf("Failed to format filtered resources: %v", err)), nil
+	}
+	return textResult(string(jsonData)), nil
+}
+
+// handleFilterPrompts handles the filter_prompts meta-tool.
+//
+// Prompt names are prefixed "x_<server>_<name>", so a pattern selects one
+// server's prompts exactly as it does for tools. The "server" argument is
+// accepted for symmetry with filter_resources and matches the same prefix.
+func (p *Provider) handleFilterPrompts(ctx context.Context, args map[string]any) (*api.CallToolResult, error) {
+	opts, errResult := parseCapabilityFilterArgs(args)
+	if errResult != nil {
+		return errResult, nil
+	}
+
+	handler, errResult := p.getHandler()
+	if errResult != nil {
+		return errResult, nil
+	}
+
+	prompts, err := handler.ListPrompts(ctx)
+	if err != nil {
+		return errorResult(fmt.Sprintf("Failed to list prompts: %v", err)), nil
+	}
+
+	matched := make([]mcp.Prompt, 0, len(prompts))
+	for _, prompt := range prompts {
+		if opts.Server != "" && !matchesPattern(prompt.Name, serverPromptPattern(opts.Server), opts.CaseSensitive) {
+			continue
+		}
+		if !matchesPattern(prompt.Name, opts.Pattern, opts.CaseSensitive) {
+			continue
+		}
+		matched = append(matched, prompt)
+	}
+
+	start, end, truncated := paginate(len(matched), opts.Limit, opts.Offset)
+	page := matched[start:end]
+
+	infos := make([]PromptInfo, 0, len(page))
+	for _, prompt := range page {
+		infos = append(infos, PromptInfo{Name: prompt.Name, Description: prompt.Description})
+	}
+
+	resp := FilterPromptsResponse{
+		Filters:       opts,
+		TotalPrompts:  len(prompts),
+		FilteredCount: len(infos),
+		Total:         len(matched),
+		Truncated:     truncated,
+		Prompts:       infos,
+	}
+
+	jsonData, err := json.MarshalIndent(resp, "", "  ")
+	if err != nil {
+		return errorResult(fmt.Sprintf("Failed to format filtered prompts: %v", err)), nil
+	}
+	return textResult(string(jsonData)), nil
+}
+
+// serverPromptPattern builds the glob matching every prompt exposed by one
+// server. It mirrors the "x_<server>_" prefix ExposedPromptName applies; the
+// muster prefix is fixed at the aggregator's configured value, so the leading
+// segment is globbed rather than assumed to be "x".
+func serverPromptPattern(serverName string) string {
+	return fmt.Sprintf("*_%s_*", serverName)
 }
 
 // handleListPrompts handles the list_prompts meta-tool.

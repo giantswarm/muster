@@ -114,23 +114,49 @@ func (a *AggregatorServer) enrichServerList(ctx context.Context, result *mcp.Cal
 	return result
 }
 
-// enrichServerEntry adds sessionStatus and toolsCount to a single server map.
+// enrichServerEntry adds sessionStatus and the per-session capability counts
+// to a single server map.
+//
+// Counts come from the session capability store for OAuth servers, which see a
+// different catalogue per user, and fall back to the registry for servers that
+// expose the same capabilities to everyone. Reporting only the tool count made
+// a server's resources and prompts invisible to any consumer of this listing.
 func (a *AggregatorServer) enrichServerEntry(ctx context.Context, sub, sessionID string, entry map[string]interface{}) map[string]interface{} {
 	serverName, ok := entry["name"].(string)
 	if !ok || serverName == "" {
 		return entry
 	}
 
-	if info, found := a.registry.GetServerInfo(serverName); found {
+	info, found := a.registry.GetServerInfo(serverName)
+	if found {
 		status := a.determineSessionAuthStatus(sub, sessionID, serverName, info)
 		entry["sessionStatus"] = string(status)
 	}
 
-	if a.capabilityStore != nil {
-		caps, err := a.capabilityStore.Get(ctx, sessionID, serverName)
-		if err == nil && caps != nil && len(caps.Tools) > 0 {
-			entry["toolsCount"] = len(caps.Tools)
+	setCount := func(key string, count int) {
+		if count > 0 {
+			entry[key] = count
 		}
+	}
+
+	if a.capabilityStore != nil {
+		if caps, err := a.capabilityStore.Get(ctx, sessionID, serverName); err == nil && caps != nil {
+			setCount("toolsCount", len(caps.Tools))
+			setCount("resourcesCount", len(caps.Resources))
+			setCount("promptsCount", len(caps.Prompts))
+			return entry
+		}
+	}
+
+	// No per-session capabilities: a server that does not gate on the caller's
+	// identity exposes one catalogue, held on the registry entry.
+	if found && !info.RequiresSessionAuth() {
+		info.mu.RLock()
+		toolCount, resourceCount, promptCount := len(info.Tools), len(info.Resources), len(info.Prompts)
+		info.mu.RUnlock()
+		setCount("toolsCount", toolCount)
+		setCount("resourcesCount", resourceCount)
+		setCount("promptsCount", promptCount)
 	}
 
 	return entry

@@ -574,6 +574,14 @@ type MCPServerInfo struct {
 	// based on user permissions.
 	ToolsCount int `json:"toolsCount,omitempty"`
 
+	// ResourcesCount is the number of resources available from this server for
+	// the current session, session-specific for the same reason as ToolsCount.
+	ResourcesCount int `json:"resourcesCount,omitempty"`
+
+	// PromptsCount is the number of prompts available from this server for the
+	// current session, session-specific for the same reason as ToolsCount.
+	PromptsCount int `json:"promptsCount,omitempty"`
+
 	// ConnectedAt indicates when the current session connected to this server.
 	// Only populated if there is an active session connection.
 	ConnectedAt *time.Time `json:"connectedAt,omitempty"`

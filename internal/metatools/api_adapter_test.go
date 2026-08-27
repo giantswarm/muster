@@ -47,7 +47,7 @@ func TestAdapter_GetTools(t *testing.T) {
 	tools := adapter.GetTools()
 
 	// Should return all meta-tools
-	assert.Len(t, tools, 11)
+	assert.Len(t, tools, 13)
 
 	// Verify tool names
 	toolNames := make(map[string]bool)
