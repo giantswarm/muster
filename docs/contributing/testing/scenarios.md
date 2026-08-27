@@ -330,6 +330,32 @@ expected:
     status_code: 200
 ```
 
+#### There is no per-step `retry`
+
+A step-level `retry:` block (`count`, `delay`, `backoff_multiplier`) used to be
+accepted and validated, but the runner never read it -- a step declaring it got
+exactly one attempt. It is now rejected at load time. `wait_for_state` covers the
+same need and is the mechanism that works, so poll with it instead:
+
+```yaml
+# Wrong: rejected at load time.
+expected:
+  success: true
+  contains: ["obo-backend"]
+retry:
+  count: 5
+  delay: "1s"
+
+# Right: re-invokes the tool every second for up to 30s.
+expected:
+  success: true
+  contains: ["obo-backend"]
+  wait_for_state: "30s"
+```
+
+Set `wait_for_state` *or* a step `timeout:`, not both -- two deadlines on the
+same step race, and the poll should own the bound.
+
 ### 5. Mock Server Configuration
 
 #### Complete Mock Server Example

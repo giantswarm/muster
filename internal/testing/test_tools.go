@@ -1240,7 +1240,8 @@ func (h *TestToolsHandler) handleGetServerInfo(_ context.Context, _ map[string]i
 // suffixes, attribute-to-label mapping).
 //
 // A newly reconciled state can take a moment to reach the exporter, so
-// scenarios pair this with a retry on the step.
+// scenarios pair this with expected.wait_for_state on the step, which
+// re-invokes the scrape until the expectations hold.
 func (h *TestToolsHandler) handleScrapeMetrics(ctx context.Context, args map[string]interface{}) (interface{}, error) {
 	if h.currentInstance == nil {
 		return nil, fmt.Errorf("no muster instance available to scrape")

@@ -11,7 +11,7 @@
 //
 // - **Separation of Concerns**: Each component has a single, well-defined responsibility
 // - **Interface-Driven Design**: All components interact through well-defined interfaces
-// - **Configurable Execution**: Support for parallel execution, timeouts, and retry logic
+// - **Configurable Execution**: Support for parallel execution, timeouts, and state polling
 // - **Comprehensive Reporting**: Structured output for both human and machine consumption
 // - **CI/CD Integration**: First-class support for automated testing pipelines
 //
@@ -103,15 +103,16 @@
 //
 // **TestScenario**: Complete test scenario definition
 //   - Metadata: name, category, concept, description, tags
-//   - Configuration: timeout, retry settings, parallel execution hints
+//   - Configuration: timeout, parallel execution hints
 //   - Steps: Sequential list of test steps with validation rules
 //   - Cleanup: Teardown steps executed after scenario completion
 //
 // **TestStep**: Individual test operation within a scenario
 //   - Tool invocation: MCP tool name and args
 //   - Validation: Expected outcomes and assertion rules
-//   - Error handling: Retry logic and failure recovery
-//   - Timing: Step-specific timeout and delay configurations
+//   - Polling: expected.wait_for_state re-invokes the tool until the other
+//     expectations hold, for eventually-consistent state
+//   - Timing: Step-specific timeout
 //
 // **TestResults**: Aggregated results from test execution
 //   - Overall status: pass/fail/error counts and percentages
@@ -297,7 +298,7 @@
 // - **Graceful Degradation**: Continue execution when possible
 // - **Detailed Error Messages**: Context-rich error information
 // - **Error Classification**: Distinguish between test failures and framework errors
-// - **Recovery Mechanisms**: Automatic retry and fallback logic where appropriate
+// - **Recovery Mechanisms**: Fallback logic where appropriate
 //
 // # Integration with CI/CD
 //
