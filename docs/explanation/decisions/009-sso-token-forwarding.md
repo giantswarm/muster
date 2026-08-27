@@ -406,6 +406,12 @@ When `forwardToken: true`:
 3. The server validates the token with its audience configuration
 4. No separate authentication flow is required
 
+Muster resolves the audience set per authorization request, from the MCPServer
+resources that exist at that moment, so an MCPServer that registers after muster
+starts reaches the next login without a restart. The audience is fixed when the
+token is minted: a session that started before an MCPServer registered keeps a
+token without that audience until the user logs in again.
+
 #### 2. Token Exchange (Recommended for Cross-Cluster SSO)
 
 When the downstream MCP server is on a different cluster with its own Dex instance:

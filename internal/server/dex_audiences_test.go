@@ -274,6 +274,37 @@ func TestDexAudienceResolverStopEndsTheRefresher(t *testing.T) {
 	})
 }
 
+// TestDexAudienceResolverStopCancelsAReadInFlight keeps a shutdown from waiting
+// out the collector timeout. Shutdown stops the refresher before the OAuth
+// server, and the whole aggregator shutdown budget is 5s, so a read against an
+// unreachable apiserver would otherwise consume all of it.
+func TestDexAudienceResolverStopCancelsAReadInFlight(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		reading := make(chan struct{})
+		resolver := newDexAudienceResolver(func(ctx context.Context) ([]string, error) {
+			close(reading)
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}, slog.New(slog.DiscardHandler))
+
+		returned := make(chan struct{})
+		go func() {
+			defer close(returned)
+			resolver.refresh()
+		}()
+
+		<-reading
+		resolver.stop()
+		synctest.Wait()
+
+		select {
+		case <-returned:
+		default:
+			t.Fatal("stop must cancel the read in flight, not wait out the timeout")
+		}
+	})
+}
+
 // TestDexAudienceResolverStopWithoutStart covers the provider that never starts
 // a refresher.
 func TestDexAudienceResolverStopWithoutStart(t *testing.T) {

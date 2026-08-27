@@ -39,11 +39,21 @@ const (
 // A read that fails leaves the last known set in place. An audience muster
 // cannot confirm is not the same as an audience no MCPServer needs, and a token
 // minted without one cannot be repaired without a new login.
+//
+// Nothing ages the last known set out. Across a long apiserver outage, muster
+// keeps requesting an audience that no MCPServer needs any more, which mints a
+// wider token than necessary. Dropping the set instead mints tokens that the
+// backend rejects, and no refresh repairs those.
 type dexAudienceResolver struct {
 	collect  func(context.Context) ([]string, error)
 	interval time.Duration
 	timeout  time.Duration
 	logger   *slog.Logger
+
+	// baseCtx bounds every collector call and is cancelled by stop, so a
+	// shutdown does not wait out timeout on a read that is in flight.
+	baseCtx    context.Context
+	baseCancel context.CancelFunc
 
 	mu sync.RWMutex
 	// haveKnown reports whether known holds the result of a successful read.
@@ -55,7 +65,6 @@ type dexAudienceResolver struct {
 	reported     []string
 	started      bool
 
-	// auditor is set by start, before the refresher goroutine exists.
 	auditor *security.Auditor
 
 	stopOnce sync.Once
@@ -66,13 +75,17 @@ type dexAudienceResolver struct {
 // newDexAudienceResolver returns a resolver over collect. The caller must call
 // prime before serving requests and start to keep the set current.
 func newDexAudienceResolver(collect func(context.Context) ([]string, error), logger *slog.Logger) *dexAudienceResolver {
+	baseCtx, baseCancel := context.WithCancel(context.Background())
+
 	return &dexAudienceResolver{
-		collect:  collect,
-		interval: dexAudienceRefreshInterval,
-		timeout:  dexAudienceTimeout,
-		logger:   logger,
-		stopCh:   make(chan struct{}),
-		doneCh:   make(chan struct{}),
+		collect:    collect,
+		interval:   dexAudienceRefreshInterval,
+		timeout:    dexAudienceTimeout,
+		logger:     logger,
+		baseCtx:    baseCtx,
+		baseCancel: baseCancel,
+		stopCh:     make(chan struct{}),
+		doneCh:     make(chan struct{}),
 	}
 }
 
@@ -97,9 +110,8 @@ func (r *dexAudienceResolver) prime() {
 // start records the primed set and refreshes it until stop returns. auditor may
 // be nil.
 func (r *dexAudienceResolver) start(auditor *security.Auditor) {
-	r.auditor = auditor
-
 	r.mu.Lock()
+	r.auditor = auditor
 	r.started = true
 	r.mu.Unlock()
 
@@ -123,10 +135,12 @@ func (r *dexAudienceResolver) start(auditor *security.Auditor) {
 	}()
 }
 
-// stop ends the refresher and waits for it to return.
+// stop ends the refresher and waits for it to return. It cancels a read that is
+// in flight, so it returns without waiting out timeout.
 func (r *dexAudienceResolver) stop() {
 	r.stopOnce.Do(func() {
 		close(r.stopCh)
+		r.baseCancel()
 	})
 
 	r.mu.RLock()
@@ -141,7 +155,7 @@ func (r *dexAudienceResolver) stop() {
 // refresh reads a new set. A read that fails leaves the last known set in
 // place, so a failing apiserver cannot narrow the audience of a minted token.
 func (r *dexAudienceResolver) refresh() {
-	ctx, cancel := context.WithTimeout(context.Background(), r.timeout)
+	ctx, cancel := context.WithTimeout(r.baseCtx, r.timeout)
 	defer cancel()
 
 	audiences, err := r.collect(ctx)
@@ -180,16 +194,17 @@ func (r *dexAudienceResolver) report() {
 	current := slices.Clone(r.known)
 	r.reported = current
 	r.haveReported = true
+	auditor := r.auditor
 	r.mu.Unlock()
 
 	r.logger.Info("Cross-client audiences requested from Dex",
 		"audiences", current,
 		"count", len(current))
 
-	if r.auditor == nil {
+	if auditor == nil {
 		return
 	}
-	r.auditor.LogEvent(context.Background(), security.Event{
+	auditor.LogEvent(context.Background(), security.Event{
 		Type: EventDexAudiencesChanged,
 		Details: map[string]any{
 			"audiences": current,
