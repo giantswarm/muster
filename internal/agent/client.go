@@ -736,21 +736,19 @@ func (c *Client) listPrompts(ctx context.Context, initial bool) error {
 	return nil
 }
 
-// metaToolNames is the list of meta-tools that should NOT be wrapped through call_tool.
-// These are the discovery and execution tools exposed directly by the aggregator.
-var metaToolNames = map[string]bool{
-	"call_tool":         true,
-	"list_tools":        true,
-	"describe_tool":     true,
-	"filter_tools":      true,
-	"list_core_tools":   true,
-	"list_resources":    true,
-	"describe_resource": true,
-	"get_resource":      true,
-	"list_prompts":      true,
-	"describe_prompt":   true,
-	"get_prompt":        true,
-}
+// metaToolNames is the set of meta-tools that must NOT be wrapped through
+// call_tool -- the aggregator exposes them directly.
+//
+// Derived from metatools.MetaToolNames rather than restated here: the previous
+// hand-maintained copy silently went stale when filter_resources and
+// filter_prompts were added, so the CLI refused tools the server advertised.
+var metaToolNames = func() map[string]bool {
+	names := make(map[string]bool, len(metatools.MetaToolNames))
+	for _, name := range metatools.MetaToolNames {
+		names[name] = true
+	}
+	return names
+}()
 
 // callToolFunc is a function type for direct tool execution.
 // Used by wrapAndCallTool to abstract over callToolDirect and callToolDirectWithTimeout.

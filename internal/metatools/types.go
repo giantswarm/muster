@@ -21,6 +21,9 @@ const (
 	// ToolListResources lists available MCP resources.
 	ToolListResources = "list_resources"
 
+	// ToolFilterResources filters resources by source server and URI pattern.
+	ToolFilterResources = "filter_resources"
+
 	// ToolDescribeResource gets resource metadata.
 	ToolDescribeResource = "describe_resource"
 
@@ -29,6 +32,9 @@ const (
 
 	// ToolListPrompts lists available prompts.
 	ToolListPrompts = "list_prompts"
+
+	// ToolFilterPrompts filters prompts by source server and name pattern.
+	ToolFilterPrompts = "filter_prompts"
 
 	// ToolDescribePrompt gets prompt details.
 	ToolDescribePrompt = "describe_prompt"
@@ -112,6 +118,40 @@ type FilterCriteria struct {
 	IncludeSchema     bool              `json:"include_schema"`
 	Limit             int               `json:"limit"`
 	Offset            int               `json:"offset"`
+}
+
+// MetaToolNames is the canonical set of meta-tools the aggregator exposes
+// directly over MCP, as opposed to aggregated tools reached through call_tool.
+//
+// Clients that route on this distinction must derive their list from here.
+// filter_resources and filter_prompts were added to the provider without
+// updating the agent's hand-maintained copy, so the CLI reported "tool not
+// found" for tools the server was advertising -- a mismatch nothing could
+// catch, because the copy was a map literal rather than a type.
+var MetaToolNames = []string{
+	ToolListTools,
+	ToolDescribeTool,
+	ToolFilterTools,
+	ToolListCoreTools,
+	ToolCallTool,
+	ToolListResources,
+	ToolFilterResources,
+	ToolDescribeResource,
+	ToolGetResource,
+	ToolListPrompts,
+	ToolFilterPrompts,
+	ToolDescribePrompt,
+	ToolGetPrompt,
+}
+
+// IsMetaTool reports whether name is one of the aggregator's meta-tools.
+func IsMetaTool(name string) bool {
+	for _, n := range MetaToolNames {
+		if n == name {
+			return true
+		}
+	}
+	return false
 }
 
 // ArgServer is the argument name selecting which MCP server a resource or

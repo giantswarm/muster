@@ -113,3 +113,34 @@ func TestProvider_GetFormatters(t *testing.T) {
 	formatters := provider.GetFormatters()
 	require.NotNil(t, formatters)
 }
+
+// TestMetaToolNamesMatchesProvider guards the list clients route on against
+// the provider that actually advertises the tools.
+//
+// filter_resources and filter_prompts were added to the provider while the
+// agent kept a hand-written copy of the names, so the CLI answered "tool not
+// found" for tools the aggregator was serving. Nothing caught it: the copy was
+// a map literal, so no type check could notice, and every scenario exercises
+// meta-tools through a path that does not consult that list.
+func TestMetaToolNamesMatchesProvider(t *testing.T) {
+	advertised := make(map[string]bool)
+	for _, tool := range NewProvider().GetTools() {
+		advertised[tool.Name] = true
+	}
+
+	canonical := make(map[string]bool, len(MetaToolNames))
+	for _, name := range MetaToolNames {
+		canonical[name] = true
+		assert.True(t, advertised[name],
+			"MetaToolNames lists %q but the provider does not advertise it", name)
+		assert.True(t, IsMetaTool(name), "IsMetaTool must accept %q", name)
+	}
+
+	for name := range advertised {
+		assert.True(t, canonical[name],
+			"the provider advertises %q but MetaToolNames omits it -- clients routing on that list will refuse the tool", name)
+	}
+
+	assert.False(t, IsMetaTool("core_mcpserver_list"),
+		"aggregated tools must not be treated as meta-tools")
+}

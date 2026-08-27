@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"github.com/giantswarm/muster/internal/metatools"
+
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -137,4 +139,47 @@ func registerAgentTools(m *MCPServer) {
 		),
 	)
 	m.mcpServer.AddTool(filterToolsTool, m.forwardToServerMetaTool("filter_tools"))
+
+	// Resources are scoped by source server, not by URI pattern: a resource URI
+	// carrying a scheme is exposed unprefixed, so there is no per-server prefix
+	// to match against.
+	filterResourcesTool := mcp.NewTool(metatools.ToolFilterResources,
+		mcp.WithDescription("Filter aggregated resources by source server and/or URI pattern"),
+		mcp.WithString("server",
+			mcp.Description("Only return resources exposed by this server"),
+		),
+		mcp.WithString("pattern",
+			mcp.Description("Glob pattern to match against the resource URI"),
+		),
+		mcp.WithBoolean("case_sensitive",
+			mcp.Description("Match case-sensitively (default: false)"),
+		),
+		mcp.WithNumber("limit",
+			mcp.Description("Maximum number of results to return per page"),
+		),
+		mcp.WithNumber("offset",
+			mcp.Description("Number of matches to skip before the returned page"),
+		),
+	)
+	m.mcpServer.AddTool(filterResourcesTool, m.forwardToServerMetaTool(metatools.ToolFilterResources))
+
+	filterPromptsTool := mcp.NewTool(metatools.ToolFilterPrompts,
+		mcp.WithDescription("Filter aggregated prompts by source server and/or name pattern"),
+		mcp.WithString("server",
+			mcp.Description("Only return prompts exposed by this server"),
+		),
+		mcp.WithString("pattern",
+			mcp.Description("Glob pattern to match against the prompt name"),
+		),
+		mcp.WithBoolean("case_sensitive",
+			mcp.Description("Match case-sensitively (default: false)"),
+		),
+		mcp.WithNumber("limit",
+			mcp.Description("Maximum number of results to return per page"),
+		),
+		mcp.WithNumber("offset",
+			mcp.Description("Number of matches to skip before the returned page"),
+		),
+	)
+	m.mcpServer.AddTool(filterPromptsTool, m.forwardToServerMetaTool(metatools.ToolFilterPrompts))
 }
