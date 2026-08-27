@@ -216,6 +216,10 @@ type MusterInstance struct {
 	ConfigPath string
 	// Port is the port the instance is listening on
 	Port int
+	// MetricsPort is the port the instance serves its Prometheus /metrics
+	// endpoint on. The harness always enables the prometheus exporter so
+	// scenarios can assert on exported metrics (see test_scrape_metrics).
+	MetricsPort int
 	// Endpoint is the full MCP endpoint URL
 	Endpoint string
 	// Process is the running muster serve process
@@ -315,6 +319,25 @@ type MockOAuthServerConfig struct {
 	// JWKS, so muster's broker can validate its tokens as a trusted issuer.
 	// Automatically enabled (with UseTLS) when referenced by muster_broker.
 	SignTokens bool `yaml:"sign_tokens,omitempty"`
+
+	// SupportsCIMD advertises client_id_metadata_document_supported in the
+	// AS metadata (CIMD URLs are accepted as client_id).
+	SupportsCIMD bool `yaml:"supports_cimd,omitempty"`
+
+	// SupportsDCR advertises a registration_endpoint and serves RFC 7591
+	// Dynamic Client Registration.
+	SupportsDCR bool `yaml:"supports_dcr,omitempty"`
+
+	// RequireRegisteredClient makes the token endpoint reject client_ids
+	// that are neither the configured client_id nor DCR-registered —
+	// mimicking DCR-only authorization servers ("Client Not Registered").
+	RequireRegisteredClient bool `yaml:"require_registered_client,omitempty"`
+
+	// RejectRegistrationScope makes the registration endpoint reject RFC 7591
+	// requests that carry a scope member with invalid_client_metadata —
+	// mimicking authorization servers (e.g. Miro's) that reject scopes they
+	// don't know instead of ignoring them.
+	RejectRegistrationScope bool `yaml:"reject_registration_scope,omitempty"`
 }
 
 // TrustedIssuerConfig defines a trusted issuer for RFC 8693 token exchange
@@ -432,7 +455,11 @@ type TestExpectation struct {
 	NotContains []string `yaml:"not_contains,omitempty"`
 	// JSONPath allows checking specific JSON response fields
 	JSONPath map[string]interface{} `yaml:"json_path,omitempty"`
-	// StatusCode for HTTP-based expectations
+	// StatusCode is not supported and is rejected at load time by
+	// validateStep. It is kept as a field so that a scenario declaring
+	// status_code fails with an explanation instead of having the key silently
+	// dropped by the non-strict YAML decode. Assert an HTTP status that a test
+	// tool reports in its payload with JSONPath instead.
 	StatusCode int `yaml:"status_code,omitempty"`
 	// WaitForState enables polling for state changes with timeout
 	WaitForState time.Duration `yaml:"wait_for_state,omitempty"`

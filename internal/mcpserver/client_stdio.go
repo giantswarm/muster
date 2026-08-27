@@ -78,7 +78,7 @@ func (c *StdioClient) Initialize(ctx context.Context) error {
 			ProtocolVersion: api.ClientProtocolVersion,
 			ClientInfo: mcp.Implementation{
 				Name:    "muster",
-				Version: "1.0.0",
+				Version: clientVersion,
 			},
 			Capabilities: mcp.ClientCapabilities{},
 		},

@@ -123,7 +123,8 @@ func establishConnection(
 	var client internalmcp.MCPClient
 	if oauthHandler != nil && oauthHandler.IsEnabled() && issuer != "" {
 		tokenStore := internalmcp.NewMusterTokenStore(sessionID, sub, issuer, oauthHandler)
-		client = internalmcp.NewDynamicAuthClient(serverURL, tokenStore, scope).WithMeta(meta)
+		clientID, clientSecret := oauthHandler.GetClientCredentialsForIssuer(ctx, issuer)
+		client = internalmcp.NewDynamicAuthClient(serverURL, tokenStore, scope, clientID, clientSecret).WithMeta(meta)
 		logging.Debug("Connection", "Using DynamicAuthClient for session %s, server %s (issuer=%s)",
 			logging.TruncateIdentifier(sessionID), serverName, issuer)
 	} else {

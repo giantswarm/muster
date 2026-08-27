@@ -95,6 +95,10 @@ func (s *ValkeyStateStore) stateKey(nonce string) string {
 	return s.keyPrefix + "oauth:state:" + nonce
 }
 
+func (s *ValkeyStateStore) completedKey(nonce string) string {
+	return s.keyPrefix + "oauth:statedone:" + nonce
+}
+
 func (s *ValkeyStateStore) GenerateState(sessionID, userID, serverName, issuer, codeVerifier string,
 	buildAuthorizationURL func(encodedState string) (string, error)) (string, error) {
 	nonceBytes := make([]byte, 32)
@@ -282,6 +286,63 @@ func (s *ValkeyStateStore) Update(encodedState string, mutate func(*OAuthState))
 	}
 
 	return updated
+}
+
+// MarkCompleted records a finished flow's outcome for duplicate callback
+// deliveries (see StateStorer). The record shares the state keyspace under
+// its own suffix, encrypted like the states themselves, and Valkey's TTL
+// enforces the grace window across replicas.
+func (s *ValkeyStateStore) MarkCompleted(encodedState string, done *CompletedFlow) {
+	nonce, err := decodeStateNonce(encodedState)
+	if err != nil {
+		logging.Warn("OAuth", "ValkeyStateStore: failed to decode state for completion record: %v", err)
+		return
+	}
+	data, err := json.Marshal(done)
+	if err != nil {
+		logging.Warn("OAuth", "ValkeyStateStore: failed to marshal completion record: %v", err)
+		return
+	}
+	value, err := s.encryptValue(data)
+	if err != nil {
+		logging.Warn("OAuth", "ValkeyStateStore: encryption failed on completion record: %v", err)
+		return
+	}
+	cmd := s.client.B().Set().Key(s.completedKey(nonce)).Value(value).Ex(completionGrace).Build()
+	if err := s.client.Do(context.Background(), cmd).Error(); err != nil {
+		logging.Warn("OAuth", "ValkeyStateStore: SET completion record failed: %v", err)
+	}
+}
+
+// Completed returns the recorded outcome for a recently completed flow, or
+// nil (see StateStorer).
+func (s *ValkeyStateStore) Completed(encodedState string) *CompletedFlow {
+	nonce, err := decodeStateNonce(encodedState)
+	if err != nil {
+		return nil
+	}
+	result := s.client.Do(context.Background(), s.client.B().Get().Key(s.completedKey(nonce)).Build())
+	if err := result.Error(); err != nil {
+		if !valkey.IsValkeyNil(err) {
+			logging.Warn("OAuth", "ValkeyStateStore: GET completion record failed: %v", err)
+		}
+		return nil
+	}
+	stored, err := result.ToString()
+	if err != nil {
+		return nil
+	}
+	plaintext, err := s.decryptValue(stored)
+	if err != nil {
+		logging.Warn("OAuth", "ValkeyStateStore: decryption failed on completion record: %v", err)
+		return nil
+	}
+	var done CompletedFlow
+	if err := json.Unmarshal(plaintext, &done); err != nil {
+		logging.Warn("OAuth", "ValkeyStateStore: failed to unmarshal completion record: %v", err)
+		return nil
+	}
+	return &done
 }
 
 func (s *ValkeyStateStore) Delete(nonce string) {

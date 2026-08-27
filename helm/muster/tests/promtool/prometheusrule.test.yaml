@@ -1,0 +1,137 @@
+---
+# promtool unit tests for templates/prometheusrule.yaml.
+#
+# These assert the alerts' behaviour over time, which the helm-unittest suite in
+# ../prometheusrule_test.yaml cannot: that MusterMCPServerFailed holds off long
+# enough to ride out a rollout, that a recovered server does not fire, and above
+# all that "Auth Required" — the normal steady state for on-behalf-of servers
+# with no user session — is silent.
+#
+# `rule_files` points at the rendered+extracted rule groups that run.sh produces
+# (helm template | yq '.spec'). Run via:
+#   helm/muster/tests/promtool/run.sh
+rule_files:
+  - 'rendered.rules.yaml'
+
+tests:
+  # A backend stuck Failed: silent through a rollout-length window, fires after 20m.
+  - interval: 1m
+    input_series:
+      - series: 'muster_mcpserver_state{cluster_id="test", installation="test", mcpserver_name="mcp-kubernetes-test", mcpserver_namespace="agent-platform", state="Failed"}'
+        values: "1+0x40"
+    alert_rule_test:
+      - alertname: MusterMCPServerFailed
+        eval_time: 15m
+        exp_alerts: []
+      - alertname: MusterMCPServerFailed
+        eval_time: 25m
+        exp_alerts:
+          - exp_labels:
+              area: platform
+              cancel_if_monitoring_agent_down: "true"
+              cancel_if_outside_working_hours: "false"
+              cluster_id: test
+              installation: test
+              mcpserver_name: mcp-kubernetes-test
+              mcpserver_namespace: agent-platform
+              severity: notify
+              state: Failed
+              team: bumblebee
+              topic: muster
+            exp_annotations:
+              description: 'MCPServer agent-platform/mcp-kubernetes-test has been in state Failed for 20m; the MCP backend is unreachable and its tools are unavailable to agents. The reason muster recorded is in the CR status.lastError field.'
+              runbook_url: 'https://intranet.giantswarm.io/docs/support-and-ops/runbooks/muster-mcpserver-failed/?INSTALLATION=test&CLUSTER=test'
+
+  # A healthy backend never fires, whatever the window.
+  - interval: 1m
+    input_series:
+      - series: 'muster_mcpserver_state{cluster_id="test", installation="test", mcpserver_name="dex-test", mcpserver_namespace="agent-platform", state="Connected"}'
+        values: "1+0x40"
+    alert_rule_test:
+      - alertname: MusterMCPServerFailed
+        eval_time: 35m
+        exp_alerts: []
+
+  # The noise case that makes or breaks this alert. An on-behalf-of server with
+  # no active user session sits in Auth Required indefinitely; alerting on it
+  # would page for normal operation, so it must stay silent forever.
+  - interval: 1m
+    input_series:
+      - series: 'muster_mcpserver_state{cluster_id="test", installation="test", mcpserver_name="obo-server", mcpserver_namespace="agent-platform", state="Auth Required"}'
+        values: "1+0x120"
+    alert_rule_test:
+      - alertname: MusterMCPServerFailed
+        eval_time: 115m
+        exp_alerts: []
+      - alertname: MusterMCPServerFlapping
+        eval_time: 115m
+        exp_alerts: []
+
+  # Transitional states after a restart are equally silent: Connecting for a
+  # while, then Connected. The asynchronous gauge stops exporting the old state,
+  # so the Failed series simply ends rather than going to 0.
+  - interval: 1m
+    input_series:
+      - series: 'muster_mcpserver_state{cluster_id="test", installation="test", mcpserver_name="restarting-server", mcpserver_namespace="agent-platform", state="Connecting"}'
+        values: "1+0x5 _x35"
+      - series: 'muster_mcpserver_state{cluster_id="test", installation="test", mcpserver_name="restarting-server", mcpserver_namespace="agent-platform", state="Connected"}'
+        values: "_x6 1+0x34"
+    alert_rule_test:
+      - alertname: MusterMCPServerFailed
+        eval_time: 35m
+        exp_alerts: []
+
+  # A backend that fails then recovers inside the window: never fires. This is
+  # what the 20m `for:` buys — a slow first handshake after a rollout is not an
+  # incident.
+  - interval: 1m
+    input_series:
+      - series: 'muster_mcpserver_state{cluster_id="test", installation="test", mcpserver_name="slow-starter", mcpserver_namespace="agent-platform", state="Failed"}'
+        values: "1+0x10 _x30"
+      - series: 'muster_mcpserver_state{cluster_id="test", installation="test", mcpserver_name="slow-starter", mcpserver_namespace="agent-platform", state="Connected"}'
+        values: "_x11 1+0x29"
+    alert_rule_test:
+      - alertname: MusterMCPServerFailed
+        eval_time: 35m
+        exp_alerts: []
+
+  # Flapping: the gauge alert cannot see this, because no single 20m window has
+  # the server continuously Failed. The transition counter can. One entry into
+  # Failed per minute is far past the threshold of 5 per hour.
+  - interval: 1m
+    input_series:
+      - series: 'muster_mcpserver_state_transitions_total{cluster_id="test", installation="test", mcpserver_name="flapper", mcpserver_namespace="agent-platform", state="Failed"}'
+        values: "0+1x120"
+    alert_rule_test:
+      - alertname: MusterMCPServerFlapping
+        eval_time: 70m
+        exp_alerts:
+          - exp_labels:
+              area: platform
+              cancel_if_monitoring_agent_down: "true"
+              cancel_if_outside_working_hours: "false"
+              cluster_id: test
+              installation: test
+              mcpserver_name: flapper
+              mcpserver_namespace: agent-platform
+              severity: notify
+              state: Failed
+              team: bumblebee
+              topic: muster
+            exp_annotations:
+              description: 'MCPServer agent-platform/flapper entered state Failed 60 times in the last hour; the MCP backend is connecting and dropping repeatedly.'
+              runbook_url: 'https://intranet.giantswarm.io/docs/support-and-ops/runbooks/muster-mcpserver-failed/?INSTALLATION=test&CLUSTER=test'
+
+  # A single restart contributes exactly one Failed transition per broken
+  # server. That must not read as flapping, or every rollout would alert.
+  - interval: 1m
+    input_series:
+      - series: 'muster_mcpserver_state_transitions_total{cluster_id="test", installation="test", mcpserver_name="restart-once", mcpserver_namespace="agent-platform", state="Failed"}'
+        values: "0+0x10 1+0x110"
+    alert_rule_test:
+      - alertname: MusterMCPServerFlapping
+        eval_time: 70m
+        exp_alerts: []
+      - alertname: MusterMCPServerFlapping
+        eval_time: 115m
+        exp_alerts: []

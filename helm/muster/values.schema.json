@@ -90,14 +90,14 @@
                     "properties": {
                         "annotations": {
                             "type": "object",
-                            "additionalProperties": false
+                            "additionalProperties": true
                         },
                         "enabled": {
                             "type": "boolean"
                         },
                         "labels": {
                             "type": "object",
-                            "additionalProperties": false
+                            "additionalProperties": true
                         },
                         "timeout": {
                             "type": "string"
@@ -113,14 +113,14 @@
                     "properties": {
                         "annotations": {
                             "type": "object",
-                            "additionalProperties": false
+                            "additionalProperties": true
                         },
                         "hostnames": {
                             "type": "array"
                         },
                         "labels": {
                             "type": "object",
-                            "additionalProperties": false
+                            "additionalProperties": true
                         },
                         "parentRefs": {
                             "type": "array"
@@ -444,6 +444,19 @@
                                         "port": {
                                             "type": "integer"
                                         },
+                                        "prometheusRule": {
+                                            "type": "object",
+                                            "additionalProperties": false,
+                                            "properties": {
+                                                "enabled": {
+                                                    "type": "boolean"
+                                                },
+                                                "labels": {
+                                                    "type": "object",
+                                                    "additionalProperties": true
+                                                }
+                                            }
+                                        },
                                         "serviceMonitor": {
                                             "type": "object",
                                             "additionalProperties": false,
@@ -590,8 +603,18 @@
                 "enabled": {
                     "type": "boolean"
                 },
+                "maxUnavailable": {
+                    "type": [
+                        "integer",
+                        "string",
+                        "null"
+                    ]
+                },
                 "minAvailable": {
-                    "type": "integer"
+                    "type": [
+                        "integer",
+                        "string"
+                    ]
                 }
             }
         },

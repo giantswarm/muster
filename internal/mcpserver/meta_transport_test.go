@@ -147,7 +147,7 @@ func TestPlainRemoteClientsInjectMeta(t *testing.T) {
 	// The session-scoped client the aggregator builds for an OAuth server takes
 	// the entries too, so a server that needs a login does not lose them.
 	t.Run("dynamic auth", func(t *testing.T) {
-		client := NewDynamicAuthClient(testMetaURL, nil, "openid").WithMeta(testMeta)
+		client := NewDynamicAuthClient(testMetaURL, nil, "openid", "muster", "").WithMeta(testMeta)
 		assert.Equal(t, testMeta, client.meta)
 	})
 }

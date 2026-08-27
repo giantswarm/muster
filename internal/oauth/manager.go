@@ -80,6 +80,15 @@ func WithValkeyStateStore(ss StateStorer) ManagerOption {
 	}
 }
 
+// WithValkeyClientCredentialStore injects a Valkey-backed
+// ClientCredentialStorer into the OAuth client, so DCR-issued client
+// credentials are shared across replicas.
+func WithValkeyClientCredentialStore(cs ClientCredentialStorer) ManagerOption {
+	return func(o *managerOptions) {
+		o.clientOpts = append(o.clientOpts, WithClientCredentialStorer(cs))
+	}
+}
+
 // NewManager creates a new OAuth manager with the given configuration.
 // The cfg parameter contains the OAuth MCP client/proxy configuration for
 // authenticating TO remote MCP servers.
@@ -338,16 +347,25 @@ func (m *Manager) CreateAuthChallenge(ctx context.Context, sessionID, userID, se
 	m.RegisterServer(serverName, issuer, scope)
 
 	// Generate authorization URL (code verifier is stored with the state)
-	authURL, err := m.client.GenerateAuthURL(ctx, sessionID, userID, serverName, issuer, scope)
+	authURL, resolved, err := m.client.GenerateAuthURL(ctx, sessionID, userID, serverName, issuer, scope)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate auth URL: %w", err)
 	}
 
+	message := fmt.Sprintf("Authentication required for %s. Please visit the link below to authenticate.", serverName)
+	switch resolved.Method {
+	case ClientIDMethodCIMDFallback:
+		message += " Note: this server's authorization server advertises neither Client ID Metadata Document support nor dynamic client registration; the sign-in may be rejected if it requires pre-registered clients."
+	case ClientIDMethodDCRFailed:
+		message += fmt.Sprintf(" Note: this server's authorization server rejected muster's dynamic client registration (%v); muster falls back to its client metadata URL as client_id, which the server may reject as an unregistered client.", resolved.RegistrationError)
+	}
+
 	challenge := &AuthRequiredResponse{
-		Status:     "auth_required",
-		AuthURL:    authURL,
-		ServerName: serverName,
-		Message:    fmt.Sprintf("Authentication required for %s. Please visit the link below to authenticate.", serverName),
+		Status:         "auth_required",
+		AuthURL:        authURL,
+		ServerName:     serverName,
+		Message:        message,
+		ClientIDMethod: resolved.Method,
 	}
 
 	logging.Info("OAuth", "Created auth challenge for session=%s server=%s",
@@ -449,6 +467,17 @@ func (m *Manager) GetTokenExchanger() *TokenExchanger {
 		return nil
 	}
 	return m.tokenExchanger
+}
+
+// GetClientCredentialsForIssuer returns the client_id and client_secret the
+// OAuth flows use against the given issuer (CIMD URL or DCR-issued
+// credentials), without triggering a new registration. Used to configure
+// mcp-go's transport-level token refresh.
+func (m *Manager) GetClientCredentialsForIssuer(ctx context.Context, issuer string) (clientID, clientSecret string) {
+	if m == nil {
+		return "", ""
+	}
+	return m.client.GetClientCredentialsForIssuer(ctx, issuer)
 }
 
 // Stop stops the OAuth manager and cleans up resources.

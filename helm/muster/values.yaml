@@ -48,28 +48,41 @@ rbac:
   additionalSecretNamespaces: []
   # mcpServerEditor ships the default answer to "who may register and manage
   # MCP servers" under writes-as-caller: a namespaced Role granting
-  # create/update/patch/delete on mcpservers, plus a RoleBinding. The default
-  # subjects bind all authenticated users, preserving the pre-enforcement
-  # "any user can register" behavior. Narrow subjects to an admin group for
-  # admin-only registration.
+  # create/update/patch/delete on mcpservers, plus a RoleBinding.
+  #
+  # Who to bind is a real trade-off. Everyone bound here registers servers
+  # into a SHARED aggregator: other users see those servers and are routed
+  # through them. Shared multi-team installs should narrow subjects to an
+  # admin group. The default binds all authenticated users — a deliberate
+  # fit for single-team installs where every SSO user is trusted to
+  # register, and the compatible default for existing installs. An empty
+  # subjects list fails the render rather than shipping a binding bound to
+  # nobody; set create=false to manage access out of band instead.
   mcpServerEditor:
     create: true
     # RoleBinding subjects granted the mcpserver-editor Role. Standard
     # rbac.authorization.k8s.io/v1 subjects (Group, User, or ServiceAccount).
+    # Must not be empty while create is true.
     subjects:  # @schema item: object ; itemProperties: {apiGroup: {type: string}, kind: {type: string}, name: {type: string}, namespace: {type: string}}
       - apiGroup: rbac.authorization.k8s.io
         kind: Group
         name: system:authenticated
   # workflowEditor ships the default answer to "who may create and manage
   # workflows" under writes-as-caller: a namespaced Role granting
-  # create/update/patch/delete on workflows, plus a RoleBinding. The default
-  # subjects bind all authenticated users, preserving the pre-enforcement
-  # "any user can create" behavior. Narrow subjects to an admin group for
-  # admin-only workflow authoring.
+  # create/update/patch/delete on workflows, plus a RoleBinding.
+  #
+  # Same trade-off as mcpServerEditor: workflows authored here are visible
+  # to and runnable by other users of a shared aggregator. Shared
+  # multi-team installs should narrow subjects to an admin group; the
+  # default binds all authenticated users, the deliberate fit for
+  # single-team installs and the compatible default for existing ones. An
+  # empty subjects list fails the render rather than shipping a binding
+  # bound to nobody; set create=false to manage access out of band.
   workflowEditor:
     create: true
     # RoleBinding subjects granted the workflow-editor Role. Standard
     # rbac.authorization.k8s.io/v1 subjects (Group, User, or ServiceAccount).
+    # Must not be empty while create is true.
     subjects:  # @schema item: object ; itemProperties: {apiGroup: {type: string}, kind: {type: string}, name: {type: string}, namespace: {type: string}}
       - apiGroup: rbac.authorization.k8s.io
         kind: Group
@@ -174,10 +187,10 @@ gatewayAPI:
     rules: []
 
     # Additional annotations for the HTTPRoute
-    annotations: {}
+    annotations: {}  # @schema additionalProperties: true
 
     # Additional labels for the HTTPRoute
-    labels: {}
+    labels: {}  # @schema additionalProperties: true
 
   # BackendTrafficPolicy for Envoy Gateway (optional)
   # Provides timeout configuration at the backend level
@@ -194,10 +207,10 @@ gatewayAPI:
     timeout: "0s"
 
     # Additional annotations for the BackendTrafficPolicy
-    annotations: {}
+    annotations: {}  # @schema additionalProperties: true
 
     # Additional labels for the BackendTrafficPolicy
-    labels: {}
+    labels: {}  # @schema additionalProperties: true
 
 # Number of old ReplicaSets retained for rollback. Keep tight so frequent
 # rollouts don't leak zero-replica ReplicaSets across the cluster.
@@ -230,10 +243,11 @@ podDisruptionBudget:
   enabled: false
   # Minimum number of pods that must remain available during disruption
   # Can be an integer or a percentage (e.g., "50%")
-  minAvailable: 1
+  minAvailable: 1  # @schema type: [integer, string]
   # Maximum number of pods that can be unavailable during disruption
-  # Cannot be used together with minAvailable
-  # maxUnavailable: 1
+  # Can be an integer or a percentage (e.g., "50%")
+  # Cannot be used together with minAvailable, so it is unset by default
+  maxUnavailable:  # @schema type: [integer, string, null]
 
 # Additional volumes on the output Deployment definition.
 volumes: []
@@ -698,6 +712,20 @@ muster:
           # Extra labels applied to the ServiceMonitor — useful for
           # selecting the right Prometheus instance in a multi-tenant
           # cluster.
+          labels: {}  # @schema additionalProperties: true
+        # PrometheusRule with the MCPServer connection-state alerts
+        # (MusterMCPServerFailed, MusterMCPServerFlapping). Fires on
+        # muster's own muster_mcpserver_state /
+        # muster_mcpserver_state_transitions_total metrics, so the
+        # Prometheus that loads the rule has to be receiving them —
+        # either by scraping the endpoint above, or via OTLP to a
+        # remote-write target. Gated separately from serviceMonitor so
+        # the OTLP path can have rules without a local scrape.
+        prometheusRule:
+          enabled: false
+          # Extra labels applied to the PrometheusRule — on
+          # Prometheus-Operator clusters this is how a rule is matched
+          # to the right Prometheus instance (ruleSelector).
           labels: {}  # @schema additionalProperties: true
 
 # CRD ownership. The muster application chart ships the MCPServer and Workflow

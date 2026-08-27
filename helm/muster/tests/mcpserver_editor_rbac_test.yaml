@@ -68,9 +68,24 @@ tests:
               name: platform-admins
         documentIndex: 1
 
+  - it: fails when subjects is empty so the binding cannot silently grant nobody
+    set:
+      rbac.mcpServerEditor.subjects: []
+    asserts:
+      - failedTemplate:
+          errorMessage: "rbac.mcpServerEditor.subjects must not be empty while the mcpserver-editor RoleBinding is created. Bind an admin group for admin-only registration, bind group system:authenticated to deliberately let every authenticated user register MCP servers, or set rbac.mcpServerEditor.create=false to manage access out of band."
+
   - it: creates nothing when rbac.mcpServerEditor.create is false
     set:
       rbac.mcpServerEditor.create: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: allows empty subjects when the binding is not created
+    set:
+      rbac.mcpServerEditor.create: false
+      rbac.mcpServerEditor.subjects: []
     asserts:
       - hasDocuments:
           count: 0

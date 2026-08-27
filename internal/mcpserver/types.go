@@ -18,7 +18,8 @@ const (
 	// client announces "muster" instead, which predates this constant.
 	clientName = "muster-aggregator"
 
-	// clientVersion is the client version muster reports in the handshake.
+	// clientVersion is the version every MCP client in this package reports in
+	// the initialize handshake's clientInfo.
 	//
 	// A fixed string, not the build version: pkg/project.Version() holds that,
 	// and reporting it here would change what every backend records. Worth

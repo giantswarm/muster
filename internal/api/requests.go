@@ -202,6 +202,20 @@ type MCPServerValidateRequest struct {
 	Auth *MCPServerAuth `json:"auth,omitempty"`
 }
 
+// MCPServerDetectRequest represents a request to probe a remote MCP server
+// URL and detect which transport (streamable-http or sse) it speaks.
+type MCPServerDetectRequest struct {
+	// URL is the endpoint to probe (required).
+	URL string `json:"url" validate:"required"`
+
+	// Headers contains HTTP headers to send with the probe requests,
+	// mirroring the headers the registered server would be configured with.
+	Headers map[string]string `json:"headers,omitempty"`
+
+	// Timeout bounds the whole detection run in seconds (default 10).
+	Timeout int `json:"timeout,omitempty"`
+}
+
 // Workflow Request Types
 
 // WorkflowCreateRequest represents a request to create a new workflow definition.

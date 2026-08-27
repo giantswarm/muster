@@ -69,6 +69,12 @@ const (
 	// TestToolGetServerInfo returns the protocol version and server capabilities
 	// negotiated during the current session's initialize handshake.
 	TestToolGetServerInfo = "test_get_server_info"
+	// TestToolScrapeMetrics scrapes the instance's Prometheus /metrics endpoint
+	// and returns the matching exposition lines, so a scenario can assert on
+	// what muster actually exports rather than on internal state. Optional
+	// "filter" argument narrows the body to lines containing that substring;
+	// without it the whole scrape is returned.
+	TestToolScrapeMetrics = "test_scrape_metrics"
 )
 
 // TestToolsHandler handles test-specific tools that operate on mock infrastructure.
@@ -189,7 +195,8 @@ func IsTestTool(toolName string) bool {
 		TestToolMintToken,
 		TestToolBrokerTokenExchange,
 		TestToolCallProtectedMCP,
-		TestToolReconnectWithToken:
+		TestToolReconnectWithToken,
+		TestToolScrapeMetrics:
 		return true
 	}
 	return false
@@ -232,6 +239,8 @@ func (h *TestToolsHandler) HandleTestTool(ctx context.Context, toolName string, 
 		return h.handleRemoveMockTool(ctx, args)
 	case TestToolCallMetaTool:
 		return h.handleCallMetaTool(ctx, args)
+	case TestToolScrapeMetrics:
+		return h.handleScrapeMetrics(ctx, args)
 	case TestToolGetServerInfo:
 		return h.handleGetServerInfo(ctx, args)
 	case TestToolMintToken:
@@ -377,12 +386,23 @@ func (h *TestToolsHandler) handleSimulateOAuthCallback(ctx context.Context, args
 		h.logger.Debug("🔐 Generated auth code: %s...\n", authCode[:min(16, len(authCode))])
 	}
 
-	// Step 4: Call muster's callback endpoint with the real state and auth code
-	callbackURL := fmt.Sprintf("%s?code=%s&state=%s", redirectURI, url.QueryEscape(authCode), url.QueryEscape(state))
-
-	if h.debug {
-		h.logger.Debug("🔐 Calling muster callback: %s\n", callbackURL)
+	// Step 4: Call muster's callback endpoint with the real state and auth
+	// code. Browsers and IdP redirect pages deliver this navigation more than
+	// once (double redirect, prefetch); the optional "deliveries" argument
+	// repeats the same callback URL to exercise muster's duplicate-delivery
+	// tolerance. Every delivery must render a success outcome.
+	deliveries := 1
+	switch v := args["deliveries"].(type) {
+	case float64:
+		deliveries = int(v)
+	case int:
+		deliveries = v
 	}
+	if deliveries < 1 {
+		deliveries = 1
+	}
+
+	callbackURL := fmt.Sprintf("%s?code=%s&state=%s", redirectURI, url.QueryEscape(authCode), url.QueryEscape(state))
 
 	client := &http.Client{
 		Timeout: 30 * time.Second,
@@ -392,44 +412,52 @@ func (h *TestToolsHandler) handleSimulateOAuthCallback(ctx context.Context, args
 		},
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, callbackURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create callback request: %w", err)
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("callback request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if h.debug {
-		h.logger.Debug("🔐 Callback response status: %d\n", resp.StatusCode)
-	}
-
-	// Check for success (200 OK or redirect to success page)
-	if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+	lastStatus := 0
+	for i := range deliveries {
 		if h.debug {
-			h.logger.Debug("🔐 Callback succeeded - token stored in muster's OAuth manager\n")
+			h.logger.Debug("🔐 Calling muster callback (delivery %d/%d): %s\n", i+1, deliveries, callbackURL)
 		}
 
-		// Note: The token is now stored in muster's OAuth manager.
-		// The NEXT call to any protected tool (or the authenticate tool) will:
-		// 1. Find the token via GetTokenByIssuer(subject, issuer)
-		// 2. Use it to connect to the protected MCP server
-		// 3. Make the protected tools available
-		// We do NOT call authenticate a second time here - that was a workaround
-		// that masked aggregator bugs and didn't match real user behavior.
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, callbackURL, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create callback request: %w", err)
+		}
 
-		return map[string]interface{}{
-			api.FieldSuccess: true,
-			api.FieldMessage: "OAuth callback completed successfully - token stored",
-			api.FieldServer:  serverName,
-			"status_code":    resp.StatusCode,
-		}, nil
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("callback request %d failed: %w", i+1, err)
+		}
+		_ = resp.Body.Close()
+
+		if h.debug {
+			h.logger.Debug("🔐 Callback response status (delivery %d/%d): %d\n", i+1, deliveries, resp.StatusCode)
+		}
+
+		// Check for success (200 OK or redirect to success page)
+		if resp.StatusCode < 200 || resp.StatusCode >= 400 {
+			return nil, fmt.Errorf("callback delivery %d/%d returned error status: %d", i+1, deliveries, resp.StatusCode)
+		}
+		lastStatus = resp.StatusCode
 	}
 
-	return nil, fmt.Errorf("callback returned error status: %d", resp.StatusCode)
+	if h.debug {
+		h.logger.Debug("🔐 Callback succeeded - token stored in muster's OAuth manager\n")
+	}
+
+	// Note: The token is now stored in muster's OAuth manager.
+	// The NEXT call to any protected tool (or the authenticate tool) will:
+	// 1. Find the token via GetTokenByIssuer(subject, issuer)
+	// 2. Use it to connect to the protected MCP server
+	// 3. Make the protected tools available
+	// We do NOT call authenticate a second time here - that was a workaround
+	// that masked aggregator bugs and didn't match real user behavior.
+
+	return map[string]interface{}{
+		api.FieldSuccess: true,
+		api.FieldMessage: "OAuth callback completed successfully - token stored",
+		api.FieldServer:  serverName,
+		"status_code":    lastStatus,
+	}, nil
 }
 
 // resolveStartRedirect follows the muster-hosted start URL one hop (without
@@ -674,11 +702,21 @@ func (h *TestToolsHandler) handleGetOAuthServerInfo(ctx context.Context, args ma
 		return nil, fmt.Errorf("OAuth server %s not found", serverName)
 	}
 
-	return map[string]interface{}{
+	result := map[string]interface{}{
 		api.FieldName: info.Name,
 		"port":        info.Port,
 		"issuer_url":  info.IssuerURL,
-	}, nil
+	}
+
+	// Live DCR state, so scenarios can assert whether (and how often)
+	// muster registered itself via RFC 7591.
+	if h.instanceManager != nil {
+		if server := h.instanceManager.GetMockOAuthServer(h.currentInstance.ID, serverName); server != nil {
+			result["dcr_registrations"] = server.RegistrationCount()
+		}
+	}
+
+	return result, nil
 }
 
 // handleAdvanceOAuthClock advances the mock OAuth server's clock for testing token expiry.
@@ -1175,6 +1213,71 @@ func (h *TestToolsHandler) handleGetServerInfo(_ context.Context, _ map[string]i
 	}
 
 	return result, nil
+}
+
+// handleScrapeMetrics fetches the instance's Prometheus /metrics endpoint and
+// returns the exposition text, optionally narrowed to lines containing the
+// "filter" substring.
+//
+// This is the seam that lets a scenario assert on metrics end to end: the
+// scrape goes through the real OTel Prometheus exporter in the real muster
+// serve process, so it catches naming and label translation that a Go test
+// against an in-memory reader cannot (dots becoming underscores, _total
+// suffixes, attribute-to-label mapping).
+//
+// A newly reconciled state can take a moment to reach the exporter, so
+// scenarios pair this with a retry on the step.
+func (h *TestToolsHandler) handleScrapeMetrics(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+	if h.currentInstance == nil {
+		return nil, fmt.Errorf("no muster instance available to scrape")
+	}
+	if h.currentInstance.MetricsPort == 0 {
+		return nil, fmt.Errorf("muster instance %s has no metrics port", h.currentInstance.ID)
+	}
+
+	filter, _ := args["filter"].(string)
+	endpoint := fmt.Sprintf("http://127.0.0.1:%d/metrics", h.currentInstance.MetricsPort)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build metrics request: %w", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("scrape %s: %w", endpoint, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read metrics response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("scrape %s returned %d", endpoint, resp.StatusCode)
+	}
+
+	// Comments (# HELP / # TYPE) are dropped: a scenario asserting on a metric
+	// name would otherwise match its own HELP line and pass without the metric
+	// ever being exported.
+	var matched []string
+	for _, line := range strings.Split(string(body), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if filter != "" && !strings.Contains(line, filter) {
+			continue
+		}
+		matched = append(matched, line)
+	}
+
+	return map[string]interface{}{
+		api.FieldSuccess: true,
+		"endpoint":       endpoint,
+		"filter":         filter,
+		"line_count":     len(matched),
+		"metrics":        matched,
+	}, nil
 }
 
 // handleSimulateMusterReauth simulates re-authentication to muster with a new token.

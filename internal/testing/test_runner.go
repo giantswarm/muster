@@ -623,8 +623,11 @@ func (r *testRunner) runTestToolStep(ctx context.Context, step TestStep, config 
 		}
 	}
 
-	// Execute the test tool
-	response, err := testToolsHandler.HandleTestTool(stepCtx, step.Tool, resolvedArgs)
+	// Execute the test tool, re-invoking it until expectations hold when the
+	// step declares wait_for_state. Test tools observe eventually-consistent
+	// state just like the regular tools do -- an exported metric reflects a
+	// reconcile that has already happened, but only from the next collection.
+	response, err := r.callTestToolWithWait(stepCtx, testToolsHandler, step, resolvedArgs, logger)
 
 	// Wrap the response in MCP-compatible format
 	wrappedResult := WrapTestToolResult(response, err)
@@ -658,121 +661,64 @@ func (r *testRunner) runTestToolStep(ctx context.Context, step TestStep, config 
 	return result
 }
 
-// validateTestToolExpectations validates expectations for test tool results:
-// success, error_contains, contains, and json_path. not_contains is not
-// evaluated here; a step that declares it gets a warning instead of a silent
-// pass, so the gap is visible to whoever writes the scenario.
+// testToolInvoker is the part of TestToolsHandler that executing a test_* step
+// depends on. Narrowing the dependency keeps the wait_for_state polling loop
+// testable without standing up a full handler and its instance fixtures.
+type testToolInvoker interface {
+	HandleTestTool(ctx context.Context, toolName string, args map[string]interface{}) (interface{}, error)
+}
+
+// testToolPollInterval is how often a wait_for_state test-tool step re-invokes
+// its tool. Matches the 1s interval the regular tool path polls at.
+const testToolPollInterval = 1 * time.Second
+
+// callTestToolWithWait invokes a test tool once, or repeatedly until its
+// expectations hold when the step sets wait_for_state.
+//
+// Mirrors validateExpectationsWithClient's polling for regular tool steps. The
+// last response is returned either way, so a timeout is reported by the normal
+// validation path with the actual response attached rather than as a bare
+// timeout.
+func (r *testRunner) callTestToolWithWait(ctx context.Context, handler testToolInvoker, step TestStep, args map[string]interface{}, logger TestLogger) (interface{}, error) {
+	response, err := handler.HandleTestTool(ctx, step.Tool, args)
+	if step.Expected.WaitForState <= 0 {
+		return response, err
+	}
+	if err == nil && r.validateTestToolExpectations(step.Expected, response, nil, logger) {
+		return response, nil
+	}
+
+	waitCtx, cancel := context.WithTimeout(ctx, step.Expected.WaitForState)
+	defer cancel()
+
+	ticker := time.NewTicker(testToolPollInterval)
+	defer ticker.Stop()
+
+	if r.debug {
+		logger.Debug("🔄 Polling test tool %s for up to %v\n", step.Tool, step.Expected.WaitForState)
+	}
+
+	for {
+		select {
+		case <-waitCtx.Done():
+			if r.debug {
+				logger.Debug("⏰ Test tool %s did not meet expectations within %v\n", step.Tool, step.Expected.WaitForState)
+			}
+			return response, err
+		case <-ticker.C:
+			response, err = handler.HandleTestTool(waitCtx, step.Tool, args)
+			if err == nil && r.validateTestToolExpectations(step.Expected, response, nil, logger) {
+				return response, nil
+			}
+		}
+	}
+}
+
+// validateTestToolExpectations checks a test_* step response against its
+// expectations, by adapting the test-tool response shape and delegating to the
+// shared checkExpectations implementation.
 func (r *testRunner) validateTestToolExpectations(expected TestExpectation, response interface{}, err error, logger TestLogger) bool {
-	if len(expected.NotContains) > 0 {
-		logger.Info("⚠️  not_contains is not evaluated for test_* steps and was ignored: %v\n", expected.NotContains)
-	}
-
-	// Determine if there's an error - either from Go error or from response isError field
-	hasError := err != nil
-	var responseMap map[string]interface{}
-
-	if response != nil {
-		if respMap, ok := response.(map[string]interface{}); ok {
-			responseMap = respMap
-			// Check if response has isError field set to true
-			if isErr, exists := respMap["isError"]; exists {
-				if isErrBool, ok := isErr.(bool); ok && isErrBool {
-					hasError = true
-				}
-			}
-		}
-		// Also check for TestToolResult type
-		if result, ok := response.(*TestToolResult); ok {
-			hasError = hasError || result.IsError
-		}
-	}
-
-	// Check success expectation
-	if expected.Success && hasError {
-		if r.debug {
-			if err != nil {
-				logger.Debug("❌ Expected test tool success but got error: %v\n", err)
-			} else {
-				logger.Debug("❌ Expected test tool success but response indicates error\n")
-			}
-		}
-		return false
-	}
-
-	if !expected.Success && !hasError {
-		if r.debug {
-			logger.Debug("❌ Expected test tool failure but got success\n")
-		}
-		return false
-	}
-
-	// For responses (success or failure), check expectations
-	if response != nil {
-		responseStr := fmt.Sprintf("%v", response)
-
-		// For failure cases, check error_contains against the response
-		if !expected.Success && len(expected.ErrorContains) > 0 {
-			for _, expectedText := range expected.ErrorContains {
-				if !containsText(responseStr, expectedText) {
-					if r.debug {
-						logger.Debug("❌ Test tool error response does not contain expected text '%s'\n", expectedText)
-					}
-					return false
-				}
-			}
-		}
-
-		// Check "success" field in response if expecting success
-		if expected.Success && responseMap != nil {
-			if success, exists := responseMap["success"]; exists {
-				if successBool, ok := success.(bool); ok && !successBool {
-					if r.debug {
-						logger.Debug("❌ Test tool response indicates failure (success=false)\n")
-					}
-					return false
-				}
-			}
-		}
-
-		// Check contains expectations (for both success and failure cases)
-		for _, expectedText := range expected.Contains {
-			if !containsText(responseStr, expectedText) {
-				if r.debug {
-					logger.Debug("❌ Test tool response does not contain expected text '%s'\n", expectedText)
-				}
-				return false
-			}
-		}
-
-		// Check JSON path expectations
-		if len(expected.JSONPath) > 0 {
-			if responseMap == nil {
-				if r.debug {
-					logger.Debug("❌ JSON path validation failed: test tool response is not a JSON object (type %T)\n", response)
-				}
-				return false
-			}
-
-			for jsonPath, expectedValue := range expected.JSONPath {
-				actualValue, exists := r.resolveJSONPath(responseMap, jsonPath)
-				if !exists {
-					if r.debug {
-						logger.Debug("❌ JSON path '%s' not found in test tool response\n", jsonPath)
-					}
-					return false
-				}
-
-				if !r.compareValuesEnhanced(actualValue, expectedValue) {
-					if r.debug {
-						logger.Debug("❌ JSON path '%s': expected %v, got %v\n", jsonPath, expectedValue, actualValue)
-					}
-					return false
-				}
-			}
-		}
-	}
-
-	return true
+	return r.checkExpectations(expected, r.viewOfTestToolResponse(response, err), logger)
 }
 
 // validateExpectationsWithClient checks if the step response meets the expected criteria with state waiting support
@@ -836,167 +782,11 @@ func (r *testRunner) validateExpectationsWithClient(ctx context.Context, expecte
 	return r.validateExpectations(expected, response, err, logger)
 }
 
-// validateExpectations checks if the step response meets the expected criteria
+// validateExpectations checks an MCP tool step response against its
+// expectations, by adapting the MCP response shape and delegating to the
+// shared checkExpectations implementation.
 func (r *testRunner) validateExpectations(expected TestExpectation, response interface{}, err error, logger TestLogger) bool {
-	// Check if response indicates an error (for MCP responses)
-	isResponseError := false
-	if response != nil {
-		// Check if this is a CallToolResult
-		mcpResult, ok := response.(*mcp.CallToolResult)
-		if ok {
-			isResponseError = mcpResult.IsError
-		}
-	}
-
-	// Check success expectation
-	if expected.Success && (err != nil || isResponseError) {
-		if r.debug {
-			if err != nil {
-				logger.Debug("❌ Expected success but got error: %v\n", err)
-			} else {
-				logger.Debug("❌ Expected success but response indicates error\n")
-			}
-		}
-		return false
-	}
-
-	if !expected.Success && err == nil && !isResponseError {
-		if r.debug {
-			logger.Debug("❌ Expected failure but got success (no error and no response error flag)\n")
-		}
-		return false
-	}
-
-	// Check error content expectations
-	if len(expected.ErrorContains) > 0 {
-		var errorText string
-
-		// First, try to get error text from Go error
-		if err != nil {
-			errorText = err.Error()
-		} else if isResponseError && response != nil {
-			// If no Go error but response indicates error, extract error text from response
-			if mcpResult, ok := response.(*mcp.CallToolResult); ok {
-				// Extract text from MCP result content
-				for _, content := range mcpResult.Content {
-					if textContent, ok := mcp.AsTextContent(content); ok {
-						errorText += textContent.Text + " "
-					}
-				}
-				errorText = strings.TrimSpace(errorText)
-			} else {
-				responseStr := fmt.Sprintf("%v", response)
-				errorText = responseStr
-			}
-		}
-
-		if errorText == "" {
-			if r.debug {
-				logger.Debug("❌ Expected error containing text but got no error text (err=%v, isResponseError=%v)", err, isResponseError)
-			}
-			return false
-		}
-
-		for _, expectedText := range expected.ErrorContains {
-			if !containsText(errorText, expectedText) {
-				if r.debug {
-					logger.Debug("❌ Error text '%s' does not contain expected text '%s'", errorText, expectedText)
-				}
-				return false
-			}
-		}
-
-		if r.debug {
-			logger.Debug("✅ Error expectations met: found all expected text in '%s'", errorText)
-		}
-	}
-
-	// Check response content expectations
-	if response != nil {
-		var responseStr string
-		if mcpResult, ok := response.(*mcp.CallToolResult); ok {
-			// Extract text content from MCP result for text matching
-			var textParts []string
-			for _, content := range mcpResult.Content {
-				if textContent, ok := mcp.AsTextContent(content); ok {
-					textParts = append(textParts, textContent.Text)
-				}
-			}
-			responseStr = strings.Join(textParts, " ")
-		} else {
-			responseStr = fmt.Sprintf("%v", response)
-		}
-
-		// Check contains expectations
-		for _, expectedText := range expected.Contains {
-			if !containsText(responseStr, expectedText) {
-				if r.debug {
-					logger.Debug("❌ Response does not contain expected text '%s'\n", expectedText)
-				}
-				return false
-			}
-		}
-
-		// Check not contains expectations
-		for _, unexpectedText := range expected.NotContains {
-			if containsText(responseStr, unexpectedText) {
-				if r.debug {
-					logger.Debug("❌ Response contains unexpected text '%s'\n", unexpectedText)
-				}
-				return false
-			}
-		}
-
-		// Check JSON path expectations
-		if len(expected.JSONPath) > 0 {
-			// Parse response as JSON-like map
-			var responseMap map[string]interface{}
-
-			// Handle different response types
-			if respMap, ok := response.(map[string]interface{}); ok {
-				responseMap = respMap
-			} else {
-				// Try to extract JSON from MCP CallToolResult structure
-				responseMap = r.extractJSONFromMCPResponse(response, logger)
-				if responseMap == nil {
-					if r.debug {
-						logger.Debug("❌ JSON path validation failed: could not extract JSON from response type %T\n", response)
-					}
-					return false
-				}
-			}
-
-			// Check each JSON path expectation
-			for jsonPath, expectedValue := range expected.JSONPath {
-				// Use enhanced path resolution that supports dot notation
-				actualValue, exists := r.resolveJSONPath(responseMap, jsonPath)
-				if !exists {
-					if r.debug {
-						logger.Debug("❌ JSON path '%s' not found in response\n", jsonPath)
-					}
-					return false
-				}
-
-				// Enhanced value comparison with partial matching support
-				if !r.compareValuesEnhanced(actualValue, expectedValue) {
-					if r.debug {
-						logger.Debug("❌ JSON path '%s': expected %v, got %v\n", jsonPath, expectedValue, actualValue)
-					}
-					return false
-				}
-
-				if r.debug {
-					logger.Debug("✅ JSON path '%s': expected %v, got %v ✓\n", jsonPath, expectedValue, actualValue)
-				}
-			}
-		}
-	}
-
-	if r.debug {
-		logger.Debug("✅ All expectations met for step\n")
-	}
-
-	return true
+	return r.checkExpectations(expected, r.viewOfMCPResponse(response, err, logger), logger)
 }
 
 // containsText checks if text contains the expected substring (case-insensitive)

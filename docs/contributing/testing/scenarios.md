@@ -294,6 +294,42 @@ expected:
   error_contains: ["not found", "resource does not exist"]
 ```
 
+#### Absence Validation
+Assert that something is *not* in the response:
+
+```yaml
+expected:
+  success: true
+  not_contains: ["x_server-beta_beta_tool"]
+```
+
+#### Supported expectation kinds
+
+Every kind below means the same thing on every step, whether the step calls an
+MCP tool or a `test_*` tool -- both go through one evaluator, and
+`TestEveryExpectationKindIsEnforcedOnBothStepKinds` fails the build if a kind is
+ever honoured on one path and dropped on the other.
+
+| Kind | Checks |
+|---|---|
+| `success` | the step succeeded (or failed, when `false`), including a `success: false` payload |
+| `contains` | the response text contains every listed string |
+| `not_contains` | the response text contains none of the listed strings |
+| `error_contains` | the error text contains every listed string |
+| `json_path` | the named paths resolve to the given values |
+| `wait_for_state` | retry policy: re-invoke the tool until the above hold, or the timeout elapses |
+
+`status_code` is **not** supported and is rejected at load time. Test tools that
+perform HTTP put the status in their result payload, so assert it with
+`json_path` instead:
+
+```yaml
+expected:
+  success: true
+  json_path:
+    status_code: 200
+```
+
 ### 5. Mock Server Configuration
 
 #### Complete Mock Server Example

@@ -147,11 +147,19 @@ func (a *Adapter) CreateAuthChallenge(ctx context.Context, sessionID, userID, se
 	}
 
 	return &api.AuthChallenge{
-		Status:     challenge.Status,
-		AuthURL:    challenge.AuthURL,
-		ServerName: challenge.ServerName,
-		Message:    challenge.Message,
+		Status:         challenge.Status,
+		AuthURL:        challenge.AuthURL,
+		ServerName:     challenge.ServerName,
+		Message:        challenge.Message,
+		ClientIDMethod: challenge.ClientIDMethod,
 	}, nil
+}
+
+// GetClientCredentialsForIssuer returns the client_id and client_secret the
+// OAuth flows use against the given issuer, without triggering a new
+// registration.
+func (a *Adapter) GetClientCredentialsForIssuer(ctx context.Context, issuer string) (clientID, clientSecret string) {
+	return a.manager.GetClientCredentialsForIssuer(ctx, issuer)
 }
 
 // GetHTTPHandler returns the HTTP handler for OAuth callback endpoints.

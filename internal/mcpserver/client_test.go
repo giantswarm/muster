@@ -187,7 +187,7 @@ func TestNewSSEClientWithNilHeaders(t *testing.T) {
 
 // TestNewDynamicAuthClientWithNilStore tests that nil token store is handled gracefully
 func TestNewDynamicAuthClientWithNilStore(t *testing.T) {
-	client := NewDynamicAuthClient("http://example.com/mcp", nil, "openid")
+	client := NewDynamicAuthClient("http://example.com/mcp", nil, "openid", "https://muster.example.com/.well-known/oauth-client.json", "")
 
 	assert.NotNil(t, client)
 	assert.Equal(t, "http://example.com/mcp", client.url)
@@ -261,7 +261,7 @@ func TestClientOperationsWithoutConnection(t *testing.T) {
 	})
 
 	t.Run("DynamicAuthClient", func(t *testing.T) {
-		client := NewDynamicAuthClient("http://example.com/mcp", nil, "openid")
+		client := NewDynamicAuthClient("http://example.com/mcp", nil, "openid", "https://muster.example.com/.well-known/oauth-client.json", "")
 		testClientNotConnected(t, client)
 	})
 }

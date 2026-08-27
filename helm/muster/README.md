@@ -88,6 +88,7 @@ A Helm chart for muster - Universal Control Plane for AI Agents built on MCP
 | autoscaling.targetCPUUtilizationPercentage | int | `80` |  |
 | podDisruptionBudget.enabled | bool | `false` |  |
 | podDisruptionBudget.minAvailable | int | `1` |  |
+| podDisruptionBudget.maxUnavailable | string | `nil` |  |
 | volumes | list | `[]` |  |
 | volumeMounts | list | `[]` |  |
 | nodeSelector | object | `{}` |  |
@@ -149,6 +150,8 @@ A Helm chart for muster - Universal Control Plane for AI Agents built on MCP
 | muster.observability.metrics.prometheus.serviceMonitor.enabled | bool | `false` |  |
 | muster.observability.metrics.prometheus.serviceMonitor.interval | string | `""` |  |
 | muster.observability.metrics.prometheus.serviceMonitor.labels | object | `{}` |  |
+| muster.observability.metrics.prometheus.prometheusRule.enabled | bool | `false` |  |
+| muster.observability.metrics.prometheus.prometheusRule.labels | object | `{}` |  |
 | crds.install | bool | `false` |  |
 | crds.annotations."helm.sh/resource-policy" | string | `"keep"` |  |
 | networkPolicy.enabled | bool | `false` |  |
@@ -191,3 +194,35 @@ stdio keeps working when muster runs as a local CLI (`muster serve` against a
 config directory), which is what it exists for. To use an existing stdio MCP
 server from a deployed muster, run it as a Deployment behind a Service and
 register it with `type: streamable-http`.
+
+## Who should hold mcpserver-editor and workflow-editor
+
+Session-initiated writes to `MCPServer` and `Workflow` resources go through the
+Kubernetes API **as the calling user** (writes-as-caller), so Kubernetes RBAC is
+the authorization gate. The chart ships that gate as two namespaced Role +
+RoleBinding pairs in muster's install namespace:
+
+* `mcpserver-editor` — create/update/patch/delete on `mcpservers`
+  (`rbac.mcpServerEditor`)
+* `workflow-editor` — create/update/patch/delete on `workflows`
+  (`rbac.workflowEditor`)
+
+These grants are wider than they read, because the aggregator is **shared**:
+a registered MCP server is visible to every user of the instance, and other
+users' sessions are routed through it. A workflow authored by one user is
+listed for and runnable by others.
+
+Pick the binding's subjects to match how the instance is used:
+
+* **Shared / multi-team installs** should narrow `subjects` to an admin group,
+  so only platform administrators curate what everyone else is exposed to.
+* **Single-team installs**, where every authenticated SSO user is trusted to
+  register servers and author workflows, may keep the default
+  `system:authenticated` binding.
+
+The default binds `system:authenticated` — a deliberate choice that keeps
+single-team installs and upgrades working out of the box. Setting `subjects`
+to an empty list **fails the render**: a RoleBinding bound to nobody looks
+enforced while granting nothing. To manage the grants entirely out of band,
+set `rbac.mcpServerEditor.create: false` / `rbac.workflowEditor.create: false`
+and bind the verbs yourself.

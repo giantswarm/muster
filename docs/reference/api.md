@@ -336,6 +336,29 @@ Validate MCP server configuration without creating it.
 }
 ```
 
+#### `core_mcpserver_detect`
+
+Probe a remote MCP server URL to detect its transport (`streamable-http` or `sse`).
+Unreachable or unclassifiable servers yield transport `unknown` instead of an error.
+
+**Parameters:**
+- `url` (string, required) - Server endpoint URL to probe
+- `headers` (object, optional) - HTTP headers to send with the probe requests
+- `timeout` (integer, optional) - Overall detection timeout in seconds (default 10)
+
+**Example:**
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "core_mcpserver_detect",
+    "arguments": {
+      "url": "https://mcp.example.com/mcp"
+    }
+  }
+}
+```
+
 ### Service Tools
 
 Tools for managing service instances, including lifecycle operations and status monitoring.

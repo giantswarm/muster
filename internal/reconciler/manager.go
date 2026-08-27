@@ -3,6 +3,7 @@ package reconciler
 import (
 	"context"
 	"fmt"
+	"io"
 	"sync"
 	"time"
 
@@ -495,6 +496,25 @@ func (m *Manager) Stop() error {
 
 	// Wait for workers
 	m.wg.Wait()
+
+	// Release per-reconciler resources. Only reconcilers that hold something
+	// beyond their own memory implement io.Closer (the MCPServer reconciler
+	// holds an OTel metric callback registration).
+	m.mu.RLock()
+	reconcilers := make([]Reconciler, 0, len(m.reconcilers))
+	for _, reconciler := range m.reconcilers {
+		reconcilers = append(reconcilers, reconciler)
+	}
+	m.mu.RUnlock()
+	for _, reconciler := range reconcilers {
+		closer, ok := reconciler.(io.Closer)
+		if !ok {
+			continue
+		}
+		if err := closer.Close(); err != nil {
+			logging.Error("ReconcileManager", err, "Error closing reconciler")
+		}
+	}
 
 	logging.Info("ReconcileManager", "Reconciliation manager stopped")
 	return nil

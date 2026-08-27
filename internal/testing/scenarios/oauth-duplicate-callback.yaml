@@ -1,0 +1,75 @@
+name: "oauth-duplicate-callback"
+category: "behavioral"
+concept: "mcpserver"
+description: "Duplicate OAuth callback delivery: the second navigation re-renders the outcome instead of 'Authentication session expired'"
+tags: ["oauth", "authentication", "mcpserver"]
+timeout: "2m"
+
+# Browsers and IdP redirect pages deliver the callback navigation more than
+# once (double redirect, prefetch). The first delivery consumes the
+# single-use state and completes the flow; before this fix the second
+# delivery rendered "Authentication session expired" over a successful
+# sign-in (observed live with Miro's authorization server). Both deliveries
+# must now render a success outcome, and the flow must stay completed —
+# the code exchange runs exactly once.
+pre_configuration:
+  mock_oauth_servers:
+    - name: "dup-idp"
+      scopes: ["openid", "profile", "mcp:read"]
+      auto_approve: true
+      pkce_required: true
+      token_lifetime: "1h"
+
+  mcp_servers:
+    - name: "dup-protected-server"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "dup-idp"
+          scope: "mcp:read"
+        tools:
+          - name: "get_data"
+            description: "Returns data that requires authentication"
+            responses:
+              - response:
+                  data: "authenticated-data"
+
+steps:
+  - id: request-auth-challenge
+    description: "core_auth_login issues a sign-in challenge"
+    tool: "core_auth_login"
+    args:
+      server: "dup-protected-server"
+    expected:
+      success: true
+      contains:
+        - "Authentication Required"
+
+  - id: complete-oauth-flow-twice
+    description: "Deliver the same callback twice — both navigations must render success"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "dup-protected-server"
+      deliveries: 2
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  - id: establish-connection
+    description: "The flow completed despite the duplicate delivery"
+    tool: "core_auth_login"
+    args:
+      server: "dup-protected-server"
+    expected:
+      success: true
+
+  - id: call-protected-tool
+    description: "Call the protected tool after the double-delivered callback"
+    tool: "x_dup-protected-server_get_data"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "authenticated-data"
