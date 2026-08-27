@@ -126,6 +126,17 @@ type AggregatorHandler interface {
 	// AuthConfig within registration may be nil; in either case the server
 	// is flagged as requiring per-session authentication.
 	RegisterServerPendingAuth(registration PendingAuthRegistration) error
+
+	// DeregisterServer removes a server from the aggregator, along with its
+	// cached capabilities, per-session auth state and pooled connections.
+	//
+	// Deregistration is otherwise driven by service state-change events, which
+	// deliberately leave servers in auth_required state registered so a server
+	// waiting for OAuth keeps its pending-auth entry. Removing the service
+	// itself therefore has to say so explicitly.
+	//
+	// Returns an error if the server is not registered.
+	DeregisterServer(name string) error
 }
 
 // PendingAuthRegistration describes a remote MCP server that responded with
