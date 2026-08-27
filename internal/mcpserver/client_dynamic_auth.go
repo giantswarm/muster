@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"fmt"
+	"net/http"
 
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/pkg/logging"
@@ -37,6 +38,11 @@ type DynamicAuthClient struct {
 	// meta holds the spec.meta entries merged into params._meta of every
 	// outbound request.
 	meta map[string]string
+
+	// onAuthLost, when set, is invoked once when the connection's
+	// authentication is observed lost (see authLossDetector). Immutable after
+	// construction; set via WithAuthLossHandler.
+	onAuthLost func(reason string)
 }
 
 // WithMeta sets the entries merged into the params._meta object of every
@@ -44,6 +50,20 @@ type DynamicAuthClient struct {
 // construction site reads as one expression.
 func (c *DynamicAuthClient) WithMeta(meta map[string]string) *DynamicAuthClient {
 	c.meta = meta
+	return c
+}
+
+// WithAuthLossHandler registers a function invoked once when the client's
+// authentication is observed lost: the token store no longer holds a token,
+// or the server keeps rejecting the held token with 401 (authLossThreshold
+// consecutive failures either way). The handler runs on its own goroutine and
+// is expected to retire this client — a lost grant never heals on its own, it
+// needs a human to re-authenticate, so leaving the client running means
+// mcp-go's continuous listener retries (and logs) every second forever.
+//
+// Returns the client so a construction site reads as one expression.
+func (c *DynamicAuthClient) WithAuthLossHandler(fn func(reason string)) *DynamicAuthClient {
+	c.onAuthLost = fn
 	return c
 }
 
@@ -83,12 +103,24 @@ func (c *DynamicAuthClient) Initialize(ctx context.Context) error {
 
 	logging.Debug("DynamicAuthClient", "Creating StreamableHTTP client for URL: %s with OAuth handler", c.url)
 
+	// The detector watches both places a lost grant shows up: the token store
+	// (token gone) and the wire (token rejected with 401). Nil when no handler
+	// is registered — every observer method tolerates a nil detector.
+	var detector *authLossDetector
+	if c.onAuthLost != nil {
+		detector = &authLossDetector{onAuthLost: c.onAuthLost}
+	}
+
 	var opts []transport.StreamableHTTPCOption
 	if c.tokenStore != nil {
+		tokenStore := c.tokenStore
+		if detector != nil {
+			tokenStore = &authObservingTokenStore{TokenStore: tokenStore, detector: detector}
+		}
 		opts = append(opts, transport.WithHTTPOAuth(transport.OAuthConfig{
 			ClientID:     c.clientID,
 			ClientSecret: c.clientSecret,
-			TokenStore:   c.tokenStore,
+			TokenStore:   tokenStore,
 			Scopes:       []string{c.scope},
 		}))
 	}
@@ -96,12 +128,25 @@ func (c *DynamicAuthClient) Initialize(ctx context.Context) error {
 	// The OAuth handler is separate from the transport's HTTP client, so a
 	// metadata-injecting client composes with bearer injection instead of
 	// replacing it.
-	if httpClient := metaHTTPClient(c.meta); httpClient != nil {
-		opts = append(opts, transport.WithHTTPBasicClient(httpClient))
+	httpClient := metaHTTPClient(c.meta)
+	if httpClient != nil {
 		logging.Debug("DynamicAuthClient", "Configured %d meta entries", len(c.meta))
+	}
+	if detector != nil {
+		base := http.RoundTripper(http.DefaultTransport)
+		if httpClient != nil {
+			base = httpClient.Transport
+		}
+		// No timeout on the client, matching mcp-go's default: a timeout would
+		// also cut the long-lived GET that WithContinuousListening opens.
+		httpClient = &http.Client{Transport: &authObservingTransport{next: base, detector: detector}}
+	}
+	if httpClient != nil {
+		opts = append(opts, transport.WithHTTPBasicClient(httpClient))
 	}
 
 	opts = append(opts, transport.WithContinuousListening())
+	opts = append(opts, transport.WithHTTPLogger(mcpTransportLogger(c.url)))
 
 	mcpClient, err := client.NewStreamableHttpClient(c.url, opts...)
 	if err != nil {

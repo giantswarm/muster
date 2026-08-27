@@ -1,0 +1,196 @@
+name: "oauth-token-loss-terminal-auth-required"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  Test that losing an OAuth grant retires the session connection instead of
+  retrying forever (gazelle 2026-08-26 incident shape).
+
+  When a session-scoped OAuth connection's grant disappears — the backing
+  token store lost it, or the server starts rejecting the held token with 401
+  (revoked / unknown grant) — nothing used to stop the broken pooled client:
+  every tool call kept re-using it, and mcp-go's continuous listener retried
+  its SSE GET once per second forever, logging an ERROR each time, while the
+  connection could never recover on its own.
+
+  The auth-loss detector observes both signals (token-store misses and wire
+  401s) and, after three consecutive failures, evicts the pooled connection —
+  closing it stops the listener — logs the transition once at WARN, and syncs
+  the service state to auth_required so the connection-state alerts still
+  fire. The listener-driven signal is covered by the Go test
+  TestDynamicAuthClient_AuthLossStopsListener (the harness's SSE stream never
+  breaks, so listener re-GETs cannot be provoked here); this scenario drives
+  the same detector through failing tool calls and validates the state
+  machine end to end:
+  1. An authenticated session connection works (tool call succeeds).
+  2. After the OAuth server revokes all tokens, tool calls fail with 401;
+     after the third consecutive failure the pooled connection is evicted
+     and the service state flips to auth_required.
+  3. Auth Required is terminal until a human acts: further tool calls fail
+     with authentication guidance instead of hanging on a broken client.
+  4. Re-authenticating (the human act) restores the connection and the
+     Connected state.
+tags: ["oauth", "auth-required", "token-loss", "eviction", "regression"]
+timeout: "3m"
+
+pre_configuration:
+  mock_oauth_servers:
+    - name: "token-loss-idp"
+      scopes: ["openid", "profile", "api:access"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "token-loss-client"
+
+  mcp_servers:
+    - name: "token-loss-server"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "token-loss-idp"
+          scope: "api:access"
+        tools:
+          - name: "get_protected_data"
+            description: "Returns protected data that requires valid authentication"
+            responses:
+              - response:
+                  status: "success"
+                  message: "You have access to protected data"
+
+steps:
+  # Phase 1: Establish an authenticated session connection.
+  - id: authenticate
+    description: "Complete OAuth flow to store a token for the protected server"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "token-loss-server"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  - id: establish-connection
+    description: "Establish the session connection (pools a DynamicAuthClient)"
+    tool: "core_auth_login"
+    args:
+      server: "token-loss-server"
+    expected:
+      success: true
+
+  - id: call-tool-while-authenticated
+    description: "Protected tool call succeeds while the grant is valid"
+    tool: "x_token-loss-server_get_protected_data"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "You have access to protected data"
+
+  - id: verify-connected-state
+    description: "Service state reflects the authenticated connection"
+    tool: "core_service_status"
+    args:
+      name: "token-loss-server"
+    expected:
+      success: true
+      wait_for_state: "15s"
+      json_path:
+        name: "token-loss-server"
+        state: "connected"
+
+  # Phase 2: The grant disappears server-side (the incident shape: muster
+  # still holds the token, the server no longer accepts it).
+  - id: revoke-tokens
+    description: "Revoke all tokens on the OAuth server while muster still holds one"
+    tool: "test_revoke_token"
+    args:
+      server: "token-loss-idp"
+    expected:
+      success: true
+      contains:
+        - "Revoked"
+
+  # Three consecutive wire 401s trip the auth-loss detector. Each call fails
+  # (the pooled client's token is rejected); the third one fires the handler,
+  # which evicts the pooled connection and syncs the state.
+  - id: failing-call-1
+    description: "First tool call after revocation fails with 401"
+    tool: "x_token-loss-server_get_protected_data"
+    args: {}
+    expected:
+      success: false
+
+  - id: failing-call-2
+    description: "Second consecutive failure"
+    tool: "x_token-loss-server_get_protected_data"
+    args: {}
+    expected:
+      success: false
+
+  - id: failing-call-3
+    description: "Third consecutive failure crosses the auth-loss threshold"
+    tool: "x_token-loss-server_get_protected_data"
+    args: {}
+    expected:
+      success: false
+
+  - id: state-flips-to-auth-required
+    description: "The pooled connection is evicted and the state syncs to auth_required (terminal until a human re-authenticates)"
+    tool: "core_service_status"
+    args:
+      name: "token-loss-server"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "token-loss-server"
+        state: "auth_required"
+
+  - id: tool-call-fails-with-auth-guidance
+    description: "A tool call in the terminal state fails with authentication guidance"
+    tool: "x_token-loss-server_get_protected_data"
+    args: {}
+    expected:
+      success: false
+      error_contains:
+        - "auth"
+
+  # Phase 3: The human acts — re-authentication restores the connection.
+  - id: re-authenticate
+    description: "Complete a fresh OAuth flow (the human act that ends the terminal state)"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "token-loss-server"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  - id: reconnect
+    description: "Re-establish the session connection with the new grant"
+    tool: "core_auth_login"
+    args:
+      server: "token-loss-server"
+    expected:
+      success: true
+
+  - id: call-tool-after-reauth
+    description: "Protected tool call succeeds again after re-authentication"
+    tool: "x_token-loss-server_get_protected_data"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "You have access to protected data"
+
+  - id: state-back-to-connected
+    description: "Service state reflects the restored connection"
+    tool: "core_service_status"
+    args:
+      name: "token-loss-server"
+    expected:
+      success: true
+      wait_for_state: "15s"
+      json_path:
+        name: "token-loss-server"
+        state: "connected"
