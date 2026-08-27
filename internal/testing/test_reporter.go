@@ -168,11 +168,6 @@ func (r *testReporter) ReportStepResult(stepResult TestStepResult) {
 			}
 		}
 
-		// Show retry information
-		if stepResult.RetryCount > 0 {
-			fmt.Printf("      🔄 Retries: %d\n", stepResult.RetryCount)
-		}
-
 		// Show timeout if set
 		if stepResult.Step.Timeout > 0 {
 			fmt.Printf("      ⏱️  Timeout: %v\n", stepResult.Step.Timeout)

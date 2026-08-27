@@ -729,6 +729,24 @@ func (r *testRunner) validateExpectationsWithClient(ctx context.Context, expecte
 			logger.Debug("⏳ State waiting configured - polling for expected state\n")
 		}
 
+		// The caller has already invoked the tool once. Judge that response
+		// before polling, so a step whose first call already satisfies its
+		// expectations passes on it without a second invocation. Otherwise
+		// wait_for_state discards a passing result and re-runs the tool: that
+		// costs a poll interval on every such step, and for a tool whose
+		// invocation IS the assertion under test it can turn a step that
+		// succeeded into a failure, reported against the first response so the
+		// output shows a passing payload on a failed step.
+		//
+		// callTestToolWithWait already does this for test_* steps. The two
+		// paths have to agree about what wait_for_state means (#1038).
+		if err == nil && r.validateExpectations(expected, response, nil, logger) {
+			if r.debug {
+				logger.Debug("✅ Expectations already met on the first call - not polling\n")
+			}
+			return true
+		}
+
 		// Use the configured timeout
 		timeout := expected.WaitForState
 		pollInterval := 1 * time.Second // Default poll interval

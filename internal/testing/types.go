@@ -439,8 +439,13 @@ type TestStep struct {
 	Args map[string]interface{} `yaml:"args"`
 	// Expected defines the expected outcome
 	Expected TestExpectation `yaml:"expected"`
-	// Retry configuration for this step
-	Retry *RetryConfig `yaml:"retry,omitempty"`
+	// Retry is not supported and is rejected at load time by validateStep.
+	// It is kept as a field so that a scenario declaring retry fails with an
+	// explanation instead of having the key silently dropped by the
+	// non-strict YAML decode. The runner never read it, so a step declaring
+	// retry got exactly one attempt while reading as if it polled. Poll for
+	// eventually-consistent state with expected.wait_for_state instead.
+	Retry map[string]interface{} `yaml:"retry,omitempty"`
 	// Timeout for this specific step
 	Timeout time.Duration `yaml:"timeout,omitempty"`
 	// AsUser specifies which user session to execute this step as.
@@ -468,16 +473,6 @@ type TestExpectation struct {
 	StatusCode int `yaml:"status_code,omitempty"`
 	// WaitForState enables polling for state changes with timeout
 	WaitForState time.Duration `yaml:"wait_for_state,omitempty"`
-}
-
-// RetryConfig defines retry behavior for test steps
-type RetryConfig struct {
-	// Count is the number of retry attempts
-	Count int `yaml:"count"`
-	// Delay between retry attempts
-	Delay time.Duration `yaml:"delay"`
-	// BackoffMultiplier for exponential backoff
-	BackoffMultiplier float64 `yaml:"backoff_multiplier,omitempty"`
 }
 
 // TestSuiteResult represents the overall result of test suite execution
@@ -542,8 +537,6 @@ type TestStepResult struct {
 	Response interface{} `json:"response,omitempty"`
 	// Error message if the step failed
 	Error string `json:"error,omitempty"`
-	// RetryCount is the number of retries attempted
-	RetryCount int `json:"retry_count"`
 }
 
 // TestRunner interface defines the test execution engine

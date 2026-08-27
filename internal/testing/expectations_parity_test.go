@@ -287,6 +287,78 @@ func TestWaitForStatePollsBothStepKinds(t *testing.T) {
 	})
 }
 
+// TestWaitForStateAcceptsAFirstResponseThatAlreadyPasses is the other half of
+// wait_for_state parity: polling must not throw away a result that already
+// satisfies the expectations.
+//
+// The MCP path used to ignore the response its caller had just obtained and
+// judge the step only from the first tick onward. A step whose first call
+// passed was re-invoked and judged on the second result instead -- a wasted
+// poll interval on every such step, and an outright failure when re-invoking
+// does not produce the same answer, reported against the first (passing)
+// response so the output showed a passing payload on a failed step. The
+// test_* path never had this bug, which is the asymmetry #1038 is about.
+//
+// Both cases return a passing first response and a failing one thereafter, so
+// a path that polls regardless fails the test instead of passing by luck.
+func TestWaitForStateAcceptsAFirstResponseThatAlreadyPasses(t *testing.T) {
+	expected := TestExpectation{
+		Success:      true,
+		JSONPath:     map[string]interface{}{"state": "Connected"},
+		WaitForState: 10 * time.Second,
+	}
+	passing := map[string]interface{}{"success": true, "state": "Connected"}
+	failing := map[string]interface{}{"success": true, "state": "Failed"}
+
+	// The MCP caller invokes the tool itself and passes the response in, so any
+	// call the stub sees is a re-invocation.
+	t.Run("mcp_step", func(t *testing.T) {
+		runner := &testRunner{logger: NewSilentLogger(false, false)}
+		reinvocations := 0
+		client := &pollingStubClient{onCall: func() (interface{}, error) {
+			reinvocations++
+			return mcpResultOf(t, failing, false), nil
+		}}
+
+		ok := runner.validateExpectationsWithClient(
+			context.Background(), expected, mcpResultOf(t, passing, false), nil, client,
+			"core_mcpserver_get", nil, runner.logger,
+		)
+		if !ok {
+			t.Error("wait_for_state rejected a first response that already met the expectations")
+		}
+		if reinvocations != 0 {
+			t.Errorf("the tool was re-invoked %d time(s) after its first response already passed",
+				reinvocations)
+		}
+	})
+
+	// callTestToolWithWait makes the first call itself, so exactly one is right.
+	t.Run("test_tool_step", func(t *testing.T) {
+		runner := &testRunner{logger: NewSilentLogger(false, false)}
+		calls := 0
+		invoker := &pollingStubInvoker{onCall: func() (interface{}, error) {
+			calls++
+			if calls == 1 {
+				return passing, nil
+			}
+			return failing, nil
+		}}
+
+		step := TestStep{ID: "already-connected", Tool: "test_scrape_metrics", Expected: expected}
+		response, err := runner.callTestToolWithWait(context.Background(), invoker, step, nil, runner.logger)
+		if err != nil {
+			t.Fatalf("callTestToolWithWait: %v", err)
+		}
+		if !runner.validateTestToolExpectations(expected, response, nil, runner.logger) {
+			t.Error("wait_for_state discarded a first response that already met the expectations")
+		}
+		if calls != 1 {
+			t.Errorf("expected exactly one invocation, got %d", calls)
+		}
+	})
+}
+
 // pollingStubClient is an MCPTestClient that returns a scripted response per
 // call, for exercising the MCP wait_for_state polling loop. Only CallTool is
 // reached; the embedded interface satisfies the rest.

@@ -56,10 +56,7 @@ steps:
     expected:
       success: true
       contains: ["obo-backend"]
-    timeout: "30s"
-    retry:
-      count: 5
-      delay: "1s"
+      wait_for_state: "30s"
 
   - id: "mint-dex-obo-token"
     description: |
@@ -85,9 +82,7 @@ steps:
       token_ref: "obo-token"
     expected:
       success: true
-    retry:
-      count: 5
-      delay: "1s"
+      wait_for_state: "30s"
 
   - id: "backend-receives-forwarded-token"
     description: |
@@ -100,9 +95,7 @@ steps:
     args: {}
     expected:
       success: true
+      wait_for_state: "30s"
       contains:
         - "alice@giantswarm.io"
         - "system:serviceaccount:kagent:sre-agent"
-    retry:
-      count: 5
-      delay: "1s"

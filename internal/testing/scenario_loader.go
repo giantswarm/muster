@@ -194,17 +194,14 @@ func (l *scenarioLoader) validateStep(step TestStep, index int) error {
 		return fmt.Errorf("status_code is not a supported expectation; assert the status with json_path (e.g. json_path: {status_code: %d})", step.Expected.StatusCode)
 	}
 
-	// Validate retry configuration if present
-	if step.Retry != nil {
-		if step.Retry.Count < 0 {
-			return fmt.Errorf("retry count cannot be negative")
-		}
-		if step.Retry.Delay < 0 {
-			return fmt.Errorf("retry delay cannot be negative")
-		}
-		if step.Retry.BackoffMultiplier < 0 {
-			return fmt.Errorf("backoff multiplier cannot be negative")
-		}
+	// retry was accepted and validated but never executed: nothing outside the
+	// loader ever read step.Retry, so a step declaring it got exactly one
+	// attempt. Scenarios used it to poll for eventually-consistent state, which
+	// means they were flake-prone in precisely the place their authors thought
+	// they had covered. Rejecting it here is the same treatment status_code gets
+	// above, and for the same reason: an unexecuted knob is worse than no knob.
+	if len(step.Retry) > 0 {
+		return fmt.Errorf("retry is not a supported step field and was never executed; poll for eventually-consistent state with expected.wait_for_state instead (e.g. expected: {wait_for_state: \"30s\"})")
 	}
 
 	return nil
