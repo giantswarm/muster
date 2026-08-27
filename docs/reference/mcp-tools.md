@@ -477,6 +477,54 @@ Validate MCP server configuration without creating or modifying the server.
 - Check environment variable formats
 - Ensure name uniqueness
 
+### `core_mcpserver_detect`
+Probe a remote MCP server URL to detect which transport it speaks
+(`streamable-http` or `sse`), so callers don't need to know it up front.
+Detection never fails on unreachable or unclassifiable servers: the result
+reports transport `unknown` instead, so callers can fall back to manual
+selection.
+
+**Arguments:**
+- `url` (string, required) - Server endpoint URL to probe
+- `headers` (object, optional) - HTTP headers to send with the probe requests
+- `timeout` (integer, optional) - Overall detection timeout in seconds (default 10)
+
+**Returns:** Detection result object:
+- `url` (string) - The probed endpoint
+- `transport` (string) - `streamable-http`, `sse`, or `unknown`
+- `reachable` (boolean) - Whether the server answered a probe at the HTTP level
+- `requiresAuth` (boolean) - Whether a probe was answered with a 401 challenge
+- `serverName`, `serverVersion` (string, optional) - Server info from a completed handshake
+- `detail` (string) - Human-readable explanation of the verdict
+
+**Example Request:**
+```json
+{
+  "name": "core_mcpserver_detect",
+  "arguments": {
+    "url": "https://mcp.example.com/mcp"
+  }
+}
+```
+
+**Example Response:**
+```json
+{
+  "url": "https://mcp.example.com/mcp",
+  "transport": "streamable-http",
+  "reachable": true,
+  "requiresAuth": false,
+  "serverName": "example-server",
+  "serverVersion": "1.4.2",
+  "detail": "initialize handshake succeeded over streamable-http"
+}
+```
+
+**Use Cases:**
+- Pre-select the transport in registration UIs once the user enters a URL
+- Verify a URL actually speaks MCP before registering it
+- Distinguish OAuth-protected servers (401 challenge) from unreachable ones
+
 ---
 
 ## Service Tools

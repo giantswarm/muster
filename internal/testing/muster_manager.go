@@ -1795,6 +1795,14 @@ func (m *musterInstanceManager) extractExpectedToolsWithHTTPMocks(config *Muster
 			continue
 		}
 
+		// Servers opted out of readiness never gate startup on their tools.
+		if !serverExpectsReadiness(mcpServer) {
+			if m.debug {
+				m.logger.Debug("🙈 Server %s: expect_ready=false, not gating readiness on its tools\n", mcpServer.Name)
+			}
+			continue
+		}
+
 		// Family-grouped servers expose tools as x_<family.name>_<tool>; non-
 		// family servers retain per-server prefixing as x_<server>_<tool>.
 		familyName := ""
@@ -1862,6 +1870,19 @@ func (m *musterInstanceManager) Cleanup() error {
 	return nil
 }
 
+// serverExpectsReadiness reports whether instance readiness should gate on
+// this pre-configured server (its state and its tools). Scenarios opt a
+// server out with expect_ready: false when it only exists as a network
+// target -- e.g. the SSE mock the transport-detection scenario probes:
+// muster's SSE session/tool aggregation is not reliable enough to gate on
+// (the standing reason mcpserver-sse-tool-call-lifecycle.yaml is skipped),
+// and the scenario only needs the mock's HTTP endpoint up, which the
+// harness already waits for when starting it.
+func serverExpectsReadiness(mcpServer MCPServerConfig) bool {
+	expectReady, ok := mcpServer.Config["expect_ready"].(bool)
+	return !ok || expectReady
+}
+
 // extractExpectedMCPServers extracts all MCP server names from the configuration.
 // This includes OAuth-protected servers that may be in "auth_required" state.
 // The returned list is used by WaitForReady to ensure servers are registered before tests run.
@@ -1874,7 +1895,11 @@ func (m *musterInstanceManager) extractExpectedMCPServers(config *MusterPreConfi
 
 	// Extract all MCP server names from configuration
 	for _, mcpServer := range config.MCPServers {
-		expectedServers = append(expectedServers, mcpServer.Name)
+		// Servers opted out of readiness (expect_ready: false) are registered
+		// and started but never gate readiness -- see extractExpectedToolsWithHTTPMocks.
+		if serverExpectsReadiness(mcpServer) {
+			expectedServers = append(expectedServers, mcpServer.Name)
+		}
 	}
 
 	if m.debug && len(expectedServers) > 0 {

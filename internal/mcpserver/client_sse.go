@@ -72,7 +72,7 @@ func (c *SSEClient) Initialize(ctx context.Context) error {
 			ProtocolVersion: api.ClientProtocolVersion,
 			ClientInfo: mcp.Implementation{
 				Name:    "muster-aggregator",
-				Version: "1.0.0",
+				Version: clientVersion,
 			},
 			Capabilities: mcp.ClientCapabilities{},
 		},
