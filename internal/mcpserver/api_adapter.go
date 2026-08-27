@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	oauthhandler "github.com/giantswarm/mcp-oauth/handler"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -585,6 +586,19 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Args:        mcpServerArgs(true), // type is required for validation
 		},
 		{
+			Name:        "mcpserver_detect",
+			Description: "Probe a remote MCP server URL to detect its transport (streamable-http or sse). Detection never fails on unreachable servers: the result reports transport \"unknown\" instead, so callers can fall back to manual selection.",
+			Args: []api.ArgMetadata{
+				{Name: "url", Type: api.ArgTypeString, Required: true, Description: "Server endpoint URL to probe"},
+				{Name: "headers", Type: api.ArgTypeObject, Required: false, Description: "HTTP headers to send with the probe requests", Schema: map[string]interface{}{
+					api.SchemaKeyType:                 string(api.ArgTypeObject),
+					api.SchemaKeyAdditionalProperties: map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeString)},
+					api.SchemaKeyDescription:          "HTTP headers for the probe requests",
+				}},
+				{Name: "timeout", Type: api.ArgTypeInteger, Required: false, Description: "Overall detection timeout in seconds (default 10)"},
+			},
+		},
+		{
 			Name:        "mcpserver_create",
 			Description: "Create a new MCP server definition",
 			Args:        mcpServerArgs(true), // type is required for creation
@@ -618,6 +632,8 @@ func (a *Adapter) ExecuteTool(ctx context.Context, toolName string, args map[str
 		return a.handleMCPServerGet(args)
 	case "mcpserver_validate":
 		return a.handleMCPServerValidate(args)
+	case "mcpserver_detect":
+		return a.handleMCPServerDetect(ctx, args)
 	case "mcpserver_create":
 		return a.handleMCPServerCreate(ctx, args)
 	case "mcpserver_update":
@@ -752,6 +768,32 @@ func (a *Adapter) handleMCPServerValidate(args map[string]interface{}) (*api.Cal
 	return &api.CallToolResult{
 		Content: []interface{}{fmt.Sprintf("Validation successful for mcpserver %s", req.Name)},
 		IsError: false,
+	}, nil
+}
+
+// handleMCPServerDetect probes a remote URL to detect its MCP transport.
+// The result is returned both as JSON text content and as structuredContent;
+// only a missing/invalid url argument is a tool error — an unreachable or
+// unclassifiable server yields a success result with transport "unknown".
+func (a *Adapter) handleMCPServerDetect(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
+	var req api.MCPServerDetectRequest
+	if err := api.ParseRequest(args, &req); err != nil {
+		return &api.CallToolResult{
+			Content: []interface{}{err.Error()},
+			IsError: true,
+		}, nil
+	}
+
+	if req.URL == "" {
+		return simpleError("url argument is required")
+	}
+
+	result := DetectTransport(ctx, req.URL, req.Headers, time.Duration(req.Timeout)*time.Second)
+
+	return &api.CallToolResult{
+		Content:           []interface{}{result},
+		StructuredContent: result,
+		IsError:           false,
 	}, nil
 }
 

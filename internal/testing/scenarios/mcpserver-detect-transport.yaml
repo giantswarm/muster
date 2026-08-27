@@ -1,0 +1,109 @@
+name: "mcpserver-detect-transport"
+description: "Test transport auto-detection: core_mcpserver_detect identifies streamable-http and sse servers and degrades to unknown for unreachable URLs"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "detect", "transport", "core-api"]
+timeout: "2m"
+
+# Test Story: Automatic Transport Detection
+# Given: One mock MCP server per remote transport (streamable-http and sse)
+# When:  core_mcpserver_detect probes each server's URL
+# Then:  The detected transport matches the transport the server actually speaks
+# And:   An unreachable URL yields transport "unknown" without failing the tool
+#
+# Step IDs use underscores because they double as Go template variable names
+# for later steps ({{ .get_streamable.url }}); hyphens would not parse.
+
+pre_configuration:
+  mcp_servers:
+    - name: "detect-streamable"
+      config:
+        type: "streamable-http"
+        tools:
+          - name: "probe_target_tool"
+            description: "Marker tool so the mock server has something to serve"
+            responses:
+              - response:
+                  status: "ok"
+    - name: "detect-sse"
+      config:
+        type: "sse"
+        # The SSE server only exists as a probe target; SSE tool aggregation
+        # is not reliable yet (see mcpserver-sse-tool-call-lifecycle.yaml),
+        # so readiness must not gate on its tools becoming available.
+        expect_tools: false
+        tools:
+          - name: "probe_target_tool"
+            description: "Marker tool so the mock server has something to serve"
+            responses:
+              - response:
+                  status: "ok"
+
+steps:
+  # Phase 1: Look up the dynamically allocated mock server URLs
+  - id: "get_streamable"
+    description: "Read the streamable-http mock server's registration to learn its URL"
+    tool: "core_mcpserver_get"
+    args:
+      name: "detect-streamable"
+    expected:
+      success: true
+      json_path:
+        type: "streamable-http"
+
+  - id: "get_sse"
+    description: "Read the sse mock server's registration to learn its URL"
+    tool: "core_mcpserver_get"
+    args:
+      name: "detect-sse"
+    expected:
+      success: true
+      json_path:
+        type: "sse"
+
+  # Phase 2: Detection identifies each transport
+  - id: "detect_streamable"
+    description: "Probe the streamable-http server and expect streamable-http"
+    tool: "core_mcpserver_detect"
+    args:
+      url: "{{ .get_streamable.url }}"
+    expected:
+      success: true
+      json_path:
+        transport: "streamable-http"
+        reachable: true
+        requiresAuth: false
+
+  - id: "detect_sse"
+    description: "Probe the sse server and expect sse"
+    tool: "core_mcpserver_detect"
+    args:
+      url: "{{ .get_sse.url }}"
+    expected:
+      success: true
+      json_path:
+        transport: "sse"
+        reachable: true
+        requiresAuth: false
+
+  # Phase 3: Unreachable URLs degrade to unknown instead of erroring,
+  # so a registration flow can fall back to manual transport selection
+  - id: "detect_unreachable"
+    description: "Probe a URL where nothing listens and expect unknown"
+    tool: "core_mcpserver_detect"
+    args:
+      url: "http://127.0.0.1:9/mcp"
+      timeout: 5
+    expected:
+      success: true
+      json_path:
+        transport: "unknown"
+        reachable: false
+
+  # Phase 4: A missing url argument is a real tool error
+  - id: "detect-missing-url"
+    description: "Calling detect without a url must fail"
+    tool: "core_mcpserver_detect"
+    args: {}
+    expected:
+      success: false

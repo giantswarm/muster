@@ -1795,6 +1795,17 @@ func (m *musterInstanceManager) extractExpectedToolsWithHTTPMocks(config *Muster
 			continue
 		}
 
+		// Scenarios can opt a server out of tool readiness with expect_tools: false,
+		// e.g. when the server only exists as a network probe target and its tools
+		// never need to be aggregated (SSE tool aggregation is not reliable yet,
+		// see mcpserver-sse-tool-call-lifecycle.yaml).
+		if expectTools, ok := mcpServer.Config["expect_tools"].(bool); ok && !expectTools {
+			if m.debug {
+				m.logger.Debug("🙈 Server %s: expect_tools=false, not gating readiness on its tools\n", mcpServer.Name)
+			}
+			continue
+		}
+
 		// Family-grouped servers expose tools as x_<family.name>_<tool>; non-
 		// family servers retain per-server prefixing as x_<server>_<tool>.
 		familyName := ""
