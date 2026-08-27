@@ -157,7 +157,7 @@ func (m *MockMCPServerManager) ListMCPServers(context.Context) ([]api.MCPServerI
 	return result, nil
 }
 
-func (m *MockMCPServerManager) GetMCPServer(name string) (*api.MCPServerInfo, error) {
+func (m *MockMCPServerManager) GetMCPServer(_ context.Context, name string) (*api.MCPServerInfo, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	server, ok := m.mcpServers[name]

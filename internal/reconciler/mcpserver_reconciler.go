@@ -22,7 +22,7 @@ import (
 // This is an alias for the api.MCPServerManagerHandler interface.
 type MCPServerManager interface {
 	ListMCPServers(ctx context.Context) ([]api.MCPServerInfo, error)
-	GetMCPServer(name string) (*api.MCPServerInfo, error)
+	GetMCPServer(ctx context.Context, name string) (*api.MCPServerInfo, error)
 }
 
 // MCPServerReconciler reconciles MCPServer resources.
@@ -141,7 +141,7 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileReques
 	logging.Info("MCPServerReconciler", "Reconciling MCPServer: %s", req.Name)
 
 	// Fetch the desired state from the definition source
-	mcpServerInfo, err := r.mcpServerManager.GetMCPServer(req.Name)
+	mcpServerInfo, err := r.mcpServerManager.GetMCPServer(ctx, req.Name)
 	if err != nil {
 		// If not found, this might be a delete operation
 		if IsNotFoundError(err) {

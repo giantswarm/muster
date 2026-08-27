@@ -24,7 +24,7 @@ func (m *mockMCPServerManager) ListMCPServers(context.Context) ([]MCPServerInfo,
 	return nil, nil
 }
 
-func (m *mockMCPServerManager) GetMCPServer(name string) (*MCPServerInfo, error) {
+func (m *mockMCPServerManager) GetMCPServer(_ context.Context, name string) (*MCPServerInfo, error) {
 	if m.getMCPServerFn != nil {
 		return m.getMCPServerFn(name)
 	}

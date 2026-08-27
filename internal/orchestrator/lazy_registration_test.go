@@ -25,7 +25,7 @@ func (m *mockMCPServerManager) ListMCPServers(context.Context) ([]api.MCPServerI
 	return servers, nil
 }
 
-func (m *mockMCPServerManager) GetMCPServer(name string) (*api.MCPServerInfo, error) {
+func (m *mockMCPServerManager) GetMCPServer(_ context.Context, name string) (*api.MCPServerInfo, error) {
 	info, ok := m.servers[name]
 	if !ok {
 		return nil, api.NewMCPServerNotFoundError(name)

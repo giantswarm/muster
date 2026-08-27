@@ -227,7 +227,7 @@ func (o *Orchestrator) registerMCPServerFromDefinition(name string) (services.Se
 		return nil, fmt.Errorf("service %s not found", name)
 	}
 
-	mcpServerInfo, err := mcpServerMgr.GetMCPServer(name)
+	mcpServerInfo, err := mcpServerMgr.GetMCPServer(o.ctx, name)
 	if err != nil || mcpServerInfo == nil {
 		return nil, fmt.Errorf("service %s not found", name)
 	}
