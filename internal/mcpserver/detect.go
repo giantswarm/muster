@@ -209,7 +209,7 @@ func probeInitializeRequest() mcp.InitializeRequest {
 			ProtocolVersion: api.ClientProtocolVersion,
 			ClientInfo: mcp.Implementation{
 				Name:    "muster-transport-probe",
-				Version: "1.0.0",
+				Version: clientVersion,
 			},
 			Capabilities: mcp.ClientCapabilities{},
 		},
