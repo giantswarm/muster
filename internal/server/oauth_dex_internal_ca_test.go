@@ -42,7 +42,6 @@ func localhostCert(t *testing.T) (tls.Certificate, *x509.CertPool) {
 		BasicConstraintsValid: true,
 		IsCA:                  true,
 		DNSNames:              []string{"localhost"},
-		IPAddresses:           []net.IP{net.ParseIP("127.0.0.1")},
 	}
 
 	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
@@ -62,7 +61,12 @@ func startLabDex(t *testing.T) (issuerURL string, caPool *x509.CertPool) {
 
 	cert, pool := localhostCert(t)
 
-	var issuer string
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	_, port, err := net.SplitHostPort(listener.Addr().String())
+	require.NoError(t, err)
+	issuer := "https://localhost:" + port
+
 	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/.well-known/openid-configuration" {
 			w.WriteHeader(http.StatusNotFound)
@@ -76,24 +80,27 @@ func startLabDex(t *testing.T) (issuerURL string, caPool *x509.CertPool) {
 			"jwks_uri":               issuer + "/keys",
 		})
 	}))
+	require.NoError(t, server.Listener.Close())
+	server.Listener = listener
 	server.TLS = &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}
 	server.StartTLS()
 	t.Cleanup(server.Close)
 
-	_, port, err := net.SplitHostPort(server.Listener.Addr().String())
-	require.NoError(t, err)
-	issuer = "https://localhost:" + port
-
 	return issuer, pool
 }
 
-// TestNewDexProviderConfig_LabDexPrivateIPInternalCA pins that the two knobs
-// the lab Dex path depends on are both effective at the pinned mcp-oauth
-// version: dex.allowPrivateIPOIDC lifts the loopback/private-IP guard on the
-// OIDC discovery client, and the --extra-ca-file pool verifies Dex's
-// certificate on that same client. Each knob is required: the other two cases
-// fail without it.
-func TestNewDexProviderConfig_LabDexPrivateIPInternalCA(t *testing.T) {
+// TestNewDexProviderConfig_LabDexInternalCA pins how the two knobs of the lab
+// Dex path combine at the pinned mcp-oauth version: the --extra-ca-file pool
+// reaches the OIDC discovery client through dex.Config.RootCAs, and mcp-oauth
+// consults that pool only when dex.allowPrivateIPOIDC selects the
+// private-IP-allowed client. With the knob off, discovery runs on
+// http.DefaultTransport and the pool is ignored.
+//
+// The private-IP guard itself is not covered here, and no knob lifts it: the
+// block on private and loopback addresses lives in mcp-oauth's static issuer
+// validation, which rejects an IP-literal issuer URL whatever AllowPrivateIP
+// is set to.
+func TestNewDexProviderConfig_LabDexInternalCA(t *testing.T) {
 	issuer, caPool := startLabDex(t)
 
 	newProvider := func(t *testing.T, allowPrivateIP bool, pool *x509.CertPool) error {
@@ -124,18 +131,9 @@ func TestNewDexProviderConfig_LabDexPrivateIPInternalCA(t *testing.T) {
 		require.Contains(t, err.Error(), "certificate")
 	})
 
-	t.Run("without allowPrivateIPOIDC the process trust pool carries discovery", func(t *testing.T) {
-		// AllowPrivateIP off leaves the discovery client on
-		// http.DefaultTransport, whose trust pool --extra-ca-file replaces at
-		// startup. A hostname issuer that resolves to a private IP still
-		// reaches Dex: only an IP-literal issuer URL is refused, and that
-		// refusal is static and unaffected by the knob.
-		original := http.DefaultTransport
-		t.Cleanup(func() { http.DefaultTransport = original })
-		transport := original.(*http.Transport).Clone()
-		transport.TLSClientConfig = &tls.Config{RootCAs: caPool, MinVersion: tls.VersionTLS12}
-		http.DefaultTransport = transport
-
-		require.NoError(t, newProvider(t, false, nil))
+	t.Run("without allowPrivateIPOIDC the CA pool is ignored", func(t *testing.T) {
+		err := newProvider(t, false, caPool)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "certificate")
 	})
 }
