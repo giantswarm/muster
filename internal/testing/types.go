@@ -81,6 +81,10 @@ type TestConfiguration struct {
 	Scenario string `yaml:"scenario,omitempty"`
 	// Parallel is the number of parallel test workers
 	Parallel int `yaml:"parallel"`
+	// StartupParallel bounds how many scenarios may be in their
+	// instance-startup phase concurrently. 0 selects the default; negative
+	// disables the bound. See defaultStartupParallel.
+	StartupParallel int `yaml:"startup_parallel,omitempty"`
 	// FailFast stops execution on first failure
 	FailFast bool `yaml:"fail_fast"`
 	// Verbose enables detailed output

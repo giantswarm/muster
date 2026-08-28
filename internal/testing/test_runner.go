@@ -14,6 +14,22 @@ import (
 )
 
 // testRunner implements the TestRunner interface
+// defaultStartupParallel bounds how many scenarios may be in their
+// instance-startup phase (CreateInstance + WaitForReady) at the same time.
+// Starting all --parallel instances at t=0 is the measured mechanism behind
+// the intermittent CI readiness timeouts of giantswarm/muster#1101: a herd of
+// 50 cold-starting Go processes is fine on >=4 dedicated cores (suite in ~4s)
+// but produces 15s+ readiness stragglers and scenario-timeout kills at the
+// 1-2 effective cores a contended CI container actually delivers. Eight is
+// measured to hold 10/10 clean at 2 effective cores (half a CI large's
+// nominal 4 vCPUs) where sixteen still failed 1 run in 8; the cost is ~4s of
+// startup serialization on an unconstrained 24-core box (pass a negative
+// --startup-parallel to disable). A fixed constant is deliberate: containers
+// on shares-based CI report the HOST's core count, so any NumCPU-derived
+// bound would silently disable itself exactly where it matters. Steady-state
+// scenario parallelism is unaffected.
+const defaultStartupParallel = 8
+
 type testRunner struct {
 	client          MCPTestClient
 	loader          TestScenarioLoader
@@ -21,6 +37,10 @@ type testRunner struct {
 	instanceManager MusterInstanceManager
 	debug           bool
 	logger          TestLogger
+
+	// startupSem, when non-nil, is the counting semaphore implementing the
+	// startup bound above. Sized once per Run from the configuration.
+	startupSem chan struct{}
 }
 
 // NewTestRunnerWithLogger creates a new test runner with custom logger
@@ -104,6 +124,17 @@ func (r *testRunner) Run(ctx context.Context, config TestConfiguration, scenario
 	if len(filteredScenarios) == 0 {
 		r.reporter.ReportSuiteResult(*result)
 		return result, nil
+	}
+
+	// Bound concurrent instance startups (see defaultStartupParallel). Zero
+	// means "use the default"; a negative value disables the bound.
+	startupParallel := config.StartupParallel
+	if startupParallel == 0 {
+		startupParallel = defaultStartupParallel
+	}
+	r.startupSem = nil
+	if startupParallel > 0 && config.Parallel > startupParallel {
+		r.startupSem = make(chan struct{}, startupParallel)
 	}
 
 	// Execute scenarios based on parallel configuration
@@ -268,6 +299,25 @@ func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, con
 	// Create scenario context for template variable support
 	scenarioContext := NewScenarioContext()
 
+	// Take a startup slot BEFORE the scenario timeout starts ticking: a
+	// scenario queued behind other startups must not burn its step budget
+	// waiting, or slow startups get killed mid-boot by their own timeout.
+	releaseStartup := func() {}
+	if r.startupSem != nil {
+		select {
+		case r.startupSem <- struct{}{}:
+			var once sync.Once
+			releaseStartup = func() { once.Do(func() { <-r.startupSem }) }
+		case <-ctx.Done():
+			result.Result = ResultError
+			result.Error = "test run canceled while waiting for an instance startup slot"
+			result.EndTime = time.Now()
+			result.Duration = result.EndTime.Sub(result.StartTime)
+			return result
+		}
+	}
+	defer releaseStartup()
+
 	// Apply scenario timeout if specified
 	scenarioCtx := ctx
 	if scenario.Timeout > 0 {
@@ -333,6 +383,10 @@ func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, con
 
 		return result
 	}
+
+	// Startup is done — hand the slot to the next queued scenario. Step
+	// execution runs at full --parallel width.
+	releaseStartup()
 
 	// Create isolated MCP client for this scenario
 	// This ensures each parallel scenario has its own client and context

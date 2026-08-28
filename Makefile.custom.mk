@@ -65,7 +65,7 @@ verify-crds: ## Regenerate CRDs and fail if the committed copies are stale.
 .PHONY: muster-integration-test
 muster-integration-test: build ## Run the muster integration suite (./muster test).
 	@echo "Running muster integration suite..."
-	./muster test --parallel 50 --base-port 30000 --readiness-timeout 60s
+	./muster test --parallel 50 --base-port 30000
 
 .PHONY: test-envtest
 test-envtest: ## Run the envtest-backed RBAC integration tests (downloads a kube-apiserver via setup-envtest).
