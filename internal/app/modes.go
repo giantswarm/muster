@@ -6,6 +6,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/giantswarm/muster/internal/orchestrator"
 	serv "github.com/giantswarm/muster/internal/services"
 
 	"github.com/giantswarm/muster/pkg/logging"
@@ -36,19 +37,8 @@ import (
 func runOrchestrator(ctx context.Context, services *Services) error {
 	logging.Info("CLI", "--- Setting up orchestrator for service management ---")
 
-	aggregatorFailed := false
 	sigChan := make(chan os.Signal, 1)
-	changeChan := services.Orchestrator.SubscribeToStateChanges()
-	go func() {
-		for change := range changeChan {
-			if change.Name == "mcp-aggregator" && serv.ServiceState(change.NewState) == serv.StateFailed {
-				logging.Info("CLI", "MCP Aggregator failed: %v", change)
-				aggregatorFailed = true
-				sigChan <- nil
-				break
-			}
-		}
-	}()
+	aggregatorFailed := watchAggregatorFailure(services.Orchestrator.SubscribeToStateChanges())
 
 	// IMPORTANT: Startup order matters for capturing all state change events.
 	//
@@ -94,9 +84,11 @@ func runOrchestrator(ctx context.Context, services *Services) error {
 	logging.Info("CLI", "Services started. Press Ctrl+C to stop all services and exit.")
 
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	if !aggregatorFailed {
-		// Wait for interrupt signal or later service startup failure to gracefully shutdown
-		<-sigChan
+	// Wait for an interrupt signal or an aggregator failure (which may already
+	// have happened during startup) to gracefully shutdown.
+	select {
+	case <-sigChan:
+	case <-aggregatorFailed:
 	}
 
 	// Graceful shutdown sequence
@@ -119,4 +111,27 @@ func runOrchestrator(ctx context.Context, services *Services) error {
 	_ = services.Orchestrator.Stop()
 
 	return nil
+}
+
+// watchAggregatorFailure returns a channel that is closed when changeChan
+// reports the mcp-aggregator service entering the failed state.
+//
+// The failure is signalled through a closed channel rather than a shared
+// flag: the watcher runs on its own goroutine while runOrchestrator waits on
+// the main one, and a plain bool written here and read there is a data race
+// (caught by the race detector as a startup crash whenever the aggregator
+// failed to bind its port). A closed channel also wakes the waiter regardless
+// of whether the failure lands before or after the wait starts.
+func watchAggregatorFailure(changeChan <-chan orchestrator.ServiceStateChangedEvent) <-chan struct{} {
+	failed := make(chan struct{})
+	go func() {
+		for change := range changeChan {
+			if change.Name == "mcp-aggregator" && serv.ServiceState(change.NewState) == serv.StateFailed {
+				logging.Info("CLI", "MCP Aggregator failed: %v", change)
+				close(failed)
+				return
+			}
+		}
+	}()
+	return failed
 }
