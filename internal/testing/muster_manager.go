@@ -631,6 +631,19 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 	// makes every occurrence a log dig.
 	var lastNotReadyReasons []string
 
+	// Transition history: one entry each time the not-ready reason CHANGES,
+	// stamped with the elapsed wait. The final tick's reason alone cannot
+	// distinguish "the tool never registered for 15s" from "the aggregator
+	// answered fine for 14s and only the last poll timed out" — the history
+	// can (giantswarm/muster#1101).
+	type reasonTransition struct {
+		at      time.Duration
+		reasons string
+	}
+	var reasonHistory []reasonTransition
+	const maxReasonTransitions = 8
+	resourceWaitStart := time.Now()
+
 	for {
 		select {
 		case <-resourceCtx.Done():
@@ -651,8 +664,12 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 				}
 			}
 			if len(lastNotReadyReasons) > 0 {
-				return fmt.Errorf("timeout waiting for all expected resources to be available after %s: %s",
-					resourceTimeout, strings.Join(lastNotReadyReasons, "; "))
+				history := make([]string, len(reasonHistory))
+				for i, tr := range reasonHistory {
+					history[i] = fmt.Sprintf("[%.1fs] %s", tr.at.Seconds(), tr.reasons)
+				}
+				return fmt.Errorf("timeout waiting for all expected resources to be available after %s: %s (reason history: %s)",
+					resourceTimeout, strings.Join(lastNotReadyReasons, "; "), strings.Join(history, " | "))
 			}
 			return fmt.Errorf("timeout waiting for all expected resources to be available after %s", resourceTimeout)
 		case <-procExited:
@@ -734,6 +751,16 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 			}
 
 			lastNotReadyReasons = notReadyReasons
+
+			if joined := strings.Join(notReadyReasons, "; "); joined != "" &&
+				(len(reasonHistory) == 0 || reasonHistory[len(reasonHistory)-1].reasons != joined) {
+				if len(reasonHistory) < maxReasonTransitions {
+					reasonHistory = append(reasonHistory, reasonTransition{at: time.Since(resourceWaitStart), reasons: joined})
+				} else {
+					// Keep the first transitions and always the latest one.
+					reasonHistory[maxReasonTransitions-1] = reasonTransition{at: time.Since(resourceWaitStart), reasons: joined}
+				}
+			}
 
 			if allReady {
 				if m.debug {

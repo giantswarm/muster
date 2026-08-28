@@ -292,13 +292,13 @@ func (r *testReporter) ReportScenarioResult(scenarioResult TestScenarioResult) {
 		} else if (failed > 0 || errors > 0) && scenarioResult.InstanceLogs != nil {
 			fmt.Printf("%s   📄 Instance Logs (last execution):\n", prefix)
 			if scenarioResult.InstanceLogs.Stdout != "" {
-				fmt.Printf("%s   📤 STDOUT:\n", prefix)
-				stdout := r.trimLogs(scenarioResult.InstanceLogs.Stdout, 1000)
+				fmt.Printf("%s   📤 STDOUT (tail):\n", prefix)
+				stdout := tailLogs(scenarioResult.InstanceLogs.Stdout, 1500)
 				fmt.Printf("%s\n", r.indentText(stdout, prefix+"      "))
 			}
 			if scenarioResult.InstanceLogs.Stderr != "" {
-				fmt.Printf("%s   📥 STDERR:\n", prefix)
-				stderr := r.trimLogs(scenarioResult.InstanceLogs.Stderr, 1000)
+				fmt.Printf("%s   📥 STDERR (tail):\n", prefix)
+				stderr := tailLogs(scenarioResult.InstanceLogs.Stderr, 1500)
 				fmt.Printf("%s\n", r.indentText(stderr, prefix+"      "))
 			}
 		}
@@ -331,8 +331,11 @@ func (r *testReporter) ReportScenarioResult(scenarioResult TestScenarioResult) {
 }
 
 // failureSummary renders a compact multi-line diagnosis of a failed scenario
-// for the parallel-mode one-liner: the failing step (id, tool, error) and the
-// scenario error. Returns "" for passing scenarios.
+// for the parallel-mode one-liner: the failing step (id, tool, error), the
+// scenario error, and the tail of the instance's own log. Returns "" for
+// passing scenarios. Error strings are trimmed generously — a readiness
+// timeout carries its diagnosis (missing resources, reason history) at the
+// END of the message, and CI logs are the only place this ever surfaces.
 func (r *testReporter) failureSummary(scenarioResult TestScenarioResult) string {
 	if scenarioResult.Result == ResultPassed {
 		return ""
@@ -342,15 +345,40 @@ func (r *testReporter) failureSummary(scenarioResult TestScenarioResult) string 
 		if sr.Result == ResultFailed || sr.Result == ResultError {
 			fmt.Fprintf(&b, "\n   ↳ failed step: %s (tool: %s)", sr.Step.ID, sr.Step.Tool)
 			if sr.Error != "" {
-				fmt.Fprintf(&b, ": %s", r.trimLogs(sr.Error, 300))
+				fmt.Fprintf(&b, ": %s", r.trimLogs(sr.Error, 1500))
 			}
 			break
 		}
 	}
 	if scenarioResult.Error != "" {
-		fmt.Fprintf(&b, "\n   ↳ scenario error: %s", r.trimLogs(scenarioResult.Error, 300))
+		fmt.Fprintf(&b, "\n   ↳ scenario error: %s", r.trimLogs(scenarioResult.Error, 1500))
+	}
+	// The instance's own (timestamped) log tail shows WHERE startup time went
+	// — without it a readiness timeout in CI is unattributable, since parallel
+	// mode never rendered instance logs at all and the head of a log is just
+	// the boot banner.
+	if logs := scenarioResult.InstanceLogs; logs != nil {
+		if tail := tailLogs(logs.Stderr, 1500); tail != "" {
+			fmt.Fprintf(&b, "\n   ↳ instance stderr tail:\n%s", r.indentText(tail, "      "))
+		} else if tail := tailLogs(logs.Stdout, 1500); tail != "" {
+			fmt.Fprintf(&b, "\n   ↳ instance stdout tail:\n%s", r.indentText(tail, "      "))
+		}
 	}
 	return b.String()
+}
+
+// tailLogs keeps the LAST maxChars of logs, breaking at a line boundary —
+// the end of a log is what explains a stall or crash.
+func tailLogs(logs string, maxChars int) string {
+	logs = strings.TrimSpace(logs)
+	if len(logs) <= maxChars {
+		return logs
+	}
+	tail := logs[len(logs)-maxChars:]
+	if idx := strings.Index(tail, "\n"); idx >= 0 && idx < maxChars/2 {
+		tail = tail[idx+1:]
+	}
+	return "... (earlier log truncated)\n" + tail
 }
 
 // trimLogs trims logs to a reasonable length for display
