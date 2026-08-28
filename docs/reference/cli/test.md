@@ -51,6 +51,9 @@ Component interaction and end-to-end validation:
 - `--base-port` (int): Base port for test instances
   - Default: `18000`
   - Each test instance uses sequential ports
+- `--readiness-timeout` (duration): Per-instance deadline for expected resources (tools, workflows, MCP servers) to become available after startup
+  - Default: `15s`
+  - Raise on slow or contended machines (CI uses `60s`); a healthy instance is never slowed down, the deadline only bounds the wait
 
 ### Output and Debugging
 - `--verbose`: Enable detailed test output

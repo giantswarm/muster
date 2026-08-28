@@ -21,7 +21,9 @@ import (
 )
 
 var (
-	testTimeout    time.Duration
+	testTimeout          time.Duration
+	testReadinessTimeout time.Duration
+
 	testVerbose    bool
 	testDebug      bool
 	testCategory   string
@@ -135,6 +137,7 @@ Example usage:
   muster test --fail-fast                 # Stop on first failure
   muster test --parallel=50               # Run with 50 parallel workers
   muster test --base-port=19000           # Use port 19000+ for test instances
+  muster test --readiness-timeout=60s     # Allow slow instance startup (e.g. CI)
   muster test --mcp-server                # Run as MCP server (stdio transport)
   muster test --generate-schema           # Generate API schema from muster serve
   muster test --validate-scenarios        # Validate scenarios against schema
@@ -163,6 +166,7 @@ func init() {
 
 	// Test execution configuration
 	testCmd.Flags().DurationVar(&testTimeout, "timeout", 10*time.Minute, "Overall test execution timeout")
+	testCmd.Flags().DurationVar(&testReadinessTimeout, "readiness-timeout", 15*time.Second, "Per-instance deadline for expected resources (tools, workflows, MCP servers) to become available after startup; raise on slow or contended machines such as CI")
 	testCmd.Flags().IntVar(&testBasePort, "base-port", 18000, "Starting port number for test muster instances")
 
 	// Output and debugging
@@ -385,7 +389,7 @@ func runTest(cmd *cobra.Command, args []string) error {
 	testConfig.Scenario = testScenario
 
 	// Create test framework with proper verbose and debug flags
-	framework, err := testing.NewTestFrameworkWithConfig(testVerbose, testDebug, testBasePort, testReportPath, testKeepTempConfig)
+	framework, err := testing.NewTestFrameworkWithConfig(testVerbose, testDebug, testBasePort, testReportPath, testKeepTempConfig, testReadinessTimeout)
 	if err != nil {
 		return fmt.Errorf("failed to create test framework: %w", err)
 	}

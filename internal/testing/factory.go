@@ -2,6 +2,7 @@ package testing
 
 import (
 	"fmt"
+	"time"
 )
 
 // TestFramework holds all components needed for testing
@@ -14,9 +15,10 @@ type TestFramework struct {
 	Logger          TestLogger
 }
 
-// NewTestFrameworkWithConfig creates a fully configured test framework with all configuration options
-func NewTestFrameworkWithConfig(verbose, debug bool, basePort int, reportPath string, keepTempConfig bool) (*TestFramework, error) {
-	return NewTestFrameworkForMode(ExecutionModeCLI, verbose, debug, basePort, reportPath, keepTempConfig)
+// NewTestFrameworkWithConfig creates a fully configured test framework with all configuration options.
+// A readinessTimeout of zero selects the default instance readiness deadline.
+func NewTestFrameworkWithConfig(verbose, debug bool, basePort int, reportPath string, keepTempConfig bool, readinessTimeout time.Duration) (*TestFramework, error) {
+	return NewTestFrameworkForMode(ExecutionModeCLI, verbose, debug, basePort, reportPath, keepTempConfig, readinessTimeout)
 }
 
 // NewTestFrameworkForMode creates a fully configured test framework for the specified execution mode
@@ -28,7 +30,7 @@ func NewTestFrameworkWithConfig(verbose, debug bool, basePort int, reportPath st
 //
 // Note: In MCP server mode, verbose defaults to true and debug output is controlled by the
 // silent logger to prevent stdio contamination.
-func NewTestFrameworkForMode(mode ExecutionMode, verbose, debug bool, basePort int, reportPath string, keepTempConfig bool) (*TestFramework, error) {
+func NewTestFrameworkForMode(mode ExecutionMode, verbose, debug bool, basePort int, reportPath string, keepTempConfig bool, readinessTimeout time.Duration) (*TestFramework, error) {
 	// Create logger based on execution mode
 	var logger TestLogger
 	switch mode {
@@ -41,7 +43,7 @@ func NewTestFrameworkForMode(mode ExecutionMode, verbose, debug bool, basePort i
 	}
 
 	// Create instance manager
-	instanceManager, err := NewMusterInstanceManagerWithConfig(debug, basePort, logger, keepTempConfig)
+	instanceManager, err := NewMusterInstanceManagerWithConfig(debug, basePort, logger, keepTempConfig, readinessTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create instance manager: %w", err)
 	}

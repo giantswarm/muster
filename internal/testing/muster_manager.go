@@ -151,16 +151,23 @@ type managedProcess struct {
 	waitErr    error         // result of cmd.Wait(); read only after exited is closed
 }
 
+// defaultReadinessTimeout bounds how long WaitForReady waits for an instance's
+// expected resources (tools, workflows, MCP servers) after its aggregator is
+// reachable. Overridable per run via --readiness-timeout: on contended machines
+// (CI at high --parallel) startup can legitimately exceed this default.
+const defaultReadinessTimeout = 15 * time.Second
+
 // musterInstanceManager implements the MusterInstanceManager interface
 type musterInstanceManager struct {
-	debug          bool
-	basePort       int
-	portOffset     int
-	tempDir        string
-	processes      map[string]*managedProcess // Track processes by instance ID
-	mu             sync.RWMutex
-	logger         TestLogger
-	keepTempConfig bool
+	debug            bool
+	basePort         int
+	portOffset       int
+	tempDir          string
+	processes        map[string]*managedProcess // Track processes by instance ID
+	mu               sync.RWMutex
+	logger           TestLogger
+	keepTempConfig   bool
+	readinessTimeout time.Duration
 
 	// Port reservation system for thread-safe parallel execution
 	portMu        sync.Mutex     // Protects port allocation
@@ -195,11 +202,12 @@ type musterInstanceManager struct {
 
 // NewMusterInstanceManagerWithLogger creates a new muster instance manager with custom logger
 func NewMusterInstanceManagerWithLogger(debug bool, basePort int, logger TestLogger) (MusterInstanceManager, error) {
-	return NewMusterInstanceManagerWithConfig(debug, basePort, logger, false)
+	return NewMusterInstanceManagerWithConfig(debug, basePort, logger, false, 0)
 }
 
-// NewMusterInstanceManagerWithConfig creates a new muster instance manager with custom logger and config options
-func NewMusterInstanceManagerWithConfig(debug bool, basePort int, logger TestLogger, keepTempConfig bool) (MusterInstanceManager, error) {
+// NewMusterInstanceManagerWithConfig creates a new muster instance manager with custom logger and config options.
+// A readinessTimeout of zero (or negative) selects defaultReadinessTimeout.
+func NewMusterInstanceManagerWithConfig(debug bool, basePort int, logger TestLogger, keepTempConfig bool, readinessTimeout time.Duration) (MusterInstanceManager, error) {
 	// Create temporary directory for test configurations
 	tempDir, err := os.MkdirTemp("", "muster-test-*")
 	if err != nil {
@@ -208,6 +216,10 @@ func NewMusterInstanceManagerWithConfig(debug bool, basePort int, logger TestLog
 
 	ephemeralLow, ephemeralHigh := detectEphemeralPortRange()
 
+	if readinessTimeout <= 0 {
+		readinessTimeout = defaultReadinessTimeout
+	}
+
 	return &musterInstanceManager{
 		debug:               debug,
 		basePort:            basePort,
@@ -215,6 +227,7 @@ func NewMusterInstanceManagerWithConfig(debug bool, basePort int, logger TestLog
 		processes:           make(map[string]*managedProcess),
 		logger:              logger,
 		keepTempConfig:      keepTempConfig,
+		readinessTimeout:    readinessTimeout,
 		reservedPorts:       make(map[int]string),
 		reservedListeners:   make(map[int]net.Listener),
 		ephemeralLow:        ephemeralLow,
@@ -600,9 +613,11 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 		}
 	}
 
-	// Wait for all expected resources to be available
-	// Use a longer timeout to handle high parallelism and complex OAuth setups
-	resourceTimeout := 15 * time.Second
+	// Wait for all expected resources to be available. The deadline is
+	// configurable (--readiness-timeout) because it scales with machine load:
+	// at high --parallel on a contended CI container, healthy instances can
+	// need longer than the local default (giantswarm/muster#1101).
+	resourceTimeout := m.readinessTimeout
 	resourceCtx, resourceCancel := context.WithTimeout(readyCtx, resourceTimeout)
 	defer resourceCancel()
 
