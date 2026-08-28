@@ -665,7 +665,17 @@ func (a *AuthAdapter) InvalidateCache(endpoint string) {
 }
 
 // Close cleans up any resources held by the auth adapter.
+//
+// If this adapter is the one currently registered with the API layer, the
+// registration is cleared first. Register() publishes the adapter into a
+// process-global registry that has no expiry of its own, so without this a
+// closed adapter stays reachable through api.GetAuthHandler() -- and because
+// AuthAdapter carries no closed flag, callers would silently re-create managers
+// on it instead of failing. The compare-and-clear is atomic, and a no-op when a
+// different adapter is registered.
 func (a *AuthAdapter) Close() error {
+	api.UnregisterAuthHandler(a)
+
 	a.mu.Lock()
 	defer a.mu.Unlock()
 

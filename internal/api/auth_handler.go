@@ -116,6 +116,31 @@ func RegisterAuthHandler(h AuthHandler) {
 	authHandler = h
 }
 
+// UnregisterAuthHandler clears the registration if and only if h is the
+// currently registered handler, and reports whether it did.
+//
+// The compare and the clear happen under one write lock. A plain
+// GetAuthHandler-then-RegisterAuthHandler(nil) pair would be two separate
+// acquisitions, letting a concurrent registration slip in between and be
+// erased by a handler that is no longer current.
+//
+// Args:
+//   - h: the handler expected to be registered
+//
+// Returns:
+//   - bool: true if h was registered and the registration was cleared
+//
+// Thread-safe: Yes, protected by handlerMutex.
+func UnregisterAuthHandler(h AuthHandler) bool {
+	handlerMutex.Lock()
+	defer handlerMutex.Unlock()
+	if authHandler != h {
+		return false
+	}
+	authHandler = nil
+	return true
+}
+
 // GetAuthHandler returns the registered auth handler.
 // This provides access to OAuth authentication functionality.
 //
