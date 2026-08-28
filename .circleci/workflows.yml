@@ -14,6 +14,22 @@ workflows:
         name: go-build
         binary: muster
         context: architect
+        # On failure, keep the integration suite's full JSON report (written
+        # by make muster-integration-test into test-reports/ — the --report
+        # flag names a DIRECTORY, and it must not match the orb's muster-*
+        # release-asset glob or cosign tries to sign it) as a build artifact:
+        # it carries every scenario's complete instance logs, which the
+        # console output only shows as trimmed tails. Readiness flakes
+        # (#1101) are only attributable with those logs.
+        post-steps:
+        - run:
+            name: Collect muster test report
+            command: |
+              mkdir -p /tmp/muster-test-artifacts
+              cp -r test-reports/. /tmp/muster-test-artifacts/ 2>/dev/null || true
+            when: on_fail
+        - store_artifacts:
+            path: /tmp/muster-test-artifacts
         # Run unit tests through `make test` rather than the orb's hardcoded
         # `go test ./...`, so CI and local agent runs use the same command.
         # The generic Makefile target is `go test ./...`; repos that need more

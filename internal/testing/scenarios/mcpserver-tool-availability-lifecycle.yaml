@@ -77,8 +77,11 @@ steps:
       message: "Test after stop"
     expected:
       success: false
-      # Error message changed as part of server-side meta-tools migration (Issue #343)
-      contains: ["server not found"]
+      # The post-stop failure text races: "server not found" once the tool is
+      # deregistered from the aggregator, "client not connected" when the call
+      # lands in the async deregistration window with the client already torn
+      # down. Both prove the behavioral contract (calls fail once stopped), so
+      # only failure itself is asserted. Seen as a CI flake: #1101 follow-up.
 
   # Phase 3: Start the MCP server and verify service state changes
   - id: "start-mcpserver-service"

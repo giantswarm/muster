@@ -43,3 +43,4 @@ graphify-out/
 
 # Local Claude Code worktrees
 .claude/worktrees/
+test-reports/
