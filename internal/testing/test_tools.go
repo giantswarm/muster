@@ -6,6 +6,7 @@ package testing
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -274,25 +275,26 @@ func (h *TestToolsHandler) handleSimulateOAuthCallback(ctx context.Context, args
 	}
 
 	// Step 1: Call the authenticate tool via MCP to get the auth URL with real state
-	// We do this FIRST because the auth URL tells us which OAuth server to use
+	// We do this FIRST because the auth URL tells us which OAuth server to use.
+	//
+	// A failure here is a real muster failure and must fail the step. This used
+	// to fall back to injecting a token directly into the mock OAuth server,
+	// which masked exactly the bug class this step exists to catch: muster
+	// answering core_auth_login with "Server not found" turned into a passing
+	// callback step, and the scenario failed later at the explicit
+	// core_auth_login with no trace of the real cause (issue #1110).
 	authURL, err := h.callAuthenticateTool(ctx, serverName)
 	if err != nil {
-		// If we can't call the authenticate tool, fall back to direct token injection
-		if h.debug {
-			h.logger.Debug("🔐 Could not call authenticate tool, falling back to direct token injection: %v\n", err)
+		// SSO token reuse against a shared issuer connects during the login
+		// call itself; there is no browser flow left to simulate.
+		if errors.Is(err, errAlreadyConnected) {
+			return map[string]interface{}{
+				api.FieldSuccess: true,
+				api.FieldMessage: "server already connected during core_auth_login (SSO token reuse) - no callback needed",
+				api.FieldServer:  serverName,
+			}, nil
 		}
-		// Use any available OAuth server for fallback
-		var oauthServer *mock.OAuthServer
-		for name := range h.currentInstance.MockOAuthServers {
-			oauthServer = h.instanceManager.GetMockOAuthServer(h.currentInstance.ID, name)
-			if oauthServer != nil {
-				break
-			}
-		}
-		if oauthServer == nil {
-			return nil, fmt.Errorf("no mock OAuth server available for fallback")
-		}
-		return h.fallbackDirectTokenInjection(ctx, serverName, oauthServer)
+		return nil, fmt.Errorf("core_auth_login for %s did not return an auth URL: %w", serverName, err)
 	}
 
 	if h.debug {
@@ -505,7 +507,14 @@ func (h *TestToolsHandler) resolveStartRedirect(ctx context.Context, startURL st
 	return location, nil
 }
 
+// errAlreadyConnected reports that core_auth_login connected (or found the
+// server already authenticated) without needing a browser flow — e.g. SSO
+// token reuse against a shared issuer. There is no auth URL to follow, and
+// nothing left for the callback simulation to do.
+var errAlreadyConnected = errors.New("server is already connected, no auth URL issued")
+
 // callAuthenticateTool calls the core_auth_login tool via MCP to get the auth URL.
+// Returns errAlreadyConnected when the login succeeded without a browser flow.
 func (h *TestToolsHandler) callAuthenticateTool(ctx context.Context, serverName string) (string, error) {
 	if h.mcpClient == nil {
 		return "", fmt.Errorf("MCP client not available")
@@ -526,40 +535,24 @@ func (h *TestToolsHandler) callAuthenticateTool(ctx context.Context, serverName 
 	}
 
 	// Extract the auth URL from the result
-	return h.extractAuthURLFromResult(result)
+	authURL, err := h.extractAuthURLFromResult(result)
+	if err != nil {
+		if text, textErr := extractTextFromResult(result); textErr == nil &&
+			(strings.Contains(text, api.AuthMsgSuccessfullyConnected) || strings.Contains(text, "already authenticated")) {
+			return "", errAlreadyConnected
+		}
+		return "", err
+	}
+	return authURL, nil
 }
 
 // extractAuthURLFromResult extracts the authorization URL from an MCP tool result.
 func (h *TestToolsHandler) extractAuthURLFromResult(result interface{}) (string, error) {
 	// The result is an MCP CallToolResult with Content array
 	// We need to extract the text content and find the auth URL
-
-	resultBytes, err := json.Marshal(result)
+	text, err := extractTextFromResult(result)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal result: %w", err)
-	}
-
-	var resultMap map[string]interface{}
-	if err := json.Unmarshal(resultBytes, &resultMap); err != nil {
-		return "", fmt.Errorf("failed to unmarshal result: %w", err)
-	}
-
-	// Extract content array
-	content, ok := resultMap["content"].([]interface{})
-	if !ok || len(content) == 0 {
-		return "", fmt.Errorf("no content in result")
-	}
-
-	// Get the first content item
-	contentItem, ok := content[0].(map[string]interface{})
-	if !ok {
-		return "", fmt.Errorf("invalid content item format")
-	}
-
-	// Get the text field
-	text, ok := contentItem["text"].(string)
-	if !ok {
-		return "", fmt.Errorf("no text field in content")
+		return "", err
 	}
 
 	// The text might be JSON with an auth_url field, or contain a URL directly
@@ -589,39 +582,35 @@ func (h *TestToolsHandler) extractAuthURLFromResult(result interface{}) (string,
 	return "", fmt.Errorf("could not find auth URL in result: %s", text)
 }
 
-// fallbackDirectTokenInjection falls back to direct token injection when MCP auth flow isn't available.
-// This is used when the authenticate tool can't be called (e.g., MCP client not available).
-func (h *TestToolsHandler) fallbackDirectTokenInjection(ctx context.Context, serverName string, oauthServer interface{}) (interface{}, error) {
-	// Cast to the right type
-	server, ok := oauthServer.(*mock.OAuthServer)
-	if !ok {
-		return nil, fmt.Errorf("invalid OAuth server type")
-	}
-
-	// Generate a token directly
-	clientID := server.GetClientID()
-	scope := "openid profile"
-
-	// Generate auth code and exchange it
-	authCode := server.GenerateAuthCode(clientID, "http://localhost/callback", scope, "fallback-state", "", "", "")
-	tokenResp, err := server.SimulateCallback(authCode)
+// extractTextFromResult returns the first text content block of an MCP tool
+// result.
+func extractTextFromResult(result interface{}) (string, error) {
+	resultBytes, err := json.Marshal(result)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate token: %w", err)
+		return "", fmt.Errorf("failed to marshal result: %w", err)
 	}
 
-	// Note: This token is in the mock OAuth server but NOT in muster's token store
-	// For the protected MCP server to accept it, we just need it valid in the mock OAuth server
-	// The aggregator will get a 401, create an auth challenge, and we'd need to complete the flow
+	var resultMap map[string]interface{}
+	if err := json.Unmarshal(resultBytes, &resultMap); err != nil {
+		return "", fmt.Errorf("failed to unmarshal result: %w", err)
+	}
 
-	return map[string]interface{}{
-		api.FieldSuccess: true,
-		api.FieldMessage: "OAuth callback simulated via direct token exchange (fallback mode)",
-		api.FieldServer:  serverName,
-		"access_token":   tokenResp.AccessToken,
-		"token_type":     tokenResp.TokenType,
-		"expires_in":     tokenResp.ExpiresIn,
-		"note":           "Token is valid in mock OAuth server but may not be in muster's token store",
-	}, nil
+	content, ok := resultMap["content"].([]interface{})
+	if !ok || len(content) == 0 {
+		return "", fmt.Errorf("no content in result")
+	}
+
+	contentItem, ok := content[0].(map[string]interface{})
+	if !ok {
+		return "", fmt.Errorf("invalid content item format")
+	}
+
+	text, ok := contentItem["text"].(string)
+	if !ok {
+		return "", fmt.Errorf("no text field in content")
+	}
+
+	return text, nil
 }
 
 // handleInjectToken directly injects an access token for a server.

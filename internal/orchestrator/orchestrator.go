@@ -241,12 +241,6 @@ func (o *Orchestrator) registerMCPServerFromDefinition(name string) (services.Se
 // definition so that registrations after a configuration update and restart
 // carry the updated URL, tool prefix, family, and auth settings.
 func (o *Orchestrator) handleAuthRequiredServer(definition *api.MCPServer, authErr *mcpserverPkg.AuthRequiredError) {
-	aggregator := api.GetAggregator()
-	if aggregator == nil {
-		logging.Error("Orchestrator", nil, "Aggregator not available to register pending auth server: %s", definition.Name)
-		return
-	}
-
 	// The service layer already declines to report auth-required for an auth
 	// type with no login flow, so this hook should never see one. Refuse it
 	// anyway: registering here sets ServerInfo.AuthConfig, which flips
@@ -268,7 +262,7 @@ func (o *Orchestrator) handleAuthRequiredServer(definition *api.MCPServer, authE
 		Resource:            authErr.AuthInfo.Resource,
 	}
 
-	if err := aggregator.RegisterServerPendingAuth(api.PendingAuthRegistration{
+	if err := o.registerPendingAuthWithRetry(api.PendingAuthRegistration{
 		Name:       definition.Name,
 		URL:        definition.URL,
 		ToolPrefix: definition.ToolPrefix,
@@ -285,6 +279,56 @@ func (o *Orchestrator) handleAuthRequiredServer(definition *api.MCPServer, authE
 		logging.Info("Orchestrator", "Registered MCPServer %s in pending auth state (SSO token forwarding enabled)", definition.Name)
 	} else {
 		logging.Info("Orchestrator", "Registered MCPServer %s in pending auth state with synthetic auth tool", definition.Name)
+	}
+}
+
+// pendingAuthRegistrationInterval and pendingAuthRegistrationTimeout bound the
+// wait in registerPendingAuthWithRetry for the aggregator to come up.
+const (
+	pendingAuthRegistrationInterval = 100 * time.Millisecond
+	pendingAuthRegistrationTimeout  = 30 * time.Second
+)
+
+// registerPendingAuthWithRetry registers a pending-auth server with the
+// aggregator, waiting for the aggregator to become available first.
+//
+// Orchestrator.Start launches static services (including the aggregator) and
+// MCPServer services as concurrent fire-and-forget goroutines, so a fast 401
+// probe can reach the auth-required hook before the aggregator manager exists.
+// Dropping the registration in that window stranded the server: its service
+// state still became Auth Required (so instance-readiness checks passed), but
+// core_auth_login answered "Server not found" for the life of the process
+// (issue #1110).
+//
+// Waiting here is safe and correct: the hook runs synchronously in the
+// MCPServer service's own start goroutine, before UpdateState(StateAuthRequired),
+// so the server only reports Auth Required once core_auth_login can actually
+// find it. The wait is bounded; if the aggregator still isn't up after the
+// timeout the caller logs the error and the aggregator manager's periodic
+// reconciliation heals the missing registration once it starts.
+func (o *Orchestrator) registerPendingAuthWithRetry(registration api.PendingAuthRegistration) error {
+	var lastErr error
+
+	deadline := time.NewTimer(pendingAuthRegistrationTimeout)
+	defer deadline.Stop()
+	ticker := time.NewTicker(pendingAuthRegistrationInterval)
+	defer ticker.Stop()
+
+	for {
+		if aggregator := api.GetAggregator(); aggregator == nil {
+			lastErr = fmt.Errorf("aggregator not available")
+		} else if lastErr = aggregator.RegisterServerPendingAuth(registration); lastErr == nil {
+			return nil
+		}
+
+		select {
+		case <-o.ctx.Done():
+			return fmt.Errorf("orchestrator shutting down while waiting to register pending auth server %s: %w", registration.Name, lastErr)
+		case <-deadline.C:
+			return fmt.Errorf("timed out after %s waiting for the aggregator to accept the pending auth registration for %s: %w",
+				pendingAuthRegistrationTimeout, registration.Name, lastErr)
+		case <-ticker.C:
+		}
 	}
 }
 

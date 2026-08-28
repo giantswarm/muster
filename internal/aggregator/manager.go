@@ -648,6 +648,27 @@ func (am *AggregatorManager) attemptPendingRegistrations(ctx context.Context) {
 	mcpServices := am.serviceRegistry.GetByType(api.TypeMCPServer)
 
 	for _, service := range mcpServices {
+		// A service in auth-required state must have a pending-auth registry
+		// entry, or core_auth_login answers "Server not found". The entry is
+		// normally created by the orchestrator's auth-required hook, but that
+		// registration can be lost — e.g. the hook fired before this manager
+		// existed (startup race, issue #1110). Heal the missing entry from the
+		// service's own definition; AuthInfo is left empty and is re-discovered
+		// on the next core_auth_login via the RFC 9728 probe.
+		if service.GetState() == api.StateAuthRequired {
+			if am.aggregatorServer != nil {
+				if _, exists := am.aggregatorServer.GetRegistry().GetServerInfo(service.GetName()); exists {
+					continue // Already registered
+				}
+			}
+			if err := am.registerPendingAuthFromService(service); err != nil {
+				logging.Debug("Aggregator-Manager", "Pending-auth heal failed for %s: %v", service.GetName(), err)
+			} else {
+				logging.Info("Aggregator-Manager", "Healed missing pending-auth registration for %s", service.GetName())
+			}
+			continue
+		}
+
 		// Only try services that are running/connected and healthy
 		if !api.IsActiveState(service.GetState()) || service.GetHealth() != api.HealthHealthy {
 			continue
@@ -667,4 +688,38 @@ func (am *AggregatorManager) attemptPendingRegistrations(ctx context.Context) {
 			logging.Info("Aggregator-Manager", "Successfully registered %s on retry", service.GetName())
 		}
 	}
+}
+
+// registerPendingAuthFromService rebuilds a pending-auth registration from a
+// service's own definition data (the same fields the orchestrator's
+// auth-required hook registers, minus the 401-time AuthInfo, which
+// core_auth_login re-discovers via the RFC 9728 probe when it is empty).
+func (am *AggregatorManager) registerPendingAuthFromService(service api.ServiceInfo) error {
+	serviceData := service.GetServiceData()
+	if serviceData == nil {
+		return fmt.Errorf("no service data available for %s", service.GetName())
+	}
+
+	url, _ := serviceData["url"].(string)
+	toolPrefix, _ := serviceData["toolPrefix"].(string)
+	family, _ := serviceData["family"].(*api.MCPServerFamily)
+	meta, _ := serviceData["meta"].(map[string]string)
+	authConfig, _ := serviceData["auth"].(*api.MCPServerAuth)
+
+	// Mirror the orchestrator hook's guard: an auth type with no login flow
+	// must not be registered for interactive authentication.
+	if !authConfig.CanAuthenticateInteractively() {
+		return fmt.Errorf("auth type of %s has no interactive login flow", service.GetName())
+	}
+
+	return am.RegisterServerPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{
+			Name:       service.GetName(),
+			ToolPrefix: toolPrefix,
+			Family:     family,
+		},
+		URL:        url,
+		AuthConfig: authConfig,
+		Meta:       meta,
+	})
 }
