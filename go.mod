@@ -152,3 +152,10 @@ require (
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.3 // indirect
 )
+
+// golang.org/x/tools (latest) still requires goldmark v1.4.13, which OSS Index
+// flags with CVE-2026-5160 (XSS in renderer/html, fixed in v1.7.17). No package
+// in this build imports goldmark, so a require would be dropped by go mod tidy;
+// the replace pins the module graph to a fixed version for the nancy scan.
+// Drop once x/tools requires goldmark >= v1.7.17.
+replace github.com/yuin/goldmark => github.com/yuin/goldmark v1.8.5
