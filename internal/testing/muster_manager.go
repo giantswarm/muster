@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -855,6 +856,12 @@ func (m *musterInstanceManager) processExitedError(instance *MusterInstance, man
 	if m.debug {
 		m.showLogs(instance, logger)
 	}
+	if managedProc.waitErr == nil {
+		// cmd.Wait returned nil: the process exited with code 0 before the
+		// instance became ready. %w on a nil error would render "%!w(<nil>)".
+		return fmt.Errorf("muster instance process exited (code 0) before becoming ready%s",
+			capturedLogTail(managedProc))
+	}
 	return fmt.Errorf("muster instance process exited before becoming ready: %w%s",
 		managedProc.waitErr, capturedLogTail(managedProc))
 }
@@ -1060,7 +1067,23 @@ func (m *musterInstanceManager) startMusterProcess(ctx context.Context, configPa
 	// unscraped exporter costs one idle listener. This is what makes exported
 	// metrics assertable end to end, through the real OTel pipeline, rather
 	// than only in Go unit tests.
-	cmd.Env = append(os.Environ(),
+	// GOMAXPROCS=2: a test instance is a small, mostly-idle server, and on
+	// CircleCI's docker executor (CPU allocated via cgroup shares, no quota)
+	// the Go runtime cannot right-size itself — every instance would size for
+	// the HOST's cores (30+) while the job gets ~4 vCPUs of shares. Fifty such
+	// oversized runtimes thrash the scheduler; under a starved CPU this alone
+	// crashes instances mid-boot (giantswarm/muster#1101). Deterministically
+	// lean children remove the dependence on the container's broken CPU count.
+	// MUSTER_TEST_INSTANCE_GOMAXPROCS overrides for experiments.
+	childGOMAXPROCS := os.Getenv("MUSTER_TEST_INSTANCE_GOMAXPROCS")
+	if childGOMAXPROCS == "" {
+		childGOMAXPROCS = "2"
+	}
+	env := slices.DeleteFunc(os.Environ(), func(e string) bool {
+		return strings.HasPrefix(e, "GOMAXPROCS=")
+	})
+	cmd.Env = append(env,
+		"GOMAXPROCS="+childGOMAXPROCS,
 		"MUSTER_MCPSERVER_INITIAL_BACKOFF=1s",
 		"MUSTER_ORCHESTRATOR_RETRY_INTERVAL=1s",
 		"OTEL_METRICS_EXPORTER=prometheus",

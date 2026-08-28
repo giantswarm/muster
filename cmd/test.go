@@ -24,17 +24,18 @@ var (
 	testTimeout          time.Duration
 	testReadinessTimeout time.Duration
 
-	testVerbose    bool
-	testDebug      bool
-	testCategory   string
-	testConcept    string
-	testScenario   string
-	testConfigPath string
-	testReportPath string
-	testFailFast   bool
-	testParallel   int
-	testMCPServer  bool
-	testBasePort   int
+	testVerbose         bool
+	testDebug           bool
+	testCategory        string
+	testConcept         string
+	testScenario        string
+	testConfigPath      string
+	testReportPath      string
+	testFailFast        bool
+	testParallel        int
+	testStartupParallel int
+	testMCPServer       bool
+	testBasePort        int
 	// New flags for mock MCP server
 	testMockMCPServer bool
 	testConfigName    string
@@ -185,6 +186,7 @@ func init() {
 	// Test execution control
 	testCmd.Flags().BoolVar(&testFailFast, "fail-fast", false, "Stop test execution on first failure")
 	testCmd.Flags().IntVar(&testParallel, "parallel", 1, "Number of parallel test workers (1-20)")
+	testCmd.Flags().IntVar(&testStartupParallel, "startup-parallel", 0, "Max scenarios in their instance-startup phase at once (0 = default of 8, negative = unlimited); bounds the t=0 cold-start herd on small CI machines without limiting steady-state parallelism")
 
 	// MCP Server mode
 	testCmd.Flags().BoolVar(&testMCPServer, "mcp-server", false, "Run as MCP server (stdio transport)")
@@ -343,15 +345,16 @@ func runTest(cmd *cobra.Command, args []string) error {
 
 	// Create test configuration
 	testConfig := testing.TestConfiguration{
-		Timeout:        testTimeout,
-		Parallel:       testParallel,
-		FailFast:       testFailFast,
-		Verbose:        testVerbose,
-		Debug:          testDebug,
-		ConfigPath:     testConfigPath,
-		ReportPath:     testReportPath,
-		BasePort:       testBasePort,
-		KeepTempConfig: testKeepTempConfig,
+		Timeout:         testTimeout,
+		Parallel:        testParallel,
+		StartupParallel: testStartupParallel,
+		FailFast:        testFailFast,
+		Verbose:         testVerbose,
+		Debug:           testDebug,
+		ConfigPath:      testConfigPath,
+		ReportPath:      testReportPath,
+		BasePort:        testBasePort,
+		KeepTempConfig:  testKeepTempConfig,
 	}
 
 	// Parse category filter

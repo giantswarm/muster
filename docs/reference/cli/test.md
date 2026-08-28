@@ -53,7 +53,10 @@ Component interaction and end-to-end validation:
   - Each test instance uses sequential ports
 - `--readiness-timeout` (duration): Per-instance deadline for expected resources (tools, workflows, MCP servers) to become available after startup
   - Default: `15s`
-  - Raise on slow or contended machines (CI uses `60s`); a healthy instance is never slowed down, the deadline only bounds the wait
+  - A healthy instance is never slowed down, the deadline only bounds the wait
+- `--startup-parallel` (int): Maximum scenarios in their instance-startup phase at once
+  - Default: `0` (selects the built-in default of 8); negative disables the bound
+  - Bounds the t=0 cold-start herd that starves small CI machines; steady-state scenario parallelism is not affected
 
 ### Output and Debugging
 - `--verbose`: Enable detailed test output

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -44,7 +45,11 @@ func (r *testReporter) SetParallelMode(parallel bool) {
 // ReportStart is called when test execution begins
 func (r *testReporter) ReportStart(config TestConfiguration) {
 	fmt.Printf("🧪 Starting muster Test Framework\n")
-	fmt.Printf("🏗️  Using managed muster instances (base port: %d)\n", config.BasePort)
+	// GOMAXPROCS vs NumCPU tells apart a right-sized runtime from a container
+	// that reports the host's cores (the mechanism behind #1101 CI flakes) —
+	// worth one line in every CI log.
+	fmt.Printf("🏗️  Using managed muster instances (base port: %d, GOMAXPROCS: %d, NumCPU: %d)\n",
+		config.BasePort, runtime.GOMAXPROCS(0), runtime.NumCPU())
 
 	if r.verbose {
 		fmt.Printf("\n⚙️  Configuration:\n")
