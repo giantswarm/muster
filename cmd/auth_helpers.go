@@ -42,25 +42,32 @@ func ensureAuthHandler() (api.AuthHandler, error) {
 
 // ensureAuthHandlerWithOptions ensures an auth handler with options is registered and returns it.
 func ensureAuthHandlerWithOptions(opts AuthHandlerOptions) (api.AuthHandler, error) {
-	handler := api.GetAuthHandler()
-	if handler != nil {
-		// If handler already exists, try to update its silent refresh setting
-		if adapter, ok := handler.(*cli.AuthAdapter); ok {
-			adapter.SetNoSilentRefresh(opts.NoSilentRefresh)
+	// Get-or-create in one atomic step. Doing this as GetAuthHandler, then
+	// construct, then Register, then GetAuthHandler again leaves the composite
+	// operation racy even though each call is individually synchronized:
+	// concurrent callers would each build and publish their own adapter,
+	// orphaning the losers without Close().
+	handler, err := api.GetOrRegisterAuthHandler(func() (api.AuthHandler, error) {
+		adapter, err := cli.NewAuthAdapterWithConfig(cli.AuthAdapterConfig{
+			NoSilentRefresh: opts.NoSilentRefresh,
+		})
+		if err != nil {
+			return nil, err
 		}
-		return handler, nil
-	}
-
-	// Create and register the auth adapter with options
-	adapter, err := cli.NewAuthAdapterWithConfig(cli.AuthAdapterConfig{
-		NoSilentRefresh: opts.NoSilentRefresh,
+		return adapter, nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize authentication: %w", err)
 	}
-	adapter.Register()
 
-	return api.GetAuthHandler(), nil
+	// Apply this caller's option to whichever adapter is now registered, whether
+	// we built it or found it. Returning without this would silently discard the
+	// caller's setting when another caller had already registered an adapter.
+	if adapter, ok := handler.(*cli.AuthAdapter); ok {
+		adapter.SetNoSilentRefresh(opts.NoSilentRefresh)
+	}
+
+	return handler, nil
 }
 
 // getEndpointFromConfig returns the aggregator endpoint using context or config.

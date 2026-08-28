@@ -213,19 +213,22 @@ func setupAgentAuthentication(ctx context.Context, client *agent.Client, logger 
 		return nil
 	}
 
-	handler := api.GetAuthHandler()
-	if handler == nil {
+	// Get-or-create in one atomic step. Spelling this as GetAuthHandler, then
+	// construct, then Register, then GetAuthHandler again leaves the composite
+	// operation racy even though each call is individually synchronized.
+	handler, err := api.GetOrRegisterAuthHandler(func() (api.AuthHandler, error) {
 		adapter, err := cli.NewAuthAdapterWithConfig(cli.AuthAdapterConfig{
 			NoSilentRefresh: !agentSilentAuth,
 		})
 		if err != nil {
-			logger.Info("Warning: Could not initialize auth adapter: %v", err)
-			return nil
+			return nil, err
 		}
-		adapter.Register()
-		handler = api.GetAuthHandler()
+		return adapter, nil
+	})
+	if err != nil {
+		logger.Info("Warning: Could not initialize auth adapter: %v", err)
+		return nil
 	}
-
 	if handler == nil {
 		return nil
 	}
