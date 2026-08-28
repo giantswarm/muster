@@ -24,18 +24,18 @@ var (
 	testTimeout          time.Duration
 	testReadinessTimeout time.Duration
 
-	testVerbose    bool
-	testDebug      bool
-	testCategory   string
-	testConcept    string
-	testScenario   string
-	testConfigPath string
-	testReportPath string
+	testVerbose         bool
+	testDebug           bool
+	testCategory        string
+	testConcept         string
+	testScenario        string
+	testConfigPath      string
+	testReportPath      string
 	testFailFast        bool
 	testParallel        int
 	testStartupParallel int
-	testMCPServer  bool
-	testBasePort   int
+	testMCPServer       bool
+	testBasePort        int
 	// New flags for mock MCP server
 	testMockMCPServer bool
 	testConfigName    string
