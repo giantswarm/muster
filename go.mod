@@ -132,10 +132,12 @@ require (
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/crypto v0.55.0 // indirect
+	golang.org/x/mod v0.40.0 // indirect
 	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
+	golang.org/x/tools v0.49.0 // indirect
 	gomodules.xyz/jsonpatch/v2 v2.4.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260803160001-6ac0973c030d // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260803160001-6ac0973c030d // indirect
@@ -150,3 +152,10 @@ require (
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.3 // indirect
 )
+
+// golang.org/x/tools (latest) still requires goldmark v1.4.13, which OSS Index
+// flags with CVE-2026-5160 (XSS in renderer/html, fixed in v1.7.17). No package
+// in this build imports goldmark, so a require would be dropped by go mod tidy;
+// the replace pins the module graph to a fixed version for the nancy scan.
+// Drop once x/tools requires goldmark >= v1.7.17.
+replace github.com/yuin/goldmark => github.com/yuin/goldmark v1.8.5
