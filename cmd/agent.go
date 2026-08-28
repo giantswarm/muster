@@ -19,10 +19,16 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const (
-	// DefaultOAuthCallbackPort is the port used for OAuth callback during authentication.
-	DefaultOAuthCallbackPort = 3000
-)
+// agentCallbackPort returns the OAuth callback port for the agent's auth flows.
+//
+// It delegates to cli.GetCallbackPort so the agent honors MUSTER_OAUTH_CALLBACK_PORT
+// exactly as `muster auth login` does. This previously hardcoded its own constant,
+// so with port 3000 occupied, setting the env var fixed `muster auth login` while
+// `muster agent --mcp-server` still bound 3000 -- and the port-in-use message
+// interpolated the env-derived port, naming a port the failing code never used.
+func agentCallbackPort() int {
+	return cli.GetCallbackPort()
+}
 
 var (
 	agentEndpoint       string
@@ -291,7 +297,7 @@ func runMCPServerWithOAuth(ctx context.Context, client *agent.Client, logger *ag
 
 	// First, check if the server requires authentication
 	authManager, err := oauth.NewAuthManager(oauth.AuthManagerConfig{
-		CallbackPort: DefaultOAuthCallbackPort,
+		CallbackPort: agentCallbackPort(),
 		FileMode:     true, // Persist tokens to filesystem
 	})
 	if err != nil {

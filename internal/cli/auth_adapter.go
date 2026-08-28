@@ -134,7 +134,7 @@ func (a *AuthAdapter) getOrCreateManager(endpoint string) (*oauth.AuthManager, e
 	}
 
 	mgr, err := oauth.NewAuthManager(oauth.AuthManagerConfig{
-		CallbackPort:    getCallbackPort(),
+		CallbackPort:    GetCallbackPort(),
 		TokenStorageDir: a.tokenStorageDir,
 		FileMode:        true,
 	})
@@ -146,8 +146,13 @@ func (a *AuthAdapter) getOrCreateManager(endpoint string) (*oauth.AuthManager, e
 	return mgr, nil
 }
 
-// getCallbackPort returns the OAuth callback port from environment or default.
-func getCallbackPort() int {
+// GetCallbackPort returns the OAuth callback port from environment or default.
+//
+// Exported so every OAuth entry point resolves the port the same way. The agent
+// MCP-server path previously hardcoded its own constant and silently ignored
+// MUSTER_OAUTH_CALLBACK_PORT, so `muster auth login` and `muster agent
+// --mcp-server` could disagree about which port to bind.
+func GetCallbackPort() int {
 	if portStr := os.Getenv(CallbackPortEnvVar); portStr != "" {
 		if port, err := strconv.Atoi(portStr); err == nil && port > 0 && port < 65536 {
 			return port
@@ -329,7 +334,7 @@ func (a *AuthAdapter) interactiveLogin(ctx context.Context, mgr *oauth.AuthManag
 	if err != nil {
 		// Check for port-in-use errors and provide helpful guidance
 		if isPortInUseError(err) {
-			port := getCallbackPort()
+			port := GetCallbackPort()
 			return &AuthFailedError{
 				Endpoint: endpoint,
 				Reason:   fmt.Errorf("callback port %d is already in use. Please free the port and try again", port),
