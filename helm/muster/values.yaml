@@ -728,6 +728,38 @@ muster:
           # to the right Prometheus instance (ruleSelector).
           labels: {}  # @schema additionalProperties: true
 
+    # Grafana dashboard ("Muster / MCP Gateway": MCP server fleet state,
+    # per-server/per-tool usage and latency, workflow executions) shipped
+    # as a ConfigMap rendered from dashboards/muster.json. Discovery is
+    # deployment-specific: the upstream Grafana sidecar needs its marker
+    # label added via labels below (e.g. grafana_dashboard: "1"); Giant
+    # Swarm's observability stack picks the ConfigMap up via
+    # giantswarm.enabled. Like prometheusRule, this is gated separately
+    # from the prometheus exporter: the dashboard only needs the metrics
+    # to reach the Grafana datasource, whether by local scrape or OTLP
+    # remote-write.
+    grafanaDashboard:
+      enabled: false
+      # Namespace for the ConfigMap. Empty renders into the release
+      # namespace.
+      namespace: ""
+      # Value of the grafana_folder annotation (upstream sidecar
+      # convention for folder placement).
+      folder: "muster"
+      # Giant Swarm observability platform discovery: adds the
+      # app.giantswarm.io/kind: dashboard label and the
+      # observability.giantswarm.io/organization annotation.
+      giantswarm:
+        enabled: false
+        # Grafana organization display name the dashboard is loaded
+        # into. Must match an existing organization's display name.
+        organization: "Giant Swarm"
+      # Extra labels applied to the ConfigMap, e.g. grafana_dashboard: "1"
+      # for the upstream Grafana sidecar.
+      labels: {}  # @schema additionalProperties: true
+      # Extra annotations applied to the ConfigMap.
+      annotations: {}  # @schema additionalProperties: true
+
 # CRD ownership. The muster application chart ships the MCPServer and Workflow
 # CustomResourceDefinitions in the Helm 3 `crds/` directory (helm/muster/crds/),
 # with `helm.sh/resource-policy: keep` baked in. Helm installs them automatically

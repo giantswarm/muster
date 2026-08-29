@@ -1,0 +1,134 @@
+name: "downstream-tool-call-metrics"
+description: "Dispatched tool calls are exported per backend server and resolved tool name as Prometheus metrics"
+category: "behavioral"
+concept: "aggregator"
+tags: ["aggregator", "observability", "metrics", "tools"]
+timeout: "3m"
+
+# Test Story: MCP usage has to be attributable to real tools and servers
+#
+# Given: a backend MCP server with one healthy and one erroring tool
+# When:  the tools are called through the aggregator (the test client wraps
+#        every call in the call_tool meta-tool, exactly like agent sessions do)
+# Then:  muster_downstream_tool_calls_total exports one series per
+#        (server, tool, outcome) carrying the RESOLVED tool name — not
+#        tool="call_tool" — plus a duration histogram with the same labels
+#
+# The aggregator-boundary metric (muster_tool_calls_total) only ever sees the
+# meta-tool an agent invoked, so before this metric existed per-tool and
+# per-server usage was invisible: dashboards showed 90% "call_tool". The
+# assertions run against the process's real Prometheus endpoint
+# (test_scrape_metrics) because the exported names and labels are the
+# contract the Grafana dashboard in helm/muster/dashboards/muster.json and
+# the Backstage MCP-usage tab select on — the OTel Prometheus exporter
+# rewrites muster.downstream_tool_calls to muster_downstream_tool_calls_total
+# and mcpserver.name to mcpserver_name, and only a scrape proves it.
+
+pre_configuration:
+  mcp_servers:
+    - name: "usage-metrics-server"
+      config:
+        type: "streamable-http"
+        tools:
+          - name: "usage_probe_tool"
+            input_schema:
+              type: "object"
+              properties:
+                message: { type: "string" }
+            responses:
+              - response:
+                  message: "alive: {{ .message }}"
+          - name: "usage_boom_tool"
+            input_schema:
+              type: "object"
+              properties: {}
+            responses:
+              - error: "intentional failure for outcome labeling"
+
+steps:
+  - id: "verify-server-connected"
+    description: "Baseline: the pre-configured server reaches Connected"
+    tool: "core_service_status"
+    args:
+      name: "usage-metrics-server"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "usage-metrics-server"
+        state: "connected"
+
+  - id: "call-probe-tool"
+    description: "Call the healthy tool through the aggregator (meta-wrapped via call_tool)"
+    tool: "x_usage-metrics-server_usage_probe_tool"
+    args:
+      message: "usage-attribution"
+    expected:
+      success: true
+      contains: ["alive", "usage-attribution"]
+
+  - id: "call-boom-tool"
+    description: "Call the erroring tool so a non-ok outcome series exists"
+    tool: "x_usage-metrics-server_usage_boom_tool"
+    args: {}
+    expected:
+      success: false
+
+  # The resolved-name guarantee. The test client invoked call_tool, yet the
+  # downstream series must carry the x_-prefixed resolved tool name and the
+  # backend server it was dispatched to. line_count pins the full series set:
+  # exactly one series per (tool, outcome) pair and — crucially — no
+  # tool="call_tool" series on this metric.
+  - id: "verify-ok-call-exported"
+    description: "The healthy call is exported with the resolved tool name and server label"
+    tool: "test_scrape_metrics"
+    args:
+      filter: "muster_downstream_tool_calls_total{"
+    expected:
+      success: true
+      wait_for_state: "60s"
+      contains:
+        - 'muster_downstream_tool_calls_total{'
+        - 'mcpserver_name="usage-metrics-server"'
+        - 'tool="x_usage-metrics-server_usage_probe_tool"'
+        - 'outcome="ok"'
+      json_path:
+        line_count: 2
+
+  - id: "verify-error-call-exported"
+    description: "The failed call is exported with a non-ok outcome, same label scheme"
+    tool: "test_scrape_metrics"
+    args:
+      filter: "muster_downstream_tool_calls_total{"
+    expected:
+      success: true
+      wait_for_state: "60s"
+      contains:
+        - 'tool="x_usage-metrics-server_usage_boom_tool"'
+        - 'outcome="error"'
+
+  - id: "verify-duration-histogram-exported"
+    description: "The dispatch duration histogram is exported with the same labels"
+    tool: "test_scrape_metrics"
+    args:
+      filter: "muster_downstream_tool_call_duration_seconds_bucket"
+    expected:
+      success: true
+      wait_for_state: "60s"
+      contains:
+        - 'muster_downstream_tool_call_duration_seconds_bucket{'
+        - 'mcpserver_name="usage-metrics-server"'
+        - 'tool="x_usage-metrics-server_usage_probe_tool"'
+
+  # The meta-tool layer keeps its own accounting: the aggregator-boundary
+  # metric records what the client actually invoked. Both layers together
+  # give traffic (boundary) and attribution (downstream).
+  - id: "verify-boundary-metric-still-meta"
+    description: "muster_tool_calls_total records the call_tool meta-tool invocation"
+    tool: "test_scrape_metrics"
+    args:
+      filter: "muster_tool_calls_total{"
+    expected:
+      success: true
+      contains:
+        - 'tool="call_tool"'

@@ -107,8 +107,38 @@ The aggregator emits two instruments:
 
 Both instruments are recorded by the meta-tool layer middleware — they
 attribute to the meta-tool name (`call_tool`, `list_tools`, …), not
-the underlying workload tool. Per-real-tool metrics would require a
-second recording site at `CallToolInternal`; not wired today.
+the underlying workload tool.
+
+### Downstream dispatch metrics
+
+The dispatch layer (`CallToolInternal` → `dispatchResolvedTool` and the
+session-capability path) records a second pair of instruments once the
+`(server, tool)` pair is resolved — this is where meta-tool wrapping is
+unwrapped, so a `call_tool` invocation is attributed to the real tool
+and the backend server it went to:
+
+| OTel name                              | Type                  | Attributes                          | Prometheus export name                          |
+|----------------------------------------|-----------------------|-------------------------------------|--------------------------------------------------|
+| `muster.downstream_tool_calls`         | `Int64Counter`        | `mcpserver.name`, `tool`, `outcome` | `muster_downstream_tool_calls_total`             |
+| `muster.downstream_tool_call.duration` | `Float64Histogram`/s  | `mcpserver.name`, `tool`, `outcome` | `muster_downstream_tool_call_duration_seconds`   |
+
+`tool` carries the aggregator-exposed name (`x_<server>_<tool>` or the
+family name) so the label matches what `list_tools` shows. The server
+attribute is `mcpserver.name` — the same key the reconciler's
+`muster_mcpserver_state` uses, so fleet state and usage join on
+`mcpserver_name`. Core tools (`core_*`, `workflow_*`) are handled
+internally, never dispatched, and therefore only appear in the
+boundary metrics above.
+
+### Grafana dashboard
+
+The chart ships a ready-made dashboard built on these metrics
+(`helm/muster/dashboards/muster.json`, uid `muster`): MCP server fleet
+state, per-server/per-tool usage and latency, aggregator boundary
+traffic, and workflow executions. Enable it with
+`muster.observability.grafanaDashboard.enabled: true`; on Giant Swarm
+clusters additionally set `grafanaDashboard.giantswarm.enabled: true`
+to have the observability platform pick it up.
 
 ### Workflow execution metrics
 
@@ -157,6 +187,13 @@ The line carries the final post-handler outcome the client sees.
 
 ```
 sum by (tool, outcome) (rate(muster_tool_calls_total[5m]))
+```
+
+### Mimir — usage per backend server and real tool
+
+```
+sum by (mcpserver_name) (rate(muster_downstream_tool_calls_total[5m]))
+topk(10, sum by (tool) (increase(muster_downstream_tool_calls_total[24h])))
 ```
 
 ### Mimir — p95 tool latency

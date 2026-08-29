@@ -430,6 +430,41 @@
                     "type": "object",
                     "additionalProperties": false,
                     "properties": {
+                        "grafanaDashboard": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                "annotations": {
+                                    "type": "object",
+                                    "additionalProperties": true
+                                },
+                                "enabled": {
+                                    "type": "boolean"
+                                },
+                                "folder": {
+                                    "type": "string"
+                                },
+                                "giantswarm": {
+                                    "type": "object",
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "enabled": {
+                                            "type": "boolean"
+                                        },
+                                        "organization": {
+                                            "type": "string"
+                                        }
+                                    }
+                                },
+                                "labels": {
+                                    "type": "object",
+                                    "additionalProperties": true
+                                },
+                                "namespace": {
+                                    "type": "string"
+                                }
+                            }
+                        },
                         "metrics": {
                             "type": "object",
                             "additionalProperties": false,

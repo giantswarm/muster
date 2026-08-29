@@ -114,6 +114,10 @@ type AggregatorServer struct {
 	authRateLimiter *AuthRateLimiter // Per-user rate limiting for auth operations
 	authMetrics     *AuthMetrics     // Authentication metrics for monitoring
 
+	// Per-backend tool dispatch metrics. May be nil when instrument
+	// creation failed; record() is nil-safe.
+	downstreamMetrics *downstreamMetrics
+
 	// Per-session auth store tracks which sessions have authenticated to which servers.
 	// Separated from capabilityStore so that clearing stale capabilities does not
 	// accidentally revoke authentication (see capability freshness plan).
@@ -540,6 +544,8 @@ func NewAggregatorServer(aggConfig AggregatorConfig, errorCallback func(error)) 
 		errorCallback:   errorCallback,
 		authRateLimiter: rateLimiter,
 		authMetrics:     NewAuthMetrics(),
+
+		downstreamMetrics: newDownstreamMetrics(),
 		authStore:       stores.authStore,
 		capabilityStore: stores.capabilityStore,
 		connPool:        NewSessionConnectionPool(DefaultConnectionPoolMaxAge),
@@ -1846,7 +1852,10 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 		if sessionErr == nil {
 			logging.DebugWithAttrs("Aggregator", "Tool found in capability cache",
 				slog.String("tool", toolName), slog.String("server", sessionServerName))
-			return a.callToolWithTokenExchangeRetry(ctx, sessionServerName, originalName, args, sessionID, sub)
+			start := time.Now()
+			res, err := a.callToolWithTokenExchangeRetry(ctx, sessionServerName, originalName, args, sessionID, sub)
+			a.downstreamMetrics.record(ctx, sessionServerName, toolName, start, res, err)
+			return res, err
 		}
 	}
 
@@ -1872,7 +1881,9 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 // for solo tools or via ResolveToolNameForServer for family-grouped tools).
 // It encapsulates the global-client vs. session-scoped vs. token-exchange
 // branching that previously lived inline in CallToolInternal.
-func (a *AggregatorServer) dispatchResolvedTool(ctx context.Context, toolName, serverName, originalName string, args map[string]any, sessionID, sub string) (*mcp.CallToolResult, error) {
+func (a *AggregatorServer) dispatchResolvedTool(ctx context.Context, toolName, serverName, originalName string, args map[string]any, sessionID, sub string) (res *mcp.CallToolResult, err error) {
+	start := time.Now()
+	defer func() { a.downstreamMetrics.record(ctx, serverName, toolName, start, res, err) }()
 	serverInfo, exists := a.registry.GetServerInfo(serverName)
 	if !exists || serverInfo == nil {
 		return nil, fmt.Errorf("server not found: %s", serverName)
