@@ -29,6 +29,8 @@ tests:
           path: metadata.labels["app.giantswarm.io/kind"]
       - notExists:
           path: metadata.annotations["observability.giantswarm.io/organization"]
+      - notExists:
+          path: metadata.annotations["observability.giantswarm.io/folder"]
 
   - it: renders into the release namespace by default and honors the namespace override
     set:
@@ -39,7 +41,7 @@ tests:
           path: metadata.namespace
           value: monitoring
 
-  - it: adds Giant Swarm discovery label and organization annotation when giantswarm.enabled
+  - it: adds Giant Swarm discovery label, organization and folder annotations when giantswarm.enabled
     set:
       muster.observability.grafanaDashboard.enabled: true
       muster.observability.grafanaDashboard.giantswarm.enabled: true
@@ -50,6 +52,9 @@ tests:
       - equal:
           path: metadata.annotations["observability.giantswarm.io/organization"]
           value: Giant Swarm
+      - equal:
+          path: metadata.annotations["observability.giantswarm.io/folder"]
+          value: muster
 
   - it: propagates extra labels and annotations
     set:
