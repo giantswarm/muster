@@ -2,8 +2,10 @@ package aggregator
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -801,4 +803,159 @@ func TestServerRegistry_ResolveResourceName(t *testing.T) {
 		assert.Equal(t, []string{"boardsA", "boardsB"}, registry.GetResourceServerNames("board://schema"))
 		assert.Nil(t, registry.GetResourceServerNames("board://missing"))
 	})
+}
+
+// wedgedMCPClient simulates a downstream transport that accepts capability
+// requests but never answers them — the SSE failure mode behind #1113, where
+// a tools/list request is accepted but its response event is never delivered.
+// A ListTools call blocks until the request context is cancelled or the
+// client is closed.
+type wedgedMCPClient struct {
+	mockMCPClient
+	listToolsCalled chan struct{} // closed when ListTools is first entered
+	calledOnce      sync.Once
+	closed          chan struct{} // closed by Close, aborting in-flight calls
+	closeOnce       sync.Once
+}
+
+func newWedgedMCPClient() *wedgedMCPClient {
+	return &wedgedMCPClient{
+		listToolsCalled: make(chan struct{}),
+		closed:          make(chan struct{}),
+	}
+}
+
+func (w *wedgedMCPClient) ListTools(ctx context.Context) ([]mcp.Tool, error) {
+	w.calledOnce.Do(func() { close(w.listToolsCalled) })
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-w.closed:
+		return nil, errors.New("client closed")
+	}
+}
+
+func (w *wedgedMCPClient) Close() error {
+	w.closeOnce.Do(func() { close(w.closed) })
+	return nil
+}
+
+// TestServerRegistry_ReadersNotBlockedByWedgedRegistration is the regression
+// test for #1113: Register used to hold the registry write lock across the
+// downstream capability queries, so one wedged downstream blocked every
+// registry reader — including the list_tools meta-tool, which hung the whole
+// aggregator for as long as the downstream stayed silent.
+func TestServerRegistry_ReadersNotBlockedByWedgedRegistration(t *testing.T) {
+	registry := NewServerRegistry("x")
+
+	healthy := &mockMCPClient{tools: []mcp.Tool{{Name: "ping"}}}
+	require.NoError(t, registry.Register(context.Background(),
+		ServerRegistration{Name: "healthy", ToolPrefix: "healthy"}, healthy))
+
+	wedged := newWedgedMCPClient()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	registerDone := make(chan error, 1)
+	go func() {
+		registerDone <- registry.Register(ctx,
+			ServerRegistration{Name: "wedged", ToolPrefix: "wedged"}, wedged)
+	}()
+
+	select {
+	case <-wedged.listToolsCalled:
+	case <-time.After(10 * time.Second):
+		t.Fatal("registration never reached the capability fetch")
+	}
+
+	// list_tools serves from this read path; it must answer while the fetch
+	// against the wedged downstream is still in flight.
+	got := make(chan []mcp.Tool, 1)
+	go func() { got <- registry.GetAllTools() }()
+
+	select {
+	case tools := <-got:
+		names := make([]string, 0, len(tools))
+		for _, tool := range tools {
+			names = append(names, tool.Name)
+		}
+		require.Contains(t, names, "x_healthy_ping")
+	case <-time.After(10 * time.Second):
+		t.Fatal("GetAllTools blocked behind a wedged capability fetch (#1113 regression)")
+	}
+
+	// Unblock the fetch and make sure the registration completes: the server
+	// stays registered with an empty capability set rather than failing.
+	cancel()
+	select {
+	case err := <-registerDone:
+		require.NoError(t, err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("registration did not finish after the fetch was cancelled")
+	}
+
+	info, exists := registry.GetServerInfo("wedged")
+	require.True(t, exists)
+	info.mu.RLock()
+	defer info.mu.RUnlock()
+	require.Empty(t, info.Tools)
+}
+
+// TestServerRegistry_RegisterBoundedOnWedgedDownstream verifies that the
+// initial capability fetch is bounded: a downstream that never answers must
+// not pin the registration goroutine forever. The server is registered with
+// an empty capability set once the bounded attempts are exhausted.
+func TestServerRegistry_RegisterBoundedOnWedgedDownstream(t *testing.T) {
+	oldTimeout, oldAttempts := registerCapabilityAttemptTimeout, registerCapabilityAttempts
+	registerCapabilityAttemptTimeout = 25 * time.Millisecond
+	registerCapabilityAttempts = 2
+	t.Cleanup(func() {
+		registerCapabilityAttemptTimeout, registerCapabilityAttempts = oldTimeout, oldAttempts
+	})
+
+	registry := NewServerRegistry("x")
+	wedged := newWedgedMCPClient()
+
+	require.NoError(t, registry.Register(context.Background(),
+		ServerRegistration{Name: "wedged", ToolPrefix: "wedged"}, wedged))
+
+	info, exists := registry.GetServerInfo("wedged")
+	require.True(t, exists)
+	info.mu.RLock()
+	defer info.mu.RUnlock()
+	require.Empty(t, info.Tools)
+}
+
+// TestServerRegistry_DeregisterDuringCapabilityFetch verifies that a server
+// going unhealthy while its registration is still fetching capabilities is
+// deregistered cleanly: the eviction closes the client (aborting the fetch),
+// the in-flight registration reports failure, and the entry is not
+// resurrected — so a later re-registration is not blocked by a stale entry.
+func TestServerRegistry_DeregisterDuringCapabilityFetch(t *testing.T) {
+	registry := NewServerRegistry("x")
+	wedged := newWedgedMCPClient()
+
+	registerDone := make(chan error, 1)
+	go func() {
+		registerDone <- registry.Register(context.Background(),
+			ServerRegistration{Name: "flapper", ToolPrefix: "flapper"}, wedged)
+	}()
+
+	select {
+	case <-wedged.listToolsCalled:
+	case <-time.After(10 * time.Second):
+		t.Fatal("registration never reached the capability fetch")
+	}
+
+	require.NoError(t, registry.Deregister("flapper"))
+
+	select {
+	case err := <-registerDone:
+		require.ErrorContains(t, err, "deregistered")
+	case <-time.After(10 * time.Second):
+		t.Fatal("registration did not finish after the client was closed")
+	}
+
+	_, exists := registry.GetServerInfo("flapper")
+	require.False(t, exists, "a deregistered server must not be resurrected by an in-flight registration")
 }
