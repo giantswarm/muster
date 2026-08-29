@@ -743,8 +743,11 @@ muster:
       # Namespace for the ConfigMap. Empty renders into the release
       # namespace.
       namespace: ""
-      # Value of the grafana_folder annotation (upstream sidecar
-      # convention for folder placement).
+      # Grafana folder the dashboard is placed in. Rendered as the
+      # upstream sidecar's grafana_folder annotation, and — when
+      # giantswarm.enabled — additionally as the
+      # observability.giantswarm.io/folder annotation the GS
+      # observability platform actually reads.
       folder: "muster"
       # Giant Swarm observability platform discovery: adds the
       # app.giantswarm.io/kind: dashboard label and the

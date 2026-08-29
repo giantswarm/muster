@@ -15,8 +15,14 @@ metadata:
     {{- end }}
   annotations:
     grafana_folder: {{ $dash.folder | quote }}
-    {{- if and $dash.giantswarm.enabled $dash.giantswarm.organization }}
+    {{- if $dash.giantswarm.enabled }}
+    # The GS observability-operator reads its own folder key, not the
+    # upstream sidecar's grafana_folder; without it the dashboard lands in
+    # the organization's General folder.
+    observability.giantswarm.io/folder: {{ $dash.folder | quote }}
+    {{- if $dash.giantswarm.organization }}
     observability.giantswarm.io/organization: {{ $dash.giantswarm.organization | quote }}
+    {{- end }}
     {{- end }}
     {{- with $dash.annotations }}
     {{- toYaml . | nindent 4 }}
