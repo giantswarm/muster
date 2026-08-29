@@ -538,23 +538,22 @@ func NewAggregatorServer(aggConfig AggregatorConfig, errorCallback func(error)) 
 	stores := createStores(aggConfig)
 
 	return &AggregatorServer{
-		config:          aggConfig,
-		registry:        NewServerRegistry(aggConfig.MusterPrefix),
-		toolManager:     newActiveItemManager(),
-		errorCallback:   errorCallback,
-		authRateLimiter: rateLimiter,
-		authMetrics:     NewAuthMetrics(),
-
+		config:            aggConfig,
+		registry:          NewServerRegistry(aggConfig.MusterPrefix),
+		toolManager:       newActiveItemManager(),
+		errorCallback:     errorCallback,
+		authRateLimiter:   rateLimiter,
+		authMetrics:       NewAuthMetrics(),
 		downstreamMetrics: newDownstreamMetrics(),
-		authStore:       stores.authStore,
-		capabilityStore: stores.capabilityStore,
-		connPool:        NewSessionConnectionPool(DefaultConnectionPoolMaxAge),
-		ssoTracker:      newSSOTracker(),
-		subjectSessions: newSubjectSessionTracker(),
-		eventFollows:    make(map[string]*eventFollow),
-		valkeyClient:    stores.valkeyClient,
-		valkeyKeyPrefix: stores.keyPrefix,
-		valkeyEncryptor: stores.encryptor,
+		authStore:         stores.authStore,
+		capabilityStore:   stores.capabilityStore,
+		connPool:          NewSessionConnectionPool(DefaultConnectionPoolMaxAge),
+		ssoTracker:        newSSOTracker(),
+		subjectSessions:   newSubjectSessionTracker(),
+		eventFollows:      make(map[string]*eventFollow),
+		valkeyClient:      stores.valkeyClient,
+		valkeyKeyPrefix:   stores.keyPrefix,
+		valkeyEncryptor:   stores.encryptor,
 	}
 }
 
