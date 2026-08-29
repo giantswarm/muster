@@ -256,10 +256,14 @@ func (r *ServerRegistry) familyExposedName(family, toolName string) string {
 // Returns an error if the server name is already registered, client initialization
 // fails, or the server cannot be reached.
 func (r *ServerRegistry) Register(ctx context.Context, registration ServerRegistration, client MCPClient) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if _, exists := r.servers[registration.Name]; exists {
+	// Fail fast on duplicate names before touching the client, so a
+	// duplicate registration attempt does not re-initialize an
+	// already-connected client. The authoritative check happens under the
+	// write lock below.
+	r.mu.RLock()
+	_, exists := r.servers[registration.Name]
+	r.mu.RUnlock()
+	if exists {
 		return fmt.Errorf("server %s already registered", registration.Name)
 	}
 
@@ -282,10 +286,30 @@ func (r *ServerRegistry) Register(ctx context.Context, registration ServerRegist
 		RegisteredAt: time.Now(),
 	}
 
+	// Reserve the registry entry BEFORE fetching capabilities. The capability
+	// queries are network calls to the downstream server, and one wedged
+	// downstream (e.g. an SSE server that accepts tools/list but never
+	// delivers the response event) must not stall every registry reader:
+	// the list_tools meta-tool serves from this registry, so holding the
+	// write lock across the fetch hangs the whole aggregator (#1113). The
+	// reserved entry is visible with an empty capability set until the fetch
+	// lands; subscribers are notified once it does. Reserving — rather than
+	// inserting after the fetch — keeps the entry deregisterable while the
+	// fetch is in flight, so a server that goes unhealthy mid-registration
+	// is not left behind as a stale entry blocking re-registration.
+	r.mu.Lock()
+	if _, exists := r.servers[registration.Name]; exists {
+		r.mu.Unlock()
+		return fmt.Errorf("server %s already registered", registration.Name)
+	}
 	r.applyServerRegistrationLocked(registration.Name, registration.ToolPrefix, registration.Family)
+	r.servers[registration.Name] = info
+	r.mu.Unlock()
 
-	// Fetch initial capabilities from the server
-	if err := r.refreshServerCapabilities(ctx, info); err != nil {
+	// Fetch initial capabilities from the server, without holding the
+	// registry lock and bounded so a wedged downstream cannot pin this
+	// goroutine forever either.
+	if err := r.fetchInitialCapabilities(ctx, info); err != nil {
 		logging.Warn("Aggregator", "Failed to get initial capabilities for %s: %v", registration.Name, err)
 		// Log diagnostic information about partial success
 		info.mu.RLock()
@@ -299,11 +323,50 @@ func (r *ServerRegistry) Register(ctx context.Context, registration ServerRegist
 		info.mu.RUnlock()
 	}
 
-	r.servers[registration.Name] = info
+	// The entry may have been deregistered (server went unhealthy) or
+	// replaced (pending-auth upsert) while the fetch ran; its client is then
+	// already closed or orphaned. Report that instead of pretending the
+	// registration held.
+	r.mu.Lock()
+	if current, exists := r.servers[registration.Name]; !exists || current != info {
+		r.mu.Unlock()
+		return fmt.Errorf("server %s was deregistered or replaced during registration", registration.Name)
+	}
 	r.notifyUpdate()
+	r.mu.Unlock()
 
 	logging.Info("Aggregator", "Registered MCP server: %s", registration.Name)
 	return nil
+}
+
+// fetchInitialCapabilities runs the initial capability fetch for a freshly
+// reserved registry entry. Each round is bounded by
+// registerCapabilityAttemptTimeout and retried up to
+// registerCapabilityAttempts times: a retry issues fresh requests, which
+// recovers from transports that wedge on an individual request (the SSE
+// stream losing a single response event, for instance). Returns the last
+// error when every round failed; the caller registers the server with
+// whatever was fetched either way.
+func (r *ServerRegistry) fetchInitialCapabilities(ctx context.Context, info *ServerInfo) error {
+	var lastErr error
+	for attempt := 0; attempt < registerCapabilityAttempts; attempt++ {
+		if ctx.Err() != nil {
+			if lastErr == nil {
+				lastErr = ctx.Err()
+			}
+			return lastErr
+		}
+		attemptCtx, cancel := context.WithTimeout(ctx, registerCapabilityAttemptTimeout)
+		err := r.refreshServerCapabilities(attemptCtx, info)
+		cancel()
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		logging.Debug("Aggregator", "Capability fetch attempt %d/%d for %s failed: %v",
+			attempt+1, registerCapabilityAttempts, info.Name, err)
+	}
+	return lastErr
 }
 
 // Deregister removes an MCP server from the registry and cleans up its resources.
@@ -332,22 +395,17 @@ func (r *ServerRegistry) Deregister(name string) error {
 // process restarts.
 func (r *ServerRegistry) DeregisterRequestedAt(name string, requestedAt time.Time) error {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 
 	info, exists := r.servers[name]
 	if !exists {
+		r.mu.Unlock()
 		return fmt.Errorf("server %s not found", name)
 	}
 
 	if info.RegisteredAt.After(requestedAt) {
+		r.mu.Unlock()
 		logging.Info("Aggregator", "Skipping deregistration of %s: entry was re-registered after the deregistration was requested", name)
 		return nil
-	}
-
-	if info.Client != nil {
-		if err := info.Client.Close(); err != nil {
-			logging.Warn("Aggregator", "Error closing client for %s: %v", name, err)
-		}
 	}
 
 	delete(r.servers, name)
@@ -378,6 +436,19 @@ func (r *ServerRegistry) DeregisterRequestedAt(name string, requestedAt time.Tim
 	r.nameMu.Unlock()
 
 	r.notifyUpdate()
+	r.mu.Unlock()
+
+	// Close the client outside the registry lock: closing a wedged transport
+	// can block, and no registry reader should stall behind it (#1113). The
+	// entry is already gone from the map, so nothing new can reach the client
+	// through the registry. Closing also aborts an in-flight initial
+	// capability fetch for this entry, which then notices the eviction and
+	// reports the registration as failed.
+	if info.Client != nil {
+		if err := info.Client.Close(); err != nil {
+			logging.Warn("Aggregator", "Error closing client for %s: %v", name, err)
+		}
+	}
 
 	logging.Info("Aggregator", "Deregistered MCP server: %s", name)
 	return nil
