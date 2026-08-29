@@ -152,6 +152,13 @@ A Helm chart for muster - Universal Control Plane for AI Agents built on MCP
 | muster.observability.metrics.prometheus.serviceMonitor.labels | object | `{}` |  |
 | muster.observability.metrics.prometheus.prometheusRule.enabled | bool | `false` |  |
 | muster.observability.metrics.prometheus.prometheusRule.labels | object | `{}` |  |
+| muster.observability.grafanaDashboard.enabled | bool | `false` |  |
+| muster.observability.grafanaDashboard.namespace | string | `""` |  |
+| muster.observability.grafanaDashboard.folder | string | `"muster"` |  |
+| muster.observability.grafanaDashboard.giantswarm.enabled | bool | `false` |  |
+| muster.observability.grafanaDashboard.giantswarm.organization | string | `"Giant Swarm"` |  |
+| muster.observability.grafanaDashboard.labels | object | `{}` |  |
+| muster.observability.grafanaDashboard.annotations | object | `{}` |  |
 | crds.install | bool | `false` |  |
 | crds.annotations."helm.sh/resource-policy" | string | `"keep"` |  |
 | networkPolicy.enabled | bool | `false` |  |

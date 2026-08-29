@@ -1,0 +1,67 @@
+suite: Grafana dashboard template tests
+templates:
+  - templates/grafana-dashboard.yaml
+tests:
+  - it: renders nothing by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders a ConfigMap with the dashboard JSON when enabled
+    set:
+      muster.observability.grafanaDashboard.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: kind
+          value: ConfigMap
+      - equal:
+          path: metadata.annotations.grafana_folder
+          value: muster
+      - matchRegex:
+          path: data["muster.json"]
+          pattern: '"uid": "muster"'
+      - matchRegex:
+          path: data["muster.json"]
+          pattern: 'muster_downstream_tool_calls_total'
+      - notExists:
+          path: metadata.labels["app.giantswarm.io/kind"]
+      - notExists:
+          path: metadata.annotations["observability.giantswarm.io/organization"]
+
+  - it: renders into the release namespace by default and honors the namespace override
+    set:
+      muster.observability.grafanaDashboard.enabled: true
+      muster.observability.grafanaDashboard.namespace: "monitoring"
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: monitoring
+
+  - it: adds Giant Swarm discovery label and organization annotation when giantswarm.enabled
+    set:
+      muster.observability.grafanaDashboard.enabled: true
+      muster.observability.grafanaDashboard.giantswarm.enabled: true
+    asserts:
+      - equal:
+          path: metadata.labels["app.giantswarm.io/kind"]
+          value: dashboard
+      - equal:
+          path: metadata.annotations["observability.giantswarm.io/organization"]
+          value: Giant Swarm
+
+  - it: propagates extra labels and annotations
+    set:
+      muster.observability.grafanaDashboard.enabled: true
+      muster.observability.grafanaDashboard.labels:
+        grafana_dashboard: "1"
+      muster.observability.grafanaDashboard.annotations:
+        example.com/team: platform
+    asserts:
+      - equal:
+          path: metadata.labels.grafana_dashboard
+          value: "1"
+      - equal:
+          path: metadata.annotations["example.com/team"]
+          value: platform

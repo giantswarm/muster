@@ -1,0 +1,27 @@
+{{- $dash := .Values.muster.observability.grafanaDashboard }}
+{{- if $dash.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "muster.fullname" . }}-grafana-dashboard
+  namespace: {{ $dash.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "muster.labels" . | nindent 4 }}
+    {{- if $dash.giantswarm.enabled }}
+    app.giantswarm.io/kind: dashboard
+    {{- end }}
+    {{- with $dash.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  annotations:
+    grafana_folder: {{ $dash.folder | quote }}
+    {{- if and $dash.giantswarm.enabled $dash.giantswarm.organization }}
+    observability.giantswarm.io/organization: {{ $dash.giantswarm.organization | quote }}
+    {{- end }}
+    {{- with $dash.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+data:
+  muster.json: |-
+{{ .Files.Get "dashboards/muster.json" | indent 4 }}
+{{- end }}

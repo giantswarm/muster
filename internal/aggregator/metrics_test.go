@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -95,6 +96,56 @@ func TestMetrics(t *testing.T) {
 			require.True(t, sawHistogram, "expected muster.tool_call.duration histogram")
 		})
 	}
+}
+
+func TestDownstreamMetrics(t *testing.T) {
+	reader := setupMeter(t)
+	d := newDownstreamMetrics()
+	require.NotNil(t, d)
+
+	start := time.Now()
+	d.record(context.Background(), "prometheus-backend", "x_prometheus_execute_query", start, &mcp.CallToolResult{}, nil)
+	d.record(context.Background(), "prometheus-backend", "x_prometheus_execute_query", start, nil, errors.New("boom"))
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(context.Background(), &rm))
+
+	var sawCounter, sawHistogram bool
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			switch m.Name {
+			case "muster.downstream_tool_calls":
+				sawCounter = true
+				sum, ok := m.Data.(metricdata.Sum[int64])
+				require.True(t, ok, "downstream_tool_calls should be a Sum")
+				require.Len(t, sum.DataPoints, 2, "one series per outcome")
+				outcomes := map[string]int64{}
+				for _, dp := range sum.DataPoints {
+					server, _ := dp.Attributes.Value(attrDownstreamServer)
+					tool, _ := dp.Attributes.Value("tool")
+					require.Equal(t, "prometheus-backend", server.AsString())
+					require.Equal(t, "x_prometheus_execute_query", tool.AsString())
+					outcome, _ := dp.Attributes.Value("outcome")
+					outcomes[outcome.AsString()] = dp.Value
+				}
+				require.Equal(t, map[string]int64{outcomeOK: 1, outcomeError: 1}, outcomes)
+			case "muster.downstream_tool_call.duration":
+				sawHistogram = true
+				hist, ok := m.Data.(metricdata.Histogram[float64])
+				require.True(t, ok, "downstream_tool_call.duration should be a Histogram[float64]")
+				require.Len(t, hist.DataPoints, 2)
+			}
+		}
+	}
+	require.True(t, sawCounter, "expected muster.downstream_tool_calls counter")
+	require.True(t, sawHistogram, "expected muster.downstream_tool_call.duration histogram")
+}
+
+func TestDownstreamMetricsNilSafe(t *testing.T) {
+	var d *downstreamMetrics
+	require.NotPanics(t, func() {
+		d.record(context.Background(), "s", "t", time.Now(), nil, nil)
+	})
 }
 
 func TestClassify(t *testing.T) {
