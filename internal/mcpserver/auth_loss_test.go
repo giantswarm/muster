@@ -204,6 +204,10 @@ func TestDynamicAuthClient_AuthLossStopsListener(t *testing.T) {
 	handler := newRecordingHandler()
 	client := NewDynamicAuthClient(ts.URL, store, "scope", "client-id", "").
 		WithAuthLossHandler(handler.handle)
+	// Close is idempotent; this net runs before the deferred ts.Close above,
+	// so a failed assertion below cannot leave the listener's SSE stream open
+	// and wedge ts.Close until the package test timeout.
+	defer func() { _ = client.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -213,6 +217,14 @@ func TestDynamicAuthClient_AuthLossStopsListener(t *testing.T) {
 	// per second, so the threshold is crossed within a few seconds even with
 	// no tool call in flight.
 	revoked.Store(true)
+	// Drop connections established before the revocation. The wrapper above
+	// only 401s requests it sees, so an SSE stream that connected earlier
+	// stays healthy forever and the listener never retries — a schedule the
+	// race detector's timing hits reliably. Cutting it forces the reconnect
+	// loop into the 401 path regardless of when the first GET landed, which
+	// also mirrors the incident: a revoked session's connections do not
+	// outlive the grant.
+	ts.CloseClientConnections()
 	handler.waitFired(t, 15*time.Second)
 
 	// The production handler evicts the pooled client, which closes it.
