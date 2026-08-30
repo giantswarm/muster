@@ -167,4 +167,4 @@ require (
 // in this build imports goldmark, so a require would be dropped by go mod tidy;
 // the replace pins the module graph to a fixed version for the nancy scan.
 // Drop once x/tools requires goldmark >= v1.7.17.
-replace github.com/yuin/goldmark => github.com/yuin/goldmark v1.8.5
+replace github.com/yuin/goldmark/v2 => github.com/yuin/goldmark/v2 v2.0.0
