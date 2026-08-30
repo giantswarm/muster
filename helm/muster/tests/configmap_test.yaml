@@ -68,6 +68,31 @@ tests:
           path: data["config.yaml"]
           pattern: "trustedPublicRegistrationSchemes:"
 
+  - it: renders allowPublicClientRegistration into config.yaml when enabled
+    set:
+      muster.oauth.server.enabled: true
+      muster.oauth.server.baseUrl: "https://muster.example.com"
+      muster.oauth.server.existingSecret: "muster-oauth"
+      muster.oauth.server.dex.issuerUrl: "https://dex.example.com"
+      muster.oauth.server.dex.clientId: "muster"
+      muster.oauth.server.allowPublicClientRegistration: true
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "allowPublicClientRegistration: true"
+
+  - it: omits allowPublicClientRegistration when left at the default (false)
+    set:
+      muster.oauth.server.enabled: true
+      muster.oauth.server.baseUrl: "https://muster.example.com"
+      muster.oauth.server.existingSecret: "muster-oauth"
+      muster.oauth.server.dex.issuerUrl: "https://dex.example.com"
+      muster.oauth.server.dex.clientId: "muster"
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "allowPublicClientRegistration"
+
   - it: renders tokenExchangeBroker into config.yaml
     set:
       muster.oauth.server.enabled: true
