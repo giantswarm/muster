@@ -81,6 +81,9 @@ data:
           {{- if .Values.muster.oauth.server.allowLocalhostRedirectURIs }}
           allowLocalhostRedirectURIs: true
           {{- end }}
+          {{- if .Values.muster.oauth.server.allowPublicClientRegistration }}
+          allowPublicClientRegistration: true
+          {{- end }}
           {{- with .Values.muster.oauth.server.trustedPublicRegistrationRedirectURIs }}
           trustedPublicRegistrationRedirectURIs:
             {{- toYaml . | nindent 12 }}
