@@ -91,10 +91,11 @@ func startLabDex(t *testing.T) (issuerURL string, caPool *x509.CertPool) {
 
 // TestNewDexProviderConfig_LabDexInternalCA pins how the two knobs of the lab
 // Dex path combine at the pinned mcp-oauth version: the --extra-ca-file pool
-// reaches the OIDC discovery client through dex.Config.RootCAs, and mcp-oauth
-// consults that pool only when dex.allowPrivateIPOIDC selects the
-// private-IP-allowed client. With the knob off, discovery runs on
-// http.DefaultTransport and the pool is ignored.
+// reaches the OIDC discovery client through dex.Config.RootCAs, and since
+// mcp-oauth v1.3.3 (giantswarm/mcp-oauth#556) every discovery client honors
+// that pool — the SSRF-safe default client included. dex.allowPrivateIPOIDC
+// only selects which client performs discovery; it no longer gates whether
+// the CA pool applies.
 //
 // The private-IP guard itself is not covered here, and no knob lifts it: the
 // block on private and loopback addresses lives in mcp-oauth's static issuer
@@ -131,9 +132,7 @@ func TestNewDexProviderConfig_LabDexInternalCA(t *testing.T) {
 		require.Contains(t, err.Error(), "certificate")
 	})
 
-	t.Run("without allowPrivateIPOIDC the CA pool is ignored", func(t *testing.T) {
-		err := newProvider(t, false, caPool)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "certificate")
+	t.Run("without allowPrivateIPOIDC the CA pool is still honored", func(t *testing.T) {
+		require.NoError(t, newProvider(t, false, caPool))
 	})
 }
