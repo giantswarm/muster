@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/giantswarm/muster/internal/api"
@@ -108,14 +109,16 @@ func NewWorkflowExecutor(toolCaller ToolCaller, eventCallback EventCallback) *Wo
 
 // ExecuteWorkflow executes a workflow with the given arguments
 func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.Workflow, args map[string]interface{}) (*mcp.CallToolResult, error) {
-	// Log required args for debugging
+	// Log required args for debugging. Argument values are user data and can
+	// carry credentials, so only the names are logged.
 	var requiredArgs []string
 	for name, arg := range workflow.Args {
 		if arg.Required {
 			requiredArgs = append(requiredArgs, name)
 		}
 	}
-	logging.Debug("WorkflowExecutor", "ExecuteWorkflow called with workflow=%s, args=%+v, required=%+v", workflow.Name, args, requiredArgs)
+	slices.Sort(requiredArgs)
+	logging.Debug("WorkflowExecutor", "ExecuteWorkflow called with workflow=%s, args=%s, required=%v", workflow.Name, logging.KeyNames(args), requiredArgs)
 	logging.Debug("WorkflowExecutor", "Executing workflow %s with %d steps", workflow.Name, len(workflow.Steps))
 
 	// Pull the reserved debug toggle out of args before validation/execution so
@@ -136,7 +139,7 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 		templateVars: make([]string, 0),
 		stepMetadata: make([]stepMetadata, 0),
 	}
-	logging.Debug("WorkflowExecutor", "Initial execution context: input=%+v, results=%+v", execCtx.input, execCtx.results)
+	logging.Debug("WorkflowExecutor", "Initial execution context: input=%s", logging.KeyNames(execCtx.input))
 
 	// Execute each step
 	var lastStepResult *mcp.CallToolResult
@@ -202,7 +205,7 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal rendered output: %w", err)
 		}
-		logging.Debug("WorkflowExecutor", "Rendered output JSON: %s", string(outputJSON))
+		logging.Debug("WorkflowExecutor", "Rendered output template for workflow %s: %s (%d bytes)", workflow.Name, logging.Shape(rendered), len(outputJSON))
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{mcp.NewTextContent(string(outputJSON))},
 		}, nil
@@ -238,7 +241,7 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 							for k, v := range lastResultMap {
 								finalResult[k] = v
 							}
-							logging.Debug("WorkflowExecutor", "Merged last step result into final result: %+v", lastResultMap)
+							logging.Debug("WorkflowExecutor", "Merged last step %s result into final result: keys=%s", lastStep.ID, logging.KeyNames(lastResultMap))
 						}
 					}
 				}
@@ -246,14 +249,16 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 		}
 	}
 
-	logging.Debug("WorkflowExecutor", "Final result before JSON marshal: %+v", finalResult)
+	// The final result carries the workflow input and every step result --
+	// user data -- so the log names its keys and reports its size only.
+	logging.Debug("WorkflowExecutor", "Final result for workflow %s: keys=%s", workflow.Name, logging.KeyNames(finalResult))
 
 	resultJSON, err := json.Marshal(finalResult)
 	if err != nil {
 		logging.Error("WorkflowExecutor", err, "Failed to marshal final result")
 		return nil, fmt.Errorf("failed to marshal result: %w", err)
 	}
-	logging.Debug("WorkflowExecutor", "Final result JSON: %s", string(resultJSON))
+	logging.Debug("WorkflowExecutor", "Final result JSON for workflow %s: %d bytes", workflow.Name, len(resultJSON))
 
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
@@ -460,7 +465,7 @@ func (we *WorkflowExecutor) runStep(ctx context.Context, workflowName string, s 
 	if err != nil {
 		return stepOutcome{}, fmt.Errorf("failed to resolve arguments for step %s: %w", s.ID, err)
 	}
-	logging.Debug("WorkflowExecutor", "Step %s resolved args: %+v", s.ID, resolvedArgs)
+	logging.Debug("WorkflowExecutor", "Step %s resolved args: %s", s.ID, logging.KeyNames(resolvedArgs))
 
 	we.eventCallback.GenerateStepEvent(workflowName, s.ID, "step_started", map[string]interface{}{"tool": s.Tool})
 
@@ -511,7 +516,7 @@ func (we *WorkflowExecutor) runStep(ctx context.Context, workflowName string, s 
 		}
 	}
 	execCtx.results[s.ID] = resultData
-	logging.Debug("WorkflowExecutor", "Recorded result from step %s: %+v", s.ID, resultData)
+	logging.Debug("WorkflowExecutor", "Recorded result from step %s: %s", s.ID, logging.Shape(resultData))
 
 	we.eventCallback.GenerateStepEvent(workflowName, s.ID, "step_completed", map[string]interface{}{"tool": s.Tool})
 

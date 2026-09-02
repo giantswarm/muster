@@ -47,7 +47,8 @@ func (c *StdioClient) Initialize(ctx context.Context) error {
 		return nil
 	}
 
-	logging.Debug("StdioClient", "Creating stdio client for command: %s %v with env: %v", c.command, c.args, c.env)
+	// Environment values are where stdio servers get their API keys: log names only.
+	logging.Debug("StdioClient", "Creating stdio client for command: %s %v with env: %s", c.command, c.args, logging.KeyNames(c.env))
 
 	// Convert environment map to slice of strings
 	var envStrings []string

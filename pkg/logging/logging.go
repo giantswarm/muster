@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
+	"slices"
 	"strings"
 
 	mcptoolkitlogging "github.com/giantswarm/mcp-toolkit/logging"
@@ -252,6 +254,41 @@ func RedactSecret(text, secret string) string {
 		return text
 	}
 	return strings.ReplaceAll(text, secret, fmt.Sprintf("<redacted len=%d>", len(secret)))
+}
+
+// KeyNames renders the keys of a map, sorted and comma-separated, for log
+// lines that must say which fields were present without printing what they
+// held. Tool arguments and results are user data and can carry credentials
+// (a token passed as a workflow input, a secret returned by a step), so a
+// debug line names the keys and leaves the values out. An empty or nil map
+// renders as "none".
+func KeyNames[V any](m map[string]V) string {
+	if len(m) == 0 {
+		return "none"
+	}
+	return strings.Join(slices.Sorted(maps.Keys(m)), ", ")
+}
+
+// Shape describes a decoded JSON value for log lines without printing its
+// contents: objects list their sorted keys, arrays and strings their length,
+// everything else its Go type. Use it where a debug line used to dump user
+// data with %v.
+func Shape(v any) string {
+	switch t := v.(type) {
+	case nil:
+		return "nil"
+	case map[string]any:
+		if len(t) == 0 {
+			return "object{}"
+		}
+		return "object{" + KeyNames(t) + "}"
+	case []any:
+		return fmt.Sprintf("array(len=%d)", len(t))
+	case string:
+		return fmt.Sprintf("string(len=%d)", len(t))
+	default:
+		return fmt.Sprintf("%T", v)
+	}
 }
 
 // FormatGroup renders a slog group value as "name{key=value key=value}" so a

@@ -188,7 +188,8 @@ func (atc *ToolCaller) CallTool(ctx context.Context, toolName string, args map[s
 		return nil, fmt.Errorf("tool %s is not available", toolName)
 	}
 
-	logging.Debug("APIToolCaller", "Calling tool %s with args: %v", toolName, args)
+	// Argument values are caller data and can carry credentials: log names only.
+	logging.Debug("APIToolCaller", "Calling tool %s with args: %s", toolName, logging.KeyNames(args))
 
 	// Call the tool through the aggregator handler
 	result, err := aggregatorHandler.CallTool(ctx, toolName, args)
@@ -243,7 +244,7 @@ func (atc *ToolCaller) CallToolInternal(ctx context.Context, toolName string, ar
 		return nil, fmt.Errorf("tool %s is not available", toolName)
 	}
 
-	logging.Debug("APIToolCaller", "Calling tool %s internally with args: %v", toolName, args)
+	logging.Debug("APIToolCaller", "Calling tool %s internally with args: %s", toolName, logging.KeyNames(args))
 
 	// Delegate directly to the aggregator handler
 	result, err := aggregatorHandler.CallToolInternal(ctx, toolName, args)

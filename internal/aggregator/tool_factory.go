@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
-	"slices"
 	"strings"
 
 	"github.com/giantswarm/muster/internal/api"
@@ -98,7 +97,7 @@ func (a *AggregatorServer) createMetaToolHandler(provider api.ToolProvider, tool
 			// Log the argument names only. Meta-tool arguments carry whatever the
 			// caller sent -- an MCPServer spec with an Authorization header, for
 			// one -- and this fires on every failed call.
-			logging.Error("AggregatorMetaToolHandler", err, "Meta-tool execution failed for %s (args: %s)", toolName, metaToolArgNames(args))
+			logging.Error("AggregatorMetaToolHandler", err, "Meta-tool execution failed for %s (args: %s)", toolName, logging.KeyNames(args))
 			return mcp.NewToolResultError(fmt.Sprintf("Meta-tool execution failed: %v", err)), nil
 		}
 
@@ -346,13 +345,4 @@ func convertToMCPResult(result *api.CallToolResult) *mcp.CallToolResult {
 		IsError:           result.IsError,
 		StructuredContent: result.StructuredContent,
 	}
-}
-
-// metaToolArgNames renders the argument names of a meta-tool call, sorted, for
-// log lines. Values are deliberately left out: they can be credentials.
-func metaToolArgNames(args map[string]any) string {
-	if len(args) == 0 {
-		return "none"
-	}
-	return strings.Join(slices.Sorted(maps.Keys(args)), ", ")
 }
