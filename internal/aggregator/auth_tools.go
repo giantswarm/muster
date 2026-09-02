@@ -91,6 +91,8 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		}, nil
 	}
 
+	resetClientRegistration, _ := args["reset_client_registration"].(bool)
+
 	sessionID, sub, errResult := requireSessionContextResult(ctx)
 	if errResult != nil {
 		return errResult, nil
@@ -292,12 +294,13 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 	}
 
 	challenge, err := oauthHandler.CreateAuthChallenge(ctx, api.AuthChallengeParams{
-		SessionID:  sessionID,
-		UserID:     sub,
-		ServerName: serverName,
-		Issuer:     authInfo.Issuer,
-		Resource:   resource,
-		Scope:      authInfo.Scope,
+		SessionID:               sessionID,
+		UserID:                  sub,
+		ServerName:              serverName,
+		Issuer:                  authInfo.Issuer,
+		Resource:                resource,
+		Scope:                   authInfo.Scope,
+		ResetClientRegistration: resetClientRegistration,
 	})
 	if err != nil {
 		logging.Error("AuthTools", err, "Failed to create auth challenge for server %s", serverName)

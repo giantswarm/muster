@@ -283,6 +283,11 @@ func (a *AggregatorServer) getAllCoreToolsAsMCPTools() []mcp.Tool {
 						"type":        "string",
 						"description": "Name of the MCP server to authenticate to",
 					},
+					"reset_client_registration": map[string]any{
+						"type": "boolean",
+						api.FieldDescription: "Discard muster's stored dynamic client registration (RFC 7591) with this server's authorization server and register anew before issuing the sign-in link. " +
+							"Use when sign-ins fail with invalid_client although muster reports a stored registration; other users' tokens from that authorization server may need a fresh sign-in afterwards.",
+					},
 				},
 				Required: []string{"server"},
 			},

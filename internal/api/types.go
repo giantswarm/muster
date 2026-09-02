@@ -541,6 +541,12 @@ type AuthChallengeParams struct {
 
 	// Scope is the space-separated scope list to request.
 	Scope string
+
+	// ResetClientRegistration discards muster's stored RFC 7591 client
+	// registration with the issuer before the flow starts, forcing a fresh
+	// registration. For authorization servers that refuse muster's stored
+	// client_id in a way the automatic checks cannot see.
+	ResetClientRegistration bool
 }
 
 // AuthChallenge represents an authentication challenge returned when

@@ -60,21 +60,22 @@ func (m *musterInstanceManager) startMockOAuthServers(
 		useTLS := oauthCfg.UseAsMusterOAuthServer || oauthCfg.UseTLS || len(oauthCfg.TrustedIssuers) > 0 || signTokens
 
 		serverConfig := mock.OAuthServerConfig{
-			Issuer:                  oauthCfg.Issuer,
-			AcceptedScopes:          oauthCfg.Scopes,
-			TokenLifetime:           tokenLifetime,
-			PKCERequired:            oauthCfg.PKCERequired,
-			AutoApprove:             oauthCfg.AutoApprove,
-			ClientID:                oauthCfg.ClientID,
-			ClientSecret:            oauthCfg.ClientSecret,
-			Debug:                   m.debug,
-			UseTLS:                  useTLS,
-			SignTokens:              signTokens,
-			SupportsCIMD:            oauthCfg.SupportsCIMD,
-			SupportsDCR:             oauthCfg.SupportsDCR,
-			RequireRegisteredClient: oauthCfg.RequireRegisteredClient,
-			RejectRegistrationScope: oauthCfg.RejectRegistrationScope,
-			AdvertiseIssParameter:   oauthCfg.AdvertiseIssParameter,
+			Issuer:                    oauthCfg.Issuer,
+			AcceptedScopes:            oauthCfg.Scopes,
+			TokenLifetime:             tokenLifetime,
+			PKCERequired:              oauthCfg.PKCERequired,
+			AutoApprove:               oauthCfg.AutoApprove,
+			ClientID:                  oauthCfg.ClientID,
+			ClientSecret:              oauthCfg.ClientSecret,
+			Debug:                     m.debug,
+			UseTLS:                    useTLS,
+			SignTokens:                signTokens,
+			SupportsCIMD:              oauthCfg.SupportsCIMD,
+			SupportsDCR:               oauthCfg.SupportsDCR,
+			RequireRegisteredClient:   oauthCfg.RequireRegisteredClient,
+			AuthorizeAcceptsAnyClient: oauthCfg.AuthorizeAcceptsAnyClient,
+			RejectRegistrationScope:   oauthCfg.RejectRegistrationScope,
+			AdvertiseIssParameter:     oauthCfg.AdvertiseIssParameter,
 		}
 
 		// Use mock clock if configured (enables test_advance_oauth_clock tool)

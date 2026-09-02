@@ -37,6 +37,10 @@ type AuthChallengeParams struct {
 
 	// Scope is the space-separated scope list to request.
 	Scope string
+
+	// ResetClientRegistration discards muster's stored RFC 7591 registration
+	// with the issuer before the flow starts, so muster registers again.
+	ResetClientRegistration bool
 }
 
 // OAuthState represents the state parameter data for OAuth flows.

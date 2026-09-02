@@ -26,6 +26,7 @@ const (
 	FieldTools       = "tools"
 	FieldSteps       = "steps"
 	FieldError       = "error"
+	FieldDescription = "description"
 	FieldSuccess     = "success"
 	FieldMessage     = "message"
 	FieldServer      = "server"

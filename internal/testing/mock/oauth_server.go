@@ -130,6 +130,14 @@ type OAuthServerConfig struct {
 	// don't know instead of ignoring them.
 	RejectRegistrationScope bool
 
+	// AuthorizeAcceptsAnyClient makes the authorization endpoint skip its
+	// client_id check, so only the token endpoint enforces registration —
+	// mimicking authorization servers whose authorize responses reveal
+	// nothing about an unknown client. Muster's pre-challenge registration
+	// probe then sees a healthy AS and the token endpoint's invalid_client
+	// is the only signal that the registration is gone.
+	AuthorizeAcceptsAnyClient bool
+
 	// AdvertiseIssParameter advertises
 	// authorization_response_iss_parameter_supported in the AS metadata, so a
 	// client must refuse an authorization response that carries no RFC 9207
@@ -762,6 +770,50 @@ func (s *OAuthServer) RegistrationCount() int {
 	return s.registrationCount
 }
 
+// RegisteredClientCount returns the number of DCR-registered clients the
+// server currently knows.
+func (s *OAuthServer) RegisteredClientCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.registeredClients)
+}
+
+// ForgetRegisteredClients drops every DCR registration, the way an
+// authorization server with an in-memory client store forgets its clients
+// when it restarts. RegistrationCount is unaffected, so scenarios can assert
+// that muster registered again afterwards. Returns how many were forgotten.
+func (s *OAuthServer) ForgetRegisteredClients() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	forgotten := len(s.registeredClients)
+	s.registeredClients = make(map[string]*registeredClient)
+	return forgotten
+}
+
+// writeOAuthError answers with an RFC 6749 §5.2-style JSON error object.
+func writeOAuthError(w http.ResponseWriter, status int, code, description string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		pkgoauth.JSONFieldError:            code,
+		pkgoauth.JSONFieldErrorDescription: description,
+	})
+}
+
+// redirectOAuthError reports an authorization error to the client's
+// redirect_uri (RFC 6749 §4.1.2.1), echoing the state when there is one.
+func redirectOAuthError(w http.ResponseWriter, r *http.Request, redirectURL *url.URL, code, description, state string) {
+	target := *redirectURL
+	q := target.Query()
+	q.Set(pkgoauth.JSONFieldError, code)
+	q.Set(pkgoauth.JSONFieldErrorDescription, description)
+	if state != "" {
+		q.Set("state", state)
+	}
+	target.RawQuery = q.Encode()
+	http.Redirect(w, r, target.String(), http.StatusFound) //nolint:gosec // G710: mock IdP authorization endpoint must honour the request's redirect_uri
+}
+
 // handleAuthorize handles authorization requests
 func (s *OAuthServer) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 	if s.config.SimulateErrors != nil && s.config.SimulateErrors.AuthorizeEndpointDelay > 0 {
@@ -782,22 +834,28 @@ func (s *OAuthServer) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 			clientID, redirectURI, scope)
 	}
 
-	// Validate response type
+	// RFC 6749 §4.1.2.1: client_id and redirect_uri are validated first and
+	// their failures are answered directly, never redirected. The MCP
+	// TypeScript SDK answers them as JSON OAuth error objects; the mock does
+	// the same so muster's registration probe sees what a TS-SDK-based
+	// authorization server sends for a client it has forgotten.
+	if s.config.ClientID != "" && !s.config.AuthorizeAcceptsAnyClient && !s.isAcceptedClientID(clientID) {
+		writeOAuthError(w, http.StatusBadRequest, pkgoauth.ErrInvalidClient, "Invalid client_id")
+		return
+	}
+	redirectURL, err := url.Parse(redirectURI)
+	if redirectURI == "" || err != nil || !redirectURL.IsAbs() {
+		writeOAuthError(w, http.StatusBadRequest, pkgoauth.ErrInvalidRequest, "invalid redirect_uri")
+		return
+	}
+
+	// Every other parameter error goes back to the now-trusted redirect_uri.
 	if responseType != "code" {
-		http.Error(w, "unsupported_response_type", http.StatusBadRequest)
+		redirectOAuthError(w, r, redirectURL, "unsupported_response_type", "response_type must be code", state)
 		return
 	}
-
-	// Validate client ID: the statically configured client is always
-	// accepted; DCR-registered clients are accepted too.
-	if s.config.ClientID != "" && !s.isAcceptedClientID(clientID) {
-		http.Error(w, "invalid_client", http.StatusBadRequest)
-		return
-	}
-
-	// Check PKCE requirement
 	if s.config.PKCERequired && codeChallenge == "" {
-		http.Error(w, "PKCE required: code_challenge missing", http.StatusBadRequest)
+		redirectOAuthError(w, r, redirectURL, pkgoauth.ErrInvalidRequest, "PKCE required: code_challenge missing", state)
 		return
 	}
 
@@ -806,12 +864,6 @@ func (s *OAuthServer) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 
 	if s.config.AutoApprove {
 		// Auto-redirect with code (simulating user approval)
-		redirectURL, err := url.Parse(redirectURI)
-		if err != nil {
-			http.Error(w, "invalid redirect_uri", http.StatusBadRequest)
-			return
-		}
-
 		q := redirectURL.Query()
 		q.Set("code", code)
 		if state != "" {

@@ -166,6 +166,7 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	// Handle OAuth errors - use generic message to avoid leaking sensitive info
 	if errorParam != "" {
 		logging.Warn("OAuth", "OAuth callback received error: %s - %s", errorParam, errorDesc)
+		h.client.ForgetRegistrationOnAuthorizationError(state.Issuer, errorParam)
 		h.renderErrorPage(w, "Authentication was denied or failed. Please try again.")
 		return
 	}
