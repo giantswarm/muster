@@ -902,14 +902,37 @@ func (m *musterInstanceManager) processExitedError(instance *MusterInstance, man
 	if m.debug {
 		m.showLogs(instance, logger)
 	}
+	detail := capturedLogTail(managedProc) + portCollisionDiagnostics(instance, managedProc)
 	if managedProc.waitErr == nil {
 		// cmd.Wait returned nil: the process exited with code 0 before the
 		// instance became ready. %w on a nil error would render "%!w(<nil>)".
-		return fmt.Errorf("muster instance process exited (code 0) before becoming ready%s",
-			capturedLogTail(managedProc))
+		return fmt.Errorf("muster instance process exited (code 0) before becoming ready%s", detail)
 	}
 	return fmt.Errorf("muster instance process exited before becoming ready: %w%s",
-		managedProc.waitErr, capturedLogTail(managedProc))
+		managedProc.waitErr, detail)
+}
+
+// portCollisionDiagnostics names the sockets holding the instance's ports when
+// its process died of "address already in use" — the one startup failure whose
+// cause has left the process by the time the harness reads the error. Taken
+// the moment the exit is observed, the table usually still shows the occupant
+// (a foreign listener, a lingering client socket, another instance), which a
+// bare EADDRINUSE never does. Empty when the failure is something else or the
+// platform has no /proc.
+func portCollisionDiagnostics(instance *MusterInstance, mp *managedProcess) string {
+	if mp == nil || mp.logCapture == nil {
+		return ""
+	}
+	logs := mp.logCapture.getLogs()
+	if !strings.Contains(logs.Stderr+logs.Stdout, "address already in use") {
+		return ""
+	}
+	occupants := describePortOccupants(instance.Port, instance.MetricsPort)
+	if occupants == "" {
+		occupants = "(no socket on these ports is visible any more)\n"
+	}
+	return fmt.Sprintf("\n--- sockets on the instance's ports %d and %d at failure ---\n%s",
+		instance.Port, instance.MetricsPort, strings.TrimRight(occupants, "\n"))
 }
 
 // findAvailablePort finds an available port starting from the base port with atomic reservation
