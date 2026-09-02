@@ -3,6 +3,7 @@ package filesystem
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -48,8 +49,68 @@ func TestUpdateMCPServerStatus_DoesNotResurrectDeleted(t *testing.T) {
 	if err := c.UpdateMCPServerStatus(ctx, stale); !errors.IsNotFound(err) {
 		t.Fatalf("expected NotFound from status update after delete, got %v", err)
 	}
-	if _, err := os.Stat(mcpServerMeta.filePath(c.basePath, "doomed")); !os.IsNotExist(err) {
+	doomedPath, err := mcpServerMeta.filePath(c.basePath, "doomed")
+	if err != nil {
+		t.Fatalf("filePath: %v", err)
+	}
+	if _, err := os.Stat(doomedPath); !os.IsNotExist(err) {
 		t.Fatal("status update resurrected the deleted definition file")
+	}
+}
+
+// TestCreateMCPServer_RejectsPathTraversal pins the fix for the filesystem
+// path-traversal hole: a caller-controlled name that escapes the config dir
+// must be rejected before any file is written.
+//
+// The traversal targets point at a sibling t.TempDir() rather than /tmp or
+// /etc, so a regression stays inside the directories this test owns, and each
+// case asserts os.Stat on the exact path the name would resolve to — scanning
+// the base dir cannot see a file that landed outside it.
+func TestCreateMCPServer_RejectsPathTraversal(t *testing.T) {
+	ctx := context.Background()
+	base := t.TempDir()
+	outside := t.TempDir() // sibling of base, under the same parent
+	c := New(base)
+
+	names := []string{
+		// base/mcpservers/../../<sibling>/escaped.yaml resolves into outside.
+		"../../" + filepath.Base(outside) + "/escaped",
+		// More ".." segments than there are directories: filepath.Join clamps
+		// at the root, then the absolute sibling path lands in outside.
+		"../../../../../../../.." + outside + "/deep-escape",
+		// Absolute name: joined relative to the store dir today, but a
+		// regression that trusts it writes straight into outside.
+		filepath.Join(outside, "absolute-evil"),
+		"foo/bar",
+		"..",
+		".",
+		// Not traversal, but the same choke point: a newline forges a record in
+		// the line-oriented legacy events.log. Deliberately carries no
+		// separator, so it can only be rejected by the control-character rule.
+		"x\nforged",
+	}
+
+	for _, name := range names {
+		t.Run(name, func(t *testing.T) {
+			if err := c.CreateMCPServer(ctx, newTestServer(name)); err == nil {
+				t.Fatalf("expected create to reject name %q, got nil error", name)
+			}
+			// The path filePath would have produced for this name — inside the
+			// store dir for the harmless cases, outside it for the escapes.
+			target := filepath.Join(base, "mcpservers", name+".yaml")
+			if _, err := os.Stat(target); !os.IsNotExist(err) {
+				t.Fatalf("name %q wrote a file at %s (stat error: %v)", name, target, err)
+			}
+		})
+	}
+
+	// Belt and braces: the sibling directory must still be empty.
+	entries, err := os.ReadDir(outside)
+	if err != nil {
+		t.Fatalf("read sibling dir: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("traversal escaped into sibling dir: %v", entries)
 	}
 }
 

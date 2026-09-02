@@ -512,6 +512,16 @@ func (a *Adapter) ValidateWorkflowFromStructured(args map[string]interface{}) er
 		})
 		return err
 	}
+	// Path safety is enforced again in the filesystem store, but reporting it
+	// here keeps workflow_validate in agreement with create/update instead of
+	// calling a name like "../../evil" valid and then failing the create.
+	if err := api.ValidateResourceName(wf.Name); err != nil {
+		a.generateCRDEvent("", events.ReasonWorkflowValidationFailed, events.EventData{
+			Error:     err.Error(),
+			Operation: opValidate,
+		})
+		return err
+	}
 	if len(wf.Steps) == 0 {
 		err := fmt.Errorf("workflow must have at least one step")
 		a.generateCRDEvent(wf.Name, events.ReasonWorkflowValidationFailed, events.EventData{

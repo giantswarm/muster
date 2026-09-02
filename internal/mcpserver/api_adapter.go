@@ -1065,6 +1065,15 @@ func (a *Adapter) validateMCPServer(server *musterv1alpha1.MCPServer) error {
 		return fmt.Errorf("name is required")
 	}
 
+	// Path safety is enforced again in the filesystem store, but reporting it
+	// here keeps mcpserver_validate in agreement with create/update: without
+	// it, validate calls "../../evil" a valid definition and the create that
+	// follows fails. Character policy beyond path safety stays with Kubernetes
+	// admission.
+	if err := api.ValidateResourceName(server.Name); err != nil {
+		return err
+	}
+
 	if server.Spec.Type == "" {
 		return fmt.Errorf("type is required")
 	}

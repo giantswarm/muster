@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
@@ -114,6 +115,104 @@ func RegisterAuthHandler(h AuthHandler) {
 	handlerMutex.Lock()
 	defer handlerMutex.Unlock()
 	authHandler = h
+}
+
+// SwapAuthHandler atomically installs h and returns the handler it displaced.
+//
+// This is the primitive tests should use to isolate themselves from the
+// process-global registry. RegisterAuthHandler(nil) clobbers rather than
+// restores: a test that resets to nil destroys whatever the enclosing test or
+// package had registered. Capture the previous value instead:
+//
+//	prev := api.SwapAuthHandler(mock)
+//	t.Cleanup(func() { api.SwapAuthHandler(prev) })
+//
+// Args:
+//   - h: AuthHandler to install; nil clears the registration
+//
+// Returns:
+//   - AuthHandler: the handler that was registered before this call, or nil
+//
+// Thread-safe: Yes, protected by handlerMutex.
+func SwapAuthHandler(h AuthHandler) AuthHandler {
+	handlerMutex.Lock()
+	defer handlerMutex.Unlock()
+	prev := authHandler
+	authHandler = h
+	return prev
+}
+
+// UnregisterAuthHandler clears the registration if and only if h is the
+// currently registered handler, and reports whether it did.
+//
+// The compare and the clear happen under one write lock. A plain
+// GetAuthHandler-then-RegisterAuthHandler(nil) pair would be two separate
+// acquisitions, letting a concurrent registration slip in between and be
+// erased by a handler that is no longer current.
+//
+// Args:
+//   - h: the handler expected to be registered
+//
+// Returns:
+//   - bool: true if h was registered and the registration was cleared
+//
+// Thread-safe: Yes, protected by handlerMutex.
+func UnregisterAuthHandler(h AuthHandler) bool {
+	handlerMutex.Lock()
+	defer handlerMutex.Unlock()
+	if authHandler != h {
+		return false
+	}
+	authHandler = nil
+	return true
+}
+
+// GetOrRegisterAuthHandler returns the registered auth handler, constructing
+// and registering one via newHandler if none is present yet.
+//
+// The check, the construction, and the publish all happen under a single write
+// lock, so concurrent callers run newHandler exactly once and every caller
+// observes the same handler. Spelling this as separate GetAuthHandler /
+// RegisterAuthHandler calls leaves the composite operation racy even though
+// each individual call is synchronized: racing callers each build their own
+// handler, the last publish wins, and the losers are orphaned without Close().
+//
+// IMPORTANT: newHandler runs while handlerMutex is held, so it must not do
+// anything that takes that mutex again -- sync.RWMutex is not reentrant, so
+// the call self-deadlocks. That rules out api.GetXxx/RegisterXxx for the
+// registries handlerMutex covers (this file, handlers.go and metatools.go --
+// the oauth and secret-credentials registries have their own mutexes and are
+// safe), and, less obviously, closing the handler on a late error: an
+// AuthHandler whose Close unregisters itself, as cli.AuthAdapter's does, takes
+// handlerMutex to do it. Construct in the factory and nothing else; return the
+// error and let the caller decide.
+//
+// Args:
+//   - newHandler: factory invoked only when no handler is registered
+//
+// Returns:
+//   - AuthHandler: the registered handler, never nil on success
+//   - error: the factory's error, or an error if the factory returned nil
+//
+// Thread-safe: Yes, protected by handlerMutex.
+func GetOrRegisterAuthHandler(newHandler func() (AuthHandler, error)) (AuthHandler, error) {
+	handlerMutex.Lock()
+	defer handlerMutex.Unlock()
+
+	if authHandler != nil {
+		return authHandler, nil
+	}
+
+	h, err := newHandler()
+	if err != nil {
+		return nil, err
+	}
+	if h == nil {
+		return nil, errors.New("auth handler factory returned nil")
+	}
+
+	authHandler = h
+	return h, nil
 }
 
 // GetAuthHandler returns the registered auth handler.

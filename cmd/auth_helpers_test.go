@@ -3,6 +3,7 @@ package cmd
 import (
 	"testing"
 
+	"github.com/giantswarm/muster/internal/api"
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -174,6 +175,11 @@ func TestHasSSOPending(t *testing.T) {
 }
 
 func TestEnsureAuthHandler(t *testing.T) {
+	// ensureAuthHandler publishes into the process-global registry, so put back
+	// whatever was there for anything that runs after this.
+	prev := api.SwapAuthHandler(nil)
+	t.Cleanup(func() { api.SwapAuthHandler(prev) })
+
 	// Test that ensureAuthHandler creates a handler when none exists
 	// This is an integration test that will attempt to create a real handler
 	t.Run("creates handler when none exists", func(t *testing.T) {
