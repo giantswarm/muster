@@ -14,6 +14,7 @@ import (
 
 	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
 
+	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/pkg/logging"
 )
 
@@ -28,8 +29,15 @@ func (m resourceMeta) dirPath(basePath string) string {
 	return filepath.Join(basePath, m.dir)
 }
 
-func (m resourceMeta) filePath(basePath, name string) string {
-	return filepath.Join(basePath, m.dir, name+".yaml")
+func (m resourceMeta) filePath(basePath, name string) (string, error) {
+	// api.ValidateResourceName is the single choke point for caller-supplied
+	// entity names: filepath.Join collapses ".." segments, so an unchecked name
+	// like "../../evil" would read and write *.yaml files outside the config
+	// directory.
+	if err := api.ValidateResourceName(name); err != nil {
+		return "", err
+	}
+	return filepath.Join(basePath, m.dir, name+".yaml"), nil
 }
 
 var (
@@ -46,7 +54,10 @@ var (
 // getResource reads a YAML file into obj. Caller allocates obj (matches the
 // controller-runtime client.Get convention).
 func (f *Client) getResource(name string, obj client.Object, m resourceMeta) error {
-	filePath := m.filePath(f.basePath, name)
+	filePath, err := m.filePath(f.basePath, name)
+	if err != nil {
+		return err
+	}
 
 	data, err := os.ReadFile(filePath) //nolint:gosec
 	if err != nil {
@@ -110,7 +121,10 @@ func (f *Client) writeResourceLocked(obj client.Object, m resourceMeta) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal %s %s: %w", m.gr.Resource, obj.GetName(), err)
 	}
-	filePath := m.filePath(f.basePath, obj.GetName())
+	filePath, err := m.filePath(f.basePath, obj.GetName())
+	if err != nil {
+		return err
+	}
 	if err := atomicWriteFile(filePath, data, 0644); err != nil {
 		return fmt.Errorf("failed to write %s file %s: %w", m.gr.Resource, filePath, err)
 	}
@@ -123,7 +137,10 @@ func (f *Client) createResource(obj client.Object, m resourceMeta) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	filePath := m.filePath(f.basePath, obj.GetName())
+	filePath, err := m.filePath(f.basePath, obj.GetName())
+	if err != nil {
+		return err
+	}
 	if _, err := os.Stat(filePath); err == nil {
 		return errors.NewAlreadyExists(m.gr, obj.GetName())
 	}
@@ -142,7 +159,10 @@ func (f *Client) updateResource(obj client.Object, m resourceMeta) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	filePath := m.filePath(f.basePath, obj.GetName())
+	filePath, err := m.filePath(f.basePath, obj.GetName())
+	if err != nil {
+		return err
+	}
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		return errors.NewNotFound(m.gr, obj.GetName())
 	}
@@ -189,7 +209,10 @@ func (f *Client) deleteResource(name string, m resourceMeta) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	filePath := m.filePath(f.basePath, name)
+	filePath, err := m.filePath(f.basePath, name)
+	if err != nil {
+		return err
+	}
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		return errors.NewNotFound(m.gr, name)
 	}
