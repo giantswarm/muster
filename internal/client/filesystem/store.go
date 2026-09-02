@@ -10,7 +10,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 
@@ -30,19 +29,27 @@ func (m resourceMeta) dirPath(basePath string) string {
 	return filepath.Join(basePath, m.dir)
 }
 
-// validateResourceName rejects names that are not safe to turn into a file path.
-// In Kubernetes mode the API server enforces DNS-1123 on metadata.name; the
-// filesystem store is the exposed, unvalidated path, so it must enforce the same
-// constraint before joining the name into a path. DNS-1123 already forbids "/",
-// "\" and empty segments, which closes the path-traversal hole (a name like
-// "../../evil" or "/etc/x" is rejected); the explicit Base check is defense in
-// depth in case the character rule is ever loosened.
+// validateResourceName rejects names that would escape the resource directory
+// when joined into a file path. The name comes straight from a caller-controlled
+// tool argument, and filepath.Join collapses ".." segments, so without this a
+// name like "../../evil" or "/etc/x" writes and reads arbitrary *.yaml files
+// outside the config directory. The name must be a single path segment: no path
+// separators, no null byte, and not a "." / ".." reference. Character policy
+// beyond path safety (e.g. DNS-1123) is intentionally left to the higher layers
+// and to Kubernetes admission; filesystem mode accepts names such as
+// "special-chars-workflow_123" that Kubernetes would reject.
 func validateResourceName(name string) error {
-	if errs := validation.IsDNS1123Subdomain(name); len(errs) > 0 {
-		return fmt.Errorf("invalid name %q: must be a valid DNS-1123 subdomain: %s", name, strings.Join(errs, "; "))
+	if name == "" {
+		return fmt.Errorf("invalid name: must not be empty")
+	}
+	if name == "." || name == ".." {
+		return fmt.Errorf("invalid name %q: must not be a path reference", name)
+	}
+	if strings.ContainsAny(name, `/\`+"\x00") {
+		return fmt.Errorf("invalid name %q: must not contain path separators or null bytes", name)
 	}
 	if filepath.Base(name) != name {
-		return fmt.Errorf("invalid name %q: must not contain path separators", name)
+		return fmt.Errorf("invalid name %q: must be a single path segment", name)
 	}
 	return nil
 }

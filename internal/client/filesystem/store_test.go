@@ -72,7 +72,7 @@ func TestCreateMCPServer_RejectsPathTraversal(t *testing.T) {
 		"/etc/muster-evil",
 		"foo/bar",
 		"..",
-		"UpperCase",
+		".",
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err := c.CreateMCPServer(ctx, newTestServer(name)); err == nil {
@@ -92,13 +92,16 @@ func TestCreateMCPServer_RejectsPathTraversal(t *testing.T) {
 }
 
 func TestValidateResourceName(t *testing.T) {
-	valid := []string{"foo", "foo-bar", "foo.bar", "a1b2", "x"}
+	// Path-safe names are accepted, including characters (underscore, uppercase,
+	// spaces) that Kubernetes admission would reject — filesystem mode only
+	// guards against directory escape, not DNS-1123 conformance.
+	valid := []string{"foo", "foo-bar", "foo.bar", "a1b2", "x", "special-chars-workflow_123", "Foo", "foo bar", "..foo"}
 	for _, name := range valid {
 		if err := validateResourceName(name); err != nil {
 			t.Errorf("expected %q to be valid, got: %v", name, err)
 		}
 	}
-	invalid := []string{"", "../evil", "a/b", "a\\b", "..", ".", "Foo", "foo_bar", "foo bar"}
+	invalid := []string{"", "../evil", "a/b", "a\\b", "..", ".", "/etc/passwd", "foo/", "a\x00b"}
 	for _, name := range invalid {
 		if err := validateResourceName(name); err == nil {
 			t.Errorf("expected %q to be rejected", name)
