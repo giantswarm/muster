@@ -41,6 +41,7 @@ func ensureAuthHandler() (api.AuthHandler, error) {
 }
 
 // ensureAuthHandlerWithOptions ensures an auth handler with options is registered and returns it.
+// On success the handler is never nil, so callers only need to check the error.
 func ensureAuthHandlerWithOptions(opts AuthHandlerOptions) (api.AuthHandler, error) {
 	// Get-or-create in one atomic step. Doing this as GetAuthHandler, then
 	// construct, then Register, then GetAuthHandler again leaves the composite

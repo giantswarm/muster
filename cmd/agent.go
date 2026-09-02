@@ -223,9 +223,6 @@ func setupAgentAuthentication(ctx context.Context, client *agent.Client, logger 
 		logger.Info("Warning: Could not initialize auth adapter: %v", err)
 		return nil
 	}
-	if handler == nil {
-		return nil
-	}
 
 	// Set up mcp-go OAuth transport
 	oauthCfg, agentStore, err := oauth.SetupOAuthConfig(endpoint)
