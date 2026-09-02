@@ -352,17 +352,22 @@ func (e *ToolExecutor) connectWithAuthHandling(ctx context.Context) error {
 // the OAuth config on the client. The transport automatically injects bearer tokens
 // and returns typed errors on 401.
 func (e *ToolExecutor) setupAuthentication(ctx context.Context) error {
-	authHandler := api.GetAuthHandler()
-	if authHandler == nil {
+	// Get-or-create in one step. Spelling this as GetAuthHandler, construct,
+	// Register, GetAuthHandler again leaves the composite racy even though each
+	// call is individually synchronized: concurrent callers each build and
+	// publish an adapter, and every loser is orphaned without Close(). The
+	// handler itself is unused here -- registering it is what the OAuth
+	// transport set up below depends on.
+	if _, err := api.GetOrRegisterAuthHandler(func() (api.AuthHandler, error) {
 		adapter, err := NewAuthAdapter()
 		if err != nil {
-			return nil
+			return nil, err
 		}
-		adapter.Register()
-		authHandler = api.GetAuthHandler()
-		if authHandler == nil {
-			return nil
-		}
+		return adapter, nil
+	}); err != nil {
+		slog.Debug("Could not initialize auth adapter, proceeding without it",
+			"endpoint", e.endpoint, "error", err)
+		return nil
 	}
 
 	oauthCfg, agentStore, err := agentoauth.SetupOAuthConfig(e.endpoint)

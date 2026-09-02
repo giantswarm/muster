@@ -10,7 +10,6 @@ import (
 
 	"github.com/giantswarm/muster/internal/agent"
 	"github.com/giantswarm/muster/internal/agent/oauth"
-	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/cli"
 	"github.com/giantswarm/muster/internal/config"
 
@@ -19,10 +18,16 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const (
-	// DefaultOAuthCallbackPort is the port used for OAuth callback during authentication.
-	DefaultOAuthCallbackPort = 3000
-)
+// agentCallbackPort returns the OAuth callback port for the agent's auth flows.
+//
+// It delegates to cli.GetCallbackPort so the agent honors MUSTER_OAUTH_CALLBACK_PORT
+// exactly as `muster auth login` does. This previously hardcoded its own constant,
+// so with port 3000 occupied, setting the env var fixed `muster auth login` while
+// `muster agent --mcp-server` still bound 3000 -- and the port-in-use message
+// interpolated the env-derived port, naming a port the failing code never used.
+func agentCallbackPort() int {
+	return cli.GetCallbackPort()
+}
 
 var (
 	agentEndpoint       string
@@ -207,20 +212,15 @@ func setupAgentAuthentication(ctx context.Context, client *agent.Client, logger 
 		return nil
 	}
 
-	handler := api.GetAuthHandler()
-	if handler == nil {
-		adapter, err := cli.NewAuthAdapterWithConfig(cli.AuthAdapterConfig{
-			NoSilentRefresh: !agentSilentAuth,
-		})
-		if err != nil {
-			logger.Info("Warning: Could not initialize auth adapter: %v", err)
-			return nil
-		}
-		adapter.Register()
-		handler = api.GetAuthHandler()
-	}
-
-	if handler == nil {
+	// Share the get-or-create with the auth commands rather than keeping a
+	// second copy of the same factory here. Nothing else registers an auth
+	// handler in the agent process, so this call is the one that builds the
+	// adapter and --silent reaches it through opts.
+	handler, err := ensureAuthHandlerWithOptions(AuthHandlerOptions{
+		NoSilentRefresh: !agentSilentAuth,
+	})
+	if err != nil {
+		logger.Info("Warning: Could not initialize auth adapter: %v", err)
 		return nil
 	}
 
@@ -278,20 +278,15 @@ func setupAgentAuthentication(ctx context.Context, client *agent.Client, logger 
 // exposing only the authenticate_muster tool, then upgrades to the full server
 // after authentication completes.
 func runMCPServerWithOAuth(ctx context.Context, client *agent.Client, logger *agent.Logger, endpoint string, transport agent.TransportType) error {
-	// Create an AuthAdapter for OAuth support.
-	adapter, err := cli.NewAuthAdapterWithConfig(cli.AuthAdapterConfig{
-		NoSilentRefresh: !agentSilentAuth,
-	})
-	if err != nil {
-		logger.Debug("Could not initialize auth adapter: %v", err)
-	} else {
-		defer func() { _ = adapter.Close() }()
-		adapter.Register()
-	}
+	// No AuthAdapter is registered here. Nothing on this path reads
+	// api.GetAuthHandler() -- only internal/cli's ToolExecutor and the REPL do,
+	// and neither runs in --mcp-server mode -- so registering one would
+	// overwrite the process-global registry, and clear it again on the way out,
+	// for no reader. The OAuth flow below drives the AuthManager directly.
 
 	// First, check if the server requires authentication
 	authManager, err := oauth.NewAuthManager(oauth.AuthManagerConfig{
-		CallbackPort: DefaultOAuthCallbackPort,
+		CallbackPort: agentCallbackPort(),
 		FileMode:     true, // Persist tokens to filesystem
 	})
 	if err != nil {

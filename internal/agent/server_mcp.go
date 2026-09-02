@@ -192,7 +192,7 @@ func (m *MCPServer) handleTokenExpiredError(ctx context.Context, originalErr err
 			"Authentication token expired but could not start the OAuth flow.\n\n"+
 				"Error: %v\n\n"+
 				"This might happen if:\n"+
-				"  - Port 3000 is already in use (OAuth callback port)\n"+
+				"  - The OAuth callback port is already in use\n"+
 				"  - The authorization server is not reachable\n\n"+
 				"Try: restart the muster agent in Cursor (Cmd/Ctrl+Shift+P -> 'Reload Window').",
 			err,
