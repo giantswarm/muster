@@ -212,10 +212,10 @@ func setupAgentAuthentication(ctx context.Context, client *agent.Client, logger 
 		return nil
 	}
 
-	// Share the get-or-create with the auth commands. Duplicating the factory
-	// here would also duplicate the part that applies the caller's option to an
-	// already-registered adapter, and dropping it silently discarded --silent
-	// whenever some other caller had registered first.
+	// Share the get-or-create with the auth commands rather than keeping a
+	// second copy of the same factory here. Nothing else registers an auth
+	// handler in the agent process, so this call is the one that builds the
+	// adapter and --silent reaches it through opts.
 	handler, err := ensureAuthHandlerWithOptions(AuthHandlerOptions{
 		NoSilentRefresh: !agentSilentAuth,
 	})

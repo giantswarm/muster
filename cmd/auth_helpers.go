@@ -42,6 +42,14 @@ func ensureAuthHandler() (api.AuthHandler, error) {
 
 // ensureAuthHandlerWithOptions ensures an auth handler with options is registered and returns it.
 // On success the handler is never nil, so callers only need to check the error.
+//
+// noSilentRefresh lives on the shared adapter rather than on the Login call, so
+// applying opts here is last-writer-wins across callers, and no lock would fix
+// that: ordering the writes does not bind a write to its own caller's later
+// Login(). Only passing the option through Login() would make it per-caller.
+// This is tolerable because no muster command registers more than once -- so no
+// caller observes another's value -- and every command that logs in is a
+// short-lived process.
 func ensureAuthHandlerWithOptions(opts AuthHandlerOptions) (api.AuthHandler, error) {
 	// Get-or-create in one atomic step. Doing this as GetAuthHandler, then
 	// construct, then Register, then GetAuthHandler again leaves the composite
@@ -62,8 +70,8 @@ func ensureAuthHandlerWithOptions(opts AuthHandlerOptions) (api.AuthHandler, err
 	}
 
 	// Apply this caller's option to whichever adapter is now registered, whether
-	// we built it or found it. Returning without this would silently discard the
-	// caller's setting when another caller had already registered an adapter.
+	// we built it or found it. On the build path the factory has already set the
+	// same value, so this only matters when an adapter was already registered.
 	if adapter, ok := handler.(*cli.AuthAdapter); ok {
 		adapter.SetNoSilentRefresh(opts.NoSilentRefresh)
 	}
