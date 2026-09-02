@@ -48,8 +48,61 @@ func TestUpdateMCPServerStatus_DoesNotResurrectDeleted(t *testing.T) {
 	if err := c.UpdateMCPServerStatus(ctx, stale); !errors.IsNotFound(err) {
 		t.Fatalf("expected NotFound from status update after delete, got %v", err)
 	}
-	if _, err := os.Stat(mcpServerMeta.filePath(c.basePath, "doomed")); !os.IsNotExist(err) {
+	doomedPath, err := mcpServerMeta.filePath(c.basePath, "doomed")
+	if err != nil {
+		t.Fatalf("filePath: %v", err)
+	}
+	if _, err := os.Stat(doomedPath); !os.IsNotExist(err) {
 		t.Fatal("status update resurrected the deleted definition file")
+	}
+}
+
+// TestCreateMCPServer_RejectsPathTraversal pins the fix for the filesystem
+// path-traversal hole: a caller-controlled name that escapes the config dir
+// must be rejected before any file is written, and nothing may land outside
+// the store's directory.
+func TestCreateMCPServer_RejectsPathTraversal(t *testing.T) {
+	ctx := context.Background()
+	base := t.TempDir()
+	c := New(base)
+
+	for _, name := range []string{
+		"../../escaped",
+		"../../../../../../tmp/muster-traversal-poc",
+		"/etc/muster-evil",
+		"foo/bar",
+		"..",
+		"UpperCase",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := c.CreateMCPServer(ctx, newTestServer(name)); err == nil {
+				t.Fatalf("expected create to reject name %q, got nil error", name)
+			}
+		})
+	}
+
+	// Nothing should have been written outside the mcpservers directory.
+	if entries, err := os.ReadDir(base); err == nil {
+		for _, e := range entries {
+			if e.Name() != "mcpservers" {
+				t.Fatalf("unexpected entry written to base dir: %q", e.Name())
+			}
+		}
+	}
+}
+
+func TestValidateResourceName(t *testing.T) {
+	valid := []string{"foo", "foo-bar", "foo.bar", "a1b2", "x"}
+	for _, name := range valid {
+		if err := validateResourceName(name); err != nil {
+			t.Errorf("expected %q to be valid, got: %v", name, err)
+		}
+	}
+	invalid := []string{"", "../evil", "a/b", "a\\b", "..", ".", "Foo", "foo_bar", "foo bar"}
+	for _, name := range invalid {
+		if err := validateResourceName(name); err == nil {
+			t.Errorf("expected %q to be rejected", name)
+		}
 	}
 }
 
