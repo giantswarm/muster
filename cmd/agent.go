@@ -278,16 +278,11 @@ func setupAgentAuthentication(ctx context.Context, client *agent.Client, logger 
 // exposing only the authenticate_muster tool, then upgrades to the full server
 // after authentication completes.
 func runMCPServerWithOAuth(ctx context.Context, client *agent.Client, logger *agent.Logger, endpoint string, transport agent.TransportType) error {
-	// Create an AuthAdapter for OAuth support.
-	adapter, err := cli.NewAuthAdapterWithConfig(cli.AuthAdapterConfig{
-		NoSilentRefresh: !agentSilentAuth,
-	})
-	if err != nil {
-		logger.Debug("Could not initialize auth adapter: %v", err)
-	} else {
-		defer func() { _ = adapter.Close() }()
-		adapter.Register()
-	}
+	// No AuthAdapter is registered here. Nothing on this path reads
+	// api.GetAuthHandler() -- only internal/cli's ToolExecutor and the REPL do,
+	// and neither runs in --mcp-server mode -- so registering one only clobbered
+	// whatever was in the global registry and cleared it again on the way out.
+	// The OAuth flow below drives the AuthManager directly.
 
 	// First, check if the server requires authentication
 	authManager, err := oauth.NewAuthManager(oauth.AuthManagerConfig{
