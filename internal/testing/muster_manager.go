@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -162,7 +163,6 @@ const defaultReadinessTimeout = 15 * time.Second
 type musterInstanceManager struct {
 	debug            bool
 	basePort         int
-	portOffset       int
 	tempDir          string
 	processes        map[string]*managedProcess // Track processes by instance ID
 	mu               sync.RWMutex
@@ -181,13 +181,30 @@ type musterInstanceManager struct {
 	// would otherwise make muster serve fail to bind. Protected by portMu.
 	reservedListeners map[int]net.Listener
 
+	// reservedGuards holds, for every reserved port, a second listener bound to
+	// portGuardHost:<port> for the whole lifetime of the reservation — across
+	// the exec window that closing the probe listener opens, and until
+	// releasePort. Linux bind-conflict rules make that guard reject every
+	// wildcard bind on the port, which is exactly what the kernel's ephemeral
+	// port search performs for net.Listen(":0") and connect(), while a bind to
+	// the distinct address 127.0.0.1:<port> — the one muster serve uses for
+	// both its aggregator and its Prometheus exporter — still succeeds. It also
+	// keeps a second harness on the same base port from reserving the port.
+	// Empty when portGuards is false. Protected by portMu.
+	reservedGuards map[int]net.Listener
+
+	// portGuards reports whether guard listeners are in use; see
+	// portGuardsSupported.
+	portGuards bool
+
 	// ephemeralLow/ephemeralHigh describe the OS ephemeral port range. Ports in
 	// this range are preferred-against when allocating instance ports: there is
-	// an unavoidable sub-millisecond window between closing the reserved probe
-	// listener and muster serve binding the port (see startMusterProcess), and
-	// during it a concurrent mock server's net.Listen(":0") can be handed that
-	// exact port by the OS. Allocating muster ports outside the ephemeral range
-	// makes that collision impossible regardless of the configured base port.
+	// an unavoidable window between closing the reserved probe listener and
+	// muster serve binding the port (exec plus process startup, see
+	// startMusterProcess), and during it the OS can hand that exact port to a
+	// concurrent net.Listen(":0") (a mock server) or connect() (any client).
+	// Where guard listeners are unavailable, allocating outside the ephemeral
+	// range is the only defense; with guards it is a cheap extra layer.
 	ephemeralLow  int
 	ephemeralHigh int
 
@@ -231,6 +248,8 @@ func NewMusterInstanceManagerWithConfig(debug bool, basePort int, logger TestLog
 		readinessTimeout:    readinessTimeout,
 		reservedPorts:       make(map[int]string),
 		reservedListeners:   make(map[int]net.Listener),
+		reservedGuards:      make(map[int]net.Listener),
+		portGuards:          portGuardsSupported(),
 		ephemeralLow:        ephemeralLow,
 		ephemeralHigh:       ephemeralHigh,
 		mockHTTPServers:     make(map[string]map[string]*mock.HTTPServer),
@@ -883,14 +902,37 @@ func (m *musterInstanceManager) processExitedError(instance *MusterInstance, man
 	if m.debug {
 		m.showLogs(instance, logger)
 	}
+	detail := capturedLogTail(managedProc) + portCollisionDiagnostics(instance, managedProc)
 	if managedProc.waitErr == nil {
 		// cmd.Wait returned nil: the process exited with code 0 before the
 		// instance became ready. %w on a nil error would render "%!w(<nil>)".
-		return fmt.Errorf("muster instance process exited (code 0) before becoming ready%s",
-			capturedLogTail(managedProc))
+		return fmt.Errorf("muster instance process exited (code 0) before becoming ready%s", detail)
 	}
 	return fmt.Errorf("muster instance process exited before becoming ready: %w%s",
-		managedProc.waitErr, capturedLogTail(managedProc))
+		managedProc.waitErr, detail)
+}
+
+// portCollisionDiagnostics names the sockets holding the instance's ports when
+// its process died of "address already in use" — the one startup failure whose
+// cause has left the process by the time the harness reads the error. Taken
+// the moment the exit is observed, the table usually still shows the occupant
+// (a foreign listener, a lingering client socket, another instance), which a
+// bare EADDRINUSE never does. Empty when the failure is something else or the
+// platform has no /proc.
+func portCollisionDiagnostics(instance *MusterInstance, mp *managedProcess) string {
+	if mp == nil || mp.logCapture == nil {
+		return ""
+	}
+	logs := mp.logCapture.getLogs()
+	if !strings.Contains(logs.Stderr+logs.Stdout, "address already in use") {
+		return ""
+	}
+	occupants := describePortOccupants(instance.Port, instance.MetricsPort)
+	if occupants == "" {
+		occupants = "(no socket on these ports is visible any more)\n"
+	}
+	return fmt.Sprintf("\n--- sockets on the instance's ports %d and %d at failure ---\n%s",
+		instance.Port, instance.MetricsPort, strings.TrimRight(occupants, "\n"))
 }
 
 // findAvailablePort finds an available port starting from the base port with atomic reservation
@@ -907,25 +949,86 @@ func (m *musterInstanceManager) findAvailablePort(instanceID string, logger Test
 	}
 
 	// Fallback: the whole configured window lies inside the ephemeral range, so
-	// no safe port is available. Allocate inside it anyway to preserve behavior,
-	// but warn: ephemeral collisions can cause rare setup flakes. Choosing a
-	// base port below the ephemeral range avoids this entirely.
-	logger.Info("⚠️  base port window [%d, %d] falls inside the OS ephemeral range [%d, %d]; "+
-		"instance ports may rarely be stolen by mock servers. Use a base port below %d to avoid this.\n",
-		m.basePort, m.basePort+99, m.ephemeralLow, m.ephemeralHigh, m.ephemeralLow)
+	// no safe port is available. Allocate inside it anyway to preserve behavior.
+	// Without guard listeners this is a real exposure — ephemeral collisions
+	// cause rare setup flakes — so warn; with guards the overlap is harmless.
+	if !m.portGuards {
+		logger.Info("⚠️  base port window [%d, %d] falls inside the OS ephemeral range [%d, %d]; "+
+			"instance ports may rarely be stolen by mock servers. Use a base port below %d to avoid this.\n",
+			m.basePort, m.basePort+portWindowSize-1, m.ephemeralLow, m.ephemeralHigh, m.ephemeralLow)
+	}
 	if port, ok := m.reservePortLocked(instanceID, logger, false); ok {
 		return port, nil
 	}
 
-	return 0, fmt.Errorf("no available ports found starting from %d (tried 100 ports)", m.basePort)
+	return 0, fmt.Errorf("no available ports found starting from %d (tried %d ports)", m.basePort, portWindowSize)
 }
 
-// reservePortLocked scans up to 100 ports from the current offset and reserves
-// the first available one, returning it. When skipEphemeral is true, ports that
+// portWindowSize is the number of ports, starting at the base port, the
+// allocator scans. --parallel 50 needs exactly 100 (MCP + metrics port per
+// instance). Allocation always takes the lowest free port so the harness's
+// footprint stays compact: every port an instance has used carries its
+// TIME_WAIT sockets for a minute afterwards, and when the window overlaps the
+// OS ephemeral range each such port is one fewer for everyone else's
+// net.Listen(":0").
+const portWindowSize = 100
+
+// portGuardHost is the loopback address guard listeners bind. Any address in
+// 127.0.0.0/8 other than 127.0.0.1 works on Linux without configuration; the
+// point is that it differs from the address muster serve binds so the two
+// listeners never conflict.
+const portGuardHost = "127.0.0.2"
+
+// portGuardsSupported reports whether the harness can hold guard listeners on
+// portGuardHost. Only Linux bind-conflict semantics are known to give a
+// specific-address listener the properties reservedGuards relies on (blocks
+// wildcard binds and the ephemeral port search, coexists with a listener on a
+// different specific address); macOS also lacks the 127.0.0.2 alias. Other
+// platforms keep the probe-only strategy.
+func portGuardsSupported() bool {
+	if runtime.GOOS != "linux" {
+		return false
+	}
+	ln, err := net.Listen("tcp", net.JoinHostPort(portGuardHost, "0"))
+	if err != nil {
+		return false
+	}
+	_ = ln.Close()
+	return true
+}
+
+// PortAllocationBanner describes the port-allocation environment for the run
+// banner: the port window, the OS ephemeral range (its overlap with the window
+// is the precondition for stolen-port flakes) and whether guard listeners are
+// active. One line per run so a CI log carries what "address already in use"
+// diagnostics need.
+func PortAllocationBanner(basePort int) string {
+	low, high := detectEphemeralPortRange()
+	guards := "off"
+	if portGuardsSupported() {
+		guards = "on"
+	}
+	return fmt.Sprintf("port window: [%d, %d], ephemeral range: [%d, %d], port guards: %s",
+		basePort, basePort+portWindowSize-1, low, high, guards)
+}
+
+// probeAddr is the address the availability probe listens on. With guards the
+// probe must bind the exact address muster serve will use (a wildcard probe
+// would collide with the harness's own guard); without guards a wildcard probe
+// catches occupants on any address, as before.
+func (m *musterInstanceManager) probeAddr(port int) string {
+	if m.portGuards {
+		return fmt.Sprintf("127.0.0.1:%d", port)
+	}
+	return fmt.Sprintf(":%d", port)
+}
+
+// reservePortLocked scans the port window from the base port and reserves the
+// lowest available port, returning it. When skipEphemeral is true, ports that
 // fall inside the OS ephemeral range are skipped. Caller must hold portMu.
 func (m *musterInstanceManager) reservePortLocked(instanceID string, logger TestLogger, skipEphemeral bool) (int, bool) {
-	for i := 0; i < 100; i++ { // Try up to 100 ports
-		port := m.basePort + m.portOffset + i
+	for i := 0; i < portWindowSize; i++ {
+		port := m.basePort + i
 
 		// Check if already reserved by another instance
 		if existingInstanceID, reserved := m.reservedPorts[port]; reserved {
@@ -943,22 +1046,44 @@ func (m *musterInstanceManager) reservePortLocked(instanceID string, logger Test
 			continue
 		}
 
-		// Check if port is actually available in general
-		ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+		// Guard first: it fails while a wildcard listener or another harness's
+		// guard owns the port, which covers one of the two ways the port can
+		// be taken.
+		var guard net.Listener
+		if m.portGuards {
+			g, err := net.Listen("tcp", net.JoinHostPort(portGuardHost, strconv.Itoa(port)))
+			if err != nil {
+				if m.debug {
+					logger.Debug("🔍 Port %d not available (guard bind failed): %v\n", port, err)
+				}
+				continue
+			}
+			guard = g
+		}
+
+		// Then probe the address muster serve will bind (see probeAddr); this
+		// catches occupants the guard cannot see, such as a listener or a
+		// lingering client socket on 127.0.0.1:<port>.
+		ln, err := net.Listen("tcp", m.probeAddr(port))
 		if err != nil {
+			if guard != nil {
+				_ = guard.Close()
+			}
 			if m.debug {
 				logger.Debug("🔍 Port %d not available (in use): %v\n", port, err)
 			}
 			continue // Port not available, try next
 		}
 
-		// Keep the listener open (do NOT close here). Closing it now would free
-		// the port at the OS level, letting an ephemeral net.Listen(":0") from a
-		// mock server steal it before muster serve binds. startMusterProcess
-		// closes it immediately before exec to minimize the bind race window.
+		// Keep the probe listener open (do NOT close here). Closing it now would
+		// free the port at the OS level; startMusterProcess closes it right
+		// before exec. The guard stays bound until releasePort and covers the
+		// exec window the probe cannot.
 		m.reservedPorts[port] = instanceID
 		m.reservedListeners[port] = ln
-		m.portOffset = i + 1 // Next search starts from next port
+		if guard != nil {
+			m.reservedGuards[port] = guard
+		}
 
 		if m.debug {
 			logger.Debug("✅ Reserved port %d for instance %s\n", port, instanceID)
@@ -1020,32 +1145,41 @@ func (m *musterInstanceManager) releaseReservedListenerLocked(port int) {
 	}
 }
 
+// releaseReservedGuardLocked closes and removes the guard listener for the
+// given port, making it available to the OS again. Caller must hold portMu.
+func (m *musterInstanceManager) releaseReservedGuardLocked(port int) {
+	if g, ok := m.reservedGuards[port]; ok {
+		_ = g.Close()
+		delete(m.reservedGuards, port)
+	}
+}
+
 // releasePort releases a reserved port back to the available pool
 func (m *musterInstanceManager) releasePort(port int, instanceID string, logger TestLogger) {
 	m.portMu.Lock()
 	defer m.portMu.Unlock()
 
-	// Close any probe listener still held for this port (e.g. when setup failed
-	// before muster serve was started). Idempotent if already closed.
-	m.releaseReservedListenerLocked(port)
-
 	// Check if the port is actually reserved by this instance
 	if existingInstanceID, reserved := m.reservedPorts[port]; reserved {
-		if existingInstanceID == instanceID {
-			delete(m.reservedPorts, port)
-			if m.debug {
-				logger.Debug("🔓 Released port %d from instance %s\n", port, instanceID)
-			}
-		} else {
+		if existingInstanceID != instanceID {
 			if m.debug {
 				logger.Debug("⚠️  Port %d was reserved by different instance %s, not releasing\n", port, existingInstanceID)
 			}
+			return
 		}
-	} else {
+		delete(m.reservedPorts, port)
 		if m.debug {
-			logger.Debug("ℹ️  Port %d was not reserved, nothing to release\n", port)
+			logger.Debug("🔓 Released port %d from instance %s\n", port, instanceID)
 		}
+	} else if m.debug {
+		logger.Debug("ℹ️  Port %d was not reserved, nothing to release\n", port)
 	}
+
+	// Close any probe listener still held for this port (e.g. when setup failed
+	// before muster serve was started) and the guard that protected the port
+	// for the instance's lifetime. Both idempotent if already closed.
+	m.releaseReservedListenerLocked(port)
+	m.releaseReservedGuardLocked(port)
 }
 
 // startMusterProcess starts an muster serve process.
@@ -1132,10 +1266,11 @@ func (m *musterInstanceManager) startMusterProcess(ctx context.Context, configPa
 	cmd.Stdout = logCapture.stdoutWriter
 	cmd.Stderr = logCapture.stderrWriter
 
-	// Release the OS-level port reservation just before exec: the held listener
-	// kept ephemeral listeners from stealing the port during setup, and now
-	// muster serve binds it immediately, leaving only a process-startup-sized
-	// race window.
+	// Release the probe listeners just before exec: they kept the ports from
+	// being taken during setup, and muster serve binds both early in startup.
+	// The guard listeners (reservedGuards) stay bound, so on Linux the exec
+	// window is closed to ephemeral allocations too; elsewhere it remains a
+	// process-startup-sized race window.
 	m.closeReservedListener(port)
 	m.closeReservedListener(metricsPort)
 

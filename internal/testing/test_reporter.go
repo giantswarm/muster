@@ -50,6 +50,10 @@ func (r *testReporter) ReportStart(config TestConfiguration) {
 	// worth one line in every CI log.
 	fmt.Printf("🏗️  Using managed muster instances (base port: %d, GOMAXPROCS: %d, NumCPU: %d)\n",
 		config.BasePort, runtime.GOMAXPROCS(0), runtime.NumCPU())
+	// The ephemeral range vs the port window is the precondition for stolen
+	// instance ports ("address already in use" at startup); the guard state
+	// says whether the harness is immune to it on this platform.
+	fmt.Printf("🔌 Port allocation: %s\n", PortAllocationBanner(config.BasePort))
 
 	if r.verbose {
 		fmt.Printf("\n⚙️  Configuration:\n")

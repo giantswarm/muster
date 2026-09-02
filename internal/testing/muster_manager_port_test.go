@@ -52,14 +52,137 @@ func TestFindAvailablePort_HoldsListenerUntilClosed(t *testing.T) {
 	}
 
 	// After releasing the reservation listener (as startMusterProcess does just
-	// before exec), the port becomes available for muster serve to bind.
+	// before exec), the port becomes available for muster serve to bind on the
+	// address it uses. (A wildcard bind stays blocked by the guard listener on
+	// Linux — see TestPortGuard_ProtectsPortThroughExecWindow.)
 	m.closeReservedListener(port)
 
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if err != nil {
 		t.Fatalf("port %d not bindable after closeReservedListener: %v", port, err)
 	}
 	_ = ln.Close()
+	m.releasePort(port, "inst-hold", m.logger)
+}
+
+// TestPortGuard_ProtectsPortThroughExecWindow is the regression guard for the
+// stolen-port startup failures ("listen tcp 127.0.0.1:<port>: bind: address
+// already in use" from muster serve, CircleCI go-build job 23692): between the
+// probe listener closing for exec and muster serve binding, the kernel's
+// ephemeral port search — what net.Listen(":0") in a mock server and any
+// connect() perform — could hand the port out. The guard listener must keep
+// every wildcard bind on the port failing through that window and until the
+// reservation is released, while muster serve's own 127.0.0.1 bind succeeds,
+// and it must keep a second harness on the same base port from taking it.
+func TestPortGuard_ProtectsPortThroughExecWindow(t *testing.T) {
+	m := newPortTestManager(t, 18800)
+	if !m.portGuards {
+		t.Skip("port guards are only supported on Linux")
+	}
+
+	port, err := m.findAvailablePort("inst-guard", m.logger)
+	if err != nil {
+		t.Fatalf("findAvailablePort failed: %v", err)
+	}
+	if _, ok := m.reservedGuards[port]; !ok {
+		t.Fatalf("no guard listener held for reserved port %d", port)
+	}
+
+	// The exec point: the probe is gone, only the guard protects the port.
+	m.closeReservedListener(port)
+
+	// What an ephemeral steal looks like at the socket level: a wildcard bind on
+	// the port. It must be rejected while the instance owns the port.
+	if ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port)); err == nil {
+		_ = ln.Close()
+		t.Fatalf("wildcard bind on port %d succeeded during the exec window; the guard did not hold", port)
+	}
+
+	// A second harness process sharing the base port must not be handed it.
+	other := newPortTestManager(t, 18800)
+	otherPort, err := other.findAvailablePort("other-harness", other.logger)
+	if err != nil {
+		t.Fatalf("second manager could not reserve any port: %v", err)
+	}
+	if otherPort == port {
+		t.Fatalf("second manager was handed port %d while the first still owns it", port)
+	}
+	other.releasePort(otherPort, "other-harness", other.logger)
+
+	// muster serve binds 127.0.0.1:<port> for its aggregator and its Prometheus
+	// exporter; that bind must succeed despite the guard.
+	inst, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	if err != nil {
+		t.Fatalf("instance bind on 127.0.0.1:%d failed while guarded: %v", port, err)
+	}
+	_ = inst.Close()
+
+	// Releasing the reservation drops the guard and returns the port to the OS.
+	m.releasePort(port, "inst-guard", m.logger)
+	if _, ok := m.reservedGuards[port]; ok {
+		t.Fatalf("guard listener for port %d still held after releasePort", port)
+	}
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		t.Fatalf("port %d not bindable after releasePort: %v", port, err)
+	}
+	_ = ln.Close()
+}
+
+// TestFindAvailablePort_SkipsOccupiedInstanceAddress verifies the probe checks
+// the address muster serve actually binds: a foreign listener on
+// 127.0.0.1:<base> must make the allocator move on rather than hand out a port
+// the instance cannot bind.
+func TestFindAvailablePort_SkipsOccupiedInstanceAddress(t *testing.T) {
+	m := newPortTestManager(t, 18900)
+
+	occupant, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", m.basePort))
+	if err != nil {
+		t.Fatalf("could not occupy 127.0.0.1:%d: %v", m.basePort, err)
+	}
+	defer func() { _ = occupant.Close() }()
+
+	port, err := m.findAvailablePort("inst-skip", m.logger)
+	if err != nil {
+		t.Fatalf("findAvailablePort failed: %v", err)
+	}
+	if port == m.basePort {
+		t.Fatalf("allocator handed out occupied port %d", port)
+	}
+	m.releasePort(port, "inst-skip", m.logger)
+}
+
+// TestFindAvailablePort_TakesLowestFreePort documents the allocation order:
+// the lowest free port in the window wins, so a released port is handed to the
+// next instance and the harness's footprint stays compact (see portWindowSize).
+func TestFindAvailablePort_TakesLowestFreePort(t *testing.T) {
+	m := newPortTestManager(t, 19000)
+
+	first, err := m.findAvailablePort("inst-a", m.logger)
+	if err != nil {
+		t.Fatalf("findAvailablePort failed: %v", err)
+	}
+	if first != m.basePort {
+		t.Fatalf("first reservation got %d, want the base port %d", first, m.basePort)
+	}
+	second, err := m.findAvailablePort("inst-b", m.logger)
+	if err != nil {
+		t.Fatalf("findAvailablePort failed: %v", err)
+	}
+	if second != m.basePort+1 {
+		t.Fatalf("second reservation got %d, want %d", second, m.basePort+1)
+	}
+
+	m.releasePort(first, "inst-a", m.logger)
+	third, err := m.findAvailablePort("inst-c", m.logger)
+	if err != nil {
+		t.Fatalf("findAvailablePort failed: %v", err)
+	}
+	if third != first {
+		t.Fatalf("released port %d was not reused; got %d", first, third)
+	}
+	m.releasePort(second, "inst-b", m.logger)
+	m.releasePort(third, "inst-c", m.logger)
 }
 
 // TestFindAvailablePort_DistinctPortsAreHeldSimultaneously verifies that
@@ -140,10 +263,10 @@ func TestFindAvailablePort_FallsBackInsideEphemeralRange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("findAvailablePort should fall back inside the ephemeral range, got error: %v", err)
 	}
-	if port < m.basePort || port >= m.basePort+100 {
-		t.Fatalf("fallback port %d outside the configured window [%d, %d)", port, m.basePort, m.basePort+100)
+	if port < m.basePort || port >= m.basePort+portWindowSize {
+		t.Fatalf("fallback port %d outside the configured window [%d, %d)", port, m.basePort, m.basePort+portWindowSize)
 	}
-	m.closeReservedListener(port)
+	m.releasePort(port, "inst-fallback", m.logger)
 }
 
 // TestDetectEphemeralPortRange asserts the detector returns a sane range on any
