@@ -177,10 +177,15 @@ func UnregisterAuthHandler(h AuthHandler) bool {
 // each individual call is synchronized: racing callers each build their own
 // handler, the last publish wins, and the losers are orphaned without Close().
 //
-// IMPORTANT: newHandler runs while handlerMutex is held, and that mutex guards
-// every handler registry in this package. newHandler must therefore not call
-// any api.GetXxx or api.RegisterXxx function -- doing so deadlocks, because
-// sync.RWMutex is not reentrant. Keep the factory to constructing the handler.
+// IMPORTANT: newHandler runs while handlerMutex is held, so it must not do
+// anything that takes that mutex again -- sync.RWMutex is not reentrant, so
+// the call self-deadlocks. That rules out api.GetXxx/RegisterXxx for the
+// registries handlerMutex covers (this file, handlers.go and metatools.go --
+// the oauth and secret-credentials registries have their own mutexes and are
+// safe), and, less obviously, closing the handler on a late error: an
+// AuthHandler whose Close unregisters itself, as cli.AuthAdapter's does, takes
+// handlerMutex to do it. Construct in the factory and nothing else; return the
+// error and let the caller decide.
 //
 // Args:
 //   - newHandler: factory invoked only when no handler is registered

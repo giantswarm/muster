@@ -47,10 +47,10 @@ func TestSwapAuthHandler_ReturnsPrevious(t *testing.T) {
 }
 
 // TestGetOrRegisterAuthHandler_ConstructsExactlyOnce is the regression test for
-// the check-then-act in cmd.ensureAuthHandlerWithOptions (cmd/auth_helpers.go:44)
-// and its copy in cmd.setupAgentAuthentication (cmd/agent.go:210).
+// the check-then-act that cmd.ensureAuthHandlerWithOptions and
+// cli.ToolExecutor.setupAuthentication both used to perform.
 //
-// Both spell get-or-create as three separate lock acquisitions: GetAuthHandler,
+// Each spelled get-or-create as three separate lock acquisitions: GetAuthHandler,
 // then construct, then Register, then GetAuthHandler again. The RWMutex makes
 // each step atomic but leaves the composite racy, so concurrent callers each
 // build and publish their own adapter. Every loser is orphaned without Close(),
