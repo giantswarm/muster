@@ -10,7 +10,6 @@ import (
 
 	"github.com/giantswarm/muster/internal/agent"
 	"github.com/giantswarm/muster/internal/agent/oauth"
-	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/cli"
 	"github.com/giantswarm/muster/internal/config"
 
@@ -213,17 +212,12 @@ func setupAgentAuthentication(ctx context.Context, client *agent.Client, logger 
 		return nil
 	}
 
-	// Get-or-create in one atomic step. Spelling this as GetAuthHandler, then
-	// construct, then Register, then GetAuthHandler again leaves the composite
-	// operation racy even though each call is individually synchronized.
-	handler, err := api.GetOrRegisterAuthHandler(func() (api.AuthHandler, error) {
-		adapter, err := cli.NewAuthAdapterWithConfig(cli.AuthAdapterConfig{
-			NoSilentRefresh: !agentSilentAuth,
-		})
-		if err != nil {
-			return nil, err
-		}
-		return adapter, nil
+	// Share the get-or-create with the auth commands. Duplicating the factory
+	// here would also duplicate the part that applies the caller's option to an
+	// already-registered adapter, and dropping it silently discarded --silent
+	// whenever some other caller had registered first.
+	handler, err := ensureAuthHandlerWithOptions(AuthHandlerOptions{
+		NoSilentRefresh: !agentSilentAuth,
 	})
 	if err != nil {
 		logger.Info("Warning: Could not initialize auth adapter: %v", err)
