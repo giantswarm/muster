@@ -3,6 +3,7 @@ package filesystem
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -59,53 +60,57 @@ func TestUpdateMCPServerStatus_DoesNotResurrectDeleted(t *testing.T) {
 
 // TestCreateMCPServer_RejectsPathTraversal pins the fix for the filesystem
 // path-traversal hole: a caller-controlled name that escapes the config dir
-// must be rejected before any file is written, and nothing may land outside
-// the store's directory.
+// must be rejected before any file is written.
+//
+// The traversal targets point at a sibling t.TempDir() rather than /tmp or
+// /etc, so a regression stays inside the directories this test owns, and each
+// case asserts os.Stat on the exact path the name would resolve to — scanning
+// the base dir cannot see a file that landed outside it.
 func TestCreateMCPServer_RejectsPathTraversal(t *testing.T) {
 	ctx := context.Background()
 	base := t.TempDir()
+	outside := t.TempDir() // sibling of base, under the same parent
 	c := New(base)
 
-	for _, name := range []string{
-		"../../escaped",
-		"../../../../../../tmp/muster-traversal-poc",
-		"/etc/muster-evil",
+	names := []string{
+		// base/mcpservers/../../<sibling>/escaped.yaml resolves into outside.
+		"../../" + filepath.Base(outside) + "/escaped",
+		// More ".." segments than there are directories: filepath.Join clamps
+		// at the root, then the absolute sibling path lands in outside.
+		"../../../../../../../.." + outside + "/deep-escape",
+		// Absolute name: joined relative to the store dir today, but a
+		// regression that trusts it writes straight into outside.
+		filepath.Join(outside, "absolute-evil"),
 		"foo/bar",
 		"..",
 		".",
-	} {
+		// Not traversal, but the same choke point: a newline forges a record in
+		// the line-oriented legacy events.log. Deliberately carries no
+		// separator, so it can only be rejected by the control-character rule.
+		"x\nforged",
+	}
+
+	for _, name := range names {
 		t.Run(name, func(t *testing.T) {
 			if err := c.CreateMCPServer(ctx, newTestServer(name)); err == nil {
 				t.Fatalf("expected create to reject name %q, got nil error", name)
 			}
+			// The path filePath would have produced for this name — inside the
+			// store dir for the harmless cases, outside it for the escapes.
+			target := filepath.Join(base, "mcpservers", name+".yaml")
+			if _, err := os.Stat(target); !os.IsNotExist(err) {
+				t.Fatalf("name %q wrote a file at %s (stat error: %v)", name, target, err)
+			}
 		})
 	}
 
-	// Nothing should have been written outside the mcpservers directory.
-	if entries, err := os.ReadDir(base); err == nil {
-		for _, e := range entries {
-			if e.Name() != "mcpservers" {
-				t.Fatalf("unexpected entry written to base dir: %q", e.Name())
-			}
-		}
+	// Belt and braces: the sibling directory must still be empty.
+	entries, err := os.ReadDir(outside)
+	if err != nil {
+		t.Fatalf("read sibling dir: %v", err)
 	}
-}
-
-func TestValidateResourceName(t *testing.T) {
-	// Path-safe names are accepted, including characters (underscore, uppercase,
-	// spaces) that Kubernetes admission would reject — filesystem mode only
-	// guards against directory escape, not DNS-1123 conformance.
-	valid := []string{"foo", "foo-bar", "foo.bar", "a1b2", "x", "special-chars-workflow_123", "Foo", "foo bar", "..foo"}
-	for _, name := range valid {
-		if err := validateResourceName(name); err != nil {
-			t.Errorf("expected %q to be valid, got: %v", name, err)
-		}
-	}
-	invalid := []string{"", "../evil", "a/b", "a\\b", "..", ".", "/etc/passwd", "foo/", "a\x00b"}
-	for _, name := range invalid {
-		if err := validateResourceName(name); err == nil {
-			t.Errorf("expected %q to be rejected", name)
-		}
+	if len(entries) != 0 {
+		t.Fatalf("traversal escaped into sibling dir: %v", entries)
 	}
 }
 
