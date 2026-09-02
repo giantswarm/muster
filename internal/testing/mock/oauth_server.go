@@ -823,7 +823,7 @@ func (s *OAuthServer) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(os.Stderr, "🔐 Auto-approving and redirecting to: %s\n", redirectURL.String())
 		}
 
-		http.Redirect(w, r, redirectURL.String(), http.StatusFound)
+		http.Redirect(w, r, redirectURL.String(), http.StatusFound) //nolint:gosec // G710: mock IdP authorization endpoint must honour the request's redirect_uri
 		return
 	}
 
