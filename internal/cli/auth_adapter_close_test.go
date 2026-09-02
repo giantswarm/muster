@@ -6,10 +6,9 @@ import (
 	"github.com/giantswarm/muster/internal/api"
 )
 
-// TestAuthAdapter_Close_Unregisters is the regression test for cmd/agent.go:286-290:
-//
-//	defer func() { _ = adapter.Close() }()
-//	adapter.Register()
+// TestAuthAdapter_Close_Unregisters is the regression test for a deferred
+// Close() paired with a Register(), which is how the agent MCP-server path was
+// written before this branch deleted it.
 //
 // Register() publishes the adapter into a process-global registry; Close() tears
 // down its managers but never unpublishes. The global keeps pointing at a closed
@@ -27,8 +26,8 @@ func TestAuthAdapter_Close_Unregisters(t *testing.T) {
 		t.Fatalf("failed to create adapter: %v", err)
 	}
 
-	prev := api.GetAuthHandler()
-	t.Cleanup(func() { api.RegisterAuthHandler(prev) })
+	prev := api.SwapAuthHandler(nil)
+	t.Cleanup(func() { api.SwapAuthHandler(prev) })
 
 	adapter.Register()
 	if api.GetAuthHandler() == nil {
@@ -57,10 +56,11 @@ func TestAuthAdapter_Close_LeavesOtherHandlerRegistered(t *testing.T) {
 		t.Fatalf("failed to create second adapter: %v", err)
 	}
 
-	prev := api.GetAuthHandler()
-	t.Cleanup(func() { api.RegisterAuthHandler(prev) })
+	prev := api.SwapAuthHandler(nil)
+	t.Cleanup(func() { api.SwapAuthHandler(prev) })
 
 	registered.Register()
+	t.Cleanup(func() { _ = registered.Close() })
 
 	if err := other.Close(); err != nil {
 		t.Fatalf("Close returned error: %v", err)
