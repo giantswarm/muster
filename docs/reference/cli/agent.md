@@ -289,6 +289,15 @@ export MUSTER_ENDPOINT="http://localhost:9090"
 muster agent
 ```
 
+`MUSTER_OAUTH_CALLBACK_PORT` sets the port the local OAuth callback server binds
+during login (default `3000`). It applies to `muster agent` as it does to
+`muster auth login`. Set it when 3000 is already taken:
+
+```bash
+export MUSTER_OAUTH_CALLBACK_PORT=8080
+muster agent --mcp-server
+```
+
 ## AI Assistant Integration
 
 ### Cursor/VSCode Configuration
