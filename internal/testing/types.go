@@ -343,6 +343,14 @@ type MockOAuthServerConfig struct {
 	// don't know instead of ignoring them.
 	RejectRegistrationScope bool `yaml:"reject_registration_scope,omitempty"`
 
+	// AuthorizeAcceptsAnyClient makes the authorization endpoint skip its
+	// client_id check so only the token endpoint enforces registration —
+	// mimicking authorization servers whose authorize responses reveal
+	// nothing about an unknown client. Muster's pre-challenge registration
+	// probe cannot detect a lost registration on such a server; the token
+	// endpoint's invalid_client has to.
+	AuthorizeAcceptsAnyClient bool `yaml:"authorize_accepts_any_client,omitempty"`
+
 	// AdvertiseIssParameter advertises
 	// authorization_response_iss_parameter_supported in the AS metadata. A
 	// callback without an `iss` parameter must then be refused.

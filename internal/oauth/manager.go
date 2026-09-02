@@ -346,6 +346,11 @@ func (m *Manager) CreateAuthChallenge(ctx context.Context, params AuthChallengeP
 	// Register server config if we got it from the 401
 	m.RegisterServer(params.ServerName, params.Issuer, params.Scope)
 
+	registrationReset := false
+	if params.ResetClientRegistration {
+		registrationReset = m.client.ResetClientRegistration(params.Issuer)
+	}
+
 	// Generate authorization URL (code verifier is stored with the state)
 	authURL, resolved, err := m.client.GenerateAuthURL(ctx, params)
 	if err != nil {
@@ -358,6 +363,9 @@ func (m *Manager) CreateAuthChallenge(ctx context.Context, params AuthChallengeP
 		message += " Note: this server's authorization server advertises neither Client ID Metadata Document support nor dynamic client registration; the sign-in may be rejected if it requires pre-registered clients."
 	case ClientIDMethodDCRFailed:
 		message += fmt.Sprintf(" Note: this server's authorization server rejected muster's dynamic client registration (%v); muster falls back to its client metadata URL as client_id, which the server may reject as an unregistered client.", resolved.RegistrationError)
+	}
+	if registrationReset {
+		message += " Muster's previous client registration with the authorization server was discarded as requested; this sign-in uses a fresh registration."
 	}
 
 	challenge := &AuthRequiredResponse{

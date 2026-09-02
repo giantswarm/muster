@@ -227,17 +227,27 @@ func TestOAuthServer_PKCE(t *testing.T) {
 		t.Fatalf("Server not ready: %v", err)
 	}
 
-	// Try to authorize without PKCE - should fail
+	// Try to authorize without PKCE - should fail. The client and its
+	// redirect_uri are known, so RFC 6749 §4.1.2.1 has the error reported to
+	// the redirect_uri rather than answered directly.
 	authURL := server.GetAuthorizeURL() + "?response_type=code&client_id=test-client&redirect_uri=http://localhost/callback"
 
-	resp, err := http.Get(authURL)
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := client.Get(authURL)
 	if err != nil {
 		t.Fatalf("Failed to make auth request: %v", err)
 	}
 	_ = resp.Body.Close()
 
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("Expected status 400 for missing PKCE, got %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("Expected the missing-PKCE error to be redirected (302), got %d", resp.StatusCode)
+	}
+	location, err := url.Parse(resp.Header.Get("Location"))
+	if err != nil {
+		t.Fatalf("Failed to parse redirect location: %v", err)
+	}
+	if location.Host != "localhost" || location.Path != "/callback" || location.Query().Get("error") != "invalid_request" {
+		t.Errorf("Expected an invalid_request error on the redirect_uri, got %s", location)
 	}
 }
 

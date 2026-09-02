@@ -470,7 +470,13 @@ Concrete work items, grouped by SEP and ordered by risk:
   SEP-2352 (`internal/oauth/credential_store.go`, Valkey-backed when
   configured). When neither is advertised the CIMD URL is sent as before,
   and the auth challenge marks the flow `cimd-fallback` so front-ends can
-  warn up front.
+  warn up front. Stored registrations are verified before each new flow
+  (RFC 7592 client read when the AS provided `registration_client_uri`,
+  otherwise a client_id/redirect_uri-only authorization request whose
+  RFC 6749 §4.1.2.1 failure shape shows whether the client is still
+  known) and re-created when the AS has forgotten them, so an AS with an
+  in-memory client store does not leave muster with a poisoned
+  `client_id` after a restart (`internal/oauth/client_registration.go`).
 
 ## 6. References
 

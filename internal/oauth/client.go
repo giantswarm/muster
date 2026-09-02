@@ -6,7 +6,6 @@ import (
 	"net/url"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/giantswarm/muster/internal/config"
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
@@ -69,8 +68,10 @@ type Client struct {
 	stateStore StateStorer
 	credStore  ClientCredentialStorer
 
-	// registerMu serializes DCR registrations so concurrent auth flows for
-	// the same issuer don't register muster twice.
+	// registerMu serializes every change to the stored DCR credentials of
+	// an issuer — registrations, and the drops that precede a
+	// re-registration — so concurrent auth flows for the same issuer don't
+	// register muster twice or discard each other's fresh registration.
 	registerMu sync.Mutex
 
 	// Shared OAuth client for protocol operations
@@ -160,53 +161,55 @@ func (c *Client) GetToken(sessionID, issuer, scope string) *pkgoauth.Token {
 }
 
 // resolveClient decides how muster identifies itself to the given issuer:
-// CIMD when the AS advertises support for it, previously registered
-// DCR credentials when present, a fresh RFC 7591 registration when the AS
-// offers one (and allowRegistration is set), and the CIMD URL as a last
-// resort. Registration failures fall back to the CIMD URL rather than
+// CIMD when the AS advertises support for it, previously registered DCR
+// credentials when present and still honored, a fresh RFC 7591 registration
+// when the AS offers one (and allowRegistration is set), and the CIMD URL as
+// a last resort. Registration failures fall back to the CIMD URL rather than
 // aborting — that is never worse than the pre-DCR behavior.
+//
+// allowRegistration marks the start of a new flow. Only then are stored
+// credentials verified against the AS before use (see registrationGone): an
+// AS that lost its client registry — one with an in-memory client store that
+// restarted — would otherwise refuse every sign-in with invalid_client in the
+// user's browser, a failure muster never sees, and the stored registration
+// would stay poisoned until an operator deleted it by hand. A flow that is
+// being completed (code exchange, token refresh) uses the stored credentials
+// as they are: they are the identification the flow started with.
 func (c *Client) resolveClient(ctx context.Context, issuer string, metadata *pkgoauth.Metadata, allowRegistration bool) *resolvedClient {
 	if metadata.ClientIDMetadataDocumentSupported {
 		return &resolvedClient{ClientID: c.clientID, Method: ClientIDMethodCIMD}
 	}
 
+	var stale *pkgoauth.ClientCredentials
+	var staleReason string
 	if creds := c.credStore.Get(issuer); creds != nil {
-		return &resolvedClient{ClientID: creds.ClientID, ClientSecret: creds.ClientSecret, Method: ClientIDMethodDCR}
+		if !allowRegistration {
+			return dcrClient(creds)
+		}
+		gone, reason := c.registrationGone(ctx, issuer, metadata, creds)
+		if !gone {
+			return dcrClient(creds)
+		}
+		stale, staleReason = creds, reason
 	}
 
-	if allowRegistration && metadata.RegistrationEndpoint != "" {
+	if allowRegistration && (metadata.RegistrationEndpoint != "" || stale != nil) {
 		c.registerMu.Lock()
 		defer c.registerMu.Unlock()
 
 		// Re-check after acquiring the lock: a concurrent flow may have
-		// registered while we waited.
+		// registered — or already replaced the stale registration — while
+		// we waited. Only the exact credentials found stale are dropped.
 		if creds := c.credStore.Get(issuer); creds != nil {
-			return &resolvedClient{ClientID: creds.ClientID, ClientSecret: creds.ClientSecret, Method: ClientIDMethodDCR}
+			if stale == nil || creds.ClientID != stale.ClientID {
+				return dcrClient(creds)
+			}
+			c.dropRegistrationLocked(issuer, creds.ClientID, staleReason)
 		}
 
-		registration, err := c.oauthClient.RegisterClient(ctx, metadata.RegistrationEndpoint, c.GetRegistrationMetadata())
-		if err != nil {
-			logging.Warn("OAuth", "Dynamic client registration with %s failed, falling back to CIMD URL as client_id: %v",
-				issuer, err)
-			return &resolvedClient{ClientID: c.clientID, Method: ClientIDMethodDCRFailed, RegistrationError: err}
+		if metadata.RegistrationEndpoint != "" {
+			return c.register(ctx, issuer, metadata.RegistrationEndpoint)
 		}
-
-		creds := &pkgoauth.ClientCredentials{
-			Issuer:                  issuer,
-			ClientID:                registration.ClientID,
-			ClientSecret:            registration.ClientSecret,
-			RegistrationAccessToken: registration.RegistrationAccessToken,
-			RegistrationClientURI:   registration.RegistrationClientURI,
-			CreatedAt:               time.Now(),
-		}
-		if registration.ClientSecretExpiresAt > 0 {
-			creds.ClientSecretExpiresAt = time.Unix(registration.ClientSecretExpiresAt, 0)
-		}
-		c.credStore.Store(issuer, creds)
-
-		logging.Info("OAuth", "Registered muster as an OAuth client with %s via RFC 7591 (client_id=%s)",
-			issuer, registration.ClientID)
-		return &resolvedClient{ClientID: creds.ClientID, ClientSecret: creds.ClientSecret, Method: ClientIDMethodDCR}
 	}
 
 	return &resolvedClient{ClientID: c.clientID, Method: ClientIDMethodCIMDFallback}
@@ -288,6 +291,10 @@ func (c *Client) GetStartURL(encodedState string) string {
 // ExchangeCode exchanges an authorization code for tokens. resource is the
 // RFC 8707 indicator recorded with the flow's state; it must match the value
 // sent on the authorization request.
+//
+// An invalid_client answer from the token endpoint means the AS no longer
+// accepts the DCR credentials the flow was started with; they are dropped so
+// the next sign-in registers muster again instead of failing the same way.
 func (c *Client) ExchangeCode(ctx context.Context, code, codeVerifier, issuer, resource string) (*pkgoauth.Token, error) {
 	// Fetch OAuth metadata using shared client
 	metadata, err := c.oauthClient.DiscoverMetadata(ctx, issuer)
@@ -312,6 +319,9 @@ func (c *Client) ExchangeCode(ctx context.Context, code, codeVerifier, issuer, r
 		resource,
 	)
 	if err != nil {
+		if resolved.Method == ClientIDMethodDCR && pkgoauth.IsInvalidClientError(err) {
+			c.dropRegistration(issuer, resolved.ClientID, "token endpoint answered invalid_client")
+		}
 		return nil, err
 	}
 
@@ -359,42 +369,6 @@ func (c *Client) GetClientMetadata() *pkgoauth.ClientMetadata {
 		SoftwareVersion:         softwareVersion,
 		ApplicationType:         "web",
 	}
-}
-
-// GetRegistrationMetadata returns the RFC 7591 client metadata muster sends
-// on Dynamic Client Registration requests. It mirrors the CIMD content but
-// omits client_id (forbidden on registration requests) and requests
-// token_endpoint_auth_method "none" — muster is a public client protected by
-// PKCE, and staying secret-free keeps the DCR path as close to the CIMD path
-// as the AS allows. ASes that insist on issuing a secret still can; the
-// response's client_secret is honored either way.
-//
-// scope is omitted as well: RFC 7591 makes it optional, and ASes reject
-// registrations naming scopes they don't know (Miro answers
-// invalid_client_metadata for the dex-oriented CIMD scopes). The
-// authorization request carries the per-server scope discovered from the
-// protected-resource metadata, so registration never needs one.
-func (c *Client) GetRegistrationMetadata() *pkgoauth.ClientMetadata {
-	metadata := c.GetClientMetadata()
-	metadata.ClientID = ""
-	metadata.Scope = ""
-	return metadata
-}
-
-// GetClientCredentialsForIssuer returns the client_id and client_secret the
-// OAuth flows use against the given issuer, without triggering a new DCR
-// registration. This backs mcp-go's transport-level token refresh, which
-// must present the same client identification the token was issued under.
-func (c *Client) GetClientCredentialsForIssuer(ctx context.Context, issuer string) (clientID, clientSecret string) {
-	metadata, err := c.oauthClient.DiscoverMetadata(ctx, issuer)
-	if err != nil {
-		// Metadata should be cached from the original flow; on a cold cache
-		// with an unreachable AS the CIMD URL is the only sensible answer.
-		logging.Debug("OAuth", "GetClientCredentialsForIssuer: metadata discovery for %s failed, using CIMD URL: %v", issuer, err)
-		return c.clientID, ""
-	}
-	resolved := c.resolveClient(ctx, issuer, metadata, false)
-	return resolved.ClientID, resolved.ClientSecret
 }
 
 // DiscoverMetadata fetches OAuth metadata for an issuer.

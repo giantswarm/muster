@@ -164,7 +164,8 @@ SSO works because:
 |------|--------------|----------|
 | `test_inject_token` | Mock OAuth Server only | Testing token validation, 401 behavior |
 | `test_simulate_oauth_callback` | Both (via full flow) | Testing complete OAuth integration |
-| `test_get_oauth_server_info` | N/A (read-only) | Debugging OAuth server state |
+| `test_get_oauth_server_info` | N/A (read-only) | Debugging OAuth server state; `dcr_registrations` / `dcr_registered_clients` for DCR assertions |
+| `test_forget_oauth_registrations` | Mock OAuth Server only | Drops every RFC 7591 registration the mock holds — an AS restart with an in-memory client store — to test muster's re-registration |
 
 ### When to Use Each Tool
 

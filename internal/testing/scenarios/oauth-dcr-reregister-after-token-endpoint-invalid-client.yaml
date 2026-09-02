@@ -1,0 +1,136 @@
+name: "oauth-dcr-reregister-after-token-endpoint-invalid-client"
+category: "behavioral"
+concept: "mcpserver"
+description: "DCR authorization server that reveals a lost registration only at the token endpoint: the invalid_client answer to the code exchange drops muster's stored credentials and the next core_auth_login registers again"
+tags: ["oauth", "authentication", "mcpserver", "dcr"]
+timeout: "2m"
+
+# Same loss as oauth-dcr-reregister-after-as-forgets-client — the IdP forgets
+# muster's RFC 7591 registration — but this IdP's authorization endpoint
+# accepts any client_id (authorize_accepts_any_client), so muster's
+# pre-challenge probe sees a healthy server, the sign-in link carries the
+# dead client_id, and the failure surfaces as invalid_client at the code
+# exchange. That answer must make muster drop the stored registration, so the
+# user's retry registers again and completes.
+pre_configuration:
+  mock_oauth_servers:
+    - name: "token-strict-idp"
+      scopes: ["openid", "profile", "mcp:read"]
+      auto_approve: true
+      pkce_required: true
+      token_lifetime: "1h"
+      supports_dcr: true
+      require_registered_client: true
+      authorize_accepts_any_client: true
+
+  mcp_servers:
+    - name: "token-strict-server"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "token-strict-idp"
+          scope: "mcp:read"
+        tools:
+          - name: "get_data"
+            description: "Returns data that requires authentication"
+            responses:
+              - response:
+                  data: "authenticated-data"
+
+steps:
+  - id: request-auth-challenge
+    description: "core_auth_login registers muster via RFC 7591"
+    tool: "core_auth_login"
+    args:
+      server: "token-strict-server"
+    expected:
+      success: true
+      contains:
+        - "Authentication Required"
+
+  - id: verify-registration
+    tool: "test_get_oauth_server_info"
+    args:
+      server: "token-strict-idp"
+    expected:
+      success: true
+      json_path:
+        dcr_registrations: 1
+        dcr_registered_clients: 1
+
+  - id: idp-forgets-registrations
+    description: "The IdP restarts and forgets the registered client"
+    tool: "test_forget_oauth_registrations"
+    args:
+      server: "token-strict-idp"
+    expected:
+      success: true
+      json_path:
+        forgotten: 1
+
+  - id: callback-fails-with-invalid-client
+    description: "The authorization endpoint accepted the dead client_id, so the loss surfaces as invalid_client at the code exchange and the callback fails"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "token-strict-server"
+    expected:
+      success: false
+      error_contains:
+        - "returned error status: 400"
+
+  - id: verify-registration-dropped-not-yet-renewed
+    description: "The invalid_client answer dropped the stored credentials; nothing has registered yet"
+    tool: "test_get_oauth_server_info"
+    args:
+      server: "token-strict-idp"
+    expected:
+      success: true
+      json_path:
+        dcr_registrations: 1
+        dcr_registered_clients: 0
+
+  - id: retry-auth-challenge
+    description: "The user's retry registers muster again"
+    tool: "core_auth_login"
+    args:
+      server: "token-strict-server"
+    expected:
+      success: true
+      contains:
+        - "Authentication Required"
+
+  - id: verify-reregistration
+    tool: "test_get_oauth_server_info"
+    args:
+      server: "token-strict-idp"
+    expected:
+      success: true
+      json_path:
+        dcr_registrations: 2
+        dcr_registered_clients: 1
+
+  - id: complete-oauth-flow
+    description: "The flow completes with the new registration"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "token-strict-server"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  - id: establish-connection
+    tool: "core_auth_login"
+    args:
+      server: "token-strict-server"
+    expected:
+      success: true
+
+  - id: call-protected-tool
+    tool: "x_token-strict-server_get_data"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "authenticated-data"

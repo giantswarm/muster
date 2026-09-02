@@ -34,6 +34,11 @@ const (
 	TestToolInjectToken = "test_inject_token"
 	// TestToolGetOAuthServerInfo returns information about mock OAuth servers.
 	TestToolGetOAuthServerInfo = "test_get_oauth_server_info"
+
+	// TestToolForgetOAuthRegistrations makes a mock OAuth server drop every
+	// RFC 7591 client registration it holds, the way an authorization server
+	// with an in-memory client store forgets its clients when it restarts.
+	TestToolForgetOAuthRegistrations = "test_forget_oauth_registrations"
 	// TestToolAdvanceOAuthClock advances the mock OAuth server's clock for testing.
 	TestToolAdvanceOAuthClock = "test_advance_oauth_clock"
 	// TestToolReadAuthStatus reads the auth://status resource to verify auth state.
@@ -180,6 +185,7 @@ func IsTestTool(toolName string) bool {
 	case TestToolSimulateOAuthCallback,
 		TestToolInjectToken,
 		TestToolGetOAuthServerInfo,
+		TestToolForgetOAuthRegistrations,
 		TestToolAdvanceOAuthClock,
 		TestToolReadAuthStatus,
 		TestToolRevokeToken,
@@ -216,6 +222,8 @@ func (h *TestToolsHandler) HandleTestTool(ctx context.Context, toolName string, 
 		return h.handleInjectToken(ctx, args)
 	case TestToolGetOAuthServerInfo:
 		return h.handleGetOAuthServerInfo(ctx, args)
+	case TestToolForgetOAuthRegistrations:
+		return h.handleForgetOAuthRegistrations(ctx, args)
 	case TestToolAdvanceOAuthClock:
 		return h.handleAdvanceOAuthClock(ctx, args)
 	case TestToolReadAuthStatus:
@@ -716,6 +724,7 @@ func (h *TestToolsHandler) handleGetOAuthServerInfo(ctx context.Context, args ma
 	if h.instanceManager != nil {
 		if server := h.instanceManager.GetMockOAuthServer(h.currentInstance.ID, serverName); server != nil {
 			result["dcr_registrations"] = server.RegistrationCount()
+			result["dcr_registered_clients"] = server.RegisteredClientCount()
 		}
 	}
 

@@ -360,19 +360,20 @@ func (c *Client) doTokenRequest(ctx context.Context, tokenEndpoint string, data 
 			"status", resp.StatusCode,
 			"body", string(body))
 
-		// Try to parse OAuth error response for better error messages
+		// The RFC 6749 §5.2 error object, when present, is preserved on the
+		// returned error so callers can act on the code: invalid_client means
+		// the client identification itself is no longer accepted, which is
+		// different from a rejected grant.
+		tokenErr := &TokenEndpointError{StatusCode: resp.StatusCode}
 		var oauthErr struct {
 			Error            string `json:"error"`
 			ErrorDescription string `json:"error_description"`
 		}
-		if err := json.Unmarshal(body, &oauthErr); err == nil && oauthErr.Error != "" {
-			if oauthErr.ErrorDescription != "" {
-				return nil, fmt.Errorf("token request failed: %s - %s", oauthErr.Error, oauthErr.ErrorDescription)
-			}
-			return nil, fmt.Errorf("token request failed: %s", oauthErr.Error)
+		if err := json.Unmarshal(body, &oauthErr); err == nil {
+			tokenErr.Code = oauthErr.Error
+			tokenErr.Description = oauthErr.ErrorDescription
 		}
-
-		return nil, fmt.Errorf("token request failed with status %d", resp.StatusCode)
+		return nil, tokenErr
 	}
 
 	var token Token
