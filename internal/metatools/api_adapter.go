@@ -120,7 +120,7 @@ func (a *Adapter) CallTool(ctx context.Context, name string, args map[string]int
 		}, nil
 	}
 
-	logging.Debug("metatools", "CallTool: calling tool %s with args %v", name, args)
+	logging.Debug("metatools", "CallTool: calling tool %s with args: %s", name, logging.KeyNames(args))
 	result, err := provider.CallToolInternal(ctx, name, args)
 	if err != nil {
 		logging.Error("metatools", err, "CallTool failed for %s", name)
@@ -202,7 +202,7 @@ func (a *Adapter) GetPrompt(ctx context.Context, name string, args map[string]st
 		return nil, err
 	}
 
-	logging.Debug("metatools", "GetPrompt: getting prompt %s with args %v", name, args)
+	logging.Debug("metatools", "GetPrompt: getting prompt %s with args: %s", name, logging.KeyNames(args))
 	result, err := provider.GetPrompt(ctx, name, args)
 	if err != nil {
 		logging.Error("metatools", err, "GetPrompt failed for %s", name)

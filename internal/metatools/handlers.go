@@ -48,7 +48,8 @@ func (p *Provider) getHandler() (api.MetaToolsHandler, *api.CallToolResult) {
 //   - *api.CallToolResult: The result of the tool execution
 //   - error: Error if the tool doesn't exist or execution fails
 func (p *Provider) ExecuteTool(ctx context.Context, toolName string, args map[string]any) (*api.CallToolResult, error) {
-	logging.Debug("metatools", "Executing tool %s with args: %v", toolName, args)
+	// Argument values are caller data and can carry credentials: log names only.
+	logging.Debug("metatools", "Executing tool %s with args: %s", toolName, logging.KeyNames(args))
 
 	// Dispatch to the appropriate handler
 	switch toolName {

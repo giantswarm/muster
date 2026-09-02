@@ -14,19 +14,19 @@ import (
 // validateInputs validates the input arguments against the args definition,
 // applying defaults for missing optional fields. Extra args are tolerated.
 func (we *WorkflowExecutor) validateInputs(argsDefinition map[string]api.ArgDefinition, args map[string]interface{}) error {
-	logging.Debug("WorkflowExecutor", "validateInputs called with args: %+v", args)
-	logging.Debug("WorkflowExecutor", "validateInputs args definition: %+v", argsDefinition)
+	// Argument values are user data and can carry credentials: log names only.
+	logging.Debug("WorkflowExecutor", "validateInputs called with args: %s (defined: %s)", logging.KeyNames(args), logging.KeyNames(argsDefinition))
 
 	for key, argDef := range argsDefinition {
 		value, exists := args[key]
 
 		if !exists {
 			if argDef.Required {
-				logging.Error("WorkflowExecutor", fmt.Errorf("missing required field"), "Required field '%s' is missing from args %+v", key, args)
+				logging.Error("WorkflowExecutor", fmt.Errorf("missing required field"), "Required field '%s' is missing from args (present: %s)", key, logging.KeyNames(args))
 				return fmt.Errorf("required field '%s' is missing", key)
 			}
 			if argDef.Default != nil {
-				logging.Debug("WorkflowExecutor", "Applying default value for %s: %v", key, argDef.Default)
+				logging.Debug("WorkflowExecutor", "Applying default value for %s: %s", key, logging.Shape(argDef.Default))
 				args[key] = argDef.Default
 			}
 			continue
@@ -37,7 +37,7 @@ func (we *WorkflowExecutor) validateInputs(argsDefinition map[string]api.ArgDefi
 		}
 	}
 
-	logging.Debug("WorkflowExecutor", "validateInputs final args: %+v", args)
+	logging.Debug("WorkflowExecutor", "validateInputs final args: %s", logging.KeyNames(args))
 	return nil
 }
 
@@ -103,14 +103,17 @@ func (we *WorkflowExecutor) validateJsonPath(toolResult *mcp.CallToolResult, jso
 			return false, nil
 		}
 
+		// Both sides are user data -- the actual value comes from a tool result,
+		// the expectation may be templated from workflow input -- so the log
+		// carries their shape, not their contents. The condition outcome is
+		// surfaced to the caller in the step metadata.
 		if !we.valuesEqual(actualValue, resolvedExpectedValue) {
-			logging.Debug("WorkflowExecutor", "JSON path validation failed: path=%s, expected=%v, actual=%v",
-				jsonPath, resolvedExpectedValue, actualValue)
+			logging.Debug("WorkflowExecutor", "JSON path validation failed: path=%s, expected=%s, actual=%s",
+				jsonPath, logging.Shape(resolvedExpectedValue), logging.Shape(actualValue))
 			return false, nil
 		}
 
-		logging.Debug("WorkflowExecutor", "JSON path validation passed: path=%s, expected=%v, actual=%v",
-			jsonPath, resolvedExpectedValue, actualValue)
+		logging.Debug("WorkflowExecutor", "JSON path validation passed: path=%s", jsonPath)
 	}
 
 	return true, nil

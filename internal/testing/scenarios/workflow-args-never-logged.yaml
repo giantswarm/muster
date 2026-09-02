@@ -1,0 +1,57 @@
+name: "workflow-args-never-logged"
+category: "behavioral"
+concept: "workflow"
+description: |
+  Workflow arguments and step results never reach muster's own logs. The
+  scenario runs a workflow whose input is handed to a mock tool as a step
+  argument and echoed back in the step result -- the value therefore passes
+  through input validation, step argument resolution, the recorded step
+  result, template resolution and the final result -- with muster serve
+  running at debug level, then asserts that the value never appeared in its
+  stdout or stderr. Workflow inputs and tool results are user data: a token
+  passed as a workflow input or a credential returned by a step. muster 5.7.11
+  dumped args, resolved step args, step results and the final result with %+v
+  from the workflow executor.
+tags: ["workflow", "logging", "security"]
+timeout: "1m"
+
+pre_configuration:
+  workflows:
+  - name: "secret-passthrough"
+    config:
+      name: "secret-passthrough"
+      args:
+        token: { type: "string" }
+      required: ["token"]
+      steps:
+        - id: "use-token"
+          tool: "x_vault-mock_use_token"
+          args:
+            token: "{{ .input.token }}"
+          store: true
+  mcp_servers:
+  - name: "vault-mock"
+    config:
+      tools:
+      - name: "use_token"
+        description: "Accepts a token and echoes it back, like a backend returning a credential"
+        responses: [ { response: { status: "ok", echoed: "{{ .token }}" } } ]
+
+steps:
+- id: "run-workflow-with-secret"
+  description: "The secret flows in as a workflow argument and out again in the step result"
+  tool: "workflow_secret-passthrough"
+  args:
+    token: "eyJsecret-marker"
+  expected:
+    success: true
+    json_path:
+      status: "completed"
+      steps.0.id: "use-token"
+      steps.0.status: "completed"
+      steps.0.result.echoed: "eyJsecret-marker"
+
+# Evaluated once the step above ran: muster serve's own stdout and stderr,
+# captured at debug level for the whole scenario, never carried the value.
+instance_logs:
+  not_contains: ["eyJsecret-marker"]

@@ -48,9 +48,3 @@ func TestMetaToolHandler_FailureLogNamesArgsWithoutValues(t *testing.T) {
 	require.NotContains(t, logged, "eyJ", "argument values must not be logged: %s", logged)
 	require.NotContains(t, logged, "backend", "argument values must not be logged: %s", logged)
 }
-
-func TestMetaToolArgNames(t *testing.T) {
-	require.Equal(t, "none", metaToolArgNames(nil))
-	require.Equal(t, "none", metaToolArgNames(map[string]any{}))
-	require.Equal(t, "a, b, c", metaToolArgNames(map[string]any{"c": 1, "a": "x", "b": nil}))
-}

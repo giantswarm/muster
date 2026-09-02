@@ -75,7 +75,9 @@ func (we *WorkflowExecutor) resolveValue(value interface{}, ctx *executionContex
 // string.
 func (we *WorkflowExecutor) resolveTemplate(templateStr string, ctx *executionContext) (interface{}, error) {
 	logging.Debug("WorkflowExecutor", "Resolving template: %s", templateStr)
-	logging.Debug("WorkflowExecutor", "Original results: %v", ctx.results)
+	// Step results are user data and can carry credentials: name the steps
+	// whose results are available, not what they returned.
+	logging.Debug("WorkflowExecutor", "Available step results: %s", logging.KeyNames(ctx.results))
 
 	// Track which input variables the template references — surfaced later
 	// in step metadata for debugging.
@@ -104,8 +106,6 @@ func (we *WorkflowExecutor) resolveTemplate(templateStr string, ctx *executionCo
 
 	templateCtx := we.templateContext(ctx)
 
-	logging.Debug("WorkflowExecutor", "Template context results (raw): %v", templateCtx["results"])
-
 	if we.isSimpleVariableAccess(templateStr) {
 		if originalValue := we.getOriginalValue(templateStr, ctx); originalValue != nil {
 			return originalValue, nil
@@ -117,7 +117,7 @@ func (we *WorkflowExecutor) resolveTemplate(templateStr string, ctx *executionCo
 		return nil, fmt.Errorf("failed to render arguments: %w", err)
 	}
 
-	logging.Debug("WorkflowExecutor", "Template result: %v", result)
+	logging.Debug("WorkflowExecutor", "Template result: %s", logging.Shape(result))
 	return result, nil
 }
 
