@@ -46,16 +46,15 @@ func TestSwapAuthHandler_ReturnsPrevious(t *testing.T) {
 	}
 }
 
-// TestGetOrRegisterAuthHandler_ConstructsExactlyOnce is the regression test for
-// the check-then-act that cmd.ensureAuthHandlerWithOptions and
-// cli.ToolExecutor.setupAuthentication both used to perform.
+// TestGetOrRegisterAuthHandler_ConstructsExactlyOnce pins what makes it safe to
+// spell get-or-create as a single call.
 //
-// Each spelled get-or-create as three separate lock acquisitions: GetAuthHandler,
-// then construct, then Register, then GetAuthHandler again. The RWMutex makes
-// each step atomic but leaves the composite racy, so concurrent callers each
-// build and publish their own adapter. Every loser is orphaned without Close(),
-// and the final re-read of the global can hand a caller an adapter configured
-// with someone else's options.
+// Spelled as separate steps -- GetAuthHandler, then construct, then Register,
+// then GetAuthHandler again -- it is three lock acquisitions. The RWMutex makes
+// each acquisition atomic but leaves the composite racy, so concurrent callers
+// each build and publish their own adapter. Every loser is orphaned without
+// Close(), and the final re-read of the global can hand a caller an adapter
+// configured with someone else's options.
 //
 // The invariant: however many callers race, the factory runs exactly once and
 // they all observe the same handler.

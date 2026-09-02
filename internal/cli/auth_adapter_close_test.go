@@ -6,9 +6,11 @@ import (
 	"github.com/giantswarm/muster/internal/api"
 )
 
-// TestAuthAdapter_Close_Unregisters is the regression test for a deferred
-// Close() paired with a Register(), which is how the agent MCP-server path was
-// written before this branch deleted it.
+// TestAuthAdapter_Close_Unregisters pins the symmetry Register() and Close()
+// need in order for this shape to be safe:
+//
+//	defer func() { _ = adapter.Close() }()
+//	adapter.Register()
 //
 // Register() publishes the adapter into a process-global registry; Close() tears
 // down its managers but never unpublishes. The global keeps pointing at a closed

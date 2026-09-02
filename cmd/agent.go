@@ -280,9 +280,9 @@ func setupAgentAuthentication(ctx context.Context, client *agent.Client, logger 
 func runMCPServerWithOAuth(ctx context.Context, client *agent.Client, logger *agent.Logger, endpoint string, transport agent.TransportType) error {
 	// No AuthAdapter is registered here. Nothing on this path reads
 	// api.GetAuthHandler() -- only internal/cli's ToolExecutor and the REPL do,
-	// and neither runs in --mcp-server mode -- so registering one only clobbered
-	// whatever was in the global registry and cleared it again on the way out.
-	// The OAuth flow below drives the AuthManager directly.
+	// and neither runs in --mcp-server mode -- so registering one would
+	// overwrite the process-global registry, and clear it again on the way out,
+	// for no reader. The OAuth flow below drives the AuthManager directly.
 
 	// First, check if the server requires authentication
 	authManager, err := oauth.NewAuthManager(oauth.AuthManagerConfig{
