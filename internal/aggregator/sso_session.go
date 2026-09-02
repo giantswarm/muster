@@ -61,3 +61,18 @@ func (s ssoSession) LogValue() slog.Value {
 		slog.String("tokenSource", string(s.tokenSource)),
 	)
 }
+
+// String implements fmt.Stringer so that %v, %+v and %s of an ssoSession print
+// the same redacted view as LogValue. Without it, fmt falls back to the struct
+// layout and prints the caller's ID token and bearer verbatim -- one stray %v
+// is enough to land two live JWTs in the pod logs and every pipeline that
+// collects them. Rendering LogValue keeps the two views from ever disagreeing
+// about what is safe to print.
+func (s ssoSession) String() string {
+	return logging.FormatGroup("ssoSession", s.LogValue())
+}
+
+// GoString implements fmt.GoStringer so that %#v redacts as well.
+func (s ssoSession) GoString() string {
+	return s.String()
+}

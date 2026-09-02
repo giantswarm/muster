@@ -243,6 +243,34 @@ func TruncateIdentifier(id string) string {
 	return id[:8] + "..."
 }
 
+// RedactSecret replaces every occurrence of secret in text with a length-only
+// marker. Use it on error strings produced by code that embeds the key it looked
+// up -- a token store reporting "token not found: <bearer>" -- before they reach
+// a log line. An empty secret leaves text unchanged.
+func RedactSecret(text, secret string) string {
+	if secret == "" {
+		return text
+	}
+	return strings.ReplaceAll(text, secret, fmt.Sprintf("<redacted len=%d>", len(secret)))
+}
+
+// FormatGroup renders a slog group value as "name{key=value key=value}" so a
+// type can implement fmt.Stringer on top of its slog.LogValuer. Types that
+// carry credentials use it so that %v and structured attrs agree on the
+// redacted view instead of fmt falling back to the raw struct layout.
+func FormatGroup(name string, v slog.Value) string {
+	v = v.Resolve()
+	if v.Kind() != slog.KindGroup {
+		return name + "{" + v.String() + "}"
+	}
+	attrs := v.Group()
+	parts := make([]string, 0, len(attrs))
+	for _, a := range attrs {
+		parts = append(parts, a.Key+"="+a.Value.Resolve().String())
+	}
+	return name + "{" + strings.Join(parts, " ") + "}"
+}
+
 // TransportSessionID returns a slog.Attr with key "transportSessionID" and a truncated MCP transport session ID.
 // The last UUID group is replaced with "..." to preserve enough of the ID for log
 // correlation while avoiding logging the full value.

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -171,3 +172,52 @@ func (h *contextProbeHandler) Handle(ctx context.Context, _ slog.Record) error {
 }
 func (h *contextProbeHandler) WithAttrs(_ []slog.Attr) slog.Handler { return h }
 func (h *contextProbeHandler) WithGroup(_ string) slog.Handler      { return h }
+
+func TestFormatGroup(t *testing.T) {
+	group := slog.GroupValue(
+		slog.String("userID", "alice..."),
+		slog.Int("idTokenLen", 812),
+	)
+	if got, want := FormatGroup("ssoSession", group), "ssoSession{userID=alice... idTokenLen=812}"; got != want {
+		t.Errorf("FormatGroup(group) = %q, want %q", got, want)
+	}
+
+	// A non-group value still renders inside the braces rather than panicking.
+	if got, want := FormatGroup("x", slog.IntValue(7)), "x{7}"; got != want {
+		t.Errorf("FormatGroup(scalar) = %q, want %q", got, want)
+	}
+
+	// LogValuers nested in the group are resolved, so a redacting LogValue is
+	// what gets printed, not the raw value behind it.
+	nested := slog.GroupValue(slog.Any("tokens", redactingValuer{}))
+	if got, want := FormatGroup("outer", nested), "outer{tokens=[len=3]}"; got != want {
+		t.Errorf("FormatGroup(nested valuer) = %q, want %q", got, want)
+	}
+}
+
+type redactingValuer struct{}
+
+func (redactingValuer) LogValue() slog.Value {
+	return slog.GroupValue(slog.Int("len", 3))
+}
+
+func TestRedactSecret(t *testing.T) {
+	const bearer = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhbGljZSJ9.signature"
+	in := "token not found: " + bearer + " (also seen as " + bearer + ")"
+
+	got := RedactSecret(in, bearer)
+	if strings.Contains(got, bearer) || strings.Contains(got, "eyJ") {
+		t.Fatalf("RedactSecret left the secret in place: %q", got)
+	}
+	marker := "<redacted len=" + strconv.Itoa(len(bearer)) + ">"
+	if want := "token not found: " + marker + " (also seen as " + marker + ")"; got != want {
+		t.Errorf("RedactSecret = %q, want %q", got, want)
+	}
+
+	if got := RedactSecret("unchanged", ""); got != "unchanged" {
+		t.Errorf("an empty secret must be a no-op, got %q", got)
+	}
+	if got := RedactSecret("no secret here", bearer); got != "no secret here" {
+		t.Errorf("text without the secret must be unchanged, got %q", got)
+	}
+}

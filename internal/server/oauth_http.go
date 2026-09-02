@@ -849,7 +849,9 @@ func (s *OAuthHTTPServer) getProviderToken(ctx context.Context, r *http.Request)
 	}
 	token, err := s.tokenStore.GetToken(ctx, bearerToken)
 	if err != nil {
-		logging.Warn("OAuth", "SSO: Failed to get provider token from store: %v", err)
+		// Store errors can embed the key that was looked up, which here is the
+		// caller's live bearer. Strip it before the message reaches the logs.
+		logging.Warn("OAuth", "SSO: Failed to get provider token from store: %s", logging.RedactSecret(err.Error(), bearerToken))
 		return nil
 	}
 	return token

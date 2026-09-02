@@ -76,6 +76,11 @@ cleanup:
     expected:
       success: true
     timeout: "30s"
+
+# Optional assertions on muster serve's own stdout/stderr, captured at debug
+# level for the whole scenario and evaluated once after steps and cleanup ran
+instance_logs:
+  not_contains: ["eyJ"]                # e.g. no JWT ever reached the logs
 ```
 
 ### Key Schema Changes
@@ -141,6 +146,7 @@ steps:
 - **timeout**: Global timeout in Go duration format (e.g., "5m", "30s", "1h")
 - **pre_configuration**: Setup for the isolated muster instance
 - **cleanup**: Teardown steps run after test completion
+- **instance_logs**: Assertions on the muster serve instance's captured output; see [Instance log assertions](#instance-log-assertions)
 
 #### Step Schema
 
@@ -355,6 +361,27 @@ expected:
 
 Set `wait_for_state` *or* a step `timeout:`, not both -- two deadlines on the
 same step race, and the poll should own the bound.
+
+#### Instance log assertions
+
+Step expectations only see what a tool call returns. `instance_logs` is the one
+expectation that sees the other side: the stdout and stderr of the `muster serve`
+instance the scenario ran against, captured at debug level for the whole run and
+checked once after the last step and cleanup step. It is scenario-level, not
+per-step, and takes `contains` and/or `not_contains` lists (at least one is
+required; an empty block is rejected at load time):
+
+```yaml
+instance_logs:
+  contains: ["SSO: initSSOForSession called"]
+  not_contains: ["eyJ"]   # the base64url prefix every JWT header shares
+```
+
+The typical use is proving a credential never reached the logs, so a
+`not_contains` hit is reported by line number and the text of that line *up to*
+the match -- never the match itself or what follows it. Use `contains` sparingly:
+log lines are not an API, and a scenario pinned to log wording breaks on
+harmless rewording.
 
 ### 5. Mock Server Configuration
 

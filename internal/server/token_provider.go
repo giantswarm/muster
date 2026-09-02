@@ -2,9 +2,12 @@ package server
 
 import (
 	"context"
+	"log/slog"
 
 	"github.com/giantswarm/mcp-oauth/providers"
 	"golang.org/x/oauth2"
+
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // contextKey is a custom type for context keys to avoid collisions.
@@ -54,9 +57,31 @@ func GetBearerTokenFromContext(ctx context.Context) string {
 // CallerTokens is the set of per-request credential tokens (subject bearer and
 // ID token) carried as a unit so a context rebuilt off the request path cannot
 // silently drop one.
+//
+// Both fields are live credentials. The type implements slog.LogValuer,
+// fmt.Stringer and fmt.GoStringer so that structured attrs and every fmt verb
+// print token lengths, never token bytes.
 type CallerTokens struct {
 	IDToken string
 	Bearer  string
+}
+
+// LogValue implements slog.LogValuer.
+func (t CallerTokens) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.Int("idTokenLen", len(t.IDToken)),
+		slog.Int("bearerLen", len(t.Bearer)),
+	)
+}
+
+// String implements fmt.Stringer; %v, %+v and %s render the LogValue view.
+func (t CallerTokens) String() string {
+	return logging.FormatGroup("CallerTokens", t.LogValue())
+}
+
+// GoString implements fmt.GoStringer so that %#v redacts as well.
+func (t CallerTokens) GoString() string {
+	return t.String()
 }
 
 // CallerTokensFromContext snapshots the credential tokens present on ctx.
