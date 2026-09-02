@@ -1,0 +1,101 @@
+name: "sso-tokens-never-logged"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  A caller's credentials never reach muster's own logs. The scenario drives
+  both SSO bootstrap paths that hold live JWTs in memory -- the auth-code
+  login against muster's OAuth server (an upstream ID token) and an agent
+  presenting a dex-issued OBO bearer on /mcp (a forwardable bearer) -- with
+  muster serve running at debug level, then asserts that no JWT ever appeared
+  in its stdout or stderr. "eyJ" is the base64url prefix every JWT header
+  shares; muster 5.7.8 printed the whole ssoSession struct with %v from
+  initSSOForSession and landed both tokens verbatim in the pod logs.
+tags: ["oauth", "sso", "logging", "security", "aggregator"]
+timeout: "2m"
+
+pre_configuration:
+  mock_oauth_servers:
+    - name: "muster-idp"
+      scopes: ["openid", "profile", "email", "groups"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "muster-client"
+      client_secret: "muster-secret"
+      use_as_muster_oauth_server: true
+
+    - name: "workload-idp"
+
+  muster_broker:
+    trusted_issuers:
+      - oauth_server_ref: "workload-idp"
+        accepted_typ_headers: [""]
+
+  mcp_servers:
+    - name: "obo-backend"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          trust_issuer_ref: "workload-idp"
+          forward_token: true
+        tools:
+          - name: "whoami"
+            description: "Echoes the caller's forwarded token claims"
+            echo_token: true
+            responses:
+              - response:
+                  status: "ok"
+
+steps:
+  - id: "verify-backend-registered"
+    description: "Backend is registered with muster"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["obo-backend"]
+      wait_for_state: "30s"
+
+  - id: "mint-dex-obo-token"
+    description: "Dex mints the on-behalf-of token: sub=human, act=agent SA"
+    tool: "test_mint_token"
+    args:
+      server: "workload-idp"
+      name: "obo-token"
+      sub: "alice@giantswarm.io"
+      email: "alice@giantswarm.io"
+      email_verified: true
+      groups: ["customer:giantswarm:team-ai"]
+      act:
+        sub: "system:serviceaccount:kagent:sre-agent"
+    expected:
+      success: true
+
+  - id: "connect-as-agent"
+    description: |
+      Present the dex-issued OBO token as the bearer on /mcp. This is the
+      forwarded-token session bootstrap: initSSOForSession runs with the
+      bearer in hand.
+    tool: "test_reconnect_with_token"
+    args:
+      token_ref: "obo-token"
+    expected:
+      success: true
+      wait_for_state: "30s"
+
+  - id: "backend-receives-forwarded-token"
+    description: "The bearer flowed through the SSO bootstrap and reached the backend"
+    tool: "x_obo-backend_whoami"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains:
+        - "alice@giantswarm.io"
+        - "system:serviceaccount:kagent:sre-agent"
+
+# Evaluated once the steps above ran: muster serve's own stdout and stderr,
+# captured at debug level for the whole scenario, never carried a JWT.
+instance_logs:
+  not_contains: ["eyJ"]

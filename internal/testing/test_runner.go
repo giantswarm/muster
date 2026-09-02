@@ -518,7 +518,72 @@ func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, con
 	// The defer cleanup will handle the actual cleanup, but we need logs now
 	r.collectInstanceLogs(instance, &result)
 
+	// Instance-log expectations describe the whole run, so they are evaluated
+	// last. A step failure is the more specific diagnosis when both hold, and
+	// keeps its place at the front of the error.
+	if scenario.InstanceLogs != nil {
+		if err := validateInstanceLogs(scenario.InstanceLogs, result.InstanceLogs); err != nil {
+			if result.Result == ResultPassed {
+				result.Result = ResultFailed
+				result.Error = err.Error()
+			} else {
+				result.Error += "; " + err.Error()
+			}
+		}
+	}
+
 	return result
+}
+
+// instanceLogMatchContextLimit caps how much of the line preceding a forbidden
+// match validateInstanceLogs quotes back.
+const instanceLogMatchContextLimit = 160
+
+// validateInstanceLogs evaluates a scenario's instance_logs expectations against
+// the captured serve output.
+//
+// A not_contains hit is reported by line number and the text of that line up to
+// the match -- never the match itself or what follows it. The typical use is
+// asserting that a credential never reached the logs, and a failure report that
+// echoed the credential into the CI output would defeat the point.
+func validateInstanceLogs(expected *InstanceLogExpectation, logs *InstanceLogs) error {
+	if expected == nil {
+		return nil
+	}
+	if logs == nil {
+		return fmt.Errorf("instance_logs expectations declared but no instance logs were captured")
+	}
+	out := logs.Stdout + "\n" + logs.Stderr
+
+	var problems []string
+	for _, want := range expected.Contains {
+		if !strings.Contains(out, want) {
+			problems = append(problems, fmt.Sprintf("instance logs do not contain %q", want))
+		}
+	}
+	for _, forbidden := range expected.NotContains {
+		idx := strings.Index(out, forbidden)
+		if idx < 0 {
+			continue
+		}
+		line := 1 + strings.Count(out[:idx], "\n")
+		lineStart := strings.LastIndex(out[:idx], "\n") + 1
+		prefix := out[lineStart:idx]
+		if len(prefix) > instanceLogMatchContextLimit {
+			prefix = prefix[:instanceLogMatchContextLimit] + "..."
+		}
+		matching := 0
+		for _, l := range strings.Split(out, "\n") {
+			if strings.Contains(l, forbidden) {
+				matching++
+			}
+		}
+		problems = append(problems, fmt.Sprintf("instance logs contain forbidden %q on %d line(s), first at line %d (line starts: %q)", forbidden, matching, line, prefix))
+	}
+	if len(problems) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%s", strings.Join(problems, "; "))
 }
 
 // runStep executes a single test step using the specified MCP client with template variable support

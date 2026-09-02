@@ -125,6 +125,21 @@ type TestScenario struct {
 	Skip bool `yaml:"skip,omitempty"`
 	// PreConfiguration defines muster instance setup
 	PreConfiguration *MusterPreConfiguration `yaml:"pre_configuration,omitempty"`
+	// InstanceLogs asserts on the stdout/stderr the muster serve instance
+	// produced over the whole scenario. It is evaluated once, after the last
+	// step and cleanup step ran, and is the only expectation kind that sees
+	// the instance side of a behavior -- e.g. that a credential never reached
+	// the logs.
+	InstanceLogs *InstanceLogExpectation `yaml:"instance_logs,omitempty"`
+}
+
+// InstanceLogExpectation defines what the captured muster serve output must and
+// must not contain once the scenario has run. At least one list must be set.
+type InstanceLogExpectation struct {
+	// Contains lists substrings the combined stdout+stderr must include.
+	Contains []string `yaml:"contains,omitempty"`
+	// NotContains lists substrings the combined stdout+stderr must not include.
+	NotContains []string `yaml:"not_contains,omitempty"`
 }
 
 // MusterPreConfiguration defines how to pre-configure an muster serve instance

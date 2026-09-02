@@ -3,6 +3,7 @@ package aggregator
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -362,7 +363,12 @@ func (a *AggregatorServer) bootstrapNewSessionSSO(sso ssoSession) {
 func (a *AggregatorServer) initSSOForSession(sso ssoSession) {
 	musterIssuer := a.getMusterIssuer()
 
-	logging.Info("Aggregator", "SSO: initSSOForSession called (session=%v, musterIssuer=%s)", sso, musterIssuer)
+	// sso is a LogValuer: the structured attr renders truncated identifiers and
+	// token lengths. Never hand it to a %v -- the raw struct holds the caller's
+	// ID token and bearer.
+	logging.InfoWithAttrs("Aggregator", "SSO: initSSOForSession called",
+		slog.Any("session", sso),
+		slog.String("musterIssuer", musterIssuer))
 
 	if musterIssuer == "" {
 		logging.Info("Aggregator", "SSO: initSSOForSession returning early: musterIssuer is empty")
