@@ -26,11 +26,10 @@ func (s *stubAuthHandler) Close() error                                         
 // TestSwapAuthHandler_ReturnsPrevious pins the primitive tests need in order to
 // isolate themselves from the process-global registry.
 //
-// Today the only way to restore the registry is RegisterAuthHandler(nil), which
-// clobbers rather than restores: a test that resets to nil destroys whatever the
-// enclosing test or package had registered. Five test files currently register
-// handlers with no cleanup at all. A Swap that hands back the displaced value
-// lets callers do t.Cleanup(func() { SwapAuthHandler(prev) }).
+// RegisterAuthHandler(nil) clobbers rather than restores: a test that resets to
+// nil destroys whatever the enclosing test or package had registered. A Swap
+// that hands back the displaced value lets callers write
+// t.Cleanup(func() { SwapAuthHandler(prev) }) instead.
 func TestSwapAuthHandler_ReturnsPrevious(t *testing.T) {
 	first := &stubAuthHandler{id: 1}
 	second := &stubAuthHandler{id: 2}
