@@ -394,18 +394,43 @@ func (r *ServerRegistry) Deregister(name string) error {
 // server in a state where core_auth_login reports "server not found" until the
 // process restarts.
 func (r *ServerRegistry) DeregisterRequestedAt(name string, requestedAt time.Time) error {
+	_, err := r.deregister(name, requestedAt, false)
+	return err
+}
+
+// DeregisterUnlessSessionAuth removes an MCP server like DeregisterRequestedAt,
+// but keeps an entry that requires per-session authentication (a pending-auth
+// registration). It exists for deregistrations driven by service state-change
+// events: the event handler already declines to act on a server whose registry
+// entry says auth_required, but that check and the removal are two steps, and
+// the auth-required hook registers the pending-auth entry between them when a
+// stale state=starting event is processed just as the server's 401 arrives.
+// The RegisteredAt guard does not close that window, because the registration
+// can land before the deregistration is timestamped. Deciding under the
+// registry lock does. Returns whether an entry was removed.
+func (r *ServerRegistry) DeregisterUnlessSessionAuth(name string, requestedAt time.Time) (bool, error) {
+	return r.deregister(name, requestedAt, true)
+}
+
+func (r *ServerRegistry) deregister(name string, requestedAt time.Time, keepSessionAuth bool) (bool, error) {
 	r.mu.Lock()
 
 	info, exists := r.servers[name]
 	if !exists {
 		r.mu.Unlock()
-		return fmt.Errorf("server %s not found", name)
+		return false, fmt.Errorf("server %s not found", name)
 	}
 
 	if info.RegisteredAt.After(requestedAt) {
 		r.mu.Unlock()
 		logging.Info("Aggregator", "Skipping deregistration of %s: entry was re-registered after the deregistration was requested", name)
-		return nil
+		return false, nil
+	}
+
+	if keepSessionAuth && info.RequiresSessionAuth() {
+		r.mu.Unlock()
+		logging.Info("Aggregator", "Skipping deregistration of %s: entry requires per-session authentication and is kept", name)
+		return false, nil
 	}
 
 	delete(r.servers, name)
@@ -451,7 +476,7 @@ func (r *ServerRegistry) DeregisterRequestedAt(name string, requestedAt time.Tim
 	}
 
 	logging.Info("Aggregator", "Deregistered MCP server: %s", name)
-	return nil
+	return true, nil
 }
 
 // GetClient returns the MCP client for a specific registered server.

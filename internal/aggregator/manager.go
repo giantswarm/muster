@@ -137,7 +137,7 @@ func (am *AggregatorManager) Start(ctx context.Context) error {
 	am.eventHandler = NewEventHandler(
 		am.orchestratorAPI,
 		am.registerSingleServer,
-		am.deregisterSingleServer,
+		am.deregisterOnStateChange,
 		am.isServerAuthRequired,
 		am.isServerSSOBased,
 	)
@@ -529,6 +529,26 @@ func (am *AggregatorManager) deregisterSingleServer(serverName string) error {
 	// Deregister from the aggregator
 	if err := am.aggregatorServer.DeregisterServer(serverName); err != nil {
 		return fmt.Errorf("failed to deregister server: %w", err)
+	}
+
+	logging.Info("Aggregator-Manager", "Successfully deregistered MCP server %s", serverName)
+	return nil
+}
+
+// deregisterOnStateChange is the event handler's deregistration callback. Unlike
+// deregisterSingleServer (used when a service is gone) it keeps a pending-auth
+// entry: the handler's own auth_required check and the removal are two steps,
+// and the auth-required hook can register the entry in between while a stale
+// state=starting event is being processed (the "Server not found" answer from
+// core_auth_login right after startup). The registry decides under its lock.
+func (am *AggregatorManager) deregisterOnStateChange(serverName string) error {
+	removed, err := am.aggregatorServer.DeregisterServerOnStateChange(serverName)
+	if err != nil {
+		return fmt.Errorf("failed to deregister server: %w", err)
+	}
+	if !removed {
+		logging.Debug("Aggregator-Manager", "Kept registration of %s - the entry requires per-session authentication", serverName)
+		return nil
 	}
 
 	logging.Info("Aggregator-Manager", "Successfully deregistered MCP server %s", serverName)
