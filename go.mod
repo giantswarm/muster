@@ -126,10 +126,10 @@ require (
 	go.opentelemetry.io/contrib/exporters/autoexport v0.69.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc v0.20.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp v0.20.0 // indirect
-	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc v1.44.0 // indirect
-	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.44.0 // indirect
+	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc v1.46.0 // indirect
+	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.46.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.46.0 // indirect
-	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.44.0 // indirect
+	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.46.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.46.0 // indirect
 	go.opentelemetry.io/otel/exporters/prometheus v0.68.0 // indirect
 	go.opentelemetry.io/otel/exporters/stdout/stdoutlog v0.20.0 // indirect
@@ -167,4 +167,4 @@ require (
 // in this build imports goldmark, so a require would be dropped by go mod tidy;
 // the replace pins the module graph to a fixed version for the nancy scan.
 // Drop once x/tools requires goldmark >= v1.7.17.
-replace github.com/yuin/goldmark => github.com/yuin/goldmark v1.8.5
+replace github.com/yuin/goldmark => github.com/yuin/goldmark v1.8.6
