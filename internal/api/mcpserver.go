@@ -374,6 +374,25 @@ func (a *MCPServerAuth) CanAuthenticateInteractively() bool {
 	return a.Type != MCPServerAuthTypeSigV4
 }
 
+// UsesSessionAuth reports whether the server is reached with the caller's own
+// identity — SSO token forwarding or RFC 8693 token exchange — so every session
+// opens its own connection and no shared, global client may exist for it.
+//
+// This is a property of the configuration alone. It must not be inferred from
+// how the backend answered a connection probe: a backend that still accepts an
+// anonymous initialize (for example the old pod during a rollover to an
+// OAuth-protected release) would otherwise be handed a token-less global client
+// that fails with 401 as soon as the protected pod takes over (issue #1135).
+func (a *MCPServerAuth) UsesSessionAuth() bool {
+	if a == nil {
+		return false
+	}
+	if a.ForwardToken {
+		return true
+	}
+	return a.TokenExchange != nil && a.TokenExchange.Enabled
+}
+
 // ValidateMetaAllowed reports whether spec.meta is usable with the given
 // server type.
 //

@@ -182,15 +182,7 @@ func (s *Service) Start(ctx context.Context) error {
 				// Use StateAuthRequired to indicate the server IS reachable but needs authentication.
 				// This maps to CRD state "Auth Required" per issue #337 - a 401 response proves
 				// the server is reachable at the network level, but authentication is needed.
-				if s.onAuthRequired != nil {
-					s.onAuthRequired(s.definition, authErr)
-				}
-				s.UpdateState(services.StateAuthRequired, services.HealthUnknown, nil)
-				s.LogInfo("MCP server requires authentication")
-				// Generate auth required event
-				s.generateEvent(events.ReasonMCPServerAuthRequired, events.EventData{
-					Error: "authentication required",
-				})
+				s.enterAuthRequired(authErr)
 				// Return the auth error for the caller to handle
 				return authErr
 			}
@@ -233,6 +225,19 @@ func (s *Service) Start(ctx context.Context) error {
 	// Note: lastAttempt is intentionally preserved for diagnostics
 	s.failureMutex.Unlock()
 
+	// A server reached with the caller's identity (forwardToken or
+	// tokenExchange) is served per session, and the client the probe just
+	// opened carries no user token. Whether the backend accepted that
+	// anonymous initialize says nothing about how the server must be used:
+	// during a rollover from an anonymous to an OAuth-protected release the
+	// old pod still answers, and keeping this client would register the
+	// server globally, hand every session the token-less client and have it
+	// fail with 401 once the protected pod takes over (issue #1135). The
+	// probe still proved reachability, so this is Auth Required, not Failed.
+	if s.isRemoteServer() && s.definition.Auth.UsesSessionAuth() {
+		return s.discardAnonymousProbe()
+	}
+
 	// Use appropriate state based on server type:
 	// - Remote servers (streamable-http, sse): "connected" is more intuitive
 	// - Local servers (stdio): "running" describes the process state
@@ -248,6 +253,41 @@ func (s *Service) Start(ctx context.Context) error {
 	s.generateEvent(events.ReasonMCPServerStarted, events.EventData{})
 
 	return nil
+}
+
+// enterAuthRequired runs the auth-required hook and publishes the
+// StateAuthRequired transition, in that order, so that the aggregator's
+// pending-auth registration exists before any subscriber sees the event.
+func (s *Service) enterAuthRequired(authErr *mcpserver.AuthRequiredError) {
+	if s.onAuthRequired != nil {
+		s.onAuthRequired(s.definition, authErr)
+	}
+	s.UpdateState(services.StateAuthRequired, services.HealthUnknown, nil)
+	s.LogInfo("MCP server requires authentication")
+	// Generate auth required event
+	s.generateEvent(events.ReasonMCPServerAuthRequired, events.EventData{
+		Error: "authentication required",
+	})
+}
+
+// discardAnonymousProbe closes the client Start opened without a user token
+// and settles a session-auth server in Auth Required, exactly as a 401 from
+// the backend would have. The synthesized AuthRequiredError carries no
+// challenge: per-session connections forward the caller's token to the
+// server URL and need none, and core_auth_login rediscovers resource metadata
+// when it is missing.
+func (s *Service) discardAnonymousProbe() error {
+	s.LogInfo("MCP server accepted an anonymous connection but is configured for session-level auth " +
+		"(forwardToken or tokenExchange): discarding the shared client, tools are served per session")
+	if err := s.closeClient(); err != nil {
+		s.LogWarn("Error closing anonymous probe client: %v", err)
+	}
+	authErr := &mcpserver.AuthRequiredError{
+		URL: s.definition.URL,
+		Err: fmt.Errorf("server %s is configured for session-level authentication and is connected per session", s.GetName()),
+	}
+	s.enterAuthRequired(authErr)
+	return authErr
 }
 
 // Stop stops the MCP server service by closing the MCP client
