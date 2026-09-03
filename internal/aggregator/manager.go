@@ -137,7 +137,7 @@ func (am *AggregatorManager) Start(ctx context.Context) error {
 	am.eventHandler = NewEventHandler(
 		am.orchestratorAPI,
 		am.registerSingleServer,
-		am.deregisterSingleServer,
+		am.deregisterOnStateChange,
 		am.isServerAuthRequired,
 		am.isServerSSOBased,
 	)
@@ -282,6 +282,13 @@ func (am *AggregatorManager) registerHealthyMCPServers(ctx context.Context) erro
 			continue
 		}
 
+		// Session-auth servers get their pending-auth entry from the service's
+		// auth-required hook (or the periodic heal), never a shared client.
+		if serviceUsesSessionAuth(service) {
+			logging.Debug("Aggregator-Manager", "Skipping global registration of %s - server uses session-level auth", service.GetName())
+			continue
+		}
+
 		// Attempt to register the healthy server
 		if err := am.registerSingleServer(ctx, service.GetName()); err != nil {
 			logging.Warn("Aggregator-Manager", "Failed to register healthy MCP server %s: %v",
@@ -325,6 +332,14 @@ func (am *AggregatorManager) registerSingleServer(ctx context.Context, serverNam
 	serviceData := service.GetServiceData()
 	if serviceData == nil {
 		return fmt.Errorf("no service data available for %s", serverName)
+	}
+
+	// Last line of defense for issue #1135: whatever state the service is in,
+	// a server configured for session-level auth must never be reachable
+	// through one shared client. Its client — if the service kept one — carries
+	// no user token and would fail with 401 for every caller.
+	if authConfig, _ := serviceData["auth"].(*api.MCPServerAuth); authConfig.UsesSessionAuth() {
+		return fmt.Errorf("server %s is configured for session-level auth (forwardToken or tokenExchange) and is connected per session, not globally", serverName)
 	}
 
 	toolPrefix, _ := serviceData["toolPrefix"].(string)
@@ -377,8 +392,7 @@ func (am *AggregatorManager) RegisterServerPendingAuth(registration PendingAuthR
 
 	// Wire pool notification callback for servers with session-scoped auth so that
 	// OnNotification is auto-wired on every pooled client.
-	authConfig := registration.AuthConfig
-	if authConfig != nil && (authConfig.ForwardToken || (authConfig.TokenExchange != nil && authConfig.TokenExchange.Enabled)) {
+	if registration.AuthConfig.UsesSessionAuth() {
 		am.aggregatorServer.wirePoolNotificationCallback(registration.Name)
 	}
 
@@ -408,15 +422,28 @@ func (am *AggregatorManager) isServerAuthRequired(serverName string) bool {
 // or token exchange). These servers are handled per-session rather than globally,
 // so the event handler should skip global registration attempts for them.
 //
-// Session-based servers work differently from regular OAuth servers: the
-// MCPServerService never creates a global client because the backend returns
-// 401 on the initial connection probe; auth happens per-session.
+// The answer comes from the server's own configuration — the MCPServer
+// definition the service currently runs with — and only falls back to the
+// aggregator registry entry for servers that have no service (registered
+// directly). The registry entry is not a safe primary source: it only exists
+// once the server has been registered, and on a configuration change the
+// reconciler deregisters before it restarts. Reading the registry there found
+// nothing, answered false, and let a server that had just gained
+// auth.forwardToken be registered globally with a token-less client because
+// the connection probe had reached a backend that still accepted anonymous
+// requests (issue #1135).
 //
 // This method is called by the event handler when a server becomes healthy/connected
 // to determine if global registration should be skipped.
 //
 // See Issue #318 for details on this design decision.
 func (am *AggregatorManager) isServerSSOBased(serverName string) bool {
+	if am.serviceRegistry != nil {
+		if service, exists := am.serviceRegistry.Get(serverName); exists && service != nil {
+			return serviceUsesSessionAuth(service)
+		}
+	}
+
 	am.mu.RLock()
 	defer am.mu.RUnlock()
 
@@ -429,22 +456,19 @@ func (am *AggregatorManager) isServerSSOBased(serverName string) bool {
 		return false
 	}
 
-	// Check if AuthConfig has SSO token forwarding or token exchange enabled
-	if info.AuthConfig == nil {
+	return info.AuthConfig.UsesSessionAuth()
+}
+
+// serviceUsesSessionAuth reads the session-auth decision from a service's own
+// definition (the "auth" entry of its service data), which is what the
+// reconciler applies on a configuration change.
+func serviceUsesSessionAuth(service api.ServiceInfo) bool {
+	serviceData := service.GetServiceData()
+	if serviceData == nil {
 		return false
 	}
-
-	// ForwardToken enables SSO via token forwarding
-	if info.AuthConfig.ForwardToken {
-		return true
-	}
-
-	// TokenExchange enables SSO via RFC 8693 token exchange
-	if info.AuthConfig.TokenExchange != nil && info.AuthConfig.TokenExchange.Enabled {
-		return true
-	}
-
-	return false
+	authConfig, _ := serviceData["auth"].(*api.MCPServerAuth)
+	return authConfig.UsesSessionAuth()
 }
 
 // handleAuthCompletion is called after successful OAuth browser authentication.
@@ -505,6 +529,26 @@ func (am *AggregatorManager) deregisterSingleServer(serverName string) error {
 	// Deregister from the aggregator
 	if err := am.aggregatorServer.DeregisterServer(serverName); err != nil {
 		return fmt.Errorf("failed to deregister server: %w", err)
+	}
+
+	logging.Info("Aggregator-Manager", "Successfully deregistered MCP server %s", serverName)
+	return nil
+}
+
+// deregisterOnStateChange is the event handler's deregistration callback. Unlike
+// deregisterSingleServer (used when a service is gone) it keeps a pending-auth
+// entry: the handler's own auth_required check and the removal are two steps,
+// and the auth-required hook can register the entry in between while a stale
+// state=starting event is being processed (the "Server not found" answer from
+// core_auth_login right after startup). The registry decides under its lock.
+func (am *AggregatorManager) deregisterOnStateChange(serverName string) error {
+	removed, err := am.aggregatorServer.DeregisterServerOnStateChange(serverName)
+	if err != nil {
+		return fmt.Errorf("failed to deregister server: %w", err)
+	}
+	if !removed {
+		logging.Debug("Aggregator-Manager", "Kept registration of %s - the entry requires per-session authentication", serverName)
+		return nil
 	}
 
 	logging.Info("Aggregator-Manager", "Successfully deregistered MCP server %s", serverName)
@@ -655,7 +699,12 @@ func (am *AggregatorManager) attemptPendingRegistrations(ctx context.Context) {
 		// existed (startup race, issue #1110). Heal the missing entry from the
 		// service's own definition; AuthInfo is left empty and is re-discovered
 		// on the next core_auth_login via the RFC 9728 probe.
-		if service.GetState() == api.StateAuthRequired {
+		//
+		// A server configured for session-level auth (forwardToken or
+		// tokenExchange) takes the same path whatever state it reports: it is
+		// connected per session, so the only registry entry it may ever have
+		// is a pending-auth one (issue #1135).
+		if service.GetState() == api.StateAuthRequired || serviceUsesSessionAuth(service) {
 			if am.aggregatorServer != nil {
 				if _, exists := am.aggregatorServer.GetRegistry().GetServerInfo(service.GetName()); exists {
 					continue // Already registered

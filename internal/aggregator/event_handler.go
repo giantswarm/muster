@@ -219,7 +219,8 @@ func (eh *EventHandler) processEvent(event api.ServiceStateChangedEvent) {
 		// Skip global registration for session-based servers (token forwarding or token
 		// exchange). These servers are handled at the session level — each caller's session
 		// creates its own per-identity connection. No persistent global MCP client exists for them.
-		// See Issue #318 for details on this design decision.
+		// The callback answers from the server's configuration, not from the probe result or
+		// the registry entry (issue #1135). See Issue #318 for details on this design decision.
 		if eh.isServerSSOBased != nil && eh.isServerSSOBased(event.Name) {
 			logging.Info("Aggregator-EventHandler", "Skipping global registration of %s - server uses session-level auth (handled per-session)", event.Name)
 			return

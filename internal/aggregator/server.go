@@ -1179,6 +1179,22 @@ func (a *AggregatorServer) wirePoolNotificationCallback(serverName string) {
 //
 // Returns an error if the server is not found or deregistration fails.
 func (a *AggregatorServer) DeregisterServer(name string) error {
+	_, err := a.deregisterServer(name, false)
+	return err
+}
+
+// DeregisterServerOnStateChange is DeregisterServer for the aggregator's
+// service state-change handling: it never removes an entry that requires
+// per-session authentication, whatever the (possibly stale) event said. Such
+// entries are owned by the auth-required hook and the periodic pending-auth
+// heal, and removing one leaves core_auth_login answering "server not found"
+// and every session without the server until the next heal. Returns whether
+// an entry was removed.
+func (a *AggregatorServer) DeregisterServerOnStateChange(name string) (bool, error) {
+	return a.deregisterServer(name, true)
+}
+
+func (a *AggregatorServer) deregisterServer(name string, keepSessionAuth bool) (bool, error) {
 	logging.InfoWithAttrs("Aggregator", "DeregisterServer called",
 		slog.String("server", name))
 
@@ -1208,7 +1224,10 @@ func (a *AggregatorServer) DeregisterServer(name string) error {
 		a.connPool.EvictServer(name)
 	}
 
-	return a.registry.DeregisterRequestedAt(name, requestedAt)
+	if keepSessionAuth {
+		return a.registry.DeregisterUnlessSessionAuth(name, requestedAt)
+	}
+	return true, a.registry.DeregisterRequestedAt(name, requestedAt)
 }
 
 // GetRegistry returns the server registry for direct access to backend server information.
