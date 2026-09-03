@@ -1,0 +1,211 @@
+name: "oauth-sso-forwarding-anonymous-backend"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  Regression test for issue #1135: a server configured for session-level auth
+  (auth.forwardToken) whose backend still accepts an anonymous initialize must
+  never be registered globally.
+
+  During the rollout that made the Agent Platform MCP servers OAuth resource
+  servers, muster reconciled the changed MCPServer (no auth -> forwardToken)
+  while the old, anonymous pod was still answering. The connection probe
+  succeeded, the aggregator registered the server globally with a token-less
+  client, and once the OAuth pod took over that client 401-looped and every
+  session's call failed with "authorization required" until muster restarted.
+  The per-session forwarding path was never used because the decision to skip
+  global registration read the registry entry the registration itself creates.
+
+  Two servers exercise both ways into that state against a mock backend that
+  ignores the Authorization header (the anonymous pod):
+    - anon-fwd is created with forwardToken from the start;
+    - anon-flip starts without auth (registered globally, its tool works for
+      everyone) and then gains auth.forwardToken through core_mcpserver_update,
+      which the reconciler applies with a restart.
+  Both must report auth_required, not connected, and their tools must be served
+  through the session that authenticated to muster. The instance log must not
+  show a global registration of anon-fwd.
+tags: ["oauth", "sso", "token-forwarding", "mcpserver", "reconciler", "issue-1135", "regression"]
+timeout: "3m"
+
+pre_configuration:
+  mock_oauth_servers:
+    - name: "anon-backend-idp"
+      scopes: ["openid", "profile", "mcp:admin"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "anon-backend-client"
+      client_secret: "anon-backend-secret"
+      use_as_muster_oauth_server: true
+
+  mcp_servers:
+    # Session-level auth in the MCPServer definition, but the mock backend is
+    # a plain one: without `oauth.required` it does not validate tokens and
+    # accepts the anonymous connection probe.
+    - name: "anon-fwd"
+      config:
+        type: "streamable-http"
+        # Tools are served per session only; readiness must not wait for them.
+        expect_ready: false
+        oauth:
+          forward_token: true
+        tools:
+          - name: "fwd_op"
+            description: "Operation on a forward-token server behind an anonymous backend"
+            responses:
+              - response:
+                  status: "ok"
+                  source: "anon-fwd"
+
+    # Starts as an ordinary anonymous server and is flipped to forwardToken
+    # mid-scenario, the way the reconciler saw it during the rollout.
+    - name: "anon-flip"
+      config:
+        type: "streamable-http"
+        expect_ready: false
+        tools:
+          - name: "flip_op"
+            description: "Operation on a server that gains forwardToken mid-scenario"
+            responses:
+              - response:
+                  status: "ok"
+                  source: "anon-flip"
+
+steps:
+  # --- created with forwardToken against an anonymous backend -------------
+  - id: anon-fwd-is-auth-required
+    description: "A forwardToken server whose probe was accepted anonymously still reports auth_required, not connected"
+    tool: "core_service_status"
+    args:
+      name: "anon-fwd"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "anon-fwd"
+        state: "auth_required"
+
+  # --- plain server first, then flipped to forwardToken -------------------
+  - id: flip_connected_before
+    description: "The plain server connects and is registered globally"
+    tool: "core_service_status"
+    args:
+      name: "anon-flip"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "anon-flip"
+        state: "connected"
+
+  - id: flip-tool-works-globally-before
+    description: "Its tool is served by the shared client before the flip"
+    tool: "x_anon-flip_flip_op"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains:
+        - "ok"
+        - "anon-flip"
+
+  - id: flip_before
+    description: "Read the definition (the mock endpoint URL is only known at runtime)"
+    tool: "core_mcpserver_get"
+    args:
+      name: "anon-flip"
+    expected:
+      success: true
+      json_path:
+        name: "anon-flip"
+        type: "streamable-http"
+
+  - id: flip-to-forward-token
+    description: "Add auth.forwardToken; the reconciler restarts the server while the backend still answers anonymously"
+    tool: "core_mcpserver_update"
+    args:
+      name: "anon-flip"
+      type: "streamable-http"
+      url: "{{ .flip_before.url }}"
+      auth:
+        type: "oauth"
+        forwardToken: true
+    expected:
+      success: true
+
+  - id: flip-is-auth-required
+    description: "After the flip the server reports auth_required, not connected"
+    tool: "core_service_status"
+    args:
+      name: "anon-flip"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "anon-flip"
+        state: "auth_required"
+
+  # --- tools come only from the per-session path --------------------------
+  - id: muster-auth-login
+    description: "Authenticate to muster; the session's SSO init forwards its ID token to both servers"
+    tool: "test_muster_auth_login"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "success"
+        - "ID token stored"
+
+  - id: anon-fwd-connected-for-session
+    description: "anon-fwd is connected for this session via token forwarding"
+    tool: "test_read_auth_status"
+    args:
+      server: "anon-fwd"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains:
+        - "anon-fwd"
+        - "connected"
+
+  - id: anon-fwd-tool-via-session
+    description: "anon-fwd's tool is served through the session connection"
+    tool: "x_anon-fwd_fwd_op"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains:
+        - "ok"
+        - "anon-fwd"
+
+  - id: flip-connected-for-session
+    description: "anon-flip is connected for this session via token forwarding"
+    tool: "test_read_auth_status"
+    args:
+      server: "anon-flip"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains:
+        - "anon-flip"
+        - "connected"
+
+  - id: flip-tool-via-session
+    description: "anon-flip's tool is served through the session connection after the flip"
+    tool: "x_anon-flip_flip_op"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains:
+        - "ok"
+        - "anon-flip"
+
+# anon-fwd never had a moment without forwardToken, so the aggregator's event
+# handler must never have registered it globally. (anon-flip legitimately was,
+# before the flip, so its proof is the auth_required state above.)
+instance_logs:
+  not_contains:
+    - "Registering healthy MCP server: anon-fwd"
+    - "authorization required"
