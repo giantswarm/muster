@@ -398,6 +398,12 @@ type MCPServerOAuthConfig struct {
 	// of them -- the GitHub-style connector configuration.
 	GrantScope string `yaml:"grant_scope,omitempty"`
 
+	// OmitResourceMetadata makes the mock backend publish no RFC 9728
+	// resource metadata (bare 401 challenge, no well-known document), so the
+	// aggregator learns the issuer only from the pin -- see
+	// mock.ProtectedMCPServerConfig.OmitResourceMetadata.
+	OmitResourceMetadata bool `yaml:"omit_resource_metadata,omitempty"`
+
 	// Scope is the required OAuth scope
 	Scope string `yaml:"scope,omitempty"`
 

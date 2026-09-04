@@ -66,6 +66,14 @@ type logoutFixture struct {
 
 func newLogoutFixture(t *testing.T, subjectScoped bool) *logoutFixture {
 	t.Helper()
+	return newLogoutFixtureWith(t, subjectScoped, false)
+}
+
+// newLogoutFixtureWith builds the fixture; with pinOnly the registry entries
+// carry no AuthInfo (the state right after a restart, before any login) and
+// name their issuer only through spec.auth.authorizationServer.
+func newLogoutFixtureWith(t *testing.T, subjectScoped, pinOnly bool) *logoutFixture {
+	t.Helper()
 
 	handler := &subjectGrantMockOAuthHandler{
 		issuerMockOAuthHandler: issuerMockOAuthHandler{enabled: true},
@@ -83,11 +91,27 @@ func newLogoutFixture(t *testing.T, subjectScoped bool) *logoutFixture {
 		{"github-pro", logoutTestIssuer},
 		{"other", "https://other.example.com"},
 	} {
-		require.NoError(t, reg.RegisterPendingAuth(PendingAuthRegistration{
+		registration := PendingAuthRegistration{
 			ServerRegistration: ServerRegistration{Name: s.name, ToolPrefix: s.name},
 			URL:                "https://" + s.name + ".example.com/mcp",
 			AuthInfo:           &AuthInfo{Issuer: s.issuer, Scope: "repo"},
-		}))
+		}
+		if pinOnly {
+			registration.AuthInfo = nil
+			grantScope := ""
+			if subjectScoped && s.issuer == logoutTestIssuer {
+				grantScope = api.GrantScopeSubject
+			}
+			registration.AuthConfig = &api.MCPServerAuth{
+				Type: "oauth",
+				AuthorizationServer: &api.MCPServerAuthAuthorizationServer{
+					// The trailing slash is the operator's; the pin trims it.
+					Issuer:     s.issuer + "/",
+					GrantScope: grantScope,
+				},
+			}
+		}
+		require.NoError(t, reg.RegisterPendingAuth(registration))
 	}
 	// An SSO server on the same issuer is connected from muster's own token,
 	// never from the person's grant; it must not be touched.
@@ -284,4 +308,53 @@ func TestIssuerSubjectScoped_Helper(t *testing.T) {
 	h := &subjectGrantMockOAuthHandler{subjectScoped: map[string]bool{logoutTestIssuer: true}}
 	assert.True(t, api.IssuerSubjectScoped(h, logoutTestIssuer))
 	assert.False(t, api.IssuerSubjectScoped(h, "https://other.example.com"))
+}
+
+func TestHandleAuthLogout_IssuerKnownOnlyFromThePinAfterRestart(t *testing.T) {
+	// Right after a restart the registry entries carry no AuthInfo -- the
+	// probe's bare 401 said nothing and nobody logged in yet -- while the
+	// tokens from before the restart are still in the store.
+	f := newLogoutFixtureWith(t, true, true)
+
+	result := f.logout(t, logoutSessionA, logoutTestSubject, "github")
+	assert.False(t, result.IsError, resultText(result))
+
+	require.Equal(t, []clearCall{{logoutSessionA, logoutTestSubject, logoutTestIssuer}}, f.handler.clearedForUser,
+		"the pin names the issuer, trailing slash dropped")
+	assert.False(t, f.connected(t, logoutSessionA, "github"))
+	assert.False(t, f.connected(t, logoutSessionA, "github-pro"), "the sibling is found through its pin as well")
+	assert.False(t, f.connected(t, logoutSessionB, "github-pro"))
+	assert.True(t, f.connected(t, logoutSessionA, "other"))
+	assert.Contains(t, resultText(result), "disconnected as well: github-pro")
+}
+
+func TestHandleAuthLogout_UnknownIssuerWithoutPinDropsOnlyTheSessionState(t *testing.T) {
+	f := newLogoutFixture(t, false)
+	// A server whose entry knows no issuer and has no pin; discovery fails
+	// fast against a closed port.
+	require.NoError(t, f.agg.registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: "unknown", ToolPrefix: "unknown"},
+		URL:                "http://127.0.0.1:1/mcp",
+	}))
+	require.NoError(t, f.agg.authStore.MarkAuthenticated(context.Background(), logoutSessionA, "unknown"))
+
+	result := f.logout(t, logoutSessionA, logoutTestSubject, "unknown")
+	assert.False(t, result.IsError, resultText(result))
+	assert.Empty(t, f.handler.clearedForUser)
+	assert.Empty(t, f.handler.clearedForIssue)
+	authed, err := f.agg.authStore.IsAuthenticated(context.Background(), logoutSessionA, "unknown")
+	require.NoError(t, err)
+	assert.False(t, authed, "the session's auth mark goes even when no token can be found")
+	assert.True(t, f.connected(t, logoutSessionA, "github"))
+}
+
+func TestKnownServerIssuer(t *testing.T) {
+	assert.Empty(t, knownServerIssuer(nil))
+	assert.Empty(t, knownServerIssuer(&ServerInfo{}))
+	assert.Equal(t, "https://a.example.com/", knownServerIssuer(&ServerInfo{AuthInfo: &AuthInfo{Issuer: "https://a.example.com/"}}),
+		"what the probe recorded is passed on as recorded; stored tokens use that spelling")
+	pinned := &ServerInfo{AuthConfig: &api.MCPServerAuth{AuthorizationServer: &api.MCPServerAuthAuthorizationServer{Issuer: "https://b.example.com/"}}}
+	assert.Equal(t, "https://b.example.com", knownServerIssuer(pinned), "the pin is trimmed like PinIssuer does")
+	both := &ServerInfo{AuthInfo: &AuthInfo{Issuer: "https://a.example.com"}, AuthConfig: pinned.AuthConfig}
+	assert.Equal(t, "https://a.example.com", knownServerIssuer(both), "AuthInfo wins over the pin")
 }
