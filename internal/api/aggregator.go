@@ -147,6 +147,11 @@ type PendingAuthRegistration struct {
 	// Name is the unique identifier for the server within the aggregator.
 	Name string
 
+	// Namespace is the Kubernetes namespace of the MCPServer resource. It is
+	// the default namespace for the server's Secret references and the
+	// namespace its events are filed under. Empty in filesystem mode.
+	Namespace string
+
 	// URL is the remote server endpoint.
 	URL string
 

@@ -590,9 +590,14 @@ func (s *Service) GetServiceData() map[string]interface{} {
 	}
 	s.clientInitMutex.Unlock()
 
-	// Add tool prefix and family for aggregator registration
+	// Add tool prefix, family and namespace for aggregator registration. The
+	// namespace is the default for the definition's Secret references; it is
+	// absent in filesystem mode rather than reported as an empty string.
 	data["toolPrefix"] = s.definition.ToolPrefix
 	data["family"] = s.definition.Family
+	if s.definition.Namespace != "" {
+		data["namespace"] = s.definition.Namespace
+	}
 
 	// Add failure tracking data for unreachable server detection (thread-safe read)
 	s.failureMutex.RLock()

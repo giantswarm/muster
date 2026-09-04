@@ -344,6 +344,7 @@ func (am *AggregatorManager) registerSingleServer(ctx context.Context, serverNam
 
 	toolPrefix, _ := serviceData["toolPrefix"].(string)
 	family, _ := serviceData["family"].(*api.MCPServerFamily)
+	namespace, _ := serviceData["namespace"].(string)
 
 	clientInterface, exists := serviceData["client"]
 	if !exists || clientInterface == nil {
@@ -357,6 +358,7 @@ func (am *AggregatorManager) registerSingleServer(ctx context.Context, serverNam
 
 	registration := ServerRegistration{
 		Name:       serverName,
+		Namespace:  namespace,
 		ToolPrefix: toolPrefix,
 		Family:     family,
 	}
@@ -764,6 +766,7 @@ func (am *AggregatorManager) registerPendingAuthFromService(service api.ServiceI
 	url, _ := serviceData["url"].(string)
 	toolPrefix, _ := serviceData["toolPrefix"].(string)
 	family, _ := serviceData["family"].(*api.MCPServerFamily)
+	namespace, _ := serviceData["namespace"].(string)
 	meta, _ := serviceData["meta"].(map[string]string)
 	authConfig, _ := serviceData["auth"].(*api.MCPServerAuth)
 
@@ -776,6 +779,7 @@ func (am *AggregatorManager) registerPendingAuthFromService(service api.ServiceI
 	return am.RegisterServerPendingAuth(PendingAuthRegistration{
 		ServerRegistration: ServerRegistration{
 			Name:       service.GetName(),
+			Namespace:  namespace,
 			ToolPrefix: toolPrefix,
 			Family:     family,
 		},

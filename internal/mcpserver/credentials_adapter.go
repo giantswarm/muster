@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/giantswarm/muster/internal/api"
@@ -67,14 +68,7 @@ func (a *CredentialsAdapter) LoadClientCredentials(
 		return nil, fmt.Errorf("secret name is required")
 	}
 
-	// Determine namespace (use default if not specified)
-	namespace := secretRef.Namespace
-	if namespace == "" {
-		namespace = defaultNamespace
-	}
-	if namespace == "" {
-		namespace = "default"
-	}
+	ownNamespace, namespace := resolveSecretNamespace(secretRef, defaultNamespace)
 
 	// Determine keys (use defaults if not specified)
 	clientIDKey := secretRef.ClientIDKey
@@ -91,10 +85,10 @@ func (a *CredentialsAdapter) LoadClientCredentials(
 
 	// Security: Log a warning when accessing secrets across namespaces
 	// This helps operators audit cross-namespace secret access in logs
-	if secretRef.Namespace != "" && secretRef.Namespace != defaultNamespace {
+	if namespace != ownNamespace {
 		logging.Warn("SecretCredentials", "Cross-namespace secret access: reading secret %s/%s from MCPServer in namespace %s. "+
 			"Ensure RBAC policies permit this access and review security implications.",
-			namespace, secretRef.Name, defaultNamespace)
+			namespace, secretRef.Name, ownNamespace)
 	}
 
 	// Load the secret from Kubernetes
@@ -135,6 +129,27 @@ func (a *CredentialsAdapter) LoadClientCredentials(
 	}, nil
 }
 
+// resolveSecretNamespace returns the namespace a secret reference is read
+// relative to and the namespace it resolves to.
+//
+// ownNamespace is the referencing resource's own namespace (the MCPServer's
+// metadata.namespace, or a broker's configured default), falling back to
+// "default" when the caller has none. namespace is where the Secret is read
+// from: the reference's explicit namespace, else ownNamespace. The read is
+// cross-namespace exactly when the two differ — a reference that names its
+// own namespace explicitly is not.
+func resolveSecretNamespace(secretRef *api.ClientCredentialsSecretRef, defaultNamespace string) (ownNamespace, namespace string) {
+	ownNamespace = defaultNamespace
+	if ownNamespace == "" {
+		ownNamespace = metav1.NamespaceDefault
+	}
+	namespace = secretRef.Namespace
+	if namespace == "" {
+		namespace = ownNamespace
+	}
+	return ownNamespace, namespace
+}
+
 // LoadSecretKey loads raw bytes for a single named key from a Kubernetes secret.
 func (a *CredentialsAdapter) LoadSecretKey(
 	ctx context.Context,
@@ -149,20 +164,14 @@ func (a *CredentialsAdapter) LoadSecretKey(
 		return nil, fmt.Errorf("secret name is required")
 	}
 
-	namespace := secretRef.Namespace
-	if namespace == "" {
-		namespace = defaultNamespace
-	}
-	if namespace == "" {
-		namespace = "default"
-	}
+	ownNamespace, namespace := resolveSecretNamespace(secretRef, defaultNamespace)
 
 	logging.Debug("SecretCredentials", "Loading secret key %q from secret %s/%s", key, namespace, secretRef.Name)
 
-	if secretRef.Namespace != "" && secretRef.Namespace != defaultNamespace {
+	if namespace != ownNamespace {
 		logging.Warn("SecretCredentials", "Cross-namespace secret access: reading secret %s/%s from namespace %s. "+
 			"Ensure RBAC policies permit this access and review security implications.",
-			namespace, secretRef.Name, defaultNamespace)
+			namespace, secretRef.Name, ownNamespace)
 	}
 
 	secret := &corev1.Secret{}

@@ -264,6 +264,7 @@ func (o *Orchestrator) handleAuthRequiredServer(definition *api.MCPServer, authE
 
 	if err := o.registerPendingAuthWithRetry(api.PendingAuthRegistration{
 		Name:       definition.Name,
+		Namespace:  definition.Namespace,
 		URL:        definition.URL,
 		ToolPrefix: definition.ToolPrefix,
 		Family:     definition.Family,

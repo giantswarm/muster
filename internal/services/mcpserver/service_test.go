@@ -213,6 +213,22 @@ func TestGetServiceData(t *testing.T) {
 	assert.Equal(t, "echo", data["command"])
 	assert.Equal(t, []string{"hello"}, data["args"])
 	assert.Equal(t, map[string]string{"TEST": "value"}, data["env"])
+	assert.NotContains(t, data, "namespace", "a filesystem-mode definition has no namespace to report")
+}
+
+// TestGetServiceData_Namespace: the aggregator manager registers servers from
+// service data, so the definition's namespace has to travel with it or the
+// registry entry falls back to "default".
+func TestGetServiceData_Namespace(t *testing.T) {
+	svc, err := NewService(&api.MCPServer{
+		Name:      "github",
+		Namespace: "agent-platform",
+		Type:      api.MCPServerTypeStreamableHTTP,
+		URL:       "https://api.githubcopilot.com/mcp/",
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, "agent-platform", svc.GetServiceData()["namespace"])
 }
 
 // TestConfigurationChanged verifies that ConfigurationChanged correctly detects
