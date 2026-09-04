@@ -1,0 +1,234 @@
+name: "oauth-subject-grant-tool-call"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  A subject-scoped grant (spec.auth.authorizationServer.grantScope: subject,
+  GitHub-style) belongs to the person, not to the login session that obtained
+  it. Once one session of a person has connected such a server, every other
+  session of the same person -- another MCP client, a fresh CLI session, a
+  front-end whose bearer rotated -- uses it without calling core_auth_login:
+
+  1. A tool call from a session that never connected the server succeeds
+     (the session is connected with the person's grant on the call itself),
+     both before any session of this process listed the server's tools
+     ("tool not found" territory) and after.
+  2. list_tools from such a session shows the server's tools.
+  3. A session of a different person without a grant keeps failing with
+     "not authenticated" and does not see the tools.
+tags: ["oauth", "authentication", "github", "subject-grant", "multi-user", "session-isolation", "mcpserver"]
+timeout: "3m"
+
+pre_configuration:
+  mock_oauth_servers:
+    # muster's own IdP, so test_muster_auth_login can mint sessions with a
+    # chosen subject: several sessions of "alice", one of "bob".
+    - name: "muster-idp"
+      scopes: ["openid", "profile", "email"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "test-client"
+      client_secret: "test-secret"
+      use_as_muster_oauth_server: true
+
+    # The connector's authorization server (GitHub's stand-in). A separate
+    # issuer from muster's, as in production: the session's muster login
+    # token must never be mistaken for a grant at this issuer.
+    - name: "github-idp"
+      scopes: ["mcp:read"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "github-client"
+      use_tls: true
+
+  mcp_servers:
+    - name: "github-style"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "github-idp"
+          scope: "mcp:read"
+          # Pins spec.auth.authorizationServer to github-idp's issuer with
+          # grantScope: subject.
+          grant_scope: "subject"
+        tools:
+          - name: "get_me"
+            description: "The authenticated GitHub user"
+            responses:
+              - response:
+                  login: "alice"
+
+steps:
+  - id: verify-server-registered
+    description: "The protected server is registered and waits for authentication"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "github-style"
+
+  # Four sessions of alice and one of bob. Each test_muster_auth_login is a
+  # separate login (a separate token family, so a separate muster session);
+  # test_create_user opens a client on the most recent one.
+  - id: login-alice-1
+    tool: "test_muster_auth_login"
+    args:
+      subject: "alice"
+    expected:
+      success: true
+  - id: create-alice-first
+    tool: "test_create_user"
+    args:
+      name: "alice-first"
+    expected:
+      success: true
+
+  - id: login-alice-2
+    tool: "test_muster_auth_login"
+    args:
+      subject: "alice"
+    expected:
+      success: true
+  - id: create-alice-second
+    tool: "test_create_user"
+    args:
+      name: "alice-second"
+    expected:
+      success: true
+
+  - id: login-alice-3
+    tool: "test_muster_auth_login"
+    args:
+      subject: "alice"
+    expected:
+      success: true
+  - id: create-alice-third
+    tool: "test_create_user"
+    args:
+      name: "alice-third"
+    expected:
+      success: true
+
+  - id: login-alice-4
+    tool: "test_muster_auth_login"
+    args:
+      subject: "alice"
+    expected:
+      success: true
+  - id: create-alice-fourth
+    tool: "test_create_user"
+    args:
+      name: "alice-fourth"
+    expected:
+      success: true
+
+  - id: login-bob
+    tool: "test_muster_auth_login"
+    args:
+      subject: "bob"
+    expected:
+      success: true
+  - id: create-bob
+    tool: "test_create_user"
+    args:
+      name: "bob"
+    expected:
+      success: true
+
+  # Nobody has connected the server yet: no grant exists for alice, so her
+  # second session fails like any unauthenticated session.
+  - id: alice-second-call-before-any-grant
+    as_user: "alice-second"
+    description: "Without any grant for alice the call fails"
+    tool: "x_github-style_get_me"
+    args: {}
+    expected:
+      success: false
+
+  # alice's first session completes the browser consent. The callback
+  # connects that session and files the grant under alice's identity.
+  - id: alice-first-consents
+    as_user: "alice-first"
+    description: "alice's first session completes the OAuth flow for the server"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "github-style"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  # No session of this process has listed the server's tools yet, so the
+  # aggregator's registry does not know x_github-style_get_me. The call
+  # from alice's second session still succeeds: the session is connected
+  # with alice's grant and the tool resolved from that connection.
+  - id: alice-second-calls-tool-without-login
+    as_user: "alice-second"
+    description: "Another session of alice calls the tool without core_auth_login (tool unknown to the registry so far)"
+    tool: "x_github-style_get_me"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "alice"
+
+  - id: alice-first-calls-tool
+    as_user: "alice-first"
+    description: "The session that logged in can call the tool"
+    tool: "x_github-style_get_me"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "alice"
+
+  # A session that never connected the server sees its tools listed, and the
+  # server is not reported as requiring authentication.
+  - id: alice-third-lists-tools
+    as_user: "alice-third"
+    description: "list_tools from a third session of alice shows the server's tools"
+    tool: "test_list_tools_for_user"
+    args:
+      name: "alice-third"
+    expected:
+      success: true
+      contains:
+        - "x_github-style_get_me"
+
+  # The registry knows the tool now (the listing above registered it), so
+  # this call takes the "user not authenticated to server" path of a known
+  # tool -- and is connected with alice's grant there as well.
+  - id: alice-fourth-calls-tool-without-login
+    as_user: "alice-fourth"
+    description: "A fourth session of alice calls the (now registered) tool without core_auth_login"
+    tool: "x_github-style_get_me"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "alice"
+
+  # bob holds no grant: the failure stays what it was.
+  - id: bob-call-fails
+    as_user: "bob"
+    description: "A session of another person without a grant is still not authenticated"
+    tool: "x_github-style_get_me"
+    args: {}
+    expected:
+      success: false
+      error_contains:
+        - "not authenticated"
+
+  - id: bob-list-tools
+    as_user: "bob"
+    description: "bob does not see alice's tools"
+    tool: "test_list_tools_for_user"
+    args:
+      name: "bob"
+    expected:
+      success: true
+      not_contains:
+        - "x_github-style_get_me"

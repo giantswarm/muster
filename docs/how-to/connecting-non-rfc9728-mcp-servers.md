@@ -95,10 +95,14 @@ spec:
   user's identity (the `sub` muster derives from the caller's token) as well
   as under the session. A later session of the same person -- another MCP
   client, a re-login, a front-end whose bearer rotates on every token refresh
-  -- reuses the grant: its `core_auth_login` connects at once and answers
-  "Successfully connected" without a sign-in link. Use it only for external
-  accounts the person owns; a token that carries session-specific authority
-  stays `session`, the default.
+  -- reuses the grant without calling `core_auth_login`: its first tool call
+  to the server connects with the grant and runs, and `list_tools` shows the
+  server's tools instead of listing the server under `auth_required`. A
+  `core_auth_login` from such a session still works and answers "Successfully
+  connected" without a sign-in link. A session of a person without a grant
+  keeps failing with `user not authenticated to server <name>` until that
+  person logs in once. Use it only for external accounts the person owns; a
+  token that carries session-specific authority stays `session`, the default.
 
 Several MCPServers may point at the same issuer (GitHub's hosted MCP server
 and an in-house server that verifies GitHub tokens, say): the grant is stored
