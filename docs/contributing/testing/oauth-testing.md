@@ -342,6 +342,18 @@ servers on one subject-scoped issuer, two sessions of one person, a logout
 that disconnects both servers in both sessions, and a session-scoped pair for
 contrast.
 
+A session of the same person that never calls `core_auth_login` is connected
+with the grant on its first tool call, and `list_tools` shows the server's
+tools to it; `oauth-subject-grant-tool-call.yaml` covers that for four
+sessions of one subject and the unchanged failure for another. Two things to
+keep in mind when writing such a scenario: keep the connector's mock issuer
+separate from the `use_as_muster_oauth_server` one (the muster login stores an
+ID-only token under muster's issuer per session, and the session entry is
+consulted before the person's grant, so a shared issuer never reaches the
+grant), and remember that the first resolution of a cached tool records its
+name in the aggregator's registry -- a step meant to exercise the "tool not
+found" path has to run before any session calls that tool.
+
 ## Debugging OAuth Tests
 
 ### Run with Debug Output
