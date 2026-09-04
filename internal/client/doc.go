@@ -67,6 +67,13 @@
 //   - Standalone deployment scenarios
 //   - Testing and debugging
 //
+// The fallback applies to automatic detection only. With
+// MusterClientConfig.RequireKubernetesMode — set by `muster serve` for
+// `kubernetes: true` — a Kubernetes client that cannot be created is an
+// error after a bounded retry (KubernetesClientBackoff), never a filesystem
+// client: a muster configured for an apiserver that comes up against an
+// empty directory reconciles every existing CR as deleted (issue #1143).
+//
 // # Interface Compatibility
 //
 // MusterClient extends controller-runtime's client.Client interface, ensuring

@@ -560,7 +560,7 @@ type EventHandler interface {
 
 ### Hybrid Environments
 - **Configuration detection**: Automatic detection of available platforms
-- **Graceful degradation**: Fallback to simpler modes when Kubernetes unavailable
+- **Explicit modes are binding**: `kubernetes: true` requires the apiserver and fails startup rather than degrading to the filesystem; the filesystem fallback exists only for automatic detection without a configured mode
 - **Migration paths**: Support for evolving deployment models
 
 ## Testing Architecture

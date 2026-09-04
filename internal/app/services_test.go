@@ -1,10 +1,18 @@
 package app
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/util/wait"
 
+	"github.com/giantswarm/muster/internal/client"
 	"github.com/giantswarm/muster/internal/config"
 )
 
@@ -137,4 +145,79 @@ func TestServices_Creation(t *testing.T) {
 	// Test that services are created
 	assert.NotNil(t, services.Orchestrator)
 	assert.NotNil(t, services.OrchestratorAPI)
+}
+
+// TestInitializeServices_KubernetesModeNeverFallsBackToFilesystem is the
+// regression test for issue #1143. With `kubernetes: true` and an apiserver
+// that cannot be reached, muster used to come up silently in filesystem
+// mode: the reconciler's informer still watched the apiserver, every existing
+// MCPServer CR was looked up in the empty config directory as "not found" and
+// its service deleted, and the orchestrator's auto-start listed zero
+// definitions. Initialization must fail instead, so the container restarts.
+func TestInitializeServices_KubernetesModeNeverFallsBackToFilesystem(t *testing.T) {
+	deadAPIServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "apiserver not ready", http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(deadAPIServer.Close)
+	pointKubeconfigAt(t, deadAPIServer.URL)
+
+	origBackoff := client.KubernetesClientBackoff
+	client.KubernetesClientBackoff = wait.Backoff{Duration: time.Millisecond, Factor: 1, Steps: 2}
+	t.Cleanup(func() { client.KubernetesClientBackoff = origBackoff })
+
+	services, err := InitializeServices(&Config{
+		MusterConfig: &config.MusterConfig{Kubernetes: true, Namespace: "muster"},
+		ConfigPath:   t.TempDir(),
+	})
+
+	require.Error(t, err)
+	assert.Nil(t, services)
+	assert.Contains(t, err.Error(), "kubernetes mode is configured")
+	assert.Contains(t, err.Error(), "refusing to fall back to filesystem mode")
+}
+
+// The change detector must watch the store the client reads from. In
+// filesystem mode that is the config directory, whatever a kubeconfig in the
+// environment might point at.
+func TestInitializeServices_ReconcilerWatchesTheClientsStore(t *testing.T) {
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "must not be contacted in filesystem mode", http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(apiServer.Close)
+	pointKubeconfigAt(t, apiServer.URL)
+
+	services, err := InitializeServices(&Config{
+		MusterConfig: &config.MusterConfig{Kubernetes: false},
+		ConfigPath:   t.TempDir(),
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, services.ReconcileManager)
+	assert.Equal(t, "filesystem", services.ReconcileManager.GetWatchMode())
+}
+
+// pointKubeconfigAt makes controller-runtime's config detection resolve to
+// server for the duration of the test.
+func pointKubeconfigAt(t *testing.T, server string) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "kubeconfig")
+	kubeconfig := `apiVersion: v1
+kind: Config
+clusters:
+- name: test
+  cluster:
+    server: ` + server + `
+contexts:
+- name: test
+  context:
+    cluster: test
+    user: test
+current-context: test
+users:
+- name: test
+  user:
+    token: test
+`
+	require.NoError(t, os.WriteFile(path, []byte(kubeconfig), 0o600))
+	t.Setenv("KUBECONFIG", path)
 }

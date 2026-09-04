@@ -276,6 +276,12 @@ const (
 //
 // When kubernetesEnabled is true, returns WatchModeKubernetes (CRD-based).
 // When kubernetesEnabled is false, returns WatchModeFilesystem (YAML file-based).
+//
+// Pass the mode of the client the reconcilers read definitions from
+// (MusterClient.IsKubernetesMode()), not the configuration flag: the detector
+// and the definition source must watch the same store, or a resource the
+// detector reports is looked up where it does not exist and reconciled as
+// deleted (issue #1143).
 func WatchModeFromKubernetesFlag(kubernetesEnabled bool) WatchMode {
 	if kubernetesEnabled {
 		return WatchModeKubernetes
