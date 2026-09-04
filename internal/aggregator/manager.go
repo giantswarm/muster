@@ -390,6 +390,18 @@ func (am *AggregatorManager) RegisterServerPendingAuth(registration PendingAuthR
 		return err
 	}
 
+	// Hand an operator-described authorization server (pre-registered client,
+	// pinned endpoints, subject-scoped grants) to the OAuth handler now, so
+	// the very first session finds an existing subject grant without a login
+	// round trip. Logins retry the pin, so a failure here only delays.
+	if info, ok := am.aggregatorServer.GetRegistry().GetServerInfo(registration.Name); ok {
+		pinCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		if err := pinAuthorizationServer(pinCtx, info); err != nil {
+			logging.Warn("Aggregator", "Authorization server pin deferred for %s: %v", registration.Name, err)
+		}
+		cancel()
+	}
+
 	// Wire pool notification callback for servers with session-scoped auth so that
 	// OnNotification is auto-wired on every pooled client.
 	if registration.AuthConfig.UsesSessionAuth() {

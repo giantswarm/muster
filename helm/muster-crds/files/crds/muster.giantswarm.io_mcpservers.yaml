@@ -90,11 +90,74 @@ spec:
                       Use case: Atlassian Remote MCP and similar backends that publish RFC 8414
                       metadata at their resource origin instead of via RFC 9728.
                     properties:
+                      authorizationEndpoint:
+                        description: |-
+                          AuthorizationEndpoint is the authorization server's authorization
+                          endpoint. Set it together with TokenEndpoint for an authorization server
+                          that publishes no RFC 8414 / OIDC discovery document (GitHub:
+                          https://github.com/login/oauth/authorize). muster then performs no
+                          discovery for this issuer and assumes S256 PKCE support, which the
+                          operator asserts by pinning the endpoints.
+                        pattern: ^https://[^/?#]+(/[^?#]*[^/?#])?$
+                        type: string
+                      clientCredentialsSecretRef:
+                        description: |-
+                          ClientCredentialsSecretRef references a Kubernetes Secret holding a
+                          client registered with this authorization server out of band (a GitHub
+                          App or OAuth App). When set, muster identifies itself with these
+                          credentials instead of its Client ID Metadata Document or a dynamic
+                          registration -- the only option against an authorization server that
+                          supports neither. The secret carries `client-id` and `client-secret`
+                          (key names configurable in the reference).
+                        properties:
+                          clientIdKey:
+                            default: client-id
+                            description: |-
+                              ClientIDKey is the key in the secret data that contains the client ID.
+                              Defaults to "client-id" if not specified.
+                            type: string
+                          clientSecretKey:
+                            default: client-secret
+                            description: |-
+                              ClientSecretKey is the key in the secret data that contains the client secret.
+                              Defaults to "client-secret" if not specified.
+                            type: string
+                          name:
+                            description: |-
+                              Name is the name of the Kubernetes Secret.
+                              Required.
+                            type: string
+                          namespace:
+                            description: |-
+                              Namespace is the Kubernetes namespace where the secret is located.
+                              If not specified, defaults to the MCPServer's namespace.
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      grantScope:
+                        description: |-
+                          GrantScope decides whom a token obtained from this authorization server
+                          belongs to. `session` (the default) keeps today's behavior: the token is
+                          bound to the login session that completed the browser flow, so every new
+                          session signs in again. `subject` files the token under the user's
+                          identity as well, so any later session of the same person -- another
+                          client, a re-login, a front-end whose bearer rotates -- reuses the grant
+                          without a new consent, until the person signs out of this server
+                          (`core_auth_logout`) or everywhere. Use `subject` for external accounts
+                          the person owns (GitHub), never for tokens that carry session-specific
+                          authority.
+                        enum:
+                        - session
+                        - subject
+                        type: string
                       issuer:
                         description: |-
                           Issuer is the OAuth 2.0 / OIDC issuer URL.
                           muster fetches AS metadata via the existing OAuth client, which performs
-                          RFC 8414 / OIDC discovery against this issuer.
+                          RFC 8414 / OIDC discovery against this issuer -- unless
+                          AuthorizationEndpoint and TokenEndpoint are set, in which case the issuer
+                          is only the identity the stored grants are filed under.
                         pattern: ^https://[^/?#]+(/[^?#]*[^/?#])?$
                         type: string
                       scopes:
@@ -102,9 +165,19 @@ spec:
                           Scopes is the OAuth scope parameter value (RFC 6749 §3.3 wire format:
                           space-separated scope tokens). Matches existing TokenExchangeConfig.Scopes.
                         type: string
+                      tokenEndpoint:
+                        description: |-
+                          TokenEndpoint is the authorization server's token endpoint (GitHub:
+                          https://github.com/login/oauth/access_token). See AuthorizationEndpoint.
+                        pattern: ^https://[^/?#]+(/[^?#]*[^/?#])?$
+                        type: string
                     required:
                     - issuer
                     type: object
+                    x-kubernetes-validations:
+                    - message: authorizationEndpoint and tokenEndpoint must be set
+                        together
+                      rule: has(self.authorizationEndpoint) == has(self.tokenEndpoint)
                   forwardToken:
                     default: false
                     description: |-

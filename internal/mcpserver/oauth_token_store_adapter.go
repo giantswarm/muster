@@ -56,7 +56,9 @@ func (s *MusterTokenStore) GetToken(ctx context.Context) (*transport.Token, erro
 		return nil, transport.ErrNoToken
 	}
 
-	fullToken := s.oauthHandler.GetFullTokenByIssuer(s.sessionID, s.issuer)
+	// The subject-scoped fallback lets a new session of the same person use
+	// the grant an earlier session completed (GitHub-style connectors).
+	fullToken := api.FullTokenByIssuerForUser(s.oauthHandler, s.sessionID, s.userID, s.issuer)
 	if fullToken == nil || fullToken.AccessToken == "" {
 		return nil, transport.ErrNoToken
 	}

@@ -37,6 +37,11 @@ type TokenStorer interface {
 	// DeleteByUser removes all tokens for a user across all sessions.
 	DeleteByUser(userID string)
 
+	// DeleteByUserAndIssuer removes the user's tokens for one issuer across
+	// all sessions, including a subject-scoped grant: signing out of a
+	// server as the person disconnects every session of that person.
+	DeleteByUserAndIssuer(userID, issuer string)
+
 	// DeleteBySession removes all tokens for a session.
 	DeleteBySession(sessionID string)
 
@@ -201,6 +206,22 @@ func (ts *TokenStore) DeleteByUser(userID string) {
 
 // DeleteBySession removes all tokens for a given session.
 // This is used during per-session logout via token family revocation.
+// DeleteByUserAndIssuer removes the user's tokens for one issuer across all
+// sessions.
+func (ts *TokenStore) DeleteByUserAndIssuer(userID, issuer string) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+
+	count := 0
+	for key, entry := range ts.tokens {
+		if entry.userID == userID && key.Issuer == issuer {
+			delete(ts.tokens, key)
+			count++
+		}
+	}
+	logging.Debug("OAuth", "Deleted %d tokens for user=%s issuer=%s", count, logging.TruncateIdentifier(userID), issuer)
+}
+
 func (ts *TokenStore) DeleteBySession(sessionID string) {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()

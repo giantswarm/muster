@@ -127,6 +127,69 @@ type OAuthHandler interface {
 	Stop()
 }
 
+// IssuerPin is an operator's description of an authorization server beyond
+// what muster can discover: the endpoints of an AS without an RFC 8414
+// document, a client registered with it out of band, and whether its grants
+// belong to the person rather than to one login session. It is what
+// MCPServer spec.auth.authorizationServer carries, with the client
+// credentials resolved from their Secret.
+type IssuerPin struct {
+	AuthorizationEndpoint string
+	TokenEndpoint         string
+	ClientID              string
+	ClientSecret          string
+	SubjectScoped         bool
+}
+
+// IssuerPinner is implemented by an OAuthHandler that accepts operator pins
+// for authorization servers. Kept separate from OAuthHandler so the many
+// test doubles of that interface need not grow with it.
+type IssuerPinner interface {
+	// PinIssuer records the pin for an issuer; calling it again replaces the
+	// previous pin (a rotated client secret takes effect that way).
+	PinIssuer(issuer string, pin IssuerPin)
+}
+
+// SubjectGrantHandler is implemented by an OAuthHandler that files
+// subject-scoped grants under the person's identity in addition to the
+// session, so lookups can fall back to them.
+type SubjectGrantHandler interface {
+	// GetFullTokenByIssuerForUser is GetFullTokenByIssuer plus the
+	// subject-scoped fallback for the user.
+	GetFullTokenByIssuerForUser(sessionID, userID, issuer string) *OAuthToken
+
+	// ClearTokenByIssuerForUser is ClearTokenByIssuer plus, for a
+	// subject-scoped issuer, the removal of the person's grant.
+	ClearTokenByIssuerForUser(sessionID, userID, issuer string)
+}
+
+// FullTokenByIssuerForUser looks a token up with the subject-scoped fallback
+// when the handler supports it and the user is known, and behaves like
+// GetFullTokenByIssuer otherwise.
+func FullTokenByIssuerForUser(h OAuthHandler, sessionID, userID, issuer string) *OAuthToken {
+	if h == nil {
+		return nil
+	}
+	if sg, ok := h.(SubjectGrantHandler); ok && userID != "" {
+		return sg.GetFullTokenByIssuerForUser(sessionID, userID, issuer)
+	}
+	return h.GetFullTokenByIssuer(sessionID, issuer)
+}
+
+// ClearTokenByIssuerForUser clears with the subject-scoped extension when the
+// handler supports it and the user is known, and behaves like
+// ClearTokenByIssuer otherwise.
+func ClearTokenByIssuerForUser(h OAuthHandler, sessionID, userID, issuer string) {
+	if h == nil {
+		return
+	}
+	if sg, ok := h.(SubjectGrantHandler); ok && userID != "" {
+		sg.ClearTokenByIssuerForUser(sessionID, userID, issuer)
+		return
+	}
+	h.ClearTokenByIssuer(sessionID, issuer)
+}
+
 // oauthHandler stores the registered OAuth handler implementation.
 var oauthHandler OAuthHandler
 var oauthMutex sync.RWMutex

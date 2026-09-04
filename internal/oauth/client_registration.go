@@ -175,6 +175,9 @@ func (c *Client) GetRegistrationMetadata() *pkgoauth.ClientMetadata {
 // registration. This backs mcp-go's transport-level token refresh, which
 // must present the same client identification the token was issued under.
 func (c *Client) GetClientCredentialsForIssuer(ctx context.Context, issuer string) (clientID, clientSecret string) {
+	if pin := c.issuerPin(issuer); pin != nil && pin.ClientID != "" {
+		return pin.ClientID, pin.ClientSecret
+	}
 	metadata, err := c.oauthClient.DiscoverMetadata(ctx, issuer)
 	if err != nil {
 		// Metadata should be cached from the original flow; on a cold cache

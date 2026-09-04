@@ -207,6 +207,16 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		if serverInfo.AuthConfig != nil {
 			override = serverInfo.AuthConfig.AuthorizationServer
 		}
+		if err := pinAuthorizationServer(ctx, serverInfo); err != nil {
+			logging.Warn("AuthTools", "Cannot apply the authorization server pin of %s: %v", serverName, err)
+			if p.aggregator.authMetrics != nil {
+				p.aggregator.authMetrics.RecordLoginFailure(serverName, sub, "authorization_server_pin_failed")
+			}
+			return &api.CallToolResult{
+				Content: []any{fmt.Sprintf("Cannot authenticate to '%s': %v", serverName, err)},
+				IsError: true,
+			}, nil
+		}
 		metadata, err := discoverProtectedResourceMetadata(ctx, serverInfo.URL, override)
 		if err != nil {
 			logging.Warn("AuthTools", "Failed to discover protected resource metadata for %s: %v", serverName, err)
@@ -247,7 +257,9 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 	// with the same OAuth issuer, we can reuse that token.
 	// Tokens with only an ID token (no access token) are muster-level tokens
 	// stored for SSO forwarding and cannot be used for bearer authentication.
-	token := oauthHandler.GetTokenByIssuer(sessionID, authInfo.Issuer)
+	// For a subject-scoped issuer this also finds the grant another session
+	// of the same person completed, so the login connects without a browser.
+	token := api.FullTokenByIssuerForUser(oauthHandler, sessionID, sub, authInfo.Issuer)
 
 	if token != nil && token.AccessToken != "" {
 		logging.Info("AuthTools", "Found existing token for server %s via SSO (issuer=%s), attempting to connect",
@@ -269,7 +281,7 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		// Check if the error is a 401 - token is expired/invalid
 		if is401Error(connectErr) {
 			logging.Info("AuthTools", "Token for server %s is expired/invalid, clearing and requesting fresh auth", serverName)
-			oauthHandler.ClearTokenByIssuer(sessionID, authInfo.Issuer)
+			api.ClearTokenByIssuerForUser(oauthHandler, sessionID, sub, authInfo.Issuer)
 		} else {
 			// Some other error - report it
 			logging.Error("AuthTools", connectErr, "Failed to connect to server %s with existing token", serverName)
@@ -429,7 +441,7 @@ func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string
 		if p.isIssuerExclusiveToServer(sessionID, serverName, serverInfo.AuthInfo.Issuer) {
 			oauthHandler := api.GetOAuthHandler()
 			if oauthHandler != nil && oauthHandler.IsEnabled() {
-				oauthHandler.ClearTokenByIssuer(sessionID, serverInfo.AuthInfo.Issuer)
+				api.ClearTokenByIssuerForUser(oauthHandler, sessionID, sub, serverInfo.AuthInfo.Issuer)
 			}
 		} else {
 			logging.Debug("AuthTools", "Skipping issuer token clear for server %s: issuer %s is shared with other servers or muster", serverName, serverInfo.AuthInfo.Issuer)

@@ -1176,7 +1176,19 @@ func (a *AggregatorServer) RegisterServer(ctx context.Context, registration Serv
 		}
 	})
 
-	return a.registry.Register(ctx, registration, client)
+	if err := a.registry.Register(ctx, registration, client); err != nil {
+		return err
+	}
+	if info, ok := a.registry.GetServerInfo(registration.Name); ok {
+		if err := pinAuthorizationServer(ctx, info); err != nil {
+			// Logins for this server retry the pin (auth_tools), so a Secret
+			// that is not there yet only delays, never blocks.
+			logging.WarnWithAttrs("Aggregator", "Authorization server pin deferred",
+				slog.String("server", registration.Name),
+				slog.String("error", err.Error()))
+		}
+	}
+	return nil
 }
 
 // wirePoolNotificationCallback sets up a notification callback on the
@@ -2460,15 +2472,26 @@ func discoverProtectedResourceMetadata(ctx context.Context, serverURL string, ov
 
 	if override != nil {
 		issuer := strings.TrimSuffix(override.Issuer, "/")
-		// Fetching AS metadata at the pinned issuer also verifies it: the
-		// discovery client applies the RFC 8414 §3.3 identity check, so a
-		// typo or a stale pin fails closed here instead of driving an OAuth
-		// flow against the wrong AS.
-		if _, err := overrideMetadataClient.DiscoverMetadata(ctx, issuer); err != nil {
-			return nil, fmt.Errorf("authorizationServer override (spec.auth.authorizationServer.issuer=%q): %w", issuer, err)
+		if override.HasPinnedEndpoints() {
+			// No discovery document to verify against: the operator pinned
+			// the endpoints themselves (GitHub publishes none). The OAuth
+			// handler holds them as pinned metadata, see
+			// pinAuthorizationServer.
+			logging.InfoWithAttrs("AuthTools", "oauth_authorization_server_pinned_endpoints_used",
+				slog.String("issuer", issuer),
+				slog.String("authorization_endpoint", override.AuthorizationEndpoint),
+				slog.String("token_endpoint", override.TokenEndpoint))
+		} else {
+			// Fetching AS metadata at the pinned issuer also verifies it: the
+			// discovery client applies the RFC 8414 §3.3 identity check, so a
+			// typo or a stale pin fails closed here instead of driving an OAuth
+			// flow against the wrong AS.
+			if _, err := overrideMetadataClient.DiscoverMetadata(ctx, issuer); err != nil {
+				return nil, fmt.Errorf("authorizationServer override (spec.auth.authorizationServer.issuer=%q): %w", issuer, err)
+			}
+			logging.InfoWithAttrs("AuthTools", "oauth_authorization_server_override_used",
+				slog.String("issuer", issuer))
 		}
-		logging.InfoWithAttrs("AuthTools", "oauth_authorization_server_override_used",
-			slog.String("issuer", issuer))
 		// The override opts out of RFC 9728 discovery, so the backend never
 		// gets to declare its own resource identifier. The derived value is
 		// the only one available, and filling it here keeps the caller from

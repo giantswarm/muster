@@ -289,6 +289,36 @@ func (m *Manager) GetTokenByIssuer(sessionID, issuer string) *pkgoauth.Token {
 	return m.client.tokenStore.GetByIssuer(sessionID, issuer)
 }
 
+// PinIssuer records an operator-configured authorization server, see
+// Client.PinIssuer.
+func (m *Manager) PinIssuer(issuer string, pin IssuerPin, metadata *pkgoauth.Metadata) {
+	if m == nil {
+		return
+	}
+	m.client.PinIssuer(issuer, pin, metadata)
+}
+
+// GetTokenByIssuerForUser is GetTokenByIssuer with the subject-scoped grant
+// fallback, see Client.GetByIssuerForUser.
+func (m *Manager) GetTokenByIssuerForUser(sessionID, userID, issuer string) *pkgoauth.Token {
+	if m == nil {
+		return nil
+	}
+	return m.client.GetByIssuerForUser(sessionID, userID, issuer)
+}
+
+// ClearTokenByIssuerForUser removes the session's tokens for an issuer and,
+// for a subject-scoped issuer, the person's grant, see
+// Client.DeleteByIssuerForUser.
+func (m *Manager) ClearTokenByIssuerForUser(sessionID, userID, issuer string) {
+	if m == nil {
+		return
+	}
+	m.client.DeleteByIssuerForUser(sessionID, userID, issuer)
+	logging.Debug("OAuth", "Cleared tokens for session=%s user=%s issuer=%s",
+		logging.TruncateIdentifier(sessionID), logging.TruncateIdentifier(userID), issuer)
+}
+
 // ClearTokenByIssuer removes all tokens for a given session and issuer.
 func (m *Manager) ClearTokenByIssuer(sessionID, issuer string) {
 	if m == nil {

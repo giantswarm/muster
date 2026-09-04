@@ -27,6 +27,10 @@ const (
 type metadataCacheEntry struct {
 	metadata  *Metadata
 	fetchedAt time.Time
+	// pinned entries were supplied by the operator for an authorization
+	// server without a discovery document; they never expire and survive
+	// ClearMetadataCache.
+	pinned bool
 }
 
 // Client handles OAuth 2.1 protocol operations.
@@ -88,7 +92,7 @@ func (c *Client) DiscoverMetadata(ctx context.Context, issuer string) (*Metadata
 	// Check cache first with read lock
 	c.metadataMu.RLock()
 	if entry, ok := c.metadataCache[issuer]; ok {
-		if time.Since(entry.fetchedAt) < c.metadataTTL {
+		if entry.pinned || time.Since(entry.fetchedAt) < c.metadataTTL {
 			c.metadataMu.RUnlock()
 			return entry.metadata, nil
 		}
@@ -100,7 +104,7 @@ func (c *Client) DiscoverMetadata(ctx context.Context, issuer string) (*Metadata
 		// Double-check cache after acquiring singleflight lock
 		c.metadataMu.RLock()
 		if entry, ok := c.metadataCache[issuer]; ok {
-			if time.Since(entry.fetchedAt) < c.metadataTTL {
+			if entry.pinned || time.Since(entry.fetchedAt) < c.metadataTTL {
 				c.metadataMu.RUnlock()
 				return entry.metadata, nil
 			}
@@ -237,8 +241,44 @@ func (c *Client) fetchMetadata(ctx context.Context, metadataURL string) (*Metada
 }
 
 // cacheMetadata stores metadata in the cache.
+// PinMetadata supplies the metadata of an authorization server that publishes
+// no RFC 8414 / OIDC discovery document (GitHub). DiscoverMetadata answers
+// from the pin from then on, without a network request, until PinMetadata is
+// called again for the issuer. When the pinned document lists no
+// code_challenge_methods_supported, S256 is assumed: the operator vouching
+// for the endpoints is the only source of that fact, and MCP's refusal rule
+// exists for servers that could have advertised it.
+func (c *Client) PinMetadata(issuer string, metadata *Metadata) {
+	issuer = strings.TrimSuffix(issuer, "/")
+	pinned := *metadata
+	if pinned.Issuer == "" {
+		pinned.Issuer = issuer
+	}
+	if len(pinned.CodeChallengeMethodsSupported) == 0 {
+		pinned.CodeChallengeMethodsSupported = []string{"S256"}
+	}
+
+	c.metadataMu.Lock()
+	c.metadataCache[issuer] = &metadataCacheEntry{
+		metadata:  &pinned,
+		fetchedAt: time.Now(),
+		pinned:    true,
+	}
+	c.metadataMu.Unlock()
+
+	c.logger.Info("Pinned OAuth metadata",
+		"issuer", issuer,
+		"authorization_endpoint", pinned.AuthorizationEndpoint,
+		"token_endpoint", pinned.TokenEndpoint)
+}
+
 func (c *Client) cacheMetadata(issuer string, metadata *Metadata) {
 	c.metadataMu.Lock()
+	if entry, ok := c.metadataCache[issuer]; ok && entry.pinned {
+		// An operator pin is not overwritten by a discovery result.
+		c.metadataMu.Unlock()
+		return
+	}
 	c.metadataCache[issuer] = &metadataCacheEntry{
 		metadata:  metadata,
 		fetchedAt: time.Now(),
@@ -452,6 +492,12 @@ func (c *Client) BuildAuthorizationURL(request AuthorizationRequest) (string, er
 // Useful for testing or when metadata needs to be refreshed immediately.
 func (c *Client) ClearMetadataCache() {
 	c.metadataMu.Lock()
-	c.metadataCache = make(map[string]*metadataCacheEntry)
+	kept := make(map[string]*metadataCacheEntry)
+	for issuer, entry := range c.metadataCache {
+		if entry.pinned {
+			kept[issuer] = entry
+		}
+	}
+	c.metadataCache = kept
 	c.metadataMu.Unlock()
 }

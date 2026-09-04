@@ -290,12 +290,56 @@ type MCPServerSigV4 struct {
 
 // MCPServerAuthAuthorizationServer pins the OAuth authorization server for an
 // MCP server when RFC 9728 PRM discovery is unavailable.
+//
+// Three optional additions turn the pin into a full description of an
+// authorization server muster cannot discover or register with on its own,
+// GitHub being the prompting case: it publishes no RFC 8414 metadata, accepts
+// neither Client ID Metadata Documents nor RFC 7591 registration, and issues
+// user tokens that belong to the person rather than to one login session.
+//
+// +kubebuilder:validation:XValidation:rule="has(self.authorizationEndpoint) == has(self.tokenEndpoint)",message="authorizationEndpoint and tokenEndpoint must be set together"
 type MCPServerAuthAuthorizationServer struct {
 	// Issuer is the OAuth 2.0 / OIDC issuer URL.
 	// muster fetches AS metadata via the existing OAuth client, which performs
-	// RFC 8414 / OIDC discovery against this issuer.
+	// RFC 8414 / OIDC discovery against this issuer -- unless
+	// AuthorizationEndpoint and TokenEndpoint are set, in which case the issuer
+	// is only the identity the stored grants are filed under.
 	// +kubebuilder:validation:Required
 	Issuer IssuerURL `json:"issuer" yaml:"issuer"`
+
+	// AuthorizationEndpoint is the authorization server's authorization
+	// endpoint. Set it together with TokenEndpoint for an authorization server
+	// that publishes no RFC 8414 / OIDC discovery document (GitHub:
+	// https://github.com/login/oauth/authorize). muster then performs no
+	// discovery for this issuer and assumes S256 PKCE support, which the
+	// operator asserts by pinning the endpoints.
+	AuthorizationEndpoint IssuerURL `json:"authorizationEndpoint,omitempty" yaml:"authorizationEndpoint,omitempty"`
+
+	// TokenEndpoint is the authorization server's token endpoint (GitHub:
+	// https://github.com/login/oauth/access_token). See AuthorizationEndpoint.
+	TokenEndpoint IssuerURL `json:"tokenEndpoint,omitempty" yaml:"tokenEndpoint,omitempty"`
+
+	// ClientCredentialsSecretRef references a Kubernetes Secret holding a
+	// client registered with this authorization server out of band (a GitHub
+	// App or OAuth App). When set, muster identifies itself with these
+	// credentials instead of its Client ID Metadata Document or a dynamic
+	// registration -- the only option against an authorization server that
+	// supports neither. The secret carries `client-id` and `client-secret`
+	// (key names configurable in the reference).
+	ClientCredentialsSecretRef *ClientCredentialsSecretRef `json:"clientCredentialsSecretRef,omitempty" yaml:"clientCredentialsSecretRef,omitempty"`
+
+	// GrantScope decides whom a token obtained from this authorization server
+	// belongs to. `session` (the default) keeps today's behavior: the token is
+	// bound to the login session that completed the browser flow, so every new
+	// session signs in again. `subject` files the token under the user's
+	// identity as well, so any later session of the same person -- another
+	// client, a re-login, a front-end whose bearer rotates -- reuses the grant
+	// without a new consent, until the person signs out of this server
+	// (`core_auth_logout`) or everywhere. Use `subject` for external accounts
+	// the person owns (GitHub), never for tokens that carry session-specific
+	// authority.
+	// +kubebuilder:validation:Enum=session;subject
+	GrantScope string `json:"grantScope,omitempty" yaml:"grantScope,omitempty"`
 
 	// Scopes is the OAuth scope parameter value (RFC 6749 §3.3 wire format:
 	// space-separated scope tokens). Matches existing TokenExchangeConfig.Scopes.
