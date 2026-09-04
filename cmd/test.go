@@ -334,8 +334,10 @@ func runTest(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Clean up any stale muster test processes from previous runs
-	// This prevents port conflicts and resource contention
+	// Terminate the instances an earlier run left behind (a crashed or killed
+	// harness) so their ports do not collide with ours. Instances of a `muster
+	// test` that is still running -- another terminal, another CI job in the
+	// same pid namespace -- belong to that run and are left alone.
 	cleanupLogger := testing.NewStdoutLogger(testVerbose, testDebug)
 	testing.CleanupStaleMusterTestProcesses(cleanupLogger, testDebug)
 
