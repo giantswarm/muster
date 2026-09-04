@@ -5,7 +5,7 @@
 # workflow in .circleci/config.yml merges into this file at pipeline runtime.
 version: 2.1
 orbs:
-  architect: giantswarm/architect@10.0.0
+  architect: giantswarm/architect@10.3.0
 
 workflows:
   build:
@@ -14,22 +14,6 @@ workflows:
         name: go-build
         binary: muster
         context: architect
-        # On failure, keep the integration suite's full JSON report (written
-        # by make muster-integration-test into test-reports/ — the --report
-        # flag names a DIRECTORY, and it must not match the orb's muster-*
-        # release-asset glob or cosign tries to sign it) as a build artifact:
-        # it carries every scenario's complete instance logs, which the
-        # console output only shows as trimmed tails. Readiness flakes
-        # (#1101) are only attributable with those logs.
-        post-steps:
-        - run:
-            name: Collect muster test report
-            command: |
-              mkdir -p /tmp/muster-test-artifacts
-              cp -r test-reports/. /tmp/muster-test-artifacts/ 2>/dev/null || true
-            when: on_fail
-        - store_artifacts:
-            path: /tmp/muster-test-artifacts
         # Run unit tests through `make test` rather than the orb's hardcoded
         # `go test ./...`, so CI and local agent runs use the same command.
         # The generic Makefile target is `go test ./...`; repos that need more
@@ -153,6 +137,10 @@ workflows:
     # push avoids an ImagePullBackOff race.
     - architect/run-tests-with-ats:
         name: execute-chart-tests
+        app-test-suite_container_tag: "1.0.2"
+        # app-test-suite 1.x provisions no cluster: the job creates the kind
+        # cluster and runs the pinned image against its kubeconfig.
+        create_kind_cluster: true
         requires:
         - build-chart
         filters:
@@ -160,22 +148,14 @@ workflows:
             ignore:
             - main
 
-    # Tag: run chart tests after the release image is pushed, for the same
-    # image-availability reason as the branch job above.
-    - architect/run-tests-with-ats:
-        name: execute-chart-tests-release
-        requires:
-        - build-chart
-        - push-to-registries-release
-        filters:
-          tags:
-            only: /^v.*/
-          branches:
-            ignore: /.*/
-
-    # Tag: push chart after tests + the gsoci image. Intentionally does NOT
-    # depend on sync-china-registry so the chart catalog can publish even if
-    # the in-China Aliyun mirror is slow or fails.
+    # Tag: push the chart after build-chart (+ the gsoci image). The chart
+    # tests ran on the branch (execute-chart-tests) and the tag is cut from the
+    # merge commit of a PR whose branch run tested this tree, so they are not
+    # re-run here (atsOnRelease brings the tag-time run back). Make the
+    # ci/circleci statuses required checks on the default branch, with
+    # up-to-date branches (strict), so a PR cannot merge before that run is
+    # green. Intentionally does NOT depend on sync-china-registry so the chart
+    # catalog can publish even if the in-China Aliyun mirror is slow or fails.
     - architect/push-to-app-catalog:
         executor: app-build-suite
         context: architect
@@ -184,7 +164,7 @@ workflows:
         app_catalog_test: giantswarm-test-catalog
         chart: muster
         requires:
-        - execute-chart-tests-release
+        - build-chart
         - push-to-registries-release
         filters:
           tags:
