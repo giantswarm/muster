@@ -194,6 +194,40 @@ type MCPServerAuthAuthorizationServer struct {
 	// Scopes is the OAuth scope parameter value (RFC 6749 §3.3 wire format:
 	// space-separated scope tokens).
 	Scopes string `yaml:"scopes,omitempty" json:"scopes,omitempty"`
+
+	// AuthorizationEndpoint and TokenEndpoint describe an authorization server
+	// without RFC 8414 / OIDC discovery (GitHub). Both or neither; when set,
+	// muster performs no discovery for Issuer and assumes S256 PKCE. See the
+	// v1alpha1 CRD field of the same name.
+	AuthorizationEndpoint string `yaml:"authorizationEndpoint,omitempty" json:"authorizationEndpoint,omitempty"`
+	TokenEndpoint         string `yaml:"tokenEndpoint,omitempty" json:"tokenEndpoint,omitempty"`
+
+	// ClientCredentialsSecretRef references the Secret holding a client
+	// registered with this authorization server out of band; muster then uses
+	// it instead of CIMD or dynamic registration. See the v1alpha1 CRD field.
+	ClientCredentialsSecretRef *ClientCredentialsSecretRef `yaml:"clientCredentialsSecretRef,omitempty" json:"clientCredentialsSecretRef,omitempty"`
+
+	// GrantScope is "session" (default) or "subject": whether a token from
+	// this authorization server is bound to the login session that obtained
+	// it or reused by every session of the same person. See the v1alpha1 CRD
+	// field.
+	GrantScope string `yaml:"grantScope,omitempty" json:"grantScope,omitempty"`
+}
+
+// GrantScopeSubject is the MCPServerAuthAuthorizationServer.GrantScope value
+// that files tokens under the user's identity so later sessions reuse them.
+const GrantScopeSubject = "subject"
+
+// HasPinnedEndpoints reports whether the authorization server is described
+// by explicit endpoints instead of discoverable metadata.
+func (a *MCPServerAuthAuthorizationServer) HasPinnedEndpoints() bool {
+	return a != nil && a.AuthorizationEndpoint != "" && a.TokenEndpoint != ""
+}
+
+// SubjectScoped reports whether tokens from this authorization server belong
+// to the person rather than to one login session.
+func (a *MCPServerAuthAuthorizationServer) SubjectScoped() bool {
+	return a != nil && a.GrantScope == GrantScopeSubject
 }
 
 // TokenExchangeConfig configures RFC 8693 Token Exchange for cross-cluster SSO.

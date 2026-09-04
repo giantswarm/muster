@@ -1,0 +1,53 @@
+name: "mcpserver-authorization-server-preregistered"
+description: "MCPServer accepts a fully pinned authorization server: endpoints without a discovery document, a pre-registered client from a Secret, and subject-scoped grants (GitHub-style)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "create", "oauth", "authentication", "github"]
+timeout: "1m"
+
+steps:
+- id: "create-with-pinned-authorization-server"
+  description: "Create an MCPServer whose authorization server is described by pinned endpoints, a pre-registered client and subject-scoped grants"
+  tool: "core_mcpserver_create"
+  args:
+    name: "github-style-server"
+    type: "streamable-http"
+    url: "https://mcp.example.com/mcp"
+    timeout: 30
+    auth:
+      type: "oauth"
+      authorizationServer:
+        issuer: "https://github.example.com/login/oauth"
+        authorizationEndpoint: "https://github.example.com/login/oauth/authorize"
+        tokenEndpoint: "https://github.example.com/login/oauth/access_token"
+        scopes: "repo read:org"
+        clientCredentialsSecretRef:
+          name: "github-oauth-client"
+        grantScope: "subject"
+  expected:
+    success: true
+
+- id: "verify-pin-roundtrips"
+  description: "Verify every pinned field roundtrips through get"
+  tool: "core_mcpserver_get"
+  args:
+    name: "github-style-server"
+  expected:
+    success: true
+    json_path:
+      name: "github-style-server"
+    contains:
+      - "authorizationServer"
+      - "https://github.example.com/login/oauth/authorize"
+      - "https://github.example.com/login/oauth/access_token"
+      - "github-oauth-client"
+      - "subject"
+
+cleanup:
+- id: "cleanup-github-style-server"
+  description: "Delete the pinned server"
+  tool: "core_mcpserver_delete"
+  args:
+    name: "github-style-server"
+  expected:
+    success: true

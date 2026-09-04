@@ -121,8 +121,12 @@ func convertCRDAuthToAPI(src *musterv1alpha1.MCPServerAuth) *api.MCPServerAuth {
 	}
 	if src.AuthorizationServer != nil {
 		auth.AuthorizationServer = &api.MCPServerAuthAuthorizationServer{
-			Issuer: src.AuthorizationServer.Issuer.Normalize(),
-			Scopes: src.AuthorizationServer.Scopes,
+			Issuer:                     src.AuthorizationServer.Issuer.Normalize(),
+			Scopes:                     src.AuthorizationServer.Scopes,
+			AuthorizationEndpoint:      src.AuthorizationServer.AuthorizationEndpoint.Normalize(),
+			TokenEndpoint:              src.AuthorizationServer.TokenEndpoint.Normalize(),
+			ClientCredentialsSecretRef: convertCRDSecretRefToAPI(src.AuthorizationServer.ClientCredentialsSecretRef),
+			GrantScope:                 src.AuthorizationServer.GrantScope,
 		}
 	}
 	return auth
@@ -157,9 +161,15 @@ func convertAPIAuthToCRD(src *api.MCPServerAuth) *musterv1alpha1.MCPServerAuth {
 		// Normalize is the canonical form, so use it rather than restating what
 		// it does — convertCRDAuthToAPI already calls it in the other direction.
 		issuer := musterv1alpha1.IssuerURL(src.AuthorizationServer.Issuer)
+		authorizationEndpoint := musterv1alpha1.IssuerURL(src.AuthorizationServer.AuthorizationEndpoint)
+		tokenEndpoint := musterv1alpha1.IssuerURL(src.AuthorizationServer.TokenEndpoint)
 		auth.AuthorizationServer = &musterv1alpha1.MCPServerAuthAuthorizationServer{
-			Issuer: musterv1alpha1.IssuerURL(issuer.Normalize()),
-			Scopes: src.AuthorizationServer.Scopes,
+			Issuer:                     musterv1alpha1.IssuerURL(issuer.Normalize()),
+			Scopes:                     src.AuthorizationServer.Scopes,
+			AuthorizationEndpoint:      musterv1alpha1.IssuerURL(authorizationEndpoint.Normalize()),
+			TokenEndpoint:              musterv1alpha1.IssuerURL(tokenEndpoint.Normalize()),
+			ClientCredentialsSecretRef: convertAPISecretRefToCRD(src.AuthorizationServer.ClientCredentialsSecretRef),
+			GrantScope:                 src.AuthorizationServer.GrantScope,
 		}
 	}
 	return auth
@@ -562,7 +572,7 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 				},
 				"authorizationServer": map[string]interface{}{
 					api.SchemaKeyType:        string(api.ArgTypeObject),
-					api.SchemaKeyDescription: "Pins the OAuth authorization server when the MCP server does not publish RFC 9728 Protected Resource Metadata; skips PRM probing",
+					api.SchemaKeyDescription: "Pins the OAuth authorization server when the MCP server does not publish RFC 9728 Protected Resource Metadata; skips PRM probing. With authorizationEndpoint/tokenEndpoint, clientCredentialsSecretRef and grantScope it also describes an authorization server muster cannot discover or register with (GitHub).",
 					api.SchemaKeyProperties: map[string]interface{}{
 						"issuer": map[string]interface{}{
 							api.SchemaKeyType:        string(api.ArgTypeString),
@@ -571,6 +581,42 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 						"scopes": map[string]interface{}{
 							api.SchemaKeyType:        string(api.ArgTypeString),
 							api.SchemaKeyDescription: "OAuth scope parameter value (space-separated scope tokens)",
+						},
+						"authorizationEndpoint": map[string]interface{}{
+							api.SchemaKeyType:        string(api.ArgTypeString),
+							api.SchemaKeyDescription: "Authorization endpoint of an authorization server without an RFC 8414 discovery document; set together with tokenEndpoint (muster then performs no discovery and assumes S256 PKCE)",
+						},
+						"tokenEndpoint": map[string]interface{}{
+							api.SchemaKeyType:        string(api.ArgTypeString),
+							api.SchemaKeyDescription: "Token endpoint of an authorization server without an RFC 8414 discovery document; set together with authorizationEndpoint",
+						},
+						"clientCredentialsSecretRef": map[string]interface{}{
+							api.SchemaKeyType:        string(api.ArgTypeObject),
+							api.SchemaKeyDescription: "Secret holding a client registered with the authorization server out of band (a GitHub App or OAuth App); used instead of muster's CIMD URL or a dynamic registration",
+							api.SchemaKeyProperties: map[string]interface{}{
+								"name": map[string]interface{}{
+									api.SchemaKeyType:        string(api.ArgTypeString),
+									api.SchemaKeyDescription: "Name of the Kubernetes Secret",
+								},
+								"namespace": map[string]interface{}{
+									api.SchemaKeyType:        string(api.ArgTypeString),
+									api.SchemaKeyDescription: "Namespace of the Secret (defaults to the MCPServer's namespace)",
+								},
+								"clientIdKey": map[string]interface{}{
+									api.SchemaKeyType:        string(api.ArgTypeString),
+									api.SchemaKeyDescription: "Secret key holding the client ID (default: client-id)",
+								},
+								"clientSecretKey": map[string]interface{}{
+									api.SchemaKeyType:        string(api.ArgTypeString),
+									api.SchemaKeyDescription: "Secret key holding the client secret (default: client-secret)",
+								},
+							},
+							api.SchemaKeyRequired: []string{"name"},
+						},
+						"grantScope": map[string]interface{}{
+							api.SchemaKeyType:        string(api.ArgTypeString),
+							api.SchemaKeyDescription: "Whom a token from this authorization server belongs to: session (default; bound to the login session that obtained it) or subject (filed under the person's identity too, so any later session of the same person reuses it until core_auth_logout on this server or sign out everywhere)",
+							api.SchemaKeyEnum:        []string{"session", api.GrantScopeSubject},
 						},
 					},
 					api.SchemaKeyRequired: []string{"issuer"},

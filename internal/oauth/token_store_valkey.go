@@ -319,6 +319,56 @@ func (s *ValkeyTokenStore) DeleteByUser(userID string) {
 		len(sessionIDs), logging.TruncateIdentifier(userID))
 }
 
+// DeleteByUserAndIssuer removes the user's tokens for one issuer from every
+// session in the user's session set (the subject-scoped grant is one of them).
+func (s *ValkeyTokenStore) DeleteByUserAndIssuer(userID, issuer string) {
+	ctx := context.Background()
+
+	result := s.client.Do(ctx, s.client.B().Smembers().Key(s.userKey(userID)).Build())
+	if err := result.Error(); err != nil {
+		if !valkey.IsValkeyNil(err) {
+			logging.Warn("OAuth", "ValkeyTokenStore: DeleteByUserAndIssuer SMEMBERS failed: %v", err)
+		}
+		return
+	}
+	sessionIDs, err := result.AsStrSlice()
+	if err != nil || len(sessionIDs) == 0 {
+		return
+	}
+
+	deleted := 0
+	for _, sid := range sessionIDs {
+		fieldsResult := s.client.Do(ctx, s.client.B().Hkeys().Key(s.sessionKey(sid)).Build())
+		if err := fieldsResult.Error(); err != nil {
+			if !valkey.IsValkeyNil(err) {
+				logging.Warn("OAuth", "ValkeyTokenStore: DeleteByUserAndIssuer HKEYS failed: %v", err)
+			}
+			continue
+		}
+		fields, err := fieldsResult.AsStrSlice()
+		if err != nil {
+			continue
+		}
+		var matching []string
+		for _, field := range fields {
+			if fieldIssuer, _ := parseFieldName(field); fieldIssuer == issuer {
+				matching = append(matching, field)
+			}
+		}
+		if len(matching) == 0 {
+			continue
+		}
+		if err := s.client.Do(ctx, s.client.B().Hdel().Key(s.sessionKey(sid)).Field(matching...).Build()).Error(); err != nil {
+			logging.Warn("OAuth", "ValkeyTokenStore: DeleteByUserAndIssuer HDEL failed: %v", err)
+			continue
+		}
+		deleted += len(matching)
+	}
+
+	logging.Debug("OAuth", "ValkeyTokenStore: deleted %d tokens for user=%s issuer=%s",
+		deleted, logging.TruncateIdentifier(userID), issuer)
+}
+
 func (s *ValkeyTokenStore) DeleteBySession(sessionID string) {
 	ctx := context.Background()
 	sKey := s.sessionKey(sessionID)

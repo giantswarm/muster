@@ -129,6 +129,40 @@ func (a *Adapter) ClearTokenByIssuer(sessionID, issuer string) {
 	a.manager.ClearTokenByIssuer(sessionID, issuer)
 }
 
+// PinIssuer implements api.IssuerPinner.
+func (a *Adapter) PinIssuer(issuer string, pin api.IssuerPin) {
+	var metadata *pkgoauth.Metadata
+	if pin.AuthorizationEndpoint != "" && pin.TokenEndpoint != "" {
+		metadata = &pkgoauth.Metadata{
+			Issuer:                 issuer,
+			AuthorizationEndpoint:  pin.AuthorizationEndpoint,
+			TokenEndpoint:          pin.TokenEndpoint,
+			ResponseTypesSupported: []string{"code"},
+			GrantTypesSupported:    []string{"authorization_code", "refresh_token"},
+		}
+	}
+	a.manager.PinIssuer(issuer, IssuerPin{
+		ClientID:      pin.ClientID,
+		ClientSecret:  pin.ClientSecret,
+		SubjectScoped: pin.SubjectScoped,
+	}, metadata)
+}
+
+// GetFullTokenByIssuerForUser implements api.SubjectGrantHandler.
+func (a *Adapter) GetFullTokenByIssuerForUser(sessionID, userID, issuer string) *api.OAuthToken {
+	return fullTokenToAPIToken(a.manager.GetTokenByIssuerForUser(sessionID, userID, issuer))
+}
+
+// ClearTokenByIssuerForUser implements api.SubjectGrantHandler.
+func (a *Adapter) ClearTokenByIssuerForUser(sessionID, userID, issuer string) {
+	a.manager.ClearTokenByIssuerForUser(sessionID, userID, issuer)
+}
+
+var (
+	_ api.IssuerPinner        = (*Adapter)(nil)
+	_ api.SubjectGrantHandler = (*Adapter)(nil)
+)
+
 // DeleteTokensByUser removes all downstream tokens for a given user across all sessions.
 func (a *Adapter) DeleteTokensByUser(userID string) {
 	a.manager.DeleteTokensByUser(userID)

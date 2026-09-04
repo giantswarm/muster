@@ -44,6 +44,30 @@ const (
 	ClientIDMethodDCRFailed = "dcr-failed"
 )
 
+// ClientIDMethodPreregistered marks a client the operator registered with
+// the authorization server out of band (spec.auth.authorizationServer.
+// clientCredentialsSecretRef): the only way in against an authorization
+// server that supports neither CIMD nor RFC 7591, GitHub being the case.
+const ClientIDMethodPreregistered = "preregistered"
+
+// IssuerPin is what an operator configured for one authorization server on an
+// MCPServer (spec.auth.authorizationServer) beyond the issuer itself: a
+// pre-registered client, and whether the tokens the AS issues belong to the
+// person (subject) or to the login session that obtained them.
+type IssuerPin struct {
+	ClientID      string
+	ClientSecret  string
+	SubjectScoped bool
+}
+
+// subjectSessionID is the token-store session under which a subject-scoped
+// grant is filed in addition to the real session: any session of the same
+// person finds it there. The prefix cannot collide with a real session id,
+// which mcp-oauth derives from token families or bearer hashes.
+func subjectSessionID(userID string) string {
+	return "subject:" + userID
+}
+
 // resolvedClient is the client identification chosen for one issuer.
 type resolvedClient struct {
 	ClientID     string
@@ -76,6 +100,10 @@ type Client struct {
 
 	// Shared OAuth client for protocol operations
 	oauthClient *pkgoauth.Client
+
+	// pins holds the operator-configured authorization servers by issuer.
+	pinsMu sync.RWMutex
+	pins   map[string]*IssuerPin
 }
 
 // ClientOption configures optional Client parameters.
@@ -116,6 +144,7 @@ func NewClient(clientID, publicURL, callbackPath, cimdScopes string, opts ...Cli
 		stateStore:   NewStateStore(),
 		credStore:    NewClientCredentialStore(),
 		oauthClient:  pkgoauth.NewClient(),
+		pins:         make(map[string]*IssuerPin),
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -160,6 +189,73 @@ func (c *Client) GetToken(sessionID, issuer, scope string) *pkgoauth.Token {
 	return c.tokenStore.GetByIssuer(sessionID, issuer)
 }
 
+// PinIssuer records the operator's description of an authorization server:
+// the pre-registered client to identify with, whether its grants are
+// subject-scoped, and -- for an AS without a discovery document -- its
+// metadata. Calling it again for the same issuer replaces the pin, which is
+// how a rotated client secret takes effect.
+func (c *Client) PinIssuer(issuer string, pin IssuerPin, metadata *pkgoauth.Metadata) {
+	issuer = strings.TrimSuffix(issuer, "/")
+	if metadata != nil {
+		c.oauthClient.PinMetadata(issuer, metadata)
+	}
+	c.pinsMu.Lock()
+	c.pins[issuer] = &pin
+	c.pinsMu.Unlock()
+	logging.Info("OAuth", "Pinned authorization server issuer=%s preregisteredClient=%t subjectScoped=%t pinnedMetadata=%t",
+		issuer, pin.ClientID != "", pin.SubjectScoped, metadata != nil)
+}
+
+// issuerPin returns the operator pin for an issuer, or nil.
+func (c *Client) issuerPin(issuer string) *IssuerPin {
+	c.pinsMu.RLock()
+	defer c.pinsMu.RUnlock()
+	return c.pins[strings.TrimSuffix(issuer, "/")]
+}
+
+// subjectScoped reports whether grants from the issuer belong to the person.
+func (c *Client) subjectScoped(issuer string) bool {
+	pin := c.issuerPin(issuer)
+	return pin != nil && pin.SubjectScoped
+}
+
+// GetTokenForUser is GetToken plus the subject-scoped fallback: when the
+// session holds nothing for a subject-scoped issuer, the grant filed under
+// the user's identity by any earlier session is used.
+func (c *Client) GetTokenForUser(sessionID, userID, issuer, scope string) *pkgoauth.Token {
+	if token := c.GetToken(sessionID, issuer, scope); token != nil {
+		return token
+	}
+	if userID != "" && c.subjectScoped(issuer) {
+		return c.GetToken(subjectSessionID(userID), issuer, scope)
+	}
+	return nil
+}
+
+// GetByIssuerForUser is the issuer-only lookup with the subject-scoped
+// fallback, see GetTokenForUser.
+func (c *Client) GetByIssuerForUser(sessionID, userID, issuer string) *pkgoauth.Token {
+	if token := c.tokenStore.GetByIssuer(sessionID, issuer); token != nil {
+		return token
+	}
+	if userID != "" && c.subjectScoped(issuer) {
+		return c.tokenStore.GetByIssuer(subjectSessionID(userID), issuer)
+	}
+	return nil
+}
+
+// DeleteByIssuerForUser removes the session's tokens for an issuer and, for a
+// subject-scoped issuer, the person's grant as well: an explicit sign-out from
+// the server disconnects the person, not just this session.
+func (c *Client) DeleteByIssuerForUser(sessionID, userID, issuer string) {
+	c.tokenStore.DeleteByIssuer(sessionID, issuer)
+	if userID != "" && c.subjectScoped(issuer) {
+		// Every session of the person filed its copy with the user id, the
+		// subject grant included, so one sweep disconnects them all.
+		c.tokenStore.DeleteByUserAndIssuer(userID, issuer)
+	}
+}
+
 // resolveClient decides how muster identifies itself to the given issuer:
 // CIMD when the AS advertises support for it, previously registered DCR
 // credentials when present and still honored, a fresh RFC 7591 registration
@@ -176,6 +272,12 @@ func (c *Client) GetToken(sessionID, issuer, scope string) *pkgoauth.Token {
 // being completed (code exchange, token refresh) uses the stored credentials
 // as they are: they are the identification the flow started with.
 func (c *Client) resolveClient(ctx context.Context, issuer string, metadata *pkgoauth.Metadata, allowRegistration bool) *resolvedClient {
+	// An operator-registered client wins over every discovered mechanism:
+	// it exists precisely because the AS accepts nothing else.
+	if pin := c.issuerPin(issuer); pin != nil && pin.ClientID != "" {
+		return &resolvedClient{ClientID: pin.ClientID, ClientSecret: pin.ClientSecret, Method: ClientIDMethodPreregistered}
+	}
+
 	if metadata.ClientIDMetadataDocumentSupported {
 		return &resolvedClient{ClientID: c.clientID, Method: ClientIDMethodCIMD}
 	}
@@ -334,7 +436,9 @@ func (c *Client) ExchangeCode(ctx context.Context, code, codeVerifier, issuer, r
 	return token, nil
 }
 
-// StoreToken stores a token in the token store.
+// StoreToken stores a token in the token store. A token from a
+// subject-scoped issuer is filed under the person's identity as well, so any
+// later session of the same person reuses it (see GetTokenForUser).
 func (c *Client) StoreToken(sessionID, userID string, token *pkgoauth.Token) {
 	key := TokenKey{
 		SessionID: sessionID,
@@ -342,6 +446,11 @@ func (c *Client) StoreToken(sessionID, userID string, token *pkgoauth.Token) {
 		Scope:     token.Scope,
 	}
 	c.tokenStore.Store(key, token, userID)
+
+	if userID != "" && c.subjectScoped(token.Issuer) {
+		key.SessionID = subjectSessionID(userID)
+		c.tokenStore.Store(key, token, userID)
+	}
 }
 
 // Stop stops background cleanup goroutines.
