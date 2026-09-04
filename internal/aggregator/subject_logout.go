@@ -22,7 +22,11 @@ func sameIssuer(a, b string) bool {
 func (a *AggregatorServer) serversOfIssuer(issuer string) []string {
 	var names []string
 	for name, info := range a.registry.GetAllServers() {
-		if info.AuthInfo == nil || !sameIssuer(info.AuthInfo.Issuer, issuer) {
+		// The pin counts too: after a restart a sibling's entry has no
+		// AuthInfo until someone logs in, but its pooled clients and auth
+		// marks from before the restart are as live as any.
+		known := knownServerIssuer(info)
+		if known == "" || !sameIssuer(known, issuer) {
 			continue
 		}
 		if ShouldUseTokenExchange(info) || ShouldUseTokenForwarding(info) {

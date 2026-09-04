@@ -449,12 +449,17 @@ func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string
 	// shares it and it is not muster's own upstream issuer: there the token
 	// carries this session's authority to several servers (or muster's own SSO
 	// forwarding), and clearing it for one server would break the others.
+	//
+	// The registry entry learns the issuer from the 401 probe or from a
+	// login's discovery, so right after a restart it can still be empty for a
+	// server the person is signed in to (the tokens outlive the process in
+	// Valkey). Resolve it the way login does -- the operator's pin, then the
+	// server's resource metadata -- instead of skipping every token step.
 	var (
 		revokedGrant bool
 		siblings     []string
 	)
-	if serverInfo.AuthInfo != nil && serverInfo.AuthInfo.Issuer != "" {
-		issuer := serverInfo.AuthInfo.Issuer
+	if issuer := p.resolveServerIssuer(ctx, serverInfo); issuer != "" {
 		oauthHandler := api.GetOAuthHandler()
 		oauthEnabled := oauthHandler != nil && oauthHandler.IsEnabled()
 		musterIssuer := p.getMusterIssuer(sessionID)
@@ -566,12 +571,48 @@ func (p *AuthToolProvider) isIssuerExclusiveToServer(sessionID, serverName, issu
 		if name == serverName {
 			continue
 		}
-		if info.AuthInfo != nil && info.AuthInfo.Issuer == issuer {
+		if other := knownServerIssuer(info); other != "" && sameIssuer(other, issuer) {
 			return false
 		}
 	}
 
 	return true
+}
+
+// knownServerIssuer returns the OAuth issuer the registry knows for a server
+// without a network round trip: what the 401 probe or a login recorded in
+// AuthInfo, else the operator's pin (spec.auth.authorizationServer.issuer).
+// Empty when neither says.
+func knownServerIssuer(info *ServerInfo) string {
+	if info == nil {
+		return ""
+	}
+	if info.AuthInfo != nil && info.AuthInfo.Issuer != "" {
+		return info.AuthInfo.Issuer
+	}
+	if info.AuthConfig != nil && info.AuthConfig.AuthorizationServer != nil && info.AuthConfig.AuthorizationServer.Issuer != "" {
+		return strings.TrimSuffix(info.AuthConfig.AuthorizationServer.Issuer, "/")
+	}
+	return ""
+}
+
+// resolveServerIssuer is knownServerIssuer plus, when the registry knows
+// nothing, the issuer named by the server's RFC 9728 resource metadata -- the
+// same discovery a login performs, so a logout reaches the tokens a login
+// stored. Empty when the server is unreachable or publishes no metadata.
+func (p *AuthToolProvider) resolveServerIssuer(ctx context.Context, info *ServerInfo) string {
+	if issuer := knownServerIssuer(info); issuer != "" {
+		return issuer
+	}
+	if info == nil || info.URL == "" {
+		return ""
+	}
+	metadata, err := discoverProtectedResourceMetadata(ctx, info.URL, nil)
+	if err != nil {
+		logging.Debug("AuthTools", "Cannot resolve the issuer of %s for logout: %v", info.Name, err)
+		return ""
+	}
+	return metadata.Issuer
 }
 
 // is401Error checks if an error indicates a 401 Unauthorized response

@@ -31,6 +31,14 @@ type ProtectedMCPServerConfig struct {
 	// RequiredScope is the OAuth scope required to access this server
 	RequiredScope string
 
+	// OmitResourceMetadata makes the server publish no RFC 9728 metadata:
+	// the 401 challenge carries no resource_metadata pointer and
+	// /.well-known/oauth-protected-resource is not served. The aggregator
+	// then learns the authorization server only from an operator pin
+	// (spec.auth.authorizationServer), the shape of a backend that does not
+	// implement resource metadata.
+	OmitResourceMetadata bool
+
 	// Tools are the tools to expose when authenticated
 	Tools []ToolConfig
 
@@ -229,11 +237,12 @@ func (s *ProtectedMCPServer) createProtectedHandler() (http.Handler, error) {
 
 	// Create OAuth protection middleware
 	protectedHandler := &oauthProtectionMiddleware{
-		handler:       underlyingHandler,
-		oauthServer:   s.config.OAuthServer,
-		issuer:        s.GetIssuer(),
-		requiredScope: s.config.RequiredScope,
-		debug:         s.config.Debug,
+		handler:              underlyingHandler,
+		oauthServer:          s.config.OAuthServer,
+		issuer:               s.GetIssuer(),
+		requiredScope:        s.config.RequiredScope,
+		omitResourceMetadata: s.config.OmitResourceMetadata,
+		debug:                s.config.Debug,
 	}
 	if s.config.TrustJWKSURL != "" {
 		protectedHandler.jwksValidator = newJWKSValidator(
@@ -246,7 +255,7 @@ func (s *ProtectedMCPServer) createProtectedHandler() (http.Handler, error) {
 	// Serve OAuth protected resource metadata (RFC 9728)
 	// This tells clients where to find the authorization server
 	// Format matches real mcp-kubernetes (mcp-oauth library)
-	mux.HandleFunc("/.well-known/oauth-protected-resource", func(w http.ResponseWriter, r *http.Request) {
+	resourceMetadata := func(w http.ResponseWriter, r *http.Request) {
 		resourceURL := fmt.Sprintf("http://localhost:%d", s.port)
 		metadata := map[string]interface{}{
 			"resource":                 resourceURL,
@@ -259,7 +268,12 @@ func (s *ProtectedMCPServer) createProtectedHandler() (http.Handler, error) {
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(metadata)
-	})
+	}
+	if s.config.OmitResourceMetadata {
+		// A backend without RFC 9728 support: nothing to discover.
+		resourceMetadata = http.NotFound
+	}
+	mux.HandleFunc("/.well-known/oauth-protected-resource", resourceMetadata)
 
 	// Pass all other requests to the protected handler
 	mux.Handle("/", protectedHandler)
@@ -274,7 +288,9 @@ type oauthProtectionMiddleware struct {
 	jwksValidator *jwksValidator
 	issuer        string
 	requiredScope string
-	debug         bool
+	// omitResourceMetadata drops the resource_metadata pointer from 401s.
+	omitResourceMetadata bool
+	debug                bool
 }
 
 func (m *oauthProtectionMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -356,16 +372,22 @@ func (m *oauthProtectionMiddleware) sendAuthChallenge(w http.ResponseWriter, err
 	// Send WWW-Authenticate header per RFC 9728
 	// Format matches real mcp-kubernetes (mcp-oauth library):
 	// Bearer resource_metadata=".../.well-known/oauth-protected-resource", error="...", error_description="..."
-	resourceMetadataURL := fmt.Sprintf("%s/.well-known/oauth-protected-resource", m.issuer)
-	authHeader := fmt.Sprintf(`Bearer resource_metadata="%s"`, resourceMetadataURL)
-
+	var params []string
+	if !m.omitResourceMetadata {
+		resourceMetadataURL := fmt.Sprintf("%s/.well-known/oauth-protected-resource", m.issuer)
+		params = append(params, fmt.Sprintf(`resource_metadata="%s"`, resourceMetadataURL))
+	}
 	if errorCode != "" {
-		authHeader += fmt.Sprintf(`, error="%s"`, errorCode)
+		params = append(params, fmt.Sprintf(`error="%s"`, errorCode))
 	}
 	if errorDesc != "" {
 		// A quoted-string parameter cannot carry a bare double quote; a
 		// validation error that quotes a value would end the parameter early.
-		authHeader += fmt.Sprintf(`, error_description="%s"`, strings.ReplaceAll(errorDesc, `"`, "'"))
+		params = append(params, fmt.Sprintf(`error_description="%s"`, strings.ReplaceAll(errorDesc, `"`, "'")))
+	}
+	authHeader := "Bearer"
+	if len(params) > 0 {
+		authHeader += " " + strings.Join(params, ", ")
 	}
 
 	w.Header().Set("WWW-Authenticate", authHeader)

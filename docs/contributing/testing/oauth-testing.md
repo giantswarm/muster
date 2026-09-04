@@ -354,6 +354,13 @@ grant), and remember that the first resolution of a cached tool records its
 name in the aggregator's registry -- a step meant to exercise the "tool not
 found" path has to run before any session calls that tool.
 
+`oauth.omit_resource_metadata: true` makes the mock backend publish no RFC 9728
+metadata: a bare `WWW-Authenticate: Bearer` on 401 and a 404 for
+`/.well-known/oauth-protected-resource`. The aggregator then registers the
+server without an issuer and learns it only from the pin -- the state of a
+restarted muster before anyone logs in. See
+`oauth-subject-grant-logout-without-resource-metadata.yaml`.
+
 ## Debugging OAuth Tests
 
 ### Run with Debug Output
