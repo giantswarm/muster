@@ -169,6 +169,9 @@ func showMCPServerStatus(ctx context.Context, handler api.AuthHandler, aggregato
 			if srv.Issuer != "" {
 				authPrint("  Issuer:   %s\n", srv.Issuer)
 			}
+			if srv.Error != "" {
+				authPrint("  Reason:   %s\n", srv.Error)
+			}
 			if srv.Status == pkgoauth.SessionServerStatusAuthRequired {
 				if srv.SSOAttemptFailed && (srv.TokenForwardingEnabled || srv.TokenExchangeEnabled) {
 					authPrint("  Action:   SSO failed - check server configuration\n")
@@ -269,6 +272,8 @@ func formatMCPServerStatus(status pkgoauth.SessionServerStatus) string {
 		return text.FgGreen.Sprint("Connected")
 	case pkgoauth.SessionServerStatusAuthRequired:
 		return text.FgYellow.Sprint("Not authenticated")
+	case pkgoauth.SessionServerStatusReauthRequired:
+		return text.FgYellow.Sprint("Re-authentication required")
 	case pkgoauth.SessionServerStatusDisconnected:
 		return text.FgRed.Sprint("Disconnected")
 	case pkgoauth.SessionServerStatusError:

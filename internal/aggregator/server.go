@@ -329,6 +329,11 @@ func (t *subjectSessionTracker) GetSessionIDs(sub string) []string {
 type ssoFailedEntry struct {
 	failedAt     time.Time
 	failureCount int
+	// reason is what the failed attempt reported (the connect error with its
+	// forwarded-token diagnostic, or the upstream refresh failure), kept so
+	// auth://status can say why the server is in reauth_required instead of
+	// only that it is. Empty when the caller had nothing to report.
+	reason string
 }
 
 // ssoTrackerFailureTTL is the base duration after which a first SSO failure
@@ -428,11 +433,18 @@ func (s *ssoTracker) ClearSSOPending(sub, serverName string) {
 	}
 }
 
-// MarkSSOFailed records that SSO failed for a user/server pair. If an active
-// (non-expired) failure entry already exists, the failure count is incremented
-// to increase the exponential backoff. Otherwise a new entry is created with
-// failureCount=1.
+// MarkSSOFailed records that SSO failed for a user/server pair without a
+// reason. See MarkSSOFailedWithReason.
 func (s *ssoTracker) MarkSSOFailed(sub, serverName string) {
+	s.MarkSSOFailedWithReason(sub, serverName, "")
+}
+
+// MarkSSOFailedWithReason records that SSO failed for a user/server pair and
+// why. If an active (non-expired) failure entry already exists, the failure
+// count is incremented to increase the exponential backoff, and an empty
+// reason keeps the one already recorded. Otherwise a new entry is created with
+// failureCount=1.
+func (s *ssoTracker) MarkSSOFailedWithReason(sub, serverName, reason string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.failedServers[sub] == nil {
@@ -443,12 +455,32 @@ func (s *ssoTracker) MarkSSOFailed(sub, serverName string) {
 		prevBackoff := ssoBackoffDuration(prev.failureCount)
 		if time.Since(prev.failedAt) < prevBackoff {
 			count = prev.failureCount + 1
+			if reason == "" {
+				reason = prev.reason
+			}
 		}
 	}
 	s.failedServers[sub][serverName] = &ssoFailedEntry{
 		failedAt:     time.Now(),
 		failureCount: count,
+		reason:       reason,
 	}
+}
+
+// SSOFailureReason returns the reason recorded with the active (non-expired)
+// SSO failure for a user/server pair, or "" when there is none or the failure
+// was recorded without one.
+func (s *ssoTracker) SSOFailureReason(sub, serverName string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if m, ok := s.failedServers[sub]; ok {
+		if entry, exists := m[serverName]; exists {
+			if time.Since(entry.failedAt) < ssoBackoffDuration(entry.failureCount) {
+				return entry.reason
+			}
+		}
+	}
+	return ""
 }
 
 // HasSSOFailed returns true if SSO has recently failed for this user/server pair.
@@ -3024,12 +3056,12 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 		_ = client.Close()
 		if forwardedToken != "" {
 			// A backend rejection is indistinguishable from other transport
-			// failures here, so the issuer diagnostic is attached to every
+			// failures here, so the token diagnostic is attached to every
 			// token-forwarding connect failure.
 			logging.WarnWithAttrs("Aggregator", "Token-forwarding client rejected on connect",
 				slog.String("server", serverName),
 				slog.String("error", err.Error()),
-				slog.String("diagnostic", forwardedTokenDiagnostic(forwardedToken)))
+				slog.String("diagnostic", forwardedTokenDiagnostic(forwardedToken, err)))
 		}
 		return nil, nil, fmt.Errorf("failed to initialize on-demand client for %s: %w", serverName, err)
 	}

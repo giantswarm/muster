@@ -365,6 +365,36 @@ func TestDetermineSessionAuthStatus_ReauthRequired(t *testing.T) {
 		"sso-server should be marked as failed, which leads to reauth_required status")
 }
 
+// TestSSOTracker_FailureReason pins the reason bookkeeping auth://status reads:
+// a failure recorded with a reason reports it while the backoff is active, a
+// repeat failure without a reason keeps the earlier one, a repeat with a new
+// reason replaces it, and clearing the entry clears the reason.
+func TestSSOTracker_FailureReason(t *testing.T) {
+	tracker := newSSOTracker()
+	userID := "alice"
+
+	assert.Equal(t, "", tracker.SSOFailureReason(userID, "agent-manager"), "no failure, no reason")
+
+	tracker.MarkSSOFailed(userID, "agent-manager")
+	assert.Equal(t, "", tracker.SSOFailureReason(userID, "agent-manager"), "failure without a reason")
+
+	tracker.MarkSSOFailedWithReason(userID, "agent-manager", "ID token forwarding failed: 401 (aud=[a, b])")
+	assert.Equal(t, "ID token forwarding failed: 401 (aud=[a, b])", tracker.SSOFailureReason(userID, "agent-manager"))
+	assert.Equal(t, 2, tracker.GetFailureCount(userID, "agent-manager"), "the reason variant still counts the failure")
+
+	tracker.MarkSSOFailed(userID, "agent-manager")
+	assert.Equal(t, "ID token forwarding failed: 401 (aud=[a, b])", tracker.SSOFailureReason(userID, "agent-manager"),
+		"a repeat without a reason keeps the recorded one")
+
+	tracker.MarkSSOFailedWithReason(userID, "agent-manager", "upstream token refresh failed: dex 401")
+	assert.Equal(t, "upstream token refresh failed: dex 401", tracker.SSOFailureReason(userID, "agent-manager"))
+
+	assert.Equal(t, "", tracker.SSOFailureReason(userID, "other-server"), "reasons are per server")
+
+	tracker.ClearSSOFailed(userID, "agent-manager")
+	assert.Equal(t, "", tracker.SSOFailureReason(userID, "agent-manager"))
+}
+
 func TestHandleUpstreamRefreshFailure_Integration(t *testing.T) {
 	// Integration test: calls handleUpstreamRefreshFailure on a real
 	// AggregatorServer with all components wired up (pool, authStore,

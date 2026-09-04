@@ -432,7 +432,14 @@ type ServerAuthStatus struct {
 	Issuer   string              `json:"issuer,omitempty"`
 	Scope    string              `json:"scope,omitempty"`
 	AuthTool string              `json:"auth_tool,omitempty"` // "core_auth_login" for non-SSO servers; empty for SSO servers (per ADR-008)
-	Error    string              `json:"error,omitempty"`
+
+	// Error says why the server is not connected for this session, when muster
+	// knows. For an SSO server whose attempt failed (SSOAttemptFailed) it is
+	// the failed attempt's own account: the connect error with the forwarded
+	// token's issuer and audiences and, when the backend's 401 carried one,
+	// its WWW-Authenticate error_description. Clients show it verbatim; it
+	// never contains a token.
+	Error string `json:"error,omitempty"`
 
 	// TokenForwardingEnabled indicates this server uses SSO via ID token forwarding.
 	// When true, muster forwards its own ID token (from muster's OAuth server protection)

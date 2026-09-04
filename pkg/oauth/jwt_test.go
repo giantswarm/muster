@@ -47,6 +47,32 @@ func TestSubject(t *testing.T) {
 	})
 }
 
+func TestAudience(t *testing.T) {
+	t.Run("returns a single-string aud as a one-element list", func(t *testing.T) {
+		aud, err := Audience(jwtFromPayload(t, `{"sub":"alice","aud":"platform-client"}`))
+		require.NoError(t, err)
+		assert.Equal(t, []string{"platform-client"}, aud)
+	})
+
+	t.Run("returns an array aud in order", func(t *testing.T) {
+		aud, err := Audience(jwtFromPayload(t, `{"sub":"alice","aud":["backstage-client","dex-k8s-authenticator"]}`))
+		require.NoError(t, err)
+		assert.Equal(t, []string{"backstage-client", "dex-k8s-authenticator"}, aud)
+	})
+
+	t.Run("returns nil without error when aud absent", func(t *testing.T) {
+		aud, err := Audience(jwtFromPayload(t, `{"sub":"alice"}`))
+		require.NoError(t, err)
+		assert.Nil(t, aud)
+	})
+
+	t.Run("returns error for malformed token", func(t *testing.T) {
+		aud, err := Audience("not-a-jwt")
+		require.Error(t, err)
+		assert.Nil(t, aud)
+	})
+}
+
 func TestEmail(t *testing.T) {
 	t.Run("returns email claim", func(t *testing.T) {
 		email, err := Email(jwtFromPayload(t, `{"sub":"alice","email":"alice@example.com"}`))

@@ -306,7 +306,10 @@ func (m *oauthProtectionMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Req
 			if m.debug {
 				fmt.Fprintf(os.Stderr, "🔒 JWKS validation failed: %v, returning 401\n", err)
 			}
-			m.sendAuthChallenge(w, "invalid_token", "The access token is invalid or expired")
+			// The description states the reason, the way a real resource
+			// server (mcp-oauth) does, so scenarios can assert that muster
+			// surfaces the backend's own account of a rejection.
+			m.sendAuthChallenge(w, "invalid_token", fmt.Sprintf("token validation failed: %v", err))
 			return
 		}
 		r = r.WithContext(withReceivedToken(r.Context(), &receivedToken{Raw: token, Claims: claims}))
@@ -360,7 +363,9 @@ func (m *oauthProtectionMiddleware) sendAuthChallenge(w http.ResponseWriter, err
 		authHeader += fmt.Sprintf(`, error="%s"`, errorCode)
 	}
 	if errorDesc != "" {
-		authHeader += fmt.Sprintf(`, error_description="%s"`, errorDesc)
+		// A quoted-string parameter cannot carry a bare double quote; a
+		// validation error that quotes a value would end the parameter early.
+		authHeader += fmt.Sprintf(`, error_description="%s"`, strings.ReplaceAll(errorDesc, `"`, "'"))
 	}
 
 	w.Header().Set("WWW-Authenticate", authHeader)

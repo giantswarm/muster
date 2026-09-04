@@ -100,11 +100,13 @@ func (v *jwksValidator) validate(ctx context.Context, token string) (*tokenClaim
 	if claims.Exp > 0 && time.Now().After(time.Unix(claims.Exp, 0)) {
 		return nil, fmt.Errorf("token expired")
 	}
+	// Messages avoid double quotes: they travel as the error_description of
+	// the backend's WWW-Authenticate challenge, a quoted-string parameter.
 	if v.expectedAudience != "" && !slices.Contains([]string(claims.Aud), v.expectedAudience) {
-		return nil, fmt.Errorf("audience %v does not include %q", []string(claims.Aud), v.expectedAudience)
+		return nil, fmt.Errorf("audience %v does not include %s", []string(claims.Aud), v.expectedAudience)
 	}
 	if v.expectedIssuer != "" && claims.Iss != v.expectedIssuer {
-		return nil, fmt.Errorf("issuer %q does not match expected %q", claims.Iss, v.expectedIssuer)
+		return nil, fmt.Errorf("issuer %s does not match expected %s", claims.Iss, v.expectedIssuer)
 	}
 	return &claims, nil
 }

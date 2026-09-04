@@ -93,6 +93,24 @@ func Issuer(token string) (string, error) {
 	return c.Issuer, nil
 }
 
+// Audience returns the aud claim of a trusted JWT as a list, whether the token
+// carries it as a single string or as an array. Returns (nil, nil) when the
+// token parses but carries no aud; returns a wrapped error on decode failure.
+//
+// Audiences are client identifiers, not secrets: a backend that rejects a
+// forwarded token because none of its audiences is trusted is attributable
+// from this list alone, so callers may put it in logs and status output.
+func Audience(token string) ([]string, error) {
+	c, err := parseUnverified(token)
+	if err != nil {
+		return nil, fmt.Errorf("decode token: %w", err)
+	}
+	if len(c.Audience) == 0 {
+		return nil, nil
+	}
+	return []string(c.Audience), nil
+}
+
 // IsExpired reports whether a trusted JWT's exp claim is in the past or
 // within DefaultExpiryMargin of now. Returns (true, nil) when the token
 // parses and is actually past expiry; returns (true, err) when the token
