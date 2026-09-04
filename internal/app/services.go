@@ -296,10 +296,14 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	// Step 5: Initialize reconciliation manager for automatic change detection
 	var reconcileManager *reconciler.Manager
 	if cfg.ConfigPath != "" {
-		// Determine watch mode based on config - this must match the MusterClient mode
-		// to ensure consistent behavior between the client and the reconciler.
-		// Use the shared helper to ensure consistent mode selection across the codebase.
-		watchMode := reconciler.WatchModeFromKubernetesFlag(cfg.MusterConfig.Kubernetes)
+		// The change detector watches the store the muster client reads from,
+		// so its mode comes from the client that was actually created, not
+		// from the configuration flag. Deriving the two independently is what
+		// let a client that had fallen back to the filesystem run under a
+		// detector that watched the apiserver: every existing CR arrived as
+		// a create event, was looked up in the empty directory, and was
+		// reconciled as deleted (issue #1143).
+		watchMode := reconciler.WatchModeFromKubernetesFlag(musterClient.IsKubernetesMode())
 
 		reconcileConfig := reconciler.ManagerConfig{
 			Mode:           watchMode,
@@ -341,7 +345,7 @@ func InitializeServices(cfg *Config) (*Services, error) {
 		reconcileAdapter := reconciler.NewAdapter(reconcileManager)
 		reconcileAdapter.Register()
 
-		logging.Info("Services", "Initialized reconciliation manager with filesystem watching for %s", cfg.ConfigPath)
+		logging.Info("Services", "Initialized reconciliation manager in %s mode (config path %s)", watchMode, cfg.ConfigPath)
 	}
 
 	// Step 6: Create StateChangeBridge to sync runtime state changes to CRD status
@@ -380,14 +384,18 @@ func createMusterClientWithConfig(configPath string, debug bool, musterConfig co
 		namespace = "default"
 	}
 
-	// Create client config with the filesystem path as fallback.
-	// When kubernetes=true in config, use Kubernetes CRD mode.
-	// Otherwise, force filesystem mode for local development and tests.
+	// The configured mode is binding in both directions. kubernetes=false
+	// forces the filesystem for local development and tests. kubernetes=true
+	// requires the apiserver: a Kubernetes client that cannot be created is a
+	// startup error, never a fallback to the (empty) config directory — the
+	// informer-driven reconciler would otherwise read every existing CR as
+	// "not found" and delete its service (issue #1143).
 	clientConfig := &client.MusterClientConfig{
-		FilesystemPath:      configPath,
-		Namespace:           namespace,
-		ForceFilesystemMode: !musterConfig.Kubernetes,
-		Debug:               debug,
+		FilesystemPath:        configPath,
+		Namespace:             namespace,
+		ForceFilesystemMode:   !musterConfig.Kubernetes,
+		RequireKubernetesMode: musterConfig.Kubernetes,
+		Debug:                 debug,
 	}
 
 	musterClient, err := client.NewMusterClientWithConfig(clientConfig)
