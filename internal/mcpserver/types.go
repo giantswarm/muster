@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/giantswarm/muster/pkg/logging"
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
 	"github.com/mark3labs/mcp-go/client/transport"
 )
@@ -66,6 +67,14 @@ type AuthRequiredError struct {
 
 	// AuthInfo contains the OAuth parameters extracted from the 401 response
 	AuthInfo AuthInfo
+
+	// Challenge is the backend's WWW-Authenticate challenge from the 401 that
+	// produced this error, when the client's transport recorded one (see
+	// challengeRecorder). Its error and error_description parameters say why
+	// the credential was refused; the request and the token are never kept.
+	// nil when the 401 carried no parseable challenge or the transport does
+	// not record them.
+	Challenge *pkgoauth.AuthChallenge
 
 	// Err is the underlying error
 	Err error

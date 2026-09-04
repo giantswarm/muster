@@ -1,6 +1,9 @@
 package aggregator
 
 import (
+	"errors"
+	"strings"
+
 	"context"
 	"fmt"
 	"sync"
@@ -367,14 +370,17 @@ func EstablishConnectionWithTokenForwarding(
 
 		// A rejection here is indistinguishable from other transport failures
 		// (mcp-go surfaces the 401 as a generic initialize error), so the
-		// issuer diagnostic is attached to every connect failure.
+		// token diagnostic is attached to every connect failure. It travels in
+		// the returned error too: establishSSOConnection records it as the
+		// failure reason auth://status reports for the server.
+		diagnostic := forwardedTokenDiagnostic(forwardedToken, err)
 		logging.Warn("Connection", "ID token forwarding failed for user %s to server %s: %v (%s)",
-			logging.TruncateIdentifier(sub), serverInfo.Name, err, forwardedTokenDiagnostic(forwardedToken))
+			logging.TruncateIdentifier(sub), serverInfo.Name, err, diagnostic)
 
 		// Emit event for token forwarding failure
 		emitTokenForwardingEvent(serverInfo.Name, serverInfo.GetNamespace(), false, err.Error())
 
-		return nil, fmt.Errorf("ID token forwarding failed: %w", err)
+		return nil, fmt.Errorf("ID token forwarding failed: %w (%s)", err, diagnostic)
 	}
 
 	// Token forwarding succeeded - emit success event
@@ -993,15 +999,33 @@ func registeredMeta(a *AggregatorServer, serverName string) map[string]string {
 	return serverInfo.Meta
 }
 
-// forwardedTokenDiagnostic identifies a forwarded token by its issuer claim
-// only — never the token itself or any other claim — with a hint for the most
-// common rejection cause: the backend does not trust the issuer's JWKS.
-func forwardedTokenDiagnostic(token string) string {
+// forwardedTokenDiagnostic attributes a token-forwarding connect failure. It
+// names the forwarded token's issuer and audiences — never the token itself or
+// any other claim — because a backend accepts a forwarded token only when it
+// trusts the issuer's JWKS *and* one of the token's audiences, and a 401 alone
+// does not say which check failed: an audience the backend does not trust
+// reads exactly like an issuer whose JWKS it cannot reach. When connectErr
+// carries the backend's WWW-Authenticate challenge (see
+// internalmcp.AuthRequiredError.Challenge), its error and error_description
+// are appended, since that is the backend's own statement of the cause.
+func forwardedTokenDiagnostic(token string, connectErr error) string {
+	var diagnostic string
 	iss, err := pkgoauth.Issuer(token)
 	if err != nil || iss == "" {
-		return "forwarded token has no parseable iss claim"
+		diagnostic = "forwarded token has no parseable iss claim"
+	} else {
+		aud, _ := pkgoauth.Audience(token)
+		diagnostic = fmt.Sprintf("forwarded token iss=%s, aud=[%s]; the backend must trust this issuer's JWKS and one of these audiences to accept forwarded tokens",
+			iss, strings.Join(aud, ", "))
 	}
-	return fmt.Sprintf("forwarded token iss=%s; the backend must trust this issuer's JWKS to accept forwarded tokens", iss)
+
+	var authErr *internalmcp.AuthRequiredError
+	if errors.As(connectErr, &authErr) {
+		if said := internalmcp.DescribeChallenge(authErr.Challenge); said != "" {
+			diagnostic += "; " + said
+		}
+	}
+	return diagnostic
 }
 
 // isForwardableToken reports whether token is a decodable JWT. An opaque

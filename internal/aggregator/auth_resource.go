@@ -99,6 +99,13 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 			TokenExchangeEnabled:   usesTokenExchange,
 			SSOAttemptFailed:       ssoAttemptFailed,
 		}
+		// The recorded reason is the failed attempt's own account (the connect
+		// error with the forwarded token's iss/aud and the backend's
+		// WWW-Authenticate error_description), so a client can show *why*
+		// SSO failed instead of pointing at an administrator in general.
+		if ssoAttemptFailed && serverStatus != pkgoauth.SessionServerStatusConnected {
+			status.Error = a.ssoTracker.SSOFailureReason(sub, name)
+		}
 
 		if info.AuthInfo != nil {
 			switch status.Status {
@@ -294,7 +301,7 @@ func (a *AggregatorServer) handleUpstreamRefreshFailure(sessionID, userID, reaso
 		servers := a.registry.GetAllServers()
 		for _, info := range servers {
 			if ShouldUseTokenExchange(info) || ShouldUseTokenForwarding(info) {
-				a.ssoTracker.MarkSSOFailed(userID, info.Name)
+				a.ssoTracker.MarkSSOFailedWithReason(userID, info.Name, "upstream token refresh failed: "+reason)
 			}
 		}
 	}
@@ -590,7 +597,11 @@ func (a *AggregatorServer) establishSSOConnection(
 			serverInfo.Name, sub, err)
 
 		if a.ssoTracker != nil {
-			a.ssoTracker.MarkSSOFailed(sub, serverInfo.Name)
+			reason := ""
+			if err != nil {
+				reason = err.Error()
+			}
+			a.ssoTracker.MarkSSOFailedWithReason(sub, serverInfo.Name, reason)
 		}
 	}
 }

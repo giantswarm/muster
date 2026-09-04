@@ -16,9 +16,11 @@ import (
 
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/config"
+	internalmcp "github.com/giantswarm/muster/internal/mcpserver"
 	oauthstore "github.com/giantswarm/muster/internal/oauth/store"
 	"github.com/giantswarm/muster/internal/server"
 	"github.com/giantswarm/muster/pkg/logging"
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
 	mcpgoserver "github.com/mark3labs/mcp-go/server"
 	"github.com/stretchr/testify/assert"
@@ -1490,15 +1492,60 @@ func TestNewTokenForwardingClient_BearerWinsOverExpiredContextIDToken(t *testing
 }
 
 // TestForwardedTokenDiagnostic pins the connect-failure diagnostic: it names
-// the forwarded token's issuer (and only the issuer — never the token) so a
-// backend that does not trust that issuer's JWKS is attributable from the log.
+// the forwarded token's issuer and audiences (never the token or other claims)
+// and states both conditions a backend applies, so a rejection over an
+// untrusted audience is not read as a JWKS problem; and it carries the
+// backend's own WWW-Authenticate explanation when the 401 had one (muster#1141).
 func TestForwardedTokenDiagnostic(t *testing.T) {
-	token := unsignedJWT(t, map[string]any{"sub": "alice", "iss": "https://muster.example.com"})
+	token := unsignedJWT(t, map[string]any{
+		"sub": "alice",
+		"iss": "https://dex.example.com",
+		"aud": []string{"backstage-client", "dex-k8s-authenticator"},
+	})
 
-	diag := forwardedTokenDiagnostic(token)
-	require.Contains(t, diag, "iss=https://muster.example.com")
-	require.Contains(t, diag, "JWKS")
-	require.NotContains(t, diag, token, "the diagnostic must never contain the token itself")
+	t.Run("names issuer and audiences and both trust conditions", func(t *testing.T) {
+		diag := forwardedTokenDiagnostic(token, errors.New("failed to initialize MCP protocol: unauthorized (401)"))
+		require.Contains(t, diag, "iss=https://dex.example.com")
+		require.Contains(t, diag, "aud=[backstage-client, dex-k8s-authenticator]")
+		require.Contains(t, diag, "JWKS and one of these audiences")
+		require.NotContains(t, diag, token, "the diagnostic must never contain the token itself")
+		require.NotContains(t, diag, "WWW-Authenticate", "no challenge on the error, nothing to quote")
+	})
 
-	require.Equal(t, "forwarded token has no parseable iss claim", forwardedTokenDiagnostic("opaque"))
+	t.Run("appends the backend's WWW-Authenticate error_description", func(t *testing.T) {
+		connectErr := fmt.Errorf("wrapped: %w", &internalmcp.AuthRequiredError{
+			URL: "https://agent-manager/mcp",
+			Err: errors.New("server returned 401 Unauthorized"),
+			Challenge: &pkgoauth.AuthChallenge{
+				Scheme:           "Bearer",
+				Error:            "invalid_token",
+				ErrorDescription: "no identity token to act with towards the Kubernetes API",
+			},
+		})
+		diag := forwardedTokenDiagnostic(token, connectErr)
+		require.Contains(t, diag, "aud=[backstage-client, dex-k8s-authenticator]")
+		require.Contains(t, diag, `backend WWW-Authenticate: error="invalid_token", error_description="no identity token to act with towards the Kubernetes API"`)
+		require.NotContains(t, diag, token)
+	})
+
+	t.Run("single-string aud and a challenge without parameters", func(t *testing.T) {
+		single := unsignedJWT(t, map[string]any{"sub": "alice", "iss": "https://dex.example.com", "aud": "platform-client"})
+		diag := forwardedTokenDiagnostic(single, &internalmcp.AuthRequiredError{
+			Err:       errors.New("401"),
+			Challenge: &pkgoauth.AuthChallenge{Scheme: "Bearer", ResourceMetadataURL: "https://b/.well-known/oauth-protected-resource"},
+		})
+		require.Contains(t, diag, "aud=[platform-client]")
+		require.NotContains(t, diag, "WWW-Authenticate")
+	})
+
+	t.Run("token without aud", func(t *testing.T) {
+		noAud := unsignedJWT(t, map[string]any{"sub": "alice", "iss": "https://dex.example.com"})
+		require.Contains(t, forwardedTokenDiagnostic(noAud, nil), "aud=[]")
+	})
+
+	t.Run("opaque token", func(t *testing.T) {
+		require.Equal(t, "forwarded token has no parseable iss claim", forwardedTokenDiagnostic("opaque", nil))
+		require.Equal(t, `forwarded token has no parseable iss claim; backend WWW-Authenticate: error="invalid_token"`,
+			forwardedTokenDiagnostic("opaque", &internalmcp.AuthRequiredError{Err: errors.New("401"), Challenge: &pkgoauth.AuthChallenge{Error: "invalid_token"}}))
+	})
 }

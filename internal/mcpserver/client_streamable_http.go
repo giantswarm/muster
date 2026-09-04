@@ -87,17 +87,22 @@ func (c *StreamableHTTPClient) Initialize(ctx context.Context) error {
 		logging.Debug("StreamableHTTPClient", "Configured %d custom headers", len(c.headers))
 	}
 
+	var httpClient *http.Client
 	if c.httpClientFunc != nil {
-		httpClient, err := c.httpClientFunc(ctx)
+		built, err := c.httpClientFunc(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to build HTTP client: %w", err)
 		}
-		opts = append(opts, transport.WithHTTPBasicClient(httpClient))
+		httpClient = built
 		logging.Debug("StreamableHTTPClient", "Configured custom HTTP client")
-	} else if httpClient := metaHTTPClient(c.meta); httpClient != nil {
-		opts = append(opts, transport.WithHTTPBasicClient(httpClient))
+	} else if httpClient = metaHTTPClient(c.meta); httpClient != nil {
 		logging.Debug("StreamableHTTPClient", "Configured %d meta entries", len(c.meta))
 	}
+	// Every connection records the backend's 401 challenge so a rejection can
+	// be attributed (see challengeRecorder); with no client of its own this
+	// is mcp-go's default client plus the recorder.
+	challenges := &challengeRecorder{}
+	opts = append(opts, transport.WithHTTPBasicClient(recordingHTTPClient(httpClient, challenges)))
 
 	// Enable receiving server-pushed notifications outside active requests.
 	// This opens a long-lived GET connection to the server per the MCP spec.
@@ -116,6 +121,7 @@ func (c *StreamableHTTPClient) Initialize(ctx context.Context) error {
 	if err := mcpClient.Start(context.Background()); err != nil {
 		_ = mcpClient.Close()
 		if authErr := CheckForAuthRequiredError(ctx, err, c.url); authErr != nil {
+			authErr.Challenge = challenges.challenge()
 			logging.Debug("StreamableHTTPClient", "Authentication required for URL: %s", c.url)
 			return authErr
 		}
@@ -137,6 +143,7 @@ func (c *StreamableHTTPClient) Initialize(ctx context.Context) error {
 
 		// Check if this is a 401 authentication error
 		if authErr := CheckForAuthRequiredError(ctx, err, c.url); authErr != nil {
+			authErr.Challenge = challenges.challenge()
 			logging.Debug("StreamableHTTPClient", "Authentication required for URL: %s", c.url)
 			return authErr
 		}

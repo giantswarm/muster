@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/config"
@@ -782,4 +783,88 @@ func TestInitSSOForSession_PersistsIDToken(t *testing.T) {
 			t.Fatalf("must not store anything when the caller has no ID token, got %+v", stored)
 		}
 	})
+}
+
+// TestHandleAuthStatusResource_ReportsSSOFailureReason pins the per-server
+// detail auth://status returns for a failed SSO server (muster#1141): the
+// status is reauth_required with sso_attempt_failed, and error carries the
+// reason the failed attempt recorded — the forwarded token's issuer and
+// audiences plus the backend's WWW-Authenticate error_description — so a
+// client can show why instead of a generic "check with an administrator".
+func TestHandleAuthStatusResource_ReportsSSOFailureReason(t *testing.T) {
+	registry := NewServerRegistry("x")
+	require.NoError(t, registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: "agent-manager", ToolPrefix: "am"},
+		URL:                "https://agent-manager.example.com/mcp",
+		AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com"},
+		AuthConfig:         &api.MCPServerAuth{ForwardToken: true},
+	}))
+	require.NoError(t, registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: "model-manager", ToolPrefix: "mm"},
+		URL:                "https://model-manager.example.com/mcp",
+		AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com"},
+		AuthConfig:         &api.MCPServerAuth{ForwardToken: true},
+	}))
+
+	tracker := newSSOTracker()
+	reason := `ID token forwarding failed: authentication required: server returned 401 Unauthorized ` +
+		`(forwarded token iss=https://dex.example.com, aud=[backstage-client, dex-k8s-authenticator]; ` +
+		`the backend must trust this issuer's JWKS and one of these audiences to accept forwarded tokens; ` +
+		`backend WWW-Authenticate: error="invalid_token", error_description="no identity token to act with towards the Kubernetes API")`
+	tracker.MarkSSOFailedWithReason("test-user", "agent-manager", reason)
+	tracker.MarkSSOFailed("test-user", "model-manager")
+
+	aggServer := &AggregatorServer{registry: registry, ssoTracker: tracker}
+
+	result, err := aggServer.handleAuthStatusResource(testSessionCtx(), mcp.ReadResourceRequest{})
+	require.NoError(t, err)
+	textContent, ok := result[0].(mcp.TextResourceContents)
+	require.True(t, ok)
+
+	var response pkgoauth.AuthStatusResponse
+	require.NoError(t, json.Unmarshal([]byte(textContent.Text), &response))
+
+	byName := map[string]pkgoauth.ServerAuthStatus{}
+	for _, srv := range response.Servers {
+		byName[srv.Name] = srv
+	}
+
+	am := byName["agent-manager"]
+	assert.Equal(t, pkgoauth.SessionServerStatusReauthRequired, am.Status)
+	assert.True(t, am.SSOAttemptFailed)
+	assert.True(t, am.TokenForwardingEnabled)
+	assert.Equal(t, reason, am.Error, "the recorded reason is the per-server detail")
+	assert.Contains(t, textContent.Text, `"error":`, "the detail is on the wire for the portal")
+
+	mm := byName["model-manager"]
+	assert.Equal(t, pkgoauth.SessionServerStatusReauthRequired, mm.Status)
+	assert.True(t, mm.SSOAttemptFailed)
+	assert.Equal(t, "", mm.Error, "a failure recorded without a reason reports none")
+
+	// Decode into a fresh value each time: omitempty fields absent from the
+	// JSON would otherwise keep the previous decode's values.
+	readStatus := func() []pkgoauth.ServerAuthStatus {
+		result, err := aggServer.handleAuthStatusResource(testSessionCtx(), mcp.ReadResourceRequest{})
+		require.NoError(t, err)
+		textContent, ok := result[0].(mcp.TextResourceContents)
+		require.True(t, ok)
+		var fresh pkgoauth.AuthStatusResponse
+		require.NoError(t, json.Unmarshal([]byte(textContent.Text), &fresh))
+		return fresh.Servers
+	}
+
+	// An upstream refresh failure records its reason for every SSO server.
+	aggServer.handleUpstreamRefreshFailure("test-session", "test-user", "dex returned 401 on refresh")
+	for _, srv := range readStatus() {
+		assert.Equal(t, pkgoauth.SessionServerStatusReauthRequired, srv.Status, srv.Name)
+		assert.Equal(t, "upstream token refresh failed: dex returned 401 on refresh", srv.Error, srv.Name)
+	}
+
+	// Once the failure is cleared, the detail goes with it.
+	tracker.ClearAllSSOFailed("test-user")
+	for _, srv := range readStatus() {
+		assert.Equal(t, pkgoauth.SessionServerStatusAuthRequired, srv.Status, srv.Name)
+		assert.False(t, srv.SSOAttemptFailed, srv.Name)
+		assert.Equal(t, "", srv.Error, srv.Name)
+	}
 }

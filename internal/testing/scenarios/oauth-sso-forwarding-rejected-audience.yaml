@@ -1,0 +1,140 @@
+name: "oauth-sso-forwarding-rejected-audience"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  A forwardToken backend that trusts the token's issuer but none of its
+  audiences answers the forwarded token with a 401 whose WWW-Authenticate
+  says why. muster must attribute the rejection instead of pointing at the
+  issuer's JWKS (muster#1141):
+
+    - the forwarding-failure log line names the forwarded token's iss AND its
+      aud list, says the backend must trust the JWKS and one of these
+      audiences, and quotes the backend's error_description;
+    - auth://status reports the server as reauth_required with the same
+      detail in its error field, so a client can show why SSO failed;
+    - the token itself never reaches the logs.
+
+  The agent connects with a dex-issued OBO bearer (aud = muster's issuer, the
+  test_mint_token default). The backend validates forwarded JWTs against that
+  issuer's JWKS and requires the audience platform-client, which the token
+  does not carry -- the gazelle agent-manager case, where the Backstage
+  client's audiences were not in the backend's trusted set.
+tags: ["oauth", "sso", "token-forwarding", "auth-status", "negative", "issue-1141"]
+timeout: "2m"
+
+pre_configuration:
+  mock_oauth_servers:
+    - name: "muster-idp"
+      scopes: ["openid", "profile", "email", "groups"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "muster-client"
+      client_secret: "muster-secret"
+      use_as_muster_oauth_server: true
+
+    - name: "workload-idp"
+
+  muster_broker:
+    trusted_issuers:
+      - oauth_server_ref: "workload-idp"
+        accepted_typ_headers: [""]
+
+  mcp_servers:
+    - name: "strict-backend"
+      config:
+        type: "streamable-http"
+        # Tools are served per session only; readiness must not wait for them.
+        expect_ready: false
+        oauth:
+          required: true
+          trust_issuer_ref: "workload-idp"
+          expected_audience: "platform-client"
+          forward_token: true
+        tools:
+          - name: "whoami"
+            description: "Never reached: the backend rejects the forwarded token"
+            echo_token: true
+            responses:
+              - response:
+                  status: "ok"
+
+steps:
+  - id: "verify-backend-registered"
+    description: "Backend is registered with muster"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["strict-backend"]
+      wait_for_state: "30s"
+
+  - id: "mint-dex-obo-token"
+    description: "Dex mints the OBO token; aud defaults to muster's issuer, not platform-client"
+    tool: "test_mint_token"
+    args:
+      server: "workload-idp"
+      name: "obo-token"
+      sub: "alice@giantswarm.io"
+      email: "alice@giantswarm.io"
+      email_verified: true
+      act:
+        sub: "system:serviceaccount:kagent:sre-agent"
+    expected:
+      success: true
+
+  - id: "connect-as-agent"
+    description: |
+      Present the bearer on /mcp. muster trusts the issuer and establishes
+      the session; the SSO bootstrap forwards the bearer to strict-backend,
+      which rejects it over the audience.
+    tool: "test_reconnect_with_token"
+    args:
+      token_ref: "obo-token"
+    expected:
+      success: true
+      wait_for_state: "30s"
+
+  - id: "auth-status-carries-the-reason"
+    description: |
+      auth://status reports reauth_required with sso_attempt_failed and an
+      error that carries the forwarded token's aud list, both trust
+      conditions, and the backend's own error_description.
+    tool: "test_read_auth_status"
+    args:
+      server: "strict-backend"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains:
+        - "strict-backend"
+        - "reauth_required"
+        - "\"sso_attempt_failed\": true"
+        - "\"token_forwarding_enabled\": true"
+        - "forwarded token iss="
+        - "aud=["
+        - "JWKS and one of these audiences"
+        - "backend WWW-Authenticate: error="
+        - "error_description="
+        - "does not include platform-client"
+      not_contains:
+        - "eyJ"
+
+# muster serve's own output over the whole scenario: the forwarding-failure
+# log line attributes the rejection (iss, aud list, both trust conditions, the
+# backend's error_description), and the forwarded JWT never appears in it.
+# The assertions carry no double quotes: the text log handler escapes the
+# quotes inside a message, so a quoted substring would depend on the format.
+instance_logs:
+  contains:
+    - "ID token forwarding failed for user"
+    - "forwarded token iss="
+    - "aud=["
+    - "the backend must trust this issuer's JWKS and one of these audiences"
+    - "backend WWW-Authenticate: error="
+    - "invalid_token"
+    - "error_description="
+    - "token validation failed: audience ["
+    - "does not include platform-client"
+  not_contains:
+    - "eyJ"
