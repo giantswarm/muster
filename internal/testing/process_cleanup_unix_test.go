@@ -47,9 +47,10 @@ func TestMain(m *testing.M) {
 
 // runHelperHarness plays a live `muster test`: it starts the instance stand-in
 // exactly as the harness would (a direct child running `muster serve
-// --config-path <tmp>/muster-test-<digits>/...`), announces the child's pid on
-// stdout, and then waits to be killed. It never tears its child down, so
-// SIGKILLing it leaves the instance orphaned, as a crashed harness does.
+// --config-path <tmp>/muster-test-<digits>/...`) and then waits to be killed.
+// It never tears its child down, so SIGKILLing it leaves the instance orphaned,
+// as a crashed harness does. The instance announces itself; the harness stays
+// quiet.
 func runHelperHarness() {
 	// os.Executable, not os.Args[0]: the harness runs as argv[0] "muster", and
 	// exec.Command("muster") would resolve to a real muster binary in PATH.
@@ -71,24 +72,33 @@ func runHelperHarness() {
 		fmt.Fprintf(os.Stderr, "helper harness: start instance: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("instance %d\n", child.Process.Pid)
-	blockUntilTerminated()
+	blockUntilTerminated(notifyTerm())
 	os.Exit(0)
 }
 
-// runHelperInstance plays a `muster serve` test instance: it reports on stdout
-// once SIGTERM arrives, then exits 0 the way muster's graceful shutdown does.
+// runHelperInstance plays a `muster serve` test instance. It announces
+// "instance <pid> ready" on stdout only after its SIGTERM handler is in place
+// -- a SIGTERM that lands before signal.Notify kills a Go process silently,
+// and on a slow CI container the test would otherwise reach phase 2 before
+// the runtime got that far -- then reports "terminated" once SIGTERM arrives
+// and exits 0, the way muster's graceful shutdown does.
 func runHelperInstance() {
-	blockUntilTerminated()
+	sigs := notifyTerm()
+	fmt.Printf("instance %d ready\n", os.Getpid())
+	blockUntilTerminated(sigs)
 	fmt.Printf("instance %d terminated\n", os.Getpid())
 	os.Exit(0)
 }
 
-// blockUntilTerminated returns on SIGTERM, or when stdin reaches EOF -- the
-// test holds the write end of stdin, so a helper outliving the test still exits.
-func blockUntilTerminated() {
+func notifyTerm() <-chan os.Signal {
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGTERM)
+	return sigs
+}
+
+// blockUntilTerminated returns on SIGTERM, or when stdin reaches EOF -- the
+// test holds the write end of stdin, so a helper outliving the test still exits.
+func blockUntilTerminated(sigs <-chan os.Signal) {
 	stdinClosed := make(chan struct{})
 	go func() {
 		_, _ = io.Copy(io.Discard, os.Stdin)
@@ -136,12 +146,12 @@ func TestCleanupStaleMusterTestProcesses_SparesLiveHarness(t *testing.T) {
 	_ = stdoutW.Close()
 	output := bufio.NewReader(stdoutR)
 
-	// The harness prints the instance pid after Start returned, so the
-	// instance's command line is in the process table by the time we read it.
+	// The instance announces itself once its SIGTERM handler is installed; by
+	// then it has long been exec'd, so its command line is in the process table.
 	line, err := output.ReadString('\n')
 	require.NoError(t, err)
-	instancePID, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(line, "instance ")))
-	require.NoError(t, err, "harness announced %q", line)
+	instancePID, err := strconv.Atoi(strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(line, "instance "), " ready\n")))
+	require.NoError(t, err, "instance announced %q", line)
 	t.Cleanup(func() {
 		_ = syscall.Kill(instancePID, syscall.SIGKILL)
 		_ = harness.Process.Kill()
