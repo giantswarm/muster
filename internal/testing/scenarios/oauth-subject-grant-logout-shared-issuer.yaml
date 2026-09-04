@@ -1,0 +1,463 @@
+name: "oauth-subject-grant-logout-shared-issuer"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  A logout from a server whose authorization server is pinned with
+  grantScope: subject revokes the person's grant even though another
+  MCPServer shares the issuer.
+
+  Two servers (a hosted one and an in-house one, GitHub-style) verify tokens
+  from the same subject-scoped issuer. The person signs in once; the second
+  server and a second session of the same person connect from the grant
+  without a sign-in link. core_auth_logout on one server then
+
+    - names the sibling server it disconnected and says the grant was revoked,
+    - leaves the sibling not authenticated in the calling session,
+    - leaves the person's other live session not authenticated too,
+    - makes the next core_auth_login on any of them ask for a sign-in
+      (no grant is left to adopt), and
+    - lets the person sign in again afterwards.
+
+  A second pair of servers on a session-scoped shared issuer keeps the
+  previous behaviour for contrast: logging out of one leaves the token, the
+  sibling stays connected, and a re-login reconnects at once.
+
+  Regression: before the fix the shared-issuer guard skipped the clear for a
+  subject-scoped issuer, so the session token and the grant stayed in the
+  store and the next login reconnected silently; nobody could revoke a GitHub
+  grant from muster.
+tags: ["oauth", "logout", "subject-grant", "shared-issuer", "github", "regression"]
+timeout: "3m"
+
+pre_configuration:
+  mock_oauth_servers:
+    # muster's own identity provider: gives every session a subject, so two
+    # sessions of the same person can exist side by side.
+    - name: "person-idp"
+      scopes: ["openid", "profile", "email"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "person-client"
+      client_secret: "person-secret"
+      use_as_muster_oauth_server: true
+
+    # The external account's authorization server (GitHub stands in for it).
+    - name: "github-as"
+      scopes: ["repo", "read:org"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "github-client"
+
+    # A plain shared issuer whose tokens stay with the session.
+    - name: "plain-as"
+      scopes: ["mcp:admin"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "plain-client"
+
+  mcp_servers:
+    - name: "gh-hosted"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "github-as"
+          scope: "repo"
+          grant_scope: "subject"
+        tools:
+          - name: "whoami"
+            description: "Who the hosted server sees"
+            responses:
+              - response:
+                  login: "person"
+                  source: "gh-hosted"
+
+    - name: "gh-inhouse"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "github-as"
+          scope: "repo"
+          grant_scope: "subject"
+        tools:
+          - name: "board"
+            description: "The in-house server's board"
+            responses:
+              - response:
+                  items: 3
+                  source: "gh-inhouse"
+
+    - name: "plain-a"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "plain-as"
+          scope: "mcp:admin"
+        tools:
+          - name: "op_a"
+            description: "Operation on plain-a"
+            responses:
+              - response:
+                  source: "plain-a"
+
+    - name: "plain-b"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "plain-as"
+          scope: "mcp:admin"
+        tools:
+          - name: "op_b"
+            description: "Operation on plain-b"
+            responses:
+              - response:
+                  source: "plain-b"
+
+steps:
+  # =========================================================================
+  # PHASE 1: the person's first session signs in once and uses both servers
+  # =========================================================================
+
+  - id: verify-servers-registered
+    description: "All four OAuth-protected servers are registered"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "gh-hosted"
+        - "gh-inhouse"
+        - "plain-a"
+        - "plain-b"
+
+  - id: person-logs-into-muster-first
+    description: "The person authenticates to muster (first session)"
+    tool: "test_muster_auth_login"
+    args:
+      subject: "person"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  - id: create-first-session
+    description: "Keep the first session as user 'first'"
+    tool: "test_create_user"
+    args:
+      name: "first"
+    expected:
+      success: true
+      contains:
+        - "Created user session"
+
+  - id: first-signs-in-to-hosted
+    as_user: "first"
+    description: "The first session completes the browser flow for gh-hosted"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "gh-hosted"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  - id: first-connects-hosted
+    as_user: "first"
+    description: "gh-hosted is connected for the first session (the callback connected it)"
+    tool: "core_auth_login"
+    args:
+      server: "gh-hosted"
+    expected:
+      success: true
+      not_contains:
+        - "Please sign in"
+
+  - id: first-connects-inhouse-from-grant
+    as_user: "first"
+    description: "gh-inhouse connects from the same grant, no sign-in link"
+    tool: "core_auth_login"
+    args:
+      server: "gh-inhouse"
+    expected:
+      success: true
+      contains:
+        - "Successfully connected"
+      not_contains:
+        - "Please sign in"
+
+  - id: first-calls-hosted
+    as_user: "first"
+    description: "The hosted server answers the first session"
+    tool: "x_gh-hosted_whoami"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "gh-hosted"
+
+  - id: first-calls-inhouse
+    as_user: "first"
+    description: "The in-house server answers the first session"
+    tool: "x_gh-inhouse_board"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "gh-inhouse"
+
+  - id: first-signs-in-to-plain-a
+    as_user: "first"
+    description: "The first session signs in to plain-a (session-scoped issuer)"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "plain-a"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  - id: first-connects-plain-a
+    as_user: "first"
+    description: "plain-a is connected (the callback connected it)"
+    tool: "core_auth_login"
+    args:
+      server: "plain-a"
+    expected:
+      success: true
+      not_contains:
+        - "Please sign in"
+
+  - id: first-connects-plain-b-via-sso
+    as_user: "first"
+    description: "plain-b connects from the shared session token"
+    tool: "core_auth_login"
+    args:
+      server: "plain-b"
+    expected:
+      success: true
+      contains:
+        - "Successfully connected"
+
+  # =========================================================================
+  # PHASE 2: a second session of the same person adopts the grant
+  # =========================================================================
+
+  - id: person-logs-into-muster-again
+    as_user: "default"
+    description: "The same person authenticates to muster again (second session; run as the default user so the login's client swap does not touch 'first')"
+    tool: "test_muster_auth_login"
+    args:
+      subject: "person"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  - id: create-second-session
+    as_user: "default"
+    description: "Keep the second session as user 'second'"
+    tool: "test_create_user"
+    args:
+      name: "second"
+    expected:
+      success: true
+      contains:
+        - "Created user session"
+
+  - id: second-connects-hosted-from-grant
+    as_user: "second"
+    description: "The second session connects gh-hosted from the person's grant, no sign-in link"
+    tool: "core_auth_login"
+    args:
+      server: "gh-hosted"
+    expected:
+      success: true
+      contains:
+        - "Successfully connected"
+      not_contains:
+        - "Please sign in"
+
+  - id: second-calls-hosted
+    as_user: "second"
+    description: "The hosted server answers the second session"
+    tool: "x_gh-hosted_whoami"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "gh-hosted"
+
+  # =========================================================================
+  # PHASE 3: logging out of one server revokes the grant for the person
+  # =========================================================================
+
+  - id: first-logs-out-of-hosted
+    as_user: "first"
+    description: "Logout from gh-hosted revokes the grant and names the sibling it disconnected"
+    tool: "core_auth_logout"
+    args:
+      server: "gh-hosted"
+    expected:
+      success: true
+      contains:
+        - "Successfully logged out from 'gh-hosted'"
+        - "revoked for all your sessions"
+        - "disconnected as well: gh-inhouse"
+
+  - id: first-inhouse-not-authenticated
+    as_user: "first"
+    description: "The sibling server is no longer authenticated for the first session"
+    tool: "test_read_auth_status"
+    args:
+      server: "gh-inhouse"
+    expected:
+      success: true
+      contains:
+        - '"status": "auth_required"'
+
+  - id: first-cannot-call-inhouse
+    as_user: "first"
+    description: "The sibling server's tools are hidden for the first session"
+    tool: "x_gh-inhouse_board"
+    args: {}
+    expected:
+      success: false
+
+  - id: first-inhouse-login-needs-sign-in
+    as_user: "first"
+    description: "A new login on the sibling asks for a sign-in: no grant is left to adopt"
+    tool: "core_auth_login"
+    args:
+      server: "gh-inhouse"
+    expected:
+      success: true
+      contains:
+        - "Please sign in"
+      not_contains:
+        - "Successfully connected"
+
+  - id: second-hosted-not-authenticated
+    as_user: "second"
+    description: "The person's other session lost gh-hosted as well"
+    tool: "test_read_auth_status"
+    args:
+      server: "gh-hosted"
+    expected:
+      success: true
+      contains:
+        - '"status": "auth_required"'
+
+  - id: second-cannot-call-hosted
+    as_user: "second"
+    description: "The other session's tools from gh-hosted are hidden"
+    tool: "x_gh-hosted_whoami"
+    args: {}
+    expected:
+      success: false
+
+  - id: second-hosted-login-needs-sign-in
+    as_user: "second"
+    description: "The other session cannot re-adopt the revoked grant"
+    tool: "core_auth_login"
+    args:
+      server: "gh-hosted"
+    expected:
+      success: true
+      contains:
+        - "Please sign in"
+      not_contains:
+        - "Successfully connected"
+
+  # =========================================================================
+  # PHASE 4: a session-scoped shared issuer keeps the previous behaviour
+  # =========================================================================
+
+  - id: first-logs-out-of-plain-a
+    as_user: "first"
+    description: "Logout from plain-a leaves the shared session token alone"
+    tool: "core_auth_logout"
+    args:
+      server: "plain-a"
+    expected:
+      success: true
+      contains:
+        - "Successfully logged out from 'plain-a'"
+      not_contains:
+        - "revoked"
+        - "plain-b"
+
+  - id: first-plain-b-still-connected
+    as_user: "first"
+    description: "plain-b is still connected for the first session"
+    tool: "test_read_auth_status"
+    args:
+      server: "plain-b"
+    expected:
+      success: true
+      contains:
+        - '"status": "connected"'
+
+  - id: first-still-calls-plain-b
+    as_user: "first"
+    description: "plain-b still answers"
+    tool: "x_plain-b_op_b"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "plain-b"
+
+  - id: first-reconnects-plain-a-at-once
+    as_user: "first"
+    description: "Logging back in to plain-a reuses the retained session token"
+    tool: "core_auth_login"
+    args:
+      server: "plain-a"
+    expected:
+      success: true
+      contains:
+        - "Successfully connected"
+      not_contains:
+        - "Please sign in"
+
+  # =========================================================================
+  # PHASE 5: the person can sign in again after the revocation
+  # =========================================================================
+
+  - id: first-signs-in-to-hosted-again
+    as_user: "first"
+    description: "A fresh browser flow grants gh-hosted again"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "gh-hosted"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  - id: first-connects-hosted-again
+    as_user: "first"
+    description: "gh-hosted is connected again for the first session"
+    tool: "core_auth_login"
+    args:
+      server: "gh-hosted"
+    expected:
+      success: true
+      not_contains:
+        - "Please sign in"
+
+  - id: first-calls-hosted-again
+    as_user: "first"
+    description: "The hosted server answers again"
+    tool: "x_gh-hosted_whoami"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "gh-hosted"

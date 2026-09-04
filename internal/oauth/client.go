@@ -219,6 +219,12 @@ func (c *Client) subjectScoped(issuer string) bool {
 	return pin != nil && pin.SubjectScoped
 }
 
+// IssuerSubjectScoped is the exported form of subjectScoped: whether the
+// operator pinned the issuer with grantScope: subject.
+func (c *Client) IssuerSubjectScoped(issuer string) bool {
+	return c.subjectScoped(issuer)
+}
+
 // GetTokenForUser is GetToken plus the subject-scoped fallback: when the
 // session holds nothing for a subject-scoped issuer, the grant filed under
 // the user's identity by any earlier session is used.
