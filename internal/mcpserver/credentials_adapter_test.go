@@ -1,7 +1,9 @@
 package mcpserver
 
 import (
+	"bytes"
 	"context"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,6 +14,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 func TestCredentialsAdapter_LoadClientCredentials(t *testing.T) {
@@ -270,4 +273,99 @@ func TestCredentialsAdapter_Register(t *testing.T) {
 	handler := api.GetSecretCredentialsHandler()
 	assert.NotNil(t, handler)
 	assert.Equal(t, adapter, handler)
+}
+
+// TestCredentialsAdapter_CrossNamespaceWarning pins down when a Secret read is
+// reported as cross-namespace: only when the Secret is read from a namespace
+// other than the referencing MCPServer's own. A reference that spells out the
+// MCPServer's namespace is the common GitOps shape (the gazelle `github`
+// MCPServer names `namespace: agent-platform` for a Secret in agent-platform)
+// and must not be flagged on every core_auth_login.
+func TestCredentialsAdapter_CrossNamespaceWarning(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	const warning = "Cross-namespace secret access"
+
+	secretIn := func(namespace string) *corev1.Secret {
+		return &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "github-oauth-client", Namespace: namespace},
+			Data: map[string][]byte{
+				"client-id":     []byte("Iv23liApp"),
+				"client-secret": []byte("shh"),
+				"private-key":   []byte("-----BEGIN"),
+			},
+		}
+	}
+	captureLogs := func(t *testing.T) *bytes.Buffer {
+		t.Helper()
+		var buf bytes.Buffer
+		logging.InitForCLI(logging.LevelDebug, &buf)
+		t.Cleanup(func() { logging.InitForCLI(logging.LevelInfo, os.Stderr) })
+		return &buf
+	}
+
+	t.Run("no warning when the reference names the MCPServer's own namespace", func(t *testing.T) {
+		logs := captureLogs(t)
+		adapter := NewCredentialsAdapter(fake.NewClientBuilder().WithScheme(scheme).WithObjects(secretIn("agent-platform")).Build())
+
+		creds, err := adapter.LoadClientCredentials(context.Background(),
+			&api.ClientCredentialsSecretRef{Name: "github-oauth-client", Namespace: "agent-platform"}, "agent-platform")
+
+		require.NoError(t, err)
+		assert.Equal(t, "Iv23liApp", creds.ClientID)
+		assert.NotContains(t, logs.String(), warning)
+	})
+
+	t.Run("no warning when the reference leaves the namespace to the MCPServer", func(t *testing.T) {
+		logs := captureLogs(t)
+		adapter := NewCredentialsAdapter(fake.NewClientBuilder().WithScheme(scheme).WithObjects(secretIn("agent-platform")).Build())
+
+		_, err := adapter.LoadClientCredentials(context.Background(),
+			&api.ClientCredentialsSecretRef{Name: "github-oauth-client"}, "agent-platform")
+
+		require.NoError(t, err)
+		assert.NotContains(t, logs.String(), warning)
+	})
+
+	t.Run("warns when the reference names another namespace", func(t *testing.T) {
+		logs := captureLogs(t)
+		adapter := NewCredentialsAdapter(fake.NewClientBuilder().WithScheme(scheme).WithObjects(secretIn("shared-secrets")).Build())
+
+		_, err := adapter.LoadClientCredentials(context.Background(),
+			&api.ClientCredentialsSecretRef{Name: "github-oauth-client", Namespace: "shared-secrets"}, "agent-platform")
+
+		require.NoError(t, err, "the read itself is allowed; RBAC decides, the warning only audits")
+		assert.Contains(t, logs.String(), warning)
+		assert.Contains(t, logs.String(), "shared-secrets/github-oauth-client")
+		assert.Contains(t, logs.String(), "from MCPServer in namespace agent-platform")
+	})
+
+	t.Run("an explicit default namespace is not cross-namespace for a caller without one", func(t *testing.T) {
+		logs := captureLogs(t)
+		adapter := NewCredentialsAdapter(fake.NewClientBuilder().WithScheme(scheme).WithObjects(secretIn("default")).Build())
+
+		_, err := adapter.LoadClientCredentials(context.Background(),
+			&api.ClientCredentialsSecretRef{Name: "github-oauth-client", Namespace: "default"}, "")
+
+		require.NoError(t, err)
+		assert.NotContains(t, logs.String(), warning)
+	})
+
+	t.Run("LoadSecretKey applies the same rule", func(t *testing.T) {
+		logs := captureLogs(t)
+		adapter := NewCredentialsAdapter(fake.NewClientBuilder().WithScheme(scheme).
+			WithObjects(secretIn("agent-platform"), secretIn("shared-secrets")).Build())
+
+		key, err := adapter.LoadSecretKey(context.Background(),
+			&api.ClientCredentialsSecretRef{Name: "github-oauth-client", Namespace: "agent-platform"}, "private-key", "agent-platform")
+		require.NoError(t, err)
+		assert.Equal(t, "-----BEGIN", string(key))
+		assert.NotContains(t, logs.String(), warning)
+
+		_, err = adapter.LoadSecretKey(context.Background(),
+			&api.ClientCredentialsSecretRef{Name: "github-oauth-client", Namespace: "shared-secrets"}, "private-key", "agent-platform")
+		require.NoError(t, err)
+		assert.Contains(t, logs.String(), warning)
+		assert.Contains(t, logs.String(), "from namespace agent-platform")
+	})
 }

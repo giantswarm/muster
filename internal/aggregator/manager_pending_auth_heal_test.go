@@ -12,8 +12,9 @@ import (
 // stubAuthRequiredService is an MCPServer service sitting in auth-required
 // state, exposing the definition fields the pending-auth heal reads.
 type stubAuthRequiredService struct {
-	name string
-	auth *api.MCPServerAuth
+	name      string
+	namespace string
+	auth      *api.MCPServerAuth
 }
 
 func (s *stubAuthRequiredService) GetName() string            { return s.name }
@@ -24,13 +25,17 @@ func (s *stubAuthRequiredService) GetHealth() api.HealthStatus {
 }
 func (s *stubAuthRequiredService) GetLastError() error { return nil }
 func (s *stubAuthRequiredService) GetServiceData() map[string]interface{} {
-	return map[string]interface{}{
+	data := map[string]interface{}{
 		"url":        "http://localhost:9/mcp",
 		"toolPrefix": s.name,
 		"family":     (*api.MCPServerFamily)(nil),
 		"meta":       map[string]string{"team": "test"},
 		"auth":       s.auth,
 	}
+	if s.namespace != "" {
+		data["namespace"] = s.namespace
+	}
+	return data
 }
 
 // stubTypedServiceRegistry serves a fixed service list from GetByType.
@@ -53,7 +58,7 @@ func (s *stubTypedServiceRegistry) GetByType(api.ServiceType) []api.ServiceInfo 
 func TestAttemptPendingRegistrations_HealsAuthRequired(t *testing.T) {
 	t.Run("registers a missing pending-auth entry for an auth-required service", func(t *testing.T) {
 		reg := NewServerRegistry("x")
-		svc := &stubAuthRequiredService{name: "stranded-oauth"}
+		svc := &stubAuthRequiredService{name: "stranded-oauth", namespace: "agent-platform"}
 
 		am := &AggregatorManager{
 			aggregatorServer: &AggregatorServer{registry: reg},
@@ -67,6 +72,7 @@ func TestAttemptPendingRegistrations_HealsAuthRequired(t *testing.T) {
 		if assert.NotNil(t, info) {
 			assert.True(t, info.RequiresSessionAuth(), "healed entry must require session auth so core_auth_login accepts it")
 			assert.Equal(t, "http://localhost:9/mcp", info.URL)
+			assert.Equal(t, "agent-platform", info.GetNamespace(), "the healed entry carries the MCPServer's namespace")
 		}
 	})
 

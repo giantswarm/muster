@@ -72,6 +72,13 @@ type ServerRegistration struct {
 	// Name is the unique identifier for the server within the aggregator.
 	Name string
 
+	// Namespace is the Kubernetes namespace of the MCPServer resource behind
+	// this registration. It becomes ServerInfo.Namespace: the default for the
+	// server's Secret references (clientCredentialsSecretRef) and the namespace
+	// its events are filed under. Empty in filesystem mode, where ServerInfo
+	// falls back to "default".
+	Namespace string
+
 	// ToolPrefix is the per-server tool prefix used when Family is nil.
 	// Pattern: {musterPrefix}_{toolPrefix-or-name}_{toolName}.
 	ToolPrefix string
