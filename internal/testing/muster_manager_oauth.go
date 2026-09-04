@@ -330,6 +330,9 @@ func (m *musterInstanceManager) extractOAuthConfig(config map[string]interface{}
 	if aud, ok := oauthMap["expected_audience"].(string); ok {
 		result.ExpectedAudience = aud
 	}
+	if grantScope, ok := oauthMap["grant_scope"].(string); ok {
+		result.GrantScope = grantScope
+	}
 
 	return result
 }

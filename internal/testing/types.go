@@ -391,6 +391,13 @@ type MCPServerOAuthConfig struct {
 	// MockOAuthServerRef references a mock OAuth server by name
 	MockOAuthServerRef string `yaml:"mock_oauth_server_ref"`
 
+	// GrantScope, when set, pins the referenced mock OAuth server as the
+	// MCPServer's authorization server (spec.auth.authorizationServer) with
+	// this grantScope. "subject" files the grant under the person, so any
+	// session of the same subject reuses it and a logout revokes it for all
+	// of them -- the GitHub-style connector configuration.
+	GrantScope string `yaml:"grant_scope,omitempty"`
+
 	// Scope is the required OAuth scope
 	Scope string `yaml:"scope,omitempty"`
 

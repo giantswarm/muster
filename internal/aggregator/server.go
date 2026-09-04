@@ -284,6 +284,25 @@ func (t *subjectSessionTracker) OAuthSessionIDs() []string {
 	return out
 }
 
+// OAuthSessionIDsForSubject returns the tracked OAuth session IDs (token
+// families) of one subject: every live login of the person this replica has
+// seen a request from. The per-session server state (auth marks, cached
+// capabilities, pooled clients) is keyed by these IDs.
+func (t *subjectSessionTracker) OAuthSessionIDsForSubject(sub string) []string {
+	if sub == "" {
+		return nil
+	}
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	var out []string
+	for id, s := range t.subjectByOAuthSessionID {
+		if s == sub {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
 // Track records a mapping from user subject to MCP session ID.
 func (t *subjectSessionTracker) Track(sub, mcpSessionID string) {
 	t.mu.Lock()

@@ -77,6 +77,13 @@ func TestClient_SubjectScopedGrants(t *testing.T) {
 	client.PinIssuer(pinnedIssuer, IssuerPin{SubjectScoped: true}, pinnedMetadata())
 	token := &pkgoauth.Token{AccessToken: "gho_user", TokenType: "Bearer", Scope: "repo", Issuer: pinnedIssuer}
 
+	if !client.IssuerSubjectScoped(pinnedIssuer) || !client.IssuerSubjectScoped(pinnedIssuer+"/") {
+		t.Error("IssuerSubjectScoped should report the pin, trailing slash or not")
+	}
+	if client.IssuerSubjectScoped("https://auth.example.com") {
+		t.Error("an unpinned issuer is session-scoped")
+	}
+
 	// Session A completes the flow.
 	client.StoreToken("session-a", "alice@example.com", token)
 

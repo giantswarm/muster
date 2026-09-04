@@ -158,6 +158,11 @@ func (a *Adapter) ClearTokenByIssuerForUser(sessionID, userID, issuer string) {
 	a.manager.ClearTokenByIssuerForUser(sessionID, userID, issuer)
 }
 
+// IssuerSubjectScoped implements api.SubjectGrantHandler.
+func (a *Adapter) IssuerSubjectScoped(issuer string) bool {
+	return a.manager.IssuerSubjectScoped(issuer)
+}
+
 var (
 	_ api.IssuerPinner        = (*Adapter)(nil)
 	_ api.SubjectGrantHandler = (*Adapter)(nil)

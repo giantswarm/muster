@@ -313,6 +313,35 @@ steps:
       contains: ["server-b"]
 ```
 
+### Subject-Scoped Grants (GitHub-Style Connectors)
+
+`oauth.grant_scope` pins the referenced mock OAuth server as the MCPServer's
+authorization server (`spec.auth.authorizationServer`, with the mock server's
+issuer and the server's `scope` as `scopes`) and sets that `grantScope`.
+`"subject"` files the grant under the person instead of the login session:
+another session of the same subject (`test_muster_auth_login` with the same
+`subject`, then `test_create_user`) connects with `core_auth_login` and no
+sign-in link, and `core_auth_logout` on any server of the issuer revokes the
+grant for every server and session of the person. Needs a mock OAuth server
+with `use_as_muster_oauth_server: true` so sessions carry a subject.
+
+```yaml
+  mcp_servers:
+    - name: "gh-hosted"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "github-as"
+          scope: "repo"
+          grant_scope: "subject"   # spec.auth.authorizationServer.grantScope
+```
+
+See `oauth-subject-grant-logout-shared-issuer.yaml` for the full flow: two
+servers on one subject-scoped issuer, two sessions of one person, a logout
+that disconnects both servers in both sessions, and a session-scoped pair for
+contrast.
+
 ## Debugging OAuth Tests
 
 ### Run with Debug Output
