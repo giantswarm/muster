@@ -1780,6 +1780,37 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 							}
 						}
 
+						// oauth.grant_scope pins the referenced mock OAuth server as the
+						// MCPServer's authorization server with that grant scope.
+						// "subject" files the grant under the person instead of the
+						// login session, which is how GitHub-style connectors are
+						// configured (spec.auth.authorizationServer.grantScope).
+						if grantScope, ok := oauthConfig["grant_scope"].(string); ok && grantScope != "" {
+							ref, _ := oauthConfig["mock_oauth_server_ref"].(string)
+							m.mu.RLock()
+							oauthServer, found := m.mockOAuthServers[instanceID][ref]
+							m.mu.RUnlock()
+							if !found {
+								return fmt.Errorf("mcp server %s: oauth.grant_scope needs oauth.mock_oauth_server_ref to name a running mock OAuth server, got %q",
+									mcpServer.Name, ref)
+							}
+							// The pin opts out of RFC 9728 discovery, so the scope the
+							// backend requires has to travel with it.
+							authorizationServer := map[string]interface{}{
+								"issuer":     oauthServer.GetIssuerURL(),
+								"grantScope": grantScope,
+							}
+							if scope, ok := oauthConfig["scope"].(string); ok && scope != "" {
+								authorizationServer["scopes"] = scope
+							}
+							authConfig["type"] = "oauth"
+							authConfig["authorizationServer"] = authorizationServer
+							if m.debug {
+								logger.Debug("🔐 Pinning authorization server %s with grantScope %s for MCPServer %s\n",
+									oauthServer.GetIssuerURL(), grantScope, mcpServer.Name)
+							}
+						}
+
 						if len(authConfig) > 0 {
 							spec["auth"] = authConfig
 						}

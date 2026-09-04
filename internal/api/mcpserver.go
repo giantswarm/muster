@@ -19,6 +19,13 @@ type MCPServer struct {
 	// This name is used for registration, lookup, and management operations.
 	Name string `yaml:"name" json:"name"`
 
+	// Namespace is the Kubernetes namespace of the MCPServer resource this
+	// definition was read from. It is the default namespace for every Secret
+	// the definition references (clientCredentialsSecretRef) and the namespace
+	// the server's Kubernetes events are filed under. Empty in filesystem mode.
+	// Runtime information taken from the resource's metadata, not persisted.
+	Namespace string `yaml:"-" json:"-"`
+
 	// Type specifies how this MCP server should be executed.
 	// Supported values: "stdio" for local processes, "streamable-http" for HTTP-based servers, "sse" for Server-Sent Events
 	Type MCPServerType `yaml:"type" json:"type"`
@@ -373,6 +380,7 @@ func ValidateStdioAllowed(serverType string, kubernetesMode bool) error {
 func (i MCPServerInfo) ToMCPServer() *MCPServer {
 	return &MCPServer{
 		Name:        i.Name,
+		Namespace:   i.Namespace,
 		Type:        MCPServerType(i.Type),
 		Description: i.Description,
 		ToolPrefix:  i.ToolPrefix,
@@ -518,6 +526,10 @@ const RegisteredByEmailAnnotation = "ui.giantswarm.io/registered-by-email"
 type MCPServerInfo struct {
 	// Name is the unique identifier for this MCP server instance.
 	Name string `json:"name"`
+
+	// Namespace is the Kubernetes namespace of the MCPServer resource.
+	// Empty in filesystem mode.
+	Namespace string `json:"namespace,omitempty"`
 
 	// Type indicates the execution model for this server (stdio, streamable-http, or sse).
 	Type string `json:"type"`

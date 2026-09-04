@@ -95,16 +95,44 @@ spec:
   user's identity (the `sub` muster derives from the caller's token) as well
   as under the session. A later session of the same person -- another MCP
   client, a re-login, a front-end whose bearer rotates on every token refresh
-  -- reuses the grant: its `core_auth_login` connects at once and answers
-  "Successfully connected" without a sign-in link. `core_auth_logout` on that
-  server removes the person's grant, as does "sign out everywhere"; logging
-  one session out of muster does not. Use it only for external accounts the
-  person owns; a token that carries session-specific authority stays
-  `session`, the default.
+  -- reuses the grant without calling `core_auth_login`: its first tool call
+  to the server connects with the grant and runs, and `list_tools` shows the
+  server's tools instead of listing the server under `auth_required`. A
+  `core_auth_login` from such a session still works and answers "Successfully
+  connected" without a sign-in link. A session of a person without a grant
+  keeps failing with `user not authenticated to server <name>` until that
+  person logs in once. Use it only for external accounts the person owns; a
+  token that carries session-specific authority stays `session`, the default.
 
 Several MCPServers may point at the same issuer (GitHub's hosted MCP server
 and an in-house server that verifies GitHub tokens, say): the grant is stored
 per issuer, so one consent serves them all -- the usual SSO reuse.
+
+### Signing out of a subject-scoped issuer
+
+The grant belongs to the person, so `core_auth_logout` on **any** server of a
+subject-scoped issuer revokes it for the person, not for one server or one
+session -- even when other MCPServers share the issuer, where a logout from a
+session-scoped shared issuer would leave the token alone so the other servers
+keep working. Concretely:
+
+- The tokens for that issuer are deleted from every session of the person and
+  from the person's grant itself. `muster auth status` shows every server of
+  the issuer as not authenticated.
+- Every server of the issuer is disconnected for the calling session and for
+  the person's other live sessions muster knows about: their tools are hidden
+  and their pooled connections are closed. The tool result names the sibling
+  servers it disconnected. A session muster has not seen since it started (or
+  one on another replica) finds the token gone on its next request and
+  disconnects itself; no session can adopt a revoked grant.
+- The next `core_auth_login` on any of those servers starts a fresh sign-in.
+  Whether the browser sees a consent prompt is the authorization server's
+  call: GitHub redirects straight back while the person's authorization of the
+  App still exists on the GitHub side, so revoke it there too if the account
+  must be cut off from muster for good.
+
+"Sign out everywhere" removes the grant as well; logging one session out of
+muster does not.
 
 ## When not to use this
 

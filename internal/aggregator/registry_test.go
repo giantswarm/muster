@@ -603,6 +603,49 @@ func TestServerRegistry_FamilyGrouping(t *testing.T) {
 	})
 }
 
+// TestServerRegistry_RegistrationCarriesNamespace: the MCPServer's namespace
+// reaches ServerInfo on both registration paths. It is the default namespace
+// for the server's Secret references (clientCredentialsSecretRef) and the
+// namespace its events are filed under; an entry without it reports "default",
+// which made a Secret reference naming the MCPServer's own namespace look like
+// a cross-namespace read on every login.
+func TestServerRegistry_RegistrationCarriesNamespace(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("global registration", func(t *testing.T) {
+		registry := NewServerRegistry("x")
+		require.NoError(t, registry.Register(ctx, ServerRegistration{Name: "kubernetes", Namespace: "agent-platform"}, &mockMCPClient{}))
+
+		info, ok := registry.GetServerInfo("kubernetes")
+		require.True(t, ok)
+		assert.Equal(t, "agent-platform", info.Namespace)
+		assert.Equal(t, "agent-platform", info.GetNamespace())
+	})
+
+	t.Run("pending-auth registration", func(t *testing.T) {
+		registry := NewServerRegistry("x")
+		require.NoError(t, registry.RegisterPendingAuth(PendingAuthRegistration{
+			ServerRegistration: ServerRegistration{Name: "github", Namespace: "agent-platform"},
+			URL:                "https://api.githubcopilot.com/mcp/",
+		}))
+
+		info, ok := registry.GetServerInfo("github")
+		require.True(t, ok)
+		assert.Equal(t, "agent-platform", info.GetNamespace())
+	})
+
+	t.Run("filesystem mode falls back to default", func(t *testing.T) {
+		registry := NewServerRegistry("x")
+		require.NoError(t, registry.RegisterPendingAuth(PendingAuthRegistration{
+			ServerRegistration: ServerRegistration{Name: "local"},
+		}))
+
+		info, ok := registry.GetServerInfo("local")
+		require.True(t, ok)
+		assert.Equal(t, "default", info.GetNamespace())
+	})
+}
+
 func TestServerRegistry_RegisterPendingAuthUpsert(t *testing.T) {
 	t.Run("re-registering a pending auth server updates the entry", func(t *testing.T) {
 		registry := NewServerRegistry("x")
@@ -612,7 +655,7 @@ func TestServerRegistry_RegisterPendingAuthUpsert(t *testing.T) {
 			AuthInfo:           &AuthInfo{Issuer: "https://old-dex.example.com", Scope: "openid"},
 		}
 		updated := PendingAuthRegistration{
-			ServerRegistration: ServerRegistration{Name: "oauth-server", ToolPrefix: "new-prefix"},
+			ServerRegistration: ServerRegistration{Name: "oauth-server", Namespace: "agent-platform", ToolPrefix: "new-prefix"},
 			URL:                "https://new.example.com",
 			AuthInfo:           &AuthInfo{Issuer: "https://new-dex.example.com", Scope: "openid profile"},
 		}
@@ -625,6 +668,7 @@ func TestServerRegistry_RegisterPendingAuthUpsert(t *testing.T) {
 		require.True(t, info.RequiresSessionAuth())
 		require.Equal(t, "https://new.example.com", info.URL)
 		require.Equal(t, "https://new-dex.example.com", info.AuthInfo.Issuer)
+		require.Equal(t, "agent-platform", info.Namespace)
 	})
 
 	t.Run("registering over an active server replaces it with pending-auth", func(t *testing.T) {

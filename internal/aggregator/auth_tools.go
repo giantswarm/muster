@@ -39,6 +39,7 @@ package aggregator
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/giantswarm/muster/internal/api"
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
@@ -191,48 +192,22 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		}, nil
 	}
 
-	// Get the auth info for this server
-	authInfo := serverInfo.AuthInfo
-	if authInfo == nil {
-		authInfo = &AuthInfo{}
-	}
-
-	// Fill in whatever the flow still lacks from the server's resource
-	// metadata. When spec.auth.authorizationServer is set on the MCPServer CR,
-	// the override branch in discoverProtectedResourceMetadata bypasses PRM
-	// probing and uses the operator-pinned issuer directly (with RFC 8414 §3.3
-	// self-verification).
-	if needsResourceMetadata(authInfo, serverInfo.URL) {
-		var override *api.MCPServerAuthAuthorizationServer
-		if serverInfo.AuthConfig != nil {
-			override = serverInfo.AuthConfig.AuthorizationServer
+	// The auth info for this server: the 401-time fields plus whatever the
+	// flow still lacks from the server's resource metadata or its pin
+	// (spec.auth.authorizationServer -- the override branch in
+	// discoverProtectedResourceMetadata bypasses PRM probing and uses the
+	// operator-pinned issuer). The result is recorded on the registry entry,
+	// so the tool calls of every session find the issuer as well.
+	authInfo, err := p.aggregator.resolveServerAuthInfo(ctx, serverInfo)
+	if err != nil {
+		logging.Warn("AuthTools", "Cannot apply the authorization server pin of %s: %v", serverName, err)
+		if p.aggregator.authMetrics != nil {
+			p.aggregator.authMetrics.RecordLoginFailure(serverName, sub, "authorization_server_pin_failed")
 		}
-		if err := pinAuthorizationServer(ctx, serverInfo); err != nil {
-			logging.Warn("AuthTools", "Cannot apply the authorization server pin of %s: %v", serverName, err)
-			if p.aggregator.authMetrics != nil {
-				p.aggregator.authMetrics.RecordLoginFailure(serverName, sub, "authorization_server_pin_failed")
-			}
-			return &api.CallToolResult{
-				Content: []any{fmt.Sprintf("Cannot authenticate to '%s': %v", serverName, err)},
-				IsError: true,
-			}, nil
-		}
-		metadata, err := discoverProtectedResourceMetadata(ctx, serverInfo.URL, override)
-		if err != nil {
-			logging.Warn("AuthTools", "Failed to discover protected resource metadata for %s: %v", serverName, err)
-		} else {
-			if authInfo.Issuer == "" {
-				authInfo.Issuer = metadata.Issuer
-				logging.Info("AuthTools", "Discovered authorization server for %s: %s", serverName, metadata.Issuer)
-			}
-			if authInfo.Scope == "" && metadata.Scope != "" {
-				authInfo.Scope = metadata.Scope
-				logging.Info("AuthTools", "Discovered required scope for %s: %s", serverName, metadata.Scope)
-			}
-			if authInfo.Resource == "" && metadata.Resource != "" {
-				authInfo.Resource = metadata.Resource
-			}
-		}
+		return &api.CallToolResult{
+			Content: []any{fmt.Sprintf("Cannot authenticate to '%s': %v", serverName, err)},
+			IsError: true,
+		}, nil
 	}
 
 	// If still empty, we can't proceed
@@ -434,38 +409,53 @@ func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string
 		}, nil
 	}
 
-	// Clear tokens for this server's issuer ONLY if no other server shares it
-	// and it is not muster's upstream issuer. Clearing a shared issuer token
-	// would break other servers (or muster itself) that rely on the same token.
-	if serverInfo.AuthInfo != nil && serverInfo.AuthInfo.Issuer != "" {
-		if p.isIssuerExclusiveToServer(sessionID, serverName, serverInfo.AuthInfo.Issuer) {
-			oauthHandler := api.GetOAuthHandler()
-			if oauthHandler != nil && oauthHandler.IsEnabled() {
-				api.ClearTokenByIssuerForUser(oauthHandler, sessionID, sub, serverInfo.AuthInfo.Issuer)
+	// What the logout revokes depends on whom the token belongs to.
+	//
+	// A subject-scoped issuer (spec.auth.authorizationServer.grantScope:
+	// subject, GitHub) issues the person's own grant: one consent serves every
+	// server that verifies its tokens and every session of the person. Signing
+	// out of any of those servers is the person revoking that consent, so the
+	// grant goes for all of them -- otherwise nobody could revoke it from
+	// muster while a second server shares the issuer, and the next login would
+	// silently reconnect from the grant that was meant to be gone.
+	//
+	// A session-scoped issuer's token is cleared only when no other server
+	// shares it and it is not muster's own upstream issuer: there the token
+	// carries this session's authority to several servers (or muster's own SSO
+	// forwarding), and clearing it for one server would break the others.
+	//
+	// The registry entry learns the issuer from the 401 probe or from a
+	// login's discovery, so right after a restart it can still be empty for a
+	// server the person is signed in to (the tokens outlive the process in
+	// Valkey). Resolve it the way login does -- the operator's pin, then the
+	// server's resource metadata -- instead of skipping every token step.
+	var (
+		revokedGrant bool
+		siblings     []string
+	)
+	if issuer := p.resolveServerIssuer(ctx, serverInfo); issuer != "" {
+		oauthHandler := api.GetOAuthHandler()
+		oauthEnabled := oauthHandler != nil && oauthHandler.IsEnabled()
+		musterIssuer := p.getMusterIssuer(sessionID)
+
+		switch {
+		case oauthEnabled && (musterIssuer == "" || !sameIssuer(musterIssuer, issuer)) && api.IssuerSubjectScoped(oauthHandler, issuer):
+			api.ClearTokenByIssuerForUser(oauthHandler, sessionID, sub, issuer)
+			siblings = p.aggregator.disconnectIssuerForSubject(ctx, sessionID, sub, serverName, issuer)
+			revokedGrant = true
+		case p.isIssuerExclusiveToServer(sessionID, serverName, issuer):
+			if oauthEnabled {
+				api.ClearTokenByIssuerForUser(oauthHandler, sessionID, sub, issuer)
 			}
-		} else {
-			logging.Debug("AuthTools", "Skipping issuer token clear for server %s: issuer %s is shared with other servers or muster", serverName, serverInfo.AuthInfo.Issuer)
+		default:
+			logging.Debug("AuthTools", "Skipping issuer token clear for server %s: issuer %s is shared with other servers or muster", serverName, issuer)
 		}
 	}
 
-	// Remove auth state and capabilities for this session+server after logout
-	if p.aggregator.authStore != nil {
-		if err := p.aggregator.authStore.Revoke(ctx, sessionID, serverName); err != nil {
-			logging.Warn("AuthTools", "Failed to revoke auth for %s/%s: %v",
-				logging.TruncateIdentifier(sessionID), serverName, err)
-		}
-	}
-	if p.aggregator.capabilityStore != nil {
-		if err := p.aggregator.capabilityStore.DeleteEntry(ctx, sessionID, serverName); err != nil {
-			logging.Warn("AuthTools", "Failed to delete entry %s/%s from capability store: %v",
-				logging.TruncateIdentifier(sessionID), serverName, err)
-		}
-	}
-
-	// Evict pooled connection for this session+server
-	if p.aggregator.connPool != nil {
-		p.aggregator.connPool.Evict(sessionID, serverName)
-	}
+	// Remove auth state, capabilities and the pooled connection for this
+	// session+server. For a revoked grant this happened above for every
+	// server of the issuer; repeating it for the named server is harmless.
+	p.aggregator.disconnectSessionServer(ctx, sessionID, serverName)
 
 	// Clear SSO failure state so re-authentication can trigger fresh SSO
 	if p.aggregator.ssoTracker != nil {
@@ -477,14 +467,29 @@ func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string
 		p.aggregator.authMetrics.RecordLogoutSuccess(serverName, sub)
 	}
 
+	return logoutResult(serverName, revokedGrant, siblings), nil
+}
+
+// logoutResult words the outcome of core_auth_logout. When the person's grant
+// was revoked the result says so and names the other servers that lost their
+// connection with it, so a caller that sees a sibling server go "not
+// authenticated" learns why from the same message.
+func logoutResult(serverName string, revokedGrant bool, siblings []string) *api.CallToolResult {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Successfully logged out from '%s'.\n\n", serverName)
+	if revokedGrant {
+		b.WriteString("The grant behind this server belonged to you rather than to this session, " +
+			"so it was revoked for all your sessions")
+		if len(siblings) > 0 {
+			fmt.Fprintf(&b, "; the servers sharing it were disconnected as well: %s", strings.Join(siblings, ", "))
+		}
+		b.WriteString(".\n\n")
+	}
+	fmt.Fprintf(&b, "The server's tools are now hidden. Use core_auth_login with server='%s' to re-authenticate.", serverName)
 	return &api.CallToolResult{
-		Content: []any{fmt.Sprintf(
-			"Successfully logged out from '%s'.\n\n"+
-				"The server's tools are now hidden. Use core_auth_login with server='%s' to re-authenticate.",
-			serverName, serverName,
-		)},
+		Content: []any{b.String()},
 		IsError: false,
-	}, nil
+	}
 }
 
 // tryConnectWithToken attempts to establish a connection to an MCP server using an OAuth token.
@@ -540,12 +545,48 @@ func (p *AuthToolProvider) isIssuerExclusiveToServer(sessionID, serverName, issu
 		if name == serverName {
 			continue
 		}
-		if info.AuthInfo != nil && info.AuthInfo.Issuer == issuer {
+		if other := knownServerIssuer(info); other != "" && sameIssuer(other, issuer) {
 			return false
 		}
 	}
 
 	return true
+}
+
+// knownServerIssuer returns the OAuth issuer the registry knows for a server
+// without a network round trip: what the 401 probe or a login recorded in
+// AuthInfo, else the operator's pin (spec.auth.authorizationServer.issuer).
+// Empty when neither says.
+func knownServerIssuer(info *ServerInfo) string {
+	if info == nil {
+		return ""
+	}
+	if info.AuthInfo != nil && info.AuthInfo.Issuer != "" {
+		return info.AuthInfo.Issuer
+	}
+	if info.AuthConfig != nil && info.AuthConfig.AuthorizationServer != nil && info.AuthConfig.AuthorizationServer.Issuer != "" {
+		return strings.TrimSuffix(info.AuthConfig.AuthorizationServer.Issuer, "/")
+	}
+	return ""
+}
+
+// resolveServerIssuer is knownServerIssuer plus, when the registry knows
+// nothing, the issuer named by the server's RFC 9728 resource metadata -- the
+// same discovery a login performs, so a logout reaches the tokens a login
+// stored. Empty when the server is unreachable or publishes no metadata.
+func (p *AuthToolProvider) resolveServerIssuer(ctx context.Context, info *ServerInfo) string {
+	if issuer := knownServerIssuer(info); issuer != "" {
+		return issuer
+	}
+	if info == nil || info.URL == "" {
+		return ""
+	}
+	metadata, err := discoverProtectedResourceMetadata(ctx, info.URL, nil)
+	if err != nil {
+		logging.Debug("AuthTools", "Cannot resolve the issuer of %s for logout: %v", info.Name, err)
+		return ""
+	}
+	return metadata.Issuer
 }
 
 // is401Error checks if an error indicates a 401 Unauthorized response

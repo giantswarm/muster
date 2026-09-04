@@ -1,0 +1,229 @@
+name: "oauth-subject-grant-logout-without-resource-metadata"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  A logout revokes a subject-scoped grant even when the aggregator's registry
+  entry knows no issuer and the operator's pin is the only source of it.
+
+  Both backends publish no RFC 9728 resource metadata (a bare 401, no
+  well-known document), so a registry entry knows no issuer until a login
+  discovers it through spec.auth.authorizationServer. The person signs in and
+  uses both servers; then both services are restarted (a one-shot
+  spec.restartRequestedAt), which rebuilds their entries from the bare 401
+  while the token store keeps the grant -- the state of a muster that
+  restarted while the person was signed in. core_auth_logout
+  on one server must still find the issuer through the pin, revoke the grant
+  and disconnect the sibling, and the next login on either server must ask for
+  a sign-in.
+
+  Regression: the logout skipped every token step when the registry entry had
+  no issuer and answered "Successfully logged out" with the grant in place; the
+  next login on either server then reconnected from the grant. (A service
+  restart inside the scenario would rebuild the entries the same way, but
+  restarting an OAuth server with live session connections currently hangs
+  the aggregator's MCP endpoint -- giantswarm/muster#1153.)
+tags: ["oauth", "logout", "subject-grant", "shared-issuer", "github", "restart", "regression"]
+timeout: "2m"
+
+pre_configuration:
+  mock_oauth_servers:
+    - name: "person-idp"
+      scopes: ["openid", "profile", "email"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "person-client"
+      client_secret: "person-secret"
+      use_as_muster_oauth_server: true
+
+    - name: "github-as"
+      scopes: ["repo", "read:org"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "github-client"
+
+  mcp_servers:
+    - name: "gh-hosted"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "github-as"
+          scope: "repo"
+          grant_scope: "subject"
+          omit_resource_metadata: true
+        tools:
+          - name: "whoami"
+            description: "Who the hosted server sees"
+            responses:
+              - response:
+                  login: "person"
+                  source: "gh-hosted"
+
+    - name: "gh-inhouse"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "github-as"
+          scope: "repo"
+          grant_scope: "subject"
+          omit_resource_metadata: true
+        tools:
+          - name: "board"
+            description: "The in-house server's board"
+            responses:
+              - response:
+                  items: 3
+                  source: "gh-inhouse"
+
+    # Nobody logs in to this one: its registry entry keeps the empty issuer
+    # the bare 401 left behind, the shape of every pinned server after a
+    # muster restart.
+    - name: "gh-untouched"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "github-as"
+          scope: "repo"
+          grant_scope: "subject"
+          omit_resource_metadata: true
+        tools:
+          - name: "ping"
+            description: "Never called"
+            responses:
+              - response:
+                  source: "gh-untouched"
+
+steps:
+  - id: verify-servers-registered
+    description: "Both servers are registered although their 401 named no metadata"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "gh-hosted"
+        - "gh-inhouse"
+
+  - id: person-logs-into-muster
+    description: "The person authenticates to muster"
+    tool: "test_muster_auth_login"
+    args:
+      subject: "person"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  - id: sign-in-to-hosted
+    description: "The browser flow for gh-hosted runs against the pinned authorization server"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "gh-hosted"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  - id: hosted-connected
+    description: "gh-hosted is connected"
+    tool: "core_auth_login"
+    args:
+      server: "gh-hosted"
+    expected:
+      success: true
+      not_contains:
+        - "Please sign in"
+
+  - id: inhouse-connects-from-grant
+    description: "gh-inhouse connects from the same grant, no sign-in link"
+    tool: "core_auth_login"
+    args:
+      server: "gh-inhouse"
+    expected:
+      success: true
+      contains:
+        - "Successfully connected"
+      not_contains:
+        - "Please sign in"
+
+  - id: call-hosted
+    description: "The hosted server answers"
+    tool: "x_gh-hosted_whoami"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "gh-hosted"
+
+  - id: call-inhouse
+    description: "The in-house server answers"
+    tool: "x_gh-inhouse_board"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "gh-inhouse"
+
+  # gh-untouched's registry entry knows no issuer: no login ever discovered
+  # one and the bare 401 named none. Logging out of it must still find the
+  # issuer through the pin and revoke the person's grant for the two servers
+  # that use it.
+  - id: logout-of-untouched-revokes-the-grant
+    description: "Logout from the never-logged-in server finds the issuer through the pin, revokes the grant and names the siblings"
+    tool: "core_auth_logout"
+    args:
+      server: "gh-untouched"
+    expected:
+      success: true
+      contains:
+        - "Successfully logged out from 'gh-untouched'"
+        - "revoked for all your sessions"
+        - "disconnected as well: gh-hosted, gh-inhouse"
+
+  - id: hosted-not-authenticated
+    description: "gh-hosted is no longer authenticated"
+    tool: "test_read_auth_status"
+    args:
+      server: "gh-hosted"
+    expected:
+      success: true
+      contains:
+        - '"status": "auth_required"'
+
+  - id: inhouse-not-authenticated
+    description: "The sibling server is no longer authenticated"
+    tool: "test_read_auth_status"
+    args:
+      server: "gh-inhouse"
+    expected:
+      success: true
+      contains:
+        - '"status": "auth_required"'
+
+  - id: inhouse-login-needs-sign-in
+    description: "A new login on the sibling asks for a sign-in: the grant is gone"
+    tool: "core_auth_login"
+    args:
+      server: "gh-inhouse"
+    expected:
+      success: true
+      contains:
+        - "Please sign in"
+      not_contains:
+        - "Successfully connected"
+
+  - id: hosted-login-needs-sign-in
+    description: "A new login on the server itself asks for a sign-in too"
+    tool: "core_auth_login"
+    args:
+      server: "gh-hosted"
+    expected:
+      success: true
+      contains:
+        - "Please sign in"
+      not_contains:
+        - "Successfully connected"

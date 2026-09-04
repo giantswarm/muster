@@ -161,6 +161,12 @@ type SubjectGrantHandler interface {
 	// ClearTokenByIssuerForUser is ClearTokenByIssuer plus, for a
 	// subject-scoped issuer, the removal of the person's grant.
 	ClearTokenByIssuerForUser(sessionID, userID, issuer string)
+
+	// IssuerSubjectScoped reports whether grants from the issuer belong to
+	// the person rather than to one login session (an operator pinned it
+	// with grantScope: subject). Signing out of such an issuer is signing
+	// the person out, whichever server the request names.
+	IssuerSubjectScoped(issuer string) bool
 }
 
 // FullTokenByIssuerForUser looks a token up with the subject-scoped fallback
@@ -188,6 +194,16 @@ func ClearTokenByIssuerForUser(h OAuthHandler, sessionID, userID, issuer string)
 		return
 	}
 	h.ClearTokenByIssuer(sessionID, issuer)
+}
+
+// IssuerSubjectScoped reports whether the handler files grants from the
+// issuer under the person. False for a handler without subject-scoped grants.
+func IssuerSubjectScoped(h OAuthHandler, issuer string) bool {
+	if h == nil {
+		return false
+	}
+	sg, ok := h.(SubjectGrantHandler)
+	return ok && sg.IssuerSubjectScoped(issuer)
 }
 
 // oauthHandler stores the registered OAuth handler implementation.

@@ -194,6 +194,15 @@ Tests automatically clean up resources:
 # - Test artifacts are collected
 ```
 
+At start-up, `muster test` also sweeps up the instances an earlier run left
+behind: `muster serve` processes with a `--config-path` under a
+`muster-test-<digits>` temp directory whose parent `muster test` process is
+gone (the harness crashed, was killed, or lost its terminal). Each is sent
+SIGTERM, and the run prints `Cleaned up N stale muster test process(es)`.
+Instances whose harness is still running are left alone, so several
+`muster test` runs can share a machine -- give each its own `--base-port`
+range so their instances do not compete for ports.
+
 ### Mock Integration
 Tests can use mock MCP servers for consistent results:
 

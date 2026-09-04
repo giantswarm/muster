@@ -330,6 +330,12 @@ func (m *musterInstanceManager) extractOAuthConfig(config map[string]interface{}
 	if aud, ok := oauthMap["expected_audience"].(string); ok {
 		result.ExpectedAudience = aud
 	}
+	if grantScope, ok := oauthMap["grant_scope"].(string); ok {
+		result.GrantScope = grantScope
+	}
+	if omit, ok := oauthMap["omit_resource_metadata"].(bool); ok {
+		result.OmitResourceMetadata = omit
+	}
 
 	return result
 }
@@ -367,13 +373,14 @@ func (m *musterInstanceManager) startProtectedMCPServer(
 	tools := m.extractToolConfigs(mcpServer.Config)
 
 	config := mock.ProtectedMCPServerConfig{
-		Name:          mcpServer.Name,
-		OAuthServer:   oauthServer,
-		Issuer:        issuer,
-		RequiredScope: oauthConfig.Scope,
-		Tools:         tools,
-		Transport:     transportType,
-		Debug:         m.debug,
+		Name:                 mcpServer.Name,
+		OAuthServer:          oauthServer,
+		Issuer:               issuer,
+		RequiredScope:        oauthConfig.Scope,
+		OmitResourceMetadata: oauthConfig.OmitResourceMetadata,
+		Tools:                tools,
+		Transport:            transportType,
+		Debug:                m.debug,
 	}
 
 	// In trust-issuer mode the backend validates forwarded JWTs against the

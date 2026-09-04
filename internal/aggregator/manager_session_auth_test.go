@@ -16,9 +16,10 @@ import (
 // answered by a backend that accepts anonymous requests — and exposes the
 // definition the aggregator reads, including a probe client.
 type stubConnectedService struct {
-	name   string
-	auth   *api.MCPServerAuth
-	client MCPClient
+	name      string
+	namespace string
+	auth      *api.MCPServerAuth
+	client    MCPClient
 }
 
 func (s *stubConnectedService) GetName() string             { return s.name }
@@ -32,6 +33,9 @@ func (s *stubConnectedService) GetServiceData() map[string]interface{} {
 		"toolPrefix": s.name,
 		"family":     (*api.MCPServerFamily)(nil),
 		"meta":       map[string]string(nil),
+	}
+	if s.namespace != "" {
+		data["namespace"] = s.namespace
 	}
 	if s.auth != nil {
 		data["auth"] = s.auth
@@ -170,6 +174,25 @@ func TestRegisterSingleServer_RefusesSessionAuthServer(t *testing.T) {
 	assert.False(t, client.listToolsCalled(), "the token-less client must not be used")
 }
 
+// TestRegisterSingleServer_CarriesNamespace: the global registration path
+// takes the MCPServer's namespace from the service definition, so the entry's
+// Secret references and events resolve against the resource's own namespace.
+func TestRegisterSingleServer_CarriesNamespace(t *testing.T) {
+	reg := NewServerRegistry("x")
+	am := &AggregatorManager{
+		aggregatorServer: &AggregatorServer{registry: reg},
+		serviceRegistry: newStubNamedServiceRegistry(&stubConnectedService{
+			name: "kubernetes", namespace: "agent-platform", client: &probeClient{},
+		}),
+	}
+
+	require.NoError(t, am.registerSingleServer(context.Background(), "kubernetes"))
+
+	info, exists := reg.GetServerInfo("kubernetes")
+	require.True(t, exists)
+	assert.Equal(t, "agent-platform", info.GetNamespace())
+}
+
 // TestAttemptPendingRegistrations_SessionAuthServerGetsPendingAuthEntry covers
 // the periodic reconciliation: a session-auth service that reports Connected
 // (its probe reached an anonymous backend) and has no registry entry gets a
@@ -177,7 +200,7 @@ func TestRegisterSingleServer_RefusesSessionAuthServer(t *testing.T) {
 func TestAttemptPendingRegistrations_SessionAuthServerGetsPendingAuthEntry(t *testing.T) {
 	reg := NewServerRegistry("x")
 	client := &probeClient{}
-	svc := &stubConnectedService{name: "model-manager", auth: forwardTokenAuth(), client: client}
+	svc := &stubConnectedService{name: "model-manager", namespace: "agent-platform", auth: forwardTokenAuth(), client: client}
 	am := &AggregatorManager{
 		aggregatorServer: &AggregatorServer{registry: reg},
 		serviceRegistry:  newStubNamedServiceRegistry(svc),
@@ -188,6 +211,7 @@ func TestAttemptPendingRegistrations_SessionAuthServerGetsPendingAuthEntry(t *te
 	info, exists := reg.GetServerInfo("model-manager")
 	require.True(t, exists, "the session-auth server must be registered for per-session connections")
 	assert.True(t, info.RequiresSessionAuth())
+	assert.Equal(t, "agent-platform", info.GetNamespace(), "the pending-auth entry carries the MCPServer's namespace")
 	assert.True(t, ShouldUseTokenForwarding(info), "the entry must carry the forwardToken config so sessions forward the caller's token")
 	assert.Nil(t, info.Client, "no shared client may be attached")
 	assert.False(t, client.listToolsCalled(), "the token-less probe client must not be used")

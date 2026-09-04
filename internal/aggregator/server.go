@@ -148,6 +148,11 @@ type AggregatorServer struct {
 	// requests for one session prevents duplicate backend connects.
 	ssoInitGroup singleflight.Group
 
+	// subjectGrantGroup deduplicates concurrent connects a session makes with
+	// the person's subject-scoped grant (adoptSubjectGrant), keyed by
+	// sessionID/serverName.
+	subjectGrantGroup singleflight.Group
+
 	// SSO tracking for proactive SSO initialization (replaces SessionRegistry SSO methods)
 	ssoTracker *ssoTracker
 
@@ -280,6 +285,25 @@ func (t *subjectSessionTracker) OAuthSessionIDs() []string {
 	out := make([]string, 0, len(t.subjectByOAuthSessionID))
 	for id := range t.subjectByOAuthSessionID {
 		out = append(out, id)
+	}
+	return out
+}
+
+// OAuthSessionIDsForSubject returns the tracked OAuth session IDs (token
+// families) of one subject: every live login of the person this replica has
+// seen a request from. The per-session server state (auth marks, cached
+// capabilities, pooled clients) is keyed by these IDs.
+func (t *subjectSessionTracker) OAuthSessionIDsForSubject(sub string) []string {
+	if sub == "" {
+		return nil
+	}
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	var out []string
+	for id, s := range t.subjectByOAuthSessionID {
+		if s == sub {
+			out = append(out, id)
+		}
 	}
 	return out
 }
@@ -1911,6 +1935,16 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 
 	if sessionID != "" {
 		sessionServerName, originalName, sessionErr := a.resolveUserTool(sessionID, toolName)
+		if sessionErr != nil && sub != "" && !a.isCoreToolByName(toolName) {
+			// The tool may belong to a server no session of this process has
+			// connected yet, while the person already holds a subject-scoped
+			// grant for it (a restart with the grant persisted, a fresh CLI
+			// session). Connecting now fills the capability cache the lookup
+			// above reads from.
+			if a.adoptSubjectGrants(ctx, sessionID, sub) > 0 {
+				sessionServerName, originalName, sessionErr = a.resolveUserTool(sessionID, toolName)
+			}
+		}
 		if sessionErr == nil {
 			logging.DebugWithAttrs("Aggregator", "Tool found in capability cache",
 				slog.String("tool", toolName), slog.String("server", sessionServerName))
@@ -2985,7 +3019,17 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 		// the asynchronous SSO re-init completes, even though the caller
 		// presents a fresh token.
 		if !ShouldUseTokenForwarding(serverInfo) || forwardableBearer(ctx) == "" {
-			return nil, nil, fmt.Errorf("user not authenticated to server %s", serverName)
+			// A subject-scoped grant (GitHub-style connectors) belongs to the
+			// person, so a session that never called core_auth_login for the
+			// server still holds the consent: connect it now instead of
+			// sending the caller back to a login it already completed.
+			adopted, adoptErr := a.adoptSubjectGrant(ctx, serverInfo, sessionID, sub)
+			if adoptErr != nil {
+				return nil, nil, fmt.Errorf("user not authenticated to server %s (connecting with the person's existing grant failed: %w)", serverName, adoptErr)
+			}
+			if !adopted {
+				return nil, nil, fmt.Errorf("user not authenticated to server %s", serverName)
+			}
 		}
 	}
 
@@ -3057,14 +3101,28 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 			return nil, nil, err
 		}
 
-	} else if serverInfo.AuthInfo != nil && serverInfo.AuthInfo.Issuer != "" {
+	} else if oauthProtected(serverInfo) {
 		oauthHandler := api.GetOAuthHandler()
 		if oauthHandler == nil || !oauthHandler.IsEnabled() {
 			return nil, nil, fmt.Errorf("OAuth handler not available for %s", serverName)
 		}
 
-		issuer := serverInfo.AuthInfo.Issuer
-		scope := serverInfo.AuthInfo.Scope
+		// What the 401 discovered, else the operator's pin. A server that
+		// registered from its 401 alone after a restart and has no pin knows
+		// neither: resolve its RFC 9728 metadata once and record it on the
+		// entry, so a session that is already authenticated -- and therefore
+		// never runs core_auth_login again -- can still open its connection.
+		issuer, scope := sessionOAuthIssuer(serverInfo)
+		if issuer == "" {
+			authInfo, err := a.resolveServerAuthInfo(ctx, serverInfo)
+			if err != nil {
+				return nil, nil, fmt.Errorf("resolve the authorization server of %s: %w", serverName, err)
+			}
+			issuer, scope = authInfo.Issuer, authInfo.Scope
+		}
+		if issuer == "" {
+			return nil, nil, fmt.Errorf("unable to determine auth method for server %s: its OAuth issuer is unknown (no RFC 9728 metadata, no spec.auth.authorizationServer pin)", serverName)
+		}
 		tokenStore := internalmcp.NewMusterTokenStore(sessionID, sub, issuer, oauthHandler)
 		clientID, clientSecret := oauthHandler.GetClientCredentialsForIssuer(ctx, issuer)
 		client = internalmcp.NewDynamicAuthClient(serverInfo.URL, tokenStore, scope, clientID, clientSecret).
@@ -3238,6 +3296,10 @@ func (a *AggregatorServer) ListToolsForContext(ctx context.Context) []mcp.Tool {
 		return a.getAllCoreToolsAsMCPTools()
 	}
 
+	// A person's subject-scoped grants make their servers' tools visible to
+	// every session of that person, not only to the one that logged in.
+	a.adoptSubjectGrants(ctx, sessionID, getUserSubjectFromContext(ctx))
+
 	mcpServerTools := a.GetToolsForSession(ctx, sessionID)
 	coreTools := a.getAllCoreToolsAsMCPTools()
 
@@ -3261,6 +3323,7 @@ func (a *AggregatorServer) ListResourcesForContext(ctx context.Context) []api.Re
 		logging.Warn("Aggregator", "ListResourcesForContext: no session ID in context — returning empty")
 		return nil
 	}
+	a.adoptSubjectGrants(ctx, sessionID, getUserSubjectFromContext(ctx))
 	return a.GetResourcesForSession(ctx, sessionID)
 }
 
@@ -3271,6 +3334,7 @@ func (a *AggregatorServer) ListPromptsForContext(ctx context.Context) []api.Prom
 		logging.Warn("Aggregator", "ListPromptsForContext: no session ID in context — returning empty")
 		return nil
 	}
+	a.adoptSubjectGrants(ctx, sessionID, getUserSubjectFromContext(ctx))
 	return a.GetPromptsForSession(ctx, sessionID)
 }
 

@@ -319,6 +319,15 @@ func (m *Manager) ClearTokenByIssuerForUser(sessionID, userID, issuer string) {
 		logging.TruncateIdentifier(sessionID), logging.TruncateIdentifier(userID), issuer)
 }
 
+// IssuerSubjectScoped reports whether the issuer's grants belong to the
+// person, see Client.IssuerSubjectScoped.
+func (m *Manager) IssuerSubjectScoped(issuer string) bool {
+	if m == nil {
+		return false
+	}
+	return m.client.IssuerSubjectScoped(issuer)
+}
+
 // ClearTokenByIssuer removes all tokens for a given session and issuer.
 func (m *Manager) ClearTokenByIssuer(sessionID, issuer string) {
 	if m == nil {
