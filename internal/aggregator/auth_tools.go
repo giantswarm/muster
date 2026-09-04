@@ -192,48 +192,22 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		}, nil
 	}
 
-	// Get the auth info for this server
-	authInfo := serverInfo.AuthInfo
-	if authInfo == nil {
-		authInfo = &AuthInfo{}
-	}
-
-	// Fill in whatever the flow still lacks from the server's resource
-	// metadata. When spec.auth.authorizationServer is set on the MCPServer CR,
-	// the override branch in discoverProtectedResourceMetadata bypasses PRM
-	// probing and uses the operator-pinned issuer directly (with RFC 8414 §3.3
-	// self-verification).
-	if needsResourceMetadata(authInfo, serverInfo.URL) {
-		var override *api.MCPServerAuthAuthorizationServer
-		if serverInfo.AuthConfig != nil {
-			override = serverInfo.AuthConfig.AuthorizationServer
+	// The auth info for this server: the 401-time fields plus whatever the
+	// flow still lacks from the server's resource metadata or its pin
+	// (spec.auth.authorizationServer -- the override branch in
+	// discoverProtectedResourceMetadata bypasses PRM probing and uses the
+	// operator-pinned issuer). The result is recorded on the registry entry,
+	// so the tool calls of every session find the issuer as well.
+	authInfo, err := p.aggregator.resolveServerAuthInfo(ctx, serverInfo)
+	if err != nil {
+		logging.Warn("AuthTools", "Cannot apply the authorization server pin of %s: %v", serverName, err)
+		if p.aggregator.authMetrics != nil {
+			p.aggregator.authMetrics.RecordLoginFailure(serverName, sub, "authorization_server_pin_failed")
 		}
-		if err := pinAuthorizationServer(ctx, serverInfo); err != nil {
-			logging.Warn("AuthTools", "Cannot apply the authorization server pin of %s: %v", serverName, err)
-			if p.aggregator.authMetrics != nil {
-				p.aggregator.authMetrics.RecordLoginFailure(serverName, sub, "authorization_server_pin_failed")
-			}
-			return &api.CallToolResult{
-				Content: []any{fmt.Sprintf("Cannot authenticate to '%s': %v", serverName, err)},
-				IsError: true,
-			}, nil
-		}
-		metadata, err := discoverProtectedResourceMetadata(ctx, serverInfo.URL, override)
-		if err != nil {
-			logging.Warn("AuthTools", "Failed to discover protected resource metadata for %s: %v", serverName, err)
-		} else {
-			if authInfo.Issuer == "" {
-				authInfo.Issuer = metadata.Issuer
-				logging.Info("AuthTools", "Discovered authorization server for %s: %s", serverName, metadata.Issuer)
-			}
-			if authInfo.Scope == "" && metadata.Scope != "" {
-				authInfo.Scope = metadata.Scope
-				logging.Info("AuthTools", "Discovered required scope for %s: %s", serverName, metadata.Scope)
-			}
-			if authInfo.Resource == "" && metadata.Resource != "" {
-				authInfo.Resource = metadata.Resource
-			}
-		}
+		return &api.CallToolResult{
+			Content: []any{fmt.Sprintf("Cannot authenticate to '%s': %v", serverName, err)},
+			IsError: true,
+		}, nil
 	}
 
 	// If still empty, we can't proceed

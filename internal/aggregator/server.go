@@ -3101,12 +3101,28 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 			return nil, nil, err
 		}
 
-	} else if issuer, scope := sessionOAuthIssuer(serverInfo); issuer != "" {
+	} else if oauthProtected(serverInfo) {
 		oauthHandler := api.GetOAuthHandler()
 		if oauthHandler == nil || !oauthHandler.IsEnabled() {
 			return nil, nil, fmt.Errorf("OAuth handler not available for %s", serverName)
 		}
 
+		// What the 401 discovered, else the operator's pin. A server that
+		// registered from its 401 alone after a restart and has no pin knows
+		// neither: resolve its RFC 9728 metadata once and record it on the
+		// entry, so a session that is already authenticated -- and therefore
+		// never runs core_auth_login again -- can still open its connection.
+		issuer, scope := sessionOAuthIssuer(serverInfo)
+		if issuer == "" {
+			authInfo, err := a.resolveServerAuthInfo(ctx, serverInfo)
+			if err != nil {
+				return nil, nil, fmt.Errorf("resolve the authorization server of %s: %w", serverName, err)
+			}
+			issuer, scope = authInfo.Issuer, authInfo.Scope
+		}
+		if issuer == "" {
+			return nil, nil, fmt.Errorf("unable to determine auth method for server %s: its OAuth issuer is unknown (no RFC 9728 metadata, no spec.auth.authorizationServer pin)", serverName)
+		}
 		tokenStore := internalmcp.NewMusterTokenStore(sessionID, sub, issuer, oauthHandler)
 		clientID, clientSecret := oauthHandler.GetClientCredentialsForIssuer(ctx, issuer)
 		client = internalmcp.NewDynamicAuthClient(serverInfo.URL, tokenStore, scope, clientID, clientSecret).
