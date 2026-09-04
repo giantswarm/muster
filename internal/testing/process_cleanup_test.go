@@ -167,13 +167,16 @@ func TestIsTestHarness(t *testing.T) {
 
 // TestParseProcessTable pins the `ps -o pid,ppid,args` shape the listing
 // depends on, including the header line ps prints when headers are not
-// suppressed and the odd rows that are not processes.
+// suppressed, procps 3.3's "{comm}" marker in front of a command line whose
+// argv[0] is not the executable's name, and the odd rows that are not processes.
 func TestParseProcessTable(t *testing.T) {
 	out := "    PID    PPID COMMAND\n" +
 		"      1       0 /usr/lib/systemd/systemd --switched-root --system\n" +
 		"      2       0 [kthreadd]\n" +
 		"\n" +
 		"  12345    4321 muster serve --config-path /tmp/muster-test-99/test-a-1/muster --debug\n" +
+		"   5011    4990 {testing.test} muster test --scenario cleanup-spares-live-harness\n" +
+		"   5012    4990 {} --not-a-marker\n" +
 		"garbage line\n" +
 		"  12346 notanumber muster serve\n" +
 		"  12347\n"
@@ -183,6 +186,8 @@ func TestParseProcessTable(t *testing.T) {
 		{PID: 1, PPID: 0, Args: args("/usr/lib/systemd/systemd --switched-root --system")},
 		{PID: 2, PPID: 0, Args: args("[kthreadd]")},
 		{PID: 12345, PPID: 4321, Args: args("muster serve --config-path /tmp/muster-test-99/test-a-1/muster --debug")},
+		{PID: 5011, PPID: 4990, Args: args("muster test --scenario cleanup-spares-live-harness")},
+		{PID: 5012, PPID: 4990, Args: args("--not-a-marker")},
 	}, procs)
 }
 

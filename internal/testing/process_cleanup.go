@@ -209,7 +209,8 @@ func listProcesses() ([]processInfo, error) {
 
 // parseProcessTable parses `ps -o pid,ppid,args` output: one process per line,
 // pid and ppid first, the command line as the rest. Lines that do not start
-// with two integers (a header, a truncated row) are skipped.
+// with two integers (a header, a truncated row) are skipped, and procps 3.3's
+// "{comm}" marker in front of a command line is dropped.
 func parseProcessTable(r io.Reader) ([]processInfo, error) {
 	var procs []processInfo
 	scanner := bufio.NewScanner(r)
@@ -227,7 +228,14 @@ func parseProcessTable(r io.Reader) ([]processInfo, error) {
 		if err != nil {
 			continue
 		}
-		procs = append(procs, processInfo{PID: pid, PPID: ppid, Args: fields[2:]})
+		args := fields[2:]
+		// procps 3.3 (Ubuntu 22.04, CircleCI's cimg images) prefixes the command
+		// line with "{comm}" when the executable's name differs from argv[0];
+		// procps 4 and BSD ps do not. The brace word is not part of argv.
+		if len(args) > 1 && strings.HasPrefix(args[0], "{") && strings.HasSuffix(args[0], "}") {
+			args = args[1:]
+		}
+		procs = append(procs, processInfo{PID: pid, PPID: ppid, Args: args})
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("reading process table: %w", err)
