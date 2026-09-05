@@ -49,9 +49,20 @@ func capabilityNotifications(result *ConnectionResult) []string {
 	if result == nil {
 		return nil
 	}
+	return capabilityMethodsFor(
+		capabilityCategories[0].count(result) > 0,
+		capabilityCategories[1].count(result) > 0,
+		capabilityCategories[2].count(result) > 0,
+	)
+}
+
+// capabilityMethodsFor returns the list_changed methods for the capability
+// categories flagged as changed, in the order of capabilityCategories.
+func capabilityMethodsFor(tools, resources, prompts bool) []string {
+	changed := [...]bool{tools, resources, prompts}
 	var methods []string
-	for _, category := range capabilityCategories {
-		if category.count(result) > 0 {
+	for i, category := range capabilityCategories {
+		if changed[i] {
 			methods = append(methods, category.method)
 		}
 	}
@@ -72,11 +83,15 @@ func capabilityNotifications(result *ConnectionResult) []string {
 // siblings re-list a server they have no entry for and get nothing new. Harmless,
 // and the common agent case is one transport session per subject.
 func (a *AggregatorServer) notifySubjectCapabilitiesChanged(sub string, result *ConnectionResult) {
-	if a.mcpServer == nil || a.subjectSessions == nil || sub == "" {
-		return
-	}
-	methods := capabilityNotifications(result)
-	if len(methods) == 0 {
+	a.notifySubjectMethods(sub, capabilityNotifications(result))
+}
+
+// notifySubjectMethods sends each of the given notification methods to every
+// live transport session of sub. It is the shared delivery step for
+// capability lists that grew (a server connected) and lists that shrank (a
+// server re-listed fewer capabilities, or its cached entry was dropped).
+func (a *AggregatorServer) notifySubjectMethods(sub string, methods []string) {
+	if a.mcpServer == nil || a.subjectSessions == nil || sub == "" || len(methods) == 0 {
 		return
 	}
 	for _, sessionID := range a.subjectSessions.GetSessionIDs(sub) {
@@ -197,11 +212,12 @@ func (a *AggregatorServer) refreshSessionCapabilities(ctx context.Context, serve
 		newPrompts = nil
 	}
 
+	toolsChanged, resourcesChanged, promptsChanged := true, true, true
 	cached, _ := a.capabilityStore.Get(ctx, sessionID, serverName)
 	if cached != nil {
-		toolsChanged := !toolListsEqual(cached.Tools, newTools)
-		resourcesChanged := newResources != nil && !resourceListsEqual(cached.Resources, newResources)
-		promptsChanged := newPrompts != nil && !promptListsEqual(cached.Prompts, newPrompts)
+		toolsChanged = !toolListsEqual(cached.Tools, newTools)
+		resourcesChanged = newResources != nil && !resourceListsEqual(cached.Resources, newResources)
+		promptsChanged = newPrompts != nil && !promptListsEqual(cached.Prompts, newPrompts)
 		if !toolsChanged && !resourcesChanged && !promptsChanged {
 			return
 		}
@@ -221,6 +237,16 @@ func (a *AggregatorServer) refreshSessionCapabilities(ctx context.Context, serve
 
 	logging.Info("Aggregator", "Session notification refresh: updated capabilities for %s (session %s: %d tools, %d resources, %d prompts)",
 		serverName, logging.TruncateIdentifier(sessionID), len(newTools), len(newResources), len(newPrompts))
+
+	// Tell the person's transport sessions which lists changed, whether they
+	// grew or shrank: a client that listed before the server re-listed would
+	// otherwise keep offering tools the server dropped (#1162). The store is
+	// keyed by the OAuth session; the tracker maps it back to the subject
+	// whose transport sessions can be addressed.
+	if a.subjectSessions != nil {
+		a.notifySubjectMethods(a.subjectSessions.OAuthSubject(sessionID),
+			capabilityMethodsFor(toolsChanged, resourcesChanged, promptsChanged))
+	}
 }
 
 // toolListsEqual compares two tool lists by name, description, and

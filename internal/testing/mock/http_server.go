@@ -88,13 +88,16 @@ func (s *HTTPServer) startServing() {
 	}
 
 	handler := s.createHandler()
-	s.httpServer = &http.Server{ //nolint:gosec
+	httpServer := &http.Server{ //nolint:gosec
 		Handler: handler,
 	}
+	s.httpServer = httpServer
+	listener := s.listener
 
-	// Start serving in background
+	// Start serving in background, on the captured server and listener:
+	// Stop clears the fields and may run before this goroutine is scheduled.
 	go func() {
-		if err := s.httpServer.Serve(s.listener); err != nil && err != http.ErrServerClosed {
+		if err := httpServer.Serve(listener); err != nil && err != http.ErrServerClosed {
 			s.mu.Lock()
 			s.shutdownError = err
 			s.mu.Unlock()

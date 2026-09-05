@@ -603,5 +603,36 @@ func (a *AggregatorServer) establishSSOConnection(
 			}
 			a.ssoTracker.MarkSSOFailedWithReason(sub, serverInfo.Name, reason)
 		}
+
+		// The session's cached capabilities for this server describe a
+		// connection that no longer exists (the stale-pool-miss branch above
+		// revoked its auth mark before retrying). Left in place they keep the
+		// server's tools in the session's listing -- and, through the family
+		// routing index, in everyone's -- while every call fails (#1162).
+		// Drop them; the next successful connection repopulates the cache
+		// and notifies the person's sessions, as it does for a first login.
+		a.dropSessionCapabilities(ctx, sessionID, sub, serverInfo.Name, "SSO connection failed")
 	}
+}
+
+// dropSessionCapabilities removes what the capability store holds for one
+// session+server pair and tells the person's live transport sessions that the
+// corresponding capability lists changed, so a client that has already listed
+// re-lists. Nothing is sent when the store held no entry.
+func (a *AggregatorServer) dropSessionCapabilities(ctx context.Context, sessionID, sub, serverName, reason string) {
+	if a.capabilityStore == nil || sessionID == "" {
+		return
+	}
+	cached, err := a.capabilityStore.Get(ctx, sessionID, serverName)
+	if err != nil || cached == nil {
+		return
+	}
+	if err := a.capabilityStore.DeleteEntry(ctx, sessionID, serverName); err != nil {
+		logging.Warn("Aggregator", "Failed to drop cached capabilities for %s (session %s): %v",
+			serverName, logging.TruncateIdentifier(sessionID), err)
+		return
+	}
+	logging.Info("Aggregator", "Dropped cached capabilities for %s (session %s: %d tools, %d resources, %d prompts): %s",
+		serverName, logging.TruncateIdentifier(sessionID), len(cached.Tools), len(cached.Resources), len(cached.Prompts), reason)
+	a.notifySubjectMethods(sub, capabilityMethodsFor(len(cached.Tools) > 0, len(cached.Resources) > 0, len(cached.Prompts) > 0))
 }

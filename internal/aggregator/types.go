@@ -238,6 +238,22 @@ func (s *ServerInfo) IsConnected() bool {
 	return false
 }
 
+// IsDown reports whether the server's service is in a state from which it
+// serves nothing: stopped, disconnected, failed, errored or unreachable. It is
+// false for active, transitional and auth-required states, and for servers the
+// service registry does not know (StateUnknown -- registered directly, as in
+// tests), whose availability IsConnected judges from the client instead.
+//
+// This matters for servers that authenticate per session: their registry entry
+// is kept across service failures so that core_auth_login keeps working once
+// the server is back, and the capability store still holds what they offered
+// each session. Neither says anything about whether the server can be used
+// now; the service state does.
+func (s *ServerInfo) IsDown() bool {
+	status := s.GetStatus()
+	return status != api.StateUnknown && api.IsDownState(status)
+}
+
 // GetNamespace returns the namespace for this server, defaulting to
 // metav1.NamespaceDefault when no namespace is set.
 func (s *ServerInfo) GetNamespace() string {
