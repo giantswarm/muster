@@ -169,18 +169,25 @@ Policy enforced by the broker path (mcp-oauth): client authentication is mandato
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `clientAudiences` | `map[string][]string` | `{}` | Per-client audience allowlist: broker client ID → audiences it may request. A miss returns `invalid_target`. |
-| `targets` | `map[string]BrokerTargetConfig` | `{}` | Audience name (e.g. a cluster name) → downstream Dex exchange target. |
+| `targets` | `map[string]BrokerTargetConfig` | `{}` | Audience name (e.g. a cluster name) → downstream target: a Dex exchange (`dexTokenEndpoint`) or the release of the person's own grant (`grantIssuer`). |
+| `brokerClients` | `map[string]BrokerClientConfig` | `{}` | Confidential broker clients seeded at startup, keyed by client id: `clientCredentialsSecretRef` (a Kubernetes Secret with `client-id`/`client-secret`) or `clientSecretFile` (a file holding the secret, for deployments without a Kubernetes Secret store), plus optional informational `scopes`. |
 | `allowPrivateIP` | `bool` | `false` | Allow downstream token endpoints to resolve to private/loopback IPs. Reduces SSRF protection; internal deployments only. |
 
-**BrokerTargetConfig fields:**
+**BrokerTargetConfig fields (Dex exchange target):**
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `dexTokenEndpoint` | `string` | Downstream Dex token endpoint URL (HTTPS). Required. |
+| `dexTokenEndpoint` | `string` | Downstream Dex token endpoint URL (HTTPS). Required unless `grantIssuer` is set. |
 | `expectedIssuer` | `string` | Expected `iss` claim of the exchanged token. Derived from `dexTokenEndpoint` when empty. |
 | `connectorId` | `string` | Downstream Dex OIDC connector that trusts the subject token's issuer. Required. |
 | `scopes` | `string` | Space-separated downstream scopes (default: `openid profile email groups`). Kubernetes-bound audiences must include the Dex cross-client scope for the apiserver's client, e.g. `audience:server:client_id:dex-k8s-authenticator` — without it the exchanged token's `aud` is the exchange client only, which the kube-apiserver rejects. The client-supplied RFC 8693 `scope` parameter is intentionally ignored. |
 | `clientCredentialsSecretRef` | `object` | Kubernetes Secret with the downstream exchange client credentials: `name` (required), `namespace` (defaults to the muster namespace), `clientIdKey` (default `client-id`), `clientSecretKey` (default `client-secret`). |
+
+**BrokerTargetConfig fields (grant target):**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `grantIssuer` | `string` | HTTPS issuer of an authorization server an MCPServer pins with `spec.auth.authorizationServer` and `grantScope: subject` (e.g. `https://github.com/login/oauth`). The exchange answers the person's own access token from that issuer -- the grant filed under the subject token's `sub` when the person connected the server -- refreshed first when it is due, with `expires_in` its remaining lifetime and never the refresh token. A person without a grant gets `invalid_target`. Mutually exclusive with `dexTokenEndpoint`; takes none of the exchange fields. See [Releasing a person's grant to a trusted relying party](../how-to/connecting-non-rfc9728-mcp-servers.md#releasing-a-persons-grant-to-a-trusted-relying-party). |
 
 Example:
 
@@ -194,7 +201,7 @@ aggregator:
           allowedAudiences: ["portal-frontend"]
       tokenExchangeBroker:
         clientAudiences:
-          portal-backend: ["cluster-a"]
+          portal-backend: ["cluster-a", "github"]
         targets:
           cluster-a:
             dexTokenEndpoint: https://dex.cluster-a.example.com/token
@@ -202,6 +209,8 @@ aggregator:
             scopes: "openid profile email groups audience:server:client_id:dex-k8s-authenticator"
             clientCredentialsSecretRef:
               name: muster-token-exchange-cluster-a
+          github:
+            grantIssuer: https://github.com/login/oauth
 ```
 
 #### Private-IP OIDC Discovery (Dex)

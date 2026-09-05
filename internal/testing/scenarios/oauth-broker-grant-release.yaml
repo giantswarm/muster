@@ -1,0 +1,259 @@
+name: "oauth-broker-grant-release"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  The token broker releases a person's subject-scoped grant to a trusted
+  relying party. tokenExchangeBroker.targets.<audience>.grantIssuer names the
+  authorization server of an MCPServer pinned with grantScope: subject; a
+  confidential broker client exchanges the person's ID token (RFC 8693,
+  audience=<audience>) and receives the person's own access token from that
+  issuer with its remaining lifetime -- never the refresh token.
+
+    - No grant yet: invalid_target.
+    - After the person connected the server: the access token, issued_token_type
+      access_token, an expires_in, no refresh_token.
+    - A grant due for refresh is refreshed before it is released.
+    - Wrong client secret: invalid_client; no client at all: invalid_request.
+      Audience not on the client's list: invalid_target. Another person
+      without a grant: invalid_target.
+    - After the person signs out of the server (core_auth_logout revokes the
+      grant), the exchange answers invalid_target again.
+tags: ["oauth", "token-exchange", "rfc8693", "broker", "subject-grant", "github"]
+timeout: "3m"
+
+instance_logs:
+  contains:
+    - "subject_grant_released"
+    - "subject_grant_release_refused"
+
+pre_configuration:
+  mock_oauth_servers:
+    - name: "muster-idp"
+      scopes: ["openid", "profile", "email"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "test-client"
+      client_secret: "test-secret"
+      use_as_muster_oauth_server: true
+
+    # Dex's stand-in for the portal: the relying party's subject tokens are
+    # signed here and validated by the broker as a trusted issuer. The
+    # subject it names (alice) is the identity muster filed the grant under.
+    - name: "portal-idp"
+
+    # GitHub's stand-in with short-lived tokens, so the released grant is
+    # refreshed within the scenario.
+    - name: "github-idp"
+      scopes: ["repo"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "40s"
+      client_id: "github-client"
+      use_tls: true
+
+  muster_broker:
+    trusted_issuers:
+      - oauth_server_ref: "portal-idp"
+        accepted_typ_headers: [""]
+    clients:
+      - client_id: "devportal"
+        client_secret: "devportal-secret"
+        audiences: ["github"]
+    grant_targets:
+      github:
+        oauth_server_ref: "github-idp"
+
+  mcp_servers:
+    - name: "github-style"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "github-idp"
+          scope: "repo"
+          grant_scope: "subject"
+        tools:
+          - name: "get_me"
+            description: "The authenticated GitHub user"
+            responses:
+              - response:
+                  login: "alice"
+
+steps:
+  - id: mint-alice-id-token
+    description: "The portal holds alice's ID token from the shared Dex"
+    tool: "test_mint_token"
+    args:
+      server: "portal-idp"
+      name: "alice-id-token"
+      sub: "alice"
+      email: "alice@example.com"
+      email_verified: true
+    expected:
+      success: true
+
+  - id: mint-bob-id-token
+    tool: "test_mint_token"
+    args:
+      server: "portal-idp"
+      name: "bob-id-token"
+      sub: "bob"
+    expected:
+      success: true
+
+  - id: exchange-before-any-grant
+    description: "Without a grant the broker answers invalid_target"
+    tool: "test_broker_token_exchange"
+    args:
+      subject_token_ref: "alice-id-token"
+      audience: "github"
+      client_id: "devportal"
+      client_secret: "devportal-secret"
+    expected:
+      success: false
+      contains:
+        - "invalid_target"
+
+  - id: login-alice
+    tool: "test_muster_auth_login"
+    args:
+      subject: "alice"
+    expected:
+      success: true
+  - id: create-alice
+    tool: "test_create_user"
+    args:
+      name: "alice"
+    expected:
+      success: true
+
+  - id: alice-consents
+    as_user: "alice"
+    description: "alice connects the server once; the grant is filed under her subject"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "github-style"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  - id: exchange-releases-the-grant
+    description: "The devportal exchanges alice's ID token for her grant"
+    tool: "test_broker_token_exchange"
+    args:
+      subject_token_ref: "alice-id-token"
+      audience: "github"
+      client_id: "devportal"
+      client_secret: "devportal-secret"
+    expected:
+      success: true
+      contains:
+        - "urn:ietf:params:oauth:token-type:access_token"
+      json_path:
+        has_refresh_token: false
+
+  - id: exchange-with-wrong-secret
+    description: "The client secret is required"
+    tool: "test_broker_token_exchange"
+    args:
+      subject_token_ref: "alice-id-token"
+      audience: "github"
+      client_id: "devportal"
+      client_secret: "not-the-secret"
+    expected:
+      success: false
+      contains:
+        - "invalid_client"
+
+  - id: exchange-without-client
+    description: "An exchange without client authentication is refused (a public caller cannot name an audience)"
+    tool: "test_broker_token_exchange"
+    args:
+      subject_token_ref: "alice-id-token"
+      audience: "github"
+    expected:
+      success: false
+      contains:
+        - "invalid_request"
+        - "client_id is required"
+
+  - id: exchange-for-unlisted-audience
+    description: "An audience outside the client's allowlist is invalid_target"
+    tool: "test_broker_token_exchange"
+    args:
+      subject_token_ref: "alice-id-token"
+      audience: "elsewhere"
+      client_id: "devportal"
+      client_secret: "devportal-secret"
+    expected:
+      success: false
+      contains:
+        - "invalid_target"
+
+  - id: exchange-for-bob-without-grant
+    description: "Another person without a grant gets invalid_target"
+    tool: "test_broker_token_exchange"
+    args:
+      subject_token_ref: "bob-id-token"
+      audience: "github"
+      client_id: "devportal"
+      client_secret: "devportal-secret"
+    expected:
+      success: false
+      contains:
+        - "invalid_target"
+
+  # The mock issues 40 s tokens; muster refreshes a grant 30 s before it
+  # expires. Polling the exchange: once the grant is due, the released token
+  # is the refreshed one (the mock marks it "refreshed-").
+  - id: exchange-refreshes-a-due-grant
+    description: "A grant due for refresh is refreshed before it is released"
+    tool: "test_broker_token_exchange"
+    args:
+      subject_token_ref: "alice-id-token"
+      audience: "github"
+      client_id: "devportal"
+      client_secret: "devportal-secret"
+    expected:
+      success: true
+      contains:
+        - "refreshed-"
+      json_path:
+        has_refresh_token: false
+      wait_for_state: "60s"
+
+  - id: alice-still-connected
+    as_user: "alice"
+    description: "alice's own session runs with the refreshed grant as well"
+    tool: "x_github-style_get_me"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "alice"
+
+  - id: alice-signs-out
+    as_user: "alice"
+    description: "Signing out of the server revokes the grant for the person"
+    tool: "core_auth_logout"
+    args:
+      server: "github-style"
+    expected:
+      success: true
+      contains:
+        - "revoked"
+
+  - id: exchange-after-sign-out
+    description: "The broker has no grant to release anymore"
+    tool: "test_broker_token_exchange"
+    args:
+      subject_token_ref: "alice-id-token"
+      audience: "github"
+      client_id: "devportal"
+      client_secret: "devportal-secret"
+    expected:
+      success: false
+      contains:
+        - "invalid_target"

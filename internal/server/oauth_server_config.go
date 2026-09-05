@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"os"
 	"strings"
 	"time"
 
@@ -114,11 +115,11 @@ func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger, 
 			return nil, fmt.Errorf("tokenExchangeBroker requires at least one trustedIssuers entry to validate subject tokens")
 		}
 		// Config loading is lenient YAML: a target missing required keys
-		// loads silently, so require the endpoint here instead of failing on
+		// loads silently, so check the shape here instead of failing on
 		// the first exchange request.
 		for audience, target := range cfg.TokenExchangeBroker.Targets {
-			if target.DexTokenEndpoint == "" {
-				return nil, fmt.Errorf("tokenExchangeBroker target %q requires dexTokenEndpoint (downstream Dex token endpoint)", audience)
+			if err := validateBrokerTarget(audience, target); err != nil {
+				return nil, err
 			}
 		}
 		opts = append(opts, oauthserver.WithExchanger(musteroauth.NewBrokerExchanger(cfg.TokenExchangeBroker)))
@@ -142,6 +143,26 @@ func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger, 
 	return opts, nil
 }
 
+// validateBrokerTarget checks one broker target: a Dex exchange target needs
+// its dexTokenEndpoint, a grant target its HTTPS grantIssuer and none of the
+// exchange fields, and a target cannot be both.
+func validateBrokerTarget(audience string, target config.BrokerTargetConfig) error {
+	switch {
+	case target.GrantIssuer != "" && target.DexTokenEndpoint != "":
+		return fmt.Errorf("tokenExchangeBroker target %q sets both grantIssuer and dexTokenEndpoint; a target either releases the person's grant or exchanges at a downstream Dex", audience)
+	case target.GrantIssuer != "":
+		if !strings.HasPrefix(target.GrantIssuer, "https://") {
+			return fmt.Errorf("tokenExchangeBroker target %q: grantIssuer must be an HTTPS issuer URL (got %q)", audience, target.GrantIssuer)
+		}
+		if target.ConnectorID != "" || target.Scopes != "" || target.ExpectedIssuer != "" || target.ClientCredentialsSecretRef != nil {
+			return fmt.Errorf("tokenExchangeBroker target %q releases the person's grant for %s and takes no exchange settings (connectorId, scopes, expectedIssuer, clientCredentialsSecretRef)", audience, target.GrantIssuer)
+		}
+	case target.DexTokenEndpoint == "":
+		return fmt.Errorf("tokenExchangeBroker target %q requires dexTokenEndpoint (downstream Dex token endpoint) or grantIssuer (release the person's grant)", audience)
+	}
+	return nil
+}
+
 // seedBrokerClients ensures each configured confidential broker client exists
 // in the OAuth server's store, recreating its record from the same id+secret on
 // every startup. mcp-oauth stores a broker client's record (id -> bcrypt secret
@@ -160,38 +181,53 @@ func seedBrokerClients(ctx context.Context, srv *oauth.Server, broker config.Tok
 	}
 
 	handler := api.GetSecretCredentialsHandler()
-	if handler == nil {
-		logger.Warn("Cannot seed broker clients: no secret credentials handler registered (requires Kubernetes mode)",
-			"brokerClients", len(broker.BrokerClients))
-		return
-	}
 
 	for clientID, bc := range broker.BrokerClients {
-		if bc.ClientCredentialsSecretRef == nil {
-			logger.Warn("Skipping broker client seed: no clientCredentialsSecretRef", "client_id", clientID)
+		var clientSecret string
+		switch {
+		case bc.ClientSecretFile != "":
+			data, err := os.ReadFile(bc.ClientSecretFile)
+			if err != nil {
+				logger.Warn("Failed to read broker client secret file; skipping seed",
+					"client_id", clientID, "file", bc.ClientSecretFile, "error", err)
+				continue
+			}
+			clientSecret = strings.TrimSpace(string(data))
+		case bc.ClientCredentialsSecretRef != nil:
+			if handler == nil {
+				logger.Warn("Cannot seed broker client: no secret credentials handler registered (requires Kubernetes mode)",
+					"client_id", clientID)
+				continue
+			}
+			ref := bc.ClientCredentialsSecretRef
+			creds, err := handler.LoadClientCredentials(ctx, &api.ClientCredentialsSecretRef{
+				Name:            ref.Name,
+				Namespace:       ref.Namespace,
+				ClientIDKey:     ref.ClientIDKey,
+				ClientSecretKey: ref.ClientSecretKey,
+			}, broker.DefaultSecretNamespace)
+			if err != nil {
+				logger.Warn("Failed to load broker client credentials; skipping seed",
+					"client_id", clientID, "secret", ref.Name, "error", err)
+				continue
+			}
+			// The config map key is authoritative for the client id; warn if the
+			// secret carries a different one so a misconfiguration is visible.
+			if creds.ClientID != "" && creds.ClientID != clientID {
+				logger.Warn("Broker client id in secret differs from config key; using config key",
+					"config_client_id", clientID, "secret_client_id", creds.ClientID)
+			}
+			clientSecret = creds.ClientSecret
+		default:
+			logger.Warn("Skipping broker client seed: neither clientCredentialsSecretRef nor clientSecretFile set", "client_id", clientID)
 			continue
 		}
-		ref := bc.ClientCredentialsSecretRef
-		creds, err := handler.LoadClientCredentials(ctx, &api.ClientCredentialsSecretRef{
-			Name:            ref.Name,
-			Namespace:       ref.Namespace,
-			ClientIDKey:     ref.ClientIDKey,
-			ClientSecretKey: ref.ClientSecretKey,
-		}, broker.DefaultSecretNamespace)
-		if err != nil {
-			logger.Warn("Failed to load broker client credentials; skipping seed",
-				"client_id", clientID, "secret", ref.Name, "error", err)
+		if clientSecret == "" {
+			logger.Warn("Skipping broker client seed: empty client secret", "client_id", clientID)
 			continue
 		}
 
-		// The config map key is authoritative for the client id; warn if the
-		// secret carries a different one so a misconfiguration is visible.
-		if creds.ClientID != "" && creds.ClientID != clientID {
-			logger.Warn("Broker client id in secret differs from config key; using config key",
-				"config_client_id", clientID, "secret_client_id", creds.ClientID)
-		}
-
-		seeded, err := srv.EnsureConfidentialClient(ctx, clientID, creds.ClientSecret, bc.Scopes)
+		seeded, err := srv.EnsureConfidentialClient(ctx, clientID, clientSecret, bc.Scopes)
 		if err != nil {
 			logger.Warn("Failed to seed broker client", "client_id", clientID, "error", err)
 			continue

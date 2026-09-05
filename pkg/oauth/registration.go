@@ -47,6 +47,23 @@ func IsInvalidClientError(err error) bool {
 	return errors.As(err, &tokenErr) && tokenErr.Code == ErrInvalidClient
 }
 
+// ErrBadRefreshToken is GitHub's error code for a refresh token that is
+// expired, revoked or already rotated away (RFC 6749 servers answer
+// invalid_grant for the same condition).
+const ErrBadRefreshToken = "bad_refresh_token"
+
+// IsRefreshTokenRejected reports whether the token endpoint refused a refresh
+// because the refresh token itself is no longer good: RFC 6749 invalid_grant,
+// or GitHub's bad_refresh_token. Anything else -- a network failure, a 5xx, an
+// invalid_client -- says nothing about the grant and is not a rejection.
+func IsRefreshTokenRejected(err error) bool {
+	var tokenErr *TokenEndpointError
+	if !errors.As(err, &tokenErr) {
+		return false
+	}
+	return tokenErr.Code == ErrInvalidGrant || tokenErr.Code == ErrBadRefreshToken
+}
+
 // RegistrationStatus is the outcome of asking an authorization server whether
 // it still recognizes a client registration.
 type RegistrationStatus int

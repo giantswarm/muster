@@ -170,6 +170,32 @@ type MusterBrokerConfig struct {
 	// TrustedIssuers lists the issuers whose subject/actor tokens muster's
 	// exchange will validate (against each referenced mock server's JWKS).
 	TrustedIssuers []BrokerTrustedIssuerConfig `yaml:"trusted_issuers"`
+
+	// Clients seeds confidential broker clients (tokenExchangeBroker.
+	// brokerClients + clientAudiences): the harness writes each secret to a
+	// file in the instance's config directory and points muster at it.
+	// test_broker_token_exchange presents them with client_id/client_secret.
+	Clients []BrokerClientTestConfig `yaml:"clients,omitempty"`
+
+	// GrantTargets maps an audience to the mock OAuth server whose grants
+	// the broker releases (tokenExchangeBroker.targets.<audience>.grantIssuer
+	// = that server's issuer URL). The referenced server must be the pinned
+	// authorization server of an MCPServer with grant_scope: subject.
+	GrantTargets map[string]BrokerGrantTargetConfig `yaml:"grant_targets,omitempty"`
+}
+
+// BrokerClientTestConfig is one confidential broker client of a test
+// instance and the audiences it may request.
+type BrokerClientTestConfig struct {
+	ClientID     string   `yaml:"client_id"`
+	ClientSecret string   `yaml:"client_secret"`
+	Audiences    []string `yaml:"audiences"`
+}
+
+// BrokerGrantTargetConfig references the mock OAuth server a broker grant
+// target releases grants from.
+type BrokerGrantTargetConfig struct {
+	OAuthServerRef string `yaml:"oauth_server_ref"`
 }
 
 // BrokerTrustedIssuerConfig references a mock OAuth server as a trusted issuer for

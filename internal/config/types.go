@@ -404,11 +404,27 @@ func (c TokenExchangeBrokerConfig) Enabled() bool {
 	return len(c.Targets) > 0
 }
 
-// BrokerTargetConfig describes one downstream target of the token broker.
+// BrokerTargetConfig describes one downstream target of the token broker:
+// either an RFC 8693 exchange at a downstream Dex (DexTokenEndpoint and the
+// exchange fields) or the release of a person's own grant (GrantIssuer).
 type BrokerTargetConfig struct {
 	// DexTokenEndpoint is the downstream Dex token endpoint URL (HTTPS).
 	// Example: https://dex.cluster-b.example.com/token
-	DexTokenEndpoint string `yaml:"dexTokenEndpoint"`
+	// Mutually exclusive with GrantIssuer.
+	DexTokenEndpoint string `yaml:"dexTokenEndpoint,omitempty"`
+
+	// GrantIssuer makes the target a grant target: instead of exchanging
+	// the subject token downstream, the broker returns the access token of
+	// the person's own grant from this authorization server -- the grant an
+	// MCPServer pinned with spec.auth.authorizationServer.grantScope:
+	// subject filed under the person (GitHub's user access token, say). The
+	// person is the Dex subject the exchange request's subject token was
+	// validated to; the grant is refreshed first when it is due; the
+	// response carries the access token and its expiry, never the refresh
+	// token; a person without a grant gets invalid_target. HTTPS issuer,
+	// identical to the MCPServer pin. Takes none of the exchange fields.
+	// Example: https://github.com/login/oauth
+	GrantIssuer string `yaml:"grantIssuer,omitempty"`
 
 	// ExpectedIssuer is the expected iss claim of the exchanged token. If
 	// empty, it is derived from DexTokenEndpoint (strip /token suffix).
@@ -432,6 +448,12 @@ type BrokerTargetConfig struct {
 	ClientCredentialsSecretRef *BrokerSecretRefConfig `yaml:"clientCredentialsSecretRef,omitempty"`
 }
 
+// IsGrantTarget reports whether the target releases a person's grant rather
+// than exchanging the subject token at a downstream Dex.
+func (t BrokerTargetConfig) IsGrantTarget() bool {
+	return t.GrantIssuer != ""
+}
+
 // BrokerClientConfig declaratively seeds one confidential broker client. The
 // map key is the client ID; the secret is resolved from the referenced
 // Kubernetes Secret at startup and the client record is idempotently ensured
@@ -442,6 +464,12 @@ type BrokerClientConfig struct {
 	// Backstage) authenticates with. The ClientID resolved from the secret must
 	// match the map key; the map key wins if they differ.
 	ClientCredentialsSecretRef *BrokerSecretRefConfig `yaml:"clientCredentialsSecretRef,omitempty"`
+
+	// ClientSecretFile is a file holding the broker client's secret (the map
+	// key is the client id), for deployments without a Kubernetes Secret
+	// store -- muster serve against a local config directory. Takes
+	// precedence over ClientCredentialsSecretRef when both are set.
+	ClientSecretFile string `yaml:"clientSecretFile,omitempty"`
 
 	// Scopes optionally records the scopes granted to the seeded client. The
 	// audiences a client may request are gated by ClientAudiences, not by these

@@ -169,6 +169,20 @@ type SubjectGrantHandler interface {
 	IssuerSubjectScoped(issuer string) bool
 }
 
+// GrantReleaser is implemented by an OAuthHandler that can hand a person's
+// subject-scoped grant to a trusted relying party: the token broker's grant
+// targets (tokenExchangeBroker.targets.<audience>.grantIssuer) call it with
+// the Dex subject a confidential client's exchange request was validated to
+// and the issuer the grant was filed under. The handler refreshes the grant
+// first when it is due. Kept separate from SubjectGrantHandler so the test
+// doubles of that interface need not grow with it.
+type GrantReleaser interface {
+	// SubjectGrantForRelease returns the person's grant for the issuer,
+	// refreshed when it has expired or is about to, or nil when the person
+	// holds none (or the refresh token was rejected and the grant removed).
+	SubjectGrantForRelease(ctx context.Context, userID, issuer string) *OAuthToken
+}
+
 // FullTokenByIssuerForUser looks a token up with the subject-scoped fallback
 // when the handler supports it and the user is known, and behaves like
 // GetFullTokenByIssuer otherwise.

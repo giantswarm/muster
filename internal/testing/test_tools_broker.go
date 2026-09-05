@@ -138,9 +138,12 @@ func (h *TestToolsHandler) handleMintToken(_ context.Context, args map[string]in
 // the audience-less (self-issued) path always fails; scenarios use this tool
 // to pin that refusal. On failure it returns the OAuth error so negative
 // scenarios can assert on it. On success (a brokered exchange against a
-// downstream target) it returns the issued token's claims.
+// downstream target) it returns the issued token's claims when the token is a
+// JWT, or the opaque token with its expiry when the target released a
+// person's grant (has_refresh_token pins that no refresh token left muster).
 // args: subject_token_ref (required); audience, actor_token_ref,
-// subject_token_type, resource, name optional.
+// subject_token_type, resource, name, client_id, client_secret optional
+// (client_id + client_secret authenticate as a confidential broker client).
 func (h *TestToolsHandler) handleBrokerTokenExchange(ctx context.Context, args map[string]interface{}) (interface{}, error) {
 	if h.currentInstance == nil {
 		return nil, fmt.Errorf("current instance not available")
@@ -180,8 +183,11 @@ func (h *TestToolsHandler) handleBrokerTokenExchange(ctx context.Context, args m
 		form.Set("resource", resource)
 	}
 
+	clientID, _ := args["client_id"].(string)
+	clientSecret, _ := args["client_secret"].(string)
+
 	baseURL := pkgoauth.NormalizeServerURL(h.currentInstance.Endpoint)
-	status, body, err := postForm(ctx, baseURL+"/oauth/token", form)
+	status, body, err := postFormWithClientAuth(ctx, baseURL+"/oauth/token", form, clientID, clientSecret)
 	if err != nil {
 		return nil, fmt.Errorf("token-exchange request failed: %w", err)
 	}
@@ -201,13 +207,36 @@ func (h *TestToolsHandler) handleBrokerTokenExchange(ctx context.Context, args m
 	}
 
 	var tokenResp struct {
-		AccessToken string `json:"access_token"`
+		AccessToken     string `json:"access_token"`
+		IssuedTokenType string `json:"issued_token_type"`
+		TokenType       string `json:"token_type"`
+		ExpiresIn       int    `json:"expires_in"`
+		RefreshToken    string `json:"refresh_token"`
+		Scope           string `json:"scope"`
 	}
 	if err := json.Unmarshal(body, &tokenResp); err != nil {
 		return nil, fmt.Errorf("decoding token response: %w", err)
 	}
 	if tokenResp.AccessToken == "" {
 		return nil, fmt.Errorf("no access_token in token-exchange response")
+	}
+
+	// A grant target releases the person's own (opaque) access token; there
+	// is no signature to verify, the token is what the mock authorization
+	// server issued. Report it with its lifetime instead of claims.
+	if len(strings.Split(tokenResp.AccessToken, ".")) != 3 {
+		if name, _ := args["name"].(string); name != "" {
+			h.mintedTokens[name] = tokenResp.AccessToken
+		}
+		return map[string]interface{}{
+			keySuccess:          true,
+			"access_token":      tokenResp.AccessToken,
+			"issued_token_type": tokenResp.IssuedTokenType,
+			"token_type":        tokenResp.TokenType,
+			"expires_in":        tokenResp.ExpiresIn,
+			"scope":             tokenResp.Scope,
+			"has_refresh_token": tokenResp.RefreshToken != "",
+		}, nil
 	}
 
 	claims, err := h.verifyAgainstMusterJWKS(ctx, baseURL, tokenResp.AccessToken)
@@ -349,12 +378,17 @@ func (h *TestToolsHandler) verifyAgainstMusterJWKS(ctx context.Context, baseURL,
 	return claims, nil
 }
 
-func postForm(ctx context.Context, endpoint string, data url.Values) (int, []byte, error) {
+// postFormWithClientAuth POSTs a form, with HTTP Basic client authentication
+// (RFC 6749 §2.3.1) when clientID is set.
+func postFormWithClientAuth(ctx context.Context, endpoint string, data url.Values, clientID, clientSecret string) (int, []byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(data.Encode()))
 	if err != nil {
 		return 0, nil, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if clientID != "" {
+		req.SetBasicAuth(clientID, clientSecret)
+	}
 	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
 	if err != nil {
 		return 0, nil, err

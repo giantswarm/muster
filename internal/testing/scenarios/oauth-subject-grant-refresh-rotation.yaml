@@ -1,0 +1,146 @@
+name: "oauth-subject-grant-refresh-rotation"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  One rotating refresh token, several sessions of the person. GitHub rotates
+  the refresh token on every redemption and rejects a second redemption of
+  the old one, so a grant shared by many sessions must be refreshed exactly
+  once and the rotated token handed to all of them.
+
+  Two sessions of alice use the same grant: the first completed the consent,
+  the second adopted the grant on its first call. When the grant comes due,
+  the session that happens to make the next call refreshes it; the other
+  session's copy still names the old, now invalid, refresh token -- and its
+  next call must run with the rotated access token from the person's grant
+  rather than redeem the dead refresh token and lose the grant for both.
+tags: ["oauth", "authentication", "github", "subject-grant", "token-refresh", "multi-user", "regression"]
+timeout: "3m"
+
+instance_logs:
+  contains:
+    - "subject_grant_refreshed"
+
+pre_configuration:
+  mock_oauth_servers:
+    - name: "muster-idp"
+      scopes: ["openid", "profile", "email"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "test-client"
+      client_secret: "test-secret"
+      use_as_muster_oauth_server: true
+
+    - name: "github-idp"
+      scopes: ["repo"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "40s"
+      client_id: "github-client"
+      use_tls: true
+
+  mcp_servers:
+    - name: "github-style"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "github-idp"
+          scope: "repo"
+          grant_scope: "subject"
+        tools:
+          - name: "get_me"
+            description: "The authenticated GitHub user, echoing the bearer it saw"
+            echo_token: true
+            responses:
+              - response:
+                  login: "alice"
+
+steps:
+  - id: login-alice-1
+    tool: "test_muster_auth_login"
+    args:
+      subject: "alice"
+    expected:
+      success: true
+  - id: create-alice-first
+    tool: "test_create_user"
+    args:
+      name: "alice-first"
+    expected:
+      success: true
+
+  - id: login-alice-2
+    tool: "test_muster_auth_login"
+    args:
+      subject: "alice"
+    expected:
+      success: true
+  - id: create-alice-second
+    tool: "test_create_user"
+    args:
+      name: "alice-second"
+    expected:
+      success: true
+
+  - id: alice-first-consents
+    as_user: "alice-first"
+    description: "alice's first session completes the consent"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "github-style"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  - id: alice-second-adopts-grant
+    as_user: "alice-second"
+    description: "alice's second session connects from the grant with the original token"
+    tool: "x_github-style_get_me"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "alice"
+      not_contains:
+        - "refreshed-"
+
+  - id: alice-first-refreshes
+    as_user: "alice-first"
+    description: "The first session's calls refresh the grant once it is due (the refresh token rotates)"
+    tool: "x_github-style_get_me"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "alice"
+        - "refreshed-"
+      wait_for_state: "60s"
+
+  # The second session's own copy carries the old refresh token, which the
+  # authorization server no longer accepts. Its call must use the rotated
+  # token from the person's grant -- not redeem the dead one.
+  - id: alice-second-uses-rotated-grant
+    as_user: "alice-second"
+    description: "The second session runs with the rotated token without a second redemption"
+    tool: "x_github-style_get_me"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "alice"
+        - "refreshed-"
+
+  - id: both-sessions-connected
+    as_user: "alice-second"
+    description: "Neither session lost the server"
+    tool: "test_read_auth_status"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "github-style"
+        - "connected"
+      not_contains:
+        - "auth_required"

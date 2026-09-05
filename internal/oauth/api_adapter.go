@@ -163,9 +163,15 @@ func (a *Adapter) IssuerSubjectScoped(issuer string) bool {
 	return a.manager.IssuerSubjectScoped(issuer)
 }
 
+// SubjectGrantForRelease implements api.GrantReleaser.
+func (a *Adapter) SubjectGrantForRelease(ctx context.Context, userID, issuer string) *api.OAuthToken {
+	return fullTokenToAPIToken(a.manager.SubjectGrantForRelease(ctx, userID, issuer))
+}
+
 var (
 	_ api.IssuerPinner        = (*Adapter)(nil)
 	_ api.SubjectGrantHandler = (*Adapter)(nil)
+	_ api.GrantReleaser       = (*Adapter)(nil)
 )
 
 // DeleteTokensByUser removes all downstream tokens for a given user across all sessions.

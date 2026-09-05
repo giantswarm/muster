@@ -364,7 +364,9 @@ func (m *oauthProtectionMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Req
 		fmt.Fprintf(os.Stderr, "🔒 Token validated, passing request to MCP handler\n")
 	}
 
-	// Token valid - pass through to MCP handler
+	// Token valid - pass through to MCP handler. The raw bearer travels down
+	// so an echo_token tool can return it (opaque tokens carry no claims).
+	r = r.WithContext(withReceivedToken(r.Context(), &receivedToken{Raw: token}))
 	m.handler.ServeHTTP(w, r)
 }
 

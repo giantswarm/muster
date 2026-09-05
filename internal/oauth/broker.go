@@ -3,7 +3,9 @@ package oauth
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
@@ -71,6 +73,9 @@ func (b *BrokerExchanger) Exchange(ctx context.Context, req *oauthserver.Exchang
 	if !ok {
 		return nil, fmt.Errorf("%w: no broker target configured for audience %q", oauthserver.ErrInvalidTarget, req.Audience)
 	}
+	if target.IsGrantTarget() {
+		return b.releaseGrant(ctx, req, target)
+	}
 
 	specConfig := api.TokenExchangeConfig{
 		Enabled:          true,
@@ -119,6 +124,71 @@ func (b *BrokerExchanger) Exchange(ctx context.Context, req *oauthserver.Exchang
 		IssuedTokenType: result.IssuedTokenType,
 		ExpiresAt:       result.ExpiresAt,
 	}, nil
+}
+
+// releaseGrant answers a grant target: the person's own grant from the
+// target's issuer, as the OAuth proxy holds it (refreshed when due), released
+// to the authenticated broker client. mcp-oauth has already validated the
+// subject token and the client's audience allowlist; this decides only which
+// person and whether a grant exists.
+//
+// The person is the subject token's raw `sub` -- the Dex subject the grant
+// was filed under when the person connected the server -- not the
+// trustedIssuers subjectClaim mapping mcp-oauth applies for OBO exchanges
+// (gazelle maps the email there), because that mapping never keyed a grant.
+// The refresh token stays in muster: the relying party gets the access token
+// and its remaining lifetime and re-exchanges when that runs out.
+func (b *BrokerExchanger) releaseGrant(ctx context.Context, req *oauthserver.ExchangerRequest, target config.BrokerTargetConfig) (*oauthserver.ExchangerResult, error) {
+	issuer := strings.TrimSuffix(target.GrantIssuer, "/")
+	sub := grantSubject(req.Subject)
+	if sub == "" {
+		return nil, fmt.Errorf("%w: no_grant: the subject token carries no sub to look a grant up by", oauthserver.ErrInvalidTarget)
+	}
+
+	handler := api.GetOAuthHandler()
+	releaser, ok := handler.(api.GrantReleaser)
+	if handler == nil || !handler.IsEnabled() || !ok {
+		return nil, fmt.Errorf("grant target %q: the OAuth proxy is disabled, no grants are held", req.Audience)
+	}
+
+	token := releaser.SubjectGrantForRelease(ctx, sub, issuer)
+	if token == nil || token.AccessToken == "" {
+		logging.InfoWithAttrs("TokenBroker", "subject_grant_release_refused",
+			slog.String("audience", req.Audience),
+			slog.String("client", req.ClientID),
+			slog.String("issuer", issuer),
+			slog.String("sub", logging.TruncateIdentifier(sub)),
+			slog.String("reason", "no_grant"))
+		return nil, fmt.Errorf("%w: no_grant: the person holds no grant for issuer %s", oauthserver.ErrInvalidTarget, issuer)
+	}
+
+	logging.InfoWithAttrs("TokenBroker", "subject_grant_released",
+		slog.String("audience", req.Audience),
+		slog.String("client", req.ClientID),
+		slog.String("issuer", issuer),
+		slog.String("sub", logging.TruncateIdentifier(sub)),
+		slog.Time("expiresAt", token.ExpiresAt))
+
+	return &oauthserver.ExchangerResult{
+		AccessToken:     token.AccessToken,
+		IssuedTokenType: oauthserver.SubjectTokenTypeAccessToken,
+		ExpiresAt:       token.ExpiresAt,
+		Scope:           token.Scope,
+	}, nil
+}
+
+// grantSubject returns the raw `sub` of the validated subject token: the
+// identity muster files subject-scoped grants under. mcp-oauth's
+// SubjectIdentity.Subject may be remapped by the trusted issuer's
+// subjectClaim; the claims keep the token's own subject.
+func grantSubject(identity *oauthserver.SubjectIdentity) string {
+	if identity == nil {
+		return ""
+	}
+	if identity.Claims != nil && identity.Claims.Subject != "" {
+		return identity.Claims.Subject
+	}
+	return identity.Subject
 }
 
 func (b *BrokerExchanger) loadCredentials(ctx context.Context, ref *config.BrokerSecretRefConfig) (*api.ClientCredentials, error) {

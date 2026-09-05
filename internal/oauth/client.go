@@ -104,6 +104,10 @@ type Client struct {
 	// pins holds the operator-configured authorization servers by issuer.
 	pinsMu sync.RWMutex
 	pins   map[string]*IssuerPin
+
+	// refreshGroup single-flights the refresh of a subject-scoped grant per
+	// issuer and person, see SubjectGrant.
+	refreshGroup refreshGroup
 }
 
 // ClientOption configures optional Client parameters.
@@ -225,29 +229,29 @@ func (c *Client) IssuerSubjectScoped(issuer string) bool {
 	return c.subjectScoped(issuer)
 }
 
-// GetTokenForUser is GetToken plus the subject-scoped fallback: when the
-// session holds nothing for a subject-scoped issuer, the grant filed under
-// the user's identity by any earlier session is used.
+// GetTokenForUser is GetToken with subject-scoped grants: for an issuer
+// pinned with grantScope: subject the person's grant is the canonical token
+// -- refreshed on the way when it is due (see SubjectGrant) -- and the
+// session's own copy is consulted only when the person holds no grant. For
+// every other issuer the session's token is returned as before.
 func (c *Client) GetTokenForUser(sessionID, userID, issuer, scope string) *pkgoauth.Token {
-	if token := c.GetToken(sessionID, issuer, scope); token != nil {
-		return token
-	}
 	if userID != "" && c.subjectScoped(issuer) {
-		return c.GetToken(subjectSessionID(userID), issuer, scope)
+		if grant := c.SubjectGrant(context.Background(), userID, issuer); grant != nil {
+			return grant
+		}
 	}
-	return nil
+	return c.GetToken(sessionID, issuer, scope)
 }
 
-// GetByIssuerForUser is the issuer-only lookup with the subject-scoped
-// fallback, see GetTokenForUser.
+// GetByIssuerForUser is the issuer-only lookup with subject-scoped grants,
+// see GetTokenForUser.
 func (c *Client) GetByIssuerForUser(sessionID, userID, issuer string) *pkgoauth.Token {
-	if token := c.tokenStore.GetByIssuer(sessionID, issuer); token != nil {
-		return token
-	}
 	if userID != "" && c.subjectScoped(issuer) {
-		return c.tokenStore.GetByIssuer(subjectSessionID(userID), issuer)
+		if grant := c.SubjectGrant(context.Background(), userID, issuer); grant != nil {
+			return grant
+		}
 	}
-	return nil
+	return c.tokenStore.GetByIssuer(sessionID, issuer)
 }
 
 // DeleteByIssuerForUser removes the session's tokens for an issuer and, for a

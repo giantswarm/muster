@@ -1,0 +1,143 @@
+name: "oauth-subject-grant-refresh"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  muster refreshes a subject-scoped grant (spec.auth.authorizationServer with
+  grantScope: subject, GitHub-style) itself. The authorization server issues
+  short-lived access tokens with a refresh token. Once the person has
+  connected the server, tool calls keep working past the access token's
+  refresh point without any sign-in: the lookup that serves the call finds
+  the grant due for refresh, redeems the refresh token with the client the
+  grant was issued under, stores the rotated token under the person and
+  reconnects nothing -- the running connection simply presents the new
+  bearer.
+
+  The mock authorization server marks refreshed access tokens with a
+  "refreshed-" prefix and the backend echoes the bearer it received, so the
+  scenario can see the moment the refresh happened. Before the fix the store
+  hid the token 30 s before expiry and nothing ever redeemed the refresh
+  token: the connection lost its authentication and the next call failed
+  with "not authenticated".
+tags: ["oauth", "authentication", "github", "subject-grant", "token-refresh", "regression"]
+timeout: "3m"
+
+instance_logs:
+  contains:
+    - "subject_grant_refreshed"
+
+pre_configuration:
+  mock_oauth_servers:
+    - name: "muster-idp"
+      scopes: ["openid", "profile", "email"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "test-client"
+      client_secret: "test-secret"
+      use_as_muster_oauth_server: true
+
+    # GitHub's stand-in: 40 s access tokens with a rotating refresh token.
+    # muster refreshes a grant 30 s before it expires (half the lifetime,
+    # floored at the store's hiding margin), i.e. 10 s after the consent.
+    - name: "github-idp"
+      scopes: ["repo"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "40s"
+      client_id: "github-client"
+      use_tls: true
+
+  mcp_servers:
+    - name: "github-style"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "github-idp"
+          scope: "repo"
+          grant_scope: "subject"
+        tools:
+          - name: "get_me"
+            description: "The authenticated GitHub user, echoing the bearer it saw"
+            echo_token: true
+            responses:
+              - response:
+                  login: "alice"
+
+steps:
+  - id: login-alice
+    tool: "test_muster_auth_login"
+    args:
+      subject: "alice"
+    expected:
+      success: true
+  - id: create-alice
+    tool: "test_create_user"
+    args:
+      name: "alice"
+    expected:
+      success: true
+
+  - id: alice-consents
+    as_user: "alice"
+    description: "alice connects the server once (the consent that issues the grant)"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "github-style"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  - id: call-with-original-token
+    as_user: "alice"
+    description: "Right after the consent the call runs with the original access token"
+    tool: "x_github-style_get_me"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "alice"
+        - "received_token"
+      not_contains:
+        - "refreshed-"
+
+  # Polling the tool call: each call looks the grant up, and the lookup that
+  # finds it within its refresh margin redeems the refresh token. The echoed
+  # bearer flips to the mock's "refreshed-" marker, with no sign-in and no
+  # error in between.
+  - id: call-refreshes-the-grant
+    as_user: "alice"
+    description: "Calls keep succeeding and, once the grant is due, run with the refreshed access token"
+    tool: "x_github-style_get_me"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "alice"
+        - "refreshed-"
+      wait_for_state: "60s"
+
+  - id: call-after-refresh
+    as_user: "alice"
+    description: "The refreshed grant keeps serving the session"
+    tool: "x_github-style_get_me"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "alice"
+        - "refreshed-"
+
+  - id: status-still-connected
+    as_user: "alice"
+    description: "The server never left the connected state"
+    tool: "test_read_auth_status"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "github-style"
+        - "connected"
+      not_contains:
+        - "auth_required"
