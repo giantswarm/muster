@@ -299,7 +299,16 @@ func (c *Client) createAndConnectClient(ctx context.Context) (client.MCPClient, 
 		continuousListening := c.continuousListening
 		c.mu.RUnlock()
 		if continuousListening {
-			httpOpts = append(httpOpts, transport.WithContinuousListening())
+			// SA1019: mcp-go v1 deprecates WithContinuousListening because
+			// protocol revision 2026-07-28 removed the standalone GET stream in
+			// favour of Client.Listen. Keeping the option is the behaviour-
+			// preserving choice here: it pins the connection to the legacy
+			// handshake, which is exactly where mcp-go v0.58.0 already was, and
+			// Client.Listen errors out unless the peer negotiated 2026-07-28.
+			// Dropping it would instead silently cost every pre-2026-07-28
+			// backend its out-of-band notifications. Adopting Client.Listen is a
+			// deliberate protocol migration, tracked separately.
+			httpOpts = append(httpOpts, transport.WithContinuousListening()) //nolint:staticcheck // SA1019: see comment above
 		}
 
 		streamableClient, err := client.NewStreamableHttpClient(c.endpoint, httpOpts...)

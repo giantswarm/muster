@@ -23,6 +23,7 @@ import (
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
 	mcpgoserver "github.com/mark3labs/mcp-go/server"
+	"github.com/mark3labs/mcp-go/server/servertest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -1287,7 +1288,7 @@ func TestEstablishConnectionWithTokenExchange_RefreshUsesResolvedConfig(t *testi
 	logging.InitForCLI(logging.LevelDebug, &logBuf)
 
 	// Fake downstream MCP server for the exchanged-token connection.
-	downstream := mcpgoserver.NewTestStreamableHTTPServer(
+	downstream := servertest.NewTestStreamableHTTPServer(
 		mcpgoserver.NewMCPServer("downstream", "1.0.0", mcpgoserver.WithToolCapabilities(true)),
 	)
 	t.Cleanup(downstream.Close)
@@ -1372,7 +1373,7 @@ func TestExchangeTokenAndCreateClient_RefreshUsesResolvedConfig(t *testing.T) {
 	logging.InitForCLI(logging.LevelDebug, &logBuf)
 
 	// Fake downstream MCP server for the exchanged-token connection.
-	downstream := mcpgoserver.NewTestStreamableHTTPServer(
+	downstream := servertest.NewTestStreamableHTTPServer(
 		mcpgoserver.NewMCPServer("downstream", "1.0.0", mcpgoserver.WithToolCapabilities(true)),
 	)
 	t.Cleanup(downstream.Close)
