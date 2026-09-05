@@ -291,3 +291,23 @@ type StateUpdater interface {
 	//   - err: Optional error associated with the state change
 	UpdateState(state ServiceState, health HealthStatus, err error)
 }
+
+// Keys of the reconnect schedule a remote MCPServer service publishes through
+// ServiceInfo.GetServiceData. The orchestrator's retry loop decides on
+// ServiceDataNextRetryAfter whether an attempt is due, and the reconciler
+// mirrors all four into the MCPServer CR status so `kubectl get mcpserver`
+// shows why the last attempt failed and when muster looks again.
+const (
+	// ServiceDataConsecutiveFailures is an int: connection failures in a row.
+	ServiceDataConsecutiveFailures = "consecutiveFailures"
+	// ServiceDataLastAttempt is a time.Time: when the last attempt was made.
+	ServiceDataLastAttempt = "lastAttempt"
+	// ServiceDataNextRetryAfter is a time.Time: when the next attempt is due.
+	// Absent while no retry is scheduled.
+	ServiceDataNextRetryAfter = "nextRetryAfter"
+	// ServiceDataLastFailureHTTPStatus is an int: the HTTP status the endpoint
+	// answered the last failed attempt with. Absent when the failure carried
+	// no HTTP response (connection refused, DNS, timeout) or the last attempt
+	// succeeded.
+	ServiceDataLastFailureHTTPStatus = "lastFailureHTTPStatus"
+)

@@ -1,0 +1,305 @@
+name: "mcpserver-remote-backoff-cap"
+description: "A remote MCPServer whose endpoint answers 504 for four attempts comes back within the capped reconnect backoff once the endpoint recovers; MCPServerFailed events and the service status name the HTTP status and the next retry, a refused connection is told apart from an upstream 5xx, and a 401 after the outage lands in Auth Required as before (#1163)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "backoff", "unreachable", "events", "oauth", "regression", "issue-1163"]
+timeout: "4m"
+
+# Given: two remote MCP servers behind a "gateway": behind-gateway (plain,
+#        Connected) and behind-gateway-oauth (OAuth-protected, Auth Required).
+#        The harness runs muster with a 1s initial backoff, a 3s backoff cap
+#        and a 1s retry tick (production: 30s, 2m, 30s).
+# When:  the gateway answers the next four requests to behind-gateway with
+#        504 Gateway Timeout and the service is restarted.
+# Then:  every attempt fails with 504; after the third the service is
+#        unreachable and core_service_status carries lastFailureHTTPStatus 504;
+#        the MCPServerFailed events name the HTTP status and the scheduled
+#        retry -- 1s, 2s, then 3s and 3s: the cap, where the uncapped schedule
+#        would have waited 4s and 8s -- and once the gateway serves again the
+#        server is Connected within the cap and its tool answers.
+# When:  the same outage hits behind-gateway-oauth.
+# Then:  it goes unreachable with lastFailureHTTPStatus 504 the same way, and
+#        the 401 it gets after the outage puts it in Auth Required with no
+#        reconnect schedule left over.
+# When:  behind-gateway's backend is stopped instead (connection refused).
+# Then:  the failure event says "no HTTP response" and the status carries no
+#        HTTP status: an upstream 5xx and an endpoint nothing listens on are
+#        told apart without the logs. The server reconnects once the backend
+#        is back.
+#
+# Before the fix the backoff doubled up to 30 minutes: after the four 504s on a
+# management cluster the fifth attempt waited 4.5 minutes and the sixth would
+# have waited 8.5, so users saw the members down long after the gateway had
+# recovered; the event said only "server unreachable after N consecutive
+# failures: ..." and the CR status carried the raw error, no HTTP status and no
+# retry time (giantswarm/muster#1163).
+
+pre_configuration:
+  main_config:
+    config:
+      events: true
+
+  mock_oauth_servers:
+    - name: "backoff-idp"
+      scopes: ["openid", "profile", "mcp:admin"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "backoff-client"
+      client_secret: "backoff-secret"
+
+  mcp_servers:
+    - name: "behind-gateway"
+      config:
+        type: "streamable-http"
+        tools:
+          - name: "probe"
+            description: "Answers when the upstream is reachable"
+            input_schema:
+              type: "object"
+              properties: {}
+            responses:
+              - response: { alive: true }
+    - name: "behind-gateway-oauth"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "backoff-idp"
+        tools:
+          - name: "probe"
+            description: "Answers when the upstream is reachable"
+            input_schema:
+              type: "object"
+              properties: {}
+            responses:
+              - response: { alive: true }
+
+steps:
+  # Baseline: both servers reached their endpoint.
+  - id: "plain-connected"
+    tool: "core_service_status"
+    args:
+      name: "behind-gateway"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "connected"
+    timeout: "45s"
+
+  - id: "oauth-auth-required"
+    tool: "core_service_status"
+    args:
+      name: "behind-gateway-oauth"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "auth_required"
+    timeout: "45s"
+
+  # Phase 1: the gateway in front of behind-gateway times out four times.
+  - id: "plain-gateway-outage"
+    tool: "test_set_mock_server_outage"
+    args:
+      server: "behind-gateway"
+      status: 504
+      requests: 4
+    expected:
+      success: true
+      contains: ["next 4 requests with HTTP 504"]
+    timeout: "15s"
+
+  - id: "plain-restart-hits-504"
+    description: "The first attempt fails with the gateway's 504; the orchestrator retries on the backoff schedule"
+    tool: "core_service_restart"
+    args:
+      name: "behind-gateway"
+    expected:
+      success: false
+      error_contains: ["Failed to restart service", "status 504"]
+    timeout: "30s"
+
+  - id: "plain-unreachable-with-http-status"
+    description: "After the third failure the service is unreachable and its status names the 504"
+    tool: "core_service_status"
+    args:
+      name: "behind-gateway"
+    expected:
+      success: true
+      wait_for_state: "20s"
+      json_path:
+        state: "unreachable"
+        metadata.lastFailureHTTPStatus: 504
+    timeout: "30s"
+
+  - id: "plain-events-name-status-and-capped-schedule"
+    description: "Every MCPServerFailed event names the HTTP status and the next retry; the third and fourth failure wait the 3s cap, not 4s and 8s"
+    tool: "core_events"
+    args:
+      resourceType: "MCPServer"
+      resourceName: "behind-gateway"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains:
+        - "connection failure 1 of 3 before unreachable (endpoint answered HTTP 504, next retry in 1s at "
+        - "connection failure 2 of 3 before unreachable (endpoint answered HTTP 504, next retry in 2s at "
+        - "server unreachable after 3 consecutive failures (endpoint answered HTTP 504, next retry in 3s at "
+        - "server unreachable after 4 consecutive failures (endpoint answered HTTP 504, next retry in 3s at "
+      not_contains:
+        - "next retry in 4s"
+        - "next retry in 8s"
+    timeout: "45s"
+
+  - id: "plain-reconnects-within-cap"
+    description: "The gateway serves again after the fourth request; the next attempt, due within the cap, connects and the schedule is cleared"
+    tool: "core_service_status"
+    args:
+      name: "behind-gateway"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "connected"
+        metadata.consecutiveFailures: 0
+      not_contains: ["lastFailureHTTPStatus", "nextRetryAfter"]
+    timeout: "45s"
+
+  - id: "plain-tool-answers-again"
+    tool: "x_behind-gateway_probe"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "20s"
+      contains: ["alive"]
+    timeout: "30s"
+
+  # Phase 2: the same outage in front of the OAuth-protected server. The 401
+  # it answers once the gateway is back is what it answered before the
+  # outage: Auth Required, not Failed.
+  - id: "oauth-gateway-outage"
+    tool: "test_set_mock_server_outage"
+    args:
+      server: "behind-gateway-oauth"
+      requests: 4
+    expected:
+      success: true
+      contains: ["next 4 requests with HTTP 504"]
+    timeout: "15s"
+
+  - id: "oauth-restart-hits-504"
+    description: "A 504 is a connection failure, not an authentication challenge"
+    tool: "core_service_restart"
+    args:
+      name: "behind-gateway-oauth"
+    expected:
+      success: false
+      error_contains: ["Failed to restart service", "status 504"]
+      not_contains: ["requires OAuth authentication"]
+    timeout: "30s"
+
+  - id: "oauth-unreachable-with-http-status"
+    tool: "core_service_status"
+    args:
+      name: "behind-gateway-oauth"
+    expected:
+      success: true
+      wait_for_state: "20s"
+      json_path:
+        state: "unreachable"
+        metadata.lastFailureHTTPStatus: 504
+    timeout: "30s"
+
+  - id: "oauth-events-name-status-and-capped-schedule"
+    tool: "core_events"
+    args:
+      resourceType: "MCPServer"
+      resourceName: "behind-gateway-oauth"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains:
+        - "server unreachable after 4 consecutive failures (endpoint answered HTTP 504, next retry in 3s at "
+    timeout: "45s"
+
+  - id: "oauth-401-after-recovery-is-auth-required"
+    description: "The 401 after the outage proves the endpoint is back: Auth Required, and the outage's reconnect schedule does not linger in the status"
+    tool: "core_service_status"
+    args:
+      name: "behind-gateway-oauth"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "auth_required"
+        metadata.consecutiveFailures: 0
+      not_contains: ["lastFailureHTTPStatus", "nextRetryAfter"]
+    timeout: "45s"
+
+  # Phase 3: the backend itself is gone. No HTTP response this time, and the
+  # status and events say so.
+  - id: "plain-backend-gone"
+    tool: "test_stop_mock_server"
+    args:
+      server: "behind-gateway"
+    expected:
+      success: true
+      contains: ["Stopped mock server"]
+    timeout: "15s"
+
+  - id: "plain-restart-refused"
+    tool: "core_service_restart"
+    args:
+      name: "behind-gateway"
+    expected:
+      success: false
+      error_contains: ["Failed to restart service", "connection refused"]
+    timeout: "30s"
+
+  - id: "plain-failed-without-http-status"
+    description: "A refused connection carries no HTTP status: the key is absent, unlike the 504 above"
+    tool: "core_service_status"
+    args:
+      name: "behind-gateway"
+    expected:
+      success: true
+      wait_for_state: "20s"
+      json_path:
+        state: "unreachable"
+      contains: ["connection refused"]
+      not_contains: ["lastFailureHTTPStatus"]
+    timeout: "30s"
+
+  - id: "plain-events-say-no-http-response"
+    tool: "core_events"
+    args:
+      resourceType: "MCPServer"
+      resourceName: "behind-gateway"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains:
+        - "connection failure 1 of 3 before unreachable (no HTTP response, next retry in 1s at "
+    timeout: "45s"
+
+  - id: "plain-backend-back"
+    tool: "test_start_mock_server"
+    args:
+      server: "behind-gateway"
+    expected:
+      success: true
+      contains: ["Started mock server"]
+    timeout: "15s"
+
+  - id: "plain-reconnects-after-backend-back"
+    tool: "core_service_status"
+    args:
+      name: "behind-gateway"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "connected"
+    timeout: "45s"

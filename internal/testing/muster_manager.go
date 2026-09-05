@@ -1246,6 +1246,10 @@ func (m *musterInstanceManager) startMusterProcess(ctx context.Context, configPa
 	cmd.Env = append(env,
 		"GOMAXPROCS="+childGOMAXPROCS,
 		"MUSTER_MCPSERVER_INITIAL_BACKOFF=1s",
+		// A cap three times the initial backoff: the third and fourth failure
+		// both wait 3s (instead of 4s and 8s), so a scenario sees the cap bite
+		// within seconds and can assert on the exact schedule.
+		"MUSTER_MCPSERVER_MAX_BACKOFF=3s",
 		"MUSTER_ORCHESTRATOR_RETRY_INTERVAL=1s",
 		"OTEL_METRICS_EXPORTER=prometheus",
 		"OTEL_EXPORTER_PROMETHEUS_HOST=127.0.0.1",

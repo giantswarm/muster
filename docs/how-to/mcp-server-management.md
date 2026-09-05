@@ -578,6 +578,31 @@ muster update mcpserver remote-api \
   --header "Authorization=Bearer new-token"
 ```
 
+**Upstream 5xx and reconnect backoff:**
+
+A remote server whose connection attempt fails for a transient reason (connection
+refused, DNS, timeout, HTTP 5xx) is retried automatically. The wait between
+attempts starts at 30 s, doubles on every consecutive failure and is capped at
+2 minutes; from the third failure on the server is reported as `Failed`
+(`unreachable` in `core_service_status`). The orchestrator checks every 30 s
+whether an attempt is due, so a server whose upstream has recovered is back
+within the cap plus one tick.
+
+```bash
+# Why did the last attempt fail and when is the next one?
+kubectl get mcpserver remote-api -o jsonpath='{.status.lastError}{"\n"}{.status.lastFailureHTTPStatus}{"\n"}{.status.nextRetryAfter}{"\n"}'
+
+# The same from the events: HTTP status and scheduled retry per attempt
+muster events --resource-type MCPServer --resource-name remote-api
+```
+
+`status.lastFailureHTTPStatus` is set when the endpoint answered -- `504` from a
+gateway or tunnel in front of a healthy server, `503` from the server itself --
+and absent when nothing answered at all. Three environment variables on the
+muster process tune the schedule: `MUSTER_MCPSERVER_INITIAL_BACKOFF` (default
+`30s`), `MUSTER_MCPSERVER_MAX_BACKOFF` (default `2m`) and
+`MUSTER_ORCHESTRATOR_RETRY_INTERVAL` (default `30s`), each a Go duration.
+
 ## Advanced Configuration
 
 ### Environment Variables for Stdio Servers

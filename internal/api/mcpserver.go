@@ -622,6 +622,12 @@ type MCPServerInfo struct {
 	// NextRetryAfter indicates the earliest time when the next retry should be attempted.
 	NextRetryAfter *time.Time `json:"nextRetryAfter,omitempty"`
 
+	// LastFailureHTTPStatus is the HTTP status the endpoint answered the most
+	// recent failed connection attempt with (e.g. 504 from a gateway in front
+	// of the server). 0 when the failure carried no HTTP response or the last
+	// attempt succeeded.
+	LastFailureHTTPStatus int `json:"lastFailureHTTPStatus,omitempty"`
+
 	// SessionStatus represents the per-user session connection status.
 	// This is only populated when the request includes a session context.
 	// Possible values: connected, disconnected, pending_auth, failed

@@ -284,12 +284,10 @@ func (eh *EventHandler) generateServiceStateEvents(event api.ServiceStateChanged
 		}
 	case api.StateStopped:
 		eh.generateEvent(event.Name, events.ReasonMCPServerStopped, events.EventData{})
-	case api.StateFailed:
-		eventData := events.EventData{}
-		if event.Error != nil {
-			eventData.Error = event.Error.Error()
-		}
-		eh.generateEvent(event.Name, events.ReasonMCPServerFailed, eventData)
+		// StateFailed emits nothing here: the MCPServer service publishes one
+		// MCPServerFailed per failed attempt itself, carrying the HTTP status
+		// and the scheduled retry (issue #1163). A second event with the bare
+		// error next to it only made the operator wonder which one to read.
 	}
 
 	if api.ServiceState(event.NewState) == api.StateRunning && api.HealthStatus(event.Health) == api.HealthUnhealthy {

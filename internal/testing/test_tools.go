@@ -73,6 +73,11 @@ const (
 	// TestToolStartMockServer starts a mock MCP HTTP server stopped with
 	// TestToolStopMockServer again, on the port muster knows it by.
 	TestToolStartMockServer = "test_start_mock_server"
+	// TestToolSetMockServerOutage makes a running mock MCP HTTP server answer
+	// its next N requests with a fixed HTTP status (504 by default) and serve
+	// normally afterwards: a gateway in front of a healthy server timing out,
+	// as opposed to the server being gone (TestToolStopMockServer).
+	TestToolSetMockServerOutage = "test_set_mock_server_outage"
 	// TestToolCallMetaTool invokes a meta-tool (e.g. filter_tools, describe_tool,
 	// list_core_tools) directly on the aggregator MCP server. Meta-tools are
 	// registered as first-class MCP tools and are NOT reachable through the
@@ -207,6 +212,7 @@ func IsTestTool(toolName string) bool {
 		TestToolRemoveMockTool,
 		TestToolStopMockServer,
 		TestToolStartMockServer,
+		TestToolSetMockServerOutage,
 		TestToolCallMetaTool,
 		TestToolGetServerInfo,
 		TestToolMintToken,
@@ -260,6 +266,8 @@ func (h *TestToolsHandler) HandleTestTool(ctx context.Context, toolName string, 
 		return h.handleStopMockServer(ctx, args)
 	case TestToolStartMockServer:
 		return h.handleStartMockServer(ctx, args)
+	case TestToolSetMockServerOutage:
+		return h.handleSetMockServerOutage(ctx, args)
 	case TestToolCallMetaTool:
 		return h.handleCallMetaTool(ctx, args)
 	case TestToolScrapeMetrics:
@@ -1978,6 +1986,77 @@ func (h *TestToolsHandler) handleStartMockServer(ctx context.Context, args map[s
 		api.FieldServer:  serverName,
 		"port":           port,
 	}, nil
+}
+
+// mockServerOutage is the part of a mock MCP HTTP server (plain or
+// OAuth-protected) that the outage test tool drives.
+type mockServerOutage interface {
+	SetOutage(status, requests int)
+	OutageRemaining() int
+}
+
+// handleSetMockServerOutage makes a mock MCP HTTP server answer its next N
+// requests with an HTTP status and serve normally afterwards. The server keeps
+// listening, so muster's connection attempts get an HTTP response (504 by
+// default) rather than a refused connection -- the shape of a gateway or
+// tunnel in front of a healthy server failing for a while. One initialize
+// attempt is one request, so requests counts failed attempts; requests of 0
+// ends an outage early.
+//
+// Args:
+//   - server: Required. Name of the mock MCP server.
+//   - requests: Required. Number of requests to answer with the status (0 clears).
+//   - status: Optional. HTTP status to answer with (default 504).
+func (h *TestToolsHandler) handleSetMockServerOutage(_ context.Context, args map[string]interface{}) (interface{}, error) {
+	serverName, ok := args["server"].(string)
+	if !ok || serverName == "" {
+		return nil, fmt.Errorf("server argument is required")
+	}
+	requests, ok := intArg(args, "requests")
+	if !ok || requests < 0 {
+		return nil, fmt.Errorf("requests argument is required and must be a non-negative integer")
+	}
+	status := http.StatusGatewayTimeout
+	if v, present := intArg(args, "status"); present {
+		if v < 100 || v > 599 {
+			return nil, fmt.Errorf("status must be an HTTP status code, got %d", v)
+		}
+		status = v
+	}
+	srv, err := h.lookupMockServer(serverName)
+	if err != nil {
+		return nil, err
+	}
+	gate, ok := srv.(mockServerOutage)
+	if !ok {
+		return nil, fmt.Errorf("mock server %s does not support outages", serverName)
+	}
+	gate.SetOutage(status, requests)
+	if h.debug {
+		h.logger.Debug("Mock server '%s' answers its next %d requests with HTTP %d\n", serverName, requests, status)
+	}
+	return map[string]interface{}{
+		api.FieldSuccess: true,
+		api.FieldMessage: fmt.Sprintf("Mock server '%s' answers its next %d requests with HTTP %d", serverName, requests, status),
+		api.FieldServer:  serverName,
+		"status":         status,
+		"requests":       requests,
+	}, nil
+}
+
+// intArg reads an integer argument that YAML or JSON may have delivered as
+// int or float64.
+func intArg(args map[string]interface{}, name string) (int, bool) {
+	switch v := args[name].(type) {
+	case int:
+		return v, true
+	case int64:
+		return int(v), true
+	case float64:
+		return int(v), true
+	default:
+		return 0, false
+	}
 }
 
 // handleCallMetaTool invokes a meta-tool directly on the aggregator MCP server,

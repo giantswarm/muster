@@ -35,6 +35,9 @@ type HTTPServer struct {
 	running       bool
 	debug         bool
 	shutdownError error
+	// outage, when armed, answers requests with a fixed HTTP status before
+	// the MCP handler sees them. It survives Stop/StartOnPort.
+	outage outageGate
 }
 
 // NewHTTPServer creates a new HTTP mock server from an existing mock server
@@ -87,7 +90,7 @@ func (s *HTTPServer) startServing() {
 		fmt.Fprintf(os.Stderr, "🌐 Starting mock HTTP server (%s) on port %d\n", s.transport, s.port)
 	}
 
-	handler := s.createHandler()
+	handler := s.outage.wrap(s.createHandler())
 	httpServer := &http.Server{ //nolint:gosec
 		Handler: handler,
 	}
@@ -192,6 +195,13 @@ func (s *HTTPServer) Stop(ctx context.Context) error {
 				fmt.Fprintf(os.Stderr, "⚠️  Force closed mock HTTP server: %v\n", err)
 			}
 		}
+	}
+	// Shutdown only closes the listeners Serve has registered. When Stop runs
+	// before the serving goroutine got there, the port would stay bound until
+	// that goroutine returns; release it here so StartOnPort can rebind at once.
+	if s.listener != nil {
+		_ = s.listener.Close()
+		s.listener = nil
 	}
 
 	s.running = false
