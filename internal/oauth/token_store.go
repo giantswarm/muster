@@ -42,6 +42,20 @@ type TokenStorer interface {
 	// server as the person disconnects every session of that person.
 	DeleteByUserAndIssuer(userID, issuer string)
 
+	// GetByIssuerIncludingExpired is GetByIssuer without the expiry filter:
+	// it returns the session's token for the issuer even when it has expired,
+	// so a refresh path can redeem the refresh token it carries. Tokens with
+	// an access token are preferred, then the one that expires last. Returns
+	// nil when the session holds nothing for the issuer.
+	GetByIssuerIncludingExpired(sessionID, issuer string) *pkgoauth.Token
+
+	// ReplaceByUserAndIssuer overwrites the user's tokens for one issuer in
+	// every session that holds one -- the subject-scoped grant included --
+	// with token, keeping each entry's key. It reports how many entries were
+	// replaced. Used after a refresh so every session of the person sees the
+	// rotated token and nobody redeems the old refresh token again.
+	ReplaceByUserAndIssuer(userID, issuer string, token *pkgoauth.Token) int
+
 	// DeleteBySession removes all tokens for a session.
 	DeleteBySession(sessionID string)
 
@@ -53,6 +67,34 @@ type TokenStorer interface {
 
 	// Stop releases resources (background goroutines, connections, etc.).
 	Stop()
+}
+
+// refreshableTokenRetention is how long an expired token that still carries a
+// refresh token stays in the in-memory store. The refresh path redeems the
+// refresh token on the next lookup, so sweeping such an entry as soon as its
+// access token expires would end a grant that could have lived on (GitHub's
+// refresh tokens are good for six months). Matches DefaultTokenStoreTTL, the
+// Valkey key TTL that bounds the same entries there.
+const refreshableTokenRetention = 30 * 24 * time.Hour
+
+// preferToken reports whether candidate is the better token to return for an
+// issuer when several entries match: one with an access token beats one
+// without, then the one that expires last (a token without expiry counts as
+// expiring last).
+func preferToken(current, candidate *pkgoauth.Token) bool {
+	if candidate == nil {
+		return false
+	}
+	if current == nil {
+		return true
+	}
+	if (candidate.AccessToken != "") != (current.AccessToken != "") {
+		return candidate.AccessToken != ""
+	}
+	if candidate.ExpiresAt.IsZero() {
+		return !current.ExpiresAt.IsZero()
+	}
+	return !current.ExpiresAt.IsZero() && candidate.ExpiresAt.After(current.ExpiresAt)
 }
 
 // tokenEntry wraps a token with its owning user ID for reverse-lookup by user.
@@ -148,6 +190,43 @@ func (ts *TokenStore) GetByIssuer(sessionID, issuer string) *pkgoauth.Token {
 		}
 	}
 	return fallback
+}
+
+// GetByIssuerIncludingExpired returns the session's token for the issuer
+// regardless of expiry, see TokenStorer.
+func (ts *TokenStore) GetByIssuerIncludingExpired(sessionID, issuer string) *pkgoauth.Token {
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+
+	var best *pkgoauth.Token
+	for key, entry := range ts.tokens {
+		if key.SessionID == sessionID && key.Issuer == issuer && preferToken(best, entry.token) {
+			best = entry.token
+		}
+	}
+	return best
+}
+
+// ReplaceByUserAndIssuer overwrites the user's tokens for one issuer in every
+// session that holds one, see TokenStorer.
+func (ts *TokenStore) ReplaceByUserAndIssuer(userID, issuer string, token *pkgoauth.Token) int {
+	if token == nil {
+		return 0
+	}
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+
+	token.SetExpiresAtFromExpiresIn()
+	count := 0
+	for key, entry := range ts.tokens {
+		if entry.userID == userID && key.Issuer == issuer {
+			replacement := *token
+			entry.token = &replacement
+			count++
+		}
+	}
+	logging.Debug("OAuth", "Replaced %d tokens for user=%s issuer=%s", count, logging.TruncateIdentifier(userID), issuer)
+	return count
 }
 
 // GetAllForSession returns all valid tokens for a session.
@@ -279,17 +358,24 @@ func (ts *TokenStore) cleanupLoop() {
 	}
 }
 
-// cleanup removes all expired tokens from the store.
+// cleanup removes expired tokens from the store. A token that still carries
+// a refresh token is refreshable, not dead: it is kept for
+// refreshableTokenRetention past its expiry so the refresh path can redeem
+// it on the next lookup.
 func (ts *TokenStore) cleanup() {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
 
 	count := 0
 	for key, entry := range ts.tokens {
-		if entry.token.IsExpiredWithMargin(0) {
-			delete(ts.tokens, key)
-			count++
+		if !entry.token.IsExpiredWithMargin(0) {
+			continue
 		}
+		if entry.token.RefreshToken != "" && !entry.token.IsExpiredWithMargin(-refreshableTokenRetention) {
+			continue
+		}
+		delete(ts.tokens, key)
+		count++
 	}
 
 	if count > 0 {

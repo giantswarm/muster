@@ -1071,6 +1071,10 @@ func (s *OAuthServer) handleAuthCodeExchange(w http.ResponseWriter, r *http.Requ
 	_ = json.NewEncoder(w).Encode(response) //nolint:gosec
 }
 
+// RefreshedTokenPrefix marks access tokens the mock issued on a refresh_token
+// grant, so scenarios can assert that a client redeemed its refresh token.
+const RefreshedTokenPrefix = "refreshed-"
+
 func (s *OAuthServer) handleRefreshToken(w http.ResponseWriter, r *http.Request) {
 	refreshToken := r.FormValue(pkgoauth.FormFieldRefreshToken) //nolint:gosec
 
@@ -1095,8 +1099,9 @@ func (s *OAuthServer) handleRefreshToken(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Generate new tokens
-	newAccessToken := s.generateAccessToken(originalToken.ClientID, originalToken.Scope)
+	// Generate new tokens. The access token carries a marker so a scenario
+	// can tell a refreshed token from the original one the consent issued.
+	newAccessToken := RefreshedTokenPrefix + s.generateAccessToken(originalToken.ClientID, originalToken.Scope)
 	newRefreshToken := generateOpaqueToken()
 
 	// Generate new ID token, preserving subject from original token.

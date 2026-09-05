@@ -2,6 +2,7 @@ package server
 
 import (
 	"crypto/x509"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -249,4 +250,46 @@ func TestToTrustedIssuer_PropagatesCAPool(t *testing.T) {
 
 	issuerNoPool := toTrustedIssuer(config.TrustedIssuerConfig{Issuer: "https://dex.example.com"}, nil)
 	require.Nil(t, issuerNoPool.RootCAs)
+}
+
+func TestValidateBrokerTarget(t *testing.T) {
+	cases := []struct {
+		name    string
+		target  config.BrokerTargetConfig
+		wantErr string
+	}{
+		{"dex exchange target", config.BrokerTargetConfig{DexTokenEndpoint: "https://dex.example.com/token", ConnectorID: "main"}, ""},
+		{"grant target", config.BrokerTargetConfig{GrantIssuer: "https://github.com/login/oauth"}, ""},
+		{"neither", config.BrokerTargetConfig{ConnectorID: "main"}, "dexTokenEndpoint"},
+		{"both", config.BrokerTargetConfig{DexTokenEndpoint: "https://dex.example.com/token", GrantIssuer: "https://github.com/login/oauth"}, "both grantIssuer and dexTokenEndpoint"},
+		{"plain http grant issuer", config.BrokerTargetConfig{GrantIssuer: "http://github.example.com"}, "HTTPS"},
+		{"grant target with exchange settings", config.BrokerTargetConfig{GrantIssuer: "https://github.com/login/oauth", ConnectorID: "main"}, "takes no exchange settings"},
+		{"grant target with credentials", config.BrokerTargetConfig{GrantIssuer: "https://github.com/login/oauth", ClientCredentialsSecretRef: &config.BrokerSecretRefConfig{Name: "x"}}, "takes no exchange settings"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateBrokerTarget("github", tc.target)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
+
+func TestBuildOAuthServerOptions_AcceptsGrantTarget(t *testing.T) {
+	cfg := config.OAuthServerConfig{
+		TrustedIssuers: []config.TrustedIssuerConfig{{Issuer: "https://dex.example.com", JwksURL: "https://dex.example.com/keys"}},
+		TokenExchangeBroker: config.TokenExchangeBrokerConfig{
+			ClientAudiences: map[string][]string{"devportal": {"github"}},
+			Targets: map[string]config.BrokerTargetConfig{
+				"github": {GrantIssuer: "https://github.com/login/oauth"},
+			},
+		},
+	}
+	opts, err := buildOAuthServerOptions(cfg, slog.Default(), nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, opts)
 }

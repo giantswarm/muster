@@ -240,6 +240,126 @@ func (s *ValkeyTokenStore) GetByIssuer(sessionID, issuer string) *pkgoauth.Token
 	return fallback
 }
 
+// GetByIssuerIncludingExpired returns the session's token for the issuer
+// regardless of expiry, see TokenStorer.
+func (s *ValkeyTokenStore) GetByIssuerIncludingExpired(sessionID, issuer string) *pkgoauth.Token {
+	ctx := context.Background()
+
+	result := s.client.Do(ctx, s.client.B().Hgetall().Key(s.sessionKey(sessionID)).Build())
+	if err := result.Error(); err != nil {
+		if !valkey.IsValkeyNil(err) {
+			logging.Warn("OAuth", "ValkeyTokenStore: GetByIssuerIncludingExpired HGETALL failed: %v", err)
+		}
+		return nil
+	}
+	m, err := result.AsStrMap()
+	if err != nil || len(m) == 0 {
+		return nil
+	}
+
+	prefix := issuer + valkeyTokenFieldSep
+	var best *pkgoauth.Token
+	for field, stored := range m {
+		if !strings.HasPrefix(field, prefix) {
+			continue
+		}
+		entry, err := s.decodeEntry(stored)
+		if err != nil {
+			continue
+		}
+		if token := entryToToken(entry); preferToken(best, token) {
+			best = token
+		}
+	}
+	return best
+}
+
+// ReplaceByUserAndIssuer overwrites the user's tokens for one issuer in every
+// session of the user's session set (the subject-scoped grant is one of them),
+// see TokenStorer.
+func (s *ValkeyTokenStore) ReplaceByUserAndIssuer(userID, issuer string, token *pkgoauth.Token) int {
+	if token == nil {
+		return 0
+	}
+	ctx := context.Background()
+
+	token.SetExpiresAtFromExpiresIn()
+	jsonData, err := json.Marshal(tokenToEntry(token, userID)) //nolint:gosec
+	if err != nil {
+		logging.Warn("OAuth", "ValkeyTokenStore: ReplaceByUserAndIssuer marshal failed: %v", err)
+		return 0
+	}
+	value, err := s.encryptValue(jsonData)
+	if err != nil {
+		logging.Warn("OAuth", "ValkeyTokenStore: ReplaceByUserAndIssuer encrypt failed: %v", err)
+		return 0
+	}
+
+	result := s.client.Do(ctx, s.client.B().Smembers().Key(s.userKey(userID)).Build())
+	if err := result.Error(); err != nil {
+		if !valkey.IsValkeyNil(err) {
+			logging.Warn("OAuth", "ValkeyTokenStore: ReplaceByUserAndIssuer SMEMBERS failed: %v", err)
+		}
+		return 0
+	}
+	sessionIDs, err := result.AsStrSlice()
+	if err != nil || len(sessionIDs) == 0 {
+		return 0
+	}
+
+	ttlSec := int64(s.ttl.Seconds())
+	replaced := 0
+	for _, sid := range sessionIDs {
+		fieldsResult := s.client.Do(ctx, s.client.B().Hkeys().Key(s.sessionKey(sid)).Build())
+		if err := fieldsResult.Error(); err != nil {
+			if !valkey.IsValkeyNil(err) {
+				logging.Warn("OAuth", "ValkeyTokenStore: ReplaceByUserAndIssuer HKEYS failed: %v", err)
+			}
+			continue
+		}
+		fields, err := fieldsResult.AsStrSlice()
+		if err != nil {
+			continue
+		}
+		for _, field := range fields {
+			if fieldIssuer, _ := parseFieldName(field); fieldIssuer != issuer {
+				continue
+			}
+			cmds := valkey.Commands{
+				s.client.B().Hset().Key(s.sessionKey(sid)).FieldValue().FieldValue(field, value).Build(),
+				s.client.B().Expire().Key(s.sessionKey(sid)).Seconds(ttlSec).Build(),
+			}
+			failed := false
+			for _, resp := range s.client.DoMulti(ctx, cmds...) {
+				if err := resp.Error(); err != nil {
+					logging.Warn("OAuth", "ValkeyTokenStore: ReplaceByUserAndIssuer HSET failed: %v", err)
+					failed = true
+				}
+			}
+			if !failed {
+				replaced++
+			}
+		}
+	}
+
+	logging.Debug("OAuth", "ValkeyTokenStore: replaced %d tokens for user=%s issuer=%s",
+		replaced, logging.TruncateIdentifier(userID), issuer)
+	return replaced
+}
+
+// decodeEntry decrypts and unmarshals one stored hash field.
+func (s *ValkeyTokenStore) decodeEntry(stored string) (*valkeyTokenEntry, error) {
+	plaintext, err := s.decryptValue(stored)
+	if err != nil {
+		return nil, err
+	}
+	var entry valkeyTokenEntry
+	if err := json.Unmarshal(plaintext, &entry); err != nil {
+		return nil, err
+	}
+	return &entry, nil
+}
+
 func (s *ValkeyTokenStore) GetAllForSession(sessionID string) map[TokenKey]*pkgoauth.Token {
 	ctx := context.Background()
 

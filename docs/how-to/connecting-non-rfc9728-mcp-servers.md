@@ -134,6 +134,103 @@ keep working. Concretely:
 "Sign out everywhere" removes the grant as well; logging one session out of
 muster does not.
 
+### Keeping the grant alive: refresh
+
+Access tokens from such an authorization server are short-lived (a GitHub
+App's user access token lives eight hours) and come with a refresh token
+(GitHub's lives six months and is rotated on every use). muster refreshes a
+subject-scoped grant itself, so the person connects once and the grant then
+lives as long as the refresh token does, across every session and muster
+restart:
+
+- The grant filed under the person is the canonical copy. Every lookup that
+  serves a tool call, a `core_auth_login` or a broker release checks it
+  first; when its access token has expired or will within the refresh margin
+  (five minutes, capped at half the token's lifetime), muster redeems the
+  refresh token at the pinned `tokenEndpoint` with the pre-registered client
+  from `clientCredentialsSecretRef`, stores the rotated tokens under the
+  person and under every session copy, and serves the new access token. A
+  running connection presents the new bearer on its next request; nothing
+  reconnects.
+- Refreshes are single-flighted per person and issuer, and the store is
+  re-read inside the flight, so many sessions and tool calls arriving at once
+  cost one token request -- which matters because a rotating refresh token
+  can be redeemed exactly once.
+- A refresh the authorization server rejects (`invalid_grant`, GitHub's
+  `bad_refresh_token`: the person revoked the App, the refresh token
+  expired) removes the grant for the person; the next use asks for a
+  sign-in, which GitHub answers with a consent page again. A transient
+  failure (network, 5xx) keeps the grant and the still-valid access token
+  and is retried on the next lookup. Both are logged as
+  `subject_grant_refresh_rejected` / `subject_grant_refresh_failed`; a
+  refresh that went through logs `subject_grant_refreshed`.
+
+Session-scoped tokens (the default) are not touched by this: their refresh
+stays with the MCP transport as before.
+
+## Releasing a person's grant to a trusted relying party
+
+A front-end that talks to the same external account with its own client
+libraries -- a developer portal whose GitHub plugins carry their own GitHub
+clients -- needs the person's access token in its own hands, not a tool call
+through muster. The token broker (`tokenExchangeBroker`, see the
+[configuration reference](../reference/configuration.md#brokered-token-exchange-tokenexchangebroker))
+can release a subject-scoped grant to such a party through the standard
+RFC 8693 token exchange it already serves, with a *grant target*:
+
+```yaml
+aggregator:
+  oauth:
+    server:
+      trustedIssuers:
+        - issuer: https://dex.example.com          # the portal's login IdP
+          jwksUrl: https://dex.example.com/keys
+          allowedAudiences: ["portal-client-id"]
+      tokenExchangeBroker:
+        clientAudiences:
+          portal-backend: ["github"]
+        brokerClients:
+          portal-backend:
+            clientCredentialsSecretRef:
+              name: muster-broker-clients
+        targets:
+          github:
+            # The issuer the MCPServer above pins with grantScope: subject.
+            grantIssuer: https://github.com/login/oauth
+```
+
+The relying party's backend (a confidential broker client) POSTs to
+`/oauth/token` with `grant_type=urn:ietf:params:oauth:grant-type:token-exchange`,
+the person's ID token as `subject_token` and `audience=github`, and receives:
+
+```json
+{"access_token": "ghu_…", "issued_token_type": "urn:ietf:params:oauth:token-type:access_token",
+ "token_type": "Bearer", "expires_in": 27540}
+```
+
+- The person is the subject token's own `sub` -- the Dex subject the grant
+  was filed under when the person connected the server -- regardless of a
+  `subjectClaim` mapping the trusted issuer may carry for on-behalf-of
+  exchanges.
+- The access token is the person's, refreshed first when it is due;
+  `expires_in` is its remaining lifetime. The refresh token never leaves
+  muster: the relying party re-exchanges when the token runs out, and each
+  release is audited (`subject_grant_released`) like every exchange.
+- A person without a grant gets `invalid_target`. The relying party then
+  sends the person through muster's connect once: `core_auth_login` for the
+  server answers the sign-in URL, and the start endpoint's `redirect=`
+  parameter (`oauth.mcpClient.postLoginRedirectAllowlist`) brings the
+  browser back to the page that needed the token -- for an App the person
+  already authorized at their login, GitHub redirects straight back without
+  a prompt.
+- `clientAudiences` gates which client may ask for which grant; a grant
+  target takes none of the Dex exchange settings (`connectorId`, `scopes`,
+  `clientCredentialsSecretRef`), and a target is either a grant target or a
+  Dex exchange target, never both.
+- Signing out (`core_auth_logout` on any server of the issuer, "sign out
+  everywhere") revokes the grant for the relying party as well: its next
+  exchange answers `invalid_target`.
+
 ## When not to use this
 
 `authorizationServer` is mutually exclusive with `forwardToken: true` and

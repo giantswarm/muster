@@ -319,6 +319,27 @@ func (c *Client) ExchangeCode(ctx context.Context, tokenEndpoint, code, redirect
 	return c.doTokenRequest(ctx, tokenEndpoint, data)
 }
 
+// RefreshToken redeems a refresh token at the token endpoint (RFC 6749 §6)
+// with the client identification the grant was issued under; clientSecret is
+// empty for public clients. The answer is the authorization server's new
+// token set. An authorization server that rotates refresh tokens (GitHub)
+// answers with a new refresh_token and invalidates the old one; one that does
+// not rotate answers without a refresh_token, and the caller keeps the one it
+// has. A rejected refresh token comes back as a TokenEndpointError whose Code
+// names the reason (invalid_grant, or GitHub's bad_refresh_token), see
+// IsRefreshTokenRejected.
+func (c *Client) RefreshToken(ctx context.Context, tokenEndpoint, refreshToken, clientID, clientSecret string) (*Token, error) {
+	data := url.Values{
+		"grant_type":          {GrantTypeRefreshToken},
+		FormFieldRefreshToken: {refreshToken},
+		"client_id":           {clientID},
+	}
+	if clientSecret != "" {
+		data.Set(FormFieldClientSecret, clientSecret)
+	}
+	return c.doTokenRequest(ctx, tokenEndpoint, data)
+}
+
 // RegisterClient performs OAuth 2.0 Dynamic Client Registration (RFC 7591)
 // against the given registration endpoint. The metadata must not carry a
 // client_id — the authorization server assigns one in the response.
@@ -414,6 +435,20 @@ func (c *Client) doTokenRequest(ctx context.Context, tokenEndpoint string, data 
 			tokenErr.Description = oauthErr.ErrorDescription
 		}
 		return nil, tokenErr
+	}
+
+	// GitHub answers a rejected refresh token (and other grant errors) with
+	// HTTP 200 and an RFC 6749 §5.2 error object in the body. A success body
+	// never carries an error member, so its presence is the verdict.
+	var bodyErr struct {
+		Error            string `json:"error"`
+		ErrorDescription string `json:"error_description"`
+	}
+	if err := json.Unmarshal(body, &bodyErr); err == nil && bodyErr.Error != "" {
+		c.logger.Debug("Token request answered an error object with a success status",
+			"status", resp.StatusCode,
+			"error", bodyErr.Error)
+		return nil, &TokenEndpointError{StatusCode: resp.StatusCode, Code: bodyErr.Error, Description: bodyErr.ErrorDescription}
 	}
 
 	var token Token

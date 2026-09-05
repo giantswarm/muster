@@ -307,6 +307,16 @@ func (m *Manager) GetTokenByIssuerForUser(sessionID, userID, issuer string) *pkg
 	return m.client.GetByIssuerForUser(sessionID, userID, issuer)
 }
 
+// SubjectGrantForRelease returns the person's grant for a subject-scoped
+// issuer, refreshed when due, for release to a trusted relying party through
+// the token broker; nil when the person holds none. See Client.SubjectGrant.
+func (m *Manager) SubjectGrantForRelease(ctx context.Context, userID, issuer string) *pkgoauth.Token {
+	if m == nil {
+		return nil
+	}
+	return m.client.SubjectGrant(ctx, userID, issuer)
+}
+
 // ClearTokenByIssuerForUser removes the session's tokens for an issuer and,
 // for a subject-scoped issuer, the person's grant, see
 // Client.DeleteByIssuerForUser.
