@@ -65,6 +65,14 @@ const (
 	// TestToolRemoveMockTool dynamically removes a tool from a running mock MCP server.
 	// This triggers a notifications/tools/list_changed notification to all connected clients.
 	TestToolRemoveMockTool = "test_remove_mock_tool"
+	// TestToolStopMockServer stops a running mock MCP HTTP server while muster
+	// keeps its MCPServer definition, so a scenario can drive the server into a
+	// failed/unreachable service state (connection refused on the next probe).
+	// The port is kept for TestToolStartMockServer.
+	TestToolStopMockServer = "test_stop_mock_server"
+	// TestToolStartMockServer starts a mock MCP HTTP server stopped with
+	// TestToolStopMockServer again, on the port muster knows it by.
+	TestToolStartMockServer = "test_start_mock_server"
 	// TestToolCallMetaTool invokes a meta-tool (e.g. filter_tools, describe_tool,
 	// list_core_tools) directly on the aggregator MCP server. Meta-tools are
 	// registered as first-class MCP tools and are NOT reachable through the
@@ -197,6 +205,8 @@ func IsTestTool(toolName string) bool {
 		TestToolMusterAuthLogin,
 		TestToolAddMockTool,
 		TestToolRemoveMockTool,
+		TestToolStopMockServer,
+		TestToolStartMockServer,
 		TestToolCallMetaTool,
 		TestToolGetServerInfo,
 		TestToolMintToken,
@@ -246,6 +256,10 @@ func (h *TestToolsHandler) HandleTestTool(ctx context.Context, toolName string, 
 		return h.handleAddMockTool(ctx, args)
 	case TestToolRemoveMockTool:
 		return h.handleRemoveMockTool(ctx, args)
+	case TestToolStopMockServer:
+		return h.handleStopMockServer(ctx, args)
+	case TestToolStartMockServer:
+		return h.handleStartMockServer(ctx, args)
 	case TestToolCallMetaTool:
 		return h.handleCallMetaTool(ctx, args)
 	case TestToolScrapeMetrics:
@@ -1865,6 +1879,104 @@ func (h *TestToolsHandler) handleRemoveMockTool(ctx context.Context, args map[st
 		api.FieldMessage: fmt.Sprintf("Removed tool '%s' from mock server '%s'", toolName, serverName),
 		api.FieldServer:  serverName,
 		"tool":           toolName,
+	}, nil
+}
+
+// mockServerLifecycle is the part of a mock MCP HTTP server (plain or
+// OAuth-protected) that the stop/start test tools drive.
+type mockServerLifecycle interface {
+	Stop(ctx context.Context) error
+	StartOnPort(ctx context.Context, port int) error
+	Port() int
+	IsRunning() bool
+	WaitForReady(ctx context.Context) error
+}
+
+// lookupMockServer finds the mock HTTP or protected MCP server of the current
+// instance by the MCPServer name a scenario uses.
+func (h *TestToolsHandler) lookupMockServer(serverName string) (mockServerLifecycle, error) {
+	if h.instanceManager == nil || h.currentInstance == nil {
+		return nil, fmt.Errorf("instance manager or current instance not available")
+	}
+	if httpServer := h.instanceManager.GetMockHTTPServer(h.currentInstance.ID, serverName); httpServer != nil {
+		return httpServer, nil
+	}
+	if protectedServer := h.instanceManager.GetProtectedMCPServer(h.currentInstance.ID, serverName); protectedServer != nil {
+		return protectedServer, nil
+	}
+	return nil, fmt.Errorf("mock server %s not found for instance %s (checked both HTTP and protected servers)", serverName, h.currentInstance.ID)
+}
+
+// handleStopMockServer stops a running mock MCP HTTP server. muster keeps the
+// MCPServer definition and any pending-auth registry entry; a following
+// core_service_restart finds the endpoint refusing connections and moves the
+// service to failed/unreachable -- the state of a member whose backend is
+// gone while its cached capabilities linger.
+//
+// Args:
+//   - server: Required. Name of the mock MCP server to stop.
+func (h *TestToolsHandler) handleStopMockServer(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+	serverName, ok := args["server"].(string)
+	if !ok || serverName == "" {
+		return nil, fmt.Errorf("server argument is required")
+	}
+	srv, err := h.lookupMockServer(serverName)
+	if err != nil {
+		return nil, err
+	}
+	port := srv.Port()
+	// Connected clients hold their notification streams open; the mock
+	// servers force-close whatever has not drained when this context ends.
+	stopCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	if err := srv.Stop(stopCtx); err != nil {
+		return nil, fmt.Errorf("failed to stop mock server %s: %w", serverName, err)
+	}
+	if h.debug {
+		h.logger.Debug("Stopped mock server '%s' (port %d kept for restart)\n", serverName, port)
+	}
+	return map[string]interface{}{
+		api.FieldSuccess: true,
+		api.FieldMessage: fmt.Sprintf("Stopped mock server '%s'", serverName),
+		api.FieldServer:  serverName,
+		"port":           port,
+	}, nil
+}
+
+// handleStartMockServer starts a mock MCP HTTP server that
+// handleStopMockServer stopped, on the same port, and waits until it accepts
+// connections.
+//
+// Args:
+//   - server: Required. Name of the mock MCP server to start.
+func (h *TestToolsHandler) handleStartMockServer(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+	serverName, ok := args["server"].(string)
+	if !ok || serverName == "" {
+		return nil, fmt.Errorf("server argument is required")
+	}
+	srv, err := h.lookupMockServer(serverName)
+	if err != nil {
+		return nil, err
+	}
+	port := srv.Port()
+	if !srv.IsRunning() {
+		if err := srv.StartOnPort(ctx, port); err != nil {
+			return nil, fmt.Errorf("failed to start mock server %s on port %d: %w", serverName, port, err)
+		}
+	}
+	readyCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if err := srv.WaitForReady(readyCtx); err != nil {
+		return nil, fmt.Errorf("mock server %s not ready on port %d: %w", serverName, port, err)
+	}
+	if h.debug {
+		h.logger.Debug("Started mock server '%s' on port %d\n", serverName, port)
+	}
+	return map[string]interface{}{
+		api.FieldSuccess: true,
+		api.FieldMessage: fmt.Sprintf("Started mock server '%s' on port %d", serverName, port),
+		api.FieldServer:  serverName,
+		"port":           port,
 	}, nil
 }
 

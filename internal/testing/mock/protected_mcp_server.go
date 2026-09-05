@@ -117,10 +117,13 @@ func (s *ProtectedMCPServer) Start(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("failed to create handler: %w", err)
 	}
 
-	s.httpServer = &http.Server{Handler: handler} //nolint:gosec
+	httpServer := &http.Server{Handler: handler} //nolint:gosec
+	s.httpServer = httpServer
 
+	// Serve on the captured server, not on the field: Stop clears the field
+	// and may run before this goroutine is scheduled.
 	go func() {
-		if err := s.httpServer.Serve(listener); err != nil && err != http.ErrServerClosed {
+		if err := httpServer.Serve(listener); err != nil && err != http.ErrServerClosed {
 			if s.config.Debug {
 				fmt.Fprintf(os.Stderr, "Protected MCP server error: %v\n", err)
 			}
@@ -136,6 +139,55 @@ func (s *ProtectedMCPServer) Start(ctx context.Context) (int, error) {
 	return s.port, nil
 }
 
+// StartOnPort starts the protected MCP server on a specific port. It lets a
+// scenario bring a server back on the port muster already knows it by after a
+// Stop, so the MCPServer definition keeps pointing at a live endpoint.
+func (s *ProtectedMCPServer) StartOnPort(ctx context.Context, port int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.running {
+		if s.port == port {
+			return nil
+		}
+		return fmt.Errorf("server already running on port %d", s.port)
+	}
+
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		return fmt.Errorf("failed to listen on port %d: %w", port, err)
+	}
+
+	s.listener = listener
+	s.port = port
+
+	handler, err := s.createProtectedHandler()
+	if err != nil {
+		_ = listener.Close()
+		return fmt.Errorf("failed to create handler: %w", err)
+	}
+
+	httpServer := &http.Server{Handler: handler} //nolint:gosec
+	s.httpServer = httpServer
+
+	// Serve on the captured server, not on the field: Stop clears the field
+	// and may run before this goroutine is scheduled.
+	go func() {
+		if err := httpServer.Serve(listener); err != nil && err != http.ErrServerClosed {
+			if s.config.Debug {
+				fmt.Fprintf(os.Stderr, "Protected MCP server error: %v\n", err)
+			}
+		}
+	}()
+
+	s.running = true
+
+	if s.config.Debug {
+		fmt.Fprintf(os.Stderr, "🔒 Protected MCP server %s started on port %d\n", s.config.Name, s.port)
+	}
+	return nil
+}
+
 // Stop stops the protected MCP server
 func (s *ProtectedMCPServer) Stop(ctx context.Context) error {
 	s.mu.Lock()
@@ -149,9 +201,25 @@ func (s *ProtectedMCPServer) Stop(ctx context.Context) error {
 		fmt.Fprintf(os.Stderr, "🔒 Stopping protected MCP server %s on port %d\n", s.config.Name, s.port)
 	}
 
-	err := s.httpServer.Shutdown(ctx)
+	// Shutdown closes the listener at once but then waits for open
+	// connections to drain, and a streamable-HTTP client keeps its
+	// notification stream open indefinitely. Give the drain a bounded grace
+	// period and force-close what is left, as HTTPServer.Stop does.
+	shutdownCtx := ctx
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		shutdownCtx, cancel = context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+	}
+	if err := s.httpServer.Shutdown(shutdownCtx); err != nil {
+		_ = s.httpServer.Close()
+		if s.config.Debug {
+			fmt.Fprintf(os.Stderr, "⚠️  Force closed protected MCP server %s: %v\n", s.config.Name, err)
+		}
+	}
 	s.running = false
-	return err
+	s.httpServer = nil
+	return nil
 }
 
 // Port returns the port the server is listening on

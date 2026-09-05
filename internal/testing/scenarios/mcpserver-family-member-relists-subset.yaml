@@ -1,0 +1,385 @@
+name: "mcpserver-family-member-relists-subset"
+description: "The family tool surface follows what members currently offer: a member that re-lists fewer tools loses its provider entry for the dropped tools, a tool no member offers disappears, describe_tool trailers list only current providers, and a member whose service is down contributes nothing (#1162)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "family", "aggregator", "oauth", "sso", "notifications", "session-isolation", "regression", "issue-1162"]
+timeout: "3m"
+
+# Given: Two SSO (token-forwarding) MCP servers k8s-a and k8s-b share
+#        family {name: kubernetes, instanceArg: management_cluster} and both
+#        offer list_pods and pause_cluster. The user is authenticated to both.
+# When:  k8s-b re-lists without pause_cluster (the way mcp-capi 0.3.x hides
+#        its mutating tools when it runs read-only).
+# Then:  x_kubernetes_pause_cluster stays exposed (k8s-a still offers it) but
+#        its "(available on servers: ...)" trailer names k8s-a only, and a call
+#        routed to k8s-b is rejected with the current provider list.
+# When:  k8s-a drops pause_cluster as well.
+# Then:  x_kubernetes_pause_cluster is gone from the listing, describe_tool
+#        reports it as not found, and calling it fails -- no tool is listed
+#        that cannot be called.
+# When:  k8s-b's backend goes away and its service probe fails (its
+#        pending-auth registry entry and the session's cached capabilities
+#        survive, as on a management cluster whose tunnel returns 504).
+# Then:  k8s-b contributes nothing: the x_kubernetes_list_pods trailer names
+#        k8s-a only and a call routed to k8s-b is rejected.
+# When:  the backend is back and the service probe succeeds again.
+# Then:  k8s-b provides list_pods again -- the session's cached capabilities
+#        count again as soon as the member is no longer down.
+#
+# Out of scope here: the session's pooled connection to k8s-b from before the
+# outage. The restarted backend does not know that MCP session any more, and
+# nothing re-establishes it until the session reconnects (muster#494 tracks
+# redeployment detection). This scenario is about what is advertised, so it
+# does not route a call to the restarted member.
+#
+# Before the fix the family routing index only grew (providers were unioned
+# on every listing and removed only on deregistration) and the per-session
+# listing served cached capabilities regardless of the member's state, so
+# tools/list kept advertising tools every member had dropped and calls failed
+# with "tool not found" (giantswarm/muster#1162).
+
+pre_configuration:
+  mock_oauth_servers:
+    - name: "family-idp"
+      scopes: ["openid", "profile", "mcp:admin"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "family-client"
+      client_secret: "family-secret"
+      use_as_muster_oauth_server: true
+
+  mcp_servers:
+    - name: "k8s-a"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "family-idp"
+          forward_token: true
+        family:
+          name: "kubernetes"
+          instanceArg: "management_cluster"
+        tools:
+          - name: "list_pods"
+            description: "List pods"
+            input_schema:
+              type: "object"
+              properties:
+                namespace: { type: "string" }
+            responses:
+              - response: { source: "k8s-a", tool: "list_pods" }
+          - name: "pause_cluster"
+            description: "Pause cluster reconciliation"
+            input_schema:
+              type: "object"
+              properties:
+                cluster: { type: "string" }
+            responses:
+              - response: { source: "k8s-a", tool: "pause_cluster" }
+    - name: "k8s-b"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "family-idp"
+          forward_token: true
+        family:
+          name: "kubernetes"
+          instanceArg: "management_cluster"
+        tools:
+          - name: "list_pods"
+            description: "List pods"
+            input_schema:
+              type: "object"
+              properties:
+                namespace: { type: "string" }
+            responses:
+              - response: { source: "k8s-b", tool: "list_pods" }
+          - name: "pause_cluster"
+            description: "Pause cluster reconciliation"
+            input_schema:
+              type: "object"
+              properties:
+                cluster: { type: "string" }
+            responses:
+              - response: { source: "k8s-b", tool: "pause_cluster" }
+
+steps:
+  - id: "verify-servers-registered"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["k8s-a", "k8s-b"]
+    timeout: "30s"
+
+  - id: "muster-auth-login"
+    tool: "test_muster_auth_login"
+    args: {}
+    expected:
+      success: true
+      contains: ["success", "ID token stored"]
+    timeout: "30s"
+
+  - id: "login-k8s-a"
+    tool: "core_auth_login"
+    args:
+      server: "k8s-a"
+    expected:
+      success: true
+    timeout: "30s"
+
+  - id: "login-k8s-b"
+    tool: "core_auth_login"
+    args:
+      server: "k8s-b"
+    expected:
+      success: true
+    timeout: "30s"
+
+  # Phase 1: both members offer both tools.
+  - id: "both-tools-listed"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "list_tools"
+    expected:
+      success: true
+      contains: ["x_kubernetes_list_pods", "x_kubernetes_pause_cluster"]
+    timeout: "15s"
+
+  - id: "pause-cluster-provided-by-both"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "describe_tool"
+      arguments:
+        name: "x_kubernetes_pause_cluster"
+    expected:
+      success: true
+      contains: ["(available on servers: k8s-a, k8s-b)"]
+    timeout: "15s"
+
+  - id: "pause-cluster-routes-to-k8s-b"
+    tool: "x_kubernetes_pause_cluster"
+    args:
+      management_cluster: "k8s-b"
+      cluster: "wc1"
+    expected:
+      success: true
+      contains: ["k8s-b", "pause_cluster"]
+    timeout: "15s"
+
+  # Phase 2: k8s-b re-lists without pause_cluster. The session's pooled client
+  # receives notifications/tools/list_changed and refreshes the cached
+  # capabilities; the family surface has to follow.
+  - id: "k8s-b-drops-pause-cluster"
+    tool: "test_remove_mock_tool"
+    args:
+      server: "k8s-b"
+      tool_name: "pause_cluster"
+    expected:
+      success: true
+      contains: ["Removed tool"]
+    timeout: "15s"
+
+  - id: "pause-cluster-provided-by-k8s-a-only"
+    description: "The trailer lists the current providers; the dropped member is gone from it"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "describe_tool"
+      arguments:
+        name: "x_kubernetes_pause_cluster"
+    expected:
+      success: true
+      wait_for_state: "20s"
+      contains: ["(available on servers: k8s-a)"]
+      not_contains: ["k8s-b"]
+    timeout: "30s"
+
+  - id: "pause-cluster-no-longer-routes-to-k8s-b"
+    description: "The routing index was pruned along with the listing; the error names the current provider"
+    tool: "x_kubernetes_pause_cluster"
+    args:
+      management_cluster: "k8s-b"
+      cluster: "wc1"
+    expected:
+      success: false
+      error_contains: ["not available on server", "k8s-a"]
+    timeout: "15s"
+
+  - id: "pause-cluster-still-routes-to-k8s-a"
+    tool: "x_kubernetes_pause_cluster"
+    args:
+      management_cluster: "k8s-a"
+      cluster: "wc1"
+    expected:
+      success: true
+      contains: ["k8s-a", "pause_cluster"]
+      not_contains: ["k8s-b"]
+    timeout: "15s"
+
+  - id: "list-pods-still-provided-by-both"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "describe_tool"
+      arguments:
+        name: "x_kubernetes_list_pods"
+    expected:
+      success: true
+      contains: ["(available on servers: k8s-a, k8s-b)"]
+    timeout: "15s"
+
+  # Phase 3: k8s-a drops pause_cluster too. Nobody offers it: it vanishes.
+  - id: "k8s-a-drops-pause-cluster"
+    tool: "test_remove_mock_tool"
+    args:
+      server: "k8s-a"
+      tool_name: "pause_cluster"
+    expected:
+      success: true
+      contains: ["Removed tool"]
+    timeout: "15s"
+
+  - id: "pause-cluster-gone-from-listing"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "list_tools"
+    expected:
+      success: true
+      wait_for_state: "20s"
+      contains: ["x_kubernetes_list_pods"]
+      not_contains: ["x_kubernetes_pause_cluster"]
+    timeout: "30s"
+
+  - id: "pause-cluster-describe-not-found"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "describe_tool"
+      arguments:
+        name: "x_kubernetes_pause_cluster"
+    expected:
+      success: false
+      error_contains: ["Tool not found: x_kubernetes_pause_cluster"]
+    timeout: "15s"
+
+  - id: "pause-cluster-call-fails-consistently"
+    description: "A name that is not listed is not callable either"
+    tool: "x_kubernetes_pause_cluster"
+    args:
+      management_cluster: "k8s-a"
+      cluster: "wc1"
+    expected:
+      success: false
+    timeout: "15s"
+
+  # Phase 4: k8s-b's backend goes away. The MCPServer definition, the
+  # pending-auth registry entry and the session's cached capabilities all
+  # survive; only the service state says the member is unusable.
+  - id: "k8s-b-backend-gone"
+    tool: "test_stop_mock_server"
+    args:
+      server: "k8s-b"
+    expected:
+      success: true
+      contains: ["Stopped mock server"]
+    timeout: "15s"
+
+  - id: "k8s-b-probe-fails"
+    description: "Restarting the service probes the dead endpoint; the service ends up failed, not auth-required"
+    tool: "core_service_restart"
+    args:
+      name: "k8s-b"
+    expected:
+      success: false
+      error_contains: ["Failed to restart service"]
+      not_contains: ["requires OAuth authentication"]
+    timeout: "30s"
+
+  - id: "k8s-b-still-registered"
+    description: "The member keeps its definition while its service is down (failed servers are hidden unless showAll; the listed state is synced asynchronously)"
+    tool: "core_mcpserver_list"
+    args:
+      showAll: true
+    expected:
+      success: true
+      wait_for_state: "20s"
+      contains: ["k8s-b", "Failed"]
+    timeout: "30s"
+
+  - id: "list-pods-provided-by-k8s-a-only"
+    description: "A down member contributes no providers to the family listing"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "describe_tool"
+      arguments:
+        name: "x_kubernetes_list_pods"
+    expected:
+      success: true
+      wait_for_state: "20s"
+      contains: ["(available on servers: k8s-a)"]
+      not_contains: ["k8s-b"]
+    timeout: "30s"
+
+  - id: "list-pods-no-longer-routes-to-k8s-b"
+    tool: "x_kubernetes_list_pods"
+    args:
+      management_cluster: "k8s-b"
+      namespace: "default"
+    expected:
+      success: false
+      error_contains: ["not available on server", "k8s-a"]
+    timeout: "15s"
+
+  - id: "list-pods-still-routes-to-k8s-a"
+    tool: "x_kubernetes_list_pods"
+    args:
+      management_cluster: "k8s-a"
+      namespace: "default"
+    expected:
+      success: true
+      contains: ["k8s-a", "list_pods"]
+    timeout: "15s"
+
+  # Phase 5: the backend is back. Once the service probe succeeds again, the
+  # member is no longer down and its cached capabilities count again.
+  - id: "k8s-b-backend-back"
+    tool: "test_start_mock_server"
+    args:
+      server: "k8s-b"
+    expected:
+      success: true
+      contains: ["Started mock server"]
+    timeout: "15s"
+
+  - id: "k8s-b-probe-succeeds"
+    description: "The probe reaches the backend again; a session-auth server settles in auth-required"
+    tool: "core_service_restart"
+    args:
+      name: "k8s-b"
+    expected:
+      success: false
+      error_contains: ["requires OAuth authentication"]
+    timeout: "30s"
+
+  - id: "list-pods-provided-by-both-again"
+    description: "The cached capabilities of a member that is reachable again count again"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "describe_tool"
+      arguments:
+        name: "x_kubernetes_list_pods"
+    expected:
+      success: true
+      wait_for_state: "20s"
+      contains: ["(available on servers: k8s-a, k8s-b)"]
+    timeout: "30s"
+
+  - id: "list-pods-still-routes-to-k8s-a-after-recovery"
+    tool: "x_kubernetes_list_pods"
+    args:
+      management_cluster: "k8s-a"
+      namespace: "default"
+    expected:
+      success: true
+      contains: ["k8s-a", "list_pods"]
+    timeout: "15s"

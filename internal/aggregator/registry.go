@@ -438,8 +438,10 @@ func (r *ServerRegistry) deregister(name string, requestedAt time.Time, keepSess
 
 	// Drop family routing state owned by this server so that subsequent calls
 	// to a family-grouped tool can no longer be routed to a deregistered
-	// instance. Entries that still have surviving providers keep them;
-	// entries with no surviving providers are removed entirely. Solo
+	// instance. (assembleExposedTools withdraws entries of servers that stay
+	// registered but stop offering a tool.) Entries that still have
+	// surviving providers keep them; entries with no surviving providers are
+	// removed entirely. Solo
 	// nameMapping entries are intentionally left in place — callers that hit
 	// them get a "server not found" error from the dispatch layer, which is
 	// the long-standing semantic for "the server providing this tool is
@@ -545,7 +547,12 @@ func (r *ServerRegistry) GetAllTools() []mcp.Tool {
 		}
 
 		if !info.IsConnected() {
+			// A registered server that is not connected exposes nothing.
+			// It still takes part in the assembly with an empty tool set so
+			// that any family routing entries it contributed while it was
+			// connected are withdrawn (see assembleExposedTools).
 			logging.Debug("Aggregator", "Server %s is not connected, skipping tools", serverName)
+			contributions = append(contributions, emptyContribution(serverName, info))
 			continue
 		}
 		connectedCount++
@@ -569,6 +576,17 @@ func (r *ServerRegistry) GetAllTools() []mcp.Tool {
 	return allTools
 }
 
+// emptyContribution is the contribution of a registered server that currently
+// offers no tools to the listing being assembled: it is not connected, or its
+// service is down. Passing it through assembleExposedTools (rather than
+// skipping the server) is what withdraws the server's family routing entries.
+func emptyContribution(serverName string, info *ServerInfo) serverToolContribution {
+	return serverToolContribution{
+		serverName: serverName,
+		family:     cloneFamily(info.Family),
+	}
+}
+
 // serverToolContribution carries one server's tool contribution into the
 // family-aware assembly pipeline used by GetAllTools / GetAllToolsForSession.
 type serverToolContribution struct {
@@ -578,10 +596,21 @@ type serverToolContribution struct {
 }
 
 // assembleExposedTools turns a set of per-server tool contributions into the
-// flat exposed list, applying family grouping. It upserts the
-// familyMappings index by union so per-session contributions add providers
-// without overwriting other sessions' visibility. Deregister is the only
-// path that removes providers from the index.
+// flat exposed list, applying family grouping, and brings the familyMappings
+// index in line with what the contributing servers offer right now.
+//
+// The index is process-global while a contribution set may be
+// session-scoped (GetAllToolsForSession only carries the servers the session
+// is authenticated to), so the sync is scoped to the contributing servers:
+// each of them has its provider entries replaced by the family tools it
+// contributed in this pass -- entries for tools it no longer offers are
+// dropped, and a bucket left without providers is removed -- while providers
+// belonging to servers that did not take part in this pass are left alone.
+// That keeps one session's listing from erasing another session's view of
+// the family (PR #670) without letting a member that re-lists fewer tools
+// keep advertising the ones it dropped (#1162). A server that contributes
+// an empty tool set therefore withdraws all of its entries; Deregister
+// removes them for servers that leave the registry altogether.
 //
 // Family grouping rules:
 //   - Servers without a family always emit per-server prefixed tools.
@@ -623,7 +652,19 @@ func (r *ServerRegistry) assembleExposedTools(contributions []serverToolContribu
 	familyBuckets := make(map[familyKey]*familyEntry)
 	var soloTools []mcp.Tool
 
+	// contributed records, per contributing server, the exposed family names
+	// it provides in this pass. Every contributing server gets an entry --
+	// an empty set for servers outside a family, in a fallback family, or
+	// offering no tools -- so syncFamilyIndex can tell "took part and offers
+	// nothing" (withdraw its providers) from "not part of this pass" (leave
+	// its providers alone).
+	contributed := make(map[string]map[string]struct{}, len(contributions))
+	var emissions []familyEmission
+
 	for _, c := range contributions {
+		if _, seen := contributed[c.serverName]; !seen {
+			contributed[c.serverName] = make(map[string]struct{})
+		}
 		inFallbackFamily := c.family != nil && c.family.Name != "" && familyFallback[c.family.Name]
 		if c.family == nil || c.family.Name == "" || inFallbackFamily {
 			for _, tool := range c.tools {
@@ -696,10 +737,32 @@ func (r *ServerRegistry) assembleExposedTools(contributions []serverToolContribu
 		exposedTool.Description = annotateMultiServer(exposedTool.Description, sortedServers)
 
 		soloTools = append(soloTools, exposedTool)
-		r.upsertFamilyTool(exposedTool.Name, key.toolName, key.family, entry.instanceArg, sortedServers)
+		for _, sn := range sortedServers {
+			contributed[sn][exposedTool.Name] = struct{}{}
+		}
+		emissions = append(emissions, familyEmission{
+			exposedName:  exposedTool.Name,
+			originalName: key.toolName,
+			family:       key.family,
+			instanceArg:  entry.instanceArg,
+			servers:      sortedServers,
+		})
 	}
 
+	r.syncFamilyIndex(contributed, emissions)
+
 	return soloTools
+}
+
+// familyEmission is one family-grouped tool as emitted by a single
+// assembleExposedTools pass: the exposed name, what to forward to the
+// backends, and which of the contributing servers provide it.
+type familyEmission struct {
+	exposedName  string
+	originalName string
+	family       string
+	instanceArg  string
+	servers      []string
 }
 
 // applyServerRegistrationLocked records the server's prefix and declared
@@ -769,40 +832,65 @@ func (r *ServerRegistry) familyMembersLocked(familyName string) []string {
 	return members
 }
 
-// upsertFamilyTool unions the given providers into the family routing
-// index entry for exposedName, creating the entry if absent. Existing
-// providers are preserved; only previously unseen serverNames are appended.
-// This keeps per-session listings from overwriting each other's view of the
-// family's full membership — Deregister remains the sole path that removes
-// providers.
+// syncFamilyIndex brings the family routing index in line with one
+// assembleExposedTools pass. contributed maps every server that took part in
+// the pass to the exposed family names it provides; emissions are the
+// family-grouped tools the pass produced.
+//
+// For each emission the providers are upserted: a contributing server's
+// entry is replaced (so a renamed original tool routes correctly) and servers
+// not yet in the bucket are appended. Then every bucket is pruned of
+// providers that belong to a contributing server but are not among that
+// server's contributed names -- the tools the server stopped offering -- and
+// buckets left without providers are deleted. Providers of servers absent
+// from contributed (other sessions' members in a per-session pass, or
+// auth-required servers in the global pass) are never touched.
+//
 // Caller must NOT hold nameMu.
-func (r *ServerRegistry) upsertFamilyTool(exposedName, originalName, family, instanceArg string, serverNames []string) {
+func (r *ServerRegistry) syncFamilyIndex(contributed map[string]map[string]struct{}, emissions []familyEmission) {
 	r.nameMu.Lock()
 	defer r.nameMu.Unlock()
-	bucket, ok := r.familyMappings[exposedName]
-	if !ok {
-		providers := make([]resolvedName, len(serverNames))
-		for i, sn := range serverNames {
-			providers[i] = resolvedName{serverName: sn, originalName: originalName, itemType: metatools.ItemKindTool}
+
+	for _, e := range emissions {
+		bucket, ok := r.familyMappings[e.exposedName]
+		if !ok {
+			bucket = &familyBucket{}
+			r.familyMappings[e.exposedName] = bucket
 		}
-		r.familyMappings[exposedName] = &familyBucket{
-			family:      family,
-			instanceArg: instanceArg,
-			providers:   providers,
+		bucket.family = e.family
+		bucket.instanceArg = e.instanceArg
+		for _, sn := range e.servers {
+			entry := resolvedName{serverName: sn, originalName: e.originalName, itemType: metatools.ItemKindTool}
+			replaced := false
+			for i, p := range bucket.providers {
+				if p.serverName == sn {
+					bucket.providers[i] = entry
+					replaced = true
+					break
+				}
+			}
+			if !replaced {
+				bucket.providers = append(bucket.providers, entry)
+			}
 		}
-		return
 	}
-	bucket.family = family
-	bucket.instanceArg = instanceArg
-	existing := make(map[string]struct{}, len(bucket.providers))
-	for _, p := range bucket.providers {
-		existing[p.serverName] = struct{}{}
-	}
-	for _, sn := range serverNames {
-		if _, dup := existing[sn]; dup {
+
+	for exposed, bucket := range r.familyMappings {
+		filtered := bucket.providers[:0]
+		for _, p := range bucket.providers {
+			names, tookPart := contributed[p.serverName]
+			if tookPart {
+				if _, offers := names[exposed]; !offers {
+					continue
+				}
+			}
+			filtered = append(filtered, p)
+		}
+		if len(filtered) == 0 {
+			delete(r.familyMappings, exposed)
 			continue
 		}
-		bucket.providers = append(bucket.providers, resolvedName{serverName: sn, originalName: originalName, itemType: metatools.ItemKindTool})
+		bucket.providers = filtered
 	}
 }
 
@@ -1367,10 +1455,12 @@ func (r *ServerRegistry) RegisterPendingAuth(registration PendingAuthRegistratio
 // GetAllToolsForSession returns the tools visible to a specific login session.
 //
 // For OAuth servers (RequiresSessionAuth), tools are read from the CapabilityStore
-// keyed by session ID (token family). For non-OAuth servers, tools are read from
-// ServerInfo.Tools (same as GetAllTools). Family grouping is applied to the
-// resulting union so a user who is authenticated against multiple instances
-// of the same family sees a single deduplicated tool with the "server" enum.
+// keyed by session ID (token family), unless the server's service is down --
+// a down server offers nothing regardless of what the cache says. For
+// non-OAuth servers, tools are read from ServerInfo.Tools (same as
+// GetAllTools). Family grouping is applied to the resulting union so a user
+// who is authenticated against multiple instances of the same family sees a
+// single deduplicated tool with the "server" enum.
 func (r *ServerRegistry) GetAllToolsForSession(ctx context.Context, store oauthstore.CapabilityStore, sessionID string) []mcp.Tool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -1379,6 +1469,17 @@ func (r *ServerRegistry) GetAllToolsForSession(ctx context.Context, store oauths
 
 	for serverName, info := range r.servers {
 		if info.RequiresSessionAuth() {
+			// The capability store is a cache of what the server offered
+			// the session when it last connected. It outlives the server:
+			// a member whose service is down (failed probe, unreachable,
+			// stopped) keeps its pending-auth registry entry and its cached
+			// entries, and would otherwise keep advertising tools nobody
+			// can call (#1162). A down member contributes nothing and
+			// withdraws its family routing entries.
+			if info.IsDown() {
+				contributions = append(contributions, emptyContribution(serverName, info))
+				continue
+			}
 			if store == nil {
 				continue
 			}
@@ -1395,6 +1496,7 @@ func (r *ServerRegistry) GetAllToolsForSession(ctx context.Context, store oauths
 		}
 
 		if !info.IsConnected() {
+			contributions = append(contributions, emptyContribution(serverName, info))
 			continue
 		}
 
@@ -1438,7 +1540,7 @@ func (r *ServerRegistry) GetAllResourcesForSession(ctx context.Context, store oa
 
 	for serverName, info := range r.servers {
 		if info.RequiresSessionAuth() {
-			if store == nil {
+			if store == nil || info.IsDown() {
 				continue
 			}
 			caps, err := store.Get(ctx, sessionID, serverName)
@@ -1484,7 +1586,7 @@ func (r *ServerRegistry) GetAllPromptsForSession(ctx context.Context, store oaut
 
 	for serverName, info := range r.servers {
 		if info.RequiresSessionAuth() {
-			if store == nil {
+			if store == nil || info.IsDown() {
 				continue
 			}
 			caps, err := store.Get(ctx, sessionID, serverName)
