@@ -314,24 +314,25 @@ func (a *Adapter) GetMCPServer(ctx context.Context, name string) (*api.MCPServer
 // convertCRDToInfo converts a MCPServer CRD to MCPServerInfo
 func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 	info := api.MCPServerInfo{
-		Name:                server.Name,
-		Namespace:           server.Namespace,
-		Type:                server.Spec.Type,
-		Description:         server.Spec.Description,
-		ToolPrefix:          server.Spec.ToolPrefix,
-		Family:              convertCRDFamilyToAPI(server.Spec.Family),
-		AutoStart:           server.Spec.AutoStart,
-		Suspended:           server.Spec.Suspended,
-		Command:             server.Spec.Command,
-		Args:                server.Spec.Args,
-		URL:                 server.Spec.URL,
-		Env:                 server.Spec.Env,
-		Headers:             server.Spec.Headers,
-		Meta:                server.Spec.Meta,
-		Timeout:             server.Spec.Timeout,
-		Error:               server.Status.LastError,
-		State:               string(server.Status.State),
-		ConsecutiveFailures: server.Status.ConsecutiveFailures,
+		Name:                  server.Name,
+		Namespace:             server.Namespace,
+		Type:                  server.Spec.Type,
+		Description:           server.Spec.Description,
+		ToolPrefix:            server.Spec.ToolPrefix,
+		Family:                convertCRDFamilyToAPI(server.Spec.Family),
+		AutoStart:             server.Spec.AutoStart,
+		Suspended:             server.Spec.Suspended,
+		Command:               server.Spec.Command,
+		Args:                  server.Spec.Args,
+		URL:                   server.Spec.URL,
+		Env:                   server.Spec.Env,
+		Headers:               server.Spec.Headers,
+		Meta:                  server.Spec.Meta,
+		Timeout:               server.Spec.Timeout,
+		Error:                 server.Status.LastError,
+		State:                 string(server.Status.State),
+		ConsecutiveFailures:   server.Status.ConsecutiveFailures,
+		LastFailureHTTPStatus: server.Status.LastFailureHTTPStatus,
 	}
 
 	// Convert time fields from metav1.Time to time.Time. The lifecycle
@@ -443,6 +444,8 @@ func generateFailedMessage(errorMsg, serverName string, auth *api.MCPServerAuth)
 		return fmt.Sprintf("Authentication required - run: muster auth login --server %s", serverName)
 	case strings.Contains(lowerErr, "403") || strings.Contains(lowerErr, "forbidden"):
 		return "Access forbidden - check server permissions and credentials"
+	case isUpstream5xx(lowerErr):
+		return "Upstream error (HTTP 5xx) - the server or a gateway in front of it is failing; muster retries with backoff"
 	case strings.Contains(lowerErr, "connection reset") || strings.Contains(lowerErr, "econnreset"):
 		return "Connection was reset by server - check server logs"
 	case strings.Contains(lowerErr, "protocol") || strings.Contains(lowerErr, "unsupported"):
@@ -452,6 +455,19 @@ func generateFailedMessage(errorMsg, serverName string, auth *api.MCPServerAuth)
 	default:
 		return "Server failed to start"
 	}
+}
+
+// isUpstream5xx reports whether a lower-cased error text names an HTTP 5xx
+// response: a gateway or the server itself answered, but with a server error,
+// which is a different situation from an endpoint nothing listens on.
+func isUpstream5xx(lowerErr string) bool {
+	for _, marker := range []string{"status 50", "status 51", "status code: 50", "status code: 51",
+		"internal server error", "bad gateway", "service unavailable", "gateway timeout"} {
+		if strings.Contains(lowerErr, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // convertRequestToCRD converts a request to a MCPServer CRD using the flat structure

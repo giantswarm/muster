@@ -318,10 +318,39 @@ func (r *MCPServerReconciler) applyStatusFromService(server *musterv1alpha1.MCPS
 			server.Status.LastConnected = &now
 		}
 
+		applyRetrySchedule(&server.Status, service.GetServiceData())
+
 	} else if reconcileErr != nil {
 		// Sanitize error message to remove sensitive data before CRD exposure
 		server.Status.LastError = SanitizeErrorMessage(reconcileErr.Error())
 	}
+}
+
+// applyRetrySchedule mirrors the service's reconnect schedule into the CR
+// status: how many attempts failed in a row, when the last one was made, the
+// HTTP status it got (0 when it got none) and when muster looks again. The
+// fields are cleared when the service reports none of them, so a connected
+// server carries no stale schedule. Without this, `kubectl get mcpserver`
+// showed a server as Failed with the raw error only, and nothing told an
+// upstream 504 from a refused connection or said when the next attempt was
+// due (issue #1163).
+func applyRetrySchedule(status *musterv1alpha1.MCPServerStatus, data map[string]interface{}) {
+	status.ConsecutiveFailures, _ = data[api.ServiceDataConsecutiveFailures].(int)
+	status.LastFailureHTTPStatus, _ = data[api.ServiceDataLastFailureHTTPStatus].(int)
+	status.LastAttempt = metaTimeFromServiceData(data, api.ServiceDataLastAttempt)
+	status.NextRetryAfter = metaTimeFromServiceData(data, api.ServiceDataNextRetryAfter)
+}
+
+// metaTimeFromServiceData reads a time.Time entry of a service's data as a
+// *metav1.Time, nil when absent. Kubernetes times have second granularity, so
+// the value is truncated rather than rounded up into the future.
+func metaTimeFromServiceData(data map[string]interface{}, key string) *metav1.Time {
+	t, ok := data[key].(time.Time)
+	if !ok {
+		return nil
+	}
+	mt := metav1.NewTime(t.Truncate(time.Second))
+	return &mt
 }
 
 // observedState derives the state the reconciler currently sees for one

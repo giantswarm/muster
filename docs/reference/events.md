@@ -83,8 +83,8 @@ MCPServers are external MCP (Model Context Protocol) servers that provide tools 
 #### MCPServerFailed
 - **Type**: Warning
 - **Meaning**: MCPServer operation failed (start, health check, or crash)
-- **Message Example**: "MCPServer 'github-server' failed to start: connection refused"
-- **Triggered When**: Process crashes, fails to start, or becomes unresponsive
+- **Message Example**: "MCPServer github-server operation failed: server unreachable after 4 consecutive failures (endpoint answered HTTP 504, next retry in 2m0s at 2026-09-05T15:57:34Z): failed to initialize streamable-http MCP client: request failed with status 504: Gateway Timeout"
+- **Triggered When**: Process crashes, fails to start, or becomes unresponsive. For a remote server every failed connection attempt emits one event: `connection failure N of 3 before unreachable (...)` for the first two, `server unreachable after N consecutive failures (...)` from the third on. The parenthesis names the HTTP status the endpoint answered with (`endpoint answered HTTP 504`) or `no HTTP response` (connection refused, DNS failure, timeout), and when the next attempt is scheduled. The wait doubles from 30 s per failure and is capped at 2 minutes (`MUSTER_MCPSERVER_MAX_BACKOFF`).
 - **Troubleshooting**:
   ```bash
   # Check server configuration

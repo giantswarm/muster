@@ -8,7 +8,9 @@ import (
 	"net"
 	"os"
 	"reflect"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -28,19 +30,32 @@ const DefaultRemoteTimeout = 30
 // UnreachableThreshold is the number of consecutive failures before marking a server as unreachable.
 const UnreachableThreshold = 3
 
-// Exponential backoff configuration for unreachable servers.
-const (
-	// MaxBackoff is the maximum retry interval (30 minutes)
-	MaxBackoff = 30 * time.Minute
-	// BackoffMultiplier is the factor by which backoff increases on each failure
-	BackoffMultiplier = 2.0
-)
+// BackoffMultiplier is the factor by which the reconnect backoff grows on each
+// consecutive failure.
+const BackoffMultiplier = 2.0
 
 // InitialBackoff is the initial retry interval after the first connection
 // failure. Overridable via MUSTER_MCPSERVER_INITIAL_BACKOFF (a Go duration,
 // e.g. "1s") so the integration test harness can recover from transient
 // connect failures without waiting out production backoff.
 var InitialBackoff = durationFromEnv("MUSTER_MCPSERVER_INITIAL_BACKOFF", 30*time.Second)
+
+// MaxBackoff caps the reconnect backoff of a remote server. The schedule
+// doubles from InitialBackoff on every consecutive failure and stops growing
+// here, so once the upstream heals the server is retried within this bound
+// plus the orchestrator's retry tick, however long the outage lasted. The
+// former 30 minute cap let a 504 window of a few minutes hide a recovery for
+// another 4.5, then 8.5, then 16.5 minutes (issue #1163). Overridable via
+// MUSTER_MCPSERVER_MAX_BACKOFF (a Go duration); a value below InitialBackoff
+// makes every retry wait exactly that long.
+var MaxBackoff = durationFromEnv("MUSTER_MCPSERVER_MAX_BACKOFF", 2*time.Minute)
+
+// httpStatusPattern finds the HTTP status code in the error text of a failed
+// initialize. The transports report it as "request failed with status 504"
+// (streamable-http), "unexpected status code: 504" (SSE) or "server returned
+// 401 Unauthorized" (muster's auth detection); none of them exposes it as a
+// typed error, so the text is the only place it survives to.
+var httpStatusPattern = regexp.MustCompile(`(?i)\b(?:status(?: code)?:?|returned)\s+([1-5]\d{2})\b`)
 
 // durationFromEnv reads a Go duration from the named environment variable,
 // falling back to def when unset or unparsable.
@@ -74,6 +89,14 @@ type Service struct {
 	consecutiveFailures int        // Number of consecutive connection failures
 	lastAttempt         *time.Time // When the last connection attempt was made (preserved after success for diagnostics)
 	nextRetryAfter      *time.Time // When the next retry should be attempted (cleared on success)
+	// retryBackoff is the wait the current nextRetryAfter was computed from,
+	// kept so events and status can name the schedule exactly.
+	retryBackoff time.Duration
+	// lastFailureHTTPStatus is the HTTP status the endpoint answered the most
+	// recent failed attempt with; 0 when the attempt got no HTTP response at
+	// all (connection refused, DNS, timeout). Distinguishes an upstream that
+	// answers 504 from an endpoint nothing listens on (issue #1163).
+	lastFailureHTTPStatus int
 
 	// onAuthRequired runs synchronously before the StateAuthRequired transition.
 	// Immutable after construction; set via WithAuthRequiredHook.
@@ -192,22 +215,32 @@ func (s *Service) Start(ctx context.Context) error {
 		if s.isRemoteServer() && s.isTransientConnectivityError(err) {
 			s.failureMutex.Lock()
 			s.consecutiveFailures++
+			s.lastFailureHTTPStatus = httpStatusFromError(err)
 			s.calculateNextRetryTimeLocked()
 			failures := s.consecutiveFailures
-			nextRetry := s.nextRetryAfter
+			schedule := s.retryScheduleLocked()
 			s.failureMutex.Unlock()
 
-			s.LogWarn("Connection failure #%d for MCP server %s: %v (next retry after %v)",
-				failures, s.GetName(), err, nextRetry)
+			s.LogWarn("Connection failure #%d for MCP server %s: %v (%s)",
+				failures, s.GetName(), err, schedule)
 
-			// Transition to unreachable state after threshold failures
+			// Transition to unreachable state after threshold failures. The
+			// event names the HTTP status and the scheduled retry so an
+			// operator can tell an upstream 504 from a refused connection, and
+			// see when muster looks again, without the logs (issue #1163).
 			if failures >= UnreachableThreshold {
 				s.UpdateState(services.StateUnreachable, services.HealthUnknown, err)
 				s.generateEvent(events.ReasonMCPServerFailed, events.EventData{
-					Error: fmt.Sprintf("server unreachable after %d consecutive failures: %s", failures, err.Error()),
+					Error: fmt.Sprintf("server unreachable after %d consecutive failures (%s): %s", failures, schedule, err.Error()),
 				})
 				return fmt.Errorf("server unreachable after %d consecutive failures: %w", failures, err)
 			}
+
+			s.UpdateState(services.StateFailed, services.HealthUnhealthy, err)
+			s.generateEvent(events.ReasonMCPServerFailed, events.EventData{
+				Error: fmt.Sprintf("connection failure %d of %d before unreachable (%s): %s", failures, UnreachableThreshold, schedule, err.Error()),
+			})
+			return fmt.Errorf("failed to start MCP server: %w", err)
 		}
 
 		s.UpdateState(services.StateFailed, services.HealthUnhealthy, err)
@@ -219,11 +252,7 @@ func (s *Service) Start(ctx context.Context) error {
 	}
 
 	// Success - reset consecutive failure tracking (thread-safe)
-	s.failureMutex.Lock()
-	s.consecutiveFailures = 0
-	s.nextRetryAfter = nil
-	// Note: lastAttempt is intentionally preserved for diagnostics
-	s.failureMutex.Unlock()
+	s.resetFailureTracking()
 
 	// A server reached with the caller's identity (forwardToken or
 	// tokenExchange) is served per session, and the client the probe just
@@ -259,6 +288,10 @@ func (s *Service) Start(ctx context.Context) error {
 // StateAuthRequired transition, in that order, so that the aggregator's
 // pending-auth registration exists before any subscriber sees the event.
 func (s *Service) enterAuthRequired(authErr *mcpserver.AuthRequiredError) {
+	// A 401 proves the endpoint is reachable again: the reconnect schedule
+	// from the outage before it must not linger in the status next to
+	// "Auth Required".
+	s.resetFailureTracking()
 	if s.onAuthRequired != nil {
 		s.onAuthRequired(s.definition, authErr)
 	}
@@ -268,6 +301,18 @@ func (s *Service) enterAuthRequired(authErr *mcpserver.AuthRequiredError) {
 	s.generateEvent(events.ReasonMCPServerAuthRequired, events.EventData{
 		Error: "authentication required",
 	})
+}
+
+// resetFailureTracking clears the reconnect schedule after an attempt that
+// reached the endpoint (a successful initialize or a 401). lastAttempt is
+// intentionally preserved for diagnostics.
+func (s *Service) resetFailureTracking() {
+	s.failureMutex.Lock()
+	s.consecutiveFailures = 0
+	s.nextRetryAfter = nil
+	s.retryBackoff = 0
+	s.lastFailureHTTPStatus = 0
+	s.failureMutex.Unlock()
 }
 
 // discardAnonymousProbe closes the client Start opened without a user token
@@ -599,14 +644,19 @@ func (s *Service) GetServiceData() map[string]interface{} {
 		data["namespace"] = s.definition.Namespace
 	}
 
-	// Add failure tracking data for unreachable server detection (thread-safe read)
+	// Add failure tracking data for unreachable server detection (thread-safe
+	// read). The orchestrator's retry loop and the reconciler's status sync
+	// both read these keys.
 	s.failureMutex.RLock()
-	data["consecutiveFailures"] = s.consecutiveFailures
+	data[api.ServiceDataConsecutiveFailures] = s.consecutiveFailures
 	if s.lastAttempt != nil {
-		data["lastAttempt"] = *s.lastAttempt
+		data[api.ServiceDataLastAttempt] = *s.lastAttempt
 	}
 	if s.nextRetryAfter != nil {
-		data["nextRetryAfter"] = *s.nextRetryAfter
+		data[api.ServiceDataNextRetryAfter] = *s.nextRetryAfter
+	}
+	if s.lastFailureHTTPStatus != 0 {
+		data[api.ServiceDataLastFailureHTTPStatus] = s.lastFailureHTTPStatus
 	}
 	s.failureMutex.RUnlock()
 
@@ -995,16 +1045,58 @@ func (s *Service) isConfigurationError(err error) bool {
 func (s *Service) calculateNextRetryTimeLocked() {
 	// Calculate backoff duration: initial * 2^(failures-1)
 	backoffDuration := InitialBackoff
-	for i := 1; i < s.consecutiveFailures; i++ {
+	for i := 1; i < s.consecutiveFailures && backoffDuration < MaxBackoff; i++ {
 		backoffDuration = time.Duration(float64(backoffDuration) * BackoffMultiplier)
-		if backoffDuration > MaxBackoff {
-			backoffDuration = MaxBackoff
-			break
-		}
 	}
+	// The cap always wins, also over an InitialBackoff configured above it.
+	backoffDuration = min(backoffDuration, MaxBackoff)
 
 	nextRetry := time.Now().Add(backoffDuration)
 	s.nextRetryAfter = &nextRetry
+	s.retryBackoff = backoffDuration
+}
+
+// retryScheduleLocked describes the failed attempt's HTTP outcome and the
+// scheduled retry for logs and the MCPServerFailed event, e.g.
+// "endpoint answered HTTP 504, next retry in 2m0s at 2026-09-05T15:57:34Z" or
+// "no HTTP response, next retry in 30s at ...". MUST be called with
+// failureMutex held.
+func (s *Service) retryScheduleLocked() string {
+	outcome := "no HTTP response"
+	if s.lastFailureHTTPStatus != 0 {
+		outcome = "endpoint answered HTTP " + strconv.Itoa(s.lastFailureHTTPStatus)
+	}
+	if s.nextRetryAfter == nil {
+		return outcome
+	}
+	return fmt.Sprintf("%s, next retry in %s at %s", outcome,
+		s.retryBackoff.Round(time.Millisecond), s.nextRetryAfter.UTC().Format(time.RFC3339))
+}
+
+// httpStatusFromError returns the HTTP status code named in err's text, or 0
+// when the failure carried none (connection refused, DNS, timeout).
+func httpStatusFromError(err error) int {
+	if err == nil {
+		return 0
+	}
+	match := httpStatusPattern.FindStringSubmatch(err.Error())
+	if match == nil {
+		return 0
+	}
+	status, convErr := strconv.Atoi(match[1])
+	if convErr != nil {
+		return 0
+	}
+	return status
+}
+
+// GetLastFailureHTTPStatus returns the HTTP status the endpoint answered the
+// most recent failed connection attempt with, or 0 when there was no HTTP
+// response or the last attempt succeeded. Thread-safe.
+func (s *Service) GetLastFailureHTTPStatus() int {
+	s.failureMutex.RLock()
+	defer s.failureMutex.RUnlock()
+	return s.lastFailureHTTPStatus
 }
 
 // GetConsecutiveFailures returns the number of consecutive connection failures.

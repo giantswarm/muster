@@ -33,18 +33,18 @@ var columnDisplayNames = map[string]map[string]string{
 //   - auth: Nested config; state already shows auth status
 //   - health: Cleared for non-connected servers, not useful in list
 //   - statusMessage: Shown in footer notes instead of column
-//   - consecutiveFailures, lastAttempt, nextRetryAfter: Diagnostic fields for verbose/debug use
+//   - consecutiveFailures, lastAttempt, nextRetryAfter, lastFailureHTTPStatus: Diagnostic fields for verbose/debug use
 //   - protocolVersion: Diagnostic field; visible with -o wide, json, or yaml
 var unwantedColumnsByResourceType = map[string][]string{
 	api.ResponseKeyMCPServers: {
 		api.FieldArgs, api.FieldCommand, "url", "env", "headers", "timeout", "toolPrefix",
 		api.FieldError, api.SchemaKeyDescription, "auth", api.FieldHealth, "statusMessage",
-		"consecutiveFailures", "lastAttempt", "nextRetryAfter", "protocolVersion",
+		"consecutiveFailures", "lastAttempt", "nextRetryAfter", "lastFailureHTTPStatus", "protocolVersion",
 	},
 	api.ResponseKeyMCPServer: {
 		api.FieldArgs, api.FieldCommand, "url", "env", "headers", "timeout", "toolPrefix",
 		api.FieldError, api.SchemaKeyDescription, "auth", api.FieldHealth, "statusMessage",
-		"consecutiveFailures", "lastAttempt", "nextRetryAfter", "protocolVersion",
+		"consecutiveFailures", "lastAttempt", "nextRetryAfter", "lastFailureHTTPStatus", "protocolVersion",
 	},
 	api.ResourceTypeService: {
 		"metadata", // Nested data doesn't display well in list view

@@ -1103,13 +1103,15 @@ func TestCalculateNextRetryTime(t *testing.T) {
 		{
 			name:             "third failure - 4x backoff",
 			failures:         3,
-			expectedBackoff:  InitialBackoff * 4,
+			expectedBackoff:  min(InitialBackoff*4, MaxBackoff),
 			tolerancePercent: 0.1,
 		},
 		{
-			name:             "fourth failure - 8x backoff",
+			// 8x the default initial backoff is 4 minutes, above the 2 minute
+			// cap (issue #1163): the cap wins.
+			name:             "fourth failure - 8x backoff, capped",
 			failures:         4,
-			expectedBackoff:  InitialBackoff * 8,
+			expectedBackoff:  min(InitialBackoff*8, MaxBackoff),
 			tolerancePercent: 0.1,
 		},
 		{

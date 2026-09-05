@@ -472,7 +472,7 @@ func (o *Orchestrator) shouldAttemptRetry(svc services.Service) bool {
 		return false
 	}
 
-	nextRetryRaw, hasRetry := serviceData["nextRetryAfter"]
+	nextRetryRaw, hasRetry := serviceData[api.ServiceDataNextRetryAfter]
 	if !hasRetry {
 		logging.Debug("Orchestrator", "No retry backoff set for %s, skipping automatic retry", svc.GetName())
 		return false

@@ -133,11 +133,14 @@ func (v *jwksValidator) keys(ctx context.Context, forceRefresh bool) (*jose.JSON
 		return v.cached, nil
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, v.jwksURL, nil)
+	// jwksURL is the mock's configured trust anchor (TrustJWKSURL), never
+	// request input; gosec's taint analysis cannot see that through the
+	// handler chain the validator sits behind.
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, v.jwksURL, nil) //nolint:gosec // G704: configured URL
 	if err != nil {
 		return nil, fmt.Errorf("building JWKS request: %w", err)
 	}
-	resp, err := v.httpClient.Do(req)
+	resp, err := v.httpClient.Do(req) //nolint:gosec // G704: configured URL
 	if err != nil {
 		return nil, fmt.Errorf("fetching JWKS from %s: %w", v.jwksURL, err)
 	}

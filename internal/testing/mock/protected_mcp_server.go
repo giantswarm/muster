@@ -80,6 +80,9 @@ type ProtectedMCPServer struct {
 	port           int
 	running        bool
 	mu             sync.RWMutex
+	// outage, when armed, answers requests with a fixed HTTP status before
+	// the OAuth middleware sees them. It survives Stop/StartOnPort.
+	outage outageGate
 }
 
 // NewProtectedMCPServer creates a new OAuth-protected mock MCP server
@@ -117,7 +120,7 @@ func (s *ProtectedMCPServer) Start(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("failed to create handler: %w", err)
 	}
 
-	httpServer := &http.Server{Handler: handler} //nolint:gosec
+	httpServer := &http.Server{Handler: s.outage.wrap(handler)} //nolint:gosec
 	s.httpServer = httpServer
 
 	// Serve on the captured server, not on the field: Stop clears the field
@@ -167,7 +170,7 @@ func (s *ProtectedMCPServer) StartOnPort(ctx context.Context, port int) error {
 		return fmt.Errorf("failed to create handler: %w", err)
 	}
 
-	httpServer := &http.Server{Handler: handler} //nolint:gosec
+	httpServer := &http.Server{Handler: s.outage.wrap(handler)} //nolint:gosec
 	s.httpServer = httpServer
 
 	// Serve on the captured server, not on the field: Stop clears the field
@@ -216,6 +219,12 @@ func (s *ProtectedMCPServer) Stop(ctx context.Context) error {
 		if s.config.Debug {
 			fmt.Fprintf(os.Stderr, "⚠️  Force closed protected MCP server %s: %v\n", s.config.Name, err)
 		}
+	}
+	// Release the port even when the serving goroutine has not registered the
+	// listener yet, so StartOnPort can rebind at once (see HTTPServer.Stop).
+	if s.listener != nil {
+		_ = s.listener.Close()
+		s.listener = nil
 	}
 	s.running = false
 	s.httpServer = nil

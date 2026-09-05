@@ -543,8 +543,19 @@ type MCPServerStatus struct {
 	LastAttempt *metav1.Time `json:"lastAttempt,omitempty" yaml:"lastAttempt,omitempty"`
 
 	// NextRetryAfter indicates the earliest time when the next retry should be attempted.
-	// This is calculated based on exponential backoff from ConsecutiveFailures.
+	// The wait doubles with every consecutive failure, starting at 30 seconds,
+	// and is capped (2 minutes by default) so a recovered upstream is noticed
+	// within the cap plus the retry tick, however long the outage lasted.
+	// Absent while no retry is scheduled.
 	NextRetryAfter *metav1.Time `json:"nextRetryAfter,omitempty" yaml:"nextRetryAfter,omitempty"`
+
+	// LastFailureHTTPStatus is the HTTP status code the endpoint answered the
+	// most recent failed connection attempt with, for example 504 from a
+	// gateway in front of the server. Absent when the attempt got no HTTP
+	// response at all (connection refused, DNS failure, timeout) or the last
+	// attempt succeeded. Together with LastError it tells an upstream outage
+	// from an endpoint nothing listens on.
+	LastFailureHTTPStatus int `json:"lastFailureHTTPStatus,omitempty" yaml:"lastFailureHTTPStatus,omitempty"`
 
 	// LastRestartedAt mirrors the spec.restartRequestedAt value most recently
 	// processed by the reconciler. A restart is performed only when the two

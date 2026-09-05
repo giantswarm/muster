@@ -222,6 +222,10 @@ roleRef:
 | `lastConnected` | `*metav1.Time` | When the server was last successfully connected |
 | `restartCount` | `int` | Number of times the server has been restarted |
 | `lastRestartedAt` | `*metav1.Time` | The `spec.restartRequestedAt` value most recently processed by the reconciler; a restart runs only when the two differ |
+| `consecutiveFailures` | `int` | Connection attempts that failed in a row (remote servers); the server is `Failed` from the third on. Reset when an attempt reaches the endpoint |
+| `lastAttempt` | `*metav1.Time` | When the last connection attempt was made |
+| `nextRetryAfter` | `*metav1.Time` | When muster tries again. The wait doubles from 30 s per failure and is capped at 2 minutes (`MUSTER_MCPSERVER_MAX_BACKOFF`); absent while no retry is scheduled |
+| `lastFailureHTTPStatus` | `int` | The HTTP status the endpoint answered the last failed attempt with, e.g. `504` from a gateway in front of the server. Absent when the attempt got no HTTP response (connection refused, DNS, timeout) or the last attempt succeeded |
 | `conditions` | `[]metav1.Condition` | Standard Kubernetes conditions |
 
 ##### CRD State Values
