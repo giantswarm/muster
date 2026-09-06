@@ -180,32 +180,45 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileReques
 			processedRestart = pending
 		}
 	} else {
-		// startedThisPass tracks whether resume/create/update already
-		// (re)started the service in this pass, so a pending restart request
-		// is consumed instead of bouncing the service a second time.
-		var startedThisPass bool
-		result, startedThisPass = r.reconcileResume(req, exists, existingService)
+		// attemptedThisPass tracks whether resume/create/update already
+		// attempted a start or restart of the service in this pass, whatever
+		// the outcome, so a pending restart request is consumed instead of
+		// bouncing the service a second time.
+		var attemptedThisPass bool
+		result, attemptedThisPass = r.reconcileResume(req, exists, existingService)
 
 		if result.Error == nil && result.RequeueAfter == 0 {
-			var started bool
+			var attempted bool
 			if !exists {
 				// Service doesn't exist, create it
-				result, started = r.reconcileCreate(ctx, req, mcpServerInfo)
+				result, attempted = r.reconcileCreate(ctx, req, mcpServerInfo)
 			} else {
 				// Service exists, check if update is needed
-				result, started = r.reconcileUpdate(ctx, req, mcpServerInfo, existingService)
+				result, attempted = r.reconcileUpdate(ctx, req, mcpServerInfo, existingService)
 			}
-			startedThisPass = startedThisPass || started
+			attemptedThisPass = attemptedThisPass || attempted
 		}
 
-		if result.Error == nil && result.RequeueAfter == 0 {
-			if pending := pendingRestart(mcpServerInfo); pending != nil {
-				if startedThisPass {
-					logging.Info("MCPServerReconciler", "Consuming restart request for MCPServer %s: service was (re)started in this pass", req.Name)
-					processedRestart = pending
-				} else if restartResult := r.reconcileRestart(req, *pending); restartResult.Error != nil {
-					result = restartResult
-				} else {
+		// A restart request is processed by the first pass that attempts a
+		// start or restart of the service, whether the attempt succeeded or
+		// not. Recording it only on success fed the reconciler its own state
+		// changes: the failed start moved the service starting -> failed, the
+		// StateChangeBridge queued a reconcile for each transition, the
+		// request was still pending, and the service was restarted again --
+		// 131 times in 53 s against an endpoint nothing listened on, throttled
+		// only by the debounce, while the service's own backoff said "in 2
+		// minutes" (issue #1166). Further attempts are the orchestrator's: the
+		// failed start has already scheduled them on the service's reconnect
+		// backoff (status.nextRetryAfter).
+		if pending := pendingRestart(mcpServerInfo); pending != nil {
+			switch {
+			case attemptedThisPass:
+				logging.Info("MCPServerReconciler", "Consuming restart request for MCPServer %s: a start was attempted in this pass", req.Name)
+				processedRestart = pending
+			case result.Error == nil && result.RequeueAfter == 0:
+				var processed bool
+				result, processed = r.reconcileRestart(req, *pending)
+				if processed {
 					processedRestart = pending
 				}
 			}
@@ -291,6 +304,9 @@ func (r *MCPServerReconciler) syncStatus(ctx context.Context, name, namespace st
 func (r *MCPServerReconciler) applyStatusFromService(server *musterv1alpha1.MCPServer, name string, reconcileErr error, processedRestart *time.Time) {
 	// Record the processed restart request so it is not re-processed on the
 	// next reconcile (spec-is-desired / status-is-observed, issue #1055).
+	// "Processed" means attempted once: a request whose attempt failed is
+	// recorded as well, and the failure is observed in state, lastError and
+	// the reconnect schedule below rather than in a pending request (#1166).
 	if processedRestart != nil {
 		t := metav1.NewTime(*processedRestart)
 		server.Status.LastRestartedAt = &t
@@ -478,7 +494,8 @@ func (r *MCPServerReconciler) determineState(state api.ServiceState, serverType 
 }
 
 // pendingRestart returns the spec.restartRequestedAt value if it has not been
-// processed yet (differs from status.lastRestartedAt), nil otherwise.
+// processed yet (differs from status.lastRestartedAt), nil otherwise. A newer
+// timestamp therefore restarts again, however the previous request ended.
 func pendingRestart(info *api.MCPServerInfo) *time.Time {
 	if info.RestartRequestedAt == nil {
 		return nil
@@ -538,8 +555,16 @@ func (r *MCPServerReconciler) reconcileSuspend(req ReconcileRequest, exists bool
 // reconcileResume starts a service again after its spec.suspended flag went
 // back to false. No-op for servers this reconciler never saw suspended, so
 // servers stopped through the imperative core_service_stop path (still used
-// in filesystem mode) stay stopped. The bool reports whether a start
-// was performed in this pass.
+// in filesystem mode) stay stopped. The bool reports whether a start was
+// attempted in this pass, whatever its outcome.
+//
+// The suspension marker is cleared by the attempt, not by its success: a
+// resume whose start failed used to keep the marker, so every state change
+// of the failed start resumed the service again -- the loop of issue #1166
+// in its other form. Once a service is registered, its retries are the
+// orchestrator's (reconnect backoff); only when the start failed before
+// anything was registered does the marker stay and the requeue retry the
+// resume on the queue's own backoff.
 func (r *MCPServerReconciler) reconcileResume(req ReconcileRequest, exists bool, existingService api.ServiceInfo) (ReconcileResult, bool) {
 	if !r.isSuspended(req.Name) {
 		return ReconcileResult{}, false
@@ -566,21 +591,66 @@ func (r *MCPServerReconciler) reconcileResume(req ReconcileRequest, exists bool,
 			r.clearSuspended(req.Name)
 			return ReconcileResult{}, true
 		}
-		return ReconcileResult{
+		result := ReconcileResult{
 			Error:   fmt.Errorf("failed to resume service: %w", err),
 			Requeue: true,
-		}, false
+		}
+		if !r.isRegistered(req.Name) {
+			return result, false
+		}
+		r.clearSuspended(req.Name)
+		r.logFailedAttempt(req.Name, fmt.Sprintf("Resume of MCPServer %s (spec.suspended=false)", req.Name), err)
+		return result, true
 	}
 	r.clearSuspended(req.Name)
 	return ReconcileResult{}, true
 }
 
+// isRegistered reports whether a service exists for the MCPServer in the
+// registry. After a failed StartService this tells whether the orchestrator
+// registered the definition (and so owns the retries through the service's
+// reconnect backoff) or the failure came before any service existed.
+func (r *MCPServerReconciler) isRegistered(name string) bool {
+	_, exists := r.serviceRegistry.Get(name)
+	return exists
+}
+
+// logFailedAttempt records that a start or restart the reconciler attempted
+// on behalf of a spec change failed, that the request is processed regardless,
+// and where the following attempts come from. It is the one line an operator
+// finds for a restart request that did not bring the server back (#1166).
+func (r *MCPServerReconciler) logFailedAttempt(name, what string, err error) {
+	logging.Warn("MCPServerReconciler", "%s failed: %v; the request is processed, further attempts follow the service's reconnect backoff (%s)",
+		what, err, r.retryScheduleHint(name))
+}
+
+// retryScheduleHint names the service's next scheduled attempt for a log line.
+func (r *MCPServerReconciler) retryScheduleHint(name string) string {
+	service, exists := r.serviceRegistry.Get(name)
+	if !exists {
+		return "no service registered"
+	}
+	if next, ok := service.GetServiceData()[api.ServiceDataNextRetryAfter].(time.Time); ok {
+		return "next attempt at " + next.UTC().Format(time.RFC3339)
+	}
+	return "no retry scheduled"
+}
+
 // reconcileRestart performs the one-shot restart requested via
-// spec.restartRequestedAt. The caller records the processed value in
-// status.lastRestartedAt only when this returns without error, so failed
-// restarts are retried and successful ones are never repeated.
-func (r *MCPServerReconciler) reconcileRestart(req ReconcileRequest, requestedAt time.Time) ReconcileResult {
-	if _, exists := r.serviceRegistry.Get(req.Name); !exists {
+// spec.restartRequestedAt and reports whether the request counts as
+// processed. It does after one attempt, whatever the outcome: the caller then
+// mirrors the value into status.lastRestartedAt, and a failed attempt is left
+// to the orchestrator's reconnect backoff, which the failed start has already
+// scheduled (status.nextRetryAfter). The result still carries the failure, so
+// it is reported once; the queue's retries of it find the request processed
+// and nothing left to do. Recording the request only on success made every
+// state change of the failed start restart the service again (issue #1166).
+//
+// The request stays pending only when no service could be registered at all:
+// then there is no schedule to fall back on, no state-change event can
+// re-trigger the pass, and the queue's own backoff retries it.
+func (r *MCPServerReconciler) reconcileRestart(req ReconcileRequest, requestedAt time.Time) (ReconcileResult, bool) {
+	if !r.isRegistered(req.Name) {
 		// No service registered (autoStart=false and never started). A restart
 		// request is an explicit "make it run now" — the CR-driven
 		// core_service_start writes it for exactly this case (issue #1057) —
@@ -590,28 +660,36 @@ func (r *MCPServerReconciler) reconcileRestart(req ReconcileRequest, requestedAt
 		if err := r.orchestratorAPI.StartService(req.Name); err != nil {
 			if api.IsAuthRequiredError(err) {
 				logging.Info("MCPServerReconciler", "MCPServer %s requires authentication after requested start", req.Name)
-				return ReconcileResult{}
+				return ReconcileResult{}, true
 			}
-			return ReconcileResult{
+			result := ReconcileResult{
 				Error:   fmt.Errorf("failed to start service for restart request: %w", err),
 				Requeue: true,
 			}
+			if !r.isRegistered(req.Name) {
+				logging.Warn("MCPServerReconciler", "Start of MCPServer %s requested at %s failed before a service was registered: %v; the request stays pending and is retried on the reconcile backoff",
+					req.Name, requestedAt.Format(time.RFC3339), err)
+				return result, false
+			}
+			r.logFailedAttempt(req.Name, fmt.Sprintf("Start of MCPServer %s requested at %s", req.Name, requestedAt.Format(time.RFC3339)), err)
+			return result, true
 		}
-		return ReconcileResult{}
+		return ReconcileResult{}, true
 	}
 
 	logging.Info("MCPServerReconciler", "Restarting MCPServer service %s (restartRequestedAt=%s)", req.Name, requestedAt.Format(time.RFC3339))
 	if err := r.orchestratorAPI.RestartService(req.Name); err != nil {
 		if api.IsAuthRequiredError(err) {
 			logging.Info("MCPServerReconciler", "MCPServer %s requires authentication after requested restart", req.Name)
-			return ReconcileResult{}
+			return ReconcileResult{}, true
 		}
+		r.logFailedAttempt(req.Name, fmt.Sprintf("Restart of MCPServer %s requested at %s", req.Name, requestedAt.Format(time.RFC3339)), err)
 		return ReconcileResult{
 			Error:   fmt.Errorf("failed to restart service: %w", err),
 			Requeue: true,
-		}
+		}, true
 	}
-	return ReconcileResult{}
+	return ReconcileResult{}, true
 }
 
 // isKubernetesMode reports whether muster is running against an apiserver.
@@ -642,7 +720,9 @@ func (r *MCPServerReconciler) reconcileReject(req ReconcileRequest, rejectErr er
 }
 
 // reconcileCreate handles creating a new MCPServer service. The bool reports
-// whether a start was performed (or attempted up to Auth Required) in this pass.
+// whether a start was attempted in this pass, whatever its outcome: a failed
+// start registered the service, whose reconnect backoff owns the retries, so
+// a pending restart request is consumed rather than attempted on top (#1166).
 func (r *MCPServerReconciler) reconcileCreate(ctx context.Context, req ReconcileRequest, info *api.MCPServerInfo) (ReconcileResult, bool) {
 	logging.Info("MCPServerReconciler", "Creating MCPServer service: %s", req.Name)
 
@@ -664,7 +744,7 @@ func (r *MCPServerReconciler) reconcileCreate(ctx context.Context, req Reconcile
 		return ReconcileResult{
 			Error:   fmt.Errorf("failed to start service: %w", err),
 			Requeue: true,
-		}, false
+		}, r.isRegistered(req.Name)
 	}
 
 	logging.Info("MCPServerReconciler", "Successfully created MCPServer service: %s", req.Name)
@@ -672,8 +752,8 @@ func (r *MCPServerReconciler) reconcileCreate(ctx context.Context, req Reconcile
 }
 
 // reconcileUpdate handles updating an existing MCPServer service. The bool
-// reports whether a restart was performed (or attempted up to Auth Required)
-// in this pass.
+// reports whether a restart was attempted in this pass, whatever its outcome
+// (see reconcileCreate).
 func (r *MCPServerReconciler) reconcileUpdate(ctx context.Context, req ReconcileRequest, info *api.MCPServerInfo, existingService api.ServiceInfo) (ReconcileResult, bool) {
 	logging.Debug("MCPServerReconciler", "Checking MCPServer service for updates: %s", req.Name)
 
@@ -708,7 +788,7 @@ func (r *MCPServerReconciler) reconcileUpdate(ctx context.Context, req Reconcile
 		return ReconcileResult{
 			Error:   fmt.Errorf("failed to restart service: %w", err),
 			Requeue: true,
-		}, false
+		}, true
 	}
 
 	logging.Info("MCPServerReconciler", "Successfully updated MCPServer service: %s", req.Name)

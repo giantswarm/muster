@@ -1,0 +1,203 @@
+name: "mcpserver-restart-request-endpoint-down"
+description: "A spec.restartRequestedAt on a remote MCPServer whose endpoint is down is processed by one attempt: status.lastRestartedAt mirrors it while the endpoint is still down, the following attempts are the service's own on the nextRetryAfter schedule, a newer request is attempted once more, and the server reconnects once the endpoint is back (#1166)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "lifecycle", "restart", "reconciler", "backoff", "regression", "issue-1166"]
+timeout: "3m"
+
+# Given: a remote MCP server, Connected. The harness runs muster with a 1s
+#        initial backoff, a 3s backoff cap and a 1s retry tick (production:
+#        30s, 2m, 30s).
+# When:  its backend is stopped (connection refused on the next connect) and
+#        spec.restartRequestedAt is written.
+# Then:  the reconciler restarts the service once, the attempt fails, and
+#        status.lastRestartedAt mirrors the request while the backend is still
+#        down: the request is processed by the attempt, not by its success.
+#        The service's own schedule carries on from there -- connection
+#        failure 2 of 3 after 1s, then unreachable with the 3s cap -- and the
+#        status names the refused connection and the next retry.
+# When:  a newer spec.restartRequestedAt is written while still down.
+# Then:  it is attempted once as well and mirrored the same way.
+# When:  the backend comes back.
+# Then:  the next scheduled attempt connects and the schedule is cleared.
+#
+# Before the fix status.lastRestartedAt was written only when the restart
+# succeeded. The failed start moved the service starting -> failed, each
+# transition queued a reconcile, the request was still pending and the
+# reconciler restarted the service again: 131 attempts in 53 s on a
+# management cluster while status.nextRetryAfter said "in 2 minutes"
+# (giantswarm/muster#1166). Here the first wait after the request would time
+# out with lastRestartedAt never written while the backend is stopped.
+#
+# Restart requests reach the reconciler in filesystem mode as well: the
+# core_mcpserver_update below writes the definition, the change detector picks
+# it up, and the same restart path runs as for a CR write on a cluster.
+# core_service_restart is not used because in filesystem mode it is the
+# imperative path and never touches the reconciler.
+
+pre_configuration:
+  main_config:
+    config:
+      events: true
+
+  mcp_servers:
+    - name: "restart-loop-server"
+      config:
+        type: "streamable-http"
+        tools:
+          - name: "probe"
+            description: "Answers when the backend is reachable"
+            input_schema:
+              type: "object"
+              properties: {}
+            responses:
+              - response: { alive: true }
+
+steps:
+  - id: "connected"
+    tool: "core_service_status"
+    args:
+      name: "restart-loop-server"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "connected"
+    timeout: "45s"
+
+  - id: "backend-gone"
+    tool: "test_stop_mock_server"
+    args:
+      server: "restart-loop-server"
+    expected:
+      success: true
+      contains: ["Stopped mock server"]
+    timeout: "15s"
+
+  - id: "request-restart-while-down"
+    description: "spec.restartRequestedAt on a server whose endpoint refuses connections"
+    tool: "core_mcpserver_update"
+    args:
+      name: "restart-loop-server"
+      type: "streamable-http"
+      autoStart: true
+      restartRequestedAt: "2026-09-05T18:33:46Z"
+    expected:
+      success: true
+    timeout: "15s"
+
+  - id: "request-processed-by-the-failed-attempt"
+    description: "status.lastRestartedAt mirrors the request while the backend is still down: the one failed attempt processed it. Before the fix it was written only on success, so this never came while the endpoint was down"
+    tool: "core_mcpserver_get"
+    args:
+      name: "restart-loop-server"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "restart-loop-server"
+        lastRestartedAt: "2026-09-05T18:33:46Z"
+    timeout: "45s"
+
+  - id: "service-schedule-carries-on"
+    description: "The failed attempt scheduled the service's own retries; they continue on the backoff and the service ends up unreachable, its status naming the refused connection and the next retry"
+    tool: "core_service_status"
+    args:
+      name: "restart-loop-server"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "unreachable"
+      contains: ["connection refused", "nextRetryAfter"]
+      not_contains: ["lastFailureHTTPStatus"]
+    timeout: "45s"
+
+  - id: "one-failure-per-attempt-on-the-schedule"
+    description: "Each MCPServerFailed event names the next retry of the service's schedule: 1s, 2s, then the 3s cap. The attempts after the first are the orchestrator's"
+    tool: "core_events"
+    args:
+      resourceType: "MCPServer"
+      resourceName: "restart-loop-server"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains:
+        - "connection failure 1 of 3 before unreachable (no HTTP response, next retry in 1s at "
+        - "connection failure 2 of 3 before unreachable (no HTTP response, next retry in 2s at "
+        - "server unreachable after 3 consecutive failures (no HTTP response, next retry in 3s at "
+    timeout: "45s"
+
+  - id: "newer-request-while-still-down"
+    description: "A later timestamp is a new request and gets its own attempt, however the previous one ended"
+    tool: "core_mcpserver_update"
+    args:
+      name: "restart-loop-server"
+      type: "streamable-http"
+      autoStart: true
+      restartRequestedAt: "2026-09-05T18:40:00Z"
+    expected:
+      success: true
+    timeout: "15s"
+
+  - id: "newer-request-processed-by-its-failed-attempt"
+    tool: "core_mcpserver_get"
+    args:
+      name: "restart-loop-server"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        lastRestartedAt: "2026-09-05T18:40:00Z"
+    timeout: "45s"
+
+  - id: "backend-back"
+    tool: "test_start_mock_server"
+    args:
+      server: "restart-loop-server"
+    expected:
+      success: true
+      contains: ["Started mock server"]
+    timeout: "15s"
+
+  - id: "reconnects-on-the-schedule"
+    description: "The next attempt due on the service's schedule connects; the schedule is gone from the status and the processed request stays recorded"
+    tool: "core_service_status"
+    args:
+      name: "restart-loop-server"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "connected"
+        metadata.consecutiveFailures: 0
+      not_contains: ["nextRetryAfter"]
+    timeout: "45s"
+
+  - id: "request-still-recorded-after-reconnect"
+    tool: "core_mcpserver_get"
+    args:
+      name: "restart-loop-server"
+    expected:
+      success: true
+      json_path:
+        lastRestartedAt: "2026-09-05T18:40:00Z"
+    timeout: "15s"
+
+  - id: "tool-answers-again"
+    tool: "x_restart-loop-server_probe"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "20s"
+      contains: ["alive"]
+    timeout: "30s"
+
+# The reconciler names each processed-but-failed request once, so an operator
+# grepping for a restart that did not bring the server back finds this line
+# and the schedule the retries now follow.
+instance_logs:
+  contains:
+    - "Restart of MCPServer restart-loop-server requested at 2026-09-05T18:33:46Z failed"
+    - "Restart of MCPServer restart-loop-server requested at 2026-09-05T18:40:00Z failed"
+    - "the request is processed, further attempts follow the service's reconnect backoff (next attempt at "
