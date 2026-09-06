@@ -123,7 +123,7 @@ the MCP server as its own workload and register it with `streamable-http` or
 | `timeout` | `integer` | No | Connection timeout in seconds | Min: 1, Max: 300, Default: 30 |
 | `auth` | `MCPServerAuth` | No | Authentication configuration | Only for streamable-http and sse servers |
 | `suspended` | `boolean` | No | Desired lifecycle state: `true` stops the server's service and keeps it stopped; setting it back to `false` resumes it | Default: `false` |
-| `restartRequestedAt` | `timestamp` | No | Requests a one-shot restart; processed once by the reconciler, which mirrors the value into `status.lastRestartedAt` | RFC 3339 timestamp |
+| `restartRequestedAt` | `timestamp` | No | Requests a one-shot restart; processed by the reconciler's first attempt, whatever its outcome, which mirrors the value into `status.lastRestartedAt`. A failed attempt is not repeated by the reconciler: the service retries on its reconnect backoff (`status.nextRetryAfter`) | RFC 3339 timestamp |
 
 #### MCPServerAuth Fields
 
@@ -221,7 +221,7 @@ roleRef:
 | `lastError` | `string` | Error message from the most recent operation |
 | `lastConnected` | `*metav1.Time` | When the server was last successfully connected |
 | `restartCount` | `int` | Number of times the server has been restarted |
-| `lastRestartedAt` | `*metav1.Time` | The `spec.restartRequestedAt` value most recently processed by the reconciler; a restart runs only when the two differ |
+| `lastRestartedAt` | `*metav1.Time` | The `spec.restartRequestedAt` value most recently processed by the reconciler; a restart runs only when the two differ. A request is processed by one attempt whether it succeeded or failed: after a failed attempt the value is recorded, the failure shows in `state` and `lastError`, and the retries are the service's own (`nextRetryAfter`), not the reconciler's |
 | `consecutiveFailures` | `int` | Connection attempts that failed in a row (remote servers); the server is `Failed` from the third on. Reset when an attempt reaches the endpoint |
 | `lastAttempt` | `*metav1.Time` | When the last connection attempt was made |
 | `nextRetryAfter` | `*metav1.Time` | When muster tries again. The wait doubles from 30 s per failure and is capped at 2 minutes (`MUSTER_MCPSERVER_MAX_BACKOFF`); absent while no retry is scheduled |

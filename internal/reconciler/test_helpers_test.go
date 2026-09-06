@@ -38,11 +38,24 @@ type MockOrchestratorAPI struct {
 	RestartedServices map[string]bool
 	RemovedServices   map[string]bool
 
+	// Attempt counters: StartService / RestartService calls per service name,
+	// counted whether or not the configured error made them fail. The maps
+	// above record successes only, which cannot tell one failed attempt from
+	// a hundred (issue #1166).
+	StartCalls   map[string]int
+	RestartCalls map[string]int
+
 	// Configurable errors for testing error paths
 	StartError   error
 	StopError    error
 	RestartError error
 	RemoveError  error
+
+	// OnStart, when set, runs on every StartService call before the error is
+	// applied. The orchestrator registers a definition lazily before starting
+	// it, so a failed start still leaves a service in the registry; a test
+	// mirrors that by adding the service to its MockServiceRegistry here.
+	OnStart func(name string)
 
 	// Event channel for state change subscription
 	EventChan chan api.ServiceStateChangedEvent
@@ -58,6 +71,8 @@ func NewMockOrchestratorAPI() *MockOrchestratorAPI {
 		StoppedServices:   make(map[string]bool),
 		RestartedServices: make(map[string]bool),
 		RemovedServices:   make(map[string]bool),
+		StartCalls:        make(map[string]int),
+		RestartCalls:      make(map[string]int),
 		EventChan:         make(chan api.ServiceStateChangedEvent, 100),
 		ServiceStatuses:   make(map[string]*api.ServiceStatus),
 	}
@@ -66,6 +81,10 @@ func NewMockOrchestratorAPI() *MockOrchestratorAPI {
 func (m *MockOrchestratorAPI) StartService(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.StartCalls[name]++
+	if m.OnStart != nil {
+		m.OnStart(name)
+	}
 	if m.StartError != nil {
 		return m.StartError
 	}
@@ -96,6 +115,7 @@ func (m *MockOrchestratorAPI) RemoveService(name string) error {
 func (m *MockOrchestratorAPI) RestartService(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.RestartCalls[name]++
 	if m.RestartError != nil {
 		return m.RestartError
 	}

@@ -668,7 +668,11 @@ Restart a specific service (stop then start operation).
 **Writes-as-caller:** In Kubernetes mode, restart on an
 MCPServer-backed service writes `spec.restartRequestedAt` with your own
 identity; the reconciler restarts the service once and mirrors the processed
-value into `status.lastRestartedAt`.
+value into `status.lastRestartedAt`. One attempt is made whether or not the
+endpoint answers: a restart that fails because the server is unreachable is
+recorded as processed too, and the service keeps retrying on its own
+reconnect backoff (`status.nextRetryAfter`); write a newer timestamp to
+request another restart.
 
 ### `core_service_status`
 Get current status information for a specific service.
