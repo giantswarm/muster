@@ -98,7 +98,25 @@ includes minus its excludes. Every rule sets **exactly one** key:
 | `workflow: <name>` | The workflow's execution tool. |
 | `readOnly: true` | Every tool annotated `readOnlyHint: true`, including workflows carrying the derived hint (below). |
 | `preset: <name>` | Composition: everything another preset selects. `include` only. |
-| `label: <key>=<value>` / `label: <key>` | Tools of every MCPServer carrying that label (value match or presence). Presets only; see #1168. |
+| `label: <key>=<value>` / `label: <key>` | Tools of every MCPServer whose resource carries that label — `metadata.labels` in both storage modes, read live on each request, so a server gaining or losing the label changes the resolution on the next request without a restart. `<key>=<value>` matches the value, `<key>` alone matches presence, `<key>=` matches an empty value. A family tool joins when any member providing it carries the label. Presets only — inline `label:` is rejected. |
+
+The two platform presets are defined by the tool-group label every platform-shipped MCPServer
+carries (`agent-platform.giantswarm.io/tool-group: infrastructure | agent-platform`; see the
+fleet chart), so a new manager or a fourth infrastructure family joins its preset with no values
+change:
+
+```yaml
+toolsetPresets:
+  infrastructure:
+    description: The servers for the infrastructure underneath the platform
+    include:
+      - label: agent-platform.giantswarm.io/tool-group=infrastructure
+  agent-platform:
+    description: The platform's own management surface, including muster's core tools
+    include:
+      - label: agent-platform.giantswarm.io/tool-group=agent-platform
+      - pattern: core_*
+```
 
 ### Built-in presets
 

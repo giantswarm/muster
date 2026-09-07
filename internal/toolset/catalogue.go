@@ -29,20 +29,19 @@ type Entry struct {
 	// ReadOnly is the tool's readOnlyHint annotation (for a workflow the
 	// derived hint the aggregator computed from its step tools).
 	ReadOnly bool
-	// Labels are the labels of the owning MCPServer resource (#1168). Nil
-	// when unknown.
-	Labels map[string]string
 }
 
-// ServerLabels resolves an MCPServer name to its resource labels. It is
-// consulted for server tools when non-nil; see #1168.
+// ServerLabels resolves an MCPServer name to its resource labels (nil when the
+// server is unknown). Label: preset rules consult it lazily, per request, so
+// a server gaining or losing a label changes the resolution on the next
+// request without a restart (#1168).
 type ServerLabels func(server string) map[string]string
 
 // EntriesFromTools projects exposed tools to resolution entries. Kind and
 // server come from the origin the aggregator stashed on the tool; tools
 // without one are classified by name prefix, which is how the aggregator
 // itself tells core and workflow tools apart.
-func EntriesFromTools(tools []mcp.Tool, labels ServerLabels) []Entry {
+func EntriesFromTools(tools []mcp.Tool) []Entry {
 	entries := make([]Entry, 0, len(tools))
 	for _, t := range tools {
 		e := Entry{Name: t.Name, Kind: KindOf(t)}
@@ -52,9 +51,6 @@ func EntriesFromTools(tools []mcp.Tool, labels ServerLabels) []Entry {
 		}
 		if t.Annotations.ReadOnlyHint != nil && *t.Annotations.ReadOnlyHint {
 			e.ReadOnly = true
-		}
-		if labels != nil && e.Kind == KindEntryTool && e.Server != "" {
-			e.Labels = labels(e.Server)
 		}
 		entries = append(entries, e)
 	}

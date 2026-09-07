@@ -48,7 +48,7 @@ func (p *Provider) catalogue(ctx context.Context, handler api.MetaToolsHandler) 
 	if !present {
 		return cat, nil
 	}
-	res, err := p.presets.Resolve(ts, toolset.EntriesFromTools(tools, p.serverLabels))
+	res, err := p.presets.ResolveWith(ts, toolset.EntriesFromTools(tools), p.labelsFor(ctx))
 	if err != nil {
 		return nil, errorResult(err.Error())
 	}

@@ -548,6 +548,29 @@ steps:
 Regular tool steps (`tool: x_server_tool`) carry the headers too, since they go through
 `call_tool` on the same client.
 
+### MCPServer labels
+
+`pre_configuration.mcp_servers[].labels` writes `metadata.labels` on the server's MCPServer
+definition — the way a chart labels the resources it ships — and
+`test_set_mcpserver_labels {server, labels}` replaces them while muster runs (an empty `labels`
+removes them). Together they exercise label-based toolset presets, including "a server gaining
+or losing the label changes the resolution without a restart":
+
+```yaml
+pre_configuration:
+  mcp_servers:
+    - name: "k8s"
+      labels:
+        agent-platform.giantswarm.io/tool-group: infrastructure
+      config:
+        tools: [ ... ]
+steps:
+  - id: relabel
+    tool: test_set_mcpserver_labels
+    args: { server: "k8s", labels: { tier: "gold" } }
+    expected: { success: true }
+```
+
 ## Multi-User Testing
 
 The test framework supports multi-user scenarios to verify session isolation and per-user tool visibility. This is critical for testing OAuth-protected MCP servers where different users may have access to different tools.

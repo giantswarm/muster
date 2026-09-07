@@ -20,7 +20,7 @@ type Provider struct {
 	presets *toolset.Registry
 	// serverLabels resolves an MCPServer name to its resource labels for the
 	// label: preset selector (#1168); nil when unavailable.
-	serverLabels toolset.ServerLabels
+	serverLabels ServerLabelsSource
 }
 
 // NewProvider creates a new meta-tools provider instance knowing the built-in

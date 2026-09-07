@@ -42,11 +42,20 @@ func (r Resolution) Names() []string {
 	return names
 }
 
-// Resolve evaluates ts against entries. Inline selectors are unioned; each
+// Resolve evaluates ts against entries without a label lookup: label rules
+// select nothing. See ResolveWith.
+func (r *Registry) Resolve(ts Toolset, entries []Entry) (Resolution, error) {
+	return r.ResolveWith(ts, entries, nil)
+}
+
+// ResolveWith evaluates ts against entries. Inline selectors are unioned; each
 // preset resolves to its includes minus its excludes, recursively for
 // composed presets. Every preset the toolset names must exist (Check) or the
-// unknown-preset error is returned.
-func (r *Registry) Resolve(ts Toolset, entries []Entry) (Resolution, error) {
+// unknown-preset error is returned. labels resolves an MCPServer name to its
+// resource labels for label: rules and is consulted lazily — only when such a
+// rule is evaluated — so a request whose presets carry no label rule never
+// pays for the lookup; nil means no labels are known.
+func (r *Registry) ResolveWith(ts Toolset, entries []Entry, labels ServerLabels) (Resolution, error) {
 	if err := r.Check(ts); err != nil {
 		return Resolution{}, err
 	}
@@ -55,7 +64,7 @@ func (r *Registry) Resolve(ts Toolset, entries []Entry) (Resolution, error) {
 		var matched map[string]struct{}
 		switch sel.Kind {
 		case KindPreset:
-			matched = r.resolvePreset(sel.Name, entries, map[string]bool{})
+			matched = r.resolvePreset(sel.Name, entries, labels, map[string]bool{})
 		default:
 			matched = matchInline(sel, entries)
 		}
@@ -113,7 +122,7 @@ func entryServedBy(e Entry, server string) bool {
 // resolvePreset returns the names a preset selects: includes minus excludes.
 // visiting guards against composition cycles (rejected at construction, but
 // the walk stays safe regardless).
-func (r *Registry) resolvePreset(name string, entries []Entry, visiting map[string]bool) map[string]struct{} {
+func (r *Registry) resolvePreset(name string, entries []Entry, labels ServerLabels, visiting map[string]bool) map[string]struct{} {
 	matched := map[string]struct{}{}
 	p, ok := r.presets[name]
 	if !ok || visiting[name] {
@@ -124,20 +133,20 @@ func (r *Registry) resolvePreset(name string, entries []Entry, visiting map[stri
 
 	for _, rule := range p.Include {
 		if rule.Preset != "" {
-			for n := range r.resolvePreset(rule.Preset, entries, visiting) {
+			for n := range r.resolvePreset(rule.Preset, entries, labels, visiting) {
 				matched[n] = struct{}{}
 			}
 			continue
 		}
 		for _, e := range entries {
-			if ruleMatches(rule, e) {
+			if ruleMatches(rule, e, labels) {
 				matched[e.Name] = struct{}{}
 			}
 		}
 	}
 	for _, rule := range p.Exclude {
 		for _, e := range entries {
-			if ruleMatches(rule, e) {
+			if ruleMatches(rule, e, labels) {
 				delete(matched, e.Name)
 			}
 		}
@@ -146,7 +155,7 @@ func (r *Registry) resolvePreset(name string, entries []Entry, visiting map[stri
 }
 
 // ruleMatches evaluates one preset rule against one entry.
-func ruleMatches(rule Rule, e Entry) bool {
+func ruleMatches(rule Rule, e Entry, labels ServerLabels) bool {
 	switch {
 	case rule.Tool != "":
 		return e.Name == rule.Tool
@@ -159,6 +168,32 @@ func ruleMatches(rule Rule, e Entry) bool {
 		return e.Kind == KindEntryWorkflow && e.Name == "workflow_"+rule.Workflow
 	case rule.ReadOnly != nil:
 		return *rule.ReadOnly && e.ReadOnly
+	case rule.Label != "":
+		return entryLabelled(e, rule.Label, labels)
+	}
+	return false
+}
+
+// entryLabelled reports whether a server tool is served by an MCPServer whose
+// resource carries the label: the owning server, or — for a family tool — any
+// member providing it. Workflows and core tools are never labelled.
+func entryLabelled(e Entry, rule string, labels ServerLabels) bool {
+	if e.Kind != KindEntryTool || labels == nil {
+		return false
+	}
+	key, want, hasValue := labelSelector(rule)
+	servers := e.Servers
+	if e.Server != "" {
+		servers = append([]string{e.Server}, servers...)
+	}
+	for _, server := range servers {
+		have, ok := labels(server)[key]
+		if !ok {
+			continue
+		}
+		if !hasValue || have == want {
+			return true
+		}
 	}
 	return false
 }
