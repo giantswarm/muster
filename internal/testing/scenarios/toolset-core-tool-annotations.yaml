@@ -1,0 +1,194 @@
+name: "toolset-core-tool-annotations"
+description: "muster's own core tools declare MCP annotations: every list/get/validate/probe tool is readOnlyHint true (core_auth_login included: it issues a sign-in link and changes nothing on the platform), every write is readOnlyHint false with destructiveHint per what it changes; the built-in read-only preset therefore includes the read-only core tools and refuses the writes, without any tool: selector (#1172)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["toolset", "annotations", "core", "read-only", "1172"]
+timeout: "5m"
+
+pre_configuration:
+  mcp_servers:
+    - name: "k8s"
+      config:
+        tools:
+          - name: "get_pods"
+            description: "List pods"
+            annotations: { read_only_hint: true }
+            responses: [{ response: { pods: [] } }]
+
+steps:
+  - id: "wait-for-server"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["k8s"]
+
+  - id: "describe-read-only-core-tool"
+    description: "a list tool: read-only, not destructive, idempotent, closed world"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_tool", arguments: { name: "core_workflow_list" } }
+    expected:
+      success: true
+      json_path:
+        kind: "core"
+        annotations.readOnlyHint: true
+        annotations.destructiveHint: false
+        annotations.idempotentHint: true
+        annotations.openWorldHint: false
+
+  - id: "describe-delete-core-tool"
+    description: "a delete: a write that removes what exists"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_tool", arguments: { name: "core_workflow_delete" } }
+    expected:
+      success: true
+      json_path:
+        kind: "core"
+        annotations.readOnlyHint: false
+        annotations.destructiveHint: true
+        annotations.idempotentHint: false
+
+  - id: "describe-create-core-tool"
+    description: "a create: an additive write"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_tool", arguments: { name: "core_mcpserver_create" } }
+    expected:
+      success: true
+      json_path:
+        annotations.readOnlyHint: false
+        annotations.destructiveHint: false
+
+  - id: "describe-service-stop"
+    description: "stopping a service interrupts it: destructive, idempotent"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_tool", arguments: { name: "core_service_stop" } }
+    expected:
+      success: true
+      json_path:
+        annotations.readOnlyHint: false
+        annotations.destructiveHint: true
+        annotations.idempotentHint: true
+
+  - id: "describe-mcpserver-detect"
+    description: "probing a remote URL reads only, but reaches beyond muster"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_tool", arguments: { name: "core_mcpserver_detect" } }
+    expected:
+      success: true
+      json_path:
+        annotations.readOnlyHint: true
+        annotations.openWorldHint: true
+
+  - id: "describe-auth-login"
+    description: "core_auth_login issues a sign-in link for the caller and mutates nothing on the platform: read-only, open world (the authorization server)"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_tool", arguments: { name: "core_auth_login" } }
+    expected:
+      success: true
+      json_path:
+        kind: "core"
+        annotations.readOnlyHint: true
+        annotations.destructiveHint: false
+        annotations.idempotentHint: true
+        annotations.openWorldHint: true
+
+  - id: "describe-auth-logout"
+    description: "core_auth_logout discards the caller's stored grant: a write, not destructive beyond that, idempotent"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_tool", arguments: { name: "core_auth_logout" } }
+    expected:
+      success: true
+      json_path:
+        annotations.readOnlyHint: false
+        annotations.destructiveHint: false
+        annotations.idempotentHint: true
+
+  - id: "every-core-tool-is-annotated"
+    description: "no core tool is left without a readOnlyHint (the whole surface, unscoped)"
+    tool: "test_call_meta_tool"
+    args: { tool: "filter_tools", arguments: { pattern: "core_*", limit: 100 } }
+    expected:
+      success: true
+      json_path:
+        total: 29
+        tools.0.kind: "core"
+      # 29 = the 16 read-only tools the next step lists + the 13 writes it excludes:
+      # every core tool is classified one way or the other.
+      contains: ["core_auth_login", "core_auth_logout", "core_config_get", "core_config_save", "core_events", "core_mcpserver_detect", "core_service_restart", "core_workflow_execution_get"]
+
+  - id: "read-only-preset-includes-read-only-core-tools"
+    description: "preset:read-only selects the 16 read-only core tools by their annotation, no tool: selector needed"
+    tool: "test_call_meta_tool"
+    args: { tool: "filter_tools", arguments: { pattern: "core_*", limit: 100 } }
+    headers: { X-Muster-Toolset: "preset:read-only" }
+    expected:
+      success: true
+      json_path:
+        total: 16
+      contains:
+        - "core_workflow_list"
+        - "core_workflow_get"
+        - "core_workflow_validate"
+        - "core_workflow_available"
+        - "core_workflow_execution_list"
+        - "core_workflow_execution_get"
+        - "core_service_list"
+        - "core_service_status"
+        - "core_config_get"
+        - "core_config_get_aggregator"
+        - "core_mcpserver_list"
+        - "core_mcpserver_get"
+        - "core_mcpserver_validate"
+        - "core_mcpserver_detect"
+        - "core_events"
+        - "core_auth_login"
+      not_contains:
+        - "core_workflow_create"
+        - "core_workflow_update"
+        - "core_workflow_delete"
+        - "core_service_start"
+        - "core_service_stop"
+        - "core_service_restart"
+        - "core_config_update_aggregator"
+        - "core_config_save"
+        - "core_config_reload"
+        - "core_mcpserver_create"
+        - "core_mcpserver_update"
+        - "core_mcpserver_delete"
+        - "core_auth_logout"
+        - "toolset_unmatched"
+
+  - id: "read-only-preset-allows-core-read"
+    tool: "core_workflow_list"
+    args: {}
+    headers: { X-Muster-Toolset: "preset:read-only" }
+    expected:
+      success: true
+
+  - id: "read-only-preset-allows-auth-login-call"
+    description: "the call is inside the toolset; the result is the tool's own answer (no such server)"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_tool", arguments: { name: "core_auth_login" } }
+    headers: { X-Muster-Toolset: "preset:read-only" }
+    expected:
+      success: true
+      json_path:
+        name: "core_auth_login"
+      not_contains: ["outside the toolset"]
+
+  - id: "read-only-preset-refuses-core-write"
+    tool: "core_workflow_delete"
+    args: { name: "nothing" }
+    headers: { X-Muster-Toolset: "preset:read-only" }
+    expected:
+      success: false
+      error_contains: ['tool "core_workflow_delete" is outside the toolset [preset:read-only]']
+
+  - id: "read-only-preset-refuses-auth-logout"
+    tool: "core_auth_logout"
+    args: { server: "k8s" }
+    headers: { X-Muster-Toolset: "preset:read-only" }
+    expected:
+      success: false
+      error_contains: ['tool "core_auth_logout" is outside the toolset [preset:read-only]']

@@ -117,6 +117,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 	return []api.ToolMetadata{
 		{
 			Name:        "events",
+			Annotations: api.ReadOnlyAnnotations(),
 			Description: "List and filter events for muster resources",
 			Args: []api.ArgMetadata{
 				{

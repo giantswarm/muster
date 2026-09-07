@@ -48,7 +48,8 @@ steps:
       success: true
       wait_for_state: "20s"
       json_path:
-        total: 3
+        # x_k8s_get_pods + workflow_triage + the 16 read-only core tools (#1172)
+        total: 18
         toolset.0: "preset:read-only"
         toolset.3: "tool:core_workflow_list"
         toolset_unmatched.0: "server:nope"
@@ -90,7 +91,8 @@ steps:
       success: true
       json_path:
         total: 1
-        total_tools: 2
+        # the header's catalogue: get_pods, workflow_triage and the 16 read-only core tools
+        total_tools: 18
         tools.0.name: "x_k8s_get_pods"
       not_contains: ["x_k8s_delete_pod", "toolset_unmatched"]
 

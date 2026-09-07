@@ -65,11 +65,19 @@ pre_configuration:
     - name: "core-step"
       config:
         name: "core-step"
-        description: "Calls a core tool, which carries no annotation"
+        description: "Calls a read-only core tool"
         steps:
           - id: "list"
             tool: "core_workflow_list"
             args: {}
+    - name: "core-write-step"
+      config:
+        name: "core-write-step"
+        description: "Calls a core tool that writes"
+        steps:
+          - id: "delete"
+            tool: "core_workflow_delete"
+            args: { name: "nothing" }
 
 steps:
   - id: "wait-for-servers"
@@ -81,7 +89,7 @@ steps:
       contains: ["k8s", "gh"]
 
   - id: "read-only"
-    description: "preset:read-only = annotated read-only tools + workflows whose steps are all read-only (transitively)"
+    description: "preset:read-only = annotated read-only tools (the read-only core tools included, #1172) + workflows whose steps are all read-only (transitively)"
     tool: "test_call_meta_tool"
     args: { tool: "filter_tools", arguments: { pattern: "*", limit: 50 } }
     headers: { X-Muster-Toolset: "preset:read-only" }
@@ -89,9 +97,10 @@ steps:
       success: true
       wait_for_state: "20s"
       json_path:
-        total: 4
-      contains: ["x_k8s_get_pods", "x_gh_issues", "workflow_ro-triage", "workflow_nested-ro"]
-      not_contains: ["x_k8s_delete_pod", "x_k8s_restart", "workflow_rw-rollout", "workflow_core-step", "core_workflow_list", "toolset_unmatched"]
+        # 2 server tools + 3 workflows + the 16 read-only core tools
+        total: 21
+      contains: ["x_k8s_get_pods", "x_gh_issues", "workflow_ro-triage", "workflow_nested-ro", "workflow_core-step", "core_workflow_list", "core_mcpserver_list", "core_auth_login"]
+      not_contains: ["x_k8s_delete_pod", "x_k8s_restart", "workflow_rw-rollout", "workflow_core-write-step", "core_workflow_delete", "core_service_stop", "core_auth_logout", "toolset_unmatched"]
 
   - id: "read-only-call-allowed"
     tool: "workflow_ro-triage"
@@ -177,10 +186,20 @@ steps:
         kind: "workflow"
       not_contains: ["readOnlyHint"]
 
-  - id: "describe-no-hint-for-core-step-workflow"
-    description: "a core tool carries no annotation, so a workflow calling one is not read-only"
+  - id: "describe-derived-hint-for-core-step-workflow"
+    description: "a workflow calling a read-only core tool is read-only (#1172)"
     tool: "test_call_meta_tool"
     args: { tool: "describe_tool", arguments: { name: "workflow_core-step" } }
+    expected:
+      success: true
+      json_path:
+        kind: "workflow"
+        annotations.readOnlyHint: true
+
+  - id: "describe-no-hint-for-core-write-step-workflow"
+    description: "a workflow calling a core tool that writes is not read-only"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_tool", arguments: { name: "workflow_core-write-step" } }
     expected:
       success: true
       json_path:
@@ -191,10 +210,11 @@ steps:
     description: "inline selectors add to a preset"
     tool: "test_call_meta_tool"
     args: { tool: "filter_tools", arguments: { pattern: "*", limit: 50 } }
-    headers: { X-Muster-Toolset: "preset:read-only,workflow:rw-rollout,tool:core_workflow_list" }
+    headers: { X-Muster-Toolset: "preset:read-only,workflow:rw-rollout,tool:core_workflow_delete" }
     expected:
       success: true
       json_path:
-        total: 6
-      contains: ["workflow_rw-rollout", "core_workflow_list", "x_k8s_get_pods"]
-      not_contains: ["x_k8s_delete_pod", "core_auth_login"]
+        # the 21 read-only tools + the mutating workflow + the core write
+        total: 23
+      contains: ["workflow_rw-rollout", "core_workflow_delete", "core_workflow_list", "x_k8s_get_pods"]
+      not_contains: ["x_k8s_delete_pod", "core_auth_logout"]

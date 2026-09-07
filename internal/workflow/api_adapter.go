@@ -1278,6 +1278,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		// Workflow management tools
 		{
 			Name:        "workflow_list",
+			Annotations: api.ReadOnlyAnnotations(),
 			Description: "List all workflows",
 			Args: []api.ArgMetadata{
 				{
@@ -1291,6 +1292,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		},
 		{
 			Name:        "workflow_get",
+			Annotations: api.ReadOnlyAnnotations(),
 			Description: "Get workflow details",
 			Args: []api.ArgMetadata{
 				{
@@ -1303,6 +1305,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		},
 		{
 			Name:        "workflow_create",
+			Annotations: api.WriteAnnotations(false, false),
 			Description: "Create a new workflow",
 			Args: []api.ArgMetadata{
 				{
@@ -1349,6 +1352,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		},
 		{
 			Name:        "workflow_update",
+			Annotations: api.WriteAnnotations(true, true),
 			Description: "Update an existing workflow",
 			Args: []api.ArgMetadata{
 				{
@@ -1395,6 +1399,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		},
 		{
 			Name:        "workflow_delete",
+			Annotations: api.WriteAnnotations(true, false),
 			Description: "Delete a workflow",
 			Args: []api.ArgMetadata{
 				{
@@ -1407,6 +1412,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		},
 		{
 			Name:        "workflow_validate",
+			Annotations: api.ReadOnlyAnnotations(),
 			Description: "Validate a workflow definition",
 			Args: []api.ArgMetadata{
 				{
@@ -1453,6 +1459,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		},
 		{
 			Name:        "workflow_available",
+			Annotations: api.ReadOnlyAnnotations(),
 			Description: "Check if a workflow is available",
 			Args: []api.ArgMetadata{
 				{
@@ -1465,6 +1472,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		},
 		{
 			Name:        "workflow_execution_list",
+			Annotations: api.ReadOnlyAnnotations(),
 			Description: "List workflow executions",
 			Args: []api.ArgMetadata{
 				{
@@ -1497,6 +1505,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		},
 		{
 			Name:        "workflow_execution_get",
+			Annotations: api.ReadOnlyAnnotations(),
 			Description: "Get workflow execution details",
 			Args: []api.ArgMetadata{
 				{

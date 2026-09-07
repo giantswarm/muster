@@ -41,7 +41,8 @@ release.
 
 Names are exact and case-sensitive (regex `^(preset|server|workflow|tool):[^\s,]+$`). At most
 **32** selectors inline — larger selections are presets. Core tools (`core_*`) are selectable
-only explicitly: `tool:core_workflow_list` inline, `pattern: core_*` in a preset. There is no
+by name (`tool:core_workflow_list` inline, `pattern: core_*` in a preset) and through their
+annotations (the built-in `read-only` preset includes the read-only core tools). There is no
 `core` pseudo-server.
 
 Rejected inline, with an error naming the toolset and the selector:
@@ -130,7 +131,7 @@ startup naming the preset:
 
 | Preset | Resolves to |
 |---|---|
-| `read-only` | Every tool its server annotates `readOnlyHint: true`, plus every workflow whose step tools are all read-only. Core tools carry no annotations today and are therefore not included. |
+| `read-only` | Every tool its server annotates `readOnlyHint: true` — muster's own read-only core tools included, see [Core tool annotations](mcp-tools.md#core-tool-annotations) — plus every workflow whose step tools are all read-only. |
 | `none` | Nothing. A `preset:none` header hides and refuses every tool; the Generic chart omits the muster tool entry altogether for an agent whose toolset is exactly `["preset:none"]`. |
 | `full` | The whole catalogue, core tools included (`pattern: "*"`). |
 
@@ -148,8 +149,9 @@ compositions cycle. Every error names the preset and the rule position.
 
 A workflow is read-only when every tool its steps reference — conditions, `forEach` and
 `parallel` sub-steps and `onFailure` handlers included, nested workflows followed — resolves in
-the caller's catalogue to a tool annotated read-only. A step calling a core tool (no
-annotation), an unknown tool, or a cycle makes the workflow not read-only. The derived hint
+the caller's catalogue to a tool annotated read-only — a downstream server's tool or a core tool
+by its declared annotation. A step calling a core tool that writes (`core_workflow_delete`,
+`core_service_stop`, …), an unknown tool, or a cycle makes the workflow not read-only. The derived hint
 fills the workflow tool's `readOnlyHint` annotation slot, so `describe_tool` shows it and
 `preset:read-only` includes the pure-query workflows.
 

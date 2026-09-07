@@ -146,10 +146,12 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 	return []api.ToolMetadata{
 		{
 			Name:        "service_list",
+			Annotations: api.ReadOnlyAnnotations(),
 			Description: "List all services with their current status",
 		},
 		{
 			Name:        "service_start",
+			Annotations: api.WriteAnnotations(false, true),
 			Description: "Start a specific service",
 			Args: []api.ArgMetadata{
 				{Name: "name", Type: api.ArgTypeString, Required: true, Description: "Service name to start"},
@@ -157,6 +159,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		},
 		{
 			Name:        "service_stop",
+			Annotations: api.WriteAnnotations(true, true),
 			Description: "Stop a specific service",
 			Args: []api.ArgMetadata{
 				{Name: "name", Type: api.ArgTypeString, Required: true, Description: "Service name to stop"},
@@ -164,6 +167,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		},
 		{
 			Name:        "service_restart",
+			Annotations: api.WriteAnnotations(true, false),
 			Description: "Restart a specific service",
 			Args: []api.ArgMetadata{
 				{Name: "name", Type: api.ArgTypeString, Required: true, Description: "Service name to restart"},
@@ -171,6 +175,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		},
 		{
 			Name:        "service_status",
+			Annotations: api.ReadOnlyAnnotations(),
 			Description: "Get status of a specific service",
 			Args: []api.ArgMetadata{
 				{Name: "name", Type: api.ArgTypeString, Required: true, Description: "Service name to get status for"},

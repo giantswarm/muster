@@ -72,6 +72,7 @@ func (a *AggregatorServer) createMetaToolsFromProvider(provider api.ToolProvider
 			},
 			Handler: a.createMetaToolHandler(provider, toolMeta.Name),
 		}
+		applyToolAnnotations(&tool.Tool, toolMeta.Annotations)
 
 		tools = append(tools, tool)
 	}
@@ -236,6 +237,13 @@ func (a *AggregatorServer) getAllCoreToolsAsMCPTools() []mcp.Tool {
 					Description: toolMeta.Description,
 					InputSchema: convertToMCPSchema(toolMeta.Args),
 				}
+				// The provider's classification of the tool (read-only,
+				// destructive, ...) travels on the exposed tool exactly like
+				// a downstream server's annotations, so the read-only toolset
+				// preset and the meta-tools treat core tools alike. Workflow
+				// execution tools declare none: their hint is derived from
+				// their steps (deriveWorkflowReadOnlyHints).
+				applyToolAnnotations(&tool, toolMeta.Annotations)
 				// Stash discovery labels (e.g. Workflow CRD labels) in _meta so
 				// the filter_tools discovery tier can facet on them in-process.
 				// list_tools / describe_tool ignore _meta, so this is invisible
@@ -284,6 +292,12 @@ func (a *AggregatorServer) getAllCoreToolsAsMCPTools() []mcp.Tool {
 		{
 			Name:        corePrefix + "auth_login",
 			Description: "Authenticate to an OAuth-protected MCP server",
+			// Read-only: the call issues a sign-in link for the caller and
+			// changes nothing on the platform; the grant that follows lands
+			// in the caller's own session. Open world: it reaches the
+			// server's authorization server. Read-only agents therefore keep
+			// the ability to connect SSO-protected servers as the person.
+			Annotations: toolAnnotations(api.ReadOnlyAnnotations().OpenWorld(true)),
 			InputSchema: mcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -303,6 +317,10 @@ func (a *AggregatorServer) getAllCoreToolsAsMCPTools() []mcp.Tool {
 		{
 			Name:        corePrefix + "auth_logout",
 			Description: "Log out from an OAuth-protected MCP server",
+			// A write: it discards the caller's stored grant for the server
+			// (idempotent, nothing else is touched), so it stays outside the
+			// read-only preset.
+			Annotations: toolAnnotations(api.WriteAnnotations(false, true)),
 			InputSchema: mcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -322,6 +340,29 @@ func (a *AggregatorServer) getAllCoreToolsAsMCPTools() []mcp.Tool {
 
 	logging.Debug("Aggregator", "Collected %d core tools from providers", len(tools))
 	return tools
+}
+
+// toolAnnotations projects a provider's declared annotations onto the MCP
+// shape. Nil declares none: every hint stays unset, as before.
+func toolAnnotations(a *api.ToolAnnotations) mcp.ToolAnnotation {
+	if a == nil {
+		return mcp.ToolAnnotation{}
+	}
+	return mcp.ToolAnnotation{
+		ReadOnlyHint:    a.ReadOnlyHint,
+		DestructiveHint: a.DestructiveHint,
+		IdempotentHint:  a.IdempotentHint,
+		OpenWorldHint:   a.OpenWorldHint,
+	}
+}
+
+// applyToolAnnotations sets the provider's declared annotations on tool;
+// a tool whose provider declares none is left untouched.
+func applyToolAnnotations(tool *mcp.Tool, a *api.ToolAnnotations) {
+	if a == nil {
+		return
+	}
+	tool.Annotations = toolAnnotations(a)
 }
 
 // convertToMCPResult converts an internal tool result to MCP format.
