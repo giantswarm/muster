@@ -54,7 +54,11 @@ func (a *AggregatorServer) resolveServerAuthInfo(ctx context.Context, serverInfo
 		copied := *current
 		authInfo = &copied
 	}
+	changed := applyAuthorizationServerPin(authInfo, serverInfo.AuthConfig)
 	if !needsResourceMetadata(authInfo, serverInfo.URL) {
+		if changed {
+			serverInfo.SetAuthInfo(authInfo)
+		}
 		return authInfo, nil
 	}
 
@@ -71,7 +75,6 @@ func (a *AggregatorServer) resolveServerAuthInfo(ctx context.Context, serverInfo
 		return authInfo, nil
 	}
 
-	changed := false
 	if authInfo.Issuer == "" && metadata.Issuer != "" {
 		authInfo.Issuer = metadata.Issuer
 		changed = true
@@ -90,4 +93,30 @@ func (a *AggregatorServer) resolveServerAuthInfo(ctx context.Context, serverInfo
 		serverInfo.SetAuthInfo(authInfo)
 	}
 	return authInfo, nil
+}
+
+// applyAuthorizationServerPin makes an operator's pin
+// (spec.auth.authorizationServer) the authority on a server's authorization
+// server: its issuer -- and its scopes, when it names any -- replace what the
+// 401 probe learned from the endpoint's own RFC 9728 metadata. The issuer is
+// the key everything files or looks the session's grant up under (the
+// challenge, the token store, the connection, the logout), so there must be
+// exactly one, and the operator's declaration wins over an endpoint that
+// advertises a different authorization server (giantswarm/muster#1174).
+// Reports whether authInfo changed.
+func applyAuthorizationServerPin(authInfo *AuthInfo, auth *api.MCPServerAuth) bool {
+	as := authorizationServerOf(auth)
+	if as == nil || authInfo == nil {
+		return false
+	}
+	changed := false
+	if issuer := strings.TrimSuffix(as.Issuer, "/"); authInfo.Issuer != issuer {
+		authInfo.Issuer = issuer
+		changed = true
+	}
+	if as.Scopes != "" && authInfo.Scope != as.Scopes {
+		authInfo.Scope = as.Scopes
+		changed = true
+	}
+	return changed
 }

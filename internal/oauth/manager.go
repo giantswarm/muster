@@ -298,6 +298,15 @@ func (m *Manager) PinIssuer(issuer string, pin IssuerPin, metadata *pkgoauth.Met
 	m.client.PinIssuer(issuer, pin, metadata)
 }
 
+// UnpinIssuer forgets an operator-configured authorization server, see
+// Client.UnpinIssuer.
+func (m *Manager) UnpinIssuer(issuer string) {
+	if m == nil {
+		return
+	}
+	m.client.UnpinIssuer(issuer)
+}
+
 // GetTokenByIssuerForUser is GetTokenByIssuer with the subject-scoped grant
 // fallback, see Client.GetByIssuerForUser.
 func (m *Manager) GetTokenByIssuerForUser(sessionID, userID, issuer string) *pkgoauth.Token {

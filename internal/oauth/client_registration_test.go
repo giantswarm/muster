@@ -286,7 +286,7 @@ func TestClient_ExchangeCode_InvalidClientDropsRegistration(t *testing.T) {
 		t.Fatalf("probe cannot see the loss here; expected the stale client_id, got %q", got)
 	}
 
-	_, err := client.ExchangeCode(context.Background(), "code-1", "verifier-1", as.server.URL, "")
+	_, err := client.ExchangeCode(context.Background(), "code-1", "verifier-1", as.server.URL, "", "")
 	if err == nil || !pkgoauth.IsInvalidClientError(err) {
 		t.Fatalf("expected invalid_client from the token endpoint, got %v", err)
 	}
@@ -298,7 +298,7 @@ func TestClient_ExchangeCode_InvalidClientDropsRegistration(t *testing.T) {
 	if got := startFlow(t, client, as.server.URL); got != "dcr-2" {
 		t.Errorf("retry should use a fresh registration, got %q", got)
 	}
-	token, err := client.ExchangeCode(context.Background(), "code-2", "verifier-2", as.server.URL, "")
+	token, err := client.ExchangeCode(context.Background(), "code-2", "verifier-2", as.server.URL, "", "")
 	if err != nil {
 		t.Fatalf("exchange with the fresh registration failed: %v", err)
 	}
@@ -330,7 +330,7 @@ func TestClient_ExchangeCode_OtherErrorsKeepRegistration(t *testing.T) {
 	}
 	metadata.TokenEndpoint = grantRejecting.URL + "/token"
 
-	_, err = client.ExchangeCode(context.Background(), "code-1", "verifier-1", as.server.URL, "")
+	_, err = client.ExchangeCode(context.Background(), "code-1", "verifier-1", as.server.URL, "", "")
 	if err == nil || pkgoauth.IsInvalidClientError(err) {
 		t.Fatalf("expected a non-invalid_client error, got %v", err)
 	}

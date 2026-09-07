@@ -202,12 +202,35 @@ func (c *Client) PinIssuer(issuer string, pin IssuerPin, metadata *pkgoauth.Meta
 	issuer = strings.TrimSuffix(issuer, "/")
 	if metadata != nil {
 		c.oauthClient.PinMetadata(issuer, metadata)
+	} else {
+		// The pin describes the AS by its issuer alone now: a document
+		// pinned by an earlier description (explicit endpoints) must not
+		// keep standing in for discovery.
+		c.oauthClient.UnpinMetadata(issuer)
 	}
 	c.pinsMu.Lock()
 	c.pins[issuer] = &pin
 	c.pinsMu.Unlock()
 	logging.Info("OAuth", "Pinned authorization server issuer=%s preregisteredClient=%t subjectScoped=%t pinnedMetadata=%t",
 		issuer, pin.ClientID != "", pin.SubjectScoped, metadata != nil)
+}
+
+// UnpinIssuer forgets the operator's description of an authorization server:
+// the pre-registered client, the grant scope and any pinned metadata. The next
+// flow against the issuer discovers the AS again and identifies to it as it
+// would without a pin. Called when no MCPServer describes the issuer any more,
+// or before a changed description is recorded.
+func (c *Client) UnpinIssuer(issuer string) {
+	issuer = strings.TrimSuffix(issuer, "/")
+	c.pinsMu.Lock()
+	_, hadPin := c.pins[issuer]
+	delete(c.pins, issuer)
+	c.pinsMu.Unlock()
+	hadMetadata := c.oauthClient.UnpinMetadata(issuer)
+	if hadPin || hadMetadata {
+		logging.Info("OAuth", "Unpinned authorization server issuer=%s pin=%t pinnedMetadata=%t",
+			issuer, hadPin, hadMetadata)
+	}
 }
 
 // issuerPin returns the operator pin for an issuer, or nil.
@@ -369,6 +392,7 @@ func (c *Client) GenerateAuthURL(ctx context.Context, params AuthChallengeParams
 		ServerName:   params.ServerName,
 		Issuer:       issuer,
 		Resource:     params.Resource,
+		Scope:        params.Scope,
 		CodeVerifier: pkce.CodeVerifier,
 	}
 	state, err := c.stateStore.GenerateState(stateParams,
@@ -402,12 +426,18 @@ func (c *Client) GetStartURL(encodedState string) string {
 
 // ExchangeCode exchanges an authorization code for tokens. resource is the
 // RFC 8707 indicator recorded with the flow's state; it must match the value
-// sent on the authorization request.
+// sent on the authorization request. requestedScope is the scope the
+// authorization request asked for: an authorization server that omits
+// `scope` from its token response granted exactly that (RFC 6749 §5.1), so
+// the token is recorded with it. Dex omits the parameter; without this every
+// Dex grant was filed under an empty scope -- the token-store key of the
+// session's own login token when the pinned issuer is muster's IdP
+// (giantswarm/muster#1174).
 //
 // An invalid_client answer from the token endpoint means the AS no longer
 // accepts the DCR credentials the flow was started with; they are dropped so
 // the next sign-in registers muster again instead of failing the same way.
-func (c *Client) ExchangeCode(ctx context.Context, code, codeVerifier, issuer, resource string) (*pkgoauth.Token, error) {
+func (c *Client) ExchangeCode(ctx context.Context, code, codeVerifier, issuer, resource, requestedScope string) (*pkgoauth.Token, error) {
 	// Fetch OAuth metadata using shared client
 	metadata, err := c.oauthClient.DiscoverMetadata(ctx, issuer)
 	if err != nil {
@@ -439,9 +469,12 @@ func (c *Client) ExchangeCode(ctx context.Context, code, codeVerifier, issuer, r
 
 	// Set issuer on the token
 	token.Issuer = issuer
+	if token.Scope == "" {
+		token.Scope = requestedScope
+	}
 
-	logging.Debug("OAuth", "Successfully exchanged code for token (issuer=%s, expires_in=%d)",
-		issuer, token.ExpiresIn)
+	logging.Debug("OAuth", "Successfully exchanged code for token (issuer=%s, scope=%q, expires_in=%d)",
+		issuer, token.Scope, token.ExpiresIn)
 
 	return token, nil
 }

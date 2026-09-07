@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/giantswarm/muster/pkg/logging"
 )
@@ -148,6 +149,13 @@ type IssuerPinner interface {
 	// PinIssuer records the pin for an issuer; calling it again replaces the
 	// previous pin (a rotated client secret takes effect that way).
 	PinIssuer(issuer string, pin IssuerPin)
+
+	// UnpinIssuer forgets the pin for an issuer -- client, grant scope and
+	// pinned endpoints alike -- so the next flow against it discovers the
+	// authorization server again. Called when no MCPServer describes the
+	// issuer any more, or before a changed description is recorded; a pin
+	// nobody owns would otherwise outlive its MCPServer until a restart.
+	UnpinIssuer(issuer string)
 }
 
 // SubjectGrantHandler is implemented by an OAuthHandler that files
@@ -167,6 +175,55 @@ type SubjectGrantHandler interface {
 	// with grantScope: subject). Signing out of such an issuer is signing
 	// the person out, whichever server the request names.
 	IssuerSubjectScoped(issuer string) bool
+}
+
+// LoginTokenMirror is implemented by an OAuthHandler that keeps the ID token
+// of the person's login at muster -- the credential SSO token forwarding hands
+// to backends that trust muster's IdP -- apart from the per-server grants the
+// OAuth proxy obtains. Both can come from the same issuer: an MCPServer may
+// pin muster's own IdP as its authorization server. Filed under one key, the
+// mirror of the login token, written on every request that carries an
+// externally issued bearer, overwrote the grant and the server's tools failed
+// with "no valid token available" right after a successful sign-in
+// (giantswarm/muster#1174).
+type LoginTokenMirror interface {
+	// StoreLoginIDToken records the session's login ID token under the
+	// issuer without touching any grant from that issuer.
+	StoreLoginIDToken(sessionID, userID, issuer, idToken string, expiresAt time.Time)
+
+	// LoginIDToken returns the session's login ID token for the issuer, or
+	// nil when none is recorded or it expired.
+	LoginIDToken(sessionID, issuer string) *OAuthToken
+}
+
+// StoreLoginIDToken files the login ID token through the handler's mirror
+// when it keeps one, and as the session's plain token for the issuer
+// otherwise.
+func StoreLoginIDToken(h OAuthHandler, sessionID, userID, issuer, idToken string, expiresAt time.Time) {
+	if h == nil {
+		return
+	}
+	if mirror, ok := h.(LoginTokenMirror); ok {
+		mirror.StoreLoginIDToken(sessionID, userID, issuer, idToken, expiresAt)
+		return
+	}
+	h.StoreToken(sessionID, userID, issuer, &OAuthToken{IDToken: idToken, ExpiresAt: expiresAt})
+}
+
+// LoginIDToken reads the login ID token through the handler's mirror when it
+// keeps one, falling back to the session's token for the issuer: the entry an
+// earlier muster wrote, still in the store until the session's next request
+// or login rewrites it.
+func LoginIDToken(h OAuthHandler, sessionID, issuer string) *OAuthToken {
+	if h == nil {
+		return nil
+	}
+	if mirror, ok := h.(LoginTokenMirror); ok {
+		if token := mirror.LoginIDToken(sessionID, issuer); token != nil && token.IDToken != "" {
+			return token
+		}
+	}
+	return h.GetFullTokenByIssuer(sessionID, issuer)
 }
 
 // GrantReleaser is implemented by an OAuthHandler that can hand a person's

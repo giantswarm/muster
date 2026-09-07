@@ -111,6 +111,8 @@ The `test_simulate_oauth_callback` tool bridges these by completing the full OAu
 | `test_simulate_oauth_callback` | `internal/testing/test_tools.go` | Complete OAuth flow simulation |
 | `test_inject_token` | `internal/testing/test_tools.go` | Direct token injection |
 | `test_get_oauth_server_info` | `internal/testing/test_tools.go` | OAuth server state inspection |
+| `test_resolve_auth_redirect` | `internal/testing/test_tools_authorization_server.go` | `core_auth_login` challenge followed one hop: which mock AS the sign-in goes to |
+| `test_pin_mcpserver_authorization_server` | `internal/testing/test_tools_authorization_server.go` | Rewrite an MCPServer's `spec.auth.authorizationServer` at runtime (pin, re-pin, clear) |
 
 ## Current OAuth Scenarios
 
@@ -360,6 +362,30 @@ metadata: a bare `WWW-Authenticate: Bearer` on 401 and a 404 for
 server without an issuer and learns it only from the pin -- the state of a
 restarted muster before anyone logs in. See
 `oauth-subject-grant-logout-without-resource-metadata.yaml`.
+
+### Pinned authorization servers that differ from the advertised one
+
+`oauth.pin_authorization_server: true` pins `mock_oauth_server_ref` as the
+MCPServer's authorization server without a grant scope (`grant_scope` implies
+the pin). `oauth.pin_endpoints_ref` adds another mock server's `/authorize`
+and `/token` as `authorizationEndpoint`/`tokenEndpoint` -- the GitHub shape,
+explicit endpoints under the pinned issuer. `oauth.advertised_issuer_ref`
+makes the backend's RFC 9728 metadata name that mock server as its
+authorization server while tokens are still validated against
+`mock_oauth_server_ref`: a backend that accepts tokens from an authorization
+server other than the one it advertises (muster's own `/mcp` trusts its IdP's
+tokens but names muster's OAuth server). On a mock OAuth server,
+`omit_token_scope: true` leaves `scope` out of token responses, as Dex does.
+
+`test_resolve_auth_redirect` (`server`) runs `core_auth_login` and follows the
+challenge's start URL one hop; its result names the mock OAuth server the
+sign-in is sent to (`authorization_server`) plus `authorization_endpoint`,
+`client_id` and `scope`. `test_pin_mcpserver_authorization_server` (`server`,
+`issuer_ref`, optional `endpoints_ref`, `scopes`, `grant_scope`, or `clear:
+true`) rewrites the MCPServer's `spec.auth.authorizationServer` in the
+filesystem definition, which the reconciler applies like a CR update. See
+`oauth-pinned-issuer-is-the-grant-key.yaml` (muster#1174) and
+`oauth-pinned-authorization-server-change-takes-effect.yaml` (muster#1175).
 
 ## Debugging OAuth Tests
 

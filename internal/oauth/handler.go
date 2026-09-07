@@ -201,7 +201,7 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	ctx, cancelFlow := context.WithTimeout(context.WithoutCancel(r.Context()), 2*time.Minute)
 	defer cancelFlow()
 
-	token, err := h.client.ExchangeCode(ctx, code, state.CodeVerifier, state.Issuer, state.Resource)
+	token, err := h.client.ExchangeCode(ctx, code, state.CodeVerifier, state.Issuer, state.Resource, state.Scope)
 	if err != nil {
 		logging.Error("OAuth", err, "Failed to exchange authorization code")
 		h.renderErrorPage(w, "Failed to complete authentication. Please try again.")

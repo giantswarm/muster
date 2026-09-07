@@ -356,5 +356,5 @@ func TestKnownServerIssuer(t *testing.T) {
 	pinned := &ServerInfo{AuthConfig: &api.MCPServerAuth{AuthorizationServer: &api.MCPServerAuthAuthorizationServer{Issuer: "https://b.example.com/"}}}
 	assert.Equal(t, "https://b.example.com", knownServerIssuer(pinned), "the pin is trimmed like PinIssuer does")
 	both := &ServerInfo{AuthInfo: &AuthInfo{Issuer: "https://a.example.com"}, AuthConfig: pinned.AuthConfig}
-	assert.Equal(t, "https://a.example.com", knownServerIssuer(both), "AuthInfo wins over the pin")
+	assert.Equal(t, "https://b.example.com", knownServerIssuer(both), "the pin wins over what the probe recorded: it is the key the grants are filed under (#1174)")
 }

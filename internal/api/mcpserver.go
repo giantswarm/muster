@@ -194,7 +194,9 @@ type MCPServerSigV4 struct {
 // MCPServerAuthAuthorizationServer pins the OAuth authorization server for an
 // MCP server when RFC 9728 PRM discovery is unavailable.
 type MCPServerAuthAuthorizationServer struct {
-	// Issuer is the OAuth 2.0 / OIDC issuer URL.
+	// Issuer is the OAuth 2.0 / OIDC issuer URL: the authorization server the
+	// sign-in runs against and the key the session's grants are filed under,
+	// taking precedence over the one the endpoint's RFC 9728 metadata names.
 	// Normalized form: HTTPS, no trailing slash, no fragment, no query.
 	Issuer string `yaml:"issuer" json:"issuer"`
 

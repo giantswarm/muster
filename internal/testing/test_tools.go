@@ -105,6 +105,16 @@ const (
 	// without a restart. Args: "server" (required), "labels" (object; empty
 	// removes every label).
 	TestToolSetMCPServerLabels = "test_set_mcpserver_labels"
+
+	// TestToolResolveAuthRedirect asks core_auth_login for a challenge and
+	// follows the muster-hosted start URL one hop, the way a browser would,
+	// reporting which mock authorization server the flow is sent to.
+	TestToolResolveAuthRedirect = "test_resolve_auth_redirect"
+	// TestToolPinMCPServerAuthorizationServer rewrites an MCPServer's
+	// spec.auth.authorizationServer in the filesystem definition (pin a mock
+	// server's issuer, optionally another's endpoints; or clear the pin) so
+	// the reconciler picks the change up like a CR update.
+	TestToolPinMCPServerAuthorizationServer = "test_pin_mcpserver_authorization_server"
 )
 
 // TestToolsHandler handles test-specific tools that operate on mock infrastructure.
@@ -231,7 +241,9 @@ func IsTestTool(toolName string) bool {
 		TestToolCallProtectedMCP,
 		TestToolReconnectWithToken,
 		TestToolScrapeMetrics,
-		TestToolSetMCPServerLabels:
+		TestToolSetMCPServerLabels,
+		TestToolResolveAuthRedirect,
+		TestToolPinMCPServerAuthorizationServer:
 		return true
 	}
 	return false
@@ -296,6 +308,10 @@ func (h *TestToolsHandler) HandleTestTool(ctx context.Context, toolName string, 
 		return h.handleReconnectWithToken(ctx, args)
 	case TestToolSetMCPServerLabels:
 		return h.handleSetMCPServerLabels(ctx, args)
+	case TestToolResolveAuthRedirect:
+		return h.handleResolveAuthRedirect(ctx, args)
+	case TestToolPinMCPServerAuthorizationServer:
+		return h.handlePinMCPServerAuthorizationServer(ctx, args)
 	default:
 		return nil, fmt.Errorf("unknown test tool: %s", toolName)
 	}

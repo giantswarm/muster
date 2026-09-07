@@ -523,6 +523,34 @@ func (c *Client) BuildAuthorizationURL(request AuthorizationRequest) (string, er
 	return authURL.String(), nil
 }
 
+// UnpinMetadata drops the operator-pinned metadata for an issuer, so the
+// next DiscoverMetadata fetches the authorization server's own document
+// again. It reports whether a pinned entry was dropped. A discovered entry is
+// left alone: it came from the authorization server itself and expires with
+// the cache TTL.
+//
+// Pinned entries never expire, so without this a pin that an MCPServer no
+// longer carries -- removed, or changed to a different authorization server --
+// would keep answering every flow against the issuer until the process
+// restarts (giantswarm/muster#1175).
+func (c *Client) UnpinMetadata(issuer string) bool {
+	issuer = strings.TrimSuffix(issuer, "/")
+	c.metadataMu.Lock()
+	entry, ok := c.metadataCache[issuer]
+	if ok && entry.pinned {
+		delete(c.metadataCache, issuer)
+	}
+	c.metadataMu.Unlock()
+	if !ok || !entry.pinned {
+		return false
+	}
+	c.logger.Info("Dropped pinned OAuth metadata",
+		"issuer", issuer,
+		"authorization_endpoint", entry.metadata.AuthorizationEndpoint,
+		"token_endpoint", entry.metadata.TokenEndpoint)
+	return true
+}
+
 // ClearMetadataCache clears the metadata cache.
 // Useful for testing or when metadata needs to be refreshed immediately.
 func (c *Client) ClearMetadataCache() {

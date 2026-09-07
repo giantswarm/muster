@@ -1,0 +1,159 @@
+name: "oauth-pinned-authorization-server-change-takes-effect"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  A change to an MCPServer's spec.auth.authorizationServer takes effect on the
+  next core_auth_login, without a restart of muster.
+
+  The server's authorization server is pinned three ways in a row, and after
+  every change the sign-in the challenge starts is followed one hop to see
+  which authorization server the browser would land on:
+
+    1. issuer of as-a with the explicit endpoints of as-b (the GitHub shape,
+       endpoints pinned under the issuer) -> the sign-in goes to as-b;
+    2. the pin removed -> discovery of the advertised authorization server
+       -> the sign-in goes to as-a;
+    3. issuer of as-a with the endpoints of as-b again -> as-b;
+    4. issuer of as-a alone, no endpoints -> discovery -> as-a.
+
+  Regression (giantswarm/muster#1175): metadata pinned with explicit endpoints
+  never expired and was never released when the MCPServer's description
+  changed, so after step 2 the challenge still sent the browser to as-b until
+  `kubectl rollout restart deploy/muster`.
+tags: ["oauth", "authorization-server", "pin", "update", "regression", "1175"]
+timeout: "3m"
+
+pre_configuration:
+  mock_oauth_servers:
+    - name: "as-a"
+      scopes: ["mcp:admin"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "client-a"
+
+    - name: "as-b"
+      scopes: ["mcp:admin"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "client-b"
+
+  mcp_servers:
+    - name: "svc"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "as-a"
+          pin_authorization_server: true
+          pin_endpoints_ref: "as-b"
+          scope: "mcp:admin"
+        tools:
+          - name: "op"
+            description: "An operation"
+            responses:
+              - response:
+                  source: "svc"
+
+steps:
+  - id: server-registered
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["svc"]
+
+  - id: pinned-endpoints-drive-the-sign-in
+    description: "Issuer of as-a, endpoints of as-b: the browser goes to as-b"
+    tool: "test_resolve_auth_redirect"
+    args:
+      server: "svc"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        authorization_server: "as-b"
+
+  - id: remove-the-pin
+    tool: "test_pin_mcpserver_authorization_server"
+    args:
+      server: "svc"
+      clear: true
+    expected:
+      success: true
+
+  - id: server-back-to-auth-required
+    tool: "core_mcpserver_get"
+    args:
+      name: "svc"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["Auth Required"]
+
+  - id: discovery-drives-the-sign-in
+    description: "Without the pin the advertised authorization server (as-a) is discovered; the old endpoints are gone"
+    tool: "test_resolve_auth_redirect"
+    args:
+      server: "svc"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        authorization_server: "as-a"
+
+  - id: pin-endpoints-again
+    tool: "test_pin_mcpserver_authorization_server"
+    args:
+      server: "svc"
+      issuer_ref: "as-a"
+      endpoints_ref: "as-b"
+      scopes: "mcp:admin"
+    expected:
+      success: true
+
+  - id: pinned-endpoints-drive-the-sign-in-again
+    tool: "test_resolve_auth_redirect"
+    args:
+      server: "svc"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        authorization_server: "as-b"
+
+  - id: pin-issuer-only
+    description: "Same issuer, endpoints dropped: discovery again, not the endpoints pinned a moment ago"
+    tool: "test_pin_mcpserver_authorization_server"
+    args:
+      server: "svc"
+      issuer_ref: "as-a"
+      scopes: "mcp:admin"
+    expected:
+      success: true
+
+  - id: discovery-drives-the-sign-in-again
+    tool: "test_resolve_auth_redirect"
+    args:
+      server: "svc"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        authorization_server: "as-a"
+
+  - id: sign-in-completes-against-discovered-as
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "svc"
+    expected:
+      success: true
+
+  - id: call-works
+    tool: "x_svc_op"
+    args: {}
+    expected:
+      success: true
+      contains: ["svc"]

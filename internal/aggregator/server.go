@@ -1298,10 +1298,26 @@ func (a *AggregatorServer) deregisterServer(name string, keepSessionAuth bool) (
 		a.connPool.EvictServer(name)
 	}
 
-	if keepSessionAuth {
-		return a.registry.DeregisterUnlessSessionAuth(name, requestedAt)
+	// The entry's auth config, read before the delete: a removed server
+	// releases the authorization server it described.
+	var previousAuth *api.MCPServerAuth
+	if info, ok := a.registry.GetServerInfo(name); ok {
+		previousAuth = info.AuthConfig
 	}
-	return true, a.registry.DeregisterRequestedAt(name, requestedAt)
+
+	removed := true
+	var err error
+	if keepSessionAuth {
+		removed, err = a.registry.DeregisterUnlessSessionAuth(name, requestedAt)
+	} else {
+		err = a.registry.DeregisterRequestedAt(name, requestedAt)
+	}
+	if err == nil && removed {
+		releaseCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		a.releaseAuthorizationServerPin(releaseCtx, name, previousAuth)
+		cancel()
+	}
+	return removed, err
 }
 
 // GetRegistry returns the server registry for direct access to backend server information.

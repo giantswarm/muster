@@ -1784,34 +1784,51 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 							}
 						}
 
-						// oauth.grant_scope pins the referenced mock OAuth server as the
-						// MCPServer's authorization server with that grant scope.
-						// "subject" files the grant under the person instead of the
-						// login session, which is how GitHub-style connectors are
-						// configured (spec.auth.authorizationServer.grantScope).
-						if grantScope, ok := oauthConfig["grant_scope"].(string); ok && grantScope != "" {
+						// oauth.pin_authorization_server / oauth.grant_scope pin the
+						// referenced mock OAuth server as the MCPServer's authorization
+						// server (spec.auth.authorizationServer). grant_scope "subject"
+						// files the grant under the person instead of the login
+						// session, which is how GitHub-style connectors are configured;
+						// pin_endpoints_ref adds another mock server's authorize and
+						// token endpoints (the GitHub shape: explicit endpoints, no
+						// discovery).
+						grantScope, _ := oauthConfig["grant_scope"].(string)
+						pinAS, _ := oauthConfig["pin_authorization_server"].(bool)
+						endpointsRef, _ := oauthConfig["pin_endpoints_ref"].(string)
+						if grantScope != "" || pinAS || endpointsRef != "" {
 							ref, _ := oauthConfig["mock_oauth_server_ref"].(string)
 							m.mu.RLock()
 							oauthServer, found := m.mockOAuthServers[instanceID][ref]
+							endpoints, endpointsFound := m.mockOAuthServers[instanceID][endpointsRef]
 							m.mu.RUnlock()
 							if !found {
-								return fmt.Errorf("mcp server %s: oauth.grant_scope needs oauth.mock_oauth_server_ref to name a running mock OAuth server, got %q",
+								return fmt.Errorf("mcp server %s: pinning the authorization server needs oauth.mock_oauth_server_ref to name a running mock OAuth server, got %q",
 									mcpServer.Name, ref)
 							}
 							// The pin opts out of RFC 9728 discovery, so the scope the
 							// backend requires has to travel with it.
 							authorizationServer := map[string]interface{}{
-								"issuer":     oauthServer.GetIssuerURL(),
-								"grantScope": grantScope,
+								"issuer": oauthServer.GetIssuerURL(),
+							}
+							if grantScope != "" {
+								authorizationServer["grantScope"] = grantScope
 							}
 							if scope, ok := oauthConfig["scope"].(string); ok && scope != "" {
 								authorizationServer["scopes"] = scope
 							}
+							if endpointsRef != "" {
+								if !endpointsFound {
+									return fmt.Errorf("mcp server %s: oauth.pin_endpoints_ref names no running mock OAuth server: %q",
+										mcpServer.Name, endpointsRef)
+								}
+								authorizationServer["authorizationEndpoint"] = endpoints.GetIssuerURL() + "/authorize"
+								authorizationServer["tokenEndpoint"] = endpoints.GetIssuerURL() + "/token"
+							}
 							authConfig["type"] = "oauth"
 							authConfig["authorizationServer"] = authorizationServer
 							if m.debug {
-								logger.Debug("🔐 Pinning authorization server %s with grantScope %s for MCPServer %s\n",
-									oauthServer.GetIssuerURL(), grantScope, mcpServer.Name)
+								logger.Debug("🔐 Pinning authorization server %s (grantScope=%q, endpoints from %q) for MCPServer %s\n",
+									oauthServer.GetIssuerURL(), grantScope, endpointsRef, mcpServer.Name)
 							}
 						}
 

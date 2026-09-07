@@ -143,6 +143,11 @@ type OAuthServerConfig struct {
 	// client must refuse an authorization response that carries no RFC 9207
 	// `iss` parameter.
 	AdvertiseIssParameter bool
+
+	// OmitTokenScope leaves `scope` out of token responses, as Dex does: RFC
+	// 6749 §5.1 allows that when the granted scope equals the requested one,
+	// and the client has to remember what it asked for.
+	OmitTokenScope bool
 }
 
 // OAuthErrorSimulation allows simulating error conditions
@@ -1059,7 +1064,7 @@ func (s *OAuthServer) handleAuthCodeExchange(w http.ResponseWriter, r *http.Requ
 		RefreshToken: refreshToken,
 		TokenType:    pkgoauth.SchemeBearer,
 		ExpiresIn:    int(s.config.TokenLifetime.Seconds()),
-		Scope:        entry.Scope,
+		Scope:        s.responseScope(entry.Scope),
 		IDToken:      idToken,
 	}
 
@@ -1135,9 +1140,18 @@ func (s *OAuthServer) handleRefreshToken(w http.ResponseWriter, r *http.Request)
 		RefreshToken: newRefreshToken,
 		TokenType:    pkgoauth.SchemeBearer,
 		ExpiresIn:    int(s.config.TokenLifetime.Seconds()),
-		Scope:        originalToken.Scope,
+		Scope:        s.responseScope(originalToken.Scope),
 		IDToken:      newIDToken,
 	})
+}
+
+// responseScope is the `scope` a token response carries: the granted scope,
+// or nothing when the server is configured to omit it (OmitTokenScope).
+func (s *OAuthServer) responseScope(granted string) string {
+	if s.config.OmitTokenScope {
+		return ""
+	}
+	return granted
 }
 
 // handleTokenExchange implements RFC 8693 OAuth 2.0 Token Exchange.

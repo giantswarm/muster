@@ -330,7 +330,7 @@ func TestClient_ExchangeCode_UsesDCRCredentials(t *testing.T) {
 
 	// The code exchange must present the same registered credentials. The
 	// stub token endpoint echoes client_id|client_secret in the access token.
-	token, err := client.ExchangeCode(context.Background(), "code-1", "verifier-1", as.server.URL, "")
+	token, err := client.ExchangeCode(context.Background(), "code-1", "verifier-1", as.server.URL, "", "")
 	if err != nil {
 		t.Fatalf("ExchangeCode failed: %v", err)
 	}

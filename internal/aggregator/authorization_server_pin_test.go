@@ -21,6 +21,10 @@ func (p *pinCaptureHandler) PinIssuer(issuer string, pin api.IssuerPin) {
 	p.pins[issuer] = pin
 }
 
+func (p *pinCaptureHandler) UnpinIssuer(issuer string) {
+	delete(p.pins, issuer)
+}
+
 var _ api.IssuerPinner = (*pinCaptureHandler)(nil)
 
 func githubStyleServer(secretRef *api.ClientCredentialsSecretRef, grantScope string) *ServerInfo {

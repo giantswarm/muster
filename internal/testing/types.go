@@ -401,6 +401,10 @@ type MockOAuthServerConfig struct {
 	// authorization_response_iss_parameter_supported in the AS metadata. A
 	// callback without an `iss` parameter must then be refused.
 	AdvertiseIssParameter bool `yaml:"advertise_iss_parameter,omitempty"`
+
+	// OmitTokenScope leaves `scope` out of the token responses, as Dex does
+	// (RFC 6749 §5.1 allows it when the granted scope is the requested one).
+	OmitTokenScope bool `yaml:"omit_token_scope,omitempty"`
 }
 
 // TrustedIssuerConfig defines a trusted issuer for RFC 8693 token exchange
@@ -434,6 +438,24 @@ type MCPServerOAuthConfig struct {
 	// aggregator learns the issuer only from the pin -- see
 	// mock.ProtectedMCPServerConfig.OmitResourceMetadata.
 	OmitResourceMetadata bool `yaml:"omit_resource_metadata,omitempty"`
+
+	// AdvertisedIssuerRef names the mock OAuth server the backend's RFC 9728
+	// metadata lists as its authorization server, while tokens are still
+	// validated against MockOAuthServerRef -- a backend that accepts tokens
+	// from an authorization server other than the one it advertises (muster's
+	// own /mcp trusts its IdP's tokens but names muster's OAuth server).
+	AdvertisedIssuerRef string `yaml:"advertised_issuer_ref,omitempty"`
+
+	// PinAuthorizationServer pins MockOAuthServerRef as the MCPServer's
+	// authorization server (spec.auth.authorizationServer.issuer, with Scope
+	// as scopes) without a grant scope; GrantScope implies it.
+	PinAuthorizationServer bool `yaml:"pin_authorization_server,omitempty"`
+
+	// PinEndpointsRef names the mock OAuth server whose authorize and token
+	// endpoints the pin carries as authorizationEndpoint/tokenEndpoint (the
+	// GitHub shape: explicit endpoints, no discovery) -- possibly a different
+	// server than the pinned issuer.
+	PinEndpointsRef string `yaml:"pin_endpoints_ref,omitempty"`
 
 	// Scope is the required OAuth scope
 	Scope string `yaml:"scope,omitempty"`
