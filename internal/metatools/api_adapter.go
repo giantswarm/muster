@@ -36,11 +36,13 @@ func WithPresets(presets *toolset.Registry) AdapterOption {
 	}
 }
 
-// WithServerLabels supplies the MCPServer label lookup the label: preset
-// selector resolves through (#1168).
-func WithServerLabels(labels toolset.ServerLabels) AdapterOption {
+// WithServerLabels supplies the per-request MCPServer label lookup the label:
+// preset selector resolves through (#1168). The source is invoked once per
+// meta-tool call and the lookup it returns is consulted lazily, so requests
+// whose presets carry no label rule never list the MCPServers.
+func WithServerLabels(source ServerLabelsSource) AdapterOption {
 	return func(p *Provider) {
-		p.serverLabels = labels
+		p.serverLabels = source
 	}
 }
 

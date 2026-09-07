@@ -34,6 +34,8 @@ var presetNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 //   - readOnly: true                         (every tool annotated read-only,
 //     including the derived workflow hint)
 //   - preset: <name>                         (composition; include only)
+//   - label: <key>=<value> | <key>           (every tool of an MCPServer whose
+//     resource carries that label; #1168)
 type Rule struct {
 	Tool     string `yaml:"tool,omitempty" json:"tool,omitempty"`
 	Pattern  string `yaml:"pattern,omitempty" json:"pattern,omitempty"`
@@ -41,10 +43,22 @@ type Rule struct {
 	Workflow string `yaml:"workflow,omitempty" json:"workflow,omitempty"`
 	ReadOnly *bool  `yaml:"readOnly,omitempty" json:"readOnly,omitempty"`
 	Preset   string `yaml:"preset,omitempty" json:"preset,omitempty"`
+	Label    string `yaml:"label,omitempty" json:"label,omitempty"`
 }
 
 // ruleKeys are the accepted rule keys, named in validation errors.
-const ruleKeys = "tool, pattern, server, workflow, readOnly, preset"
+const ruleKeys = "tool, pattern, server, workflow, readOnly, preset, label"
+
+// labelPattern is the label rule grammar: a key, optionally "=" and a value.
+// Keys follow Kubernetes label key syntax loosely (an optional DNS prefix and
+// a name); "key=" matches an empty value, "key" alone matches presence.
+var labelPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]*(=[A-Za-z0-9._-]*)?$`)
+
+// labelSelector splits a label rule into key, value and whether a value was
+// given (presence match otherwise).
+func labelSelector(rule string) (key, value string, hasValue bool) {
+	return strings.Cut(rule, "=")
+}
 
 // String renders the rule the way it is written in configuration.
 func (r Rule) String() string {
@@ -61,6 +75,8 @@ func (r Rule) String() string {
 		return fmt.Sprintf("readOnly: %t", *r.ReadOnly)
 	case r.Preset != "":
 		return "preset: " + r.Preset
+	case r.Label != "":
+		return "label: " + r.Label
 	}
 	return "{}"
 }
@@ -68,7 +84,7 @@ func (r Rule) String() string {
 // setKeys counts how many rule keys are set.
 func (r Rule) setKeys() int {
 	n := 0
-	for _, set := range []bool{r.Tool != "", r.Pattern != "", r.Server != "", r.Workflow != "", r.ReadOnly != nil, r.Preset != ""} {
+	for _, set := range []bool{r.Tool != "", r.Pattern != "", r.Server != "", r.Workflow != "", r.ReadOnly != nil, r.Preset != "", r.Label != ""} {
 		if set {
 			n++
 		}
@@ -182,6 +198,8 @@ func validateRules(preset, list string, rules []Rule, allowPreset bool) error {
 			return fmt.Errorf("%s readOnly: false selects nothing; omit the rule", at)
 		case rule.Preset != "" && !allowPreset:
 			return fmt.Errorf("%s cannot compose a preset in %s; only include may", at, list)
+		case rule.Label != "" && !labelPattern.MatchString(rule.Label):
+			return fmt.Errorf("%s label %q is invalid; expected <key>=<value> or <key>", at, rule.Label)
 		}
 	}
 	return nil

@@ -11,8 +11,12 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
@@ -94,6 +98,13 @@ const (
 	// "filter" argument narrows the body to lines containing that substring;
 	// without it the whole scrape is returned.
 	TestToolScrapeMetrics = "test_scrape_metrics"
+	// TestToolSetMCPServerLabels replaces the metadata.labels of an MCPServer
+	// definition in the instance's filesystem store while muster runs — what a
+	// chart upgrade or a kubectl label does to the resource — so a scenario
+	// can prove that label-based toolset presets follow the live labels
+	// without a restart. Args: "server" (required), "labels" (object; empty
+	// removes every label).
+	TestToolSetMCPServerLabels = "test_set_mcpserver_labels"
 )
 
 // TestToolsHandler handles test-specific tools that operate on mock infrastructure.
@@ -219,7 +230,8 @@ func IsTestTool(toolName string) bool {
 		TestToolBrokerTokenExchange,
 		TestToolCallProtectedMCP,
 		TestToolReconnectWithToken,
-		TestToolScrapeMetrics:
+		TestToolScrapeMetrics,
+		TestToolSetMCPServerLabels:
 		return true
 	}
 	return false
@@ -282,9 +294,69 @@ func (h *TestToolsHandler) HandleTestTool(ctx context.Context, toolName string, 
 		return h.handleCallProtectedMCP(ctx, args)
 	case TestToolReconnectWithToken:
 		return h.handleReconnectWithToken(ctx, args)
+	case TestToolSetMCPServerLabels:
+		return h.handleSetMCPServerLabels(ctx, args)
 	default:
 		return nil, fmt.Errorf("unknown test tool: %s", toolName)
 	}
+}
+
+// handleSetMCPServerLabels rewrites metadata.labels of the named MCPServer
+// definition file in the instance's config directory. The filesystem client
+// reads definitions from disk on every call, so the next request that
+// evaluates a label: preset rule sees the new labels — no restart, no
+// reconcile needed. Only the labels change; spec and status are left as they
+// are on disk.
+func (h *TestToolsHandler) handleSetMCPServerLabels(_ context.Context, args map[string]interface{}) (interface{}, error) {
+	serverName, ok := args["server"].(string)
+	if !ok || serverName == "" {
+		return nil, fmt.Errorf("server argument is required")
+	}
+	if h.currentInstance == nil {
+		return nil, fmt.Errorf("no muster instance available")
+	}
+	labels := map[string]interface{}{}
+	if raw, ok := args["labels"].(map[string]interface{}); ok {
+		for k, v := range raw {
+			labels[k] = fmt.Sprintf("%v", v)
+		}
+	}
+
+	filename := filepath.Join(h.currentInstance.ConfigPath, "muster", "mcpservers", serverName+".yaml")
+	data, err := os.ReadFile(filename) //nolint:gosec
+	if err != nil {
+		return nil, fmt.Errorf("failed to read MCPServer definition %s: %w", filename, err)
+	}
+	var definition map[string]interface{}
+	if err := yaml.Unmarshal(data, &definition); err != nil {
+		return nil, fmt.Errorf("failed to parse MCPServer definition %s: %w", filename, err)
+	}
+	metadata, _ := definition["metadata"].(map[string]interface{})
+	if metadata == nil {
+		metadata = map[string]interface{}{"name": serverName}
+	}
+	if len(labels) == 0 {
+		delete(metadata, "labels")
+	} else {
+		metadata["labels"] = labels
+	}
+	definition["metadata"] = metadata
+	out, err := yaml.Marshal(definition)
+	if err != nil {
+		return nil, fmt.Errorf("failed to render MCPServer definition %s: %w", filename, err)
+	}
+	if err := os.WriteFile(filename, out, 0o600); err != nil {
+		return nil, fmt.Errorf("failed to write MCPServer definition %s: %w", filename, err)
+	}
+	if h.debug {
+		h.logger.Debug("Set labels of MCPServer '%s' to %v\n", serverName, labels)
+	}
+	return map[string]interface{}{
+		api.FieldSuccess: true,
+		api.FieldMessage: fmt.Sprintf("Labels of MCPServer '%s' replaced", serverName),
+		api.FieldServer:  serverName,
+		"labels":         labels,
+	}, nil
 }
 
 // handleSimulateOAuthCallback simulates a user completing the OAuth flow.

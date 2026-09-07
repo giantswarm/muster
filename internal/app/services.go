@@ -298,7 +298,7 @@ func InitializeServices(cfg *Config) (*Services, error) {
 		if err != nil {
 			return nil, fmt.Errorf("invalid toolset presets: %w", err)
 		}
-		metaToolsAdapter := metatools.NewAdapter(metatools.WithPresets(toolsetPresets))
+		metaToolsAdapter := metatools.NewAdapter(metatools.WithPresets(toolsetPresets), metatools.WithServerLabels(metatools.MCPServerLabels))
 		metaToolsAdapter.Register()
 		logging.Info("Services", "Registered meta-tools adapter with toolset presets: %s", strings.Join(toolsetPresets.Names(), ", "))
 	}

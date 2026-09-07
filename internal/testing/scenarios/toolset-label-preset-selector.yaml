@@ -1,0 +1,180 @@
+name: "toolset-label-preset-selector"
+description: "A preset with a label: rule resolves to the tools of every MCPServer whose resource carries that label (key=value, or key for presence), read live: a server gaining or losing the label changes the resolution on the next request without a restart; label: stays presets-only inline (#1168)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["toolset", "presets", "label", "tool-group", "1168"]
+timeout: "5m"
+
+# Given: three servers — k8s labelled agent-platform.giantswarm.io/tool-group=infrastructure,
+#        am labelled tool-group=agent-platform plus tier=gold, gh unlabelled — and
+#        the platform's two presets defined the way the fleet chart ships them.
+# When:  requests declare preset:infrastructure / preset:agent-platform / preset:gold,
+#        then gh gains the infrastructure label and k8s loses it.
+# Then:  each preset resolves to exactly the labelled servers' tools, core tools
+#        only where the preset adds them, and the resolution follows the label
+#        change on the very next request.
+
+pre_configuration:
+  main_config:
+    config:
+      toolsetPresets:
+        infrastructure:
+          description: "Every infrastructure server"
+          include:
+            - label: agent-platform.giantswarm.io/tool-group=infrastructure
+        agent-platform:
+          description: "The platform's own management surface"
+          include:
+            - label: agent-platform.giantswarm.io/tool-group=agent-platform
+            - pattern: "core_*"
+        gold:
+          description: "Presence match"
+          include:
+            - label: tier
+  mcp_servers:
+    - name: "k8s"
+      labels:
+        agent-platform.giantswarm.io/tool-group: infrastructure
+      config:
+        tools:
+          - name: "get_pods"
+            description: "List pods"
+            annotations: { read_only_hint: true }
+            responses: [{ response: { pods: [] } }]
+    - name: "am"
+      labels:
+        agent-platform.giantswarm.io/tool-group: agent-platform
+        tier: gold
+      config:
+        tools:
+          - name: "list_agents"
+            description: "List agents"
+            annotations: { read_only_hint: true }
+            responses: [{ response: { agents: [] } }]
+    - name: "gh"
+      config:
+        tools:
+          - name: "issues"
+            description: "List issues"
+            responses: [{ response: { issues: [] } }]
+
+steps:
+  - id: "wait-for-servers"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["k8s", "am", "gh"]
+
+  - id: "infrastructure-by-label"
+    tool: "test_call_meta_tool"
+    args: { tool: "filter_tools", arguments: { pattern: "*", limit: 50 } }
+    headers: { X-Muster-Toolset: "preset:infrastructure" }
+    expected:
+      success: true
+      wait_for_state: "20s"
+      json_path:
+        total: 1
+        tools.0.name: "x_k8s_get_pods"
+        tools.0.server: "k8s"
+      not_contains: ["x_am_list_agents", "x_gh_issues", "core_", "toolset_unmatched"]
+
+  - id: "agent-platform-by-label-plus-core"
+    tool: "test_call_meta_tool"
+    args: { tool: "filter_tools", arguments: { pattern: "*", limit: 100 } }
+    headers: { X-Muster-Toolset: "preset:agent-platform" }
+    expected:
+      success: true
+      contains: ["x_am_list_agents", "core_workflow_list", "core_auth_login"]
+      not_contains: ["x_k8s_get_pods", "x_gh_issues"]
+
+  - id: "presence-match"
+    tool: "test_call_meta_tool"
+    args: { tool: "filter_tools", arguments: { pattern: "*", limit: 50 } }
+    headers: { X-Muster-Toolset: "preset:gold" }
+    expected:
+      success: true
+      json_path:
+        total: 1
+        tools.0.name: "x_am_list_agents"
+
+  - id: "label-gates-call-tool"
+    tool: "x_gh_issues"
+    args: {}
+    headers: { X-Muster-Toolset: "preset:infrastructure" }
+    expected:
+      success: false
+      error_contains: ['tool "x_gh_issues" is outside the toolset [preset:infrastructure]']
+
+  - id: "inline-label-rejected"
+    description: "label: exists inside presets only"
+    tool: "test_call_meta_tool"
+    args: { tool: "list_tools" }
+    headers: { X-Muster-Toolset: "label:agent-platform.giantswarm.io/tool-group=infrastructure" }
+    expected:
+      success: false
+      error_contains: ['selector "label:agent-platform.giantswarm.io/tool-group=infrastructure" is allowed inside presets only']
+
+  - id: "gh-gains-the-label"
+    tool: "test_set_mcpserver_labels"
+    args:
+      server: "gh"
+      labels:
+        agent-platform.giantswarm.io/tool-group: infrastructure
+    expected:
+      success: true
+
+  - id: "infrastructure-follows-the-new-label"
+    description: "no restart, no reconcile: the next request resolves the label live"
+    tool: "test_call_meta_tool"
+    args: { tool: "filter_tools", arguments: { pattern: "*", limit: 50 } }
+    headers: { X-Muster-Toolset: "preset:infrastructure" }
+    expected:
+      success: true
+      wait_for_state: "20s"
+      json_path:
+        total: 2
+      contains: ["x_k8s_get_pods", "x_gh_issues"]
+
+  - id: "gh-now-callable"
+    tool: "x_gh_issues"
+    args: {}
+    headers: { X-Muster-Toolset: "preset:infrastructure" }
+    expected:
+      success: true
+
+  - id: "k8s-loses-the-label"
+    tool: "test_set_mcpserver_labels"
+    args:
+      server: "k8s"
+      labels: {}
+    expected:
+      success: true
+
+  - id: "infrastructure-drops-k8s"
+    tool: "test_call_meta_tool"
+    args: { tool: "filter_tools", arguments: { pattern: "*", limit: 50 } }
+    headers: { X-Muster-Toolset: "preset:infrastructure" }
+    expected:
+      success: true
+      wait_for_state: "20s"
+      json_path:
+        total: 1
+        tools.0.name: "x_gh_issues"
+      not_contains: ["x_k8s_get_pods"]
+
+  - id: "k8s-now-refused"
+    tool: "x_k8s_get_pods"
+    args: {}
+    headers: { X-Muster-Toolset: "preset:infrastructure" }
+    expected:
+      success: false
+      error_contains: ['tool "x_k8s_get_pods" is outside the toolset [preset:infrastructure]']
+
+  - id: "unscoped-unaffected"
+    tool: "test_call_meta_tool"
+    args: { tool: "list_tools" }
+    expected:
+      success: true
+      contains: ["x_k8s_get_pods", "x_am_list_agents", "x_gh_issues"]

@@ -223,6 +223,11 @@ type BrokerTrustedIssuerConfig struct {
 type MCPServerConfig struct {
 	// Name is the unique identifier for the MCP server
 	Name string `yaml:"name"`
+	// Labels are written to the MCPServer definition's metadata.labels, the
+	// way a chart labels the resources it ships (e.g.
+	// agent-platform.giantswarm.io/tool-group), so scenarios can exercise
+	// label-based toolset presets.
+	Labels map[string]string `yaml:"labels,omitempty"`
 	// Config contains the server-specific configuration (can include tools for mock servers)
 	Config map[string]interface{} `yaml:"config"`
 }

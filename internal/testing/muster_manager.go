@@ -1823,11 +1823,8 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 					mcpServerCRD := map[string]interface{}{
 						"apiVersion": "muster.giantswarm.io/v1alpha1",
 						"kind":       "MCPServer",
-						"metadata": map[string]interface{}{
-							"name":      mcpServer.Name,
-							"namespace": "default",
-						},
-						"spec": spec,
+						"metadata":   mcpServerMetadata(mcpServer),
+						"spec":       spec,
 					}
 
 					if m.debug {
@@ -1870,11 +1867,8 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 					mcpServerCRD := map[string]interface{}{
 						"apiVersion": "muster.giantswarm.io/v1alpha1",
 						"kind":       "MCPServer",
-						"metadata": map[string]interface{}{
-							"name":      mcpServer.Name,
-							"namespace": "default",
-						},
-						"spec": stdioSpec,
+						"metadata":   mcpServerMetadata(mcpServer),
+						"spec":       stdioSpec,
 					}
 
 					if m.debug {
@@ -1901,11 +1895,8 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 					mcpServerCRD := map[string]interface{}{
 						"apiVersion": "muster.giantswarm.io/v1alpha1",
 						"kind":       "MCPServer",
-						"metadata": map[string]interface{}{
-							"name":      mcpServer.Name,
-							"namespace": "default",
-						},
-						"spec": mcpServer.Config,
+						"metadata":   mcpServerMetadata(mcpServer),
+						"spec":       mcpServer.Config,
 					}
 
 					filename := filepath.Join(crdDir, mcpServer.Name+".yaml")
@@ -2370,4 +2361,24 @@ func (m *musterInstanceManager) convertWorkflowConfigToCRDSpec(config map[string
 	}
 
 	return spec
+}
+
+// mcpServerMetadata builds the metadata of a scenario's MCPServer definition:
+// the name, the default namespace and, when the scenario declares them, the
+// labels a chart would stamp on the resource (e.g.
+// agent-platform.giantswarm.io/tool-group), which label-based toolset presets
+// select by.
+func mcpServerMetadata(mcpServer MCPServerConfig) map[string]interface{} {
+	metadata := map[string]interface{}{
+		"name":      mcpServer.Name,
+		"namespace": "default",
+	}
+	if len(mcpServer.Labels) > 0 {
+		labels := make(map[string]interface{}, len(mcpServer.Labels))
+		for k, v := range mcpServer.Labels {
+			labels[k] = v
+		}
+		metadata["labels"] = labels
+	}
+	return metadata
 }

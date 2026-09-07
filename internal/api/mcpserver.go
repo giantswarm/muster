@@ -531,6 +531,11 @@ type MCPServerInfo struct {
 	// Empty in filesystem mode.
 	Namespace string `json:"namespace,omitempty"`
 
+	// Labels mirrors the MCPServer resource's metadata.labels in both storage
+	// modes. Toolset presets select servers by label (label: rules, #1168) —
+	// notably agent-platform.giantswarm.io/tool-group — and read this live.
+	Labels map[string]string `json:"labels,omitempty"`
+
 	// Type indicates the execution model for this server (stdio, streamable-http, or sse).
 	Type string `json:"type"`
 
