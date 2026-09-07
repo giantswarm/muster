@@ -517,6 +517,12 @@ type TestStep struct {
 	// AsUser specifies which user session to execute this step as.
 	// For multi-user testing scenarios. If not set, uses the current user.
 	AsUser string `yaml:"as_user,omitempty"`
+	// Headers are HTTP headers sent on this step's requests to the muster
+	// instance (e.g. X-Muster-Toolset). They apply to this step only, on the
+	// same client and session as the surrounding steps, which is what lets a
+	// scenario prove per-request evaluation: two steps on one session with
+	// different headers, or a step without any.
+	Headers map[string]string `yaml:"headers,omitempty"`
 }
 
 // TestExpectation defines what result is expected from a test step

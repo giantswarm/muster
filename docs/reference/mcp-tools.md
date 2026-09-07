@@ -29,8 +29,12 @@ Reference guide for AI agents and MCP clients working with Muster's tools. This 
 | `include_schema` | bool | `false` | Return full descriptions **and** input schemas instead of one-line summaries. |
 | `limit` | number | `25` | Max tools per page. |
 | `offset` | number | `0` | Tools to skip before this page. |
+| `toolset` | string[] | — | Inline toolset selectors (`preset:<name>`, `server:<name>`, `workflow:<name>`, `tool:<name>`, at most 32) to resolve against the caller's catalogue. The response adds `toolset` (echo), `toolset_unmatched` (selectors that selected nothing for the caller) and `presets`. With `X-Muster-Toolset` also on the request, the argument resolves within the header's toolset and never widens it. See [Toolsets](toolsets.md). |
+| `include_presets` | bool | `false` | Add the known toolset presets (`name`, `description`, `built_in`) to the response. |
 
-The response carries `total` (matches across the whole catalogue), `truncated` (more matches exist beyond this page), and per-tool a one-line `summary` (plus `score` when ranked and `labels` when present). Get the authoritative full schema of a chosen tool with `describe_tool` before executing it.
+The response carries `total` (matches across the caller's catalogue), `truncated` (more matches exist beyond this page), and per-tool a one-line `summary` (plus `score` when ranked and `labels` when present), the owning `server` (omitted for workflows and core tools), the `kind` (`tool` | `workflow` | `core`) and the tool's `annotations` (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint` as the server declared them; for a workflow the derived `readOnlyHint` when every step tool is read-only; omitted when none). Get the authoritative full schema of a chosen tool with `describe_tool` before executing it — it carries the same `server`, `kind` and `annotations`.
+
+When the request declares a toolset (`X-Muster-Toolset` header), every discovery meta-tool reads the catalogue intersected with it, `call_tool` refuses anything outside it (`tool "<name>" is outside the toolset [<selectors>]`), and an invalid toolset (empty, unknown preset, reserved `toolset:`, inline `label:`, more than 32 selectors, malformed) is an error result on every meta-tool call. Without the header nothing changes.
 
 ```bash
 # Rank workflows by intent instead of guessing a pattern
@@ -47,7 +51,7 @@ filter_tools(pattern="*workflow*", limit=25, offset=25)
 
 | Meta-Tool | Description | Arguments |
 |-----------|-------------|-----------|
-| `call_tool` | Execute any tool by name | `{"name": "tool_name", "arguments": {...}}` |
+| `call_tool` | Execute any tool by name. With `X-Muster-Toolset` on the request, only tools inside the toolset can be called; others are refused naming the toolset (see [Toolsets](toolsets.md)) | `{"name": "tool_name", "arguments": {...}}` |
 
 **Example:**
 ```json

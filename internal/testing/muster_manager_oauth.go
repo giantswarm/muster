@@ -552,6 +552,20 @@ func (m *musterInstanceManager) extractToolConfigs(config map[string]interface{}
 		if schema, ok := toolMap["input_schema"].(map[string]interface{}); ok {
 			tool.InputSchema = schema
 		}
+		if annotations, ok := toStringMap(toolMap["annotations"]); ok {
+			tool.Annotations = &mock.ToolAnnotationsConfig{}
+			for key, target := range map[string]**bool{
+				"read_only_hint":   &tool.Annotations.ReadOnlyHint,
+				"destructive_hint": &tool.Annotations.DestructiveHint,
+				"idempotent_hint":  &tool.Annotations.IdempotentHint,
+				"open_world_hint":  &tool.Annotations.OpenWorldHint,
+			} {
+				if v, ok := annotations[key].(bool); ok {
+					hint := v
+					*target = &hint
+				}
+			}
+		}
 
 		// Extract responses
 		if responses, ok := toolMap["responses"].([]interface{}); ok {

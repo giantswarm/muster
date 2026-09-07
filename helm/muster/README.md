@@ -99,6 +99,7 @@ A Helm chart for muster - Universal Control Plane for AI Agents built on MCP
 | muster.namespace | string | `""` |  |
 | muster.debug | bool | `false` |  |
 | muster.writesAsCaller.kubernetesAudience | string | `""` |  |
+| muster.toolsetPresets | object | `{}` |  |
 | muster.extraCaFile.path | string | `"/etc/muster/ca/extra-ca.pem"` |  |
 | muster.extraCaFile.secret.name | string | `""` |  |
 | muster.extraCaFile.secret.key | string | `"ca.pem"` |  |

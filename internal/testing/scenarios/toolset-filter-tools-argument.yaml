@@ -1,0 +1,172 @@
+name: "toolset-filter-tools-argument"
+description: "filter_tools resolves an inline toolset argument for the caller and reports the tools, the selectors that matched nothing (toolset_unmatched) and the known presets; with X-Muster-Toolset also present the argument resolves within the header's toolset and never widens it; argument errors use the header's texts (#1169)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["toolset", "filter_tools", "metatools", "1169"]
+timeout: "5m"
+
+pre_configuration:
+  mcp_servers:
+    - name: "k8s"
+      config:
+        tools:
+          - name: "get_pods"
+            description: "List pods"
+            annotations: { read_only_hint: true }
+            responses: [{ response: { pods: [] } }]
+          - name: "delete_pod"
+            description: "Delete a pod"
+            annotations: { read_only_hint: false, destructive_hint: true }
+            responses: [{ response: { deleted: true } }]
+  workflows:
+    - name: "triage"
+      config:
+        name: "triage"
+        steps:
+          - id: "pods"
+            tool: "x_k8s_get_pods"
+            args: {}
+
+steps:
+  - id: "wait-for-server"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["k8s"]
+
+  - id: "resolution-unmatched-presets"
+    description: "the argument resolves; unmatched selectors and presets come back with it"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_tools"
+      arguments:
+        toolset: ["preset:read-only", "server:nope", "workflow:missing", "tool:core_workflow_list"]
+        limit: 50
+    expected:
+      success: true
+      wait_for_state: "20s"
+      json_path:
+        total: 3
+        toolset.0: "preset:read-only"
+        toolset.3: "tool:core_workflow_list"
+        toolset_unmatched.0: "server:nope"
+        toolset_unmatched.1: "workflow:missing"
+        presets.0.name: "read-only"
+        presets.0.built_in: true
+        presets.1.name: "none"
+        presets.2.name: "full"
+        presets.2.built_in: true
+      contains: ["x_k8s_get_pods", "workflow_triage", "core_workflow_list"]
+      not_contains: ["x_k8s_delete_pod"]
+
+  - id: "include-presets-alone"
+    description: "include_presets lists presets without narrowing the catalogue"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_tools"
+      arguments:
+        include_presets: true
+        pattern: "x_k8s_*"
+        limit: 50
+    expected:
+      success: true
+      json_path:
+        total: 2
+        presets.0.name: "read-only"
+      not_contains: ["toolset_unmatched"]
+
+  - id: "never-widens"
+    description: "header preset:read-only + argument server:k8s resolves within read-only: the destructive tool stays out"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_tools"
+      arguments:
+        toolset: ["server:k8s"]
+        limit: 50
+    headers: { X-Muster-Toolset: "preset:read-only" }
+    expected:
+      success: true
+      json_path:
+        total: 1
+        total_tools: 2
+        tools.0.name: "x_k8s_get_pods"
+      not_contains: ["x_k8s_delete_pod", "toolset_unmatched"]
+
+  - id: "argument-outside-header-is-unmatched"
+    description: "a selector the header excludes matches nothing for this request"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_tools"
+      arguments:
+        toolset: ["tool:x_k8s_delete_pod"]
+    headers: { X-Muster-Toolset: "preset:read-only" }
+    expected:
+      success: true
+      json_path:
+        total: 0
+        toolset_unmatched.0: "tool:x_k8s_delete_pod"
+
+  - id: "none-is-structured"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_tools"
+      arguments:
+        toolset: ["preset:none"]
+    expected:
+      success: true
+      json_path:
+        total: 0
+        toolset.0: "preset:none"
+      not_contains: ["toolset_unmatched", "No tools available"]
+
+  - id: "argument-unknown-preset"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_tools"
+      arguments:
+        toolset: ["preset:foo"]
+    expected:
+      success: false
+      error_contains: ['toolset [preset:foo] names unknown preset "foo"; known presets: read-only, none, full']
+
+  - id: "argument-empty"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_tools"
+      arguments:
+        toolset: []
+    expected:
+      success: false
+      error_contains: ['toolset [] is empty; use "preset:none"']
+
+  - id: "argument-reserved"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_tools"
+      arguments:
+        toolset: ["toolset:shared"]
+    expected:
+      success: false
+      error_contains: ['selector "toolset:shared" is reserved for shared toolsets']
+
+  - id: "argument-label"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_tools"
+      arguments:
+        toolset: ["label:tier=infra"]
+    expected:
+      success: false
+      error_contains: ['selector "label:tier=infra" is allowed inside presets only']
+
+  - id: "argument-not-an-array"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_tools"
+      arguments:
+        toolset: "preset:none"
+    expected:
+      success: false
+      error_contains: ["toolset must be an array of selector strings"]

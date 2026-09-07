@@ -21,6 +21,7 @@ import (
 	internalmcp "github.com/giantswarm/muster/internal/mcpserver"
 	oauthstore "github.com/giantswarm/muster/internal/oauth/store"
 	"github.com/giantswarm/muster/internal/server"
+	"github.com/giantswarm/muster/internal/toolset"
 	"github.com/giantswarm/muster/pkg/logging"
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
@@ -910,10 +911,11 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		a.sseServer = mcpserver.NewSSEServer(
 			a.mcpServer,
 			mcpserver.WithBaseURL(baseURL),
-			mcpserver.WithSSEEndpoint("/sse"),               // Main SSE endpoint for events
-			mcpserver.WithMessageEndpoint("/message"),       // Endpoint for sending messages
-			mcpserver.WithKeepAlive(true),                   // Enable keep-alive for connection stability
-			mcpserver.WithKeepAliveInterval(30*time.Second), // Keep-alive interval
+			mcpserver.WithSSEEndpoint("/sse"),                     // Main SSE endpoint for events
+			mcpserver.WithMessageEndpoint("/message"),             // Endpoint for sending messages
+			mcpserver.WithKeepAlive(true),                         // Enable keep-alive for connection stability
+			mcpserver.WithKeepAliveInterval(30*time.Second),       // Keep-alive interval
+			mcpserver.WithSSEContextFunc(toolset.HTTPContextFunc), // Per-request toolset source (X-Muster-Toolset)
 		)
 
 		// Create a mux that routes to both MCP and OAuth handlers
@@ -978,8 +980,12 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	case config.MCPTransportStreamableHTTP:
 		fallthrough
 	default:
-		// Streamable HTTP transport (default) - HTTP-based streaming protocol
-		a.streamableHTTPServer = mcpserver.NewStreamableHTTPServer(a.mcpServer)
+		// Streamable HTTP transport (default) - HTTP-based streaming protocol.
+		// The context func runs per POST, after mcp-go bound the client
+		// session, and stashes the request's toolset source so the meta-tools
+		// evaluate X-Muster-Toolset per request — never per session.
+		a.streamableHTTPServer = mcpserver.NewStreamableHTTPServer(a.mcpServer,
+			mcpserver.WithHTTPContextFunc(toolset.HTTPContextFunc))
 
 		// Create a mux that routes to both MCP and OAuth handlers
 		handler, err := a.createHTTPMux(a.streamableHTTPServer)
@@ -3306,6 +3312,7 @@ func (a *AggregatorServer) ListToolsForContext(ctx context.Context) []mcp.Tool {
 	allTools := make([]mcp.Tool, 0, len(mcpServerTools)+len(coreTools))
 	allTools = append(allTools, mcpServerTools...)
 	allTools = append(allTools, coreTools...)
+	deriveWorkflowReadOnlyHints(allTools, api.GetWorkflow())
 
 	logging.DebugWithAttrs("Aggregator", "ListToolsForContext: returning tools",
 		slog.Int("total", len(allTools)),

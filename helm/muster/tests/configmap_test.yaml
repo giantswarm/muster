@@ -174,3 +174,28 @@ tests:
       - matchRegex:
           path: data["config.yaml"]
           pattern: "writesAsCaller:\n  kubernetesAudience: \"custom-audience\""
+
+  - it: omits toolsetPresets by default (only the built-in presets exist)
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "toolsetPresets:"
+
+  - it: renders muster.toolsetPresets verbatim into config.yaml
+    set:
+      muster.toolsetPresets:
+        infrastructure:
+          description: "Every infrastructure server"
+          include:
+            - server: mcp-kubernetes
+            - pattern: "x_mcp-prometheus_*"
+          exclude:
+            - pattern: "*_delete"
+        agent-platform:
+          include:
+            - server: agent-manager
+            - pattern: "core_*"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "toolsetPresets:\n  agent-platform:\n    include:\n    - server: agent-manager\n    - pattern: core_\\*\n  infrastructure:\n    description: Every infrastructure server\n    exclude:\n    - pattern: '\\*_delete'\n    include:\n    - server: mcp-kubernetes\n    - pattern: x_mcp-prometheus_\\*"

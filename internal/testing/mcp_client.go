@@ -101,6 +101,9 @@ func (c *mcpTestClient) connectWithOptions(ctx context.Context, endpoint, access
 			opts = append(opts, transport.WithHTTPHeaders(h))
 		}
 	}
+	// Per-request headers: a step's `headers:` travel in the step context and
+	// are applied to that request only (mcp-go applies the header func last).
+	opts = append(opts, transport.WithHTTPHeaderFunc(requestHeadersFromContext))
 
 	// Create streamable HTTP client for muster aggregator
 	httpClient, err := client.NewStreamableHttpClient(endpoint, opts...)

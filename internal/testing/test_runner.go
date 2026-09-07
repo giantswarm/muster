@@ -601,6 +601,10 @@ func (r *testRunner) runStep(ctx context.Context, step TestStep, config TestConf
 		stepCtx, cancel = context.WithTimeout(ctx, step.Timeout)
 		defer cancel()
 	}
+	// The step's HTTP headers ride in its context; the client's header func
+	// sends them on exactly this step's requests (wait_for_state polls
+	// included), so per-request evaluation can be proven on one session.
+	stepCtx = WithRequestHeaders(stepCtx, step.Headers)
 
 	// Resolve template variables in step arguments if scenario context is available
 	resolvedArgs := step.Args
@@ -725,6 +729,10 @@ func (r *testRunner) runTestToolStep(ctx context.Context, step TestStep, config 
 		stepCtx, cancel = context.WithTimeout(ctx, step.Timeout)
 		defer cancel()
 	}
+	// The step's HTTP headers ride in its context; the client's header func
+	// sends them on exactly this step's requests (wait_for_state polls
+	// included), so per-request evaluation can be proven on one session.
+	stepCtx = WithRequestHeaders(stepCtx, step.Headers)
 
 	// Resolve template variables in step arguments if scenario context is available
 	resolvedArgs := step.Args

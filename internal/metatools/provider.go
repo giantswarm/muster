@@ -2,6 +2,7 @@ package metatools
 
 import (
 	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/toolset"
 )
 
 // Provider implements the api.ToolProvider interface for meta-tools.
@@ -13,18 +14,41 @@ import (
 // prompts through the API layer's service locator pattern.
 type Provider struct {
 	formatters *Formatters
+	// presets are the toolset presets a request's X-Muster-Toolset (or the
+	// filter_tools toolset argument) may name: the built-ins plus the
+	// installation's toolsetPresets configuration.
+	presets *toolset.Registry
+	// serverLabels resolves an MCPServer name to its resource labels for the
+	// label: preset selector (#1168); nil when unavailable.
+	serverLabels toolset.ServerLabels
 }
 
-// NewProvider creates a new meta-tools provider instance.
-// The provider is stateless except for the formatters and can be safely
-// used concurrently across multiple requests.
+// NewProvider creates a new meta-tools provider instance knowing the built-in
+// toolset presets only. The provider is stateless except for the formatters
+// and the preset registry and can be safely used concurrently across multiple
+// requests.
 //
 // Returns:
 //   - *Provider: A new provider instance ready to handle meta-tool requests
 func NewProvider() *Provider {
+	return NewProviderWithPresets(toolset.BuiltIns())
+}
+
+// NewProviderWithPresets creates a meta-tools provider that resolves toolsets
+// against the given preset registry (built-ins plus configured presets).
+func NewProviderWithPresets(presets *toolset.Registry) *Provider {
+	if presets == nil {
+		presets = toolset.BuiltIns()
+	}
 	return &Provider{
 		formatters: NewFormatters(),
+		presets:    presets,
 	}
+}
+
+// Presets returns the preset registry the provider resolves toolsets against.
+func (p *Provider) Presets() *toolset.Registry {
+	return p.presets
 }
 
 // GetTools returns metadata for all meta-tools this provider offers.
@@ -73,8 +97,22 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 		},
 		{
 			Name:        "filter_tools",
-			Description: "Discover tools cheaply: filter by name pattern, description, or labels, optionally rank by a natural-language query, and get a bounded, summarised page. Full descriptions and schemas are omitted by default — use describe_tool for the authoritative detail of a chosen tool.",
+			Description: "Discover tools cheaply: filter by name pattern, description, or labels, optionally rank by a natural-language query, and get a bounded, summarised page. Full descriptions and schemas are omitted by default — use describe_tool for the authoritative detail of a chosen tool. Pass a toolset to see which tools a set of selectors resolves to for you, and include_presets to list the known toolset presets.",
 			Args: []api.ArgMetadata{
+				{
+					Name:        "toolset",
+					Type:        api.ArgTypeArray,
+					Required:    false,
+					Description: "Inline toolset selectors to resolve against your catalogue: preset:<name>, server:<name>, workflow:<name>, tool:<name> (exact names, at most 32). The response carries the tools they select, the selectors that matched nothing (toolset_unmatched) and the known presets. When the request also declares a toolset (X-Muster-Toolset), the argument resolves within it and never widens it.",
+					Schema:      map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+				},
+				{
+					Name:        "include_presets",
+					Type:        api.ArgTypeBoolean,
+					Required:    false,
+					Description: "Include the known toolset presets (name, description, built_in) in the response (default: false)",
+					Default:     false,
+				},
 				{
 					Name:        "pattern",
 					Type:        api.ArgTypeString,
@@ -133,7 +171,7 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 		// Execution tool
 		{
 			Name:        "call_tool",
-			Description: "Execute a tool with the given arguments",
+			Description: "Execute a tool with the given arguments. A request that declares a toolset (X-Muster-Toolset) can only call tools inside it; anything else is refused naming the toolset.",
 			Args: []api.ArgMetadata{
 				{
 					Name:        "name",

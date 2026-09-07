@@ -295,6 +295,26 @@ muster:
     # ("dex-k8s-authenticator").
     kubernetesAudience: ""
 
+  # Toolset presets: named selections of the tool catalogue that an agent's
+  # X-Muster-Toolset header (or the filter_tools toolset argument) can reference
+  # as preset:<name>. Rendered verbatim into muster's config.yaml as
+  # `toolsetPresets`. Every preset has a description, `include` rules and
+  # optional `exclude` rules; each rule sets exactly one of
+  #   tool: <exact exposed name>        pattern: <glob on the exposed name>
+  #   server: <MCPServer or family>     workflow: <workflow name>
+  #   readOnly: true                    preset: <name>   (include only)
+  # read-only, none and full are built into muster and cannot be redefined
+  # here (the pod fails to start naming the offending preset). Example:
+  #   toolsetPresets:
+  #     infrastructure:
+  #       description: Every infrastructure server
+  #       include:
+  #         - server: mcp-kubernetes
+  #         - server: mcp-prometheus
+  #       exclude:
+  #         - pattern: "*_delete"
+  toolsetPresets: {}  # @schema additionalProperties: true
+
   # Append a PEM file to muster's system trust pool at startup. Use this when
   # muster talks to backends served by an internal CA (for example, the SPIFFE
   # bundle that tunnelport tunnels on a Giant Swarm MC). The chart mounts the

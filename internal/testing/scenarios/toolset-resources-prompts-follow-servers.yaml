@@ -1,0 +1,153 @@
+name: "toolset-resources-prompts-follow-servers"
+description: "The resource and prompt accessors read the toolset-filtered catalogue: a server is inside the toolset when at least one of its tools is selected; resources and prompts of other servers are hidden and refused naming the toolset; without a header nothing changes (#1169)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["toolset", "resources", "prompts", "metatools", "1169"]
+timeout: "5m"
+
+pre_configuration:
+  mcp_servers:
+    - name: "k8s"
+      config:
+        tools:
+          - name: "get_pods"
+            description: "List pods"
+            annotations: { read_only_hint: true }
+            responses: [{ response: { pods: [] } }]
+        resources:
+          - uri: "k8s://pods"
+            name: "Pods"
+            description: "Pod inventory."
+            text: "pod inventory"
+        prompts:
+          - name: "debug"
+            description: "Debug a pod."
+            text: "Debug this pod."
+    - name: "gh"
+      config:
+        tools:
+          - name: "issues"
+            description: "List issues"
+            annotations: { read_only_hint: true }
+            responses: [{ response: { issues: [] } }]
+        resources:
+          - uri: "gh://repos"
+            name: "Repos"
+            description: "Repository list."
+            text: "repository list"
+        prompts:
+          - name: "review"
+            description: "Review a pull request."
+            text: "Review this PR."
+
+steps:
+  - id: "wait-for-servers"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["k8s", "gh"]
+
+  - id: "unscoped-resources"
+    tool: "test_call_meta_tool"
+    args: { tool: "list_resources" }
+    expected:
+      success: true
+      wait_for_state: "20s"
+      contains: ["k8s://pods", "gh://repos"]
+
+  - id: "scoped-resources"
+    description: "server:k8s selects k8s tools, so only k8s resources are inside"
+    tool: "test_call_meta_tool"
+    args: { tool: "list_resources" }
+    headers: { X-Muster-Toolset: "server:k8s" }
+    expected:
+      success: true
+      contains: ["k8s://pods"]
+      not_contains: ["gh://repos"]
+
+  - id: "scoped-filter-resources"
+    description: "a single selected tool is enough to bring its server's resources inside"
+    tool: "test_call_meta_tool"
+    args: { tool: "filter_resources", arguments: {} }
+    headers: { X-Muster-Toolset: "tool:x_k8s_get_pods" }
+    expected:
+      success: true
+      json_path:
+        total: 1
+        total_resources: 1
+        resources.0.uri: "k8s://pods"
+
+  - id: "scoped-get-resource-outside"
+    tool: "test_call_meta_tool"
+    args: { tool: "get_resource", arguments: { uri: "gh://repos" } }
+    headers: { X-Muster-Toolset: "server:k8s" }
+    expected:
+      success: false
+      error_contains: ['resource "gh://repos" is outside the toolset [server:k8s]']
+
+  - id: "scoped-describe-resource-outside"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_resource", arguments: { uri: "gh://repos" } }
+    headers: { X-Muster-Toolset: "server:k8s" }
+    expected:
+      success: false
+      error_contains: ['resource "gh://repos" is outside the toolset [server:k8s]']
+
+  - id: "scoped-get-resource-inside"
+    tool: "test_call_meta_tool"
+    args: { tool: "get_resource", arguments: { uri: "k8s://pods" } }
+    headers: { X-Muster-Toolset: "server:k8s" }
+    expected:
+      success: true
+      contains: ["pod inventory"]
+
+  - id: "scoped-prompts"
+    tool: "test_call_meta_tool"
+    args: { tool: "list_prompts" }
+    headers: { X-Muster-Toolset: "server:k8s" }
+    expected:
+      success: true
+      contains: ["x_k8s_debug"]
+      not_contains: ["x_gh_review"]
+
+  - id: "scoped-get-prompt-outside"
+    tool: "test_call_meta_tool"
+    args: { tool: "get_prompt", arguments: { name: "x_gh_review" } }
+    headers: { X-Muster-Toolset: "server:k8s" }
+    expected:
+      success: false
+      error_contains: ['prompt "x_gh_review" is outside the toolset [server:k8s]']
+
+  - id: "scoped-describe-prompt-outside"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_prompt", arguments: { name: "x_gh_review" } }
+    headers: { X-Muster-Toolset: "server:k8s" }
+    expected:
+      success: false
+      error_contains: ['prompt "x_gh_review" is outside the toolset [server:k8s]']
+
+  - id: "scoped-get-prompt-inside"
+    tool: "test_call_meta_tool"
+    args: { tool: "get_prompt", arguments: { name: "x_k8s_debug" } }
+    headers: { X-Muster-Toolset: "server:k8s" }
+    expected:
+      success: true
+      contains: ["Debug this pod."]
+
+  - id: "none-hides-all"
+    tool: "test_call_meta_tool"
+    args: { tool: "list_prompts" }
+    headers: { X-Muster-Toolset: "preset:none" }
+    expected:
+      success: true
+      not_contains: ["x_k8s_debug", "x_gh_review"]
+
+  - id: "unscoped-again"
+    description: "without the header the gh prompt is reachable on the same session"
+    tool: "test_call_meta_tool"
+    args: { tool: "get_prompt", arguments: { name: "x_gh_review" } }
+    expected:
+      success: true
+      contains: ["Review this PR."]

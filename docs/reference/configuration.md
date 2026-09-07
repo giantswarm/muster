@@ -58,6 +58,31 @@ namespace: "default"            # Kubernetes namespace for CR discovery (default
 | `kubernetes` | `bool` | `false` | Enable Kubernetes CRD mode. When `true`, uses Kubernetes CRDs for resource storage and requires the apiserver: if the Kubernetes client cannot be created at startup (apiserver unreachable, muster CRDs not installed), `muster serve` retries for about half a minute and then exits with an error instead of falling back to the filesystem, so the kubelet restarts it. When `false`, uses filesystem YAML files. The Helm chart sets this to `true` by default. |
 | `aggregator` | `AggregatorConfig` | see below | Aggregator service configuration |
 | `auth` | `AuthConfig` | see below | Authentication settings for CLI |
+| `toolsetPresets` | `map[string]Preset` | `{}` | Toolset presets an agent's `X-Muster-Toolset` header can name as `preset:<name>`; `read-only`, `none` and `full` are built in and cannot be redefined. See [Toolsets](toolsets.md). |
+
+### Toolset Presets
+
+Presets are named selections of the tool catalogue that a request's `X-Muster-Toolset` header
+(or the `filter_tools` `toolset` argument) references as `preset:<name>`. They are evaluated
+against the live catalogue on every request. Each rule sets exactly one of `tool`, `pattern`,
+`server`, `workflow`, `readOnly: true`, `preset` (composition, include only) or `label`
+(presets only; see [Toolsets](toolsets.md)).
+
+```yaml
+toolsetPresets:
+  infrastructure:
+    description: Every infrastructure server, without deletes
+    include:
+      - server: mcp-kubernetes
+      - server: mcp-prometheus
+    exclude:
+      - pattern: "*_delete"
+```
+
+`read-only`, `none` and `full` are built in; configuration that redefines one, sets a rule with
+no key or more than one, uses an invalid `pattern`, composes an unknown preset or cycles fails
+`muster serve` at startup with the preset named. The Helm chart exposes this block as
+`muster.toolsetPresets`.
 
 ### Aggregator Configuration
 

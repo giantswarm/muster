@@ -35,6 +35,8 @@ pre_configuration:
         tools:
           - name: "tool-name"          # Simple name in mock config
             description: "Tool description"
+            annotations:                 # Optional MCP tool annotations the mock declares
+              read_only_hint: true       # (read_only_hint, destructive_hint, idempotent_hint, open_world_hint)
             input_schema:
               type: "object"
               properties:
@@ -516,6 +518,35 @@ cleanup:
   - id: "delete-resource"
     # ... proper cleanup
 ```
+
+## Per-Request Headers
+
+A step can send HTTP headers on its own requests to the muster instance with `headers:`. They
+apply to that step only — same client, same MCP session as the surrounding steps, including the
+`wait_for_state` polls — which is how a scenario proves per-request evaluation of a header such
+as `X-Muster-Toolset`: two steps on one session with different headers, then one without.
+
+```yaml
+steps:
+  - id: scoped
+    tool: test_call_meta_tool
+    args: { tool: "list_tools" }
+    headers:
+      X-Muster-Toolset: "preset:read-only,workflow:incident-triage"
+    expected:
+      success: true
+      not_contains: ["x_kubernetes_delete"]
+
+  - id: unscoped-again
+    tool: test_call_meta_tool
+    args: { tool: "list_tools" }
+    expected:
+      success: true
+      contains: ["x_kubernetes_delete"]
+```
+
+Regular tool steps (`tool: x_server_tool`) carry the headers too, since they go through
+`call_tool` on the same client.
 
 ## Multi-User Testing
 

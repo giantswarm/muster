@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/toolset"
 	"github.com/giantswarm/muster/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -21,15 +22,41 @@ type Adapter struct {
 	provider *Provider
 }
 
+// AdapterOption configures the adapter's provider.
+type AdapterOption func(*Provider)
+
+// WithPresets makes the meta-tools resolve toolsets against the given preset
+// registry (built-ins plus the installation's toolsetPresets). Without it
+// only the built-in presets are known.
+func WithPresets(presets *toolset.Registry) AdapterOption {
+	return func(p *Provider) {
+		if presets != nil {
+			p.presets = presets
+		}
+	}
+}
+
+// WithServerLabels supplies the MCPServer label lookup the label: preset
+// selector resolves through (#1168).
+func WithServerLabels(labels toolset.ServerLabels) AdapterOption {
+	return func(p *Provider) {
+		p.serverLabels = labels
+	}
+}
+
 // NewAdapter creates a new metatools adapter instance.
 // The adapter manages the metatools provider and handles registration
 // with the API layer.
 //
 // Returns:
 //   - *Adapter: A new adapter instance ready for registration
-func NewAdapter() *Adapter {
+func NewAdapter(opts ...AdapterOption) *Adapter {
+	provider := NewProvider()
+	for _, opt := range opts {
+		opt(provider)
+	}
 	return &Adapter{
-		provider: NewProvider(),
+		provider: provider,
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/toolset"
 	"github.com/giantswarm/muster/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -50,6 +51,19 @@ func (p *Provider) getHandler() (api.MetaToolsHandler, *api.CallToolResult) {
 func (p *Provider) ExecuteTool(ctx context.Context, toolName string, args map[string]any) (*api.CallToolResult, error) {
 	// Argument values are caller data and can carry credentials: log names only.
 	logging.Debug("metatools", "Executing tool %s with args: %s", toolName, logging.KeyNames(args))
+
+	// A request that declares a toolset must declare a valid one: an empty
+	// header, a malformed, reserved or preset-only selector, more than the
+	// inline cap, or an unknown preset is an error on every meta-tool call
+	// (D12) — never a silent fall-back to the unscoped catalogue and never
+	// silent degradation to the selectors that did parse.
+	if ts, present, err := toolset.FromContext(ctx); err != nil {
+		return errorResult(err.Error()), nil
+	} else if present {
+		if err := p.presets.Check(ts); err != nil {
+			return errorResult(err.Error()), nil
+		}
+	}
 
 	// Dispatch to the appropriate handler
 	switch toolName {
@@ -93,15 +107,18 @@ func (p *Provider) handleListTools(ctx context.Context, _ map[string]any) (*api.
 		return errResult, nil
 	}
 
-	tools, err := handler.ListTools(ctx)
-	if err != nil {
-		return errorResult(fmt.Sprintf("Failed to list tools: %v", err)), nil
+	cat, errResult := p.catalogue(ctx, handler)
+	if errResult != nil {
+		return errResult, nil
 	}
 
-	// Get servers requiring authentication for the current session
+	// Get servers requiring authentication for the current session. The list
+	// is informational (which servers a sign-in would unlock) and is not
+	// narrowed by the toolset: a toolset selector can only match a server's
+	// tools once the caller has signed in to it.
 	serversRequiringAuth := handler.ListServersRequiringAuth(ctx)
 
-	jsonData, err := p.formatters.FormatToolsListWithAuthJSON(tools, serversRequiringAuth)
+	jsonData, err := p.formatters.FormatToolsListWithAuthJSON(cat.tools, serversRequiringAuth)
 	if err != nil {
 		return errorResult(fmt.Sprintf("Failed to format tools: %v", err)), nil
 	}
@@ -122,13 +139,16 @@ func (p *Provider) handleDescribeTool(ctx context.Context, args map[string]any) 
 		return errResult, nil
 	}
 
-	tools, err := handler.ListTools(ctx)
-	if err != nil {
-		return errorResult(fmt.Sprintf("Failed to list tools: %v", err)), nil
+	cat, errResult := p.catalogue(ctx, handler)
+	if errResult != nil {
+		return errResult, nil
 	}
 
-	tool := p.formatters.FindTool(tools, name)
+	tool := p.formatters.FindTool(cat.tools, name)
 	if tool == nil {
+		if errResult := cat.outside(name); errResult != nil {
+			return errResult, nil
+		}
 		return errorResult(fmt.Sprintf("Tool not found: %s", name)), nil
 	}
 
@@ -166,6 +186,12 @@ type filterToolsOptions struct {
 	summarize         bool
 	limit             int // 0 means no limit
 	offset            int
+	// toolsetArg is the inline toolset to resolve against the caller's
+	// catalogue (nil when the argument was not given; an empty list is an
+	// error, like an empty header).
+	toolsetArg []string
+	// includePresets adds the known presets to the response.
+	includePresets bool
 }
 
 // handleListCoreTools handles the list_core_tools meta-tool.
@@ -247,8 +273,39 @@ func (p *Provider) handleFilterTools(ctx context.Context, args map[string]any) (
 		}
 		opts.offset = offset
 	}
+	if raw, ok := args["toolset"]; ok && raw != nil {
+		selectors, err := toStringList(raw)
+		if err != nil {
+			return errorResult("toolset must be an array of selector strings"), nil
+		}
+		opts.toolsetArg = selectors
+	}
+	if v, ok := args["include_presets"].(bool); ok {
+		opts.includePresets = v
+	}
 
 	return p.filterToolsWithOptions(ctx, opts)
+}
+
+// toStringList coerces a JSON-decoded array (or a native string slice) to
+// []string. A non-array, or an element that is not a string, is an error.
+func toStringList(v any) ([]string, error) {
+	switch list := v.(type) {
+	case []string:
+		return append([]string(nil), list...), nil
+	case []any:
+		out := make([]string, 0, len(list))
+		for _, item := range list {
+			s, ok := item.(string)
+			if !ok {
+				return nil, fmt.Errorf("element %v is not a string", item)
+			}
+			out = append(out, s)
+		}
+		return out, nil
+	default:
+		return nil, fmt.Errorf("not an array")
+	}
 }
 
 // filterToolsWithOptions is the shared filter/rank/paginate engine behind both
@@ -259,11 +316,34 @@ func (p *Provider) filterToolsWithOptions(ctx context.Context, opts filterToolsO
 		return errResult, nil
 	}
 
-	tools, err := handler.ListTools(ctx)
-	if err != nil {
-		return errorResult(fmt.Sprintf("Failed to list tools: %v", err)), nil
+	cat, errResult := p.catalogue(ctx, handler)
+	if errResult != nil {
+		return errResult, nil
 	}
-	if len(tools) == 0 {
+	tools := cat.tools
+
+	// The toolset argument resolves within the caller's catalogue — which,
+	// when the request itself declares a toolset, is already that toolset, so
+	// the argument can narrow it but never widen it.
+	var argToolset *toolset.Toolset
+	var argResolution toolset.Resolution
+	if opts.toolsetArg != nil {
+		ts, err := toolset.ParseInline(opts.toolsetArg)
+		if err != nil {
+			return errorResult(err.Error()), nil
+		}
+		res, err := p.presets.Resolve(ts, toolset.EntriesFromTools(tools, p.serverLabels))
+		if err != nil {
+			return errorResult(err.Error()), nil
+		}
+		argToolset, argResolution = &ts, res
+		tools = toolset.Filter(tools, res)
+	}
+
+	// Without any toolset in play the legacy text answer is kept; a toolset
+	// that resolves to nothing (preset:none, a selector matching nothing) is a
+	// real, structured answer the caller can read.
+	if len(tools) == 0 && !cat.scoped && argToolset == nil {
 		return textResult("No tools available to filter"), nil
 	}
 
@@ -334,6 +414,8 @@ func (p *Provider) filterToolsWithOptions(ctx context.Context, opts filterToolsO
 		if labels := toolLabels(st.tool); len(labels) > 0 {
 			info.Labels = labels
 		}
+		info.Server, info.Kind = originOf(st.tool)
+		info.Annotations = annotationsOf(st.tool)
 		if opts.includeSchema {
 			info.InputSchema = st.tool.InputSchema
 		}
@@ -351,11 +433,21 @@ func (p *Provider) filterToolsWithOptions(ctx context.Context, opts filterToolsO
 			Limit:             opts.limit,
 			Offset:            opts.offset,
 		},
-		TotalTools:    len(tools),
+		TotalTools:    len(cat.tools),
 		FilteredCount: len(toolInfos),
 		Total:         total,
 		Truncated:     truncated,
 		Tools:         toolInfos,
+	}
+	switch {
+	case argToolset != nil:
+		resp.Toolset = argToolset.Raw
+		resp.ToolsetUnmatched = argResolution.Unmatched
+	case cat.scoped:
+		resp.ToolsetUnmatched = cat.res.Unmatched
+	}
+	if opts.includePresets || argToolset != nil {
+		resp.Presets = p.presets.List()
 	}
 
 	jsonData, err := json.MarshalIndent(resp, "", "  ")
@@ -498,6 +590,18 @@ func (p *Provider) handleCallTool(ctx context.Context, args map[string]any) (*ap
 		return errResult, nil
 	}
 
+	// A declared toolset bounds what the model may call: the refusal names
+	// the tool and the toolset, and is logged with the session so an operator
+	// can see which agent asked for what. Workflow execution (workflow_<name>)
+	// goes through the same gate; the tools a workflow's steps call
+	// internally are the workflow author's composition, not the model's, and
+	// are not re-checked here.
+	if cat, errResult := p.scope(ctx, handler); errResult != nil {
+		return errResult, nil
+	} else if errResult := cat.refuse(ctx, name); errResult != nil {
+		return errResult, nil
+	}
+
 	// Execute the tool via the handler
 	result, err := handler.CallTool(ctx, name, toolArgs)
 	if err != nil {
@@ -541,9 +645,9 @@ func (p *Provider) handleListResources(ctx context.Context, _ map[string]any) (*
 		return errResult, nil
 	}
 
-	resources, err := handler.ListResources(ctx)
-	if err != nil {
-		return errorResult(fmt.Sprintf("Failed to list resources: %v", err)), nil
+	resources, _, errResult := p.scopedResources(ctx, handler)
+	if errResult != nil {
+		return errResult, nil
 	}
 
 	jsonData, err := p.formatters.FormatResourcesListJSON(resources)
@@ -570,13 +674,16 @@ func (p *Provider) handleDescribeResource(ctx context.Context, args map[string]a
 		return errResult, nil
 	}
 
-	resources, err := handler.ListResources(ctx)
-	if err != nil {
-		return errorResult(fmt.Sprintf("Failed to list resources: %v", err)), nil
+	resources, cat, errResult := p.scopedResources(ctx, handler)
+	if errResult != nil {
+		return errResult, nil
 	}
 
 	matches := p.formatters.FindResource(resources, uri)
 	if len(matches) == 0 {
+		if cat.isScoped() {
+			return cat.outsideError("resource", uri), nil
+		}
 		return errorResult(fmt.Sprintf("Resource not found: %s", uri)), nil
 	}
 
@@ -628,6 +735,25 @@ func (p *Provider) handleGetResource(ctx context.Context, args map[string]any) (
 	handler, errResult := p.getHandler()
 	if errResult != nil {
 		return errResult, nil
+	}
+
+	// With a toolset declared, a resource is readable only when its server is
+	// inside the toolset. Without one the read is unchanged.
+	if _, present, _ := toolset.FromContext(ctx); present {
+		resources, cat, errResult := p.scopedResources(ctx, handler)
+		if errResult != nil {
+			return errResult, nil
+		}
+		inside := false
+		for _, m := range p.formatters.FindResource(resources, uri) {
+			if serverName == "" || m.Server == serverName {
+				inside = true
+				break
+			}
+		}
+		if !inside {
+			return cat.outsideError("resource", uri), nil
+		}
 	}
 
 	result, err := handler.GetResource(ctx, uri, serverName)
@@ -720,9 +846,9 @@ func (p *Provider) handleFilterResources(ctx context.Context, args map[string]an
 		return errResult, nil
 	}
 
-	resources, err := handler.ListResources(ctx)
-	if err != nil {
-		return errorResult(fmt.Sprintf("Failed to list resources: %v", err)), nil
+	resources, _, errResult := p.scopedResources(ctx, handler)
+	if errResult != nil {
+		return errResult, nil
 	}
 
 	matched := make([]api.ResourceOrigin, 0, len(resources))
@@ -785,9 +911,9 @@ func (p *Provider) handleFilterPrompts(ctx context.Context, args map[string]any)
 		return errResult, nil
 	}
 
-	prompts, err := handler.ListPrompts(ctx)
-	if err != nil {
-		return errorResult(fmt.Sprintf("Failed to list prompts: %v", err)), nil
+	prompts, _, errResult := p.scopedPrompts(ctx, handler)
+	if errResult != nil {
+		return errResult, nil
 	}
 
 	matched := make([]api.PromptOrigin, 0, len(prompts))
@@ -837,9 +963,9 @@ func (p *Provider) handleListPrompts(ctx context.Context, _ map[string]any) (*ap
 		return errResult, nil
 	}
 
-	prompts, err := handler.ListPrompts(ctx)
-	if err != nil {
-		return errorResult(fmt.Sprintf("Failed to list prompts: %v", err)), nil
+	prompts, _, errResult := p.scopedPrompts(ctx, handler)
+	if errResult != nil {
+		return errResult, nil
 	}
 
 	jsonData, err := p.formatters.FormatPromptsListJSON(prompts)
@@ -863,13 +989,16 @@ func (p *Provider) handleDescribePrompt(ctx context.Context, args map[string]any
 		return errResult, nil
 	}
 
-	prompts, err := handler.ListPrompts(ctx)
-	if err != nil {
-		return errorResult(fmt.Sprintf("Failed to list prompts: %v", err)), nil
+	prompts, cat, errResult := p.scopedPrompts(ctx, handler)
+	if errResult != nil {
+		return errResult, nil
 	}
 
 	prompt := p.formatters.FindPrompt(prompts, name)
 	if prompt == nil {
+		if cat.isScoped() {
+			return cat.outsideError("prompt", name), nil
+		}
 		return errorResult(fmt.Sprintf("Prompt not found: %s", name)), nil
 	}
 
@@ -905,6 +1034,18 @@ func (p *Provider) handleGetPrompt(ctx context.Context, args map[string]any) (*a
 	handler, errResult := p.getHandler()
 	if errResult != nil {
 		return errResult, nil
+	}
+
+	// With a toolset declared, a prompt is available only when its server is
+	// inside the toolset. Without one the call is unchanged.
+	if _, present, _ := toolset.FromContext(ctx); present {
+		prompts, cat, errResult := p.scopedPrompts(ctx, handler)
+		if errResult != nil {
+			return errResult, nil
+		}
+		if p.formatters.FindPrompt(prompts, name) == nil {
+			return cat.outsideError("prompt", name), nil
+		}
 	}
 
 	result, err := handler.GetPrompt(ctx, name, promptArgs)
