@@ -57,6 +57,26 @@ func (p *Provider) catalogue(ctx context.Context, handler api.MetaToolsHandler) 
 	return cat, nil
 }
 
+// scope is catalogue for the accessors that do not otherwise list tools
+// (call_tool, resources, prompts): it returns nil when the request declared
+// no toolset, so an unscoped request does not list the catalogue at all.
+// Listing has side effects the unscoped paths never had — ListToolsForContext
+// adopts the person's subject-scoped grants, connecting the session to servers
+// the caller may be about to sign in to explicitly — and a request without a
+// header must stay byte-for-byte today's behaviour.
+func (p *Provider) scope(ctx context.Context, handler api.MetaToolsHandler) (*scopedCatalogue, *api.CallToolResult) {
+	if _, present, _ := toolset.FromContext(ctx); !present {
+		return nil, nil
+	}
+	return p.catalogue(ctx, handler)
+}
+
+// isScoped reports whether the request declared a toolset. Nil-safe, so the
+// accessors can hold the nil scope of an unscoped request.
+func (c *scopedCatalogue) isScoped() bool {
+	return c != nil && c.scoped
+}
+
 // outsideError is the refusal every accessor uses for a name that exists in
 // the session's catalogue but not in the request's toolset.
 func (c *scopedCatalogue) outsideError(kind, name string) *api.CallToolResult {
@@ -68,7 +88,7 @@ func (c *scopedCatalogue) outsideError(kind, name string) *api.CallToolResult {
 // request is unscoped or the tool is unknown altogether (callers then report
 // "not found", exactly as without a toolset).
 func (c *scopedCatalogue) outside(name string) *api.CallToolResult {
-	if !c.scoped || c.res.Contains(name) {
+	if !c.isScoped() || c.res.Contains(name) {
 		return nil
 	}
 	for _, t := range c.all {
@@ -83,7 +103,7 @@ func (c *scopedCatalogue) outside(name string) *api.CallToolResult {
 // refused — known or not, since either way it is not something the agent was
 // composed with — and the refusal is logged with tool, toolset and session.
 func (c *scopedCatalogue) refuse(ctx context.Context, name string) *api.CallToolResult {
-	if !c.scoped || c.res.Contains(name) {
+	if !c.isScoped() || c.res.Contains(name) {
 		return nil
 	}
 	attrs := []slog.Attr{
@@ -103,7 +123,7 @@ func (c *scopedCatalogue) refuse(ctx context.Context, name string) *api.CallTool
 // resources narrows the session's resources to the servers inside the
 // toolset: a server is inside when at least one of its tools is selected.
 func (c *scopedCatalogue) resources(resources []api.ResourceOrigin) []api.ResourceOrigin {
-	if !c.scoped {
+	if !c.isScoped() {
 		return resources
 	}
 	out := make([]api.ResourceOrigin, 0, len(resources))
@@ -117,7 +137,7 @@ func (c *scopedCatalogue) resources(resources []api.ResourceOrigin) []api.Resour
 
 // prompts narrows the session's prompts the same way resources does.
 func (c *scopedCatalogue) prompts(prompts []api.PromptOrigin) []api.PromptOrigin {
-	if !c.scoped {
+	if !c.isScoped() {
 		return prompts
 	}
 	out := make([]api.PromptOrigin, 0, len(prompts))
@@ -134,7 +154,7 @@ func (c *scopedCatalogue) prompts(prompts []api.PromptOrigin) []api.PromptOrigin
 // is untouched) and lets get_resource refuse a resource whose server is
 // outside the toolset.
 func (p *Provider) scopedResources(ctx context.Context, handler api.MetaToolsHandler) ([]api.ResourceOrigin, *scopedCatalogue, *api.CallToolResult) {
-	cat, errResult := p.catalogue(ctx, handler)
+	cat, errResult := p.scope(ctx, handler)
 	if errResult != nil {
 		return nil, nil, errResult
 	}
@@ -147,7 +167,7 @@ func (p *Provider) scopedResources(ctx context.Context, handler api.MetaToolsHan
 
 // scopedPrompts mirrors scopedResources for prompts.
 func (p *Provider) scopedPrompts(ctx context.Context, handler api.MetaToolsHandler) ([]api.PromptOrigin, *scopedCatalogue, *api.CallToolResult) {
-	cat, errResult := p.catalogue(ctx, handler)
+	cat, errResult := p.scope(ctx, handler)
 	if errResult != nil {
 		return nil, nil, errResult
 	}

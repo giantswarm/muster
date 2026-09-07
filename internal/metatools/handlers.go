@@ -596,7 +596,7 @@ func (p *Provider) handleCallTool(ctx context.Context, args map[string]any) (*ap
 	// goes through the same gate; the tools a workflow's steps call
 	// internally are the workflow author's composition, not the model's, and
 	// are not re-checked here.
-	if cat, errResult := p.catalogue(ctx, handler); errResult != nil {
+	if cat, errResult := p.scope(ctx, handler); errResult != nil {
 		return errResult, nil
 	} else if errResult := cat.refuse(ctx, name); errResult != nil {
 		return errResult, nil
@@ -681,7 +681,7 @@ func (p *Provider) handleDescribeResource(ctx context.Context, args map[string]a
 
 	matches := p.formatters.FindResource(resources, uri)
 	if len(matches) == 0 {
-		if cat.scoped {
+		if cat.isScoped() {
 			return cat.outsideError("resource", uri), nil
 		}
 		return errorResult(fmt.Sprintf("Resource not found: %s", uri)), nil
@@ -996,7 +996,7 @@ func (p *Provider) handleDescribePrompt(ctx context.Context, args map[string]any
 
 	prompt := p.formatters.FindPrompt(prompts, name)
 	if prompt == nil {
-		if cat.scoped {
+		if cat.isScoped() {
 			return cat.outsideError("prompt", name), nil
 		}
 		return errorResult(fmt.Sprintf("Prompt not found: %s", name)), nil
