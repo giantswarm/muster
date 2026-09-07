@@ -9,6 +9,7 @@ import (
 
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/metatools"
+	"github.com/giantswarm/muster/internal/toolset"
 	"github.com/giantswarm/muster/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -246,6 +247,14 @@ func (a *AggregatorServer) getAllCoreToolsAsMCPTools() []mcp.Tool {
 						AdditionalFields: map[string]any{api.MetaKeyLabels: labels},
 					}
 				}
+				// Record what kind of tool this is so the meta-tools can
+				// report it and toolsets can select workflows and core tools
+				// apart from server tools.
+				kind := toolset.OriginKindCore
+				if strings.HasPrefix(name, "workflow_") {
+					kind = toolset.OriginKindWorkflow
+				}
+				toolset.SetToolOrigin(&tool, toolset.ToolOrigin{Kind: kind})
 				tools = append(tools, tool)
 			}
 		}
@@ -305,6 +314,9 @@ func (a *AggregatorServer) getAllCoreToolsAsMCPTools() []mcp.Tool {
 				Required: []string{"server"},
 			},
 		},
+	}
+	for i := range authTools {
+		toolset.SetToolOrigin(&authTools[i], toolset.ToolOrigin{Kind: toolset.OriginKindCore})
 	}
 	tools = append(tools, authTools...)
 

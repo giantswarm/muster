@@ -69,6 +69,7 @@ func TestEveryStepFieldIsActedOn(t *testing.T) {
 		"Expected":    "test_runner.go",
 		"Timeout":     "test_runner.go",
 		"AsUser":      "test_runner.go",
+		"Headers":     "test_runner.go", // stashed in the step ctx; the client's header func sends them
 	}
 
 	// rejectedAtLoadTime holds the fields that are deliberately inert: accepted

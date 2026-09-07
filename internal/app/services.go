@@ -2,9 +2,11 @@ package app
 
 import (
 	"fmt"
+	"strings"
 
 	mcpserverPkg "github.com/giantswarm/muster/internal/mcpserver"
 	aggregatorService "github.com/giantswarm/muster/internal/services/aggregator"
+	"github.com/giantswarm/muster/internal/toolset"
 
 	"github.com/giantswarm/muster/internal/aggregator"
 	"github.com/giantswarm/muster/internal/api"
@@ -288,9 +290,17 @@ func InitializeServices(cfg *Config) (*Services, error) {
 		// The metatools adapter provides the MetaToolsHandler interface that the
 		// metatools package uses. The aggregator is registered as the data provider
 		// which gives the adapter access to list/call tools, resources, and prompts.
-		metaToolsAdapter := metatools.NewAdapter()
+		//
+		// Toolset presets are validated here, once, so a configuration that
+		// redefines a built-in preset or composes an unknown one stops startup
+		// with the preset named instead of surfacing as a request error later.
+		toolsetPresets, err := toolset.NewRegistry(cfg.MusterConfig.ToolsetPresets)
+		if err != nil {
+			return nil, fmt.Errorf("invalid toolset presets: %w", err)
+		}
+		metaToolsAdapter := metatools.NewAdapter(metatools.WithPresets(toolsetPresets))
 		metaToolsAdapter.Register()
-		logging.Info("Services", "Registered meta-tools adapter")
+		logging.Info("Services", "Registered meta-tools adapter with toolset presets: %s", strings.Join(toolsetPresets.Names(), ", "))
 	}
 
 	// Step 5: Initialize reconciliation manager for automatic change detection

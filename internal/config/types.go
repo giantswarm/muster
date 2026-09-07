@@ -1,6 +1,10 @@
 package config
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/giantswarm/muster/internal/toolset"
+)
 
 // MusterConfig is the top-level configuration structure for muster.
 type MusterConfig struct {
@@ -8,6 +12,13 @@ type MusterConfig struct {
 	Namespace      string               `yaml:"namespace,omitempty"`      // Namespace for MCPServer and Workflow discovery
 	Kubernetes     bool                 `yaml:"kubernetes,omitempty"`     // Enable Kubernetes CRD mode (uses CRDs instead of filesystem)
 	WritesAsCaller WritesAsCallerConfig `yaml:"writesAsCaller,omitempty"` // Caller-identity writes: kubernetesAudience override
+	// ToolsetPresets are the installation's toolset presets (chart value
+	// muster.toolsetPresets): named selections of the catalogue an agent's
+	// X-Muster-Toolset header can reference as preset:<name>. read-only, none
+	// and full are built in and cannot be redefined here; startup fails on a
+	// preset that tries, on a malformed rule, or on a composition that names
+	// an unknown preset.
+	ToolsetPresets toolset.PresetsConfig `yaml:"toolsetPresets,omitempty"`
 }
 
 // WritesAsCallerConfig configures caller-identity writes. In Kubernetes mode,

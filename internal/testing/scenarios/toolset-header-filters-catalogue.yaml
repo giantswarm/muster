@@ -1,0 +1,227 @@
+name: "toolset-header-filters-catalogue"
+description: "A request carrying X-Muster-Toolset sees the session catalogue intersected with the toolset on list_tools, filter_tools, describe_tool and list_core_tools; call_tool of an in-toolset tool behaves as unscoped; an out-of-toolset call_tool or workflow execution is refused naming the toolset and logged (#1169)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["toolset", "metatools", "1169"]
+timeout: "5m"
+
+# Given: two mock servers (k8s with a read-only, a destructive and an
+#        unannotated tool; gh with a read-only tool), a workflow whose steps are
+#        all read-only and one with a destructive step.
+# When:  the meta-tools are called with X-Muster-Toolset: tool:x_k8s_get_pods,workflow:ro-triage
+# Then:  only those two tools are listed, described and callable; everything
+#        else — including core tools — is hidden and refused with the toolset
+#        named; the refusal is logged. A workflow inside the toolset runs even
+#        though its steps call tools outside it: the toolset bounds the model,
+#        not the workflow author's composition.
+
+pre_configuration:
+  mcp_servers:
+    - name: "k8s"
+      config:
+        tools:
+          - name: "get_pods"
+            description: "List pods"
+            annotations: { read_only_hint: true }
+            responses: [{ response: { pods: ["api-0"] } }]
+          - name: "delete_pod"
+            description: "Delete a pod"
+            annotations: { read_only_hint: false, destructive_hint: true }
+            responses: [{ response: { deleted: true } }]
+          - name: "restart"
+            description: "Restart a deployment"
+            responses: [{ response: { restarted: true } }]
+    - name: "gh"
+      config:
+        tools:
+          - name: "issues"
+            description: "List issues"
+            annotations: { read_only_hint: true }
+            responses: [{ response: { issues: [] } }]
+  workflows:
+    - name: "ro-triage"
+      config:
+        name: "ro-triage"
+        description: "Read-only triage"
+        steps:
+          - id: "pods"
+            tool: "x_k8s_get_pods"
+            args: {}
+          - id: "issues"
+            tool: "x_gh_issues"
+            args: {}
+    - name: "rw-rollout"
+      config:
+        name: "rw-rollout"
+        description: "Rollout with a destructive step"
+        steps:
+          - id: "pods"
+            tool: "x_k8s_get_pods"
+            args: {}
+          - id: "delete"
+            tool: "x_k8s_delete_pod"
+            args: {}
+
+steps:
+  - id: "wait-for-servers"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["k8s", "gh"]
+
+  - id: "unscoped-baseline"
+    description: "Without the header the whole catalogue is visible, core tools included"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "list_tools"
+    expected:
+      success: true
+      wait_for_state: "20s"
+      contains: ["x_k8s_get_pods", "x_k8s_delete_pod", "x_gh_issues", "workflow_ro-triage", "workflow_rw-rollout", "core_workflow_list"]
+
+  - id: "list-tools-scoped"
+    description: "list_tools returns catalogue ∩ toolset"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "list_tools"
+    headers:
+      X-Muster-Toolset: "tool:x_k8s_get_pods, workflow:ro-triage"
+    expected:
+      success: true
+      contains: ["x_k8s_get_pods", "workflow_ro-triage"]
+      not_contains: ["x_k8s_delete_pod", "x_k8s_restart", "x_gh_issues", "workflow_rw-rollout", "core_workflow_list", "core_auth_login"]
+
+  - id: "filter-tools-scoped"
+    description: "filter_tools reads the same filtered catalogue"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_tools"
+      arguments:
+        pattern: "*"
+        limit: 50
+    headers:
+      X-Muster-Toolset: "tool:x_k8s_get_pods,workflow:ro-triage"
+    expected:
+      success: true
+      json_path:
+        total: 2
+        total_tools: 2
+      contains: ["x_k8s_get_pods", "workflow_ro-triage"]
+      not_contains: ["x_k8s_delete_pod", "toolset_unmatched"]
+
+  - id: "list-core-tools-scoped"
+    description: "core tools are hidden unless the toolset includes them"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "list_core_tools"
+    headers:
+      X-Muster-Toolset: "tool:x_k8s_get_pods,workflow:ro-triage"
+    expected:
+      success: true
+      json_path:
+        total: 0
+      not_contains: ["core_workflow_list"]
+
+  - id: "describe-inside"
+    description: "describe_tool works inside the toolset and reports origin and annotations"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "describe_tool"
+      arguments:
+        name: "x_k8s_get_pods"
+    headers:
+      X-Muster-Toolset: "tool:x_k8s_get_pods,workflow:ro-triage"
+    expected:
+      success: true
+      json_path:
+        name: "x_k8s_get_pods"
+        server: "k8s"
+        kind: "tool"
+        annotations.readOnlyHint: true
+
+  - id: "describe-outside"
+    description: "describe_tool of a visible-but-outside tool names the toolset"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "describe_tool"
+      arguments:
+        name: "x_k8s_delete_pod"
+    headers:
+      X-Muster-Toolset: "tool:x_k8s_get_pods,workflow:ro-triage"
+    expected:
+      success: false
+      error_contains: ['tool "x_k8s_delete_pod" is outside the toolset [tool:x_k8s_get_pods,workflow:ro-triage]']
+
+  - id: "call-inside"
+    description: "call_tool of an in-toolset tool behaves exactly as unscoped"
+    tool: "x_k8s_get_pods"
+    args: {}
+    headers:
+      X-Muster-Toolset: "tool:x_k8s_get_pods,workflow:ro-triage"
+    expected:
+      success: true
+      json_path:
+        pods.0: "api-0"
+
+  - id: "call-outside"
+    description: "call_tool of an out-of-toolset tool is refused with the toolset named"
+    tool: "x_k8s_delete_pod"
+    args: {}
+    headers:
+      X-Muster-Toolset: "tool:x_k8s_get_pods,workflow:ro-triage"
+    expected:
+      success: false
+      error_contains: ['tool "x_k8s_delete_pod" is outside the toolset [tool:x_k8s_get_pods,workflow:ro-triage]']
+
+  - id: "call-core-outside"
+    description: "core tools are refused too unless included"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "call_tool"
+      arguments:
+        name: "core_workflow_list"
+    headers:
+      X-Muster-Toolset: "tool:x_k8s_get_pods,workflow:ro-triage"
+    expected:
+      success: false
+      error_contains: ['tool "core_workflow_list" is outside the toolset']
+
+  - id: "workflow-inside-runs"
+    description: "a workflow inside the toolset executes; its steps are the author's composition and are not re-checked"
+    tool: "workflow_ro-triage"
+    args: {}
+    headers:
+      X-Muster-Toolset: "tool:x_k8s_get_pods,workflow:ro-triage"
+    expected:
+      success: true
+      json_path:
+        status: "completed"
+        steps.1.id: "issues"
+        steps.1.status: "completed"
+
+  - id: "workflow-outside-refused"
+    description: "a workflow outside the toolset is refused like any tool"
+    tool: "workflow_rw-rollout"
+    args: {}
+    headers:
+      X-Muster-Toolset: "tool:x_k8s_get_pods,workflow:ro-triage"
+    expected:
+      success: false
+      error_contains: ['tool "workflow_rw-rollout" is outside the toolset [tool:x_k8s_get_pods,workflow:ro-triage]']
+
+  - id: "unscoped-after"
+    description: "the next request without the header is unscoped again — nothing was bound to the session"
+    tool: "x_k8s_delete_pod"
+    args: {}
+    expected:
+      success: true
+      json_path:
+        deleted: true
+
+instance_logs:
+  contains:
+    - "call_tool refused"
+    - "x_k8s_delete_pod"
+    - "workflow_rw-rollout"

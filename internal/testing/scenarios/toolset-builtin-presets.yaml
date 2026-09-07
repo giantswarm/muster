@@ -1,0 +1,200 @@
+name: "toolset-builtin-presets"
+description: "read-only, none and full resolve with no configuration: read-only is every tool annotated read-only plus every workflow whose step tools are all read-only (the derived hint), none is empty, full is the whole catalogue including core tools; describe_tool carries the derived workflow hint (#1169)"
+category: "behavioral"
+concept: "workflow"
+tags: ["toolset", "presets", "read-only", "workflow", "1169"]
+timeout: "5m"
+
+pre_configuration:
+  mcp_servers:
+    - name: "k8s"
+      config:
+        tools:
+          - name: "get_pods"
+            description: "List pods"
+            annotations: { read_only_hint: true }
+            responses: [{ response: { pods: [] } }]
+          - name: "delete_pod"
+            description: "Delete a pod"
+            annotations: { read_only_hint: false, destructive_hint: true }
+            responses: [{ response: { deleted: true } }]
+          - name: "restart"
+            description: "Restart a deployment (no annotations)"
+            responses: [{ response: { restarted: true } }]
+    - name: "gh"
+      config:
+        tools:
+          - name: "issues"
+            description: "List issues"
+            annotations: { read_only_hint: true }
+            responses: [{ response: { issues: [] } }]
+  workflows:
+    - name: "ro-triage"
+      config:
+        name: "ro-triage"
+        description: "All steps read-only"
+        steps:
+          - id: "pods"
+            tool: "x_k8s_get_pods"
+            args: {}
+          - id: "issues"
+            tool: "x_gh_issues"
+            args: {}
+    - name: "rw-rollout"
+      config:
+        name: "rw-rollout"
+        description: "One destructive step"
+        steps:
+          - id: "pods"
+            tool: "x_k8s_get_pods"
+            args: {}
+          - id: "delete"
+            tool: "x_k8s_delete_pod"
+            args: {}
+    - name: "nested-ro"
+      config:
+        name: "nested-ro"
+        description: "Calls a read-only workflow and a read-only tool"
+        steps:
+          - id: "triage"
+            tool: "workflow_ro-triage"
+            args: {}
+          - id: "issues"
+            tool: "x_gh_issues"
+            args: {}
+    - name: "core-step"
+      config:
+        name: "core-step"
+        description: "Calls a core tool, which carries no annotation"
+        steps:
+          - id: "list"
+            tool: "core_workflow_list"
+            args: {}
+
+steps:
+  - id: "wait-for-servers"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["k8s", "gh"]
+
+  - id: "read-only"
+    description: "preset:read-only = annotated read-only tools + workflows whose steps are all read-only (transitively)"
+    tool: "test_call_meta_tool"
+    args: { tool: "filter_tools", arguments: { pattern: "*", limit: 50 } }
+    headers: { X-Muster-Toolset: "preset:read-only" }
+    expected:
+      success: true
+      wait_for_state: "20s"
+      json_path:
+        total: 4
+      contains: ["x_k8s_get_pods", "x_gh_issues", "workflow_ro-triage", "workflow_nested-ro"]
+      not_contains: ["x_k8s_delete_pod", "x_k8s_restart", "workflow_rw-rollout", "workflow_core-step", "core_workflow_list", "toolset_unmatched"]
+
+  - id: "read-only-call-allowed"
+    tool: "workflow_ro-triage"
+    args: {}
+    headers: { X-Muster-Toolset: "preset:read-only" }
+    expected:
+      success: true
+      json_path:
+        status: "completed"
+
+  - id: "read-only-call-refused"
+    description: "the workflow with a destructive step is not in read-only"
+    tool: "workflow_rw-rollout"
+    args: {}
+    headers: { X-Muster-Toolset: "preset:read-only" }
+    expected:
+      success: false
+      error_contains: ['tool "workflow_rw-rollout" is outside the toolset [preset:read-only]']
+
+  - id: "none"
+    description: "preset:none resolves to nothing — a structured empty answer, not an error"
+    tool: "test_call_meta_tool"
+    args: { tool: "filter_tools", arguments: { pattern: "*", limit: 50 } }
+    headers: { X-Muster-Toolset: "preset:none" }
+    expected:
+      success: true
+      json_path:
+        total: 0
+        total_tools: 0
+      not_contains: ["toolset_unmatched", "x_k8s_get_pods"]
+
+  - id: "none-refuses-everything"
+    tool: "x_k8s_get_pods"
+    args: {}
+    headers: { X-Muster-Toolset: "preset:none" }
+    expected:
+      success: false
+      error_contains: ['tool "x_k8s_get_pods" is outside the toolset [preset:none]']
+
+  - id: "full"
+    description: "preset:full is the whole catalogue, core tools included"
+    tool: "test_call_meta_tool"
+    args: { tool: "list_tools" }
+    headers: { X-Muster-Toolset: "preset:full" }
+    expected:
+      success: true
+      contains: ["x_k8s_get_pods", "x_k8s_delete_pod", "x_k8s_restart", "x_gh_issues", "workflow_ro-triage", "workflow_rw-rollout", "core_workflow_list", "core_auth_login"]
+
+  - id: "full-calls-destructive"
+    tool: "x_k8s_delete_pod"
+    args: {}
+    headers: { X-Muster-Toolset: "preset:full" }
+    expected:
+      success: true
+      json_path:
+        deleted: true
+
+  - id: "describe-derived-hint"
+    description: "describe_tool carries the derived read-only hint of a workflow"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_tool", arguments: { name: "workflow_ro-triage" } }
+    expected:
+      success: true
+      json_path:
+        kind: "workflow"
+        annotations.readOnlyHint: true
+
+  - id: "describe-nested-derived-hint"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_tool", arguments: { name: "workflow_nested-ro" } }
+    expected:
+      success: true
+      json_path:
+        kind: "workflow"
+        annotations.readOnlyHint: true
+
+  - id: "describe-no-hint-for-destructive-workflow"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_tool", arguments: { name: "workflow_rw-rollout" } }
+    expected:
+      success: true
+      json_path:
+        kind: "workflow"
+      not_contains: ["readOnlyHint"]
+
+  - id: "describe-no-hint-for-core-step-workflow"
+    description: "a core tool carries no annotation, so a workflow calling one is not read-only"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_tool", arguments: { name: "workflow_core-step" } }
+    expected:
+      success: true
+      json_path:
+        kind: "workflow"
+      not_contains: ["readOnlyHint"]
+
+  - id: "preset-plus-inline"
+    description: "inline selectors add to a preset"
+    tool: "test_call_meta_tool"
+    args: { tool: "filter_tools", arguments: { pattern: "*", limit: 50 } }
+    headers: { X-Muster-Toolset: "preset:read-only,workflow:rw-rollout,tool:core_workflow_list" }
+    expected:
+      success: true
+      json_path:
+        total: 6
+      contains: ["workflow_rw-rollout", "core_workflow_list", "x_k8s_get_pods"]
+      not_contains: ["x_k8s_delete_pod", "core_auth_login"]

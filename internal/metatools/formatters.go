@@ -101,8 +101,11 @@ func (f *Formatters) FormatToolsListJSON(tools []mcp.Tool) (string, error) {
 //	}
 func (f *Formatters) FormatToolsListWithAuthJSON(tools []mcp.Tool, serversRequiringAuth []api.ServerAuthInfo) (string, error) {
 	type ToolInfo struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
+		Name        string           `json:"name"`
+		Description string           `json:"description"`
+		Server      string           `json:"server,omitempty"`
+		Kind        string           `json:"kind,omitempty"`
+		Annotations *ToolAnnotations `json:"annotations,omitempty"`
 	}
 
 	type Response struct {
@@ -112,9 +115,13 @@ func (f *Formatters) FormatToolsListWithAuthJSON(tools []mcp.Tool, serversRequir
 
 	toolList := make([]ToolInfo, len(tools))
 	for i, tool := range tools {
+		server, kind := originOf(tool)
 		toolList[i] = ToolInfo{
 			Name:        tool.Name,
 			Description: tool.Description,
+			Server:      server,
+			Kind:        kind,
+			Annotations: annotationsOf(tool),
 		}
 	}
 
@@ -243,6 +250,17 @@ func (f *Formatters) FormatToolDetailJSON(tool mcp.Tool) (string, error) {
 		api.FieldName:            tool.Name,
 		api.SchemaKeyDescription: tool.Description,
 		api.FieldInputSchema:     tool.InputSchema,
+	}
+	// Origin and annotations: where the tool comes from, what kind it is and
+	// the hints its server declared (or, for a workflow, the derived read-only
+	// hint), so a client can tell read-only tools apart without calling them.
+	server, kind := originOf(tool)
+	if server != "" {
+		toolInfo[api.FieldServer] = server
+	}
+	toolInfo["kind"] = kind
+	if annotations := annotationsOf(tool); annotations != nil {
+		toolInfo["annotations"] = annotations
 	}
 
 	jsonData, err := json.MarshalIndent(toolInfo, "", "  ")

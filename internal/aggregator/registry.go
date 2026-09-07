@@ -16,6 +16,7 @@ import (
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/metatools"
 	oauthstore "github.com/giantswarm/muster/internal/oauth/store"
+	"github.com/giantswarm/muster/internal/toolset"
 	"github.com/giantswarm/muster/pkg/logging"
 )
 
@@ -670,6 +671,7 @@ func (r *ServerRegistry) assembleExposedTools(contributions []serverToolContribu
 			for _, tool := range c.tools {
 				exposedTool := tool
 				exposedTool.Name = r.ExposedToolName(c.serverName, tool.Name)
+				toolset.SetToolOrigin(&exposedTool, toolset.ToolOrigin{Kind: toolset.OriginKindTool, Server: c.serverName})
 				soloTools = append(soloTools, exposedTool)
 			}
 			continue
@@ -735,6 +737,9 @@ func (r *ServerRegistry) assembleExposedTools(contributions []serverToolContribu
 		exposedTool.Name = r.familyExposedName(key.family, key.toolName)
 		exposedTool.InputSchema = injectInstanceEnum(exposedTool.InputSchema, entry.instanceArg, sortedServers)
 		exposedTool.Description = annotateMultiServer(exposedTool.Description, sortedServers)
+		// The exposed name carries the family, so the family is the owning
+		// server; the members are recorded so server:<member> selects it too.
+		toolset.SetToolOrigin(&exposedTool, toolset.ToolOrigin{Kind: toolset.OriginKindTool, Server: key.family, Servers: sortedServers})
 
 		soloTools = append(soloTools, exposedTool)
 		for _, sn := range sortedServers {

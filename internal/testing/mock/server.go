@@ -166,12 +166,19 @@ func NewServerFromFile(configPath string, debug bool) (*Server, error) {
 // shapes (the former is documented as incompatible with ToolOption); we
 // pick one or the other based on whether a schema was declared.
 func toolWithSchema(toolConfig ToolConfig) mcp.Tool {
+	var tool mcp.Tool
 	if len(toolConfig.InputSchema) > 0 {
 		if raw, err := json.Marshal(toolConfig.InputSchema); err == nil {
-			return mcp.NewToolWithRawSchema(toolConfig.Name, toolConfig.Description, raw)
+			tool = mcp.NewToolWithRawSchema(toolConfig.Name, toolConfig.Description, raw)
 		}
 	}
-	return mcp.NewTool(toolConfig.Name, mcp.WithDescription(toolConfig.Description))
+	if tool.Name == "" {
+		tool = mcp.NewTool(toolConfig.Name, mcp.WithDescription(toolConfig.Description))
+	}
+	// Annotations are set on the struct directly: ToolOptions are incompatible
+	// with the raw-schema constructor, and this works for both shapes.
+	toolConfig.Annotations.Apply(&tool)
+	return tool
 }
 
 // createToolHandler creates an MCP tool handler function for the given tool name

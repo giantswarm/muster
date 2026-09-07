@@ -1,5 +1,11 @@
 package metatools
 
+import (
+	"github.com/giantswarm/muster/internal/toolset"
+
+	"github.com/mark3labs/mcp-go/mcp"
+)
+
 // Meta-tool name constants.
 // These are the meta-tools exposed by the aggregator that wrap actual tool access.
 const (
@@ -68,7 +74,49 @@ type ToolInfo struct {
 	Summary     string            `json:"summary,omitempty"`
 	Score       float64           `json:"score,omitempty"`
 	Labels      map[string]string `json:"labels,omitempty"`
-	InputSchema interface{}       `json:"inputSchema,omitempty"`
+	// Server is the MCPServer (or family) the tool comes from; omitted for
+	// workflows and core tools.
+	Server string `json:"server,omitempty"`
+	// Kind is "tool" (served by an MCPServer), "workflow" or "core".
+	Kind string `json:"kind,omitempty"`
+	// Annotations are the tool's MCP annotations as its server declared them
+	// (for a workflow, the derived readOnlyHint); omitted when it has none.
+	Annotations *ToolAnnotations `json:"annotations,omitempty"`
+	InputSchema interface{}      `json:"inputSchema,omitempty"`
+}
+
+// ToolAnnotations are the MCP tool annotations muster forwards from the
+// downstream server, plus the derived read-only hint of a workflow whose step
+// tools are all read-only. Only the hints the server set are present.
+type ToolAnnotations struct {
+	ReadOnlyHint    *bool `json:"readOnlyHint,omitempty"`
+	DestructiveHint *bool `json:"destructiveHint,omitempty"`
+	IdempotentHint  *bool `json:"idempotentHint,omitempty"`
+	OpenWorldHint   *bool `json:"openWorldHint,omitempty"`
+}
+
+// annotationsOf projects a tool's MCP annotations; nil when it carries none.
+func annotationsOf(tool mcp.Tool) *ToolAnnotations {
+	a := tool.Annotations
+	if a.ReadOnlyHint == nil && a.DestructiveHint == nil && a.IdempotentHint == nil && a.OpenWorldHint == nil {
+		return nil
+	}
+	return &ToolAnnotations{
+		ReadOnlyHint:    a.ReadOnlyHint,
+		DestructiveHint: a.DestructiveHint,
+		IdempotentHint:  a.IdempotentHint,
+		OpenWorldHint:   a.OpenWorldHint,
+	}
+}
+
+// originOf projects the origin the aggregator recorded on a tool into the
+// server and kind fields the meta-tools report.
+func originOf(tool mcp.Tool) (server, kind string) {
+	kind = string(toolset.KindOf(tool))
+	if origin, ok := toolset.ToolOriginOf(tool); ok {
+		server = origin.Server
+	}
+	return server, kind
 }
 
 // ListToolsResponse is the response structure from the list_tools meta-tool.
@@ -106,6 +154,15 @@ type FilterToolsResponse struct {
 	Total         int        `json:"total"`
 	Truncated     bool       `json:"truncated"`
 	Tools         []ToolInfo `json:"tools"`
+	// Toolset echoes the inline selectors of the toolset argument when one was
+	// given; the tools above are those it resolves to for the caller.
+	Toolset []string `json:"toolset,omitempty"`
+	// ToolsetUnmatched lists the selectors (of the toolset argument, else of
+	// the request's X-Muster-Toolset) that select no tool for the caller.
+	ToolsetUnmatched []string `json:"toolset_unmatched,omitempty"`
+	// Presets lists the known toolset presets when include_presets is set or a
+	// toolset argument was given.
+	Presets []toolset.Info `json:"presets,omitempty"`
 }
 
 // FilterCriteria describes the filter parameters applied.
@@ -220,7 +277,10 @@ type CapabilityFilterCriteria struct {
 
 // DescribeToolResponse is the response structure from the describe_tool meta-tool.
 type DescribeToolResponse struct {
-	Name        string      `json:"name"`
-	Description string      `json:"description"`
-	InputSchema interface{} `json:"inputSchema,omitempty"`
+	Name        string           `json:"name"`
+	Description string           `json:"description"`
+	Server      string           `json:"server,omitempty"`
+	Kind        string           `json:"kind,omitempty"`
+	Annotations *ToolAnnotations `json:"annotations,omitempty"`
+	InputSchema interface{}      `json:"inputSchema,omitempty"`
 }

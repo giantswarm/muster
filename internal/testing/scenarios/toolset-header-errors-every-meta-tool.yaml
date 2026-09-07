@@ -1,0 +1,177 @@
+name: "toolset-header-errors-every-meta-tool"
+description: "A present but invalid X-Muster-Toolset — empty, unknown preset, reserved toolset:, inline label:, more than 32 selectors, malformed — is an error result on every meta-tool call, naming the toolset and the offending selector; it never falls back to the unscoped catalogue and is not sticky (#1169)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["toolset", "metatools", "errors", "1169"]
+timeout: "5m"
+
+pre_configuration:
+  mcp_servers:
+    - name: "k8s"
+      config:
+        tools:
+          - name: "get_pods"
+            description: "List pods"
+            annotations: { read_only_hint: true }
+            responses: [{ response: { pods: [] } }]
+
+steps:
+  - id: "wait-for-server"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["k8s"]
+
+  # --- an unknown preset errors on every one of the 13 meta-tools ---
+  - id: "unknown-preset-list-tools"
+    tool: "test_call_meta_tool"
+    args: { tool: "list_tools" }
+    headers: { X-Muster-Toolset: "preset:foo" }
+    expected:
+      success: false
+      error_contains: ['toolset [preset:foo] names unknown preset "foo"; known presets: read-only, none, full']
+  - id: "unknown-preset-describe-tool"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_tool", arguments: { name: "x_k8s_get_pods" } }
+    headers: { X-Muster-Toolset: "preset:foo" }
+    expected:
+      success: false
+      error_contains: ['names unknown preset "foo"']
+  - id: "unknown-preset-list-core-tools"
+    tool: "test_call_meta_tool"
+    args: { tool: "list_core_tools" }
+    headers: { X-Muster-Toolset: "preset:foo" }
+    expected:
+      success: false
+      error_contains: ['names unknown preset "foo"']
+  - id: "unknown-preset-filter-tools"
+    tool: "test_call_meta_tool"
+    args: { tool: "filter_tools", arguments: { pattern: "*" } }
+    headers: { X-Muster-Toolset: "preset:foo" }
+    expected:
+      success: false
+      error_contains: ['names unknown preset "foo"']
+  - id: "unknown-preset-call-tool"
+    description: "call_tool errors too — never silent full access"
+    tool: "x_k8s_get_pods"
+    args: {}
+    headers: { X-Muster-Toolset: "preset:foo" }
+    expected:
+      success: false
+      error_contains: ['toolset [preset:foo] names unknown preset "foo"']
+  - id: "unknown-preset-list-resources"
+    tool: "test_call_meta_tool"
+    args: { tool: "list_resources" }
+    headers: { X-Muster-Toolset: "preset:foo" }
+    expected:
+      success: false
+      error_contains: ['names unknown preset "foo"']
+  - id: "unknown-preset-filter-resources"
+    tool: "test_call_meta_tool"
+    args: { tool: "filter_resources", arguments: {} }
+    headers: { X-Muster-Toolset: "preset:foo" }
+    expected:
+      success: false
+      error_contains: ['names unknown preset "foo"']
+  - id: "unknown-preset-describe-resource"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_resource", arguments: { uri: "k8s://pods" } }
+    headers: { X-Muster-Toolset: "preset:foo" }
+    expected:
+      success: false
+      error_contains: ['names unknown preset "foo"']
+  - id: "unknown-preset-get-resource"
+    tool: "test_call_meta_tool"
+    args: { tool: "get_resource", arguments: { uri: "k8s://pods" } }
+    headers: { X-Muster-Toolset: "preset:foo" }
+    expected:
+      success: false
+      error_contains: ['names unknown preset "foo"']
+  - id: "unknown-preset-list-prompts"
+    tool: "test_call_meta_tool"
+    args: { tool: "list_prompts" }
+    headers: { X-Muster-Toolset: "preset:foo" }
+    expected:
+      success: false
+      error_contains: ['names unknown preset "foo"']
+  - id: "unknown-preset-filter-prompts"
+    tool: "test_call_meta_tool"
+    args: { tool: "filter_prompts", arguments: {} }
+    headers: { X-Muster-Toolset: "preset:foo" }
+    expected:
+      success: false
+      error_contains: ['names unknown preset "foo"']
+  - id: "unknown-preset-describe-prompt"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_prompt", arguments: { name: "x_k8s_debug" } }
+    headers: { X-Muster-Toolset: "preset:foo" }
+    expected:
+      success: false
+      error_contains: ['names unknown preset "foo"']
+  - id: "unknown-preset-get-prompt"
+    tool: "test_call_meta_tool"
+    args: { tool: "get_prompt", arguments: { name: "x_k8s_debug" } }
+    headers: { X-Muster-Toolset: "preset:foo" }
+    expected:
+      success: false
+      error_contains: ['names unknown preset "foo"']
+
+  # --- the other invalid shapes, each naming the offending selector ---
+  - id: "empty-header"
+    description: "a present but empty header is a declared, invalid toolset — not 'no toolset'"
+    tool: "test_call_meta_tool"
+    args: { tool: "list_tools" }
+    headers: { X-Muster-Toolset: "" }
+    expected:
+      success: false
+      error_contains: ['toolset [] is empty; use "preset:none"']
+  - id: "reserved-toolset-selector"
+    tool: "test_call_meta_tool"
+    args: { tool: "list_tools" }
+    headers: { X-Muster-Toolset: "preset:read-only,toolset:shared" }
+    expected:
+      success: false
+      error_contains: ['toolset [preset:read-only,toolset:shared] selector "toolset:shared" is reserved for shared toolsets']
+  - id: "inline-label-selector"
+    tool: "test_call_meta_tool"
+    args: { tool: "list_tools" }
+    headers: { X-Muster-Toolset: "label:agent-platform.giantswarm.io/tool-group=infrastructure" }
+    expected:
+      success: false
+      error_contains: ['selector "label:agent-platform.giantswarm.io/tool-group=infrastructure" is allowed inside presets only']
+  - id: "malformed-selector"
+    tool: "test_call_meta_tool"
+    args: { tool: "list_tools" }
+    headers: { X-Muster-Toolset: "preset:none,pattern:core_*" }
+    expected:
+      success: false
+      error_contains: ['selector "pattern:core_*" is malformed; expected preset:<name>, server:<name>, workflow:<name> or tool:<name>']
+  - id: "too-many-selectors"
+    tool: "test_call_meta_tool"
+    args: { tool: "list_tools" }
+    headers:
+      X-Muster-Toolset: "tool:t1,tool:t2,tool:t3,tool:t4,tool:t5,tool:t6,tool:t7,tool:t8,tool:t9,tool:t10,tool:t11,tool:t12,tool:t13,tool:t14,tool:t15,tool:t16,tool:t17,tool:t18,tool:t19,tool:t20,tool:t21,tool:t22,tool:t23,tool:t24,tool:t25,tool:t26,tool:t27,tool:t28,tool:t29,tool:t30,tool:t31,tool:t32,tool:t33"
+    expected:
+      success: false
+      error_contains: ["has 33 selectors, more than the 32 allowed inline; define a preset"]
+  - id: "thirty-two-is-fine"
+    description: "the cap is inclusive"
+    tool: "test_call_meta_tool"
+    args: { tool: "filter_tools", arguments: { pattern: "*" } }
+    headers:
+      X-Muster-Toolset: "tool:t1,tool:t2,tool:t3,tool:t4,tool:t5,tool:t6,tool:t7,tool:t8,tool:t9,tool:t10,tool:t11,tool:t12,tool:t13,tool:t14,tool:t15,tool:t16,tool:t17,tool:t18,tool:t19,tool:t20,tool:t21,tool:t22,tool:t23,tool:t24,tool:t25,tool:t26,tool:t27,tool:t28,tool:t29,tool:t30,tool:t31,tool:x_k8s_get_pods"
+    expected:
+      success: true
+      json_path:
+        total: 1
+        tools.0.name: "x_k8s_get_pods"
+
+  - id: "not-sticky"
+    description: "the errors above bound nothing to the session: the next request without a header is unscoped"
+    tool: "test_call_meta_tool"
+    args: { tool: "list_tools" }
+    expected:
+      success: true
+      contains: ["x_k8s_get_pods", "core_workflow_list"]

@@ -1,0 +1,133 @@
+name: "toolset-visibility-wins"
+description: "A toolset never widens access: a selector naming a server the session has not authenticated with resolves to nothing (reported in toolset_unmatched), its tools are absent and refused; after the session signs in the same toolset resolves to them (#1169)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["toolset", "oauth", "visibility", "1169"]
+timeout: "5m"
+
+pre_configuration:
+  mock_oauth_servers:
+    - name: "toolset-idp"
+      scopes: ["openid", "profile"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+  mcp_servers:
+    - name: "k8s"
+      config:
+        tools:
+          - name: "get_pods"
+            description: "List pods"
+            annotations: { read_only_hint: true }
+            responses: [{ response: { pods: [] } }]
+    - name: "protected"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "toolset-idp"
+        tools:
+          - name: "secret_op"
+            description: "A protected read-only operation"
+            annotations: { read_only_hint: true }
+            responses: [{ response: { status: "ok" } }]
+
+steps:
+  - id: "wait-for-servers"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["k8s", "protected"]
+
+  - id: "before-login-listing"
+    description: "the toolset names the protected server, but the session cannot see it: visibility wins"
+    tool: "test_call_meta_tool"
+    args: { tool: "list_tools" }
+    headers: { X-Muster-Toolset: "server:protected,server:k8s" }
+    expected:
+      success: true
+      wait_for_state: "20s"
+      contains: ["x_k8s_get_pods", "servers_requiring_auth", "protected"]
+      not_contains: ["x_protected_secret_op"]
+
+  - id: "before-login-unmatched"
+    description: "filter_tools reports the selector as matching nothing for this caller"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_tools"
+      arguments:
+        toolset: ["server:protected", "server:k8s"]
+        limit: 50
+    expected:
+      success: true
+      json_path:
+        total: 1
+        tools.0.name: "x_k8s_get_pods"
+        toolset_unmatched.0: "server:protected"
+
+  - id: "before-login-refused"
+    description: "calling the protected tool is refused as outside the toolset — it is not in the caller's catalogue"
+    tool: "test_call_meta_tool"
+    args: { tool: "call_tool", arguments: { name: "x_protected_secret_op" } }
+    headers: { X-Muster-Toolset: "server:protected" }
+    expected:
+      success: false
+      error_contains: ['tool "x_protected_secret_op" is outside the toolset [server:protected]']
+
+  - id: "start-login"
+    tool: "core_auth_login"
+    args: { server: "protected" }
+    expected:
+      success: true
+      contains: ["http"]
+
+  - id: "complete-login"
+    tool: "test_simulate_oauth_callback"
+    args: { server: "protected" }
+    expected:
+      success: true
+      contains: ["success"]
+
+  - id: "establish-connection"
+    tool: "core_auth_login"
+    args: { server: "protected" }
+    expected:
+      success: true
+
+  - id: "after-login-listing"
+    description: "the same toolset on the same session now resolves to the protected tool"
+    tool: "test_call_meta_tool"
+    args: { tool: "list_tools" }
+    headers: { X-Muster-Toolset: "server:protected" }
+    expected:
+      success: true
+      wait_for_state: "20s"
+      contains: ["x_protected_secret_op"]
+      not_contains: ["x_k8s_get_pods"]
+
+  - id: "after-login-matched"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_tools"
+      arguments:
+        toolset: ["server:protected"]
+        limit: 50
+    expected:
+      success: true
+      json_path:
+        total: 1
+        tools.0.name: "x_protected_secret_op"
+        tools.0.server: "protected"
+        tools.0.annotations.readOnlyHint: true
+      not_contains: ["toolset_unmatched"]
+
+  - id: "after-login-call"
+    tool: "x_protected_secret_op"
+    args: {}
+    headers: { X-Muster-Toolset: "preset:read-only" }
+    expected:
+      success: true
+      json_path:
+        status: "ok"

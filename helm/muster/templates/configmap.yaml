@@ -116,5 +116,9 @@ data:
     writesAsCaller:
       kubernetesAudience: {{ . | quote }}
     {{- end }}
+    {{- with .Values.muster.toolsetPresets }}
+    toolsetPresets:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     namespace: {{ include "muster.namespace" . | quote }}
     kubernetes: true

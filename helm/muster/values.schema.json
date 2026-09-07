@@ -532,6 +532,10 @@
                         }
                     }
                 },
+                "toolsetPresets": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
                 "writesAsCaller": {
                     "type": "object",
                     "additionalProperties": false,

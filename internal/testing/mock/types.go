@@ -1,5 +1,7 @@
 package mock
 
+import "github.com/mark3labs/mcp-go/mcp"
+
 // ToolConfig defines configuration for a mock tool
 type ToolConfig struct {
 	// Name is the unique identifier for the tool
@@ -19,6 +21,30 @@ type ToolConfig struct {
 	// configured response. Used to assert the protocol revision muster's
 	// outbound client negotiates with a downstream server.
 	EchoHandshake bool `yaml:"echo_handshake,omitempty"`
+	// Annotations are the MCP tool annotations the mock declares, so scenarios
+	// can exercise what muster does with a downstream server's read-only /
+	// destructive hints (annotation forwarding, the read-only toolset preset).
+	Annotations *ToolAnnotationsConfig `yaml:"annotations,omitempty"`
+}
+
+// ToolAnnotationsConfig mirrors mcp.ToolAnnotation with the hints a mock tool
+// may declare. A hint that is not set is not sent, like a real server.
+type ToolAnnotationsConfig struct {
+	ReadOnlyHint    *bool `yaml:"read_only_hint,omitempty"`
+	DestructiveHint *bool `yaml:"destructive_hint,omitempty"`
+	IdempotentHint  *bool `yaml:"idempotent_hint,omitempty"`
+	OpenWorldHint   *bool `yaml:"open_world_hint,omitempty"`
+}
+
+// Apply sets the configured hints on tool.
+func (a *ToolAnnotationsConfig) Apply(tool *mcp.Tool) {
+	if a == nil {
+		return
+	}
+	tool.Annotations.ReadOnlyHint = a.ReadOnlyHint
+	tool.Annotations.DestructiveHint = a.DestructiveHint
+	tool.Annotations.IdempotentHint = a.IdempotentHint
+	tool.Annotations.OpenWorldHint = a.OpenWorldHint
 }
 
 // ResourceConfig defines a static MCP resource served by the mock server.

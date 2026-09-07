@@ -49,6 +49,7 @@ Technical reference for commands, APIs, and configurations. Find exact syntax, p
   - [Workflow Tools](mcp-tools.md#workflow-tools) - Workflow definition and execution management
   - [Dynamic Workflow Execution](mcp-tools.md#dynamic-workflow-execution-tools) - `workflow_<name>` tools
   - [External Tools](mcp-tools.md#external-tools) - Tools from connected MCP servers
+- **[Toolsets](toolsets.md)** - Declared toolsets: the `X-Muster-Toolset` header, inline selector grammar, `toolsetPresets` configuration, built-in presets, per-request evaluation and the refusal
 
 ### Configuration
 - **[Configuration Reference](configuration.md)** - Complete system configuration documentation

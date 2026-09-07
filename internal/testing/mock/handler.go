@@ -165,7 +165,9 @@ func (h *ToolHandler) valuesEqual(expected, actual interface{}) bool {
 
 // createMCPTool creates an MCP tool definition from the tool configuration
 func (h *ToolHandler) createMCPTool() mcp.Tool {
-	return mcp.NewTool(h.config.Name, mcp.WithDescription(h.config.Description))
+	tool := mcp.NewTool(h.config.Name, mcp.WithDescription(h.config.Description))
+	h.config.Annotations.Apply(&tool)
+	return tool
 }
 
 // createMCPHandler creates an MCP tool handler function

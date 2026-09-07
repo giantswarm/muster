@@ -1,0 +1,159 @@
+name: "toolset-configured-presets"
+description: "Presets from muster's toolsetPresets configuration resolve tool, pattern, server, workflow, readOnly, exclude and composition rules per request; filter_tools include_presets lists them next to the built-ins; an unknown preset error names the configured presets too (#1169)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["toolset", "presets", "configuration", "1169"]
+timeout: "5m"
+
+pre_configuration:
+  main_config:
+    config:
+      toolsetPresets:
+        infra:
+          description: "Infrastructure servers without deletes"
+          include:
+            - server: k8s
+            - server: prom
+          exclude:
+            - pattern: "*_delete_*"
+        ops:
+          description: "infra plus the rollout workflow and one core tool"
+          include:
+            - preset: infra
+            - workflow: rw-rollout
+            - tool: core_workflow_list
+        safe:
+          description: "ops narrowed to read-only, rollout removed"
+          include:
+            - preset: ops
+            - readOnly: true
+          exclude:
+            - workflow: rw-rollout
+        platform:
+          description: "muster's core tools"
+          include:
+            - pattern: "core_*"
+  mcp_servers:
+    - name: "k8s"
+      config:
+        tools:
+          - name: "get_pods"
+            description: "List pods"
+            annotations: { read_only_hint: true }
+            responses: [{ response: { pods: [] } }]
+          - name: "delete_pod"
+            description: "Delete a pod"
+            annotations: { read_only_hint: false, destructive_hint: true }
+            responses: [{ response: { deleted: true } }]
+    - name: "prom"
+      config:
+        tools:
+          - name: "query"
+            description: "Query metrics"
+            annotations: { read_only_hint: true }
+            responses: [{ response: { result: [] } }]
+    - name: "gh"
+      config:
+        tools:
+          - name: "issues"
+            description: "List issues"
+            annotations: { read_only_hint: true }
+            responses: [{ response: { issues: [] } }]
+  workflows:
+    - name: "rw-rollout"
+      config:
+        name: "rw-rollout"
+        steps:
+          - id: "delete"
+            tool: "x_k8s_delete_pod"
+            args: {}
+
+steps:
+  - id: "wait-for-servers"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["k8s", "prom", "gh"]
+
+  - id: "server-and-exclude"
+    description: "infra = both servers minus the excluded pattern"
+    tool: "test_call_meta_tool"
+    args: { tool: "filter_tools", arguments: { pattern: "*", limit: 50 } }
+    headers: { X-Muster-Toolset: "preset:infra" }
+    expected:
+      success: true
+      wait_for_state: "20s"
+      json_path:
+        total: 2
+      contains: ["x_k8s_get_pods", "x_prom_query"]
+      not_contains: ["x_k8s_delete_pod", "x_gh_issues", "core_"]
+
+  - id: "composition"
+    description: "ops composes infra and adds a workflow and a core tool"
+    tool: "test_call_meta_tool"
+    args: { tool: "filter_tools", arguments: { pattern: "*", limit: 50 } }
+    headers: { X-Muster-Toolset: "preset:ops" }
+    expected:
+      success: true
+      json_path:
+        total: 4
+      contains: ["x_k8s_get_pods", "x_prom_query", "workflow_rw-rollout", "core_workflow_list"]
+      not_contains: ["x_k8s_delete_pod", "core_auth_login"]
+
+  - id: "readonly-and-exclude-after-compose"
+    description: "safe = ops ∪ readOnly, then the exclude removes the rollout workflow"
+    tool: "test_call_meta_tool"
+    args: { tool: "filter_tools", arguments: { pattern: "*", limit: 50 } }
+    headers: { X-Muster-Toolset: "preset:safe" }
+    expected:
+      success: true
+      json_path:
+        total: 4
+      contains: ["x_k8s_get_pods", "x_prom_query", "x_gh_issues", "core_workflow_list"]
+      not_contains: ["workflow_rw-rollout", "x_k8s_delete_pod"]
+
+  - id: "core-pattern"
+    description: "core tools join a preset through a pattern"
+    tool: "test_call_meta_tool"
+    args: { tool: "filter_tools", arguments: { pattern: "*", limit: 100 } }
+    headers: { X-Muster-Toolset: "preset:platform" }
+    expected:
+      success: true
+      contains: ["core_workflow_list", "core_auth_login", "core_mcpserver_list"]
+      not_contains: ["x_k8s_get_pods", "workflow_rw-rollout"]
+
+  - id: "presets-listed"
+    description: "include_presets lists built-ins first, then the configured presets"
+    tool: "test_call_meta_tool"
+    args: { tool: "filter_tools", arguments: { include_presets: true, limit: 1 } }
+    expected:
+      success: true
+      json_path:
+        presets.0.name: "read-only"
+        presets.0.built_in: true
+        presets.1.name: "none"
+        presets.2.name: "full"
+        presets.3.name: "infra"
+        presets.3.built_in: false
+        presets.3.description: "Infrastructure servers without deletes"
+        presets.4.name: "ops"
+        presets.5.name: "platform"
+        presets.6.name: "safe"
+
+  - id: "unknown-preset-names-the-configured-ones"
+    tool: "test_call_meta_tool"
+    args: { tool: "list_tools" }
+    headers: { X-Muster-Toolset: "preset:test-clusters" }
+    expected:
+      success: false
+      error_contains: ['toolset [preset:test-clusters] names unknown preset "test-clusters"; known presets: read-only, none, full, infra, ops, platform, safe']
+
+  - id: "configured-preset-gates-call-tool"
+    tool: "x_k8s_delete_pod"
+    args: {}
+    headers: { X-Muster-Toolset: "preset:infra" }
+    expected:
+      success: false
+      error_contains: ['tool "x_k8s_delete_pod" is outside the toolset [preset:infra]']

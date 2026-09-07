@@ -1,0 +1,131 @@
+name: "toolset-annotations-forwarded"
+description: "list_tools, filter_tools and describe_tool carry each tool's downstream annotations (readOnlyHint, destructiveHint, idempotentHint, openWorldHint), its owning server and its kind (tool | workflow | core), plus the derived read-only hint of a workflow; a tool without annotations carries none (#1169)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["toolset", "annotations", "metatools", "1169"]
+timeout: "5m"
+
+pre_configuration:
+  mcp_servers:
+    - name: "k8s"
+      config:
+        tools:
+          - name: "get_pods"
+            description: "List pods"
+            annotations: { read_only_hint: true, idempotent_hint: true, open_world_hint: false }
+            responses: [{ response: { pods: [] } }]
+          - name: "delete_pod"
+            description: "Delete a pod"
+            annotations: { read_only_hint: false, destructive_hint: true }
+            responses: [{ response: { deleted: true } }]
+          - name: "restart"
+            description: "Restart a deployment without annotations"
+            responses: [{ response: { restarted: true } }]
+  workflows:
+    - name: "triage"
+      config:
+        name: "triage"
+        steps:
+          - id: "pods"
+            tool: "x_k8s_get_pods"
+            args: {}
+
+steps:
+  - id: "wait-for-server"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["k8s"]
+
+  - id: "describe-read-only-tool"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_tool", arguments: { name: "x_k8s_get_pods" } }
+    expected:
+      success: true
+      wait_for_state: "20s"
+      json_path:
+        name: "x_k8s_get_pods"
+        server: "k8s"
+        kind: "tool"
+        annotations.readOnlyHint: true
+        annotations.idempotentHint: true
+        annotations.openWorldHint: false
+      not_contains: ["destructiveHint"]
+
+  - id: "describe-destructive-tool"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_tool", arguments: { name: "x_k8s_delete_pod" } }
+    expected:
+      success: true
+      json_path:
+        server: "k8s"
+        kind: "tool"
+        annotations.readOnlyHint: false
+        annotations.destructiveHint: true
+
+  - id: "describe-default-annotated-tool"
+    description: "a tool whose server (mcp-go) declared no hints still sends the SDK defaults; they are forwarded verbatim, not invented or dropped"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_tool", arguments: { name: "x_k8s_restart" } }
+    expected:
+      success: true
+      json_path:
+        server: "k8s"
+        kind: "tool"
+        annotations.readOnlyHint: false
+        annotations.destructiveHint: true
+
+  - id: "describe-workflow"
+    description: "a workflow has kind workflow, no server, and the derived read-only hint"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_tool", arguments: { name: "workflow_triage" } }
+    expected:
+      success: true
+      json_path:
+        kind: "workflow"
+        annotations.readOnlyHint: true
+
+  - id: "describe-core"
+    description: "a core tool has kind core and carries no annotations field at all today"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_tool", arguments: { name: "core_workflow_list" } }
+    expected:
+      success: true
+      json_path:
+        kind: "core"
+      not_contains: ["annotations", "readOnlyHint", "server"]
+
+  - id: "filter-tools-carries-them"
+    tool: "test_call_meta_tool"
+    args: { tool: "filter_tools", arguments: { pattern: "x_k8s_*", limit: 50 } }
+    expected:
+      success: true
+      # The mock server lists its tools alphabetically.
+      json_path:
+        total: 3
+        tools.0.name: "x_k8s_delete_pod"
+        tools.0.server: "k8s"
+        tools.0.kind: "tool"
+        tools.0.annotations.destructiveHint: true
+        tools.0.annotations.readOnlyHint: false
+        tools.1.name: "x_k8s_get_pods"
+        tools.1.annotations.readOnlyHint: true
+        tools.1.annotations.idempotentHint: true
+        tools.2.name: "x_k8s_restart"
+        tools.2.kind: "tool"
+
+  - id: "list-tools-carries-them"
+    tool: "test_call_meta_tool"
+    args: { tool: "list_tools" }
+    expected:
+      success: true
+      json_path:
+        tools.0.name: "x_k8s_delete_pod"
+        tools.0.server: "k8s"
+        tools.0.kind: "tool"
+        tools.0.annotations.destructiveHint: true
+        tools.1.name: "x_k8s_get_pods"
+        tools.1.annotations.readOnlyHint: true
+      contains: ["workflow_triage", "core_workflow_list"]
