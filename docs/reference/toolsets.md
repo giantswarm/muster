@@ -77,18 +77,23 @@ toolsetPresets:
     exclude:
       - pattern: "*_delete"
   safe-ops:
-    description: infrastructure narrowed to read-only, plus one workflow
+    description: The infrastructure preset without its writes, plus one workflow
     include:
       - preset: infrastructure
-      - readOnly: true
       - workflow: incident-triage
     exclude:
-      - workflow: rollout
+      - pattern: "*_apply"
+      - pattern: "*_patch"
 ```
 
 Each preset has an optional `description` (shown by `filter_tools` with `include_presets`),
 an `include` list and an optional `exclude` list. A preset resolves to the union of its
-includes minus its excludes. Every rule sets **exactly one** key:
+includes minus its excludes. `include` rules are a **union, never an intersection**: a preset
+that includes `preset: infrastructure` and `readOnly: true` resolves to every infrastructure tool
+*plus* every read-only tool in the catalogue, not to the infrastructure's read-only tools. To
+narrow a server set, include it and `exclude` the tools you do not want by `pattern:` or `tool:`,
+as `safe-ops` does above (`readOnly: false` is not a rule; muster rejects it at startup). Every
+rule sets **exactly one** key:
 
 | Rule | Selects |
 |---|---|
