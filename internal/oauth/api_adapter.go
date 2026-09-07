@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
@@ -148,6 +149,39 @@ func (a *Adapter) PinIssuer(issuer string, pin api.IssuerPin) {
 	}, metadata)
 }
 
+// LoginIDTokenScope is the scope the session's login ID token is filed under
+// in the token store (see api.LoginTokenMirror): a scope token no
+// authorization server grants, so the entry never shares a key with a proxy
+// grant from the same issuer.
+const LoginIDTokenScope = "urn:muster:login-id-token" //nolint:gosec // G101: a scope token that names a slot, not a credential
+
+// StoreLoginIDToken implements api.LoginTokenMirror.
+func (a *Adapter) StoreLoginIDToken(sessionID, userID, issuer, idToken string, expiresAt time.Time) {
+	a.manager.StoreToken(sessionID, userID, issuer, &pkgoauth.Token{
+		IDToken:   idToken,
+		ExpiresAt: expiresAt,
+		Scope:     LoginIDTokenScope,
+		Issuer:    issuer,
+	})
+}
+
+// LoginIDToken implements api.LoginTokenMirror.
+func (a *Adapter) LoginIDToken(sessionID, issuer string) *api.OAuthToken {
+	if a.manager == nil || a.manager.client == nil || a.manager.client.tokenStore == nil {
+		return nil
+	}
+	return fullTokenToAPIToken(a.manager.client.tokenStore.Get(TokenKey{
+		SessionID: sessionID,
+		Issuer:    issuer,
+		Scope:     LoginIDTokenScope,
+	}))
+}
+
+// UnpinIssuer implements api.IssuerPinner.
+func (a *Adapter) UnpinIssuer(issuer string) {
+	a.manager.UnpinIssuer(issuer)
+}
+
 // GetFullTokenByIssuerForUser implements api.SubjectGrantHandler.
 func (a *Adapter) GetFullTokenByIssuerForUser(sessionID, userID, issuer string) *api.OAuthToken {
 	return fullTokenToAPIToken(a.manager.GetTokenByIssuerForUser(sessionID, userID, issuer))
@@ -172,6 +206,7 @@ var (
 	_ api.IssuerPinner        = (*Adapter)(nil)
 	_ api.SubjectGrantHandler = (*Adapter)(nil)
 	_ api.GrantReleaser       = (*Adapter)(nil)
+	_ api.LoginTokenMirror    = (*Adapter)(nil)
 )
 
 // DeleteTokensByUser removes all downstream tokens for a given user across all sessions.

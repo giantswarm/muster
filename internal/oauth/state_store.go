@@ -68,6 +68,12 @@ type StateParams struct {
 	// Resource is the canonical URI of the MCP server (RFC 8707).
 	Resource string
 
+	// Scope is the scope the authorization request asked for. RFC 6749 §5.1
+	// lets the authorization server omit `scope` from its token response
+	// when it granted exactly that, so the callback needs it to record the
+	// granted scope on the token.
+	Scope string
+
 	// CodeVerifier is the PKCE code verifier for this flow.
 	CodeVerifier string
 }
@@ -159,6 +165,7 @@ func (ss *StateStore) GenerateState(params StateParams,
 		CreatedAt:    time.Now(),
 		Issuer:       params.Issuer,
 		Resource:     params.Resource,
+		Scope:        params.Scope,
 		CodeVerifier: params.CodeVerifier,
 	}
 

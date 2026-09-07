@@ -39,6 +39,12 @@ type ProtectedMCPServerConfig struct {
 	// implement resource metadata.
 	OmitResourceMetadata bool
 
+	// AdvertisedIssuer, when set, is the authorization server the RFC 9728
+	// metadata and the 401 challenge name instead of the one tokens are
+	// validated against: a backend that accepts tokens from an authorization
+	// server other than the one it advertises.
+	AdvertisedIssuer string
+
 	// Tools are the tools to expose when authenticated
 	Tools []ToolConfig
 
@@ -262,6 +268,16 @@ func (s *ProtectedMCPServer) Endpoint() string {
 	}
 }
 
+// advertisedIssuer is the authorization server the backend names in its
+// RFC 9728 metadata and 401 challenges: AdvertisedIssuer when set, else the
+// one it validates tokens against.
+func (s *ProtectedMCPServer) advertisedIssuer() string {
+	if s.config.AdvertisedIssuer != "" {
+		return s.config.AdvertisedIssuer
+	}
+	return s.GetIssuer()
+}
+
 // GetIssuer returns the OAuth issuer for this server
 func (s *ProtectedMCPServer) GetIssuer() string {
 	if s.config.Issuer != "" {
@@ -316,7 +332,7 @@ func (s *ProtectedMCPServer) createProtectedHandler() (http.Handler, error) {
 	protectedHandler := &oauthProtectionMiddleware{
 		handler:              underlyingHandler,
 		oauthServer:          s.config.OAuthServer,
-		issuer:               s.GetIssuer(),
+		issuer:               s.advertisedIssuer(),
 		requiredScope:        s.config.RequiredScope,
 		omitResourceMetadata: s.config.OmitResourceMetadata,
 		debug:                s.config.Debug,
@@ -336,7 +352,7 @@ func (s *ProtectedMCPServer) createProtectedHandler() (http.Handler, error) {
 		resourceURL := fmt.Sprintf("http://localhost:%d", s.port)
 		metadata := map[string]interface{}{
 			"resource":                 resourceURL,
-			"authorization_servers":    []string{s.GetIssuer()},
+			"authorization_servers":    []string{s.advertisedIssuer()},
 			"bearer_methods_supported": []string{"header"},
 		}
 		if s.config.RequiredScope != "" {

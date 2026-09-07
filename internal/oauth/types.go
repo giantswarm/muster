@@ -82,6 +82,10 @@ type OAuthState struct {
 	// request and on the token request.
 	Resource string `json:"resource,omitempty"`
 
+	// Scope is the scope the authorization request asked for; the granted
+	// scope when the token response omits one (RFC 6749 §5.1).
+	Scope string `json:"scope,omitempty"`
+
 	// CodeVerifier is the PKCE code verifier for this flow.
 	// Stored server-side only, not transmitted in the state parameter.
 	CodeVerifier string `json:"-"`

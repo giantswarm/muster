@@ -76,6 +76,7 @@ func (m *musterInstanceManager) startMockOAuthServers(
 			AuthorizeAcceptsAnyClient: oauthCfg.AuthorizeAcceptsAnyClient,
 			RejectRegistrationScope:   oauthCfg.RejectRegistrationScope,
 			AdvertiseIssParameter:     oauthCfg.AdvertiseIssParameter,
+			OmitTokenScope:            oauthCfg.OmitTokenScope,
 		}
 
 		// Use mock clock if configured (enables test_advance_oauth_clock tool)
@@ -336,6 +337,15 @@ func (m *musterInstanceManager) extractOAuthConfig(config map[string]interface{}
 	if omit, ok := oauthMap["omit_resource_metadata"].(bool); ok {
 		result.OmitResourceMetadata = omit
 	}
+	if ref, ok := oauthMap["advertised_issuer_ref"].(string); ok {
+		result.AdvertisedIssuerRef = ref
+	}
+	if pin, ok := oauthMap["pin_authorization_server"].(bool); ok {
+		result.PinAuthorizationServer = pin
+	}
+	if ref, ok := oauthMap["pin_endpoints_ref"].(string); ok {
+		result.PinEndpointsRef = ref
+	}
 
 	return result
 }
@@ -381,6 +391,17 @@ func (m *musterInstanceManager) startProtectedMCPServer(
 		Tools:                tools,
 		Transport:            transportType,
 		Debug:                m.debug,
+	}
+
+	// The backend may name an authorization server other than the one it
+	// validates tokens against (advertised_issuer_ref).
+	if oauthConfig.AdvertisedIssuerRef != "" {
+		advertised, ok := oauthServers[oauthConfig.AdvertisedIssuerRef]
+		if !ok {
+			return nil, fmt.Errorf("mcp server %s advertised_issuer_ref references unknown OAuth server %q",
+				mcpServer.Name, oauthConfig.AdvertisedIssuerRef)
+		}
+		config.AdvertisedIssuer = advertised.IssuerURL
 	}
 
 	// In trust-issuer mode the backend validates forwarded JWTs against the

@@ -272,7 +272,7 @@ func getIDTokenForForwarding(ctx context.Context, sessionID, musterIssuer string
 
 	oauthHandler := api.GetOAuthHandler()
 	if oauthHandler != nil && oauthHandler.IsEnabled() && musterIssuer != "" {
-		fullToken := oauthHandler.GetFullTokenByIssuer(sessionID, musterIssuer)
+		fullToken := api.LoginIDToken(oauthHandler, sessionID, musterIssuer)
 		if fullToken != nil && fullToken.IDToken != "" {
 			logging.Debug("Connection", "Found ID token in OAuth proxy store for session %s, issuer %s",
 				logging.TruncateIdentifier(sessionID), musterIssuer)
@@ -286,7 +286,7 @@ func getIDTokenForForwarding(ctx context.Context, sessionID, musterIssuer string
 				logging.Debug("Connection", "Session refresh failed for %s: %v",
 					logging.TruncateIdentifier(sessionID), err)
 			} else {
-				fullToken = oauthHandler.GetFullTokenByIssuer(sessionID, musterIssuer)
+				fullToken = api.LoginIDToken(oauthHandler, sessionID, musterIssuer)
 				if fullToken != nil && fullToken.IDToken != "" {
 					logging.Info("Connection", "Recovered ID token via session refresh for session %s",
 						logging.TruncateIdentifier(sessionID))

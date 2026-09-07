@@ -253,10 +253,7 @@ func (a *AggregatorServer) storeIDTokenForSSO(familyID, userID, idToken string) 
 		return
 	}
 	if oh := api.GetOAuthHandler(); oh != nil && oh.IsEnabled() {
-		oh.StoreToken(familyID, userID, musterIssuer, &api.OAuthToken{
-			IDToken:   idToken,
-			ExpiresAt: exp,
-		})
+		api.StoreLoginIDToken(oh, familyID, userID, musterIssuer, idToken, exp)
 	}
 }
 

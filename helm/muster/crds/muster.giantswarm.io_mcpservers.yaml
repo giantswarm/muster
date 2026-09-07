@@ -154,11 +154,20 @@ spec:
                         type: string
                       issuer:
                         description: |-
-                          Issuer is the OAuth 2.0 / OIDC issuer URL.
+                          Issuer is the OAuth 2.0 / OIDC issuer URL of the authorization server
+                          the sign-in runs against, and the identity the session's grants are
+                          filed under. It takes precedence over the authorization server the
+                          endpoint's own RFC 9728 metadata names: the browser flow, the token
+                          store, the connection and core_auth_logout all use this issuer, so an
+                          endpoint that accepts tokens from an authorization server other than the
+                          one it advertises is pinned by naming the accepting one here. It may be
+                          muster's own identity provider; muster keeps the session's login token
+                          apart from the grant. A change to this field takes effect on the next
+                          core_auth_login, without a restart.
                           muster fetches AS metadata via the existing OAuth client, which performs
                           RFC 8414 / OIDC discovery against this issuer -- unless
-                          AuthorizationEndpoint and TokenEndpoint are set, in which case the issuer
-                          is only the identity the stored grants are filed under.
+                          AuthorizationEndpoint and TokenEndpoint are set, in which case no
+                          discovery happens and the issuer is only that identity.
                         pattern: ^https://[^/?#]+(/[^?#]*[^/?#])?$
                         type: string
                       scopes:

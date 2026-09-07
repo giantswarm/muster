@@ -1432,13 +1432,23 @@ func (r *ServerRegistry) RegisterPendingAuth(registration PendingAuthRegistratio
 		authConfig = &api.MCPServerAuth{}
 	}
 
+	// The probe's view of the authorization server, corrected by the
+	// operator's pin: the pinned issuer is the one key for the server's
+	// grants, whatever the endpoint's metadata advertises.
+	authInfo := registration.AuthInfo
+	if authInfo != nil {
+		copied := *authInfo
+		applyAuthorizationServerPin(&copied, authConfig)
+		authInfo = &copied
+	}
+
 	info := &ServerInfo{
 		Name:         registration.Name,
 		Namespace:    registration.Namespace,
 		URL:          registration.URL,
 		ToolPrefix:   registration.ToolPrefix,
 		Family:       cloneFamily(registration.Family),
-		AuthInfo:     registration.AuthInfo,
+		AuthInfo:     authInfo,
 		AuthConfig:   authConfig,
 		Meta:         registration.Meta,
 		RegisteredAt: time.Now(),

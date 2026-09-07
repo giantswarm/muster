@@ -1,0 +1,217 @@
+name: "oauth-pinned-issuer-is-the-grant-key"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  A pinned authorization server (spec.auth.authorizationServer.issuer) whose
+  issuer differs from the one the endpoint's RFC 9728 metadata advertises is
+  the one key of the server's grants: the sign-in runs against it, the token
+  is filed under it, the connection and every later tool call find it there.
+
+  Two backends accept tokens from an authorization server other than the one
+  they advertise:
+
+    - platform-fixture validates tokens from muster's own identity provider
+      (the lab fixture: muster's protected /mcp trusts Dex's tokens but names
+      muster's OAuth server) and is pinned to that IdP. The IdP omits `scope`
+      from its token responses, as Dex does. The session is an externally
+      issued bearer, like a portal user's or an agent's -- muster mirrors that
+      login token into the token store on every request.
+    - other-pinned validates tokens from a plain authorization server and is
+      pinned to it, while advertising yet another one.
+
+  For both: core_auth_login answers a challenge that goes to the PINNED
+  authorization server; the completed sign-in connects the server; tool calls
+  succeed, on the next request and the one after.
+
+  Regression (giantswarm/muster#1174): the registry filed the server under the
+  advertised issuer the 401 probe learned, so the challenge went to the wrong
+  authorization server (other-pinned); and a grant from muster's own IdP was
+  filed under the same token-store key as the session's login token, which the
+  mirror of the next request overwrote -- "Authentication Successful", tools
+  listed, then every call failed with "no valid token available"
+  (platform-fixture).
+tags: ["oauth", "authorization-server", "pin", "issuer", "regression", "1174"]
+timeout: "3m"
+
+pre_configuration:
+  mock_oauth_servers:
+    # muster's own identity provider and the pinned authorization server of
+    # platform-fixture. Omits `scope` from token responses like Dex.
+    - name: "platform-idp"
+      scopes: ["openid", "profile", "email", "offline_access"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "platform-client"
+      client_secret: "platform-secret"
+      use_as_muster_oauth_server: true
+      omit_token_scope: true
+
+    # Issues the externally issued bearer the session presents to muster (a
+    # Dex-issued token muster trusts), like the lab's portal and agent tokens.
+    - name: "workload-idp"
+
+    # What both backends' resource metadata names as their authorization
+    # server -- not the one their tokens come from.
+    - name: "advertised-as"
+      scopes: ["mcp:admin", "openid", "profile", "email", "offline_access"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "advertised-client"
+
+    # The authorization server other-pinned really accepts tokens from.
+    - name: "pinned-as"
+      scopes: ["mcp:admin"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "pinned-client"
+
+  muster_broker:
+    trusted_issuers:
+      - oauth_server_ref: "workload-idp"
+        accepted_typ_headers: [""]
+
+  mcp_servers:
+    - name: "platform-fixture"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "platform-idp"
+          advertised_issuer_ref: "advertised-as"
+          pin_authorization_server: true
+          scope: "openid profile email offline_access"
+        tools:
+          - name: "whoami"
+            description: "Answers from the fixture"
+            responses:
+              - response:
+                  source: "platform-fixture"
+
+    - name: "other-pinned"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "pinned-as"
+          advertised_issuer_ref: "advertised-as"
+          pin_authorization_server: true
+          scope: "mcp:admin"
+        tools:
+          - name: "op"
+            description: "An operation on other-pinned"
+            responses:
+              - response:
+                  source: "other-pinned"
+
+steps:
+  - id: mint-external-bearer
+    description: "The session's bearer is an externally issued token muster trusts (portal/agent shape)"
+    tool: "test_mint_token"
+    args:
+      server: "workload-idp"
+      name: "person-token"
+      sub: "person@example.com"
+      email: "person@example.com"
+      email_verified: true
+    expected:
+      success: true
+
+  - id: connect-with-external-bearer
+    tool: "test_reconnect_with_token"
+    args:
+      token_ref: "person-token"
+    expected:
+      success: true
+      wait_for_state: "30s"
+
+  - id: servers-registered
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["platform-fixture", "other-pinned"]
+
+  # ---------------------------------------------------------------------
+  # platform-fixture: pinned to muster's own IdP
+  # ---------------------------------------------------------------------
+
+  - id: fixture-challenge-goes-to-the-pinned-idp
+    description: "The sign-in is sent to the pinned authorization server, not the advertised one"
+    tool: "test_resolve_auth_redirect"
+    args:
+      server: "platform-fixture"
+    expected:
+      success: true
+      json_path:
+        authorization_server: "platform-idp"
+        scope: "openid profile email offline_access"
+
+  - id: fixture-sign-in
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "platform-fixture"
+    expected:
+      success: true
+
+  - id: fixture-call-after-sign-in
+    description: "The next request mirrors the login token again; the grant must survive it"
+    tool: "x_platform-fixture_whoami"
+    args: {}
+    expected:
+      success: true
+      contains: ["platform-fixture"]
+
+  - id: fixture-call-again
+    tool: "x_platform-fixture_whoami"
+    args: {}
+    expected:
+      success: true
+      contains: ["platform-fixture"]
+
+  - id: fixture-still-authenticated
+    tool: "core_auth_login"
+    args:
+      server: "platform-fixture"
+    expected:
+      success: true
+      contains: ["already authenticated"]
+
+  # ---------------------------------------------------------------------
+  # other-pinned: pinned to an authorization server the endpoint does not
+  # advertise
+  # ---------------------------------------------------------------------
+
+  - id: other-challenge-goes-to-the-pinned-as
+    tool: "test_resolve_auth_redirect"
+    args:
+      server: "other-pinned"
+    expected:
+      success: true
+      json_path:
+        authorization_server: "pinned-as"
+        scope: "mcp:admin"
+
+  - id: other-sign-in
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "other-pinned"
+    expected:
+      success: true
+
+  - id: other-call
+    tool: "x_other-pinned_op"
+    args: {}
+    expected:
+      success: true
+      contains: ["other-pinned"]
+
+  - id: other-call-again
+    tool: "x_other-pinned_op"
+    args: {}
+    expected:
+      success: true
+      contains: ["other-pinned"]

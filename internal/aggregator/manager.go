@@ -388,6 +388,14 @@ func (am *AggregatorManager) RegisterServerPendingAuth(registration PendingAuthR
 		return fmt.Errorf("aggregator server not available")
 	}
 
+	// The auth config the registry held for the server until now: a changed
+	// or removed authorization-server description is released below, before
+	// the new one is applied.
+	var previousAuth *api.MCPServerAuth
+	if previous, ok := am.aggregatorServer.GetRegistry().GetServerInfo(registration.Name); ok {
+		previousAuth = previous.AuthConfig
+	}
+
 	if err := am.aggregatorServer.GetRegistry().RegisterPendingAuth(registration); err != nil {
 		return err
 	}
@@ -398,6 +406,7 @@ func (am *AggregatorManager) RegisterServerPendingAuth(registration PendingAuthR
 	// round trip. Logins retry the pin, so a failure here only delays.
 	if info, ok := am.aggregatorServer.GetRegistry().GetServerInfo(registration.Name); ok {
 		pinCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		am.aggregatorServer.releaseAuthorizationServerPin(pinCtx, registration.Name, previousAuth)
 		if err := pinAuthorizationServer(pinCtx, info); err != nil {
 			logging.Warn("Aggregator", "Authorization server pin deferred for %s: %v", registration.Name, err)
 		}

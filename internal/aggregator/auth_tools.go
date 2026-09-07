@@ -554,18 +554,19 @@ func (p *AuthToolProvider) isIssuerExclusiveToServer(sessionID, serverName, issu
 }
 
 // knownServerIssuer returns the OAuth issuer the registry knows for a server
-// without a network round trip: what the 401 probe or a login recorded in
-// AuthInfo, else the operator's pin (spec.auth.authorizationServer.issuer).
-// Empty when neither says.
+// without a network round trip: the operator's pin
+// (spec.auth.authorizationServer.issuer) when there is one -- the key the
+// server's grants are filed under, whatever the endpoint advertises -- else
+// what the 401 probe or a login recorded in AuthInfo. Empty when neither says.
 func knownServerIssuer(info *ServerInfo) string {
 	if info == nil {
 		return ""
 	}
+	if as := authorizationServerOf(info.AuthConfig); as != nil {
+		return strings.TrimSuffix(as.Issuer, "/")
+	}
 	if info.AuthInfo != nil && info.AuthInfo.Issuer != "" {
 		return info.AuthInfo.Issuer
-	}
-	if info.AuthConfig != nil && info.AuthConfig.AuthorizationServer != nil && info.AuthConfig.AuthorizationServer.Issuer != "" {
-		return strings.TrimSuffix(info.AuthConfig.AuthorizationServer.Issuer, "/")
 	}
 	return ""
 }

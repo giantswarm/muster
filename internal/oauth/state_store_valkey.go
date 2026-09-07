@@ -27,6 +27,7 @@ type valkeyStateEntry struct {
 	CreatedAt        time.Time `json:"ca"`
 	Issuer           string    `json:"iss,omitempty"`
 	Resource         string    `json:"res,omitempty"`
+	Scope            string    `json:"sc,omitempty"`
 	CodeVerifier     string    `json:"cv,omitempty"`
 	RedirectURI      string    `json:"ru,omitempty"`
 	AuthorizationURL string    `json:"aurl,omitempty"`
@@ -41,6 +42,7 @@ func (e *valkeyStateEntry) toState() *OAuthState {
 		CreatedAt:        e.CreatedAt,
 		Issuer:           e.Issuer,
 		Resource:         e.Resource,
+		Scope:            e.Scope,
 		CodeVerifier:     e.CodeVerifier,
 		RedirectURI:      e.RedirectURI,
 		AuthorizationURL: e.AuthorizationURL,
@@ -56,6 +58,7 @@ func stateToEntry(s *OAuthState) *valkeyStateEntry {
 		CreatedAt:        s.CreatedAt,
 		Issuer:           s.Issuer,
 		Resource:         s.Resource,
+		Scope:            s.Scope,
 		CodeVerifier:     s.CodeVerifier,
 		RedirectURI:      s.RedirectURI,
 		AuthorizationURL: s.AuthorizationURL,

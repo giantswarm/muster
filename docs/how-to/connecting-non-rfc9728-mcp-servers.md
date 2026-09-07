@@ -32,6 +32,25 @@ directly from `<issuer>/.well-known/oauth-authorization-server`. The discovered
 — a typo or stale URL fails closed instead of driving an OAuth flow against
 the wrong AS.
 
+## Which issuer to pin
+
+The pinned `issuer` is the authorization server the sign-in runs against
+**and** the key the session's grant is filed under -- the browser flow, the
+token store, the connection and `core_auth_logout` all use it. It takes
+precedence over the authorization server the endpoint's own RFC 9728 metadata
+names, so an endpoint that accepts tokens from an authorization server other
+than the one it advertises is pinned by naming the accepting one. The issuer
+may be muster's own identity provider (an endpoint that trusts the same Dex as
+muster): muster keeps the session's login token apart from the grant, and a
+sign-in against such a pin makes the server's tools callable like any other.
+Name the `scopes` such an authorization server needs; a pin gets no default
+scope, and Dex refuses a request without `openid`.
+
+Changing `authorizationServer` -- another issuer, explicit endpoints added or
+removed, a rotated client Secret reference -- takes effect on the next
+`core_auth_login`. The description the MCPServer no longer carries is released
+when the change is reconciled; nothing has to be restarted.
+
 ## What you'll see in the UI
 
 The override applies only to `muster auth login --server <name>`

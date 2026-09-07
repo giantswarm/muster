@@ -416,7 +416,7 @@ func TestClient_ExchangeCode(t *testing.T) {
 	defer client.Stop()
 
 	ctx := context.Background()
-	token, err := client.ExchangeCode(ctx, "auth-code", "code-verifier", server.URL, testResource)
+	token, err := client.ExchangeCode(ctx, "auth-code", "code-verifier", server.URL, testResource, "")
 	if err != nil {
 		t.Fatalf("Failed to exchange code: %v", err)
 	}
@@ -463,7 +463,7 @@ func TestClient_ExchangeCode_Error(t *testing.T) {
 	defer client.Stop()
 
 	ctx := context.Background()
-	_, err := client.ExchangeCode(ctx, "invalid-code", "code-verifier", server.URL, testResource)
+	_, err := client.ExchangeCode(ctx, "invalid-code", "code-verifier", server.URL, testResource, "")
 	if err == nil {
 		t.Fatal("Expected error for invalid code exchange")
 	}

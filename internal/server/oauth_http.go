@@ -486,7 +486,10 @@ func (s *OAuthHTTPServer) injectExternalIDToken(
 	// context. The key MUST match the issuer the aggregator computes —
 	// mirror its resolution logic here. mcp-oauth's AcceptForwardedIDToken
 	// intentionally does NOT mirror into TokenStore, so this keying is
-	// muster's own responsibility.
+	// muster's own responsibility. The mirror has its own slot under the
+	// issuer (api.LoginTokenMirror): this runs on every request, and a grant
+	// the proxy obtained from the same issuer for one of the session's MCP
+	// servers must survive it (giantswarm/muster#1174).
 	if issuer := s.musterIssuer(); issuer != "" {
 		if oh := api.GetOAuthHandler(); oh != nil && oh.IsEnabled() {
 			exp, err := pkgoauth.Expiry(bearerToken)
@@ -495,10 +498,7 @@ func (s *OAuthHTTPServer) injectExternalIDToken(
 					"SSO: refusing to mirror forwarded ID token without parseable JWT exp (session=%s, issuer=%s): %v; re-auth required",
 					logging.TruncateIdentifier(acceptance.SessionID), issuer, err)
 			} else {
-				oh.StoreToken(acceptance.SessionID, acceptance.Subject, issuer, &api.OAuthToken{
-					IDToken:   bearerToken,
-					ExpiresAt: exp,
-				})
+				api.StoreLoginIDToken(oh, acceptance.SessionID, acceptance.Subject, issuer, bearerToken, exp)
 			}
 		}
 	}

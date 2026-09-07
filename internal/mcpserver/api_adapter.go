@@ -594,7 +594,7 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 					api.SchemaKeyProperties: map[string]interface{}{
 						"issuer": map[string]interface{}{
 							api.SchemaKeyType:        string(api.ArgTypeString),
-							api.SchemaKeyDescription: "OAuth 2.0 / OIDC issuer URL (HTTPS, no trailing slash)",
+							api.SchemaKeyDescription: "OAuth 2.0 / OIDC issuer URL (HTTPS, no trailing slash) of the authorization server the sign-in runs against and the grants are filed under; takes precedence over the one the endpoint's RFC 9728 metadata names",
 						},
 						"scopes": map[string]interface{}{
 							api.SchemaKeyType:        string(api.ArgTypeString),
