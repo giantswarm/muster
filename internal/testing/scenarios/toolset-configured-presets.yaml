@@ -110,9 +110,11 @@ steps:
     expected:
       success: true
       json_path:
-        total: 4
-      contains: ["x_k8s_get_pods", "x_prom_query", "x_gh_issues", "core_workflow_list"]
-      not_contains: ["workflow_rw-rollout", "x_k8s_delete_pod"]
+        # 3 server reads + the 16 read-only core tools (core_workflow_list came
+        # in through ops already; readOnly adds the other 15, #1172)
+        total: 19
+      contains: ["x_k8s_get_pods", "x_prom_query", "x_gh_issues", "core_workflow_list", "core_auth_login"]
+      not_contains: ["workflow_rw-rollout", "x_k8s_delete_pod", "core_workflow_delete"]
 
   - id: "core-pattern"
     description: "core tools join a preset through a pattern"

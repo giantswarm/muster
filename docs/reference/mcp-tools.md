@@ -91,6 +91,38 @@ Muster provides core built-in tools organized into functional categories. These 
 - **[Service Tools](#service-tools)** - Service lifecycle (aggregator and MCP servers)
 - **[Workflow Tools](#workflow-tools)** - Workflow definition and execution management
 
+### Core tool annotations
+
+Every core tool declares the [MCP tool annotations](https://modelcontextprotocol.io/specification/2025-06-18/server/tools#tool-annotations)
+`readOnlyHint`, `destructiveHint`, `idempotentHint` and `openWorldHint`, and `list_tools` /
+`filter_tools` / `describe_tool` report them like a downstream server's. The built-in `read-only`
+[toolset preset](toolsets.md#built-in-presets) therefore includes the read-only core tools and a
+workflow whose steps call only read-only tools stays read-only when one of them is a core tool.
+
+| Tool | readOnly | destructive | idempotent | openWorld | Why |
+|---|---|---|---|---|---|
+| `core_workflow_list`, `core_workflow_get`, `core_workflow_validate`, `core_workflow_available`, `core_workflow_execution_list`, `core_workflow_execution_get` | true | false | true | false | Read or validate; nothing changes. |
+| `core_workflow_create` | false | false | false | false | Adds a definition. |
+| `core_workflow_update` | false | true | true | false | Replaces a definition. |
+| `core_workflow_delete` | false | true | false | false | Removes a definition. |
+| `core_service_list`, `core_service_status` | true | false | true | false | Read. |
+| `core_service_start` | false | false | true | false | Starts a stopped service; nothing is removed. |
+| `core_service_stop` | false | true | true | false | Interrupts a running service. |
+| `core_service_restart` | false | true | false | false | Interrupts and starts again. |
+| `core_config_get`, `core_config_get_aggregator` | true | false | true | false | Read. |
+| `core_config_update_aggregator`, `core_config_save`, `core_config_reload` | false | true | true | false | Replace the running or the persisted configuration. |
+| `core_mcpserver_list`, `core_mcpserver_get`, `core_mcpserver_validate` | true | false | true | false | Read or validate. |
+| `core_mcpserver_detect` | true | false | true | **true** | Probes a remote URL for its transport; reads only, but reaches beyond muster. |
+| `core_mcpserver_create` | false | false | false | false | Adds a definition. |
+| `core_mcpserver_update` | false | true | true | false | Replaces a definition. |
+| `core_mcpserver_delete` | false | true | false | false | Removes a definition. |
+| `core_events` | true | false | true | false | Read. |
+| `core_auth_login` | **true** | false | true | **true** | Issues a sign-in link for the caller and changes nothing on the platform; the grant that follows lands in the caller's own session. Reaches the server's authorization server. A read-only agent keeps the ability to connect SSO-protected servers as the person. |
+| `core_auth_logout` | false | false | true | false | Discards the caller's stored grant for a server — a write, nothing else is touched. |
+
+Workflow execution tools (`workflow_<name>`) declare nothing themselves; their `readOnlyHint` is
+[derived from their steps](toolsets.md#workflow-read-only-derivation).
+
 ### Additional Tool Types
 
 Beyond the core tools, Muster also provides access to:

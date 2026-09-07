@@ -110,7 +110,68 @@ type ToolMetadata struct {
 	// are not part of the MCP tool schema and do not appear in list_tools /
 	// describe_tool output.
 	Labels map[string]string
+
+	// Annotations are the MCP tool annotations (readOnlyHint, destructiveHint,
+	// idempotentHint, openWorldHint) the provider declares for the tool. They
+	// are forwarded verbatim on the exposed tool, so the meta-tools report
+	// them like a downstream server's and the built-in read-only toolset
+	// preset selects the read-only tools. Nil declares none.
+	Annotations *ToolAnnotations
 }
+
+// ToolAnnotations are the MCP tool annotations a tool provider declares for
+// one of its tools. A nil hint is not sent, like a server that did not set
+// it; the constructors below set every hint so a core tool's classification
+// is always explicit.
+type ToolAnnotations struct {
+	// ReadOnlyHint is true when the tool changes nothing: it lists, gets,
+	// validates or probes.
+	ReadOnlyHint *bool
+	// DestructiveHint is true when a write may change or remove what exists
+	// (update, delete, stop); false for purely additive writes (create).
+	DestructiveHint *bool
+	// IdempotentHint is true when repeating the call with the same arguments
+	// has no further effect.
+	IdempotentHint *bool
+	// OpenWorldHint is true when the tool reaches beyond muster and its
+	// cluster (an authorization server, a remote MCP server URL).
+	OpenWorldHint *bool
+}
+
+// ReadOnlyAnnotations declares a tool that reads without changing anything:
+// readOnlyHint true, destructiveHint false, idempotentHint true,
+// openWorldHint false.
+func ReadOnlyAnnotations() *ToolAnnotations {
+	return &ToolAnnotations{
+		ReadOnlyHint:    boolPtr(true),
+		DestructiveHint: boolPtr(false),
+		IdempotentHint:  boolPtr(true),
+		OpenWorldHint:   boolPtr(false),
+	}
+}
+
+// WriteAnnotations declares a tool that changes muster's state: readOnlyHint
+// false, destructiveHint and idempotentHint as given, openWorldHint false.
+func WriteAnnotations(destructive, idempotent bool) *ToolAnnotations {
+	return &ToolAnnotations{
+		ReadOnlyHint:    boolPtr(false),
+		DestructiveHint: boolPtr(destructive),
+		IdempotentHint:  boolPtr(idempotent),
+		OpenWorldHint:   boolPtr(false),
+	}
+}
+
+// OpenWorld returns a copy of the annotations with openWorldHint set.
+func (a *ToolAnnotations) OpenWorld(open bool) *ToolAnnotations {
+	if a == nil {
+		return &ToolAnnotations{OpenWorldHint: boolPtr(open)}
+	}
+	c := *a
+	c.OpenWorldHint = boolPtr(open)
+	return &c
+}
+
+func boolPtr(b bool) *bool { return &b }
 
 // ArgType is the JSON-Schema-style type of an ArgMetadata. The valid set is
 // closed; using any other value is a programmer error.

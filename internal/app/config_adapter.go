@@ -106,15 +106,18 @@ func (a *ConfigAdapter) GetTools() []api.ToolMetadata {
 	return []api.ToolMetadata{
 		{
 			Name:        "config_get",
+			Annotations: api.ReadOnlyAnnotations(),
 			Description: "Get the current muster configuration",
 		},
 		{
 			Name:        "config_get_aggregator",
+			Annotations: api.ReadOnlyAnnotations(),
 			Description: "Get aggregator configuration",
 		},
 
 		{
 			Name:        "config_update_aggregator",
+			Annotations: api.WriteAnnotations(true, true),
 			Description: "Update aggregator configuration",
 			Args: []api.ArgMetadata{
 				{
@@ -127,10 +130,12 @@ func (a *ConfigAdapter) GetTools() []api.ToolMetadata {
 		},
 		{
 			Name:        "config_save",
+			Annotations: api.WriteAnnotations(true, true),
 			Description: "Save the current configuration to file",
 		},
 		{
 			Name:        "config_reload",
+			Annotations: api.WriteAnnotations(true, true),
 			Description: "Reload configuration from file",
 		},
 	}

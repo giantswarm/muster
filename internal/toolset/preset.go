@@ -121,7 +121,7 @@ func builtInPresets() map[string]Preset {
 	yes := true
 	return map[string]Preset{
 		PresetReadOnly: {
-			Description: "Every tool its server annotates read-only, plus every workflow whose step tools are all read-only",
+			Description: "Every tool annotated read-only (muster's own read-only core tools included), plus every workflow whose step tools are all read-only",
 			Include:     []Rule{{ReadOnly: &yes}},
 		},
 		PresetNone: {

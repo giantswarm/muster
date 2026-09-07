@@ -1,5 +1,5 @@
 name: "toolset-annotations-forwarded"
-description: "list_tools, filter_tools and describe_tool carry each tool's downstream annotations (readOnlyHint, destructiveHint, idempotentHint, openWorldHint), its owning server and its kind (tool | workflow | core), plus the derived read-only hint of a workflow; a tool without annotations carries none (#1169)"
+description: "list_tools, filter_tools and describe_tool carry each tool's downstream annotations (readOnlyHint, destructiveHint, idempotentHint, openWorldHint), its owning server and its kind (tool | workflow | core), plus the derived read-only hint of a workflow and the declared annotations of a core tool; a tool without annotations carries none (#1169, #1172)"
 category: "behavioral"
 concept: "mcpserver"
 tags: ["toolset", "annotations", "metatools", "1169"]
@@ -88,14 +88,18 @@ steps:
         annotations.readOnlyHint: true
 
   - id: "describe-core"
-    description: "a core tool has kind core and carries no annotations field at all today"
+    description: "a core tool has kind core, no server, and the annotations muster declares for it (#1172)"
     tool: "test_call_meta_tool"
     args: { tool: "describe_tool", arguments: { name: "core_workflow_list" } }
     expected:
       success: true
       json_path:
         kind: "core"
-      not_contains: ["annotations", "readOnlyHint", "server"]
+        annotations.readOnlyHint: true
+        annotations.destructiveHint: false
+        annotations.idempotentHint: true
+        annotations.openWorldHint: false
+      not_contains: ["server"]
 
   - id: "filter-tools-carries-them"
     tool: "test_call_meta_tool"

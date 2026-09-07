@@ -698,6 +698,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 	return []api.ToolMetadata{
 		{
 			Name:        "mcpserver_list",
+			Annotations: api.ReadOnlyAnnotations(),
 			Description: "List all MCP server definitions with their status. By default, unreachable servers are hidden.",
 			Args: []api.ArgMetadata{
 				{Name: "showAll", Type: api.ArgTypeBoolean, Required: false, Description: "Show all servers including unreachable ones (default: false)"},
@@ -706,6 +707,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		},
 		{
 			Name:        "mcpserver_get",
+			Annotations: api.ReadOnlyAnnotations(),
 			Description: "Get detailed information about a specific MCP server definition",
 			Args: []api.ArgMetadata{
 				{Name: "name", Type: api.ArgTypeString, Required: true, Description: "Name of the MCP server to retrieve"},
@@ -713,11 +715,13 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		},
 		{
 			Name:        "mcpserver_validate",
+			Annotations: api.ReadOnlyAnnotations(),
 			Description: "Validate an mcpserver definition",
 			Args:        mcpServerArgs(true), // type is required for validation
 		},
 		{
 			Name:        "mcpserver_detect",
+			Annotations: api.ReadOnlyAnnotations().OpenWorld(true),
 			Description: "Probe a remote MCP server URL to detect its transport (streamable-http or sse). Detection never fails on unreachable servers: the result reports transport \"unknown\" instead, so callers can fall back to manual selection.",
 			Args: []api.ArgMetadata{
 				{Name: "url", Type: api.ArgTypeString, Required: true, Description: "Server endpoint URL to probe"},
@@ -731,11 +735,13 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		},
 		{
 			Name:        "mcpserver_create",
+			Annotations: api.WriteAnnotations(false, false),
 			Description: "Create a new MCP server definition",
 			Args:        mcpServerArgs(true), // type is required for creation
 		},
 		{
 			Name:        "mcpserver_update",
+			Annotations: api.WriteAnnotations(true, true),
 			Description: "Update an existing MCP server definition",
 			// type is optional for update; suspended/restartRequestedAt are the
 			// CR-driven lifecycle fields (issue #1055) and only settable here.
@@ -746,6 +752,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		},
 		{
 			Name:        "mcpserver_delete",
+			Annotations: api.WriteAnnotations(true, false),
 			Description: "Delete an MCP server definition",
 			Args: []api.ArgMetadata{
 				{Name: "name", Type: api.ArgTypeString, Required: true, Description: "Name of the MCP server to delete"},
