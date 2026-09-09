@@ -2079,7 +2079,7 @@ func (h *TestToolsHandler) handleStartMockServer(ctx context.Context, args map[s
 // mockServerOutage is the part of a mock MCP HTTP server (plain or
 // OAuth-protected) that the outage test tool drives.
 type mockServerOutage interface {
-	SetOutage(status, requests int)
+	SetOutage(status, requests int, pings bool)
 	OutageRemaining() int
 }
 
@@ -2089,12 +2089,14 @@ type mockServerOutage interface {
 // default) rather than a refused connection -- the shape of a gateway or
 // tunnel in front of a healthy server failing for a while. One initialize
 // attempt is one request, so requests counts failed attempts; requests of 0
-// ends an outage early.
+// ends an outage early. The orchestrator's health-probe pings pass through
+// uncounted unless pings is set, in which case the gateway fails them too.
 //
 // Args:
 //   - server: Required. Name of the mock MCP server.
 //   - requests: Required. Number of requests to answer with the status (0 clears).
 //   - status: Optional. HTTP status to answer with (default 504).
+//   - pings: Optional. Answer MCP pings with the status as well (default false).
 func (h *TestToolsHandler) handleSetMockServerOutage(_ context.Context, args map[string]interface{}) (interface{}, error) {
 	serverName, ok := args["server"].(string)
 	if !ok || serverName == "" {
@@ -2119,9 +2121,10 @@ func (h *TestToolsHandler) handleSetMockServerOutage(_ context.Context, args map
 	if !ok {
 		return nil, fmt.Errorf("mock server %s does not support outages", serverName)
 	}
-	gate.SetOutage(status, requests)
+	pings, _ := args["pings"].(bool)
+	gate.SetOutage(status, requests, pings)
 	if h.debug {
-		h.logger.Debug("Mock server '%s' answers its next %d requests with HTTP %d\n", serverName, requests, status)
+		h.logger.Debug("Mock server '%s' answers its next %d requests with HTTP %d (pings included: %t)\n", serverName, requests, status, pings)
 	}
 	return map[string]interface{}{
 		api.FieldSuccess: true,
@@ -2129,6 +2132,7 @@ func (h *TestToolsHandler) handleSetMockServerOutage(_ context.Context, args map
 		api.FieldServer:  serverName,
 		"status":         status,
 		"requests":       requests,
+		"pings":          pings,
 	}, nil
 }
 

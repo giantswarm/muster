@@ -1,0 +1,139 @@
+name: "mcpserver-health-probe-spares-per-session-oauth-server"
+description: "An OAuth-protected MCPServer that a session has authenticated to stays connected under the orchestrator's health probe: its connection is the session's own DynamicAuthClient and the service has no shared client to ping, so the probe must not count the missing client as a failure, turn the server unhealthy, or restart it into auth_required (#1187 review)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "health", "orchestrator", "oauth", "auth-required", "regression"]
+timeout: "3m"
+
+# Given: a streamable-http MCPServer behind OAuth without token forwarding.
+#        Start's anonymous initialize gets a 401 and settles the service in
+#        auth_required with no client; the OAuth callback and core_auth_login
+#        pool a per-session DynamicAuthClient and the aggregator syncs the
+#        service to connected/healthy. The harness probes every connected
+#        server every 1s (production: 30s); three failed probes turn a server
+#        unhealthy.
+# When:  five probe intervals pass.
+# Then:  the server is still connected and healthy with no health-check
+#        failure counted, no MCPServerHealthCheckFailed and no recovery event
+#        was emitted, and the session's tool still answers.
+#
+# Before the fix the probe found no shared client, counted "MCP client not
+# available" on every tick, declared the server unhealthy on the third tick,
+# emitted MCPServerHealthCheckFailed and restarted it: Stop, Start -> 401 ->
+# auth_required, MCPServerRecoveryFailed -- 3s (production: 90s) after every
+# core_auth_login, undoing the login's state sync while the session kept
+# working.
+
+pre_configuration:
+  main_config:
+    config:
+      events: true
+
+  mock_oauth_servers:
+    - name: "probe-oauth-idp"
+      scopes: ["openid", "profile", "api:access"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "probe-oauth-client"
+
+  mcp_servers:
+    - name: "oauth-probed"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "probe-oauth-idp"
+          scope: "api:access"
+        tools:
+          - name: "get_protected_data"
+            description: "Answers through the session's OAuth token"
+            responses:
+              - response: { status: "success", message: "You have access to protected data" }
+
+    # A plain server whose tool takes five probe intervals to answer: calling
+    # it is how the scenario lets the probes run without a sleep step.
+    - name: "clock"
+      config:
+        type: "streamable-http"
+        tools:
+          - name: "wait"
+            description: "Answers after five health-probe intervals"
+            responses:
+              - response: { waited: "5s" }
+                delay: "5s"
+
+steps:
+  - id: "authenticate"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "oauth-probed"
+    expected:
+      success: true
+      contains: ["success"]
+
+  - id: "establish-connection"
+    tool: "core_auth_login"
+    args:
+      server: "oauth-probed"
+    expected:
+      success: true
+
+  - id: "connected-after-login"
+    description: "The login syncs the service to connected/healthy although it has no shared client"
+    tool: "core_service_status"
+    args:
+      name: "oauth-probed"
+    expected:
+      success: true
+      wait_for_state: "15s"
+      json_path:
+        state: "connected"
+        health: "healthy"
+        metadata:
+          clientReady: false
+    timeout: "30s"
+
+  - id: "five-probe-intervals"
+    description: "Let the health loop probe five times"
+    tool: "x_clock_wait"
+    args: {}
+    expected:
+      success: true
+      contains: ["waited"]
+    timeout: "30s"
+
+  - id: "no-health-check-failure-emitted"
+    description: "No probe failure was counted against the session-served server. Before the fix: 'health check failed: 3 consecutive failures: MCP client not available' and 'automatic recovery process started' after three ticks"
+    tool: "core_events"
+    args:
+      resourceType: "MCPServer"
+      resourceName: "oauth-probed"
+    expected:
+      success: true
+      not_contains:
+        - "health check failed"
+        - "automatic recovery process started"
+    timeout: "15s"
+
+  - id: "still-connected"
+    description: "The state the login synced is intact and nothing was counted. Before the fix: auth_required after the health-triggered restart"
+    tool: "core_service_status"
+    args:
+      name: "oauth-probed"
+    expected:
+      success: true
+      json_path:
+        state: "connected"
+        health: "healthy"
+        metadata:
+          consecutiveHealthCheckFailures: 0
+    timeout: "15s"
+
+  - id: "session-tool-still-answers"
+    tool: "x_oauth-probed_get_protected_data"
+    args: {}
+    expected:
+      success: true
+      contains: ["You have access to protected data"]
+    timeout: "15s"

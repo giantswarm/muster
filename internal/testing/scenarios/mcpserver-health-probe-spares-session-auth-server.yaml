@@ -1,0 +1,140 @@
+name: "mcpserver-health-probe-spares-session-auth-server"
+description: "A forwardToken (SSO) MCPServer that a session has logged into stays connected under the orchestrator's health probe: it is served per session and has no shared client to ping, so the probe must not count the missing client as a failure, turn the server unhealthy, or restart it into auth_required (#1187 review)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "health", "orchestrator", "oauth", "sso", "token-forwarding", "regression"]
+timeout: "3m"
+
+# Given: a streamable-http MCPServer with forwardToken. Start settles it in
+#        auth_required with the anonymous probe client discarded; the login
+#        forwards muster's ID token over the session's own connection and the
+#        aggregator syncs the service to connected/healthy. The service has no
+#        shared client (clientReady false) -- its tools are served through the
+#        session. The harness probes every connected server every 1s
+#        (production: 30s); three failed probes turn a server unhealthy.
+# When:  five probe intervals pass.
+# Then:  the server is still connected and healthy with no health-check
+#        failure counted, no MCPServerHealthCheckFailed and no recovery event
+#        was emitted, and the session's tool still answers.
+#
+# Before the fix the probe pinged the missing shared client, counted "MCP
+# client not available" once per tick, declared the server unhealthy on the
+# third tick, emitted MCPServerHealthCheckFailed and restarted it: Stop, Start,
+# discardAnonymousProbe -> auth_required, MCPServerRecoveryFailed. The state
+# the login had synced was undone 3s (production: 90s) after every login, and
+# the cycle re-armed on the next session connect.
+
+pre_configuration:
+  main_config:
+    config:
+      events: true
+
+  mock_oauth_servers:
+    - name: "probe-idp"
+      scopes: ["openid", "profile", "mcp:admin"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "muster-client"
+      client_secret: "muster-secret"
+      use_as_muster_oauth_server: true
+
+  mcp_servers:
+    - name: "sso-probed"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "probe-idp"
+          forward_token: true
+        tools:
+          - name: "downstream_op"
+            description: "Answers through the session's forwarded token"
+            responses:
+              - response: { source: "sso-probed", status: "authenticated-via-sso" }
+
+    # A plain server whose tool takes five probe intervals to answer: calling
+    # it is how the scenario lets the probes run without a sleep step.
+    - name: "clock"
+      config:
+        type: "streamable-http"
+        tools:
+          - name: "wait"
+            description: "Answers after five health-probe intervals"
+            responses:
+              - response: { waited: "5s" }
+                delay: "5s"
+
+steps:
+  - id: "muster-auth-login"
+    tool: "test_muster_auth_login"
+    args: {}
+    expected:
+      success: true
+      contains: ["success", "ID token stored"]
+
+  - id: "login-with-sso"
+    tool: "core_auth_login"
+    args:
+      server: "sso-probed"
+    expected:
+      success: true
+
+  - id: "connected-after-login"
+    description: "The login syncs the service to connected/healthy although it has no shared client"
+    tool: "core_service_status"
+    args:
+      name: "sso-probed"
+    expected:
+      success: true
+      wait_for_state: "15s"
+      json_path:
+        state: "connected"
+        health: "healthy"
+        metadata:
+          clientReady: false
+    timeout: "30s"
+
+  - id: "five-probe-intervals"
+    description: "Let the health loop probe five times"
+    tool: "x_clock_wait"
+    args: {}
+    expected:
+      success: true
+      contains: ["waited"]
+    timeout: "30s"
+
+  - id: "no-health-check-failure-emitted"
+    description: "No probe failure was counted against the session-served server. Before the fix: 'health check failed: 3 consecutive failures: MCP client not available' and 'automatic recovery process started' after three ticks"
+    tool: "core_events"
+    args:
+      resourceType: "MCPServer"
+      resourceName: "sso-probed"
+    expected:
+      success: true
+      not_contains:
+        - "health check failed"
+        - "automatic recovery process started"
+    timeout: "15s"
+
+  - id: "still-connected"
+    description: "The state the login synced is intact and nothing was counted. Before the fix: auth_required after the health-triggered restart"
+    tool: "core_service_status"
+    args:
+      name: "sso-probed"
+    expected:
+      success: true
+      json_path:
+        state: "connected"
+        health: "healthy"
+        metadata:
+          consecutiveHealthCheckFailures: 0
+    timeout: "15s"
+
+  - id: "session-tool-still-answers"
+    tool: "x_sso-probed_downstream_op"
+    args: {}
+    expected:
+      success: true
+      contains: ["authenticated-via-sso"]
+    timeout: "15s"
