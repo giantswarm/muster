@@ -133,6 +133,10 @@ func NewManager(cfg config.OAuthMCPClientConfig, opts ...ManagerOption) *Manager
 	// in-cluster Dex). mcp-oauth's NewPrivateIPAllowedHTTPClient builds a fresh
 	// *http.Transport that bypasses the augmented pool, so hand the exchanger
 	// an explicit client backed by the augmented DefaultTransport.
+	// oauth.mcpClient.tokenExchange.allowPrivateIP lifts the same guard for a
+	// remote Dex whose public hostname resolves to a private address (an
+	// internal-only load balancer) without an internal CA: mcp-oauth then builds
+	// its client without the SSRF guard, TLS verification unchanged.
 	var tokenExchangeHTTPClient *http.Client
 	if cfg.ExtraCAFile != "" {
 		tokenExchangeHTTPClient = &http.Client{
@@ -141,7 +145,7 @@ func NewManager(cfg config.OAuthMCPClientConfig, opts ...ManagerOption) *Manager
 		}
 	}
 	tokenExchanger := NewTokenExchangerWithOptions(TokenExchangerOptions{
-		AllowPrivateIP: cfg.ExtraCAFile != "",
+		AllowPrivateIP: cfg.ExtraCAFile != "" || cfg.TokenExchange.AllowPrivateIP,
 		HTTPClient:     tokenExchangeHTTPClient,
 	})
 

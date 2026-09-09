@@ -391,6 +391,15 @@ muster:
       #   - "https://gateway.example.com/connectors/complete"
       postLoginRedirectAllowlist: []
 
+      # RFC 8693 token exchange against a remote cluster's Dex (MCPServers with
+      # spec.auth.tokenExchange; agent-platform-mcps auth.mode: exchange).
+      tokenExchange:
+        # Allow the remote Dex token endpoint to resolve to a private/loopback
+        # IP: a management or workload cluster whose Dex sits behind an
+        # internal-only load balancer. Implied when extraCaFile is set. Reduces
+        # the SSRF guard of the token-exchange client; emits a startup warning.
+        allowPrivateIP: false
+
     # Server configuration for protecting the Muster Server itself (ADR 005)
     # When enabled, the Muster Server acts as an OAuth Resource Server, requiring
     # valid access tokens from clients (e.g., Muster Agent) to access protected endpoints.

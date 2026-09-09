@@ -28,6 +28,10 @@ data:
           postLoginRedirectAllowlist:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          {{- if .Values.muster.oauth.mcpClient.tokenExchange.allowPrivateIP }}
+          tokenExchange:
+            allowPrivateIP: true
+          {{- end }}
         {{- end }}
         {{- if .Values.muster.oauth.server.enabled }}
         {{- $secretsPath := "/etc/muster/secrets" }}
