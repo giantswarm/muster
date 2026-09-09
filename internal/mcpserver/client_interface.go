@@ -63,6 +63,23 @@ type baseMCPClient struct {
 	// transport records it here as it completes the handshake.
 	negotiatedProtocolVersion string
 
+	// Session recovery, see client_session_recovery.go. reconnect is set by
+	// the transports whose backend keeps an MCP session (streamable-http); it
+	// is called with mu held for writing, after the dead client was closed,
+	// and performs a fresh handshake into client/connected/hadSession. nil
+	// for transports that have no session to lose (stdio, SSE).
+	reconnect func(ctx context.Context) error
+	// hadSession records whether the server issued an Mcp-Session-Id during
+	// the handshake. Only a stateful server can lose a session.
+	hadSession bool
+	// reconnectPending is set while a recovery attempt has failed and left
+	// the client disconnected, so the next operation tries again instead of
+	// failing with "client not connected" until something restarts the service.
+	reconnectPending bool
+	// sessionGeneration counts successful handshakes; a caller that failed on
+	// an older generation finds the recovery already done and just retries.
+	sessionGeneration uint64
+
 	notifMu      sync.Mutex
 	notifHandler func(mcp.JSONRPCNotification)
 }
@@ -81,6 +98,11 @@ func (b *baseMCPClient) checkConnected() error {
 func (b *baseMCPClient) closeClient() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	// An explicit close ends the session for good: no operation after it may
+	// reconnect on the caller's behalf.
+	b.reconnectPending = false
+	b.hadSession = false
 
 	if !b.connected || b.client == nil {
 		return nil
@@ -108,6 +130,10 @@ func (b *baseMCPClient) NegotiatedProtocolVersion() string {
 
 // listTools returns all available tools from the server
 func (b *baseMCPClient) listTools(ctx context.Context) ([]mcp.Tool, error) {
+	return withSessionRecovery(b, ctx, func() ([]mcp.Tool, error) { return b.listToolsOnce(ctx) })
+}
+
+func (b *baseMCPClient) listToolsOnce(ctx context.Context) ([]mcp.Tool, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -125,6 +151,10 @@ func (b *baseMCPClient) listTools(ctx context.Context) ([]mcp.Tool, error) {
 
 // callTool executes a specific tool and returns the result
 func (b *baseMCPClient) callTool(ctx context.Context, name string, args map[string]interface{}) (*mcp.CallToolResult, error) {
+	return withSessionRecovery(b, ctx, func() (*mcp.CallToolResult, error) { return b.callToolOnce(ctx, name, args) })
+}
+
+func (b *baseMCPClient) callToolOnce(ctx context.Context, name string, args map[string]interface{}) (*mcp.CallToolResult, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -147,6 +177,10 @@ func (b *baseMCPClient) callTool(ctx context.Context, name string, args map[stri
 
 // listResources returns all available resources from the server
 func (b *baseMCPClient) listResources(ctx context.Context) ([]mcp.Resource, error) {
+	return withSessionRecovery(b, ctx, func() ([]mcp.Resource, error) { return b.listResourcesOnce(ctx) })
+}
+
+func (b *baseMCPClient) listResourcesOnce(ctx context.Context) ([]mcp.Resource, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -164,6 +198,10 @@ func (b *baseMCPClient) listResources(ctx context.Context) ([]mcp.Resource, erro
 
 // readResource retrieves a specific resource
 func (b *baseMCPClient) readResource(ctx context.Context, uri string) (*mcp.ReadResourceResult, error) {
+	return withSessionRecovery(b, ctx, func() (*mcp.ReadResourceResult, error) { return b.readResourceOnce(ctx, uri) })
+}
+
+func (b *baseMCPClient) readResourceOnce(ctx context.Context, uri string) (*mcp.ReadResourceResult, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -185,6 +223,10 @@ func (b *baseMCPClient) readResource(ctx context.Context, uri string) (*mcp.Read
 
 // listPrompts returns all available prompts from the server
 func (b *baseMCPClient) listPrompts(ctx context.Context) ([]mcp.Prompt, error) {
+	return withSessionRecovery(b, ctx, func() ([]mcp.Prompt, error) { return b.listPromptsOnce(ctx) })
+}
+
+func (b *baseMCPClient) listPromptsOnce(ctx context.Context) ([]mcp.Prompt, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -202,6 +244,10 @@ func (b *baseMCPClient) listPrompts(ctx context.Context) ([]mcp.Prompt, error) {
 
 // getPrompt retrieves a specific prompt
 func (b *baseMCPClient) getPrompt(ctx context.Context, name string, args map[string]interface{}) (*mcp.GetPromptResult, error) {
+	return withSessionRecovery(b, ctx, func() (*mcp.GetPromptResult, error) { return b.getPromptOnce(ctx, name, args) })
+}
+
+func (b *baseMCPClient) getPromptOnce(ctx context.Context, name string, args map[string]interface{}) (*mcp.GetPromptResult, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -234,6 +280,11 @@ func (b *baseMCPClient) getPrompt(ctx context.Context, name string, args map[str
 
 // ping checks if the server is responsive
 func (b *baseMCPClient) ping(ctx context.Context) error {
+	_, err := withSessionRecovery(b, ctx, func() (struct{}, error) { return struct{}{}, b.pingOnce(ctx) })
+	return err
+}
+
+func (b *baseMCPClient) pingOnce(ctx context.Context) error {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
