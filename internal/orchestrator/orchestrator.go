@@ -73,9 +73,11 @@ type Orchestrator struct {
 
 	// healthChecksInFlight names the services whose health probe, or the
 	// restart it triggered, is still running, so a slow probe is not stacked
-	// by the next tick. See health_check.go.
+	// by the next tick. healthRestartSlots bounds the restarts those probes
+	// trigger to MaxConcurrentRetries at a time. See health_check.go.
 	healthMu             sync.Mutex
 	healthChecksInFlight map[string]struct{}
+	healthRestartSlots   chan struct{}
 
 	mu sync.RWMutex
 }

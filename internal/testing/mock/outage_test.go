@@ -1,10 +1,12 @@
 package mock
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -55,6 +57,49 @@ func TestOutageGateAnswersThenRecovers(t *testing.T) {
 	gate.set(0, 0)
 	if got := get(); got != http.StatusOK {
 		t.Fatalf("a cleared gate must be transparent, got %d", got)
+	}
+}
+
+// TestOutageGatePassesPingsThrough: the orchestrator's health probe pings a
+// connected server on every interval. An armed gate serves a ping uncounted,
+// with its body intact for the handler, so a scenario that arms N requests
+// sees exactly N connection attempts fail whenever the probe lands.
+func TestOutageGatePassesPingsThrough(t *testing.T) {
+	var gate outageGate
+	var seen []string
+	handler := gate.wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("reading the body behind the gate: %v", err)
+		}
+		seen = append(seen, string(body))
+		w.WriteHeader(http.StatusOK)
+	}))
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	post := func(body string) int {
+		resp, err := http.Post(srv.URL, "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatalf("POST: %v", err)
+		}
+		_ = resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	const ping = `{"jsonrpc":"2.0","id":7,"method":"ping"}`
+	gate.set(http.StatusGatewayTimeout, 1)
+	if got := post(ping); got != http.StatusOK {
+		t.Fatalf("a ping during the outage must be served, got %d", got)
+	}
+	if got := gate.remainingRequests(); got != 1 {
+		t.Fatalf("a ping must not consume the outage: remaining %d, want 1", got)
+	}
+	if got := post(`{"jsonrpc":"2.0","id":8,"method":"initialize","params":{}}`); got != http.StatusGatewayTimeout {
+		t.Fatalf("a connection attempt during the outage: got %d, want 504", got)
+	}
+	if len(seen) != 1 || seen[0] != ping {
+		t.Fatalf("the handler must see the ping with its body intact, saw %q", seen)
 	}
 }
 

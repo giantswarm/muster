@@ -20,7 +20,9 @@ import (
 // service on a fixed interval; the service counts the failures and turns
 // unhealthy at mcpserver.HealthCheckFailureThreshold, which withdraws its
 // tools, and the orchestrator restarts it. A restart that fails hands the
-// server to the existing reconnect schedule.
+// server to the existing reconnect schedule. Probes run concurrently, one per
+// server; the restarts they trigger are bounded by MaxConcurrentRetries like
+// the reconnect loop's retries.
 
 // HealthCheckInterval is the time between two health probes of a connected
 // MCPServer. Overridable via MUSTER_ORCHESTRATOR_HEALTH_CHECK_INTERVAL (a Go
@@ -56,7 +58,12 @@ func (o *Orchestrator) checkConnectedServersHealth() {
 
 // probeAndRecover runs one health probe and restarts the service when the
 // probe reports it unhealthy. Failures below the service's threshold are the
-// service's to log; nothing is done here.
+// service's to log; nothing is done here. A restart waits for one of the
+// MaxConcurrentRetries slots, so a shared upstream going away does not have
+// every server behind it rebuild its client in the same instant, and it is
+// skipped when the service left Connected/Running while the probe ran: an
+// operator's core_service_stop or a reconciler restart got there first and a
+// restart now would undo the stop.
 func (o *Orchestrator) probeAndRecover(svc services.Service, checker services.HealthChecker) {
 	if o.ctx.Err() != nil {
 		return
@@ -66,6 +73,18 @@ func (o *Orchestrator) probeAndRecover(svc services.Service, checker services.He
 	health, err := checker.CheckHealth(probeCtx)
 	cancel()
 	if health != services.HealthUnhealthy {
+		return
+	}
+
+	slots := o.healthRestartSlotsChan()
+	select {
+	case slots <- struct{}{}:
+		defer func() { <-slots }()
+	case <-o.ctx.Done():
+		return
+	}
+	if state := svc.GetState(); !isActiveState(state) {
+		logging.Info("Orchestrator", "MCPServer %s is %s since its failed health check, not restarting it", svc.GetName(), state)
 		return
 	}
 
@@ -103,6 +122,17 @@ func (o *Orchestrator) endHealthCheck(name string) {
 	o.healthMu.Lock()
 	delete(o.healthChecksInFlight, name)
 	o.healthMu.Unlock()
+}
+
+// healthRestartSlotsChan returns the semaphore that bounds concurrent
+// health-triggered restarts to MaxConcurrentRetries, creating it on first use.
+func (o *Orchestrator) healthRestartSlotsChan() chan struct{} {
+	o.healthMu.Lock()
+	defer o.healthMu.Unlock()
+	if o.healthRestartSlots == nil {
+		o.healthRestartSlots = make(chan struct{}, MaxConcurrentRetries)
+	}
+	return o.healthRestartSlots
 }
 
 // isActiveState reports whether a service is up: Running for a stdio server,

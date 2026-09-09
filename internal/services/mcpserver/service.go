@@ -707,8 +707,16 @@ func (s *Service) CheckHealth(ctx context.Context) (services.HealthStatus, error
 
 // recordHealthCheckFailure counts a failed probe. Below the threshold the
 // health is left as it is; at the threshold the server turns unhealthy, which
-// withdraws its tools, and MCPServerHealthCheckFailed is emitted once.
+// withdraws its tools, and MCPServerHealthCheckFailed is emitted once. A
+// probe that fails against a server no longer Running/Connected is not
+// counted: a Stop or Restart closed the client under it, and counting it
+// would turn a server the operator just stopped unhealthy and hand it to the
+// health loop for a restart.
 func (s *Service) recordHealthCheckFailure(err error) (services.HealthStatus, error) {
+	if !s.IsRunning() {
+		return s.GetHealth(), err
+	}
+
 	s.healthEventMutex.Lock()
 	s.healthCheckFailures++
 	failures := s.healthCheckFailures
@@ -743,8 +751,8 @@ func (s *Service) emitHealthCheckFailedOnce(errMsg string) {
 }
 
 // resetHealthCheckEventGate clears the failure count and the unhealthy gate
-// after a passing probe, a start or a stop, so the next run of failures is
-// counted from zero and its transition emits a fresh event.
+// after a passing probe, a successful start or a stop, so the next run of
+// failures is counted from zero and its transition emits a fresh event.
 func (s *Service) resetHealthCheckEventGate() {
 	s.healthEventMutex.Lock()
 	s.healthCheckFailures = 0

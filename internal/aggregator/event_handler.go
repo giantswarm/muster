@@ -290,9 +290,10 @@ func (eh *EventHandler) generateServiceStateEvents(event api.ServiceStateChanged
 		// error next to it only made the operator wonder which one to read.
 	}
 
-	// Running+Unhealthy emits nothing here: the MCPServer service publishes
-	// MCPServerHealthCheckFailed itself, once per healthy->unhealthy
-	// transition and with the probe error, when its health check fails.
+	// An unhealthy Running (stdio) or Connected (remote) server emits nothing
+	// here: the MCPServer service publishes MCPServerHealthCheckFailed itself,
+	// once per healthy->unhealthy transition and with the probe error, when
+	// its health check fails.
 
 	if api.ServiceState(event.NewState) == api.StateStarting && (api.ServiceState(event.OldState) == api.StateStopped || api.ServiceState(event.OldState) == api.StateFailed) {
 		eh.generateEvent(event.Name, events.ReasonMCPServerRestarting, events.EventData{})

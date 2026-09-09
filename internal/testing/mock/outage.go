@@ -1,6 +1,9 @@
 package mock
 
 import (
+	"bytes"
+	"encoding/json"
+	"io"
 	"net/http"
 	"sync"
 )
@@ -46,14 +49,18 @@ func (g *outageGate) remainingRequests() int {
 	return g.remaining
 }
 
-// wrap returns next guarded by the gate. A session termination (HTTP DELETE)
-// passes through: it is the client tidying up the session it had before the
-// outage, not a connection attempt, and muster's client sends it when the
-// service restarts. Counting it would make an outage of N requests fail N-1
-// attempts.
+// wrap returns next guarded by the gate. Two requests pass through uncounted,
+// because neither is a connection attempt and counting either would make an
+// outage of N requests fail N-1 attempts: a session termination (HTTP
+// DELETE), which is the client tidying up the session it had before the
+// outage and which muster's client sends when the service restarts; and an
+// MCP ping, which the orchestrator's health probe sends to every connected
+// server on its interval (1s in the harness) and which would otherwise land
+// in the outage window of any scenario that arms the gate on a Connected
+// server.
 func (g *outageGate) wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodDelete {
+		if r.Method != http.MethodDelete && !isMCPPing(r) {
 			if status := g.take(); status != 0 {
 				http.Error(w, http.StatusText(status), status)
 				return
@@ -61,6 +68,24 @@ func (g *outageGate) wrap(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// isMCPPing reports whether r carries a JSON-RPC ping. The body is read and
+// put back so the handler behind the gate still sees it.
+func isMCPPing(r *http.Request) bool {
+	if r.Method != http.MethodPost || r.Body == nil {
+		return false
+	}
+	body, err := io.ReadAll(r.Body)
+	_ = r.Body.Close()
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	if err != nil {
+		return false
+	}
+	var rpc struct {
+		Method string `json:"method"`
+	}
+	return json.Unmarshal(body, &rpc) == nil && rpc.Method == "ping"
 }
 
 // SetOutage makes the server answer its next requests requests with the given

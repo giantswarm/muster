@@ -160,6 +160,30 @@ func TestCheckHealth_MissingClientCountsAsFailure(t *testing.T) {
 	}
 }
 
+func TestCheckHealth_FailureAgainstAServerBeingStoppedIsNotCounted(t *testing.T) {
+	pinger := &fakePinger{err: errors.New("connection refused")}
+	svc, rec, cm := newConnectedService(t, pinger)
+	ctx := context.Background()
+
+	for i := 1; i < HealthCheckFailureThreshold; i++ {
+		_, _ = svc.CheckHealth(ctx)
+	}
+	require.Equal(t, HealthCheckFailureThreshold-1, healthCheckFailures(svc))
+
+	// An operator's Stop closes the client under the probe on the wire: the
+	// state has left Connected by the time the probe reports its failure.
+	svc.UpdateState(services.StateStopping, services.HealthHealthy, nil)
+	published := len(rec.published())
+
+	health, err := svc.CheckHealth(ctx)
+	require.Error(t, err)
+	assert.NotEqual(t, services.HealthUnhealthy, health, "the would-be third failure must not turn a stopping server unhealthy")
+	assert.Equal(t, services.HealthHealthy, svc.GetHealth())
+	assert.Len(t, rec.published(), published, "no health change is published for a server being stopped")
+	assert.Equal(t, 0, cm.count("MCPServerHealthCheckFailed"))
+	assert.Equal(t, HealthCheckFailureThreshold-1, healthCheckFailures(svc), "the failure is not counted")
+}
+
 func TestCheckHealth_StopResetsTheCount(t *testing.T) {
 	pinger := &fakePinger{err: errors.New("connection refused")}
 	svc, _, _ := newConnectedService(t, pinger)
