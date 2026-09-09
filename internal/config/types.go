@@ -157,12 +157,28 @@ type OAuthMCPClientConfig struct {
 	// with a warning. Failed callbacks always render the error page.
 	PostLoginRedirectAllowlist []string `yaml:"postLoginRedirectAllowlist,omitempty"`
 
+	// TokenExchange configures the RFC 8693 token-exchange client muster uses
+	// for MCPServers with spec.auth.tokenExchange (a remote cluster's Dex).
+	TokenExchange OAuthTokenExchangeClientConfig `yaml:"tokenExchange,omitempty"`
+
 	// ExtraCAFile mirrors the process-level --extra-ca-file flag for the
 	// OAuth/token-exchange layer's internal-deployment heuristic. When set,
 	// the token-exchange HTTP client allows resolution to private IP ranges
 	// (e.g. in-cluster Dex via .svc.cluster.local).
 	// Not part of any user-facing config; populated by the serve command.
 	ExtraCAFile string `yaml:"-"`
+}
+
+// OAuthTokenExchangeClientConfig configures the outbound RFC 8693
+// token-exchange client (MCPServer spec.auth.tokenExchange).
+type OAuthTokenExchangeClientConfig struct {
+	// AllowPrivateIP allows a remote Dex token endpoint (dexTokenEndpoint) to
+	// resolve to a private or loopback address: a Dex behind an internal-only
+	// load balancer whose public hostname resolves to an RFC 1918 address, as
+	// on a private management or workload cluster. Implied by --extra-ca-file
+	// (in-cluster TLS endpoints). WARNING: reduces the SSRF protection of the
+	// token-exchange client; emits a startup warning when set.
+	AllowPrivateIP bool `yaml:"allowPrivateIP,omitempty"`
 }
 
 // OAuthCIMDConfig contains Client ID Metadata Document configuration.

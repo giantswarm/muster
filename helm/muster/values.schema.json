@@ -287,6 +287,15 @@
                                 },
                                 "publicUrl": {
                                     "type": "string"
+                                },
+                                "tokenExchange": {
+                                    "type": "object",
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "allowPrivateIP": {
+                                            "type": "boolean"
+                                        }
+                                    }
                                 }
                             }
                         },

@@ -246,6 +246,14 @@ By default the SSRF guard rejects an OIDC issuer URL that resolves to a private 
 |-------|------|---------|-------------|
 | `dex.allowPrivateIPOIDC` | `bool` | `false` | Allow the Dex issuer URL to resolve to a private/loopback IP during OIDC discovery. This is the discovery-path counterpart to `allowPrivateIPJWKS`. Emits a CWE-918 startup warning when set; only enable it when the issuer is genuinely fronted by an internal-only load balancer. |
 
+#### Private-IP Token Exchange Endpoints
+
+The same guard applies to the token endpoint of a remote Dex that muster exchanges tokens with (`spec.auth.tokenExchange.dexTokenEndpoint` on an MCPServer). When that Dex sits behind an internal-only load balancer, the exchange fails with a DNS-rebinding error although the endpoint is reachable.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `mcpClient.tokenExchange.allowPrivateIP` | `bool` | `false` | Allow a remote Dex token endpoint to resolve to a private/loopback IP. Implied by `--extra-ca-file` (in-cluster TLS endpoints). Emits a startup warning when set; only enable it when the remote Dex is genuinely fronted by an internal-only load balancer. TLS verification is unchanged. |
+
 #### Silent Re-Authentication (CLI Flag)
 
 Silent re-authentication is controlled via CLI flags only, not configuration file.
