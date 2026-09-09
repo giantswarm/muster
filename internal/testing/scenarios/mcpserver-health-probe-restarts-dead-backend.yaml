@@ -1,0 +1,134 @@
+name: "mcpserver-health-probe-restarts-dead-backend"
+description: "A connected remote MCPServer whose backend stops answering is detected by the periodic health probe: after three failed probes it turns unhealthy, MCPServerHealthCheckFailed is emitted once, the orchestrator restarts it, the failed start hands it to the reconnect schedule, and it reconnects once the backend is back (#493)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "health", "orchestrator", "recovery", "regression", "issue-493", "issue-999"]
+timeout: "3m"
+
+# Given: a remote streamable-http MCP server without auth, Connected. The
+#        harness runs muster with a 1s health-probe interval, a 1s initial
+#        backoff, a 3s backoff cap and a 1s retry tick (production: 30s, 30s,
+#        2m, 30s).
+# When:  its backend goes away (connection refused).
+# Then:  the third failed probe turns the server unhealthy -- one
+#        MCPServerHealthCheckFailed event names the failure count and the
+#        error -- and the orchestrator restarts it. The restart's start
+#        attempt fails against the dead backend, so the server lands on the
+#        service's own reconnect schedule and ends up unreachable, its status
+#        naming the refused connection and the next retry.
+# When:  the backend is back.
+# Then:  the next scheduled attempt connects, the server is healthy again and
+#        its tool answers.
+#
+# Before the fix nothing probed a connected server: CheckHealth existed but
+# had no caller, so the server stayed connected/healthy with its tools listed
+# while every call failed, until an operator ran core_service_restart
+# (giantswarm/muster#493 gap 1, #999).
+
+pre_configuration:
+  main_config:
+    config:
+      events: true
+
+  mcp_servers:
+    - name: "probed-server"
+      config:
+        type: "streamable-http"
+        tools:
+          - name: "probe"
+            description: "Answers when the backend is reachable"
+            input_schema:
+              type: "object"
+              properties: {}
+            responses:
+              - response: { alive: true }
+
+steps:
+  - id: "connected"
+    tool: "core_service_status"
+    args:
+      name: "probed-server"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "connected"
+        health: "healthy"
+    timeout: "45s"
+
+  - id: "probe-works"
+    tool: "x_probed-server_probe"
+    args: {}
+    expected:
+      success: true
+      contains: ["alive"]
+    timeout: "15s"
+
+  - id: "backend-gone"
+    tool: "test_stop_mock_server"
+    args:
+      server: "probed-server"
+    expected:
+      success: true
+      contains: ["Stopped mock server"]
+    timeout: "15s"
+
+  - id: "unhealthy-detected-and-restart-started"
+    description: "The third failed probe emits one MCPServerHealthCheckFailed with the count and the error; the orchestrator's restart emits the recovery events. Before the fix neither event ever came"
+    tool: "core_events"
+    args:
+      resourceType: "MCPServer"
+      resourceName: "probed-server"
+    expected:
+      success: true
+      wait_for_state: "45s"
+      contains:
+        - "health check failed: 3 consecutive failures: MCP ping failed"
+        - "automatic recovery process started"
+        - "connection failure 1 of 3 before unreachable"
+    timeout: "60s"
+
+  - id: "handed-to-the-reconnect-schedule"
+    description: "The failed start scheduled the service's own retries; with the backend still down they run out to unreachable and the status names the refused connection and the next retry"
+    tool: "core_service_status"
+    args:
+      name: "probed-server"
+    expected:
+      success: true
+      wait_for_state: "45s"
+      json_path:
+        state: "unreachable"
+      contains: ["connection refused", "nextRetryAfter"]
+    timeout: "60s"
+
+  - id: "backend-back"
+    tool: "test_start_mock_server"
+    args:
+      server: "probed-server"
+    expected:
+      success: true
+      contains: ["Started mock server"]
+    timeout: "30s"
+
+  - id: "reconnected-and-healthy"
+    tool: "core_service_status"
+    args:
+      name: "probed-server"
+    expected:
+      success: true
+      wait_for_state: "45s"
+      json_path:
+        state: "connected"
+        health: "healthy"
+        metadata:
+          consecutiveHealthCheckFailures: 0
+    timeout: "60s"
+
+  - id: "probe-works-again"
+    tool: "x_probed-server_probe"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "20s"
+      contains: ["alive"]
+    timeout: "30s"

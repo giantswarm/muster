@@ -108,12 +108,22 @@ type Service struct {
 	// after construction; set via WithKubernetesMode.
 	kubernetesMode bool
 
-	// healthEventMutex guards healthEventUnhealthy, which gates emission of
+	// healthEventMutex guards the health-probe bookkeeping. healthCheckFailures
+	// counts failed probes in a row; the server turns unhealthy at
+	// HealthCheckFailureThreshold. healthEventUnhealthy gates emission of
 	// MCPServerHealthCheckFailed to the healthy->unhealthy transition so the
-	// 30s health-check loop does not re-emit the same event every poll.
+	// health-check loop does not re-emit the same event every poll.
 	healthEventMutex     sync.Mutex
+	healthCheckFailures  int
 	healthEventUnhealthy bool
 }
+
+// HealthCheckFailureThreshold is the number of consecutive failed health
+// probes after which a connected server is reported unhealthy and its tools
+// are withdrawn. One failed ping -- a slow backend, a probe that hit a
+// rollout -- must not cost the server its tools; three in a row (90 s at the
+// production interval) mean the connection is dead.
+const HealthCheckFailureThreshold = 3
 
 // Option configures a Service at construction time.
 type Option func(*Service)
@@ -253,6 +263,7 @@ func (s *Service) Start(ctx context.Context) error {
 
 	// Success - reset consecutive failure tracking (thread-safe)
 	s.resetFailureTracking()
+	s.resetHealthCheckEventGate()
 
 	// A server reached with the caller's identity (forwardToken or
 	// tokenExchange) is served per session, and the client the probe just
@@ -367,6 +378,7 @@ func (s *Service) Stop(ctx context.Context) error {
 		s.LogWarn("Error during client cleanup: %v", err)
 		// Still transition to stopped state for graceful shutdown
 	}
+	s.resetHealthCheckEventGate()
 
 	// Use appropriate state based on server type:
 	// - Remote servers: "disconnected" is more intuitive
@@ -660,36 +672,56 @@ func (s *Service) GetServiceData() map[string]interface{} {
 	}
 	s.failureMutex.RUnlock()
 
+	s.healthEventMutex.Lock()
+	data[api.ServiceDataHealthCheckFailures] = s.healthCheckFailures
+	s.healthEventMutex.Unlock()
+
 	return data
 }
 
-// CheckHealth implements HealthChecker using MCP protocol
+// CheckHealth implements HealthChecker using the MCP ping. The orchestrator
+// calls it periodically for every connected or running server. A failed
+// probe is counted and returned; the health only turns unhealthy once
+// HealthCheckFailureThreshold probes failed in a row, and a passing probe
+// resets the count.
 func (s *Service) CheckHealth(ctx context.Context) (services.HealthStatus, error) {
 	s.clientInitMutex.Lock()
 	client := s.client
 	s.clientInitMutex.Unlock()
 
 	if client == nil {
-		s.UpdateHealth(services.HealthUnhealthy)
-		err := fmt.Errorf("MCP client not available")
-		s.emitHealthCheckFailedOnce(err.Error())
-		return services.HealthUnhealthy, err
+		return s.recordHealthCheckFailure(fmt.Errorf("MCP client not available"))
 	}
 
 	// Use MCP ping to check health instead of process checking
 	if pinger, ok := client.(interface{ Ping(context.Context) error }); ok {
 		if err := pinger.Ping(ctx); err != nil {
-			s.UpdateHealth(services.HealthUnhealthy)
-			healthErr := fmt.Errorf("MCP ping failed: %w", err)
-			s.emitHealthCheckFailedOnce(healthErr.Error())
-			return services.HealthUnhealthy, healthErr
+			return s.recordHealthCheckFailure(fmt.Errorf("MCP ping failed: %w", err))
 		}
 	}
 
-	s.UpdateHealth(services.HealthHealthy)
-	// Clear the gate so the next healthy->unhealthy transition emits again.
 	s.resetHealthCheckEventGate()
+	s.UpdateHealth(services.HealthHealthy)
 	return services.HealthHealthy, nil
+}
+
+// recordHealthCheckFailure counts a failed probe. Below the threshold the
+// health is left as it is; at the threshold the server turns unhealthy, which
+// withdraws its tools, and MCPServerHealthCheckFailed is emitted once.
+func (s *Service) recordHealthCheckFailure(err error) (services.HealthStatus, error) {
+	s.healthEventMutex.Lock()
+	s.healthCheckFailures++
+	failures := s.healthCheckFailures
+	s.healthEventMutex.Unlock()
+
+	if failures < HealthCheckFailureThreshold {
+		s.LogWarn("Health check failure %d of %d: %v", failures, HealthCheckFailureThreshold, err)
+		return s.GetHealth(), err
+	}
+
+	s.UpdateHealth(services.HealthUnhealthy)
+	s.emitHealthCheckFailedOnce(fmt.Sprintf("%d consecutive failures: %v", failures, err))
+	return services.HealthUnhealthy, err
 }
 
 // emitHealthCheckFailedOnce emits MCPServerHealthCheckFailed only on the
@@ -710,10 +742,12 @@ func (s *Service) emitHealthCheckFailedOnce(errMsg string) {
 	})
 }
 
-// resetHealthCheckEventGate clears the unhealthy gate after a healthy check so
-// the next failure transition emits a fresh event.
+// resetHealthCheckEventGate clears the failure count and the unhealthy gate
+// after a passing probe, a start or a stop, so the next run of failures is
+// counted from zero and its transition emits a fresh event.
 func (s *Service) resetHealthCheckEventGate() {
 	s.healthEventMutex.Lock()
+	s.healthCheckFailures = 0
 	s.healthEventUnhealthy = false
 	s.healthEventMutex.Unlock()
 }

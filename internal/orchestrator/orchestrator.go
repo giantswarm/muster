@@ -68,8 +68,14 @@ type Orchestrator struct {
 	ctx        context.Context
 	cancelFunc context.CancelFunc
 
-	// WaitGroup for tracking in-flight retry goroutines
+	// WaitGroup for tracking in-flight retry and health-probe goroutines
 	retryWg sync.WaitGroup
+
+	// healthChecksInFlight names the services whose health probe, or the
+	// restart it triggered, is still running, so a slow probe is not stacked
+	// by the next tick. See health_check.go.
+	healthMu             sync.Mutex
+	healthChecksInFlight map[string]struct{}
 
 	mu sync.RWMutex
 }
@@ -389,12 +395,16 @@ func (o *Orchestrator) Stop() error {
 	return nil
 }
 
-// retryFailedMCPServers runs a periodic background task that attempts to reconnect
-// MCPServers that have failed due to transient connectivity issues.
-// It respects the exponential backoff calculated by the service.
+// retryFailedMCPServers runs the periodic MCPServer maintenance loop: every
+// RetryInterval it attempts to reconnect servers that failed due to transient
+// connectivity issues, respecting the exponential backoff calculated by the
+// service, and every HealthCheckInterval it probes the connected ones (see
+// health_check.go).
 func (o *Orchestrator) retryFailedMCPServers() {
 	ticker := time.NewTicker(RetryInterval)
 	defer ticker.Stop()
+	healthTicker := time.NewTicker(HealthCheckInterval)
+	defer healthTicker.Stop()
 
 	for {
 		select {
@@ -405,6 +415,8 @@ func (o *Orchestrator) retryFailedMCPServers() {
 			return
 		case <-ticker.C:
 			o.attemptReconnectFailedServers()
+		case <-healthTicker.C:
+			o.checkConnectedServersHealth()
 		}
 	}
 }

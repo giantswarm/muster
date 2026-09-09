@@ -310,4 +310,8 @@ const (
 	// no HTTP response (connection refused, DNS, timeout) or the last attempt
 	// succeeded.
 	ServiceDataLastFailureHTTPStatus = "lastFailureHTTPStatus"
+	// ServiceDataHealthCheckFailures is an int: health probes that failed in
+	// a row against a connected server. Reset by a passing probe, a start or
+	// a stop.
+	ServiceDataHealthCheckFailures = "consecutiveHealthCheckFailures"
 )
