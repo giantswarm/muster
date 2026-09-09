@@ -75,6 +75,13 @@ func (c *StreamableHTTPClient) Initialize(ctx context.Context) error {
 		return nil
 	}
 
+	c.reconnect = c.connectLocked
+	return c.connectLocked(ctx)
+}
+
+// connectLocked creates the mcp-go client and performs the handshake. Caller
+// must hold c.mu for writing; also runs as the session-recovery reconnect.
+func (c *StreamableHTTPClient) connectLocked(ctx context.Context) error {
 	logging.Debug("StreamableHTTPClient", "Creating StreamableHTTP client for URL: %s", c.url)
 
 	// Build client options including headers if provided
@@ -163,6 +170,7 @@ func (c *StreamableHTTPClient) Initialize(ctx context.Context) error {
 	c.client = mcpClient
 	c.connected = true
 	c.negotiatedProtocolVersion = initResult.ProtocolVersion
+	c.hadSession = sessionIDOf(mcpClient) != ""
 	c.wireNotificationHandler()
 
 	logging.Debug("StreamableHTTPClient", "StreamableHTTP client initialized. Server: %s, Version: %s",

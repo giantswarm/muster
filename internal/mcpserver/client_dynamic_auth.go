@@ -101,6 +101,13 @@ func (c *DynamicAuthClient) Initialize(ctx context.Context) error {
 		return nil
 	}
 
+	c.reconnect = c.connectLocked
+	return c.connectLocked(ctx)
+}
+
+// connectLocked creates the mcp-go client and performs the handshake. Caller
+// must hold c.mu for writing; also runs as the session-recovery reconnect.
+func (c *DynamicAuthClient) connectLocked(ctx context.Context) error {
 	logging.Debug("DynamicAuthClient", "Creating StreamableHTTP client for URL: %s with OAuth handler", c.url)
 
 	// The detector watches both places a lost grant shows up: the token store
@@ -199,6 +206,7 @@ func (c *DynamicAuthClient) Initialize(ctx context.Context) error {
 	c.client = mcpClient
 	c.connected = true
 	c.negotiatedProtocolVersion = initResult.ProtocolVersion
+	c.hadSession = sessionIDOf(mcpClient) != ""
 	c.wireNotificationHandler()
 
 	logging.Debug("DynamicAuthClient", "StreamableHTTP client initialized with OAuth handler. Server: %s, Version: %s",
