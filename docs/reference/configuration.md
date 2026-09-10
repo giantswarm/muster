@@ -254,6 +254,14 @@ The same guard applies to the token endpoint of a remote Dex that muster exchang
 |-------|------|---------|-------------|
 | `mcpClient.tokenExchange.allowPrivateIP` | `bool` | `false` | Allow a remote Dex token endpoint to resolve to a private/loopback IP. Implied by `--extra-ca-file` (in-cluster TLS endpoints). Emits a startup warning when set; only enable it when the remote Dex is genuinely fronted by an internal-only load balancer. TLS verification is unchanged. |
 
+#### Private-IP CIMD Clients
+
+The SSRF guard also covers Client ID Metadata Documents (CIMD): a `client_id` that is a URL is fetched by the OAuth server, and by default that URL must not resolve to a private, loopback or link-local address. On a cluster whose own hostnames resolve to an internal load balancer, a CIMD client hosted on the platform itself (klaus-gateway's `/auth/slack/client.json`, for example) is rejected with `invalid_client: ... client_id metadata URL resolves to private/internal IP address`. Lift the guard only there.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `allowPrivateIPClientMetadata` | `bool` | `false` | Allow a CIMD `client_id` URL to resolve to a private/loopback/link-local IP. Emits a startup warning when set. PKCE and redirect-URI validation are unchanged. Helm: `muster.oauth.server.allowPrivateIPClientMetadata`. |
+
 #### Silent Re-Authentication (CLI Flag)
 
 Silent re-authentication is controlled via CLI flags only, not configuration file.
