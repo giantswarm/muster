@@ -16,6 +16,19 @@
 # Gated on its own value rather than on the prometheus exporter: metrics may
 # reach the Prometheus that loads this rule via OTLP instead of a scrape, in
 # which case muster.observability.metrics.exporter never mentions prometheus.
+#
+# Every expression aggregates over $by and nothing else. $by is what the Giant
+# Swarm Alertmanager groups, prints and inhibits on (cluster_id, installation,
+# pipeline, provider; namespace because a cluster can run more than one
+# release) plus the one dimension these alerts have, the MCPServer. The scrape
+# labels the series also carry (pod, instance, container, endpoint, service,
+# job, otel_scope_name) must not reach the alert: they change on every muster
+# rollout, and an alert that carries them is a different alert after each one.
+# The old pod's series ends and Alertmanager sends RESOLVED; the new pod's
+# series starts a fresh `for` window and fires again when it runs out. Four
+# rollouts in one day produced seven notifications for a backend that never
+# changed state.
+{{- $by := "cluster_id, installation, pipeline, provider, namespace, mcpserver_namespace, mcpserver_name" }}
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -35,12 +48,15 @@ spec:
         # 20m is comfortably longer than a rollout plus initial connect
         # backoff, and still two orders of magnitude below the ~2 days this
         # went unnoticed for.
+        #
+        # max, not sum: a rolling update runs the new pod next to the old one
+        # for a while, both export the gauge, and 1 + 1 == 1 is false.
         - alert: MusterMCPServerFailed
           annotations:
             description: '{{`MCPServer {{ $labels.mcpserver_namespace }}/{{ $labels.mcpserver_name }} has been in state Failed for 20m; the MCP backend is unreachable and its tools are unavailable to agents. The reason muster recorded is in the CR status.lastError field.`}}'
             runbook_url: '{{`https://intranet.giantswarm.io/docs/support-and-ops/runbooks/muster-mcpserver-failed/?INSTALLATION={{ $labels.installation }}&CLUSTER={{ $labels.cluster_id }}`}}'
           expr: |-
-            muster_mcpserver_state{state="Failed"} == 1
+            max by ({{ $by }}) (muster_mcpserver_state{state="Failed"}) == 1
           for: 20m
           labels:
             area: platform
@@ -57,12 +73,16 @@ spec:
         #
         # A muster restart contributes exactly one Failed transition per broken
         # server, well under the threshold, so rollouts do not trip this.
+        #
+        # sum, not max: the counter is per process, so across a rollout the
+        # transitions the old and the new pod observed add up to what the
+        # backend did.
         - alert: MusterMCPServerFlapping
           annotations:
             description: '{{`MCPServer {{ $labels.mcpserver_namespace }}/{{ $labels.mcpserver_name }} entered state Failed {{ $value | printf "%.0f" }} times in the last hour; the MCP backend is connecting and dropping repeatedly.`}}'
             runbook_url: '{{`https://intranet.giantswarm.io/docs/support-and-ops/runbooks/muster-mcpserver-failed/?INSTALLATION={{ $labels.installation }}&CLUSTER={{ $labels.cluster_id }}`}}'
           expr: |-
-            increase(muster_mcpserver_state_transitions_total{state="Failed"}[1h]) > 5
+            sum by ({{ $by }}) (increase(muster_mcpserver_state_transitions_total{state="Failed"}[1h])) > 5
           for: 10m
           labels:
             area: platform
