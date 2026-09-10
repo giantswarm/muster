@@ -1,0 +1,115 @@
+name: "toolset-filter-tools-echo"
+description: "filter_tools names the toolset its tools were resolved within: with X-Muster-Toolset alone the response's toolset echoes the header's selectors as declared (presets stay behind include_presets); with header and argument it echoes the argument; without any toolset it carries none (#1194)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["toolset", "filter_tools", "metatools", "1194"]
+timeout: "5m"
+
+# Given: a mock server with a read-only and a destructive tool.
+# When:  filter_tools is called with X-Muster-Toolset only, with header and
+#        argument, and with neither.
+# Then:  the response's toolset is the header's selectors, the argument's
+#        selectors, and absent, respectively — so an agent whose toolset is
+#        set by its deployment can learn what bounds it from discovery alone.
+
+pre_configuration:
+  mcp_servers:
+    - name: "k8s"
+      config:
+        tools:
+          - name: "get_pods"
+            description: "List pods"
+            annotations: { read_only_hint: true }
+            responses: [{ response: { pods: [] } }]
+          - name: "delete_pod"
+            description: "Delete a pod"
+            annotations: { read_only_hint: false, destructive_hint: true }
+            responses: [{ response: { deleted: true } }]
+
+steps:
+  - id: "wait-for-server"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["k8s"]
+
+  - id: "header-only-echoes-header"
+    description: "with the header alone, toolset echoes the header's selectors; presets are not added"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_tools"
+      arguments:
+        pattern: "x_k8s_*"
+        limit: 50
+    headers: { X-Muster-Toolset: "preset:read-only" }
+    expected:
+      success: true
+      wait_for_state: "20s"
+      json_path:
+        total: 1
+        tools.0.name: "x_k8s_get_pods"
+        toolset.0: "preset:read-only"
+      not_contains: ["x_k8s_delete_pod", "toolset_unmatched", "presets"]
+
+  - id: "header-echo-as-declared-with-unmatched"
+    description: "the echo is the header as declared (trimmed); the selectors that matched nothing come back next to it"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_tools"
+      arguments:
+        pattern: "x_k8s_*"
+        limit: 50
+    headers: { X-Muster-Toolset: "preset:read-only, server:nope" }
+    expected:
+      success: true
+      json_path:
+        toolset.0: "preset:read-only"
+        toolset.1: "server:nope"
+        toolset_unmatched.0: "server:nope"
+
+  - id: "header-with-include-presets"
+    description: "include_presets adds the presets to the header echo"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_tools"
+      arguments:
+        include_presets: true
+        pattern: "x_k8s_*"
+    headers: { X-Muster-Toolset: "preset:read-only" }
+    expected:
+      success: true
+      json_path:
+        toolset.0: "preset:read-only"
+        presets.0.name: "read-only"
+
+  - id: "header-and-argument-echoes-argument"
+    description: "with both, the argument is what the tools were resolved within, so it is the one echoed (unchanged)"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_tools"
+      arguments:
+        toolset: ["server:k8s"]
+        limit: 50
+    headers: { X-Muster-Toolset: "preset:read-only" }
+    expected:
+      success: true
+      json_path:
+        total: 1
+        tools.0.name: "x_k8s_get_pods"
+        toolset.0: "server:k8s"
+
+  - id: "no-toolset-no-echo"
+    description: "an unscoped request carries no toolset (unchanged)"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_tools"
+      arguments:
+        pattern: "x_k8s_*"
+        limit: 50
+    expected:
+      success: true
+      json_path:
+        total: 2
+      not_contains: ["toolset:", "toolset_unmatched"]

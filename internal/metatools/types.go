@@ -154,14 +154,16 @@ type FilterToolsResponse struct {
 	Total         int        `json:"total"`
 	Truncated     bool       `json:"truncated"`
 	Tools         []ToolInfo `json:"tools"`
-	// Toolset echoes the inline selectors of the toolset argument when one was
-	// given; the tools above are those it resolves to for the caller.
+	// Toolset echoes the selectors of the toolset the tools above were
+	// resolved within: the toolset argument when one was given, else the
+	// request's X-Muster-Toolset. Absent when the request is unscoped.
 	Toolset []string `json:"toolset,omitempty"`
-	// ToolsetUnmatched lists the selectors (of the toolset argument, else of
-	// the request's X-Muster-Toolset) that select no tool for the caller.
+	// ToolsetUnmatched lists the selectors of that toolset that select no tool
+	// for the caller.
 	ToolsetUnmatched []string `json:"toolset_unmatched,omitempty"`
 	// Presets lists the known toolset presets when include_presets is set or a
-	// toolset argument was given.
+	// toolset argument was given; a request-declared toolset alone does not
+	// add them.
 	Presets []toolset.Info `json:"presets,omitempty"`
 }
 
