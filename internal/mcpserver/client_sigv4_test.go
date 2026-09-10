@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -140,6 +141,20 @@ func TestNewMCPClientFromTypeSigV4(t *testing.T) {
 		streamable, ok := client.(*StreamableHTTPClient)
 		require.True(t, ok)
 		assert.NotNil(t, streamable.httpClientFunc)
+	})
+
+	t.Run("the server's timeout bounds the session-recovery handshake", func(t *testing.T) {
+		for _, auth := range []*api.MCPServerAuth{nil, sigv4Auth} {
+			client, err := NewMCPClientFromType(api.MCPServerTypeStreamableHTTP, MCPClientConfig{
+				URL:     testSigV4URL,
+				Auth:    auth,
+				Timeout: 90 * time.Second,
+			})
+			require.NoError(t, err)
+			streamable, ok := client.(*StreamableHTTPClient)
+			require.True(t, ok)
+			assert.Equal(t, 90*time.Second, streamable.recoveryTimeout)
+		}
 	})
 
 	// The factory is the single runtime enforcement point, so the rules

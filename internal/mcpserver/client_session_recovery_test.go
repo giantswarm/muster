@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
@@ -31,6 +32,9 @@ type sessionFakeClient struct {
 	callErrs []error
 	calls    int
 	closed   int
+	// barrier, when set, runs at the start of every CallTool so a test can
+	// hold concurrent callers inside the operation until all have arrived.
+	barrier func()
 }
 
 func (f *sessionFakeClient) GetSessionId() string {
@@ -40,6 +44,9 @@ func (f *sessionFakeClient) GetSessionId() string {
 }
 
 func (f *sessionFakeClient) CallTool(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if f.barrier != nil {
+		f.barrier()
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	i := f.calls
@@ -169,6 +176,7 @@ func TestSessionRecovery_FailedHandshakeIsRetriedByTheNextOperation(t *testing.T
 
 	_, err := h.base.callTool(t.Context(), "echo", nil)
 	require.ErrorIs(t, err, transport.ErrSessionTerminated, "the original failure is reported when the handshake fails")
+	assert.ErrorContains(t, err, "connection refused", "together with why the handshake failed")
 	assert.Equal(t, int32(1), h.reconnects.Load())
 	assert.False(t, h.base.connected)
 	assert.True(t, h.base.reconnectPending)
@@ -179,6 +187,113 @@ func TestSessionRecovery_FailedHandshakeIsRetriedByTheNextOperation(t *testing.T
 	assert.Equal(t, int32(2), h.reconnects.Load())
 	assert.False(t, h.base.reconnectPending)
 	assert.Equal(t, 1, fresh.callCount())
+}
+
+// A backend that rejects the handshake with 401 must be reported as auth
+// required, not as a lost session: the aggregator's 401 checks decide on the
+// error whether to refresh a token or ask the user to sign in again.
+func TestSessionRecovery_FailedHandshakeKeepsAuthRequiredError(t *testing.T) {
+	old := &sessionFakeClient{sessionID: "s1", callErrs: []error{errSessionGone}}
+	h := newRecoveryHarness(old, &sessionFakeClient{sessionID: "s2"})
+	h.reconnectErrs = []error{&AuthRequiredError{
+		URL: "http://backend",
+		Err: fmt.Errorf("server returned 401 Unauthorized: %w", transport.ErrUnauthorized),
+	}}
+
+	_, err := h.base.callTool(t.Context(), "echo", nil)
+
+	require.Error(t, err)
+	var authErr *AuthRequiredError
+	assert.ErrorAs(t, err, &authErr)
+	assert.ErrorIs(t, err, transport.ErrUnauthorized)
+	assert.ErrorIs(t, err, transport.ErrSessionTerminated)
+}
+
+// The handshake runs with the write lock held, so it is bounded even when
+// the caller's context carries no deadline; otherwise a hung backend would
+// block every other operation on the client, Close included.
+func TestSessionRecovery_HandshakeHasDeadline(t *testing.T) {
+	old := &sessionFakeClient{sessionID: "s1", callErrs: []error{errSessionGone}}
+	h := newRecoveryHarness(old, &sessionFakeClient{sessionID: "s2"})
+	inner := h.base.reconnect
+	var hasDeadline bool
+	h.base.reconnect = func(ctx context.Context) error {
+		_, hasDeadline = ctx.Deadline()
+		return inner(ctx)
+	}
+
+	_, err := h.base.callTool(t.Context(), "echo", nil)
+
+	require.NoError(t, err)
+	assert.True(t, hasDeadline)
+}
+
+// A server configured with a timeout longer than the default connected under
+// that budget the first time; its recovery handshake gets the same budget.
+func TestSessionRecovery_HandshakeDeadlineFollowsConfiguredTimeout(t *testing.T) {
+	old := &sessionFakeClient{sessionID: "s1", callErrs: []error{errSessionGone}}
+	h := newRecoveryHarness(old, &sessionFakeClient{sessionID: "s2"})
+	h.base.recoveryTimeout = 90 * time.Second
+	inner := h.base.reconnect
+	var remaining time.Duration
+	h.base.reconnect = func(ctx context.Context) error {
+		deadline, ok := ctx.Deadline()
+		require.True(t, ok)
+		remaining = time.Until(deadline)
+		return inner(ctx)
+	}
+
+	_, err := h.base.callTool(t.Context(), "echo", nil)
+
+	require.NoError(t, err)
+	assert.Greater(t, remaining, sessionRecoveryTimeout, "the configured timeout, not the default, bounds the handshake")
+}
+
+// Every caller queued behind the one failed handshake gets its cause, not
+// only the caller that ran it: the aggregator's 401 checks run on each
+// caller's error.
+func TestSessionRecovery_ConcurrentCallersShareOneFailedHandshake(t *testing.T) {
+	const callers = 16
+	failing := make([]error, callers)
+	rejected := make([]error, callers)
+	for i := range failing {
+		failing[i] = errSessionGone
+		rejected[i] = &AuthRequiredError{
+			URL: "http://backend",
+			Err: fmt.Errorf("server returned 401 Unauthorized: %w", transport.ErrUnauthorized),
+		}
+	}
+	old := &sessionFakeClient{sessionID: "s1", callErrs: failing}
+	// Every caller fails on the same generation: a caller that arrived after
+	// the failed handshake would be the next operation, which does try again.
+	var arrived sync.WaitGroup
+	arrived.Add(callers)
+	old.barrier = func() { arrived.Done(); arrived.Wait() }
+	h := newRecoveryHarness(old, &sessionFakeClient{sessionID: "s2"})
+	h.reconnectErrs = rejected
+
+	var wg sync.WaitGroup
+	errs := make(chan error, callers)
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := h.base.callTool(t.Context(), "echo", nil)
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		require.ErrorIs(t, err, transport.ErrSessionTerminated)
+		var authErr *AuthRequiredError
+		require.ErrorAs(t, err, &authErr, "every caller learns why the shared handshake failed")
+		require.ErrorIs(t, err, transport.ErrUnauthorized)
+	}
+	assert.Equal(t, int32(1), h.reconnects.Load(), "callers queued behind a failed handshake do not each repeat it")
+	assert.Equal(t, uint64(1), h.base.sessionGeneration)
+	assert.True(t, h.base.reconnectPending, "the next operation tries again")
 }
 
 func TestSessionRecovery_ConcurrentCallersShareOneHandshake(t *testing.T) {

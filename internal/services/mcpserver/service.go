@@ -896,11 +896,18 @@ func (s *Service) LogWarn(format string, args ...interface{}) {
 // getRemoteInitContext creates a context with the appropriate timeout for remote MCP client initialization.
 // Uses the configured timeout if set, otherwise falls back to DefaultRemoteTimeout.
 func (s *Service) getRemoteInitContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, s.remoteTimeout())
+}
+
+// remoteTimeout is spec.timeout for a remote server, DefaultRemoteTimeout
+// when unset. The first connect, the health probe and the session-recovery
+// handshake all run under this one budget.
+func (s *Service) remoteTimeout() time.Duration {
 	timeout := s.definition.Timeout
 	if timeout == 0 {
 		timeout = DefaultRemoteTimeout
 	}
-	return context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
+	return time.Duration(timeout) * time.Second
 }
 
 // createAndInitializeClient creates the appropriate MCP client based on the server type.
@@ -932,6 +939,7 @@ func (s *Service) createAndInitializeClient(ctx context.Context) error {
 		Headers: s.definition.Headers,
 		Meta:    s.definition.Meta,
 		Auth:    s.definition.Auth,
+		Timeout: s.remoteTimeout(),
 	}
 
 	// Use factory to create the appropriate client type
