@@ -256,6 +256,51 @@ func TestToolset_FilterToolsArgument(t *testing.T) {
 	}
 }
 
+func TestToolset_FilterToolsEchoesRequestToolset(t *testing.T) {
+	defer registerMockHandler(toolsetFixture())()
+	p := NewProvider()
+
+	// Header only: the response names the header's toolset, selectors as
+	// declared (trimmed), with the unmatched ones; presets stay opt-in.
+	result, err := p.ExecuteTool(withHeader("preset:read-only, server:nope", true), "filter_tools", map[string]any{"limit": float64(10)})
+	require.NoError(t, err)
+	resp := decode(t, result)
+	assert.Equal(t, []any{"preset:read-only", "server:nope"}, resp["toolset"])
+	assert.Equal(t, []any{"server:nope"}, resp["toolset_unmatched"])
+	assert.Nil(t, resp["presets"], "a request-declared toolset alone does not list the presets")
+	assert.Equal(t, []string{"x_k8s_get", "workflow_triage"}, toolNames(t, resp))
+
+	// Header and include_presets: the echo and the presets together.
+	result, err = p.ExecuteTool(withHeader("preset:read-only", true), "filter_tools", map[string]any{"include_presets": true})
+	require.NoError(t, err)
+	resp = decode(t, result)
+	assert.Equal(t, []any{"preset:read-only"}, resp["toolset"])
+	assert.Len(t, resp["presets"], 3)
+
+	// Header and argument: the argument is what the tools were resolved
+	// within, so it is the one echoed.
+	result, err = p.ExecuteTool(withHeader("preset:read-only", true), "filter_tools", map[string]any{"toolset": []any{"server:k8s"}})
+	require.NoError(t, err)
+	resp = decode(t, result)
+	assert.Equal(t, []any{"server:k8s"}, resp["toolset"])
+	assert.Equal(t, []string{"x_k8s_get"}, toolNames(t, resp))
+
+	// No toolset anywhere: nothing to echo.
+	result, err = p.ExecuteTool(withHeader("", false), "filter_tools", map[string]any{"limit": float64(10)})
+	require.NoError(t, err)
+	resp = decode(t, result)
+	_, present := resp["toolset"]
+	assert.False(t, present, "an unscoped request carries no toolset")
+	assert.Nil(t, resp["toolset_unmatched"])
+
+	// list_core_tools shares the engine and echoes the header the same way.
+	result, err = p.ExecuteTool(withHeader("tool:core_workflow_list", true), "list_core_tools", nil)
+	require.NoError(t, err)
+	resp = decode(t, result)
+	assert.Equal(t, []any{"tool:core_workflow_list"}, resp["toolset"])
+	assert.Equal(t, []string{"core_workflow_list"}, toolNames(t, resp))
+}
+
 func TestToolset_ResourcesAndPromptsFollowTheServers(t *testing.T) {
 	defer registerMockHandler(toolsetFixture())()
 	p := NewProvider()

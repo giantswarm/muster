@@ -187,6 +187,16 @@ for example a server the caller has not signed in to; `preset:none` is never rep
 `X-Muster-Toolset`, the argument resolves **within** the header's toolset and never widens it.
 Argument errors use the header's texts.
 
+`toolset` names the toolset the returned tools were resolved within, whichever way it was
+declared. Without a `toolset` argument, a request carrying `X-Muster-Toolset` gets the header's
+selectors echoed (as declared, e.g. `["preset:read-only"]`), with `toolset_unmatched` computed
+against them — the one place an agent whose toolset is set by its deployment can learn what
+bounds it, and how an operator reading a transcript sees which toolset a discovery call ran
+under. With both header and argument the argument is echoed, as it is the narrower of the two.
+An unscoped request carries no `toolset`. `presets` accompanies the argument or
+`include_presets` only: a header-declared toolset alone does not add them, so the discovery
+calls of an agent scoped by header stay as small as unscoped ones.
+
 ### Tool information
 
 Every entry of `list_tools` / `filter_tools`, and `describe_tool`, carries:
