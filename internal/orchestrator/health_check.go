@@ -1,10 +1,8 @@
 package orchestrator
 
 import (
-	"context"
 	"time"
 
-	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/services"
 	"github.com/giantswarm/muster/internal/services/mcpserver"
 	"github.com/giantswarm/muster/pkg/logging"
@@ -17,122 +15,42 @@ import (
 // called it once the initial connect had succeeded, so a backend that died,
 // hung, or lost the MCP session kept its tools listed and every call failed
 // (issues #493, #999). The orchestrator now probes every active MCPServer
-// service on a fixed interval; the service counts the failures and turns
-// unhealthy at mcpserver.HealthCheckFailureThreshold, which withdraws its
-// tools, and the orchestrator restarts it. A restart that fails hands the
-// server to the existing reconnect schedule. Probes run concurrently, one per
-// server; the restarts they trigger are bounded by MaxConcurrentRetries like
-// the reconnect loop's retries.
+// service on a fixed interval. The service owns the outcome: it counts the
+// failures and, at mcpserver.HealthCheckFailureThreshold, closes its client
+// and moves to Failed with a reconnect due at once. From there the retry loop
+// -- the one place that restarts servers, with the concurrency bound and the
+// state checks it already has -- reconnects it on its next tick, and a
+// reconnect that fails follows the usual backoff.
 
 // HealthCheckInterval is the time between two health probes of a connected
 // MCPServer. Overridable via MUSTER_ORCHESTRATOR_HEALTH_CHECK_INTERVAL (a Go
 // duration) so the integration test harness can observe the recovery
-// without waiting for production-length ticks.
+// without waiting for production-length ticks. Each probe is bounded by the
+// server's own timeout (spec.timeout), see mcpserver.Service.CheckHealth.
 var HealthCheckInterval = durationFromEnv("MUSTER_ORCHESTRATOR_HEALTH_CHECK_INTERVAL", 30*time.Second)
 
-// HealthCheckTimeout bounds one probe. A backend that does not answer a ping
-// within it counts as a failed probe.
-const HealthCheckTimeout = 10 * time.Second
-
 // checkConnectedServersHealth probes every connected or running MCPServer
-// service once, concurrently, and restarts the ones that report unhealthy.
-// A service whose previous probe or restart is still running is skipped.
+// service once, concurrently. Nothing else happens here: a server the probes
+// have failed is Failed with a reconnect due, and the retry loop takes it.
 func (o *Orchestrator) checkConnectedServersHealth() {
+	if o.ctx.Err() != nil {
+		return
+	}
 	for _, svc := range o.registry.GetByType(services.TypeMCPServer) {
 		checker, ok := svc.(services.HealthChecker)
 		if !ok || !isActiveState(svc.GetState()) {
 			continue
 		}
-		if !o.beginHealthCheck(svc.GetName()) {
-			continue
-		}
 
 		o.retryWg.Add(1)
-		go func(svc services.Service, checker services.HealthChecker) {
+		go func(name string, checker services.HealthChecker) {
 			defer o.retryWg.Done()
-			defer o.endHealthCheck(svc.GetName())
-			o.probeAndRecover(svc, checker)
-		}(svc, checker)
+			if health, err := checker.CheckHealth(o.ctx); health == services.HealthUnhealthy {
+				logging.Warn("Orchestrator", "MCPServer %s failed %d consecutive health checks; reconnecting on the next retry tick: %v",
+					name, mcpserver.HealthCheckFailureThreshold, err)
+			}
+		}(svc.GetName(), checker)
 	}
-}
-
-// probeAndRecover runs one health probe and restarts the service when the
-// probe reports it unhealthy. Failures below the service's threshold are the
-// service's to log; nothing is done here. A restart waits for one of the
-// MaxConcurrentRetries slots, so a shared upstream going away does not have
-// every server behind it rebuild its client in the same instant, and it is
-// skipped when the service left Connected/Running while the probe ran: an
-// operator's core_service_stop or a reconciler restart got there first and a
-// restart now would undo the stop.
-func (o *Orchestrator) probeAndRecover(svc services.Service, checker services.HealthChecker) {
-	if o.ctx.Err() != nil {
-		return
-	}
-
-	probeCtx, cancel := context.WithTimeout(o.ctx, HealthCheckTimeout)
-	health, err := checker.CheckHealth(probeCtx)
-	cancel()
-	if health != services.HealthUnhealthy {
-		return
-	}
-
-	slots := o.healthRestartSlotsChan()
-	select {
-	case slots <- struct{}{}:
-		defer func() { <-slots }()
-	case <-o.ctx.Done():
-		return
-	}
-	if state := svc.GetState(); !isActiveState(state) {
-		logging.Info("Orchestrator", "MCPServer %s is %s since its failed health check, not restarting it", svc.GetName(), state)
-		return
-	}
-
-	logging.Warn("Orchestrator", "MCPServer %s failed %d consecutive health checks, restarting: %v",
-		svc.GetName(), mcpserver.HealthCheckFailureThreshold, err)
-
-	if err := svc.Restart(o.ctx); err != nil {
-		if api.IsAuthRequiredError(err) {
-			// Pending auth registration happens in the auth-required hook inside Start.
-			return
-		}
-		// Start scheduled its own reconnect attempts; the retry loop takes it from here.
-		logging.Warn("Orchestrator", "Restart of unhealthy MCPServer %s failed: %v", svc.GetName(), err)
-		return
-	}
-	logging.Info("Orchestrator", "Restarted unhealthy MCPServer %s", svc.GetName())
-}
-
-// beginHealthCheck marks a probe in flight for the named service and reports
-// whether the caller got the slot.
-func (o *Orchestrator) beginHealthCheck(name string) bool {
-	o.healthMu.Lock()
-	defer o.healthMu.Unlock()
-	if o.healthChecksInFlight == nil {
-		o.healthChecksInFlight = make(map[string]struct{})
-	}
-	if _, running := o.healthChecksInFlight[name]; running {
-		return false
-	}
-	o.healthChecksInFlight[name] = struct{}{}
-	return true
-}
-
-func (o *Orchestrator) endHealthCheck(name string) {
-	o.healthMu.Lock()
-	delete(o.healthChecksInFlight, name)
-	o.healthMu.Unlock()
-}
-
-// healthRestartSlotsChan returns the semaphore that bounds concurrent
-// health-triggered restarts to MaxConcurrentRetries, creating it on first use.
-func (o *Orchestrator) healthRestartSlotsChan() chan struct{} {
-	o.healthMu.Lock()
-	defer o.healthMu.Unlock()
-	if o.healthRestartSlots == nil {
-		o.healthRestartSlots = make(chan struct{}, MaxConcurrentRetries)
-	}
-	return o.healthRestartSlots
 }
 
 // isActiveState reports whether a service is up: Running for a stdio server,
