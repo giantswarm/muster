@@ -320,25 +320,8 @@ func parseCapabilityFilterArgs(args map[string]any) (CapabilityFilterCriteria, *
 	if v, ok := args["case_sensitive"].(bool); ok {
 		opts.CaseSensitive = v
 	}
-	if v, ok := args["limit"]; ok {
-		limit, err := toInt(v)
-		if err != nil {
-			return opts, errorResult("limit must be a number")
-		}
-		if limit < 1 {
-			return opts, errorResult("limit must be at least 1")
-		}
-		opts.Limit = limit
-	}
-	if v, ok := args["offset"]; ok {
-		offset, err := toInt(v)
-		if err != nil {
-			return opts, errorResult("offset must be a number")
-		}
-		if offset < 0 {
-			return opts, errorResult("offset must be at least 0")
-		}
-		opts.Offset = offset
+	if errResult := parsePageArgs(args, &opts.Limit, &opts.Offset); errResult != nil {
+		return opts, errResult
 	}
 
 	if opts.Pattern != "" {

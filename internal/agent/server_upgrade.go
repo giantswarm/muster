@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/metatools"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -26,160 +27,22 @@ func RegisterClientToolsOnServer(mcpServer *server.MCPServer, client *Client) {
 	registerAgentTools(wrapper)
 }
 
-// registerAgentTools registers the standard meta-tools on an MCPServer.
-// All handlers use the transport bridge pattern and forward to server meta-tools.
+// registerAgentTools registers the aggregator's meta-tools on an MCPServer.
+// All handlers use the transport bridge pattern and forward to the server's
+// meta-tool of the same name, arguments passed through untouched.
+//
+// The definitions — names, descriptions, arguments — are the provider's own,
+// so what an AI assistant sees through the local agent is exactly what the
+// aggregator advertises: a new meta-tool, argument or description reaches the
+// bridge without a hand-maintained copy that can fall behind (the copy this
+// replaced still described filter_tools as returning full specifications).
 func registerAgentTools(m *MCPServer) {
-	// List tools
-	listToolsTool := mcp.NewTool("list_tools",
-		mcp.WithDescription("List all available tools from connected MCP servers"),
-	)
-	m.mcpServer.AddTool(listToolsTool, m.forwardToServerMetaTool("list_tools"))
-
-	// List resources
-	listResourcesTool := mcp.NewTool("list_resources",
-		mcp.WithDescription("List all available resources from connected MCP servers"),
-	)
-	m.mcpServer.AddTool(listResourcesTool, m.forwardToServerMetaTool("list_resources"))
-
-	// List prompts
-	listPromptsTool := mcp.NewTool("list_prompts",
-		mcp.WithDescription("List all available prompts from connected MCP servers"),
-	)
-	m.mcpServer.AddTool(listPromptsTool, m.forwardToServerMetaTool("list_prompts"))
-
-	// Describe tool
-	describeToolTool := mcp.NewTool("describe_tool",
-		mcp.WithDescription("Get detailed information about a specific tool"),
-		mcp.WithString("name",
-			mcp.Required(),
-			mcp.Description("Name of the tool to describe"),
-		),
-	)
-	m.mcpServer.AddTool(describeToolTool, m.forwardToServerMetaTool("describe_tool"))
-
-	// Describe resource
-	describeResourceTool := mcp.NewTool("describe_resource",
-		mcp.WithDescription("Get detailed information about a specific resource"),
-		mcp.WithString("uri",
-			mcp.Required(),
-			mcp.Description("URI of the resource to describe"),
-		),
-	)
-	m.mcpServer.AddTool(describeResourceTool, m.forwardToServerMetaTool("describe_resource"))
-
-	// Describe prompt
-	describePromptTool := mcp.NewTool("describe_prompt",
-		mcp.WithDescription("Get detailed information about a specific prompt"),
-		mcp.WithString("name",
-			mcp.Required(),
-			mcp.Description("Name of the prompt to describe"),
-		),
-	)
-	m.mcpServer.AddTool(describePromptTool, m.forwardToServerMetaTool("describe_prompt"))
-
-	// Call tool
-	callToolTool := mcp.NewTool("call_tool",
-		mcp.WithDescription("Execute a tool with the given arguments"),
-		mcp.WithString("name",
-			mcp.Required(),
-			mcp.Description("Name of the tool to call"),
-		),
-		mcp.WithObject("arguments",
-			mcp.Description("Arguments to pass to the tool (as JSON object)"),
-		),
-	)
-	m.mcpServer.AddTool(callToolTool, m.forwardToServerMetaTool("call_tool"))
-
-	// Get resource
-	getResourceTool := mcp.NewTool("get_resource",
-		mcp.WithDescription("Retrieve the contents of a resource"),
-		mcp.WithString("uri",
-			mcp.Required(),
-			mcp.Description("URI of the resource to retrieve"),
-		),
-	)
-	m.mcpServer.AddTool(getResourceTool, m.forwardToServerMetaTool("get_resource"))
-
-	// Get prompt
-	getPromptTool := mcp.NewTool("get_prompt",
-		mcp.WithDescription("Get a prompt with the given arguments"),
-		mcp.WithString("name",
-			mcp.Required(),
-			mcp.Description("Name of the prompt to get"),
-		),
-		mcp.WithObject("arguments",
-			mcp.Description("Arguments to pass to the prompt (as JSON object with string values)"),
-		),
-	)
-	m.mcpServer.AddTool(getPromptTool, m.forwardToServerMetaTool("get_prompt"))
-
-	// List core tools
-	listCoreToolsTool := mcp.NewTool("list_core_tools",
-		mcp.WithDescription("List core muster tools (built-in functionality separate from external MCP servers)"),
-		mcp.WithBoolean("include_schema",
-			mcp.Description("Whether to include full tool specifications with input schemas (default: true)"),
-		),
-	)
-	m.mcpServer.AddTool(listCoreToolsTool, m.forwardToServerMetaTool("list_core_tools"))
-
-	// Filter tools
-	filterToolsTool := mcp.NewTool("filter_tools",
-		mcp.WithDescription("Filter available tools based on name patterns or descriptions with full specifications"),
-		mcp.WithString("pattern",
-			mcp.Description("Pattern to match against tool names (supports wildcards like *)"),
-		),
-		mcp.WithString("description_filter",
-			mcp.Description("Filter by description content (case-insensitive substring match)"),
-		),
-		mcp.WithBoolean("case_sensitive",
-			mcp.Description("Whether pattern matching should be case-sensitive (default: false)"),
-		),
-		mcp.WithBoolean("include_schema",
-			mcp.Description("Whether to include full tool specifications with input schemas (default: true)"),
-		),
-	)
-	m.mcpServer.AddTool(filterToolsTool, m.forwardToServerMetaTool("filter_tools"))
-
-	// Resources are scoped by source server, not by URI pattern: a resource URI
-	// carrying a scheme is exposed unprefixed, so there is no per-server prefix
-	// to match against.
-	filterResourcesTool := mcp.NewTool(metatools.ToolFilterResources,
-		mcp.WithDescription("Filter aggregated resources by source server and/or URI pattern"),
-		mcp.WithString("server",
-			mcp.Description("Only return resources exposed by this server"),
-		),
-		mcp.WithString("pattern",
-			mcp.Description("Glob pattern to match against the resource URI"),
-		),
-		mcp.WithBoolean("case_sensitive",
-			mcp.Description("Match case-sensitively (default: false)"),
-		),
-		mcp.WithNumber("limit",
-			mcp.Description("Maximum number of results to return per page"),
-		),
-		mcp.WithNumber("offset",
-			mcp.Description("Number of matches to skip before the returned page"),
-		),
-	)
-	m.mcpServer.AddTool(filterResourcesTool, m.forwardToServerMetaTool(metatools.ToolFilterResources))
-
-	filterPromptsTool := mcp.NewTool(metatools.ToolFilterPrompts,
-		mcp.WithDescription("Filter aggregated prompts by source server and/or name pattern"),
-		mcp.WithString("server",
-			mcp.Description("Only return prompts exposed by this server"),
-		),
-		mcp.WithString("pattern",
-			mcp.Description("Glob pattern to match against the prompt name"),
-		),
-		mcp.WithBoolean("case_sensitive",
-			mcp.Description("Match case-sensitively (default: false)"),
-		),
-		mcp.WithNumber("limit",
-			mcp.Description("Maximum number of results to return per page"),
-		),
-		mcp.WithNumber("offset",
-			mcp.Description("Number of matches to skip before the returned page"),
-		),
-	)
-	m.mcpServer.AddTool(filterPromptsTool, m.forwardToServerMetaTool(metatools.ToolFilterPrompts))
+	for _, meta := range metatools.NewProvider().GetTools() {
+		tool := mcp.Tool{
+			Name:        meta.Name,
+			Description: meta.Description,
+			InputSchema: api.InputSchemaFromArgs(meta.Args),
+		}
+		m.mcpServer.AddTool(tool, m.forwardToServerMetaTool(meta.Name))
+	}
 }

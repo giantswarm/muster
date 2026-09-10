@@ -10,10 +10,49 @@ Reference guide for AI agents and MCP clients working with Muster's tools. This 
 
 | Meta-Tool | Description | Arguments |
 |-----------|-------------|-----------|
-| `list_tools` | List all available tools for the session | `{}` |
+| `list_tools` | List one bounded page of the session's tools (summarised; 50 per page by default) | `{"limit": 50, "offset": 0}` |
 | `describe_tool` | Get detailed schema for a specific tool | `{"name": "tool_name"}` |
-| `filter_tools` | Discover tools cheaply (ranked, faceted, paginated) | `{"pattern": "...", "query": "...", "labels": {...}, "limit": 25}` |
+| `filter_tools` | Discover tools cheaply (ranked, faceted, paginated) | `{"pattern": "...", "query": "...", "labels": {...}, "limit": 5}` |
 | `list_core_tools` | List only Muster core tools | `{}` |
+
+#### `list_tools` — the paged catalogue
+
+`list_tools` answers **one page** of the caller's catalogue, never the whole of it: an
+installation of realistic size exposes hundreds of tools, and the unpaged listing of a 450-tool
+toolset measured 400 KB — about 135k tokens that then ride in the model's context for every
+following call. Each entry is the discovery-tier projection (`name`, one-line `summary`,
+`server`, `kind`, `annotations`); the full description and the input schema of a tool stay
+behind `describe_tool`.
+
+| Argument | Type | Default | Purpose |
+|----------|------|---------|---------|
+| `limit` | number | `50` | Max tools in this page (at least 1). |
+| `offset` | number | `0` | Tools to skip before this page. |
+
+The response carries `total` (tools in the caller's catalogue — the session's tools narrowed by
+the request's [toolset](toolsets.md)), `truncated` (more tools exist beyond this page: fetch
+them with `offset` + `limit`), `filtered_count` (entries in this page), `filters` (the `limit`
+and `offset` applied), `toolset` (the request's `X-Muster-Toolset` selectors when it declared
+one) and `servers_requiring_auth` (the servers a `core_auth_login` would unlock; neither paged
+nor narrowed by a toolset). A client that wants every tool — the `muster`
+CLI and REPL listings do — pages until `truncated` is `false`, or asks for a large `limit`.
+
+Use `list_tools` for a bounded look at what is there; use `filter_tools` to *find* a tool and
+`describe_tool` to learn how to call it.
+
+```json
+{
+  "filters": {"case_sensitive": false, "include_schema": false, "limit": 50, "offset": 0},
+  "total_tools": 450,
+  "filtered_count": 50,
+  "total": 450,
+  "truncated": true,
+  "tools": [
+    {"name": "x_kubernetes_list_pods", "summary": "List pods in a namespace.", "server": "kubernetes", "kind": "tool", "annotations": {"readOnlyHint": true}}
+  ],
+  "servers_requiring_auth": [{"name": "github", "status": "auth_required", "auth_tool": "core_auth_login"}]
+}
+```
 
 #### `filter_tools` — the discovery tier
 
@@ -27,7 +66,7 @@ Reference guide for AI agents and MCP clients working with Muster's tools. This 
 | `labels` | object | — | Label facets as key=value pairs. A tool must carry every given label to match. Only workflow tools carry labels today — they inherit the `Workflow` CRD's `metadata.labels`; core (`core_*`) and external (`x_*`) tools have none, so a `labels` facet currently scopes discovery to labelled workflows. |
 | `case_sensitive` | bool | `false` | Case-sensitive name matching. |
 | `include_schema` | bool | `false` | Return full descriptions **and** input schemas instead of one-line summaries. |
-| `limit` | number | `25` | Max tools per page. |
+| `limit` | number | `5` | Max tools per page. |
 | `offset` | number | `0` | Tools to skip before this page. |
 | `toolset` | string[] | — | Inline toolset selectors (`preset:<name>`, `server:<name>`, `workflow:<name>`, `tool:<name>`, at most 32) to resolve against the caller's catalogue. The response adds `toolset` (echo of the argument; without the argument, of the request's `X-Muster-Toolset`, so a scoped caller can learn what bounds it), `toolset_unmatched` (selectors that selected nothing for the caller) and `presets` (with the argument or `include_presets`). With `X-Muster-Toolset` also on the request, the argument resolves within the header's toolset and never widens it. See [Toolsets](toolsets.md). |
 | `include_presets` | bool | `false` | Add the known toolset presets (`name`, `description`, `built_in`) to the response. |
@@ -137,7 +176,7 @@ Beyond the core tools, Muster also provides access to:
 ### Basic Discovery Pattern
 ```bash
 # Use meta-tools to discover
-list_tools()                    # See all available tools
+list_tools()                    # First page (50) of the catalogue; offset=50 for the next
 filter_tools(pattern="core_*")  # Filter to core tools only
 
 # Execute tools via call_tool
@@ -1157,8 +1196,9 @@ External tools follow the pattern: `x_<mcpserver-name>_<tool-name>`
 Use meta-tools to discover what external tools are available:
 
 ```bash
-# List all tools including external
+# Page through the catalogue, external tools included (50 per page)
 list_tools()
+list_tools(offset=50)
 
 # Filter to specific MCP server
 filter_tools(pattern="x_kubernetes_*")

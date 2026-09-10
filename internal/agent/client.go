@@ -488,7 +488,9 @@ func (c *Client) listTools(ctx context.Context, initial bool) error {
 		c.logger.Info("Listing available tools...")
 	}
 
-	result, err := c.callToolDirect(ctx, metatools.ToolListTools, map[string]any{})
+	// list_tools answers one bounded page; the cache wants the whole
+	// catalogue for completion and lookup, so page through it.
+	response, err := metatools.ListAllTools(ctx, c.callToolDirect)
 	if err != nil {
 		if c.logger != nil {
 			c.logger.Error("ListTools failed: %v", err)
@@ -496,26 +498,13 @@ func (c *Client) listTools(ctx context.Context, initial bool) error {
 		return err
 	}
 
-	if result.IsError {
-		var errorMsgs []string
-		for _, content := range result.Content {
-			if textContent, ok := mcp.AsTextContent(content); ok {
-				errorMsgs = append(errorMsgs, textContent.Text)
-			}
+	tools := make([]mcp.Tool, len(response.Tools))
+	for i, t := range response.Tools {
+		tools[i] = mcp.Tool{
+			Name:        t.Name,
+			Description: t.Text(),
+			InputSchema: convertInputSchema(t.InputSchema),
 		}
-		joined := strings.Join(errorMsgs, "; ")
-		if c.logger != nil {
-			c.logger.Error("list_tools failed: %s", joined)
-		}
-		return fmt.Errorf("list_tools failed: %s", joined)
-	}
-
-	tools, err := c.parseListToolsResponse(result)
-	if err != nil {
-		if c.logger != nil {
-			c.logger.Error("Failed to parse list_tools response: %v", err)
-		}
-		return err
 	}
 
 	if c.logger != nil {
@@ -543,33 +532,6 @@ func (c *Client) listTools(ctx context.Context, initial bool) error {
 	}
 
 	return nil
-}
-
-// parseListToolsResponse extracts []mcp.Tool from a list_tools meta-tool response.
-func (c *Client) parseListToolsResponse(result *mcp.CallToolResult) ([]mcp.Tool, error) {
-	for _, content := range result.Content {
-		textContent, ok := mcp.AsTextContent(content)
-		if !ok {
-			continue
-		}
-
-		var response metatools.ListToolsResponse
-		if err := json.Unmarshal([]byte(textContent.Text), &response); err != nil {
-			return nil, fmt.Errorf("failed to parse list_tools response: %w", err)
-		}
-
-		tools := make([]mcp.Tool, len(response.Tools))
-		for i, t := range response.Tools {
-			tools[i] = mcp.Tool{
-				Name:        t.Name,
-				Description: t.Description,
-				InputSchema: convertInputSchema(t.InputSchema),
-			}
-		}
-		return tools, nil
-	}
-
-	return nil, fmt.Errorf("no content in list_tools response")
 }
 
 // convertInputSchema converts the untyped InputSchema from ToolInfo into mcp.ToolInputSchema.

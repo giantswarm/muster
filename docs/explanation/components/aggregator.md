@@ -20,7 +20,7 @@ The aggregator exposes **only meta-tools** as its MCP interface. This is the pri
 ### Tool Discovery Meta-Tools
 | Meta-Tool | Description |
 |-----------|-------------|
-| `list_tools` | List all available tools for the current session |
+| `list_tools` | List one bounded page of the current session's tools (`limit`/`offset`, `total`, `truncated`) |
 | `describe_tool` | Get detailed schema for a specific tool |
 | `filter_tools` | Search tools by pattern |
 | `list_core_tools` | List only Muster core tools |
@@ -58,7 +58,7 @@ MCP Client → call_tool(name="core_workflow_list", args={})
 ### Session-Scoped Visibility
 
 The `list_tools` response includes:
-1. **Available tools**: Tools from connected/authenticated servers
+1. **Available tools**: One page (50 by default) of the tools from connected/authenticated servers, summarised; `total` and `truncated` tell the caller whether more pages exist
 2. **Servers requiring auth**: Information about OAuth-protected servers that need authentication
 
 ## Architecture

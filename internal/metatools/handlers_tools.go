@@ -14,32 +14,82 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
+// defaultListLimit caps how many tools list_tools returns per page when the
+// caller does not specify a limit. A summarised entry costs a few hundred
+// bytes, so 50 keeps the default answer in the tens of kilobytes — a page a
+// model can read — where the unpaged listing of a 450-tool toolset measured
+// 400 KB (≈135k tokens, #1193). Callers page explicitly with limit/offset;
+// total and truncated tell them there is more.
+const defaultListLimit = 50
+
+// defaultFilterLimit caps how many tools the discovery tier returns per
+// filter_tools call when the caller does not specify a limit. Discovery is a
+// "find the right tool" step, not a listing: a small ranked top-K is enough for
+// a caller (typically an LLM) to pick from, and a small default keeps the page
+// — which then rides in the model's context for every following step — cheap.
+// Callers that want more can page explicitly with limit/offset.
+const defaultFilterLimit = 5
+
+// summaryMaxLen caps the length (in runes) of the one-line summary the
+// discovery tier emits in place of a tool's full description.
+const summaryMaxLen = 120
+
+// filterToolsOptions configures a single query against the caller's catalogue.
+// It is built explicitly by each caller: handleFilterTools applies cheap
+// discovery defaults (summaries, no schema, capped page), handleListTools
+// lists the catalogue in summarised pages, and handleListCoreTools reproduces
+// the legacy full-detail listing (full descriptions, schema, no cap).
+type filterToolsOptions struct {
+	pattern           string
+	descriptionFilter string
+	query             string
+	labels            map[string]string
+	caseSensitive     bool
+	includeSchema     bool
+	summarize         bool
+	limit             int // 0 means no limit
+	offset            int
+	// toolsetArg is the inline toolset to resolve against the caller's
+	// catalogue (nil when the argument was not given; an empty list is an
+	// error, like an empty header).
+	toolsetArg []string
+	// includePresets adds the known presets to the response.
+	includePresets bool
+}
+
 // handleListTools handles the list_tools meta-tool.
-// This handler returns a list of all available tools from the aggregator,
-// along with information about servers that require authentication.
-func (p *Provider) handleListTools(ctx context.Context, _ map[string]any) (*api.CallToolResult, error) {
+//
+// It answers with one bounded page of the caller's catalogue — the session's
+// tools narrowed by the request's toolset — every entry summarised the way the
+// discovery tier does, plus the servers a sign-in would unlock. Paging (limit,
+// offset, total, truncated) means a caller can never receive hundreds of full
+// descriptions without asking for them: the unpaged listing measured 400 KB
+// for a 450-tool toolset (#1193). The full description and the input schema
+// of a tool remain available through describe_tool.
+func (p *Provider) handleListTools(ctx context.Context, args map[string]any) (*api.CallToolResult, error) {
+	opts := filterToolsOptions{summarize: true, limit: defaultListLimit}
+	if errResult := parsePageArgs(args, &opts.limit, &opts.offset); errResult != nil {
+		return errResult, nil
+	}
+
 	handler, errResult := p.getHandler()
 	if errResult != nil {
 		return errResult, nil
 	}
 
-	cat, errResult := p.catalogue(ctx, handler)
+	page, errResult := p.pageTools(ctx, handler, opts)
 	if errResult != nil {
 		return errResult, nil
 	}
 
-	// Get servers requiring authentication for the current session. The list
-	// is informational (which servers a sign-in would unlock) and is not
-	// narrowed by the toolset: a toolset selector can only match a server's
-	// tools once the caller has signed in to it.
-	serversRequiringAuth := handler.ListServersRequiringAuth(ctx)
-
-	jsonData, err := p.formatters.FormatToolsListWithAuthJSON(cat.tools, serversRequiringAuth)
-	if err != nil {
-		return errorResult(fmt.Sprintf("Failed to format tools: %v", err)), nil
-	}
-
-	return textResult(jsonData), nil
+	// The servers requiring authentication are informational (which sign-in
+	// would unlock more tools) and are not narrowed by the toolset: a toolset
+	// selector can only match a server's tools once the caller has signed in
+	// to it. Nor are they paged — the list is a handful of names.
+	return jsonResult(ListToolsResponse{
+		FilterToolsResponse:  *page,
+		ServersRequiringAuth: handler.ListServersRequiringAuth(ctx),
+	}, "tools")
 }
 
 // handleDescribeTool handles the describe_tool meta-tool.
@@ -74,40 +124,6 @@ func (p *Provider) handleDescribeTool(ctx context.Context, args map[string]any) 
 	}
 
 	return textResult(jsonData), nil
-}
-
-// defaultFilterLimit caps how many tools the discovery tier returns per
-// filter_tools call when the caller does not specify a limit. Discovery is a
-// "find the right tool" step, not a listing: a small ranked top-K is enough for
-// a caller (typically an LLM) to pick from, and a small default keeps the page
-// — which then rides in the model's context for every following step — cheap.
-// Callers that want more can page explicitly with limit/offset.
-const defaultFilterLimit = 5
-
-// summaryMaxLen caps the length (in runes) of the one-line summary the
-// discovery tier emits in place of a tool's full description.
-const summaryMaxLen = 120
-
-// filterToolsOptions configures a single tool-discovery query. It is built
-// explicitly by each caller: handleFilterTools applies cheap discovery defaults
-// (summaries, no schema, capped page), while handleListCoreTools reproduces the
-// legacy full-detail listing (full descriptions, schema, no cap).
-type filterToolsOptions struct {
-	pattern           string
-	descriptionFilter string
-	query             string
-	labels            map[string]string
-	caseSensitive     bool
-	includeSchema     bool
-	summarize         bool
-	limit             int // 0 means no limit
-	offset            int
-	// toolsetArg is the inline toolset to resolve against the caller's
-	// catalogue (nil when the argument was not given; an empty list is an
-	// error, like an empty header).
-	toolsetArg []string
-	// includePresets adds the known presets to the response.
-	includePresets bool
 }
 
 // handleListCoreTools handles the list_core_tools meta-tool.
@@ -169,25 +185,8 @@ func (p *Provider) handleFilterTools(ctx context.Context, args map[string]any) (
 		opts.labels = labels
 	}
 
-	if limitVal, ok := args["limit"]; ok {
-		limit, err := toInt(limitVal)
-		if err != nil {
-			return errorResult("limit must be a number"), nil
-		}
-		if limit < 1 {
-			return errorResult("limit must be at least 1"), nil
-		}
-		opts.limit = limit
-	}
-	if offsetVal, ok := args["offset"]; ok {
-		offset, err := toInt(offsetVal)
-		if err != nil {
-			return errorResult("offset must be a number"), nil
-		}
-		if offset < 0 {
-			return errorResult("offset must be at least 0"), nil
-		}
-		opts.offset = offset
+	if errResult := parsePageArgs(args, &opts.limit, &opts.offset); errResult != nil {
+		return errResult, nil
 	}
 	if raw, ok := args["toolset"]; ok && raw != nil {
 		selectors, err := toStringList(raw)
@@ -201,6 +200,33 @@ func (p *Provider) handleFilterTools(ctx context.Context, args map[string]any) (
 	}
 
 	return p.filterToolsWithOptions(ctx, opts)
+}
+
+// parsePageArgs reads the optional limit and offset arguments every paging
+// meta-tool shares, replacing the given defaults. A limit below 1 or an
+// offset below 0 is an error result; a nil args map leaves the defaults.
+func parsePageArgs(args map[string]any, limit, offset *int) *api.CallToolResult {
+	if v, ok := args[ArgLimit]; ok {
+		n, err := toInt(v)
+		if err != nil {
+			return errorResult("limit must be a number")
+		}
+		if n < 1 {
+			return errorResult("limit must be at least 1")
+		}
+		*limit = n
+	}
+	if v, ok := args[ArgOffset]; ok {
+		n, err := toInt(v)
+		if err != nil {
+			return errorResult("offset must be a number")
+		}
+		if n < 0 {
+			return errorResult("offset must be at least 0")
+		}
+		*offset = n
+	}
+	return nil
 }
 
 // toStringList coerces a JSON-decoded array (or a native string slice) to
@@ -224,17 +250,36 @@ func toStringList(v any) ([]string, error) {
 	}
 }
 
-// filterToolsWithOptions is the shared filter/rank/paginate engine behind both
-// filter_tools (discovery) and list_core_tools (legacy listing).
+// filterToolsWithOptions runs the engine for filter_tools and list_core_tools
+// and serialises the page. An unscoped request whose catalogue is empty keeps
+// the legacy text answer; a toolset that resolves to nothing (preset:none, a
+// selector matching nothing) is a structured answer the caller can read.
 func (p *Provider) filterToolsWithOptions(ctx context.Context, opts filterToolsOptions) (*api.CallToolResult, error) {
 	handler, errResult := p.getHandler()
 	if errResult != nil {
 		return errResult, nil
 	}
 
-	cat, errResult := p.catalogue(ctx, handler)
+	page, errResult := p.pageTools(ctx, handler, opts)
 	if errResult != nil {
 		return errResult, nil
+	}
+
+	if _, scoped, _ := toolset.FromContext(ctx); page.TotalTools == 0 && !scoped && opts.toolsetArg == nil {
+		return textResult("No tools available to filter"), nil
+	}
+
+	return jsonResult(page, "filtered tools")
+}
+
+// pageTools is the shared filter/rank/paginate engine behind list_tools,
+// filter_tools and list_core_tools. It reads the caller's catalogue — the
+// session's tools narrowed by the request's toolset — applies the options and
+// returns one structured page.
+func (p *Provider) pageTools(ctx context.Context, handler api.MetaToolsHandler, opts filterToolsOptions) (*FilterToolsResponse, *api.CallToolResult) {
+	cat, errResult := p.catalogue(ctx, handler)
+	if errResult != nil {
+		return nil, errResult
 	}
 	tools := cat.tools
 
@@ -246,26 +291,19 @@ func (p *Provider) filterToolsWithOptions(ctx context.Context, opts filterToolsO
 	if opts.toolsetArg != nil {
 		ts, err := toolset.ParseInline(opts.toolsetArg)
 		if err != nil {
-			return errorResult(err.Error()), nil
+			return nil, errorResult(err.Error())
 		}
 		res, err := p.presets.ResolveWith(ts, toolset.EntriesFromTools(tools), p.labelsFor(ctx))
 		if err != nil {
-			return errorResult(err.Error()), nil
+			return nil, errorResult(err.Error())
 		}
 		argToolset, argResolution = &ts, res
 		tools = toolset.Filter(tools, res)
 	}
 
-	// Without any toolset in play the legacy text answer is kept; a toolset
-	// that resolves to nothing (preset:none, a selector matching nothing) is a
-	// real, structured answer the caller can read.
-	if len(tools) == 0 && !cat.scoped && argToolset == nil {
-		return textResult("No tools available to filter"), nil
-	}
-
 	if opts.pattern != "" {
 		if _, err := filepath.Match(opts.pattern, ""); err != nil {
-			return errorResult(fmt.Sprintf("Invalid pattern %q: %v", opts.pattern, err)), nil
+			return nil, errorResult(fmt.Sprintf("Invalid pattern %q: %v", opts.pattern, err))
 		}
 	}
 
@@ -306,14 +344,8 @@ func (p *Provider) filterToolsWithOptions(ctx context.Context, opts filterToolsO
 	}
 
 	// 3. Paginate.
-	total := len(ordered)
-	start := min(opts.offset, total)
-	end := total
-	if opts.limit > 0 && start+opts.limit < end {
-		end = start + opts.limit
-	}
+	start, end, truncated := paginate(len(ordered), opts.limit, opts.offset)
 	page := ordered[start:end]
-	truncated := end < total // more matches exist beyond this page
 
 	// 4. Project each tool to a discovery- or detail-shaped entry.
 	toolInfos := make([]ToolInfo, 0, len(page))
@@ -338,7 +370,7 @@ func (p *Provider) filterToolsWithOptions(ctx context.Context, opts filterToolsO
 		toolInfos = append(toolInfos, info)
 	}
 
-	resp := FilterToolsResponse{
+	resp := &FilterToolsResponse{
 		Filters: FilterCriteria{
 			Pattern:           opts.pattern,
 			DescriptionFilter: opts.descriptionFilter,
@@ -351,7 +383,7 @@ func (p *Provider) filterToolsWithOptions(ctx context.Context, opts filterToolsO
 		},
 		TotalTools:    len(cat.tools),
 		FilteredCount: len(toolInfos),
-		Total:         total,
+		Total:         len(ordered),
 		Truncated:     truncated,
 		Tools:         toolInfos,
 	}
@@ -376,13 +408,17 @@ func (p *Provider) filterToolsWithOptions(ctx context.Context, opts filterToolsO
 	if opts.includePresets || argToolset != nil {
 		resp.Presets = p.presets.List()
 	}
+	return resp, nil
+}
 
-	jsonData, err := json.MarshalIndent(resp, "", "  ")
+// jsonResult serialises v as the indented JSON text of a successful result;
+// what names the payload in the error result a marshalling failure produces.
+func jsonResult(v any, what string) (*api.CallToolResult, error) {
+	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
-		return errorResult(fmt.Sprintf("Failed to format filtered tools: %v", err)), nil
+		return errorResult(fmt.Sprintf("Failed to format %s: %v", what, err)), nil
 	}
-
-	return textResult(string(jsonData)), nil
+	return textResult(string(data)), nil
 }
 
 // matchesPattern reports whether name matches the glob pattern (empty pattern

@@ -67,8 +67,23 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 		// Discovery tools
 		{
 			Name:        "list_tools",
-			Description: "List all available tools from connected MCP servers",
-			Args:        []api.ArgMetadata{},
+			Description: "List one page of the tools you can call — name, one-line summary, server, kind and annotations for each — plus the servers a sign-in would unlock (servers_requiring_auth). Costly: the catalogue can hold hundreds of tools and every page rides in your context from then on, so do not page through it to find a tool. Use filter_tools to discover tools by name pattern, label or natural-language query, and describe_tool for the full description and input schema of a chosen tool. The response carries total and truncated; when truncated is true, more pages exist at offset + limit.",
+			Args: []api.ArgMetadata{
+				{
+					Name:        ArgLimit,
+					Type:        api.ArgTypeNumber,
+					Required:    false,
+					Description: "Maximum number of tools to return in this page (default: 50). Increase to page through more tools.",
+					Default:     defaultListLimit,
+				},
+				{
+					Name:        ArgOffset,
+					Type:        api.ArgTypeNumber,
+					Required:    false,
+					Description: "Number of tools to skip before this page (default: 0)",
+					Default:     0,
+				},
+			},
 		},
 		{
 			Name:        "describe_tool",
@@ -152,14 +167,14 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 					Default:     false,
 				},
 				{
-					Name:        "limit",
+					Name:        ArgLimit,
 					Type:        api.ArgTypeNumber,
 					Required:    false,
 					Description: "Maximum number of tools to return in this page (default: 5). Increase to page through more matches.",
 					Default:     defaultFilterLimit,
 				},
 				{
-					Name:        "offset",
+					Name:        ArgOffset,
 					Type:        api.ArgTypeNumber,
 					Required:    false,
 					Description: "Number of matching tools to skip before this page (default: 0)",
@@ -217,13 +232,13 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 					Description: "Match case-sensitively (default false)",
 				},
 				{
-					Name:        "limit",
+					Name:        ArgLimit,
 					Type:        api.ArgTypeNumber,
 					Required:    false,
 					Description: "Maximum number of results to return per page",
 				},
 				{
-					Name:        "offset",
+					Name:        ArgOffset,
 					Type:        api.ArgTypeNumber,
 					Required:    false,
 					Description: "Number of matches to skip before the returned page",
@@ -296,13 +311,13 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 					Description: "Match case-sensitively (default false)",
 				},
 				{
-					Name:        "limit",
+					Name:        ArgLimit,
 					Type:        api.ArgTypeNumber,
 					Required:    false,
 					Description: "Maximum number of results to return per page",
 				},
 				{
-					Name:        "offset",
+					Name:        ArgOffset,
 					Type:        api.ArgTypeNumber,
 					Required:    false,
 					Description: "Number of matches to skip before the returned page",

@@ -209,7 +209,7 @@ Configure your IDE to use Muster's agent as an MCP server:
 
 Your agent now has meta-capabilities:
 
-- **`list_tools`**: Show all available tools
+- **`list_tools`**: Page through the available tools
 - **`filter_tools`**: Find tools by name/description
 - **`describe_tool`**: Get detailed tool information
 - **`call_tool`**: Execute any tool dynamically

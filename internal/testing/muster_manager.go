@@ -801,16 +801,11 @@ func (m *musterInstanceManager) extractExpectedToolsFromInstance(instance *Muste
 	return instance.ExpectedTools
 }
 
-// listToolsViaMeta queries the list_tools meta-tool to discover all available
-// tools (meta-tools + downstream server tools). MCP tools/list only returns
-// meta-tools, so this is the correct way to check downstream tool availability.
+// listToolsViaMeta pages through the list_tools meta-tool to discover all
+// available downstream tools. MCP tools/list only returns meta-tools, so this
+// is the correct way to check downstream tool availability.
 func (m *musterInstanceManager) listToolsViaMeta(client MCPTestClient, ctx context.Context) ([]string, error) {
-	result, err := client.CallToolDirect(ctx, "list_tools", nil)
-	if err != nil {
-		return nil, fmt.Errorf("list_tools meta-tool call failed: %w", err)
-	}
-
-	return extractToolNamesFromResult(result)
+	return listToolNames(ctx, client)
 }
 
 // findMissingTools returns tools that are expected but not found in available tools

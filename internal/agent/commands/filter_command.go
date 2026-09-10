@@ -190,7 +190,7 @@ func (f *FilterCommand) renderResponse(response metatools.FilterToolsResponse, d
 
 		for i, tool := range response.Tools {
 			f.output.OutputLine("\n%d. %s", i+1, tool.Name)
-			f.output.OutputLine("   Description: %s", toolText(tool))
+			f.output.OutputLine("   Description: %s", tool.Text())
 			if len(tool.Labels) > 0 {
 				f.output.OutputLine("   Labels: %s", formatLabels(tool.Labels))
 			}
@@ -212,7 +212,7 @@ func (f *FilterCommand) renderResponse(response metatools.FilterToolsResponse, d
 	width := nameColumnWidth(response.Tools)
 	f.output.OutputLine("\nMatching tools:")
 	for i, tool := range response.Tools {
-		line := fmt.Sprintf("  %d. %-*s - %s", i+1, width, tool.Name, toolText(tool))
+		line := fmt.Sprintf("  %d. %-*s - %s", i+1, width, tool.Name, tool.Text())
 		if len(tool.Labels) > 0 {
 			line += fmt.Sprintf("  {%s}", formatLabels(tool.Labels))
 		}
@@ -264,15 +264,6 @@ func (f *FilterCommand) printFilterSummary(response metatools.FilterToolsRespons
 	if response.Truncated {
 		f.output.Info("More matches available — narrow the filters or page with offset=%d", filters.Offset+len(response.Tools))
 	}
-}
-
-// toolText returns the human-readable line for a filtered tool, preferring the
-// full description and falling back to the discovery-tier one-line summary.
-func toolText(tool metatools.ToolInfo) string {
-	if tool.Description != "" {
-		return tool.Description
-	}
-	return tool.Summary
 }
 
 // formatLabels renders a label map as a stable, comma-separated key=value list.

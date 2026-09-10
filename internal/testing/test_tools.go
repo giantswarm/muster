@@ -21,6 +21,7 @@ import (
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
 	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/metatools"
 	"github.com/giantswarm/muster/internal/testing/mock"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -1237,16 +1238,12 @@ func (h *TestToolsHandler) handleListToolsForUser(ctx context.Context, args map[
 		h.logger.Debug("Listing tools for user '%s' via list_tools meta-tool\n", userName)
 	}
 
-	// Call list_tools meta-tool directly (not through call_tool wrapper).
-	// MCP tools/list only returns meta-tools; downstream tools are discovered via list_tools.
-	result, err := client.CallToolDirect(ctx, "list_tools", nil)
+	// Page through the list_tools meta-tool directly (not through the
+	// call_tool wrapper). MCP tools/list only returns meta-tools; downstream
+	// tools are discovered via list_tools.
+	toolNames, err := listToolNames(ctx, client)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list tools for user '%s': %w", userName, err)
-	}
-
-	toolNames, err := extractToolNamesFromResult(result)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse list_tools response for user '%s': %w", userName, err)
 	}
 
 	if h.debug {
@@ -1261,36 +1258,18 @@ func (h *TestToolsHandler) handleListToolsForUser(ctx context.Context, args map[
 	}, nil
 }
 
-// extractToolNamesFromResult parses the list_tools meta-tool response
-// and extracts tool names from the JSON content.
-func extractToolNamesFromResult(result *mcp.CallToolResult) ([]string, error) {
-	if result == nil {
-		return nil, fmt.Errorf("nil result from list_tools")
+// listToolNames pages through the list_tools meta-tool on the given client and
+// returns the names of every tool the session can see.
+func listToolNames(ctx context.Context, client MCPTestClient) ([]string, error) {
+	response, err := metatools.ListAllTools(ctx, client.CallToolDirect)
+	if err != nil {
+		return nil, err
 	}
-
-	for _, content := range result.Content {
-		textContent, ok := mcp.AsTextContent(content)
-		if !ok {
-			continue
-		}
-
-		var parsed struct {
-			Tools []struct {
-				Name string `json:"name"`
-			} `json:"tools"`
-		}
-		if err := json.Unmarshal([]byte(textContent.Text), &parsed); err != nil {
-			continue
-		}
-
-		names := make([]string, 0, len(parsed.Tools))
-		for _, t := range parsed.Tools {
-			names = append(names, t.Name)
-		}
-		return names, nil
+	names := make([]string, 0, len(response.Tools))
+	for _, t := range response.Tools {
+		names = append(names, t.Name)
 	}
-
-	return nil, fmt.Errorf("no parseable tool list found in response")
+	return names, nil
 }
 
 // handleGetCurrentUser returns the name of the currently active user.
@@ -1843,11 +1822,7 @@ func (h *TestToolsHandler) waitForToolVisibility(ctx context.Context, expectedTo
 			}
 			return fmt.Errorf("timed out waiting for tool %s to be removed", expectedTool)
 		case <-ticker.C:
-			result, err := client.CallToolDirect(ctx, "list_tools", nil)
-			if err != nil {
-				continue
-			}
-			names, err := extractToolNamesFromResult(result)
+			names, err := listToolNames(ctx, client)
 			if err != nil {
 				continue
 			}
