@@ -139,6 +139,7 @@ A Helm chart for muster - Universal Control Plane for AI Agents built on MCP
 | muster.oauth.server.enableCIMD | bool | `true` |  |
 | muster.oauth.server.allowLocalhostRedirectURIs | bool | `true` |  |
 | muster.oauth.server.allowPrivateIPClientMetadata | bool | `false` |  |
+| muster.oauth.server.allowPrivateIPRedirectURIs | bool | `false` |  |
 | muster.oauth.server.trustedAudiences | list | `[]` | ------------------------------------------------------------------------- OIDC client IDs (audiences) whose JWTs muster accepts directly as bearer tokens without the client completing muster's own OAuth flow.  The token's aud claim must match one of these values and the signature must validate against the provider's JWKS. SECURITY: only list client IDs you fully trust. |
 | muster.oauth.server.trustedIssuers | list | `[]` |  |
 | muster.oauth.server.tokenExchangeBroker | object | `{}` |  |

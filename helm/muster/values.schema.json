@@ -309,6 +309,9 @@
                                 "allowPrivateIPClientMetadata": {
                                     "type": "boolean"
                                 },
+                                "allowPrivateIPRedirectURIs": {
+                                    "type": "boolean"
+                                },
                                 "allowPublicClientRegistration": {
                                     "type": "boolean"
                                 },

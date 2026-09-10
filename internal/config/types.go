@@ -346,6 +346,16 @@ type OAuthServerConfig struct {
 	// Default: false
 	AllowPrivateIPClientMetadata bool `yaml:"allowPrivateIPClientMetadata,omitempty"`
 
+	// AllowPrivateIPRedirectURIs lets a client's redirect URI resolve to a
+	// private address (a literal RFC 1918 host or a hostname that resolves to
+	// one). Needed where the platform's own hostnames resolve to an internal
+	// load balancer: the authorization-time check otherwise rejects the
+	// client's callback with "redirect_uri: hostname resolves to private IP
+	// address (DNS rebinding protection)" even though the client itself was
+	// accepted. Reduces open-redirect/SSRF protection for redirect targets;
+	// mcp-oauth logs a startup warning when set. Default: false
+	AllowPrivateIPRedirectURIs bool `yaml:"allowPrivateIPRedirectURIs,omitempty"`
+
 	// SessionDuration is the maximum session duration before re-authentication
 	// is required. This sets the server-side refresh token TTL.
 	// Default: 720h (30 days), aligned with Dex's absoluteLifetime.

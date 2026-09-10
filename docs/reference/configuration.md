@@ -262,6 +262,14 @@ The SSRF guard also covers Client ID Metadata Documents (CIMD): a `client_id` th
 |-------|------|---------|-------------|
 | `allowPrivateIPClientMetadata` | `bool` | `false` | Allow a CIMD `client_id` URL to resolve to a private/loopback/link-local IP. Emits a startup warning when set. PKCE and redirect-URI validation are unchanged. Helm: `muster.oauth.server.allowPrivateIPClientMetadata`. |
 
+#### Private-IP Redirect URIs
+
+A client's redirect URI is validated again when the authorization flow starts: a hostname that resolves to a private address is rejected with `redirect_uri: hostname resolves to private IP address (DNS rebinding protection)`, even after the client itself (for example a CIMD client allowed through `allowPrivateIPClientMetadata`) was accepted. On a cluster whose own hostnames resolve to an internal load balancer, every platform-hosted client's callback trips this check.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `allowPrivateIPRedirectURIs` | `bool` | `false` | Allow redirect URIs that are, or resolve to, private IP addresses. Emits a startup warning when set. Exact redirect-URI matching against the client's registration is unchanged. Helm: `muster.oauth.server.allowPrivateIPRedirectURIs`. |
+
 #### Silent Re-Authentication (CLI Flag)
 
 Silent re-authentication is controlled via CLI flags only, not configuration file.
