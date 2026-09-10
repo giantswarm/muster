@@ -350,7 +350,7 @@ When running in `--mcp-server` mode, the agent bridges to the aggregator server 
 
 | Tool Name | Description | Arguments |
 |-----------|-------------|-----------|
-| `list_tools` | List all available tools | `{}` |
+| `list_tools` | List one page of available tools (50 by default) | `{"limit": 50, "offset": 0}` |
 | `list_resources` | List all available resources | `{}` |
 | `list_prompts` | List all available prompts | `{}` |
 | `list_core_tools` | List built-in Muster tools | `{}` |

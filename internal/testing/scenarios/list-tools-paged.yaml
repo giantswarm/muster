@@ -1,0 +1,224 @@
+name: "list-tools-paged"
+description: "list_tools answers one bounded, summarised page of the caller's catalogue — 50 tools by default with total and truncated set — limit/offset page through the rest, descriptions are one-line summaries with the full text behind describe_tool, and a header-declared toolset (X-Muster-Toolset) still bounds the listing while preset:none lists nothing (#1193)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["metatools", "list_tools", "paging", "toolset", "1193"]
+timeout: "5m"
+
+# Given: a mock server with 55 tools — more than the default page — one of
+#        them with a two-line description, next to muster's core tools.
+# When:  list_tools is called without arguments, with limit/offset, and with
+#        X-Muster-Toolset: server:pager / preset:none.
+# Then:  the default answer is one page of 50 summarised entries that says it
+#        is truncated and how many tools there are; the following pages are
+#        reached with offset; the second description line appears only in
+#        describe_tool; the toolset bounds total and the page alike; invalid
+#        paging arguments are refused like filter_tools refuses them.
+
+pre_configuration:
+  mcp_servers:
+    - name: "pager"
+      config:
+        tools:
+          - name: "t01"
+            description: "Pager tool 01.\nFULLDETAILONLY this second line documents every edge case and must never leak into a listing."
+            responses: [{ response: { ok: true } }]
+          - { name: "t02", description: "Pager tool 02", responses: [{ response: { ok: true } }] }
+          - { name: "t03", description: "Pager tool 03", responses: [{ response: { ok: true } }] }
+          - { name: "t04", description: "Pager tool 04", responses: [{ response: { ok: true } }] }
+          - { name: "t05", description: "Pager tool 05", responses: [{ response: { ok: true } }] }
+          - { name: "t06", description: "Pager tool 06", responses: [{ response: { ok: true } }] }
+          - { name: "t07", description: "Pager tool 07", responses: [{ response: { ok: true } }] }
+          - { name: "t08", description: "Pager tool 08", responses: [{ response: { ok: true } }] }
+          - { name: "t09", description: "Pager tool 09", responses: [{ response: { ok: true } }] }
+          - { name: "t10", description: "Pager tool 10", responses: [{ response: { ok: true } }] }
+          - { name: "t11", description: "Pager tool 11", responses: [{ response: { ok: true } }] }
+          - { name: "t12", description: "Pager tool 12", responses: [{ response: { ok: true } }] }
+          - { name: "t13", description: "Pager tool 13", responses: [{ response: { ok: true } }] }
+          - { name: "t14", description: "Pager tool 14", responses: [{ response: { ok: true } }] }
+          - { name: "t15", description: "Pager tool 15", responses: [{ response: { ok: true } }] }
+          - { name: "t16", description: "Pager tool 16", responses: [{ response: { ok: true } }] }
+          - { name: "t17", description: "Pager tool 17", responses: [{ response: { ok: true } }] }
+          - { name: "t18", description: "Pager tool 18", responses: [{ response: { ok: true } }] }
+          - { name: "t19", description: "Pager tool 19", responses: [{ response: { ok: true } }] }
+          - { name: "t20", description: "Pager tool 20", responses: [{ response: { ok: true } }] }
+          - { name: "t21", description: "Pager tool 21", responses: [{ response: { ok: true } }] }
+          - { name: "t22", description: "Pager tool 22", responses: [{ response: { ok: true } }] }
+          - { name: "t23", description: "Pager tool 23", responses: [{ response: { ok: true } }] }
+          - { name: "t24", description: "Pager tool 24", responses: [{ response: { ok: true } }] }
+          - { name: "t25", description: "Pager tool 25", responses: [{ response: { ok: true } }] }
+          - { name: "t26", description: "Pager tool 26", responses: [{ response: { ok: true } }] }
+          - { name: "t27", description: "Pager tool 27", responses: [{ response: { ok: true } }] }
+          - { name: "t28", description: "Pager tool 28", responses: [{ response: { ok: true } }] }
+          - { name: "t29", description: "Pager tool 29", responses: [{ response: { ok: true } }] }
+          - { name: "t30", description: "Pager tool 30", responses: [{ response: { ok: true } }] }
+          - { name: "t31", description: "Pager tool 31", responses: [{ response: { ok: true } }] }
+          - { name: "t32", description: "Pager tool 32", responses: [{ response: { ok: true } }] }
+          - { name: "t33", description: "Pager tool 33", responses: [{ response: { ok: true } }] }
+          - { name: "t34", description: "Pager tool 34", responses: [{ response: { ok: true } }] }
+          - { name: "t35", description: "Pager tool 35", responses: [{ response: { ok: true } }] }
+          - { name: "t36", description: "Pager tool 36", responses: [{ response: { ok: true } }] }
+          - { name: "t37", description: "Pager tool 37", responses: [{ response: { ok: true } }] }
+          - { name: "t38", description: "Pager tool 38", responses: [{ response: { ok: true } }] }
+          - { name: "t39", description: "Pager tool 39", responses: [{ response: { ok: true } }] }
+          - { name: "t40", description: "Pager tool 40", responses: [{ response: { ok: true } }] }
+          - { name: "t41", description: "Pager tool 41", responses: [{ response: { ok: true } }] }
+          - { name: "t42", description: "Pager tool 42", responses: [{ response: { ok: true } }] }
+          - { name: "t43", description: "Pager tool 43", responses: [{ response: { ok: true } }] }
+          - { name: "t44", description: "Pager tool 44", responses: [{ response: { ok: true } }] }
+          - { name: "t45", description: "Pager tool 45", responses: [{ response: { ok: true } }] }
+          - { name: "t46", description: "Pager tool 46", responses: [{ response: { ok: true } }] }
+          - { name: "t47", description: "Pager tool 47", responses: [{ response: { ok: true } }] }
+          - { name: "t48", description: "Pager tool 48", responses: [{ response: { ok: true } }] }
+          - { name: "t49", description: "Pager tool 49", responses: [{ response: { ok: true } }] }
+          - { name: "t50", description: "Pager tool 50", responses: [{ response: { ok: true } }] }
+          - { name: "t51", description: "Pager tool 51", responses: [{ response: { ok: true } }] }
+          - { name: "t52", description: "Pager tool 52", responses: [{ response: { ok: true } }] }
+          - { name: "t53", description: "Pager tool 53", responses: [{ response: { ok: true } }] }
+          - { name: "t54", description: "Pager tool 54", responses: [{ response: { ok: true } }] }
+          - { name: "t55", description: "Pager tool 55", responses: [{ response: { ok: true } }] }
+
+steps:
+  - id: "wait-for-server"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["pager"]
+
+  - id: "default-page-is-bounded"
+    description: "no arguments: one page of 50 summarised entries, truncated, with the catalogue size"
+    tool: "test_call_meta_tool"
+    args: { tool: "list_tools" }
+    expected:
+      success: true
+      wait_for_state: "20s"
+      json_path:
+        filters.limit: 50
+        filters.offset: 0
+        filtered_count: 50
+        truncated: true
+      contains: ["total", "total_tools", "summary", "truncated"]
+      not_contains: ["FULLDETAILONLY", "inputSchema"]
+
+  - id: "explicit-page"
+    description: "limit bounds the page explicitly"
+    tool: "test_call_meta_tool"
+    args: { tool: "list_tools", arguments: { limit: 2 } }
+    expected:
+      success: true
+      json_path:
+        filters.limit: 2
+        filtered_count: 2
+        truncated: true
+
+  - id: "offset-moves-the-page"
+    description: "offset skips into the catalogue; the page after the last one is empty and not truncated"
+    tool: "test_call_meta_tool"
+    args: { tool: "list_tools", arguments: { limit: 2, offset: 2 } }
+    expected:
+      success: true
+      json_path:
+        filters.limit: 2
+        filters.offset: 2
+        filtered_count: 2
+
+  - id: "large-limit-is-the-whole-catalogue"
+    description: "a client that wants every tool asks for a large page and gets an untruncated answer"
+    tool: "test_call_meta_tool"
+    args: { tool: "list_tools", arguments: { limit: 1000 } }
+    expected:
+      success: true
+      json_path:
+        truncated: false
+      contains: ["x_pager_t01", "x_pager_t55", "core_workflow_list"]
+
+  - id: "toolset-bounds-the-catalogue"
+    description: "X-Muster-Toolset narrows the catalogue to the server's 55 tools; the page still bounds the answer"
+    tool: "test_call_meta_tool"
+    args: { tool: "list_tools" }
+    headers: { X-Muster-Toolset: "server:pager" }
+    expected:
+      success: true
+      json_path:
+        total: 55
+        total_tools: 55
+        filtered_count: 50
+        truncated: true
+        toolset.0: "server:pager"
+        tools.0.name: "x_pager_t01"
+        tools.0.summary: "Pager tool 01."
+        tools.0.server: "pager"
+        tools.0.kind: "tool"
+        tools.49.name: "x_pager_t50"
+      not_contains: ["core_workflow_list", "FULLDETAILONLY", "x_pager_t51"]
+
+  - id: "toolset-second-page"
+    description: "offset reaches the rest of the toolset; the last page is not truncated"
+    tool: "test_call_meta_tool"
+    args: { tool: "list_tools", arguments: { offset: 50 } }
+    headers: { X-Muster-Toolset: "server:pager" }
+    expected:
+      success: true
+      json_path:
+        total: 55
+        filtered_count: 5
+        truncated: false
+        tools.0.name: "x_pager_t51"
+        tools.4.name: "x_pager_t55"
+      not_contains: ["x_pager_t50", "core_workflow_list"]
+
+  - id: "toolset-large-limit"
+    tool: "test_call_meta_tool"
+    args: { tool: "list_tools", arguments: { limit: 100 } }
+    headers: { X-Muster-Toolset: "server:pager" }
+    expected:
+      success: true
+      json_path:
+        filtered_count: 55
+        truncated: false
+
+  - id: "preset-none-lists-nothing"
+    tool: "test_call_meta_tool"
+    args: { tool: "list_tools" }
+    headers: { X-Muster-Toolset: "preset:none" }
+    expected:
+      success: true
+      json_path:
+        total: 0
+        total_tools: 0
+        filtered_count: 0
+        truncated: false
+        toolset.0: "preset:none"
+      not_contains: ["x_pager", "core_workflow_list"]
+
+  - id: "describe-tool-has-the-full-text"
+    description: "the full description stays behind describe_tool"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_tool", arguments: { name: "x_pager_t01" } }
+    expected:
+      success: true
+      contains: ["FULLDETAILONLY", "inputSchema"]
+
+  - id: "limit-below-one-refused"
+    tool: "test_call_meta_tool"
+    args: { tool: "list_tools", arguments: { limit: 0 } }
+    expected:
+      success: false
+      error_contains: ["limit must be at least 1"]
+
+  - id: "negative-offset-refused"
+    tool: "test_call_meta_tool"
+    args: { tool: "list_tools", arguments: { offset: -1 } }
+    expected:
+      success: false
+      error_contains: ["offset must be at least 0"]
+
+  - id: "unknown-preset-refusal-unchanged"
+    tool: "test_call_meta_tool"
+    args: { tool: "list_tools", arguments: { limit: 5 } }
+    headers: { X-Muster-Toolset: "preset:foo" }
+    expected:
+      success: false
+      error_contains: ['toolset [preset:foo] names unknown preset "foo"; known presets: read-only, none, full']

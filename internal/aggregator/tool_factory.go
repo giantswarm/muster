@@ -68,7 +68,7 @@ func (a *AggregatorServer) createMetaToolsFromProvider(provider api.ToolProvider
 			Tool: mcp.Tool{
 				Name:        toolName,
 				Description: toolMeta.Description,
-				InputSchema: convertToMCPSchema(toolMeta.Args),
+				InputSchema: api.InputSchemaFromArgs(toolMeta.Args),
 			},
 			Handler: a.createMetaToolHandler(provider, toolMeta.Name),
 		}
@@ -105,71 +105,6 @@ func (a *AggregatorServer) createMetaToolHandler(provider api.ToolProvider, tool
 
 		// Convert API result to MCP result format
 		return convertToMCPResult(result), nil
-	}
-}
-
-// convertToMCPSchema converts internal arg metadata to MCP input schema format.
-//
-// This function bridges the gap between the internal tool arg representation
-// and the JSON Schema format expected by MCP clients. It handles:
-//   - Arg types and descriptions
-//   - Required arg specification
-//   - Default value handling
-//   - Schema property generation
-//   - Detailed nested schemas for complex types (objects, arrays)
-//
-// When a arg has a detailed Schema field, that takes precedence over
-// the basic Type field, allowing for comprehensive validation rules and
-// nested structure definitions.
-//
-// The resulting schema allows MCP clients to understand what args a tool
-// expects and how to validate input before sending requests.
-//
-// Args:
-//   - params: Slice of arg metadata from the tool provider
-//
-// Returns an MCP-compatible input schema with proper type information and validation rules.
-func convertToMCPSchema(params []api.ArgMetadata) mcp.ToolInputSchema {
-	properties := make(map[string]any)
-	required := []string{}
-
-	for _, param := range params {
-		var propSchema map[string]any
-
-		// Use detailed schema if available, otherwise fall back to basic type
-		if len(param.Schema) > 0 {
-			// Use the detailed schema definition
-			propSchema = make(map[string]any)
-			maps.Copy(propSchema, param.Schema)
-
-			// Ensure description is included (override schema description if needed)
-			if param.Description != "" {
-				propSchema["description"] = param.Description
-			}
-		} else {
-			// Fall back to basic type-based schema
-			propSchema = map[string]any{
-				"type":        param.Type,
-				"description": param.Description,
-			}
-		}
-
-		// Add default value if specified
-		if param.Default != nil {
-			propSchema["default"] = param.Default
-		}
-
-		properties[param.Name] = propSchema
-
-		if param.Required {
-			required = append(required, param.Name)
-		}
-	}
-
-	return mcp.ToolInputSchema{
-		Type:       "object",
-		Properties: properties,
-		Required:   required,
 	}
 }
 
@@ -235,7 +170,7 @@ func (a *AggregatorServer) getAllCoreToolsAsMCPTools() []mcp.Tool {
 				tool := mcp.Tool{
 					Name:        name,
 					Description: toolMeta.Description,
-					InputSchema: convertToMCPSchema(toolMeta.Args),
+					InputSchema: api.InputSchemaFromArgs(toolMeta.Args),
 				}
 				// The provider's classification of the tool (read-only,
 				// destructive, ...) travels on the exposed tool exactly like

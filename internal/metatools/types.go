@@ -1,6 +1,7 @@
 package metatools
 
 import (
+	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/toolset"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -85,6 +86,15 @@ type ToolInfo struct {
 	InputSchema interface{}      `json:"inputSchema,omitempty"`
 }
 
+// Text returns the human-readable line for the tool: the full description
+// when the entry carries one, else the discovery tier's one-line summary.
+func (t ToolInfo) Text() string {
+	if t.Description != "" {
+		return t.Description
+	}
+	return t.Summary
+}
+
 // ToolAnnotations are the MCP tool annotations muster forwards from the
 // downstream server, plus the derived read-only hint of a workflow whose step
 // tools are all read-only. Only the hints the server set are present.
@@ -119,17 +129,14 @@ func originOf(tool mcp.Tool) (server, kind string) {
 	return server, kind
 }
 
-// ListToolsResponse is the response structure from the list_tools meta-tool.
+// ListToolsResponse is the response structure from the list_tools meta-tool:
+// one page of the caller's catalogue in the discovery tier's shape (summarised
+// entries, limit/offset echoed in Filters, Total and Truncated for paging),
+// plus the servers a sign-in would unlock. ServersRequiringAuth is neither
+// paged nor narrowed by a toolset.
 type ListToolsResponse struct {
-	Tools                []ToolInfo            `json:"tools"`
-	ServersRequiringAuth []ServerRequiringAuth `json:"servers_requiring_auth,omitempty"`
-}
-
-// ServerRequiringAuth describes an MCP server that requires authentication.
-type ServerRequiringAuth struct {
-	Name     string `json:"name"`
-	Status   string `json:"status"`
-	AuthTool string `json:"auth_tool"`
+	FilterToolsResponse
+	ServersRequiringAuth []api.ServerAuthInfo `json:"servers_requiring_auth,omitempty"`
 }
 
 // FilterToolsResponse is the response structure from the filter_tools meta-tool.
@@ -218,6 +225,14 @@ func IsMetaTool(name string) bool {
 // aggregated capability came from. Resource URIs carrying a scheme are exposed
 // unprefixed, so this is the only way to express "this server's resources".
 const ArgServer = "server"
+
+// ArgLimit and ArgOffset are the paging arguments every listing meta-tool
+// shares: the maximum number of entries in the returned page and the number
+// of matches to skip before it.
+const (
+	ArgLimit  = "limit"
+	ArgOffset = "offset"
+)
 
 // ResourceInfo is one entry in a filter_resources response.
 //

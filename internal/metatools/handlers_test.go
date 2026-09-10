@@ -14,9 +14,10 @@ import (
 
 // mockMetaToolsHandler implements api.MetaToolsHandler for testing
 type mockMetaToolsHandler struct {
-	tools     []mcp.Tool
-	resources []api.ResourceOrigin
-	prompts   []api.PromptOrigin
+	tools                []mcp.Tool
+	resources            []api.ResourceOrigin
+	prompts              []api.PromptOrigin
+	serversRequiringAuth []api.ServerAuthInfo
 
 	callToolResult *mcp.CallToolResult
 	callToolError  error
@@ -62,7 +63,10 @@ func (m *mockMetaToolsHandler) GetPrompt(ctx context.Context, name string, args 
 }
 
 func (m *mockMetaToolsHandler) ListServersRequiringAuth(ctx context.Context) []api.ServerAuthInfo {
-	return []api.ServerAuthInfo{}
+	if m.serversRequiringAuth == nil {
+		return []api.ServerAuthInfo{}
+	}
+	return m.serversRequiringAuth
 }
 
 // registerMockHandler registers a mock handler for testing

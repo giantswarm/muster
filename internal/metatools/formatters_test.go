@@ -16,37 +16,6 @@ func TestNewFormatters(t *testing.T) {
 	require.NotNil(t, formatters)
 }
 
-func TestFormatters_FormatToolsListJSON(t *testing.T) {
-	formatters := NewFormatters()
-
-	t.Run("empty tools list", func(t *testing.T) {
-		result, err := formatters.FormatToolsListJSON([]mcp.Tool{})
-		require.NoError(t, err)
-		assert.Equal(t, "No tools available", result)
-	})
-
-	t.Run("with tools", func(t *testing.T) {
-		tools := []mcp.Tool{
-			{Name: "tool1", Description: "First tool"},
-			{Name: "tool2", Description: "Second tool"},
-		}
-
-		result, err := formatters.FormatToolsListJSON(tools)
-		require.NoError(t, err)
-
-		// Parse the result as JSON
-		var parsed []map[string]string
-		err = json.Unmarshal([]byte(result), &parsed)
-		require.NoError(t, err)
-
-		assert.Len(t, parsed, 2)
-		assert.Equal(t, "tool1", parsed[0]["name"])
-		assert.Equal(t, "First tool", parsed[0]["description"])
-		assert.Equal(t, "tool2", parsed[1]["name"])
-		assert.Equal(t, "Second tool", parsed[1]["description"])
-	})
-}
-
 func TestFormatters_FormatResourcesListJSON(t *testing.T) {
 	formatters := NewFormatters()
 

@@ -62,69 +62,42 @@ func (l *ListCommand) Execute(ctx context.Context, args []string) error {
 	}
 }
 
-// listTools lists all available tools by calling the list_tools meta-tool.
-// This returns the actual tools (core_*, x_*, workflow_*) rather than the
-// meta-tools exposed by the MCP native tools/list protocol.
+// listTools lists all available tools by paging through the list_tools
+// meta-tool. This returns the actual tools (core_*, x_*, workflow_*) rather
+// than the meta-tools exposed by the MCP native tools/list protocol.
 func (l *ListCommand) listTools(ctx context.Context) error {
-	// Call the list_tools meta-tool to get actual tools
-	result, err := l.client.CallTool(ctx, metatools.ToolListTools, map[string]interface{}{})
+	response, err := metatools.ListAllTools(ctx, l.client.CallTool)
 	if err != nil {
 		return fmt.Errorf("failed to list tools: %w", err)
 	}
 
-	if result.IsError {
-		l.output.Error("Error listing tools:")
-		for _, content := range result.Content {
-			if textContent, ok := mcp.AsTextContent(content); ok {
-				l.output.OutputLine("  %s", textContent.Text)
-			}
-		}
+	if len(response.Tools) == 0 {
+		l.output.OutputLine("No tools available")
 		return nil
 	}
 
-	// Parse the JSON response from list_tools
-	for _, content := range result.Content {
-		if textContent, ok := mcp.AsTextContent(content); ok {
-			var response metatools.ListToolsResponse
+	// Sort tools alphabetically by name
+	sort.Slice(response.Tools, func(i, j int) bool {
+		return response.Tools[i].Name < response.Tools[j].Name
+	})
 
-			if err := json.Unmarshal([]byte(textContent.Text), &response); err != nil {
-				// Not JSON, just output the raw text
-				l.output.OutputLine("%s", textContent.Text)
-				return nil
-			}
+	l.output.OutputLine("Available tools (%d):", len(response.Tools))
+	l.output.OutputLine("")
 
-			if len(response.Tools) == 0 {
-				l.output.OutputLine("No tools available")
-				return nil
-			}
+	for i, tool := range response.Tools {
+		desc := pkgstrings.TruncateDescription(tool.Text(), pkgstrings.DefaultDescriptionMaxLen)
+		l.output.OutputLine("  %d. %-30s - %s", i+1, tool.Name, desc)
+	}
 
-			// Sort tools alphabetically by name
-			sort.Slice(response.Tools, func(i, j int) bool {
-				return response.Tools[i].Name < response.Tools[j].Name
-			})
-
-			l.output.OutputLine("Available tools (%d):", len(response.Tools))
-			l.output.OutputLine("")
-
-			for i, tool := range response.Tools {
-				desc := pkgstrings.TruncateDescription(tool.Description, pkgstrings.DefaultDescriptionMaxLen)
-				l.output.OutputLine("  %d. %-30s - %s", i+1, tool.Name, desc)
-			}
-
-			// Show servers requiring auth if any
-			if len(response.ServersRequiringAuth) > 0 {
-				l.output.OutputLine("")
-				l.output.OutputLine("Servers requiring authentication:")
-				for _, server := range response.ServersRequiringAuth {
-					l.output.OutputLine("  - %s (use '%s' to authenticate)", server.Name, server.AuthTool)
-				}
-			}
-
-			return nil
+	// Show servers requiring auth if any
+	if len(response.ServersRequiringAuth) > 0 {
+		l.output.OutputLine("")
+		l.output.OutputLine("Servers requiring authentication:")
+		for _, server := range response.ServersRequiringAuth {
+			l.output.OutputLine("  - %s (use '%s' to authenticate)", server.Name, server.AuthTool)
 		}
 	}
 
-	l.output.OutputLine("No tools available")
 	return nil
 }
 

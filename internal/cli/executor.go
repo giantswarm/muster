@@ -630,9 +630,9 @@ func (e *ToolExecutor) outputTable(jsonData string) error {
 	return e.formatter.FormatData(data)
 }
 
-// ListMCPTools returns all MCP tools by calling the list_tools meta-tool.
-// This method retrieves the actual tools (core_*, x_*, workflow_*) rather than
-// the meta-tools exposed by the MCP native tools/list protocol.
+// ListMCPTools returns all MCP tools by paging through the list_tools
+// meta-tool. This method retrieves the actual tools (core_*, x_*, workflow_*)
+// rather than the meta-tools exposed by the MCP native tools/list protocol.
 //
 // Args:
 //   - ctx: Context for execution timeout and cancellation
@@ -641,45 +641,19 @@ func (e *ToolExecutor) outputTable(jsonData string) error {
 //   - []mcp.Tool: Slice of all available tools from the server
 //   - error: Connection or retrieval error, if any
 func (e *ToolExecutor) ListMCPTools(ctx context.Context) ([]mcp.Tool, error) {
-	// Call the list_tools meta-tool to get actual tools
-	result, err := e.client.CallTool(ctx, metatools.ToolListTools, map[string]interface{}{})
+	response, err := metatools.ListAllTools(ctx, e.client.CallTool)
 	if err != nil {
-		return nil, fmt.Errorf("failed to call %s: %w", metatools.ToolListTools, err)
+		return nil, err
 	}
 
-	if result.IsError {
-		var errorMsgs []string
-		for _, content := range result.Content {
-			if textContent, ok := mcp.AsTextContent(content); ok {
-				errorMsgs = append(errorMsgs, textContent.Text)
-			}
-		}
-		return nil, fmt.Errorf("%s failed: %s", metatools.ToolListTools, strings.Join(errorMsgs, "; "))
-	}
-
-	// Parse the JSON response from list_tools
-	for _, content := range result.Content {
-		if textContent, ok := mcp.AsTextContent(content); ok {
-			var response metatools.ListToolsResponse
-
-			if err := json.Unmarshal([]byte(textContent.Text), &response); err != nil {
-				return nil, fmt.Errorf("failed to parse %s response: %w", metatools.ToolListTools, err)
-			}
-
-			// Convert to mcp.Tool format
-			tools := make([]mcp.Tool, len(response.Tools))
-			for i, t := range response.Tools {
-				tools[i] = mcp.Tool{
-					Name:        t.Name,
-					Description: t.Description,
-				}
-			}
-
-			return tools, nil
+	tools := make([]mcp.Tool, len(response.Tools))
+	for i, t := range response.Tools {
+		tools[i] = mcp.Tool{
+			Name:        t.Name,
+			Description: t.Text(),
 		}
 	}
-
-	return nil, fmt.Errorf("no content in %s response", metatools.ToolListTools)
+	return tools, nil
 }
 
 // ListMCPResources returns all MCP resources using native protocol.

@@ -158,6 +158,10 @@ fills the workflow tool's `readOnlyHint` annotation slot, so `describe_tool` sho
 ## What the meta-tools do with a toolset
 
 - `list_tools`, `filter_tools`, `describe_tool`, `list_core_tools` read the filtered catalogue.
+  `list_tools` pages it (`limit`, default 50, and `offset`; `total` is the size of the filtered
+  catalogue and `truncated` says whether more pages exist), so a 450-tool `preset:read-only` is
+  nine pages of summaries rather than one 400 KB answer; `preset:none` is `total: 0` and no tools.
+  Like `filter_tools`, it echoes the header's selectors in `toolset`.
   `describe_tool` of a tool the session can see but the toolset excludes answers
   `tool "<name>" is outside the toolset [<selectors>]`; an unknown name is still `Tool not found`.
 - `call_tool` — including workflow execution (`workflow_<name>`) — of a name outside the
@@ -168,8 +172,8 @@ fills the workflow tool's `readOnlyHint` annotation slot, so `describe_tool` sho
   of its tools is selected. `list_resources`, `filter_resources`, `describe_resource`,
   `list_prompts`, `filter_prompts`, `describe_prompt` hide the others; `get_resource` and
   `get_prompt` refuse them (`resource "<uri>" is outside the toolset […]`).
-- `list_tools`' `servers_requiring_auth` is not narrowed: it tells the caller which sign-in
-  would make more of the toolset resolve.
+- `list_tools`' `servers_requiring_auth` is neither narrowed nor paged: it tells the caller
+  which sign-in would make more of the toolset resolve.
 - `tools/list` — the meta-tools themselves — is unchanged.
 
 ### `filter_tools` and toolsets
