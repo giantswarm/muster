@@ -190,7 +190,7 @@ steps:
       name:      "pod-1"
     expected:
       success: false
-      error_contains: ["tool not found"]
+      error_contains: ['not exposed under family "kubernetes"']
 
 cleanup:
   - id: "cleanup-stop-a"

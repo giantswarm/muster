@@ -1,0 +1,206 @@
+name: "mcpserver-family-tool-call-without-listing"
+description: "A session authenticated to family members calls a family tool without ever having listed tools: the call fills the routing index from the session's cached capabilities, the way list_tools does, and a name that cannot be routed is refused with the family and the members named instead of 'tool not found' (#1204)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "family", "aggregator", "oauth", "session", "regression", "issue-1204"]
+timeout: "3m"
+
+# Given: Two OAuth-protected MCP servers k8s-a and k8s-b share
+#        spec.family = {name: kubernetes, instanceArg: management_cluster}.
+#        alice signs in to k8s-a and never lists tools; bob signs in nowhere.
+# When:  alice calls x_kubernetes_list_pods with management_cluster=k8s-a.
+# Then:  the call reaches k8s-a.
+# When:  alice calls a name in the family's name space that no member offers,
+#        and bob calls the family tool without a sign-in.
+# Then:  each is refused with an error that names the family and the members
+#        (bob's points at core_auth_login), not with "tool not found".
+#
+# Before the fix alice's call failed with "tool not found:
+# x_kubernetes_list_pods". The family routing index is process-global and in
+# memory, and tools of members that require per-session authentication enter
+# it only when a session authenticated to them runs list_tools. A muster
+# restart empties the index while the sessions' tokens and cached capabilities
+# persist in the session stores, so on an installation every session that held
+# on across a rollout got that error for every family tool -- with the member
+# reported Connected -- until it listed tools again (giantswarm/muster#1204).
+# A never-listed session is the same state the restart leaves behind.
+
+pre_configuration:
+  # Doubles as muster's own OAuth server so test_muster_auth_login can mint
+  # the two identities.
+  mock_oauth_servers:
+    - name: "shared-idp"
+      scopes: ["openid", "profile", "mcp:read"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "test-client"
+      client_secret: "test-secret"
+      use_as_muster_oauth_server: true
+
+  mcp_servers:
+    - name: "k8s-a"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "shared-idp"
+          scope: "mcp:read"
+        family:
+          name: "kubernetes"
+          instanceArg: "management_cluster"
+        tools:
+          - name: "list_pods"
+            description: "List pods"
+            input_schema:
+              type: "object"
+              properties:
+                namespace: { type: "string" }
+            responses:
+              - response:
+                  source: "k8s-a"
+                  namespace: "{{ .namespace }}"
+
+    - name: "k8s-b"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "shared-idp"
+          scope: "mcp:read"
+        family:
+          name: "kubernetes"
+          instanceArg: "management_cluster"
+        tools:
+          - name: "list_pods"
+            description: "List pods"
+            input_schema:
+              type: "object"
+              properties:
+                namespace: { type: "string" }
+            responses:
+              - response:
+                  source: "k8s-b"
+                  namespace: "{{ .namespace }}"
+
+steps:
+  - id: "verify-servers-registered"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["k8s-a", "k8s-b"]
+
+  - id: "muster-auth-bob"
+    tool: "test_muster_auth_login"
+    args:
+      subject: "bob"
+    expected:
+      success: true
+      contains: ["success"]
+
+  - id: "create-bob"
+    tool: "test_create_user"
+    args:
+      name: "bob"
+    expected:
+      success: true
+      contains: ["bob"]
+
+  - id: "muster-auth-alice"
+    tool: "test_muster_auth_login"
+    args:
+      subject: "alice"
+    expected:
+      success: true
+      contains: ["success"]
+
+  - id: "create-alice"
+    tool: "test_create_user"
+    args:
+      name: "alice"
+    expected:
+      success: true
+      contains: ["alice"]
+
+  # bob never signed in to a member. The refusal names the family and its
+  # members and points at the sign-in, rather than claiming the tool does not
+  # exist. This runs first: once any session has routed the tool, the index
+  # knows it process-wide and an unauthenticated caller is refused at the
+  # connection instead.
+  - id: "bob-without-sign-in-is-pointed-at-login"
+    as_user: "bob"
+    tool: "x_kubernetes_list_pods"
+    args:
+      management_cluster: "k8s-a"
+      namespace: "default"
+    expected:
+      success: false
+      error_contains: ['name space of family "kubernetes"', "k8s-a", "k8s-b", "core_auth_login"]
+      not_contains: ["tool not found"]
+
+  - id: "alice-auth-k8s-a"
+    as_user: "alice"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "k8s-a"
+    expected:
+      success: true
+      contains: ["success"]
+
+  - id: "alice-login-k8s-a"
+    as_user: "alice"
+    tool: "core_auth_login"
+    args:
+      server: "k8s-a"
+    expected:
+      success: true
+
+  # No list_tools in between: the call itself has to resolve the family tool
+  # from alice's cached capabilities. Before the fix: "tool not found".
+  - id: "alice-calls-family-tool-without-listing"
+    as_user: "alice"
+    tool: "x_kubernetes_list_pods"
+    args:
+      management_cluster: "k8s-a"
+      namespace: "default"
+    expected:
+      success: true
+      contains: ["k8s-a", "default"]
+      not_contains: ["k8s-b"]
+
+  - id: "alice-unknown-family-tool-names-the-family"
+    description: "A name in the family's name space that no member alice sees offers: the error names the family and the members she is connected to"
+    as_user: "alice"
+    tool: "x_kubernetes_list_podz"
+    args:
+      management_cluster: "k8s-a"
+    expected:
+      success: false
+      error_contains: ['not exposed under family "kubernetes"', "k8s-a"]
+      not_contains: ["tool not found", "k8s-b"]
+
+  - id: "alice-listing-agrees-with-the-call"
+    description: "Listing afterwards shows the same surface the call resolved"
+    tool: "test_list_tools_for_user"
+    args:
+      name: "alice"
+    expected:
+      success: true
+      contains: ["x_kubernetes_list_pods"]
+
+cleanup:
+  - id: "cleanup-stop-k8s-a"
+    tool: "core_service_stop"
+    args:
+      name: "k8s-a"
+    expected:
+      success: true
+    continue_on_failure: true
+  - id: "cleanup-stop-k8s-b"
+    tool: "core_service_stop"
+    args:
+      name: "k8s-b"
+    expected:
+      success: true
+    continue_on_failure: true

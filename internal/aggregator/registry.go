@@ -1156,6 +1156,29 @@ func (r *ServerRegistry) IsFamilyTool(exposedName string) bool {
 	return ok
 }
 
+// FamilyOfExposedName returns the declared family whose exposed name space
+// ({musterPrefix}_{family}_...) the given tool name falls into, or "" when no
+// registered server declares such a family or the family has fallen back to
+// per-server prefixing. It answers from the declarations alone, so it also
+// knows names the routing index holds no entry for yet: a family tool of
+// auth-protected members enters the index only when a session that is
+// authenticated to them lists tools.
+func (r *ServerRegistry) FamilyOfExposedName(exposedName string) string {
+	r.nameMu.RLock()
+	defer r.nameMu.RUnlock()
+	fallback := r.familyFallbackStatusLocked()
+	var match string
+	for _, f := range r.serverFamilies {
+		if f == nil || f.Name == "" || fallback[f.Name] || len(f.Name) <= len(match) {
+			continue
+		}
+		if strings.HasPrefix(exposedName, r.musterPrefix+"_"+f.Name+"_") {
+			match = f.Name
+		}
+	}
+	return match
+}
+
 // FamilyInstanceArgFor returns the required instance-selector arg name for a
 // family-grouped exposed tool, or empty string if the name is not family-
 // grouped or unknown.
@@ -1481,51 +1504,81 @@ func (r *ServerRegistry) GetAllToolsForSession(ctx context.Context, store oauths
 	defer r.mu.RUnlock()
 
 	var contributions []serverToolContribution
-
 	for serverName, info := range r.servers {
-		if info.RequiresSessionAuth() {
-			// The capability store is a cache of what the server offered
-			// the session when it last connected. It outlives the server:
-			// a member whose service is down (failed probe, unreachable,
-			// stopped) keeps its pending-auth registry entry and its cached
-			// entries, and would otherwise keep advertising tools nobody
-			// can call (#1162). A down member contributes nothing and
-			// withdraws its family routing entries.
-			if info.IsDown() {
-				contributions = append(contributions, emptyContribution(serverName, info))
-				continue
-			}
-			if store == nil {
-				continue
-			}
-			caps, err := store.Get(ctx, sessionID, serverName)
-			if err != nil || caps == nil {
-				continue
-			}
-			contributions = append(contributions, serverToolContribution{
-				serverName: serverName,
-				family:     cloneFamily(info.Family),
-				tools:      append([]mcp.Tool(nil), caps.Tools...),
-			})
-			continue
+		if c, ok := r.sessionToolContribution(ctx, store, sessionID, serverName, info); ok {
+			contributions = append(contributions, c)
 		}
-
-		if !info.IsConnected() {
-			contributions = append(contributions, emptyContribution(serverName, info))
-			continue
-		}
-
-		info.mu.RLock()
-		toolsCopy := append([]mcp.Tool(nil), info.Tools...)
-		info.mu.RUnlock()
-		contributions = append(contributions, serverToolContribution{
-			serverName: serverName,
-			family:     cloneFamily(info.Family),
-			tools:      toolsCopy,
-		})
 	}
 
 	return r.assembleExposedTools(contributions)
+}
+
+// sessionToolContribution is one server's part in a session-scoped tool
+// listing: its tools for the session, an empty contribution (which withdraws
+// the server's family routing entries) when the server is registered but
+// unusable, or nothing at all when the session simply has no view of it.
+// Caller must hold r.mu (read or write).
+func (r *ServerRegistry) sessionToolContribution(ctx context.Context, store oauthstore.CapabilityStore, sessionID, serverName string, info *ServerInfo) (serverToolContribution, bool) {
+	if info.RequiresSessionAuth() {
+		// The capability store is a cache of what the server offered
+		// the session when it last connected. It outlives the server:
+		// a member whose service is down (failed probe, unreachable,
+		// stopped) keeps its pending-auth registry entry and its cached
+		// entries, and would otherwise keep advertising tools nobody
+		// can call (#1162). A down member contributes nothing and
+		// withdraws its family routing entries.
+		if info.IsDown() {
+			return emptyContribution(serverName, info), true
+		}
+		if store == nil {
+			return serverToolContribution{}, false
+		}
+		caps, err := store.Get(ctx, sessionID, serverName)
+		if err != nil || caps == nil {
+			return serverToolContribution{}, false
+		}
+		return serverToolContribution{
+			serverName: serverName,
+			family:     cloneFamily(info.Family),
+			tools:      append([]mcp.Tool(nil), caps.Tools...),
+		}, true
+	}
+
+	if !info.IsConnected() {
+		return emptyContribution(serverName, info), true
+	}
+
+	info.mu.RLock()
+	toolsCopy := append([]mcp.Tool(nil), info.Tools...)
+	info.mu.RUnlock()
+	return serverToolContribution{
+		serverName: serverName,
+		family:     cloneFamily(info.Family),
+		tools:      toolsCopy,
+	}, true
+}
+
+// FamilyMembersForSession returns the servers declaring the given family and
+// the subset whose tools the session sees -- connected members without
+// session authentication, and members with cached capabilities for the
+// session that are not down -- by the rule GetAllToolsForSession applies.
+// Both lists are sorted.
+func (r *ServerRegistry) FamilyMembersForSession(ctx context.Context, store oauthstore.CapabilityStore, sessionID, familyName string) (members, visible []string) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for serverName, info := range r.servers {
+		if info.Family == nil || info.Family.Name != familyName {
+			continue
+		}
+		members = append(members, serverName)
+		if c, ok := r.sessionToolContribution(ctx, store, sessionID, serverName, info); ok && len(c.tools) > 0 {
+			visible = append(visible, serverName)
+		}
+	}
+	sort.Strings(members)
+	sort.Strings(visible)
+	return members, visible
 }
 
 // GetAllResourcesForSession returns the resources visible to a specific login session.

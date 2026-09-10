@@ -1923,7 +1923,7 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 	// fall back to legacy single-server resolution). For non-family tools
 	// (including core tools that legitimately accept "server" as a regular
 	// argument), the value is passed through untouched.
-	if a.registry.IsFamilyTool(toolName) {
+	if a.isFamilyToolForSession(ctx, toolName, sessionID, sub) {
 		instanceArg := a.registry.FamilyInstanceArgFor(toolName)
 		explicitServer, _ := args[instanceArg].(string)
 		if explicitServer == "" {
@@ -1991,7 +1991,66 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 
 	logging.DebugWithAttrs("Aggregator", "Tool not found in registry, session, or core tools",
 		slog.String("tool", toolName))
+	if family := a.registry.FamilyOfExposedName(toolName); family != "" {
+		return nil, a.familyToolUnavailableError(ctx, toolName, family, sessionID)
+	}
 	return nil, fmt.Errorf("tool not found: %s", toolName)
+}
+
+// isFamilyToolForSession reports whether toolName is family-grouped, filling
+// the family routing index from the calling session's view first when the
+// index does not know the name yet.
+//
+// The index is process-global and in memory, written as a side effect of
+// assembling a tool listing. Tools of members that require per-session
+// authentication are skipped by the global listing, so they enter the index
+// only when a session that is authenticated to them runs list_tools. A session
+// that never listed -- or that listed before a muster restart emptied the
+// index -- would otherwise be told "tool not found" for a family tool its
+// cached capabilities and its tokens still cover (#1204). So when the name
+// lies in a declared family's name space, the session's view is assembled the
+// way list_tools assembles it, adopting the person's subject-scoped grants
+// first when that alone does not resolve the name, as the per-server path in
+// CallToolInternal does.
+func (a *AggregatorServer) isFamilyToolForSession(ctx context.Context, toolName, sessionID, sub string) bool {
+	if a.registry.IsFamilyTool(toolName) {
+		return true
+	}
+	if sessionID == "" || a.registry.FamilyOfExposedName(toolName) == "" {
+		return false
+	}
+	a.GetToolsForSession(ctx, sessionID)
+	if !a.registry.IsFamilyTool(toolName) && sub != "" && a.adoptSubjectGrants(ctx, sessionID, sub) > 0 {
+		a.GetToolsForSession(ctx, sessionID)
+	}
+	resolved := a.registry.IsFamilyTool(toolName)
+	logging.DebugWithAttrs("Aggregator", "Family routing rebuilt from the session's view on call",
+		slog.String("tool", toolName),
+		slog.Bool("resolved", resolved),
+		slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
+	return resolved
+}
+
+// familyToolUnavailableError explains why a name in a declared family's name
+// space could not be routed for the calling session: the session sees no
+// member of the family at all (a missing sign-in), or the members it sees do
+// not expose the tool under that name (a name the family does not have, or a
+// tool that fell back to per-server names).
+func (a *AggregatorServer) familyToolUnavailableError(ctx context.Context, toolName, family, sessionID string) error {
+	members, visible := a.registry.FamilyMembersForSession(ctx, a.capabilityStore, sessionID, family)
+	if len(visible) > 0 {
+		return fmt.Errorf("tool %s is not exposed under family %q by any member this session is connected to (%s)",
+			toolName, family, strings.Join(visible, ", "))
+	}
+	hint := ""
+	if slices.ContainsFunc(members, func(member string) bool {
+		info, ok := a.registry.GetServerInfo(member)
+		return ok && needsManualLogin(info)
+	}) {
+		hint = "; sign in to one with core_auth_login"
+	}
+	return fmt.Errorf("tool %s is in the name space of family %q, but this session is connected to none of its members (%s)%s",
+		toolName, family, strings.Join(members, ", "), hint)
 }
 
 // dispatchResolvedTool routes a tool call to the backend server once the
@@ -3426,6 +3485,15 @@ func (a *AggregatorServer) GetPrompt(ctx context.Context, name string, args map[
 	return result, nil
 }
 
+// needsManualLogin reports whether a person connects the server with
+// core_auth_login: it requires per-session authentication and is not
+// SSO-enabled. SSO servers (token forwarding/exchange) are authenticated by
+// the admin's configuration, not the user -- a manual login cannot fix an
+// SSO failure.
+func needsManualLogin(info *ServerInfo) bool {
+	return info.RequiresSessionAuth() && !ShouldUseTokenExchange(info) && !ShouldUseTokenForwarding(info)
+}
+
 // ListServersRequiringAuth returns a list of servers that require authentication
 // for the current session. This enables the list_tools meta-tool to inform users
 // about servers that are available but require authentication before their tools
@@ -3445,13 +3513,7 @@ func (a *AggregatorServer) ListServersRequiringAuth(ctx context.Context) []api.S
 	var authRequired []api.ServerAuthInfo
 
 	for name, info := range servers {
-		if !info.RequiresSessionAuth() {
-			continue
-		}
-
-		// SSO-enabled servers (token forwarding/exchange) are authenticated by
-		// the admin, not the user -- manual login cannot fix SSO failures.
-		if ShouldUseTokenExchange(info) || ShouldUseTokenForwarding(info) {
+		if !needsManualLogin(info) {
 			continue
 		}
 
