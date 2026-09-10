@@ -335,6 +335,17 @@ type OAuthServerConfig struct {
 	// Default: true (native app support enabled by default)
 	AllowLocalhostRedirectURIs bool `yaml:"allowLocalhostRedirectURIs,omitempty"`
 
+	// AllowPrivateIPClientMetadata lets a CIMD client_id URL (the Client ID
+	// Metadata Document a client self-hosts) resolve to a private, loopback or
+	// link-local address. Needed where the platform's own hostnames resolve to
+	// an internal load balancer (a management cluster reachable only over VPN):
+	// without it the SSRF guard rejects such a client with
+	// "client_id metadata URL resolves to private/internal IP address".
+	// Reduces SSRF protection for CIMD fetches; mcp-oauth logs a startup
+	// warning when set. PKCE and redirect-URI checks are unchanged.
+	// Default: false
+	AllowPrivateIPClientMetadata bool `yaml:"allowPrivateIPClientMetadata,omitempty"`
+
 	// SessionDuration is the maximum session duration before re-authentication
 	// is required. This sets the server-side refresh token TTL.
 	// Default: 720h (30 days), aligned with Dex's absoluteLifetime.

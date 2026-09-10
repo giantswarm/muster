@@ -306,6 +306,9 @@
                                 "allowLocalhostRedirectURIs": {
                                     "type": "boolean"
                                 },
+                                "allowPrivateIPClientMetadata": {
+                                    "type": "boolean"
+                                },
                                 "allowPublicClientRegistration": {
                                     "type": "boolean"
                                 },

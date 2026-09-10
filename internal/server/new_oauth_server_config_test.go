@@ -70,6 +70,7 @@ func TestNewOAuthServerConfig_PreservesAdjacentFields(t *testing.T) {
 		RegistrationToken:                     "tok",
 		EnableCIMD:                            true,
 		AllowLocalhostRedirectURIs:            true,
+		AllowPrivateIPClientMetadata:          true,
 		TrustedPublicRegistrationSchemes:      []string{"cursor", "vscode"},
 		TrustedPublicRegistrationRedirectURIs: []string{"https://claude.ai/api/mcp/auth_callback"},
 		TrustedAudiences:                      []string{"upstream-client-id"},
@@ -82,6 +83,7 @@ func TestNewOAuthServerConfig_PreservesAdjacentFields(t *testing.T) {
 	require.Equal(t, "tok", got.RegistrationAccessToken)
 	require.True(t, got.EnableClientIDMetadataDocuments)
 	require.True(t, got.AllowLocalhostRedirectURIs)
+	require.True(t, got.AllowPrivateIPClientMetadata)
 	require.Equal(t, []string{"cursor", "vscode"}, got.TrustedPublicRegistrationSchemes)
 	require.Equal(t, []string{"https://claude.ai/api/mcp/auth_callback"}, got.TrustedPublicRegistrationRedirectURIs)
 	require.Equal(t, []string{"upstream-client-id"}, got.TrustedAudiences)
@@ -146,4 +148,12 @@ func TestNewOAuthServerConfig_AllowPrivateIPJWKSMirrorsDexFlag(t *testing.T) {
 				"AllowPrivateIPJWKS must mirror Dex.AllowPrivateIPOIDC")
 		})
 	}
+}
+
+func TestNewOAuthServerConfig_AllowPrivateIPClientMetadataDefaultsOff(t *testing.T) {
+	t.Parallel()
+
+	got := newOAuthServerConfig(config.OAuthServerConfig{BaseURL: "https://muster.example.com"}, time.Hour)
+
+	require.False(t, got.AllowPrivateIPClientMetadata, "the CIMD SSRF guard must stay on unless the operator opts out")
 }

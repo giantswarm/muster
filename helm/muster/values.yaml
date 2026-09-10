@@ -591,6 +591,15 @@ muster:
       # Required for muster agent and other local OAuth clients. Default: true.
       allowLocalhostRedirectURIs: true
 
+      # Let a CIMD client_id URL (the Client ID Metadata Document a client
+      # self-hosts) resolve to a private, loopback or link-local address. Needed
+      # where the platform's own hostnames resolve to an internal load balancer
+      # (a management cluster reachable only over VPN) -- otherwise the SSRF guard
+      # rejects such a client with "client_id metadata URL resolves to
+      # private/internal IP address". Reduces SSRF protection for CIMD fetches;
+      # muster logs a startup warning when set. Default: false.
+      allowPrivateIPClientMetadata: false
+
       # ---------------------------------------------------------------------------
       # Token acceptance: skip muster's own OAuth flow
       #
