@@ -88,6 +88,9 @@ data:
           {{- if .Values.muster.oauth.server.allowPrivateIPClientMetadata }}
           allowPrivateIPClientMetadata: true
           {{- end }}
+          {{- if .Values.muster.oauth.server.allowPrivateIPRedirectURIs }}
+          allowPrivateIPRedirectURIs: true
+          {{- end }}
           {{- if .Values.muster.oauth.server.allowPublicClientRegistration }}
           allowPublicClientRegistration: true
           {{- end }}

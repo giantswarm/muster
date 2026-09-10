@@ -71,6 +71,7 @@ func TestNewOAuthServerConfig_PreservesAdjacentFields(t *testing.T) {
 		EnableCIMD:                            true,
 		AllowLocalhostRedirectURIs:            true,
 		AllowPrivateIPClientMetadata:          true,
+		AllowPrivateIPRedirectURIs:            true,
 		TrustedPublicRegistrationSchemes:      []string{"cursor", "vscode"},
 		TrustedPublicRegistrationRedirectURIs: []string{"https://claude.ai/api/mcp/auth_callback"},
 		TrustedAudiences:                      []string{"upstream-client-id"},
@@ -84,6 +85,7 @@ func TestNewOAuthServerConfig_PreservesAdjacentFields(t *testing.T) {
 	require.True(t, got.EnableClientIDMetadataDocuments)
 	require.True(t, got.AllowLocalhostRedirectURIs)
 	require.True(t, got.AllowPrivateIPClientMetadata)
+	require.True(t, got.AllowPrivateIPRedirectURIs)
 	require.Equal(t, []string{"cursor", "vscode"}, got.TrustedPublicRegistrationSchemes)
 	require.Equal(t, []string{"https://claude.ai/api/mcp/auth_callback"}, got.TrustedPublicRegistrationRedirectURIs)
 	require.Equal(t, []string{"upstream-client-id"}, got.TrustedAudiences)
@@ -156,4 +158,5 @@ func TestNewOAuthServerConfig_AllowPrivateIPClientMetadataDefaultsOff(t *testing
 	got := newOAuthServerConfig(config.OAuthServerConfig{BaseURL: "https://muster.example.com"}, time.Hour)
 
 	require.False(t, got.AllowPrivateIPClientMetadata, "the CIMD SSRF guard must stay on unless the operator opts out")
+	require.False(t, got.AllowPrivateIPRedirectURIs, "the redirect-URI private-IP guard must stay on unless the operator opts out")
 }

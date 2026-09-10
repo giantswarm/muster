@@ -600,6 +600,15 @@ muster:
       # muster logs a startup warning when set. Default: false.
       allowPrivateIPClientMetadata: false
 
+      # Let a client's redirect URI resolve to a private address (a literal
+      # RFC 1918 host or a hostname that resolves to one). Needed where the
+      # platform's own hostnames resolve to an internal load balancer -- the
+      # authorization-time check otherwise rejects the client's callback with
+      # "redirect_uri: hostname resolves to private IP address (DNS rebinding
+      # protection)". Reduces open-redirect/SSRF protection for redirect targets;
+      # muster logs a startup warning when set. Default: false.
+      allowPrivateIPRedirectURIs: false
+
       # ---------------------------------------------------------------------------
       # Token acceptance: skip muster's own OAuth flow
       #

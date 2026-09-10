@@ -45,6 +45,7 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, refreshTokenTTL time.Dur
 		TrustedPublicRegistrationRedirectURIs: cfg.TrustedPublicRegistrationRedirectURIs,
 		AllowLocalhostRedirectURIs:            cfg.AllowLocalhostRedirectURIs,
 		AllowPrivateIPClientMetadata:          cfg.AllowPrivateIPClientMetadata,
+		AllowPrivateIPRedirectURIs:            cfg.AllowPrivateIPRedirectURIs,
 		TrustedAudiences:                      cfg.TrustedAudiences,
 		// The forwarded-ID-token (TrustedAudiences) JWKS validation in
 		// mcp-oauth is gated on this top-level flag. Mirror the provider-side
