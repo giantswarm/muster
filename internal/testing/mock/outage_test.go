@@ -1,10 +1,12 @@
 package mock
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -34,7 +36,7 @@ func TestOutageGateAnswersThenRecovers(t *testing.T) {
 		t.Fatalf("disarmed gate must be transparent, got %d", got)
 	}
 
-	gate.set(http.StatusGatewayTimeout, 2)
+	gate.set(http.StatusGatewayTimeout, 2, false)
 	for i := 0; i < 2; i++ {
 		if got := get(); got != http.StatusGatewayTimeout {
 			t.Fatalf("request %d during the outage: got %d, want 504", i+1, got)
@@ -51,10 +53,91 @@ func TestOutageGateAnswersThenRecovers(t *testing.T) {
 	}
 
 	// Ending an outage early.
-	gate.set(http.StatusServiceUnavailable, 5)
-	gate.set(0, 0)
+	gate.set(http.StatusServiceUnavailable, 5, false)
+	gate.set(0, 0, false)
 	if got := get(); got != http.StatusOK {
 		t.Fatalf("a cleared gate must be transparent, got %d", got)
+	}
+}
+
+// TestOutageGatePassesPingsThrough: the orchestrator's health probe pings a
+// connected server on every interval. An armed gate serves a ping uncounted,
+// with its body intact for the handler, so a scenario that arms N requests
+// sees exactly N connection attempts fail whenever the probe lands.
+func TestOutageGatePassesPingsThrough(t *testing.T) {
+	var gate outageGate
+	var seen []string
+	handler := gate.wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("reading the body behind the gate: %v", err)
+		}
+		seen = append(seen, string(body))
+		w.WriteHeader(http.StatusOK)
+	}))
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	post := func(body string) int {
+		resp, err := http.Post(srv.URL, "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatalf("POST: %v", err)
+		}
+		_ = resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	const ping = `{"jsonrpc":"2.0","id":7,"method":"ping"}`
+	gate.set(http.StatusGatewayTimeout, 1, false)
+	if got := post(ping); got != http.StatusOK {
+		t.Fatalf("a ping during the outage must be served, got %d", got)
+	}
+	if got := gate.remainingRequests(); got != 1 {
+		t.Fatalf("a ping must not consume the outage: remaining %d, want 1", got)
+	}
+	if got := post(`{"jsonrpc":"2.0","id":8,"method":"initialize","params":{}}`); got != http.StatusGatewayTimeout {
+		t.Fatalf("a connection attempt during the outage: got %d, want 504", got)
+	}
+	if len(seen) != 1 || seen[0] != ping {
+		t.Fatalf("the handler must see the ping with its body intact, saw %q", seen)
+	}
+}
+
+// TestOutageGateCountsPingsWhenArmedWithPings: a gate armed with pings answers
+// the health probe's ping with the status and consumes the outage for it, the
+// way a gateway that fails every request would; the handler never sees it.
+func TestOutageGateCountsPingsWhenArmedWithPings(t *testing.T) {
+	var gate outageGate
+	served := 0
+	handler := gate.wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		served++
+		w.WriteHeader(http.StatusOK)
+	}))
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	post := func(body string) int {
+		resp, err := http.Post(srv.URL, "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatalf("POST: %v", err)
+		}
+		_ = resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	const ping = `{"jsonrpc":"2.0","id":7,"method":"ping"}`
+	gate.set(http.StatusNotFound, 1, true)
+	if got := post(ping); got != http.StatusNotFound {
+		t.Fatalf("a ping during an outage armed with pings must get the status, got %d", got)
+	}
+	if got := gate.remainingRequests(); got != 0 {
+		t.Fatalf("the ping must consume the outage: remaining %d, want 0", got)
+	}
+	if got := post(ping); got != http.StatusOK {
+		t.Fatalf("after the outage the ping must be served, got %d", got)
+	}
+	if served != 1 {
+		t.Fatalf("the handler must not see the ping the gate answered: served %d, want 1", served)
 	}
 }
 
@@ -79,7 +162,7 @@ func TestHTTPServerOutageSurvivesRestart(t *testing.T) {
 		t.Fatalf("Stop: %v", err)
 	}
 
-	srv.SetOutage(http.StatusBadGateway, 1)
+	srv.SetOutage(http.StatusBadGateway, 1, false)
 	if err := srv.StartOnPort(t.Context(), port); err != nil {
 		t.Fatalf("StartOnPort: %v", err)
 	}

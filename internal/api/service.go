@@ -311,3 +311,10 @@ const (
 	// succeeded.
 	ServiceDataLastFailureHTTPStatus = "lastFailureHTTPStatus"
 )
+
+// ServiceDataHealthCheckFailures is an int an MCPServer service publishes
+// through ServiceInfo.GetServiceData: health probes that failed in a row
+// against a connected server. Reset by a passing probe, a successful start or
+// a stop. Shown by core_service_status; not part of the reconnect schedule
+// above and not mirrored into the CR status.
+const ServiceDataHealthCheckFailures = "consecutiveHealthCheckFailures"

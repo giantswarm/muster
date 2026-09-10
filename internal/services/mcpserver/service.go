@@ -15,6 +15,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mark3labs/mcp-go/mcp"
+
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/events"
 	"github.com/giantswarm/muster/internal/mcpserver"
@@ -108,12 +110,31 @@ type Service struct {
 	// after construction; set via WithKubernetesMode.
 	kubernetesMode bool
 
-	// healthEventMutex guards healthEventUnhealthy, which gates emission of
+	// reconnectAfterProbe is set when failed health probes closed a connected
+	// server's client and put it on the reconnect schedule, and cleared by the
+	// next attempt that reaches the endpoint. While set, a start that fails
+	// with any error is scheduled again: the server was serving before the
+	// probes failed, so whatever the endpoint answers during the outage -- a
+	// 404 from a route being reprogrammed, an HTML login page -- is expected
+	// to pass. Protected by failureMutex.
+	reconnectAfterProbe bool
+
+	// healthEventMutex guards the health-probe bookkeeping. healthCheckFailures
+	// counts failed probes in a row; the server is failed at
+	// HealthCheckFailureThreshold. healthEventUnhealthy gates emission of
 	// MCPServerHealthCheckFailed to the healthy->unhealthy transition so the
-	// 30s health-check loop does not re-emit the same event every poll.
+	// health-check loop does not re-emit the same event every poll.
 	healthEventMutex     sync.Mutex
+	healthCheckFailures  int
 	healthEventUnhealthy bool
 }
+
+// HealthCheckFailureThreshold is the number of consecutive failed health
+// probes after which a connected server's client is closed and the server is
+// handed to the reconnect schedule. One failed ping -- a slow backend, a probe
+// that hit a rollout -- must not cost the server its tools; three in a row
+// (90 s at the production interval) mean the connection is dead.
+const HealthCheckFailureThreshold = 3
 
 // Option configures a Service at construction time.
 type Option func(*Service)
@@ -211,8 +232,9 @@ func (s *Service) Start(ctx context.Context) error {
 			}
 		}
 
-		// Track consecutive failures for remote servers (transient errors only)
-		if s.isRemoteServer() && s.isTransientConnectivityError(err) {
+		// Track consecutive failures for remote servers (transient errors only,
+		// or any error while reconnecting after failed health probes)
+		if s.isRemoteServer() && (s.isTransientConnectivityError(err) || s.isReconnectingAfterProbe()) {
 			s.failureMutex.Lock()
 			s.consecutiveFailures++
 			s.lastFailureHTTPStatus = httpStatusFromError(err)
@@ -253,6 +275,7 @@ func (s *Service) Start(ctx context.Context) error {
 
 	// Success - reset consecutive failure tracking (thread-safe)
 	s.resetFailureTracking()
+	s.resetHealthCheckEventGate()
 
 	// A server reached with the caller's identity (forwardToken or
 	// tokenExchange) is served per session, and the client the probe just
@@ -312,7 +335,16 @@ func (s *Service) resetFailureTracking() {
 	s.nextRetryAfter = nil
 	s.retryBackoff = 0
 	s.lastFailureHTTPStatus = 0
+	s.reconnectAfterProbe = false
 	s.failureMutex.Unlock()
+}
+
+// isReconnectingAfterProbe reports whether the current start attempt follows a
+// health-probe failure, see reconnectAfterProbe.
+func (s *Service) isReconnectingAfterProbe() bool {
+	s.failureMutex.RLock()
+	defer s.failureMutex.RUnlock()
+	return s.reconnectAfterProbe
 }
 
 // discardAnonymousProbe closes the client Start opened without a user token
@@ -367,6 +399,7 @@ func (s *Service) Stop(ctx context.Context) error {
 		s.LogWarn("Error during client cleanup: %v", err)
 		// Still transition to stopped state for graceful shutdown
 	}
+	s.resetHealthCheckEventGate()
 
 	// Use appropriate state based on server type:
 	// - Remote servers: "disconnected" is more intuitive
@@ -660,36 +693,144 @@ func (s *Service) GetServiceData() map[string]interface{} {
 	}
 	s.failureMutex.RUnlock()
 
+	s.healthEventMutex.Lock()
+	data[api.ServiceDataHealthCheckFailures] = s.healthCheckFailures
+	s.healthEventMutex.Unlock()
+
 	return data
 }
 
-// CheckHealth implements HealthChecker using MCP protocol
+// CheckHealth implements HealthChecker. The orchestrator calls it
+// periodically for every connected or running server. A failed probe is
+// counted and returned; at HealthCheckFailureThreshold failures in a row the
+// client is closed and the server moves to Failed with a reconnect due at
+// once, so the orchestrator's retry loop -- the one place that restarts
+// servers -- picks it up on its next tick. A passing probe resets the count.
+//
+// Not every server has something to probe, and not every error says
+// something about the connection:
+//   - A server reached with the caller's identity (forwardToken,
+//     tokenExchange) or protected by OAuth is served per session; the
+//     service holds no shared client after a login synced it to Connected,
+//     and the aggregator tracks those connections per session.
+//   - A server that is not Running/Connected is someone else's: a Stop or
+//     Restart closed the client under the probe.
+//   - A JSON-RPC error reply came from a live server that did not like the
+//     request; a context error is muster shutting down, not the backend.
 func (s *Service) CheckHealth(ctx context.Context) (services.HealthStatus, error) {
-	s.clientInitMutex.Lock()
-	client := s.client
-	s.clientInitMutex.Unlock()
-
+	if !s.IsRunning() || s.definition.Auth.UsesSessionAuth() {
+		return s.GetHealth(), nil
+	}
+	client := s.GetMCPClient()
 	if client == nil {
-		s.UpdateHealth(services.HealthUnhealthy)
-		err := fmt.Errorf("MCP client not available")
-		s.emitHealthCheckFailedOnce(err.Error())
-		return services.HealthUnhealthy, err
+		return s.GetHealth(), nil
 	}
 
-	// Use MCP ping to check health instead of process checking
-	if pinger, ok := client.(interface{ Ping(context.Context) error }); ok {
-		if err := pinger.Ping(ctx); err != nil {
-			s.UpdateHealth(services.HealthUnhealthy)
-			healthErr := fmt.Errorf("MCP ping failed: %w", err)
-			s.emitHealthCheckFailedOnce(healthErr.Error())
-			return services.HealthUnhealthy, healthErr
+	probeCtx, cancel := s.probeContext(ctx)
+	defer cancel()
+	if err := probe(probeCtx, client); err != nil {
+		if ctx.Err() != nil || !isConnectionFailure(err) {
+			s.LogDebug("Health probe error not counted: %v", err)
+			return s.GetHealth(), nil
+		}
+		return s.recordHealthCheckFailure(err)
+	}
+
+	s.resetHealthCheckEventGate()
+	s.UpdateHealth(services.HealthHealthy)
+	return services.HealthHealthy, nil
+}
+
+// probeContext bounds one probe by the same budget the server's initialize
+// gets: spec.timeout for a remote server (DefaultRemoteTimeout when unset),
+// the stdio default for a subprocess. A slow backend configured with a long
+// timeout is not failed by a probe deadline shorter than its own.
+func (s *Service) probeContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if s.definition.Type == api.MCPServerTypeStdio {
+		return context.WithTimeout(ctx, mcpserver.DefaultStdioInitTimeout)
+	}
+	return s.getRemoteInitContext(ctx)
+}
+
+// probe sends one request the backend has to answer. That is an MCP ping,
+// except on a connection that negotiated protocol 2026-07-28, where ping no
+// longer exists and mcp-go answers it locally without any I/O; such a
+// backend is asked for tools/list instead.
+func probe(ctx context.Context, client interface{}) error {
+	if versioned, ok := client.(interface{ NegotiatedProtocolVersion() string }); ok && mcp.IsModernProtocol(versioned.NegotiatedProtocolVersion()) {
+		lister, ok := client.(interface {
+			ListTools(context.Context) ([]mcp.Tool, error)
+		})
+		if !ok {
+			return nil
+		}
+		if _, err := lister.ListTools(ctx); err != nil {
+			return fmt.Errorf("MCP tools/list failed: %w", err)
+		}
+		return nil
+	}
+	pinger, ok := client.(interface{ Ping(context.Context) error })
+	if !ok {
+		return nil
+	}
+	if err := pinger.Ping(ctx); err != nil {
+		return fmt.Errorf("MCP ping failed: %w", err)
+	}
+	return nil
+}
+
+// isConnectionFailure reports whether a probe error means the backend did not
+// answer. A JSON-RPC error reply (method not found from a proxy that does not
+// implement ping, invalid params, ...) is an answer, and a cancelled context
+// is the caller's doing; neither is a dead connection.
+func isConnectionFailure(err error) bool {
+	if errors.Is(err, context.Canceled) {
+		return false
+	}
+	for _, rpc := range []error{mcp.ErrParseError, mcp.ErrInvalidRequest, mcp.ErrMethodNotFound, mcp.ErrInvalidParams, mcp.ErrInternalError} {
+		if errors.Is(err, rpc) {
+			return false
 		}
 	}
+	return true
+}
 
-	s.UpdateHealth(services.HealthHealthy)
-	// Clear the gate so the next healthy->unhealthy transition emits again.
-	s.resetHealthCheckEventGate()
-	return services.HealthHealthy, nil
+// recordHealthCheckFailure counts a failed probe. Below the threshold the
+// health is left as it is. At the threshold the client is closed, the server
+// moves to Failed with a reconnect due at once -- which withdraws its tools,
+// shows in the CR status and hands it to the retry loop -- and
+// MCPServerHealthCheckFailed is emitted once. The reconnect schedule's own
+// failure count is left alone so the backoff of the attempts that follow is
+// not inflated by the probes.
+func (s *Service) recordHealthCheckFailure(err error) (services.HealthStatus, error) {
+	if !s.IsRunning() {
+		return s.GetHealth(), err
+	}
+
+	s.healthEventMutex.Lock()
+	s.healthCheckFailures++
+	failures := s.healthCheckFailures
+	s.healthEventMutex.Unlock()
+
+	if failures < HealthCheckFailureThreshold {
+		s.LogWarn("Health check failure %d of %d: %v", failures, HealthCheckFailureThreshold, err)
+		return s.GetHealth(), err
+	}
+
+	s.LogWarn("Health check failure %d of %d, closing the client and scheduling a reconnect: %v", failures, HealthCheckFailureThreshold, err)
+	if cerr := s.closeClient(); cerr != nil {
+		s.LogWarn("Error closing client after failed health checks: %v", cerr)
+	}
+	now := time.Now()
+	s.failureMutex.Lock()
+	s.nextRetryAfter = &now
+	s.retryBackoff = 0
+	s.reconnectAfterProbe = true
+	s.failureMutex.Unlock()
+
+	s.UpdateState(services.StateFailed, services.HealthUnhealthy, err)
+	s.emitHealthCheckFailedOnce(fmt.Sprintf("%d consecutive failures: %v", failures, err))
+	return services.HealthUnhealthy, err
 }
 
 // emitHealthCheckFailedOnce emits MCPServerHealthCheckFailed only on the
@@ -710,10 +851,12 @@ func (s *Service) emitHealthCheckFailedOnce(errMsg string) {
 	})
 }
 
-// resetHealthCheckEventGate clears the unhealthy gate after a healthy check so
-// the next failure transition emits a fresh event.
+// resetHealthCheckEventGate clears the failure count and the unhealthy gate
+// after a passing probe, a successful start or a stop, so the next run of
+// failures is counted from zero and its transition emits a fresh event.
 func (s *Service) resetHealthCheckEventGate() {
 	s.healthEventMutex.Lock()
+	s.healthCheckFailures = 0
 	s.healthEventUnhealthy = false
 	s.healthEventMutex.Unlock()
 }

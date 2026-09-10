@@ -1251,6 +1251,11 @@ func (m *musterInstanceManager) startMusterProcess(ctx context.Context, configPa
 		// within seconds and can assert on the exact schedule.
 		"MUSTER_MCPSERVER_MAX_BACKOFF=3s",
 		"MUSTER_ORCHESTRATOR_RETRY_INTERVAL=1s",
+		// Three failed probes turn a server unhealthy, so a scenario sees the
+		// health loop act on a dead backend within seconds. The probe's pings
+		// pass the mock servers' outage gate uncounted (mock/outage.go), so a
+		// scenario that arms N failed requests still sees N failed attempts.
+		"MUSTER_ORCHESTRATOR_HEALTH_CHECK_INTERVAL=1s",
 		"OTEL_METRICS_EXPORTER=prometheus",
 		"OTEL_EXPORTER_PROMETHEUS_HOST=127.0.0.1",
 		fmt.Sprintf("OTEL_EXPORTER_PROMETHEUS_PORT=%d", metricsPort),

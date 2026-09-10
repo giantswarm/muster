@@ -603,6 +603,14 @@ muster process tune the schedule: `MUSTER_MCPSERVER_INITIAL_BACKOFF` (default
 `30s`), `MUSTER_MCPSERVER_MAX_BACKOFF` (default `2m`) and
 `MUSTER_ORCHESTRATOR_RETRY_INTERVAL` (default `30s`), each a Go duration.
 
+A connected server is also probed with an MCP ping every
+`MUSTER_ORCHESTRATOR_HEALTH_CHECK_INTERVAL` (default `30s`, a Go duration), each
+probe bounded by the server's `spec.timeout`. Three failed probes in a row close
+the client and put the server on the schedule above with a reconnect due at
+once; `metadata.consecutiveHealthCheckFailures` in `core_service_status` shows
+the running count. Servers served per session (`forwardToken`, `tokenExchange`,
+OAuth) have no shared client and are not probed.
+
 ## Advanced Configuration
 
 ### Environment Variables for Stdio Servers

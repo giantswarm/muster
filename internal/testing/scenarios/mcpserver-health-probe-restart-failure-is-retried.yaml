@@ -1,0 +1,121 @@
+name: "mcpserver-health-probe-restart-failure-is-retried"
+description: "A connected MCPServer whose gateway starts answering every request, the health probe's pings included, with HTTP 404 is detected by the probe and restarted; the restart's initialize fails on the 404, which is not a transient connectivity error, and the server must still be retried and reconnect on its own once the gateway serves again (#1187 review)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "health", "orchestrator", "recovery", "regression"]
+timeout: "3m"
+
+# Given: a plain streamable-http MCPServer, connected. The harness probes
+#        every connected server every 1s with a 1s initial backoff, a 3s
+#        backoff cap and a 1s retry tick (production: 30s, 30s, 2m, 30s).
+# When:  its gateway answers every request -- the probe's pings included --
+#        with HTTP 404 (a route reprogrammed during a rollout, an auth proxy
+#        that lost its upstream).
+# Then:  the third failed probe turns the server unhealthy and the
+#        orchestrator restarts it; the restart's initialize gets the 404,
+#        which the client reports as "returned 4xx for initialize POST" and
+#        muster does not classify as a transient connectivity error.
+# When:  the gateway serves again.
+# Then:  the server reconnects on its own and its tool answers.
+#
+# Before the fix a non-transient start error after a health-triggered restart
+# left the server failed with no nextRetryAfter: the reconnect loop skipped it
+# ("No retry backoff set ... skipping automatic retry") and the server stayed
+# failed with its tools withdrawn until an operator restarted it by hand --
+# whereas before the probe existed the connection stayed up and served again
+# as soon as the gateway did.
+
+pre_configuration:
+  main_config:
+    config:
+      events: true
+
+  mcp_servers:
+    - name: "behind-reprogrammed-route"
+      config:
+        type: "streamable-http"
+        tools:
+          - name: "probe"
+            description: "Answers when the route reaches the backend"
+            input_schema:
+              type: "object"
+              properties: {}
+            responses:
+              - response: { alive: true }
+
+steps:
+  - id: "connected"
+    tool: "core_service_status"
+    args:
+      name: "behind-reprogrammed-route"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "connected"
+        health: "healthy"
+    timeout: "45s"
+
+  - id: "probe-works"
+    tool: "x_behind-reprogrammed-route_probe"
+    args: {}
+    expected:
+      success: true
+      contains: ["alive"]
+    timeout: "15s"
+
+  - id: "route-answers-404"
+    description: "The gateway answers everything, pings included, with 404 until told otherwise"
+    tool: "test_set_mock_server_outage"
+    args:
+      server: "behind-reprogrammed-route"
+      status: 404
+      requests: 1000
+      pings: true
+    expected:
+      success: true
+      contains: ["answers its next 1000 requests with HTTP 404"]
+
+  - id: "unhealthy-detected-and-reconnect-failed-on-the-404"
+    description: "Three failed pings turn the server unhealthy; the reconnect attempt that follows runs into the 404 on initialize"
+    tool: "core_events"
+    args:
+      resourceType: "MCPServer"
+      resourceName: "behind-reprogrammed-route"
+    expected:
+      success: true
+      wait_for_state: "45s"
+      contains:
+        - "health check failed: 3 consecutive failures: MCP ping failed"
+        - "4xx for initialize POST"
+    timeout: "60s"
+
+  - id: "route-serves-again"
+    tool: "test_set_mock_server_outage"
+    args:
+      server: "behind-reprogrammed-route"
+      requests: 0
+    expected:
+      success: true
+
+  - id: "reconnected-on-its-own"
+    description: "The server is retried and reconnects without an operator. Before the fix it stayed failed with no nextRetryAfter and was never retried"
+    tool: "core_service_status"
+    args:
+      name: "behind-reprogrammed-route"
+    expected:
+      success: true
+      wait_for_state: "45s"
+      json_path:
+        state: "connected"
+        health: "healthy"
+    timeout: "60s"
+
+  - id: "probe-works-again"
+    tool: "x_behind-reprogrammed-route_probe"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "20s"
+      contains: ["alive"]
+    timeout: "30s"
