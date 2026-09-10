@@ -47,6 +47,43 @@ func TestNewManager_Enabled(t *testing.T) {
 	}
 }
 
+// The token-exchange client keeps mcp-oauth's SSRF guard unless the operator
+// lifts it: explicitly for a remote Dex behind an internal-only load balancer
+// (oauth.mcpClient.tokenExchange.allowPrivateIP) or implicitly through
+// --extra-ca-file (in-cluster TLS endpoints).
+func TestNewManager_TokenExchangeAllowPrivateIP(t *testing.T) {
+	base := config.OAuthMCPClientConfig{
+		Enabled:      true,
+		PublicURL:    "https://muster.example.com",
+		ClientID:     "https://external.example.com/oauth-client.json",
+		CallbackPath: "/oauth/proxy/callback",
+	}
+
+	cases := []struct {
+		name   string
+		mutate func(*config.OAuthMCPClientConfig)
+		want   bool
+	}{
+		{name: "default keeps the SSRF guard", mutate: func(*config.OAuthMCPClientConfig) {}, want: false},
+		{name: "tokenExchange.allowPrivateIP lifts it", mutate: func(c *config.OAuthMCPClientConfig) { c.TokenExchange.AllowPrivateIP = true }, want: true},
+		{name: "extra CA file implies it", mutate: func(c *config.OAuthMCPClientConfig) { c.ExtraCAFile = "/etc/muster/ca.pem" }, want: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := base
+			tc.mutate(&cfg)
+			manager := NewManager(cfg)
+			if manager == nil {
+				t.Fatal("Expected non-nil manager when OAuth is enabled")
+			}
+			defer manager.Stop()
+			if got := manager.tokenExchanger.allowPrivateIP; got != tc.want {
+				t.Errorf("tokenExchanger.allowPrivateIP = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestManager_IsEnabled_NilManager(t *testing.T) {
 	var manager *Manager
 	if manager.IsEnabled() {

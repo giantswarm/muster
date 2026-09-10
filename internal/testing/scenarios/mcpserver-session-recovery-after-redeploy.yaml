@@ -1,0 +1,103 @@
+name: "mcpserver-session-recovery-after-redeploy"
+description: "A remote MCPServer whose stateful backend was redeployed recovers its MCP session on the next call: the call re-initializes and succeeds, the server stays connected, and no restart is needed (#999)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "streamable-http", "session", "redeploy", "recovery", "regression", "issue-999"]
+timeout: "2m"
+
+# Given: a remote streamable-http MCP server without auth, Connected, whose
+#        backend keeps an MCP session per client (stateful).
+# When:  the backend is stopped and started again on the same address, the
+#        way a redeployed pod comes back behind the same Service. The new
+#        process does not know the session muster established.
+# Then:  the next tool call through muster succeeds -- the client meets the
+#        404 for its old session, re-runs initialize and retries once -- and
+#        the server is still reported connected.
+#
+# Before the fix the transport dropped the session id after the 404 and
+# nothing re-initialized, so every call failed ("Missing session ID" from a
+# Python backend, "Invalid session ID" from mcp-go) while core_service_status
+# kept reporting connected/healthy, until an operator ran core_service_restart
+# (giantswarm/muster#999).
+
+pre_configuration:
+  mcp_servers:
+    - name: "redeployed-server"
+      config:
+        type: "streamable-http"
+        tools:
+          - name: "probe"
+            description: "Answers when the backend is reachable"
+            input_schema:
+              type: "object"
+              properties: {}
+            responses:
+              - response: { alive: true }
+
+steps:
+  - id: "connected"
+    tool: "core_service_status"
+    args:
+      name: "redeployed-server"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "connected"
+    timeout: "45s"
+
+  - id: "probe-before-redeploy"
+    tool: "x_redeployed-server_probe"
+    args: {}
+    expected:
+      success: true
+      contains: ["alive"]
+    timeout: "15s"
+
+  - id: "backend-stopped"
+    tool: "test_stop_mock_server"
+    args:
+      server: "redeployed-server"
+    expected:
+      success: true
+      contains: ["Stopped mock server"]
+    timeout: "15s"
+
+  - id: "backend-started-again"
+    description: "The same address, a fresh process: the session muster holds is unknown to it"
+    tool: "test_start_mock_server"
+    args:
+      server: "redeployed-server"
+    expected:
+      success: true
+      contains: ["Started mock server"]
+    timeout: "30s"
+
+  - id: "probe-after-redeploy"
+    description: "The first call after the redeploy re-initializes the session and succeeds. Before the fix this failed with an invalid-session error until core_service_restart"
+    tool: "x_redeployed-server_probe"
+    args: {}
+    expected:
+      success: true
+      contains: ["alive"]
+    timeout: "15s"
+
+  - id: "still-connected"
+    tool: "core_service_status"
+    args:
+      name: "redeployed-server"
+    expected:
+      success: true
+      json_path:
+        state: "connected"
+        health: "healthy"
+    timeout: "15s"
+
+  - id: "probe-again"
+    description: "The recovered session is a normal one: further calls need no handshake"
+    tool: "x_redeployed-server_probe"
+    args: {}
+    expected:
+      success: true
+      contains: ["alive"]
+    timeout: "15s"

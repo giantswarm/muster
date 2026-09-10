@@ -110,6 +110,7 @@ A Helm chart for muster - Universal Control Plane for AI Agents built on MCP
 | muster.oauth.mcpClient.cimd.path | string | `"/.well-known/oauth-client.json"` |  |
 | muster.oauth.mcpClient.cimd.scopes | string | `""` |  |
 | muster.oauth.mcpClient.postLoginRedirectAllowlist | list | `[]` |  |
+| muster.oauth.mcpClient.tokenExchange.allowPrivateIP | bool | `false` |  |
 | muster.oauth.server.enabled | bool | `false` |  |
 | muster.oauth.server.baseUrl | string | `""` |  |
 | muster.oauth.server.provider | string | `"dex"` |  |
