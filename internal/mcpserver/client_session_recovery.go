@@ -3,6 +3,8 @@ package mcpserver
 import (
 	"context"
 	"errors"
+	"fmt"
+	"time"
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
@@ -22,6 +24,12 @@ import (
 // transport already has no session and the error is not the typed one. Both
 // shapes are recognised here. Nothing in mcp-go re-runs initialize, so the
 // client stayed dead until an operator restarted the service (issue #999).
+
+// sessionRecoveryTimeout bounds the handshake a recovery performs. It runs
+// with the client's write lock held, so every other operation on the client,
+// Close included, waits for it, and the caller's context alone may carry no
+// deadline. Matches the service layer's default remote init timeout.
+const sessionRecoveryTimeout = 30 * time.Second
 
 // sessionIDOf returns the session id the transport currently holds, or ""
 // when the client does not expose one.
@@ -53,7 +61,11 @@ func withSessionRecovery[T any](b *baseMCPClient, ctx context.Context, op func()
 	b.mu.RUnlock()
 
 	result, err := op()
-	if err == nil || !b.recoverSession(ctx, generation, err) {
+	if err == nil {
+		return result, nil
+	}
+	retry, err := b.recoverSession(ctx, generation, err)
+	if !retry {
 		return result, err
 	}
 	return op()
@@ -61,31 +73,35 @@ func withSessionRecovery[T any](b *baseMCPClient, ctx context.Context, op func()
 
 // recoverSession re-establishes the session after an operation started on
 // the given generation failed with err. It reports whether the client is
-// connected on a newer session and the operation should be retried.
+// connected on a newer session and the operation should be retried, and
+// otherwise the error to return: err itself, or err joined with the cause
+// when the handshake failed, so a 401 from the backend still reads as an
+// AuthRequiredError to callers that test for one.
 //
 // Concurrent callers that failed on the same dead session serialise on the
 // write lock; the first performs the handshake, the others find the
-// generation advanced and retry on its result. A handshake that fails leaves
-// the client disconnected with reconnectPending set, so the next operation
-// tries again instead of failing until the service is restarted.
-func (b *baseMCPClient) recoverSession(ctx context.Context, generation uint64, err error) bool {
+// generation advanced and act on its result, whether it succeeded or not. A
+// handshake that fails leaves the client disconnected with reconnectPending
+// set, so the next operation tries again instead of failing until the
+// service is restarted.
+func (b *baseMCPClient) recoverSession(ctx context.Context, generation uint64, err error) (bool, error) {
 	b.mu.RLock()
 	reconnect := b.reconnect
 	eligible := b.reconnectPending || (b.connected && b.sessionLostLocked(err))
 	b.mu.RUnlock()
 	if reconnect == nil || !eligible {
-		return false
+		return false, err
 	}
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	if b.sessionGeneration != generation {
-		return b.connected
+		return b.connected, err
 	}
 	if !b.connected && !b.reconnectPending {
 		// Closed in the meantime; an explicit close is final.
-		return false
+		return false, err
 	}
 
 	if b.client != nil {
@@ -95,14 +111,20 @@ func (b *baseMCPClient) recoverSession(ctx context.Context, generation uint64, e
 	b.connected = false
 	b.negotiatedProtocolVersion = ""
 	b.reconnectPending = true
+	// Advanced before the attempt, so the callers queued behind this one do
+	// not each repeat a handshake that has just failed against the same
+	// backend; the next operation is the one that tries again.
+	b.sessionGeneration++
+
+	hctx, cancel := context.WithTimeout(ctx, sessionRecoveryTimeout)
+	defer cancel()
 
 	logging.Info("MCPClient", "MCP session lost (%v); re-initializing", err)
-	if rerr := reconnect(ctx); rerr != nil {
+	if rerr := reconnect(hctx); rerr != nil {
 		logging.Warn("MCPClient", "Re-initialize after lost MCP session failed: %v", rerr)
-		return false
+		return false, fmt.Errorf("%w; re-initialize failed: %w", err, rerr)
 	}
 
 	b.reconnectPending = false
-	b.sessionGeneration++
-	return true
+	return true, nil
 }

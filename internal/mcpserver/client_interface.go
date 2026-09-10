@@ -76,8 +76,9 @@ type baseMCPClient struct {
 	// the client disconnected, so the next operation tries again instead of
 	// failing with "client not connected" until something restarts the service.
 	reconnectPending bool
-	// sessionGeneration counts successful handshakes; a caller that failed on
-	// an older generation finds the recovery already done and just retries.
+	// sessionGeneration counts recovery handshake attempts, successful or not;
+	// a caller that failed on an older generation finds the recovery already
+	// attempted and acts on its result instead of repeating it.
 	sessionGeneration uint64
 
 	notifMu      sync.Mutex
