@@ -5,7 +5,7 @@
 # workflow in .circleci/config.yml merges into this file at pipeline runtime.
 version: 2.1
 orbs:
-  architect: giantswarm/architect@10.3.0
+  architect: giantswarm/architect@10.4.1
 
 workflows:
   build:
@@ -153,10 +153,13 @@ workflows:
     # Branch: run chart tests after build-chart. When branchPublish pushes a dev
     # image, the test also waits on push-to-registries -- run-tests-with-ats
     # deploys the chart, which pulls that image from gsoci, and gating on the
-    # push avoids an ImagePullBackOff race.
+    # push avoids an ImagePullBackOff race. The architect context carries the
+    # registry credentials the job hands to its kind node, so the chart can pull
+    # private images (gsociprivate) without imagePullSecrets.
     - architect/run-tests-with-ats:
         name: execute-chart-tests
-        app-test-suite_container_tag: "1.0.2"
+        context: architect
+        app-test-suite_container_tag: "1.0.3"
         # app-test-suite 1.x provisions no cluster: the job creates the kind
         # cluster and runs the pinned image against its kubeconfig.
         create_kind_cluster: true
