@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/giantswarm/muster/internal/api"
 )
@@ -26,6 +27,11 @@ type MCPClientConfig struct {
 	// machine-identity modes are handled here; the session-scoped OAuth modes
 	// are resolved by the aggregator, not by this factory.
 	Auth *api.MCPServerAuth
+	// Timeout is the server's connection timeout for remote operations. It
+	// bounds the handshake a session recovery performs, so a slow backend
+	// gets the same budget there as on its first connect. Zero means the
+	// recovery default.
+	Timeout time.Duration
 }
 
 // NewMCPClientFromType creates the appropriate MCP client based on the server type.
@@ -63,9 +69,16 @@ func NewMCPClientFromType(serverType api.MCPServerType, config MCPClientConfig) 
 		}
 		if config.Auth != nil && config.Auth.Type == api.MCPServerAuthTypeSigV4 {
 			// ValidateSigV4 above guarantees a non-nil block with a region.
-			return newSigV4Client(config.URL, config.Headers, *config.Auth.SigV4, config.Meta)
+			c, err := newSigV4Client(config.URL, config.Headers, *config.Auth.SigV4, config.Meta)
+			if err != nil {
+				return nil, err
+			}
+			c.recoveryTimeout = config.Timeout
+			return c, nil
 		}
-		return NewStreamableHTTPClientWithHeaders(config.URL, config.Headers).WithMeta(config.Meta), nil
+		c := NewStreamableHTTPClientWithHeaders(config.URL, config.Headers).WithMeta(config.Meta)
+		c.recoveryTimeout = config.Timeout
+		return c, nil
 
 	case api.MCPServerTypeSSE:
 		if config.URL == "" {

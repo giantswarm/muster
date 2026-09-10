@@ -25,10 +25,11 @@ import (
 // shapes are recognised here. Nothing in mcp-go re-runs initialize, so the
 // client stayed dead until an operator restarted the service (issue #999).
 
-// sessionRecoveryTimeout bounds the handshake a recovery performs. It runs
-// with the client's write lock held, so every other operation on the client,
-// Close included, waits for it, and the caller's context alone may carry no
-// deadline. Matches the service layer's default remote init timeout.
+// sessionRecoveryTimeout bounds the handshake a recovery performs when the
+// client has no recoveryTimeout of its own. It runs with the client's write
+// lock held, so every other operation on the client, Close included, waits
+// for it, and the caller's context alone may carry no deadline. Matches the
+// service layer's default remote init timeout.
 const sessionRecoveryTimeout = 30 * time.Second
 
 // sessionIDOf returns the session id the transport currently holds, or ""
@@ -97,7 +98,13 @@ func (b *baseMCPClient) recoverSession(ctx context.Context, generation uint64, e
 	defer b.mu.Unlock()
 
 	if b.sessionGeneration != generation {
-		return b.connected, err
+		if b.connected {
+			return true, nil
+		}
+		if b.reconnectPending && b.recoveryErr != nil {
+			return false, fmt.Errorf("%w; re-initialize failed: %w", err, b.recoveryErr)
+		}
+		return false, err
 	}
 	if !b.connected && !b.reconnectPending {
 		// Closed in the meantime; an explicit close is final.
@@ -116,15 +123,21 @@ func (b *baseMCPClient) recoverSession(ctx context.Context, generation uint64, e
 	// backend; the next operation is the one that tries again.
 	b.sessionGeneration++
 
-	hctx, cancel := context.WithTimeout(ctx, sessionRecoveryTimeout)
+	timeout := b.recoveryTimeout
+	if timeout <= 0 {
+		timeout = sessionRecoveryTimeout
+	}
+	hctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	logging.Info("MCPClient", "MCP session lost (%v); re-initializing", err)
 	if rerr := reconnect(hctx); rerr != nil {
 		logging.Warn("MCPClient", "Re-initialize after lost MCP session failed: %v", rerr)
+		b.recoveryErr = rerr
 		return false, fmt.Errorf("%w; re-initialize failed: %w", err, rerr)
 	}
 
 	b.reconnectPending = false
+	b.recoveryErr = nil
 	return true, nil
 }

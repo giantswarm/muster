@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -80,6 +81,14 @@ type baseMCPClient struct {
 	// a caller that failed on an older generation finds the recovery already
 	// attempted and acts on its result instead of repeating it.
 	sessionGeneration uint64
+	// recoveryErr is why the last recovery handshake failed, nil once one
+	// succeeds. Callers that find the generation advanced report it together
+	// with their own failure, the same as the caller that ran the handshake.
+	recoveryErr error
+	// recoveryTimeout bounds a recovery handshake; zero means
+	// sessionRecoveryTimeout. The factory sets it from the server's
+	// spec.timeout so recovery gets the same budget as the first connect.
+	recoveryTimeout time.Duration
 
 	notifMu      sync.Mutex
 	notifHandler func(mcp.JSONRPCNotification)

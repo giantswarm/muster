@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
@@ -227,13 +228,40 @@ func TestSessionRecovery_HandshakeHasDeadline(t *testing.T) {
 	assert.True(t, hasDeadline)
 }
 
+// A server configured with a timeout longer than the default connected under
+// that budget the first time; its recovery handshake gets the same budget.
+func TestSessionRecovery_HandshakeDeadlineFollowsConfiguredTimeout(t *testing.T) {
+	old := &sessionFakeClient{sessionID: "s1", callErrs: []error{errSessionGone}}
+	h := newRecoveryHarness(old, &sessionFakeClient{sessionID: "s2"})
+	h.base.recoveryTimeout = 90 * time.Second
+	inner := h.base.reconnect
+	var remaining time.Duration
+	h.base.reconnect = func(ctx context.Context) error {
+		deadline, ok := ctx.Deadline()
+		require.True(t, ok)
+		remaining = time.Until(deadline)
+		return inner(ctx)
+	}
+
+	_, err := h.base.callTool(t.Context(), "echo", nil)
+
+	require.NoError(t, err)
+	assert.Greater(t, remaining, sessionRecoveryTimeout, "the configured timeout, not the default, bounds the handshake")
+}
+
+// Every caller queued behind the one failed handshake gets its cause, not
+// only the caller that ran it: the aggregator's 401 checks run on each
+// caller's error.
 func TestSessionRecovery_ConcurrentCallersShareOneFailedHandshake(t *testing.T) {
 	const callers = 16
 	failing := make([]error, callers)
-	refused := make([]error, callers)
+	rejected := make([]error, callers)
 	for i := range failing {
 		failing[i] = errSessionGone
-		refused[i] = errors.New("connection refused")
+		rejected[i] = &AuthRequiredError{
+			URL: "http://backend",
+			Err: fmt.Errorf("server returned 401 Unauthorized: %w", transport.ErrUnauthorized),
+		}
 	}
 	old := &sessionFakeClient{sessionID: "s1", callErrs: failing}
 	// Every caller fails on the same generation: a caller that arrived after
@@ -242,7 +270,7 @@ func TestSessionRecovery_ConcurrentCallersShareOneFailedHandshake(t *testing.T) 
 	arrived.Add(callers)
 	old.barrier = func() { arrived.Done(); arrived.Wait() }
 	h := newRecoveryHarness(old, &sessionFakeClient{sessionID: "s2"})
-	h.reconnectErrs = refused
+	h.reconnectErrs = rejected
 
 	var wg sync.WaitGroup
 	errs := make(chan error, callers)
@@ -259,6 +287,9 @@ func TestSessionRecovery_ConcurrentCallersShareOneFailedHandshake(t *testing.T) 
 
 	for err := range errs {
 		require.ErrorIs(t, err, transport.ErrSessionTerminated)
+		var authErr *AuthRequiredError
+		require.ErrorAs(t, err, &authErr, "every caller learns why the shared handshake failed")
+		require.ErrorIs(t, err, transport.ErrUnauthorized)
 	}
 	assert.Equal(t, int32(1), h.reconnects.Load(), "callers queued behind a failed handshake do not each repeat it")
 	assert.Equal(t, uint64(1), h.base.sessionGeneration)
