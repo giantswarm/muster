@@ -62,7 +62,7 @@ tests:
       - equal:
           path: spec.groups[0].rules[0].expr
           value: |-
-            muster_mcpserver_state{state="Failed"} == 1
+            max by (cluster_id, installation, pipeline, provider, namespace, mcpserver_namespace, mcpserver_name) (muster_mcpserver_state{state="Failed"}) == 1
       - equal:
           path: spec.groups[0].rules[0].for
           value: 20m
@@ -74,10 +74,42 @@ tests:
       - equal:
           path: spec.groups[0].rules[1].expr
           value: |-
-            increase(muster_mcpserver_state_transitions_total{state="Failed"}[1h]) > 5
+            sum by (cluster_id, installation, pipeline, provider, namespace, mcpserver_namespace, mcpserver_name) (increase(muster_mcpserver_state_transitions_total{state="Failed"}[1h])) > 5
       - equal:
           path: spec.groups[0].rules[1].for
           value: 10m
+
+  # The alert's identity is the MCPServer on a cluster, never the pod that
+  # happened to export the series. Both expressions aggregate over exactly the
+  # labels the Giant Swarm Alertmanager groups, prints and inhibits on
+  # (cluster_id, installation, pipeline, provider, namespace) plus the
+  # MCPServer; a bare aggregation would drop the cluster, a missing aggregation
+  # would keep pod/instance and turn every muster rollout into a RESOLVED
+  # followed by a fresh FIRING 20m later. The gauge takes max (two pods
+  # exporting 1 during a rolling update must not read 2); the counter takes sum
+  # (the transitions both pods observed add up).
+  - it: aggregates both alerts over the Alertmanager label set and the MCPServer only
+    set:
+      muster.observability.metrics.prometheus.prometheusRule.enabled: true
+    asserts:
+      - matchRegex:
+          path: spec.groups[0].rules[0].expr
+          pattern: '^max by \(cluster_id, installation, pipeline, provider, namespace, mcpserver_namespace, mcpserver_name\) \(muster_mcpserver_state\{'
+      - matchRegex:
+          path: spec.groups[0].rules[1].expr
+          pattern: '^sum by \(cluster_id, installation, pipeline, provider, namespace, mcpserver_namespace, mcpserver_name\) \(increase\(muster_mcpserver_state_transitions_total\{'
+      - notMatchRegex:
+          path: spec.groups[0].rules[0].expr
+          pattern: '(sum|max|min|avg|count)\s*\(\s*(increase|muster_)'
+      - notMatchRegex:
+          path: spec.groups[0].rules[1].expr
+          pattern: '(sum|max|min|avg|count)\s*\(\s*(increase|muster_)'
+      - notMatchRegex:
+          path: spec.groups[0].rules[0].expr
+          pattern: '\b(pod|instance|container|endpoint|service|job|otel_scope_name)\b'
+      - notMatchRegex:
+          path: spec.groups[0].rules[1].expr
+          pattern: '\b(pod|instance|container|endpoint|service|job|otel_scope_name)\b'
 
   # Auth Required is a normal steady state for on-behalf-of servers with no
   # active user session, and every server shows it briefly after a restart.

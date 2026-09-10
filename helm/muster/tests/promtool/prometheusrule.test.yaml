@@ -3,9 +3,16 @@
 #
 # These assert the alerts' behaviour over time, which the helm-unittest suite in
 # ../prometheusrule_test.yaml cannot: that MusterMCPServerFailed holds off long
-# enough to ride out a rollout, that a recovered server does not fire, and above
-# all that "Auth Required" — the normal steady state for on-behalf-of servers
-# with no user session — is silent.
+# enough to ride out a rollout, that a rollout of muster itself does not resolve
+# and re-fire an alert on a backend that never changed state, that a recovered
+# server does not fire, and above all that "Auth Required" — the normal steady
+# state for on-behalf-of servers with no user session — is silent.
+#
+# Series carry the labels a real scrape produces: the platform's external
+# labels (cluster_id, installation, pipeline, provider), the scrape target's
+# (namespace, pod, instance, job, container, endpoint, service, otel_scope_name)
+# and the reconciler's (mcpserver_namespace, mcpserver_name, state). The alerts
+# must keep the first group and the MCPServer and drop everything else.
 #
 # `rule_files` points at the rendered+extracted rule groups that run.sh produces
 # (helm template | yq '.spec'). Run via:
@@ -14,10 +21,13 @@ rule_files:
   - 'rendered.rules.yaml'
 
 tests:
-  # A backend stuck Failed: silent through a rollout-length window, fires after 20m.
+  # A backend stuck Failed: silent through a rollout-length window, fires after
+  # 20m. The alert carries the platform labels and the MCPServer; pod, instance
+  # and the other scrape labels are gone, and so is state (the rule only ever
+  # selects Failed).
   - interval: 1m
     input_series:
-      - series: 'muster_mcpserver_state{cluster_id="test", installation="test", mcpserver_name="mcp-kubernetes-test", mcpserver_namespace="agent-platform", state="Failed"}'
+      - series: 'muster_mcpserver_state{cluster_id="test", installation="test", container="muster", endpoint="metrics", instance="10.0.0.1:9464", job="muster", namespace="agent-platform", otel_scope_name="github.com/giantswarm/muster", pipeline="stable", pod="muster-a", provider="capa", service="muster", mcpserver_name="mcp-kubernetes-test", mcpserver_namespace="agent-platform", state="Failed"}'
         values: "1+0x40"
     alert_rule_test:
       - alertname: MusterMCPServerFailed
@@ -34,8 +44,10 @@ tests:
               installation: test
               mcpserver_name: mcp-kubernetes-test
               mcpserver_namespace: agent-platform
+              namespace: agent-platform
+              pipeline: stable
+              provider: capa
               severity: notify
-              state: Failed
               team: bumblebee
               topic: muster
             exp_annotations:
@@ -100,7 +112,7 @@ tests:
   # Failed per minute is far past the threshold of 5 per hour.
   - interval: 1m
     input_series:
-      - series: 'muster_mcpserver_state_transitions_total{cluster_id="test", installation="test", mcpserver_name="flapper", mcpserver_namespace="agent-platform", state="Failed"}'
+      - series: 'muster_mcpserver_state_transitions_total{cluster_id="test", installation="test", container="muster", endpoint="metrics", instance="10.0.0.1:9464", job="muster", namespace="agent-platform", otel_scope_name="github.com/giantswarm/muster", pipeline="stable", pod="muster-a", provider="capa", service="muster", mcpserver_name="flapper", mcpserver_namespace="agent-platform", state="Failed"}'
         values: "0+1x120"
     alert_rule_test:
       - alertname: MusterMCPServerFlapping
@@ -114,12 +126,105 @@ tests:
               installation: test
               mcpserver_name: flapper
               mcpserver_namespace: agent-platform
+              namespace: agent-platform
+              pipeline: stable
+              provider: capa
               severity: notify
-              state: Failed
               team: bumblebee
               topic: muster
             exp_annotations:
               description: 'MCPServer agent-platform/flapper entered state Failed 60 times in the last hour; the MCP backend is connecting and dropping repeatedly.'
+              runbook_url: 'https://intranet.giantswarm.io/docs/support-and-ops/runbooks/muster-mcpserver-failed/?INSTALLATION=test&CLUSTER=test'
+
+  # muster rolls while a backend stays Failed throughout. The old pod's series
+  # ends (Prometheus writes a staleness marker when the scrape target goes away,
+  # so `stale` rather than a plain gap) and the new pod's begins, overlapping
+  # for the minutes a rolling update runs both. The alert must not notice: same
+  # identity, same `for` clock, one alert. With pod and instance in the label
+  # set this was a RESOLVED at 18m and a fresh FIRING at 35m for a backend that
+  # never changed state.
+  - interval: 1m
+    input_series:
+      - series: 'muster_mcpserver_state{cluster_id="test", installation="test", container="muster", endpoint="metrics", instance="10.0.0.1:9464", job="muster", namespace="agent-platform", otel_scope_name="github.com/giantswarm/muster", pipeline="stable", pod="muster-a", provider="capa", service="muster", mcpserver_name="torn-down", mcpserver_namespace="agent-platform", state="Failed"}'
+        values: "1+0x17 stale _x22"
+      - series: 'muster_mcpserver_state{cluster_id="test", installation="test", container="muster", endpoint="metrics", instance="10.0.0.2:9464", job="muster", namespace="agent-platform", otel_scope_name="github.com/giantswarm/muster", pipeline="stable", pod="muster-b", provider="capa", service="muster", mcpserver_name="torn-down", mcpserver_namespace="agent-platform", state="Failed"}'
+        values: "_x15 1+0x25"
+    alert_rule_test:
+      - alertname: MusterMCPServerFailed
+        eval_time: 16m
+        exp_alerts: []
+      - alertname: MusterMCPServerFailed
+        eval_time: 22m
+        exp_alerts:
+          - exp_labels:
+              area: platform
+              cancel_if_monitoring_agent_down: "true"
+              cancel_if_outside_working_hours: "false"
+              cluster_id: test
+              installation: test
+              mcpserver_name: torn-down
+              mcpserver_namespace: agent-platform
+              namespace: agent-platform
+              pipeline: stable
+              provider: capa
+              severity: notify
+              team: bumblebee
+              topic: muster
+            exp_annotations:
+              description: 'MCPServer agent-platform/torn-down has been in state Failed for 20m; the MCP backend is unreachable and its tools are unavailable to agents. The reason muster recorded is in the CR status.lastError field.'
+              runbook_url: 'https://intranet.giantswarm.io/docs/support-and-ops/runbooks/muster-mcpserver-failed/?INSTALLATION=test&CLUSTER=test'
+      - alertname: MusterMCPServerFailed
+        eval_time: 40m
+        exp_alerts:
+          - exp_labels:
+              area: platform
+              cancel_if_monitoring_agent_down: "true"
+              cancel_if_outside_working_hours: "false"
+              cluster_id: test
+              installation: test
+              mcpserver_name: torn-down
+              mcpserver_namespace: agent-platform
+              namespace: agent-platform
+              pipeline: stable
+              provider: capa
+              severity: notify
+              team: bumblebee
+              topic: muster
+            exp_annotations:
+              description: 'MCPServer agent-platform/torn-down has been in state Failed for 20m; the MCP backend is unreachable and its tools are unavailable to agents. The reason muster recorded is in the CR status.lastError field.'
+              runbook_url: 'https://intranet.giantswarm.io/docs/support-and-ops/runbooks/muster-mcpserver-failed/?INSTALLATION=test&CLUSTER=test'
+
+  # The same rollout under a flapping backend. The transition counter is per
+  # process: the old pod's counts stay in the 1h window after the pod is gone
+  # and the new pod starts counting from zero, so the alert sums the two rather
+  # than reporting one alert per pod. Two transitions per minute keep the
+  # extrapolated increase on whole numbers.
+  - interval: 1m
+    input_series:
+      - series: 'muster_mcpserver_state_transitions_total{cluster_id="test", installation="test", container="muster", endpoint="metrics", instance="10.0.0.1:9464", job="muster", namespace="agent-platform", otel_scope_name="github.com/giantswarm/muster", pipeline="stable", pod="muster-a", provider="capa", service="muster", mcpserver_name="rolling-flapper", mcpserver_namespace="agent-platform", state="Failed"}'
+        values: "0+2x30 stale _x29"
+      - series: 'muster_mcpserver_state_transitions_total{cluster_id="test", installation="test", container="muster", endpoint="metrics", instance="10.0.0.2:9464", job="muster", namespace="agent-platform", otel_scope_name="github.com/giantswarm/muster", pipeline="stable", pod="muster-b", provider="capa", service="muster", mcpserver_name="rolling-flapper", mcpserver_namespace="agent-platform", state="Failed"}'
+        values: "_x29 0+2x31"
+    alert_rule_test:
+      - alertname: MusterMCPServerFlapping
+        eval_time: 60m
+        exp_alerts:
+          - exp_labels:
+              area: platform
+              cancel_if_monitoring_agent_down: "true"
+              cancel_if_outside_working_hours: "false"
+              cluster_id: test
+              installation: test
+              mcpserver_name: rolling-flapper
+              mcpserver_namespace: agent-platform
+              namespace: agent-platform
+              pipeline: stable
+              provider: capa
+              severity: notify
+              team: bumblebee
+              topic: muster
+            exp_annotations:
+              description: 'MCPServer agent-platform/rolling-flapper entered state Failed 123 times in the last hour; the MCP backend is connecting and dropping repeatedly.'
               runbook_url: 'https://intranet.giantswarm.io/docs/support-and-ops/runbooks/muster-mcpserver-failed/?INSTALLATION=test&CLUSTER=test'
 
   # A single restart contributes exactly one Failed transition per broken
