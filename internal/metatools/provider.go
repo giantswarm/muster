@@ -97,7 +97,7 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 		},
 		{
 			Name:        "filter_tools",
-			Description: "Discover tools cheaply: filter by name pattern, description, or labels, optionally rank by a natural-language query, and get a bounded, summarised page. Full descriptions and schemas are omitted by default — use describe_tool for the authoritative detail of a chosen tool. Pass a toolset to see which tools a set of selectors resolves to for you, and include_presets to list the known toolset presets.",
+			Description: "Discover tools cheaply: filter by name pattern, description, or labels, optionally rank by a natural-language query, and get a bounded, summarised page. Full descriptions and schemas are omitted by default — use describe_tool for the authoritative detail of a chosen tool. Pass a toolset to see which tools a set of selectors resolves to for you, and include_presets to list the known toolset presets. The response's toolset field names the toolset the tools were resolved within — the argument, else the toolset declared for the request (X-Muster-Toolset) — so a scoped caller can learn what bounds it.",
 			Args: []api.ArgMetadata{
 				{
 					Name:        "toolset",

@@ -439,13 +439,24 @@ func (p *Provider) filterToolsWithOptions(ctx context.Context, opts filterToolsO
 		Truncated:     truncated,
 		Tools:         toolInfos,
 	}
+	// The response names the toolset the tools above were resolved within:
+	// the argument when one was given (it resolves inside the request's
+	// toolset, so it is the narrower of the two), else the toolset the request
+	// itself declared (X-Muster-Toolset) — the one place an agent whose
+	// toolset is set by its deployment can learn what bounds it. An unscoped
+	// request carries no toolset.
 	switch {
 	case argToolset != nil:
 		resp.Toolset = argToolset.Raw
 		resp.ToolsetUnmatched = argResolution.Unmatched
 	case cat.scoped:
+		resp.Toolset = cat.ts.Raw
 		resp.ToolsetUnmatched = cat.res.Unmatched
 	}
+	// Presets accompany an inline argument (the caller is composing a toolset)
+	// or an explicit include_presets. A request-declared toolset alone does not
+	// list them, so the discovery calls of an agent scoped by header stay as
+	// small as unscoped ones.
 	if opts.includePresets || argToolset != nil {
 		resp.Presets = p.presets.List()
 	}
