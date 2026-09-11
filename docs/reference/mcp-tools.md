@@ -11,7 +11,7 @@ Reference guide for AI agents and MCP clients working with Muster's tools. This 
 | Meta-Tool | Description | Arguments |
 |-----------|-------------|-----------|
 | `list_tools` | List one bounded page of the session's tools (summarised; 50 per page by default) | `{"limit": 50, "offset": 0}` |
-| `describe_tool` | Get detailed schema for a specific tool | `{"name": "tool_name"}` |
+| `describe_tool` | Get detailed schema for a specific tool, and the `call_tool` call that invokes it | `{"name": "tool_name"}` |
 | `filter_tools` | Discover tools cheaply (ranked, faceted, paginated) | `{"pattern": "...", "query": "...", "labels": {...}, "limit": 5}` |
 | `list_core_tools` | List only Muster core tools | `{}` |
 
@@ -51,6 +51,26 @@ Use `list_tools` for a bounded look at what is there; use `filter_tools` to *fin
     {"name": "x_kubernetes_list_pods", "summary": "List pods in a namespace.", "server": "kubernetes", "kind": "tool", "annotations": {"readOnlyHint": true}}
   ],
   "servers_requiring_auth": [{"name": "github", "status": "auth_required", "auth_tool": "core_auth_login"}]
+}
+```
+
+#### `describe_tool` — the authoritative detail, and how to call it
+
+`describe_tool` returns one tool's full `description` and `inputSchema` together with its
+`server`, `kind` and `annotations`, and an `invocation` line naming the call that runs it.
+Every tool it can describe lives **inside** Muster: an MCP client sees only the meta-tools, so
+issuing `x_kubernetes_list_pods` as a tool call of its own fails. Such a tool is reached
+through `call_tool`, and only through `call_tool`.
+
+```json
+{
+  "name": "x_kubernetes_list_pods",
+  "description": "List pods in a namespace.",
+  "server": "kubernetes",
+  "kind": "tool",
+  "annotations": {"readOnlyHint": true},
+  "inputSchema": {"type": "object", "properties": {"namespace": {"type": "string"}}},
+  "invocation": "Call it through the call_tool meta-tool: call_tool{\"name\": \"x_kubernetes_list_pods\", \"arguments\": <object matching inputSchema>}. Tools inside muster are not callable by name directly — only the meta-tools are."
 }
 ```
 

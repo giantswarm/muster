@@ -21,7 +21,9 @@
 //
 // Discovery tools:
 //   - list_tools: List all available tools from connected MCP servers
-//   - describe_tool: Get detailed information about a specific tool
+//   - describe_tool: Get detailed information about a specific tool, plus the
+//     call_tool invocation that runs it (an aggregated tool is never callable
+//     by its own name)
 //   - list_core_tools: List core muster tools (built-in functionality)
 //   - filter_tools: Filter tools based on name patterns or descriptions
 //

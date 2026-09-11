@@ -120,6 +120,12 @@ func TestFormatters_FormatToolDetailJSON(t *testing.T) {
 	assert.Equal(t, "test_tool", parsed["name"])
 	assert.Equal(t, "A test tool", parsed["description"])
 	assert.NotNil(t, parsed["inputSchema"])
+	// The described tool is reachable only through call_tool, and the detail a
+	// caller reads just before calling has to say so.
+	invocation, _ := parsed["invocation"].(string)
+	assert.Contains(t, invocation, "call_tool")
+	assert.Contains(t, invocation, `"name": "test_tool"`)
+	assert.Contains(t, invocation, "not callable by name directly")
 }
 
 func TestFormatters_FormatResourceDetailJSON(t *testing.T) {
