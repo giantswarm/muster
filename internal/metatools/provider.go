@@ -87,7 +87,7 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 		},
 		{
 			Name:        "describe_tool",
-			Description: "Get detailed information about a specific tool including its input schema",
+			Description: "Get the full description, input schema, origin and annotations of one tool in your catalogue. Every tool it describes lives inside muster and is reachable only through call_tool — calling such a name directly, as if it were one of your own tools, always fails. The response's invocation field spells out the call_tool call for the described tool.",
 			Args: []api.ArgMetadata{
 				{
 					Name:        "name",

@@ -114,6 +114,22 @@ func (f *Formatters) FormatPromptsListJSON(prompts []api.PromptOrigin) (string, 
 	return string(jsonData), nil
 }
 
+// FieldInvocation is the key under which describe_tool states how the
+// described tool is invoked.
+const FieldInvocation = "invocation"
+
+// invocationNote tells the caller how to reach the described tool. Every tool
+// describe_tool can describe is an aggregated tool inside muster: the
+// aggregator advertises only the meta-tools over MCP, so a caller that issues
+// the tool's own name as a tool call gets an error it cannot act on. Saying so
+// next to the schema puts the rule where the caller reads just before calling.
+func invocationNote(name string) string {
+	return fmt.Sprintf(
+		"Call it through the %s meta-tool: %s{\"name\": %q, \"arguments\": <object matching inputSchema>}. "+
+			"Tools inside muster are not callable by name directly — only the meta-tools are.",
+		ToolCallTool, ToolCallTool, name)
+}
+
 // FormatToolDetailJSON formats detailed tool information as structured JSON.
 // This format includes the complete tool schema and is used for programmatic
 // consumption and tool introspection.
@@ -130,13 +146,15 @@ func (f *Formatters) FormatPromptsListJSON(prompts []api.PromptOrigin) (string, 
 //	{
 //	  api.FieldName: "tool_name",
 //	  api.SchemaKeyDescription: "Tool description",
-//	  api.FieldInputSchema: { ... }
+//	  api.FieldInputSchema: { ... },
+//	  "invocation": "Call it through the call_tool meta-tool: ..."
 //	}
 func (f *Formatters) FormatToolDetailJSON(tool mcp.Tool) (string, error) {
 	toolInfo := map[string]interface{}{
 		api.FieldName:            tool.Name,
 		api.SchemaKeyDescription: tool.Description,
 		api.FieldInputSchema:     tool.InputSchema,
+		FieldInvocation:          invocationNote(tool.Name),
 	}
 	// Origin and annotations: where the tool comes from, what kind it is and
 	// the hints its server declared (or, for a workflow, the derived read-only

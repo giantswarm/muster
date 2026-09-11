@@ -12,7 +12,8 @@ timeout: "5m"
 # Then:  the default answer is one page of 50 summarised entries that says it
 #        is truncated and how many tools there are; the following pages are
 #        reached with offset; the second description line appears only in
-#        describe_tool; the toolset bounds total and the page alike; invalid
+#        describe_tool, which also states that the tool is invoked through
+#        call_tool; the toolset bounds total and the page alike; invalid
 #        paging arguments are refused like filter_tools refuses them.
 
 pre_configuration:
@@ -194,12 +195,16 @@ steps:
       not_contains: ["x_pager", "core_workflow_list"]
 
   - id: "describe-tool-has-the-full-text"
-    description: "the full description stays behind describe_tool"
+    description: "the full description stays behind describe_tool, which also states that the tool is reached through call_tool and never by its own name"
     tool: "test_call_meta_tool"
     args: { tool: "describe_tool", arguments: { name: "x_pager_t01" } }
     expected:
       success: true
-      contains: ["FULLDETAILONLY", "inputSchema"]
+      contains:
+        - "FULLDETAILONLY"
+        - "inputSchema"
+        - 'Call it through the call_tool meta-tool: call_tool{"name": "x_pager_t01", "arguments": <object matching inputSchema>}'
+        - "not callable by name directly"
 
   - id: "limit-below-one-refused"
     tool: "test_call_meta_tool"

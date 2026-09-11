@@ -300,4 +300,7 @@ type DescribeToolResponse struct {
 	Kind        string           `json:"kind,omitempty"`
 	Annotations *ToolAnnotations `json:"annotations,omitempty"`
 	InputSchema interface{}      `json:"inputSchema,omitempty"`
+	// Invocation states how the described tool is called: through call_tool,
+	// never by its own name.
+	Invocation string `json:"invocation,omitempty"`
 }
