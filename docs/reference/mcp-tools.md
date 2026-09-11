@@ -58,8 +58,8 @@ Use `list_tools` for a bounded look at what is there; use `filter_tools` to *fin
 
 `describe_tool` returns one tool's full `description` and `inputSchema` together with its
 `server`, `kind` and `annotations`, and an `invocation` line naming the call that runs it.
-Every tool it can describe lives **inside** Muster: an MCP client sees only the meta-tools, so
-issuing `x_kubernetes_list_pods` as a tool call of its own fails. Such a tool is reached
+Every tool it can describe lives **inside** Muster, where an MCP client sees only the
+meta-tools: issuing an aggregated tool's name as a tool call fails. Such a tool is reached
 through `call_tool`, and only through `call_tool`.
 
 ```json
