@@ -87,7 +87,7 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 		},
 		{
 			Name:        "describe_tool",
-			Description: "Get detailed information about a specific tool including its input schema",
+			Description: "Get the full description, input schema, origin and annotations of one tool. The response's invocation field spells out the call_tool call for the described tool.",
 			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
