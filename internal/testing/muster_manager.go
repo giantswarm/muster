@@ -1720,13 +1720,7 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 						"autoStart": true,
 						"url":       mockInfo.Endpoint,
 					}
-
-					if toolPrefix, ok := mcpServer.Config["toolPrefix"].(string); ok && toolPrefix != "" {
-						spec["toolPrefix"] = toolPrefix
-					}
-					if family, ok := mcpServer.Config["family"].(map[string]interface{}); ok {
-						spec["family"] = family
-					}
+					applyMockSpecOptions(spec, mcpServer.Config)
 
 					// Handle SSO configuration from oauth config
 					if oauthConfig, hasOAuth := mcpServer.Config["oauth"].(map[string]interface{}); hasOAuth {
@@ -1880,12 +1874,7 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 						"command":   musterPath,
 						"args":      []string{"test", "--mock-mcp-server", "--mock-config", mockConfigFile},
 					}
-					if toolPrefix, ok := mcpServer.Config["toolPrefix"].(string); ok && toolPrefix != "" {
-						stdioSpec["toolPrefix"] = toolPrefix
-					}
-					if family, ok := mcpServer.Config["family"].(map[string]interface{}); ok {
-						stdioSpec["family"] = family
-					}
+					applyMockSpecOptions(stdioSpec, mcpServer.Config)
 					mcpServerCRD := map[string]interface{}{
 						"apiVersion": "muster.giantswarm.io/v1alpha1",
 						"kind":       "MCPServer",
@@ -2147,10 +2136,38 @@ func (m *musterInstanceManager) Cleanup() error {
 // muster's SSE session/tool aggregation is not reliable enough to gate on
 // (the standing reason mcpserver-sse-tool-call-lifecycle.yaml is skipped),
 // and the scenario only needs the mock's HTTP endpoint up, which the
-// harness already waits for when starting it.
+// harness already waits for when starting it. A server pre-configured with
+// suspended: true never gates either: muster must not start it, so neither
+// its state nor its tools can become ready.
 func serverExpectsReadiness(mcpServer MCPServerConfig) bool {
+	if mockServerSuspended(mcpServer.Config) {
+		return false
+	}
 	expectReady, ok := mcpServer.Config["expect_ready"].(bool)
 	return !ok || expectReady
+}
+
+// mockServerSuspended reports whether a pre-configured mock server's config
+// asks for spec.suspended: true, i.e. a server muster boots with but must
+// keep down until a scenario step resumes it.
+func mockServerSuspended(cfg map[string]interface{}) bool {
+	suspended, ok := cfg["suspended"].(bool)
+	return ok && suspended
+}
+
+// applyMockSpecOptions copies the optional MCPServer spec fields a mock
+// server's config may carry -- toolPrefix, family and suspended -- onto the
+// spec the harness writes for it (HTTP and stdio mocks alike).
+func applyMockSpecOptions(spec map[string]interface{}, cfg map[string]interface{}) {
+	if toolPrefix, ok := cfg["toolPrefix"].(string); ok && toolPrefix != "" {
+		spec["toolPrefix"] = toolPrefix
+	}
+	if family, ok := cfg["family"].(map[string]interface{}); ok {
+		spec["family"] = family
+	}
+	if mockServerSuspended(cfg) {
+		spec["suspended"] = true
+	}
 }
 
 // extractExpectedMCPServers extracts all MCP server names from the configuration.

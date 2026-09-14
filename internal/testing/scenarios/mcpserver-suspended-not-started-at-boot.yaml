@@ -1,0 +1,156 @@
+name: "mcpserver-suspended-not-started-at-boot"
+description: "An MCPServer with spec.suspended=true and autoStart=true is not started when muster boots: no service is created, started or suspended for it and no MCPServerStarting / MCPServerStopped event is generated; spec.suspended=false afterwards still starts it (#1216)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "lifecycle", "suspend", "orchestrator", "boot", "regression", "issue-1216"]
+timeout: "3m"
+
+# Given: a remote (streamable-http) MCP server pre-configured with
+#        spec.suspended: true and autoStart: true -- the definition a
+#        deactivated server has when the muster pod restarts. The harness runs
+#        muster with a 2 s reconciler resync (production: 30 s).
+# When:  muster boots and more than two resync ticks pass.
+# Then:  no service exists for the server (core_service_status: not found),
+#        the spec still says suspended, and no MCPServer event was generated
+#        for it: the orchestrator's boot pass skipped it and the reconciler's
+#        passes found nothing to stop.
+# When:  spec.suspended is set to false.
+# Then:  the reconciler resumes the server, it connects and its tool answers.
+#
+# Before the fix the orchestrator's boot pass created and started a service for
+# every autoStart definition without looking at spec.suspended, and the
+# reconciler's first pass stopped it again: "Creating MCPServer service" and
+# "Successfully created and registered MCPServer service" from the
+# orchestrator, "Starting MCP server service", a connection to the backend,
+# "Suspending MCPServer service ... (spec.suspended=true)" from the
+# reconciler, one
+# MCPServerStarting and one MCPServerStopped event per suspended server per
+# boot -- and a window in which the deactivated server's tools were callable
+# (giantswarm/muster#1216). Here the occurrence counts would read 1 (boot) or
+# 2 (boot plus resume) instead of 0 and 1.
+#
+# There is no sleep step: the wait is a call to a tool on a second mock server
+# whose answer is delayed by 5 s, longer than two resync ticks. A suspended
+# pre-configured server is excluded from the harness's readiness gate (it
+# cannot become ready by design).
+
+pre_configuration:
+  main_config:
+    config:
+      events: true
+
+  mcp_servers:
+    - name: "boot-suspended-server"
+      config:
+        type: "streamable-http"
+        suspended: true
+        tools:
+          - name: "probe"
+            description: "Answers when the server is connected"
+            input_schema:
+              type: "object"
+              properties: {}
+            responses:
+              - response: { alive: true }
+    - name: "boot-clock"
+      config:
+        type: "streamable-http"
+        tools:
+          - name: "wait"
+            description: "Answers after more than two resync ticks"
+            input_schema:
+              type: "object"
+              properties: {}
+            responses:
+              - response: { waited: "5s" }
+                delay: "5s"
+
+steps:
+  - id: "two-resync-ticks-pass"
+    description: "5 s on a 2 s resync: boot and at least two reconciler passes over the suspended server are behind us"
+    tool: "x_boot-clock_wait"
+    args: {}
+    expected:
+      success: true
+      contains: ["waited"]
+    timeout: "30s"
+
+  - id: "no-service-at-boot"
+    description: "The orchestrator registered no service for the suspended definition"
+    tool: "core_service_status"
+    args:
+      name: "boot-suspended-server"
+    expected:
+      success: false
+      error_contains: ["not found"]
+    timeout: "15s"
+
+  - id: "still-suspended-in-spec"
+    tool: "core_mcpserver_get"
+    args:
+      name: "boot-suspended-server"
+    expected:
+      success: true
+      json_path:
+        suspended: true
+        autoStart: true
+    timeout: "15s"
+
+  - id: "no-events-at-boot"
+    description: "Nothing was started, so nothing was stopped: no lifecycle event for the server"
+    tool: "core_events"
+    args:
+      resourceType: "MCPServer"
+      resourceName: "boot-suspended-server"
+    expected:
+      success: true
+      not_contains: ["MCPServerStarting", "MCPServerStopped"]
+    timeout: "15s"
+
+  - id: "resume"
+    description: "spec.suspended=false; the reconciler starts the service (reconcileResume path unchanged)"
+    tool: "core_mcpserver_update"
+    args:
+      name: "boot-suspended-server"
+      type: "streamable-http"
+      autoStart: true
+      suspended: false
+    expected:
+      success: true
+    timeout: "15s"
+
+  - id: "connected"
+    tool: "core_service_status"
+    args:
+      name: "boot-suspended-server"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "connected"
+    timeout: "45s"
+
+  - id: "tool-answers"
+    tool: "x_boot-suspended-server_probe"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "20s"
+      contains: ["alive"]
+    timeout: "30s"
+
+# The whole run: the boot pass skipped the server for the right reason and
+# never created a service for it (the resume registers it through a different
+# path, "Registering MCPServer service for definition created at runtime"),
+# the reconciler never had anything to suspend, and the only MCPServerStarting
+# event belongs to the resume. Before the fix the skip count read 0, the next
+# three 1 and the last one 2.
+instance_logs:
+  occurrences:
+    "Skipping MCPServer boot-suspended-server: Suspended=true": 1
+    "Successfully created and registered MCPServer service: boot-suspended-server": 0
+    "Suspending MCPServer service boot-suspended-server (spec.suspended=true)": 0
+    "Generated event MCPServerStopped for MCPServer service boot-suspended-server": 0
+    "Generated event MCPServerStarting for MCPServer service boot-suspended-server": 1
+  contains:
+    - "Resuming MCPServer service boot-suspended-server (spec.suspended=false)"
