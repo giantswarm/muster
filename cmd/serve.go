@@ -14,6 +14,7 @@ import (
 	"github.com/giantswarm/muster/internal/app"
 	"github.com/giantswarm/muster/internal/config"
 	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/pkg/observability"
 
 	"github.com/spf13/cobra"
 )
@@ -123,6 +124,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	shutdownMeter, err := mcptoolkitmetrics.Init(ctx,
 		mcptoolkitmetrics.WithServiceName("muster"),
 		mcptoolkitmetrics.WithServiceVersion(GetVersion()),
+		mcptoolkitmetrics.WithViews(observability.SecondsHistogramView()),
 	)
 	if err != nil {
 		return fmt.Errorf("init meter: %w", err)

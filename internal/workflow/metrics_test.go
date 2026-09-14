@@ -11,6 +11,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/pkg/observability"
 )
 
 // These tests define the contract for workflow execution metrics (Phase 4 of
@@ -88,4 +89,38 @@ func TestWorkflowMetricsRecordStoreError(t *testing.T) {
 		}
 	}
 	require.True(t, saw, "expected muster.workflow_execution.store_errors counter")
+}
+
+// The execution duration histogram carries unit "s", the shape
+// observability.SecondsHistogramView matches on, and therefore aggregates with
+// SecondsHistogramBoundaries rather than the SDK's millisecond defaults.
+func TestWorkflowDurationHistogramUsesSecondsBuckets(t *testing.T) {
+	r := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(
+		sdkmetric.WithReader(r),
+		sdkmetric.WithView(observability.SecondsHistogramView()),
+	)
+	prev := otel.GetMeterProvider()
+	otel.SetMeterProvider(mp)
+	t.Cleanup(func() { otel.SetMeterProvider(prev) })
+
+	newWorkflowMetrics().recordExecution(t.Context(), "alpha", api.WorkflowExecutionCompleted, 90*time.Second)
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, r.Collect(t.Context(), &rm))
+
+	var seen bool
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name != "muster.workflow_execution.duration" {
+				continue
+			}
+			seen = true
+			hist, ok := m.Data.(metricdata.Histogram[float64])
+			require.True(t, ok)
+			require.Len(t, hist.DataPoints, 1)
+			require.Equal(t, observability.SecondsHistogramBoundaries(), hist.DataPoints[0].Bounds)
+		}
+	}
+	require.True(t, seen, "expected muster.workflow_execution.duration histogram")
 }
