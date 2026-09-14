@@ -12,6 +12,8 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+
+	"github.com/giantswarm/muster/pkg/observability"
 )
 
 func setupMeter(t *testing.T) *metric.ManualReader {
@@ -154,4 +156,42 @@ func TestClassify(t *testing.T) {
 	require.Equal(t, outcomeError, classify(nil, errors.New("x")))
 	require.Equal(t, outcomeError, classify(&mcp.CallToolResult{IsError: true}, errors.New("x")))
 	require.Equal(t, outcomeErrorResult, classify(&mcp.CallToolResult{IsError: true}, nil))
+}
+
+// The aggregator's duration histograms carry unit "s", the shape
+// observability.SecondsHistogramView matches on, and therefore aggregate with
+// SecondsHistogramBoundaries rather than the SDK's millisecond defaults.
+func TestDurationHistogramsUseSecondsBuckets(t *testing.T) {
+	r := metric.NewManualReader()
+	mp := metric.NewMeterProvider(
+		metric.WithReader(r),
+		metric.WithView(observability.SecondsHistogramView()),
+	)
+	prev := otel.GetMeterProvider()
+	otel.SetMeterProvider(mp)
+	t.Cleanup(func() { otel.SetMeterProvider(prev) })
+
+	wrapped := Metrics()(func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return &mcp.CallToolResult{}, nil
+	})
+	_, _ = wrapped(t.Context(), callRequest("x_kubernetes_list_pods"))
+	newDownstreamMetrics().record(t.Context(), "kubernetes", "x_kubernetes_list_pods", time.Now(), &mcp.CallToolResult{}, nil)
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, r.Collect(t.Context(), &rm))
+
+	seen := map[string]bool{}
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			hist, ok := m.Data.(metricdata.Histogram[float64])
+			if !ok {
+				continue
+			}
+			seen[m.Name] = true
+			require.Len(t, hist.DataPoints, 1)
+			require.Equal(t, observability.SecondsHistogramBoundaries, hist.DataPoints[0].Bounds, m.Name)
+		}
+	}
+	require.True(t, seen["muster.tool_call.duration"])
+	require.True(t, seen["muster.downstream_tool_call.duration"])
 }
