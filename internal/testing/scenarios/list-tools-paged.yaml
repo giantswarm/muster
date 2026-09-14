@@ -203,7 +203,7 @@ steps:
       contains:
         - "FULLDETAILONLY"
         - "inputSchema"
-        - 'Call it through the call_tool meta-tool: call_tool{"name": "x_pager_t01", "arguments": <object matching inputSchema>}'
+        - 'Call it through the call_tool meta-tool: call_tool with {"name": "x_pager_t01", "arguments": {...}}, arguments per inputSchema.'
         - "not callable by name directly"
 
   - id: "limit-below-one-refused"

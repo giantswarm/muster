@@ -70,7 +70,7 @@ through `call_tool`, and only through `call_tool`.
   "kind": "tool",
   "annotations": {"readOnlyHint": true},
   "inputSchema": {"type": "object", "properties": {"namespace": {"type": "string"}}},
-  "invocation": "Call it through the call_tool meta-tool: call_tool{\"name\": \"x_kubernetes_list_pods\", \"arguments\": <object matching inputSchema>}. Tools inside muster are not callable by name directly — only the meta-tools are."
+  "invocation": "Call it through the call_tool meta-tool: call_tool with {\"name\": \"x_kubernetes_list_pods\", \"arguments\": {...}}, arguments per inputSchema. Tools inside muster are not callable by name directly — only the meta-tools are."
 }
 ```
 

@@ -125,7 +125,7 @@ const FieldInvocation = "invocation"
 // next to the schema puts the rule where the caller reads just before calling.
 func invocationNote(name string) string {
 	return fmt.Sprintf(
-		"Call it through the %s meta-tool: %s{\"name\": %q, \"arguments\": <object matching inputSchema>}. "+
+		"Call it through the %s meta-tool: %s with {\"name\": %q, \"arguments\": {...}}, arguments per inputSchema. "+
 			"Tools inside muster are not callable by name directly — only the meta-tools are.",
 		ToolCallTool, ToolCallTool, name)
 }
