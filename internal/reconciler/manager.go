@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/giantswarm/muster/internal/config"
 	"github.com/giantswarm/muster/pkg/logging"
 )
 
@@ -50,36 +51,44 @@ type Manager struct {
 	running bool
 }
 
+// DefaultResyncInterval is the ManagerConfig.ResyncInterval applied when none
+// is set: how often every known resource is reconciled again regardless of
+// change events. Overridable via MUSTER_RECONCILER_RESYNC_INTERVAL (a Go
+// duration, e.g. "2s") so the integration test harness can watch several
+// resync ticks pass within one step -- a suspended server has to stay silent
+// across them (issue #1212).
+var DefaultResyncInterval = config.DurationFromEnv("MUSTER_RECONCILER_RESYNC_INTERVAL", 30*time.Second)
+
 // NewManager creates a new reconciliation manager.
-func NewManager(config ManagerConfig) *Manager {
+func NewManager(cfg ManagerConfig) *Manager {
 	// Apply defaults
-	if config.WorkerCount == 0 {
-		config.WorkerCount = 2
+	if cfg.WorkerCount == 0 {
+		cfg.WorkerCount = 2
 	}
-	if config.MaxRetries == 0 {
-		config.MaxRetries = 5
+	if cfg.MaxRetries == 0 {
+		cfg.MaxRetries = 5
 	}
-	if config.InitialBackoff == 0 {
-		config.InitialBackoff = time.Second
+	if cfg.InitialBackoff == 0 {
+		cfg.InitialBackoff = time.Second
 	}
-	if config.MaxBackoff == 0 {
-		config.MaxBackoff = 5 * time.Minute
+	if cfg.MaxBackoff == 0 {
+		cfg.MaxBackoff = 5 * time.Minute
 	}
-	if config.DebounceInterval == 0 {
-		config.DebounceInterval = 500 * time.Millisecond
+	if cfg.DebounceInterval == 0 {
+		cfg.DebounceInterval = 500 * time.Millisecond
 	}
-	if config.ReconcileTimeout == 0 {
-		config.ReconcileTimeout = 30 * time.Second
+	if cfg.ReconcileTimeout == 0 {
+		cfg.ReconcileTimeout = 30 * time.Second
 	}
-	if config.ResyncInterval == 0 {
-		config.ResyncInterval = 30 * time.Second
+	if cfg.ResyncInterval == 0 {
+		cfg.ResyncInterval = DefaultResyncInterval
 	}
-	if config.DisabledResourceTypes == nil {
-		config.DisabledResourceTypes = make(map[ResourceType]bool)
+	if cfg.DisabledResourceTypes == nil {
+		cfg.DisabledResourceTypes = make(map[ResourceType]bool)
 	}
 
 	return &Manager{
-		config:        config,
+		config:        cfg,
 		reconcilers:   make(map[ResourceType]Reconciler),
 		queue:         NewDelayedQueue(),
 		statusTracker: make(map[string]*ReconcileStatus),

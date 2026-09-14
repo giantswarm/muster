@@ -140,6 +140,12 @@ type InstanceLogExpectation struct {
 	Contains []string `yaml:"contains,omitempty"`
 	// NotContains lists substrings the combined stdout+stderr must not include.
 	NotContains []string `yaml:"not_contains,omitempty"`
+	// Occurrences maps a substring to the exact number of lines of the
+	// combined stdout+stderr that must contain it. It is the assertion for
+	// behaviour that has to happen once and only once -- a lifecycle action
+	// the reconciler must not repeat on its resync ticks -- which contains
+	// and not_contains cannot express between them.
+	Occurrences map[string]int `yaml:"occurrences,omitempty"`
 }
 
 // MusterPreConfiguration defines how to pre-configure an muster serve instance

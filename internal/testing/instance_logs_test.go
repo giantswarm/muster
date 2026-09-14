@@ -34,6 +34,17 @@ func TestInstanceLogsRequiresAnAssertion(t *testing.T) {
 	if err := loader.validateScenario(scenario, "logs-are-clean.yaml"); err != nil {
 		t.Errorf("a scenario with a not_contains assertion should load, got: %v", err)
 	}
+
+	scenario.InstanceLogs = &InstanceLogExpectation{Occurrences: map[string]int{"Suspending MCPServer service x": 1}}
+	if err := loader.validateScenario(scenario, "logs-are-clean.yaml"); err != nil {
+		t.Errorf("a scenario with an occurrences assertion should load, got: %v", err)
+	}
+
+	scenario.InstanceLogs.Occurrences["Suspending MCPServer service x"] = -1
+	err = loader.validateScenario(scenario, "logs-are-clean.yaml")
+	if err == nil || !strings.Contains(err.Error(), "must not be negative") {
+		t.Errorf("a negative occurrence count should be rejected at load time, got: %v", err)
+	}
 }
 
 func TestValidateInstanceLogs(t *testing.T) {
@@ -82,6 +93,41 @@ func TestValidateInstanceLogs(t *testing.T) {
 		}
 		if strings.Contains(msg, "secret-payload") {
 			t.Errorf("the report must not echo what follows the match, got: %v", msg)
+		}
+	})
+
+	t.Run("occurrences counts lines across stdout and stderr", func(t *testing.T) {
+		exp := &InstanceLogExpectation{Occurrences: map[string]int{
+			"SSO: ":               1, // both stdout lines carry it: a miss
+			"onAuthenticated":     1,
+			"something on stderr": 1,
+			"never logged":        0,
+			"initSSOForSession":   2, // logged once: a miss
+		}}
+		err := validateInstanceLogs(exp, logs)
+		if err == nil {
+			t.Fatal("wrong occurrence counts must fail the scenario")
+		}
+		msg := err.Error()
+		if !strings.Contains(msg, `contain "SSO: " on 2 line(s), want exactly 1`) {
+			t.Errorf("a substring found too often should be reported with both counts, got: %v", msg)
+		}
+		if !strings.Contains(msg, `contain "initSSOForSession" on 1 line(s), want exactly 2`) {
+			t.Errorf("a substring found too rarely should be reported with both counts, got: %v", msg)
+		}
+		for _, satisfied := range []string{`"onAuthenticated"`, `"something on stderr"`, `"never logged"`} {
+			if strings.Contains(msg, satisfied) {
+				t.Errorf("a satisfied count must not be reported, got: %v", msg)
+			}
+		}
+		if strings.Index(msg, `"SSO: "`) > strings.Index(msg, `"initSSOForSession"`) {
+			t.Errorf("misses should be reported in sorted order, got: %v", msg)
+		}
+
+		delete(exp.Occurrences, "SSO: ")
+		exp.Occurrences["initSSOForSession"] = 1
+		if err := validateInstanceLogs(exp, logs); err != nil {
+			t.Fatalf("exact counts should pass, got: %v", err)
 		}
 	})
 

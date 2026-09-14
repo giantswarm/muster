@@ -38,11 +38,12 @@ type MockOrchestratorAPI struct {
 	RestartedServices map[string]bool
 	RemovedServices   map[string]bool
 
-	// Attempt counters: StartService / RestartService calls per service name,
-	// counted whether or not the configured error made them fail. The maps
-	// above record successes only, which cannot tell one failed attempt from
-	// a hundred (issue #1166).
+	// Attempt counters: StartService / StopService / RestartService calls per
+	// service name, counted whether or not the configured error made them
+	// fail. The maps above record successes only, which cannot tell one
+	// attempt from a hundred (issues #1166, #1212).
 	StartCalls   map[string]int
+	StopCalls    map[string]int
 	RestartCalls map[string]int
 
 	// Configurable errors for testing error paths
@@ -72,6 +73,7 @@ func NewMockOrchestratorAPI() *MockOrchestratorAPI {
 		RestartedServices: make(map[string]bool),
 		RemovedServices:   make(map[string]bool),
 		StartCalls:        make(map[string]int),
+		StopCalls:         make(map[string]int),
 		RestartCalls:      make(map[string]int),
 		EventChan:         make(chan api.ServiceStateChangedEvent, 100),
 		ServiceStatuses:   make(map[string]*api.ServiceStatus),
@@ -95,6 +97,7 @@ func (m *MockOrchestratorAPI) StartService(name string) error {
 func (m *MockOrchestratorAPI) StopService(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.StopCalls[name]++
 	if m.StopError != nil {
 		return m.StopError
 	}

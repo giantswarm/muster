@@ -111,20 +111,6 @@ func TestBackoffCapBelowInitialWins(t *testing.T) {
 	}
 }
 
-// TestMaxBackoffDefaultAndOverride pins the default cap and its environment
-// override, the knob an operator turns without a new release.
-func TestMaxBackoffDefaultAndOverride(t *testing.T) {
-	t.Setenv("MUSTER_MCPSERVER_MAX_BACKOFF", "")
-	assert.Equal(t, 2*time.Minute, durationFromEnv("MUSTER_MCPSERVER_MAX_BACKOFF", 2*time.Minute))
-
-	t.Setenv("MUSTER_MCPSERVER_MAX_BACKOFF", "5m")
-	assert.Equal(t, 5*time.Minute, durationFromEnv("MUSTER_MCPSERVER_MAX_BACKOFF", 2*time.Minute))
-
-	t.Setenv("MUSTER_MCPSERVER_MAX_BACKOFF", "not-a-duration")
-	assert.Equal(t, 2*time.Minute, durationFromEnv("MUSTER_MCPSERVER_MAX_BACKOFF", 2*time.Minute),
-		"an unparsable override falls back to the default")
-}
-
 func TestHTTPStatusFromError(t *testing.T) {
 	cases := map[string]struct {
 		err  string

@@ -83,6 +83,8 @@ cleanup:
 # level for the whole scenario and evaluated once after steps and cleanup ran
 instance_logs:
   not_contains: ["eyJ"]                # e.g. no JWT ever reached the logs
+  occurrences:                         # exact line counts for once-only actions
+    "Suspending MCPServer service my-server (spec.suspended=true)": 1
 ```
 
 ### Key Schema Changes
@@ -370,20 +372,27 @@ Step expectations only see what a tool call returns. `instance_logs` is the one
 expectation that sees the other side: the stdout and stderr of the `muster serve`
 instance the scenario ran against, captured at debug level for the whole run and
 checked once after the last step and cleanup step. It is scenario-level, not
-per-step, and takes `contains` and/or `not_contains` lists (at least one is
-required; an empty block is rejected at load time):
+per-step, and takes `contains` and/or `not_contains` lists and/or an
+`occurrences` map (at least one is required; an empty block is rejected at
+load time):
 
 ```yaml
 instance_logs:
   contains: ["SSO: initSSOForSession called"]
   not_contains: ["eyJ"]   # the base64url prefix every JWT header shares
+  occurrences:
+    "Suspending MCPServer service my-server (spec.suspended=true)": 1
 ```
 
 The typical use is proving a credential never reached the logs, so a
 `not_contains` hit is reported by line number and the text of that line *up to*
-the match -- never the match itself or what follows it. Use `contains` sparingly:
-log lines are not an API, and a scenario pinned to log wording breaks on
-harmless rewording.
+the match -- never the match itself or what follows it. `occurrences` maps a
+substring to the exact number of lines that must contain it: the assertion for
+an action that has to happen once and only once, such as a lifecycle step the
+reconciler must not repeat on its resync ticks (the harness runs instances with
+a 2 s resync, so a step that waits 5 s sees at least two of them). Use
+`contains` and `occurrences` sparingly: log lines are not an API, and a
+scenario pinned to log wording breaks on harmless rewording.
 
 ### 5. Mock Server Configuration
 

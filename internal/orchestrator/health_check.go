@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"time"
 
+	"github.com/giantswarm/muster/internal/config"
 	"github.com/giantswarm/muster/internal/services"
 	"github.com/giantswarm/muster/internal/services/mcpserver"
 	"github.com/giantswarm/muster/pkg/logging"
@@ -27,7 +28,7 @@ import (
 // duration) so the integration test harness can observe the recovery
 // without waiting for production-length ticks. Each probe is bounded by the
 // server's own timeout (spec.timeout), see mcpserver.Service.CheckHealth.
-var HealthCheckInterval = durationFromEnv("MUSTER_ORCHESTRATOR_HEALTH_CHECK_INTERVAL", 30*time.Second)
+var HealthCheckInterval = config.DurationFromEnv("MUSTER_ORCHESTRATOR_HEALTH_CHECK_INTERVAL", 30*time.Second)
 
 // checkConnectedServersHealth probes every connected or running MCPServer
 // service once, concurrently. Nothing else happens here: a server the probes
