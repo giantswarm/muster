@@ -751,6 +751,10 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	// Create cancellable context for coordinating shutdown across all components
 	a.ctx, a.cancelFunc = context.WithCancel(ctx)
 
+	// A Valkey capability store written by an earlier muster still carries
+	// its documents inline; rewrite it to the content-addressed layout.
+	a.migrateCapabilityStore(a.ctx)
+
 	// Determine the server version to report
 	serverVersion := a.config.Version
 	if serverVersion == "" {
