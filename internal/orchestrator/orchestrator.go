@@ -115,7 +115,19 @@ func (o *Orchestrator) Start(ctx context.Context) error {
 }
 
 // processAutoStartMCPServers creates and registers MCPServer services for every
-// MCPServer definition that has AutoStart=true.
+// MCPServer definition that has AutoStart=true and is not suspended.
+//
+// A definition with Suspended=true is held down on purpose (spec.suspended is
+// what core_service_stop and a portal's Deactivate write), so it is neither
+// registered nor started here. Before, the boot pass started it and the
+// reconciler's first pass stopped it again: per restart and per suspended
+// server one connection attempt against a backend the operator had switched
+// off, a MCPServerStarting and a MCPServerStopped event, status.lastAttempt
+// moved to the boot time, and -- when the connect won the race against the
+// stop -- a window in which the deactivated server's tools were callable
+// (issue #1216). The reconciler marks the definition suspended on its first
+// pass and StartService registers it lazily when spec.suspended goes back to
+// false, so a later resume needs nothing from boot.
 func (o *Orchestrator) processAutoStartMCPServers(ctx context.Context) error {
 	mcpServerMgr := api.GetMCPServerManager()
 	if mcpServerMgr == nil {
@@ -132,6 +144,10 @@ func (o *Orchestrator) processAutoStartMCPServers(ctx context.Context) error {
 	for _, mcpServerInfo := range mcpServers {
 		if !mcpServerInfo.AutoStart {
 			logging.Debug("Orchestrator", "Skipping MCPServer %s: AutoStart=false", mcpServerInfo.Name)
+			continue
+		}
+		if mcpServerInfo.Suspended {
+			logging.Debug("Orchestrator", "Skipping MCPServer %s: Suspended=true", mcpServerInfo.Name)
 			continue
 		}
 
