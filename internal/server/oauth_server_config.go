@@ -75,10 +75,12 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, refreshTokenTTL time.Dur
 	return result
 }
 
-// buildOAuthServerOptions assembles the functional options for the mcp-oauth server.
-// instrumentation.New registers a Prometheus collector on the OTel global
-// provider, so a second call in the same process will race or duplicate-register.
-func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger, caPool *x509.CertPool) ([]oauth.ServerOption, error) {
+// newOAuthInstrumentation builds the one OpenTelemetry pipeline the OAuth
+// server and its token store share, so the store's storage.operation.* series
+// land next to the server's oauth.* series. instrumentation.New registers a
+// Prometheus collector on the OTel global provider, so a second call in the
+// same process will race or duplicate-register.
+func newOAuthInstrumentation() (*instrumentation.Instrumentation, error) {
 	inst, err := instrumentation.New(instrumentation.Config{
 		Enabled:         true,
 		ServiceName:     "muster",
@@ -88,7 +90,13 @@ func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to create instrumentation: %w", err)
 	}
+	return inst, nil
+}
 
+// buildOAuthServerOptions assembles the functional options for the mcp-oauth
+// server. inst is the pipeline from newOAuthInstrumentation, shared with the
+// token store; nil leaves the server uninstrumented.
+func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger, caPool *x509.CertPool, inst *instrumentation.Instrumentation) ([]oauth.ServerOption, error) {
 	opts := []oauth.ServerOption{
 		oauth.WithInstrumentation(inst),
 		oauth.WithAuditor(security.NewAuditor(logger, true, security.WithPIIRedaction(true))),

@@ -76,7 +76,7 @@ func TestBuildOAuthServerOptions_NoErrorWhenFieldsSet(t *testing.T) {
 		},
 		TrustedProxyCIDRs: []string{"127.0.0.1/32"},
 	}
-	opts, err := buildOAuthServerOptions(cfg, nil, nil)
+	opts, err := buildOAuthServerOptions(cfg, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, opts)
 }
@@ -94,7 +94,7 @@ func TestBuildOAuthServerOptions_AllowPrivateIPJWKSNoError(t *testing.T) {
 			},
 		},
 	}
-	opts, err := buildOAuthServerOptions(cfg, nil, nil)
+	opts, err := buildOAuthServerOptions(cfg, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, opts)
 }
@@ -105,7 +105,7 @@ func TestBuildOAuthServerOptions_NoErrorWhenFieldsAbsent(t *testing.T) {
 	cfg := config.OAuthServerConfig{
 		BaseURL: "https://muster.example.com",
 	}
-	opts, err := buildOAuthServerOptions(cfg, nil, nil)
+	opts, err := buildOAuthServerOptions(cfg, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, opts)
 }
@@ -189,7 +189,7 @@ func TestBuildOAuthServerOptions_BrokerRequiresTrustedIssuers(t *testing.T) {
 			},
 		},
 	}
-	_, err := buildOAuthServerOptions(cfg, nil, nil)
+	_, err := buildOAuthServerOptions(cfg, nil, nil, nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "trustedIssuers")
 
@@ -200,7 +200,7 @@ func TestBuildOAuthServerOptions_BrokerRequiresTrustedIssuers(t *testing.T) {
 			AllowedAudiences: []string{"portal-frontend"},
 		},
 	}
-	opts, err := buildOAuthServerOptions(cfg, nil, nil)
+	opts, err := buildOAuthServerOptions(cfg, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, opts)
 }
@@ -212,7 +212,7 @@ func TestBuildOAuthServerOptions_InvalidCIDRReturnsError(t *testing.T) {
 		BaseURL:           "https://muster.example.com",
 		TrustedProxyCIDRs: []string{"not-a-cidr"},
 	}
-	_, err := buildOAuthServerOptions(cfg, nil, nil)
+	_, err := buildOAuthServerOptions(cfg, nil, nil, nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid CIDR")
 }
@@ -232,7 +232,7 @@ func TestBuildOAuthServerOptions_BrokerTargetRequiresDexTokenEndpoint(t *testing
 			},
 		},
 	}
-	_, err := buildOAuthServerOptions(cfg, nil, nil)
+	_, err := buildOAuthServerOptions(cfg, nil, nil, nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "cluster-a")
 	require.Contains(t, err.Error(), "dexTokenEndpoint")
@@ -289,7 +289,7 @@ func TestBuildOAuthServerOptions_AcceptsGrantTarget(t *testing.T) {
 			},
 		},
 	}
-	opts, err := buildOAuthServerOptions(cfg, slog.Default(), nil)
+	opts, err := buildOAuthServerOptions(cfg, slog.Default(), nil, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, opts)
 }
