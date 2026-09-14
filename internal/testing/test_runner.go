@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"reflect"
+	"slices"
 	"strconv" // Added for strconv.Atoi
 	"strings"
 	"sync"
@@ -554,6 +556,7 @@ func validateInstanceLogs(expected *InstanceLogExpectation, logs *InstanceLogs) 
 		return fmt.Errorf("instance_logs expectations declared but no instance logs were captured")
 	}
 	out := logs.Stdout + "\n" + logs.Stderr
+	lines := strings.Split(out, "\n")
 
 	var problems []string
 	for _, want := range expected.Contains {
@@ -572,18 +575,29 @@ func validateInstanceLogs(expected *InstanceLogExpectation, logs *InstanceLogs) 
 		if len(prefix) > instanceLogMatchContextLimit {
 			prefix = prefix[:instanceLogMatchContextLimit] + "..."
 		}
-		matching := 0
-		for _, l := range strings.Split(out, "\n") {
-			if strings.Contains(l, forbidden) {
-				matching++
-			}
+		problems = append(problems, fmt.Sprintf("instance logs contain forbidden %q on %d line(s), first at line %d (line starts: %q)", forbidden, linesContaining(lines, forbidden), line, prefix))
+	}
+	// Sorted so a report with several misses reads the same on every run.
+	for _, want := range slices.Sorted(maps.Keys(expected.Occurrences)) {
+		if got := linesContaining(lines, want); got != expected.Occurrences[want] {
+			problems = append(problems, fmt.Sprintf("instance logs contain %q on %d line(s), want exactly %d", want, got, expected.Occurrences[want]))
 		}
-		problems = append(problems, fmt.Sprintf("instance logs contain forbidden %q on %d line(s), first at line %d (line starts: %q)", forbidden, matching, line, prefix))
 	}
 	if len(problems) == 0 {
 		return nil
 	}
 	return fmt.Errorf("%s", strings.Join(problems, "; "))
+}
+
+// linesContaining counts the lines that contain substring.
+func linesContaining(lines []string, substring string) int {
+	n := 0
+	for _, l := range lines {
+		if strings.Contains(l, substring) {
+			n++
+		}
+	}
+	return n
 }
 
 // runStep executes a single test step using the specified MCP client with template variable support

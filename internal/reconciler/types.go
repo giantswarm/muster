@@ -244,7 +244,8 @@ type ManagerConfig struct {
 	// events — most visibly on overlayfs (CI containers) — and a purely
 	// edge-triggered reconciler never recovers from a lost event. Resync makes
 	// any divergence self-heal within one interval. In-sync resources reconcile
-	// as cheap no-ops. Defaults to 30 seconds if not specified.
+	// as cheap no-ops. Defaults to DefaultResyncInterval (30 seconds, or
+	// MUSTER_RECONCILER_RESYNC_INTERVAL) if not specified.
 	ResyncInterval time.Duration
 
 	// Debug enables debug logging for reconciliation operations.

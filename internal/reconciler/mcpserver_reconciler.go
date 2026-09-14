@@ -524,10 +524,22 @@ func (r *MCPServerReconciler) isSuspended(name string) bool {
 	return r.suspended[name]
 }
 
-// reconcileSuspend drives a server with spec.suspended=true to stopped and
-// records the suspension so a later spec.suspended=false is recognized as a
-// resume. Create/update reconciliation is skipped entirely while suspended;
-// config changes are picked up on resume by the following reconcile.
+// reconcileSuspend drives a server with spec.suspended=true to its stopped
+// state and records the suspension so a later spec.suspended=false is
+// recognized as a resume. Create/update reconciliation is skipped entirely
+// while suspended; config changes are picked up on resume by the following
+// reconcile.
+//
+// A stop settles a local (stdio) service in Stopped and a remote one in
+// Disconnected (see Service.Stop), so both read as "already suspended" here
+// and the resync ticks that follow are silent for the server. Before, only
+// Stopped and Stopping returned early, and a suspended remote server was
+// stopped again on every tick: two lifecycle log lines, an MCPServerStopped
+// event and a state-change reconcile every 30 s for as long as it stayed
+// suspended (issue #1212). Failed, Error and Unreachable are still stopped,
+// so suspending a server whose endpoint is down ends its reconnect schedule:
+// the orchestrator retries only Failed and Unreachable services, and the stop
+// moves it to Disconnected.
 func (r *MCPServerReconciler) reconcileSuspend(req ReconcileRequest, exists bool, existingService api.ServiceInfo) ReconcileResult {
 	// Mark first: even when nothing is running, resume must know this server
 	// is held down by suspension rather than by autoStart=false.
@@ -537,8 +549,8 @@ func (r *MCPServerReconciler) reconcileSuspend(req ReconcileRequest, exists bool
 		return ReconcileResult{}
 	}
 
-	state := existingService.GetState()
-	if state == api.StateStopped || state == api.StateStopping {
+	switch existingService.GetState() {
+	case api.StateStopped, api.StateStopping, api.StateDisconnected:
 		return ReconcileResult{}
 	}
 

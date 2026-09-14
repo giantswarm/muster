@@ -1251,6 +1251,11 @@ func (m *musterInstanceManager) startMusterProcess(ctx context.Context, configPa
 		// pass the mock servers' outage gate uncounted (mock/outage.go), so a
 		// scenario that arms N failed requests still sees N failed attempts.
 		"MUSTER_ORCHESTRATOR_HEALTH_CHECK_INTERVAL=1s",
+		// Two resync ticks fit in a wait of a few seconds, so a scenario can
+		// assert that a reconcile the reconciler must perform once -- the
+		// stop of a suspended server -- stays done across them (production:
+		// 30s).
+		"MUSTER_RECONCILER_RESYNC_INTERVAL=2s",
 		"OTEL_METRICS_EXPORTER=prometheus",
 		"OTEL_EXPORTER_PROMETHEUS_HOST=127.0.0.1",
 		fmt.Sprintf("OTEL_EXPORTER_PROMETHEUS_PORT=%d", metricsPort),

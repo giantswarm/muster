@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"maps"
 	"net"
-	"os"
 	"reflect"
 	"regexp"
 	"slices"
@@ -18,6 +17,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 
 	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/config"
 	"github.com/giantswarm/muster/internal/events"
 	"github.com/giantswarm/muster/internal/mcpserver"
 	"github.com/giantswarm/muster/internal/services"
@@ -40,7 +40,7 @@ const BackoffMultiplier = 2.0
 // failure. Overridable via MUSTER_MCPSERVER_INITIAL_BACKOFF (a Go duration,
 // e.g. "1s") so the integration test harness can recover from transient
 // connect failures without waiting out production backoff.
-var InitialBackoff = durationFromEnv("MUSTER_MCPSERVER_INITIAL_BACKOFF", 30*time.Second)
+var InitialBackoff = config.DurationFromEnv("MUSTER_MCPSERVER_INITIAL_BACKOFF", 30*time.Second)
 
 // MaxBackoff caps the reconnect backoff of a remote server. The schedule
 // doubles from InitialBackoff on every consecutive failure and stops growing
@@ -50,7 +50,7 @@ var InitialBackoff = durationFromEnv("MUSTER_MCPSERVER_INITIAL_BACKOFF", 30*time
 // another 4.5, then 8.5, then 16.5 minutes (issue #1163). Overridable via
 // MUSTER_MCPSERVER_MAX_BACKOFF (a Go duration); a value below InitialBackoff
 // makes every retry wait exactly that long.
-var MaxBackoff = durationFromEnv("MUSTER_MCPSERVER_MAX_BACKOFF", 2*time.Minute)
+var MaxBackoff = config.DurationFromEnv("MUSTER_MCPSERVER_MAX_BACKOFF", 2*time.Minute)
 
 // httpStatusPattern finds the HTTP status code in the error text of a failed
 // initialize. The transports report it as "request failed with status 504"
@@ -58,17 +58,6 @@ var MaxBackoff = durationFromEnv("MUSTER_MCPSERVER_MAX_BACKOFF", 2*time.Minute)
 // 401 Unauthorized" (muster's auth detection); none of them exposes it as a
 // typed error, so the text is the only place it survives to.
 var httpStatusPattern = regexp.MustCompile(`(?i)\b(?:status(?: code)?:?|returned)\s+([1-5]\d{2})\b`)
-
-// durationFromEnv reads a Go duration from the named environment variable,
-// falling back to def when unset or unparsable.
-func durationFromEnv(name string, def time.Duration) time.Duration {
-	if v := os.Getenv(name); v != "" {
-		if d, err := time.ParseDuration(v); err == nil && d > 0 {
-			return d
-		}
-	}
-	return def
-}
 
 // RestartGracePeriod is the pause between stop and start during a restart.
 // This allows time for:
@@ -372,20 +361,22 @@ func (s *Service) discardAnonymousProbe() error {
 func (s *Service) Stop(ctx context.Context) error {
 	currentState := s.GetState()
 
-	// If already stopped, nothing to do
-	if currentState == services.StateStopped {
-		s.LogDebug("Service %s is already stopped", s.GetName())
+	// Already stopped: nothing to do and nothing to announce. A remote
+	// server's stop settles in Disconnected (see stoppedState), so a remote
+	// server that is Disconnected is as stopped as a local one that is
+	// Stopped. The reconciler's suspend path used to reach this method on
+	// every resync tick for such a server, and the branch below re-emitted
+	// MCPServerStopped each time (issue #1212).
+	if currentState == services.StateStopped || currentState == s.stoppedState() {
+		s.LogDebug("Service %s is already stopped (%s)", s.GetName(), currentState)
 		return nil
 	}
 
-	// If not running/connected and not failed, nothing to stop
+	// Not running/connected and not failed: nothing to stop, the service
+	// only settles in its stopped state.
 	if currentState != services.StateRunning && currentState != services.StateConnected && currentState != services.StateFailed {
-		s.LogDebug("Service %s is not in a stoppable state (%s), transitioning to stopped/disconnected", s.GetName(), currentState)
-		if s.isRemoteServer() {
-			s.UpdateState(services.StateDisconnected, services.HealthUnknown, nil)
-		} else {
-			s.UpdateState(services.StateStopped, services.HealthUnknown, nil)
-		}
+		s.LogDebug("Service %s is not in a stoppable state (%s), transitioning to %s", s.GetName(), currentState, s.stoppedState())
+		s.UpdateState(s.stoppedState(), services.HealthUnknown, nil)
 		// Generate stopped event for state transition
 		s.generateEvent(events.ReasonMCPServerStopped, events.EventData{})
 		return nil
@@ -401,14 +392,10 @@ func (s *Service) Stop(ctx context.Context) error {
 	}
 	s.resetHealthCheckEventGate()
 
-	// Use appropriate state based on server type:
-	// - Remote servers: "disconnected" is more intuitive
-	// - Local servers: "stopped" describes the process state
+	s.UpdateState(s.stoppedState(), services.HealthUnknown, nil)
 	if s.isRemoteServer() {
-		s.UpdateState(services.StateDisconnected, services.HealthUnknown, nil)
 		s.LogInfo("MCP server disconnected successfully")
 	} else {
-		s.UpdateState(services.StateStopped, services.HealthUnknown, nil)
 		s.LogInfo("MCP server stopped successfully")
 	}
 
@@ -416,6 +403,18 @@ func (s *Service) Stop(ctx context.Context) error {
 	s.generateEvent(events.ReasonMCPServerStopped, events.EventData{})
 
 	return nil
+}
+
+// stoppedState is the state a stop of this service settles in: Disconnected
+// for a remote server -- the server keeps running remotely, muster only
+// disconnected from it -- and Stopped for a local one, whose process is gone.
+// Every question of whether this service is already stopped compares against
+// it.
+func (s *Service) stoppedState() services.ServiceState {
+	if s.isRemoteServer() {
+		return services.StateDisconnected
+	}
+	return services.StateStopped
 }
 
 // Restart restarts the MCP server service.
@@ -1041,7 +1040,7 @@ func (s *Service) generateEvent(reason events.EventReason, data events.EventData
 	if err != nil {
 		logging.Debug(s.GetLogContext(), "Failed to generate event %s: %v", string(reason), err)
 	} else {
-		logging.Debug(s.GetLogContext(), "Generated event %s for MCPServer service", string(reason))
+		logging.Debug(s.GetLogContext(), "Generated event %s for MCPServer service %s", string(reason), s.GetName())
 	}
 }
 

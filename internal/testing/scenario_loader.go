@@ -173,8 +173,15 @@ func (l *scenarioLoader) validateScenario(scenario TestScenario, filePath string
 
 	// An instance_logs block with nothing to check would pass vacuously -- the
 	// same failure mode status_code and retry had.
-	if scenario.InstanceLogs != nil && len(scenario.InstanceLogs.Contains) == 0 && len(scenario.InstanceLogs.NotContains) == 0 {
-		return fmt.Errorf("instance_logs must list at least one of contains or not_contains")
+	if logs := scenario.InstanceLogs; logs != nil {
+		if len(logs.Contains) == 0 && len(logs.NotContains) == 0 && len(logs.Occurrences) == 0 {
+			return fmt.Errorf("instance_logs must list at least one of contains, not_contains or occurrences")
+		}
+		for substring, count := range logs.Occurrences {
+			if count < 0 {
+				return fmt.Errorf("instance_logs.occurrences[%q] must not be negative, got %d", substring, count)
+			}
+		}
 	}
 
 	return nil

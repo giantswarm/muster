@@ -1020,6 +1020,96 @@ func TestMCPServerReconciler_SuspendStopsRunningService(t *testing.T) {
 	}
 }
 
+// A remote server's stop settles in Disconnected, never Stopped. The suspend
+// path must read that as "already suspended": before, it stopped the service
+// again on every resync tick -- an MCPServerStopped event and two lifecycle
+// log lines every 30 s for as long as the server stayed suspended (issue #1212).
+func TestMCPServerReconciler_SuspendedRemoteServerIsStoppedOnce(t *testing.T) {
+	mgr := NewMockMCPServerManager()
+	orchAPI := NewMockOrchestratorAPI()
+	registry := NewMockServiceRegistry()
+	reconciler := NewMCPServerReconciler(orchAPI, mgr, registry)
+
+	mgr.AddMCPServer(&api.MCPServerInfo{
+		Name:      "test-server",
+		Type:      "streamable-http",
+		URL:       "http://remote.example/mcp",
+		AutoStart: true,
+		Suspended: true,
+	})
+	svc := &MockServiceInfo{
+		Name:        "test-server",
+		ServiceType: api.TypeMCPServer,
+		State:       api.StateConnected,
+		Health:      api.HealthHealthy,
+	}
+	registry.AddService("test-server", svc)
+
+	ctx := context.Background()
+
+	// The first pass stops the connected service.
+	if result := reconciler.Reconcile(ctx, lifecycleReconcileRequest()); result.Error != nil {
+		t.Fatalf("unexpected error on suspend: %v", result.Error)
+	}
+	if orchAPI.StopCalls["test-server"] != 1 {
+		t.Fatalf("expected one stop of the connected service, got %d", orchAPI.StopCalls["test-server"])
+	}
+
+	// The stop settled the remote service in Disconnected. The resync ticks
+	// that follow must find nothing to do.
+	svc.State = api.StateDisconnected
+	svc.Health = api.HealthUnknown
+	for tick := 1; tick <= 2; tick++ {
+		if result := reconciler.Reconcile(ctx, lifecycleReconcileRequest()); result.Error != nil {
+			t.Fatalf("unexpected error on resync tick %d: %v", tick, result.Error)
+		}
+	}
+	if orchAPI.StopCalls["test-server"] != 1 {
+		t.Errorf("a Disconnected remote server is already suspended; expected no further stop, got %d stops in total", orchAPI.StopCalls["test-server"])
+	}
+	if orchAPI.StartedServices["test-server"] || orchAPI.RestartedServices["test-server"] {
+		t.Error("suspended service must not be started or restarted")
+	}
+	if !reconciler.isSuspended("test-server") {
+		t.Error("the suspension marker must survive the silent ticks so a later spec.suspended=false is a resume")
+	}
+}
+
+// Suspending a remote server whose endpoint is down still stops it: the stop
+// moves the service to Disconnected, which the orchestrator's reconnect loop
+// does not retry, so the suspension ends the reconnect schedule.
+func TestMCPServerReconciler_SuspendStopsDownRemoteServer(t *testing.T) {
+	for _, state := range []api.ServiceState{api.StateFailed, api.StateError, api.StateUnreachable} {
+		t.Run(string(state), func(t *testing.T) {
+			mgr := NewMockMCPServerManager()
+			orchAPI := NewMockOrchestratorAPI()
+			registry := NewMockServiceRegistry()
+			reconciler := NewMCPServerReconciler(orchAPI, mgr, registry)
+
+			mgr.AddMCPServer(&api.MCPServerInfo{
+				Name:      "test-server",
+				Type:      "streamable-http",
+				URL:       "http://remote.example/mcp",
+				AutoStart: true,
+				Suspended: true,
+			})
+			registry.AddService("test-server", &MockServiceInfo{
+				Name:        "test-server",
+				ServiceType: api.TypeMCPServer,
+				State:       state,
+				Health:      api.HealthUnhealthy,
+			})
+
+			if result := reconciler.Reconcile(context.Background(), lifecycleReconcileRequest()); result.Error != nil {
+				t.Fatalf("unexpected error: %v", result.Error)
+			}
+			if orchAPI.StopCalls["test-server"] != 1 {
+				t.Errorf("a %s remote server must be stopped by the suspension, got %d stops", state, orchAPI.StopCalls["test-server"])
+			}
+		})
+	}
+}
+
 func TestMCPServerReconciler_SuspendedSkipsAutoStart(t *testing.T) {
 	mgr := NewMockMCPServerManager()
 	orchAPI := NewMockOrchestratorAPI()
