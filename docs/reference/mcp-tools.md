@@ -716,6 +716,14 @@ Stop a specific service.
 
 **Returns:** Operation status and service state
 
+While an OAuth-protected MCPServer is stopped this way (`spec.suspended: true`),
+`core_auth_login` refuses it — `Server '<name>' is deactivated
+(spec.suspended=true); activate it with core_service_start before signing in.` —
+`auth://status` reports it `disconnected` with `"suspended": true`, and
+`list_tools` neither lists its tools nor names it under `servers_requiring_auth`.
+A session that had signed in before the stop finds its tools again after
+`core_service_start` without a new sign-in.
+
 **Example Request:**
 ```json
 {

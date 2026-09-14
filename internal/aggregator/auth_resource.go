@@ -70,6 +70,7 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 	}
 
 	servers := a.registry.GetAllServers()
+	suspended := suspendedServers(ctx, servers)
 	response := pkgoauth.AuthStatusResponse{Servers: make([]pkgoauth.ServerAuthStatus, 0, len(servers))}
 
 	for name, info := range servers {
@@ -95,6 +96,7 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 		status := pkgoauth.ServerAuthStatus{
 			Name:                   name,
 			Status:                 serverStatus,
+			Suspended:              suspended[name],
 			TokenForwardingEnabled: usesTokenForwarding,
 			TokenExchangeEnabled:   usesTokenExchange,
 			SSOAttemptFailed:       ssoAttemptFailed,
@@ -144,8 +146,9 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 //
 // Per issue #292, this function uses the CapabilityStore as the primary source
 // of truth for per-user state:
-//   - If user has cached capabilities (tools) -> "connected"
 //   - If server infrastructure is unreachable -> "unreachable" (no auth possible)
+//   - If the server's service is down otherwise -> "disconnected" (nothing to use)
+//   - If user has cached capabilities (tools) -> "connected"
 //   - If server requires auth and user hasn't authenticated -> "auth_required"
 //   - If server doesn't require auth and is reachable -> "connected"
 //
@@ -156,6 +159,17 @@ func (a *AggregatorServer) determineSessionAuthStatus(sub, sessionID, serverName
 	// Handle unreachable servers first - no auth possible
 	if info.GetStatus() == api.StateUnreachable {
 		return pkgoauth.SessionServerStatusUnreachable
+	}
+
+	// A server whose service is down serves nothing, whatever the session's
+	// auth mark says: the mark and the cached capabilities outlive a stop (a
+	// deactivation, a failed probe) so that the session finds its tools again
+	// when the server is back. Until then the tool list withholds the server
+	// (sessionToolContribution, #1162), and so does this status — a
+	// "connected" here with an empty tool list sent people signing in to a
+	// deactivated server (#1211).
+	if info.IsDown() {
+		return pkgoauth.SessionServerStatusDisconnected
 	}
 
 	if a.authStore != nil {

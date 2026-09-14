@@ -3503,6 +3503,9 @@ func needsManualLogin(info *ServerInfo) bool {
 //   - Require per-session authentication (RequiresSessionAuth)
 //   - The session has not yet authenticated to
 //   - Are NOT SSO-configured (token forwarding/exchange)
+//   - Are up: a server whose service is down (deactivated, stopped, failed)
+//     cannot be unlocked by a sign-in, and core_auth_login refuses a
+//     deactivated one (#1211)
 //
 // This is part of the server-side meta-tools migration (Issue #343) to provide
 // better visibility into which servers need authentication.
@@ -3513,7 +3516,7 @@ func (a *AggregatorServer) ListServersRequiringAuth(ctx context.Context) []api.S
 	var authRequired []api.ServerAuthInfo
 
 	for name, info := range servers {
-		if !needsManualLogin(info) {
+		if !needsManualLogin(info) || info.IsDown() {
 			continue
 		}
 

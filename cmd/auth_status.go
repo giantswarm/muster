@@ -250,7 +250,9 @@ func printMCPServerStatuses(servers []pkgoauth.ServerAuthStatus) {
 			ssoLabel = fmt.Sprintf("  %*s ", maxSSOLen+5, "")
 		}
 
-		if srv.Status == pkgoauth.SessionServerStatusAuthRequired && srv.SSOAttemptFailed && (srv.TokenForwardingEnabled || srv.TokenExchangeEnabled) {
+		if srv.Suspended {
+			fmt.Printf("  %-*s %s%s  Deactivated - activate it with core_service_start before signing in\n", maxNameLen, srv.Name, statusStr, ssoLabel)
+		} else if srv.Status == pkgoauth.SessionServerStatusAuthRequired && srv.SSOAttemptFailed && (srv.TokenForwardingEnabled || srv.TokenExchangeEnabled) {
 			fmt.Printf("  %-*s %s%s  SSO failed - check server configuration\n", maxNameLen, srv.Name, statusStr, ssoLabel)
 		} else if srv.Status == pkgoauth.SessionServerStatusAuthRequired && srv.AuthTool != "" {
 			fmt.Printf("  %-*s %s%s  Run: muster auth login --server %s\n", maxNameLen, srv.Name, statusStr, ssoLabel, srv.Name)

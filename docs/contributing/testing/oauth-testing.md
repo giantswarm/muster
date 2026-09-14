@@ -180,6 +180,10 @@ SSO works because:
 - Testing the complete OAuth integration
 - Verifying SSO (Token Forwarding, Token Exchange)
 - Any scenario where muster needs to use the token
+- With `auth_url`, the browser leg of a challenge an earlier step obtained
+  (`auth_url: "{{ .login_step }}"`, the text of that step's `core_auth_login`
+  answer): the tool skips its own login call, for a server that would refuse
+  to start a flow now — deactivated after the challenge
 
 ## Writing OAuth Test Scenarios
 
