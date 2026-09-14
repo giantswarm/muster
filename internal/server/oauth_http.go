@@ -671,6 +671,15 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 		return nil, fmt.Errorf("unsupported OAuth provider: %s (supported: %s, %s)", cfg.Provider, OAuthProviderDex, OAuthProviderGoogle)
 	}
 
+	// One instrumentation pipeline for the OAuth server and its store: the
+	// store's storage.operation.total{operation,result} and
+	// storage.operation.duration series are what make a store outage visible
+	// beyond the token endpoint's temporarily_unavailable failures.
+	inst, err := newOAuthInstrumentation()
+	if err != nil {
+		return nil, err
+	}
+
 	// Create storage backend based on configuration. Both memory.Store and
 	// valkey.Store satisfy storage.Combined (TokenStore + ClientStore + FlowStore),
 	// so a single handle is enough.
@@ -700,7 +709,7 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 			valkeyConfig.KeyPrefix = "muster:"
 		}
 
-		var valkeyOpts []valkey.Option
+		valkeyOpts := []valkey.Option{valkey.WithInstrumentation(inst)}
 		if cfg.EncryptionKey != "" {
 			keyBytes, err := security.DecodeKey(cfg.EncryptionKey)
 			if err != nil {
@@ -723,7 +732,7 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 		logger.Info("Using Valkey storage backend", "address", cfg.Storage.Valkey.URL)
 
 	case storage.BackendMemory, "":
-		var memOpts []memory.Option
+		memOpts := []memory.Option{memory.WithInstrumentation(inst)}
 		if cfg.EncryptionKey != "" {
 			keyBytes, err := security.DecodeKey(cfg.EncryptionKey)
 			if err != nil {
@@ -758,7 +767,7 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 	// operator's extra CA when the issuer is private-IP. nil keeps system-pool.
 	serverConfig.JWKSRootCAs = caPool
 
-	builtOpts, err := buildOAuthServerOptions(cfg, logger, caPool)
+	builtOpts, err := buildOAuthServerOptions(cfg, logger, caPool, inst)
 	if err != nil {
 		return nil, err
 	}
