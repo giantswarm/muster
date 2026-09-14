@@ -18,6 +18,7 @@ import (
 	"github.com/giantswarm/mcp-oauth/storage"
 	"github.com/giantswarm/mcp-oauth/storage/valkey"
 	valkeygo "github.com/valkey-io/valkey-go"
+	"go.opentelemetry.io/otel"
 
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/config"
@@ -75,17 +76,18 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, refreshTokenTTL time.Dur
 	return result
 }
 
-// newOAuthInstrumentation builds the one OpenTelemetry pipeline the OAuth
-// server and its token store share, so the store's storage.operation.* series
-// land next to the server's oauth.* series. instrumentation.New registers a
-// Prometheus collector on the OTel global provider, so a second call in the
-// same process will race or duplicate-register.
+// newOAuthInstrumentation builds the one mcp-oauth instrumentation the OAuth
+// server and its token store share. It records through muster's global
+// OpenTelemetry meter provider (set up in cmd/serve.go), so the oauth.* and
+// storage.operation.* series are served on muster's own metrics endpoint. An
+// exporter of mcp-oauth's own would register on the default Prometheus
+// registerer, which that endpoint never gathers.
 func newOAuthInstrumentation() (*instrumentation.Instrumentation, error) {
 	inst, err := instrumentation.New(instrumentation.Config{
-		Enabled:         true,
-		ServiceName:     "muster",
-		ServiceVersion:  "1.0.0",
-		MetricsExporter: "prometheus",
+		Enabled:        true,
+		ServiceName:    "muster",
+		ServiceVersion: "1.0.0",
+		MeterProvider:  otel.GetMeterProvider(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create instrumentation: %w", err)
