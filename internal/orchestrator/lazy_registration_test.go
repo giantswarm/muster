@@ -15,9 +15,16 @@ import (
 // lazy registration of MCPServer definitions created after orchestrator boot.
 type mockMCPServerManager struct {
 	servers map[string]api.MCPServerInfo
+	// onList, when set, runs at the start of ListMCPServers -- the boot
+	// pass's first call -- so a test can act between the orchestrator
+	// listing the definitions and its loop reaching them.
+	onList func()
 }
 
 func (m *mockMCPServerManager) ListMCPServers(context.Context) ([]api.MCPServerInfo, error) {
+	if m.onList != nil {
+		m.onList()
+	}
 	servers := make([]api.MCPServerInfo, 0, len(m.servers))
 	for _, info := range m.servers {
 		servers = append(servers, info)

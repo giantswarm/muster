@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -128,6 +129,13 @@ func (o *Orchestrator) Start(ctx context.Context) error {
 // (issue #1216). The reconciler marks the definition suspended on its first
 // pass and StartService registers it lazily when spec.suspended goes back to
 // false, so a later resume needs nothing from boot.
+//
+// The reconciler's first pass runs concurrently with this loop (the reconcile
+// manager starts before the orchestrator). For a definition the loop has not
+// reached yet it finds no service and StartService registers it lazily; when
+// the loop then gets there, Register refuses the duplicate. That is not a
+// failure: the service exists and the caller that registered it is starting
+// it, so the loop moves on at debug level (issue #1222).
 func (o *Orchestrator) processAutoStartMCPServers(ctx context.Context) error {
 	mcpServerMgr := api.GetMCPServerManager()
 	if mcpServerMgr == nil {
@@ -152,6 +160,10 @@ func (o *Orchestrator) processAutoStartMCPServers(ctx context.Context) error {
 		}
 
 		if err := o.createMCPServerService(ctx, mcpServerInfo); err != nil {
+			if errors.Is(err, services.ErrServiceAlreadyRegistered) {
+				logging.Debug("Orchestrator", "MCPServer %s was registered through StartService while the boot pass ran; that caller starts it", mcpServerInfo.Name)
+				continue
+			}
 			logging.Error("Orchestrator", err, "Failed to create MCPServer service: %s", mcpServerInfo.Name)
 		}
 	}
@@ -222,9 +234,10 @@ func (o *Orchestrator) registerMCPServerService(mcpServerInfo api.MCPServerInfo)
 
 // registerMCPServerFromDefinition lazily registers an MCPServer service for a
 // definition that appeared after orchestrator boot (e.g. a CR applied at
-// runtime). Boot-time registration only covers definitions that existed when
-// the orchestrator started; without this, StartService would fail with
-// "service not found" until the process restarts (issue #680).
+// runtime) or that the boot pass has not reached yet when the reconciler's
+// first pass asks for it. Boot-time registration only covers definitions that
+// existed when the orchestrator started; without this, StartService would
+// fail with "service not found" until the process restarts (issue #680).
 func (o *Orchestrator) registerMCPServerFromDefinition(name string) (services.Service, error) {
 	mcpServerMgr := api.GetMCPServerManager()
 	if mcpServerMgr == nil {

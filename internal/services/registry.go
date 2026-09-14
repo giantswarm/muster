@@ -1,11 +1,19 @@
 package services
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 
 	"github.com/giantswarm/muster/internal/api"
 )
+
+// ErrServiceAlreadyRegistered is wrapped by Register when a service of the
+// same name is already in the registry. Two paths register a service for one
+// MCPServer definition -- the orchestrator's boot pass and the lazy
+// registration in StartService -- so the caller that loses that race checks
+// for it with errors.Is and leaves the service to whoever registered it.
+var ErrServiceAlreadyRegistered = errors.New("already registered")
 
 // registry is a simple implementation of ServiceRegistry
 type registry struct {
@@ -35,7 +43,7 @@ func (r *registry) Register(service Service) error {
 	defer r.mu.Unlock()
 
 	if _, exists := r.services[name]; exists {
-		return fmt.Errorf("service %s already registered", name)
+		return fmt.Errorf("service %s %w", name, ErrServiceAlreadyRegistered)
 	}
 
 	r.services[name] = service
