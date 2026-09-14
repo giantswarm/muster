@@ -226,6 +226,19 @@ func (eh *EventHandler) processEvent(event api.ServiceStateChangedEvent) {
 			return
 		}
 
+		// The same holds for a server that signs its sessions in through
+		// core_auth_login: its pending-auth registry entry exists because the
+		// service's own probe met a 401, so the service holds no client and
+		// every connection belongs to a session. The Connected state here is a
+		// session's sign-in synced to the service (notifyMCPServerConnected);
+		// registering globally would fail with "no MCP client available" and
+		// emit a ToolsUnavailable event at the moment a person connected
+		// (issue #1211).
+		if eh.isServerAuthRequired != nil && eh.isServerAuthRequired(event.Name) {
+			logging.Info("Aggregator-EventHandler", "Skipping global registration of %s - server authenticates per session (connected through core_auth_login)", event.Name)
+			return
+		}
+
 		// Register the healthy running/connected server
 		logging.Info("Aggregator-EventHandler", "Registering healthy MCP server: %s", event.Name)
 

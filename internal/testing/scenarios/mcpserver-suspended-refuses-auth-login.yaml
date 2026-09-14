@@ -1,0 +1,321 @@
+name: "mcpserver-suspended-refuses-auth-login"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  A deactivated OAuth MCPServer (spec.suspended=true) refuses sign-ins and
+  reports itself down consistently (issue #1211).
+
+  The pending-auth registry entry of an OAuth server survives its stop so that
+  sign-ins work again once it is activated. Before the fix that entry also let
+  core_auth_login hand out a sign-in link while the server was suspended: the
+  session connected, the event handler failed a global registration
+  ("service state inconsistent"), the reconciler stopped the service again
+  within milliseconds, and auth://status said "connected" with a tools count
+  while the session's tool list had nothing for the server.
+
+  1. Suspended → core_auth_login is refused, naming the state and the way out;
+     auth://status reports disconnected + suspended, offers no sign-in.
+  2. A challenge obtained before the deactivation, completed while suspended:
+     the token is stored, no connection is made, the state stays down. After
+     activation the first core_auth_login connects with that token (no browser)
+     — a sign-in that had connected would answer "already authenticated".
+  3. Activated → login works, the tool is callable, status is connected.
+  4. Deactivated again with the session connected: status and tool list agree
+     (disconnected, no tools), login refused; activated → the tools are back
+     without a new sign-in.
+tags: ["mcpserver", "oauth", "lifecycle", "suspend", "auth-required", "regression", "1211"]
+timeout: "4m"
+
+pre_configuration:
+  mock_oauth_servers:
+    - name: "suspend-idp"
+      scopes: ["openid", "profile", "mcp:read"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "suspend-client"
+
+  mcp_servers:
+    - name: "suspend-oauth-server"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "suspend-idp"
+          scope: "mcp:read"
+        tools:
+          - name: "protected_probe"
+            description: "Answers only to an authenticated session"
+            responses:
+              - response:
+                  message: "probe answered"
+
+steps:
+  # --- Baseline: the protected server waits for a sign-in -------------------
+  - id: "server_waits_for_sign_in"
+    tool: "core_service_status"
+    args:
+      name: "suspend-oauth-server"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "suspend-oauth-server"
+        state: "auth_required"
+
+  # The challenge for phase 2: obtained while the server is active, completed
+  # after it is deactivated. Its text is reused through {{ .login_challenge }}.
+  - id: "login_challenge"
+    description: "core_auth_login on the active server issues a sign-in link"
+    tool: "core_auth_login"
+    args:
+      server: "suspend-oauth-server"
+    expected:
+      success: true
+      contains: ["Please sign in"]
+
+  # --- Phase 1: deactivated → sign-in refused --------------------------------
+  - id: "deactivate"
+    description: "spec.suspended=true, what core_service_stop writes in Kubernetes mode"
+    tool: "core_mcpserver_update"
+    args:
+      name: "suspend-oauth-server"
+      type: "streamable-http"
+      autoStart: true
+      suspended: true
+    expected:
+      success: true
+
+  - id: "service_is_down"
+    tool: "core_service_status"
+    args:
+      name: "suspend-oauth-server"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "suspend-oauth-server"
+        state: "disconnected"
+
+  - id: "login_refused_while_deactivated"
+    description: "No challenge; the answer names the state and core_service_start"
+    tool: "core_auth_login"
+    args:
+      server: "suspend-oauth-server"
+    expected:
+      success: false
+      error_contains:
+        - "Server 'suspend-oauth-server' is deactivated (spec.suspended=true)"
+        - "activate it with core_service_start before signing in"
+
+  - id: "status_down_and_suspended"
+    description: "auth://status: disconnected, suspended, no sign-in offered"
+    tool: "test_read_auth_status"
+    args:
+      server: "suspend-oauth-server"
+    expected:
+      success: true
+      wait_for_state: "20s"
+      contains:
+        - '"status": "disconnected"'
+        - '"suspended": true'
+      not_contains:
+        - "auth_tool"
+        - '"status": "connected"'
+
+  - id: "not_listed_as_requiring_auth"
+    description: "list_tools does not send the caller to core_auth_login for it"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "list_tools"
+    expected:
+      success: true
+      not_contains:
+        - "suspend-oauth-server"
+
+  # --- Phase 2: the earlier challenge completed while deactivated ------------
+  - id: "callback_while_deactivated"
+    description: "The browser leg of the earlier challenge: token stored, nothing connected"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "suspend-oauth-server"
+      auth_url: "{{ .login_challenge }}"
+    expected:
+      success: true
+
+  - id: "state_not_flipped_by_callback"
+    tool: "core_service_status"
+    args:
+      name: "suspend-oauth-server"
+    expected:
+      success: true
+      json_path:
+        name: "suspend-oauth-server"
+        state: "disconnected"
+
+  - id: "status_still_down_after_callback"
+    tool: "test_read_auth_status"
+    args:
+      server: "suspend-oauth-server"
+    expected:
+      success: true
+      contains:
+        - '"status": "disconnected"'
+      not_contains:
+        - '"status": "connected"'
+
+  # --- Phase 3: activated → the stored token connects, tools callable --------
+  - id: "activate"
+    tool: "core_mcpserver_update"
+    args:
+      name: "suspend-oauth-server"
+      type: "streamable-http"
+      autoStart: true
+      suspended: false
+    expected:
+      success: true
+
+  - id: "service_waits_for_sign_in_again"
+    tool: "core_service_status"
+    args:
+      name: "suspend-oauth-server"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "suspend-oauth-server"
+        state: "auth_required"
+
+  - id: "login_connects_with_stored_token"
+    description: "The token from the deactivated-time callback connects now; the session held no mark before"
+    tool: "core_auth_login"
+    args:
+      server: "suspend-oauth-server"
+    expected:
+      success: true
+      contains: ["Successfully connected"]
+      not_contains: ["Please sign in", "already authenticated"]
+
+  - id: "tool_callable"
+    tool: "x_suspend-oauth-server_protected_probe"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "20s"
+      contains: ["probe answered"]
+
+  - id: "status_connected"
+    tool: "test_read_auth_status"
+    args:
+      server: "suspend-oauth-server"
+    expected:
+      success: true
+      wait_for_state: "20s"
+      contains:
+        - '"status": "connected"'
+      not_contains:
+        - '"suspended": true'
+
+  # --- Phase 4: deactivated with the session connected -----------------------
+  - id: "deactivate_connected_server"
+    tool: "core_mcpserver_update"
+    args:
+      name: "suspend-oauth-server"
+      type: "streamable-http"
+      autoStart: true
+      suspended: true
+    expected:
+      success: true
+
+  - id: "service_down_again"
+    tool: "core_service_status"
+    args:
+      name: "suspend-oauth-server"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "suspend-oauth-server"
+        state: "disconnected"
+
+  - id: "status_and_tool_list_agree_while_down"
+    description: "The auth mark survives the stop but the status does not claim connected"
+    tool: "test_read_auth_status"
+    args:
+      server: "suspend-oauth-server"
+    expected:
+      success: true
+      wait_for_state: "20s"
+      contains:
+        - '"status": "disconnected"'
+        - '"suspended": true'
+      not_contains:
+        - '"status": "connected"'
+
+  - id: "tools_withheld_while_down"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "list_tools"
+    expected:
+      success: true
+      wait_for_state: "20s"
+      not_contains:
+        - "x_suspend-oauth-server_protected_probe"
+
+  - id: "login_refused_again"
+    tool: "core_auth_login"
+    args:
+      server: "suspend-oauth-server"
+    expected:
+      success: false
+      error_contains:
+        - "is deactivated (spec.suspended=true)"
+
+  - id: "activate_again"
+    tool: "core_mcpserver_update"
+    args:
+      name: "suspend-oauth-server"
+      type: "streamable-http"
+      autoStart: true
+      suspended: false
+    expected:
+      success: true
+
+  - id: "tools_back_without_new_sign_in"
+    description: "The surviving mark and cached capabilities serve the session again"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "list_tools"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains:
+        - "x_suspend-oauth-server_protected_probe"
+
+  - id: "status_connected_again"
+    tool: "test_read_auth_status"
+    args:
+      server: "suspend-oauth-server"
+    expected:
+      success: true
+      wait_for_state: "20s"
+      contains:
+        - '"status": "connected"'
+
+  - id: "tool_callable_again"
+    tool: "x_suspend-oauth-server_protected_probe"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "20s"
+      contains: ["probe answered"]
+
+# The callback while deactivated takes the refusing path (positive proof), and
+# no sign-in — deactivated or not — makes the event handler attempt a global
+# registration of a server that only ever connects per session.
+instance_logs:
+  contains:
+    - "OAuth callback for suspended server suspend-oauth-server (spec.suspended=true): token stored"
+  not_contains:
+    - "service state inconsistent"
+    - "Failed to register MCP server suspend-oauth-server"

@@ -441,6 +441,13 @@ type ServerAuthStatus struct {
 	// never contains a token.
 	Error string `json:"error,omitempty"`
 
+	// Suspended reports that the server's MCPServer spec holds its service
+	// down (spec.suspended=true, written by core_service_stop — the portal's
+	// Deactivate). Status is then "disconnected" for every session and
+	// core_auth_login refuses the server; core_service_start activates it
+	// again. Absent while the server is up.
+	Suspended bool `json:"suspended,omitempty"`
+
 	// TokenForwardingEnabled indicates this server uses SSO via ID token forwarding.
 	// When true, muster forwards its own ID token (from muster's OAuth server protection)
 	// to this downstream server, rather than requiring a separate OAuth flow.

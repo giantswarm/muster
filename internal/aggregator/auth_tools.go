@@ -148,6 +148,35 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		}, nil
 	}
 
+	// A deactivated server (spec.suspended=true) is held down by the
+	// reconciler. Its pending-auth registry entry survives the stop so that
+	// sign-ins work again once it is activated — but a sign-in now would
+	// connect the session for the milliseconds until the service is stopped
+	// again and leave the session holding an auth mark for a server that
+	// serves nothing (issue #1211). Refused before any challenge exists, and
+	// before the session's existing mark is consulted: the mark says nothing
+	// about whether the server can be used.
+	suspended, err := serverSuspended(ctx, serverName)
+	if err != nil {
+		logging.Warn("AuthTools", "Cannot tell whether server %s is suspended: %v", serverName, err)
+		if p.aggregator.authMetrics != nil {
+			p.aggregator.authMetrics.RecordLoginFailure(serverName, sub, "suspension_lookup_failed")
+		}
+		return &api.CallToolResult{
+			Content: []any{fmt.Sprintf("Cannot authenticate to '%s': %v", serverName, err)},
+			IsError: true,
+		}, nil
+	}
+	if suspended {
+		if p.aggregator.authMetrics != nil {
+			p.aggregator.authMetrics.RecordLoginFailure(serverName, sub, "server_suspended")
+		}
+		return &api.CallToolResult{
+			Content: []any{suspendedServerMessage(serverName)},
+			IsError: true,
+		}, nil
+	}
+
 	if p.aggregator.authStore != nil {
 		authenticated, _ := p.aggregator.authStore.IsAuthenticated(ctx, sessionID, serverName)
 		if authenticated {

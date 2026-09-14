@@ -513,6 +513,24 @@ func (am *AggregatorManager) handleAuthCompletion(ctx context.Context, sessionID
 		return fmt.Errorf("server %s not found", serverName)
 	}
 
+	// The server may have been deactivated between the challenge and this
+	// callback. The token is stored already (the OAuth handler does that
+	// before calling here), so the sign-in is not lost: the first
+	// core_auth_login after core_service_start finds it and connects without
+	// a browser. Connecting now would flip the service state to connected,
+	// make the event handler attempt a global registration that fails on the
+	// stopped service ("service state inconsistent"), and hand the reconciler
+	// a service to stop again (issue #1211).
+	suspended, err := serverSuspended(ctx, serverName)
+	if err != nil {
+		return fmt.Errorf("cannot tell whether server %s is suspended: %w", serverName, err)
+	}
+	if suspended {
+		logging.Warn("Aggregator-Manager", "OAuth callback for suspended server %s (spec.suspended=true): token stored for session=%s, no connection until core_service_start",
+			serverName, logging.TruncateIdentifier(sessionID))
+		return nil
+	}
+
 	var issuer, scope string
 	if serverInfo.AuthInfo != nil {
 		issuer = serverInfo.AuthInfo.Issuer

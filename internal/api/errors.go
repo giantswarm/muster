@@ -48,6 +48,14 @@ func (e *NotFoundError) Error() string {
 //
 // Example:
 //
+//	if api.IsNotFound(err) {
+//	    return nil // the resource is gone, nothing to act on
+//	}
+func IsNotFound(err error) bool {
+	var notFound *NotFoundError
+	return errors.As(err, &notFound)
+}
+
 // NewNotFoundError creates a new NotFoundError with the specified resource type and name.
 // This is the standard way to create not found errors throughout the API.
 //

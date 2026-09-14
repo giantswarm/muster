@@ -402,18 +402,32 @@ func (h *TestToolsHandler) handleSimulateOAuthCallback(ctx context.Context, args
 	// answering core_auth_login with "Server not found" turned into a passing
 	// callback step, and the scenario failed later at the explicit
 	// core_auth_login with no trace of the real cause (issue #1110).
-	authURL, err := h.callAuthenticateTool(ctx, serverName)
-	if err != nil {
-		// SSO token reuse against a shared issuer connects during the login
-		// call itself; there is no browser flow left to simulate.
-		if errors.Is(err, errAlreadyConnected) {
-			return map[string]interface{}{
-				api.FieldSuccess: true,
-				api.FieldMessage: "server already connected during core_auth_login (SSO token reuse) - no callback needed",
-				api.FieldServer:  serverName,
-			}, nil
+	//
+	// "auth_url" carries a challenge an earlier step obtained — the text of its
+	// core_auth_login answer, through a template such as {{ .login_step }} —
+	// and skips the login call: the browser leg of a flow whose server would
+	// refuse to *start* one now (deactivated after the challenge, #1211).
+	var authURL string
+	var err error
+	if given, _ := args["auth_url"].(string); given != "" {
+		authURL, err = authURLFromText(given)
+		if err != nil {
+			return nil, fmt.Errorf("auth_url argument: %w", err)
 		}
-		return nil, fmt.Errorf("core_auth_login for %s did not return an auth URL: %w", serverName, err)
+	} else {
+		authURL, err = h.callAuthenticateTool(ctx, serverName)
+		if err != nil {
+			// SSO token reuse against a shared issuer connects during the login
+			// call itself; there is no browser flow left to simulate.
+			if errors.Is(err, errAlreadyConnected) {
+				return map[string]interface{}{
+					api.FieldSuccess: true,
+					api.FieldMessage: "server already connected during core_auth_login (SSO token reuse) - no callback needed",
+					api.FieldServer:  serverName,
+				}, nil
+			}
+			return nil, fmt.Errorf("core_auth_login for %s did not return an auth URL: %w", serverName, err)
+		}
 	}
 
 	if h.debug {
@@ -673,7 +687,12 @@ func (h *TestToolsHandler) extractAuthURLFromResult(result interface{}) (string,
 	if err != nil {
 		return "", err
 	}
+	return authURLFromText(text)
+}
 
+// authURLFromText finds the authorization URL in the text of a core_auth_login
+// answer: a JSON auth_url/authorization_url field, or the first URL in prose.
+func authURLFromText(text string) (string, error) {
 	// The text might be JSON with an auth_url field, or contain a URL directly
 	// Try to parse as JSON first
 	var authResponse map[string]interface{}
