@@ -94,7 +94,10 @@ func TestProvider_GetTools_Metadata(t *testing.T) {
 
 	require.NotNil(t, callTool, "call_tool should be present")
 	assert.Equal(t, "call_tool", callTool.Name)
-	assert.Contains(t, callTool.Description, "Execute a tool")
+	assert.Contains(t, callTool.Description, "Execute a catalogue tool")
+	// call_tool is where a model decides how to execute, so the rule that an
+	// aggregated tool is reachable no other way is stated here too.
+	assert.Contains(t, callTool.Description, "callable only this way")
 
 	// Verify call_tool has required 'name' argument
 	var hasNameArg bool
