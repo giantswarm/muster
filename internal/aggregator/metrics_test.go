@@ -189,7 +189,7 @@ func TestDurationHistogramsUseSecondsBuckets(t *testing.T) {
 			}
 			seen[m.Name] = true
 			require.Len(t, hist.DataPoints, 1)
-			require.Equal(t, observability.SecondsHistogramBoundaries, hist.DataPoints[0].Bounds, m.Name)
+			require.Equal(t, observability.SecondsHistogramBoundaries(), hist.DataPoints[0].Bounds, m.Name)
 		}
 	}
 	require.True(t, seen["muster.tool_call.duration"])

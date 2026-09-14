@@ -206,17 +206,12 @@ histogram_quantile(0.95,
 
 Every duration histogram muster emits is recorded in seconds and shares
 one explicit bucket set, applied by a `sdkmetric.View` matched on unit
-`s` (`pkg/observability/histogram.go`):
-
-```
-0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300
-```
-
-The range spans local meta-tool calls in the low milliseconds, remote
-backend calls dispatched through `call_tool` in the seconds, and
-workflow executions running for minutes. Quantiles are interpolated
-within a bucket, so resolution above 300s is "greater than 300s" only.
-The OTel SDK defaults (`0` … `10000`) are spaced for milliseconds and
+`s`. The boundaries live in `pkg/observability/histogram.go`; they span
+local meta-tool calls in the low milliseconds, remote backend calls
+dispatched through `call_tool` in the seconds, and workflow executions
+running for minutes. Quantiles are interpolated within a bucket, so
+resolution past the last boundary is "greater than that boundary" only.
+The OTel SDK defaults (`0` ... `10000`) are spaced for milliseconds and
 would put every observation in the first bucket.
 
 ### Loki — tool error log lines

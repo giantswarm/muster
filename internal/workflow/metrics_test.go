@@ -119,7 +119,7 @@ func TestWorkflowDurationHistogramUsesSecondsBuckets(t *testing.T) {
 			hist, ok := m.Data.(metricdata.Histogram[float64])
 			require.True(t, ok)
 			require.Len(t, hist.DataPoints, 1)
-			require.Equal(t, observability.SecondsHistogramBoundaries, hist.DataPoints[0].Bounds)
+			require.Equal(t, observability.SecondsHistogramBoundaries(), hist.DataPoints[0].Bounds)
 		}
 	}
 	require.True(t, seen, "expected muster.workflow_execution.duration histogram")

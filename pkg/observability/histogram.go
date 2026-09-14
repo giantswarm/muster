@@ -6,7 +6,7 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 )
 
-// SecondsHistogramBoundaries are the explicit bucket boundaries for every
+// secondsHistogramBoundaries are the explicit bucket boundaries for every
 // muster histogram recorded in seconds. The SDK default boundaries top out
 // at 10000 and are spaced for milliseconds, which collapses second-scale
 // observations into the first bucket.
@@ -14,8 +14,14 @@ import (
 // The range spans local meta-tool calls (single-digit milliseconds), remote
 // backend calls dispatched through call_tool (seconds), and workflow
 // executions that legitimately run for minutes.
-var SecondsHistogramBoundaries = []float64{
+var secondsHistogramBoundaries = []float64{
 	0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300,
+}
+
+// SecondsHistogramBoundaries returns the bucket boundaries applied to every
+// histogram instrument with unit "s".
+func SecondsHistogramBoundaries() []float64 {
+	return slices.Clone(secondsHistogramBoundaries)
 }
 
 // SecondsHistogramView returns the sdkmetric.View that applies
@@ -30,7 +36,7 @@ func SecondsHistogramView() sdkmetric.View {
 		},
 		sdkmetric.Stream{
 			Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
-				Boundaries: slices.Clone(SecondsHistogramBoundaries),
+				Boundaries: SecondsHistogramBoundaries(),
 			},
 		},
 	)

@@ -44,31 +44,13 @@ func collectBounds(t *testing.T, unit string) []float64 {
 func TestSecondsHistogramBoundaries(t *testing.T) {
 	require.Equal(t, []float64{
 		0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300,
-	}, observability.SecondsHistogramBoundaries)
+	}, observability.SecondsHistogramBoundaries())
 }
 
 func TestSecondsHistogramViewAppliesToSecondsUnit(t *testing.T) {
-	require.Equal(t, observability.SecondsHistogramBoundaries, collectBounds(t, "s"))
+	require.Equal(t, observability.SecondsHistogramBoundaries(), collectBounds(t, "s"))
 }
 
 func TestSecondsHistogramViewLeavesOtherUnitsAlone(t *testing.T) {
-	require.NotEqual(t, observability.SecondsHistogramBoundaries, collectBounds(t, "ms"))
-}
-
-func TestSecondsHistogramViewBoundariesAreNotAliased(t *testing.T) {
-	view := observability.SecondsHistogramView()
-
-	observability.SecondsHistogramBoundaries[0] = -1
-	t.Cleanup(func() { observability.SecondsHistogramBoundaries[0] = 0.005 })
-
-	stream, ok := view(sdkmetric.Instrument{
-		Name: "test.duration",
-		Kind: sdkmetric.InstrumentKindHistogram,
-		Unit: "s",
-	})
-	require.True(t, ok)
-
-	agg, ok := stream.Aggregation.(sdkmetric.AggregationExplicitBucketHistogram)
-	require.True(t, ok)
-	require.Equal(t, 0.005, agg.Boundaries[0])
+	require.NotEqual(t, observability.SecondsHistogramBoundaries(), collectBounds(t, "ms"))
 }
