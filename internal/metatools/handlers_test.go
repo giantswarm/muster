@@ -146,6 +146,7 @@ func TestProvider_HandleDescribeTool(t *testing.T) {
 		err = json.Unmarshal([]byte(content), &parsed)
 		require.NoError(t, err)
 		assert.Equal(t, "test_tool", parsed["name"])
+		assert.Contains(t, parsed["invocation"], "call_tool")
 	})
 
 	t.Run("error for missing name", func(t *testing.T) {

@@ -87,7 +87,7 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 		},
 		{
 			Name:        "describe_tool",
-			Description: "Get detailed information about a specific tool including its input schema",
+			Description: "Get the full description, input schema, origin and annotations of one tool. The response's invocation field spells out the call_tool call for the described tool.",
 			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
@@ -186,7 +186,7 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 		// Execution tool
 		{
 			Name:        "call_tool",
-			Description: "Execute a tool with the given arguments. A request that declares a toolset (X-Muster-Toolset) can only call tools inside it; anything else is refused naming the toolset.",
+			Description: "Execute a catalogue tool by name. Aggregated tools are callable only this way, never by their own name. A request that declares a toolset (X-Muster-Toolset) can only call tools inside it; anything else is refused naming the toolset.",
 			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
