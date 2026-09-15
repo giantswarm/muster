@@ -1166,6 +1166,11 @@ func (r *ServerRegistry) IsFamilyTool(exposedName string) bool {
 func (r *ServerRegistry) FamilyOfExposedName(exposedName string) string {
 	r.nameMu.RLock()
 	defer r.nameMu.RUnlock()
+	return r.familyOfExposedNameLocked(exposedName)
+}
+
+// familyOfExposedNameLocked is FamilyOfExposedName under nameMu.
+func (r *ServerRegistry) familyOfExposedNameLocked(exposedName string) string {
 	fallback := r.familyFallbackStatusLocked()
 	var match string
 	for _, f := range r.serverFamilies {
@@ -1177,6 +1182,48 @@ func (r *ServerRegistry) FamilyOfExposedName(exposedName string) string {
 		}
 	}
 	return match
+}
+
+// ServersInNameSpaceOf returns the servers an exposed tool name could belong
+// to, from the registry's declarations alone: the servers whose prefix the name
+// carries (x_<prefix>_...), and the members of the family whose name space it
+// lies in -- narrowed to the one member the call's instance argument selects
+// when args carry it. Unlike ResolveToolName it needs no listing to have
+// recorded the name, so a call arriving while a session's servers are still
+// connecting can be held for exactly the servers that could own the name
+// (#1226). The result is sorted; a name no server could own yields none.
+func (r *ServerRegistry) ServersInNameSpaceOf(exposedName string, args map[string]any) []string {
+	r.nameMu.RLock()
+	defer r.nameMu.RUnlock()
+
+	owners := make(map[string]struct{})
+	for name := range r.servers {
+		prefix := r.serverPrefixes[name]
+		if prefix == "" {
+			prefix = name
+		}
+		if strings.HasPrefix(exposedName, r.musterPrefix+"_"+prefix+"_") {
+			owners[name] = struct{}{}
+		}
+	}
+	if family := r.familyOfExposedNameLocked(exposedName); family != "" {
+		for name, f := range r.serverFamilies {
+			if f == nil || f.Name != family {
+				continue
+			}
+			if selected, ok := args[f.InstanceArg].(string); ok && selected != "" && selected != name {
+				continue
+			}
+			owners[name] = struct{}{}
+		}
+	}
+
+	out := make([]string, 0, len(owners))
+	for name := range owners {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // FamilyInstanceArgFor returns the required instance-selector arg name for a

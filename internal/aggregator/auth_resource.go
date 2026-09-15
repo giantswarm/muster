@@ -3,15 +3,12 @@ package aggregator
 import (
 	"context"
 	"encoding/json"
-	"log/slog"
-	"sync"
 	"time"
 
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/config"
-	"github.com/giantswarm/muster/internal/server"
 	"github.com/giantswarm/muster/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -348,132 +345,20 @@ func (a *AggregatorServer) getMusterIssuerWithFallback(sessionID string) string 
 	return ""
 }
 
-// initSSOTimeout caps how long synchronous SSO connections may block the
-// login flow. Individual servers that exceed this deadline are skipped.
+// initSSOTimeout bounds a session's SSO fan-out. Connects that exceed it are
+// cancelled; the fan-out reports itself finished at the latest
+// ssoBootstrapGrace later.
 const initSSOTimeout = 15 * time.Second
 
-// bootstrapNewSessionSSO connects a new session's SSO backends synchronously so
-// authentication is marked and the per-session capability store is populated
-// before the request that triggered it reaches its MCP handler.
-//
-// Forwarded-token callers (a ServiceAccount token, no auth-code flow) have no
-// synchronous SessionCreationHandler hook. Because agents discover tools once at
-// startup, a first tools/list racing an asynchronous bootstrap would see no
-// tools and leave the backend unusable for the agent's lifetime.
-//
-// initSSOForSession detaches its own timeout-bounded context internally, so
-// blocking here does not tie the bootstrap to request cancellation. singleflight
-// collapses concurrent first requests for the same session into one bootstrap.
-func (a *AggregatorServer) bootstrapNewSessionSSO(sso ssoSession) {
-	_, _, _ = a.ssoInitGroup.Do(sso.sessionID, func() (any, error) {
-		a.initSSOForSession(sso)
-		return nil, nil
-	})
-}
-
-// initSSOForSession is called synchronously during token issuance
-// (SessionCreationHandler) to establish SSO connections for a new session.
-//
-// Because this runs inside ExchangeAuthorizationCode, the SSO servers are
-// fully connected before the client receives its access token.
-// Connections to individual servers run in parallel with a shared timeout
-// so that a single slow server cannot block the entire login flow.
+// initSSOForSession connects a new session's session-authenticated servers
+// and returns when the fan-out has finished. It serves the login flow:
+// SessionCreationHandler runs inside ExchangeAuthorizationCode, so a person
+// who signs in receives the access token once their servers are connected.
+// The request path (onAuthenticated) does not wait -- it calls
+// beginSessionBootstrap and answers while the fan-out runs (#1226).
 func (a *AggregatorServer) initSSOForSession(sso ssoSession) {
-	musterIssuer := a.getMusterIssuer()
-
-	// sso is a LogValuer: the structured attr renders truncated identifiers and
-	// token lengths. Never hand it to a %v -- the raw struct holds the caller's
-	// ID token and bearer.
-	logging.InfoWithAttrs("Aggregator", "SSO: initSSOForSession called",
-		slog.Any("session", sso),
-		slog.String("musterIssuer", musterIssuer))
-
-	if musterIssuer == "" {
-		logging.Info("Aggregator", "SSO: initSSOForSession returning early: musterIssuer is empty")
-		return
-	}
-
-	// Persist the caller's ID token into the OAuth-proxy store so the background
-	// re-exchange/forwarding closures can resolve a subject after the request
-	// context is gone. getIDTokenForForwarding runs on a detached
-	// context.Background() and can only read the store; it is populated
-	// otherwise only at fresh login (SessionCreationHandler) or on an upstream
-	// refresh that returns an ID token (TokenRefreshHandler). A session that
-	// reconnects after its login-time ID token expired (e.g. after a pod
-	// restart) re-inits SSO here from the live request context but would
-	// otherwise leave the store empty -- so every background re-exchange fails
-	// with "no subject ID token available for re-exchange" and the fallback
-	// refresher rotates the client's refresh token in a tight retry loop until
-	// OAuth 2.1 reuse detection revokes the family and deauths the user
-	// (giantswarm#37164). This persist only covers init time: initSSOForSession
-	// runs at login, session bootstrap (singleflighted), and pool-miss re-init;
-	// between inits the store is kept fresh by TokenRefreshHandler via the
-	// provider refresh.
-	// storeIDTokenForSSO no-ops on empty/unparseable tokens.
-	a.storeIDTokenForSSO(sso.sessionID, sso.userID, sso.tokens.IDToken)
-
-	// Build a detached context with a timeout -- the token-exchange request
-	// context may be cancelled before SSO work finishes.
-	bgCtx, cancel := context.WithTimeout(context.Background(), initSSOTimeout)
-	defer cancel()
-	bgCtx = api.WithSubject(bgCtx, sso.userID)
-	bgCtx = api.WithSessionID(bgCtx, sso.sessionID)
-	bgCtx = server.ContextWithCallerTokens(bgCtx, sso.tokens)
-
-	var pending []*ServerInfo
-	servers := a.registry.GetAllServers()
-	var skippedNotAuthRequired, skippedNotSSO, skippedPriorFailure int
-	for _, info := range servers {
-		if !info.RequiresSessionAuth() {
-			skippedNotAuthRequired++
-			continue
-		}
-		if !ShouldUseTokenExchange(info) && !ShouldUseTokenForwarding(info) {
-			skippedNotSSO++
-			continue
-		}
-		if a.ssoTracker != nil && a.ssoTracker.HasSSOFailed(sso.userID, info.Name) {
-			fc := a.ssoTracker.GetFailureCount(sso.userID, info.Name)
-			logging.Debug("Aggregator", "SSO: skipping %s for user %s (failureCount=%d, backoff=%v)",
-				info.Name, logging.TruncateIdentifier(sso.userID), fc, ssoBackoffDuration(fc))
-			skippedPriorFailure++
-			continue
-		}
-		pending = append(pending, info)
-	}
-
-	logging.Info("Aggregator", "SSO: initSSOForSession filter results: total=%d, pending=%d, skippedNotAuthRequired=%d, skippedNotSSO=%d, skippedPriorFailure=%d",
-		len(servers), len(pending), skippedNotAuthRequired, skippedNotSSO, skippedPriorFailure)
-
-	if len(pending) == 0 {
-		return
-	}
-
-	logging.Info("Aggregator", "SSO: Connecting %d servers for session %s",
-		len(pending), logging.TruncateIdentifier(sso.sessionID))
-
-	var wg sync.WaitGroup
-	for _, info := range pending {
-		wg.Add(1)
-		go func(si *ServerInfo) {
-			defer wg.Done()
-			a.establishSSOConnection(bgCtx, si, musterIssuer)
-		}(info)
-	}
-
-	done := make(chan struct{})
-	go func() {
-		wg.Wait()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		logging.Debug("Aggregator", "SSO: All %d servers connected for session %s",
-			len(pending), logging.TruncateIdentifier(sso.sessionID))
-	case <-bgCtx.Done():
-		logging.Warn("Aggregator", "SSO: Init timed out after %v for session %s",
-			initSSOTimeout, logging.TruncateIdentifier(sso.sessionID))
+	if b := a.beginSessionBootstrap(sso); b != nil {
+		b.wait(context.Background())
 	}
 }
 
@@ -524,18 +409,21 @@ func (a *AggregatorServer) ssoPoolMissNeedingInit(userID, sessionID string) bool
 // (token forwarding or token exchange). Manual-auth servers use core_auth_login instead.
 //
 // This method is safe against concurrent calls. It checks the AuthStore before
-// attempting connection and skips if the session is already authenticated.
+// attempting connection and skips if the session is already authenticated. It
+// reports how the attempt ended and logs the connect's duration, so a
+// session's fan-out can name its slowest server.
 func (a *AggregatorServer) establishSSOConnection(
 	ctx context.Context,
 	serverInfo *ServerInfo,
 	musterIssuer string,
-) {
+) ssoConnectOutcome {
+	start := time.Now()
 	sessionID := getSessionIDFromContext(ctx)
 	sub := getUserSubjectFromContext(ctx)
 	if sessionID == "" || sub == "" {
 		logging.Warn("Aggregator", "SSO: skipping connection to %s — no session context (hasSessionID=%t, hasSub=%t)",
 			serverInfo.Name, sessionID != "", sub != "")
-		return
+		return ssoConnectFailed
 	}
 
 	// Guard against concurrent SSO connection attempts for the same session+server.
@@ -557,7 +445,7 @@ func (a *AggregatorServer) establishSSOConnection(
 				if a.ssoTracker != nil {
 					a.ssoTracker.ClearSSOPending(sub, serverInfo.Name)
 				}
-				return
+				return ssoAlreadyConnected
 			}
 			logging.Info("Aggregator", "SSO: Session %s authenticated to %s in auth store but pool miss, clearing stale state",
 				logging.TruncateIdentifier(sessionID), serverInfo.Name)
@@ -597,33 +485,35 @@ func (a *AggregatorServer) establishSSOConnection(
 				a.connPool.SetExchangedToken(sessionID, serverInfo.Name, result.ExchangedToken)
 			}
 		}
-		logging.Info("Aggregator", "SSO: Connected user %s to SSO server %s via %s",
-			sub, serverInfo.Name, ssoMethod)
+		logging.Info("Aggregator", "SSO: Connected user %s to SSO server %s via %s in %.3fs",
+			sub, serverInfo.Name, ssoMethod, time.Since(start).Seconds())
 		a.notifySubjectCapabilitiesChanged(sub, result)
-	} else {
-		if result != nil && result.Client != nil {
-			_ = result.Client.Close()
-		}
-		logging.Warn("Aggregator", "SSO: Connection to %s failed for user %s: %v",
-			serverInfo.Name, sub, err)
-
-		if a.ssoTracker != nil {
-			reason := ""
-			if err != nil {
-				reason = err.Error()
-			}
-			a.ssoTracker.MarkSSOFailedWithReason(sub, serverInfo.Name, reason)
-		}
-
-		// The session's cached capabilities for this server describe a
-		// connection that no longer exists (the stale-pool-miss branch above
-		// revoked its auth mark before retrying). Left in place they keep the
-		// server's tools in the session's listing -- and, through the family
-		// routing index, in everyone's -- while every call fails (#1162).
-		// Drop them; the next successful connection repopulates the cache
-		// and notifies the person's sessions, as it does for a first login.
-		a.dropSessionCapabilities(ctx, sessionID, sub, serverInfo.Name, "SSO connection failed")
+		return ssoConnected
 	}
+
+	if result != nil && result.Client != nil {
+		_ = result.Client.Close()
+	}
+	logging.Warn("Aggregator", "SSO: Connection to %s failed for user %s after %.3fs: %v",
+		serverInfo.Name, sub, time.Since(start).Seconds(), err)
+
+	if a.ssoTracker != nil {
+		reason := ""
+		if err != nil {
+			reason = err.Error()
+		}
+		a.ssoTracker.MarkSSOFailedWithReason(sub, serverInfo.Name, reason)
+	}
+
+	// The session's cached capabilities for this server describe a
+	// connection that no longer exists (the stale-pool-miss branch above
+	// revoked its auth mark before retrying). Left in place they keep the
+	// server's tools in the session's listing -- and, through the family
+	// routing index, in everyone's -- while every call fails (#1162).
+	// Drop them; the next successful connection repopulates the cache
+	// and notifies the person's sessions, as it does for a first login.
+	a.dropSessionCapabilities(ctx, sessionID, sub, serverInfo.Name, "SSO connection failed")
+	return ssoConnectFailed
 }
 
 // dropSessionCapabilities removes what the capability store holds for one

@@ -1,0 +1,153 @@
+name: "oauth-sso-session-start-answers-during-fan-out"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  A new session's first request is answered while muster connects the
+  session's SSO servers in the background, and a tool call waits for the one
+  server it needs (#1226).
+
+  An agent presents a dex-issued on-behalf-of token: a brand-new session for
+  muster, whose SSO fan-out connects every forward-token backend. One backend
+  takes four seconds to answer initialize. Before, the fan-out ran inside the
+  first request: initialize (and the agent's first tools/list) returned only
+  after the slowest backend had connected. Now:
+
+  1. The connect (initialize) returns well under the slow backend's delay.
+  2. A call to the quick backend right after is answered at once -- it waits
+     for that backend's connect alone, not for the slow one still in flight.
+  3. A call to the slow backend waits for its connect and then succeeds; the
+     forwarded token reaches it unchanged.
+  4. The serve log names the fan-out's duration and its slowest server.
+tags: ["oauth", "sso", "token-forwarding", "session", "latency", "issue-1226"]
+timeout: "2m"
+
+pre_configuration:
+  mock_oauth_servers:
+    - name: "muster-idp"
+      scopes: ["openid", "profile", "email", "groups"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "muster-client"
+      client_secret: "muster-secret"
+      use_as_muster_oauth_server: true
+
+    - name: "workload-idp"
+
+  muster_broker:
+    trusted_issuers:
+      - oauth_server_ref: "workload-idp"
+        accepted_typ_headers: [""]
+
+  mcp_servers:
+    - name: "quick-sso"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          trust_issuer_ref: "workload-idp"
+          forward_token: true
+        tools:
+          - name: "quick_op"
+            description: "Echoes the caller's forwarded token claims"
+            echo_token: true
+            responses:
+              - response:
+                  status: "ok"
+
+    - name: "slow-sso"
+      config:
+        type: "streamable-http"
+        # The backend answers initialize four seconds late: the session's
+        # connect to it is in flight while the steps below run.
+        connect_delay: "4s"
+        oauth:
+          required: true
+          trust_issuer_ref: "workload-idp"
+          forward_token: true
+        tools:
+          - name: "slow_op"
+            description: "Echoes the caller's forwarded token claims"
+            echo_token: true
+            responses:
+              - response:
+                  status: "ok"
+
+steps:
+  - id: "verify-backends-registered"
+    description: "Both backends are registered with muster"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["quick-sso", "slow-sso"]
+      wait_for_state: "30s"
+
+  - id: "mint-dex-obo-token"
+    description: "Dex mints the on-behalf-of token: sub=human, act=agent"
+    tool: "test_mint_token"
+    args:
+      server: "workload-idp"
+      name: "obo-token"
+      sub: "alice@giantswarm.io"
+      email: "alice@giantswarm.io"
+      email_verified: true
+      groups: ["customer:giantswarm:team-ai"]
+      act:
+        sub: "system:serviceaccount:kagent:sre-agent"
+    expected:
+      success: true
+
+  - id: "connect-as-agent"
+    description: |
+      Present the token on /mcp: a new session. Its initialize starts the SSO
+      fan-out and is answered while the slow backend is still connecting --
+      the step must finish well before the backend's four-second delay.
+    tool: "test_reconnect_with_token"
+    args:
+      token_ref: "obo-token"
+    max_duration: "2s"
+    expected:
+      success: true
+
+  - id: "quick-backend-answers-during-the-fan-out"
+    description: |
+      A call to the quick backend waits for that backend's connect alone and
+      is answered while the slow backend is still connecting.
+    tool: "x_quick-sso_quick_op"
+    args: {}
+    max_duration: "2s"
+    expected:
+      success: true
+      contains:
+        - "alice@giantswarm.io"
+        - "system:serviceaccount:kagent:sre-agent"
+
+  - id: "slow-backend-answers-after-its-connect"
+    description: |
+      A call to the slow backend waits for its connect and then succeeds; the
+      forwarded token reaches it unchanged.
+    tool: "x_slow-sso_slow_op"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "alice@giantswarm.io"
+        - "system:serviceaccount:kagent:sre-agent"
+
+  - id: "both-backends-connected"
+    description: "auth://status shows both backends connected for the session"
+    tool: "test_read_auth_status"
+    args: {}
+    expected:
+      success: true
+      contains: ["quick-sso", "slow-sso", "connected"]
+      not_contains: ["sso_pending", "auth_required"]
+
+instance_logs:
+  contains:
+    - 'msg="SSO: fan-out finished"'
+    - "slowestServer=slow-sso"
+    - "tool call waited for its server's connect"
+  not_contains:
+    - "fan-out finished with connects still running"

@@ -659,6 +659,11 @@ func (r *testRunner) runStep(ctx context.Context, step TestStep, config TestConf
 		}
 		return result
 	}
+	if exceeded := stepExceededMaxDuration(step, result.Duration); exceeded != "" {
+		result.Result = ResultFailed
+		result.Error = exceeded
+		return result
+	}
 
 	// Success - expectations met, even if there was an error
 	result.Result = ResultPassed
@@ -785,6 +790,11 @@ func (r *testRunner) runTestToolStep(ctx context.Context, step TestStep, config 
 			result.Result = ResultFailed
 			result.Error = "test tool expectations not met"
 		}
+		return result
+	}
+	if exceeded := stepExceededMaxDuration(step, result.Duration); exceeded != "" {
+		result.Result = ResultFailed
+		result.Error = exceeded
 		return result
 	}
 
@@ -946,6 +956,17 @@ func (r *testRunner) validateExpectationsWithClient(ctx context.Context, expecte
 // shared checkExpectations implementation.
 func (r *testRunner) validateExpectations(expected TestExpectation, response interface{}, err error, logger TestLogger) bool {
 	return r.checkExpectations(expected, r.viewOfMCPResponse(response, err, logger), logger)
+}
+
+// stepExceededMaxDuration reports why a step failed its max_duration, or ""
+// when it has none or kept within it. The duration is the step's single
+// invocation as the runner measured it, which is what max_duration is about:
+// a request answered while background work runs, not a poll that converged.
+func stepExceededMaxDuration(step TestStep, took time.Duration) string {
+	if step.MaxDuration <= 0 || took <= step.MaxDuration {
+		return ""
+	}
+	return fmt.Sprintf("step took %s, max_duration is %s", took.Round(time.Millisecond), step.MaxDuration)
 }
 
 // containsText checks if text contains the expected substring (case-insensitive)

@@ -350,6 +350,28 @@ func (m *musterInstanceManager) extractOAuthConfig(config map[string]interface{}
 	return result
 }
 
+// mockConnectDelay reads config.connect_delay: how long the mock holds each
+// initialize request, so a scenario can stand up a backend that is slow to
+// connect.
+func mockConnectDelay(config map[string]interface{}) (time.Duration, error) {
+	raw, ok := config["connect_delay"]
+	if !ok {
+		return 0, nil
+	}
+	text, ok := raw.(string)
+	if !ok {
+		return 0, fmt.Errorf("connect_delay must be a duration string such as \"3s\", got %T", raw)
+	}
+	delay, err := time.ParseDuration(text)
+	if err != nil {
+		return 0, fmt.Errorf("connect_delay: %w", err)
+	}
+	if delay < 0 {
+		return 0, fmt.Errorf("connect_delay must not be negative, got %s", delay)
+	}
+	return delay, nil
+}
+
 // startProtectedMCPServer starts an OAuth-protected mock MCP server
 func (m *musterInstanceManager) startProtectedMCPServer(
 	ctx context.Context,
@@ -391,6 +413,11 @@ func (m *musterInstanceManager) startProtectedMCPServer(
 		Tools:                tools,
 		Transport:            transportType,
 		Debug:                m.debug,
+	}
+	if delay, err := mockConnectDelay(mcpServer.Config); err != nil {
+		return nil, fmt.Errorf("mcp server %s: %w", mcpServer.Name, err)
+	} else if delay > 0 {
+		config.ConnectDelay = delay
 	}
 
 	// The backend may name an authorization server other than the one it

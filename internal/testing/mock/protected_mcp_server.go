@@ -14,6 +14,7 @@ import (
 
 	"github.com/giantswarm/muster/internal/template"
 
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
 
@@ -69,6 +70,12 @@ type ProtectedMCPServerConfig struct {
 	// ExpectedIssuer is the iss value the minted token must carry when
 	// TrustJWKSURL is set. Empty accepts any issuer.
 	ExpectedIssuer string
+
+	// ConnectDelay holds every initialize request for this long before the
+	// server answers it: a backend that is slow to connect, so a scenario can
+	// prove what the aggregator does while a session's connect to it is still
+	// in flight.
+	ConnectDelay time.Duration
 
 	// Debug enables debug logging
 	Debug bool
@@ -292,12 +299,22 @@ func (s *ProtectedMCPServer) GetIssuer() string {
 // createProtectedHandler wraps the MCP handler with OAuth validation
 func (s *ProtectedMCPServer) createProtectedHandler() (http.Handler, error) {
 	// Create the underlying MCP server
+	hooks := &server.Hooks{}
+	if s.config.ConnectDelay > 0 {
+		hooks.AddBeforeInitialize(func(ctx context.Context, _ any, _ *mcp.InitializeRequest) {
+			select {
+			case <-time.After(s.config.ConnectDelay):
+			case <-ctx.Done():
+			}
+		})
+	}
 	mcpServer := server.NewMCPServer(
 		fmt.Sprintf("protected-%s", s.config.Name),
 		"1.0.0",
 		server.WithToolCapabilities(true),
 		server.WithResourceCapabilities(false, false),
 		server.WithPromptCapabilities(false),
+		server.WithHooks(hooks),
 	)
 	s.mcpServer = mcpServer
 
