@@ -8,24 +8,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	sigsyaml "sigs.k8s.io/yaml"
 
 	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
@@ -96,6 +90,9 @@ func validateModeConfig(config *MusterPreConfiguration) error {
 // run in this process, or "" when they can: the envtest control plane needs
 // the kube-apiserver and etcd binaries KUBEBUILDER_ASSETS points at.
 func kubernetesModeUnavailableReason() string {
+	if !kubernetesModeSupported {
+		return "mode: kubernetes scenarios need the envtest control plane, which does not build on this platform"
+	}
 	assets := os.Getenv("KUBEBUILDER_ASSETS")
 	if assets == "" {
 		return "KUBEBUILDER_ASSETS is not set; mode: kubernetes scenarios need the envtest binaries (make test-envtest, or KUBEBUILDER_ASSETS=$(setup-envtest use -p path))"
@@ -127,76 +124,6 @@ func findCRDDirectory() (string, error) {
 			return "", fmt.Errorf("no %s found between %s and the filesystem root; run muster test from a muster checkout", crdChartDir, cwd)
 		}
 	}
-}
-
-// envtestControlPlane is the one API server a muster test run shares between
-// its Kubernetes-mode instances, started on the first of them. Each instance
-// has its own namespace and its own proxy in front of it; the control plane
-// itself is never touched by a scenario.
-type envtestControlPlane struct {
-	once     sync.Once
-	env      *envtest.Environment
-	config   *rest.Config
-	client   client.Client
-	startErr error
-}
-
-// start brings the control plane up once; later calls report the first
-// result.
-func (cp *envtestControlPlane) start(logger TestLogger, debug bool) error {
-	cp.once.Do(func() {
-		if reason := kubernetesModeUnavailableReason(); reason != "" {
-			cp.startErr = errors.New(reason)
-			return
-		}
-		crdDir, err := findCRDDirectory()
-		if err != nil {
-			cp.startErr = err
-			return
-		}
-		env := &envtest.Environment{
-			CRDDirectoryPaths:     []string{crdDir},
-			ErrorIfCRDPathMissing: true,
-		}
-		cfg, err := env.Start()
-		if err != nil {
-			cp.startErr = fmt.Errorf("failed to start the envtest control plane: %w", err)
-			return
-		}
-		scheme := runtime.NewScheme()
-		utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-		utilruntime.Must(musterv1alpha1.AddToScheme(scheme))
-		c, err := client.New(cfg, client.Options{Scheme: scheme})
-		if err != nil {
-			_ = env.Stop()
-			cp.startErr = fmt.Errorf("failed to create the envtest client: %w", err)
-			return
-		}
-		cp.env, cp.config, cp.client = env, cfg, c
-		if debug {
-			logger.Debug("☸️  Started envtest control plane at %s with CRDs from %s\n", cfg.Host, crdDir)
-		}
-	})
-	return cp.startErr
-}
-
-// apiServerAddr is the host:port the proxies dial (envtest reports the API
-// server as a URL with a trailing slash).
-func (cp *envtestControlPlane) apiServerAddr() string {
-	if u, err := url.Parse(cp.config.Host); err == nil && u.Host != "" {
-		return u.Host
-	}
-	return strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(cp.config.Host, "https://"), "http://"), "/")
-}
-
-// stop tears the control plane down; a no-op when it never started.
-func (cp *envtestControlPlane) stop() error {
-	if cp.env == nil {
-		return nil
-	}
-	err := cp.env.Stop()
-	cp.env = nil
-	return err
 }
 
 // renderKubeconfig writes the control plane's admin credentials into a
