@@ -279,7 +279,7 @@ func showMCPServerLogoutGuidance(ctx context.Context, handler api.AuthHandler, s
 	if serverInfo.TokenExchangeEnabled {
 		authPrint(`Server '%s' uses SSO via Token Exchange.
 
-This server uses RFC 8693 Token Exchange. Muster exchanges its token
+This server uses RFC 8693 Token Exchange. muster exchanges its token
 for one valid on the remote cluster's Identity Provider.
 
 To disconnect, log out from muster:

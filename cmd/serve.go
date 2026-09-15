@@ -42,17 +42,17 @@ var serveConfigPath string
 var (
 	// serveOAuthMCPClientEnabled enables the OAuth MCP client/proxy functionality for remote MCP servers
 	serveOAuthMCPClientEnabled bool
-	// serveOAuthMCPClientPublicURL is the publicly accessible URL of the Muster Server
+	// serveOAuthMCPClientPublicURL is the publicly accessible URL of the muster server
 	serveOAuthMCPClientPublicURL string
 	// serveOAuthMCPClientID is the OAuth client identifier (CIMD URL)
 	serveOAuthMCPClientID string
 )
 
-// OAuth Server configuration flags (for protecting the Muster Server ITSELF - ADR 005)
+// OAuth Server configuration flags (for protecting the muster server ITSELF - ADR 005)
 var (
-	// serveOAuthServerEnabled enables OAuth server protection for the Muster Server
+	// serveOAuthServerEnabled enables OAuth server protection for the muster server
 	serveOAuthServerEnabled bool
-	// serveOAuthServerBaseURL is the base URL of the Muster Server (for OAuth issuer)
+	// serveOAuthServerBaseURL is the base URL of the muster server (for OAuth issuer)
 	serveOAuthServerBaseURL string
 )
 
@@ -182,16 +182,16 @@ func init() {
 	// OAuth MCP Client/Proxy flags (for authenticating TO remote MCP servers - ADR 004)
 	// These configure muster as an OAuth client when connecting to remote MCP servers
 	serveCmd.Flags().BoolVar(&serveOAuthMCPClientEnabled, "oauth-mcp-client", false, "Enable OAuth MCP client/proxy for remote MCP server authentication")
-	serveCmd.Flags().StringVar(&serveOAuthMCPClientPublicURL, "oauth-mcp-client-public-url", "", "Publicly accessible URL of the Muster Server for OAuth callbacks")
+	serveCmd.Flags().StringVar(&serveOAuthMCPClientPublicURL, "oauth-mcp-client-public-url", "", "Publicly accessible URL of the muster server for OAuth callbacks")
 	// Note: When --oauth-mcp-client-id is empty (default), the client ID is auto-derived from publicUrl
 	// as {publicUrl}/.well-known/oauth-client.json and muster serves its own CIMD
 	serveCmd.Flags().StringVar(&serveOAuthMCPClientID, "oauth-mcp-client-id", "", "OAuth client identifier (CIMD URL). If empty, auto-derived from public URL")
 
-	// OAuth Server protection flags (for protecting the Muster Server ITSELF - ADR 005)
+	// OAuth Server protection flags (for protecting the muster server ITSELF - ADR 005)
 	// These configure muster as an OAuth resource server to protect its endpoints
 	// Note: Full OAuth server configuration should be done via config file (config.yaml)
-	serveCmd.Flags().BoolVar(&serveOAuthServerEnabled, "oauth-server", false, "Enable OAuth 2.1 protection for Muster Server (requires config file for full setup)")
-	serveCmd.Flags().StringVar(&serveOAuthServerBaseURL, "oauth-server-base-url", "", "Base URL of the Muster Server for OAuth (e.g., https://muster.example.com)")
+	serveCmd.Flags().BoolVar(&serveOAuthServerEnabled, "oauth-server", false, "Enable OAuth 2.1 protection for muster server (requires config file for full setup)")
+	serveCmd.Flags().StringVar(&serveOAuthServerBaseURL, "oauth-server-base-url", "", "Base URL of the muster server for OAuth (e.g., https://muster.example.com)")
 
 	// PEM file appended to the system trust pool at startup. Use for internal
 	// CAs (e.g. tunnelport SPIFFE bundle) without a per-MCPServer caFile knob.

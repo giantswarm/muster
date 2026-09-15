@@ -48,7 +48,7 @@ var (
 	// New flag for scenario validation
 	testValidateScenarios bool
 	testSchemaInput       string
-	// Muster configuration path flag
+	// muster configuration path flag
 	testMusterConfigPath string
 	// Flag to keep temporary config for debugging
 	testKeepTempConfig bool
@@ -219,7 +219,7 @@ func init() {
 	testCmd.Flags().BoolVar(&testValidateScenarios, "validate-scenarios", false, "Validate test scenarios against API schema")
 	testCmd.Flags().StringVar(&testSchemaInput, "schema-input", "schema.json", "Input schema file for validation")
 
-	// Muster configuration path flag
+	// muster configuration path flag
 	testCmd.Flags().StringVar(&testMusterConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
 
 	// Flag to keep temporary config for debugging

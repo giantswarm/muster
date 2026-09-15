@@ -99,7 +99,7 @@ func init() {
 	agentCmd.Flags().BoolVar(&agentMCPServer, "mcp-server", false, "Run as MCP server (stdio transport)")
 	agentCmd.Flags().StringVar(&agentTransport, "transport", string(agent.TransportStreamableHTTP), "Transport to use (streamable-http, sse)")
 	agentCmd.Flags().StringVar(&agentConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
-	agentCmd.Flags().BoolVar(&agentDisableAutoSSO, "disable-auto-sso", false, "Disable automatic authentication with remote MCP servers after Muster auth")
+	agentCmd.Flags().BoolVar(&agentDisableAutoSSO, "disable-auto-sso", false, "Disable automatic authentication with remote MCP servers after muster auth")
 	agentCmd.Flags().StringVar(&agentAuthMode, "auth", "", "Authentication mode: auto (default), prompt, or none (env: MUSTER_AUTH_MODE)")
 	agentCmd.Flags().BoolVar(&agentSilentAuth, "silent", false, "Attempt silent re-auth using OIDC prompt=none (requires IdP support, not supported by Dex)")
 
@@ -435,7 +435,7 @@ func upgradeToConnectedServer(ctx context.Context, client *agent.Client, logger 
 		return
 	}
 
-	logger.Success("Connected to Muster Server after authentication")
+	logger.Success("Connected to muster server after authentication")
 
 	// Now upgrade the MCP server by adding real tools and sending notification
 	mcpServer := pendingServer.GetMCPServer()
@@ -471,7 +471,7 @@ type failedServer struct {
 
 // triggerPendingRemoteAuth detects remote MCP servers that require authentication
 // and automatically triggers the OAuth flow for each one. Since they typically share
-// the same IdP (Dex), the browser session from Muster auth will provide SSO.
+// the same IdP (Dex), the browser session from muster auth will provide SSO.
 func triggerPendingRemoteAuth(ctx context.Context, client *agent.Client, logger *agent.Logger) {
 	// Get servers requiring auth from the auth://status resource
 	pendingServers := client.GetAuthRequired()
