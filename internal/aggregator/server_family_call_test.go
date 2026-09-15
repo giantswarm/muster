@@ -41,7 +41,8 @@ func TestAggregatorServer_CallToolInternal_FamilyToolWithoutListing(t *testing.T
 	// stands for the connection the first call would otherwise establish.
 	newRestartedAggregator := func(t *testing.T) (*AggregatorServer, *recordingMCPClient) {
 		t.Helper()
-		a := NewAggregatorServer(AggregatorConfig{Host: "localhost", Port: 0}, nil)
+		a, err := NewAggregatorServer(ctx, AggregatorConfig{Host: "localhost", Port: 0}, nil)
+		require.NoError(t, err)
 		registerAuthFamilyMember(t, a.registry, memberA, "kubernetes", "management_cluster")
 		registerAuthFamilyMember(t, a.registry, memberB, "kubernetes", "management_cluster")
 		for _, member := range []string{memberA, memberB} {

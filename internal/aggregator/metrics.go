@@ -68,6 +68,35 @@ func Metrics() server.ToolHandlerMiddleware {
 	}
 }
 
+// Session store backends, the values of the backend attribute of
+// muster.session_store.backend.
+const (
+	sessionStoreBackendValkey = "valkey"
+	sessionStoreBackendMemory = "memory"
+)
+
+// recordSessionStoreBackend publishes the backend the session auth and
+// capability stores run on. Exported via the Prometheus OTEL exporter this is
+// muster_session_store_backend{backend="valkey|memory"}: 1 for the backend in
+// use, 0 for the other, so an alert can pin a muster whose stores are not
+// where its configuration says.
+func recordSessionStoreBackend(ctx context.Context, backend string) {
+	gauge, err := otel.Meter(observability.TracerName).Int64Gauge("muster.session_store.backend",
+		metric.WithDescription("Backend of the session auth and capability stores: 1 for the backend in use, 0 for the other."),
+	)
+	if err != nil {
+		logging.Warn("Aggregator", "create muster.session_store.backend gauge: %v", err)
+		return
+	}
+	for _, candidate := range []string{sessionStoreBackendValkey, sessionStoreBackendMemory} {
+		var inUse int64
+		if candidate == backend {
+			inUse = 1
+		}
+		gauge.Record(ctx, inUse, metric.WithAttributes(attribute.String("backend", candidate)))
+	}
+}
+
 func passthroughMiddleware() server.ToolHandlerMiddleware {
 	return func(next server.ToolHandlerFunc) server.ToolHandlerFunc { return next }
 }

@@ -128,11 +128,12 @@ func TestAggregatorServer_HandlerTracking(t *testing.T) {
 		Port: 0, // Use any available port
 	}
 
-	server := NewAggregatorServer(config, nil)
+	server, err := NewAggregatorServer(ctx, config, nil)
+	require.NoError(t, err)
 	require.NotNil(t, server)
 
 	// Start the server
-	err := server.Start(ctx)
+	err = server.Start(ctx)
 	require.NoError(t, err)
 	defer func() { _ = server.Stop(ctx) }()
 
@@ -210,7 +211,8 @@ func TestAggregatorServer_InitialRegistration(t *testing.T) {
 		Port: 0,
 	}
 
-	server := NewAggregatorServer(config, nil)
+	server, err := NewAggregatorServer(ctx, config, nil)
+	require.NoError(t, err)
 	require.NotNil(t, server)
 
 	// Create a mock client with tools before starting the server
@@ -221,7 +223,7 @@ func TestAggregatorServer_InitialRegistration(t *testing.T) {
 	}
 
 	// Start the server
-	err := server.Start(ctx)
+	err = server.Start(ctx)
 	require.NoError(t, err)
 	defer func() { _ = server.Stop(ctx) }()
 
@@ -254,11 +256,12 @@ func TestAggregatorServer_EmptyStart(t *testing.T) {
 		Port: 0,
 	}
 
-	server := NewAggregatorServer(config, nil)
+	server, err := NewAggregatorServer(ctx, config, nil)
+	require.NoError(t, err)
 	require.NotNil(t, server)
 
 	// Start the server with no registered servers
-	err := server.Start(ctx)
+	err = server.Start(ctx)
 	require.NoError(t, err)
 	defer func() { _ = server.Stop(ctx) }()
 
@@ -292,11 +295,12 @@ func TestAggregatorServer_HandlerExecution(t *testing.T) {
 		Port: 0,
 	}
 
-	server := NewAggregatorServer(config, nil)
+	server, err := NewAggregatorServer(ctx, config, nil)
+	require.NoError(t, err)
 	require.NotNil(t, server)
 
 	// Start the server
-	err := server.Start(ctx)
+	err = server.Start(ctx)
 	require.NoError(t, err)
 	defer func() { _ = server.Stop(ctx) }()
 
@@ -348,11 +352,12 @@ func TestAggregatorServer_ToolsRemovedOnServerStop(t *testing.T) {
 		Port: 0,
 	}
 
-	server := NewAggregatorServer(config, nil)
+	server, err := NewAggregatorServer(ctx, config, nil)
+	require.NoError(t, err)
 	require.NotNil(t, server)
 
 	// Start the server
-	err := server.Start(ctx)
+	err = server.Start(ctx)
 	require.NoError(t, err)
 	defer func() { _ = server.Stop(ctx) }()
 
@@ -421,11 +426,12 @@ func TestAggregatorServer_DynamicToolManagement(t *testing.T) {
 		Port: 0, // Use any available port
 	}
 
-	server := NewAggregatorServer(config, nil)
+	server, err := NewAggregatorServer(ctx, config, nil)
+	require.NoError(t, err)
 	require.NotNil(t, server)
 
 	// Start the server
-	err := server.Start(ctx)
+	err = server.Start(ctx)
 	require.NoError(t, err)
 	defer func() { _ = server.Stop(ctx) }()
 
@@ -519,11 +525,12 @@ func TestAggregatorServer_NoStaleHandlersAfterRestart(t *testing.T) {
 		Port: 0,
 	}
 
-	server := NewAggregatorServer(config, nil)
+	server, err := NewAggregatorServer(ctx, config, nil)
+	require.NoError(t, err)
 	require.NotNil(t, server)
 
 	// Start the server
-	err := server.Start(ctx)
+	err = server.Start(ctx)
 	require.NoError(t, err)
 	defer func() { _ = server.Stop(ctx) }()
 
@@ -1154,7 +1161,9 @@ func TestAggregatorServer_CallToolInternal_FamilyRouting(t *testing.T) {
 
 	makeServer := func(t *testing.T) *AggregatorServer {
 		t.Helper()
-		return NewAggregatorServer(AggregatorConfig{Host: "localhost", Port: 0}, nil)
+		server, err := NewAggregatorServer(context.Background(), AggregatorConfig{Host: "localhost", Port: 0}, nil)
+		require.NoError(t, err)
+		return server
 	}
 
 	makeFamily := func(t *testing.T, server *AggregatorServer) (*recordingMCPClient, *recordingMCPClient) {

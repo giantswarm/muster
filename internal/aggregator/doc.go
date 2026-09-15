@@ -53,8 +53,11 @@
 //		MusterPrefix: "x",
 //	}
 //
-//	manager := NewAggregatorManager(config, orchestratorAPI, serviceRegistry)
-//	err := manager.Start(ctx)
+//	manager, err := NewAggregatorManager(ctx, config, orchestratorAPI, serviceRegistry, nil)
+//	if err != nil {
+//		return err
+//	}
+//	err = manager.Start(ctx)
 //	defer manager.Stop(ctx)
 //
 // ## AggregatorServer
@@ -227,7 +230,10 @@
 //	serviceRegistry := api.GetServiceRegistry()
 //
 //	// Create and start aggregator
-//	manager := NewAggregatorManager(config, orchestratorAPI, serviceRegistry)
+//	manager, err := NewAggregatorManager(ctx, config, orchestratorAPI, serviceRegistry, nil)
+//	if err != nil {
+//		log.Fatal("Failed to create aggregator:", err)
+//	}
 //	if err := manager.Start(ctx); err != nil {
 //		log.Fatal("Failed to start aggregator:", err)
 //	}
