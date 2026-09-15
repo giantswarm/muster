@@ -21,7 +21,6 @@ import (
 	internalmcp "github.com/giantswarm/muster/internal/mcpserver"
 	oauthstore "github.com/giantswarm/muster/internal/oauth/store"
 	"github.com/giantswarm/muster/internal/server"
-	"github.com/giantswarm/muster/internal/toolset"
 	"github.com/giantswarm/muster/pkg/logging"
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
@@ -178,6 +177,10 @@ type AggregatorServer struct {
 	// valkeyEncryptor provides AES-256-GCM encryption at rest for sensitive values
 	// stored in Valkey (tokens, state). Nil when encryption is not configured.
 	valkeyEncryptor *security.Encryptor
+
+	// core is the aggregator's own tools -- core_* and workflow_<name> --
+	// built from the providers once and kept until a definition changes.
+	core *coreCatalogue
 
 	// adminServer is the optional admin web UI listener. Nil when disabled.
 	adminServer *admin.Server
@@ -611,6 +614,7 @@ func NewAggregatorServer(aggConfig AggregatorConfig, errorCallback func(error)) 
 		valkeyClient:      stores.valkeyClient,
 		valkeyKeyPrefix:   stores.keyPrefix,
 		valkeyEncryptor:   stores.encryptor,
+		core:              newCoreCatalogue(),
 	}
 }
 
@@ -810,26 +814,26 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	})
 
 	hooks.AddAfterCallTool(func(ctx context.Context, _ any, msg *mcp.CallToolRequest, result any) {
-		if r, ok := result.(*mcp.CallToolResult); ok {
-			logging.InfoWithAttrsCtx(ctx, "MCP-Protocol", "tools/call response",
-				logging.TransportSessionID(getTransportSessionID(ctx)),
-				slog.String("tool", msg.Params.Name),
-				slog.Bool("isError", r.IsError),
-				slog.Int("contentItems", len(r.Content)))
-		} else {
-			logging.InfoWithAttrsCtx(ctx, "MCP-Protocol", "tools/call response",
-				logging.TransportSessionID(getTransportSessionID(ctx)),
-				slog.String("tool", msg.Params.Name),
-				slog.String("resultType", fmt.Sprintf("%T", result)))
+		attrs := []slog.Attr{
+			logging.TransportSessionID(getTransportSessionID(ctx)),
+			slog.String("tool", msg.Params.Name),
 		}
+		if r, ok := result.(*mcp.CallToolResult); ok {
+			attrs = append(attrs, slog.Bool("isError", r.IsError), slog.Int("contentItems", len(r.Content)))
+		} else {
+			attrs = append(attrs, slog.String("resultType", fmt.Sprintf("%T", result)))
+		}
+		logging.InfoWithAttrsCtx(ctx, "MCP-Protocol", "tools/call response", withRequestDuration(ctx, attrs)...)
 	})
 
 	hooks.AddOnError(func(ctx context.Context, id any, method mcp.MCPMethod, _ any, err error) {
-		logging.WarnWithAttrsCtx(ctx, "MCP-Protocol", "Error",
+		attrs := []slog.Attr{
 			logging.TransportSessionID(getTransportSessionID(ctx)),
 			slog.String("method", string(method)),
 			slog.Any("id", id),
-			slog.String("error", err.Error()))
+			slog.String("error", err.Error()),
+		}
+		logging.WarnWithAttrsCtx(ctx, "MCP-Protocol", "Error", withRequestDuration(ctx, attrs)...)
 	})
 
 	// WithToolFilter enables session-specific tool visibility for OAuth-authenticated servers
@@ -915,11 +919,11 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		a.sseServer = mcpserver.NewSSEServer(
 			a.mcpServer,
 			mcpserver.WithBaseURL(baseURL),
-			mcpserver.WithSSEEndpoint("/sse"),                     // Main SSE endpoint for events
-			mcpserver.WithMessageEndpoint("/message"),             // Endpoint for sending messages
-			mcpserver.WithKeepAlive(true),                         // Enable keep-alive for connection stability
-			mcpserver.WithKeepAliveInterval(30*time.Second),       // Keep-alive interval
-			mcpserver.WithSSEContextFunc(toolset.HTTPContextFunc), // Per-request toolset source (X-Muster-Toolset)
+			mcpserver.WithSSEEndpoint("/sse"),                // Main SSE endpoint for events
+			mcpserver.WithMessageEndpoint("/message"),        // Endpoint for sending messages
+			mcpserver.WithKeepAlive(true),                    // Enable keep-alive for connection stability
+			mcpserver.WithKeepAliveInterval(30*time.Second),  // Keep-alive interval
+			mcpserver.WithSSEContextFunc(httpRequestContext), // Per-request toolset source (X-Muster-Toolset) and start time
 		)
 
 		// Create a mux that routes to both MCP and OAuth handlers
@@ -971,7 +975,7 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 			stdioServer.SetContextFunc(func(ctx context.Context) context.Context {
 				ctx = api.WithSubject(ctx, stdioDefaultUser)
 				ctx = api.WithSessionID(ctx, stdioDefaultUser)
-				return ctx
+				return withRequestStart(ctx)
 			})
 			go func() {
 				if err := stdioServer.Listen(a.ctx, os.Stdin, os.Stdout); err != nil {
@@ -987,9 +991,10 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		// Streamable HTTP transport (default) - HTTP-based streaming protocol.
 		// The context func runs per POST, after mcp-go bound the client
 		// session, and stashes the request's toolset source so the meta-tools
-		// evaluate X-Muster-Toolset per request — never per session.
+		// evaluate X-Muster-Toolset per request — never per session — and
+		// the request's arrival time for the response log line.
 		a.streamableHTTPServer = mcpserver.NewStreamableHTTPServer(a.mcpServer,
-			mcpserver.WithHTTPContextFunc(toolset.HTTPContextFunc))
+			mcpserver.WithHTTPContextFunc(httpRequestContext))
 
 		// Create a mux that routes to both MCP and OAuth handlers
 		handler, err := a.createHTTPMux(a.streamableHTTPServer)
@@ -1433,6 +1438,11 @@ func (a *AggregatorServer) updateCapabilities() {
 	a.mu.RUnlock()
 
 	logging.Debug("Aggregator", "Updating capabilities dynamically")
+
+	// The core catalogue every session lists is rebuilt on its next use: this
+	// is the one signal that a workflow definition -- a workflow_<name> tool
+	// -- was created, changed or deleted.
+	a.core.invalidate()
 
 	// Collect meta-tools once and pass to both remove/add to avoid
 	// redundant createToolsFromProviders calls.
@@ -2971,18 +2981,23 @@ func (a *AggregatorServer) resolveUserTool(sessionID, exposedName string) (strin
 		return "", "", fmt.Errorf("capability store not initialized")
 	}
 
+	// One read for the session's whole view, not one per server (#1225).
+	caps, err := a.capabilityStore.GetAll(context.Background(), sessionID)
+	if err != nil {
+		return "", "", fmt.Errorf("capability store: %w", err)
+	}
+
 	servers := a.registry.GetAllServers()
 	for serverName, info := range servers {
 		if !info.RequiresSessionAuth() {
 			continue
 		}
-
-		caps, err := a.capabilityStore.Get(context.Background(), sessionID, serverName)
-		if err != nil || caps == nil {
+		c, ok := caps[serverName]
+		if !ok || c == nil {
 			continue
 		}
 
-		for _, tool := range caps.Tools {
+		for _, tool := range c.Tools {
 			exposedToolName := a.registry.ExposedToolName(serverName, tool.Name)
 			if exposedToolName == exposedName {
 				return serverName, tool.Name, nil
@@ -3378,25 +3393,28 @@ func (a *AggregatorServer) ListToolsForContext(ctx context.Context) []mcp.Tool {
 	sessionID := getSessionIDFromContext(ctx)
 	if sessionID == "" {
 		logging.Warn("Aggregator", "ListToolsForContext: no session ID in context — returning core tools only")
-		return a.getAllCoreToolsAsMCPTools()
+		coreTools, _ := a.coreTools()
+		return coreTools
 	}
+	start := time.Now()
 
 	// A person's subject-scoped grants make their servers' tools visible to
 	// every session of that person, not only to the one that logged in.
 	a.adoptSubjectGrants(ctx, sessionID, getUserSubjectFromContext(ctx))
 
 	mcpServerTools := a.GetToolsForSession(ctx, sessionID)
-	coreTools := a.getAllCoreToolsAsMCPTools()
+	coreTools, workflowSteps := a.coreTools()
 
 	allTools := make([]mcp.Tool, 0, len(mcpServerTools)+len(coreTools))
 	allTools = append(allTools, mcpServerTools...)
 	allTools = append(allTools, coreTools...)
-	deriveWorkflowReadOnlyHints(allTools, api.GetWorkflow())
+	deriveWorkflowReadOnlyHints(allTools, workflowSteps)
 
 	logging.DebugWithAttrs("Aggregator", "ListToolsForContext: returning tools",
 		slog.Int("total", len(allTools)),
 		slog.Int("mcpServer", len(mcpServerTools)),
 		slog.Int("core", len(coreTools)),
+		slog.Float64("duration_s", time.Since(start).Seconds()),
 		slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
 
 	return allTools

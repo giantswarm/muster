@@ -129,11 +129,19 @@ func mapWorkflowToolName(name string) string {
 	return corePrefix + name
 }
 
-// getAllCoreToolsAsMCPTools collects all core tools from all internal providers
-// and returns them as MCP tools with the core_ prefix.
+// coreTools returns the core tools of every provider as exposed tools, from
+// the core catalogue (see coreCatalogue), with the step tools of each
+// workflow execution tool for deriveWorkflowReadOnlyHints.
+func (a *AggregatorServer) coreTools() ([]mcp.Tool, map[string][]string) {
+	return a.core.get(a.buildCoreTools)
+}
+
+// buildCoreTools collects all core tools from all internal providers
+// and returns them as MCP tools with the core_ prefix, together with the
+// tools each workflow execution tool's steps call, keyed by exposed name.
 //
-// This function is used by ListToolsForContext to include core tools in the
-// tool listings returned by the list_tools meta-tool. The core tools include:
+// This is what ListToolsForContext adds to a session's server tools in
+// the tool listings returned by the list_tools meta-tool. The core tools include:
 //   - core_workflow_* tools (workflow management)
 //   - core_service_* tools (service lifecycle management)
 //   - core_config_* tools (configuration management)
@@ -151,9 +159,12 @@ func mapWorkflowToolName(name string) string {
 // surface matches the spec. See callCoreToolDirectly for the inverse mapping
 // that routes execution requests back to the provider.
 //
-// Returns a slice of MCP tools representing all available core tools.
-func (a *AggregatorServer) getAllCoreToolsAsMCPTools() []mcp.Tool {
+// Building asks every provider for its tools, which for the workflow
+// provider is a list of every workflow definition; callers read the result
+// through coreTools, which keeps it until a definition changes.
+func (a *AggregatorServer) buildCoreTools() ([]mcp.Tool, map[string][]string) {
 	var tools []mcp.Tool
+	steps := map[string][]string{}
 	const corePrefix = "core_"
 
 	// Helper to add tools from a provider, with optional name remapping.
@@ -198,6 +209,9 @@ func (a *AggregatorServer) getAllCoreToolsAsMCPTools() []mcp.Tool {
 					kind = toolset.OriginKindWorkflow
 				}
 				toolset.SetToolOrigin(&tool, toolset.ToolOrigin{Kind: kind})
+				if kind == toolset.OriginKindWorkflow {
+					steps[name] = append([]string(nil), toolMeta.StepTools...)
+				}
 				tools = append(tools, tool)
 			}
 		}
@@ -274,7 +288,7 @@ func (a *AggregatorServer) getAllCoreToolsAsMCPTools() []mcp.Tool {
 	tools = append(tools, authTools...)
 
 	logging.Debug("Aggregator", "Collected %d core tools from providers", len(tools))
-	return tools
+	return tools, steps
 }
 
 // toolAnnotations projects a provider's declared annotations onto the MCP

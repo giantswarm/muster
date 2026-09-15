@@ -325,3 +325,21 @@ func TestInMemorySessionAuthStore_MarkIdempotent(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, authed, "double MarkAuthenticated should still be authenticated")
 }
+
+func TestInMemorySessionAuthStore_AuthenticatedServers(t *testing.T) {
+	store := NewInMemorySessionAuthStore(time.Hour)
+	t.Cleanup(store.Stop)
+	ctx := context.Background()
+
+	servers, err := store.AuthenticatedServers(ctx, "unknown")
+	require.NoError(t, err)
+	assert.Empty(t, servers)
+
+	require.NoError(t, store.MarkAuthenticated(ctx, "s", "github"))
+	require.NoError(t, store.MarkAuthenticated(ctx, "s", "pro"))
+	require.NoError(t, store.Revoke(ctx, "s", "pro"))
+
+	servers, err = store.AuthenticatedServers(ctx, "s")
+	require.NoError(t, err)
+	assert.Equal(t, map[string]struct{}{"github": {}}, servers)
+}

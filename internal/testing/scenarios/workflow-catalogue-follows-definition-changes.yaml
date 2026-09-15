@@ -1,0 +1,151 @@
+name: "workflow-catalogue-follows-definition-changes"
+description: "The workflow_<name> tools every session lists come from a catalogue the aggregator builds once and keeps until a definition changes: a created workflow is listed and described (with its derived read-only hint) on the very next meta-tool call, an update that adds a write step flips the hint, a deleted workflow is gone; and every tools/call response line in the serve log carries the call's duration (#1225)"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "metatools", "catalogue", "annotations", "1225"]
+timeout: "5m"
+
+pre_configuration:
+  mcp_servers:
+    - name: "k8s"
+      config:
+        tools:
+          - name: "get_pods"
+            description: "List pods"
+            annotations: { read_only_hint: true }
+            responses: [{ response: { pods: [] } }]
+          - name: "delete_pod"
+            description: "Delete a pod"
+            annotations: { read_only_hint: false, destructive_hint: true }
+            responses: [{ response: { deleted: true } }]
+
+steps:
+  - id: "wait-for-server"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["k8s"]
+
+  - id: "warm-the-catalogue"
+    description: "a first listing builds the core catalogue; the new workflow below must not be hidden by it"
+    tool: "test_call_meta_tool"
+    args: { tool: "filter_tools", arguments: { pattern: "workflow_*", limit: 100 } }
+    expected:
+      success: true
+      not_contains: ["workflow_catalogue-probe"]
+
+  - id: "create-read-only-workflow"
+    tool: "core_workflow_create"
+    args:
+      name: "catalogue-probe"
+      description: "Reads pods"
+      args:
+        namespace: { type: "string", required: false, description: "Namespace to read" }
+      steps:
+        - id: "pods"
+          tool: "x_k8s_get_pods"
+    expected:
+      success: true
+
+  - id: "created-workflow-is-listed-at-once"
+    description: "the next call after the create lists the workflow: the catalogue was refreshed, not served stale"
+    tool: "test_call_meta_tool"
+    args: { tool: "filter_tools", arguments: { pattern: "workflow_catalogue-probe", limit: 10 } }
+    expected:
+      success: true
+      json_path:
+        total: 1
+        tools.0.name: "workflow_catalogue-probe"
+        tools.0.kind: "workflow"
+        tools.0.annotations.readOnlyHint: true
+
+  - id: "created-workflow-describes-with-args-and-hint"
+    description: "describe_tool carries the workflow's arguments and the read-only hint derived from its single read-only step"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_tool", arguments: { name: "workflow_catalogue-probe" } }
+    expected:
+      success: true
+      json_path:
+        name: "workflow_catalogue-probe"
+        kind: "workflow"
+        annotations.readOnlyHint: true
+        inputSchema.properties.namespace.type: "string"
+      contains: ["Reads pods"]
+
+  - id: "read-only-preset-includes-it"
+    description: "the read-only preset selects the workflow like any read-only tool"
+    tool: "test_call_meta_tool"
+    args: { tool: "filter_tools", arguments: { pattern: "workflow_catalogue-probe", limit: 10 } }
+    headers: { X-Muster-Toolset: "preset:read-only" }
+    expected:
+      success: true
+      json_path:
+        total: 1
+        tools.0.name: "workflow_catalogue-probe"
+
+  - id: "update-adds-a-write-step"
+    tool: "core_workflow_update"
+    args:
+      name: "catalogue-probe"
+      description: "Reads and deletes pods"
+      args: {}
+      steps:
+        - id: "pods"
+          tool: "x_k8s_get_pods"
+        - id: "cleanup"
+          tool: "x_k8s_delete_pod"
+    expected:
+      success: true
+
+  - id: "updated-workflow-loses-the-hint-at-once"
+    description: "the update is visible on the next call: the description changed and the hint is no longer derived (a workflow with a write step carries no readOnlyHint at all)"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_tool", arguments: { name: "workflow_catalogue-probe" } }
+    expected:
+      success: true
+      json_path:
+        kind: "workflow"
+      contains: ["Reads and deletes pods"]
+      not_contains: ["readOnlyHint", "Reads pods\""]
+
+  - id: "read-only-preset-refuses-it-now"
+    tool: "test_call_meta_tool"
+    args: { tool: "call_tool", arguments: { name: "workflow_catalogue-probe", arguments: {} } }
+    headers: { X-Muster-Toolset: "preset:read-only" }
+    expected:
+      success: false
+      error_contains: ['tool "workflow_catalogue-probe" is outside the toolset [preset:read-only]']
+
+  - id: "delete-the-workflow"
+    tool: "core_workflow_delete"
+    args: { name: "catalogue-probe" }
+    expected:
+      success: true
+
+  - id: "deleted-workflow-is-gone-at-once"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_tool", arguments: { name: "workflow_catalogue-probe" } }
+    expected:
+      success: false
+      error_contains: ["Tool not found: workflow_catalogue-probe"]
+
+  - id: "deleted-workflow-not-listed"
+    tool: "test_call_meta_tool"
+    args: { tool: "filter_tools", arguments: { pattern: "workflow_catalogue-probe", limit: 10 } }
+    expected:
+      success: true
+      json_path:
+        total: 0
+
+# Every tools/call the steps above made is answered with a "tools/call
+# response" line that itself carries how long muster took, in seconds -- the
+# figure that had to be subtracted from two timestamps before (#1225). The
+# duration follows the line's last field, so the substring below matches the
+# response line only; the tool-call middleware's separate "tool call" line
+# carried a duration_s of its own all along and must not satisfy this.
+instance_logs:
+  contains:
+    - 'msg="tools/call response"'
+    - 'contentItems=1 duration_s='

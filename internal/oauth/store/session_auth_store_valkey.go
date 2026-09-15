@@ -56,6 +56,26 @@ func (s *ValkeySessionAuthStore) IsAuthenticated(ctx context.Context, sessionID,
 	return b, nil
 }
 
+func (s *ValkeySessionAuthStore) AuthenticatedServers(ctx context.Context, sessionID string) (map[string]struct{}, error) {
+	cmd := s.client.B().Hkeys().Key(s.key(sessionID)).Build()
+	result := s.client.Do(ctx, cmd)
+	if err := result.Error(); err != nil {
+		if valkey.IsValkeyNil(err) {
+			return map[string]struct{}{}, nil
+		}
+		return nil, fmt.Errorf("valkey HKEYS: %w", err)
+	}
+	names, err := result.AsStrSlice()
+	if err != nil {
+		return nil, fmt.Errorf("valkey HKEYS decode: %w", err)
+	}
+	servers := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		servers[name] = struct{}{}
+	}
+	return servers, nil
+}
+
 func (s *ValkeySessionAuthStore) MarkAuthenticated(ctx context.Context, sessionID, serverName string) error {
 	key := s.key(sessionID)
 

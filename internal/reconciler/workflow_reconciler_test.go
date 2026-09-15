@@ -709,3 +709,59 @@ func TestWorkflowReconciler_SyncStatus_UpdateError(t *testing.T) {
 		t.Error("expected UpdateWorkflowStatus to be called")
 	}
 }
+
+// capabilityRefreshingAggregator records how often the reconciler asked the
+// aggregator to refresh its capabilities. Every other method panics through
+// the embedded nil interface: the reconciler must not need them.
+type capabilityRefreshingAggregator struct {
+	api.AggregatorHandler
+	refreshes int
+}
+
+func (a *capabilityRefreshingAggregator) UpdateCapabilities() { a.refreshes++ }
+
+// A Workflow resource applied or deleted outside muster's own tools reaches
+// the aggregator through the reconciler: its core catalogue -- one
+// workflow_<name> tool per definition -- is kept until told otherwise
+// (#1225), so every reconciled create, update and delete refreshes it.
+func TestWorkflowReconciler_RefreshesTheAggregatorCatalogue(t *testing.T) {
+	aggregator := &capabilityRefreshingAggregator{}
+	api.RegisterAggregator(aggregator)
+	t.Cleanup(func() { api.RegisterAggregator(nil) })
+
+	mgr := NewMockWorkflowManager()
+	reconciler := NewWorkflowReconciler(mgr)
+	ctx := context.Background()
+	req := ReconcileRequest{Type: ResourceTypeWorkflow, Name: "applied", Attempt: 1}
+
+	mgr.AddWorkflow(&api.Workflow{
+		Name:  "applied",
+		Steps: []api.WorkflowStep{{ID: "s", Tool: "core_service_list"}},
+	})
+	result := reconciler.Reconcile(ctx, req)
+	if result.Error != nil {
+		t.Fatalf("unexpected error: %v", result.Error)
+	}
+	if aggregator.refreshes != 1 {
+		t.Fatalf("a reconciled definition refreshes the aggregator once, got %d", aggregator.refreshes)
+	}
+
+	mgr.RemoveWorkflow("applied")
+	result = reconciler.Reconcile(ctx, req)
+	if result.Error != nil {
+		t.Fatalf("unexpected error for delete: %v", result.Error)
+	}
+	if aggregator.refreshes != 2 {
+		t.Fatalf("a deleted definition refreshes the aggregator once more, got %d", aggregator.refreshes)
+	}
+
+	// A definition that fails validation changes no tool and refreshes nothing.
+	mgr.AddWorkflow(&api.Workflow{Name: "applied"})
+	result = reconciler.Reconcile(ctx, req)
+	if result.Error == nil {
+		t.Fatal("a workflow without steps must fail validation")
+	}
+	if aggregator.refreshes != 2 {
+		t.Fatalf("an invalid definition refreshes nothing, got %d", aggregator.refreshes)
+	}
+}

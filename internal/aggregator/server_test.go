@@ -1393,11 +1393,13 @@ func TestAggregatorServer_MissingToolsForSession(t *testing.T) {
 	})
 }
 
-// countingCapStore wraps a CapabilityStore and counts Get calls, so a test can
-// observe how many times the (expensive) session tool set is rebuilt.
+// countingCapStore wraps a CapabilityStore and counts its reads, so a test
+// can observe how many times the (expensive) session tool set is rebuilt and
+// that a rebuild reads the store once, not once per server (#1225).
 type countingCapStore struct {
 	oauthstore.CapabilityStore
-	gets atomic.Int64
+	gets    atomic.Int64
+	getAlls atomic.Int64
 }
 
 func (s *countingCapStore) Get(ctx context.Context, sessionID, serverName string) (*oauthstore.Capabilities, error) {
@@ -1405,15 +1407,20 @@ func (s *countingCapStore) Get(ctx context.Context, sessionID, serverName string
 	return s.CapabilityStore.Get(ctx, sessionID, serverName)
 }
 
+func (s *countingCapStore) GetAll(ctx context.Context, sessionID string) (map[string]*oauthstore.Capabilities, error) {
+	s.getAlls.Add(1)
+	return s.CapabilityStore.GetAll(ctx, sessionID)
+}
+
 // TestAggregatorServer_MissingToolsForSession_SessionToolMemo is the regression
 // guard for the O(workflows) session-tool-rebuild blow-up: a request that checks
 // many items' availability (e.g. listing ~280 workflows) must resolve the
 // session's accessible tool set once for the whole request, not once per item.
 //
-// Each MissingToolsForSession call resolves the session set by reading every
-// auth-protected server's capabilities from the store. With two such servers,
-// one rebuild costs two store.Get calls. Without a memo the rebuild repeats per
-// call; with a request-scoped memo in ctx it happens exactly once.
+// Each MissingToolsForSession call resolves the session set by reading the
+// session's capabilities from the store -- one GetAll for every auth-protected
+// server together, never a Get per server. Without a memo the rebuild repeats
+// per call; with a request-scoped memo in ctx it happens exactly once.
 func TestAggregatorServer_MissingToolsForSession_SessionToolMemo(t *testing.T) {
 	const sessionID = "session-memo"
 
@@ -1449,9 +1456,11 @@ func TestAggregatorServer_MissingToolsForSession_SessionToolMemo(t *testing.T) {
 
 		ctx := api.WithSessionID(context.Background(), sessionID)
 		store.gets.Store(0)
+		store.getAlls.Store(0)
 		checkN(a, ctx, 3)
-		assert.Equal(t, int64(6), store.gets.Load(),
-			"three checks rebuild the session set three times (two auth servers each)")
+		assert.Equal(t, int64(3), store.getAlls.Load(),
+			"three checks rebuild the session set three times, one store read each")
+		assert.Zero(t, store.gets.Load(), "a rebuild never reads the store per server")
 	})
 
 	t.Run("with a memo the session tool set is built once for the whole request", func(t *testing.T) {
@@ -1460,9 +1469,11 @@ func TestAggregatorServer_MissingToolsForSession_SessionToolMemo(t *testing.T) {
 
 		ctx := api.WithSessionToolMemo(api.WithSessionID(context.Background(), sessionID))
 		store.gets.Store(0)
+		store.getAlls.Store(0)
 		checkN(a, ctx, 3)
-		assert.Equal(t, int64(2), store.gets.Load(),
-			"the request-scoped memo collapses N rebuilds into one (two auth servers, once)")
+		assert.Equal(t, int64(1), store.getAlls.Load(),
+			"the request-scoped memo collapses N rebuilds into one store read")
+		assert.Zero(t, store.gets.Load())
 	})
 }
 
