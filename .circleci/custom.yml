@@ -11,9 +11,10 @@
 #   - branch dev-chart push for the muster chart
 #   - the standalone muster-crds chart (build, ATS tests, branch + tag push),
 #     versioned in lockstep with muster off the same git tag
-#   - the envtest-backed RBAC integration job (test-envtest), which needs a
-#     real kube-apiserver from setup-envtest -- the generated go-build job
-#     only runs `make test`, so TestWritesAsCallerEnvtest self-skips there
+#   - the envtest-backed job (test-envtest), which needs a real kube-apiserver
+#     from setup-envtest: the RBAC integration tests and the Kubernetes-mode
+#     scenarios of `muster test` (pre_configuration.mode: kubernetes). The
+#     generated go-build job only runs `make test`, where both self-skip
 #     without KUBEBUILDER_ASSETS
 #   - the chart test job (chart-test), which runs the helm-unittest suites and
 #     the promtool alert-rule tests. Neither is reachable from `make test`:
@@ -23,10 +24,13 @@ version: 2.1
 
 jobs:
   # `make test` (run by the generated go-build job) doesn't set
-  # KUBEBUILDER_ASSETS, so TestWritesAsCallerEnvtest (added in #1060) self-skips
-  # via t.Skip() there. This job runs `make test-envtest`, which downloads a
-  # real kube-apiserver via setup-envtest and points KUBEBUILDER_ASSETS at it,
-  # so the RBAC integration test actually executes. Reuses the same
+  # KUBEBUILDER_ASSETS, so the envtest-backed Go tests self-skip via t.Skip()
+  # there and `muster test` reports its Kubernetes-mode scenarios
+  # (pre_configuration.mode: kubernetes) as skipped. This job runs
+  # `make test-envtest`, which downloads a real kube-apiserver via
+  # setup-envtest and points KUBEBUILDER_ASSETS at it, so the RBAC integration
+  # tests execute and the Kubernetes-mode scenarios run against one envtest
+  # control plane (`muster test --mode kubernetes`). Reuses the same
   # `architect` image/context as go-build -- no extra module auth needed since
   # github.com/giantswarm/muster and its Go module deps are public repos.
   test-envtest:
@@ -37,9 +41,11 @@ jobs:
     - architect/tools-info
     - architect/go-cache-restore
     - run:
-        name: Run envtest-backed RBAC integration tests
+        name: Run envtest-backed tests (RBAC integration tests, Kubernetes-mode scenarios)
         command: make test-envtest
     - architect/go-cache-save
+    - store_artifacts:
+        path: test-reports-envtest
 
   # Chart checks: helm lint, the helm-unittest suites in helm/muster/tests/, and
   # the promtool unit tests for the PrometheusRule. Runs in a plain container

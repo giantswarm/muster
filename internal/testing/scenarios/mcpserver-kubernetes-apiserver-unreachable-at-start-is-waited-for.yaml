@@ -1,0 +1,108 @@
+name: "mcpserver-kubernetes-apiserver-unreachable-at-start-is-waited-for"
+description: "Kubernetes mode with the API server unreachable when muster serve starts: muster waits for it instead of swapping in the filesystem client -- no fallback, no service deletion, no empty boot pass -- and once the API server answers the CRs are found, the server connects and its CR status reads Connected (#1143, #1237)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "kubernetes", "envtest", "apiserver", "startup", "regression", "issue-1143", "issue-1237"]
+timeout: "3m"
+
+# Given: one remote MCPServer CR in the instance's namespace, muster serve in
+#        Kubernetes mode, and an API server that refuses connections for the
+#        first 5 s after muster serve started (the harness's proxy opens then)
+#        -- a kind node whose etcd and kube-apiserver restarted together with
+#        the muster pod.
+# When:  muster boots.
+# Then:  its first attempts to create the Kubernetes client fail and are
+#        logged as such; it keeps trying; the attempt after the API server is
+#        back succeeds; the boot pass finds the CR, the server connects, its
+#        tool answers and the CR's status reads Connected.
+#
+# Before the fix NewMusterClientWithConfig silently swapped in the filesystem
+# client whenever the Kubernetes client could not be built. muster then came
+# up Ready as a filesystem muster reading an empty config directory: "Found 0
+# MCPServer definitions for auto-start processing", zero services, statuses
+# frozen at whatever the previous process wrote -- and when the informer did
+# come up, every existing CR was looked up in the empty directory, not found,
+# and its service deleted (giantswarm/muster#1143). Here that binary lists no
+# server for as long as the scenario polls, and its log holds the fallback
+# line and the empty boot pass.
+#
+# The server is opted out of the readiness gate (expect_ready: false) so the
+# scenario, not the gate, states what a filesystem muster gets wrong: the
+# first step polls the server list until it holds the CR.
+
+pre_configuration:
+  mode: kubernetes
+  apiserver:
+    reachable_after: "5s"
+
+  mcp_servers:
+    - name: "late-apiserver-cr"
+      config:
+        type: "streamable-http"
+        expect_ready: false
+        tools:
+          - name: "probe"
+            description: "Answers when the server is connected"
+            input_schema:
+              type: "object"
+              properties: {}
+            responses:
+              - response: { alive: true }
+
+steps:
+  - id: "cr-found-once-apiserver-answers"
+    description: "The boot pass ran against the API server, not an empty directory"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "45s"
+      contains: ["late-apiserver-cr"]
+    timeout: "60s"
+
+  - id: "connected"
+    tool: "core_service_status"
+    args:
+      name: "late-apiserver-cr"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "connected"
+    timeout: "45s"
+
+  - id: "cr-status-connected"
+    description: "The status went to the CR through the Kubernetes client"
+    tool: "test_get_cr"
+    args:
+      name: "late-apiserver-cr"
+    expected:
+      success: true
+      wait_for_state: "20s"
+      json_path:
+        status:
+          state: "Connected"
+    timeout: "30s"
+
+  - id: "tool-answers"
+    tool: "x_late-apiserver-cr_probe"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "20s"
+      contains: ["alive"]
+    timeout: "30s"
+
+# The whole run: the API server's absence was logged and waited out; the
+# client that was created is the Kubernetes one; nothing was deleted. Before
+# the fix the log read "falling back to filesystem mode" and "Found 0
+# MCPServer definitions for auto-start processing" instead.
+instance_logs:
+  contains:
+    - "Kubernetes mode is configured but the Kubernetes client could not be created (attempt 1/"
+    - "Initialized reconciliation manager in kubernetes mode"
+    - "Found 1 MCPServer definitions for auto-start processing"
+  not_contains:
+    - "falling back to filesystem mode"
+    - "Found 0 MCPServer definitions for auto-start processing"
+    - "Deleting MCPServer service"

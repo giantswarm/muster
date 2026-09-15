@@ -1,0 +1,177 @@
+name: "mcpserver-kubernetes-suspended-not-started-at-boot"
+description: "Kubernetes mode: an MCPServer CR with spec.suspended=true and autoStart=true is not started when muster boots -- no service is created, started or suspended for it and no MCPServerStarting / MCPServerStopped event is generated; a CR patch to spec.suspended=false afterwards starts it (#1216, #1237)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "kubernetes", "envtest", "lifecycle", "suspend", "orchestrator", "boot", "regression", "issue-1216", "issue-1237"]
+timeout: "3m"
+
+# Given: a remote (streamable-http) MCPServer CR with spec.suspended: true and
+#        autoStart: true in the instance's namespace -- the CR a deactivated
+#        server is when the muster pod restarts -- and muster serve in
+#        Kubernetes mode with a 2 s reconciler resync (production: 30 s).
+# When:  muster boots and more than two resync ticks pass.
+# Then:  no service exists for the server (core_service_status: not found),
+#        the CR still says suspended, its status was not touched by a start
+#        (no lastAttempt), and no MCPServer event was generated for it: the
+#        orchestrator's boot pass skipped it and the reconciler's passes over
+#        the CR found nothing to stop.
+# When:  spec.suspended is patched to false on the CR.
+# Then:  the reconciler resumes the server, it connects and its tool answers.
+#
+# Before the fix the orchestrator's boot pass created and started a service for
+# every autoStart CR without looking at spec.suspended, and the reconciler's
+# first pass stopped it again: "Successfully created and registered MCPServer
+# service" from the orchestrator, a connection to the backend, "Suspending
+# MCPServer service ... (spec.suspended=true)" from the reconciler, one
+# MCPServerStarting and one MCPServerStopped event per suspended server per
+# boot, status.lastAttempt moved to the boot time -- and a window in which the
+# deactivated server's tools were callable (giantswarm/muster#1216). This is
+# that scenario in the mode the bug was found in: the definitions are CRs read
+# through informers, the events are Kubernetes Events, the resume is a CR
+# update, not a filesystem edit.
+#
+# There is no sleep step: the wait is a call to a tool on a second mock server
+# whose answer is delayed by 5 s, longer than two resync ticks. A suspended
+# pre-configured server is excluded from the harness's readiness gate.
+
+pre_configuration:
+  mode: kubernetes
+  main_config:
+    config:
+      events: true
+
+  mcp_servers:
+    - name: "boot-suspended-cr"
+      config:
+        type: "streamable-http"
+        suspended: true
+        tools:
+          - name: "probe"
+            description: "Answers when the server is connected"
+            input_schema:
+              type: "object"
+              properties: {}
+            responses:
+              - response: { alive: true }
+    - name: "boot-clock-cr"
+      config:
+        type: "streamable-http"
+        tools:
+          - name: "wait"
+            description: "Answers after more than two resync ticks"
+            input_schema:
+              type: "object"
+              properties: {}
+            responses:
+              - response: { waited: "5s" }
+                delay: "5s"
+
+steps:
+  - id: "two-resync-ticks-pass"
+    description: "5 s on a 2 s resync: boot and at least two reconciler passes over the suspended CR are behind us"
+    tool: "x_boot-clock-cr_wait"
+    args: {}
+    expected:
+      success: true
+      contains: ["waited"]
+    timeout: "30s"
+
+  - id: "no-service-at-boot"
+    description: "The orchestrator registered no service for the suspended CR"
+    tool: "core_service_status"
+    args:
+      name: "boot-suspended-cr"
+    expected:
+      success: false
+      error_contains: ["not found"]
+    timeout: "15s"
+
+  - id: "cr-untouched"
+    description: "The CR still says suspended and no start ever wrote a lastAttempt into its status"
+    tool: "test_get_cr"
+    args:
+      name: "boot-suspended-cr"
+    expected:
+      success: true
+      json_path:
+        spec:
+          suspended: true
+          autoStart: true
+      not_contains: ["lastAttempt"]
+    timeout: "15s"
+
+  - id: "no-events-at-boot"
+    description: "Nothing was started, so nothing was stopped: no lifecycle Event for the CR"
+    tool: "core_events"
+    args:
+      resourceType: "MCPServer"
+      resourceName: "boot-suspended-cr"
+    expected:
+      success: true
+      not_contains: ["MCPServerStarting", "MCPServerStopped"]
+    timeout: "15s"
+
+  - id: "resume"
+    description: "spec.suspended=false on the CR; the reconciler starts the service (reconcileResume path unchanged)"
+    tool: "test_patch_cr"
+    args:
+      name: "boot-suspended-cr"
+      patch:
+        spec:
+          suspended: false
+    expected:
+      success: true
+      json_path:
+        spec:
+          suspended: false
+    timeout: "15s"
+
+  - id: "connected"
+    tool: "core_service_status"
+    args:
+      name: "boot-suspended-cr"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "connected"
+    timeout: "45s"
+
+  - id: "cr-status-connected"
+    description: "The status muster writes to the CR follows the resume"
+    tool: "test_get_cr"
+    args:
+      name: "boot-suspended-cr"
+    expected:
+      success: true
+      wait_for_state: "20s"
+      json_path:
+        status:
+          state: "Connected"
+    timeout: "30s"
+
+  - id: "tool-answers"
+    tool: "x_boot-suspended-cr_probe"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "20s"
+      contains: ["alive"]
+    timeout: "30s"
+
+# The whole run: the boot pass skipped the CR for the right reason and never
+# created a service for it (the resume registers it through a different path,
+# "Registering MCPServer service for definition created at runtime"), the
+# reconciler never had anything to suspend, and the only MCPServerStarting
+# event belongs to the resume. Before the fix the skip count read 0, the next
+# three 1 and the last one 2.
+instance_logs:
+  occurrences:
+    "Skipping MCPServer boot-suspended-cr: Suspended=true": 1
+    "Successfully created and registered MCPServer service: boot-suspended-cr": 0
+    "Suspending MCPServer service boot-suspended-cr (spec.suspended=true)": 0
+    "Generated event MCPServerStopped for MCPServer service boot-suspended-cr": 0
+    "Generated event MCPServerStarting for MCPServer service boot-suspended-cr": 1
+  contains:
+    - "Initialized reconciliation manager in kubernetes mode"
+    - "Resuming MCPServer service boot-suspended-cr (spec.suspended=false)"

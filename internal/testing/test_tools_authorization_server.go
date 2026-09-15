@@ -4,11 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
-
-	"gopkg.in/yaml.v3"
 
 	"github.com/giantswarm/muster/internal/api"
 )
@@ -65,19 +61,19 @@ func (h *TestToolsHandler) handleResolveAuthRedirect(ctx context.Context, args m
 }
 
 // handlePinMCPServerAuthorizationServer rewrites spec.auth.authorizationServer
-// of an MCPServer's filesystem definition: pins the issuer of the mock OAuth
-// server named by issuer_ref (with optional scopes and grant_scope), adds the
-// authorize/token endpoints of the mock server named by endpoints_ref, or
-// removes the pin (clear: true). The filesystem detector then reconciles the
-// change the way a CR update is reconciled. args: server, issuer_ref,
-// endpoints_ref, scopes, grant_scope, clear.
-func (h *TestToolsHandler) handlePinMCPServerAuthorizationServer(_ context.Context, args map[string]interface{}) (interface{}, error) {
+// of an MCPServer's definition -- the CR in Kubernetes mode, the file in
+// filesystem mode: pins the issuer of the mock OAuth server named by
+// issuer_ref (with optional scopes and grant_scope), adds the authorize/token
+// endpoints of the mock server named by endpoints_ref, or removes the pin
+// (clear: true). The reconciler then acts on the definition update. args:
+// server, issuer_ref, endpoints_ref, scopes, grant_scope, clear.
+func (h *TestToolsHandler) handlePinMCPServerAuthorizationServer(ctx context.Context, args map[string]interface{}) (interface{}, error) {
 	serverName, _ := args["server"].(string)
 	if serverName == "" {
 		return nil, fmt.Errorf("server argument is required")
 	}
-	if h.currentInstance == nil {
-		return nil, fmt.Errorf("no muster instance available")
+	if h.instanceManager == nil || h.currentInstance == nil {
+		return nil, fmt.Errorf("instance manager or current instance not available")
 	}
 	clear, _ := args["clear"].(bool)
 	issuerRef, _ := args["issuer_ref"].(string)
@@ -86,28 +82,8 @@ func (h *TestToolsHandler) handlePinMCPServerAuthorizationServer(_ context.Conte
 		return nil, fmt.Errorf("issuer_ref is required unless clear is true")
 	}
 
-	filename := filepath.Join(h.currentInstance.ConfigPath, "muster", "mcpservers", serverName+".yaml")
-	data, err := os.ReadFile(filename) //nolint:gosec
-	if err != nil {
-		return nil, fmt.Errorf("failed to read MCPServer definition %s: %w", filename, err)
-	}
-	var definition map[string]interface{}
-	if err := yaml.Unmarshal(data, &definition); err != nil {
-		return nil, fmt.Errorf("failed to parse MCPServer definition %s: %w", filename, err)
-	}
-	spec, _ := definition["spec"].(map[string]interface{})
-	if spec == nil {
-		return nil, fmt.Errorf("MCPServer definition %s has no spec", filename)
-	}
-	auth, _ := spec["auth"].(map[string]interface{})
-	if auth == nil {
-		auth = map[string]interface{}{"type": "oauth"}
-	}
-
 	var pin map[string]interface{}
-	if clear {
-		delete(auth, "authorizationServer")
-	} else {
+	if !clear {
 		issuer, ok := h.currentInstance.MockOAuthServers[issuerRef]
 		if !ok {
 			return nil, fmt.Errorf("issuer_ref names no mock OAuth server: %q", issuerRef)
@@ -127,17 +103,28 @@ func (h *TestToolsHandler) handlePinMCPServerAuthorizationServer(_ context.Conte
 			pin["authorizationEndpoint"] = endpoints.IssuerURL + "/authorize"
 			pin["tokenEndpoint"] = endpoints.IssuerURL + "/token"
 		}
-		auth["authorizationServer"] = pin
 	}
-	spec["auth"] = auth
-	definition["spec"] = spec
 
-	out, err := yaml.Marshal(definition)
+	err := h.instanceManager.MutateMCPServerDefinition(ctx, h.currentInstance, serverName, func(definition map[string]interface{}) error {
+		spec, _ := definition["spec"].(map[string]interface{})
+		if spec == nil {
+			return fmt.Errorf("MCPServer definition %s has no spec", serverName)
+		}
+		auth, _ := spec["auth"].(map[string]interface{})
+		if auth == nil {
+			auth = map[string]interface{}{"type": "oauth"}
+		}
+		if clear {
+			delete(auth, "authorizationServer")
+		} else {
+			auth["authorizationServer"] = pin
+		}
+		spec["auth"] = auth
+		definition["spec"] = spec
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to render MCPServer definition %s: %w", filename, err)
-	}
-	if err := os.WriteFile(filename, out, 0o600); err != nil {
-		return nil, fmt.Errorf("failed to write MCPServer definition %s: %w", filename, err)
+		return nil, err
 	}
 	if h.debug {
 		h.logger.Debug("Set spec.auth.authorizationServer of MCPServer '%s' to %v\n", serverName, pin)

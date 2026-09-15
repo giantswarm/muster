@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -29,6 +30,7 @@ var (
 	testCategory        string
 	testConcept         string
 	testScenario        string
+	testMode            string
 	testConfigPath      string
 	testReportPath      string
 	testFailFast        bool
@@ -74,6 +76,15 @@ func completeConceptFlag(cmd *cobra.Command, args []string, toComplete string) (
 	return out, cobra.ShellCompDirectiveDefault
 }
 
+// validTestModes is the canonical set of --mode values: the definition source
+// a scenario's instance runs on (pre_configuration.mode).
+var validTestModes = []string{testing.ModeFilesystem, testing.ModeKubernetes}
+
+// completeModeFlag provides shell completion for the mode flag
+func completeModeFlag(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	return validTestModes, cobra.ShellCompDirectiveDefault
+}
+
 // completeScenarioFlag provides shell completion for the scenario flag by loading available scenarios
 func completeScenarioFlag(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	// Load scenarios using unified approach for completion
@@ -110,6 +121,8 @@ Test execution modes:
 2. Category-based: Run specific test categories (--category)
 3. Concept-based: Run tests for specific concepts (--concept)
 4. Scenario-based: Run individual test scenarios (--scenario)
+   Mode-based: Run the scenarios of one definition source (--mode filesystem|kubernetes);
+   mode kubernetes needs the envtest binaries (KUBEBUILDER_ASSETS) and is skipped without them
 5. MCP Server mode (--mcp-server): Runs an MCP server that exposes test functionality via stdio
 6. Schema Generation (--generate-schema): Generate API schema from muster serve instance
 7. Scenario Validation (--validate-scenarios): Validate test scenarios against API schema
@@ -134,6 +147,7 @@ Example usage:
   muster test --category=behavioral        # Run behavioral tests only
   muster test --concept=workflow          # Run Workflow tests
   muster test --scenario=basic-create     # Run specific scenario
+  muster test --mode=kubernetes           # Run the Kubernetes-mode (envtest) scenarios only
   muster test --verbose --debug           # Detailed output and debugging
   muster test --fail-fast                 # Stop on first failure
   muster test --parallel=50               # Run with 50 parallel workers
@@ -178,6 +192,7 @@ func init() {
 	testCmd.Flags().StringVar(&testCategory, "category", "", "Run tests for specific category (behavioral, integration)")
 	testCmd.Flags().StringVar(&testConcept, "concept", "", "Run tests for specific concept (workflow, mcpserver, service)")
 	testCmd.Flags().StringVar(&testScenario, "scenario", "", "Run specific test scenario by name")
+	testCmd.Flags().StringVar(&testMode, "mode", "", "Run only the scenarios of one definition source (filesystem, kubernetes); default: both")
 
 	// Test configuration and reporting
 	testCmd.Flags().StringVar(&testConfigPath, "config", "", "Path to test configuration directory (default: internal test scenarios)")
@@ -214,11 +229,13 @@ func init() {
 	_ = testCmd.RegisterFlagCompletionFunc("category", completeCategoryFlag)
 	_ = testCmd.RegisterFlagCompletionFunc("concept", completeConceptFlag)
 	_ = testCmd.RegisterFlagCompletionFunc("scenario", completeScenarioFlag)
+	_ = testCmd.RegisterFlagCompletionFunc("mode", completeModeFlag)
 
 	// Mark flags as mutually exclusive with MCP server mode
 	testCmd.MarkFlagsMutuallyExclusive("mcp-server", "category")
 	testCmd.MarkFlagsMutuallyExclusive("mcp-server", "concept")
 	testCmd.MarkFlagsMutuallyExclusive("mcp-server", "scenario")
+	testCmd.MarkFlagsMutuallyExclusive("mcp-server", "mode")
 	testCmd.MarkFlagsMutuallyExclusive("mcp-server", "fail-fast")
 	testCmd.MarkFlagsMutuallyExclusive("mcp-server", "parallel")
 	testCmd.MarkFlagsMutuallyExclusive("mcp-server", "generate-schema")
@@ -228,6 +245,7 @@ func init() {
 	testCmd.MarkFlagsMutuallyExclusive("mock-mcp-server", "category")
 	testCmd.MarkFlagsMutuallyExclusive("mock-mcp-server", "concept")
 	testCmd.MarkFlagsMutuallyExclusive("mock-mcp-server", "scenario")
+	testCmd.MarkFlagsMutuallyExclusive("mock-mcp-server", "mode")
 	testCmd.MarkFlagsMutuallyExclusive("mock-mcp-server", "fail-fast")
 	testCmd.MarkFlagsMutuallyExclusive("mock-mcp-server", "mcp-server")
 	testCmd.MarkFlagsMutuallyExclusive("mock-mcp-server", "generate-schema")
@@ -237,6 +255,7 @@ func init() {
 	testCmd.MarkFlagsMutuallyExclusive("generate-schema", "category")
 	testCmd.MarkFlagsMutuallyExclusive("generate-schema", "concept")
 	testCmd.MarkFlagsMutuallyExclusive("generate-schema", "scenario")
+	testCmd.MarkFlagsMutuallyExclusive("generate-schema", "mode")
 	testCmd.MarkFlagsMutuallyExclusive("generate-schema", "fail-fast")
 	testCmd.MarkFlagsMutuallyExclusive("generate-schema", "parallel")
 	testCmd.MarkFlagsMutuallyExclusive("generate-schema", "keep-temp-config")
@@ -245,6 +264,7 @@ func init() {
 	testCmd.MarkFlagsMutuallyExclusive("validate-scenarios", "category")
 	testCmd.MarkFlagsMutuallyExclusive("validate-scenarios", "concept")
 	testCmd.MarkFlagsMutuallyExclusive("validate-scenarios", "scenario")
+	testCmd.MarkFlagsMutuallyExclusive("validate-scenarios", "mode")
 	testCmd.MarkFlagsMutuallyExclusive("validate-scenarios", "fail-fast")
 	testCmd.MarkFlagsMutuallyExclusive("validate-scenarios", "parallel")
 	testCmd.MarkFlagsMutuallyExclusive("validate-scenarios", "generate-schema")
@@ -392,6 +412,14 @@ func runTest(cmd *cobra.Command, args []string) error {
 
 	// Set scenario filter
 	testConfig.Scenario = testScenario
+
+	// Parse mode filter
+	if testMode != "" {
+		if !slices.Contains(validTestModes, testMode) {
+			return fmt.Errorf("invalid mode %q, must be one of: %s", testMode, strings.Join(validTestModes, ", "))
+		}
+		testConfig.Mode = testMode
+	}
 
 	// Create test framework with proper verbose and debug flags
 	framework, err := testing.NewTestFrameworkWithConfig(testVerbose, testDebug, testBasePort, testReportPath, testKeepTempConfig, testReadinessTimeout)

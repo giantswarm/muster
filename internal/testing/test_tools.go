@@ -11,12 +11,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
-
-	"gopkg.in/yaml.v3"
 
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
@@ -100,11 +96,11 @@ const (
 	// without it the whole scrape is returned.
 	TestToolScrapeMetrics = "test_scrape_metrics"
 	// TestToolSetMCPServerLabels replaces the metadata.labels of an MCPServer
-	// definition in the instance's filesystem store while muster runs — what a
-	// chart upgrade or a kubectl label does to the resource — so a scenario
-	// can prove that label-based toolset presets follow the live labels
-	// without a restart. Args: "server" (required), "labels" (object; empty
-	// removes every label).
+	// definition where muster reads it -- the CR in Kubernetes mode, the file
+	// in filesystem mode -- while muster runs: what a chart upgrade or a
+	// kubectl label does to the resource, so a scenario can prove that
+	// label-based toolset presets follow the live labels without a restart.
+	// Args: "server" (required), "labels" (object; empty removes every label).
 	TestToolSetMCPServerLabels = "test_set_mcpserver_labels"
 
 	// TestToolResolveAuthRedirect asks core_auth_login for a challenge and
@@ -112,9 +108,10 @@ const (
 	// reporting which mock authorization server the flow is sent to.
 	TestToolResolveAuthRedirect = "test_resolve_auth_redirect"
 	// TestToolPinMCPServerAuthorizationServer rewrites an MCPServer's
-	// spec.auth.authorizationServer in the filesystem definition (pin a mock
-	// server's issuer, optionally another's endpoints; or clear the pin) so
-	// the reconciler picks the change up like a CR update.
+	// spec.auth.authorizationServer in its definition -- the CR in Kubernetes
+	// mode, the file in filesystem mode -- (pin a mock server's issuer,
+	// optionally another's endpoints; or clear the pin) so the reconciler
+	// picks the change up as a definition update.
 	TestToolPinMCPServerAuthorizationServer = "test_pin_mcpserver_authorization_server"
 
 	// TestToolRestartInstance stops and starts the scenario's muster serve
@@ -130,6 +127,21 @@ const (
 	// TestToolStartValkey brings the Valkey stand-in back on its port with
 	// its data.
 	TestToolStartValkey = "test_start_valkey"
+
+	// TestToolSetAPIServerReachable closes (reachable: false) or opens
+	// (reachable: true) the proxy between a Kubernetes-mode instance and the
+	// run's API server: the API server gone mid-run, and back. Requires
+	// pre_configuration.mode: kubernetes.
+	TestToolSetAPIServerReachable = "test_set_apiserver_reachable"
+	// TestToolPatchCR applies a JSON merge patch to a CR the scenario applied
+	// (kind MCPServer or Workflow, in the instance's namespace) -- e.g.
+	// {spec: {suspended: true}} -- so the reconciler is driven by a real CR
+	// update. Returns the stored object. Requires mode kubernetes.
+	TestToolPatchCR = "test_patch_cr"
+	// TestToolGetCR reads a CR of the instance's namespace as the API server
+	// stores it, status included, so a scenario can assert on what muster
+	// wrote there. Requires mode kubernetes.
+	TestToolGetCR = "test_get_cr"
 )
 
 // TestToolsHandler handles test-specific tools that operate on mock infrastructure.
@@ -261,7 +273,10 @@ func IsTestTool(toolName string) bool {
 		TestToolPinMCPServerAuthorizationServer,
 		TestToolRestartInstance,
 		TestToolStopValkey,
-		TestToolStartValkey:
+		TestToolStartValkey,
+		TestToolSetAPIServerReachable,
+		TestToolPatchCR,
+		TestToolGetCR:
 		return true
 	}
 	return false
@@ -336,24 +351,30 @@ func (h *TestToolsHandler) HandleTestTool(ctx context.Context, toolName string, 
 		return h.handleStopValkey(ctx, args)
 	case TestToolStartValkey:
 		return h.handleStartValkey(ctx, args)
+	case TestToolSetAPIServerReachable:
+		return h.handleSetAPIServerReachable(ctx, args)
+	case TestToolPatchCR:
+		return h.handlePatchCR(ctx, args)
+	case TestToolGetCR:
+		return h.handleGetCR(ctx, args)
 	default:
 		return nil, fmt.Errorf("unknown test tool: %s", toolName)
 	}
 }
 
-// handleSetMCPServerLabels rewrites metadata.labels of the named MCPServer
-// definition file in the instance's config directory. The filesystem client
-// reads definitions from disk on every call, so the next request that
-// evaluates a label: preset rule sees the new labels — no restart, no
-// reconcile needed. Only the labels change; spec and status are left as they
-// are on disk.
-func (h *TestToolsHandler) handleSetMCPServerLabels(_ context.Context, args map[string]interface{}) (interface{}, error) {
+// handleSetMCPServerLabels replaces metadata.labels of the named MCPServer
+// definition where muster reads it -- the CR in Kubernetes mode, the file in
+// the instance's config directory in filesystem mode -- while muster runs.
+// Either store delivers the change as a definition update, so a scenario can
+// prove that label-based toolset presets follow the live labels without a
+// restart. args: server, labels.
+func (h *TestToolsHandler) handleSetMCPServerLabels(ctx context.Context, args map[string]interface{}) (interface{}, error) {
 	serverName, ok := args["server"].(string)
 	if !ok || serverName == "" {
 		return nil, fmt.Errorf("server argument is required")
 	}
-	if h.currentInstance == nil {
-		return nil, fmt.Errorf("no muster instance available")
+	if h.instanceManager == nil || h.currentInstance == nil {
+		return nil, fmt.Errorf("instance manager or current instance not available")
 	}
 	labels := map[string]interface{}{}
 	if raw, ok := args["labels"].(map[string]interface{}); ok {
@@ -362,31 +383,21 @@ func (h *TestToolsHandler) handleSetMCPServerLabels(_ context.Context, args map[
 		}
 	}
 
-	filename := filepath.Join(h.currentInstance.ConfigPath, "muster", "mcpservers", serverName+".yaml")
-	data, err := os.ReadFile(filename) //nolint:gosec
+	err := h.instanceManager.MutateMCPServerDefinition(ctx, h.currentInstance, serverName, func(definition map[string]interface{}) error {
+		metadata, _ := definition["metadata"].(map[string]interface{})
+		if metadata == nil {
+			metadata = map[string]interface{}{"name": serverName}
+		}
+		if len(labels) == 0 {
+			delete(metadata, "labels")
+		} else {
+			metadata["labels"] = labels
+		}
+		definition["metadata"] = metadata
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to read MCPServer definition %s: %w", filename, err)
-	}
-	var definition map[string]interface{}
-	if err := yaml.Unmarshal(data, &definition); err != nil {
-		return nil, fmt.Errorf("failed to parse MCPServer definition %s: %w", filename, err)
-	}
-	metadata, _ := definition["metadata"].(map[string]interface{})
-	if metadata == nil {
-		metadata = map[string]interface{}{"name": serverName}
-	}
-	if len(labels) == 0 {
-		delete(metadata, "labels")
-	} else {
-		metadata["labels"] = labels
-	}
-	definition["metadata"] = metadata
-	out, err := yaml.Marshal(definition)
-	if err != nil {
-		return nil, fmt.Errorf("failed to render MCPServer definition %s: %w", filename, err)
-	}
-	if err := os.WriteFile(filename, out, 0o600); err != nil {
-		return nil, fmt.Errorf("failed to write MCPServer definition %s: %w", filename, err)
+		return nil, err
 	}
 	if h.debug {
 		h.logger.Debug("Set labels of MCPServer '%s' to %v\n", serverName, labels)

@@ -55,6 +55,12 @@ pre_configuration:
     type: "valkey"                     # "memory" | "valkey" (in-process stand-in per instance)
     start_delay: "3s"                  # Optional: the store answers this long after muster serve started
 
+  mode: "kubernetes"                   # Definition source (default: filesystem): "kubernetes" applies the
+                                       # definitions as CRs to the run's envtest API server and runs muster
+                                       # serve in Kubernetes mode; skipped without KUBEBUILDER_ASSETS
+  apiserver:                           # Kubernetes mode only
+    reachable_after: "5s"              # Optional: the API server refuses connections this long after muster serve started
+
 # Test execution steps
 steps:
   - id: "step-unique-name"             # Unique step identifier
@@ -460,6 +466,83 @@ be revocable, a sign-in that must still be known. What the new process must
 assertion over both lives. Keep the memory default for everything else: the
 stand-in is one more listener per instance, and only scenarios about
 persistence or restarts learn anything from it.
+
+#### Kubernetes mode: CRs, informers, reconciler and boot pass
+
+An installation runs muster in Kubernetes mode: the MCPServer and Workflow
+definitions are CRs read through informers, the reconciler and the
+orchestrator's boot pass both drive service lifecycle, status goes to the CR's
+status subresource, and the API server can be late or gone. By default a
+scenario's instance runs in filesystem mode, where none of that exists.
+`pre_configuration.mode: kubernetes` runs the scenario the way an installation
+runs muster:
+
+```yaml
+pre_configuration:
+  mode: "kubernetes"
+  apiserver:
+    reachable_after: "5s"   # optional: the API server refuses connections until 5 s after muster serve started
+  mcp_servers:
+    - name: "srv"
+      config:
+        type: "streamable-http"   # required: Kubernetes mode refuses stdio servers
+        tools: [...]
+```
+
+The harness starts one envtest control plane per `muster test` run from the
+binaries `KUBEBUILDER_ASSETS` points at (kube-apiserver, etcd), installs the
+CRDs from `helm/muster-crds/files/crds`, and shares it between every
+Kubernetes-mode scenario of the run. Each instance gets its own namespace,
+its `mcp_servers` and `workflows` applied there as CRs (the same documents a
+filesystem instance reads from its config directory; that directory holds no
+definitions in Kubernetes mode, so a process that fell back to the filesystem
+finds it empty), a kubeconfig, and `muster serve` with `kubernetes: true` and
+`namespace: <its namespace>`. Between muster and the API server sits a TCP
+proxy the harness owns; the kubeconfig names the proxy, so the API server can
+be absent for one instance while the others keep theirs -- `reachable_after`
+keeps the proxy closed for that long after the process started, the shape of
+a kube-apiserver that restarted together with the muster pod.
+
+Mock servers must be remote (`type: streamable-http` or `sse`): muster in
+Kubernetes mode refuses stdio definitions, and the loader rejects such a
+scenario. `core_mcpserver_update` writes with the caller's identity in
+Kubernetes mode and fails for the harness's anonymous session; drive the
+reconciler with `test_patch_cr` instead. `core_events` returns the Kubernetes
+Events of the instance's namespace.
+
+Where `KUBEBUILDER_ASSETS` is not set, every Kubernetes-mode scenario is
+reported as **skipped** with that reason -- never as passed. `make test`
+(the go-build CI job) runs the suite without the binaries; `make test-envtest`
+(the test-envtest CI job) provisions them with setup-envtest and runs
+`muster test --mode kubernetes`. Locally:
+
+```bash
+export KUBEBUILDER_ASSETS="$(go run sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.24 use -p path)"
+PATH="$PWD:$PATH" ./muster test --mode kubernetes --parallel 8 --base-port 31000
+```
+
+Three test tools act on the CRs and the API server while a scenario runs:
+
+| Tool | Args | Effect |
+|------|------|--------|
+| `test_patch_cr` | `name` (required), `patch` (object, required), `kind` (`MCPServer`, the default, or `Workflow`) | Applies a JSON merge patch to a CR of the instance's namespace, the way `kubectl patch --type merge` does: nested objects merge, `null` removes a field. `{spec: {suspended: true}}` suspends a server through a real CR update; `{metadata: {labels: {...}}}` relabels it. Returns the stored object (`metadata`, `labels`, `spec`, `status`). |
+| `test_get_cr` | `name` (required), `kind` | Reads a CR as the API server stores it -- `spec`, `labels` and the `status` muster wrote (`status.state: Connected`, `lastAttempt`, ...) -- for `json_path` assertions on what reached the cluster. |
+| `test_set_apiserver_reachable` | `reachable` (bool, required) | Closes (`false`) or opens (`true`) the instance's API server proxy: closed, muster's watches end and its next request is refused; open again, they resume. The control plane and the other instances are untouched. |
+
+`test_set_mcpserver_labels` and `test_pin_mcpserver_authorization_server` work
+in both modes: they update the CR in Kubernetes mode and the definition file in
+filesystem mode.
+
+A Kubernetes-mode scenario states what the reconciler and the boot pass owe
+the CRs: which services exist after a boot (`core_service_status`), what the
+CR's status reads (`test_get_cr`), how often a lifecycle action ran
+(`instance_logs.occurrences`), and that the client that came up is the
+Kubernetes one (`instance_logs.contains: "Initialized reconciliation manager
+in kubernetes mode"`, `not_contains: "falling back to filesystem mode"`).
+Keep the filesystem default for everything that does not concern definitions,
+their source or the API server: a Kubernetes-mode instance costs a namespace
+and a proxy on the shared control plane, and only scenarios about the CR
+lifecycle learn anything from it.
 
 ### 5. Mock Server Configuration
 

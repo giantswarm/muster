@@ -1,0 +1,191 @@
+name: "mcpserver-kubernetes-suspend-remote-stops-once"
+description: "Kubernetes mode: patching spec.suspended=true onto a Connected remote MCPServer CR stops the service exactly once -- the resync ticks that follow do not stop it again, log again or generate another MCPServerStopped Event -- and spec.suspended=false starts it again (#1212, #1237)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "kubernetes", "envtest", "lifecycle", "suspend", "reconciler", "regression", "issue-1212", "issue-1237"]
+timeout: "3m"
+
+# Given: a Connected remote (streamable-http) MCPServer CR in the instance's
+#        namespace and muster serve in Kubernetes mode with a 2 s reconciler
+#        resync (production: 30 s).
+# When:  spec.suspended is patched to true on the CR and more than two resync
+#        ticks pass.
+# Then:  the service is Disconnected (the stopped state of a remote server),
+#        the CR still says suspended, and -- the point -- over the whole run
+#        the log holds exactly one "Suspending MCPServer service ..." line,
+#        exactly one "Stopped service: ..." line, the orchestrator stopped the
+#        service exactly once and exactly one MCPServerStopped Event was
+#        generated for it.
+# When:  spec.suspended is patched back to false.
+# Then:  the service is started again and its tool answers.
+#
+# Before the fix reconcileSuspend returned early only for Stopped and Stopping.
+# A remote server in Disconnected was stopped again on every tick: Service.Stop
+# took its "not in a stoppable state" branch, re-set Disconnected and emitted
+# MCPServerStopped -- two lifecycle log lines, one Kubernetes Event and one
+# state-change reconcile every 30 s for as long as the server stayed suspended;
+# 13 days of it for one server on a management cluster
+# (giantswarm/muster#1212). This is that scenario in the mode the bug was
+# found in: the suspension is a CR update seen through the informer, the
+# events are Kubernetes Events in the instance's namespace.
+#
+# There is no sleep step: the wait is a call to a tool on a second mock server
+# whose answer is delayed by 5 s, longer than two resync ticks. The scenario
+# has no cleanup stop, which would add a second MCPServerStopped.
+
+pre_configuration:
+  mode: kubernetes
+  main_config:
+    config:
+      events: true
+
+  mcp_servers:
+    - name: "suspend-once-cr"
+      config:
+        type: "streamable-http"
+        tools:
+          - name: "probe"
+            description: "Answers when the server is connected"
+            input_schema:
+              type: "object"
+              properties: {}
+            responses:
+              - response: { alive: true }
+    - name: "suspend-once-clock-cr"
+      config:
+        type: "streamable-http"
+        tools:
+          - name: "wait"
+            description: "Answers after more than two resync ticks"
+            input_schema:
+              type: "object"
+              properties: {}
+            responses:
+              - response: { waited: "5s" }
+                delay: "5s"
+
+steps:
+  - id: "connected"
+    tool: "core_service_status"
+    args:
+      name: "suspend-once-cr"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "connected"
+    timeout: "45s"
+
+  - id: "suspend"
+    description: "spec.suspended=true on the CR; the reconciler stops the service"
+    tool: "test_patch_cr"
+    args:
+      name: "suspend-once-cr"
+      patch:
+        spec:
+          suspended: true
+    expected:
+      success: true
+      json_path:
+        spec:
+          suspended: true
+    timeout: "15s"
+
+  - id: "disconnected"
+    description: "The stop of a remote server settles in Disconnected, not Stopped"
+    tool: "core_service_status"
+    args:
+      name: "suspend-once-cr"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "disconnected"
+    timeout: "45s"
+
+  - id: "stopped-event"
+    tool: "core_events"
+    args:
+      resourceType: "MCPServer"
+      resourceName: "suspend-once-cr"
+    expected:
+      success: true
+      wait_for_state: "20s"
+      contains: ["MCPServerStopped"]
+    timeout: "30s"
+
+  - id: "two-resync-ticks-pass"
+    description: "5 s on a 2 s resync: at least two ticks reconcile the suspended CR meanwhile"
+    tool: "x_suspend-once-clock-cr_wait"
+    args: {}
+    expected:
+      success: true
+      contains: ["waited"]
+    timeout: "30s"
+
+  - id: "still-disconnected"
+    tool: "core_service_status"
+    args:
+      name: "suspend-once-cr"
+    expected:
+      success: true
+      json_path:
+        state: "disconnected"
+    timeout: "15s"
+
+  - id: "cr-still-suspended"
+    tool: "test_get_cr"
+    args:
+      name: "suspend-once-cr"
+    expected:
+      success: true
+      json_path:
+        spec:
+          suspended: true
+        status:
+          state: "Disconnected"
+    timeout: "15s"
+
+  - id: "resume"
+    description: "spec.suspended=false on the CR; the reconciler starts the service again (reconcileResume unchanged)"
+    tool: "test_patch_cr"
+    args:
+      name: "suspend-once-cr"
+      patch:
+        spec:
+          suspended: false
+    expected:
+      success: true
+    timeout: "15s"
+
+  - id: "connected-again"
+    tool: "core_service_status"
+    args:
+      name: "suspend-once-cr"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "connected"
+    timeout: "45s"
+
+  - id: "tool-answers-again"
+    tool: "x_suspend-once-cr_probe"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "20s"
+      contains: ["alive"]
+    timeout: "30s"
+
+# The whole run: one suspension, one stop and one stopped event for the CR --
+# the ticks in between left no trace -- and the resume happened. Before the
+# fix every 2 s tick between "suspend" and "resume" added one of each.
+instance_logs:
+  occurrences:
+    "Suspending MCPServer service suspend-once-cr (spec.suspended=true)": 1
+    "Stopped service: suspend-once-cr": 1
+    "Generated event MCPServerStopped for MCPServer service suspend-once-cr": 1
+  contains:
+    - "Initialized reconciliation manager in kubernetes mode"
+    - "Resuming MCPServer service suspend-once-cr (spec.suspended=false)"

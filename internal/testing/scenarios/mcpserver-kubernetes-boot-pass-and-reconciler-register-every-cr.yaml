@@ -1,0 +1,379 @@
+name: "mcpserver-kubernetes-boot-pass-and-reconciler-register-every-cr"
+description: "Kubernetes mode with sixty MCPServer CRs -- twelve to start, 48 deactivated -- across five boots: the orchestrator's boot pass and the reconciler's first pass, which run concurrently and race to register the same definitions, register every CR once on every boot, every server connects, and the loser of the race never logs an ERROR (#1222, #1237)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "kubernetes", "envtest", "orchestrator", "reconciler", "boot", "regression", "issue-1222", "issue-1237"]
+timeout: "5m"
+
+# Given: sixty MCPServer CRs in the instance's namespace -- twelve remote
+#        (streamable-http) servers with autoStart: true and 48 deactivated
+#        ones (autoStart: false, nothing to connect to) -- and muster serve in
+#        Kubernetes mode.
+# When:  muster boots, and is restarted four times (test_restart_instance:
+#        the CRs, their status included, stay; the process comes up on them
+#        the way a rolled pod does). On every boot the reconcile manager
+#        starts before the orchestrator; its informer delivers an add event
+#        per CR and its workers register the services lazily through
+#        StartService (a read, then a registration), while the orchestrator's
+#        boot pass lists every CR once and registers them too. For a CR the
+#        reconciler reached first, the boot pass finds it already registered.
+# Then:  after every boot all twelve servers are listed and Connected and
+#        their tools answer, and over the five boots the boot pass logged no
+#        "Failed to create MCPServer service" -- a service it found registered
+#        exists and is being started by the caller that registered it.
+#
+# Before the fix registry.Register refused the duplicate and the boot pass
+# logged it as an ERROR per affected server per boot, "Failed to create
+# MCPServer service: <name> ... service <name> already registered" -- two of
+# 87 definitions on one installation running v5.19.7 -- for a service that was
+# fine (giantswarm/muster#1222). The filesystem-mode suite never met the race:
+# there the boot pass lists a directory in microseconds and the filesystem
+# detector has no initial list to deliver. In Kubernetes mode the two passes
+# run side by side and the reconciler wins a CR whenever its two single-object
+# reads finish before the boot pass's one list of every CR returns. The 48
+# deactivated CRs give that list an installation's size (both passes skip
+# AutoStart=false, so they cost neither a start), and the five boots are five
+# draws: with the list this size the reconciler wins at least one CR in about
+# every second boot, so the ERROR the fix removes shows on the old binary in
+# practically every run, while the scenario is deterministic on the fixed one
+# (the line is never emitted, whichever pass wins).
+
+pre_configuration:
+  mode: kubernetes
+
+  mcp_servers:
+    - name: "race-cr-01"
+      config:
+        type: "streamable-http"
+        tools:
+          - { name: "ping", description: "Answers when connected", input_schema: { type: "object", properties: {} }, responses: [{ response: { pong: "01" } }] }
+    - name: "race-cr-02"
+      config:
+        type: "streamable-http"
+        tools:
+          - { name: "ping", description: "Answers when connected", input_schema: { type: "object", properties: {} }, responses: [{ response: { pong: "02" } }] }
+    - name: "race-cr-03"
+      config:
+        type: "streamable-http"
+        tools:
+          - { name: "ping", description: "Answers when connected", input_schema: { type: "object", properties: {} }, responses: [{ response: { pong: "03" } }] }
+    - name: "race-cr-04"
+      config:
+        type: "streamable-http"
+        tools:
+          - { name: "ping", description: "Answers when connected", input_schema: { type: "object", properties: {} }, responses: [{ response: { pong: "04" } }] }
+    - name: "race-cr-05"
+      config:
+        type: "streamable-http"
+        tools:
+          - { name: "ping", description: "Answers when connected", input_schema: { type: "object", properties: {} }, responses: [{ response: { pong: "05" } }] }
+    - name: "race-cr-06"
+      config:
+        type: "streamable-http"
+        tools:
+          - { name: "ping", description: "Answers when connected", input_schema: { type: "object", properties: {} }, responses: [{ response: { pong: "06" } }] }
+    - name: "race-cr-07"
+      config:
+        type: "streamable-http"
+        tools:
+          - { name: "ping", description: "Answers when connected", input_schema: { type: "object", properties: {} }, responses: [{ response: { pong: "07" } }] }
+    - name: "race-cr-08"
+      config:
+        type: "streamable-http"
+        tools:
+          - { name: "ping", description: "Answers when connected", input_schema: { type: "object", properties: {} }, responses: [{ response: { pong: "08" } }] }
+    - name: "race-cr-09"
+      config:
+        type: "streamable-http"
+        tools:
+          - { name: "ping", description: "Answers when connected", input_schema: { type: "object", properties: {} }, responses: [{ response: { pong: "09" } }] }
+    - name: "race-cr-10"
+      config:
+        type: "streamable-http"
+        tools:
+          - { name: "ping", description: "Answers when connected", input_schema: { type: "object", properties: {} }, responses: [{ response: { pong: "10" } }] }
+    - name: "race-cr-11"
+      config:
+        type: "streamable-http"
+        tools:
+          - { name: "ping", description: "Answers when connected", input_schema: { type: "object", properties: {} }, responses: [{ response: { pong: "11" } }] }
+    - name: "race-cr-12"
+      config:
+        type: "streamable-http"
+        tools:
+          - { name: "ping", description: "Answers when connected", input_schema: { type: "object", properties: {} }, responses: [{ response: { pong: "12" } }] }
+
+    # Deactivated CRs: in the list both passes read, in neither pass's work.
+    - &deactivated
+      name: "zz-deactivated-01"
+      config: { type: "streamable-http", url: "http://127.0.0.1:9/mcp", autoStart: false, expect_ready: false }
+    - <<: *deactivated
+      name: "zz-deactivated-02"
+    - <<: *deactivated
+      name: "zz-deactivated-03"
+    - <<: *deactivated
+      name: "zz-deactivated-04"
+    - <<: *deactivated
+      name: "zz-deactivated-05"
+    - <<: *deactivated
+      name: "zz-deactivated-06"
+    - <<: *deactivated
+      name: "zz-deactivated-07"
+    - <<: *deactivated
+      name: "zz-deactivated-08"
+    - <<: *deactivated
+      name: "zz-deactivated-09"
+    - <<: *deactivated
+      name: "zz-deactivated-10"
+    - <<: *deactivated
+      name: "zz-deactivated-11"
+    - <<: *deactivated
+      name: "zz-deactivated-12"
+    - <<: *deactivated
+      name: "zz-deactivated-13"
+    - <<: *deactivated
+      name: "zz-deactivated-14"
+    - <<: *deactivated
+      name: "zz-deactivated-15"
+    - <<: *deactivated
+      name: "zz-deactivated-16"
+    - <<: *deactivated
+      name: "zz-deactivated-17"
+    - <<: *deactivated
+      name: "zz-deactivated-18"
+    - <<: *deactivated
+      name: "zz-deactivated-19"
+    - <<: *deactivated
+      name: "zz-deactivated-20"
+    - <<: *deactivated
+      name: "zz-deactivated-21"
+    - <<: *deactivated
+      name: "zz-deactivated-22"
+    - <<: *deactivated
+      name: "zz-deactivated-23"
+    - <<: *deactivated
+      name: "zz-deactivated-24"
+    - <<: *deactivated
+      name: "zz-deactivated-25"
+    - <<: *deactivated
+      name: "zz-deactivated-26"
+    - <<: *deactivated
+      name: "zz-deactivated-27"
+    - <<: *deactivated
+      name: "zz-deactivated-28"
+    - <<: *deactivated
+      name: "zz-deactivated-29"
+    - <<: *deactivated
+      name: "zz-deactivated-30"
+    - <<: *deactivated
+      name: "zz-deactivated-31"
+    - <<: *deactivated
+      name: "zz-deactivated-32"
+    - <<: *deactivated
+      name: "zz-deactivated-33"
+    - <<: *deactivated
+      name: "zz-deactivated-34"
+    - <<: *deactivated
+      name: "zz-deactivated-35"
+    - <<: *deactivated
+      name: "zz-deactivated-36"
+    - <<: *deactivated
+      name: "zz-deactivated-37"
+    - <<: *deactivated
+      name: "zz-deactivated-38"
+    - <<: *deactivated
+      name: "zz-deactivated-39"
+    - <<: *deactivated
+      name: "zz-deactivated-40"
+    - <<: *deactivated
+      name: "zz-deactivated-41"
+    - <<: *deactivated
+      name: "zz-deactivated-42"
+    - <<: *deactivated
+      name: "zz-deactivated-43"
+    - <<: *deactivated
+      name: "zz-deactivated-44"
+    - <<: *deactivated
+      name: "zz-deactivated-45"
+    - <<: *deactivated
+      name: "zz-deactivated-46"
+    - <<: *deactivated
+      name: "zz-deactivated-47"
+    - <<: *deactivated
+      name: "zz-deactivated-48"
+
+steps:
+  - id: "every-cr-listed"
+    description: "Both passes together registered all twelve active CRs, none twice, none missing"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "race-cr-01"
+        - "race-cr-02"
+        - "race-cr-03"
+        - "race-cr-04"
+        - "race-cr-05"
+        - "race-cr-06"
+        - "race-cr-07"
+        - "race-cr-08"
+        - "race-cr-09"
+        - "race-cr-10"
+        - "race-cr-11"
+        - "race-cr-12"
+    timeout: "15s"
+
+  - id: "first-connected-in-cr-status"
+    tool: "test_get_cr"
+    args:
+      name: "race-cr-01"
+    expected:
+      success: true
+      wait_for_state: "20s"
+      json_path:
+        status:
+          state: "Connected"
+    timeout: "30s"
+
+  - id: "last-connected-in-cr-status"
+    tool: "test_get_cr"
+    args:
+      name: "race-cr-12"
+    expected:
+      success: true
+      wait_for_state: "20s"
+      json_path:
+        status:
+          state: "Connected"
+    timeout: "30s"
+
+  - id: "first-tool-answers"
+    tool: "x_race-cr-01_ping"
+    args: {}
+    expected:
+      success: true
+      contains: ["01"]
+    timeout: "15s"
+
+  - id: "last-tool-answers"
+    tool: "x_race-cr-12_ping"
+    args: {}
+    expected:
+      success: true
+      contains: ["12"]
+    timeout: "15s"
+
+  - id: "boot-1"
+    description: "Restart 1: the same sixty CRs, another draw of the race"
+    tool: "test_restart_instance"
+    args: {}
+    expected:
+      success: true
+    timeout: "90s"
+
+  - id: "every-cr-listed-after-boot-1"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["race-cr-01", "race-cr-06", "race-cr-12"]
+    timeout: "15s"
+
+  - id: "tool-answers-after-boot-1"
+    tool: "x_race-cr-03_ping"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "20s"
+      contains: ["03"]
+    timeout: "30s"
+
+  - id: "boot-2"
+    description: "Restart 2: the same sixty CRs, another draw of the race"
+    tool: "test_restart_instance"
+    args: {}
+    expected:
+      success: true
+    timeout: "90s"
+
+  - id: "every-cr-listed-after-boot-2"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["race-cr-01", "race-cr-06", "race-cr-12"]
+    timeout: "15s"
+
+  - id: "tool-answers-after-boot-2"
+    tool: "x_race-cr-06_ping"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "20s"
+      contains: ["06"]
+    timeout: "30s"
+
+  - id: "boot-3"
+    description: "Restart 3: the same sixty CRs, another draw of the race"
+    tool: "test_restart_instance"
+    args: {}
+    expected:
+      success: true
+    timeout: "90s"
+
+  - id: "every-cr-listed-after-boot-3"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["race-cr-01", "race-cr-06", "race-cr-12"]
+    timeout: "15s"
+
+  - id: "tool-answers-after-boot-3"
+    tool: "x_race-cr-09_ping"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "20s"
+      contains: ["09"]
+    timeout: "30s"
+
+  - id: "boot-4"
+    description: "Restart 4: the same sixty CRs, another draw of the race"
+    tool: "test_restart_instance"
+    args: {}
+    expected:
+      success: true
+    timeout: "90s"
+
+  - id: "every-cr-listed-after-boot-4"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["race-cr-01", "race-cr-06", "race-cr-12"]
+    timeout: "15s"
+
+  - id: "tool-answers-after-boot-4"
+    tool: "x_race-cr-12_ping"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "20s"
+      contains: ["12"]
+    timeout: "30s"
+
+# The whole run, five boots: sixty CRs found by the boot pass each time, no
+# registration reported as a failure. Before the fix every CR the reconciler registered first produced
+# one "Failed to create MCPServer service: race-cr-NN" ERROR line here. (The
+# reconciler losing the race the other way round is a DEBUG line and a requeue,
+# "Failed to start service ...: ... already registered", and is not asserted
+# on: it is the race being taken, not a bug.)
+instance_logs:
+  occurrences:
+    "Found 60 MCPServer definitions for auto-start processing": 5
+  contains:
+    - "Initialized reconciliation manager in kubernetes mode"
+  not_contains:
+    - "Failed to create MCPServer service"

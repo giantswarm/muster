@@ -1,0 +1,158 @@
+name: "mcpserver-kubernetes-mode-boots-from-crs"
+description: "In Kubernetes mode muster boots from MCPServer and Workflow CRs read through informers: the servers connect, their CRs read status.state Connected, their tools and the workflow answer, and a label patched onto a CR is reconciled live (#1237)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "kubernetes", "envtest", "reconciler", "issue-1237"]
+timeout: "3m"
+
+# Given: two remote mock servers and one workflow, applied as CRs into the
+#        instance's namespace on the run's envtest API server; muster serve
+#        runs in Kubernetes mode (kubernetes: true, namespace: <instance>)
+#        against it through the harness's proxy.
+# When:  muster boots.
+# Then:  both servers are listed and Connected, the CR status muster writes
+#        through the status subresource reads Connected, a tool and the
+#        workflow answer -- and a merge patch on a CR (a label) is what muster
+#        sees on the next read, the way a kubectl label is.
+#
+# The scenario is skipped, with the reason, where KUBEBUILDER_ASSETS is not
+# set: only the test-envtest CI job and a developer machine with the envtest
+# binaries run it.
+
+pre_configuration:
+  mode: kubernetes
+
+  mcp_servers:
+    - name: "k8s-mode-a"
+      config:
+        type: "streamable-http"
+        tools:
+          - name: "ping"
+            description: "Answers when the server is connected"
+            input_schema:
+              type: "object"
+              properties: {}
+            responses:
+              - response: { pong: true }
+    - name: "k8s-mode-b"
+      config:
+        type: "streamable-http"
+        tools:
+          - name: "probe"
+            description: "Answers when the server is connected"
+            input_schema:
+              type: "object"
+              properties: {}
+            responses:
+              - response: { alive: true }
+
+  workflows:
+    - name: "k8s-mode-flow"
+      config:
+        name: "k8s-mode-flow"
+        description: "Calls the first server's tool"
+        input_schema:
+          type: object
+          args: {}
+        steps:
+          - id: "ping"
+            tool: "x_k8s-mode-a_ping"
+            args: {}
+
+steps:
+  - id: "servers-listed"
+    description: "The boot pass and the reconciler registered both CRs"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["k8s-mode-a", "k8s-mode-b"]
+    timeout: "15s"
+
+  - id: "cr-status-connected"
+    description: "muster wrote Connected into the CR's status subresource"
+    tool: "test_get_cr"
+    args:
+      name: "k8s-mode-a"
+    expected:
+      success: true
+      wait_for_state: "20s"
+      json_path:
+        kind: "MCPServer"
+        status:
+          state: "Connected"
+    timeout: "30s"
+
+  - id: "tool-answers"
+    tool: "x_k8s-mode-a_ping"
+    args: {}
+    expected:
+      success: true
+      contains: ["pong"]
+    timeout: "15s"
+
+  - id: "workflow-listed"
+    tool: "core_workflow_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["k8s-mode-flow"]
+    timeout: "15s"
+
+  - id: "workflow-runs"
+    tool: "workflow_k8s-mode-flow"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "20s"
+      contains: ["pong"]
+    timeout: "30s"
+
+  - id: "label-the-cr"
+    description: "A merge patch on the CR, as kubectl label would do it"
+    tool: "test_patch_cr"
+    args:
+      name: "k8s-mode-b"
+      patch:
+        metadata:
+          labels:
+            tier: "gold"
+    expected:
+      success: true
+      json_path:
+        labels:
+          tier: "gold"
+    timeout: "15s"
+
+  - id: "cr-carries-the-label"
+    tool: "test_get_cr"
+    args:
+      name: "k8s-mode-b"
+    expected:
+      success: true
+      json_path:
+        labels:
+          tier: "gold"
+        status:
+          state: "Connected"
+    timeout: "15s"
+
+  - id: "second-tool-still-answers"
+    description: "The label update was reconciled without a restart of the service"
+    tool: "x_k8s-mode-b_probe"
+    args: {}
+    expected:
+      success: true
+      contains: ["alive"]
+    timeout: "15s"
+
+# The whole run happened in Kubernetes mode: the client that was created is
+# the Kubernetes one, the reconciler watches the namespace through informers,
+# and nothing fell back to the filesystem.
+instance_logs:
+  contains:
+    - "Initialized reconciliation manager in kubernetes mode"
+    - "Started watching Kubernetes resources in namespace"
+  not_contains:
+    - "falling back to filesystem mode"
+    - "Deleting MCPServer service"

@@ -68,10 +68,13 @@ muster-integration-test: build ## Run the muster integration suite (./muster tes
 	./muster test --parallel 50 --base-port 30000 --report test-reports
 
 .PHONY: test-envtest
-test-envtest: ## Run the envtest-backed RBAC integration tests (downloads a kube-apiserver via setup-envtest).
-	@echo "Running envtest RBAC integration tests..."
+test-envtest: build ## Run the envtest-backed tests: the RBAC integration tests and the Kubernetes-mode scenarios (downloads a kube-apiserver via setup-envtest).
+	@echo "Running envtest-backed tests..."
 	KUBEBUILDER_ASSETS="$$(go run sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.24 use -p path)" \
-		go test ./internal/mcpserver/ ./internal/workflow/ -run TestWritesAsCallerEnvtest -count=1 -v
+		go test ./internal/mcpserver/ ./internal/workflow/ ./internal/testing/ -run Envtest -count=1 -v
+	@echo "Running the Kubernetes-mode scenarios (mode: kubernetes) against envtest..."
+	KUBEBUILDER_ASSETS="$$(go run sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.24 use -p path)" \
+		./muster test --mode kubernetes --parallel 8 --base-port 31000 --readiness-timeout 60s --report test-reports-envtest
 
 .PHONY: test-vet
 test-vet: ## Run go test and go vet

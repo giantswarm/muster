@@ -237,7 +237,9 @@ func (r *testReporter) ReportScenarioResult(scenarioResult TestScenarioResult) {
 		fmt.Printf("%s%s Scenario completed: %s (%v)\n",
 			prefix, symbol, scenarioResult.Scenario.Name, scenarioResult.Duration)
 
-		if scenarioResult.Error != "" {
+		if scenarioResult.Result == ResultSkipped {
+			fmt.Printf("%s   ⏭️  Skipped: %s\n", prefix, scenarioResult.Error)
+		} else if scenarioResult.Error != "" {
 			fmt.Printf("%s   ❌ Scenario Error: %s\n", prefix, scenarioResult.Error)
 		}
 
@@ -329,9 +331,18 @@ func (r *testReporter) ReportScenarioResult(scenarioResult TestScenarioResult) {
 			fmt.Printf("%s\n", line)
 		} else {
 			// Sequential mode - just print the result (start was already printed)
-			fmt.Printf("%s (%v)\n", symbol, scenarioResult.Duration)
+			fmt.Printf("%s (%v)%s\n", symbol, scenarioResult.Duration, r.skipSummary(scenarioResult))
 		}
 	}
+}
+
+// skipSummary names the reason a scenario was skipped, so a run where the
+// Kubernetes-mode scenarios did not execute says why on the scenario's line.
+func (r *testReporter) skipSummary(scenarioResult TestScenarioResult) string {
+	if scenarioResult.Result != ResultSkipped || scenarioResult.Error == "" {
+		return ""
+	}
+	return fmt.Sprintf(" -- skipped: %s", scenarioResult.Error)
 }
 
 // failureSummary renders a compact multi-line diagnosis of a failed scenario
@@ -343,6 +354,9 @@ func (r *testReporter) ReportScenarioResult(scenarioResult TestScenarioResult) {
 func (r *testReporter) failureSummary(scenarioResult TestScenarioResult) string {
 	if scenarioResult.Result == ResultPassed {
 		return ""
+	}
+	if scenarioResult.Result == ResultSkipped {
+		return r.skipSummary(scenarioResult)
 	}
 	var b strings.Builder
 	for _, sr := range scenarioResult.StepResults {

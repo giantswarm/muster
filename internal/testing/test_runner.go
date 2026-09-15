@@ -298,6 +298,18 @@ func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, con
 		logger = NewPrefixedLogger(r.logger, prefix)
 	}
 
+	// A scenario whose mode this process cannot provide is reported as
+	// skipped with the reason -- never as passed, and not as an error either:
+	// the Kubernetes-mode scenarios run where the envtest binaries are
+	// (the test-envtest CI job) and are skipped everywhere else.
+	if reason := modeUnavailableReason(scenario); reason != "" {
+		result.Result = ResultSkipped
+		result.Error = reason
+		result.EndTime = time.Now()
+		result.Duration = result.EndTime.Sub(result.StartTime)
+		return result
+	}
+
 	// Create scenario context for template variable support
 	scenarioContext := NewScenarioContext()
 
@@ -535,6 +547,16 @@ func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, con
 	}
 
 	return result
+}
+
+// modeUnavailableReason reports why the scenario's mode cannot run in this
+// process, or "" when it can. Only Kubernetes mode has a precondition: the
+// envtest binaries.
+func modeUnavailableReason(scenario TestScenario) string {
+	if instanceMode(scenario.PreConfiguration) != ModeKubernetes {
+		return ""
+	}
+	return kubernetesModeUnavailableReason()
 }
 
 // instanceLogMatchContextLimit caps how much of the line preceding a forbidden

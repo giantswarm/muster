@@ -174,6 +174,9 @@ func (l *scenarioLoader) validateScenario(scenario TestScenario, filePath string
 	if err := validateStorageConfig(scenario.PreConfiguration); err != nil {
 		return err
 	}
+	if err := validateModeConfig(scenario.PreConfiguration); err != nil {
+		return err
+	}
 
 	// An instance_logs block with nothing to check would pass vacuously -- the
 	// same failure mode status_code and retry had.
@@ -241,6 +244,7 @@ func (l *scenarioLoader) FilterScenarios(scenarios []TestScenario, config TestCo
 		l.logger.Debug("  • Category filter: %s\n", string(config.Category))
 		l.logger.Debug("  • Concept filter: %s\n", string(config.Concept))
 		l.logger.Debug("  • Scenario filter: %s\n", config.Scenario)
+		l.logger.Debug("  • Mode filter: %s\n", config.Mode)
 	}
 
 	var filtered []TestScenario
@@ -266,6 +270,11 @@ func (l *scenarioLoader) FilterScenarios(scenarios []TestScenario, config TestCo
 
 		// Apply scenario name filter
 		if config.Scenario != "" && scenario.Name != config.Scenario {
+			continue
+		}
+
+		// Apply mode filter (the definition source the instance runs on)
+		if config.Mode != "" && instanceMode(scenario.PreConfiguration) != strings.ToLower(config.Mode) {
 			continue
 		}
 
