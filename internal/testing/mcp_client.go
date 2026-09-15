@@ -151,6 +151,11 @@ func (c *mcpTestClient) connectWithOptions(ctx context.Context, endpoint, access
 	return nil
 }
 
+// AccessToken returns the bearer this client presents, or "" when anonymous.
+func (c *mcpTestClient) AccessToken() string {
+	return c.accessToken
+}
+
 // InitializeResult returns the negotiated handshake result from the last
 // successful Connect, or nil when the client is not connected.
 func (c *mcpTestClient) InitializeResult() *mcp.InitializeResult {

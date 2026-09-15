@@ -58,6 +58,13 @@ func (m *gateProbeManager) InstanceExitStatus(instance *MusterInstance) (bool, e
 	return false, nil
 }
 
+func (m *gateProbeManager) RestartInstance(context.Context, *MusterInstance, TestLogger) error {
+	return nil
+}
+
+func (m *gateProbeManager) StopValkey(string) error  { return nil }
+func (m *gateProbeManager) StartValkey(string) error { return nil }
+
 // TestStartupParallelGate verifies that at high --parallel the number of
 // concurrently *starting* instances is bounded by the startup gate, while an
 // explicitly disabled gate lets the full worker pool start at once. The t=0

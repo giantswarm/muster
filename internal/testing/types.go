@@ -167,6 +167,26 @@ type MusterPreConfiguration struct {
 	// JWT mode (muster signs issued tokens) plus the trusted issuers whose
 	// subject/actor tokens the exchange validates.
 	MusterBroker *MusterBrokerConfig `yaml:"muster_broker,omitempty"`
+
+	// Storage selects the store backend the instance runs on. Absent means
+	// memory: every store dies with the process. See StorageConfig.
+	Storage *StorageConfig `yaml:"storage,omitempty"`
+}
+
+// StorageConfig selects the store backend a scenario's muster serve instance
+// runs on. With type valkey the harness starts an in-process Valkey stand-in
+// (miniredis) per instance and points muster's oauth.server.storage at it, so
+// the session auth store, the capability store, the OAuth token, state and
+// client credential stores and the OAuth server's own store outlive the
+// process the way an installation's do -- and survive test_restart_instance.
+type StorageConfig struct {
+	// Type is "memory" (default) or "valkey".
+	Type string `yaml:"type,omitempty"`
+	// StartDelay makes the Valkey stand-in answer only this long after muster
+	// serve was started: until then a connect is refused, the way a Valkey
+	// pod that is not scheduled yet refuses. For "Valkey is late at start"
+	// scenarios; requires type valkey.
+	StartDelay time.Duration `yaml:"start_delay,omitempty"`
 }
 
 // MusterBrokerConfig configures muster's self-issued RFC 8693 token exchange
@@ -304,6 +324,9 @@ type MusterInstance struct {
 	// MusterOAuthClientID is the registered client ID from the last OAuth flow.
 	// Used by handleSimulateMusterReauth for the refresh token grant.
 	MusterOAuthClientID string
+	// ValkeyAddr is the address of the instance's Valkey stand-in when the
+	// scenario runs on valkey storage, "" on memory.
+	ValkeyAddr string
 }
 
 // MockHTTPServerInfo contains information about a running mock HTTP server
@@ -524,6 +547,15 @@ type MusterInstanceManager interface {
 	// against a live instance" from "the instance died mid-scenario" in failure
 	// reports.
 	InstanceExitStatus(instance *MusterInstance) (exited bool, waitErr error)
+	// RestartInstance stops the instance's muster serve process and starts it
+	// again on the same configuration, ports and environment while the
+	// instance's Valkey stand-in and mock servers keep running; returns once
+	// the new process is ready. The state a pod finds after a rollout.
+	RestartInstance(ctx context.Context, instance *MusterInstance, logger TestLogger) error
+	// StopValkey takes the instance's Valkey stand-in off its port, data kept;
+	// StartValkey brings it back. Both fail for an instance on memory storage.
+	StopValkey(instanceID string) error
+	StartValkey(instanceID string) error
 }
 
 // TestStep defines a single step within a test scenario
@@ -678,6 +710,10 @@ type MCPTestClient interface {
 	// InitializeResult returns the negotiated handshake result, or nil when the
 	// client is not connected.
 	InitializeResult() *mcp.InitializeResult
+	// AccessToken returns the bearer this client presents, or "" for an
+	// anonymous connection. What lets a client be re-created as the same
+	// session after the instance restarted.
+	AccessToken() string
 	// Close closes the MCP connection
 	Close() error
 }

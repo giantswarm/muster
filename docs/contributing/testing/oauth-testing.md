@@ -168,6 +168,8 @@ SSO works because:
 | `test_simulate_oauth_callback` | Both (via full flow) | Testing complete OAuth integration |
 | `test_get_oauth_server_info` | N/A (read-only) | Debugging OAuth server state; `dcr_registrations` / `dcr_registered_clients` for DCR assertions |
 | `test_forget_oauth_registrations` | Mock OAuth Server only | Drops every RFC 7591 registration the mock holds — an AS restart with an in-memory client store — to test muster's re-registration |
+| `test_restart_instance` | muster serve (process) | Restarts `muster serve` on the same configuration while the Valkey stand-in and every mock server keep running, then reconnects every user client with its bearer — the sessions that lived through a rollout. Needs `pre_configuration.storage.type: valkey` for anything to survive (see "Storage backend and process restart" in scenarios.md) |
+| `test_stop_valkey` / `test_start_valkey` | Valkey stand-in | A Valkey outage with the data kept, and its recovery, while muster runs |
 
 ### When to Use Each Tool
 
