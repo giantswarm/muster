@@ -1,6 +1,7 @@
 name: Deploy documentation
 
-# Builds the documentation site from docs/ with MkDocs and publishes it to
+# Builds the documentation site from docs/ (and the landing page template in
+# overrides/) with MkDocs and publishes it to
 # GitHub Pages (https://giantswarm.github.io/muster/). The site also serves
 # docs/muster-agent.json, the OAuth client metadata document of the muster
 # agent, at its long-standing URL.
@@ -11,6 +12,7 @@ on:
       - main
     paths:
       - 'docs/**'
+      - 'overrides/**'
       - 'mkdocs.yml'
       - 'requirements-docs.txt'
       - '.github/workflows/pages.yaml'
