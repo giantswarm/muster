@@ -12,8 +12,9 @@ description: |
 
     - platform-fixture validates tokens from muster's own identity provider
       (the lab fixture: muster's protected /mcp trusts Dex's tokens but names
-      muster's OAuth server) and is pinned to that IdP. The IdP omits `scope`
-      from its token responses, as Dex does. The session is an externally
+      muster's OAuth server) and is pinned to that IdP. The IdP is a Dex
+      (`profile: dex`): a discovery document, `scope` omitted from its token
+      responses, an id_token with every token. The session is an externally
       issued bearer, like a portal user's or an agent's -- muster mirrors that
       login token into the token store on every request.
     - other-pinned validates tokens from a plain authorization server and is
@@ -30,14 +31,15 @@ description: |
   mirror of the next request overwrote -- "Authentication Successful", tools
   listed, then every call failed with "no valid token available"
   (platform-fixture).
-tags: ["oauth", "authorization-server", "pin", "issuer", "regression", "1174"]
+tags: ["oauth", "authorization-server", "pin", "issuer", "dex", "regression", "1174"]
 timeout: "3m"
 
 pre_configuration:
   mock_oauth_servers:
     # muster's own identity provider and the pinned authorization server of
-    # platform-fixture. Omits `scope` from token responses like Dex.
+    # platform-fixture: a Dex, with its token responses' omitted `scope`.
     - name: "platform-idp"
+      profile: "dex"
       scopes: ["openid", "profile", "email", "offline_access"]
       auto_approve: true
       pkce_required: false
@@ -45,7 +47,6 @@ pre_configuration:
       client_id: "platform-client"
       client_secret: "platform-secret"
       use_as_muster_oauth_server: true
-      omit_token_scope: true
 
     # Issues the externally issued bearer the session presents to muster (a
     # Dex-issued token muster trusts), like the lab's portal and agent tokens.

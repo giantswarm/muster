@@ -1,15 +1,17 @@
 name: "oauth-dcr-reregister-after-as-forgets-client"
 category: "behavioral"
 concept: "mcpserver"
-description: "DCR authorization server forgets muster's registration (in-memory client store restart): the next core_auth_login detects the dead client_id at the authorization endpoint and registers again instead of sending users into a browser 400"
-tags: ["oauth", "authentication", "mcpserver", "dcr"]
+description: "A pro-style authorization server (profile: pro) restarts and forgets muster's registration with its in-memory client store: the next core_auth_login detects the dead client_id at the authorization endpoint and registers again instead of sending users into a browser 400"
+tags: ["oauth", "authentication", "mcpserver", "dcr", "pro", "regression", "1128"]
 timeout: "2m"
 
-# The IdP registers muster via RFC 7591 and then loses its client registry —
-# what a pro restart does: its clients live in an in-memory Map. Muster's
-# stored credentials look perfectly valid (no expiry, never revoked through
-# muster), yet every authorization request built with them is answered
-# straight to the browser with 400 invalid_client, which muster never sees.
+# The IdP is pro's authorization server (the MCP TypeScript SDK's): it
+# registers muster via RFC 7591 without handing out a registration_client_uri,
+# so there is no RFC 7592 read to check the registration with, and its clients
+# live in an in-memory Map that a restart loses. Muster's stored credentials
+# look perfectly valid (no expiry, never revoked through muster), yet every
+# authorization request built with them is answered straight to the browser
+# with 400 invalid_client, which muster never sees.
 #
 # Before issuing a sign-in link with stored DCR credentials muster therefore
 # asks the authorization endpoint whether it still knows the client_id, drops
@@ -19,12 +21,11 @@ timeout: "2m"
 pre_configuration:
   mock_oauth_servers:
     - name: "forgetful-idp"
+      profile: "pro"
       scopes: ["openid", "profile", "mcp:read"]
       auto_approve: true
       pkce_required: true
       token_lifetime: "1h"
-      supports_dcr: true
-      require_registered_client: true
 
   mcp_servers:
     - name: "forgetful-protected-server"
@@ -90,9 +91,9 @@ steps:
       contains:
         - "authenticated-data"
 
-  - id: idp-forgets-registrations
-    description: "The IdP restarts and forgets every registered client; muster's stored credentials are now dead"
-    tool: "test_forget_oauth_registrations"
+  - id: idp-restarts
+    description: "The IdP's pod is replaced; its in-memory client store is gone with it and muster's stored credentials are now dead"
+    tool: "test_restart_mock_oauth_server"
     args:
       server: "forgetful-idp"
     expected:
