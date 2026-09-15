@@ -4,7 +4,7 @@
 # append). devctl never touches this file.
 #
 # Generated job names referenced in `requires` below: go-build,
-# push-to-registries-release, execute-chart-tests.
+# push-to-registries-release, execute-chart-tests, upload-release-assets.
 #
 # What this file carries beyond the golden pipeline:
 #   - branch dev-image push (the golden pipeline only builds + tests on branches)
@@ -20,6 +20,10 @@
 #     the promtool alert-rule tests. Neither is reachable from `make test`:
 #     both need helm plugins and promtool, which the architect go image does
 #     not carry.
+#   - the Homebrew tap notification (notify-homebrew-tap): a repository
+#     dispatch to giantswarm/homebrew-muster once a release's binaries are on
+#     the GitHub Release, so `brew install giantswarm/muster/muster` follows
+#     every release.
 version: 2.1
 
 jobs:
@@ -79,6 +83,27 @@ jobs:
       - run:
           name: Run chart tests
           command: make helm-test
+
+  # Tells the Homebrew tap (giantswarm/homebrew-muster) that a release's
+  # binaries are on the GitHub Release: its "Update formula" workflow verifies
+  # them against their Sigstore bundles and regenerates the formula. Runs
+  # after upload-release-assets so the tap never sees a release without
+  # binaries. The token is minted from the architect GitHub App, which is
+  # installed on every giantswarm repository with contents: write -- what a
+  # repository dispatch needs on its target -- so no extra secret is involved.
+  notify-homebrew-tap:
+    executor: architect/architect
+    resource_class: small
+    steps:
+    - architect/generate-github-token
+    - run:
+        name: Send the muster-release dispatch to giantswarm/homebrew-muster
+        command: |
+          set -euo pipefail
+          gh api --method POST repos/giantswarm/homebrew-muster/dispatches \
+            --field event_type=muster-release \
+            --field "client_payload[tag]=${CIRCLE_TAG}"
+          echo "dispatched muster-release for ${CIRCLE_TAG} to giantswarm/homebrew-muster"
 
 workflows:
   build:
@@ -201,6 +226,17 @@ workflows:
         requires:
         - execute-muster-crds-chart-tests
         - push-to-registries-release
+        filters:
+          tags:
+            only: /^v.*/
+          branches:
+            ignore: /.*/
+
+    # ---- Tag: tell the Homebrew tap once the binaries are on the release.
+    - notify-homebrew-tap:
+        context: architect
+        requires:
+        - upload-release-assets
         filters:
           tags:
             only: /^v.*/
