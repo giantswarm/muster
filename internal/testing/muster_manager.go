@@ -1887,12 +1887,12 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 						// session, which is how GitHub-style connectors are configured;
 						// pin_endpoints_ref adds another mock server's authorize and
 						// token endpoints (the GitHub shape: explicit endpoints, no
-						// discovery).
-						grantScope, _ := oauthConfig["grant_scope"].(string)
-						pinAS, _ := oauthConfig["pin_authorization_server"].(bool)
-						endpointsRef, _ := oauthConfig["pin_endpoints_ref"].(string)
-						if grantScope != "" || pinAS || endpointsRef != "" {
-							ref, _ := oauthConfig["mock_oauth_server_ref"].(string)
+						// discovery). A github-profile server implies all three unless
+						// the block says otherwise.
+						ref, _ := oauthConfig["mock_oauth_server_ref"].(string)
+						pin := resolveAuthorizationServerPin(oauthConfig, referencedProfileBundle(config, ref))
+						grantScope, endpointsRef := pin.GrantScope, pin.EndpointsRef
+						if pin.Pin {
 							m.mu.RLock()
 							oauthServer, found := m.mockOAuthServers[instanceID][ref]
 							endpoints, endpointsFound := m.mockOAuthServers[instanceID][endpointsRef]

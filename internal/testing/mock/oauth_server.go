@@ -148,6 +148,26 @@ type OAuthServerConfig struct {
 	// 6749 §5.1 allows that when the granted scope equals the requested one,
 	// and the client has to remember what it asked for.
 	OmitTokenScope bool
+
+	// OmitDiscovery serves no RFC 8414 / OIDC discovery document (404 on both
+	// well-known paths), as GitHub does: a client has to know the endpoints.
+	OmitDiscovery bool
+
+	// OmitTokenExpiry leaves `expires_in` out of token responses, as GitHub
+	// does: the access token has no expiry the client could learn.
+	OmitTokenExpiry bool
+
+	// OmitRegistrationClientURI leaves registration_client_uri and
+	// registration_access_token out of RFC 7591 registration responses, as
+	// the MCP TypeScript SDK's authorization server does: the client cannot
+	// read its registration back through RFC 7592 and has to probe the
+	// authorization endpoint instead.
+	OmitRegistrationClientURI bool
+
+	// ForgetRegistrationsOnRestart makes Restart drop every RFC 7591
+	// registration, the way an authorization server whose client store lives
+	// in memory (pro) loses its clients with the process.
+	ForgetRegistrationsOnRestart bool
 }
 
 // OAuthErrorSimulation allows simulating error conditions
@@ -199,6 +219,9 @@ type registeredClient struct {
 	ClientID        string
 	RedirectURIs    []string
 	ApplicationType string
+	// RegistrationAccessToken is the bearer an RFC 7592 read of this
+	// registration must present.
+	RegistrationAccessToken string
 }
 
 type authCodeEntry struct {
@@ -227,7 +250,7 @@ type TokenResponse struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token,omitempty"`
 	TokenType    string `json:"token_type"`
-	ExpiresIn    int    `json:"expires_in"`
+	ExpiresIn    int    `json:"expires_in,omitempty"`
 	Scope        string `json:"scope,omitempty"`
 	IDToken      string `json:"id_token,omitempty"`
 }
@@ -299,16 +322,7 @@ func (s *OAuthServer) Start(ctx context.Context) (int, error) {
 		}
 		s.tlsCert = cert
 		s.caCertPEM = caPEM
-
-		// Wrap listener with TLS
-		tlsConfig := &tls.Config{
-			Certificates: []tls.Certificate{*cert},
-			MinVersion:   tls.VersionTLS12,
-		}
-		listener = tls.NewListener(listener, tlsConfig)
 	}
-
-	s.listener = listener
 
 	// Update issuer with actual port if it's a placeholder
 	if s.config.Issuer == "" {
@@ -319,32 +333,7 @@ func (s *OAuthServer) Start(ctx context.Context) (int, error) {
 		}
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/.well-known/oauth-authorization-server", s.handleMetadata)
-	mux.HandleFunc("/.well-known/openid-configuration", s.handleMetadata)
-	mux.HandleFunc("/register", s.handleRegister)
-	mux.HandleFunc("/authorize", s.handleAuthorize)
-	mux.HandleFunc("/token", s.handleToken)
-	mux.HandleFunc("/userinfo", s.handleUserInfo)
-	mux.HandleFunc("/jwks", s.handleJWKS)
-	mux.HandleFunc("/callback", s.handleCallback)
-
-	// Create server with error log that discards TLS handshake errors
-	// These are common during test startup when clients probe connections
-	s.httpServer = &http.Server{ //nolint:gosec
-		Handler:  mux,
-		ErrorLog: log.New(io.Discard, "", 0),
-	}
-
-	go func() {
-		if err := s.httpServer.Serve(listener); err != nil && err != http.ErrServerClosed {
-			if s.config.Debug {
-				fmt.Fprintf(os.Stderr, "OAuth server error: %v\n", err)
-			}
-		}
-	}()
-
-	s.running = true
+	s.serveLocked(listener)
 
 	if s.config.Debug {
 		protocol := "http"
@@ -355,6 +344,88 @@ func (s *OAuthServer) Start(ctx context.Context) (int, error) {
 	}
 
 	return s.port, nil
+}
+
+// serveLocked wraps the listener with TLS when configured and serves the
+// endpoints on it. Callers hold s.mu.
+func (s *OAuthServer) serveLocked(listener net.Listener) {
+	if s.config.UseTLS {
+		listener = tls.NewListener(listener, &tls.Config{
+			Certificates: []tls.Certificate{*s.tlsCert},
+			MinVersion:   tls.VersionTLS12,
+		})
+	}
+	s.listener = listener
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/.well-known/oauth-authorization-server", s.handleMetadata)
+	mux.HandleFunc("/.well-known/openid-configuration", s.handleMetadata)
+	mux.HandleFunc("/register", s.handleRegister)
+	mux.HandleFunc("/register/", s.handleRegistrationRead)
+	mux.HandleFunc("/authorize", s.handleAuthorize)
+	mux.HandleFunc("/token", s.handleToken)
+	mux.HandleFunc("/userinfo", s.handleUserInfo)
+	mux.HandleFunc("/jwks", s.handleJWKS)
+	mux.HandleFunc("/callback", s.handleCallback)
+
+	// Create server with error log that discards TLS handshake errors
+	// These are common during test startup when clients probe connections
+	httpServer := &http.Server{ //nolint:gosec
+		Handler:  mux,
+		ErrorLog: log.New(io.Discard, "", 0),
+	}
+	s.httpServer = httpServer
+
+	go func() {
+		if err := httpServer.Serve(listener); err != nil && err != http.ErrServerClosed {
+			if s.config.Debug {
+				fmt.Fprintf(os.Stderr, "OAuth server error: %v\n", err)
+			}
+		}
+	}()
+
+	s.running = true
+}
+
+// Restart takes the server off its port and serves again on the same port
+// and issuer -- the authorization server's pod replaced. Whatever the real
+// server keeps outside its process stays (issued tokens, pending codes, the
+// configured client); with ForgetRegistrationsOnRestart the RFC 7591
+// registrations go with the old process. Returns how many were forgotten.
+func (s *OAuthServer) Restart(ctx context.Context) (int, error) {
+	s.mu.Lock()
+	if !s.running {
+		s.mu.Unlock()
+		return 0, fmt.Errorf("mock OAuth server on port %d is not running", s.port)
+	}
+	httpServer := s.httpServer
+	s.running = false
+	s.mu.Unlock()
+
+	// Shutdown waits for in-flight handlers, which take s.mu: never hold it here.
+	if err := httpServer.Shutdown(ctx); err != nil {
+		return 0, fmt.Errorf("failed to stop mock OAuth server on port %d: %w", s.port, err)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	forgotten := 0
+	if s.config.ForgetRegistrationsOnRestart {
+		forgotten = len(s.registeredClients)
+		s.registeredClients = make(map[string]*registeredClient)
+	}
+
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", s.port)) //nolint:gosec
+	if err != nil {
+		return forgotten, fmt.Errorf("failed to listen again on port %d: %w", s.port, err)
+	}
+	s.serveLocked(listener)
+
+	if s.config.Debug {
+		fmt.Fprintf(os.Stderr, "🔐 Mock OAuth server restarted on port %d (%d registration(s) forgotten)\n", s.port, forgotten)
+	}
+	return forgotten, nil
 }
 
 // Stop stops the OAuth server
@@ -652,6 +723,11 @@ func (s *OAuthServer) GetTokenInfo(accessToken string) *issuedToken {
 
 // handleMetadata returns OAuth 2.1 server metadata
 func (s *OAuthServer) handleMetadata(w http.ResponseWriter, r *http.Request) {
+	if s.config.OmitDiscovery {
+		// GitHub publishes no RFC 8414 / OIDC discovery document.
+		http.NotFound(w, r)
+		return
+	}
 	metadata := map[string]interface{}{
 		"issuer":                                s.config.Issuer,
 		"authorization_endpoint":                s.config.Issuer + "/authorize",
@@ -733,9 +809,10 @@ func (s *OAuthServer) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	client := &registeredClient{
-		ClientID:        "dcr-" + generateOpaqueToken(),
-		RedirectURIs:    req.RedirectURIs,
-		ApplicationType: req.ApplicationType,
+		ClientID:                "dcr-" + generateOpaqueToken(),
+		RedirectURIs:            req.RedirectURIs,
+		ApplicationType:         req.ApplicationType,
+		RegistrationAccessToken: generateOpaqueToken(),
 	}
 
 	s.mu.Lock()
@@ -750,11 +827,59 @@ func (s *OAuthServer) handleRegister(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(s.registrationResponse(client))
+}
+
+// registrationResponse is the RFC 7591 registration document of a client.
+// A well-behaved server adds the RFC 7592 management pair
+// (registration_client_uri, registration_access_token); the MCP TypeScript
+// SDK's does not (OmitRegistrationClientURI).
+func (s *OAuthServer) registrationResponse(client *registeredClient) map[string]interface{} {
+	response := map[string]interface{}{
 		"client_id":                  client.ClientID,
 		"redirect_uris":              client.RedirectURIs,
 		"token_endpoint_auth_method": "none",
-	})
+	}
+	if !s.config.OmitRegistrationClientURI {
+		response["registration_access_token"] = client.RegistrationAccessToken
+		response["registration_client_uri"] = s.registrationClientURI(client.ClientID)
+	}
+	return response
+}
+
+// registrationClientURI is where RFC 7592 reads a registration.
+func (s *OAuthServer) registrationClientURI(clientID string) string {
+	return s.config.Issuer + "/register/" + clientID
+}
+
+// handleRegistrationRead implements the RFC 7592 §2.1 client read: GET the
+// registration_client_uri with the registration_access_token as bearer. 200
+// with the registration while the client is known; 401 (§2.3) when the token
+// matches no registration -- also what a forgotten client's token gets.
+// Served only when the server registers clients and hands out the URI.
+func (s *OAuthServer) handleRegistrationRead(w http.ResponseWriter, r *http.Request) {
+	if !s.config.SupportsDCR || s.config.OmitRegistrationClientURI {
+		http.NotFound(w, r)
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	clientID := strings.TrimPrefix(r.URL.Path, "/register/")
+	token := ExtractBearerToken(r.Header.Get("Authorization"))
+
+	s.mu.RLock()
+	client, known := s.registeredClients[clientID]
+	s.mu.RUnlock()
+
+	if !known || token == "" || token != client.RegistrationAccessToken {
+		w.Header().Set("WWW-Authenticate", pkgoauth.SchemeBearer)
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(s.registrationResponse(client))
 }
 
 // isAcceptedClientID reports whether the client_id is the statically
@@ -1064,7 +1189,7 @@ func (s *OAuthServer) handleAuthCodeExchange(w http.ResponseWriter, r *http.Requ
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
 		TokenType:    pkgoauth.SchemeBearer,
-		ExpiresIn:    int(s.config.TokenLifetime.Seconds()),
+		ExpiresIn:    s.responseExpiresIn(),
 		Scope:        s.responseScope(entry.Scope),
 		IDToken:      idToken,
 	}
@@ -1140,10 +1265,21 @@ func (s *OAuthServer) handleRefreshToken(w http.ResponseWriter, r *http.Request)
 		AccessToken:  newAccessToken,
 		RefreshToken: newRefreshToken,
 		TokenType:    pkgoauth.SchemeBearer,
-		ExpiresIn:    int(s.config.TokenLifetime.Seconds()),
+		ExpiresIn:    s.responseExpiresIn(),
 		Scope:        s.responseScope(originalToken.Scope),
 		IDToken:      newIDToken,
 	})
+}
+
+// responseExpiresIn is the `expires_in` a token response carries: the token
+// lifetime, or nothing (omitted from the JSON) when the server is configured
+// to leave it out (OmitTokenExpiry) -- the token still expires on the server
+// after TokenLifetime, the client just is not told.
+func (s *OAuthServer) responseExpiresIn() int {
+	if s.config.OmitTokenExpiry {
+		return 0
+	}
+	return int(s.config.TokenLifetime.Seconds())
 }
 
 // responseScope is the `scope` a token response carries: the granted scope,

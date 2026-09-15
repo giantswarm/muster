@@ -133,6 +133,13 @@
 // - Issues and validates access tokens
 // - Returns WWW-Authenticate headers for unauthorized requests
 //
+// A mock OAuth server can take the profile of a real authorization server
+// (`profile: github | dex | pro`, see Profile): one bundle of that server's
+// quirks -- no discovery document, `scope` or `expires_in` left out of token
+// responses, registration without RFC 7592 management, registrations
+// forgotten on Restart, resources that answer a bare 401 -- instead of one
+// flag per quirk. Individual flags override the bundle.
+//
 // # Integration
 //
 // This package is designed to work seamlessly with the muster testing framework

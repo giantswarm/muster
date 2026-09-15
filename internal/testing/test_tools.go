@@ -40,6 +40,11 @@ const (
 	// RFC 7591 client registration it holds, the way an authorization server
 	// with an in-memory client store forgets its clients when it restarts.
 	TestToolForgetOAuthRegistrations = "test_forget_oauth_registrations"
+	// TestToolRestartMockOAuthServer replaces a mock OAuth server's process
+	// behind its port and issuer; under profile pro (or
+	// forget_registrations_on_restart) its RFC 7591 registrations go with the
+	// old process.
+	TestToolRestartMockOAuthServer = "test_restart_mock_oauth_server"
 	// TestToolAdvanceOAuthClock advances the mock OAuth server's clock for testing.
 	TestToolAdvanceOAuthClock = "test_advance_oauth_clock"
 	// TestToolReadAuthStatus reads the auth://status resource to verify auth state.
@@ -258,6 +263,7 @@ func IsTestTool(toolName string) bool {
 		TestToolInjectToken,
 		TestToolGetOAuthServerInfo,
 		TestToolForgetOAuthRegistrations,
+		TestToolRestartMockOAuthServer,
 		TestToolAdvanceOAuthClock,
 		TestToolReadAuthStatus,
 		TestToolRevokeToken,
@@ -311,6 +317,8 @@ func (h *TestToolsHandler) HandleTestTool(ctx context.Context, toolName string, 
 		return h.handleGetOAuthServerInfo(ctx, args)
 	case TestToolForgetOAuthRegistrations:
 		return h.handleForgetOAuthRegistrations(ctx, args)
+	case TestToolRestartMockOAuthServer:
+		return h.handleRestartMockOAuthServer(ctx, args)
 	case TestToolAdvanceOAuthClock:
 		return h.handleAdvanceOAuthClock(ctx, args)
 	case TestToolReadAuthStatus:
@@ -883,6 +891,7 @@ func (h *TestToolsHandler) handleGetOAuthServerInfo(ctx context.Context, args ma
 				api.FieldName: info.Name,
 				"port":        info.Port,
 				"issuer_url":  info.IssuerURL,
+				"profile":     info.Profile,
 			}
 		}
 
@@ -901,6 +910,7 @@ func (h *TestToolsHandler) handleGetOAuthServerInfo(ctx context.Context, args ma
 		api.FieldName: info.Name,
 		"port":        info.Port,
 		"issuer_url":  info.IssuerURL,
+		"profile":     info.Profile,
 	}
 
 	// Live DCR state, so scenarios can assert whether (and how often)

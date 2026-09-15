@@ -5,9 +5,11 @@ description: |
   A logout revokes a subject-scoped grant even when the aggregator's registry
   entry knows no issuer and the operator's pin is the only source of it.
 
-  Both backends publish no RFC 9728 resource metadata (a bare 401, no
-  well-known document), so a registry entry knows no issuer until a login
-  discovers it through spec.auth.authorizationServer. The person signs in and
+  Both backends verify tokens from a GitHub-style authorization server
+  (`profile: github`) and, as GitHub's resources do, publish no RFC 9728
+  resource metadata (a bare 401, no well-known document), so a registry entry
+  knows no issuer until a login discovers it through
+  spec.auth.authorizationServer. The person signs in and
   uses both servers; then both services are restarted (a one-shot
   spec.restartRequestedAt), which rebuilds their entries from the bare 401
   while the token store keeps the grant -- the state of a muster that
@@ -37,6 +39,7 @@ pre_configuration:
       use_as_muster_oauth_server: true
 
     - name: "github-as"
+      profile: "github"
       scopes: ["repo", "read:org"]
       auto_approve: true
       pkce_required: false
@@ -51,8 +54,6 @@ pre_configuration:
           required: true
           mock_oauth_server_ref: "github-as"
           scope: "repo"
-          grant_scope: "subject"
-          omit_resource_metadata: true
         tools:
           - name: "whoami"
             description: "Who the hosted server sees"
@@ -68,8 +69,6 @@ pre_configuration:
           required: true
           mock_oauth_server_ref: "github-as"
           scope: "repo"
-          grant_scope: "subject"
-          omit_resource_metadata: true
         tools:
           - name: "board"
             description: "The in-house server's board"
@@ -88,8 +87,6 @@ pre_configuration:
           required: true
           mock_oauth_server_ref: "github-as"
           scope: "repo"
-          grant_scope: "subject"
-          omit_resource_metadata: true
         tools:
           - name: "ping"
             description: "Never called"
