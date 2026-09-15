@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/giantswarm/muster/internal/toolset"
+	"github.com/giantswarm/muster/v5/internal/toolset"
 )
 
 // requestStartKey carries the time a protocol request reached the transport,

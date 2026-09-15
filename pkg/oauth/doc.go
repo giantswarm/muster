@@ -20,14 +20,14 @@
 //
 // Agent usage (file-based storage, browser opening):
 //
-//	import "github.com/giantswarm/muster/pkg/oauth"
+//	import "github.com/giantswarm/muster/v5/pkg/oauth"
 //
 //	challenge, err := oauth.ParseWWWAuthenticate(header)
 //	pkce, err := oauth.GeneratePKCE() // Uses golang.org/x/oauth2 under the hood
 //
 // Server usage (in-memory storage, HTTP callbacks):
 //
-//	import "github.com/giantswarm/muster/pkg/oauth"
+//	import "github.com/giantswarm/muster/v5/pkg/oauth"
 //
 //	client := oauth.NewClient(httpClient, logger)
 //	metadata, err := client.DiscoverMetadata(ctx, issuer)

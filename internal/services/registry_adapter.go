@@ -3,7 +3,7 @@ package services
 import (
 	"fmt"
 
-	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/v5/internal/api"
 )
 
 // RegistryAdapter adapts the ServiceRegistry to implement api.ServiceRegistryHandler

@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/giantswarm/muster/internal/clock"
+	"github.com/giantswarm/muster/v5/internal/clock"
 )
 
 func TestInstanceIntervals(t *testing.T) {

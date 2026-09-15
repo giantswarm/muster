@@ -5,9 +5,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/giantswarm/muster/internal/api"
-	configPkg "github.com/giantswarm/muster/internal/config"
-	"github.com/giantswarm/muster/internal/mcpserver"
+	"github.com/giantswarm/muster/v5/internal/api"
+	configPkg "github.com/giantswarm/muster/v5/internal/config"
+	"github.com/giantswarm/muster/v5/internal/mcpserver"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

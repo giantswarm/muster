@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"testing"
 
-	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 )
 
 // newProtectedMusterServer starts a muster-like server that publishes RFC 9728

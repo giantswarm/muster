@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/giantswarm/muster/internal/api"
-	oauthstore "github.com/giantswarm/muster/internal/oauth/store"
+	"github.com/giantswarm/muster/v5/internal/api"
+	oauthstore "github.com/giantswarm/muster/v5/internal/oauth/store"
 )
 
 // ---------------------------------------------------------------------------

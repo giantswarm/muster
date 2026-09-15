@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/giantswarm/muster/internal/cli"
+	"github.com/giantswarm/muster/v5/internal/cli"
 )
 
 func TestMatchesWildcard(t *testing.T) {

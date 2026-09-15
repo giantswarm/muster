@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/giantswarm/muster/internal/agent/oauth"
+	"github.com/giantswarm/muster/v5/internal/agent/oauth"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"

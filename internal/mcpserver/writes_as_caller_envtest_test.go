@@ -13,12 +13,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
-	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
+	musterv1alpha1 "github.com/giantswarm/muster/v5/pkg/apis/muster/v1alpha1"
 
-	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/internal/callerwrite"
-	kubernetesclient "github.com/giantswarm/muster/internal/client/kubernetes"
-	"github.com/giantswarm/muster/internal/server"
+	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/callerwrite"
+	kubernetesclient "github.com/giantswarm/muster/v5/internal/client/kubernetes"
+	"github.com/giantswarm/muster/v5/internal/server"
 )
 
 // TestWritesAsCallerEnvtest runs the writes-as-caller path against a real

@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 )
 
 // dcrTestServer is a minimal AS stub: RFC 8414 metadata plus an RFC 7591

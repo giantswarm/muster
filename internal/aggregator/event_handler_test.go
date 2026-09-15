@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/v5/internal/api"
 )
 
 // mockOrchestratorAPI implements api.OrchestratorAPI for testing

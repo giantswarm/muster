@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 // sameIssuer compares two issuer URLs the way the OAuth client files pins:

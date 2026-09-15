@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/giantswarm/muster/internal/api"
-	oauthstore "github.com/giantswarm/muster/internal/oauth/store"
-	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+	"github.com/giantswarm/muster/v5/internal/api"
+	oauthstore "github.com/giantswarm/muster/v5/internal/oauth/store"
+	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 )
 
 // Issue #1211: an MCPServer whose spec holds its service down

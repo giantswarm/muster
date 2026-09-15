@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/v5/internal/api"
 )
 
 // ErrServiceAlreadyRegistered is wrapped by Register when a service of the

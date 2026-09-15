@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/v5/internal/api"
 )
 
 // handleResolveAuthRedirect runs core_auth_login for a server and follows the

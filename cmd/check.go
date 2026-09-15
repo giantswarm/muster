@@ -3,8 +3,8 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/internal/cli"
+	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/cli"
 
 	"github.com/spf13/cobra"
 )

@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/giantswarm/muster/internal/testing/mock"
+	"github.com/giantswarm/muster/v5/internal/testing/mock"
 
 	"gopkg.in/yaml.v3"
 )

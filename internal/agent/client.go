@@ -13,9 +13,9 @@ import (
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 
-	agentoauth "github.com/giantswarm/muster/internal/agent/oauth"
-	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/internal/metatools"
+	agentoauth "github.com/giantswarm/muster/v5/internal/agent/oauth"
+	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/metatools"
 )
 
 // TransportType defines the transport type for MCP connections.

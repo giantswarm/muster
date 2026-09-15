@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 // subjectGrantConnectTimeout bounds one connect made with a person's grant.

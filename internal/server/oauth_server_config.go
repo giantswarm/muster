@@ -20,9 +20,9 @@ import (
 	valkeygo "github.com/valkey-io/valkey-go"
 	"go.opentelemetry.io/otel"
 
-	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/internal/config"
-	musteroauth "github.com/giantswarm/muster/internal/oauth"
+	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/config"
+	musteroauth "github.com/giantswarm/muster/v5/internal/oauth"
 )
 
 // newOAuthServerConfig maps the muster OAuth config onto the mcp-oauth Config.

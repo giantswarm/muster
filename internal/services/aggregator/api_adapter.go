@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/giantswarm/muster/internal/aggregator"
-	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/v5/internal/aggregator"
+	"github.com/giantswarm/muster/v5/internal/api"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )

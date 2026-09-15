@@ -12,8 +12,8 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
-	"github.com/giantswarm/muster/internal/config"
-	oauthstore "github.com/giantswarm/muster/internal/oauth/store"
+	"github.com/giantswarm/muster/v5/internal/config"
+	oauthstore "github.com/giantswarm/muster/v5/internal/oauth/store"
 )
 
 // valkeyAggregatorConfig configures the session stores on the Valkey at addr,

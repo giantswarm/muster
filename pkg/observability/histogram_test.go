@@ -8,7 +8,7 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
-	"github.com/giantswarm/muster/pkg/observability"
+	"github.com/giantswarm/muster/v5/pkg/observability"
 )
 
 // collectBounds records one observation on a histogram with the given unit

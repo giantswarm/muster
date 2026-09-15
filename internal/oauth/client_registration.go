@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/giantswarm/muster/pkg/logging"
-	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+	"github.com/giantswarm/muster/v5/pkg/logging"
+	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 )
 
 // registrationCheckTimeout bounds the round trip that verifies a stored DCR

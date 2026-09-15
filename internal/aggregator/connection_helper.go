@@ -10,14 +10,14 @@ import (
 	"sync/atomic"
 	"time"
 
-	internalmcp "github.com/giantswarm/muster/internal/mcpserver"
+	internalmcp "github.com/giantswarm/muster/v5/internal/mcpserver"
 
-	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/internal/events"
-	oauthstore "github.com/giantswarm/muster/internal/oauth/store"
-	"github.com/giantswarm/muster/internal/server"
-	"github.com/giantswarm/muster/pkg/logging"
-	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/events"
+	oauthstore "github.com/giantswarm/muster/v5/internal/oauth/store"
+	"github.com/giantswarm/muster/v5/internal/server"
+	"github.com/giantswarm/muster/v5/pkg/logging"
+	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

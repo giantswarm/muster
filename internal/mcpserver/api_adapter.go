@@ -10,13 +10,13 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
+	musterv1alpha1 "github.com/giantswarm/muster/v5/pkg/apis/muster/v1alpha1"
 
-	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/internal/callerwrite"
-	"github.com/giantswarm/muster/internal/client"
-	"github.com/giantswarm/muster/internal/events"
-	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/callerwrite"
+	"github.com/giantswarm/muster/v5/internal/client"
+	"github.com/giantswarm/muster/v5/internal/events"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 // convertCRDFamilyToAPI converts a CRD MCPServerFamily to an API MCPServerFamily.

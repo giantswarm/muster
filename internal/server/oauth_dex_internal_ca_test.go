@@ -19,7 +19,7 @@ import (
 	"github.com/giantswarm/mcp-oauth/providers/dex"
 	"github.com/stretchr/testify/require"
 
-	"github.com/giantswarm/muster/internal/config"
+	"github.com/giantswarm/muster/v5/internal/config"
 )
 
 // localhostCert mints a self-signed certificate valid for the DNS name

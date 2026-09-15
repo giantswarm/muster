@@ -3,7 +3,7 @@ package workflow
 import (
 	"encoding/json"
 
-	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/v5/internal/api"
 )
 
 // maxExecutionPayloadBytes bounds the marshaled size of a persisted execution

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/v5/internal/api"
 )
 
 // MCPClientConfig contains configuration for creating an MCP client.

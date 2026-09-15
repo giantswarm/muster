@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/giantswarm/muster/pkg/logging"
-	"github.com/giantswarm/muster/pkg/tlsutil"
+	"github.com/giantswarm/muster/v5/pkg/logging"
+	"github.com/giantswarm/muster/v5/pkg/tlsutil"
 )
 
 // installExtraCAFile reads PEM-encoded certificates from path, appends them to

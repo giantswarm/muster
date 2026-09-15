@@ -3,7 +3,7 @@ package app
 import (
 	"testing"
 
-	"github.com/giantswarm/muster/internal/config"
+	"github.com/giantswarm/muster/v5/internal/config"
 )
 
 // Note: Testing NewApplication fully requires mocking global dependencies

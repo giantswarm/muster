@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/v5/internal/api"
 )
 
 // TableBuilder handles cell formatting and styling for table display.

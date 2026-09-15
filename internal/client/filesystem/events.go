@@ -13,8 +13,8 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 // CreateEvent logs an event for the given object in filesystem mode.

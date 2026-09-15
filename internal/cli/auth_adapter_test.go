@@ -16,9 +16,9 @@ import (
 	"testing"
 	"time"
 
-	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 
-	"github.com/giantswarm/muster/internal/agent/oauth"
+	"github.com/giantswarm/muster/v5/internal/agent/oauth"
 )
 
 func TestNewAuthAdapter(t *testing.T) {

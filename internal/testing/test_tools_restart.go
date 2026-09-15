@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/v5/internal/api"
 )
 
 // handleRestartInstance restarts the scenario's muster serve process while the

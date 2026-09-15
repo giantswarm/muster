@@ -7,10 +7,10 @@ import (
 	"maps"
 	"strings"
 
-	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/internal/metatools"
-	"github.com/giantswarm/muster/internal/toolset"
-	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/metatools"
+	"github.com/giantswarm/muster/v5/internal/toolset"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"

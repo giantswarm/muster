@@ -3,10 +3,10 @@ package orchestrator
 import (
 	"time"
 
-	"github.com/giantswarm/muster/internal/config"
-	"github.com/giantswarm/muster/internal/services"
-	"github.com/giantswarm/muster/internal/services/mcpserver"
-	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/v5/internal/config"
+	"github.com/giantswarm/muster/v5/internal/services"
+	"github.com/giantswarm/muster/v5/internal/services/mcpserver"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 // Runtime health probing of connected MCPServers.

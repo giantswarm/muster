@@ -16,7 +16,7 @@ import (
 
 	"github.com/giantswarm/mcp-oauth/security"
 
-	"github.com/giantswarm/muster/internal/config"
+	"github.com/giantswarm/muster/v5/internal/config"
 )
 
 // errCollect stands in for an apiserver read failure.

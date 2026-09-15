@@ -1,7 +1,7 @@
 package reconciler
 
 import (
-	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/v5/internal/api"
 )
 
 // Adapter wraps the ReconcileManager and provides API registration.

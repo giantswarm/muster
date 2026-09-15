@@ -6,9 +6,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/internal/clock"
-	"github.com/giantswarm/muster/internal/testing/mock"
+	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/clock"
+	"github.com/giantswarm/muster/v5/internal/testing/mock"
 )
 
 // mockServerRedeployer is the part of a mock MCP HTTP server (plain or

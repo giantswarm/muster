@@ -3,7 +3,7 @@ package commands
 import (
 	"testing"
 
-	"github.com/giantswarm/muster/internal/metatools"
+	"github.com/giantswarm/muster/v5/internal/metatools"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

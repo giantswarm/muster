@@ -7,7 +7,7 @@ import (
 	"github.com/giantswarm/mcp-oauth/providers"
 	"golang.org/x/oauth2"
 
-	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 // contextKey is a custom type for context keys to avoid collisions.

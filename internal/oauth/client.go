@@ -7,10 +7,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/giantswarm/muster/internal/config"
-	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+	"github.com/giantswarm/muster/v5/internal/config"
+	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 
-	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 // softwareVersion is the version string reported in the Client ID Metadata Document.

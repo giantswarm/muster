@@ -3,7 +3,7 @@ package aggregator
 import (
 	"strings"
 
-	"github.com/giantswarm/muster/internal/toolset"
+	"github.com/giantswarm/muster/v5/internal/toolset"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )

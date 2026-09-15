@@ -3,8 +3,8 @@ package main
 import (
 	"testing"
 
-	"github.com/giantswarm/muster/cmd"
-	"github.com/giantswarm/muster/pkg/project"
+	"github.com/giantswarm/muster/v5/cmd"
+	"github.com/giantswarm/muster/v5/pkg/project"
 )
 
 func TestVersionWiring(t *testing.T) {

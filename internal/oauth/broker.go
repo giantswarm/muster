@@ -10,9 +10,9 @@ import (
 
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
 
-	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/internal/config"
-	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/config"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 // BrokerExchanger implements mcp-oauth's server.Exchanger on top of muster's

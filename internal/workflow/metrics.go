@@ -8,9 +8,9 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
-	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/pkg/logging"
-	"github.com/giantswarm/muster/pkg/observability"
+	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/pkg/logging"
+	"github.com/giantswarm/muster/v5/pkg/observability"
 )
 
 // workflowMetrics holds the OTel instruments for workflow execution tracking.

@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/internal/server"
-	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/server"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 // ssoConnectOutcome is what one server's connect in a session's fan-out ended

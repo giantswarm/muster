@@ -13,7 +13,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
-	"github.com/giantswarm/muster/pkg/observability"
+	"github.com/giantswarm/muster/v5/pkg/observability"
 )
 
 func setupMeter(t *testing.T) *metric.ManualReader {

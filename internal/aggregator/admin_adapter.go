@@ -7,12 +7,12 @@ import (
 	"sort"
 	"time"
 
-	"github.com/giantswarm/muster/internal/admin"
-	"github.com/giantswarm/muster/internal/api"
-	oauthstore "github.com/giantswarm/muster/internal/oauth/store"
-	"github.com/giantswarm/muster/internal/server"
-	"github.com/giantswarm/muster/pkg/logging"
-	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+	"github.com/giantswarm/muster/v5/internal/admin"
+	"github.com/giantswarm/muster/v5/internal/api"
+	oauthstore "github.com/giantswarm/muster/v5/internal/oauth/store"
+	"github.com/giantswarm/muster/v5/internal/server"
+	"github.com/giantswarm/muster/v5/pkg/logging"
+	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 )
 
 // adminDeps builds the callbacks that admin.Server needs from the

@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/giantswarm/muster/internal/clock"
+	"github.com/giantswarm/muster/v5/internal/clock"
 )
 
 // Interval schedules an instance's lifecycle timers run on, selected by

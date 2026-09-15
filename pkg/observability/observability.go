@@ -13,8 +13,13 @@ package observability
 // tool.<name>, workflow.step), so a single scope keeps dashboard filtering
 // readable without a per-package suffix.
 //
-// Used identically as the OTel meter scope; both join on the same identifier
-// so spans and metrics correlate in Tempo + Mimir.
+// Used identically as the OTel meter scope and as the logger scope (see
+// pkg/logging); all join on the same identifier so spans, metrics and logs
+// correlate in Tempo, Mimir and Loki.
+//
+// The name is an identifier dashboards filter on (the otel_scope_name label),
+// not an import path: it stays at the un-suffixed repository path although
+// the module is github.com/giantswarm/muster/v5, so no filter breaks.
 const TracerName = "github.com/giantswarm/muster"
 
 // AttrToolName is the OpenTelemetry attribute key carrying the MCP tool name

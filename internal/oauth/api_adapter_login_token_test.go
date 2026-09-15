@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/internal/config"
-	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/config"
+	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 )
 
 // The session's login ID token (what SSO forwarding hands to backends) and a

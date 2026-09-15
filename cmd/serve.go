@@ -11,11 +11,11 @@ import (
 	mcptoolkitmetrics "github.com/giantswarm/mcp-toolkit/metrics"
 	"github.com/giantswarm/mcp-toolkit/tracing"
 
-	"github.com/giantswarm/muster/internal/app"
-	"github.com/giantswarm/muster/internal/clock"
-	"github.com/giantswarm/muster/internal/config"
-	"github.com/giantswarm/muster/pkg/logging"
-	"github.com/giantswarm/muster/pkg/observability"
+	"github.com/giantswarm/muster/v5/internal/app"
+	"github.com/giantswarm/muster/v5/internal/clock"
+	"github.com/giantswarm/muster/v5/internal/config"
+	"github.com/giantswarm/muster/v5/pkg/logging"
+	"github.com/giantswarm/muster/v5/pkg/observability"
 
 	"github.com/spf13/cobra"
 )

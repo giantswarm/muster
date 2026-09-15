@@ -13,7 +13,7 @@ import (
 	"github.com/go-jose/go-jose/v4"
 	"github.com/mark3labs/mcp-go/mcp"
 
-	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 )
 
 const (

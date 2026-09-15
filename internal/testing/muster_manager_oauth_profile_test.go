@@ -3,8 +3,8 @@ package testing
 import (
 	"testing"
 
-	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/internal/testing/mock"
+	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/testing/mock"
 )
 
 func boolPtr(b bool) *bool { return &b }

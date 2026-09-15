@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 )
 
 // unreachableIssuer is an issuer nothing serves: discovery against it fails

@@ -52,7 +52,7 @@ binary stays. A Homebrew install is updated with `brew upgrade` instead.
 muster self-update
 ```
 
-With a Go toolchain, `go install github.com/giantswarm/muster@latest` builds from source.
+With a Go toolchain, `go install github.com/giantswarm/muster/v5@latest` builds from source.
 
 ### Running as a user service
 

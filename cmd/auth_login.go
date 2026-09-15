@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 
-	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/v5/internal/api"
 
 	"github.com/spf13/cobra"
 )

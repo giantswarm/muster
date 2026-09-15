@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	oauthstore "github.com/giantswarm/muster/internal/oauth/store"
+	oauthstore "github.com/giantswarm/muster/v5/internal/oauth/store"
 )
 
 // readCountingStore counts how a session listing reads the capability store.

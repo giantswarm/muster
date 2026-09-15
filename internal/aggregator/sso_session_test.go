@@ -11,8 +11,8 @@ import (
 	"github.com/giantswarm/mcp-oauth/providers"
 	"github.com/stretchr/testify/require"
 
-	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/internal/server"
+	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/server"
 )
 
 func TestSSOSessionFromContext_CapturesCallerTokens(t *testing.T) {

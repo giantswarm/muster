@@ -7,8 +7,8 @@ import (
 	oauthhandler "github.com/giantswarm/mcp-oauth/handler"
 	"github.com/giantswarm/mcp-oauth/providers"
 
-	"github.com/giantswarm/muster/internal/server"
-	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/v5/internal/server"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 // ssoSession captures the token state for a single authenticated request,

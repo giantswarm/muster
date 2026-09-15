@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 // EnvControlSocket is the environment variable that selects the clock's

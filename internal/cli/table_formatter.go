@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/v5/internal/api"
 )
 
 // columnDisplayNames maps internal field names to user-friendly column headers.

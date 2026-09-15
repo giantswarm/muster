@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/giantswarm/muster/internal/cli"
+	"github.com/giantswarm/muster/v5/internal/cli"
 )
 
 // eventMap builds a core_events display object as returned by the tool.

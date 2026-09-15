@@ -7,9 +7,9 @@ import (
 	"github.com/giantswarm/mcp-oauth/security"
 	"github.com/valkey-io/valkey-go"
 
-	"github.com/giantswarm/muster/internal/config"
-	"github.com/giantswarm/muster/pkg/logging"
-	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+	"github.com/giantswarm/muster/v5/internal/config"
+	"github.com/giantswarm/muster/v5/pkg/logging"
+	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 )
 
 // ValkeyClientCredentialStore stores DCR-issued client credentials in Valkey

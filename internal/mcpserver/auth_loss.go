@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/client/transport"
 )
