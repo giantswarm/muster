@@ -97,6 +97,12 @@ attaches the session's credentials and forwards the call.
 Install the latest release. Binaries are signed in CI and verified by `muster self-update`.
 
 ```bash
+brew install giantswarm/muster/muster
+```
+
+Without Homebrew, download the binary for the platform:
+
+```bash
 os="$(uname -s | tr '[:upper:]' '[:lower:]')"
 arch="$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')"
 curl -fsSL -o muster "https://github.com/giantswarm/muster/releases/latest/download/muster-${os}-${arch}"
