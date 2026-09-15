@@ -10,9 +10,9 @@ import (
 
 	"github.com/jedib0t/go-pretty/v6/text"
 
-	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 
-	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/v5/internal/api"
 )
 
 func TestFormatMCPServerStatus(t *testing.T) {

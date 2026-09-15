@@ -3,7 +3,7 @@ package workflow
 import (
 	"testing"
 
-	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/v5/internal/api"
 )
 
 // TestNestedWorkflowName guards the classification at the heart of the

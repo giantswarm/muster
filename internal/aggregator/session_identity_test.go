@@ -8,7 +8,7 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/v5/internal/api"
 )
 
 // fakeClientSession is a minimal mcp-go ClientSession used to put a transport

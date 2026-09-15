@@ -4,9 +4,9 @@ import (
 	"context"
 	"sync"
 
-	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/internal/toolset"
-	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/toolset"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 // ServerLabelsSource builds, for one request, the lookup that resolves an

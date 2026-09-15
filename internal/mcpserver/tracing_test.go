@@ -15,7 +15,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/giantswarm/muster/pkg/observability"
+	"github.com/giantswarm/muster/v5/pkg/observability"
 )
 
 // TestClientTracing_PostConstruction pins the wiring used in

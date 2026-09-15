@@ -7,9 +7,9 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/internal/template"
-	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/template"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )

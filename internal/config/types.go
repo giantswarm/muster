@@ -3,7 +3,7 @@ package config
 import (
 	"strings"
 
-	"github.com/giantswarm/muster/internal/toolset"
+	"github.com/giantswarm/muster/v5/internal/toolset"
 )
 
 // MusterConfig is the top-level configuration structure for muster.

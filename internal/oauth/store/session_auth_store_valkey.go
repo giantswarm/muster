@@ -7,8 +7,8 @@ import (
 
 	"github.com/valkey-io/valkey-go"
 
-	"github.com/giantswarm/muster/internal/config"
-	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/v5/internal/config"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 // ValkeySessionAuthStore stores per-session authentication state in Valkey hashes.

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 )
 
 // callbackTestResource is the RFC 8707 resource indicator the test flows carry.

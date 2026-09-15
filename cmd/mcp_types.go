@@ -1,6 +1,6 @@
 package cmd
 
-import "github.com/giantswarm/muster/internal/api"
+import "github.com/giantswarm/muster/v5/internal/api"
 
 // mcpPrimitiveTypes maps MCP primitive type aliases (singular and plural)
 // to their canonical singular form. Used by list and get commands to

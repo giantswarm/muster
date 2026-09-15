@@ -3,7 +3,7 @@ package cli
 import (
 	"testing"
 
-	"github.com/giantswarm/muster/internal/metatools"
+	"github.com/giantswarm/muster/v5/internal/metatools"
 )
 
 // TestNewMCPToolInfo covers the server a listed tool is attributed to: the

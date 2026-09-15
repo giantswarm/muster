@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/giantswarm/muster/internal/client"
-	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
+	"github.com/giantswarm/muster/v5/internal/client"
+	musterv1alpha1 "github.com/giantswarm/muster/v5/pkg/apis/muster/v1alpha1"
 )
 
 var errListMCPServers = errors.New("connection refused")

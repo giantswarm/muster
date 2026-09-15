@@ -10,9 +10,9 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/util/retry"
 
-	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
+	musterv1alpha1 "github.com/giantswarm/muster/v5/pkg/apis/muster/v1alpha1"
 
-	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 // ResourceType represents the type of resource being reconciled.

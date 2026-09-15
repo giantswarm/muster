@@ -5,7 +5,7 @@ import (
 	"strings"
 	"sync"
 
-	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 )
 
 // challengeRecorder keeps the WWW-Authenticate header of the most recent 401 a

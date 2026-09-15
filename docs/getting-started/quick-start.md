@@ -17,7 +17,7 @@ chmod +x muster && sudo mv muster /usr/local/bin/
 muster version
 ```
 
-With a Go toolchain installed, `go install github.com/giantswarm/muster@latest` is the
+With a Go toolchain installed, `go install github.com/giantswarm/muster/v5@latest` is the
 alternative. Other options, including the container image, are in
 [Installation](../operations/installation.md).
 

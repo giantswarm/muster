@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/giantswarm/muster/internal/api"
-	mcpserverPkg "github.com/giantswarm/muster/internal/mcpserver"
+	"github.com/giantswarm/muster/v5/internal/api"
+	mcpserverPkg "github.com/giantswarm/muster/v5/internal/mcpserver"
 )
 
 // TestHandleAuthRequiredServer_CarriesNamespace: the pending-auth registration

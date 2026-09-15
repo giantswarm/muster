@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/giantswarm/muster/internal/api"
-	oauthstore "github.com/giantswarm/muster/internal/oauth/store"
+	"github.com/giantswarm/muster/v5/internal/api"
+	oauthstore "github.com/giantswarm/muster/v5/internal/oauth/store"
 )
 
 // The family routing index has to follow what members offer right now

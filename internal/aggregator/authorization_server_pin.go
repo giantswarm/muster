@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 // pinAuthorizationServer hands the operator's description of an MCPServer's

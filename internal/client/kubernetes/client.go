@@ -17,7 +17,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
+	musterv1alpha1 "github.com/giantswarm/muster/v5/pkg/apis/muster/v1alpha1"
 )
 
 // CRD kinds used in switch statements and event references.

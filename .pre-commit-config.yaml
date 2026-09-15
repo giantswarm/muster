@@ -55,7 +55,7 @@ repos:
           - --max-same-issues=0
           - --max-issues-per-linter=0
       - id: go-imports
-        args: [ -local, github.com/giantswarm/muster ]
+        args: [ -local, github.com/giantswarm/muster/v5 ]
 
   # Helm chart schema for muster: generate -> fix $ref -> normalize, as ONE hook.
   #

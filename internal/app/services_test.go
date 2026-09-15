@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/util/wait"
 
-	"github.com/giantswarm/muster/internal/client"
-	"github.com/giantswarm/muster/internal/config"
+	"github.com/giantswarm/muster/v5/internal/client"
+	"github.com/giantswarm/muster/v5/internal/config"
 )
 
 func TestInitializeServices(t *testing.T) {

@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 
-	oauthstore "github.com/giantswarm/muster/internal/oauth/store"
-	"github.com/giantswarm/muster/pkg/logging"
+	oauthstore "github.com/giantswarm/muster/v5/internal/oauth/store"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )

@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 
-	"github.com/giantswarm/muster/internal/config"
+	"github.com/giantswarm/muster/v5/internal/config"
 )
 
 const (

@@ -13,9 +13,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	crclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/giantswarm/muster/internal/api"
-	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
-	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/v5/internal/api"
+	musterv1alpha1 "github.com/giantswarm/muster/v5/pkg/apis/muster/v1alpha1"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 // Label keys used to index WorkflowExecution records so List can filter

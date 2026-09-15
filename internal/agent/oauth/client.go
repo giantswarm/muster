@@ -13,7 +13,7 @@ import (
 	"github.com/giantswarm/mcp-oauth/providers"
 	"golang.org/x/oauth2"
 
-	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 )
 
 // ErrAuthRequired is returned when OAuth authentication is required.

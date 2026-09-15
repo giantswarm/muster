@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 // serverSuspended reports whether the MCPServer's spec holds its service down:

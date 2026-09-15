@@ -11,7 +11,7 @@ import (
 	"sync"
 	"testing"
 
-	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 )
 
 // forgetfulAS is a DCR-only authorization server stub that can forget its

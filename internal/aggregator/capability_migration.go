@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"time"
 
-	oauthstore "github.com/giantswarm/muster/internal/oauth/store"
-	"github.com/giantswarm/muster/pkg/logging"
+	oauthstore "github.com/giantswarm/muster/v5/internal/oauth/store"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 // capabilityMigrationTimeout bounds the one-off rewrite of a store that still

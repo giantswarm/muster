@@ -1,4 +1,4 @@
-module github.com/giantswarm/muster
+module github.com/giantswarm/muster/v5
 
 go 1.26.0
 

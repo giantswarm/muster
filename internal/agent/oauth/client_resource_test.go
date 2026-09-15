@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 )
 
 // newMetadataServer starts an authorization server publishing RFC 8414

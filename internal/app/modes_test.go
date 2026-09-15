@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/giantswarm/muster/internal/config"
-	"github.com/giantswarm/muster/internal/orchestrator"
-	serv "github.com/giantswarm/muster/internal/services"
+	"github.com/giantswarm/muster/v5/internal/config"
+	"github.com/giantswarm/muster/v5/internal/orchestrator"
+	serv "github.com/giantswarm/muster/v5/internal/services"
 )
 
 func TestConfigValidation(t *testing.T) {

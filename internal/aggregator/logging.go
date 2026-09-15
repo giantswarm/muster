@@ -8,7 +8,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 // LogSubsystem tags the structured log lines emitted by this middleware,

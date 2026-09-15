@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 // GetAuthInfo returns the server's OAuth information, or nil.

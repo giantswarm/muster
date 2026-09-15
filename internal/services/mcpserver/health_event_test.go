@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/v5/internal/api"
 )
 
 // countingEventManager is a minimal api.EventManagerHandler that records how

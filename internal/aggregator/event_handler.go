@@ -4,9 +4,9 @@ import (
 	"context"
 	"sync"
 
-	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/internal/events"
-	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/events"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )

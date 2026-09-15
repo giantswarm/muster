@@ -11,13 +11,13 @@ import (
 	"sync"
 	"time"
 
-	musterctx "github.com/giantswarm/muster/internal/context"
+	musterctx "github.com/giantswarm/muster/v5/internal/context"
 
-	agentoauth "github.com/giantswarm/muster/internal/agent/oauth"
+	agentoauth "github.com/giantswarm/muster/v5/internal/agent/oauth"
 
-	"github.com/giantswarm/muster/internal/agent/commands"
-	"github.com/giantswarm/muster/internal/api"
-	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+	"github.com/giantswarm/muster/v5/internal/agent/commands"
+	"github.com/giantswarm/muster/v5/internal/api"
+	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 
 	"github.com/chzyer/readline"
 	"github.com/mark3labs/mcp-go/mcp"

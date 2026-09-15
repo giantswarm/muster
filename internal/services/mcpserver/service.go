@@ -16,13 +16,13 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 
-	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/internal/clock"
-	"github.com/giantswarm/muster/internal/config"
-	"github.com/giantswarm/muster/internal/events"
-	"github.com/giantswarm/muster/internal/mcpserver"
-	"github.com/giantswarm/muster/internal/services"
-	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/clock"
+	"github.com/giantswarm/muster/v5/internal/config"
+	"github.com/giantswarm/muster/v5/internal/events"
+	"github.com/giantswarm/muster/v5/internal/mcpserver"
+	"github.com/giantswarm/muster/v5/internal/services"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 // DefaultRemoteTimeout is the default connection timeout in seconds for remote MCP servers.

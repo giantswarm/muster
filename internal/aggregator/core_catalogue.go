@@ -7,9 +7,9 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 
-	"github.com/giantswarm/muster/internal/clock"
-	"github.com/giantswarm/muster/internal/config"
-	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/v5/internal/clock"
+	"github.com/giantswarm/muster/v5/internal/config"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 // coreCatalogueMaxAge is the age past which a read of the core catalogue

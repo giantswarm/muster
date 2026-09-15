@@ -13,7 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/watch"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/v5/internal/api"
 )
 
 // CreateEvent creates a Kubernetes Event for the given object via the

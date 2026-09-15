@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/v5/internal/api"
 )
 
 const testServiceName = "test-service"

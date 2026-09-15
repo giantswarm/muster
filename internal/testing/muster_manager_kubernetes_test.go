@@ -14,7 +14,7 @@ import (
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
+	musterv1alpha1 "github.com/giantswarm/muster/v5/pkg/apis/muster/v1alpha1"
 
 	"gopkg.in/yaml.v3"
 )

@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/giantswarm/muster/internal/config"
+	"github.com/giantswarm/muster/v5/internal/config"
 
 	"github.com/stretchr/testify/assert"
 )

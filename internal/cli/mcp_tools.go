@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"github.com/giantswarm/muster/internal/metatools"
-	"github.com/giantswarm/muster/internal/toolset"
+	"github.com/giantswarm/muster/v5/internal/metatools"
+	"github.com/giantswarm/muster/v5/internal/toolset"
 )
 
 // MCPToolInfo is a tool as list_tools reports it: the MCP tool plus the server

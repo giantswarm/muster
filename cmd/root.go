@@ -4,7 +4,7 @@ import (
 	"errors"
 	"os"
 
-	"github.com/giantswarm/muster/internal/cli"
+	"github.com/giantswarm/muster/v5/internal/cli"
 
 	"github.com/spf13/cobra"
 )

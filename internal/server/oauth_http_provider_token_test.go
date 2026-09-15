@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/oauth2"
 
-	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 // keyEchoingTokenStore fails every lookup with an error that embeds the key it

@@ -12,6 +12,8 @@ import (
 	mcptoolkitlogging "github.com/giantswarm/mcp-toolkit/logging"
 	"github.com/go-logr/logr"
 	ctrl "sigs.k8s.io/controller-runtime"
+
+	"github.com/giantswarm/muster/v5/pkg/observability"
 )
 
 // Shutdown drains the underlying OpenTelemetry LoggerProvider on
@@ -107,7 +109,7 @@ func Init(ctx context.Context, filterLevel LogLevel, output io.Writer, serviceNa
 	logger, shutdown, err := mcptoolkitlogging.Init(ctx,
 		mcptoolkitlogging.WithLevel(filterLevel.SlogLevel()),
 		mcptoolkitlogging.WithOutput(output),
-		mcptoolkitlogging.WithLoggerName("github.com/giantswarm/muster"),
+		mcptoolkitlogging.WithLoggerName(observability.TracerName),
 		mcptoolkitlogging.WithServiceName(serviceName),
 		mcptoolkitlogging.WithServiceVersion(serviceVersion),
 	)

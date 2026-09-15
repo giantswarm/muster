@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 // purePathPattern matches a single template that is a bare reference path —

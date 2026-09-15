@@ -3,10 +3,10 @@ package events
 import (
 	"context"
 
-	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
+	musterv1alpha1 "github.com/giantswarm/muster/v5/pkg/apis/muster/v1alpha1"
 
-	"github.com/giantswarm/muster/internal/client"
-	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/v5/internal/client"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 // EventGenerator provides event generation utilities using the unified MusterClient.

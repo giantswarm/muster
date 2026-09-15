@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/v5/internal/api"
 
 	"github.com/mark3labs/mcp-go/client/transport"
 )

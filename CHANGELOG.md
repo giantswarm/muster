@@ -33,6 +33,20 @@ All notable changes to this project will be documented in this file.
 
 - `muster test`: scenarios can run their instance on Valkey storage and restart it. `pre_configuration.storage: {type: valkey}` starts an in-process Valkey stand-in (miniredis) per instance and points every backed store -- session auth, capabilities, OAuth tokens, state, client credentials, the OAuth server's own store -- at it, the way an installation's stores outlive a pod; `start_delay` makes it answer only after `muster serve` started, for "Valkey is late" scenarios. `test_restart_instance` stops and starts `muster serve` on the same configuration while the store and the mock servers keep running and reconnects every user client with the bearer it held, so the steps after it act as the sessions that lived through a rollout; `test_stop_valkey` / `test_start_valkey` take the store away and bring it back with its data. Three scenarios reproduce bugs that were first seen on an installation because the suite could not express them: a family tool call after a restart without a listing (fails on v5.18.2, [#1204](https://github.com/giantswarm/muster/issues/1204)), a Valkey that answers late at start being waited for rather than replaced by memory stores (fails on v5.19.12, [#1229](https://github.com/giantswarm/muster/issues/1229)), and a pinned bare-401 server staying connectable and its grant revocable after a restart with no login in the new process (fails on v5.8.3, [#1150](https://github.com/giantswarm/muster/issues/1150), [#1154](https://github.com/giantswarm/muster/pull/1154)). ([#1236](https://github.com/giantswarm/muster/issues/1236))
 
+### Changed
+
+- The Go module is `github.com/giantswarm/muster/v5`; every import path carries the suffix
+  (`github.com/giantswarm/muster/v5/pkg/oauth`). The module path had no `/v5` while the releases were
+  v5.x, and Go only considers v0 and v1 tags for such a path: `go install github.com/giantswarm/muster@latest`
+  resolved to v1.12.0 from August and installed a month-old v1 binary, and
+  `go install github.com/giantswarm/muster@v5.23.2` was refused ("module contains a go.mod file, so module
+  path must match major version"). `go install github.com/giantswarm/muster/v5@latest` now resolves to the
+  newest release, and Go's own VCS stamping gives a build of a tagged commit its v5 tag instead of a
+  pseudo-version of the last v1 tag. No repository outside this one imported the old path. The
+  `goimports -local` prefix of the pre-commit hook and the contributor docs follow the module. The
+  OpenTelemetry scope name `github.com/giantswarm/muster` (`observability.TracerName`, the `otel_scope_name`
+  label, the logger scope) is an identifier dashboards filter on, not an import path, and is unchanged.
+
 ### Fixed
 
 - The release binaries report their release tag again. `muster version` on the v5.22.0 binary printed

@@ -1,7 +1,7 @@
 package cli
 
 import (
-	"github.com/giantswarm/muster/internal/config"
+	"github.com/giantswarm/muster/v5/internal/config"
 
 	"github.com/spf13/cobra"
 )

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
+	musterv1alpha1 "github.com/giantswarm/muster/v5/pkg/apis/muster/v1alpha1"
 )
 
 // stdioServer is the definition the gate is about: a command that would be

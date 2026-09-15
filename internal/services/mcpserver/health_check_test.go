@@ -13,8 +13,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/internal/services"
+	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/services"
 )
 
 // fakeProbeClient stands in for the MCP client behind a Service. CheckHealth

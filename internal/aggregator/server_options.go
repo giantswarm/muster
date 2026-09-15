@@ -5,7 +5,7 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 	"go.opentelemetry.io/otel"
 
-	"github.com/giantswarm/muster/pkg/observability"
+	"github.com/giantswarm/muster/v5/pkg/observability"
 )
 
 // mcpServerOptions returns the OTEL option chain wired into the aggregator's

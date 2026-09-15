@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/giantswarm/muster/internal/config"
+	"github.com/giantswarm/muster/v5/internal/config"
 )
 
 func TestNewOAuthServerConfig_TrustedPublicRegistrationRedirectURIs(t *testing.T) {

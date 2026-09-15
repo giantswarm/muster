@@ -10,8 +10,8 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
-	"github.com/giantswarm/muster/pkg/logging"
-	"github.com/giantswarm/muster/pkg/observability"
+	"github.com/giantswarm/muster/v5/pkg/logging"
+	"github.com/giantswarm/muster/v5/pkg/observability"
 )
 
 const (

@@ -13,11 +13,11 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"k8s.io/apimachinery/pkg/runtime"
 
-	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/internal/metatools"
-	oauthstore "github.com/giantswarm/muster/internal/oauth/store"
-	"github.com/giantswarm/muster/internal/toolset"
-	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/metatools"
+	oauthstore "github.com/giantswarm/muster/v5/internal/oauth/store"
+	"github.com/giantswarm/muster/v5/internal/toolset"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 // resolvedName stores the reverse mapping from an exposed (prefixed) name

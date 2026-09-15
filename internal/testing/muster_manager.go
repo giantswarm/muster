@@ -20,8 +20,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/giantswarm/muster/internal/testing/mock"
-	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
+	"github.com/giantswarm/muster/v5/internal/testing/mock"
+	musterv1alpha1 "github.com/giantswarm/muster/v5/pkg/apis/muster/v1alpha1"
 
 	"gopkg.in/yaml.v3"
 )

@@ -5,7 +5,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/client/transport"
 
-	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 )
 
 // SetupOAuthConfig creates an AgentTokenStore and returns the OAuthConfig for

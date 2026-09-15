@@ -3,8 +3,8 @@ package testing
 import (
 	"fmt"
 
-	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/internal/testing/mock"
+	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/testing/mock"
 )
 
 // mockOAuthProfile returns the profile a mock OAuth server's configuration

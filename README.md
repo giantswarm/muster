@@ -12,7 +12,7 @@
   <a href="https://github.com/giantswarm/muster/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/giantswarm/muster?sort=semver"></a>
   <a href="https://circleci.com/gh/giantswarm/muster"><img alt="CircleCI" src="https://circleci.com/gh/giantswarm/muster.svg?style=shield"></a>
   <a href="https://goreportcard.com/report/github.com/giantswarm/muster"><img alt="Go Report Card" src="https://goreportcard.com/badge/github.com/giantswarm/muster"></a>
-  <a href="https://pkg.go.dev/github.com/giantswarm/muster"><img alt="Go Reference" src="https://pkg.go.dev/badge/github.com/giantswarm/muster.svg"></a>
+  <a href="https://pkg.go.dev/github.com/giantswarm/muster/v5"><img alt="Go Reference" src="https://pkg.go.dev/badge/github.com/giantswarm/muster/v5.svg"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/giantswarm/muster"></a>
   <a href="https://giantswarm.github.io/muster/"><img alt="Documentation" src="https://img.shields.io/badge/docs-giantswarm.github.io%2Fmuster-002645"></a>
 </p>
@@ -110,7 +110,7 @@ curl -fsSL -o muster "https://github.com/giantswarm/muster/releases/latest/downl
 chmod +x muster && sudo mv muster /usr/local/bin/
 ```
 
-With a Go toolchain, `go install github.com/giantswarm/muster@latest` works as well.
+With a Go toolchain, `go install github.com/giantswarm/muster/v5@latest` works as well.
 
 Start the aggregator, register an MCP server and call one of its tools:
 

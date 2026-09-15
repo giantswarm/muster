@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/giantswarm/muster/internal/clock"
+	"github.com/giantswarm/muster/v5/internal/clock"
 )
 
 // RestartInstance stops the instance's muster serve process and starts it

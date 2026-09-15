@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/giantswarm/muster/internal/agent"
-	"github.com/giantswarm/muster/internal/cli"
-	"github.com/giantswarm/muster/pkg/project"
+	"github.com/giantswarm/muster/v5/internal/agent"
+	"github.com/giantswarm/muster/v5/internal/cli"
+	"github.com/giantswarm/muster/v5/pkg/project"
 
 	"github.com/spf13/cobra"
 )

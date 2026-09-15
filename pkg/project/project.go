@@ -33,12 +33,14 @@ var (
 // stamped into the build info, the commit SHA, and finally the placeholder
 // "dev".
 //
-// The build info is only trusted when it names a tag. The module path is
-// github.com/giantswarm/muster, without a /v5 suffix, so the toolchain's VCS
-// stamping only considers v0 and v1 tags: a v5 release commit gets the
-// pseudo-version v1.12.1-0.<commit time>-<commit> derived from the last v1
-// tag, not its v5 tag. Such a pseudo-version names no release and is ignored;
-// releases carry their tag in the `version` ldflag.
+// The build info is only trusted when it names a tag. A build of an untagged
+// commit gets a pseudo-version derived from the last tag before it,
+// v5.23.3-0.<commit time>-<commit> (and while the module path had no /v5
+// suffix the toolchain only considered v0 and v1 tags, so even a release
+// commit got v1.12.1-0.<commit time>-<commit>). Such a pseudo-version names no
+// release and is ignored; releases carry their tag in the `version` ldflag,
+// and since the module is github.com/giantswarm/muster/v5 a build of the
+// tagged commit carries it in the build info as well.
 func Version() string {
 	if version != dev && version != "" {
 		return version

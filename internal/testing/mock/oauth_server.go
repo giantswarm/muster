@@ -24,7 +24,7 @@ import (
 	"sync"
 	"time"
 
-	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 )
 
 // jwtHeader is the pre-computed base64-encoded JWT header for unsigned tokens.

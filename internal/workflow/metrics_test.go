@@ -10,8 +10,8 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
-	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/pkg/observability"
+	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/pkg/observability"
 )
 
 // These tests define the contract for workflow execution metrics (Phase 4 of

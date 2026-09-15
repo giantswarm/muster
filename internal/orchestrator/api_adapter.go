@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/internal/mcpserver"
-	"github.com/giantswarm/muster/internal/services"
+	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/mcpserver"
+	"github.com/giantswarm/muster/v5/internal/services"
 )
 
 // formatOAuthAuthenticationError creates a standardized error result for OAuth authentication errors.

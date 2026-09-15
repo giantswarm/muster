@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/giantswarm/muster/internal/config"
+	"github.com/giantswarm/muster/v5/internal/config"
 )
 
 // ConfigServiceAPI defines the interface for managing configuration at runtime.

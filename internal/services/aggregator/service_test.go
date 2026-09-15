@@ -3,7 +3,7 @@ package aggregator
 import (
 	"testing"
 
-	"github.com/giantswarm/muster/internal/aggregator"
+	"github.com/giantswarm/muster/v5/internal/aggregator"
 
 	"github.com/stretchr/testify/assert"
 )

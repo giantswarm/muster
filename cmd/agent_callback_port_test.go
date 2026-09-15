@@ -3,7 +3,7 @@ package cmd
 import (
 	"testing"
 
-	"github.com/giantswarm/muster/internal/cli"
+	"github.com/giantswarm/muster/v5/internal/cli"
 )
 
 // TestAgentCallbackPort_HonorsEnvVar pins agentCallbackPort to cli.GetCallbackPort,

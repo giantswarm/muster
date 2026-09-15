@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 )
 
 // rotatingAS is a token endpoint that behaves like GitHub's: every

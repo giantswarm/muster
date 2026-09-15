@@ -3,7 +3,7 @@ package cli
 import (
 	"testing"
 
-	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/v5/internal/api"
 )
 
 // TestAuthAdapter_Close_Unregisters pins the symmetry Register() and Close()

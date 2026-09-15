@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/v5/internal/api"
 
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/stretchr/testify/assert"

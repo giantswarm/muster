@@ -7,10 +7,10 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/giantswarm/muster/internal/orchestrator"
-	serv "github.com/giantswarm/muster/internal/services"
+	"github.com/giantswarm/muster/v5/internal/orchestrator"
+	serv "github.com/giantswarm/muster/v5/internal/services"
 
-	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 // run executes the application in non-interactive command line mode.

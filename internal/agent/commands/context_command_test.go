@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	musterctx "github.com/giantswarm/muster/internal/context"
+	musterctx "github.com/giantswarm/muster/v5/internal/context"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

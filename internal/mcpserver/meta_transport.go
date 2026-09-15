@@ -7,7 +7,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 // metaTransport merges the configured entries into the params._meta object of

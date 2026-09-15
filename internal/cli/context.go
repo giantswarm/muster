@@ -3,7 +3,7 @@ package cli
 import (
 	"os"
 
-	musterctx "github.com/giantswarm/muster/internal/context"
+	musterctx "github.com/giantswarm/muster/v5/internal/context"
 )
 
 // ContextEnvVar is the environment variable name for overriding the current context.

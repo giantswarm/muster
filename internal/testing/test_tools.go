@@ -14,11 +14,11 @@ import (
 	"strings"
 	"time"
 
-	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 
-	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/internal/metatools"
-	"github.com/giantswarm/muster/internal/testing/mock"
+	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/metatools"
+	"github.com/giantswarm/muster/v5/internal/testing/mock"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )

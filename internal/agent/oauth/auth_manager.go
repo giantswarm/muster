@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"sync"
 
-	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 )
 
 // AuthState represents the current authentication state of the agent.

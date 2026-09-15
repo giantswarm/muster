@@ -20,7 +20,7 @@ Bug reports, documentation fixes and features are welcome as issues and pull req
 
 - Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/) (`feat(aggregator): ...`, `fix(oauth): ...`); the pre-commit hook enforces it.
 - Every commit is signed off under the [Developer Certificate of Origin](https://github.com/giantswarm/muster/blob/main/DCO) (`git commit -s`).
-- Formatting and linting are `gofmt`, `goimports -local github.com/giantswarm/muster` and `golangci-lint` with `gosec` and `goconst`; `make lint` runs them.
+- Formatting and linting are `gofmt`, `goimports -local github.com/giantswarm/muster/v5` and `golangci-lint` with `gosec` and `goconst`; `make lint` runs them.
 - Generated files are regenerated, never edited: CRDs (`make generate-crds`), the CLI reference (`make generate-cli-docs`), the Helm values schema and chart README (pre-commit hooks), `schema.json` (`muster test --generate-schema`).
 
 ## Releases

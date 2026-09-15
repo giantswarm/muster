@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/giantswarm/muster/pkg/logging"
-	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+	"github.com/giantswarm/muster/v5/pkg/logging"
+	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 
 	"github.com/mark3labs/mcp-go/client/transport"
 )

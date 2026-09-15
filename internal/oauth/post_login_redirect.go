@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 // redirectAllowed reports whether a caller-supplied post-login redirect

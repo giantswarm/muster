@@ -50,7 +50,7 @@ project holds coverage at eighty percent or more for new code.
 ## Before every commit
 
 ```bash
-goimports -local github.com/giantswarm/muster -w . && go fmt ./...
+goimports -local github.com/giantswarm/muster/v5 -w . && go fmt ./...
 make lint           # golangci-lint with gosec, goconst and govet
 make vet
 make test

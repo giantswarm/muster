@@ -41,10 +41,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/giantswarm/muster/internal/api"
-	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+	"github.com/giantswarm/muster/v5/internal/api"
+	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 
-	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 // AuthToolProvider provides core authentication tools for the aggregator.

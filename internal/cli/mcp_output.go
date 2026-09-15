@@ -8,8 +8,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/giantswarm/muster/internal/api"
-	pkgstrings "github.com/giantswarm/muster/pkg/strings"
+	"github.com/giantswarm/muster/v5/internal/api"
+	pkgstrings "github.com/giantswarm/muster/v5/pkg/strings"
 
 	"gopkg.in/yaml.v3"
 )

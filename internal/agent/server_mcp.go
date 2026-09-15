@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/giantswarm/muster/internal/agent/oauth"
-	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+	"github.com/giantswarm/muster/v5/internal/agent/oauth"
+	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"

@@ -7,7 +7,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 
 	"github.com/giantswarm/mcp-oauth/providers/dex"
 )

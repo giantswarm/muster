@@ -8,12 +8,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/giantswarm/muster/internal/agent"
-	"github.com/giantswarm/muster/internal/agent/oauth"
-	"github.com/giantswarm/muster/internal/cli"
-	"github.com/giantswarm/muster/internal/config"
+	"github.com/giantswarm/muster/v5/internal/agent"
+	"github.com/giantswarm/muster/v5/internal/agent/oauth"
+	"github.com/giantswarm/muster/v5/internal/cli"
+	"github.com/giantswarm/muster/v5/internal/config"
 
-	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 
 	"github.com/spf13/cobra"
 )

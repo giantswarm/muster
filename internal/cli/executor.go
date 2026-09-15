@@ -10,12 +10,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/giantswarm/muster/internal/agent"
-	agentoauth "github.com/giantswarm/muster/internal/agent/oauth"
-	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/internal/config"
-	"github.com/giantswarm/muster/internal/metatools"
-	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+	"github.com/giantswarm/muster/v5/internal/agent"
+	agentoauth "github.com/giantswarm/muster/v5/internal/agent/oauth"
+	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/config"
+	"github.com/giantswarm/muster/v5/internal/metatools"
+	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 
 	"github.com/briandowns/spinner"
 	"github.com/jedib0t/go-pretty/v6/text"

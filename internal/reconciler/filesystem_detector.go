@@ -10,7 +10,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
-	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 // resourceDirMapping maps resource types to their directory names.

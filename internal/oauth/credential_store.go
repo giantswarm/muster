@@ -3,7 +3,7 @@ package oauth
 import (
 	"sync"
 
-	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 )
 
 // ClientCredentialStorer is the interface for issuer-keyed OAuth client

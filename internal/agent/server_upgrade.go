@@ -1,8 +1,8 @@
 package agent
 
 import (
-	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/internal/metatools"
+	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/metatools"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"

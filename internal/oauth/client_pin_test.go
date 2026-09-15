@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 )
 
 const (

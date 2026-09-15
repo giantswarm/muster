@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/cobra/doc"
 
-	"github.com/giantswarm/muster/cmd"
+	"github.com/giantswarm/muster/v5/cmd"
 )
 
 const defaultOutputDir = "docs/reference/cli"

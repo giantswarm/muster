@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/internal/config"
-	oauthstore "github.com/giantswarm/muster/internal/oauth/store"
-	"github.com/giantswarm/muster/pkg/logging"
+	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/config"
+	oauthstore "github.com/giantswarm/muster/v5/internal/oauth/store"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

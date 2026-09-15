@@ -1,7 +1,7 @@
 package app
 
 import (
-	"github.com/giantswarm/muster/internal/config"
+	"github.com/giantswarm/muster/v5/internal/config"
 )
 
 // Config holds the application configuration that controls bootstrap behavior and execution modes.

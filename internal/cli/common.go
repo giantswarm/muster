@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/giantswarm/muster/internal/config"
+	"github.com/giantswarm/muster/v5/internal/config"
 )
 
 // GetAggregatorEndpoint detects and returns the aggregator endpoint URL from a specific configuration.
