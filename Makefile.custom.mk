@@ -45,10 +45,34 @@ helm-promtool-test: ## Run the promtool unit tests for the PrometheusRule (requi
 # The architect go-build job runs `make test` (test_target: test). Extend that
 # target with the checks that used to live in the hand-written ci.yaml so CI and
 # local runs share one command. The `go test` recipe itself lives in
-# Makefile.gen.go.mk; these prerequisites run before it (CRD freshness, then the
-# integration suite) and only add prerequisites -- they do not override the
-# generated recipe.
-test: verify-crds verify-cli-docs muster-integration-test
+# Makefile.gen.go.mk; these prerequisites run before it (the version stamp for
+# the CI binaries, CRD freshness, then the integration suite) and only add
+# prerequisites -- they do not override the generated recipe.
+test: stamp-version verify-crds verify-cli-docs muster-integration-test
+
+# The version stamped into the binaries CI links: the tag on a tag build,
+# otherwise what `git describe` says about HEAD (v5.23.2-1-g4be8379e on a
+# branch, with -dirty for uncommitted changes).
+STAMP_VERSION ?= $(or $(CIRCLE_TAG),$(shell git describe --tags --always --dirty --match 'v*'))
+
+# The architect orb's go-build job links the binaries with the flags in
+# .ldflags, a file its go-test command writes (commit SHA and build time, no
+# version) right before it runs `make test`. Without a version ldflag the
+# binary reports the version Go's buildvcs derives from the module path, and as
+# that is github.com/giantswarm/muster with no /v5 suffix Go only considers v0
+# and v1 tags: the v5.22.0 release binary reported
+# v1.12.1-0.20260915144925-e6c760a32b48, and `muster self-update` found every
+# release "newer" than itself. `make test` is the one repo-owned step between
+# the orb writing .ldflags and linking with it, so this prerequisite appends the
+# version there. Without a .ldflags file (a local `make build`, whose generated
+# LDFLAGS already carry the version) it does nothing.
+.PHONY: stamp-version
+stamp-version: ## Append the version to the link flags in .ldflags, the file the architect go-build job links with.
+	@if [ -f .ldflags ] && ! grep -q 'pkg/project.version=' .ldflags; then \
+		v="$(STAMP_VERSION)"; \
+		printf " -X '%s/pkg/project.version=%s'" "$(MODULE)" "$$v" >> .ldflags; \
+		echo "Stamped version $$v into .ldflags"; \
+	fi
 
 CONTROLLER_GEN_VERSION := v0.21.0
 
