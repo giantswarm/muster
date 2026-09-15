@@ -1319,6 +1319,10 @@ func (m *musterInstanceManager) startMusterProcess(ctx context.Context, configPa
 		return strings.HasPrefix(e, "GOMAXPROCS=")
 	})
 	cmd.Env = append(env, "GOMAXPROCS="+childGOMAXPROCS)
+	// A crash or a SIGQUIT (dumpGoroutines) prints every goroutine, not only
+	// the one that panicked or was signalled: the others are where a request
+	// that never returned is stuck.
+	cmd.Env = append(cmd.Env, "GOTRACEBACK=all")
 	// The lifecycle timers' schedule and the controllable clock, see timingEnv.
 	cmd.Env = append(cmd.Env, timingEnv(timing)...)
 	cmd.Env = append(cmd.Env,
@@ -1379,9 +1383,20 @@ func (m *musterInstanceManager) startMusterProcess(ctx context.Context, configPa
 	return managedProc, nil
 }
 
-// getMusterBinaryPath returns the path to the muster binary
+// getMusterBinaryPath returns the muster binary the instances run.
+//
+// The running executable comes first when it is muster itself: `muster test`
+// then tests the build it is part of. PATH came first before, and a stale
+// `go install` from another checkout on PATH ran a suite whose every scenario
+// that needed a newer serve failed against the wrong binary. The PATH lookup,
+// the checkout's build outputs and a build from source remain for callers
+// that are not the muster binary, such as `go test`.
 func (m *musterInstanceManager) getMusterBinaryPath() (string, error) {
-	// First try to find in PATH
+	if path, err := os.Executable(); err == nil && isMusterExecutable(path) {
+		return path, nil
+	}
+
+	// Then try to find in PATH
 	if path, err := exec.LookPath("muster"); err == nil {
 		return path, nil
 	}
@@ -1425,6 +1440,13 @@ func (m *musterInstanceManager) getMusterBinaryPath() (string, error) {
 	}
 
 	return "", fmt.Errorf("muster binary not found")
+}
+
+// isMusterExecutable reports whether path names a muster executable: its base
+// name is muster (muster.exe on Windows), as opposed to a `go test` binary.
+func isMusterExecutable(path string) bool {
+	base := strings.TrimSuffix(filepath.Base(path), ".exe")
+	return base == "muster"
 }
 
 // fileExists reports whether path names an existing regular file.

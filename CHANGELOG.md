@@ -58,6 +58,20 @@ All notable changes to this project will be documented in this file.
   nancy), so the pin changed nothing but the `go install` verdict and is gone. The module graph is
   unchanged.
 
+- `muster test`: two races of the harness under `--parallel 50`, both seen once in CI on 2026-09-15.
+  `test_restart_mock_oauth_server` listened again on the port the old server had just released, and
+  any socket on the host could take it in between -- the mocks listen on kernel-assigned ephemeral
+  ports, the range every outgoing connection draws from (`failed to listen again on port 45841:
+  bind: address already in use`). The mock now keeps its socket bound across the restart and replaces
+  only the server behind it, as a Service keeps its address while the pod is replaced. And a step
+  whose call to `muster serve` never returns (a `wait_for_state` poll still pending when its budget
+  ran out; `oauth-subject-grant-refresh` failed that way with an instance that kept logging and a
+  harness that kept finishing other scenarios) is reported as stalled instead of "expectations not
+  met", and the runner records where everything was: `muster serve` gets `SIGQUIT` so its goroutines
+  end the instance stderr of the report, the harness's goroutines are stored as `harness_goroutines`,
+  and the failure line points at both. The harness also runs the muster binary it is part of before
+  consulting PATH: a stale `go install` first on PATH ran the suite against the wrong `muster serve`.
+
 - The release binaries report their release tag again. `muster version` on the v5.22.0 binary printed
   `v1.12.1-0.20260915144925-e6c760a32b48`: the CI build stamped the commit and the build time but no
   version, so the binary fell back to the version Go's own VCS stamping had derived -- and as the

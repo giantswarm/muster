@@ -374,15 +374,38 @@ func (r *testReporter) failureSummary(scenarioResult TestScenarioResult) string 
 	// The instance's own (timestamped) log tail shows WHERE startup time went
 	// — without it a readiness timeout in CI is unattributable, since parallel
 	// mode never rendered instance logs at all and the head of a log is just
-	// the boot banner.
+	// the boot banner. After a stalled call the stderr ends with the goroutine
+	// dump SIGQUIT produced; the tail shown is the log before it, the dump is
+	// pointed at.
 	if logs := scenarioResult.InstanceLogs; logs != nil {
-		if tail := tailLogs(logs.Stderr, 1500); tail != "" {
+		stderr, dump := splitGoroutineDump(logs.Stderr)
+		if tail := tailLogs(stderr, 1500); tail != "" {
 			fmt.Fprintf(&b, "\n   ↳ instance stderr tail:\n%s", r.indentText(tail, "      "))
 		} else if tail := tailLogs(logs.Stdout, 1500); tail != "" {
 			fmt.Fprintf(&b, "\n   ↳ instance stdout tail:\n%s", r.indentText(tail, "      "))
 		}
+		if dump != "" {
+			fmt.Fprintf(&b, "\n   ↳ muster serve goroutine dump: %d goroutines at the end of instance_logs.stderr in the report", strings.Count(dump, "\ngoroutine "))
+		}
+	}
+	if scenarioResult.HarnessGoroutines != "" {
+		fmt.Fprintf(&b, "\n   ↳ harness goroutine dump: %d goroutines in harness_goroutines in the report", strings.Count(scenarioResult.HarnessGoroutines, "\ngoroutine ")+1)
 	}
 	return b.String()
+}
+
+// goroutineDumpMarker opens the goroutine dump the Go runtime prints to
+// stderr on SIGQUIT.
+const goroutineDumpMarker = "SIGQUIT: quit"
+
+// splitGoroutineDump separates an instance's stderr into the log and the
+// goroutine dump a SIGQUIT appended to it; dump is "" when there is none.
+func splitGoroutineDump(stderr string) (log, dump string) {
+	idx := strings.Index(stderr, goroutineDumpMarker)
+	if idx < 0 {
+		return stderr, ""
+	}
+	return stderr[:idx], stderr[idx:]
 }
 
 // tailLogs keeps the LAST maxChars of logs, breaking at a line boundary —

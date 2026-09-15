@@ -376,6 +376,15 @@ expected:
 Set `wait_for_state` *or* a step `timeout:`, not both -- two deadlines on the
 same step race, and the poll should own the bound.
 
+A poll (or any step's call) that never returns -- the budget runs out while the
+call is still waiting for muster serve's response -- fails the step as
+*stalled* rather than as "state not yet achieved": nothing came back to judge,
+and the instance's log cannot show why a request never returned. The runner
+then records where everything was: `muster serve` gets `SIGQUIT`, so its
+goroutines end the instance stderr in the JSON report (`instance_logs.stderr`),
+and the harness's own goroutines are stored as `harness_goroutines`. The
+failure line in the CI log points at both.
+
 #### Bounding a step's duration
 
 A step-level `max_duration:` fails the step when its single invocation took
