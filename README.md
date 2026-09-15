@@ -171,7 +171,7 @@ Valkey-backed sessions for more than one replica, network policies and metrics.
 ## Documentation
 
 The documentation is published at **[giantswarm.github.io/muster](https://giantswarm.github.io/muster/)**
-and lives in [`docs/`](docs/README.md).
+and lives in [`docs/`](docs/); the site's landing page is rendered from `overrides/home.html`.
 
 | Section | What you find there |
 |---|---|

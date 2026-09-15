@@ -1,0 +1,573 @@
+{#-
+  The landing page of https://giantswarm.github.io/muster/.
+
+  docs/index.md selects this template through its `template:` front matter. It
+  does not extend Material's base template on purpose: the page has its own
+  layout, type and colour (docs/assets/landing/), and links into the Material
+  documentation pages for everything that goes deeper. MkDocs still renders it
+  with the usual template context, so `config` and the `url` filter are there.
+-#}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>muster · one MCP endpoint for every MCP server your platform runs</title>
+  <meta name="description" content="{{ config.site_description }}">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#070b12">
+  <link rel="canonical" href="{{ config.site_url }}">
+  <link rel="icon" href="{{ 'assets/logo.svg' | url }}" type="image/svg+xml">
+
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="muster">
+  <meta property="og:title" content="muster · one MCP endpoint for every MCP server your platform runs">
+  <meta property="og:description" content="{{ config.site_description }}">
+  <meta property="og:url" content="{{ config.site_url }}">
+  <meta property="og:image" content="{{ config.site_url }}assets/landing/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+
+  <link rel="preload" href="{{ 'assets/fonts/ibm-plex-sans-latin-600-normal.woff2' | url }}" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="{{ 'assets/fonts/ibm-plex-mono-latin-400-normal.woff2' | url }}" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="{{ 'assets/landing/landing.css' | url }}">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="top">
+  <div class="wrap top__row">
+    <a class="brand" href="{{ config.site_url }}" aria-label="muster, home">
+      <svg class="brand__mark" viewBox="0 0 512 512" aria-hidden="true" focusable="false">
+        <path class="mark-body" d="M350.8,498.9c-6.2,0-11.2-5-11.2-11.2v-130.2l-74,108.8c-2.1,3.1-5.6,4.9-9.3,4.9h0c-3.7,0-7.2-1.8-9.3-4.9l-74.7-109v130.4c0,6.2-5,11.2-11.2,11.2H13.2c-6.2,0-11.2-5-11.2-11.2V24.3c0-6.2,5-11.2,11.2-11.2h122.3c3.7,0,7.2,1.8,9.3,4.9l111.6,164.1L367.2,18.1c2.1-3.1,5.6-4.9,9.3-4.9h122.3c6.2,0,11.2,5,11.2,11.2v463.3c0,6.2-5,11.2-11.2,11.2h-148Z"/>
+        <path class="mark-stitch" d="M498.8,24.3h-39.3c-1.9,0-3.5,1.6-3.5,3.5s1.6,3.5,3.5,3.5h39.3v-7h0ZM432.8,24.3h-39.3c-1.9,0-3.5,1.6-3.5,3.5s1.6,3.5,3.5,3.5h39.3c1.9,0,3.5-1.6,3.5-3.5s-1.6-3.5-3.5-3.5h0ZM374,30.8c-1.1,0-2.2.5-2.9,1.5l-4.3,6.3s0,0,0,0h0s0,0,0,0v.2c-.1,0-.1,0-.1,0v.2c-.2,0-.2,0-.2,0h0c-6.5,9.6-17.4,25.7-17.4,25.7-1.1,1.6-.7,3.8.9,4.9.6.4,1.3.6,2,.6,1.1,0,2.2-.5,2.9-1.5l22-32.6c1.1-1.6.7-3.8-.9-4.9-.6-.4-1.3-.6-2-.6h0ZM337.1,85.5c-1.1,0-2.2.5-2.9,1.5,0,0-1.6,2.3-3.9,5.7h0c0,.1-.2.2-.2.4l-17.9,26.5c-1.1,1.6-.7,3.8,1,4.9.6.4,1.3.6,2,.6,1.1,0,2.2-.5,2.9-1.5l22-32.6c1.1-1.6.7-3.8-.9-4.9-.6-.4-1.3-.6-2-.6h0ZM300.1,140.2c-1.1,0-2.2.5-2.9,1.5l-.2.3c-3.3,4.9-21.5,31.8-21.5,31.8-1.1,1.6-.7,3.8.9,4.9.6.4,1.3.6,2,.6,1.1,0,2.2-.5,2.9-1.5l22-32.6c1.1-1.6.7-3.8-.9-4.9-.6-.4-1.3-.6-2-.6h0ZM235.3,173.9c-.7,0-1.4.2-2,.6-1.6,1.1-2,3.3-.9,4.9l18.2,26.7c1.3,1.9,3.5,3.1,5.8,3.1h0c2.3,0,4.5-1.2,5.8-3.1l3.9-5.8c1.1-1.6.7-3.8-.9-4.9-.6-.4-1.3-.6-2-.6-1.1,0-2.2.5-2.9,1.5,0,0-2.9,4.3-3.7,5.5h0s-.1-.2-.4-.5l-17.8-26.2c-.7-1-1.8-1.5-2.9-1.5h0ZM198.2,119.3c-.7,0-1.4.2-2,.6-1.6,1.1-2,3.3-.9,4.9l22.1,32.5c.7,1,1.8,1.5,2.9,1.5s1.4-.2,2-.6c1.6-1.1,2-3.3.9-4.9l-4.7-6.9s0,0,0,0l-.2-.3c0,0,0-.1-.1-.2h0c0,0,0,0,0-.1h0c-6.5-9.6-17.1-25.1-17.1-25.1-.7-1-1.8-1.5-2.9-1.5h0ZM161.1,64.8c-.7,0-1.4.2-2,.6-1.6,1.1-2,3.3-.9,4.9l22.1,32.5c.7,1,1.8,1.5,2.9,1.5s1.4-.2,2-.6c1.6-1.1,2-3.3.9-4.9l-22.1-32.5c-.7-1-1.8-1.5-2.9-1.5h0ZM135.5,24.3h-15.2c-1.9,0-3.5,1.6-3.5,3.5s1.6,3.5,3.5,3.5h11.5l11.4,16.8c.7,1,1.8,1.5,2.9,1.5s1.4-.2,2-.6c1.6-1.1,2-3.3.9-4.9l-13.5-19.9h0ZM93.6,24.3h-39.3c-1.9,0-3.5,1.6-3.5,3.5s1.6,3.5,3.5,3.5h39.3c1.9,0,3.5-1.6,3.5-3.5s-1.6-3.5-3.5-3.5h0ZM27.6,24.3h-14.4v7h0v17.9c0,1.9,1.6,3.5,3.5,3.5s3.5-1.6,3.5-3.5v-17.9h7.3c1.9,0,3.5-1.6,3.5-3.5s-1.6-3.5-3.5-3.5h0ZM16.7,72.4c-1.9,0-3.5,1.6-3.5,3.5v39.3c0,1.9,1.6,3.5,3.5,3.5s3.5-1.6,3.5-3.5v-39.3c0-1.9-1.6-3.5-3.5-3.5h0ZM16.7,138.4c-1.9,0-3.5,1.6-3.5,3.5v39.3c0,1.9,1.6,3.5,3.5,3.5s3.5-1.6,3.5-3.5v-39.3c0-1.9-1.6-3.5-3.5-3.5h0ZM16.7,204.4c-1.9,0-3.5,1.6-3.5,3.5v39.3c0,1.9,1.6,3.5,3.5,3.5s3.5-1.6,3.5-3.5v-39.3c0-1.9-1.6-3.5-3.5-3.5h0ZM16.7,270.4c-1.9,0-3.5,1.6-3.5,3.5v39.3c0,1.9,1.6,3.5,3.5,3.5s3.5-1.6,3.5-3.5v-39.3c0-1.9-1.6-3.5-3.5-3.5h0ZM16.7,336.4c-1.9,0-3.5,1.6-3.5,3.5v39.3c0,1.9,1.6,3.5,3.5,3.5s3.5-1.6,3.5-3.5v-39.3c0-1.9-1.6-3.5-3.5-3.5h0ZM16.7,402.3c-1.9,0-3.5,1.6-3.5,3.5v39.3c0,1.9,1.6,3.5,3.5,3.5s3.5-1.6,3.5-3.5v-39.3c0-1.9-1.6-3.5-3.5-3.5h0ZM16.7,468.3c-1.9,0-3.5,1.6-3.5,3.5v15.8h23.5c1.9,0,3.5-1.6,3.5-3.5s-1.6-3.5-3.5-3.5h-16.5v-8.8c0-1.9-1.6-3.5-3.5-3.5h0ZM102.7,480.6h-39.3c-1.9,0-3.5,1.6-3.5,3.5s1.6,3.5,3.5,3.5h39.3c1.9,0,3.5-1.6,3.5-3.5s-1.6-3.5-3.5-3.5h0ZM157.7,476.7c-1.9,0-3.5,1.6-3.5,3.5v.5h-24.8c-1.9,0-3.5,1.6-3.5,3.5s1.6,3.5,3.5,3.5h31.8v-7.5c0-1.9-1.6-3.5-3.5-3.5h0ZM157.7,410.7c-1.9,0-3.5,1.6-3.5,3.5v39.3c0,1.9,1.6,3.5,3.5,3.5s3.5-1.6,3.5-3.5v-39.3c0-1.9-1.6-3.5-3.5-3.5h0ZM157.7,344.7c-1.9,0-3.5,1.6-3.5,3.5v39.3c0,1.9,1.6,3.5,3.5,3.5s3.5-1.6,3.5-3.5v-39.3c0-1.9-1.6-3.5-3.5-3.5h0ZM161.2,313.9c-.7,0-1.4.1-2.1.3-2.9.9-4.9,3.6-4.9,6.7v.6c0,1.9,1.6,3.5,3.5,3.5s3.5-1.6,3.5-3.5v-.6h0s0,.1.2.4l21,30.7c.7,1,1.8,1.5,2.9,1.5s1.4-.2,2-.6c1.6-1.1,2-3.3.9-4.9l-21.9-31.9c-1.3-1.9-3.5-3.1-5.8-3.1h0ZM201,369.4c-.7,0-1.4.2-2,.6-1.6,1.1-2,3.3-.9,4.9l22.2,32.4c.7,1,1.8,1.5,2.9,1.5s1.4-.2,2-.6c1.6-1.1,2-3.3.9-4.9l-22.2-32.4c-.7-1-1.8-1.5-2.9-1.5h0ZM238.3,423.8c-.7,0-1.4.2-2,.6-1.6,1.1-2,3.3-.9,4.9,0,0,10.6,15.4,16.7,24.4h0l4.2,6.2h0l4.2-6.2-19.4-28.3c-.7-1-1.8-1.5-2.9-1.5h0ZM291.8,398c-1.1,0-2.2.5-2.9,1.5l-22.1,32.5c-1.1,1.6-.7,3.8.9,4.9.6.4,1.3.6,2,.6,1.1,0,2.2-.5,2.9-1.5l22.1-32.5c1.1-1.6.7-3.8-.9-4.9-.6-.4-1.3-.6-2-.6h0ZM328.9,343.4c-1.1,0-2.2.5-2.9,1.5l-22.1,32.5c-1.1,1.6-.7,3.8.9,4.9.6.4,1.3.6,2,.6,1.1,0,2.2-.5,2.9-1.5,0,0,2.6-3.8,6-8.9l15.5-22.8c1.1-1.6.7-3.8-.9-4.9-.6-.4-1.3-.6-2-.6h0ZM350.8,313.9c-2.3,0-4.5,1.1-5.8,3.1l-4,5.9c-1.1,1.6-.7,3.8.9,4.9.6.4,1.3.6,2,.6,1.1,0,2.2-.5,2.9-1.5l4-5.9v32.2c0,1.9,1.6,3.5,3.5,3.5s3.5-1.6,3.5-3.5v-32.2c0-3.1-2-5.8-5-6.7-.7-.2-1.4-.3-2.1-.3h0ZM354.3,376.3c-1.9,0-3.5,1.6-3.5,3.5v39.3c0,1.9,1.6,3.5,3.5,3.5s3.5-1.6,3.5-3.5v-39.3c0-1.9-1.6-3.5-3.5-3.5h0ZM354.3,442.3c-1.9,0-3.5,1.6-3.5,3.5v39.3c0,1,.4,1.9,1.1,2.6h4.8c.7-.6,1.1-1.6,1.1-2.6v-39.3c0-1.9-1.6-3.5-3.5-3.5h0ZM414.2,480.6h-39.3c-1.9,0-3.5,1.6-3.5,3.5s1.6,3.5,3.5,3.5h39.3c1.9,0,3.5-1.6,3.5-3.5s-1.6-3.5-3.5-3.5h0ZM480.2,480.6h-39.3c-1.9,0-3.5,1.6-3.5,3.5s1.6,3.5,3.5,3.5h39.3c1.9,0,3.5-1.6,3.5-3.5s-1.6-3.5-3.5-3.5h0ZM495.3,436.7c-1.9,0-3.5,1.6-3.5,3.5v39.3c0,1.9,1.6,3.5,3.5,3.5s3.5-1.6,3.5-3.5v-39.3c0-1.9-1.6-3.5-3.5-3.5h0ZM495.3,370.8c-1.9,0-3.5,1.6-3.5,3.5v39.3c0,1.9,1.6,3.5,3.5,3.5s3.5-1.6,3.5-3.5v-39.3c0-1.9-1.6-3.5-3.5-3.5h0ZM495.3,304.8c-1.9,0-3.5,1.6-3.5,3.5v39.3c0,1.9,1.6,3.5,3.5,3.5s3.5-1.6,3.5-3.5v-39.3c0-1.9-1.6-3.5-3.5-3.5h0ZM495.3,238.8c-1.9,0-3.5,1.6-3.5,3.5v39.3c0,1.9,1.6,3.5,3.5,3.5s3.5-1.6,3.5-3.5v-39.3c0-1.9-1.6-3.5-3.5-3.5h0ZM495.3,172.8c-1.9,0-3.5,1.6-3.5,3.5v39.3c0,1.9,1.6,3.5,3.5,3.5s3.5-1.6,3.5-3.5v-39.3c0-1.9-1.6-3.5-3.5-3.5h0ZM495.3,106.8c-1.9,0-3.5,1.6-3.5,3.5v39.3c0,1.9,1.6,3.5,3.5,3.5s3.5-1.6,3.5-3.5v-39.3c0-1.9-1.6-3.5-3.5-3.5h0ZM495.3,40.9c-1.9,0-3.5,1.6-3.5,3.5v39.3c0,1.9,1.6,3.5,3.5,3.5s3.5-1.6,3.5-3.5v-39.3c0-1.9-1.6-3.5-3.5-3.5h0Z"/>
+      </svg>
+      <span class="brand__name">muster</span>
+    </a>
+    <nav class="top__nav" aria-label="Sections">
+      <a href="#workflows">Workflows</a>
+      <a href="#kubernetes">Kubernetes</a>
+      <a href="#identity">Identity</a>
+      <a href="#install">Install</a>
+      <a href="{{ 'getting-started/' | url }}">Docs</a>
+      <a class="top__gh" href="{{ config.repo_url }}" rel="noopener">GitHub<span aria-hidden="true"> ↗</span></a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <div class="spine" aria-hidden="true"></div>
+
+  <!-- ─────────────────────────────── hero ─────────────────────────────── -->
+  <section class="hero wrap">
+    <div class="hero__copy">
+      <p class="gloss"><span class="gloss__word">Muster</span> <span class="gloss__pos">n.</span> <em>German:</em> pattern, sample.<span class="gloss__sep">┄</span>Here: an aggregating MCP server.</p>
+      <h1>One endpoint.<br>Every MCP server your platform runs.</h1>
+      <p class="lead">muster connects the MCP servers a platform team runs — Kubernetes, Prometheus, GitHub, Flux, your own — and serves their tools through a single authenticated endpoint. Agents connect once, find tools without flooding their context window, run procedures as deterministic workflows, and make every call as the person they work for.</p>
+      <div class="cta">
+        <a class="btn btn--primary" href="#install">Get started</a>
+        <a class="btn" href="{{ 'getting-started/quick-start/' | url }}">Read the quick start</a>
+        <a class="release" id="release" href="{{ config.repo_url }}/releases/latest" rel="noopener"><span class="release__dot" aria-hidden="true"></span><span id="release-label">latest release</span></a>
+      </div>
+
+      <div class="term" aria-label="An agent discovering and calling a workflow through muster">
+        <div class="term__bar"><span></span><span></span><span></span><b>agent session · /mcp</b></div>
+        <pre class="term__body"><code><span class="t-call">▸ filter_tools</span> <span class="t-arg">{ "query": "pods not running" }</span>
+  <span class="t-tool">workflow_pod-triage</span>   Find the pods of a workload that are not running and gather their evidence
+  <span class="t-tool">x_kubernetes_list</span>     List resources of a kind in a namespace
+  <span class="t-tool">x_kubernetes_logs</span>     Read the logs of a container
+<span class="t-call">▸ call_tool</span> <span class="t-arg">{ "name": "workflow_pod-triage", "arguments": { "namespace": "payments", "selector": "app=checkout" } }</span>
+  <span class="t-ok">status: completed</span> · 7 steps, 1 allowed to fail · as <span class="t-id">dana@example.com</span> · trace 3f9c…a1<span class="t-cursor" aria-hidden="true"></span></code></pre>
+      </div>
+    </div>
+
+    <figure class="hero__figure" aria-label="Clients on the left, muster in the middle, MCP servers on the right; one thread is sewn from a client through muster to a server">
+      <svg id="loom" class="loom" viewBox="0 0 690 440" role="img" aria-hidden="true" focusable="false">
+        <defs></defs>
+        <!-- guides: the tailor's marking where the thread will go -->
+        <g class="guides">
+          <path d="M204,88 C236,88 228,150 260,150"/>
+          <path d="M204,188 C236,188 228,200 260,200"/>
+          <path d="M204,288 C236,288 228,250 260,250"/>
+          <path d="M420,140 C452,140 444,64 476,64"/>
+          <path d="M420,180 C452,180 444,144 476,144"/>
+          <path d="M420,220 C452,220 444,224 476,224"/>
+          <path d="M420,260 C452,260 444,304 476,304"/>
+          <path d="M340,300 V360"/>
+        </g>
+        <!-- clients -->
+        <g class="piece" data-piece="c1">
+          <rect x="4" y="60" width="200" height="56" rx="3"/>
+          <text x="16" y="83" class="lbl">IDEs</text>
+          <text x="16" y="102" class="sub">Cursor · VS Code · Claude Code</text>
+        </g>
+        <g class="piece" data-piece="c2">
+          <rect x="4" y="160" width="200" height="56" rx="3"/>
+          <text x="16" y="183" class="lbl">Platform agents</text>
+          <text x="16" y="202" class="sub">kagent · Backstage · CI</text>
+        </g>
+        <g class="piece" data-piece="c3">
+          <rect x="4" y="260" width="200" height="56" rx="3"/>
+          <text x="16" y="283" class="lbl">muster CLI</text>
+          <text x="16" y="302" class="sub">call · start workflow · auth</text>
+        </g>
+        <!-- muster -->
+        <g class="piece piece--muster">
+          <rect x="260" y="100" width="160" height="200" rx="3"/>
+          <text x="340" y="126" class="lbl lbl--c">muster</text>
+          <text x="340" y="150" class="sub sub--c">/mcp · streamable HTTP</text>
+          <line x1="276" y1="163" x2="404" y2="163" class="rule"/>
+          <text x="340" y="184" class="sub sub--c">13 meta-tools</text>
+          <text x="340" y="204" class="sub sub--c">sessions · toolsets</text>
+          <text x="340" y="224" class="sub sub--c">health · reconnect</text>
+          <text x="340" y="244" class="sub sub--c">OAuth 2.1 · SSO</text>
+          <text x="340" y="264" class="sub sub--c">workflows</text>
+          <text x="340" y="284" class="sub sub--c sub--dim">traces · metrics · logs</text>
+        </g>
+        <!-- dex -->
+        <g class="piece piece--dex">
+          <rect x="290" y="360" width="100" height="40" rx="3"/>
+          <text x="340" y="378" class="lbl lbl--c">Dex</text>
+          <text x="340" y="392" class="sub sub--c">OIDC issuer</text>
+        </g>
+        <text x="352" y="334" class="note">login · token validation</text>
+        <!-- servers -->
+        <g class="piece" data-piece="s1">
+          <rect x="476" y="40" width="200" height="48" rx="3"/>
+          <text x="488" y="60" class="lbl">mcp-kubernetes</text>
+          <text x="488" y="77" class="sub">SSO · forwarded token</text>
+        </g>
+        <g class="piece" data-piece="s2">
+          <rect x="476" y="120" width="200" height="48" rx="3"/>
+          <text x="488" y="140" class="lbl">mcp-prometheus</text>
+          <text x="488" y="157" class="sub">SSO · forwarded token</text>
+        </g>
+        <g class="piece" data-piece="s3">
+          <rect x="476" y="200" width="200" height="48" rx="3"/>
+          <text x="488" y="220" class="lbl">GitHub MCP</text>
+          <text x="488" y="237" class="sub">own OAuth · one login</text>
+        </g>
+        <g class="piece" data-piece="s4">
+          <rect x="476" y="280" width="200" height="48" rx="3"/>
+          <text x="488" y="300" class="lbl">your own</text>
+          <text x="488" y="317" class="sub">stdio · sse · streamable-http</text>
+        </g>
+        <!-- threads and the needle are added by landing.js -->
+        <g id="threads"></g>
+        <g id="needle" class="needle" hidden>
+          <path d="M-16,0 L12,0"/>
+          <circle cx="-12" cy="0" r="1.8"/>
+        </g>
+      </svg>
+      <figcaption class="loom__caption">
+        <span>x_&lt;server&gt;_&lt;tool&gt;</span>
+        <span>workflow_&lt;name&gt;</span>
+        <span>core_*</span>
+      </figcaption>
+    </figure>
+  </section>
+
+  <!-- ───────────────────────────── workflows ───────────────────────────── -->
+  <section id="workflows" class="piece-section wrap">
+    <header class="piece-label reveal">
+      <span class="piece-label__name">Workflow engine</span>
+      <span class="piece-label__meta">kind: Workflow · muster.giantswarm.io/v1alpha1</span>
+    </header>
+    <div class="section-head reveal">
+      <h2>Procedures become tools.</h2>
+      <p class="lead">Operational work is a sequence: find the pods, read their logs, query the metric, compare. Left to an agent, the sequence is rediscovered on every run, differently each time, at full token cost. A workflow sews the sequence into one tool. It is a list of steps — tool calls, <code>forEach</code> loops and <code>parallel</code> groups — gated by conditions and joined by templates. muster exposes it as <code>workflow_&lt;name&gt;</code> with the arguments you declared; the steps run the same way every time, and every run leaves a durable execution record.</p>
+    </div>
+
+    <div class="wf reveal">
+      <div class="wf__code">
+        <div class="code-head"><span>workflow.yaml</span><span class="code-head__hint">kubectl apply -f · or core_workflow_create</span></div>
+<pre class="code"><code><span class="y-key">apiVersion</span>: muster.giantswarm.io/v1alpha1
+<span class="y-key">kind</span>: <span class="y-kind">Workflow</span>
+<span class="y-key">metadata</span>:
+  <span class="y-key">name</span>: pod-triage
+  <span class="y-key">namespace</span>: muster
+<span class="y-key">spec</span>:
+  <span class="y-key">description</span>: <span class="y-str">Find the pods of a workload that are not running and gather their evidence</span>
+  <span class="y-key">args</span>:
+    <span class="y-key">namespace</span>: { <span class="y-key">type</span>: string, <span class="y-key">required</span>: <span class="y-bool">true</span> }
+    <span class="y-key">selector</span>:  { <span class="y-key">type</span>: string, <span class="y-key">required</span>: <span class="y-bool">true</span> }
+  <span class="y-key">steps</span>:
+    - <span class="y-key">id</span>: <span class="y-id" data-step="pods">pods</span>
+      <span class="y-key">tool</span>: x_kubernetes_list
+      <span class="y-key">args</span>: { <span class="y-key">kind</span>: Pod, <span class="y-key">namespace</span>: <span class="y-tpl">"{{ '{{' }} .input.namespace {{ '}}' }}"</span>, <span class="y-key">labelSelector</span>: <span class="y-tpl">"{{ '{{' }} .input.selector {{ '}}' }}"</span> }
+    - <span class="y-key">id</span>: <span class="y-id" data-step="events">events</span>
+      <span class="y-key">tool</span>: x_kubernetes_list
+      <span class="y-key">args</span>: { <span class="y-key">kind</span>: Event, <span class="y-key">namespace</span>: <span class="y-tpl">"{{ '{{' }} .input.namespace {{ '}}' }}"</span> }
+      <span class="y-key">condition</span>:
+        <span class="y-key">template</span>: <span class="y-tpl">"{{ '{{' }} gt (len .results.pods.items) 0 {{ '}}' }}"</span>
+    - <span class="y-key">id</span>: <span class="y-id" data-step="logs">logs</span>
+      <span class="y-key">forEach</span>:
+        <span class="y-key">items</span>: <span class="y-tpl">"{{ '{{' }} .results.pods.items {{ '}}' }}"</span>
+        <span class="y-key">as</span>: pod
+        <span class="y-key">steps</span>:
+          - <span class="y-key">id</span>: <span class="y-id" data-step="tail">tail</span>
+            <span class="y-key">tool</span>: x_kubernetes_logs
+            <span class="y-key">args</span>: { <span class="y-key">name</span>: <span class="y-tpl">"{{ '{{' }} .vars.pod.metadata.name {{ '}}' }}"</span>, <span class="y-key">namespace</span>: <span class="y-tpl">"{{ '{{' }} .input.namespace {{ '}}' }}"</span>, <span class="y-key">tailLines</span>: <span class="y-num">50</span> }
+            <span class="y-key">allowFailure</span>: <span class="y-bool">true</span>
+    - <span class="y-key">id</span>: <span class="y-id" data-step="signals">signals</span>
+      <span class="y-key">parallel</span>:
+        - <span class="y-key">id</span>: <span class="y-id" data-step="restarts">restarts</span>
+          <span class="y-key">tool</span>: x_prometheus_query
+          <span class="y-key">args</span>: { <span class="y-key">query</span>: <span class="y-str">'increase(kube_pod_container_status_restarts_total{namespace="{{ '{{' }} .input.namespace {{ '}}' }}"}[1h])'</span> }
+        - <span class="y-key">id</span>: <span class="y-id" data-step="alerts">alerts</span>
+          <span class="y-key">tool</span>: x_prometheus_alerts
+          <span class="y-key">args</span>: { <span class="y-key">namespace</span>: <span class="y-tpl">"{{ '{{' }} .input.namespace {{ '}}' }}"</span> }
+  <span class="y-key">onFailure</span>:
+    - <span class="y-key">id</span>: <span class="y-id y-id--warn" data-step="note">note</span>
+      <span class="y-key">tool</span>: x_slack_post
+      <span class="y-key">args</span>: { <span class="y-key">channel</span>: <span class="y-str">"#oncall"</span>, <span class="y-key">text</span>: <span class="y-str">"pod-triage failed for {{ '{{' }} .input.namespace {{ '}}' }}/{{ '{{' }} .input.selector {{ '}}' }}"</span> }
+  <span class="y-key">output</span>:
+    <span class="y-key">pods</span>:     <span class="y-tpl">"{{ '{{' }} .results.pods.items {{ '}}' }}"</span>
+    <span class="y-key">restarts</span>: <span class="y-tpl">"{{ '{{' }} .results.restarts.data.result {{ '}}' }}"</span>
+    <span class="y-key">alerts</span>:   <span class="y-tpl">"{{ '{{' }} len .results.alerts.alerts {{ '}}' }}"</span></code></pre>
+      </div>
+
+      <div class="wf__run">
+        <figure class="wf__figure" aria-label="The same workflow as a diagram: the steps stitched together top to bottom, with the condition, the loop, the parallel group and the onFailure handler">
+          <svg id="wfsvg" class="wfsvg" viewBox="0 0 480 640" aria-hidden="true" focusable="false">
+            <defs></defs>
+            <g class="wf-edges">
+              <path id="e0" class="edge" d="M200,52 V96"/>
+              <path id="e1" class="edge" d="M200,140 V184"/>
+              <path id="e2" class="edge" d="M200,236 V280"/>
+              <path id="eskip" class="edge edge--skip" d="M226,210 H300 V352 H206"/>
+              <path id="e3" class="edge" d="M200,324 V368"/>
+              <path id="e4" class="edge" d="M200,448 V486"/>
+              <path id="e5a" class="edge" d="M200,486 C200,500 125,494 125,508"/>
+              <path id="e5b" class="edge" d="M200,486 C200,500 275,494 275,508"/>
+              <path id="e6a" class="edge" d="M125,552 C125,566 200,558 200,572"/>
+              <path id="e6b" class="edge" d="M275,552 C275,566 200,558 200,572"/>
+              <path id="e7" class="edge" d="M200,572 V588"/>
+              <path id="efail" class="edge edge--fail" d="M440,110 V556"/>
+              <path id="eloop" class="edge edge--loop" d="M292,428 C326,428 326,392 292,392"/>
+            </g>
+            <g class="wf-nodes">
+              <g class="node node--pill" data-node="input"><rect x="90" y="16" width="220" height="36" rx="18"/><text x="200" y="39" class="n-title">args · namespace, selector</text></g>
+              <g class="node" data-node="pods"><rect x="80" y="96" width="240" height="44" rx="3"/><text x="94" y="115" class="n-title">pods</text><text x="94" y="131" class="n-sub">x_kubernetes_list · kind: Pod</text><g class="badge"><rect x="262" y="105" width="46" height="18" rx="2"/><text x="285" y="118">idle</text></g></g>
+              <g class="node node--gate" data-node="gate"><path d="M200,184 L228,210 L200,236 L172,210 Z"/><text x="240" y="206" class="n-sub n-left">condition.template</text><text x="240" y="221" class="n-sub n-left n-mono">len pods &gt; 0</text><text x="300" y="336" class="n-sub n-left n-dim">skipped</text></g>
+              <g class="node" data-node="events"><rect x="80" y="280" width="240" height="44" rx="3"/><text x="94" y="299" class="n-title">events</text><text x="94" y="315" class="n-sub">x_kubernetes_list · kind: Event</text><g class="badge"><rect x="262" y="289" width="46" height="18" rx="2"/><text x="285" y="302">idle</text></g></g>
+              <g class="node node--group" data-node="logs"><rect x="80" y="368" width="240" height="80" rx="3"/><text x="94" y="384" class="n-sub n-mono">forEach pod in pods</text>
+                <g class="node node--inner" data-node="tail"><rect x="110" y="396" width="180" height="40" rx="3"/><text x="122" y="413" class="n-title">tail</text><text x="122" y="428" class="n-sub">x_kubernetes_logs · allowFailure</text><g class="badge"><rect x="238" y="403" width="46" height="18" rx="2"/><text x="261" y="416">idle</text></g></g>
+              </g>
+              <text x="200" y="478" class="n-sub n-mono n-center">parallel</text>
+              <g class="node" data-node="restarts"><rect x="60" y="508" width="130" height="44" rx="3"/><text x="72" y="527" class="n-title">restarts</text><text x="72" y="543" class="n-sub">x_prometheus_query</text><g class="badge badge--sm"><rect x="146" y="514" width="38" height="16" rx="2"/><text x="165" y="526">idle</text></g></g>
+              <g class="node" data-node="alerts"><rect x="210" y="508" width="130" height="44" rx="3"/><text x="222" y="527" class="n-title">alerts</text><text x="222" y="543" class="n-sub">x_prometheus_alerts</text><g class="badge badge--sm"><rect x="296" y="514" width="38" height="16" rx="2"/><text x="315" y="526">idle</text></g></g>
+              <g class="node node--pill" data-node="output"><rect x="70" y="588" width="260" height="36" rx="18"/><text x="200" y="611" class="n-title">output · pods · restarts · alerts</text></g>
+              <g class="node node--fail" data-node="note"><rect x="370" y="556" width="104" height="44" rx="3"/><text x="382" y="575" class="n-title">note</text><text x="382" y="591" class="n-sub">x_slack_post</text></g>
+              <text x="452" y="330" class="n-sub n-mono n-fail" transform="rotate(90 452 330)">onFailure</text>
+            </g>
+          </svg>
+        </figure>
+
+        <div class="record" aria-live="polite">
+          <div class="record__head">
+            <span class="record__kind">WorkflowExecution</span>
+            <span class="record__name" id="rec-name">pod-triage-…</span>
+            <span class="record__status" id="rec-status" data-state="idle">idle</span>
+          </div>
+          <table class="record__table">
+            <thead><tr><th>step</th><th>status</th><th class="num">took</th></tr></thead>
+            <tbody id="rec-rows"><tr class="record__empty"><td colspan="3">waiting for a run…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <ul class="grid grid--3 reveal">
+      <li><h3>Templates</h3><p>Step arguments are Go templates with sprig, over <code>.input</code>, <code>.results</code> and <code>.vars</code>. Every step's result is referenceable by every later step; a reference to an undefined key fails the step instead of passing an empty string on.</p></li>
+      <li><h3>Conditions</h3><p>A step is gated by a boolean template, by a tool call checked against <code>expect</code>, or by an earlier step's result. Malformed conditions are rejected at <code>kubectl apply</code> time by CEL and by <code>core_workflow_validate</code>.</p></li>
+      <li><h3>forEach and parallel</h3><p>Fan out over clusters, namespaces or pods with <code>forEach</code>, each iteration addressable afterwards; run independent steps concurrently with <code>parallel</code> and pick their results up after the group.</p></li>
+      <li><h3>Failure handling</h3><p><code>allowFailure</code> records a failure and continues, the error available to later conditions. When a step fails for real, the workflow's <code>onFailure</code> handlers run as best-effort rollback.</p></li>
+      <li><h3>Shaped output</h3><p>An <code>output</code> template returns a small, structured document instead of every step's payload. JSON types are preserved: <code>len</code> stays a number, an array stays an array, a version string stays <code>"1.20"</code>.</p></li>
+      <li><h3>A durable record</h3><p>Every run is a <code>WorkflowExecution</code> with per-step status, inputs, results and timing, listed with <code>core_workflow_execution_list</code>, and an OpenTelemetry trace with one span per workflow and per step.</p></li>
+    </ul>
+    <p class="section-foot reveal">Workflows compose: one workflow calls another's <code>workflow_&lt;name&gt;</code> tool, a toolset selects them with <code>workflow:&lt;name&gt;</code>, and an agent finds them by intent through <code>filter_tools</code>. <a href="{{ 'how-to/workflow-creation/' | url }}">Create workflows</a> · <a href="{{ 'reference/crds/#workflow' | url }}">Workflow reference</a></p>
+  </section>
+
+  <!-- ───────────────────────────── kubernetes ──────────────────────────── -->
+  <section id="kubernetes" class="piece-section wrap">
+    <header class="piece-label reveal">
+      <span class="piece-label__name">Kubernetes-native</span>
+      <span class="piece-label__meta">helm install muster giantswarm/muster</span>
+    </header>
+    <div class="section-head reveal">
+      <h2>Servers and workflows are resources.</h2>
+      <p class="lead">On a cluster, muster runs in Kubernetes mode: <code>MCPServer</code>, <code>Workflow</code> and <code>WorkflowExecution</code> are custom resources reconciled by muster itself. Status, conditions and events say which servers are reachable now and which workflows have every tool they need. A server is registered in a pull request, reviewed like any other manifest and rolled out by Flux; nothing is configured in a client.</p>
+    </div>
+
+    <div class="crds reveal">
+      <article class="crd">
+        <header><span class="crd__kind">MCPServer</span><span class="crd__short">kubectl get mcpservers</span></header>
+<pre class="code code--bare"><code><span class="y-key">spec</span>:
+  <span class="y-key">type</span>: streamable-http
+  <span class="y-key">url</span>: https://mcp-kubernetes.muster.svc/mcp
+  <span class="y-key">toolPrefix</span>: k8s
+  <span class="y-key">auth</span>:
+    <span class="y-key">type</span>: oauth
+    <span class="y-key">forwardToken</span>: <span class="y-bool">true</span>
+    <span class="y-key">requiredAudiences</span>: [dex-k8s-authenticator]
+<span class="y-key">status</span>:
+  <span class="y-key">state</span>: <span class="y-ok">Running</span>
+  <span class="y-key">conditions</span>: [<span class="y-ok">Connected</span>, <span class="y-ok">ToolsDiscovered</span>]</code></pre>
+        <p>Connected, health-checked and reconnected with backoff. The tool list is followed as it changes; the status and the events tell the story.</p>
+      </article>
+      <article class="crd">
+        <header><span class="crd__kind">Workflow</span><span class="crd__short">kubectl get wf</span></header>
+<pre class="code code--bare"><code><span class="y-key">spec</span>:
+  <span class="y-key">args</span>: { … }
+  <span class="y-key">steps</span>: [ … ]
+  <span class="y-key">onFailure</span>: [ … ]
+  <span class="y-key">output</span>: { … }
+<span class="y-key">status</span>:
+  <span class="y-key">available</span>: <span class="y-bool">true</span>
+  <span class="y-key">requiredTools</span>:
+    - x_kubernetes_list
+    - x_kubernetes_logs
+    - x_prometheus_query</code></pre>
+        <p>Validated at admission by CEL rules on the CRD. The workflow's tool appears in a session as soon as every tool it references is available there.</p>
+      </article>
+      <article class="crd">
+        <header><span class="crd__kind">WorkflowExecution</span><span class="crd__short">kubectl get wfe</span></header>
+<pre class="code code--bare"><code><span class="y-key">spec</span>:
+  <span class="y-key">workflowName</span>: pod-triage
+  <span class="y-key">status</span>: <span class="y-ok">completed</span>
+  <span class="y-key">input</span>: { namespace: payments, … }
+  <span class="y-key">steps</span>:
+    - { <span class="y-key">id</span>: pods,    <span class="y-key">status</span>: completed, <span class="y-key">duration</span>: 412ms }
+    - { <span class="y-key">id</span>: events,  <span class="y-key">status</span>: completed, <span class="y-key">duration</span>: 231ms }
+    - { <span class="y-key">id</span>: tail_1,  <span class="y-key">status</span>: <span class="y-warn">failed</span>,    <span class="y-key">allowFailure</span>: true }
+    - …</code></pre>
+        <p>One record per run, labelled by workflow and status, kept under a retention you set. Readable with <code>kubectl</code>, the CLI, or <code>core_workflow_execution_get</code>.</p>
+      </article>
+    </div>
+
+    <div class="k8s-bottom reveal">
+      <div class="term term--plain" aria-label="kubectl listing muster resources">
+        <pre class="term__body"><code><span class="t-prompt">$</span> kubectl -n muster get mcpservers
+NAME          TYPE              URL                                       AUTOSTART   STATUS    AGE
+kubernetes    streamable-http   https://mcp-kubernetes.muster.svc/mcp     true        <span class="t-ok">Running</span>   14d
+prometheus    streamable-http   https://mcp-prometheus.muster.svc/mcp     true        <span class="t-ok">Running</span>   14d
+github        streamable-http   https://api.githubcopilot.com/mcp/        true        <span class="t-ok">Running</span>   3d
+<span class="t-prompt">$</span> kubectl -n muster get wf,wfe
+NAME                                       AGE
+workflow.muster.giantswarm.io/pod-triage   9d
+
+NAME                                                          WORKFLOW     STATUS
+workflowexecution.muster.giantswarm.io/pod-triage-7f3k2       pod-triage   <span class="t-ok">completed</span>
+workflowexecution.muster.giantswarm.io/pod-triage-b1q8x       pod-triage   <span class="t-warn">failed</span></code></pre>
+      </div>
+      <div class="ships">
+        <h3>What the chart ships</h3>
+        <ul class="ships__list">
+          <li>The three CRDs, and a separate <code>muster-crds</code> chart when their lifecycle should be its own release</li>
+          <li>RBAC, with editor roles for <code>MCPServer</code> and <code>Workflow</code> so teams register their own servers</li>
+          <li><code>NetworkPolicy</code> and a Cilium variant restricting ingress to the aggregator and metrics ports</li>
+          <li><code>ServiceMonitor</code>, a <code>PrometheusRule</code> set and a Grafana dashboard</li>
+          <li>Ingress, or Gateway API <code>HTTPRoute</code> and <code>BackendTrafficPolicy</code></li>
+          <li>HPA and PDB, and Valkey-backed sessions and grants for more than one replica</li>
+          <li>An extra CA bundle for MCP servers behind a private CA</li>
+        </ul>
+        <p class="ships__foot">In Kubernetes mode <code>stdio</code> servers are refused: a child process of the muster pod would run under its service account. Servers run as their own workloads and are registered by URL. <a href="{{ 'operations/installation/#helm-chart' | url }}">Installation</a> · <a href="{{ 'reference/crds/' | url }}">Custom resources</a></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─────────────────────────────── identity ──────────────────────────── -->
+  <section id="identity" class="piece-section wrap">
+    <header class="piece-label reveal">
+      <span class="piece-label__name">Identity and single sign-on</span>
+      <span class="piece-label__meta">OAuth 2.1 · RFC 9728 · RFC 8693 · PKCE</span>
+    </header>
+    <div class="section-head reveal">
+      <h2>Every call is made as the person.</h2>
+      <p class="lead">A shared muster is an OAuth 2.1 resource server in front of Dex. A person logs in once and gets one session; muster carries that identity to every MCP server behind it and records who called what. Nothing muster adds widens access: a toolset bounds what the model can see, and the backends' own authorization stays the boundary.</p>
+    </div>
+
+    <div class="auth reveal">
+      <figure class="auth__figure" aria-label="One login fans out to four kinds of downstream authentication">
+        <svg class="authsvg" viewBox="0 0 640 380" aria-hidden="true" focusable="false">
+          <g class="guides">
+            <path d="M160,190 H210"/>
+            <path d="M370,190 C400,190 400,60 430,60"/>
+            <path d="M370,190 C400,190 400,150 430,150"/>
+            <path d="M370,190 C400,190 400,240 430,240"/>
+            <path d="M370,190 C400,190 400,330 430,330"/>
+            <path d="M290,240 V300"/>
+          </g>
+          <g class="auth-threads">
+            <path class="thread thread--static" d="M160,190 H210"/>
+            <path class="thread thread--static" d="M370,190 C400,190 400,60 430,60"/>
+            <path class="thread thread--static" d="M370,190 C400,190 400,150 430,150"/>
+            <path class="thread thread--static thread--dim" d="M370,190 C400,190 400,240 430,240"/>
+            <path class="thread thread--static thread--dim" d="M370,190 C400,190 400,330 430,330"/>
+          </g>
+          <g class="piece"><rect x="10" y="160" width="150" height="60" rx="3"/><text x="24" y="184" class="lbl">a person</text><text x="24" y="203" class="sub">logs in once, at Dex</text></g>
+          <g class="piece piece--muster"><rect x="210" y="140" width="160" height="100" rx="3"/><text x="290" y="166" class="lbl lbl--c">muster</text><text x="290" y="188" class="sub sub--c">resource server</text><text x="290" y="206" class="sub sub--c">one session per person</text><text x="290" y="224" class="sub sub--c">tokens 30 min · 30 d</text></g>
+          <g class="piece piece--dex"><rect x="240" y="300" width="100" height="40" rx="3"/><text x="290" y="318" class="lbl lbl--c">Dex</text><text x="290" y="332" class="sub sub--c">the only issuer</text></g>
+          <g class="piece"><rect x="430" y="36" width="190" height="48" rx="3"/><text x="444" y="56" class="lbl">forwarded</text><text x="444" y="73" class="sub">forwardToken · audiences</text></g>
+          <g class="piece"><rect x="430" y="126" width="190" height="48" rx="3"/><text x="444" y="146" class="lbl">exchanged</text><text x="444" y="163" class="sub">RFC 8693 at the remote IdP</text></g>
+          <g class="piece"><rect x="430" y="216" width="190" height="48" rx="3"/><text x="444" y="236" class="lbl">own login</text><text x="444" y="253" class="sub">core_auth_login · once</text></g>
+          <g class="piece"><rect x="430" y="306" width="190" height="48" rx="3"/><text x="444" y="326" class="lbl">signed</text><text x="444" y="343" class="sub">AWS SigV4 request signing</text></g>
+          <text x="302" y="276" class="note">PKCE · state · refresh</text>
+        </svg>
+      </figure>
+
+      <div class="term term--plain auth__term" aria-label="muster auth status output">
+        <pre class="term__body"><code><span class="t-prompt">$</span> muster auth status
+
+muster: <span class="t-ok">authenticated</span>
+  Endpoint: https://muster.example.com
+  Identity: dana@example.com
+  Expires:  in 29 minutes · session 30 days
+
+MCP Servers:
+  mcp-kubernetes    <span class="t-ok">Connected</span>  [SSO: Forwarded]
+  mcp-prometheus    <span class="t-ok">Connected</span>  [SSO: Forwarded]
+  remote-cluster    <span class="t-ok">Connected</span>  [SSO: Exchanged]
+  github            <span class="t-warn">Not authenticated</span>   Run: muster auth login --server github</code></pre>
+      </div>
+    </div>
+
+    <ul class="grid grid--3 reveal">
+      <li><h3>One login, one session</h3><p>The CLI, the IDE bridge and any client that implements the MCP authorization flow log in through the browser at Dex. Tokens live on disk with mode <code>0600</code>, never in logs. Access tokens last 30 minutes and are capped to the provider's; the refresh token rolls for 30 days, aligned with Dex.</p></li>
+      <li><h3>Identity travels downstream</h3><p>Servers that trust the same Dex receive the person's ID token with the audiences they require. Servers on another cluster get an RFC 8693 token exchange at their own IdP. Servers with their own OAuth get a browser login once per person, and AWS-hosted servers a SigV4 signature.</p></li>
+      <li><h3>Hardened by default</h3><p>PKCE on every flow, state validation, AES-256-GCM encryption of stored tokens, rate limits on the registration, authorization and token endpoints, SSRF and DNS-rebinding guards on client metadata and redirect URIs.</p></li>
+      <li><h3>Standard endpoints</h3><p>Protected-resource metadata under <code>/.well-known</code> (RFC 9728), client ID metadata documents, dynamic client registration where the deployment allows it. Any MCP client that speaks the authorization spec connects without a bridge.</p></li>
+      <li><h3>Toolsets, per request</h3><p><code>X-muster-Toolset: preset:read-only, workflow:pod-triage</code> declares the tools a request may see and call. Built-in and operator-defined presets, selectors by server, workflow, tool or label. Evaluated on every request; a toolset never widens the catalogue.</p></li>
+      <li><h3>Who called what</h3><p>Every tool call carries the person's identity into OpenTelemetry traces, Prometheus metrics and structured logs. Sessions, grants and OAuth state move to Valkey for more than one replica, and muster waits for it rather than splitting sessions.</p></li>
+    </ul>
+    <p class="section-foot reveal"><a href="{{ 'operations/installation/#protecting-the-endpoint-with-dex' | url }}">Protect the endpoint with Dex</a> · <a href="{{ 'how-to/authenticate-the-cli/' | url }}">Authenticate the CLI</a> · <a href="{{ 'reference/toolsets/' | url }}">Toolsets</a> · <a href="{{ 'explanation/decisions/009-sso-token-forwarding/' | url }}">Why token forwarding</a></p>
+  </section>
+
+  <!-- ─────────────────────────────── catalogue ─────────────────────────── -->
+  <section id="catalogue" class="piece-section wrap">
+    <header class="piece-label reveal">
+      <span class="piece-label__name">Discovery</span>
+      <span class="piece-label__meta">13 meta-tools · x_&lt;server&gt;_&lt;tool&gt;</span>
+    </header>
+    <div class="catalogue reveal">
+      <div class="section-head section-head--tight">
+        <h2>A catalogue that fits a context window.</h2>
+        <p class="lead">An MCP client loads every tool definition of every attached server before the first question is asked; a platform team's servers contribute hundreds. muster's clients see thirteen meta-tools instead. <code>filter_tools</code> ranks the catalogue against a query and returns a short, summarised page; <code>describe_tool</code> returns one schema; <code>call_tool</code> runs it. The catalogue can be hundreds of tools wide and still cost a few hundred tokens a turn. Servers that serve the same tools for different targets form a <em>family</em> and appear as one surface with an instance argument.</p>
+        <p class="section-foot"><a href="{{ 'reference/mcp-tools/' | url }}">MCP tools reference</a> · <a href="{{ 'explanation/mcp-aggregation/' | url }}">How the catalogue is built</a></p>
+      </div>
+      <ul class="tags" aria-label="The thirteen meta-tools">
+        <li>list_tools</li><li>filter_tools</li><li>describe_tool</li><li class="tags__hot">call_tool</li>
+        <li>list_resources</li><li>filter_resources</li><li>describe_resource</li><li class="tags__hot">get_resource</li>
+        <li>list_prompts</li><li>filter_prompts</li><li>describe_prompt</li><li class="tags__hot">get_prompt</li>
+        <li>list_core_tools</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ─────────────────────────────── install ───────────────────────────── -->
+  <section id="install" class="piece-section wrap">
+    <header class="piece-label reveal">
+      <span class="piece-label__name">Get started</span>
+      <span class="piece-label__meta">brew · curl · helm · go</span>
+    </header>
+    <div class="section-head reveal">
+      <h2>Ten minutes to an IDE calling tools through muster.</h2>
+      <p class="lead">muster is a single static binary for Linux, macOS and Windows, a container image and a Helm chart. Binaries are signed in CI and verified by <code>muster self-update</code>.</p>
+    </div>
+
+    <div class="install reveal">
+      <div class="tabs" role="tablist" aria-label="Installation method">
+        <button role="tab" id="tab-brew" aria-controls="panel-brew" aria-selected="true">Homebrew</button>
+        <button role="tab" id="tab-bin" aria-controls="panel-bin" aria-selected="false" tabindex="-1">Binary</button>
+        <button role="tab" id="tab-helm" aria-controls="panel-helm" aria-selected="false" tabindex="-1">Helm</button>
+        <button role="tab" id="tab-go" aria-controls="panel-go" aria-selected="false" tabindex="-1">Go</button>
+      </div>
+      <div class="panels">
+        <div role="tabpanel" id="panel-brew" aria-labelledby="tab-brew">
+          <div class="copyblock"><pre class="code"><code>brew trust giantswarm/muster
+brew install giantswarm/muster/muster</code></pre><button class="copy" type="button" aria-label="Copy to clipboard">Copy</button></div>
+        </div>
+        <div role="tabpanel" id="panel-bin" aria-labelledby="tab-bin" hidden>
+          <div class="copyblock"><pre class="code"><code>os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+arch="$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')"
+curl -fsSL -o muster "https://github.com/giantswarm/muster/releases/latest/download/muster-${os}-${arch}"
+chmod +x muster &amp;&amp; sudo mv muster /usr/local/bin/</code></pre><button class="copy" type="button" aria-label="Copy to clipboard">Copy</button></div>
+        </div>
+        <div role="tabpanel" id="panel-helm" aria-labelledby="tab-helm" hidden>
+          <div class="copyblock"><pre class="code"><code>helm repo add giantswarm https://giantswarm.github.io/giantswarm-catalog/
+helm install muster giantswarm/muster --namespace muster --create-namespace</code></pre><button class="copy" type="button" aria-label="Copy to clipboard">Copy</button></div>
+        </div>
+        <div role="tabpanel" id="panel-go" aria-labelledby="tab-go" hidden>
+          <div class="copyblock"><pre class="code"><code>go install github.com/giantswarm/muster@latest</code></pre><button class="copy" type="button" aria-label="Copy to clipboard">Copy</button></div>
+        </div>
+      </div>
+
+      <div class="steps">
+        <div class="step">
+          <h3>Serve, register, call</h3>
+          <div class="copyblock"><pre class="code"><code><span class="t-prompt">$</span> muster serve                       <span class="t-dim"># http://localhost:8090/mcp</span>
+<span class="t-prompt">$</span> muster create mcpserver files --type=stdio --command=npx \
+    --args="-y,@modelcontextprotocol/server-filesystem,$HOME" --autoStart=true
+<span class="t-prompt">$</span> muster list mcpserver              <span class="t-dim"># files   Running   stdio</span>
+<span class="t-prompt">$</span> muster call x_files_list_allowed_directories</code></pre></div>
+        </div>
+        <div class="step">
+          <h3>Connect an IDE</h3>
+          <p class="step__p"><code>muster standalone</code> runs the aggregator and a stdio bridge in one process. Against a running or remote muster, use <code>muster agent --mcp-server</code>; the bridge performs the browser login for the IDE.</p>
+          <div class="copyblock"><pre class="code"><code>{
+  <span class="y-key">"mcpServers"</span>: {
+    <span class="y-key">"muster"</span>: { <span class="y-key">"command"</span>: <span class="y-str">"muster"</span>, <span class="y-key">"args"</span>: [<span class="y-str">"standalone"</span>] }
+  }
+}</code></pre><button class="copy" type="button" aria-label="Copy to clipboard">Copy</button></div>
+        </div>
+      </div>
+      <p class="section-foot">The <a href="{{ 'getting-started/quick-start/' | url }}">quick start</a> continues from here: exploring the catalogue in the REPL, toolsets and the first workflow. On a cluster, the <a href="{{ 'operations/installation/' | url }}">installation guide</a> covers Dex, Valkey-backed sessions, network policies and metrics.</p>
+    </div>
+  </section>
+
+  <!-- ───────────────────────────────── docs ────────────────────────────── -->
+  <section id="docs" class="piece-section wrap">
+    <header class="piece-label reveal">
+      <span class="piece-label__name">Documentation</span>
+      <span class="piece-label__meta">tutorials · how-to · reference · explanation</span>
+    </header>
+    <ul class="docs reveal">
+      <li><a href="{{ 'getting-started/' | url }}"><h3>Getting started</h3><p>A working muster and your first aggregated tools, step by step.</p></a></li>
+      <li><a href="{{ 'how-to/' | url }}"><h3>How-to guides</h3><p>Connect a client, authenticate, register a server, integrate with Kubernetes, build a workflow, fix a problem.</p></a></li>
+      <li><a href="{{ 'reference/' | url }}"><h3>Reference</h3><p>Tool arguments, configuration keys, custom resource fields, events, HTTP endpoints and every CLI flag.</p></a></li>
+      <li><a href="{{ 'explanation/' | url }}"><h3>Explanation</h3><p>How aggregation, sessions, workflows and observability work, and the decision records that say why.</p></a></li>
+      <li><a href="{{ 'operations/' | url }}"><h3>Operations</h3><p>Install muster for a team and keep it secure: Dex, Valkey, token lifecycle, upgrades.</p></a></li>
+      <li><a href="{{ 'contributing/' | url }}"><h3>Contributing</h3><p>Development setup, the conventions the linters enforce and the behavioural scenario suite.</p></a></li>
+    </ul>
+    <div class="bytask reveal">
+      <h3>By task</h3>
+      <ul>
+        <li><a href="{{ 'how-to/connect-mcp-clients/' | url }}">Connect Cursor, VS Code, Claude Code or Claude Desktop</a></li>
+        <li><a href="{{ 'how-to/authenticate-the-cli/' | url }}">Use the CLI against a muster that requires login</a></li>
+        <li><a href="{{ 'how-to/mcp-server-management/' | url }}">Register, update and troubleshoot MCP servers</a></li>
+        <li><a href="{{ 'reference/toolsets/' | url }}">Give an agent a bounded tool surface</a></li>
+        <li><a href="{{ 'operations/installation/' | url }}">Run muster on a cluster with Dex and Valkey</a></li>
+        <li><a href="{{ 'how-to/workflow-creation/' | url }}">Turn a procedure into a deterministic tool</a></li>
+        <li><a href="{{ 'reference/mcp-tools/' | url }}">See what an agent sees</a></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="wrap foot__row">
+    <p>muster is a <a href="https://www.giantswarm.io" rel="noopener">Giant Swarm</a> project, released under the <a href="{{ config.repo_url }}/blob/main/LICENSE" rel="noopener">Apache License 2.0</a>. Security issues go through Giant Swarm's <a href="https://www.giantswarm.io/responsible-disclosure" rel="noopener">responsible disclosure process</a>.</p>
+    <nav aria-label="Project links">
+      <a href="{{ config.repo_url }}" rel="noopener">Source</a>
+      <a href="{{ config.repo_url }}/releases" rel="noopener">Releases</a>
+      <a href="{{ config.repo_url }}/issues" rel="noopener">Issues</a>
+      <a href="{{ 'getting-started/' | url }}">Documentation</a>
+    </nav>
+  </div>
+</footer>
+
+<script src="{{ 'assets/landing/landing.js' | url }}" defer></script>
+</body>
+</html>

@@ -11,6 +11,7 @@ site_dir: site
 
 theme:
   name: material
+  custom_dir: overrides
   language: en
   logo: assets/logo.svg
   favicon: assets/logo.svg
@@ -83,7 +84,7 @@ validation:
     absolute_links: warn
 
 nav:
-  - Home: README.md
+  - Home: index.md
   - Getting started:
       - getting-started/README.md
       - Quick start: getting-started/quick-start.md
