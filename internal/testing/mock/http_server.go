@@ -38,6 +38,28 @@ type HTTPServer struct {
 	// outage, when armed, answers requests with a fixed HTTP status before
 	// the MCP handler sees them. It survives Stop/StartOnPort.
 	outage outageGate
+	// live is the MCP handler behind the listening port; Redeploy replaces it.
+	live *swappableHandler
+}
+
+// swappableHandler serves the handler it currently holds and lets Redeploy
+// replace it while the listener keeps accepting connections.
+type swappableHandler struct {
+	mu sync.RWMutex
+	h  http.Handler
+}
+
+func (s *swappableHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.mu.RLock()
+	h := s.h
+	s.mu.RUnlock()
+	h.ServeHTTP(w, r)
+}
+
+func (s *swappableHandler) set(h http.Handler) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.h = h
 }
 
 // NewHTTPServer creates a new HTTP mock server from an existing mock server
@@ -90,9 +112,9 @@ func (s *HTTPServer) startServing() {
 		fmt.Fprintf(os.Stderr, "🌐 Starting mock HTTP server (%s) on port %d\n", s.transport, s.port)
 	}
 
-	handler := s.outage.wrap(s.createHandler())
+	s.live = &swappableHandler{h: s.createHandler()}
 	httpServer := &http.Server{ //nolint:gosec
-		Handler: handler,
+		Handler: s.outage.wrap(s.live),
 	}
 	s.httpServer = httpServer
 	listener := s.listener
@@ -212,6 +234,25 @@ func (s *HTTPServer) Stop(ctx context.Context) error {
 		fmt.Fprintf(os.Stderr, "✅ Mock HTTP server stopped\n")
 	}
 
+	return nil
+}
+
+// Redeploy replaces the MCP handler behind the listening port with a fresh
+// one: the tools stay, every MCP session the old handler knew is forgotten,
+// and the port never stopped accepting -- a backend pod replaced behind the
+// same Service. A client that keeps using its session id is answered 404
+// ("Invalid session ID") by the new handler, as mcp-go's streamable-HTTP
+// server answers for a session it does not know.
+func (s *HTTPServer) Redeploy() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.running {
+		return fmt.Errorf("mock server on port %d is not running", s.port)
+	}
+	s.live.set(s.createHandler())
+	if s.debug {
+		fmt.Fprintf(os.Stderr, "🔁 Redeployed mock HTTP server on port %d: sessions forgotten\n", s.port)
+	}
 	return nil
 }
 

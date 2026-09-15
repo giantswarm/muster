@@ -416,10 +416,10 @@ func TestOAuthServer_SetClock(t *testing.T) {
 		TokenLifetime: 1 * time.Hour,
 	})
 
-	// Verify default clock is RealClock
-	_, isReal := server.GetClock().(RealClock)
-	if !isReal {
-		t.Error("Expected default clock to be RealClock")
+	// The default clock follows the system time and can be advanced together
+	// with muster's clock (test_advance_clock).
+	if _, ok := server.GetClock().(*OffsetClock); !ok {
+		t.Errorf("Expected default clock to be an OffsetClock, got %T", server.GetClock())
 	}
 
 	// Set a mock clock

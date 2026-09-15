@@ -282,8 +282,9 @@ func (m *musterInstanceManager) startMockHTTPServersWithOAuth(
 		// Check if this server requires OAuth
 		oauthConfig := m.extractOAuthConfig(mcpServer.Config)
 
-		if oauthConfig != nil && oauthConfig.Required {
-			// Start as a protected MCP server
+		if oauthConfig != nil && oauthConfig.tokenCapable() {
+			// Start as a protected MCP server; with required false it answers
+			// anonymously until test_set_mock_server_auth flips it.
 			info, err := m.startProtectedMCPServer(ctx, instanceID, mcpServer, transportType, oauthConfig, oauthServers, logger)
 			if err != nil {
 				return nil, fmt.Errorf("failed to start protected MCP server %s: %w", mcpServer.Name, err)
@@ -410,6 +411,7 @@ func (m *musterInstanceManager) startProtectedMCPServer(
 		Issuer:               issuer,
 		RequiredScope:        oauthConfig.Scope,
 		OmitResourceMetadata: oauthConfig.OmitResourceMetadata,
+		StartAnonymous:       !oauthConfig.Required,
 		Tools:                tools,
 		Transport:            transportType,
 		Debug:                m.debug,

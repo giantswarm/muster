@@ -401,7 +401,8 @@ func (m *musterInstanceManager) CreateInstance(ctx context.Context, scenarioName
 	}
 
 	// Start muster serve process with log capture
-	managedProc, err := m.startMusterProcess(ctx, configPath, port, metricsPort, logger)
+	timing := instanceTiming{intervals: instanceIntervals(config), clockSocket: clockSocketPath(m.tempDir, port)}
+	managedProc, err := m.startMusterProcess(ctx, configPath, port, metricsPort, timing, logger)
 	if err != nil {
 		cleanupSetup()
 		return nil, fmt.Errorf("failed to start muster process: %w", err)
@@ -440,6 +441,8 @@ func (m *musterInstanceManager) CreateInstance(ctx context.Context, scenarioName
 		MockOAuthServers:       mockOAuthServerInfo,
 		MusterOAuthAccessToken: musterOAuthToken,
 	}
+	instance.Intervals = timing.intervals
+	instance.ClockSocketPath = timing.clockSocket
 	if v := m.valkeyFor(instanceID); v != nil {
 		instance.ValkeyAddr = v.addr()
 	}
@@ -1265,7 +1268,7 @@ func (m *musterInstanceManager) releasePort(port int, instanceID string, logger 
 // port is the reserved port muster serve will bind. The probe listener held open
 // for it (see findAvailablePort) is closed immediately before exec so the child
 // can take the port over with a near-zero race window.
-func (m *musterInstanceManager) startMusterProcess(ctx context.Context, configPath string, port, metricsPort int, logger TestLogger) (*managedProcess, error) {
+func (m *musterInstanceManager) startMusterProcess(ctx context.Context, configPath string, port, metricsPort int, timing instanceTiming, logger TestLogger) (*managedProcess, error) {
 	// Get the path to the muster binary
 	musterPath, err := m.getMusterBinaryPath()
 	if err != nil {
@@ -1294,12 +1297,6 @@ func (m *musterInstanceManager) startMusterProcess(ctx context.Context, configPa
 
 	cmd := exec.CommandContext(ctx, musterPath, args...) //nolint:gosec
 
-	// Under parallel load a first connect to a mock endpoint can fail
-	// transiently; with production timing that costs 30s initial backoff plus
-	// up to a 30s orchestrator tick before the retry, blowing past scenario
-	// wait_for_state budgets. Fast-retry inside the harness so transient
-	// failures recover in seconds.
-	//
 	// The OTEL_* trio turns on the self-hosted Prometheus exporter on
 	// metricsPort. It is enabled for every instance rather than per scenario:
 	// muster resolves the exporter once at startup from the environment, and an
@@ -1321,28 +1318,10 @@ func (m *musterInstanceManager) startMusterProcess(ctx context.Context, configPa
 	env := slices.DeleteFunc(os.Environ(), func(e string) bool {
 		return strings.HasPrefix(e, "GOMAXPROCS=")
 	})
-	cmd.Env = append(env,
-		"GOMAXPROCS="+childGOMAXPROCS,
-		"MUSTER_MCPSERVER_INITIAL_BACKOFF=1s",
-		// A cap three times the initial backoff: the third and fourth failure
-		// both wait 3s (instead of 4s and 8s), so a scenario sees the cap bite
-		// within seconds and can assert on the exact schedule.
-		"MUSTER_MCPSERVER_MAX_BACKOFF=3s",
-		"MUSTER_ORCHESTRATOR_RETRY_INTERVAL=1s",
-		// Three failed probes turn a server unhealthy, so a scenario sees the
-		// health loop act on a dead backend within seconds. The probe's pings
-		// pass the mock servers' outage gate uncounted (mock/outage.go), so a
-		// scenario that arms N failed requests still sees N failed attempts.
-		"MUSTER_ORCHESTRATOR_HEALTH_CHECK_INTERVAL=1s",
-		// Two resync ticks fit in a wait of a few seconds, so a scenario can
-		// assert that a reconcile the reconciler must perform once -- the
-		// stop of a suspended server -- stays done across them (production:
-		// 30s).
-		"MUSTER_RECONCILER_RESYNC_INTERVAL=2s",
-		// A 5 s delayed mock tool call ages the core catalogue past this, so
-		// a scenario sees the read after it refresh the catalogue in the
-		// background within seconds (production: 5 min).
-		"MUSTER_CORE_CATALOGUE_MAX_AGE=3s",
+	cmd.Env = append(env, "GOMAXPROCS="+childGOMAXPROCS)
+	// The lifecycle timers' schedule and the controllable clock, see timingEnv.
+	cmd.Env = append(cmd.Env, timingEnv(timing)...)
+	cmd.Env = append(cmd.Env,
 		"OTEL_METRICS_EXPORTER=prometheus",
 		"OTEL_EXPORTER_PROMETHEUS_HOST=127.0.0.1",
 		fmt.Sprintf("OTEL_EXPORTER_PROMETHEUS_PORT=%d", metricsPort),

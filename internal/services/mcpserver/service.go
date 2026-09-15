@@ -17,6 +17,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 
 	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/clock"
 	"github.com/giantswarm/muster/internal/config"
 	"github.com/giantswarm/muster/internal/events"
 	"github.com/giantswarm/muster/internal/mcpserver"
@@ -182,7 +183,7 @@ func (s *Service) Start(ctx context.Context) error {
 	}
 
 	// Record attempt time (thread-safe)
-	now := time.Now()
+	now := clock.Now()
 	s.failureMutex.Lock()
 	s.lastAttempt = &now
 	s.failureMutex.Unlock()
@@ -820,7 +821,7 @@ func (s *Service) recordHealthCheckFailure(err error) (services.HealthStatus, er
 	if cerr := s.closeClient(); cerr != nil {
 		s.LogWarn("Error closing client after failed health checks: %v", cerr)
 	}
-	now := time.Now()
+	now := clock.Now()
 	s.failureMutex.Lock()
 	s.nextRetryAfter = &now
 	s.retryBackoff = 0
@@ -1201,7 +1202,7 @@ func (s *Service) calculateNextRetryTimeLocked() {
 	// The cap always wins, also over an InitialBackoff configured above it.
 	backoffDuration = min(backoffDuration, MaxBackoff)
 
-	nextRetry := time.Now().Add(backoffDuration)
+	nextRetry := clock.Now().Add(backoffDuration)
 	s.nextRetryAfter = &nextRetry
 	s.retryBackoff = backoffDuration
 }
