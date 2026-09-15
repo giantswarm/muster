@@ -30,10 +30,12 @@ import (
 
 const (
 	// sessionStoreConnectTimeout bounds the wait for the configured Valkey at
-	// startup. It stays under the chart's liveness window (the probe kills a
-	// pod that has not answered for about 40 s) so a muster that gives up
-	// exits on its own terms, with the reason in its log.
-	sessionStoreConnectTimeout = 30 * time.Second
+	// startup. The chart's liveness probe kills a pod whose /health has not
+	// answered by 30 s after the container started (initial delay 10 s, three
+	// failures 10 s apart); giving up at 20 s leaves room for the start
+	// itself, so a muster whose Valkey stays away exits on its own terms,
+	// with the reason and a non-zero status instead of a probe kill.
+	sessionStoreConnectTimeout = 20 * time.Second
 	sessionStoreInitialBackoff = time.Second
 	sessionStoreMaxBackoff     = 8 * time.Second
 )
@@ -97,6 +99,11 @@ func connectValkey(ctx context.Context, cfg config.ValkeyConfig, wait func(conte
 	defer cancel()
 
 	address := mcptoolkitlogging.RedactHost(cfg.URL)
+	gaveUp := func(attempt int, err error) error {
+		return fmt.Errorf("valkey %s did not answer within %s (%d attempts, last error: %w)",
+			address, sessionStoreConnectTimeout, attempt, err)
+	}
+
 	backoff := sessionStoreInitialBackoff
 	for attempt := 1; ; attempt++ {
 		client, err := newValkeyClient(cfg)
@@ -108,19 +115,23 @@ func connectValkey(ctx context.Context, cfg config.ValkeyConfig, wait func(conte
 			return client, nil
 		}
 
+		pause := backoff
 		if deadline, ok := ctx.Deadline(); ok {
-			backoff = min(backoff, max(time.Until(deadline), 0))
+			remaining := time.Until(deadline)
+			if remaining <= 0 {
+				return nil, gaveUp(attempt, err)
+			}
+			pause = min(pause, remaining)
 		}
 		logging.WarnWithAttrs("Aggregator", "Valkey for the session stores did not answer, retrying",
 			slog.String("address", address),
 			slog.Int("attempt", attempt),
-			slog.Duration("retry_in", backoff),
+			slog.Duration("retry_in", pause),
 			slog.String("error", err.Error()))
 
-		if waitErr := wait(ctx, backoff); waitErr != nil {
+		if waitErr := wait(ctx, pause); waitErr != nil {
 			if errors.Is(waitErr, context.DeadlineExceeded) {
-				return nil, fmt.Errorf("valkey %s did not answer within %s (%d attempts, last error: %w)",
-					address, sessionStoreConnectTimeout, attempt, err)
+				return nil, gaveUp(attempt, err)
 			}
 			return nil, fmt.Errorf("waiting for valkey %s: %w", address, waitErr)
 		}
