@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -18,6 +19,7 @@ import (
 type mcpToolListItem struct {
 	Name        string `json:"name" yaml:"name"`
 	Description string `json:"description" yaml:"description"`
+	Server      string `json:"server,omitempty" yaml:"server,omitempty"`
 }
 
 // mcpResourceListItem represents a resource in list output format.
@@ -83,7 +85,7 @@ func pluralize(count int, singular string) string {
 }
 
 // FormatMCPToolsWithOptions formats and displays MCP tools with additional options.
-func FormatMCPToolsWithOptions(tools []MCPTool, format OutputFormat, noHeaders bool) error {
+func FormatMCPToolsWithOptions(tools []MCPToolInfo, format OutputFormat, noHeaders bool) error {
 	if len(tools) == 0 {
 		fmt.Println("No tools found")
 		return nil
@@ -101,6 +103,7 @@ func FormatMCPToolsWithOptions(tools []MCPTool, format OutputFormat, noHeaders b
 			items[i] = mcpToolListItem{
 				Name:        tool.Name,
 				Description: tool.Description,
+				Server:      tool.Server,
 			}
 		}
 		if format == OutputFormatJSON {
@@ -112,7 +115,7 @@ func FormatMCPToolsWithOptions(tools []MCPTool, format OutputFormat, noHeaders b
 	// kubectl-style plain table format
 	tw := NewPlainTableWriter(os.Stdout)
 
-	// Wide mode: add SERVER column and show input schema summary
+	// Wide mode: add the server each tool belongs to and an input schema summary
 	isWide := format == OutputFormatWide
 	if isWide {
 		tw.SetHeaders([]string{headerName, headerDescription, "SERVER", "ARGS"})
@@ -123,13 +126,11 @@ func FormatMCPToolsWithOptions(tools []MCPTool, format OutputFormat, noHeaders b
 
 	for _, tool := range tools {
 		if isWide {
-			server := extractServerFromToolName(tool.Name)
-			argCount := countToolArgs(tool)
 			tw.AppendRow([]string{
 				tool.Name,
 				truncateString(tool.Description, descLengthWide),
-				server,
-				argCount,
+				cmp.Or(tool.Server, "-"),
+				countToolArgs(tool.MCPTool),
 			})
 		} else {
 			tw.AppendRow([]string{tool.Name, truncateString(tool.Description, descLengthNormal)})
@@ -143,24 +144,6 @@ func FormatMCPToolsWithOptions(tools []MCPTool, format OutputFormat, noHeaders b
 		fmt.Printf("\n%s\n", pluralize(len(tools), "tool"))
 	}
 	return nil
-}
-
-// extractServerFromToolName extracts the server name from a tool name.
-// Tool names follow the pattern "server_toolname" (e.g., "github_create_issue").
-func extractServerFromToolName(name string) string {
-	// Handle well-known prefixes
-	knownPrefixes := []string{"core_", "mcp_", "workflow_", "action_"}
-	for _, prefix := range knownPrefixes {
-		if strings.HasPrefix(name, prefix) {
-			return strings.TrimSuffix(prefix, "_")
-		}
-	}
-
-	// Extract the first segment before underscore
-	if idx := strings.Index(name, "_"); idx > 0 {
-		return name[:idx]
-	}
-	return "-"
 }
 
 // countToolArgs returns a string representation of the number of arguments.

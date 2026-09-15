@@ -1,8 +1,11 @@
 package cmd
 
 import (
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/giantswarm/muster/internal/cli"
 )
 
 func TestMatchesWildcard(t *testing.T) {
@@ -287,7 +290,7 @@ func TestMatchesMCPFilter(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := matchesMCPFilter(tt.toolName, tt.description, tt.opts)
+			result := matchesMCPFilter(tt.toolName, tt.description, "", tt.opts)
 			if result != tt.expected {
 				t.Errorf("matchesMCPFilter(%q, %q, %+v) = %v, expected %v",
 					tt.toolName, tt.description, tt.opts, result, tt.expected)
@@ -476,7 +479,6 @@ func TestFilterMCPTools(t *testing.T) {
 		{Name: "github_create_issue", Description: "Create a GitHub issue"},
 	}
 
-	// Convert to cli.MCPTool - we can't import cli in tests so we just test the filter logic
 	t.Run("empty filter returns all", func(t *testing.T) {
 		opts := MCPFilterOptions{}
 		if !opts.IsEmpty() {
@@ -488,7 +490,7 @@ func TestFilterMCPTools(t *testing.T) {
 		opts := MCPFilterOptions{Pattern: "core_*"}
 		matchCount := 0
 		for _, tool := range tools {
-			if matchesMCPFilter(tool.Name, tool.Description, opts) {
+			if matchesMCPFilter(tool.Name, tool.Description, "", opts) {
 				matchCount++
 			}
 		}
@@ -501,7 +503,7 @@ func TestFilterMCPTools(t *testing.T) {
 		opts := MCPFilterOptions{Description: "GitHub"}
 		matchCount := 0
 		for _, tool := range tools {
-			if matchesMCPFilter(tool.Name, tool.Description, opts) {
+			if matchesMCPFilter(tool.Name, tool.Description, "", opts) {
 				matchCount++
 			}
 		}
@@ -531,69 +533,129 @@ func TestMatchesServer(t *testing.T) {
 	tests := []struct {
 		name     string
 		toolName string
-		server   string
+		server   string // the server the aggregator reports for the tool
+		filter   string
 		expected bool
 	}{
-		// Empty server matches everything
 		{
-			name:     "empty server matches any tool",
-			toolName: "github_create_issue",
-			server:   "",
+			name:     "empty filter matches any tool",
+			toolName: "x_files_read_file",
+			server:   "files",
+			filter:   "",
 			expected: true,
 		},
-		// Exact prefix match with underscore
+		// The aggregated server's name is what a user registered it as (#1248):
+		// the exposed name carries an "x_" prefix the old prefix match never saw past.
 		{
-			name:     "exact prefix match with underscore",
-			toolName: "github_create_issue",
-			server:   "github",
+			name:     "aggregated server by its name",
+			toolName: "x_files_read_file",
+			server:   "files",
+			filter:   "files",
 			expected: true,
 		},
 		{
-			name:     "prefix match core server",
+			name:     "aggregated server by the exposed prefix",
+			toolName: "x_files_read_file",
+			server:   "files",
+			filter:   "x_files",
+			expected: true,
+		},
+		{
+			name:     "server name is matched case-insensitively",
+			toolName: "x_files_read_file",
+			server:   "files",
+			filter:   "FILES",
+			expected: true,
+		},
+		{
+			name:     "exposed prefix is matched case-insensitively",
+			toolName: "X_Files_read_file",
+			server:   "files",
+			filter:   "x_files",
+			expected: true,
+		},
+		// A server whose toolPrefix differs from its name is found by its name only.
+		{
+			name:     "prefix-divergent server by its name",
+			toolName: "x_pro_issues",
+			server:   "gazelle-mcp-pro",
+			filter:   "gazelle-mcp-pro",
+			expected: true,
+		},
+		{
+			name:     "prefix-divergent server by its exposed prefix",
+			toolName: "x_pro_issues",
+			server:   "gazelle-mcp-pro",
+			filter:   "x_pro",
+			expected: true,
+		},
+		{
+			name:     "prefix-divergent server is not found by the bare prefix",
+			toolName: "x_pro_issues",
+			server:   "gazelle-mcp-pro",
+			filter:   "pro",
+			expected: false,
+		},
+		// muster's own tools are grouped under their kind.
+		{
+			name:     "core tool by kind",
 			toolName: "core_service_list",
 			server:   "core",
-			expected: true,
-		},
-		// Case-insensitive matching
-		{
-			name:     "case-insensitive match uppercase server",
-			toolName: "github_create_issue",
-			server:   "GITHUB",
+			filter:   "core",
 			expected: true,
 		},
 		{
-			name:     "case-insensitive match mixed case",
-			toolName: "GitHub_create_issue",
-			server:   "github",
+			name:     "workflow tool by kind",
+			toolName: "workflow_deploy",
+			server:   "workflow",
+			filter:   "workflow",
 			expected: true,
 		},
-		// No match
+		// No attribution (resources and prompts): only the exposed prefix can match.
 		{
-			name:     "no match different server",
-			toolName: "github_create_issue",
-			server:   "core",
+			name:     "no attribution matches the exposed prefix",
+			toolName: "x_pp_triage",
+			server:   "",
+			filter:   "x_pp",
+			expected: true,
+		},
+		{
+			name:     "no attribution does not match the server name",
+			toolName: "x_pp_triage",
+			server:   "",
+			filter:   "promptserver",
+			expected: false,
+		},
+		// No partial matches: the filter names one server.
+		{
+			name:     "different server",
+			toolName: "x_files_read_file",
+			server:   "files",
+			filter:   "core",
 			expected: false,
 		},
 		{
-			name:     "no match partial server name",
-			toolName: "github_create_issue",
-			server:   "git",
-			expected: true, // git is a prefix of github_
+			name:     "partial server name",
+			toolName: "x_github_create_issue",
+			server:   "github",
+			filter:   "git",
+			expected: false,
 		},
 		{
-			name:     "no match when server is longer than prefix",
-			toolName: "git_action",
-			server:   "github",
+			name:     "filter longer than the prefix",
+			toolName: "x_git_action",
+			server:   "git",
+			filter:   "github",
 			expected: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := matchesServer(tt.toolName, tt.server)
+			result := matchesServer(tt.toolName, tt.server, tt.filter)
 			if result != tt.expected {
-				t.Errorf("matchesServer(%q, %q) = %v, expected %v",
-					tt.toolName, tt.server, result, tt.expected)
+				t.Errorf("matchesServer(%q, %q, %q) = %v, expected %v",
+					tt.toolName, tt.server, tt.filter, result, tt.expected)
 			}
 		})
 	}
@@ -604,14 +666,16 @@ func TestMatchesMCPFilterWithServer(t *testing.T) {
 		name        string
 		toolName    string
 		description string
+		server      string
 		opts        MCPFilterOptions
 		expected    bool
 	}{
 		// Server filter only
 		{
 			name:        "server filter only - matches",
-			toolName:    "github_create_issue",
+			toolName:    "x_github_create_issue",
 			description: "Create an issue",
+			server:      "github",
 			opts:        MCPFilterOptions{Server: "github"},
 			expected:    true,
 		},
@@ -619,6 +683,7 @@ func TestMatchesMCPFilterWithServer(t *testing.T) {
 			name:        "server filter only - no match",
 			toolName:    "core_service_list",
 			description: "List services",
+			server:      "core",
 			opts:        MCPFilterOptions{Server: "github"},
 			expected:    false,
 		},
@@ -627,13 +692,15 @@ func TestMatchesMCPFilterWithServer(t *testing.T) {
 			name:        "all filters match",
 			toolName:    "core_service_list",
 			description: "List all services with status",
+			server:      "core",
 			opts:        MCPFilterOptions{Pattern: "*_list", Description: "status", Server: "core"},
 			expected:    true,
 		},
 		{
 			name:        "pattern and description match but server doesn't",
-			toolName:    "github_issue_list",
+			toolName:    "x_github_issue_list",
 			description: "List all issues with status",
+			server:      "github",
 			opts:        MCPFilterOptions{Pattern: "*_list", Description: "status", Server: "core"},
 			expected:    false,
 		},
@@ -641,10 +708,89 @@ func TestMatchesMCPFilterWithServer(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := matchesMCPFilter(tt.toolName, tt.description, tt.opts)
+			result := matchesMCPFilter(tt.toolName, tt.description, tt.server, tt.opts)
 			if result != tt.expected {
-				t.Errorf("matchesMCPFilter(%q, %q, %+v) = %v, expected %v",
-					tt.toolName, tt.description, tt.opts, result, tt.expected)
+				t.Errorf("matchesMCPFilter(%q, %q, %q, %+v) = %v, expected %v",
+					tt.toolName, tt.description, tt.server, tt.opts, result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestFilterMCPToolsByServer covers `muster list tool --server <name>` on the
+// catalogue the aggregator reports: a server registered as "files" exposes
+// x_files_* and is selected by its name (#1248), a server whose toolPrefix
+// differs from its name by its name alone, and muster's own tools by kind.
+func TestFilterMCPToolsByServer(t *testing.T) {
+	catalogue := []cli.MCPToolInfo{
+		{MCPTool: cli.MCPTool{Name: "core_service_list", Description: "List all services"}, Server: "core"},
+		{MCPTool: cli.MCPTool{Name: "core_workflow_list", Description: "List all workflows"}, Server: "core"},
+		{MCPTool: cli.MCPTool{Name: "workflow_deploy", Description: "Deploy"}, Server: "workflow"},
+		{MCPTool: cli.MCPTool{Name: "x_files_list_directory", Description: "List a directory"}, Server: "files"},
+		{MCPTool: cli.MCPTool{Name: "x_files_read_file", Description: "Read a file"}, Server: "files"},
+		{MCPTool: cli.MCPTool{Name: "x_pro_issues", Description: "List issues"}, Server: "gazelle-mcp-pro"},
+	}
+
+	names := func(tools []cli.MCPToolInfo) []string {
+		out := make([]string, 0, len(tools))
+		for _, tool := range tools {
+			out = append(out, tool.Name)
+		}
+		return out
+	}
+
+	tests := []struct {
+		name     string
+		opts     MCPFilterOptions
+		expected []string
+	}{
+		{
+			name:     "--server files lists the tools of the server registered as files",
+			opts:     MCPFilterOptions{Server: "files"},
+			expected: []string{"x_files_list_directory", "x_files_read_file"},
+		},
+		{
+			name:     "--filter x_files_* lists the same tools",
+			opts:     MCPFilterOptions{Pattern: "x_files_*"},
+			expected: []string{"x_files_list_directory", "x_files_read_file"},
+		},
+		{
+			name:     "--server x_files accepts the exposed prefix",
+			opts:     MCPFilterOptions{Server: "x_files"},
+			expected: []string{"x_files_list_directory", "x_files_read_file"},
+		},
+		{
+			name:     "--server core keeps listing the core tools",
+			opts:     MCPFilterOptions{Server: "core"},
+			expected: []string{"core_service_list", "core_workflow_list"},
+		},
+		{
+			name:     "--server workflow lists the workflow tools",
+			opts:     MCPFilterOptions{Server: "workflow"},
+			expected: []string{"workflow_deploy"},
+		},
+		{
+			name:     "--server names a server whose toolPrefix differs from its name",
+			opts:     MCPFilterOptions{Server: "gazelle-mcp-pro"},
+			expected: []string{"x_pro_issues"},
+		},
+		{
+			name:     "--server combines with the other filters",
+			opts:     MCPFilterOptions{Server: "files", Description: "file"},
+			expected: []string{"x_files_read_file"},
+		},
+		{
+			name:     "--server for an unknown server selects nothing",
+			opts:     MCPFilterOptions{Server: "nothing"},
+			expected: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := names(filterMCPTools(catalogue, tt.opts))
+			if !slices.Equal(got, tt.expected) {
+				t.Errorf("filterMCPTools(%+v) = %v, expected %v", tt.opts, got, tt.expected)
 			}
 		})
 	}
