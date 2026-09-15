@@ -29,6 +29,8 @@ timeout: "5m"                          # Global scenario timeout (default: 30m)
 # Pre-configuration for the isolated muster instance
 # This generates the necessary configs and definitions before starting muster serve
 pre_configuration:
+  fixture: "scale"                     # Optional: boot from a committed installation-shaped fixture
+                                       # (87 servers, 282 workflows); the lists below are added to it
   mcp_servers:                         # Mock MCP servers (uses muster's standard MCP server management)
     - name: "mock-server-name"
       config:
@@ -337,6 +339,7 @@ ever honoured on one path and dropped on the other.
 | `not_contains` | the response text contains none of the listed strings |
 | `error_contains` | the error text contains every listed string |
 | `json_path` | the named paths resolve to the given values |
+| `json_path_max` | the named paths resolve to numbers no greater than the given limits -- a budget; the failure names the path, the measured value and the limit |
 | `wait_for_state` | retry policy: re-invoke the tool until the above hold, or the timeout elapses |
 
 `status_code` is **not** supported and is rejected at load time. Test tools that
@@ -618,6 +621,79 @@ system time and advances it by the same offset, so time never runs backwards
 across a restart. Under `intervals: production` a first connect that fails
 is retried 30 s later; keep the default for scenarios that do not assert the
 production schedule.
+
+#### Installation scale: the fixture and the budgets
+
+An installation runs muster over 87 MCPServers -- 84 of them session-
+authenticated, in families with an `instanceArg`, one member per installation
+-- 282 workflows and about 450 sessions, one per forwarded bearer. Work and
+state that grow with those numbers are invisible to a scenario with three
+servers, so the harness carries an installation-shaped fixture and asserts
+budgets over it.
+
+The **scale fixture** (`internal/testing/fixtures/scale`) is a committed,
+generated set of definitions: 87 servers (five families -- `clusters`,
+`metrics`, `alerts`, `logs`, `ledger` -- on 28 installations, plus three
+in-house servers without authentication), 18 distinct capability documents
+shared by the family members (a member's version offers a prefix of its
+family's catalogue), 282 workflows over the families' read-only tools and 450
+session records. Every name is invented: installations are minerals,
+hostnames end in `.invalid`, people are numbered. The generator is the source
+of truth; `go generate ./internal/testing/fixtures/scale/` renders
+`pre_configuration.yaml` (the harness's view) and `sessions.yaml`, and a test
+fails when either drifts from the generator. Change the shape in `shape.go`,
+regenerate, commit both.
+
+A scenario boots from the fixture by naming it:
+
+```yaml
+pre_configuration:
+  fixture: "scale"          # the fixture's servers, workflows and authorization servers come first
+  storage: { type: "valkey" }
+  mcp_servers:
+    - name: "zircon-clusters"          # a fixture server: the config keys overlay that server's
+      config: { connect_delay: "4s" }  # (here: one slow backend); a new name adds a server
+```
+
+The fixture brings two mock authorization servers -- `fixture-idp`, muster's
+own, and `fleet-idp`, the issuer the 84 forwardToken servers trust -- and the
+broker trusting the latter, so a session is one `test_mint_token` on
+`fleet-idp` and one `test_reconnect_with_token`. The scenario's own
+`storage`, `mode`, `intervals` and `main_config` apply as usual.
+
+Two test tools measure what a call costs and what the store holds:
+
+| Tool | Args | Reports |
+|------|------|---------|
+| `test_measure_meta_tool` | `tool` (required), `arguments`, `repeat` (1..50, default 1) | The meta-tool called through the current session, `repeat` times: `duration_ms` (median), `duration_ms_min`/`_max`, `response_bytes` (the text on the wire), and with `storage.type: valkey` the store commands the instance issued during the call -- `valkey_commands` (the fewest of the repeats, the floor a budget is about), `valkey_commands_max` and `valkey_commands_by_name` for that run -- plus `response`, the last answer decoded |
+| `test_valkey_footprint` | none | The Valkey stand-in's content: `keys`, `bytes` and `prefixes` (per key-prefix segment: `cap`, `capblob`, `auth`, `token`, ...), and the capability store's shape -- `sessions`, `capability_entries`, `capability_documents`, `inline_capability_entries`, `capability_bytes`, `capability_bytes_per_session`. Needs `storage.type: valkey` |
+
+A budget is a `json_path_max` on such a report: a hard limit with headroom
+over the value measured on CI's medium executor, never "faster than last
+run". A failing budget names the path, the measured value and the limit
+(`json_path_max "valkey_commands": measured 177, budget 16`), and the
+json_path_max bounds of a step are checked before its json_path values.
+
+The budgets in force, each holding the line on a bug first measured on an
+installation:
+
+| Budget | Where | Measured | Limit |
+|--------|-------|----------|-------|
+| Warm meta-tool call, in-process (`list_tools`, `filter_tools`, `describe_tool`, `call_tool`), median | `TestScaleBudgets_WarmMetaToolCalls` in `internal/aggregator` (`make test`; not asserted under the race detector) | 1--2 ms | 100 ms |
+| Store commands per warm meta-tool call, in-process | same | 2 (`HGETALL` of the session's capabilities, `HKEYS` of its auth) | 2 |
+| Definition reads (API-server requests) per warm meta-tool call | same, through a client that counts the LIST/GET the Kubernetes client would issue | 0 (1 LIST at the cold start) | 0 |
+| `list_tools` default page | same and the scenario `scale-fixture-budgets` | 12--14 KB | 40 KB |
+| Capability-store bytes per session | same over 450 sessions (7.2 KB), the scenario over 8 (9.9 KB, the shared documents amortised over fewer sessions) | 7.2 / 9.9 KB | 16 KB / 32 KB |
+| Store commands per warm meta-tool request on the wire | the scenario | 11 (the two above plus the OAuth middleware's per-request session bookkeeping: `EXPIRE`, `GET`, `HSET`, `SADD`), constant in the catalogue's size | 16 |
+| A new session's first request, with two of the 84 backends four seconds slow | the scenario, `max_duration` | 14 ms | 2 s |
+
+To add a budget: measure it with one of the two tools in a scenario that boots
+from the fixture (or with the rig in `scale_rig_test.go` in Go), set the limit
+with headroom over the medium executor's value, and assert it -- `json_path_max`
+in the scenario, a named constant and an `assert.LessOrEqual` whose message
+names the metric, the measured value and the limit in Go. Keep the fixture as
+it is unless the installation's shape changes; a scenario about one server
+does not need 87.
 
 ### 5. Mock Server Configuration
 

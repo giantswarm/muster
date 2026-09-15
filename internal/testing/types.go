@@ -153,6 +153,12 @@ type InstanceLogExpectation struct {
 
 // MusterPreConfiguration defines how to pre-configure an muster serve instance
 type MusterPreConfiguration struct {
+	// Fixture names a committed, generated set of definitions the instance
+	// boots from before the scenario's own (the installation-shaped "scale"
+	// fixture, internal/testing/fixtures/scale). The fixture's servers,
+	// workflows and mock authorization servers come first; the scenario's
+	// entries are appended, or overlay a fixture entry of the same name.
+	Fixture string `yaml:"fixture,omitempty"`
 	// MCPServers defines MCP server configurations to load
 	MCPServers []MCPServerConfig `yaml:"mcp_servers,omitempty"`
 	// Workflows defines workflow definitions to load
@@ -726,6 +732,12 @@ type TestExpectation struct {
 	NotContains []string `yaml:"not_contains,omitempty"`
 	// JSONPath allows checking specific JSON response fields
 	JSONPath map[string]interface{} `yaml:"json_path,omitempty"`
+	// JSONPathMax bounds numeric JSON response fields from above: each path
+	// must resolve to a number no greater than the given limit. It is how a
+	// scenario states a budget -- bytes on the wire, commands per call,
+	// milliseconds -- and a failing budget names the path, the measured value
+	// and the limit.
+	JSONPathMax map[string]float64 `yaml:"json_path_max,omitempty"`
 	// StatusCode is not supported and is rejected at load time by
 	// validateStep. It is kept as a field so that a scenario declaring
 	// status_code fails with an explanation instead of having the key silently

@@ -1,0 +1,266 @@
+name: "scale-fixture-budgets"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  On an installation-shaped catalogue -- the scale fixture: 87 MCPServers, 84 of
+  them session-authenticated in five families, 282 workflows -- every per-call
+  and per-session cost stays within its budget (#1240): list_tools' default page
+  is one bounded, summarised page (#1193); the capability store holds each
+  server's document once and a reference per session, so a session costs a few
+  kilobytes, not megabytes (#1217); a warm meta-tool request costs the store a
+  constant, not two commands per server (#1225); and a new session's first request is
+  answered while its fan-out to the 84 servers still runs (#1226). Each budget
+  is a hard limit with headroom over the value measured on CI's medium
+  executor, and a failing budget names the metric and the measured value.
+tags: ["scale", "budgets", "metatools", "capabilities", "sso", "fixture", "issue-1240", "issue-1193", "issue-1217", "issue-1225", "issue-1226"]
+timeout: "6m"
+
+# Given: the scale fixture on a Valkey stand-in; two of the 84 backends answer
+#        initialize four seconds late (a slow installation), so a fan-out that
+#        holds a session's first request is visible.
+# When:  the harness session lists tools; eight people open a session each with
+#        a fleet-issued token (every forwarded bearer is a session) and their
+#        fan-outs connect the 84 servers; one of them makes warm meta-tool
+#        calls; a ninth person opens a session.
+# Then:  list_tools' default page is under 40 KB; the store holds 18 documents
+#        and 8 × 84 references, under 32 KB per session; each warm meta-tool
+#        request costs the store a constant (16 commands at most, one HGETALL
+#        and one HKEYS of them for the catalogue); the ninth session's first
+#        request returns within two seconds although two backends take four.
+
+pre_configuration:
+  fixture: "scale"
+  storage:
+    type: "valkey"
+  mcp_servers:
+    - name: "zircon-clusters"
+      config: { connect_delay: "4s" }
+    - name: "beryl-clusters"
+      config: { connect_delay: "4s" }
+
+steps:
+  - id: "fixture-is-registered"
+    description: "every server of the fixture is registered: the families' members pending their session sign-in, the in-house servers connected"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "60s"
+      contains: ["amber-clusters", "beryl-clusters", "topaz-metrics", "pumice-alerts", "lazurite-logs", "halite-ledger", "handbook", "tickets", "runbook-library"]
+
+  # ---- list_tools default page (#1193) --------------------------------------
+  - id: "list-tools-default-page-is-bounded"
+    description: "list_tools without arguments answers one page under 40 KB, whatever the catalogue's size"
+    tool: "test_measure_meta_tool"
+    args: { tool: "list_tools" }
+    expected:
+      success: true
+      json_path_max:
+        response_bytes: 40960
+
+  - id: "list-tools-default-page-is-summarised"
+    description: "the page is 50 summarised entries of a catalogue of several hundred tools, and says so"
+    tool: "test_call_meta_tool"
+    args: { tool: "list_tools" }
+    expected:
+      success: true
+      json_path:
+        filtered_count: 50
+        truncated: true
+      contains: ["total", "workflow_", "core_workflow_list"]
+      not_contains: ["inputSchema"]
+
+  # ---- eight sessions, one per forwarded bearer ------------------------------
+  - id: "mint-person-1"
+    tool: "test_mint_token"
+    args: { server: "fleet-idp", name: "person-1", sub: "person-001@people.fixture.invalid", email: "person-001@people.fixture.invalid", email_verified: true }
+    expected: { success: true }
+  - id: "session-person-1"
+    tool: "test_reconnect_with_token"
+    args: { token_ref: "person-1" }
+    expected: { success: true }
+
+  - id: "mint-person-2"
+    tool: "test_mint_token"
+    args: { server: "fleet-idp", name: "person-2", sub: "person-002@people.fixture.invalid", email: "person-002@people.fixture.invalid", email_verified: true }
+    expected: { success: true }
+  - id: "session-person-2"
+    tool: "test_reconnect_with_token"
+    args: { token_ref: "person-2" }
+    expected: { success: true }
+
+  - id: "mint-person-3"
+    tool: "test_mint_token"
+    args: { server: "fleet-idp", name: "person-3", sub: "person-003@people.fixture.invalid", email: "person-003@people.fixture.invalid", email_verified: true }
+    expected: { success: true }
+  - id: "session-person-3"
+    tool: "test_reconnect_with_token"
+    args: { token_ref: "person-3" }
+    expected: { success: true }
+
+  - id: "mint-person-4"
+    tool: "test_mint_token"
+    args: { server: "fleet-idp", name: "person-4", sub: "person-004@people.fixture.invalid", email: "person-004@people.fixture.invalid", email_verified: true }
+    expected: { success: true }
+  - id: "session-person-4"
+    tool: "test_reconnect_with_token"
+    args: { token_ref: "person-4" }
+    expected: { success: true }
+
+  - id: "mint-person-5"
+    tool: "test_mint_token"
+    args: { server: "fleet-idp", name: "person-5", sub: "person-005@people.fixture.invalid", email: "person-005@people.fixture.invalid", email_verified: true }
+    expected: { success: true }
+  - id: "session-person-5"
+    tool: "test_reconnect_with_token"
+    args: { token_ref: "person-5" }
+    expected: { success: true }
+
+  - id: "mint-person-6"
+    tool: "test_mint_token"
+    args: { server: "fleet-idp", name: "person-6", sub: "person-006@people.fixture.invalid", email: "person-006@people.fixture.invalid", email_verified: true }
+    expected: { success: true }
+  - id: "session-person-6"
+    tool: "test_reconnect_with_token"
+    args: { token_ref: "person-6" }
+    expected: { success: true }
+
+  - id: "mint-person-7"
+    tool: "test_mint_token"
+    args: { server: "fleet-idp", name: "person-7", sub: "person-007@people.fixture.invalid", email: "person-007@people.fixture.invalid", email_verified: true }
+    expected: { success: true }
+  - id: "session-person-7"
+    tool: "test_reconnect_with_token"
+    args: { token_ref: "person-7" }
+    expected: { success: true }
+
+  - id: "mint-person-8"
+    tool: "test_mint_token"
+    args: { server: "fleet-idp", name: "person-8", sub: "person-008@people.fixture.invalid", email: "person-008@people.fixture.invalid", email_verified: true }
+    expected: { success: true }
+  - id: "session-person-8"
+    tool: "test_reconnect_with_token"
+    args: { token_ref: "person-8" }
+    expected: { success: true }
+
+  # ---- capability store per session (#1217) ---------------------------------
+  - id: "eight-sessions-hold-a-view-of-every-server"
+    description: "the eight fan-outs have connected all 84 servers: 8 × 84 capability entries in the store"
+    tool: "test_valkey_footprint"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "90s"
+      json_path:
+        sessions: 8
+        capability_entries: 672
+
+  - id: "capability-bytes-per-session-are-bounded"
+    description: "a session costs its 84 references plus its share of the shared documents -- kilobytes, not a copy of every document"
+    tool: "test_valkey_footprint"
+    args: {}
+    expected:
+      success: true
+      json_path_max:
+        capability_bytes_per_session: 32768
+
+  - id: "documents-are-stored-once-and-referenced"
+    description: "18 distinct documents for 84 servers and 8 sessions; no entry carries a document inline"
+    tool: "test_valkey_footprint"
+    args: {}
+    expected:
+      success: true
+      json_path:
+        capability_documents: 18
+        inline_capability_entries: 0
+
+  # ---- store commands per warm call (#1225) ---------------------------------
+  - id: "warm-the-session"
+    description: "the eighth person's first listing decodes the documents into the process's cache and builds the core catalogue"
+    tool: "test_call_meta_tool"
+    args: { tool: "list_tools" }
+    expected:
+      success: true
+      json_path:
+        truncated: true
+      contains: ["x_clusters_list_clusters", "x_ledger_list_usage"]
+
+  # A warm meta-tool request costs the store a constant: the catalogue listing
+  # is one HGETALL of the session's capability hash and one HKEYS of its auth
+  # hash (the two the in-process budget in internal/aggregator asserts), and
+  # the OAuth middleware's per-request session bookkeeping is nine more
+  # (EXPIRE, GET, HSET, SADD) whatever the catalogue's size -- 11 measured,
+  # 16 the budget. Before #1228 the listing alone read every server's entry
+  # and document on its own: about two commands per server, 170 per call.
+  - id: "warm-list-tools-store-commands-are-constant"
+    description: "a warm list_tools costs the store a constant per request: one HGETALL and one HKEYS for the catalogue, the session bookkeeping, nothing per server"
+    tool: "test_measure_meta_tool"
+    args: { tool: "list_tools", repeat: 5 }
+    expected:
+      success: true
+      json_path_max:
+        valkey_commands: 16
+      json_path:
+        valkey_commands_by_name.HGETALL: 1
+        valkey_commands_by_name.HKEYS: 1
+
+  - id: "warm-filter-tools-store-commands-are-constant"
+    tool: "test_measure_meta_tool"
+    args: { tool: "filter_tools", arguments: { pattern: "x_clusters_*", limit: 20 }, repeat: 5 }
+    expected:
+      success: true
+      json_path_max:
+        valkey_commands: 16
+      json_path:
+        valkey_commands_by_name.HGETALL: 1
+        response.tools.0.name: "x_clusters_get_cluster"
+
+  - id: "warm-describe-tool-store-commands-are-constant"
+    tool: "test_measure_meta_tool"
+    args: { tool: "describe_tool", arguments: { name: "x_clusters_list_clusters" }, repeat: 5 }
+    expected:
+      success: true
+      json_path_max:
+        valkey_commands: 16
+      json_path:
+        valkey_commands_by_name.HGETALL: 1
+      contains: ["installation"]
+
+  - id: "warm-call-tool-resolves-the-family-member-within-budget"
+    description: "a family tool call routed by its instance argument reaches the member; resolving the name costs the store nothing per server"
+    tool: "test_measure_meta_tool"
+    args: { tool: "call_tool", arguments: { name: "x_clusters_list_clusters", arguments: { installation: "amber-clusters" } }, repeat: 5 }
+    expected:
+      success: true
+      json_path_max:
+        valkey_commands: 16
+      contains: ["list_clusters"]
+
+  # ---- a new session's first request (#1226) --------------------------------
+  - id: "mint-person-9"
+    tool: "test_mint_token"
+    args: { server: "fleet-idp", name: "person-9", sub: "person-009@people.fixture.invalid", email: "person-009@people.fixture.invalid", email_verified: true }
+    expected: { success: true }
+
+  - id: "new-session-first-request-not-held-by-the-fan-out"
+    description: "the ninth person's connect is answered while the fan-out to 84 servers, two of them four seconds slow, runs in the background"
+    tool: "test_reconnect_with_token"
+    args: { token_ref: "person-9" }
+    max_duration: "2s"
+    expected: { success: true }
+
+  - id: "new-session-sees-the-catalogue-once-its-fan-out-finished"
+    description: "the listing waits for the fan-out and then shows the family tools"
+    tool: "test_call_meta_tool"
+    args: { tool: "filter_tools", arguments: { pattern: "x_clusters_list_clusters" } }
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        total: 1
+
+instance_logs:
+  contains:
+    - 'msg="SSO: fan-out finished"'
+  not_contains:
+    - "falling back to in-memory"

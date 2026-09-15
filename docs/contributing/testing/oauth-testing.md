@@ -176,6 +176,8 @@ SSO works because:
 | `test_set_apiserver_reachable` | API server proxy (Kubernetes mode) | The API server gone mid-run (`reachable: false`) and back (`true`) for this instance alone |
 | `test_redeploy_mock_server` | Mock MCP server (plain or protected) | A fresh backend process behind the same port: every MCP session forgotten, tools kept, no refused connection in between |
 | `test_set_mock_server_auth` | Protected mock MCP server | Flips the backend between anonymous and 401-with-metadata while it runs (a rollover from an anonymous pod to an OAuth resource server, or back); needs a token validator on the mock, `oauth.required` is the state at start |
+| `test_measure_meta_tool` | N/A (read-only) | Calls a meta-tool through the current session and reports its duration, the bytes of its answer and the store commands it cost (by name), for the budgets of an installation-shaped scenario (see "Installation scale" in scenarios.md) |
+| `test_valkey_footprint` | N/A (read-only) | What the Valkey stand-in holds, by key prefix, and the capability store's bytes per session; needs `pre_configuration.storage.type: valkey` |
 | `test_advance_clock` | muster serve's clock and every mock OAuth server's clock | Moves time forward on both sides at once: backoffs, the orchestrator's ticks, the catalogue age and token lifetimes (see "Faults and time" in scenarios.md); `test_advance_oauth_clock` moves the authorization server alone |
 
 ### When to Use Each Tool

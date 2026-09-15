@@ -131,6 +131,12 @@ func (l *scenarioLoader) loadScenarioFromFile(filePath string) (TestScenario, er
 		return scenario, fmt.Errorf("failed to parse YAML in %s: %w", filePath, err)
 	}
 
+	// A named fixture is merged under the scenario's own pre-configuration
+	// here, so everything downstream sees one pre-configuration.
+	if err := applyFixture(scenario.PreConfiguration); err != nil {
+		return scenario, fmt.Errorf("invalid scenario in %s: %w", filePath, err)
+	}
+
 	// Validate required fields
 	if err := l.validateScenario(scenario, filePath); err != nil {
 		return scenario, fmt.Errorf("invalid scenario in %s: %w", filePath, err)
