@@ -1,10 +1,10 @@
-# Muster Configuration Reference
+# Configuration reference
 
 Complete reference for configuring muster system settings, resources, and behavior.
 
 ## Overview
 
-Muster uses a file-based configuration system with YAML files organized in a structured directory hierarchy. Configuration is loaded from `~/.config/muster/` by default, or from a custom path specified with `--config-path`.
+muster uses a file-based configuration system with YAML files organized in a structured directory hierarchy. Configuration is loaded from `~/.config/muster/` by default, or from a custom path specified with `--config-path`.
 
 ### Configuration Philosophy
 
@@ -21,12 +21,9 @@ Muster uses a file-based configuration system with YAML files organized in a str
 │   ├── kubernetes.yaml
 │   ├── github.yaml
 │   └── prometheus.yaml
-├── workflows/               # Workflow definitions
-│   ├── deploy-app.yaml
-│   └── backup-database.yaml
-└── services/                # Service instances
-    ├── my-web-app.yaml
-    └── prod-database.yaml
+└── workflows/               # Workflow definitions
+    ├── deploy-app.yaml
+    └── backup-database.yaml
 ```
 
 ## Main Configuration File
@@ -58,11 +55,11 @@ namespace: "default"            # Kubernetes namespace for CR discovery (default
 | `kubernetes` | `bool` | `false` | Enable Kubernetes CRD mode. When `true`, uses Kubernetes CRDs for resource storage and requires the apiserver: if the Kubernetes client cannot be created at startup (apiserver unreachable, muster CRDs not installed), `muster serve` retries for about half a minute and then exits with an error instead of falling back to the filesystem, so the kubelet restarts it. When `false`, uses filesystem YAML files. The Helm chart sets this to `true` by default. |
 | `aggregator` | `AggregatorConfig` | see below | Aggregator service configuration |
 | `auth` | `AuthConfig` | see below | Authentication settings for CLI |
-| `toolsetPresets` | `map[string]Preset` | `{}` | Toolset presets an agent's `X-Muster-Toolset` header can name as `preset:<name>`; `read-only`, `none` and `full` are built in and cannot be redefined. See [Toolsets](toolsets.md). |
+| `toolsetPresets` | `map[string]Preset` | `{}` | Toolset presets an agent's `X-muster-Toolset` header can name as `preset:<name>`; `read-only`, `none` and `full` are built in and cannot be redefined. See [Toolsets](toolsets.md). |
 
 ### Toolset Presets
 
-Presets are named selections of the tool catalogue that a request's `X-Muster-Toolset` header
+Presets are named selections of the tool catalogue that a request's `X-muster-Toolset` header
 (or the `filter_tools` `toolset` argument) references as `preset:<name>`. They are evaluated
 against the live catalogue on every request. Each rule sets exactly one of `tool`, `pattern`,
 `server`, `workflow`, `readOnly: true`, `preset` (composition, include only) or `label`
@@ -103,6 +100,21 @@ The aggregator manages the unified MCP interface and tool aggregation.
 | `sse` | Server-Sent Events | Real-time updates |
 | `stdio` | Standard I/O | Command-line clients |
 
+#### Admin Listener
+
+`aggregator.admin` starts a small web UI for sessions on a separate listener. It has no
+authentication of its own, so it is bound to the loopback address and reached with
+`kubectl port-forward` or from the host. See [HTTP endpoints](api.md#admin-listener) for
+the pages it serves.
+
+```yaml
+aggregator:
+  admin:
+    enabled: true          # default: false
+    port: 9999             # default: 9999
+    bindAddress: 127.0.0.1 # default: 127.0.0.1; a wider bind exposes an unauthenticated UI
+```
+
 ### Auth Configuration
 
 #### Session Duration
@@ -124,7 +136,7 @@ aggregator:
 | `168h` | 7 days | More restrictive for high-security environments |
 | `2160h` | 90 days | Longer sessions (ensure Dex `absoluteLifetime` matches) |
 
-> **Important:** Muster uses a **rolling** refresh token TTL (reset on each token
+> **Important:** muster uses a **rolling** refresh token TTL (reset on each token
 > rotation), while Dex's `absoluteLifetime` is an **absolute** limit measured from the
 > original login that does **not** reset on rotation. If you increase `sessionDuration`
 > beyond Dex's `absoluteLifetime`, the effective session will still be limited by Dex --
@@ -494,23 +506,6 @@ spec:
 | `outputs` | `map[string]any` | ❌ | Output mappings |
 | `description` | `string` | ❌ | Step documentation |
 
-### Service Configuration
-
-**Location**: `services/*.yaml`
-
-```yaml
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: Service
-metadata:
-  name: my-web-app
-  namespace: default
-spec:
-  args:
-    port: 3000
-    replicas: 2
-    environment: "production"
-```
-
 ## Configuration Loading
 
 ### Loading Order
@@ -525,7 +520,7 @@ Use `--config-path` to specify a custom configuration directory:
 
 ```bash
 muster serve --config-path /etc/muster
-muster create service --config-path ./project-config app-name
+muster list mcpserver --config-path ./project-config
 ```
 
 ### Environment-Specific Configuration
@@ -547,7 +542,7 @@ muster serve --config-path /etc/muster-prod
 
 ### Automatic Validation
 
-Muster validates configuration on startup and when resources are created:
+muster validates configuration on startup and when resources are created:
 
 - **Syntax**: YAML syntax validation
 - **Schema**: Field types and required values
@@ -615,7 +610,7 @@ In workflow templates, these context roots are available:
 
 ## See Also
 
-- [CLI Reference](cli/) - Command-line interface documentation
+- [CLI Reference](cli/README.md) - Command-line interface documentation
 - [CRDs Reference](crds.md) - Kubernetes resource specifications
 - [MCP Tools Reference](mcp-tools.md) - Available tools and usage
-- [API Reference](api/) - HTTP and MCP API documentation
+- [API Reference](api.md) - HTTP and MCP API documentation

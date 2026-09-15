@@ -1,6 +1,6 @@
 # muster-crds
 
-CRD-only Helm chart for muster - ships the MCPServer and Workflow CustomResourceDefinitions
+CRD-only chart for muster - ships the MCPServer, Workflow and WorkflowExecution CustomResourceDefinitions
 
 **Homepage:** <https://github.com/giantswarm/muster>
 

@@ -15,7 +15,7 @@ The aggregator acts as an intelligent proxy that discovers, registers, filters, 
 
 ## Meta-Tools Interface
 
-The aggregator exposes **only meta-tools** as its MCP interface. This is the primary way clients interact with Muster.
+The aggregator exposes **only meta-tools** as its MCP interface. This is the primary way clients interact with muster.
 
 ### Tool Discovery Meta-Tools
 | Meta-Tool | Description |
@@ -23,7 +23,7 @@ The aggregator exposes **only meta-tools** as its MCP interface. This is the pri
 | `list_tools` | List one bounded page of the current session's tools (`limit`/`offset`, `total`, `truncated`) |
 | `describe_tool` | Get detailed schema for a specific tool |
 | `filter_tools` | Search tools by pattern |
-| `list_core_tools` | List only Muster core tools |
+| `list_core_tools` | List only muster core tools |
 
 ### Tool Execution Meta-Tool
 | Meta-Tool | Description |
@@ -440,4 +440,4 @@ func TestAggregatorIntegration(t *testing.T) {
 }
 ```
 
-The MCP Aggregator serves as the intelligent hub that makes Muster's unified tool interface possible, providing seamless integration between AI agents and multiple underlying MCP servers while maintaining security, performance, and reliability.
+The MCP Aggregator serves as the intelligent hub that makes muster's unified tool interface possible, providing seamless integration between AI agents and multiple underlying MCP servers while maintaining security, performance, and reliability.

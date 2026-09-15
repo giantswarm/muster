@@ -16,7 +16,7 @@ When muster's OAuth server is enabled (`aggregator.oauthServer.enabled: true`), 
 1. User authenticates to muster via `muster auth login`
 2. User's ID token is stored in muster's token store
 3. On first authenticated MCP request (any tool/resource call), the **Session Init Callback** triggers
-4. Muster proactively connects to all SSO-enabled servers (`forwardToken: true`) using the user's ID token
+4. muster proactively connects to all SSO-enabled servers (`forwardToken: true`) using the user's ID token
 5. Subsequent `auth://status` reads show SSO servers as "connected" without additional authentication
 
 **Key Components:**
@@ -47,10 +47,10 @@ if p.aggregator.sessionRegistry != nil {
 
 ### The Problem
 
-When users connect through the Muster architecture, they face a frustrating authentication experience:
+When users connect through the muster architecture, they face a frustrating authentication experience:
 
 1. **Triple Authentication**: Users must authenticate separately to:
-   - Muster Server itself
+   - muster server itself
    - Each remote MCP server (e.g., mcp-kubernetes)
    - Each additional remote MCP server (e.g., inboxfewer)
 
@@ -62,11 +62,11 @@ When users connect through the Muster architecture, they face a frustrating auth
 
 ```
 ┌─────────────┐     ┌──────────────────┐     ┌───────────────────┐
-│   User      │     │  Muster Server   │     │  mcp-kubernetes   │
+│   User      │     │  muster server   │     │  mcp-kubernetes   │
 │   (Agent)   │────▶│  (OAuth Client)  │────▶│  (OAuth Client)   │
 │             │     │                  │     │                   │
 │  Auth #1    │     │  Token: T1       │     │  Token: T2        │
-│  (to Muster)│     │  Issuer: Google  │     │  Issuer: Google   │
+│  (to muster)│     │  Issuer: Google  │     │  Issuer: Google   │
 └─────────────┘     └──────────────────┘     └───────────────────┘
                             │
                             │                 ┌───────────────────┐
@@ -114,26 +114,26 @@ The `mcp-oauth` library provides OAuth 2.1 server functionality used by both mus
 #### muster
 
 - Uses `mcp-oauth` for both server protection (ADR-005) and OAuth proxy (ADR-004)
-- OAuth proxy stores tokens indexed by `(SessionID, Issuer, Scope)` for SSO within Muster
+- OAuth proxy stores tokens indexed by `(SessionID, Issuer, Scope)` for SSO within muster
 - ID tokens are available in the token store for potential forwarding
 
 ## Decision
 
-We will implement **Token Forwarding with Trusted Relay** - a pattern where Muster acts as a trusted intermediary, forwarding its user tokens to downstream MCP servers that are configured to accept them.
+We will implement **Token Forwarding with Trusted Relay** - a pattern where muster acts as a trusted intermediary, forwarding its user tokens to downstream MCP servers that are configured to accept them.
 
 ### Core Principle
 
-**Muster becomes the single point of authentication for the entire MCP ecosystem.**
+**muster becomes the single point of authentication for the entire MCP ecosystem.**
 
-Users authenticate once to Muster. Downstream MCP servers trust tokens presented by Muster because they:
+Users authenticate once to muster. Downstream MCP servers trust tokens presented by muster because they:
 1. Trust the same IdP (issuer)
-2. Are configured to accept tokens from the Muster client
+2. Are configured to accept tokens from the muster client
 
 ### Architecture
 
 ```
 ┌─────────────┐     ┌──────────────────────────────────────────────┐
-│   User      │     │                Muster Server                  │
+│   User      │     │                muster server                  │
 │   (Agent)   │     │                                               │
 │             │────▶│  OAuth Middleware validates user token        │
 │  Auth #1    │     │                                               │
@@ -159,7 +159,7 @@ Users authenticate once to Muster. Downstream MCP servers trust tokens presented
             │  - muster-client  │                  │  - muster-client  │
             └───────────────────┘                  └───────────────────┘
 
-User authenticates ONCE. Muster forwards the token to all downstream servers.
+User authenticates ONCE. muster forwards the token to all downstream servers.
 ```
 
 ### Token Forwarding Strategies
@@ -168,11 +168,11 @@ We propose two strategies, applicable depending on deployment configuration:
 
 #### Strategy 1: ID Token Forwarding (Recommended)
 
-When the user authenticates to Muster, the IdP issues:
-- **Access Token**: Used to call Muster's API
+When the user authenticates to muster, the IdP issues:
+- **Access Token**: Used to call muster's API
 - **ID Token**: A signed JWT containing user identity claims
 
-Muster extracts the **ID Token** and forwards it to downstream MCP servers.
+muster extracts the **ID Token** and forwards it to downstream MCP servers.
 
 **Advantages:**
 - ID tokens contain user identity (`sub`, `email`, `groups`)
@@ -190,19 +190,19 @@ oauth:
     - issuer: "https://dex.example.com"
       audiences:
         - "mcp-kubernetes-client"    # Direct authentication
-        - "muster-client"            # Forwarded from Muster
+        - "muster-client"            # Forwarded from muster
 ```
 
 #### Strategy 2: Token Exchange (OAuth 2.0 Token Exchange - RFC 8693)
 
-Muster exchanges its ID token for a new token from the remote cluster's Identity Provider.
+muster exchanges its ID token for a new token from the remote cluster's Identity Provider.
 
 **Flow:**
-1. User authenticates to Muster (receives token from Cluster A's Dex)
-2. Muster calls the remote cluster's Dex token exchange endpoint
+1. User authenticates to muster (receives token from Cluster A's Dex)
+2. muster calls the remote cluster's Dex token exchange endpoint
 3. Remote Dex validates the token via its OIDC connector for Cluster A
 4. Remote Dex issues a new token with `iss: remote-dex`
-5. Muster uses this new token to call the MCP server on the remote cluster
+5. muster uses this new token to call the MCP server on the remote cluster
 
 **Advantages:**
 - Proper audience separation
@@ -228,9 +228,9 @@ We recommend **ID Token Forwarding** with multi-audience trust.
 
 ### Implementation Details
 
-#### 1. Muster Server: Extract and Store ID Token
+#### 1. muster server: Extract and Store ID Token
 
-The Muster Server already stores the ID token from authentication (via mcp-oauth library). We extend the OAuth proxy to inject this token for downstream calls.
+The muster server already stores the ID token from authentication (via mcp-oauth library). We extend the OAuth proxy to inject this token for downstream calls.
 
 ```go
 // internal/oauth/forwarder.go
@@ -297,7 +297,7 @@ func (c *OAuthConfig) ValidateToken(token string) (*Claims, error) {
 
 #### 3. Configuration for SSO-Enabled Deployment
 
-**Muster Server (Helm values):**
+**muster server (Helm values):**
 ```yaml
 aggregator:
   oauth:
@@ -319,7 +319,7 @@ oauth:
   dex:
     issuerUrl: "https://dex.example.com"
     clientId: "mcp-kubernetes-client"
-  # Trust tokens forwarded from Muster
+  # Trust tokens forwarded from muster
   trustedAudiences:
     - "muster-client"
 ```
@@ -349,7 +349,7 @@ For Google, the solution is aggressive refresh token usage (already implemented)
 
 #### 2. Agent-Side Token Persistence
 
-The Muster Agent already supports persistent token storage (`~/.config/muster/tokens/`). We enhance this to:
+The muster agent already supports persistent token storage (`~/.config/muster/tokens/`). We enhance this to:
 
 1. **Prefer refresh tokens**: Store and reuse refresh tokens across sessions
 2. **Proactive refresh**: Refresh tokens before they expire (already implemented with 5-minute threshold)
@@ -375,7 +375,7 @@ For the aggregator (server-side), tokens are currently in-memory and lost on res
 
 ### MCPServer Configuration for SSO
 
-Muster supports two SSO mechanisms, configured per MCPServer:
+muster supports two SSO mechanisms, configured per MCPServer:
 
 #### 1. Token Forwarding (Recommended for Same-Cluster SSO)
 
@@ -392,7 +392,7 @@ spec:
   url: https://mcp-kubernetes.example.com/mcp
   auth:
     type: oauth
-    # Forward Muster's ID token instead of requiring separate auth
+    # Forward muster's ID token instead of requiring separate auth
     forwardToken: true
     # Required audiences for the forwarded token
     # For Kubernetes OIDC auth, typically needs "dex-k8s-authenticator"
@@ -401,12 +401,12 @@ spec:
 ```
 
 When `forwardToken: true`:
-1. Muster requests tokens with the specified `requiredAudiences` from Dex via cross-client scopes
-2. Muster injects the user's multi-audience ID token into requests to this server
+1. muster requests tokens with the specified `requiredAudiences` from Dex via cross-client scopes
+2. muster injects the user's multi-audience ID token into requests to this server
 3. The server validates the token with its audience configuration
 4. No separate authentication flow is required
 
-Muster resolves the audience set per authorization request, from the MCPServer
+muster resolves the audience set per authorization request, from the MCPServer
 resources that exist at that moment, so an MCPServer that registers after muster
 starts reaches the next login without a restart. The audience is fixed when the
 token is minted: a session that started before an MCPServer registered keeps a
@@ -439,11 +439,11 @@ spec:
 ```
 
 When `tokenExchange.enabled: true`:
-1. Muster extracts the user's ID token from the session
-2. Muster calls the remote Dex's token exchange endpoint
+1. muster extracts the user's ID token from the session
+2. muster calls the remote Dex's token exchange endpoint
 3. Remote Dex validates the token via its OIDC connector
 4. Remote Dex issues a new token valid for that cluster
-5. Muster uses the exchanged token to connect to the MCP server
+5. muster uses the exchanged token to connect to the MCP server
 
 **Remote Dex Configuration Required:**
 ```yaml
@@ -516,21 +516,21 @@ When a user's session is revoked:
 ### Example: Complete SSO Flow
 
 ```
-1. User starts Cursor with Muster Agent
+1. User starts Cursor with muster agent
 
-2. Agent connects to Muster Server
-   → Muster returns 401 with auth challenge
+2. Agent connects to muster server
+   → muster returns 401 with auth challenge
    → Agent opens browser for OAuth flow
    → User authenticates with Google/Dex
-   → Muster receives tokens (access + ID + refresh)
-   → User is now authenticated to Muster
+   → muster receives tokens (access + ID + refresh)
+   → User is now authenticated to muster
 
 3. First MCP request (e.g., list_tools, read auth://status, call any tool)
    → Session Init Callback triggers (first authenticated request for this session)
-   → Muster finds all SSO-enabled servers (forwardToken: true)
+   → muster finds all SSO-enabled servers (forwardToken: true)
    → For each SSO server:
-       → Muster extracts user's ID token from session store
-       → Muster establishes connection using ID token forwarding
+       → muster extracts user's ID token from session store
+       → muster establishes connection using ID token forwarding
        → mcp-kubernetes validates token:
            - Issuer: Google/Dex (trusted)
            - Audience: muster-client (in trustedAudiences)
@@ -544,7 +544,7 @@ When a user's session is revoked:
    → No additional authentication required
 
 5. User explicitly calls core_auth_login for SSO server
-   → Muster detects existing session connection
+   → muster detects existing session connection
    → Returns "Server 'X' is already authenticated for this session"
    → No duplicate authentication
 
@@ -594,7 +594,7 @@ Required changes to token validation:
    spec:
      auth:
        type: oauth
-       forwardToken: true    # Forward Muster's ID token
+       forwardToken: true    # Forward muster's ID token
    ```
 
 2. Modify OAuth proxy (`internal/oauth/manager.go`) to:
@@ -655,7 +655,7 @@ Required changes to token validation:
 
 ### 4. Token Exposure Surface
 
-- ID tokens flow through Muster, which must be trusted
+- ID tokens flow through muster, which must be trusted
 - TLS is mandatory for all communication paths
 - Tokens are never logged in plaintext (only hashed identifiers)
 - Token storage uses encryption at rest when configured
@@ -670,7 +670,7 @@ Required changes to token validation:
 ### 6. Token Lifetime and Refresh
 
 - Forwarded tokens inherit the original token's expiry
-- Muster proactively refreshes tokens before expiry (5-minute threshold)
+- muster proactively refreshes tokens before expiry (5-minute threshold)
 - Downstream servers honor the token's expiry, don't issue their own
 - Refresh token rotation is handled by mcp-oauth
 
@@ -693,12 +693,12 @@ When a user's session is revoked:
 
 - **Single Sign-On**: Users authenticate once, access all MCP servers
 - **Better UX**: No more "please authenticate to X" interruptions
-- **Simpler Mental Model**: "Log in to Muster, use everything"
+- **Simpler Mental Model**: "Log in to muster, use everything"
 - **Security Preserved**: IdP signatures ensure token authenticity
 
 ### Negative
 
-- **Trust Configuration Required**: Downstream servers must be configured to trust Muster's client ID
+- **Trust Configuration Required**: Downstream servers must be configured to trust muster's client ID
 - **ID Token Limitations**: ID tokens don't carry scopes; scope-based authz needs extra work
 - **Deployment Complexity**: SSO requires coordinated configuration across services
 
@@ -725,13 +725,13 @@ All services use the same OAuth client ID.
 
 ### 3. Proxy-Based Authentication
 
-Muster authenticates to each downstream service with service credentials, not user identity.
+muster authenticates to each downstream service with service credentials, not user identity.
 
 **Rejected because**: Loses user identity, prevents per-user authorization, audit trail breaks.
 
 ## Related Decisions
 
 - [ADR-004: OAuth Proxy](004-oauth-proxy.md) - Foundation for downstream auth
-- [ADR-005: Muster Auth](005-muster-auth.md) - Agent-side OAuth implementation
+- [ADR-005: muster Auth](005-muster-auth.md) - Agent-side OAuth implementation
 - [ADR-006: Session-Scoped Tool Visibility](006-session-scoped-tool-visibility.md) - Per-user tool access
 - [ADR-008: Explicit Authentication State](008-unified-authentication.md) - Auth status communication

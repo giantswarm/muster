@@ -213,9 +213,9 @@ still flows through the SDK tier docs and SEP-2484's gating rules.
   `initialize` handshake — see
   [01-stateless-protocol.md](01-stateless-protocol.md).
 
-## 3. Muster impact
+## 3. muster impact
 
-Muster sits between an outbound population of upstream MCP servers
+muster sits between an outbound population of upstream MCP servers
 (each of which may, post-2026-07-28, advertise its own extensions
 map) and an inbound population of MCP clients (Cursor, Claude Code,
 the muster agent's REPL mode, the agent's MCP-server mode for AI
@@ -226,7 +226,7 @@ hosts). The Extensions framework therefore lands on muster as a
 ### 3.1 Capability negotiation in the aggregator
 
 The aggregator's inbound MCP server is constructed in
-[internal/aggregator/server.go](../../../internal/aggregator/server.go)
+[internal/aggregator/server.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/server.go)
 inside `AggregatorServer.Start`. Today it advertises a fixed set of
 capabilities via mcp-go's `ServerOption` API:
 
@@ -240,9 +240,9 @@ opts = append(opts, mcpServerOptions()...)
 mcpSrv := mcpserver.NewMCPServer("muster-aggregator", serverVersion, opts...)
 ```
 (see `AggregatorServer.Start` in
-[internal/aggregator/server.go](../../../internal/aggregator/server.go)
+[internal/aggregator/server.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/server.go)
 and `mcpServerCapabilityOptions` in
-[internal/aggregator/server_options.go](../../../internal/aggregator/server_options.go))
+[internal/aggregator/server_options.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/server_options.go))
 
 There is no `WithExtensions(…)` call here, and there is no inbound
 `extensions` map at all. The inbound `initialize` (`AfterInitialize`)
@@ -259,9 +259,9 @@ hooks.AddAfterInitialize(func(ctx context.Context, _ any, msg *mcp.InitializeReq
         slog.String("serverVersion", result.ServerInfo.Version))
 })
 ```
-([internal/aggregator/server.go](../../../internal/aggregator/server.go),
+([internal/aggregator/server.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/server.go),
 lines 657–663). The aggregator's own `updateCapabilities()` flow
-([internal/aggregator/server.go](../../../internal/aggregator/server.go),
+([internal/aggregator/server.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/server.go),
 lines 1242–1265) is entirely about **adding/removing meta-tools**
 based on what upstreams advertise — it does not touch a
 `ServerCapabilities.extensions` field, because there isn't one in the
@@ -290,8 +290,8 @@ For 2026-07-28 this means muster must learn to:
 
 ### 3.2 Forwarding extensions through upstream MCP clients
 
-Muster's outbound MCP clients
-([internal/mcpserver/client_streamable_http.go](../../../internal/mcpserver/client_streamable_http.go),
+muster's outbound MCP clients
+([internal/mcpserver/client_streamable_http.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_streamable_http.go),
 `client_sse.go`, `client_stdio.go`, `client_dynamic_auth.go`) all
 hand the same empty `ClientCapabilities` to the upstream `Initialize`
 call:
@@ -309,15 +309,15 @@ initResult, err := mcpClient.Initialize(ctx, mcp.InitializeRequest{
 })
 ```
 (`StreamableHTTPClient.Initialize` in
-[internal/mcpserver/client_streamable_http.go](../../../internal/mcpserver/client_streamable_http.go);
+[internal/mcpserver/client_streamable_http.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_streamable_http.go);
 identical patterns in `SSEClient.Initialize`
-([client_sse.go](../../../internal/mcpserver/client_sse.go)),
+([client_sse.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_sse.go)),
 `StdioClient.Initialize`
-([client_stdio.go](../../../internal/mcpserver/client_stdio.go)),
+([client_stdio.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_stdio.go)),
 `DynamicAuthClient.Initialize`
-([client_dynamic_auth.go](../../../internal/mcpserver/client_dynamic_auth.go)),
+([client_dynamic_auth.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_dynamic_auth.go)),
 and the agent's REPL client `Client.initialize`
-([internal/agent/client.go](../../../internal/agent/client.go))). The `initResult` is consumed for its `ServerInfo.Name`,
+([internal/agent/client.go](https://github.com/giantswarm/muster/blob/main/internal/agent/client.go))). The `initResult` is consumed for its `ServerInfo.Name`,
 `ServerInfo.Version`, and `ProtocolVersion` —
 `initResult.Capabilities.Extensions` (or whatever the upgraded mcp-go
 field will be called) is dropped on the floor.
@@ -338,18 +338,18 @@ For 2026-07-28 the outbound clients have to:
   `04-tasks-extension.md`), or (c) drop it. Today the upstream's
   capabilities are never persisted past the `Initialize` call — the
   aggregator's `Capabilities` struct
-  ([internal/aggregator/capability_store.go](../../../internal/aggregator/capability_store.go),
+  ([internal/aggregator/capability_store.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/capability_store.go),
   lines 11–27) tracks only `Tools`, `Resources`, and `Prompts`. A
   parallel store (or an additional field on the existing
   `ServerInfo` populated by
-  [registry.refreshServerCapabilities](../../../internal/aggregator/registry.go)
+  [registry.refreshServerCapabilities](https://github.com/giantswarm/muster/blob/main/internal/aggregator/registry.go)
   at line 1052) is needed to retain the per-upstream extensions map.
 
 ### 3.3 Which extensions does muster understand natively?
 
 `internal/api/mcpserver.go` is muster's API-layer description of an
 upstream MCP server: `MCPServer` (the persisted definition at
-[internal/api/mcpserver.go](../../../internal/api/mcpserver.go)),
+[internal/api/mcpserver.go](https://github.com/giantswarm/muster/blob/main/internal/api/mcpserver.go)),
 the `MCPServerType` enum (today `stdio` / `streamable-http` / `sse`),
 `MCPServerAuth`, and the API-response shape `MCPServerInfo`. The
 runtime view that the aggregator gives to API consumers is
@@ -367,15 +367,15 @@ passthrough. Initial recommendation (full justification belongs in
 - **MCP Apps (`io.modelcontextprotocol/apps`).** Pass through the
   upstream `extensions` entry to inbound clients (so a Claude Code
   or a custom host that natively renders MCP Apps can do so via
-  muster). Muster's own REPL agent in
-  [internal/agent/](../../../internal/agent) does not render
+  muster). muster's own REPL agent in
+  [internal/agent/](https://github.com/giantswarm/muster/blob/main/internal/agent) does not render
   HTML/iframe UIs and is unlikely to acquire that capability; it
   reverts to core protocol behavior per SEP-2133's graceful-
   degradation rule.
 - **Tasks extension (`io.modelcontextprotocol/tasks`, or whatever
   identifier the extension repo finalises).** Native support is
   attractive because muster's workflow engine
-  ([internal/workflow/](../../../internal/workflow)) is the
+  ([internal/workflow/](https://github.com/giantswarm/muster/blob/main/internal/workflow)) is the
   natural home for long-running, server-directed work. Whether
   muster advertises support, only forwards it, or wraps its
   `action_<workflow-name>` machinery in the Tasks extension is the
@@ -384,9 +384,9 @@ passthrough. Initial recommendation (full justification belongs in
   (`io.modelcontextprotocol/oauth-client-credentials`,
   `io.modelcontextprotocol/enterprise-managed-authorization`).**
   These live close to the OAuth code in
-  [pkg/oauth/](../../../pkg/oauth) and
-  [internal/oauth/](../../../internal/oauth) and are evaluated in
-  `05-authorization-hardening.md`. Muster already speaks OAuth
+  [pkg/oauth/](https://github.com/giantswarm/muster/blob/main/pkg/oauth) and
+  [internal/oauth/](https://github.com/giantswarm/muster/blob/main/internal/oauth) and are evaluated in
+  `05-authorization-hardening.md`. muster already speaks OAuth
   end-to-end; native advertisement is plausible once the underlying
   ext-auth specs stabilise.
 - **Unknown / future extensions.** Forward the upstream's
@@ -405,7 +405,7 @@ gateway has no business reshaping them.
 
 ### 3.4 SDK / mcp-go dependency
 
-Muster does not own the wire-level types: `mcp.ClientCapabilities`
+muster does not own the wire-level types: `mcp.ClientCapabilities`
 and `mcp.ServerCapabilities` come from
 [mark3labs/mcp-go](https://github.com/mark3labs/mcp-go). Until
 mcp-go ships the SEP-2133 `extensions` field on those structs, muster
@@ -429,9 +429,9 @@ ordered so that an earlier item is a prerequisite for a later one.
    version.
 2. **Persist upstream `extensions` per server.** Extend either the
    `ServerInfo` struct touched by
-   [refreshServerCapabilities](../../../internal/aggregator/registry.go)
+   [refreshServerCapabilities](https://github.com/giantswarm/muster/blob/main/internal/aggregator/registry.go)
    (line 1052) or add a sibling to
-   [Capabilities](../../../internal/aggregator/capability_store.go)
+   [Capabilities](https://github.com/giantswarm/muster/blob/main/internal/aggregator/capability_store.go)
    (lines 11–27) so that the aggregator retains the upstream's
    `ServerCapabilities.extensions` map verbatim alongside the
    existing tools / resources / prompts. Today only the latter three
@@ -439,7 +439,7 @@ ordered so that an earlier item is a prerequisite for a later one.
 3. **Read inbound `extensions` from per-request `_meta`.** Once the
    stateless transport from `01-stateless-protocol.md` lands, replace
    the one-shot `AfterInitialize` hook in
-   [internal/aggregator/server.go](../../../internal/aggregator/server.go)
+   [internal/aggregator/server.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/server.go)
    (lines 657–663) with a per-request inspection that surfaces the
    client's `extensions` map to the meta-tool routing layer. The
    "Server-Side Capability Checking" pattern from SEP-2133 is the
@@ -452,23 +452,23 @@ ordered so that an earlier item is a prerequisite for a later one.
    map. Wire it next to the existing
    `mcpserver.WithToolCapabilities` / `WithResourceCapabilities` /
    `WithPromptCapabilities` calls in `mcpServerCapabilityOptions`
-   ([internal/aggregator/server_options.go](../../../internal/aggregator/server_options.go))
+   ([internal/aggregator/server_options.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/server_options.go))
    when mcp-go grows a `WithExtensions` equivalent.
 5. **Forward `extensions` on outbound `Initialize` / per-request
    `_meta`.** Replace the empty `mcp.ClientCapabilities{}` literal
    in the `Initialize` method of
-   [client_streamable_http.go](../../../internal/mcpserver/client_streamable_http.go),
-   [client_sse.go](../../../internal/mcpserver/client_sse.go),
-   [client_stdio.go](../../../internal/mcpserver/client_stdio.go),
+   [client_streamable_http.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_streamable_http.go),
+   [client_sse.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_sse.go),
+   [client_stdio.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_stdio.go),
    and
-   [client_dynamic_auth.go](../../../internal/mcpserver/client_dynamic_auth.go),
+   [client_dynamic_auth.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_dynamic_auth.go),
    plus `Client.initialize` in the agent client
-   ([internal/agent/client.go](../../../internal/agent/client.go)),
+   ([internal/agent/client.go](https://github.com/giantswarm/muster/blob/main/internal/agent/client.go)),
    with the inbound caller's extensions map (or a
    filtered subset). On a 2026-07-28 transport the same map travels
    in `_meta` on each request, not in `Initialize`.
 6. **Decide muster's native-support matrix.** Produce an ADR (likely
-   in [docs/explanation/decisions/](../decisions)) listing every
+   in [docs/explanation/decisions/](../decisions/README.md)) listing every
    extension muster intends to natively understand, every extension
    it merely forwards, and the rationale. Initial candidates:
    `io.modelcontextprotocol/apps` (forward), `…/tasks` (native, see
@@ -477,7 +477,7 @@ ordered so that an earlier item is a prerequisite for a later one.
 7. **Surface extensions in the muster API.** Once §2 stores the
    upstream extensions map, add an `Extensions` field to
    `MCPServerInfo`
-   ([internal/api/mcpserver.go](../../../internal/api/mcpserver.go))
+   ([internal/api/mcpserver.go](https://github.com/giantswarm/muster/blob/main/internal/api/mcpserver.go))
    so that `muster get mcpserver <name>` and the admin UI can show
    which extensions a given upstream advertises.
    The `MCPServer` persisted definition does not need
@@ -495,7 +495,7 @@ ordered so that an earlier item is a prerequisite for a later one.
    strategy.** `08-protocol-evolution.md` covers the conformance
    suite generally, but the extensions-track-specific implication
    is that muster's BDD scenarios in
-   [internal/testing/scenarios/](../../../internal/testing) need
+   [internal/testing/scenarios/](https://github.com/giantswarm/muster/blob/main/internal/testing) need
    per-extension scenarios for the extensions muster claims to
    support natively. Plain passthrough does not need its own
    conformance scenario beyond "the aggregator forwards an unknown

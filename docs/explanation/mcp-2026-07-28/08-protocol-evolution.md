@@ -24,7 +24,7 @@ docs describe wire-level changes muster must implement, this one is
 almost entirely **process**: how muster decides what to adopt and
 when, how it tracks the Active/Deprecated/Removed state of every
 feature it depends on, and — the most concrete deliverable — how the
-existing BDD scenarios in [internal/testing/scenarios/](../../../internal/testing)
+existing BDD scenarios in [internal/testing/scenarios/](https://github.com/giantswarm/muster/blob/main/internal/testing)
 relate to the new upstream conformance suite that now gates the
 specification itself.
 
@@ -271,10 +271,10 @@ are unchanged.
 - SEP-2133 — Extensions framework (the third governance lever):
   https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2133
 
-## 3. Muster impact
+## 3. muster impact
 
 The plan correctly flags this section as "mostly process/strategy."
-Muster is a **host-and-aggregator, not an SDK**, so the SDK tier
+muster is a **host-and-aggregator, not an SDK**, so the SDK tier
 percentages do not score muster directly. But two of the three
 governance instruments produce concrete, trackable work:
 
@@ -283,17 +283,17 @@ governance instruments produce concrete, trackable work:
    implements.
 2. SEP-2484's conformance suite is now a usable, authoritative test
    target for muster's two MCP roles, and muster's BDD scenarios in
-   [internal/testing/scenarios/](../../../internal/testing) are the
+   [internal/testing/scenarios/](https://github.com/giantswarm/muster/blob/main/internal/testing) are the
    natural place to align with it.
 
-### 3.1 Muster has two MCP roles, both now testable against the suite
+### 3.1 muster has two MCP roles, both now testable against the suite
 
 The conformance suite tests an MCP **server** (connect as a client,
 send requests) and an MCP **client** (start a test server, run the
-client). Muster is both:
+client). muster is both:
 
-- **Muster-as-server.** The aggregator
-  ([internal/aggregator/server.go](../../../internal/aggregator/server.go))
+- **muster-as-server.** The aggregator
+  ([internal/aggregator/server.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/server.go))
   exposes muster's own tools and the aggregated upstream tools over
   Streamable HTTP / SSE / stdio. The conformance `server` mode points
   at a `muster serve` endpoint exactly the way the suite's `--url`
@@ -304,12 +304,12 @@ client). Muster is both:
   the auth hardening in
   [05-authorization-hardening.md](05-authorization-hardening.md)) is
   validated server-side by this mode.
-- **Muster-as-client.** The outbound MCP clients
-  ([internal/mcpserver/client_streamable_http.go](../../../internal/mcpserver/client_streamable_http.go),
-  [client_sse.go](../../../internal/mcpserver/client_sse.go),
-  [client_stdio.go](../../../internal/mcpserver/client_stdio.go),
-  [client_dynamic_auth.go](../../../internal/mcpserver/client_dynamic_auth.go),
-  [client_interface.go](../../../internal/mcpserver/client_interface.go))
+- **muster-as-client.** The outbound MCP clients
+  ([internal/mcpserver/client_streamable_http.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_streamable_http.go),
+  [client_sse.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_sse.go),
+  [client_stdio.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_stdio.go),
+  [client_dynamic_auth.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_dynamic_auth.go),
+  [client_interface.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_interface.go))
   connect *out* to upstream MCP servers. The conformance `client` mode
   is what validates that muster, acting as a client, speaks the
   stateless transport, sends `_meta`, sets `Mcp-Method` / `Mcp-Name`,
@@ -326,31 +326,31 @@ for the SDK muster actually depends on. Whatever conformance gaps
 
 ### 3.2 The BDD scenarios are muster's local conformance suite
 
-Muster already has a mature, scenario-based test framework that is
+muster already has a mature, scenario-based test framework that is
 structurally a sibling of the upstream conformance suite:
 
 - 129 YAML scenarios in
-  [internal/testing/scenarios/](../../../internal/testing), each with
+  [internal/testing/scenarios/](https://github.com/giantswarm/muster/blob/main/internal/testing), each with
   a `name`, `category` (`behavioral` / `integration`), `concept`
   (`workflow` / `mcpserver` / `service`), `tags`, and a list of
   `steps` that invoke `core_*` tools and assert `expected` outcomes
-  (see [internal/testing/types.go](../../../internal/testing/types.go)
+  (see [internal/testing/types.go](https://github.com/giantswarm/muster/blob/main/internal/testing/types.go)
   for the `TestScenario` / `TestStep` types and
-  [workflow_basic.yaml](../../../internal/testing/scenarios/workflow_basic.yaml)
+  [workflow_basic.yaml](https://github.com/giantswarm/muster/blob/main/internal/testing/scenarios/workflow_basic.yaml)
   for the canonical shape).
 - Each scenario runs in its own isolated `muster serve` instance via
-  [cmd/test.go](../../../cmd/test.go) (`muster test --scenario <name>
+  [cmd/test.go](https://github.com/giantswarm/muster/blob/main/cmd/test.go) (`muster test --scenario <name>
   --verbose`), mirroring the suite's per-scenario server lifecycle.
 - The framework already has the two ingredients SEP-2484 formalises:
   a **schema** (`muster test --generate-schema`) and a
   **validation pass** (`muster test --validate-scenarios`) — see the
-  flags in [cmd/test.go](../../../cmd/test.go) (lines 41–45, 111–112,
+  flags in [cmd/test.go](https://github.com/giantswarm/muster/blob/main/cmd/test.go) (lines 41–45, 111–112,
   139–144). That is muster's analogue of the conformance harness's
   spec-version-aware checks.
 
 The architecture rule that "BDD scenarios are truth — if a scenario
 fails, fix the code, not the scenario" (`CLAUDE.md`,
-[.cursor/rules/architecture.mdc](../../../.cursor/rules/architecture.mdc))
+[.cursor/rules/architecture.mdc](https://github.com/giantswarm/muster/blob/main/.cursor/rules/architecture.mdc))
 is the same posture SEP-2484 takes toward the upstream suite
 ("specification text is authoritative; the test is a bug only if it
 contradicts the spec"). The difference is the *source of truth*:
@@ -388,12 +388,12 @@ Concretely, the alignment work is:
 SEP-2596 is a policy, not a wire change, so the muster impact is a
 **place to record state** and a **discipline for adopting/retiring**:
 
-- Muster forwards a large, opaque surface (every upstream tool,
+- muster forwards a large, opaque surface (every upstream tool,
   resource, prompt) and exposes its own `core_*` / `workflow_*` /
   `x_*` tools. As upstream features move Active → Deprecated → Removed,
   muster must know which state each one is in to decide whether to keep
   forwarding it. The aggregator's capability layer
-  ([internal/aggregator/registry.go](../../../internal/aggregator/registry.go),
+  ([internal/aggregator/registry.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/registry.go),
   where the `Capabilities` type and `refreshServerCapabilities` live)
   is where upstream capabilities are observed; it is the natural home
   for any "this upstream advertises a Deprecated capability" signal
@@ -403,7 +403,7 @@ SEP-2596 is a policy, not a wire change, so the muster impact is a
 - The twelve-month window means muster never has to rush: a feature
   muster forwards stays forwardable for at least a year after its
   deprecation SEP is Final, and removal is a deliberate Core Maintainer
-  decision, not a timer. Muster's adoption planning (the dates in
+  decision, not a timer. muster's adoption planning (the dates in
   [09-release-timeline.md](09-release-timeline.md)) can therefore
   treat deprecations as advisory and removals as the only hard
   deadlines.
@@ -434,7 +434,7 @@ ones.
 
 2. **Adopt the conformance suite in client mode for the outbound
    clients.** A second CI job in `client` mode exercises
-   [internal/mcpserver/](../../../internal/mcpserver) client code
+   [internal/mcpserver/](https://github.com/giantswarm/muster/blob/main/internal/mcpserver) client code
    against the suite's per-scenario test servers, validating
    muster-as-client behaviour (stateless transport, `_meta`, headers,
    `InputRequiredResult`). Depends on the
@@ -444,7 +444,7 @@ ones.
    the scenario `tags` convention so any scenario exercising a
    spec-defined behaviour carries its SEP number (e.g. `sep-2243`,
    `sep-2106`). No schema change is required — `tags` is already a free
-   list (see [internal/testing/types.go](../../../internal/testing/types.go)).
+   list (see [internal/testing/types.go](https://github.com/giantswarm/muster/blob/main/internal/testing/types.go)).
    This makes muster's own SEP coverage auditable the way the upstream
    traceability file does, and lets `muster test --concept`/tag
    filtering select "all scenarios for SEP-N".
@@ -504,8 +504,8 @@ ones.
   obligation; `mark3labs/mcp-go` carries neither. Migrating would let
   muster inherit conformance for free but is a large, cross-cutting
   change touching every file in
-  [internal/aggregator/](../../../internal/aggregator) and
-  [internal/mcpserver/](../../../internal/mcpserver). Staying means
+  [internal/aggregator/](https://github.com/giantswarm/muster/blob/main/internal/aggregator) and
+  [internal/mcpserver/](https://github.com/giantswarm/muster/blob/main/internal/mcpserver). Staying means
   muster must validate the `mcp-go` surface against the conformance
   suite itself (items 1–2 above). This decision should be made once,
   explicitly, and recorded — it is the biggest single lever over how
@@ -521,17 +521,17 @@ ones.
   [09-release-timeline.md](09-release-timeline.md).
 
 - **How granular should muster's own SEP traceability be?** SEP-2484
-  requires a row per MUST/MUST NOT/SHOULD. Muster is not bound by that
+  requires a row per MUST/MUST NOT/SHOULD. muster is not bound by that
   (it is not authoring SEPs), so the question is whether per-SEP
   coverage (item 4) is enough or whether muster should track per-MUST
   coverage for the surfaces it exposes. Per-SEP is almost certainly the
   right granularity for a host-and-aggregator; worth stating so it is
   not re-litigated per scenario.
 
-- **Should muster contribute scenarios upstream?** Muster's BDD suite
+- **Should muster contribute scenarios upstream?** muster's BDD suite
   has unusually thorough multi-user / session-isolation and OAuth
   scenarios (e.g.
-  [mcpserver-family-cross-session-corruption.yaml](../../../internal/testing/scenarios/mcpserver-family-cross-session-corruption.yaml),
+  [mcpserver-family-cross-session-corruption.yaml](https://github.com/giantswarm/muster/blob/main/internal/testing/scenarios/mcpserver-family-cross-session-corruption.yaml),
   the `oauth-sso-*` family). Some of these exercise spec behaviour the
   upstream suite may not yet cover. The conformance repo welcomes
   scenario contributions for existing spec behaviour (not tied to a new
@@ -602,16 +602,16 @@ ones.
   - [09-release-timeline.md](09-release-timeline.md) — where the
     blocking-vs-report-only CI decision and the registry-watch
     follow-up belong.
-- Muster code paths cited in this document:
-  [internal/aggregator/server.go](../../../internal/aggregator/server.go),
-  [internal/aggregator/registry.go](../../../internal/aggregator/registry.go),
-  [internal/mcpserver/client_streamable_http.go](../../../internal/mcpserver/client_streamable_http.go),
-  [internal/mcpserver/client_sse.go](../../../internal/mcpserver/client_sse.go),
-  [internal/mcpserver/client_stdio.go](../../../internal/mcpserver/client_stdio.go),
-  [internal/mcpserver/client_dynamic_auth.go](../../../internal/mcpserver/client_dynamic_auth.go),
-  [internal/mcpserver/client_interface.go](../../../internal/mcpserver/client_interface.go),
-  [internal/testing/types.go](../../../internal/testing/types.go),
-  [internal/testing/scenarios/](../../../internal/testing),
-  [internal/testing/scenarios/workflow_basic.yaml](../../../internal/testing/scenarios/workflow_basic.yaml),
-  [internal/testing/scenarios/mcpserver-family-cross-session-corruption.yaml](../../../internal/testing/scenarios/mcpserver-family-cross-session-corruption.yaml),
-  [cmd/test.go](../../../cmd/test.go).
+- muster code paths cited in this document:
+  [internal/aggregator/server.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/server.go),
+  [internal/aggregator/registry.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/registry.go),
+  [internal/mcpserver/client_streamable_http.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_streamable_http.go),
+  [internal/mcpserver/client_sse.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_sse.go),
+  [internal/mcpserver/client_stdio.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_stdio.go),
+  [internal/mcpserver/client_dynamic_auth.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_dynamic_auth.go),
+  [internal/mcpserver/client_interface.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_interface.go),
+  [internal/testing/types.go](https://github.com/giantswarm/muster/blob/main/internal/testing/types.go),
+  [internal/testing/scenarios/](https://github.com/giantswarm/muster/blob/main/internal/testing),
+  [internal/testing/scenarios/workflow_basic.yaml](https://github.com/giantswarm/muster/blob/main/internal/testing/scenarios/workflow_basic.yaml),
+  [internal/testing/scenarios/mcpserver-family-cross-session-corruption.yaml](https://github.com/giantswarm/muster/blob/main/internal/testing/scenarios/mcpserver-family-cross-session-corruption.yaml),
+  [cmd/test.go](https://github.com/giantswarm/muster/blob/main/cmd/test.go).

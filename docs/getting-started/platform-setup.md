@@ -1,216 +1,141 @@
-# Platform Engineering Quick Start (15 minutes)
+# Register servers and workflows
 
-Set up Muster for infrastructure management and workflow orchestration.
+This tutorial continues from the [quick start](quick-start.md). You register MCP servers as
+files, add a remote server, and write a workflow that turns a two-step procedure into a single
+tool. It takes about fifteen minutes.
 
-## Prerequisites
+## 1. Definitions as files
 
-- Go 1.21+ installed
-- 15 minutes focused time
+muster reads its definitions from `~/.config/muster` (or the directory given with
+`--config-path`):
 
-## Step 1: Installation & Basic Setup (5 minutes)
-
-### Install Muster
-
-```bash
-# Clone and build from source
-git clone https://github.com/giantswarm/muster.git
-cd muster
-go install
+```text
+~/.config/muster/
+├── config.yaml        # aggregator settings; optional, defaults are fine locally
+├── mcpservers/        # one MCPServer per file
+└── workflows/         # one Workflow per file
 ```
 
-### Initialize Configuration
-
-```bash
-# Create basic configuration directory
-mkdir -p .muster/{mcpservers,workflows}
-
-# Initialize basic config (optional - will be created automatically)
-cat > .muster/config.yaml << EOF
-aggregator:
-  port: 8090
-  host: localhost
-  transport: streamable-http
-  enabled: true
-EOF
-
-# Start the server
-muster serve &
-
-# Test the setup using the agent REPL
-muster agent --repl
-```
-
-In the REPL, test the **two-layer architecture**:
-
-```bash
-# Test meta-tools (agent layer)
-list tools                                # Discover available tools
-list core_tools                          # List core Muster tools
-
-# Test core functionality (aggregator layer via meta-tools)
-call core_config_get {}          # Check system config
-call core_mcpserver_list {}      # List MCP servers
-```
-
-## Step 2: Configure Infrastructure Tools (5 minutes)
-
-### Add an MCP Server
-
-Create an MCP server configuration file:
+The files use the same schema as the Kubernetes custom resources, so a definition written here
+can later be applied to a cluster unchanged. Add a second `stdio` server by hand:
 
 ```yaml
-# filesystem-server.yaml
+# ~/.config/muster/mcpservers/git.yaml
 apiVersion: muster.giantswarm.io/v1alpha1
 kind: MCPServer
 metadata:
-  name: filesystem-tools
-  namespace: default
+  name: git
 spec:
-  description: "File system operations"
-  toolPrefix: "fs"
-  type: sdtio
+  description: Git operations on local repositories
+  type: stdio
+  command: uvx
+  args: ["mcp-server-git"]
   autoStart: true
-  command: ["npx", "@modelcontextprotocol/server-filesystem", "/workspace"]
-  env:
-    DEBUG: "1"
 ```
 
-### For Real Kubernetes Integration
+The aggregator watches the directory; the server appears without a restart:
 
-If you have `mcp-kubernetes` installed:
+```bash
+muster list mcpserver
+muster check mcpserver git
+muster list tool --filter 'x_git_*'
+```
+
+If a server does not reach `Running`, `muster get mcpserver git -o yaml` shows the last error in
+its status and `muster events --resource-type mcpserver` the sequence of attempts.
+
+## 2. A remote server
+
+Most servers a platform team runs are remote: they are deployed once and reached over HTTP.
+Register one with `type: streamable-http` (or `sse` for servers that still use the older
+transport):
 
 ```yaml
-# streamable-http-server.yaml
+# ~/.config/muster/mcpservers/kubernetes.yaml
 apiVersion: muster.giantswarm.io/v1alpha1
 kind: MCPServer
 metadata:
-  name: api-server
-  namespace: default
+  name: kubernetes
 spec:
-  description: "External API tools"
-  toolPrefix: "api"
+  description: Kubernetes API of the platform cluster
   type: streamable-http
-  url: "https://api.example.com/mcp"
-  timeout: 60
-  headers:
-    Authorization: "Bearer your-token"
+  url: https://mcp-kubernetes.example.com/mcp
+  timeout: 30
 ```
 
-### Verify MCP Server Registration
+A server that requires login gets an `auth` block. With `type: oauth`, muster discovers the
+server's authorization server and, when a tool of that server is first used, returns a login
+URL through `core_auth_login`; the person signs in once in the browser and muster keeps the
+grant for them. With `forwardToken: true`, muster instead forwards the identity token of the
+person's own muster session, which is single sign-on for servers that trust the same Dex.
+[Manage MCP servers](../how-to/mcp-server-management.md) covers both, together with SigV4
+signing and request metadata.
+
+## 3. A first workflow
+
+A workflow chains tool calls into one deterministic tool. Where an agent would otherwise
+rediscover the same three steps every time, a workflow runs them the same way each time, for a
+fraction of the tokens. Save this next to the `files` server from the quick start:
+
+```yaml
+# ~/.config/muster/workflows/inspect-directory.yaml
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: Workflow
+metadata:
+  name: inspect-directory
+spec:
+  description: List a directory and read one file from it
+  args:
+    path:
+      type: string
+      required: true
+      description: Directory to inspect
+    file:
+      type: string
+      required: true
+      description: File inside the directory to read
+  steps:
+    - id: listing
+      tool: x_files_list_directory
+      args:
+        path: "{{ .input.path }}"
+      store: true
+    - id: content
+      tool: x_files_read_text_file
+      args:
+        path: "{{ .input.path }}/{{ .input.file }}"
+      store: true
+```
+
+Arguments are declared under `args` and referenced as `{{ .input.<name> }}`; a step with
+`store: true` makes its result available to later steps as `{{ .results.<id> }}`. The workflow
+becomes the tool `workflow_inspect-directory`:
 
 ```bash
-# Using meta-tools to check registration
+muster list workflow
+muster check workflow inspect-directory          # are all tools it needs available?
+muster start workflow inspect-directory --path=$HOME --file=.bashrc
+muster list workflow-execution                   # every run is recorded
+```
+
+Conditions, `forEach` loops, `parallel` groups, error handling and output shaping are covered
+in [Create workflows](../how-to/workflow-creation.md).
+
+## 4. What an agent sees now
+
+Connect the REPL and look at the catalogue as a client would:
+
+```bash
 muster agent --repl
-
-# In REPL:
-call core_mcpserver_list {}
-call core_mcpserver_get {"name": "example-tools"}
 ```
 
-## Step 3: Connect Your IDE
+`list tools` shows `x_files_*`, `x_git_*`, `x_kubernetes_*` (once it connects),
+`workflow_inspect-directory` and muster's `core_*` tools in one namespace. An IDE or agent gets
+the same catalogue behind the meta-tools and can be limited to part of it per request with a
+[toolset](../reference/toolsets.md), for example `preset:read-only` or `server:kubernetes`.
 
-### Configure Cursor/VSCode
+## Where to go next
 
-Add to your IDE settings:
-
-```json
-{
-  "mcpServers": {
-    "muster": {
-      "command": "muster",
-      "args": ["agent", "--mcp-server"]
-    }
-  }
-}
-```
-
-Now your AI assistant can use **Muster's two-layer architecture**:
-
-### Agent Layer (What AI Assistants Use)
-
-Your AI assistant gets access to **11 meta-tools**:
-
-**Tool Discovery & Management:**
-
-- `list_tools` - Discover all available tools from aggregator
-- `describe_tool` - Get detailed tool information
-- `filter_tools` - Filter tools by name/description patterns
-- `list_core_tools` - List built-in Muster tools specifically
-
-**Tool Execution:**
-
-- `call_tool` - Execute any aggregator tool with arguments
-
-**Resource & Prompt Access:**
-
-- `list_resources` - List available resources
-- `get_resource` - Retrieve resource content
-- `describe_resource` - Get resource details
-- `list_prompts` - List available prompts
-- `get_prompt` - Execute prompt templates
-- `describe_prompt` - Get prompt details
-
-### Aggregator Layer (What Gets Executed via call_tool)
-
-The aggregator provides **36+ core tools** plus dynamic capabilities:
-
-**Configuration Management (5 tools):**
-
-- `core_config_get` - Get system configuration
-- `core_config_save` - Save configuration changes
-- `core_config_update_aggregator` - Modify aggregator settings
-
-**Service Management:**
-
-- `core_service_list` - List all services
-- `core_service_start/stop/restart` - Control service lifecycle
-- `core_service_status` - Monitor service health
-
-**Workflow Orchestration (9 tools):**
-
-- `core_workflow_list` - List available workflows
-- `core_workflow_create` - Define multi-step processes
-- `workflow_<name>` - Execute specific workflows (auto-generated)
-- `core_workflow_execution_list` - View execution history
-
-**MCP Server Management (6 tools):**
-
-- `core_mcpserver_list` - List external tool providers
-- `core_mcpserver_create` - Add new MCP servers
-- `core_mcpserver_start/stop` - Control MCP server lifecycle
-
-### AI Assistant Usage Pattern
-
-Your AI assistant will use this pattern:
-
-```bash
-# AI discovers available tools
-list_tools()
-
-# AI executes aggregator tools via meta-tool
-call_tool(name="core_service_status", arguments={"name": "my-service"})
-```
-
-## Next Steps
-
-1. **Add Real MCP Servers**: Configure actual infrastructure tools (Kubernetes, Prometheus, etc.)
-2. **Build Complex Workflows**: Chain multiple operations with conditional logic
-3. **Explore Testing**: Use `muster test` to validate configurations
-
-### Real-World Examples
-
-Based on the current `.muster` configuration, you already have examples for:
-
-- **Workflows**: `auth-workflow`, `login-workload-cluster`, `connect-monitoring`
-- **MCP Servers**: `kubernetes`, `prometheus`, `grafana`
-
-### Understanding the Architecture
-
-**Remember**: AI assistants use the 11 meta-tools to access the 36+ aggregator tools. This separation enables:
-
-- **Unified access** to all tool types (core, workflow, external)
-- **Dynamic discovery** of capabilities
-- **Consistent interface** regardless of tool source
-- **Transparent routing** to appropriate handlers
-
-For more examples, see the test scenarios in `internal/testing/scenarios/`.
+- [Manage MCP servers](../how-to/mcp-server-management.md) for authentication, auto-start, health and suspension.
+- [Integrate with Kubernetes](../how-to/kubernetes-integration.md) to register mcp-kubernetes with the person's identity forwarded.
+- [Installation](../operations/installation.md) to run the same definitions as custom resources on a cluster.

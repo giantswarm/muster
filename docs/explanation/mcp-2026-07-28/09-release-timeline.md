@@ -29,7 +29,7 @@ The single most important strategic fact carries over from
 [08-protocol-evolution.md](08-protocol-evolution.md) §3.1: muster does
 not run on one of the tier-rated official SDKs. It runs on
 **`github.com/mark3labs/mcp-go` v0.54.1** (and `mcp-go/otel` v0.54.0) —
-see [go.mod](../../../go.mod) — which is *not* listed in the SDK tier
+see [go.mod](https://github.com/giantswarm/muster/blob/main/go.mod) — which is *not* listed in the SDK tier
 table at all. The "Tier 1 SDKs ship within the window" guarantee
 therefore does **not** apply to muster's dependency, and that is what
 makes muster's timeline a function of `mcp-go`'s timeline, not the
@@ -250,7 +250,7 @@ primary sources are the schedule, spec, and process artefacts:
   [08](08-protocol-evolution.md) and in the folder
   [README.md](README.md).
 
-## 3. Muster impact
+## 3. muster impact
 
 The plan's brief for this document is "timeline, suggested milestones for
 muster … and which upstream SDKs muster depends on (track their tier-1
@@ -258,10 +258,10 @@ readiness)." There is no wire-level work unique to this doc; instead it
 sequences the work the other docs define. Three facts drive muster's
 timeline.
 
-### 3.1 Muster's clock is `mcp-go`'s clock, not the spec's
+### 3.1 muster's clock is `mcp-go`'s clock, not the spec's
 
-Muster depends on `github.com/mark3labs/mcp-go` v0.54.1
-([go.mod](../../../go.mod)), built with Go 1.26.0 / toolchain 1.26.3.
+muster depends on `github.com/mark3labs/mcp-go` v0.54.1
+([go.mod](https://github.com/giantswarm/muster/blob/main/go.mod)), built with Go 1.26.0 / toolchain 1.26.3.
 `mcp-go` is **not** in the SDK tier table — the official Go SDK is
 `modelcontextprotocol/go-sdk`, which is Tier 1 and therefore carries the
 "ship `2026-07-28` support by July 28" obligation. `mark3labs/mcp-go`
@@ -300,20 +300,20 @@ Go and can land during the validation window regardless of `mcp-go`:
   ([01-stateless-protocol.md](01-stateless-protocol.md) §4 item 2):
   re-key `SessionConnectionPool`, `CapabilityStore`, and
   `SessionAuthStore` (and their Valkey variants in
-  [internal/aggregator/](../../../internal/aggregator)) on a
+  [internal/aggregator/](https://github.com/giantswarm/muster/blob/main/internal/aggregator)) on a
   muster-owned principal. This is internal refactoring with no wire
   dependency.
 - **Server-side `iss` validation** (SEP-2468,
   [05-authorization-hardening.md](05-authorization-hardening.md) §4
   item 1): the highest-priority auth change touches
-  [internal/oauth/handler.go](../../../internal/oauth/handler.go) and
-  [pkg/oauth/types.go](../../../pkg/oauth/types.go), entirely within
+  [internal/oauth/handler.go](https://github.com/giantswarm/muster/blob/main/internal/oauth/handler.go) and
+  [pkg/oauth/types.go](https://github.com/giantswarm/muster/blob/main/pkg/oauth/types.go), entirely within
   muster's own OAuth code, not `mcp-go`.
 - **The conformance and BDD scaffolding**
   ([08-protocol-evolution.md](08-protocol-evolution.md) §4): adopting
   the upstream conformance suite in CI (report-only), adding a `sep:`
   tag convention to the 129 scenarios in
-  [internal/testing/scenarios/](../../../internal/testing), and the
+  [internal/testing/scenarios/](https://github.com/giantswarm/muster/blob/main/internal/testing), and the
   `-32002` regression guard
   ([07-json-schema-2020-12.md](07-json-schema-2020-12.md) §4.2). These
   produce the test signal that later, gated work is validated against.
@@ -323,11 +323,11 @@ ungated refactors and the test scaffolding during the upstream window,
 so that the moment `mcp-go` ships, the gated wire work has somewhere
 clean to land and an external signal to validate against.
 
-### 3.3 Muster's own validation contributes to the window
+### 3.3 muster's own validation contributes to the window
 
-Muster is a non-trivial real-world MCP host-and-aggregator, so running
+muster is a non-trivial real-world MCP host-and-aggregator, so running
 the RC against muster's workloads is exactly the "validate against real
-workloads" the announcement asks for. Muster has two channels back into
+workloads" the announcement asks for. muster has two channels back into
 the window:
 
 - **File findings on the spec issue tracker** under
@@ -384,7 +384,7 @@ window (the window opened May 21, 2026; Final is July 28, 2026).
 6. **Add the `sep:` tag convention and the `-32002` guard**
    ([08](08-protocol-evolution.md) §4 items 3, 5;
    [07](07-json-schema-2020-12.md) §4.2) to
-   [internal/testing/scenarios/](../../../internal/testing).
+   [internal/testing/scenarios/](https://github.com/giantswarm/muster/blob/main/internal/testing).
 
 **Phase 2 — Gated wire work (when `mcp-go` ships `2026-07-28` support).**
 
@@ -396,7 +396,7 @@ window (the window opened May 21, 2026; Final is July 28, 2026).
    `subscriptions/listen`, `InputRequiredResult`, `ttlMs`/`cacheScope`
    ([01](01-stateless-protocol.md) §4 items 3–8) — and the matching
    outbound-client changes in
-   [internal/mcpserver/](../../../internal/mcpserver).
+   [internal/mcpserver/](https://github.com/giantswarm/muster/blob/main/internal/mcpserver).
 9. **Wire the `extensions` map and the Tasks/MCP-Apps forwarding**
    ([02](02-extensions-first-class.md), [04](04-tasks-extension.md),
    [03](03-mcp-apps.md)).
@@ -412,7 +412,7 @@ window (the window opened May 21, 2026; Final is July 28, 2026).
 11. **Add a CHANGELOG entry per adopted surface** naming the SEP and its
     lifecycle state ([08](08-protocol-evolution.md) §4 item 8), so
     operators reading muster's
-    [CHANGELOG.md](../../../CHANGELOG.md) can map muster behaviour onto
+    [CHANGELOG.md](https://github.com/giantswarm/muster/blob/main/CHANGELOG.md) can map muster behaviour onto
     the upstream registry.
 
 The hard deadline in this schedule is **not** July 28 — muster is a
@@ -431,7 +431,7 @@ recommended — not mandatory — target.
   system guarantees the *official* `go-sdk` ships by July 28; it says
   nothing about `mcp-go`. If `mcp-go` lags or never adopts the RC,
   Phase 2 slips indefinitely and the migrate-to-`go-sdk` decision
-  (Phase 0 item 2) becomes forced rather than optional. Muster should
+  (Phase 0 item 2) becomes forced rather than optional. muster should
   not assume the spec's July 28 date is muster's date.
 
 - **Report-only or blocking conformance CI before Final?** Wiring the
@@ -444,7 +444,7 @@ recommended — not mandatory — target.
   control.
 
 - **Should muster file its validation findings upstream, and through
-  which channel?** Muster will exercise aggregator-specific behaviour the
+  which channel?** muster will exercise aggregator-specific behaviour the
   official SDKs may not (multi-upstream merging, session isolation under
   statelessness, cross-issuer OAuth). Filing under
   `sdk/2026-07-feedback` and/or raising it in the Auth/Security/enterprise
@@ -456,7 +456,7 @@ recommended — not mandatory — target.
 - **Do any open spec issues change muster's implementation target before
   Final?** Issues like `#2806` (`oneOf` consumability), `#2762` (SEP-2243
   clarifications), and `#2721` (protocol-version conflict) could alter
-  the exact behaviour muster implements in Phase 2. Muster should track
+  the exact behaviour muster implements in Phase 2. muster should track
   the ones that touch its section docs and avoid implementing against an
   RC detail that an open issue is actively contesting.
 
@@ -516,11 +516,11 @@ recommended — not mandatory — target.
   - [08-protocol-evolution.md](08-protocol-evolution.md) — the
     conformance/BDD scaffolding (§4) and the migrate-to-`go-sdk` and
     blocking-CI open questions (§5).
-- Muster code paths cited in this document:
-  [go.mod](../../../go.mod) (`mark3labs/mcp-go` v0.54.1, Go 1.26.0),
-  [internal/aggregator/](../../../internal/aggregator),
-  [internal/mcpserver/](../../../internal/mcpserver),
-  [internal/oauth/handler.go](../../../internal/oauth/handler.go),
-  [pkg/oauth/types.go](../../../pkg/oauth/types.go),
-  [internal/testing/scenarios/](../../../internal/testing),
-  [CHANGELOG.md](../../../CHANGELOG.md).
+- muster code paths cited in this document:
+  [go.mod](https://github.com/giantswarm/muster/blob/main/go.mod) (`mark3labs/mcp-go` v0.54.1, Go 1.26.0),
+  [internal/aggregator/](https://github.com/giantswarm/muster/blob/main/internal/aggregator),
+  [internal/mcpserver/](https://github.com/giantswarm/muster/blob/main/internal/mcpserver),
+  [internal/oauth/handler.go](https://github.com/giantswarm/muster/blob/main/internal/oauth/handler.go),
+  [pkg/oauth/types.go](https://github.com/giantswarm/muster/blob/main/pkg/oauth/types.go),
+  [internal/testing/scenarios/](https://github.com/giantswarm/muster/blob/main/internal/testing),
+  [CHANGELOG.md](https://github.com/giantswarm/muster/blob/main/CHANGELOG.md).

@@ -4,7 +4,7 @@ This guide covers how to integrate muster with Kubernetes clusters, enabling AI 
 
 ## Overview
 
-Muster can connect to Kubernetes clusters through an MCP server, providing AI agents with tools to:
+muster can connect to Kubernetes clusters through an MCP server, providing AI agents with tools to:
 
 - List and inspect Kubernetes resources (pods, deployments, services, etc.)
 - Monitor cluster health and status
@@ -12,7 +12,7 @@ Muster can connect to Kubernetes clusters through an MCP server, providing AI ag
 
 ## Prerequisites
 
-- Muster installed and running
+- muster installed and running
 - Access to a Kubernetes cluster with valid credentials
 - The `mcp-kubernetes` server binary (or a compatible Kubernetes MCP server)
 
@@ -109,7 +109,7 @@ spec:
 **How it works:**
 
 1. User authenticates to muster via `muster auth login`
-2. Muster requests tokens with Kubernetes OIDC audiences
+2. muster requests tokens with Kubernetes OIDC audiences
 3. On MCP requests, muster forwards the token to the Kubernetes server
 4. Users can immediately access Kubernetes without additional authentication
 

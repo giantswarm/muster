@@ -4,7 +4,7 @@ This guide covers how to monitor MCP servers, services, and workflows in muster 
 
 ## Overview
 
-Muster provides several monitoring capabilities out of the box:
+muster provides several monitoring capabilities out of the box:
 
 - **Health checks** for MCP servers and service instances
 - **Event tracking** for resource lifecycle changes and failures
@@ -12,7 +12,7 @@ Muster provides several monitoring capabilities out of the box:
 
 ## Prerequisites
 
-- Muster installed and running
+- muster installed and running
 - At least one MCP server or service configured
 
 ## Quick Start
@@ -91,7 +91,7 @@ Health check status values:
 
 ## Monitor with Events
 
-Muster emits events for key lifecycle transitions. Use these for alerting and diagnostics.
+muster emits events for key lifecycle transitions. Use these for alerting and diagnostics.
 
 ### MCP Server Events
 

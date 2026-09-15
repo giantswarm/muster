@@ -26,13 +26,30 @@ const (
 // It is the entry point when the application is called without any subcommands.
 var rootCmd = &cobra.Command{
 	Use:   "muster",
-	Short: "Connect your environment to Giant Swarm clusters",
-	Long: `muster simplifies connecting your local development environment
-(e.g., MCP servers in Cursor) to Giant Swarm clusters and setting up
-necessary connections like Prometheus port-forwarding.`,
+	Short: "Aggregate MCP servers behind one authenticated endpoint",
+	Long: `muster aggregates the tools of many MCP servers behind one Model Context
+Protocol endpoint. An AI agent connects once and discovers, filters and calls
+the tools of every registered server through a small set of meta-tools;
+platform teams register servers, control access with toolsets and OAuth,
+and run muster locally or as a Kubernetes service.
+
+Start here:
+  muster serve                Run the aggregator with the local configuration
+  muster standalone           Aggregator and stdio bridge in one process, for an IDE
+  muster agent --repl         Explore the aggregated tools interactively
+  muster list mcpserver       Show the registered MCP servers
+
+Documentation: https://giantswarm.github.io/muster/`,
 	// SilenceUsage prevents Cobra from printing the usage message on errors that are handled by the application.
 	// This is useful for providing cleaner error output to the user.
 	SilenceUsage: true,
+}
+
+// RootCommand returns the root command with every subcommand registered. The
+// CLI reference in docs/reference/cli is rendered from this tree by
+// hack/gen-cli-docs, so the command help texts are the documentation.
+func RootCommand() *cobra.Command {
+	return rootCmd
 }
 
 // SetVersion sets the version for the root command.

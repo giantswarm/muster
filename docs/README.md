@@ -1,93 +1,40 @@
-# Muster Documentation
+# muster documentation
 
-Welcome to Muster's docs! We've organized everything based on what you're trying to accomplish. Pick your adventure below:
+muster is an aggregating Model Context Protocol server: it connects to the MCP servers a
+platform team runs and serves their tools through one authenticated endpoint, with discovery
+that fits an agent's context window, per-request toolsets, single sign-on to the servers behind
+it and a Kubernetes-native way to run all of this.
 
-## I want to...
+New to muster? Start with the [quick start](getting-started/quick-start.md); it takes about ten
+minutes from an empty machine to an IDE calling tools through muster.
 
-### 🚀 Get started quickly
-**New to Muster?** Choose your path based on what you're doing:
+## Sections
 
-- [**Set up with my AI agent (Easiest)**](getting-started/ai-agent-setup.md) - Hook Muster up to your IDE with `muster standalone` (2 minutes)
-- [**Advanced AI agent setup**](getting-started/ai-agent-integration.md) - Separate server/agent mode for production use (10 minutes)
-- [**Deploy for platform work**](getting-started/platform-setup.md) - Get Muster running for infrastructure tasks (15 minutes)
-- [**Try it out locally**](getting-started/local-demo.md) - Quick evaluation setup (2 minutes)
+The documentation follows the [Diátaxis](https://diataxis.fr/) structure: tutorials to learn by
+doing, how-to guides for specific tasks, reference for exact facts, and explanation for the
+reasoning behind the design.
 
-### 🛠️ Solve specific problems
-**Need to get something done?** These guides show you how:
+| Section | Read it when you |
+|---|---|
+| [Getting started](getting-started/README.md) | want a working muster and your first aggregated tools, step by step |
+| [How-to guides](how-to/README.md) | have a task: connect a client, authenticate, register a server, integrate with Kubernetes, build a workflow, fix a problem |
+| [Reference](reference/README.md) | need the exact tool arguments, configuration keys, custom resource fields, events, HTTP endpoints or CLI flags |
+| [Explanation](explanation/README.md) | want to understand how aggregation, sessions, workflows and observability work, and why they work that way |
+| [Operations](operations/README.md) | install muster for a team and keep it secure |
+| [Contributing](contributing/README.md) | change muster itself |
 
-- [Create custom workflows](how-to/workflow-creation.md) - Build automated task sequences
-- [Troubleshoot issues](how-to/troubleshooting.md) - Fix common problems
+## By task
 
-### 📚 Look up reference information
-**Need to check something specific?** Find the details here:
+- Connect Cursor, VS Code, Claude Code or Claude Desktop: [Connect MCP clients](how-to/connect-mcp-clients.md)
+- Use the CLI against a muster that requires login: [Authenticate the CLI](how-to/authenticate-the-cli.md)
+- Register, update and troubleshoot MCP servers: [Manage MCP servers](how-to/mcp-server-management.md)
+- Give an agent a bounded tool surface: [Toolsets](reference/toolsets.md)
+- Run muster on a cluster with Dex and Valkey: [Installation](operations/installation.md)
+- Turn a procedure into a deterministic tool: [Create workflows](how-to/workflow-creation.md)
+- See what an agent sees: [MCP tools](reference/mcp-tools.md)
 
-- [CLI command reference](reference/cli/) - Complete command documentation
-- [Configuration options](reference/configuration.md) - All the settings you can tweak
-- [MCP Tools documentation](reference/mcp-tools.md) - All the core mcp tools
-- [CRD reference](reference/crds.md/) - Kubernetes Custom Resource definitions
-- [API documentation](reference/api.md) - HTTP and MCP API specs
+## Questions and problems
 
-### 🧠 Understand how Muster works
-**Want to know what's going on under the hood?** Explore the concepts:
-
-- [System architecture](explanation/architecture.md) - How everything fits together
-- [MCP aggregation](explanation/mcp-aggregation.md) - How tool aggregation works
-- [Service orchestration](explanation/orchestration.md) - Workflow and service management
-- [Design principles](explanation/design-principles.md) - Why we built it this way
-
-### 🔧 Deploy and operate Muster
-**Setting up Muster for real?** Here's your deployment guide:
-
-- [Installation guide](operations/installation.md) - How to deploy Muster
-- [Security setup](operations/security.md) - Lock it down properly
-
-### 👩‍💻 Contribute to Muster
-**Want to help build Muster?** Start here:
-
-- [Development setup](contributing/development-setup.md) - Get your local dev environment ready
-- [Testing framework](contributing/testing/) - Our testing approach and tools
-
-## How this documentation works
-
-This documentation follows the **[Diátaxis framework](https://diataxis.fr/)** - a systematic way to organize docs so you can find what you need:
-
-- **📘 Tutorials** - Step-by-step lessons to get you started
-- **📗 How-to Guides** - Solutions to specific problems you're facing
-- **📙 Reference** - Technical details and specifications
-- **📕 Explanation** - Background knowledge and concepts
-
-Each type serves a different purpose, so you can jump to the right section for what you're trying to do.
-
-## Find your path
-
-**If you're new**: Start with [Getting Started](getting-started/) tutorials
-**If you're building**: Focus on [How-to Guides](how-to/) for specific tasks
-**If you're integrating**: Use [Reference](reference/) for detailed specs
-**If you're contributing**: Begin with [Contributing](contributing/) guidelines
-
-**Different workflows:**
-- **AI Agent setup**: getting-started → how-to → reference/api
-- **Platform engineering**: getting-started → explanation → operations
-- **Development**: contributing → explanation/architecture → reference
-- **Troubleshooting**: how-to/troubleshooting → explanation → reference
-
-## Need help?
-
-### Something wrong with the docs?
-- **Missing info**: [Request improvements](https://github.com/giantswarm/muster/issues/new?labels=documentation)
-- **Unclear content**: [Report what's confusing](https://github.com/giantswarm/muster/issues/new?labels=documentation)
-- **Broken links**: [Let us know](https://github.com/giantswarm/muster/issues/new?labels=documentation)
-
-### Need technical support?
-- **Questions**: [GitHub Discussions](https://github.com/giantswarm/muster/discussions)
-- **Bug reports**: [GitHub Issues](https://github.com/giantswarm/muster/issues/new?labels=bug)
-- **Feature requests**: [GitHub Issues](https://github.com/giantswarm/muster/issues/new?labels=enhancement)
-
-## Our documentation goals
-
-We aim to make this documentation:
-- **Correct** - Technically accurate and up-to-date
-- **Clear** - Easy to understand for your experience level
-- **Useful** - Focused on what you actually need to do
-- **Easy to navigate** - Find what you need quickly
-- **Maintainable** - Stays current as Muster evolves
+Bugs, gaps in the documentation and feature requests go to the
+[issue tracker](https://github.com/giantswarm/muster/issues). Security issues are reported
+through Giant Swarm's [responsible disclosure process](https://www.giantswarm.io/responsible-disclosure).

@@ -219,7 +219,7 @@ traces)" — its OTLP logs pipeline is precisely the structured,
 multi-process logging story SEP-2577 says replaces
 `logging/setLevel` and `notifications/message`. This is also the
 exact pipeline muster's own
-[pkg/logging](../../../pkg/logging/logging.go) already uses (see
+[pkg/logging](https://github.com/giantswarm/muster/blob/main/pkg/logging/logging.go) already uses (see
 §3 below): the OTel logs SDK fed by `slog`, with TraceID/SpanID
 correlation. So muster does not have to "migrate" to OTel; it is
 already there.
@@ -241,7 +241,7 @@ in muster has to change for this replacement to take effect.
 - [The 2026-07-28 MCP Specification Release Candidate](https://blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate/) — announcement, section "Roots, Sampling, and Logging Are Deprecated" with the replacement table.
 - Cross-section context: [02-extensions-first-class.md](02-extensions-first-class.md) (SEP-2133, the alternative path that SEP-2577 explicitly declined), [04-tasks-extension.md](04-tasks-extension.md) (`ClientCapabilities.tasks.requests.sampling` is one of the deprecated capabilities — the Tasks extension's sampling sub-capability is dropped along with everything else), [08-protocol-evolution.md](08-protocol-evolution.md) (full treatment of SEP-2596 and SEP-2484).
 
-## 3. Muster impact
+## 3. muster impact
 
 ### 3.1 Audit results: muster speaks none of these MCP methods today
 
@@ -266,10 +266,10 @@ outbound path. Ripgrep results:
 The only `roots`/`sampling`/`Roots`/`Sampling` substrings in the
 muster Go tree are unrelated to the MCP protocol:
 
-- [internal/cli/errors.go](../../../internal/cli/errors.go) lines
+- [internal/cli/errors.go](https://github.com/giantswarm/muster/blob/main/internal/cli/errors.go) lines
   117–120 use `x509.SystemRootsError` to classify TLS trust-store
   errors. Nothing to do with MCP `roots/list`.
-- [internal/admin/templates.go](../../../internal/admin/templates.go)
+- [internal/admin/templates.go](https://github.com/giantswarm/muster/blob/main/internal/admin/templates.go)
   line 17 has a comment referring to "per-view template roots" for
   the admin UI's HTML template tree. Nothing to do with MCP
   `roots/list`.
@@ -278,7 +278,7 @@ The `"logging"` and `logging` references that do show up are all
 muster's **own** application logging stack, which is already an
 OpenTelemetry-aware `slog` pipeline:
 
-- [pkg/logging/logging.go](../../../pkg/logging/logging.go) wraps
+- [pkg/logging/logging.go](https://github.com/giantswarm/muster/blob/main/pkg/logging/logging.go) wraps
   [giantswarm/mcp-toolkit/logging](https://github.com/giantswarm/mcp-toolkit)
   to initialise an `slog` handler that either writes to stderr (CLI
   mode) or routes records through the OpenTelemetry Logs SDK when
@@ -289,7 +289,7 @@ OpenTelemetry-aware `slog` pipeline:
   `context.Context` through so the active span's TraceID and SpanID
   attach to each log record — exactly the OpenTelemetry pipeline
   SEP-2577 names as the Logging replacement.
-- [internal/aggregator/logging.go](../../../internal/aggregator/logging.go)
+- [internal/aggregator/logging.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/logging.go)
   defines a `server.ToolHandlerMiddleware` that emits one structured
   info-level line per tool call (`msg = "tool call"`, fields `tool`,
   `outcome`, `duration_s`, `error`) via
@@ -297,9 +297,9 @@ OpenTelemetry-aware `slog` pipeline:
   that never crosses the MCP wire; it has no relationship to the
   upstream MCP `logging/setLevel` request or `notifications/message`
   notification.
-- [cmd/serve.go](../../../cmd/serve.go) line 114 (`defer
+- [cmd/serve.go](https://github.com/giantswarm/muster/blob/main/cmd/serve.go) line 114 (`defer
   otelShutdown("logging", shutdownLogging)`) and
-  [internal/testing/muster_manager.go](../../../internal/testing/muster_manager.go)
+  [internal/testing/muster_manager.go](https://github.com/giantswarm/muster/blob/main/internal/testing/muster_manager.go)
   lines 1162–1168 (`"logging": {"level": "debug"}` in the
   generated test config) are both about muster's application
   logging configuration, not the MCP `logging` capability.
@@ -314,7 +314,7 @@ sure it stays that way.
 
 The aggregator is muster's MCP surface area, and its inbound MCP
 server is built with mcp-go in
-[internal/aggregator/server.go](../../../internal/aggregator/server.go).
+[internal/aggregator/server.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/server.go).
 The capability options passed to `mcpserver.NewMCPServer` are
 explicit (lines 729–737):
 
@@ -332,7 +332,7 @@ mcpSrv := mcpserver.NewMCPServer("muster-aggregator", serverVersion, opts...)
 
 There is no `WithLoggingCapability(...)` and no equivalent for
 `Roots` or `Sampling`. The outbound client interface
-[internal/mcpserver/client_interface.go](../../../internal/mcpserver/client_interface.go)
+[internal/mcpserver/client_interface.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_interface.go)
 exposes only `ListTools`, `CallTool`, `ListResources`, `ReadResource`,
 `ListPrompts`, `GetPrompt` — nothing else. The aggregator therefore:
 
@@ -355,24 +355,24 @@ SEP-2577's "Capability negotiation" rules say wire behaviour MUST be
 unchanged. For muster the implications are narrow:
 
 - If a downstream MCP server connected through
-  [internal/mcpserver/client_streamable_http.go](../../../internal/mcpserver/client_streamable_http.go),
-  [client_sse.go](../../../internal/mcpserver/client_sse.go), or
-  [client_stdio.go](../../../internal/mcpserver/client_stdio.go)
+  [internal/mcpserver/client_streamable_http.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_streamable_http.go),
+  [client_sse.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_sse.go), or
+  [client_stdio.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_stdio.go)
   advertises `ServerCapabilities.logging`, muster's aggregator is
   not required to subscribe to that capability — but it MUST NOT
   refuse the connection just because the capability is advertised.
   Today muster ignores the capability flag entirely, which already
   satisfies this rule.
 - If an inbound MCP client (e.g. an LLM host connecting through
-  [internal/aggregator/server.go](../../../internal/aggregator/server.go))
+  [internal/aggregator/server.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/server.go))
   advertises `ClientCapabilities.roots` or
   `ClientCapabilities.sampling`, muster MUST NOT reject the
   connection on the strength of those flags either. Today muster's
   aggregator does not inspect client capabilities for these
   features, so this also already holds.
 - The aggregator's
-  [capability_store.go](../../../internal/aggregator/capability_store.go)
-  / [registry.go](../../../internal/aggregator/registry.go) only
+  [capability_store.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/capability_store.go)
+  / [registry.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/registry.go) only
   cache `tools/list`, `resources/list`, and `prompts/list` payloads
   (see also [01-stateless-protocol.md](01-stateless-protocol.md)
   §3 for the `ttlMs` / `cacheScope` work). They do not cache or
@@ -391,14 +391,14 @@ hook is the agreed extension point if it is ever needed.
 
 ### 3.3 Agent: REPL and agent-mode MCP server
 
-Muster's agent layer (`internal/agent/`) exposes muster either as an
+muster's agent layer (`internal/agent/`) exposes muster either as an
 interactive REPL or as a stdio MCP server that other LLM hosts can
 talk to (see the agent commands under
-[internal/agent/commands/](../../../internal/agent/commands)). The
+[internal/agent/commands/](https://github.com/giantswarm/muster/blob/main/internal/agent/commands)). The
 same audit applies: no `Root`, `Sampling`, or `CreateMessage` types
 appear anywhere in `internal/agent/`. The agent's MCP-server-mode
 init in
-[internal/agent/test_mcp_server.go](../../../internal/agent/test_mcp_server.go)
+[internal/agent/test_mcp_server.go](https://github.com/giantswarm/muster/blob/main/internal/agent/test_mcp_server.go)
 follows the same `mark3labs/mcp-go` pattern as the aggregator and
 similarly does not advertise the deprecated capabilities.
 
@@ -408,7 +408,7 @@ through tool arguments (the Roots replacement), and any LLM
 inference happens in the host process that drives muster (the
 Sampling replacement). Structured logging from agent code uses
 `logging.InfoWithAttrsCtx` / `logging.ErrorCtx` from
-[pkg/logging/logging.go](../../../pkg/logging/logging.go) — i.e.
+[pkg/logging/logging.go](https://github.com/giantswarm/muster/blob/main/pkg/logging/logging.go) — i.e.
 the OpenTelemetry-aware pipeline that SEP-2577 names as the Logging
 replacement.
 
@@ -416,19 +416,19 @@ replacement.
 
 The relevant policy commitment for muster is therefore a short one:
 
-- Muster does **not** implement Roots, Sampling, or structured
+- muster does **not** implement Roots, Sampling, or structured
   Logging over MCP today and will **not** add new support for them
   while they are Deprecated. SEP-2577 §"Capability negotiation"
   recommends exactly this: "New implementations SHOULD NOT add
   support for deprecated features unless needed for backward
   compatibility with existing counterparts."
-- Muster's aggregator will **forward the deprecated methods
+- muster's aggregator will **forward the deprecated methods
   unchanged** to upstream MCP servers that advertise them, for as
   long as SEP-2596 keeps them in the spec. Practically, since muster
   does not proxy these methods at all today, "forward unchanged"
   means "do nothing": the methods never enter muster's caching,
   rate-limiting, or audit paths.
-- Muster's structured-logging story is already the OpenTelemetry
+- muster's structured-logging story is already the OpenTelemetry
   pipeline that SEP-2577 names as the replacement for the deprecated
   MCP Logging feature. The Trace-Context plumbing work in
   [01-stateless-protocol.md](01-stateless-protocol.md) §3 closes
@@ -455,7 +455,7 @@ There is no code to delete and no API to migrate. The work is
    release does add (for any reason) one of the deprecated
    capabilities, that addition MUST come with a structured warning
    from the aggregator's mcp-go hook
-   ([internal/aggregator/server.go](../../../internal/aggregator/server.go)
+   ([internal/aggregator/server.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/server.go)
    `WithHooks(hooks)` line 734) that reads, at minimum,
    `logging.WarnCtx(ctx, "MCP-Aggregator", "deprecated MCP
    capability negotiated", slog.String("capability", "…"),
@@ -474,11 +474,11 @@ There is no code to delete and no API to migrate. The work is
    belongs in [09-release-timeline.md](09-release-timeline.md).
 4. **Keep ignoring upstream `logging` capability advertisements.**
    The outbound MCP clients
-   ([internal/mcpserver/client_streamable_http.go](../../../internal/mcpserver/client_streamable_http.go),
-   [client_sse.go](../../../internal/mcpserver/client_sse.go),
-   [client_stdio.go](../../../internal/mcpserver/client_stdio.go),
-   [client_dynamic_auth.go](../../../internal/mcpserver/client_dynamic_auth.go),
-   [client_interface.go](../../../internal/mcpserver/client_interface.go))
+   ([internal/mcpserver/client_streamable_http.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_streamable_http.go),
+   [client_sse.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_sse.go),
+   [client_stdio.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_stdio.go),
+   [client_dynamic_auth.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_dynamic_auth.go),
+   [client_interface.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_interface.go))
    ignore `ServerCapabilities.logging` today. That stays. No new
    subscription, no `logging/setLevel` call, no
    `notifications/message` handling.
@@ -502,7 +502,7 @@ There is no code to delete and no API to migrate. The work is
    `_meta` trace-context keys defined in
    [SEP-414](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/414)."
 7. **Conformance scenarios.** Add one minimal scenario to
-   [internal/testing/scenarios/](../../../internal/testing) that
+   [internal/testing/scenarios/](https://github.com/giantswarm/muster/blob/main/internal/testing) that
    asserts muster's aggregator does not advertise
    `ServerCapabilities.logging` in its `server/discover` response,
    and does not negotiate either `ClientCapabilities.roots` or
@@ -552,7 +552,7 @@ There is no code to delete and no API to migrate. The work is
   twelve-month minimum window puts the earliest possible removal in
   the first spec revision released as Current on or after
   `2027-07-28`. SEP-2596 explicitly allows features to remain
-  Deprecated indefinitely beyond that floor. Muster's
+  Deprecated indefinitely beyond that floor. muster's
   [09-release-timeline.md](09-release-timeline.md) should record
   the assumption that we are not designing for an early removal and
   do not need a contingency plan for one.
@@ -583,20 +583,20 @@ There is no code to delete and no API to migrate. The work is
   - [07-json-schema-2020-12.md](07-json-schema-2020-12.md) — JSON Schema 2020-12 rules that underwrite the Roots replacement story.
   - [08-protocol-evolution.md](08-protocol-evolution.md) — full treatment of SEP-2596 and SEP-2484; the lifecycle policy whose terminology this document inherits.
   - [09-release-timeline.md](09-release-timeline.md) — where the deprecation-window dates and the registry-watch follow-up belong.
-- Muster code paths cited in this document:
-  [pkg/logging/logging.go](../../../pkg/logging/logging.go),
-  [internal/aggregator/logging.go](../../../internal/aggregator/logging.go),
-  [internal/aggregator/server.go](../../../internal/aggregator/server.go),
-  [internal/aggregator/capability_store.go](../../../internal/aggregator/capability_store.go),
-  [internal/aggregator/registry.go](../../../internal/aggregator/registry.go),
-  [internal/mcpserver/client_interface.go](../../../internal/mcpserver/client_interface.go),
-  [internal/mcpserver/client_streamable_http.go](../../../internal/mcpserver/client_streamable_http.go),
-  [internal/mcpserver/client_sse.go](../../../internal/mcpserver/client_sse.go),
-  [internal/mcpserver/client_stdio.go](../../../internal/mcpserver/client_stdio.go),
-  [internal/mcpserver/client_dynamic_auth.go](../../../internal/mcpserver/client_dynamic_auth.go),
-  [internal/agent/test_mcp_server.go](../../../internal/agent/test_mcp_server.go),
-  [internal/cli/errors.go](../../../internal/cli/errors.go),
-  [internal/admin/templates.go](../../../internal/admin/templates.go),
-  [cmd/serve.go](../../../cmd/serve.go),
-  [internal/testing/muster_manager.go](../../../internal/testing/muster_manager.go),
-  [internal/testing/scenarios/](../../../internal/testing).
+- muster code paths cited in this document:
+  [pkg/logging/logging.go](https://github.com/giantswarm/muster/blob/main/pkg/logging/logging.go),
+  [internal/aggregator/logging.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/logging.go),
+  [internal/aggregator/server.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/server.go),
+  [internal/aggregator/capability_store.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/capability_store.go),
+  [internal/aggregator/registry.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/registry.go),
+  [internal/mcpserver/client_interface.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_interface.go),
+  [internal/mcpserver/client_streamable_http.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_streamable_http.go),
+  [internal/mcpserver/client_sse.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_sse.go),
+  [internal/mcpserver/client_stdio.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_stdio.go),
+  [internal/mcpserver/client_dynamic_auth.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_dynamic_auth.go),
+  [internal/agent/test_mcp_server.go](https://github.com/giantswarm/muster/blob/main/internal/agent/test_mcp_server.go),
+  [internal/cli/errors.go](https://github.com/giantswarm/muster/blob/main/internal/cli/errors.go),
+  [internal/admin/templates.go](https://github.com/giantswarm/muster/blob/main/internal/admin/templates.go),
+  [cmd/serve.go](https://github.com/giantswarm/muster/blob/main/cmd/serve.go),
+  [internal/testing/muster_manager.go](https://github.com/giantswarm/muster/blob/main/internal/testing/muster_manager.go),
+  [internal/testing/scenarios/](https://github.com/giantswarm/muster/blob/main/internal/testing).

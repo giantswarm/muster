@@ -70,7 +70,7 @@ steps:
       name: "monitoring-service"
 ```
 
-## Integration with Muster Ecosystem
+## Integration with muster Ecosystem
 
 ### **Service Management Integration**
 Workflows orchestrate services:

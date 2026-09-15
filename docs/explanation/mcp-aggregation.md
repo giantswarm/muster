@@ -1,10 +1,10 @@
 # MCP Aggregation
 
-Deep dive into how Muster aggregates and unifies tools from multiple MCP servers.
+Deep dive into how muster aggregates and unifies tools from multiple MCP servers.
 
 ## Overview
 
-The Model Context Protocol (MCP) aggregation is one of Muster's core capabilities. It provides a unified interface for AI agents to access tools from multiple MCP servers without needing to know about the underlying complexity of managing multiple connections, tool conflicts, or server lifecycles.
+The Model Context Protocol (MCP) aggregation is one of muster's core capabilities. It provides a unified interface for AI agents to access tools from multiple MCP servers without needing to know about the underlying complexity of managing multiple connections, tool conflicts, or server lifecycles.
 
 ## The Aggregation Challenge
 
@@ -37,16 +37,16 @@ graph TB
 - **Authentication**: Agent must manage credentials for each server
 - **Protocol Variations**: Different servers might implement MCP protocol differently
 
-### With Muster Aggregation
+### With muster Aggregation
 
-Muster solves these problems by providing a single aggregation layer:
+muster solves these problems by providing a single aggregation layer:
 
 ```mermaid
 graph TB
     Agent[AI Agent]
 
-    Agent --> MusterAgent[Muster Agent<br/>Meta-Tools]
-    MusterAgent --> Aggregator[Muster Aggregator<br/>Unified Tool Interface]
+    Agent --> MusterAgent[muster agent<br/>Meta-Tools]
+    MusterAgent --> Aggregator[muster Aggregator<br/>Unified Tool Interface]
 
     Aggregator --> K8s[Kubernetes MCP Server]
     Aggregator --> Prom[Prometheus MCP Server]
@@ -56,21 +56,21 @@ graph TB
 ```
 
 **Benefits:**
-- **Single Connection**: Agent connects only to Muster
+- **Single Connection**: Agent connects only to muster
 - **Unified Discovery**: `list_tools` or `filter_tools` reveal all available tools
 - **Conflict Resolution**: Automatic tool name prefixing prevents conflicts
-- **Lifecycle Management**: Muster handles all server management and tools get updated automatically (without restart in eg Cursor)
+- **Lifecycle Management**: muster handles all server management and tools get updated automatically (without restart in eg Cursor)
 - **Protocol Normalization**: Consistent MCP interface regardless of server implementation
 
 ## Aggregation Architecture
 
 ### Two-Layer Design
 
-Muster implements a sophisticated two-layer aggregation architecture:
+muster implements a sophisticated two-layer aggregation architecture:
 
 #### Layer 1: Agent Interface (Meta-Tools)
 
-The agent layer provides 11 meta-tools that AI agents use to interact with the aggregation system:
+The server exposes 13 meta-tools that AI agents use to interact with the aggregation system:
 
 | Meta-Tool | Purpose | Example |
 |-----------|---------|---------|
@@ -108,7 +108,7 @@ type AggregatedTool struct {
 
 #### Automatic Prefixing
 
-Muster automatically resolves tool name conflicts by prefixing tools with their server name and a muster prefix (default: 'x_'):
+muster automatically resolves tool name conflicts by prefixing tools with their server name and a muster prefix (default: 'x_'):
 
 ```yaml
 # Original tools from different servers
@@ -196,7 +196,7 @@ When an AI agent executes a tool through the aggregation layer:
 ```mermaid
 sequenceDiagram
     participant Agent as AI Agent
-    participant MA as Muster Agent
+    participant MA as muster agent
     participant Agg as Aggregator
     participant TS as Target Server
 
@@ -334,7 +334,7 @@ muster agent --repl
 - **Focused Responsibility**: Each MCP server should have a clear, focused purpose
 - **Consistent Naming**: Use consistent tool naming patterns within servers
 - **Error Handling**: Provide clear, actionable error messages
-- **JSON Output**: Make sure your MCP server responds with JSON. Not only the MCP JSON-RPC responds but also the payload should be JSON to use all the features of Muster.
+- **JSON Output**: Make sure your MCP server responds with JSON. Not only the MCP JSON-RPC responds but also the payload should be JSON to use all the features of muster.
 
 ### Tool Naming
 
@@ -355,4 +355,4 @@ muster agent --repl
 - [System Architecture](architecture.md) - Overall system design
 - [MCP Server Management](../how-to/mcp-server-management.md) - Practical MCP server management
 - [Core MCP Tools Reference](../reference/mcp-tools.md) - Complete tool documentation
-- [AI Agent Integration](../getting-started/ai-agent-setup.md) - Setting up AI agents
+- [AI Agent Integration](../getting-started/quick-start.md) - Setting up AI agents

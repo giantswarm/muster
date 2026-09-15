@@ -1,0 +1,4 @@
+# Documentation site (docs/ -> https://giantswarm.github.io/muster/).
+# Used by `make docs-build`, `make docs-serve` and the docs workflows.
+mkdocs==1.6.1
+mkdocs-material==9.7.7

@@ -1,10 +1,10 @@
-# Muster Core MCP Tools Reference
+# MCP tools reference
 
-Reference guide for AI agents and MCP clients working with Muster's tools. This document covers the meta-tools interface and the built-in tools that Muster provides for managing platform resources.
+Reference guide for AI agents and MCP clients working with muster's tools. This document covers the meta-tools interface and the built-in tools that muster provides for managing platform resources.
 
 ## Meta-Tools (Primary Interface)
 
-**All tool access goes through these meta-tools.** MCP clients see only these 11 meta-tools when they connect to Muster. All other tools are accessed via `call_tool`.
+**All tool access goes through these meta-tools.** MCP clients see only these 13 meta-tools when they connect to muster. All other tools are accessed via `call_tool`.
 
 ### Tool Discovery
 
@@ -13,7 +13,7 @@ Reference guide for AI agents and MCP clients working with Muster's tools. This 
 | `list_tools` | List one bounded page of the session's tools (summarised; 50 per page by default) | `{"limit": 50, "offset": 0}` |
 | `describe_tool` | Get detailed schema for a specific tool, and the `call_tool` call that invokes it | `{"name": "tool_name"}` |
 | `filter_tools` | Discover tools cheaply (ranked, faceted, paginated) | `{"pattern": "...", "query": "...", "labels": {...}, "limit": 5}` |
-| `list_core_tools` | List only Muster core tools | `{}` |
+| `list_core_tools` | List only muster core tools | `{}` |
 
 #### `list_tools` — the paged catalogue
 
@@ -32,7 +32,7 @@ behind `describe_tool`.
 The response carries `total` (tools in the caller's catalogue — the session's tools narrowed by
 the request's [toolset](toolsets.md)), `truncated` (more tools exist beyond this page: fetch
 them with `offset` + `limit`), `filtered_count` (entries in this page), `filters` (the `limit`
-and `offset` applied), `toolset` (the request's `X-Muster-Toolset` selectors when it declared
+and `offset` applied), `toolset` (the request's `X-muster-Toolset` selectors when it declared
 one) and `servers_requiring_auth` (the servers a `core_auth_login` would unlock; neither paged
 nor narrowed by a toolset). A client that wants every tool — the `muster`
 CLI and REPL listings do — pages until `truncated` is `false`, or asks for a large `limit`.
@@ -58,7 +58,7 @@ Use `list_tools` for a bounded look at what is there; use `filter_tools` to *fin
 
 `describe_tool` returns one tool's full `description` and `inputSchema` together with its
 `server`, `kind` and `annotations`, and an `invocation` line naming the call that runs it.
-Every tool it can describe lives **inside** Muster, where an MCP client sees only the
+Every tool it can describe lives **inside** muster, where an MCP client sees only the
 meta-tools: issuing an aggregated tool's name as a tool call fails. Such a tool is reached
 through `call_tool`, and only through `call_tool`.
 
@@ -88,12 +88,12 @@ through `call_tool`, and only through `call_tool`.
 | `include_schema` | bool | `false` | Return full descriptions **and** input schemas instead of one-line summaries. |
 | `limit` | number | `5` | Max tools per page. |
 | `offset` | number | `0` | Tools to skip before this page. |
-| `toolset` | string[] | — | Inline toolset selectors (`preset:<name>`, `server:<name>`, `workflow:<name>`, `tool:<name>`, at most 32) to resolve against the caller's catalogue. The response adds `toolset` (echo of the argument; without the argument, of the request's `X-Muster-Toolset`, so a scoped caller can learn what bounds it), `toolset_unmatched` (selectors that selected nothing for the caller) and `presets` (with the argument or `include_presets`). With `X-Muster-Toolset` also on the request, the argument resolves within the header's toolset and never widens it. See [Toolsets](toolsets.md). |
+| `toolset` | string[] | — | Inline toolset selectors (`preset:<name>`, `server:<name>`, `workflow:<name>`, `tool:<name>`, at most 32) to resolve against the caller's catalogue. The response adds `toolset` (echo of the argument; without the argument, of the request's `X-muster-Toolset`, so a scoped caller can learn what bounds it), `toolset_unmatched` (selectors that selected nothing for the caller) and `presets` (with the argument or `include_presets`). With `X-muster-Toolset` also on the request, the argument resolves within the header's toolset and never widens it. See [Toolsets](toolsets.md). |
 | `include_presets` | bool | `false` | Add the known toolset presets (`name`, `description`, `built_in`) to the response. |
 
 The response carries `total` (matches across the caller's catalogue), `truncated` (more matches exist beyond this page), and per-tool a one-line `summary` (plus `score` when ranked and `labels` when present), the owning `server` (omitted for workflows and core tools), the `kind` (`tool` | `workflow` | `core`) and the tool's `annotations` (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint` as the server declared them; for a workflow the derived `readOnlyHint` when every step tool is read-only; omitted when none). Get the authoritative full schema of a chosen tool with `describe_tool` before executing it — it carries the same `server`, `kind` and `annotations`.
 
-When the request declares a toolset (`X-Muster-Toolset` header), every discovery meta-tool reads the catalogue intersected with it, `call_tool` refuses anything outside it (`tool "<name>" is outside the toolset [<selectors>]`), and an invalid toolset (empty, unknown preset, reserved `toolset:`, inline `label:`, more than 32 selectors, malformed) is an error result on every meta-tool call. Without the header nothing changes.
+When the request declares a toolset (`X-muster-Toolset` header), every discovery meta-tool reads the catalogue intersected with it, `call_tool` refuses anything outside it (`tool "<name>" is outside the toolset [<selectors>]`), and an invalid toolset (empty, unknown preset, reserved `toolset:`, inline `label:`, more than 32 selectors, malformed) is an error result on every meta-tool call. Without the header nothing changes.
 
 ```bash
 # Rank workflows by intent instead of guessing a pattern
@@ -110,7 +110,7 @@ filter_tools(pattern="*workflow*", limit=25, offset=25)
 
 | Meta-Tool | Description | Arguments |
 |-----------|-------------|-----------|
-| `call_tool` | Execute any tool by name. With `X-Muster-Toolset` on the request, only tools inside the toolset can be called; others are refused naming the toolset (see [Toolsets](toolsets.md)) | `{"name": "tool_name", "arguments": {...}}` |
+| `call_tool` | Execute any tool by name. With `X-muster-Toolset` on the request, only tools inside the toolset can be called; others are refused naming the toolset (see [Toolsets](toolsets.md)) | `{"name": "tool_name", "arguments": {...}}` |
 
 **Example:**
 ```json
@@ -143,7 +143,7 @@ filter_tools(pattern="*workflow*", limit=25, offset=25)
 
 ## Core Tools Overview
 
-Muster provides core built-in tools organized into functional categories. These are accessed via `call_tool`:
+muster provides core built-in tools organized into functional categories. These are accessed via `call_tool`:
 
 - **[Configuration Tools](#configuration-tools)** - System configuration management
 - **[MCP Server Tools](#mcp-server-tools)** - MCP server lifecycle management
@@ -184,7 +184,7 @@ Workflow execution tools (`workflow_<name>`) declare nothing themselves; their `
 
 ### Additional Tool Types
 
-Beyond the core tools, Muster also provides access to:
+Beyond the core tools, muster also provides access to:
 
 - **[Dynamic Workflow Execution Tools](#dynamic-workflow-execution-tools)** - `workflow_<name>` tools generated from your workflow definitions
 - **[External Tools](#external-tools)** - Tools provided by your configured MCP servers (varies by installation)
@@ -223,10 +223,10 @@ call_tool(name="workflow_<your-workflow>", arguments={...})
 
 ## Configuration Tools
 
-Manage Muster system configuration and aggregator settings. These tools allow you to read, modify, and persist configuration changes.
+Manage muster system configuration and aggregator settings. These tools allow you to read, modify, and persist configuration changes.
 
 ### `core_config_get`
-Get the complete current Muster system configuration including aggregator, services, and other settings.
+Get the complete current muster system configuration including aggregator, services, and other settings.
 
 **Arguments:** None
 
@@ -335,7 +335,7 @@ Update aggregator configuration settings.
   - `Host` (string, optional) - Aggregator bind host (default: "localhost")
   - `Transport` (string, optional) - Transport type ("streamable-http", "sse", "stdio")
   - `Enabled` (boolean, optional) - Whether aggregator is enabled
-  - `MusterPrefix` (string, optional) - Prefix for Muster core tools
+  - `MusterPrefix` (string, optional) - Prefix for muster core tools
 
 **Returns:** Updated aggregator configuration
 
@@ -368,7 +368,7 @@ Update aggregator configuration settings.
 
 Manage MCP server definitions and lifecycle. These tools control the external MCP servers that provide additional capabilities like Kubernetes, Prometheus, or custom tooling.
 
-> **Note**: MCP servers are user-defined and not part of Muster's core functionality. They are external processes that provide specialized tools and capabilities.
+> **Note**: MCP servers are user-defined and not part of muster's core functionality. They are external processes that provide specialized tools and capabilities.
 
 ### `core_mcpserver_list`
 List all configured MCP servers with their definitions and metadata.
@@ -627,7 +627,7 @@ selection.
 Manage the lifecycle of static services. The aggregator and MCPServer
 service wrappers are the only managed types.
 
-> **Service Types**: Muster manages two types of services:
+> **Service Types**: muster manages two types of services:
 > - **Aggregator**: Core tool aggregation service
 > - **MCPServer**: External MCP server processes
 
@@ -1132,14 +1132,14 @@ Get detailed information about a specific workflow execution.
 
 ## Dynamic Workflow Execution Tools
 
-**Important:** For each workflow definition you create, Muster automatically generates a corresponding execution tool named `workflow_<workflow-name>`. These tools accept the workflow's defined arguments and execute the workflow.
+**Important:** For each workflow definition you create, muster automatically generates a corresponding execution tool named `workflow_<workflow-name>`. These tools accept the workflow's defined arguments and execute the workflow.
 
-> **Note**: Workflow execution tools depend on your workflow definitions and are **not built into Muster**. Different Muster installations will have different workflow execution tools based on their configured workflows.
+> **Note**: Workflow execution tools depend on your workflow definitions and are **not built into muster**. Different muster installations will have different workflow execution tools based on their configured workflows.
 
 ### How Workflow Execution Tools Work
 
 1. **Workflow Definition**: You create workflows using `core_workflow_create` or by placing YAML files in `.muster/workflows/`
-2. **Tool Generation**: Muster automatically creates a corresponding `workflow_<name>` tool
+2. **Tool Generation**: muster automatically creates a corresponding `workflow_<name>` tool
 3. **Tool Discovery**: The workflow tool appears in `list_tools()` output
 4. **Tool Execution**: Execute via `call_tool(name="workflow_<name>", arguments={...})`
 
@@ -1236,9 +1236,3 @@ describe_tool(name="x_kubernetes_get_pods")
 ```
 
 ---
-
-## Migration Note
-
-> **For users familiar with previous Muster versions:** The tool access model has changed. Previously, tools like `core_service_list` could be called directly. Now, **all tool calls must go through the `call_tool` meta-tool**. The server exposes only meta-tools; actual tools are accessed via `call_tool(name="...", arguments={...})`.
->
-> See the [CHANGELOG](../../CHANGELOG.md) for migration details and [ADR-010](../explanation/decisions/010-server-side-meta-tools.md) for the architectural rationale

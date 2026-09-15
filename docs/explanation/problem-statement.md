@@ -1,108 +1,60 @@
-# The Platform Engineer's Dilemma
+# The problem muster solves
 
-As a platform engineer, you interact with countless services: Kubernetes, Prometheus, Grafana, Flux, ArgoCD, cloud providers, and custom tooling. While tools like Terraform and Kubernetes operators provide unified orchestration interfaces, **debugging and monitoring** still requires jumping between different tools and contexts.
+Platform engineers work with many systems: Kubernetes, Prometheus, Grafana, Flux, GitHub, cloud
+APIs and the organisation's own tools. MCP servers exist for most of them, and an AI agent with
+those servers attached can operate across all of them in one conversation. Attaching them
+directly does not scale past a handful of servers.
 
-**The MCP Revolution**: LLM agents (in VSCode, Cursor, etc.) + MCP servers should solve this by giving agents direct access to your tools. There are already many excellent MCP servers available (Kubernetes, Prometheus, Grafana, Flux, etc.).
+## Tool definitions crowd out the work
 
-**But there's a fundamental problem at scale**:
+An MCP client loads the definition of every tool of every attached server into the model's
+context before the first question is asked. A single server contributes ten to fifty tools;
+a platform team's set of servers contributes hundreds, and a fleet of clusters served by one
+server each multiplies that again. The definitions alone can take more of the context window
+than the task, on every turn, and the model picks tools less reliably the more it has to choose
+from.
 
-## The Context Pollution Problem
+muster's answer is a discovery layer. A client sees thirteen meta-tools. `filter_tools` ranks
+the catalogue against a query and returns a short, summarised page; `describe_tool` returns the
+full schema of one tool; `call_tool` runs it. The catalogue can be hundreds of tools wide and
+still cost a few hundred tokens per turn. A [toolset](../reference/toolsets.md) narrows it
+further for a given agent: read-only tools, one server, one set of workflows.
 
-When you add multiple MCP servers to your agent, you face exponential complexity:
+## Every agent is its own integration
 
-### **Tool Explosion**
-- **Single MCP server**: 10-50 tools
-- **Multiple servers**: 200+ tools (overwhelming context)
-- **Real example**: This muster instance aggregates:
-  - 36 core built-in tools (across 5 categories)
-  - 8 dynamic workflow tools
-  - 100+ external tools from 8 MCP servers
-  - **Total: 140+ tools available**
+Without an aggregator, each client is configured with each server, each with its own
+credentials, and every person repeats that setup. A remote server that requires login is logged
+in to from every client separately. Nothing records who called what.
 
-### **Discovery Chaos**
-Without intelligent discovery, agents struggle with:
-```bash
-# Agent sees all tools at once - overwhelming
-agent: "Help me debug a failing pod"
-→ Receives 140+ tool options including unrelated tools like x_grafana_create_dashboard
+muster is one endpoint. Servers are registered once, as files or as Kubernetes resources, and
+every client that connects gets the same catalogue. A person logs in once, to muster; muster
+forwards that identity to the servers that accept it and handles the browser login for the
+ones that run their own OAuth. Every tool call is made under the person's identity and appears
+in muster's traces, metrics and logs.
 
-# No context about what's actually needed
-agent: "I need monitoring data"
-→ Doesn't know x_prometheus_query requires port-forwarding setup first
+## Procedures are rediscovered every time
 
-# Manual dependency management
-agent: "Connect to Prometheus"
-→ Must manually figure out: login → port-forward → configure → query
-```
+Operational tasks are sequences: find the pods, read their logs, query the metric, compare.
+Left to an agent, the sequence is rediscovered on every run, differently each time, at full
+token cost.
 
-## The Coordination Problem
+A muster workflow turns the sequence into one tool with declared arguments, templated steps,
+conditions, loops and a durable execution record. The agent calls `workflow_<name>`; the steps
+run the same way every time and the result is one structured answer.
 
-**Turning servers on/off manually** creates operational overhead:
-- **Resource waste**: All MCP servers running even when unused
-- **Context pollution**: All tools visible even when irrelevant
-- **Dependency confusion**: No automatic handling of prerequisites
-- **State management**: No coordination between different servers
+## Servers need running
 
-### **Real-World Example: Monitoring Debugging**
-Traditional approach requires manual coordination:
-```bash
-1. Start Kubernetes MCP server
-2. Start Prometheus MCP server
-3. Manually: x_kubernetes_login(cluster="my-cluster")
-4. Manually: x_kubernetes_port_forward(service="prometheus", port=9090)
-5. Manually: x_prometheus_query(query="up", endpoint="localhost:9090")
-6. Remember to clean up port-forwards
-7. Stop unused MCP servers
-```
+MCP servers fail, restart, move and change their tool lists. A client with a direct connection
+notices when a call fails.
 
-## How Muster Solves These Problems
+muster owns the connections: it starts local servers, connects to remote ones, probes them,
+reconnects with backoff, follows changes to their tool lists and reports all of it as status,
+conditions and events on the `MCPServer` resource. Clients see a catalogue that reflects what is
+reachable now.
 
-### **1. Intelligent Tool Discovery**
-Instead of overwhelming agents with 140+ tools, Muster provides smart discovery:
+## What this adds up to
 
-```bash
-# Context-aware discovery
-agent: "What tools are available for debugging?"
-→ Shows relevant tool categories, not all 140 tools
-
-# Progressive discovery
-agent: "I need Kubernetes tools"
-→ core_service_list (see what's running)
-→ core_workflow_list (see available workflows)
-→ Only then shows specific x_kubernetes_* tools
-```
-
-### **2. Automated Coordination**
-Complex multi-step operations become single commands:
-
-```bash
-# What used to require 8 manual steps:
-agent: "Connect to monitoring in the staging cluster in the eu-west-1 region"
-→ workflow_connect-monitoring(region="eu-west-1", cluster="staging")
-
-# Automatically handles:
-# ✓ Authentication (cluster login)
-# ✓ Port forwarding setup
-# ✓ Service health checks
-# ✓ Cleanup on completion
-```
-
-### **3. Smart Context Management**
-- **Load tools on demand**: Only activate relevant MCP servers
-- **Category-based organization**: Group tools by function (config, services, workflows)
-- **Progressive disclosure**: Start with high-level operations, drill down as needed
-- **Automatic cleanup**: Clean up resources when operations complete
-
-## The Result: Platform Operations as AI-Native Commands
-
-Instead of managing 140+ individual tools, platform engineers work with high-level, AI-native operations:
-
-```bash
-# Single command replaces complex manual workflows
-workflow_check-cilium-health(cluster="my-cluster")
-
-# Intelligent tool discovery
-"I need to debug networking" → Shows relevant workflow and service options
-```
-
-Muster transforms platform complexity into simple, discoverable, self-managing operations that AI agents can execute reliably and efficiently.
+One authenticated endpoint that presents many MCP servers as one catalogue, sized for a context
+window, scoped per request, called under the person's identity, and operated like any other
+platform service. [Architecture](architecture.md) describes how the pieces fit;
+[MCP aggregation](mcp-aggregation.md) how the catalogue is built.

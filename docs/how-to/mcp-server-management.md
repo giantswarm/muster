@@ -4,7 +4,7 @@ This guide covers how to create, configure, and manage MCP (Model Context Protoc
 
 ## Overview
 
-MCP servers provide structured access to tools and resources for AI assistants. Muster supports three types of MCP servers:
+MCP servers provide structured access to tools and resources for AI assistants. muster supports three types of MCP servers:
 
 - **Stdio servers**: Execute as local processes with configurable command lines
 - **Streamable HTTP servers**: Connect to external MCP servers via HTTP
@@ -12,11 +12,11 @@ MCP servers provide structured access to tools and resources for AI assistants. 
 
 ### Goal
 
-Add a new MCP server to extend Muster's tool capabilities.
+Add a new MCP server to extend muster's tool capabilities.
 
 ### Prerequisites
 
-- Muster control plane running
+- muster control plane running
 - MCP server binary available
 - Understanding of the tool's requirements
 
@@ -81,7 +81,7 @@ Control when MCP servers start automatically.
 
 ### Steps
 
-1. **Enable auto-start** (start with Muster)
+1. **Enable auto-start** (start with muster)
 
    ```yaml
    apiVersion: muster.giantswarm.io/v1alpha1
@@ -171,7 +171,7 @@ Set up monitoring and health checks for MCP servers.
 
 4. **Configure alerting** (if monitoring system available)
 
-   Muster exports logs, traces, and metrics via OpenTelemetry (OTLP). Point the
+   muster exports logs, traces, and metrics via OpenTelemetry (OTLP). Point the
    standard `OTEL_EXPORTER_OTLP_*` environment variables at your collector and
    build alerts there; there is no `muster metrics` command.
 
@@ -239,16 +239,16 @@ spec:
 
 ## SSO Authentication
 
-Muster supports Single Sign-On (SSO) for MCP servers, allowing users to authenticate once and access multiple servers without separate authentication flows.
+muster supports Single Sign-On (SSO) for MCP servers, allowing users to authenticate once and access multiple servers without separate authentication flows.
 
 ### SSO Mechanisms
 
-Muster supports two SSO mechanisms:
+muster supports two SSO mechanisms:
 
 | Mechanism | What You Do | What Happens | Configuration |
 |-----------|-------------|--------------|---------------|
-| **Token Forwarding** | Authenticate once to muster | Muster forwards its ID token to downstream servers | `auth.forwardToken: true` |
-| **Token Exchange** | Authenticate once to muster | Muster exchanges its token for one valid on the remote IdP | `auth.tokenExchange` config |
+| **Token Forwarding** | Authenticate once to muster | muster forwards its ID token to downstream servers | `auth.forwardToken: true` |
+| **Token Exchange** | Authenticate once to muster | muster exchanges its token for one valid on the remote IdP | `auth.tokenExchange` config |
 
 ### Token Forwarding (Recommended for Trusted Servers)
 
@@ -273,7 +273,7 @@ spec:
 
 **How it works:**
 1. User runs `muster auth login` to authenticate to muster
-2. Muster requests tokens with all `requiredAudiences` from the IdP via cross-client scopes
+2. muster requests tokens with all `requiredAudiences` from the IdP via cross-client scopes
 3. On first MCP request, muster proactively connects to all SSO-enabled servers using the multi-audience token
 4. User can immediately access SSO servers without additional authentication
 5. The CLI shows the SSO type for each server: `mcp-kubernetes  Connected [SSO: Forwarded]`
@@ -313,7 +313,7 @@ spec:
 1. User authenticates to muster
 2. When accessing the remote server, muster exchanges its token at the remote IdP
 3. Remote IdP validates the token and issues a new one valid for that cluster
-4. Muster uses the exchanged token for downstream requests
+4. muster uses the exchanged token for downstream requests
 
 ### Checking SSO Status
 
@@ -322,7 +322,7 @@ Use `muster auth status` to see which servers are using SSO:
 ```bash
 $ muster auth status
 
-Muster: authenticated
+muster: authenticated
   Endpoint: https://muster.example.com
   Expires:  in 23 hours
 
@@ -349,7 +349,7 @@ This is not SSO. The signature carries muster's own machine identity, not the
 identity of the user who made the call, so all users of the server share one AWS
 identity. CloudTrail records muster, not a named engineer.
 
-`auth.sigv4` is only valid with `type: streamable-http`. Muster rejects it
+`auth.sigv4` is only valid with `type: streamable-http`. muster rejects it
 together with `forwardToken`, `tokenExchange` or `authorizationServer`, because
 none of them apply to a machine identity. These rules hold in both Kubernetes
 and filesystem mode.
@@ -385,7 +385,7 @@ spec:
 | `auth.sigv4.roleArn` | no | An IAM role that muster assumes before it signs. Leave it empty to sign as muster's own identity. |
 | `meta` | see below | Entries merged into `params._meta` of every request that carries `params`. It is not a SigV4 field: see [Request metadata](#request-metadata). |
 
-Muster gets its base credentials from the default AWS credential chain. In
+muster gets its base credentials from the default AWS credential chain. In
 Kubernetes that means IRSA: the pod identity webhook injects `AWS_ROLE_ARN` and
 `AWS_WEB_IDENTITY_TOKEN_FILE`, and the chain exchanges the projected token for
 credentials. Set `roleArn` to chain one more hop from there, which is how one
@@ -408,7 +408,7 @@ as "there are none".
 
 ## Request metadata
 
-`meta` is a remote-server field, not a SigV4 field. Muster merges its entries
+`meta` is a remote-server field, not a SigV4 field. muster merges its entries
 into the `params._meta` object of every outbound JSON-RPC request that carries
 `params`. Use it for a backend that reads call-scoped configuration from the MCP
 metadata field instead of from tool arguments.
@@ -718,10 +718,8 @@ Most MCP-compatible assistants can connect to muster's aggregator endpoint at `h
 ## Related Documentation
 
 - [Configuration Reference](../reference/configuration.md) - Detailed configuration options
-- [API Reference](../reference/api.md) - Programmatic server management
+- [HTTP endpoints](../reference/api.md) - The endpoints the aggregator serves
 - [CRD Reference](../reference/crds.md) - Kubernetes CRD schema
 - [Architecture](../explanation/architecture.md) - How MCP servers fit into muster
-- [MCP Server Reference](../reference/mcpserver.md)
-- [Server Configuration Schema](../reference/configuration.md#mcpserver)
+- [Server Configuration Schema](../reference/configuration.md#mcp-server-configuration)
 - [Troubleshooting Guide](troubleshooting.md)
-- [Getting Started with MCP Servers](../getting-started/mcp-server-setup.md)

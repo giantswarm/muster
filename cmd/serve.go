@@ -69,24 +69,26 @@ var serveEnableEvents bool
 var serveCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Start the muster aggregator server.",
-	Long: `Starts the muster aggregator server and manages MCP servers for AI assistant access.
+	Long: `Start the muster aggregator: the process that connects to the registered
+MCP servers, aggregates their tools and serves them over one MCP endpoint
+(http://localhost:8090/mcp by default).
 
-   - Starts configured MCP servers and services in the background.
-   - Prints a summary of actions and connection details to the console.
+  - Registered MCP servers are connected, or started when they are stdio
+    servers with autoStart, and reconnected when they fail.
+  - Every other muster command (list, get, create, call, start, stop, check,
+    events) talks to this endpoint.
+  - An MCP client connects to the endpoint directly, or through
+    'muster agent --mcp-server' when it needs a stdio transport.
 
-The aggregator server provides a unified MCP interface that other muster commands can connect to.
-Use 'muster service', 'muster workflow', etc. to interact with the running server.
+Configuration is read from ~/.config/muster unless --config-path names another
+directory. The directory holds config.yaml, mcpservers/ with one MCPServer
+definition per file and workflows/ with one Workflow per file. With
+'kubernetes: true' in config.yaml the definitions are read from the MCPServer
+and Workflow custom resources of the configured namespace instead.
 
-To connect to muster in your IDE, you can use the following command:
-muster agent --mcp-server
-
-Configuration:
-  muster loads configuration from ~/.config/muster by default.
-
-  Use --config-path to specify a custom directory containing all configuration files:
-  - config.yaml (main configuration)
-  - mcpservers/ (MCP server definitions)
-  - workflows/ (workflow definitions)`,
+OAuth protection of the endpoint and OAuth towards remote MCP servers are
+configured in config.yaml; the --oauth-* flags switch them on for a quick
+local trial. See https://giantswarm.github.io/muster/ for the reference.`,
 	Args: cobra.NoArgs, // No arguments required
 	RunE: runServe,
 }

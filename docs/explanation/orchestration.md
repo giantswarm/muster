@@ -1,16 +1,16 @@
 # Service Orchestration and Workflow Management
 
-Deep dive into how Muster orchestrates services and manages complex workflows for platform automation.
+Deep dive into how muster orchestrates services and manages complex workflows for platform automation.
 
 ## Overview
 
-Muster's orchestration capabilities provide sophisticated automation for complex platform operations. The system combines service lifecycle management with workflow execution to create powerful automation patterns that can handle everything from simple deployments to complex multi-stage platform operations.
+muster's orchestration capabilities provide sophisticated automation for complex platform operations. The system combines service lifecycle management with workflow execution to create powerful automation patterns that can handle everything from simple deployments to complex multi-stage platform operations.
 
 ## Orchestration Architecture
 
 ### Two-Tier Orchestration Model
 
-Muster implements a two-tier orchestration model that separates concerns between service management and workflow execution:
+muster implements a two-tier orchestration model that separates concerns between service management and workflow execution:
 
 ```mermaid
 graph TB
@@ -83,7 +83,7 @@ sequenceDiagram
 
 ### Dependency Resolution
 
-Muster automatically resolves and manages service dependencies:
+muster automatically resolves and manages service dependencies:
 
 ```go
 type DependencyResolver struct {
@@ -218,7 +218,7 @@ handler.
 
 ### Parameter Templating
 
-Muster renders parameters with Go's `text/template`. Workflow inputs are under
+muster renders parameters with Go's `text/template`. Workflow inputs are under
 `.input`, stored step results under `.results` (`.context` is an alias), and
 loop/user variables under `.vars`. Templates render with `missingkey=error`, so
 a reference to a value that does not exist fails the step.
@@ -264,7 +264,7 @@ args:
 
 ## Events and Observation
 
-Muster's reconcilers emit Kubernetes events for MCPServer and Workflow lifecycle
+muster's reconcilers emit Kubernetes events for MCPServer and Workflow lifecycle
 changes — creation, validation, tool availability, and failures. These events are
 **observational**: query them with `muster events` (see the
 [Events reference](../reference/events.md)) or watch them with any Kubernetes
@@ -278,7 +278,7 @@ those entry points — the Workflow spec itself has no `triggers` field.
 
 ## Monitoring and Observability
 
-Muster instruments itself with OpenTelemetry. Logs, traces, and metrics are
+muster instruments itself with OpenTelemetry. Logs, traces, and metrics are
 exported via OTLP when the standard `OTEL_EXPORTER_OTLP_*` environment variables
 point at a collector, and workflow executions are traced as spans (per workflow
 and per step). Consume that data in your observability backend — there is no
@@ -315,4 +315,4 @@ muster list workflow-execution
 - [System Architecture](architecture.md) - Overall system design
 - [MCP Aggregation](mcp-aggregation.md) - Tool aggregation details
 - [Workflow Creation](../how-to/workflow-creation.md) - Practical workflow creation
-- [Monitoring](../operations/monitoring.md) - Observability setup
+- [Monitor servers and workflows](../how-to/monitoring-setup.md) - Health checks, events and the CLI commands that inspect them

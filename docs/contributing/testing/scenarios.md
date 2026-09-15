@@ -704,7 +704,7 @@ cleanup:
 A step can send HTTP headers on its own requests to the muster instance with `headers:`. They
 apply to that step only — same client, same MCP session as the surrounding steps, including the
 `wait_for_state` polls — which is how a scenario proves per-request evaluation of a header such
-as `X-Muster-Toolset`: two steps on one session with different headers, then one without.
+as `X-muster-Toolset`: two steps on one session with different headers, then one without.
 
 ```yaml
 steps:
@@ -712,7 +712,7 @@ steps:
     tool: test_call_meta_tool
     args: { tool: "list_tools" }
     headers:
-      X-Muster-Toolset: "preset:read-only,workflow:incident-triage"
+      X-muster-Toolset: "preset:read-only,workflow:incident-triage"
     expected:
       success: true
       not_contains: ["x_kubernetes_delete"]
@@ -858,6 +858,6 @@ Test scenarios automatically run against isolated muster instances:
 
 ---
 
-For complete examples implementing these patterns, see the [examples/](examples/) directory.
+For complete examples implementing these patterns, see the [examples/](examples/workflow-arg-templating.yaml) directory.
 For framework documentation, see [README.md](README.md).
 For package details, see `internal/testing/doc.go`.

@@ -169,8 +169,8 @@ In MCP Server mode:
 
 The test framework uses YAML-based test scenario definitions and automatically
 creates clean, isolated muster serve instances for each test scenario.
-Each scenario can specify pre-configuration including MCP servers, workflows,
-capabilities, service classes, and service instances.
+Each scenario can specify pre-configuration including mock MCP servers,
+MCPServer definitions and workflows.
 
 Test results are reported with structured output suitable for CI/CD integration.`,
 	RunE: runTest,

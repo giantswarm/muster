@@ -28,11 +28,11 @@ merged on the Extensions Track with the `final` label and an
 For muster the relevant fact is that **the workflow engine already
 behaves like a Tasks server**: every `action_<workflow-name>` call
 goes through
-[internal/workflow/api_adapter.go](../../../internal/workflow/api_adapter.go)
+[internal/workflow/api_adapter.go](https://github.com/giantswarm/muster/blob/main/internal/workflow/api_adapter.go)
 and
-[internal/workflow/execution_tracker.go](../../../internal/workflow/execution_tracker.go),
+[internal/workflow/execution_tracker.go](https://github.com/giantswarm/muster/blob/main/internal/workflow/execution_tracker.go),
 which mint a UUID-shaped `execution_id`, persist progress through
-[internal/workflow/execution_storage.go](../../../internal/workflow/execution_storage.go),
+[internal/workflow/execution_storage.go](https://github.com/giantswarm/muster/blob/main/internal/workflow/execution_storage.go),
 and expose `workflow_execution_list` / `workflow_execution_get` for
 out-of-band lookup. SEP-2663 is the wire-level shape muster's
 homegrown execution lifecycle should map onto when it becomes the
@@ -389,9 +389,9 @@ semantics out of an `action_<workflow>` call (§3.1).
   [06-deprecations-roots-sampling-logging.md](06-deprecations-roots-sampling-logging.md)
   (sampling deprecation context).
 
-## 3. Muster impact
+## 3. muster impact
 
-Muster sits in the middle of two Tasks-relevant conversations:
+muster sits in the middle of two Tasks-relevant conversations:
 
 - **Inbound (muster as MCP server).** Hosts that connect to muster
   (the agent's MCP-server mode for AI assistants, Cursor, Claude
@@ -400,12 +400,12 @@ Muster sits in the middle of two Tasks-relevant conversations:
   semantics on long-running tools — and muster's workflow execution
   tools (`workflow_<workflow-name>` to inbound clients, named
   `action_<workflow-name>` internally per
-  [internal/aggregator/tool_factory.go](../../../internal/aggregator/tool_factory.go)
+  [internal/aggregator/tool_factory.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/tool_factory.go)
   lines 178–191) are the obvious candidates.
 - **Outbound (muster as MCP client of upstreams).** Upstream MCP
   servers that advertise the extension will start returning
   `CreateTaskResult` for some `tools/call`s muster forwards.
-  Muster's aggregator MUST be able to either (a) speak the lifecycle
+  muster's aggregator MUST be able to either (a) speak the lifecycle
   transparently (forwarding `tasks/get` etc. to the upstream and
   surfacing the final result to the inbound caller) or (b) declare
   to the upstream that it cannot accept tasks (omit the extension
@@ -413,11 +413,11 @@ Muster sits in the middle of two Tasks-relevant conversations:
 
 ### 3.1 Workflow engine as a Tasks server
 
-Muster's workflow engine already implements *almost exactly* the
+muster's workflow engine already implements *almost exactly* the
 Tasks lifecycle, just under a different naming.
 
 **Lifecycle parallels.** The status enum in
-[internal/api/types.go](../../../internal/api/types.go) lines 321–332
+[internal/api/types.go](https://github.com/giantswarm/muster/blob/main/internal/api/types.go) lines 321–332
 defines:
 
 - `WorkflowExecutionInProgress = "inprogress"` — direct counterpart to
@@ -434,23 +434,23 @@ the inbound caller).
 
 **Durable handle and storage.** SEP-2663's "durable creation" rule
 maps onto
-[internal/workflow/execution_tracker.go](../../../internal/workflow/execution_tracker.go)'s
+[internal/workflow/execution_tracker.go](https://github.com/giantswarm/muster/blob/main/internal/workflow/execution_tracker.go)'s
 `TrackExecution` (lines 54–109): every workflow execution gets a
 UUIDv4 `ExecutionID`, an initial record is stored via
 `ExecutionStorage.Store(ctx, execution)` *before* the workflow body
 runs (lines 75–79), and the final record is stored once the body
 returns. The storage is filesystem-backed by
-[internal/workflow/execution_storage.go](../../../internal/workflow/execution_storage.go)'s
+[internal/workflow/execution_storage.go](https://github.com/giantswarm/muster/blob/main/internal/workflow/execution_storage.go)'s
 `ExecutionStorageImpl`. The "by the time the response goes out, a
 `tasks/get` for this id MUST resolve" rule is — modulo renaming
 `ExecutionID` to `taskId` — already what the tracker does, because
 the initial `Store` happens synchronously before the executor returns.
 
-**Lookup endpoints.** Muster already exposes two of the three Tasks
+**Lookup endpoints.** muster already exposes two of the three Tasks
 protocol methods, just under different names:
 
 - `core_workflow_execution_get(execution_id, include_steps?, step_id?)`
-  ([internal/workflow/api_adapter.go](../../../internal/workflow/api_adapter.go)
+  ([internal/workflow/api_adapter.go](https://github.com/giantswarm/muster/blob/main/internal/workflow/api_adapter.go)
   lines 1005–1028 for the tool metadata, 1408–1496 for the handler) is
   the muster-internal equivalent of `tasks/get`. The shape differs
   (muster returns full step-by-step execution detail, SEP-2663 wants
@@ -465,7 +465,7 @@ protocol methods, just under different names:
 - There is **no** equivalent of `tasks/update` (mid-flight input)
   today, because workflow elicitation isn't wired through into
   workflows. Steps in
-  [internal/workflow/operations.go](../../../internal/workflow/operations.go)
+  [internal/workflow/operations.go](https://github.com/giantswarm/muster/blob/main/internal/workflow/operations.go)
   run tool calls; there is no `input_required` state on the workflow
   execution itself.
 - There is also **no** equivalent of `tasks/cancel`. Once a workflow
@@ -475,13 +475,13 @@ protocol methods, just under different names:
 **Action-tool routing.** The user-facing surface for executing a
 workflow is `workflow_<workflow-name>` on the aggregator, mapped from
 the internal `action_<workflow-name>` by
-[internal/aggregator/tool_factory.go](../../../internal/aggregator/tool_factory.go)
+[internal/aggregator/tool_factory.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/tool_factory.go)
 lines 178–191 (`mapWorkflowToolName`) and routed back in
 `callCoreToolDirectly`. Inside the workflow adapter,
-[internal/workflow/api_adapter.go](../../../internal/workflow/api_adapter.go)
+[internal/workflow/api_adapter.go](https://github.com/giantswarm/muster/blob/main/internal/workflow/api_adapter.go)
 lines 1066–1069 dispatch `action_<workflow-name>` to
 `ExecuteWorkflow(ctx, workflowName, args)`. `ExecuteWorkflow`
-([internal/workflow/api_adapter.go](../../../internal/workflow/api_adapter.go)
+([internal/workflow/api_adapter.go](https://github.com/giantswarm/muster/blob/main/internal/workflow/api_adapter.go)
 lines 69–191) wraps `executor.ExecuteWorkflow` in `TrackExecution` and
 returns a `CallToolResult` whose JSON content has been enhanced with
 `execution_id` (line 121 / `enhanceResultWithExecutionID` at lines
@@ -511,7 +511,7 @@ between two response shapes for `action_<workflow>` invocations:
 The server-directed character of SEP-2663 maps cleanly onto a
 **per-workflow opt-in** in the muster CRD: a new `taskBehavior` field
 on `WorkflowSpec` (or equivalent on
-[musterv1alpha1.WorkflowSpec](../../../pkg/apis/muster/v1alpha1))
+[musterv1alpha1.WorkflowSpec](https://github.com/giantswarm/muster/blob/main/pkg/apis/muster/v1alpha1))
 can declare whether `action_<this-workflow>` returns synchronously or
 as a task — without exposing that choice on the client side, which is
 exactly the server-directed model SEP-2663 wants.
@@ -537,7 +537,7 @@ three behaviors:
   counter to the SEP-2575 direction; option (a) preserves the
   "all routing info on the request" property and is probably the
   right call.
-- **Collapse to synchronous.** Muster polls `tasks/get` against the
+- **Collapse to synchronous.** muster polls `tasks/get` against the
   upstream itself and returns the final `CallToolResult` to the
   inbound caller, hiding the task lifecycle. Required when the
   inbound caller did *not* declare the
@@ -562,14 +562,14 @@ without it, the aggregator can't even tell whether an upstream is
 Tasks-capable.
 
 The outbound MCP clients in
-[internal/mcpserver/client_streamable_http.go](../../../internal/mcpserver/client_streamable_http.go),
-[internal/mcpserver/client_sse.go](../../../internal/mcpserver/client_sse.go),
-[internal/mcpserver/client_stdio.go](../../../internal/mcpserver/client_stdio.go),
+[internal/mcpserver/client_streamable_http.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_streamable_http.go),
+[internal/mcpserver/client_sse.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_sse.go),
+[internal/mcpserver/client_stdio.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_stdio.go),
 and
-[internal/mcpserver/client_dynamic_auth.go](../../../internal/mcpserver/client_dynamic_auth.go)
+[internal/mcpserver/client_dynamic_auth.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_dynamic_auth.go)
 will need new code paths to send `tasks/get` / `tasks/update` /
 `tasks/cancel` (with `Mcp-Name = taskId` per §1.2). The current
-[internal/mcpserver/client_interface.go](../../../internal/mcpserver/client_interface.go)
+[internal/mcpserver/client_interface.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_interface.go)
 surface (`CallTool`, `ListTools`, `ListResources`, etc.) does not have
 a Tasks-shaped method on it; SEP-2663 will likely require adding one
 once mcp-go grows the types.
@@ -578,9 +578,9 @@ once mcp-go grows the types.
 
 SEP-2663's `notifications/tasks` rides
 [SEP-2575's](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2575)
-`subscriptions/listen` channel. Muster's inbound transport currently
+`subscriptions/listen` channel. muster's inbound transport currently
 relies on long-lived SSE for change notifications via
-[internal/aggregator/notification_subscriber.go](../../../internal/aggregator/notification_subscriber.go);
+[internal/aggregator/notification_subscriber.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/notification_subscriber.go);
 in `2026-07-28`, that path is replaced wholesale by
 `subscriptions/listen` (see
 [01-stateless-protocol.md](01-stateless-protocol.md) §1.1). When
@@ -595,7 +595,7 @@ asked for them).
 Importantly, the SEP forbids `notifications/progress` and
 `notifications/message` on a task's notification stream. That maps
 onto muster having to *not* leak workflow step events
-([internal/workflow/api_adapter.go](../../../internal/workflow/api_adapter.go)
+([internal/workflow/api_adapter.go](https://github.com/giantswarm/muster/blob/main/internal/workflow/api_adapter.go)
 lines 1890–1937, `GenerateStepEvent`) as MCP `notifications/progress`
 for a Tasks-exposed workflow. Workflow step events stay in muster's
 internal event stream (Kubernetes events, etc.); they do not become
@@ -603,7 +603,7 @@ Tasks-protocol progress notifications.
 
 ### 3.4 Migration from any `2025-11-25` experimental usage
 
-Muster does **not** currently implement the experimental Tasks
+muster does **not** currently implement the experimental Tasks
 utility — neither inbound nor outbound. A grep for
 `tasks/list`, `tasks/cancel`, `tasks/result`, `taskId`, and
 `execution.taskSupport` finds no hits outside the
@@ -620,13 +620,13 @@ behind muster that *did* implement the experimental Tasks utility.
 Those servers will, post-`2026-07-28`, return either nothing
 task-shaped (most likely — the experimental capabilities will simply
 go unadvertised against muster's outbound clients) or `-32601 Method
-Not Found` if muster were to call `tasks/result` against them. Muster
+Not Found` if muster were to call `tasks/result` against them. muster
 never calls `tasks/result`, so the practical risk is nil.
 
 ### 3.5 Tooling impact on muster's BDD scenarios
 
 Workflow scenarios in
-[internal/testing/scenarios/](../../../internal/testing) currently
+[internal/testing/scenarios/](https://github.com/giantswarm/muster/blob/main/internal/testing) currently
 assert *synchronous* `CallToolResult` shapes from `workflow_<name>`
 invocations. Any scenario that exercises a long-running workflow (or
 that future scenarios add for Tasks-aware behaviour) will need to
@@ -653,15 +653,15 @@ are ordered so that earlier items unblock later ones.
    forwarding and identical to
    [02-extensions-first-class.md](02-extensions-first-class.md) §4
    item 2. The aggregator's
-   [Capabilities](../../../internal/aggregator/capability_store.go)
+   [Capabilities](https://github.com/giantswarm/muster/blob/main/internal/aggregator/capability_store.go)
    (lines 11–27) and the per-server view in
-   [internal/aggregator/registry.go](../../../internal/aggregator/registry.go)'s
+   [internal/aggregator/registry.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/registry.go)'s
    `refreshServerCapabilities` (line 1052) must retain the
    upstream's advertised `extensions` so the aggregator can detect
    the `io.modelcontextprotocol/tasks` claim at all.
 2. **Add a `taskBehavior` field to the workflow CRD.** Extend
    `musterv1alpha1.WorkflowSpec` (referenced from
-   [internal/workflow/api_adapter.go](../../../internal/workflow/api_adapter.go)
+   [internal/workflow/api_adapter.go](https://github.com/giantswarm/muster/blob/main/internal/workflow/api_adapter.go)
    lines 239–253) with an optional `taskBehavior` enum (`auto` /
    `always` / `never`) that controls whether the workflow's
    `action_<name>` tool returns synchronously or as a
@@ -671,7 +671,7 @@ are ordered so that earlier items unblock later ones.
    `api.WorkflowExecution.ExecutionID` is the muster-internal name
    that, on the inbound MCP-Tasks surface, should be exposed as
    `taskId`. The struct does not need renaming — `api.WorkflowExecution`
-   ([internal/api/types.go](../../../internal/api/types.go) lines
+   ([internal/api/types.go](https://github.com/giantswarm/muster/blob/main/internal/api/types.go) lines
    315 onward) stays as the muster-internal type; a new (thin) adapter
    from `api.WorkflowExecution` to `Task` / `DetailedTask` lives in
    either `internal/workflow/` or a new `internal/tasks/` package and
@@ -698,13 +698,13 @@ are ordered so that earlier items unblock later ones.
    aggregator-level RPCs. Implementation is straightforward for
    `tasks/get` against muster's own workflow store (delegating to
    `executionTracker.GetExecution` in
-   [internal/workflow/execution_tracker.go](../../../internal/workflow/execution_tracker.go),
+   [internal/workflow/execution_tracker.go](https://github.com/giantswarm/muster/blob/main/internal/workflow/execution_tracker.go),
    surfaced today as
    `workflow_execution_get` —
-   [internal/workflow/api_adapter.go](../../../internal/workflow/api_adapter.go)
+   [internal/workflow/api_adapter.go](https://github.com/giantswarm/muster/blob/main/internal/workflow/api_adapter.go)
    lines 1408–1496). `tasks/cancel` requires a new cancellation path
    on
-   [internal/workflow/executor.go](../../../internal/workflow/executor.go);
+   [internal/workflow/executor.go](https://github.com/giantswarm/muster/blob/main/internal/workflow/executor.go);
    `tasks/update` requires a workflow-level elicitation channel that
    doesn't yet exist (item 8 below).
 7. **Implement `Mcp-Name = taskId` routing on muster's inbound
@@ -716,7 +716,7 @@ are ordered so that earlier items unblock later ones.
    any L7 in front of muster pin task traffic to the muster instance
    holding the upstream connection.
 8. **Add a workflow-level elicitation channel.** Today
-   [internal/workflow/executor.go](../../../internal/workflow/executor.go)
+   [internal/workflow/executor.go](https://github.com/giantswarm/muster/blob/main/internal/workflow/executor.go)
    does not expose elicitation — a workflow step that needs
    mid-flight user input has no place to express that. SEP-2663
    `inputRequests` plus
@@ -728,19 +728,19 @@ are ordered so that earlier items unblock later ones.
    This is the single biggest piece of new code.
 9. **Extend `WorkflowExecutionStatus`.** Add `WorkflowExecutionInputRequired`
    and `WorkflowExecutionCancelled` to
-   [internal/api/types.go](../../../internal/api/types.go) lines
+   [internal/api/types.go](https://github.com/giantswarm/muster/blob/main/internal/api/types.go) lines
    321–332. The mapping in item 3 then has a 1:1 correspondence
    between muster execution status and SEP-2663 task status. Storage
    migrations are needed for any persisted executions written under
    the previous schema (see
-   [internal/workflow/execution_storage.go](../../../internal/workflow/execution_storage.go)).
+   [internal/workflow/execution_storage.go](https://github.com/giantswarm/muster/blob/main/internal/workflow/execution_storage.go)).
 10. **Forward Tasks calls to upstream MCP servers.** Add Tasks
     request shaping to the outbound clients
-    ([client_streamable_http.go](../../../internal/mcpserver/client_streamable_http.go),
-    [client_sse.go](../../../internal/mcpserver/client_sse.go),
-    [client_stdio.go](../../../internal/mcpserver/client_stdio.go),
-    [client_dynamic_auth.go](../../../internal/mcpserver/client_dynamic_auth.go),
-    [client_interface.go](../../../internal/mcpserver/client_interface.go))
+    ([client_streamable_http.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_streamable_http.go),
+    [client_sse.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_sse.go),
+    [client_stdio.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_stdio.go),
+    [client_dynamic_auth.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_dynamic_auth.go),
+    [client_interface.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_interface.go))
     and an upstream-taskId-to-server map in the aggregator. The
     "tag the `taskId` with an upstream prefix" route (§3.2) is the
     one that stays compatible with the stateless rework.
@@ -751,7 +751,7 @@ are ordered so that earlier items unblock later ones.
     `core_workflow_execution_list` remains usable for muster's own
     admin UI because it lives outside the MCP wire.
 12. **Conformance scenarios.** Add Tasks scenarios to
-    [internal/testing/scenarios/](../../../internal/testing) — at
+    [internal/testing/scenarios/](https://github.com/giantswarm/muster/blob/main/internal/testing) — at
     minimum: synchronous-baseline (no extension declared), opt-in
     happy path (`working → completed`), `input_required` round-trip
     via `tasks/update`, `tasks/cancel` cooperative cancel, and
@@ -767,9 +767,9 @@ are ordered so that earlier items unblock later ones.
 
 ## 5. Open questions
 
-- **`taskId` namespace vs `execution_id` namespace.** Muster's
+- **`taskId` namespace vs `execution_id` namespace.** muster's
   `execution_id` is a v4 UUID minted by
-  [uuid.New().String()](../../../internal/workflow/execution_tracker.go)
+  [uuid.New().String()](https://github.com/giantswarm/muster/blob/main/internal/workflow/execution_tracker.go)
   (line 56). SEP-2663 requires `taskId`s to be "generated with
   sufficient entropy that a third party cannot enumerate or guess
   them"; v4 UUIDs comfortably satisfy that. Still: should muster
@@ -778,10 +778,10 @@ are ordered so that earlier items unblock later ones.
   freedom to vary the format (for example, "v1-`<upstream>`-`<uuid>`"
   for forwarded tasks).
 - **TTL semantics.** SEP-2663's `ttlMs` is the duration *from
-  creation* after which the server may purge a task. Muster's
+  creation* after which the server may purge a task. muster's
   workflow executions are persisted indefinitely on the filesystem
   via
-  [internal/workflow/execution_storage.go](../../../internal/workflow/execution_storage.go)
+  [internal/workflow/execution_storage.go](https://github.com/giantswarm/muster/blob/main/internal/workflow/execution_storage.go)
   — there is no purge policy. Picking a `ttlMs` value means picking a
   purge policy that didn't exist before. `null` (unlimited) is the
   safe default; the question is whether muster admins want a TTL knob
@@ -801,7 +801,7 @@ are ordered so that earlier items unblock later ones.
   is theoretical and can be deferred; if yes, the design needs to
   decide where in the YAML/CRD step shape an elicitation belongs.
 - **Cancellation contract for workflows.** SEP-2663 is explicit that
-  `tasks/cancel` is cooperative. Muster's workflow executor today
+  `tasks/cancel` is cooperative. muster's workflow executor today
   doesn't have a cooperative-cancel signal threaded through tool
   calls. The minimal implementation is a `context.Cancel` on the
   per-execution context; the question is what that does to
@@ -845,22 +845,22 @@ are ordered so that earlier items unblock later ones.
 - [SEP-2243 — HTTP header standardisation (#2243)](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2243) — `Mcp-Method` / `Mcp-Name`; `Mcp-Name = taskId` routing rule
 - [SEP-2577 — Roots, Sampling, Logging deprecations (#2577)](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2577) — context for why client-hosted tasks (sampling, elicitation) drop out of the Tasks design
 - Cross-section context: [01-stateless-protocol.md](01-stateless-protocol.md), [02-extensions-first-class.md](02-extensions-first-class.md), [03-mcp-apps.md](03-mcp-apps.md), [06-deprecations-roots-sampling-logging.md](06-deprecations-roots-sampling-logging.md), [07-json-schema-2020-12.md](07-json-schema-2020-12.md), [08-protocol-evolution.md](08-protocol-evolution.md)
-- Muster code paths cited in this document:
-  [internal/workflow/api_adapter.go](../../../internal/workflow/api_adapter.go),
-  [internal/workflow/execution_tracker.go](../../../internal/workflow/execution_tracker.go),
-  [internal/workflow/execution_storage.go](../../../internal/workflow/execution_storage.go),
-  [internal/workflow/executor.go](../../../internal/workflow/executor.go),
-  [internal/workflow/operations.go](../../../internal/workflow/operations.go),
-  [internal/api/types.go](../../../internal/api/types.go),
-  [internal/api/workflow.go](../../../internal/api/workflow.go),
-  [internal/aggregator/tool_factory.go](../../../internal/aggregator/tool_factory.go),
-  [internal/aggregator/server.go](../../../internal/aggregator/server.go),
-  [internal/aggregator/registry.go](../../../internal/aggregator/registry.go),
-  [internal/aggregator/capability_store.go](../../../internal/aggregator/capability_store.go),
-  [internal/aggregator/notification_subscriber.go](../../../internal/aggregator/notification_subscriber.go),
-  [internal/mcpserver/client_streamable_http.go](../../../internal/mcpserver/client_streamable_http.go),
-  [internal/mcpserver/client_sse.go](../../../internal/mcpserver/client_sse.go),
-  [internal/mcpserver/client_stdio.go](../../../internal/mcpserver/client_stdio.go),
-  [internal/mcpserver/client_dynamic_auth.go](../../../internal/mcpserver/client_dynamic_auth.go),
-  [internal/mcpserver/client_interface.go](../../../internal/mcpserver/client_interface.go),
-  [internal/testing/scenarios/](../../../internal/testing).
+- muster code paths cited in this document:
+  [internal/workflow/api_adapter.go](https://github.com/giantswarm/muster/blob/main/internal/workflow/api_adapter.go),
+  [internal/workflow/execution_tracker.go](https://github.com/giantswarm/muster/blob/main/internal/workflow/execution_tracker.go),
+  [internal/workflow/execution_storage.go](https://github.com/giantswarm/muster/blob/main/internal/workflow/execution_storage.go),
+  [internal/workflow/executor.go](https://github.com/giantswarm/muster/blob/main/internal/workflow/executor.go),
+  [internal/workflow/operations.go](https://github.com/giantswarm/muster/blob/main/internal/workflow/operations.go),
+  [internal/api/types.go](https://github.com/giantswarm/muster/blob/main/internal/api/types.go),
+  [internal/api/workflow.go](https://github.com/giantswarm/muster/blob/main/internal/api/workflow.go),
+  [internal/aggregator/tool_factory.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/tool_factory.go),
+  [internal/aggregator/server.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/server.go),
+  [internal/aggregator/registry.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/registry.go),
+  [internal/aggregator/capability_store.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/capability_store.go),
+  [internal/aggregator/notification_subscriber.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/notification_subscriber.go),
+  [internal/mcpserver/client_streamable_http.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_streamable_http.go),
+  [internal/mcpserver/client_sse.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_sse.go),
+  [internal/mcpserver/client_stdio.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_stdio.go),
+  [internal/mcpserver/client_dynamic_auth.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_dynamic_auth.go),
+  [internal/mcpserver/client_interface.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_interface.go),
+  [internal/testing/scenarios/](https://github.com/giantswarm/muster/blob/main/internal/testing).

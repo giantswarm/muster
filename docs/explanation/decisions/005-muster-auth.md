@@ -1,18 +1,18 @@
-# 005. OAuth Protection for Muster Server
+# 005. OAuth protection for the muster server
 
 ## Context
 
-Muster is being deployed to a central Management Cluster to aggregate MCP servers from other clusters. This public exposure requires protecting the Muster Server itself with authentication.
+muster is being deployed to a central Management Cluster to aggregate MCP servers from other clusters. This public exposure requires protecting the muster server itself with authentication.
 
-Previously, in [004-oauth-proxy.md](004-oauth-proxy.md), we defined how Muster acts as an OAuth **Proxy** to handle authentication *for* remote MCP servers. Now, we must address how to authenticate users *to* the Muster Server itself.
+Previously, in [004-oauth-proxy.md](004-oauth-proxy.md), we defined how muster acts as an OAuth **Proxy** to handle authentication *for* remote MCP servers. Now, we must address how to authenticate users *to* the muster server itself.
 
 ## Decision
 
-We will implement OAuth 2.1 protection for the Muster Server using the `mcp-oauth` library, similar to `mcp-kubernetes`.
+We will implement OAuth 2.1 protection for the muster server using the `mcp-oauth` library, similar to `mcp-kubernetes`.
 
-### 1. Dual Role of Muster Server
+### 1. Dual Role of muster server
 
-Muster Server will play two distinct OAuth roles:
+muster server will play two distinct OAuth roles:
 
 1.  **OAuth Resource Server**: It protects its own endpoints (e.g., `/mcp`, `/workflows`). Users (via the Agent) must present a valid Access Token issued by the trusted IdP (eg via Dex, or Github, Google etc) to access these resources.
 2.  **OAuth Client (Proxy)**: As defined in [004](004-oauth-proxy.md), it acts as a client to obtain tokens for *downstream* remote MCP servers.
@@ -21,7 +21,7 @@ Muster Server will play two distinct OAuth roles:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                      Muster Server                          │
+│                      muster server                          │
 │                                                             │
 │  [ OAuth Middleware (Resource Server) ]                     │
 │       Validates Token from Agent                            │
@@ -44,7 +44,7 @@ Each component plays dual roles in the MCP protocol:
 
 ```
 ┌────────────────┐         ┌────────────────┐            ┌────────────────┐            ┌────────────────┐
-│     Cursor     │  stdio  │  Muster Agent  │  HTTP/SSE  │ Muster Server  │  HTTP/SSE  │   Remote MCP   │
+│     Cursor     │  stdio  │  muster agent  │  HTTP/SSE  │ muster server  │  HTTP/SSE  │   Remote MCP   │
 │                │ <-----> │                │ ---------> │                │ ---------> │                │
 │   MCP Host     │         │   MCP Server   │            │   MCP Server   │            │   MCP Server   │
 │   MCP Client   │         │   MCP Client   │            │   MCP Client   │            │                │
@@ -64,21 +64,21 @@ Each component plays dual roles in the MCP protocol:
 **Key points**:
 1. Cursor **starts** `muster agent` as a local stdio MCP server (subprocess)
 2. Cursor is an MCP Host and MCP Client; it communicates with the Agent via stdio
-3. Muster Agent is an MCP Server (for Cursor) AND an MCP Client (for Muster Server)
-4. Muster Server is an MCP Server (for Agent) AND an MCP Client (for Remote MCPs)
+3. muster agent is an MCP Server (for Cursor) AND an MCP Client (for muster server)
+4. muster server is an MCP Server (for Agent) AND an MCP Client (for Remote MCPs)
 5. The Agent proxies tool calls, resources, and prompts between Cursor and Server
 
 ### 4. Key Insight: Same Pattern as Downstream Auth (Lazy Initialization)
 
 **Critical Learning from ADR 004 Implementation**: Authentication happens during the MCP handshake (`initialize` request), not during a tool call. This is **exactly the same** situation for both:
-- **Agent -> Muster Server**: Agent (as MCP Client) gets 401 when connecting to protected Server
-- **Muster Server -> Remote MCP**: Server (as MCP Client) gets 401 when connecting to protected Remote
+- **Agent -> muster server**: Agent (as MCP Client) gets 401 when connecting to protected Server
+- **muster server -> Remote MCP**: Server (as MCP Client) gets 401 when connecting to protected Remote
 
 **The solution is the same**: Use lazy initialization with synthetic authentication tools.
 
-Since the Agent is an MCP Server (for Cursor), it can expose synthetic tools even when its upstream connection to Muster Server fails. This provides a consistent user experience where auth URLs always appear as tool results in Cursor.
+Since the Agent is an MCP Server (for Cursor), it can expose synthetic tools even when its upstream connection to muster server fails. This provides a consistent user experience where auth URLs always appear as tool results in Cursor.
 
-### 5. Authentication Flow (Agent -> Muster)
+### 5. Authentication Flow (Agent -> muster)
 
 1.  **Startup**: Cursor starts `muster agent --mcp-server --endpoint=<server-url>` as a stdio subprocess.
 2.  **Agent Connects to Server**: Agent (as MCP Client) attempts to establish connection to `muster server` (SSE/Streamable-HTTP).
@@ -107,15 +107,15 @@ Since the Agent is an MCP Server (for Cursor), it can expose synthetic tools eve
     *   Agent receives tools, resources, and prompts from Server.
     *   Agent replaces synthetic `authenticate_muster` tool with real tools (similar to `UpgradeToConnected()`).
     *   Agent sends `tools/list_changed` notification to Cursor.
-    *   User can now interact with Muster through Cursor.
+    *   User can now interact with muster through Cursor.
 
 ### 6. Consistency with Downstream Auth
 
-| Aspect | Agent -> Muster (this ADR) | Muster -> Remote (ADR 004) |
+| Aspect | Agent -> muster (this ADR) | muster -> Remote (ADR 004) |
 |--------|---------------------------|---------------------------|
 | **When 401 occurs** | Agent connecting to Server | Server connecting to Remote MCP |
-| **Who is the MCP Client?** | Agent | Muster Server |
-| **Who is the MCP Server (for user)?** | Agent (for Cursor) | Muster Server (for Agent/Cursor) |
+| **Who is the MCP Client?** | Agent | muster server |
+| **Who is the MCP Server (for user)?** | Agent (for Cursor) | muster server (for Agent/Cursor) |
 | **Synthetic tools?** | Yes - `authenticate_muster` | Yes - `authenticate_<server>` |
 | **Lazy init pattern** | Same: pending auth -> upgrade | `RegisterPendingAuth()` + `UpgradeToConnected()` |
 | **Token storage** | Agent-side (local filesystem) | Server-side (session store) |
@@ -126,17 +126,17 @@ Since the Agent is an MCP Server (for Cursor), it can expose synthetic tools eve
 Once the Agent is authenticated and connected (Step 8), the "OAuth Proxy" logic from [004](004-oauth-proxy.md) kicks in if a request is destined for a *remote* MCP server.
 
 *   **Scenario A: Same IdP (Token Forwarding)**
-    *   If Muster Server and Remote MCP Server share the same IdP and trust the same audiences/clients, Muster can forward the user's token directly using Token Forwarding (`auth.forwardToken: true`).
+    *   If muster server and Remote MCP Server share the same IdP and trust the same audiences/clients, muster can forward the user's token directly using Token Forwarding (`auth.forwardToken: true`).
 
 *   **Scenario B: Different IdPs (Token Exchange)**
-    *   Muster Server validates the *incoming* token (User -> Muster).
-    *   Muster Server exchanges its token for one valid on the remote IdP using RFC 8693 Token Exchange.
+    *   muster server validates the *incoming* token (User -> muster).
+    *   muster server exchanges its token for one valid on the remote IdP using RFC 8693 Token Exchange.
     *   The exchanged token is used for downstream requests.
 
 ## Implementation Steps
 
 1.  **Agent**: Implement lazy initialization with synthetic auth tool:
-    *   Handle 401 responses during SSE/Streamable-HTTP connection to Muster Server
+    *   Handle 401 responses during SSE/Streamable-HTTP connection to muster server
     *   Parse `WWW-Authenticate` header to discover the authorization server
     *   Enter "pending auth" state and expose synthetic `authenticate_muster` tool to Cursor
     *   Implement Authorization Code Flow with PKCE when synthetic tool is called
@@ -155,11 +155,11 @@ Once the Agent is authenticated and connected (Step 8), the "OAuth Proxy" logic 
 
 ## Consequences
 
-*   **Consistent UX**: Auth flows work identically whether authenticating to Muster Server or Remote MCPs - users always see auth URLs as tool results in Cursor.
-*   **Agent Complexity**: The Agent must implement the same lazy initialization pattern as Muster Server (pending auth state, synthetic tools, upgrade to connected).
+*   **Consistent UX**: Auth flows work identically whether authenticating to muster server or Remote MCPs - users always see auth URLs as tool results in Cursor.
+*   **Agent Complexity**: The Agent must implement the same lazy initialization pattern as muster server (pending auth state, synthetic tools, upgrade to connected).
 *   **Code Reuse**: The Agent can reuse much of the OAuth and lazy initialization logic from the Server implementation.
 *   **SSO**: Token Forwarding and Token Exchange minimize the need for multiple authentications.
-*   **Security**: Muster is now secure by default when exposed.
+*   **Security**: muster is now secure by default when exposed.
 
 ---
 
@@ -167,7 +167,7 @@ Once the Agent is authenticated and connected (Step 8), the "OAuth Proxy" logic 
 
 ### Overview
 
-After analyzing `mcp-kubernetes`'s implementation, we will use the `github.com/giantswarm/mcp-oauth` library (v0.2.26+) to implement OAuth 2.1 protection for Muster Server. This provides a battle-tested OAuth 2.1 implementation with all the security features we need.
+After analyzing `mcp-kubernetes`'s implementation, we will use the `github.com/giantswarm/mcp-oauth` library (v0.2.26+) to implement OAuth 2.1 protection for muster server. This provides a battle-tested OAuth 2.1 implementation with all the security features we need.
 
 ### mcp-oauth Library Capabilities
 
@@ -236,20 +236,20 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 }
 ```
 
-### Muster-Specific Implementation
+### muster-Specific Implementation
 
-#### Server-Side (Muster Server)
+#### Server-Side (muster server)
 
 1. **Create `internal/server/oauth.go`**: OAuth server configuration and setup, adapting `mcp-kubernetes`'s pattern
 2. **Create `internal/oauth/` package**: Context helpers similar to `mcp-kubernetes/internal/mcp/oauth/`
 3. **Modify Aggregator HTTP handler**: Wrap with `ValidateToken` middleware
 4. **Add CLI flags**: `--enable-oauth`, `--dex-issuer-url`, `--dex-client-id`, `--dex-client-secret`, etc.
 
-#### Agent-Side (Muster Agent)
+#### Agent-Side (muster agent)
 
 The Agent handles the client side of OAuth authentication:
 
-1. **Detect 401 from Server**: When connecting to a protected Muster Server
+1. **Detect 401 from Server**: When connecting to a protected muster server
 2. **Parse `WWW-Authenticate` header**: Extract issuer URL and realm information
 3. **Expose synthetic `authenticate_muster` tool**: While in pending auth state
 4. **Implement Authorization Code Flow with PKCE**: Using mcp-oauth's client utilities
@@ -259,7 +259,7 @@ The Agent handles the client side of OAuth authentication:
 ### Configuration Example
 
 ```yaml
-# Helm values for Muster Server with OAuth
+# Helm values for muster server with OAuth
 muster:
   oauth:
     enabled: true
@@ -289,7 +289,7 @@ Aligned with `mcp-kubernetes` best practices:
 | `--enable-cimd` | `true` | Keep `true` for MCP 2025-11-25 compliance |
 | `--trusted-public-registration-schemes` | `[]` | Consider `cursor,vscode` for internal use |
 
-### OAuth Endpoints on Muster Server
+### OAuth Endpoints on muster server
 
 | Endpoint | Description | RFC |
 |----------|-------------|-----|
@@ -325,7 +325,7 @@ Aligned with `mcp-kubernetes` best practices:
 
 ### Differences from mcp-kubernetes
 
-| Aspect | mcp-kubernetes | Muster |
+| Aspect | mcp-kubernetes | muster |
 |--------|----------------|--------|
 | **Primary Use Case** | Direct K8s API access | Aggregating remote MCPs |
 | **Downstream Auth** | ID token → K8s OIDC | OAuth Proxy (ADR 004) |

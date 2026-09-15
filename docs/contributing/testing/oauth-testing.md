@@ -6,8 +6,8 @@ This document covers the OAuth BDD testing infrastructure for muster, including 
 
 The OAuth testing infrastructure enables comprehensive testing of muster's authentication implementation:
 
-- **ADR-004**: OAuth Proxy (Muster Server → Remote MCP Servers)
-- **ADR-005**: Muster Server Auth (Agent → Muster Server)
+- **ADR-004**: OAuth Proxy (muster server → Remote MCP Servers)
+- **ADR-005**: muster server Auth (Agent → muster server)
 - **ADR-008**: Unified Authentication (auth status polling, `_meta` fields, SSO detection)
 
 ## Architecture
@@ -18,7 +18,7 @@ The OAuth testing infrastructure enables comprehensive testing of muster's authe
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │  ┌──────────────┐     ┌──────────────┐     ┌──────────────────────────────┐ │
-│  │  Test Runner │────▶│   Muster     │────▶│  Protected Mock MCP Server   │ │
+│  │  Test Runner │────▶│   muster     │────▶│  Protected Mock MCP Server   │ │
 │  │  + MCP Client│     │   Serve      │     │  (validates against OAuth)   │ │
 │  └──────────────┘     │  (separate   │     └───────────────┬──────────────┘ │
 │         │             │   process)   │                     │                │
@@ -44,7 +44,7 @@ The OAuth testing infrastructure enables comprehensive testing of muster's authe
 │                                                                                 │
 ├─────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                 │
-│  Layer 2: Agent → Muster Server (HTTP/SSE) [ADR-005]                            │
+│  Layer 2: Agent → muster server (HTTP/SSE) [ADR-005]                            │
 │     - Google OAuth (or Dex) protects muster server endpoints                    │
 │     - Agent detects 401, creates synthetic `authenticate_muster` tool           │
 │     - Local callback server on port 3000                                        │
@@ -52,7 +52,7 @@ The OAuth testing infrastructure enables comprehensive testing of muster's authe
 │                                                                                 │
 ├─────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                 │
-│  Layer 3: Muster Server → Remote MCP Servers (OAuth Proxy) [ADR-004]            │
+│  Layer 3: muster server → Remote MCP Servers (OAuth Proxy) [ADR-004]            │
 │     - Server acts as OAuth client for remote MCPs                               │
 │     - Intercepts 401 from remote MCPs                                           │
 │     - Exposes `authenticate_<server>` tools                                     │
@@ -75,7 +75,7 @@ There are TWO token stores in the test environment:
 | Store | Location | Purpose | Accessible By |
 |-------|----------|---------|---------------|
 | Mock OAuth Server | `mock.OAuthServer.issuedTokens` | Validate tokens for protected MCP servers | Mock infrastructure |
-| Muster Token Store | `oauth.TokenStore.tokens` | Store tokens for aggregator to use | Muster process only |
+| muster Token Store | `oauth.TokenStore.tokens` | Store tokens for aggregator to use | muster process only |
 
 The `test_simulate_oauth_callback` tool bridges these by completing the full OAuth flow, which stores the token in BOTH locations.
 
@@ -85,16 +85,16 @@ The `test_simulate_oauth_callback` tool bridges these by completing the full OAu
 1. Test calls protected tool          → Aggregator proxies to protected MCP server
 2. Protected MCP returns 401          → Aggregator marks server as auth_required
 3. Aggregator exposes authenticate_X  → Synthetic tool appears in tool list
-4. Test calls authenticate_X          → Muster calls CreateAuthChallenge()
+4. Test calls authenticate_X          → muster calls CreateAuthChallenge()
                                          - Generates PKCE verifier
                                          - Stores state in StateStore
                                          - Returns auth URL with real state
 5. Test parses auth URL               → Extracts state, redirect_uri, etc.
 6. Test generates auth code           → Mock OAuth server stores code
 7. Test calls muster callback         → GET /callback?code=XXX&state=YYY
-8. Muster validates state             → Finds it in StateStore ✓
-9. Muster exchanges code              → POST to mock OAuth /token endpoint
-10. Mock OAuth returns token          → Muster stores in TokenStore
+8. muster validates state             → Finds it in StateStore ✓
+9. muster exchanges code              → POST to mock OAuth /token endpoint
+10. Mock OAuth returns token          → muster stores in TokenStore
 11. Test retries protected tool       → Aggregator finds token, sends it
 12. Protected MCP validates token     → Against mock OAuth server ✓
 13. Tool executes successfully        → Protected tools now available
@@ -499,7 +499,7 @@ Architecture diagrams are available in the `diagrams/` subdirectory:
 ## References
 
 - [ADR-004: OAuth Proxy](../../explanation/decisions/004-oauth-proxy.md)
-- [ADR-005: Muster Server Auth](../../explanation/decisions/005-muster-auth.md)
+- [ADR-005: muster server Auth](../../explanation/decisions/005-muster-auth.md)
 - [ADR-008: Unified Authentication](../../explanation/decisions/008-unified-authentication.md)
 - [OAuth 2.1 Specification](https://oauth.net/2.1/)
 - [RFC 7636: PKCE](https://datatracker.ietf.org/doc/html/rfc7636)

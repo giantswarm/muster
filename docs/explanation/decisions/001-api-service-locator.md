@@ -6,7 +6,7 @@ Accepted
 ## Context
 
 ### Problem Statement
-Muster coordinates multiple complex components (aggregator, services, workflows, MCP servers) that need to interact with each other. Without a clear architectural pattern, this leads to:
+muster coordinates multiple complex components (aggregator, services, workflows, MCP servers) that need to interact with each other. Without a clear architectural pattern, this leads to:
 
 - **Tight Coupling**: Components directly importing and depending on each other
 - **Circular Dependencies**: Import cycles between packages making the code unmaintainable
@@ -336,9 +336,9 @@ func TestServiceIntegration(t *testing.T) {
 - **Best Practices**: Regular updates to development guidelines
 
 ## Related Decisions
-- [ADR-002: CRD Migration Strategy](002-crd-migration.md) - Builds on this API pattern
-- [ADR-003: Testing Framework Architecture](003-testing-framework.md) - Leverages this pattern for testing
-- [ADR-004: Configuration Management](004-configuration-management.md) - Uses this pattern for config distribution
+- [ADR-002: Testing Framework Architecture](002-testing-framework.md) - Leverages this pattern for testing
+- [ADR-003: Configuration Management](003-configuration-management.md) - Uses this pattern for config distribution
+- [ADR-007: CRD Status Reconciliation](007-crd-status-reconciliation.md) - Reconciler and aggregator meet through this pattern
 
 ## References
 - [Dependency Inversion Principle](https://en.wikipedia.org/wiki/Dependency_inversion_principle)
@@ -346,4 +346,4 @@ func TestServiceIntegration(t *testing.T) {
 - [Clean Architecture](https://blog.cleancoder.com/uncle-bob/2012/08/13/the-clean-architecture.html)
 - [Go Interfaces](https://go.dev/doc/effective_go#interfaces)
 
-This ADR establishes the foundational architectural pattern that enables all other design decisions in the Muster project, providing a scalable and maintainable approach to component interaction.
+This ADR establishes the foundational architectural pattern that enables all other design decisions in the muster project, providing a scalable and maintainable approach to component interaction.

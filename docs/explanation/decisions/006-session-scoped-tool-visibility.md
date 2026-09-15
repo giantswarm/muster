@@ -35,7 +35,7 @@ We will implement **session-scoped tool visibility**, where each user session ma
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                           Muster Server                                      │
+│                           muster server                                      │
 │                                                                              │
 │  ┌────────────────────────────────────────────────────────────────────────┐ │
 │  │                     Session Manager                                     │ │
@@ -317,13 +317,13 @@ The SSO mechanisms (ADR 004) work with session-scoped connections:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                                Muster Agent                                      │
+│                                muster agent                                      │
 │                         (Cursor -> stdio -> Agent)                               │
 └────────────────────────────────────────┬────────────────────────────────────────┘
                                          │ HTTP/SSE
                                          ▼
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                                Muster Server                                     │
+│                                muster server                                     │
 │                                                                                  │
 │  1. Agent connects → SessionID assigned (abc-123)                               │
 │                                                                                  │

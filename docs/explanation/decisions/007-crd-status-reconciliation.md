@@ -356,7 +356,7 @@ type WorkflowStatus struct {
             │ Status Updates
             ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                           Muster Server                                  │
+│                           muster server                                  │
 │                                                                          │
 │  ┌────────────────────────────────────────────────────────────────────┐ │
 │  │                    Reconciliation Manager                           │ │

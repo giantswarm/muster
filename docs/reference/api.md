@@ -1,792 +1,94 @@
-# API Reference
+# HTTP endpoints
 
-Comprehensive reference for Muster's REST API and MCP (Model Context Protocol) interfaces.
+muster's programmatic interface is the Model Context Protocol; there is no separate REST API.
+This page lists the HTTP paths the aggregator serves, which of them exist only with OAuth
+enabled, and the headers that matter.
 
-## Overview
+## Aggregator
 
-Muster provides a comprehensive API layer that supports multiple protocols and interfaces:
+Served on `aggregator.host:aggregator.port` (`localhost:8090` for the binary, `0.0.0.0:8090` in
+the chart).
 
-1. **MCP Aggregator API** - Primary MCP protocol interface for tool execution
-2. **Core API Tools** - Built-in tools for managing Muster resources
+| Path | Method | Purpose |
+|---|---|---|
+| `/mcp` | `POST`, `GET`, `DELETE` | MCP over streamable HTTP: JSON-RPC requests, the notification stream and session termination |
+| `/sse` | `GET` | The older SSE transport: the event stream |
+| `/message` | `POST` | The older SSE transport: JSON-RPC requests |
+| `/health` | `GET` | `{"status":"ok"}` with status 200, without authentication, for liveness and readiness probes |
 
-## Base URLs and Endpoints
-
-### MCP Aggregator Endpoints
-
-| Transport | Endpoint | Purpose |
-|-----------|----------|---------|
-| **SSE** | `http://localhost:8080/sse` | Server-Sent Events for real-time communication |
-| **Streamable HTTP** | `http://localhost:8080/mcp` | HTTP-based streaming protocol (default) |
-| **Message Endpoint** | `http://localhost:8080/message` | HTTP message posting for SSE transport |
-| **Stdio** | `stdio` | Standard I/O for easy integration |
-
-## MCP Aggregator API
-
-The MCP Aggregator is Muster's primary interface, aggregating tools from multiple MCP servers and exposing them through a unified API.
-
-### Protocol Support
-
-#### Streamable HTTP - Default
-HTTP-based streaming for broader compatibility:
+A client connects to `/mcp`, initialises an MCP session and receives the meta-tools. With OAuth
+enabled, an unauthenticated request is answered with `401` and a `WWW-Authenticate` header that
+points at the protected-resource metadata, as the MCP authorization specification requires.
 
 ```bash
-# List available tools
-curl -X POST http://localhost:8080/mcp \
-  -H "Content-Type: application/json" \
-  -d '{"method": "tools/list", "params": {}}'
-
-# Execute a tool
-curl -X POST http://localhost:8080/mcp \
-  -H "Content-Type": application/json" \
-  -d '{
-    "method": "tools/call",
-    "params": {
-      "name": "x_kubernetes_get_pods",
-      "arguments": {"namespace": "default"}
-    }
-  }'
+curl -s -X POST http://localhost:8090/mcp \
+  -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"curl","version":"0"}}}'
 ```
 
-#### Server-Sent Events (SSE) (old)
-Real-time bidirectional communication with persistent connections:
-
-```javascript
-// Connect to SSE endpoint
-const eventSource = new EventSource('http://localhost:8080/sse');
-
-eventSource.onmessage = function(event) {
-  const data = JSON.parse(event.data);
-  console.log('Received:', data);
-};
-
-// Send messages via HTTP POST
-fetch('http://localhost:8080/message', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    method: 'tools/list',
-    params: {}
-  })
-});
-```
-
-## Core API Tools
-
-Muster provides a comprehensive set of built-in tools for managing all aspects of the platform. These tools are organized into functional categories:
-
-- **[Configuration Tools](#configuration-tools)** - System configuration management
-- **[MCP Server Tools](#mcp-server-tools)** - MCP server lifecycle management
-- **[Service Tools](#service-tools)** - Service instance management
-- **[Workflow Tools](#workflow-tools)** - Workflow definition and execution management
-
-> **Note**: Workflow execution is available through dynamically generated `workflow_<workflow-name>` tools. For example, if you have a workflow named "deploy-app", you can execute it using the `workflow_deploy-app` tool. Use the agent REPL (`muster agent --repl`) or `list tools` to discover available workflow execution tools.
-
-### Configuration Tools
-
-Tools for managing Muster system configuration and aggregator settings.
-
-#### `core_config_get`
-
-Retrieve current system configuration.
-
-**Parameters:** None
-
-**Example:**
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "core_config_get",
-    "arguments": {}
-  }
-}
-```
-
-#### `core_config_get_aggregator`
-
-Retrieve current aggregator configuration.
-
-**Parameters:** None
-
-**Example:**
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "core_config_get_aggregator",
-    "arguments": {}
-  }
-}
-```
-
-#### `core_config_reload`
-
-Reload system configuration from files.
-
-**Parameters:** None
-
-**Example:**
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "core_config_reload",
-    "arguments": {}
-  }
-}
-```
-
-#### `core_config_save`
-
-Save current configuration to files.
-
-**Parameters:** None
-
-**Example:**
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "core_config_save",
-    "arguments": {}
-  }
-}
-```
-
-#### `core_config_update_aggregator`
-
-Update aggregator configuration.
-
-**Parameters:**
-- `aggregator` (object, required) - Aggregator configuration object
-
-**Example:**
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "core_config_update_aggregator",
-    "arguments": {
-      "aggregator": {
-        "port": 8080,
-        "host": "localhost"
-      }
-    }
-  }
-}
-```
-
-### MCP Server Tools
-
-Tools for managing MCP server lifecycle, including creation, configuration, and monitoring.
-
-#### `core_mcpserver_create`
-
-Create a new MCP server configuration.
-
-**Parameters:**
-- `name` (string, required) - MCP server name
-- `type` (string, required) - MCP server type (`stdio`, `streamable-http`, or `sse`)
-- `description` (string, optional) - MCP server description
-- `command` (array of strings, optional) - Command and arguments (for stdio type)
-- `args` (array of strings, optional) - Command line arguments (for stdio type)
-- `url` (string, optional) - Server endpoint URL (for streamable-http and sse types)
-- `env` (object, optional) - Environment variables as key-value pairs
-- `headers` (object, optional) - HTTP headers (for streamable-http and sse types)
-- `timeout` (integer, optional) - Connection timeout in seconds
-- `autoStart` (boolean, optional) - Whether server should auto-start
-
-**Example:**
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "core_mcpserver_create",
-    "arguments": {
-      "name": "my-mcp-server",
-      "type": "stdio",
-      "description": "Custom MCP server for project management",
-      "command": ["node", "/path/to/server.js"],
-      "env": {
-        "NODE_ENV": "production",
-        "API_KEY": "secret"
-      },
-      "autoStart": true
-    }
-  }
-}
-```
-
-#### `core_mcpserver_delete`
-
-Delete an MCP server configuration.
-
-**Parameters:**
-- `name` (string, required) - Name of the MCP server to delete
-
-**Example:**
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "core_mcpserver_delete",
-    "arguments": {
-      "name": "my-mcp-server"
-    }
-  }
-}
-```
-
-#### `core_mcpserver_get`
-
-Retrieve details of a specific MCP server.
-
-**Parameters:**
-- `name` (string, required) - Name of the MCP server to retrieve
-
-**Example:**
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "core_mcpserver_get",
-    "arguments": {
-      "name": "my-mcp-server"
-    }
-  }
-}
-```
-
-#### `core_mcpserver_list`
-
-List all configured MCP servers.
-
-**Parameters:** None
-
-**Example:**
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "core_mcpserver_list",
-    "arguments": {}
-  }
-}
-```
-
-#### `core_mcpserver_update`
-
-Update an existing MCP server configuration.
-
-**Parameters:**
-- `name` (string, required) - MCP server name
-- `type` (string, optional) - MCP server type (`stdio`, `streamable-http`, or `sse`)
-- `description` (string, optional) - MCP server description
-- `command` (array of strings, optional) - Command and arguments (for stdio type)
-- `args` (array of strings, optional) - Command line arguments (for stdio type)
-- `url` (string, optional) - Server endpoint URL (for streamable-http and sse types)
-- `env` (object, optional) - Environment variables as key-value pairs
-- `headers` (object, optional) - HTTP headers (for streamable-http and sse types)
-- `timeout` (integer, optional) - Connection timeout in seconds
-- `autoStart` (boolean, optional) - Whether server should auto-start
-
-**Example:**
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "core_mcpserver_update",
-    "arguments": {
-      "name": "my-mcp-server",
-      "description": "Updated description",
-      "autoStart": false
-    }
-  }
-}
-```
-
-#### `core_mcpserver_validate`
-
-Validate MCP server configuration without creating it.
-
-**Parameters:**
-- `name` (string, required) - MCP server name
-- `type` (string, required) - MCP server type (`stdio`, `streamable-http`, or `sse`)
-- `description` (string, optional) - MCP server description
-- `command` (array of strings, optional) - Command and arguments (for stdio type)
-- `args` (array of strings, optional) - Command line arguments (for stdio type)
-- `url` (string, optional) - Server endpoint URL (for streamable-http and sse types)
-- `env` (object, optional) - Environment variables as key-value pairs
-- `headers` (object, optional) - HTTP headers (for streamable-http and sse types)
-- `timeout` (integer, optional) - Connection timeout in seconds
-- `autoStart` (boolean, optional) - Whether server should auto-start
-
-**Example:**
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "core_mcpserver_validate",
-    "arguments": {
-      "name": "test-server",
-      "type": "stdio",
-      "command": ["node", "server.js"]
-    }
-  }
-}
-```
-
-#### `core_mcpserver_detect`
-
-Probe a remote MCP server URL to detect its transport (`streamable-http` or `sse`).
-Unreachable or unclassifiable servers yield transport `unknown` instead of an error.
-
-**Parameters:**
-- `url` (string, required) - Server endpoint URL to probe
-- `headers` (object, optional) - HTTP headers to send with the probe requests
-- `timeout` (integer, optional) - Overall detection timeout in seconds (default 10)
-
-**Example:**
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "core_mcpserver_detect",
-    "arguments": {
-      "url": "https://mcp.example.com/mcp"
-    }
-  }
-}
-```
-
-### Service Tools
-
-Tools for managing service instances, including lifecycle operations and status monitoring.
-
-#### `core_service_list`
-
-List all service instances.
-
-**Parameters:** None
-
-**Example:**
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "core_service_list",
-    "arguments": {}
-  }
-}
-```
-
-#### `core_service_restart`
-
-Restart a service instance.
-
-**Parameters:**
-- `name` (string, required) - Service name to restart
-
-**Example:**
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "core_service_restart",
-    "arguments": {
-      "name": "prod-db"
-    }
-  }
-}
-```
-
-#### `core_service_start`
-
-Start a service instance.
-
-**Parameters:**
-- `name` (string, required) - Service name to start
-
-**Example:**
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "core_service_start",
-    "arguments": {
-      "name": "prod-db"
-    }
-  }
-}
-```
-
-#### `core_service_status`
-
-Get the status of a service instance.
-
-**Parameters:**
-- `name` (string, required) - Service name to get status for
-
-**Example:**
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "core_service_status",
-    "arguments": {
-      "name": "prod-db"
-    }
-  }
-}
-```
-
-#### `core_service_stop`
-
-Stop a service instance.
-
-**Parameters:**
-- `name` (string, required) - Service name to stop
-
-**Example:**
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "core_service_stop",
-    "arguments": {
-      "name": "prod-db"
-    }
-  }
-}
-```
-
-### Workflow Tools
-
-Tools for managing workflow definitions and execution tracking.
-
-#### `core_workflow_available`
-
-Check if a workflow is available and properly configured.
-
-**Parameters:**
-- `name` (string, required) - Name of the workflow
-
-**Example:**
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "core_workflow_available",
-    "arguments": {
-      "name": "deploy-application"
-    }
-  }
-}
-```
-
-#### `core_workflow_create`
-
-Create a new workflow definition.
-
-**Parameters:**
-- `name` (string, required) - Name of the workflow
-- `steps` (array, required) - Workflow steps (minimum 1 step)
-  - Each step object contains:
-    - `id` (string, required) - Unique identifier for this step
-    - `tool` (string, required) - Name of the tool to execute
-    - `description` (string, optional) - Human-readable documentation
-    - `args` (object, optional) - Arguments to pass to the tool
-    - `outputs` (object, optional) - Output variable assignments
-    - `condition` (object, optional) - Conditional execution logic
-    - `allow_failure` (boolean, optional) - Whether step can fail without failing workflow
-    - `store` (boolean, optional) - Whether to store step result in workflow results
-- `args` (object, optional) - Workflow arguments definition
-- `description` (string, optional) - Description of the workflow
-
-**Example:**
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "core_workflow_create",
-    "arguments": {
-      "name": "deploy-web-service",
-      "description": "Deploy a web service with health checks",
-      "args": {
-        "service_name": {
-          "type": "string",
-          "required": true,
-          "description": "Name of the service to deploy"
-        },
-        "image": {
-          "type": "string",
-          "required": true,
-          "description": "Docker image to deploy"
-        }
-      },
-      "steps": [
-        {
-          "id": "start_service",
-          "tool": "core_service_start",
-          "description": "Start the service",
-          "args": {
-            "name": "{{ .input.service_name }}"
-          }
-        },
-        {
-          "id": "check_health",
-          "tool": "core_service_status",
-          "description": "Verify service is healthy",
-          "args": {
-            "name": "{{ .input.service_name }}"
-          }
-        }
-      ]
-    }
-  }
-}
-```
-
-#### `core_workflow_delete`
-
-Delete a workflow definition.
-
-**Parameters:**
-- `name` (string, required) - Name of the workflow to delete
-
-**Example:**
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "core_workflow_delete",
-    "arguments": {
-      "name": "deploy-web-service"
-    }
-  }
-}
-```
-
-#### `core_workflow_execution_get`
-
-Retrieve details of a specific workflow execution.
-
-**Parameters:**
-- `execution_id` (string, required) - ID of the execution
-- `include_steps` (boolean, optional, default: true) - Include step details
-- `step_id` (string, optional) - Get specific step details
-
-**Example:**
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "core_workflow_execution_get",
-    "arguments": {
-      "execution_id": "exec_123456",
-      "include_steps": true
-    }
-  }
-}
-```
-
-#### `core_workflow_execution_list`
-
-List workflow executions with optional filtering.
-
-**Parameters:**
-- `limit` (number, optional, default: 50) - Maximum number of executions to return
-- `offset` (number, optional, default: 0) - Number of executions to skip
-- `status` (string, optional) - Filter by execution status
-- `workflow_name` (string, optional) - Filter by workflow name
-
-**Example:**
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "core_workflow_execution_list",
-    "arguments": {
-      "limit": 10,
-      "status": "completed",
-      "workflow_name": "deploy-web-service"
-    }
-  }
-}
-```
-
-#### `core_workflow_get`
-
-Retrieve details of a specific workflow definition.
-
-**Parameters:**
-- `name` (string, required) - Name of the workflow
-
-**Example:**
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "core_workflow_get",
-    "arguments": {
-      "name": "deploy-web-service"
-    }
-  }
-}
-```
-
-#### `core_workflow_list`
-
-List all workflow definitions.
-
-**Parameters:**
-- `include_system` (boolean, optional, default: true) - Include system-defined workflows
-
-**Example:**
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "core_workflow_list",
-    "arguments": {
-      "include_system": false
-    }
-  }
-}
-```
-
-#### `core_workflow_update`
-
-Update an existing workflow definition.
-
-**Parameters:**
-- `name` (string, required) - Name of the workflow to update
-- `steps` (array, required) - Workflow steps (minimum 1 step)
-- `args` (object, optional) - Workflow arguments definition
-- `description` (string, optional) - Description of the workflow
-
-#### `core_workflow_validate`
-
-Validate workflow configuration without creating it.
-
-**Parameters:**
-- `name` (string, required) - Name of the workflow
-- `steps` (array, required) - Workflow steps (minimum 1 step)
-- `args` (object, optional) - Workflow arguments definition
-- `description` (string, optional) - Description of the workflow
-
-**Example:**
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "core_workflow_validate",
-    "arguments": {
-      "name": "test-workflow",
-      "steps": [
-        {
-          "id": "test_step",
-          "tool": "core_service_list"
-        }
-      ]
-    }
-  }
-}
-```
-
-## Error Handling
-
-All tools follow consistent error handling patterns:
-
-### Success Response
-```json
-{
-  "isError": false,
-  "content": [
-    {
-      "type": "text",
-      "text": "Operation completed successfully"
-    }
-  ]
-}
-```
-
-### Error Response
-```json
-{
-  "isError": true,
-  "content": [
-    {
-      "type": "text",
-      "text": "Error: Resource not found"
-    }
-  ]
-}
-```
-
-### Common Error Types
-
-- **Validation Errors** - Invalid parameters or configuration
-- **Not Found Errors** - Resource does not exist
-- **Conflict Errors** - Resource already exists or conflicts with existing resources
-- **Dependency Errors** - Required dependencies not available
-- **Timeout Errors** - Operation exceeded configured timeout
-
-## Authentication and Authorization
-
-Currently, Muster operates in a trusted environment without authentication. Future versions may include:
-
-- API key authentication
-- Role-based access control (RBAC)
-- Service account tokens
-- Integration with external identity providers
-
-## Rate Limiting
-
-No rate limiting is currently implemented. Consider implementing appropriate rate limiting for production deployments.
-
-## Versioning
-
-The API follows semantic versioning principles. The current schema version is **1.0.0**.
-
-## Tool Discovery
-
-### Interactive Discovery with Agent REPL
-The Muster agent provides powerful interactive capabilities for discovering and executing tools:
-
-```bash
-# Start the interactive agent
-muster agent --repl
-
-# Discover tools
-list tools                           # List all available tools
-filter tools core_*                  # Filter tools by pattern
-describe core_service_list           # Get detailed tool documentation
-
-# Execute tools
-call core_service_list               # Execute without arguments
-```
-
-### Programmatic Discovery
-```bash
-# List tools via MCP API
-curl -X POST http://localhost:8080/mcp \
-  -H "Content-Type: application/json" \
-  -d '{"method": "tools/list", "params": {}}'
-
-# Get tool schema
-curl -X POST http://localhost:8080/mcp \
-  -H "Content-Type: application/json" \
-  -d '{"method": "tools/get_schema", "params": {"name": "core_service_list"}}'
-```
-
-## Related Documentation
-
-- **[CLI Reference](../cli/)** - Command-line interface documentation
-- **[Agent CLI Reference](../cli/agent.md)** - Interactive agent and REPL usage
-- **[Configuration Reference](../configuration.md)** - Detailed configuration options
-- **[MCP Tools documentation](reference/mcp-tools.md)** - All the core mcp tools
-- **[CRD reference](reference/crds.md/)** - Kubernetes Custom Resource definitions
-- **[Getting Started](../../getting-started/)** - Setup and basic usage
-- **[How-to Guides](../../how-to/)** - Task-oriented implementation guides
-- **[Workflow Creation Guide](../../how-to/workflow-creation.md)** - Step-by-step workflow creation
+### Request headers
+
+| Header | Meaning |
+|---|---|
+| `Authorization: Bearer <token>` | The caller's access token when OAuth protection is on |
+| `Mcp-Session-Id` | The MCP session, issued by muster in the `initialize` response and sent back on every request |
+| `X-muster-Toolset` | The [toolset](toolsets.md) the request works within, for example `preset:read-only` or `server:kubernetes` |
+| `MCP-Protocol-Version` | The protocol revision the client speaks; muster negotiates `2025-11-25` and earlier revisions |
+
+## OAuth server
+
+Present when `oauth.server.enabled` is `true`. muster acts as the OAuth 2.1 authorization
+server towards its clients and delegates the sign-in to Dex; these endpoints are provided by
+[mcp-oauth](https://github.com/giantswarm/mcp-oauth).
+
+| Path | Purpose |
+|---|---|
+| `/.well-known/oauth-protected-resource` | Protected-resource metadata (RFC 9728): where clients find the authorization server |
+| `/.well-known/oauth-authorization-server` | Authorization-server metadata (RFC 8414): endpoints, supported grants, PKCE methods |
+| `/.well-known/jwks.json` | The keys that verify tokens muster issues |
+| `/oauth/authorize` | Start of the authorization-code flow (PKCE required) |
+| `/oauth/callback` | Return from Dex |
+| `/oauth/token` | Token issuance and refresh; RFC 8693 token exchange for configured broker clients |
+| `/oauth/register` | Dynamic client registration (RFC 7591), gated by the registration token or the public-registration settings |
+| `/oauth/revoke`, `/oauth/introspect`, `/oauth/userinfo` | Token revocation, introspection and the identity of the token's subject |
+
+## OAuth client
+
+Present when `oauth.mcpClient.enabled` is `true`: muster logs a person in to remote MCP servers
+that run their own OAuth.
+
+| Path | Purpose |
+|---|---|
+| `/.well-known/oauth-client.json` | muster's client metadata document (CIMD), the `client_id` it presents to authorization servers that support it |
+| `/oauth/proxy/start` | Starts a login to a remote server; `core_auth_login` returns URLs pointing here. An optional `redirect` parameter, checked against `postLoginRedirectAllowlist`, sends the browser on after the login |
+| `/oauth/proxy/callback` | Return from the remote authorization server (`oauth.mcpClient.callbackPath`) |
+
+## Metrics
+
+muster's own Prometheus exporter is switched on with the standard OpenTelemetry environment
+variables: `OTEL_METRICS_EXPORTER=prometheus` serves `/metrics` on
+`OTEL_EXPORTER_PROMETHEUS_HOST:OTEL_EXPORTER_PROMETHEUS_PORT` (`localhost:9464` by default). The
+chart sets them from `muster.observability.metrics` and, with `serviceMonitor.enabled`, scrapes
+the port. [Observability](../explanation/observability.md) lists the metrics.
+
+## Admin listener
+
+`aggregator.admin.enabled: true` starts a small web UI for sessions on its own listener,
+`127.0.0.1:9999` by default. It has no authentication of its own; keep it on the loopback
+address and reach it with `kubectl port-forward`.
+
+| Path | Purpose |
+|---|---|
+| `/`, `/sessions` | List of sessions with identity, age and connected servers |
+| `/sessions/{id}` | One session in detail |
+| `/mcps`, `/mcps/{name}` | Registered servers and their state |
+| `POST /sessions/{id}/delete` | End a session |
+| `POST /sessions/{id}/servers/{name}/reconnect` | Reconnect one server for one session |
+| `DELETE /auth/{server}` | Drop the stored grants for a server |
+| `DELETE /user-tokens` | Drop every stored user token |
+
+## Related
+
+- [MCP tools](mcp-tools.md): what a client finds behind `/mcp`.
+- [Configuration](configuration.md): the keys that switch these surfaces on.
+- [Security](../operations/security.md): the token lifecycle behind the OAuth endpoints.

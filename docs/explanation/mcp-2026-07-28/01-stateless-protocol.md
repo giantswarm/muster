@@ -226,9 +226,9 @@ whatever the server calls downstream as a single span tree in any
 - Announcement, section "A Stateless Protocol": [2026-07-28 release candidate](https://blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate/)
 - Roadmap context: [The Future of MCP Transports (Dec 2025)](https://blog.modelcontextprotocol.io/posts/2025-12-19-mcp-transport-future/)
 
-## 3. Muster impact
+## 3. muster impact
 
-Muster is, by design, both an inbound MCP server (for clients like
+muster is, by design, both an inbound MCP server (for clients like
 Cursor, Claude Code, the muster agent itself) and an outbound MCP
 client (for every aggregated upstream server). The stateless rework
 hits both surfaces, and it is the section of the 2026-07-28 release
@@ -238,20 +238,20 @@ with the largest blast radius on this codebase.
 
 The protocol-level "MCP session" is the abstraction muster's session
 layer is built around today.
-[internal/aggregator/session_connection_pool.go](../../../internal/aggregator/session_connection_pool.go)
+[internal/aggregator/session_connection_pool.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/session_connection_pool.go)
 keys its `poolKey` on `(SessionID, ServerName)` and exposes
 `Get/Put/Evict/EvictSession(sessionID, …)` for every pooled MCP
 client. The `CapabilityStore` interface in
-[internal/aggregator/capability_store.go](../../../internal/aggregator/capability_store.go)
+[internal/aggregator/capability_store.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/capability_store.go)
 caches tools/resources/prompts per `(sessionID, serverName)` with a
 30-day session-level TTL, plus a `Valkey` variant in
 `capability_store_valkey.go` so that the cache survives across pods.
 The `SessionAuthStore` interface in
-[internal/aggregator/session_auth_store.go](../../../internal/aggregator/session_auth_store.go)
+[internal/aggregator/session_auth_store.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/session_auth_store.go)
 (and `session_auth_store_valkey.go`) answers "may this session call
 tools on this server?" again keyed on `sessionID`. The session ID is
 threaded through every tool handler via `requireSessionContext` in
-[internal/aggregator/connection_helper.go](../../../internal/aggregator/connection_helper.go),
+[internal/aggregator/connection_helper.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/connection_helper.go),
 which pulls `getSessionIDFromContext(ctx)` and `getUserSubjectFromContext(ctx)`.
 The session-scoped tool visibility model is documented in
 [docs/explanation/decisions/006-session-scoped-tool-visibility.md](../decisions/006-session-scoped-tool-visibility.md)
@@ -280,7 +280,7 @@ Concretely:
   to upstreams no longer have a "session" to participate in at all.
 - The `EvictSession` / `Delete(sessionID)` / `RevokeSession` /
   `RevokeServer` API surfaces and the `subjectSessionTracker` in
-  [internal/aggregator/server.go](../../../internal/aggregator/server.go)
+  [internal/aggregator/server.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/server.go)
   still describe useful muster-internal concepts (per-user logout,
   per-server deregistration), but their keying needs to be rebased.
 - The 30-day capability-store TTL becomes the right TTL to compare
@@ -288,8 +288,8 @@ Concretely:
 
 ### 3.2 Server transport
 
-Muster's inbound Streamable HTTP server lives in
-[internal/aggregator/server.go](../../../internal/aggregator/server.go),
+muster's inbound Streamable HTTP server lives in
+[internal/aggregator/server.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/server.go),
 `server_options.go`, and `connection_helper.go`. Adopting the
 `2026-07-28` transport means:
 
@@ -329,7 +329,7 @@ Muster's inbound Streamable HTTP server lives in
 ### 3.3 Outbound MCP clients
 
 The outbound MCP clients in
-[internal/mcpserver/client_streamable_http.go](../../../internal/mcpserver/client_streamable_http.go),
+[internal/mcpserver/client_streamable_http.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/client_streamable_http.go),
 `client_sse.go`, `client_stdio.go`, `client_dynamic_auth.go`, and the
 shared `client_interface.go` all sit on top of `mark3labs/mcp-go` and
 its `transport.HTTPHeaderFunc` plumbing. They currently call an
@@ -366,13 +366,13 @@ negotiated protocol version.
 
 The current aggregator caches per-`(sessionID, serverName)` capability
 sets in
-[internal/aggregator/capability_store.go](../../../internal/aggregator/capability_store.go)
+[internal/aggregator/capability_store.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/capability_store.go)
 (plus `capability_store_valkey.go`) with a flat
 `DefaultCapabilityStoreTTL = 30 * 24 * time.Hour`, and it depends on
 `notifications/*/list_changed` from upstreams to refresh — driven by
 the long-lived SSE/notification stream and surfaced by handlers in
 `internal/aggregator/notification_subscriber.go`,
-[internal/aggregator/registry.go](../../../internal/aggregator/registry.go),
+[internal/aggregator/registry.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/registry.go),
 and `internal/agent/client.go`. With SEP-2549:
 
 - The cache TTL for each `tools/list` / `resources/list` /
@@ -398,7 +398,7 @@ and `internal/agent/client.go`. With SEP-2549:
 
 ### 3.5 Tracing: `_meta` keys for `traceparent` / `tracestate` / `baggage`
 
-Muster already propagates W3C trace context: the CHANGELOG entry
+muster already propagates W3C trace context: the CHANGELOG entry
 ("Outbound MCP clients (stdio, SSE, streamable-http, dynamic-auth)
 install mcp-go's OTEL tracer via the `mcp-go/otel.WithClientTracing`
 adapter so the muster → backend leg inherits the inbound trace context
@@ -408,21 +408,21 @@ documents the current setup, and the same paragraph notes that
 so inbound `traceparent` headers are honoured even when no exporter is
 configured". The Helm chart in `helm/muster/values.yaml` notes that
 inbound `traceparent` headers from agentgateway propagate to outbound;
-[pkg/logging/logging.go](../../../pkg/logging/logging.go) decorates
+[pkg/logging/logging.go](https://github.com/giantswarm/muster/blob/main/pkg/logging/logging.go) decorates
 log records with the active span's `TraceID` and `SpanID`; and
 [docs/explanation/observability.md](../observability.md) documents
 the end-to-end behaviour for downstream spans that "join via
 `traceparent`". The tracing-related test files
-([internal/mcpserver/tracing_test.go](../../../internal/mcpserver/tracing_test.go),
-[internal/aggregator/tracing_test.go](../../../internal/aggregator/tracing_test.go),
-[internal/workflow/tracing.go](../../../internal/workflow/tracing.go),
-[internal/workflow/tracing_test.go](../../../internal/workflow/tracing_test.go))
+([internal/mcpserver/tracing_test.go](https://github.com/giantswarm/muster/blob/main/internal/mcpserver/tracing_test.go),
+[internal/aggregator/tracing_test.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/tracing_test.go),
+[internal/workflow/tracing.go](https://github.com/giantswarm/muster/blob/main/internal/workflow/tracing.go),
+[internal/workflow/tracing_test.go](https://github.com/giantswarm/muster/blob/main/internal/workflow/tracing_test.go))
 cover the wiring.
 
 What SEP-414 changes for muster is the **canonical location** of the
 keys: the spec now pins them inside `_meta` (alongside, not instead
 of, the HTTP-header propagation that mcp-go's OTEL adapter handles).
-Muster needs to make sure that:
+muster needs to make sure that:
 
 - When acting as a server, it accepts `traceparent`, `tracestate`,
   and `baggage` inside `_meta` (not just as HTTP headers) and feeds
@@ -437,7 +437,7 @@ Muster needs to make sure that:
 
 ### 3.6 Server-to-client requests (muster as elicitor)
 
-Muster does not, today, issue `elicitation/create` or
+muster does not, today, issue `elicitation/create` or
 `sampling/createMessage` server-to-client requests as part of its own
 tool surface (a repo grep for `elicitation` / `Elicit` /
 `InputRequired` returns no files). The relevant cases are:
@@ -450,7 +450,7 @@ tool surface (a repo grep for `elicitation` / `Elicit` /
   `requestState`. Because the spec forbids resumable streams and
   requires `requestState` to be self-contained, muster must **not**
   introduce any cross-pod state to track in-flight elicitations.
-- **Muster-originated elicitations (future).** If muster ever decides
+- **muster-originated elicitations (future).** If muster ever decides
   to elicit (for example, prompting the user to authorize a new
   upstream mid-tool-call), it has to do so per SEP-2260 — only while
   it is processing a client-originated request — and per SEP-2322,
@@ -513,7 +513,7 @@ folder have all landed.
   in muster (sub from the bearer token? the OAuth `sub`? a derived
   ID that survives token rotation?), and how does it interact with
   the existing `subjectSessionTracker` in
-  [internal/aggregator/server.go](../../../internal/aggregator/server.go)?
+  [internal/aggregator/server.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/server.go)?
 - The Valkey-backed `CapabilityStore` is keyed per session today. If
   the new key is the authenticated principal, what TTL is appropriate
   (currently 30 days for inactivity), and how does it interact with
