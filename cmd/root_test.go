@@ -6,15 +6,52 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+
+	"github.com/giantswarm/muster/v5/pkg/project"
 )
 
-func TestSetVersion(t *testing.T) {
-	// Test setting version
-	testVersion := "1.2.3-test"
-	SetVersion(testVersion)
+func TestVersionIsTheProjectVersionLine(t *testing.T) {
+	if got, want := rootCmd.Version, project.VersionLine(); got != want {
+		t.Errorf("rootCmd.Version = %q, want %q", got, want)
+	}
+}
 
-	if rootCmd.Version != testVersion {
-		t.Errorf("Expected version to be %s, got %s", testVersion, rootCmd.Version)
+// The hint that a newer release exists is for the commands a person runs at a
+// terminal, not for the processes and the plumbing.
+func TestRemindsOfNewerRelease(t *testing.T) {
+	rootCmd.InitDefaultHelpCmd()
+	rootCmd.InitDefaultCompletionCmd()
+	byPath := map[string]*cobra.Command{}
+	var walk func(c *cobra.Command)
+	walk = func(c *cobra.Command) {
+		for _, sub := range c.Commands() {
+			byPath[sub.CommandPath()] = sub
+			walk(sub)
+		}
+	}
+	walk(rootCmd)
+	for path, want := range map[string]bool{
+		"muster list":            true,
+		"muster call":            true,
+		"muster auth login":      true,
+		"muster serve":           false,
+		"muster standalone":      false,
+		"muster agent":           false,
+		"muster test":            false,
+		"muster version":         false,
+		"muster self-update":     false,
+		"muster help":            false,
+		"muster completion":      false,
+		"muster completion bash": false,
+	} {
+		c, ok := byPath[path]
+		if !ok {
+			t.Errorf("no command %q registered", path)
+			continue
+		}
+		if got := remindsOfNewerRelease(c); got != want {
+			t.Errorf("remindsOfNewerRelease(%s) = %v, want %v", path, got, want)
+		}
 	}
 }
 

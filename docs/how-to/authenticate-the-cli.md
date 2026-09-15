@@ -95,6 +95,7 @@ logs; only hashed identifiers do.
 | `1` | Error: the command failed or its arguments were invalid |
 | `2` | Authentication required and not available (`--auth none`, or the token could not be refreshed) |
 | `3` | Authentication failed: the OAuth flow itself did not complete |
+| `125` | `self-update --check` only: a newer release exists |
 
 ```bash
 muster list mcpserver --auth none

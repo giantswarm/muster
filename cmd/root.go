@@ -4,13 +4,15 @@ import (
 	"errors"
 	"os"
 
-	"github.com/giantswarm/muster/v5/internal/cli"
-
 	"github.com/spf13/cobra"
+
+	"github.com/giantswarm/muster/v5/internal/cli"
+	"github.com/giantswarm/muster/v5/internal/update"
+	"github.com/giantswarm/muster/v5/pkg/project"
 )
 
 // Exit codes for CLI commands.
-// These follow common conventions and are documented in docs/reference/cli/auth.md
+// These follow common conventions and are documented in docs/how-to/authenticate-the-cli.md
 const (
 	// ExitCodeSuccess indicates successful execution.
 	ExitCodeSuccess = 0
@@ -20,6 +22,9 @@ const (
 	ExitCodeAuthRequired = 2
 	// ExitCodeAuthFailed indicates the OAuth flow failed.
 	ExitCodeAuthFailed = 3
+	// ExitCodeOutdated is what `muster self-update --check` exits with when a
+	// newer release exists -- devctl's convention for `version check`.
+	ExitCodeOutdated = 125
 )
 
 // rootCmd represents the base command for the muster application.
@@ -43,6 +48,48 @@ Documentation: https://giantswarm.github.io/muster/`,
 	// SilenceUsage prevents Cobra from printing the usage message on errors that are handled by the application.
 	// This is useful for providing cleaner error output to the user.
 	SilenceUsage: true,
+	// The build identity, printed by `muster --version` (see Execute for the
+	// template) and `muster version`.
+	Version: project.VersionLine(),
+	// Runs for every subcommand, none of which has a PersistentPreRun of its
+	// own: the one-line hint that a newer release exists, on stderr ahead of
+	// the command's own output, the way agentlab does it
+	// (docs/operations/installation.md; MUSTER_NO_UPDATE_CHECK=1 disables
+	// it). Quiet for the processes nobody watches and for the commands that
+	// speak about versions themselves, see remindsOfNewerRelease.
+	PersistentPreRun: func(cmd *cobra.Command, _ []string) {
+		if remindsOfNewerRelease(cmd) {
+			update.Remind(cmd.Context(), cmd.ErrOrStderr())
+		}
+	},
+}
+
+// quietCommands never print the newer-release hint: the long-running and
+// machine-facing processes, where a line on stderr is noise in someone's logs
+// (the aggregator, the stdio bridge, the agent in any of its modes, the test
+// runner), the commands about versions (version, self-update) and cobra's
+// plumbing (help, completion).
+var quietCommands = map[string]bool{
+	"serve":       true,
+	"standalone":  true,
+	"agent":       true,
+	"test":        true,
+	"version":     true,
+	"self-update": true,
+	"help":        true,
+	"completion":  true,
+}
+
+// remindsOfNewerRelease says whether cmd is a command a person runs at a
+// terminal, the ones the hint is for: neither it nor a command above it is
+// hidden or in quietCommands (`completion bash` is under `completion`).
+func remindsOfNewerRelease(cmd *cobra.Command) bool {
+	for c := cmd; c != nil; c = c.Parent() {
+		if c.Hidden || quietCommands[c.Name()] {
+			return false
+		}
+	}
+	return true
 }
 
 // RootCommand returns the root command with every subcommand registered. The
@@ -50,18 +97,6 @@ Documentation: https://giantswarm.github.io/muster/`,
 // hack/gen-cli-docs, so the command help texts are the documentation.
 func RootCommand() *cobra.Command {
 	return rootCmd
-}
-
-// SetVersion sets the version for the root command.
-// This function is typically called from the main package to inject the application version at build time.
-func SetVersion(v string) {
-	rootCmd.Version = v
-}
-
-// GetVersion returns the current version of the application.
-// This can be used by other commands to access the build version.
-func GetVersion() string {
-	return rootCmd.Version
 }
 
 // Execute is the main entry point for the CLI application.
@@ -83,6 +118,11 @@ func Execute() {
 // getExitCode determines the appropriate exit code based on the error type.
 // This provides semantic exit codes for scripting and automation.
 func getExitCode(err error) int {
+	// `self-update --check` found a newer release: the status is the answer.
+	if errors.Is(err, update.ErrOutdated) {
+		return ExitCodeOutdated
+	}
+
 	// Check for authentication-related errors
 	var authRequired *cli.AuthRequiredError
 	if errors.As(err, &authRequired) {

@@ -36,7 +36,7 @@ Documentation: https://giantswarm.github.io/muster/
 * [muster events](events.md)	 - List events for muster resources
 * [muster get](get.md)	 - Get detailed information about a resource
 * [muster list](list.md)	 - List resources
-* [muster self-update](self-update.md)	 - Update muster to the latest version
+* [muster self-update](self-update.md)	 - Replace this binary with the latest GitHub release (--check only reports whether one exists)
 * [muster serve](serve.md)	 - Start the muster aggregator server.
 * [muster standalone](standalone.md)	 - Start the muster in standalone mode
 * [muster start](start.md)	 - Start a resource
