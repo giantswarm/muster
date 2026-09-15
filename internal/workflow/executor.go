@@ -77,6 +77,12 @@ type stepMetadata struct {
 	ConditionEvaluation *bool       // Boolean result of condition evaluation (nil if no condition)
 	ConditionResult     interface{} // Actual result from condition tool call (nil if no condition)
 	ConditionTool       string      // Tool used for condition evaluation (empty if no condition)
+	// ResultKey names the results entry this record's result lives under when
+	// it differs from ID: a forEach body step runs once per item under one ID,
+	// and its result is kept per iteration as "<id>_<index>" -- without the key
+	// every iteration's record would show the last iteration's result.
+	ResultKey string
+	Iteration *int // The forEach iteration this record belongs to (nil outside a loop)
 }
 
 // executionContext holds the state during workflow execution.
@@ -300,8 +306,15 @@ func (we *WorkflowExecutor) buildStepsArray(stepMetadata []stepMetadata, results
 		// Add result for output steps (the returned document). Results are
 		// always recorded for referencing, but only surfaced here when
 		// requested -- or for every step in debug mode (includeAllResults).
-		if (stepMeta.Output || includeAllResults) && results[stepMeta.ID] != nil {
-			step["result"] = results[stepMeta.ID]
+		resultKey := stepMeta.ID
+		if stepMeta.ResultKey != "" {
+			resultKey = stepMeta.ResultKey
+		}
+		if stepMeta.Iteration != nil {
+			step["iteration"] = *stepMeta.Iteration
+		}
+		if (stepMeta.Output || includeAllResults) && results[resultKey] != nil {
+			step["result"] = results[resultKey]
 		}
 
 		// Add error if this is the failed step
@@ -770,7 +783,16 @@ func (we *WorkflowExecutor) runForEach(ctx context.Context, workflowName string,
 				return outcome, nil
 			}
 			if v, ok := execCtx.results[ss.ID]; ok {
-				execCtx.results[fmt.Sprintf("%s_%d", ss.ID, idx)] = v
+				key := fmt.Sprintf("%s_%d", ss.ID, idx)
+				execCtx.results[key] = v
+				// The record runStep just appended is this iteration's; point it
+				// at the per-iteration result so the returned document shows
+				// what this iteration produced, not the loop's last.
+				if n := len(execCtx.stepMetadata); n > 0 && execCtx.stepMetadata[n-1].ID == ss.ID {
+					i := idx
+					execCtx.stepMetadata[n-1].ResultKey = key
+					execCtx.stepMetadata[n-1].Iteration = &i
+				}
 			}
 		}
 	}

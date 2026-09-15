@@ -71,6 +71,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **A `forEach` can iterate a step result's field.** `items: "{{ .results.<id>.<field> }}"` failed every workflow with `items expression … resolved to string, expected a list`: a reference deeper than one key below `.input`, `.results` or `.vars` was rendered as text, so only a list passed in as a workflow argument could be iterated. Template references that are a pure path now keep their Go type at any depth -- the navigator the `spec.output` template already uses -- so a forEach over the pods a previous step listed works, `{{ .vars.pod.name }}` inside the loop body is the string it names, and a numeric field referenced as a tool argument arrives as a number. Anything more than a pure path still renders to text. The returned document also showed the loop's *last* result on every iteration's record (the records share the body step's ID); each record now carries its own iteration's result and an `iteration` index. Scenario `workflow-foreach-step-result-items`.
+
 - `go install github.com/giantswarm/muster/v5@latest` builds the release it resolves to. Go refuses
   `go install <package>@<version>` for a module whose go.mod carries a `replace` directive, and go.mod
   carried one since 2026-08-28: goldmark pinned to a fixed version for the nancy scan, because
