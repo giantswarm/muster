@@ -630,32 +630,6 @@ func (e *ToolExecutor) outputTable(jsonData string) error {
 	return e.formatter.FormatData(data)
 }
 
-// ListMCPTools returns all MCP tools by paging through the list_tools
-// meta-tool. This method retrieves the actual tools (core_*, x_*, workflow_*)
-// rather than the meta-tools exposed by the MCP native tools/list protocol.
-//
-// Args:
-//   - ctx: Context for execution timeout and cancellation
-//
-// Returns:
-//   - []mcp.Tool: Slice of all available tools from the server
-//   - error: Connection or retrieval error, if any
-func (e *ToolExecutor) ListMCPTools(ctx context.Context) ([]mcp.Tool, error) {
-	response, err := metatools.ListAllTools(ctx, e.client.CallTool)
-	if err != nil {
-		return nil, err
-	}
-
-	tools := make([]mcp.Tool, len(response.Tools))
-	for i, t := range response.Tools {
-		tools[i] = mcp.Tool{
-			Name:        t.Name,
-			Description: t.Text(),
-		}
-	}
-	return tools, nil
-}
-
 // ListMCPResources returns all MCP resources using native protocol.
 // This method retrieves resources directly from the MCP server without going through
 // the tool execution interface.

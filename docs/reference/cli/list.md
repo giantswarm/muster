@@ -18,7 +18,10 @@ Available resource types:
 Filtering (for MCP primitives only: tool, resource, prompt):
   --filter <pattern>       - Filter by name pattern (wildcards * and ? supported)
   --description <text>     - Filter by description content (case-insensitive substring)
-  --server <name>          - Filter by server name prefix (e.g., "github", "core")
+  --server <name>          - Filter by server. Tools: the server a tool belongs to as the
+                             aggregator reports it (e.g. "files" for x_files_*, "core",
+                             "workflow"), or the prefix of the exposed name (e.g. "x_files").
+                             Resources and prompts: the prefix of the exposed name.
 
 Output options:
   --output/-o <format>     - Output format: table (default), wide, json, yaml
@@ -42,6 +45,7 @@ Examples:
   muster list tools -o wide
   muster list tools --filter "core_*"
   muster list tools --server github
+  muster list tools --server files -o wide
   muster list tools --filter "*service*" --description "status"
   muster list resources --output yaml
   muster list mcpservers --no-headers | awk '{print $1}'
@@ -67,7 +71,7 @@ muster list
       --no-headers           Suppress header row in table output
   -o, --output string        Output format (table, wide, json, yaml) (default "table")
   -q, --quiet                Suppress non-essential output
-      --server string        Filter by server name prefix (for MCP primitives only)
+      --server string        Filter by server: the server a tool belongs to (e.g. "files", "core") or the exposed name prefix (e.g. "x_files"); for MCP primitives only
       --verbose              Show detailed error information for failed/unreachable servers (for mcpserver only)
 ```
 

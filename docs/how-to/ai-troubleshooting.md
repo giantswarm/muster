@@ -118,7 +118,7 @@ configuration is the thing to check, not your login.
 ```bash
 # What is actually aggregated, and from which server?
 muster list tools
-muster list tools --server github          # filter by server prefix
+muster list tools --server github          # the tools of one server
 muster list tools --filter "*deploy*"      # filter by name pattern
 muster list mcpserver --all --verbose      # include unreachable servers + errors
 

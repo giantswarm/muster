@@ -31,6 +31,15 @@ All notable changes to this project will be documented in this file.
 
 - `muster start workflow <name>` no longer passes the CLI's own flags on as workflow input. `--endpoint`, `--auth`, `--context`, `--config-path`, `--debug` and the output flags given after the workflow name reached the workflow engine as arguments, were recorded in the `WorkflowExecution` (`auth: none`, `endpoint: http://...`) and would have collided with a workflow argument of the same name. `muster start workflow` and `muster call` now tell their own flags apart through cobra's flag set -- one grammar for both, no hand-kept list to drift -- and forward every other `--key=value` pair. After `--` every pair is forwarded as it is, so a workflow or tool argument named like a CLI flag can be passed against a non-default muster: `muster start workflow w --endpoint http://muster:8090/mcp -- --endpoint=https://target`. `muster call` did not leak the flags but discarded everything after `--`. ([#1249](https://github.com/giantswarm/muster/issues/1249))
 
+- `muster list tool --server <name>` finds the tools of an aggregated server. The flag matched
+  the name against the start of the exposed tool name, which for a server registered as
+  `files` is `x_files_<tool>`, so `--server files` printed "No tools found" for every
+  aggregated server, and no spelling at all selected a server whose `toolPrefix` differs from
+  its name. `--server` now matches the server a tool belongs to as `list_tools` reports it
+  (`files`, `core`, `workflow`), independent of the tool prefix, and accepts the exposed prefix
+  (`x_files`) as well; `-o wide` and `-o json` show that server instead of the first name
+  segment (`x`). ([#1248](https://github.com/giantswarm/muster/issues/1248))
+
 - `muster test`: the process `test_restart_instance` starts no longer dies when the restart step returns. It was bound to the step's context, so a restart step with a `timeout` killed the new `muster serve` right after it had passed readiness and the next step found the connection reset.
 
 - The DPoP replay cache's Valkey client no longer enables valkey-go's client-side cache: nothing reads through it, and its `CLIENT TRACKING` handshake failed against a server without the feature, which left muster's OAuth server in degraded mode (`service_unavailable` on every request). The session stores and the mcp-oauth store already ran without it since v5.19.13.
