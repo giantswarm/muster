@@ -46,6 +46,7 @@ All notable changes to this project will be documented in this file.
   flags and linking with them; a branch build gets `git describe`, e.g. `v5.23.2-1-g4be8379e`), a
   pseudo-version from the build info is no longer shown as the version, and `self-update` refuses a
   version that is not a release (`dev`, a bare commit) instead of panicking on it.
+  ([#1256](https://github.com/giantswarm/muster/pull/1256))
 
 - `muster start workflow <name>` no longer passes the CLI's own flags on as workflow input. `--endpoint`, `--auth`, `--context`, `--config-path`, `--debug` and the output flags given after the workflow name reached the workflow engine as arguments, were recorded in the `WorkflowExecution` (`auth: none`, `endpoint: http://...`) and would have collided with a workflow argument of the same name. `muster start workflow` and `muster call` now tell their own flags apart through cobra's flag set -- one grammar for both, no hand-kept list to drift -- and forward every other `--key=value` pair. After `--` every pair is forwarded as it is, so a workflow or tool argument named like a CLI flag can be passed against a non-default muster: `muster start workflow w --endpoint http://muster:8090/mcp -- --endpoint=https://target`. `muster call` did not leak the flags but discarded everything after `--`. ([#1249](https://github.com/giantswarm/muster/issues/1249))
 
