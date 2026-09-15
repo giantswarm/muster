@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/giantswarm/muster/internal/clock"
 )
 
 // RestartInstance stops the instance's muster serve process and starts it
@@ -38,7 +40,8 @@ func (m *musterInstanceManager) RestartInstance(ctx context.Context, instance *M
 	// step's context, and a step with a timeout cancels it as soon as the
 	// step returns, which would kill the process right after readiness. The
 	// process ends the way the first one did, through DestroyInstance.
-	proc, err := m.startMusterProcess(context.WithoutCancel(ctx), instance.ConfigPath, instance.Port, instance.MetricsPort, logger)
+	timing := instanceTiming{intervals: instance.Intervals, clockSocket: instance.ClockSocketPath}
+	proc, err := m.startMusterProcess(context.WithoutCancel(ctx), instance.ConfigPath, instance.Port, instance.MetricsPort, timing, logger)
 	if err != nil {
 		m.mu.Lock()
 		delete(m.processes, instance.ID)
@@ -58,5 +61,16 @@ func (m *musterInstanceManager) RestartInstance(ctx context.Context, instance *M
 	if m.debug {
 		logger.Debug("🔁 muster instance %s started again (PID %d), waiting for readiness\n", instance.ID, proc.cmd.Process.Pid)
 	}
-	return m.WaitForReady(ctx, instance, logger)
+	if err := m.WaitForReady(ctx, instance, logger); err != nil {
+		return err
+	}
+	// The new process starts on the system time; the scenario's clock had
+	// moved on. Advance it by the same offset, so time never runs backwards
+	// across a restart (a pod restart does not turn the wall clock back).
+	if instance.ClockOffset > 0 {
+		if _, err := clock.RemoteAdvance(instance.ClockSocketPath, instance.ClockOffset); err != nil {
+			return fmt.Errorf("failed to re-apply the clock offset of %s to the restarted instance: %w", instance.ClockOffset, err)
+		}
+	}
+	return nil
 }

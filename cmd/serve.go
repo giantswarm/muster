@@ -12,6 +12,7 @@ import (
 	"github.com/giantswarm/mcp-toolkit/tracing"
 
 	"github.com/giantswarm/muster/internal/app"
+	"github.com/giantswarm/muster/internal/clock"
 	"github.com/giantswarm/muster/internal/config"
 	"github.com/giantswarm/muster/pkg/logging"
 	"github.com/giantswarm/muster/pkg/observability"
@@ -132,6 +133,14 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("init meter: %w", err)
 	}
 	defer otelShutdown("meter", shutdownMeter)
+
+	// The controllable clock's control endpoint, served only when the
+	// integration test harness selected one through MUSTER_TEST_CLOCK.
+	stopClock, err := clock.StartControl()
+	if err != nil {
+		return err
+	}
+	defer stopClock()
 
 	// Create application configuration without cluster arguments
 	cfg := app.NewConfig(serveDebug, serveConfigPath).

@@ -8,8 +8,10 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/giantswarm/muster/internal/template"
@@ -71,6 +73,12 @@ type ProtectedMCPServerConfig struct {
 	// TrustJWKSURL is set. Empty accepts any issuer.
 	ExpectedIssuer string
 
+	// StartAnonymous makes the server accept every request without a token
+	// until SetAuthRequired(true): the old, anonymous pod of a backend that
+	// is being rolled over to OAuth. While anonymous it publishes no RFC 9728
+	// metadata either.
+	StartAnonymous bool
+
 	// ConnectDelay holds every initialize request for this long before the
 	// server answers it: a backend that is slow to connect, so a scenario can
 	// prove what the aggregator does while a session's connect to it is still
@@ -96,6 +104,11 @@ type ProtectedMCPServer struct {
 	// outage, when armed, answers requests with a fixed HTTP status before
 	// the OAuth middleware sees them. It survives Stop/StartOnPort.
 	outage outageGate
+	// authRequired is whether requests need a valid bearer token. Flipped by
+	// SetAuthRequired; survives Stop/StartOnPort and Redeploy.
+	authRequired atomic.Bool
+	// live is the handler behind the listening port; Redeploy replaces it.
+	live *swappableHandler
 }
 
 // NewProtectedMCPServer creates a new OAuth-protected mock MCP server
@@ -104,9 +117,44 @@ func NewProtectedMCPServer(config ProtectedMCPServerConfig) (*ProtectedMCPServer
 		config.Transport = HTTPTransportStreamableHTTP
 	}
 
-	return &ProtectedMCPServer{
-		config: config,
-	}, nil
+	s := &ProtectedMCPServer{config: config}
+	s.authRequired.Store(!config.StartAnonymous)
+	return s, nil
+}
+
+// SetAuthRequired switches the server between answering anonymously and
+// requiring a bearer token (401 with the RFC 9728 challenge). The change
+// applies to the next request; sessions already established stay.
+func (s *ProtectedMCPServer) SetAuthRequired(required bool) {
+	s.authRequired.Store(required)
+	if s.config.Debug {
+		fmt.Fprintf(os.Stderr, "🔒 Protected MCP server %s: auth required = %t\n", s.config.Name, required)
+	}
+}
+
+// AuthRequired reports whether requests currently need a bearer token.
+func (s *ProtectedMCPServer) AuthRequired() bool {
+	return s.authRequired.Load()
+}
+
+// Redeploy replaces the handler behind the listening port with a fresh one
+// built from the server's tools (configured and added at runtime): every MCP
+// session is forgotten while the port keeps accepting, see HTTPServer.Redeploy.
+func (s *ProtectedMCPServer) Redeploy() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.running {
+		return fmt.Errorf("protected MCP server %s is not running", s.config.Name)
+	}
+	handler, err := s.createProtectedHandler()
+	if err != nil {
+		return fmt.Errorf("failed to create handler: %w", err)
+	}
+	s.live.set(handler)
+	if s.config.Debug {
+		fmt.Fprintf(os.Stderr, "🔁 Redeployed protected MCP server %s on port %d: sessions forgotten\n", s.config.Name, s.port)
+	}
+	return nil
 }
 
 // Start starts the protected MCP server on a random available port
@@ -133,7 +181,8 @@ func (s *ProtectedMCPServer) Start(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("failed to create handler: %w", err)
 	}
 
-	httpServer := &http.Server{Handler: s.outage.wrap(handler)} //nolint:gosec
+	s.live = &swappableHandler{h: handler}
+	httpServer := &http.Server{Handler: s.outage.wrap(s.live)} //nolint:gosec
 	s.httpServer = httpServer
 
 	// Serve on the captured server, not on the field: Stop clears the field
@@ -183,7 +232,8 @@ func (s *ProtectedMCPServer) StartOnPort(ctx context.Context, port int) error {
 		return fmt.Errorf("failed to create handler: %w", err)
 	}
 
-	httpServer := &http.Server{Handler: s.outage.wrap(handler)} //nolint:gosec
+	s.live = &swappableHandler{h: handler}
+	httpServer := &http.Server{Handler: s.outage.wrap(s.live)} //nolint:gosec
 	s.httpServer = httpServer
 
 	// Serve on the captured server, not on the field: Stop clears the field
@@ -347,6 +397,7 @@ func (s *ProtectedMCPServer) createProtectedHandler() (http.Handler, error) {
 
 	// Create OAuth protection middleware
 	protectedHandler := &oauthProtectionMiddleware{
+		required:             s.authRequired.Load,
 		handler:              underlyingHandler,
 		oauthServer:          s.config.OAuthServer,
 		issuer:               s.advertisedIssuer(),
@@ -383,7 +434,14 @@ func (s *ProtectedMCPServer) createProtectedHandler() (http.Handler, error) {
 		// A backend without RFC 9728 support: nothing to discover.
 		resourceMetadata = http.NotFound
 	}
-	mux.HandleFunc("/.well-known/oauth-protected-resource", resourceMetadata)
+	mux.HandleFunc("/.well-known/oauth-protected-resource", func(w http.ResponseWriter, r *http.Request) {
+		if !s.authRequired.Load() {
+			// An anonymous backend publishes no resource metadata.
+			http.NotFound(w, r)
+			return
+		}
+		resourceMetadata(w, r)
+	})
 
 	// Pass all other requests to the protected handler
 	mux.Handle("/", protectedHandler)
@@ -393,6 +451,9 @@ func (s *ProtectedMCPServer) createProtectedHandler() (http.Handler, error) {
 
 // oauthProtectionMiddleware validates OAuth tokens before passing to MCP handler
 type oauthProtectionMiddleware struct {
+	// required reports whether a bearer token is needed right now; false
+	// passes every request through anonymously.
+	required      func() bool
 	handler       http.Handler
 	oauthServer   *OAuthServer
 	jwksValidator *jwksValidator
@@ -404,6 +465,10 @@ type oauthProtectionMiddleware struct {
 }
 
 func (m *oauthProtectionMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if m.required != nil && !m.required() {
+		m.handler.ServeHTTP(w, r)
+		return
+	}
 	// Check for Authorization header and extract Bearer token
 	auth := r.Header.Get("Authorization")
 	if auth == "" {
@@ -541,6 +606,9 @@ func (s *ProtectedMCPServer) AddDynamicTool(toolConfig ToolConfig) {
 	handler := NewToolHandler(toolConfig, s.templateEngine, s.config.Debug)
 	s.toolHandlers[toolConfig.Name] = handler
 	s.mcpServer.AddTool(handler.createMCPTool(), handler.createMCPHandler())
+	// Kept in the configuration too, so a Redeploy rebuilds the tool set as it is.
+	s.config.Tools = slices.DeleteFunc(s.config.Tools, func(t ToolConfig) bool { return t.Name == toolConfig.Name })
+	s.config.Tools = append(s.config.Tools, toolConfig)
 
 	if s.config.Debug {
 		fmt.Fprintf(os.Stderr, "Dynamically added tool '%s' to protected server '%s'\n", toolConfig.Name, s.config.Name)
@@ -559,6 +627,7 @@ func (s *ProtectedMCPServer) RemoveDynamicTool(toolName string) {
 
 	delete(s.toolHandlers, toolName)
 	s.mcpServer.DeleteTools(toolName)
+	s.config.Tools = slices.DeleteFunc(s.config.Tools, func(t ToolConfig) bool { return t.Name == toolName })
 
 	if s.config.Debug {
 		fmt.Fprintf(os.Stderr, "Dynamically removed tool '%s' from protected server '%s'\n", toolName, s.config.Name)

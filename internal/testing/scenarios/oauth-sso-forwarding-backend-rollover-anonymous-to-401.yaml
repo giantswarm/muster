@@ -1,0 +1,157 @@
+name: "oauth-sso-forwarding-backend-rollover-anonymous-to-401"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  A backend configured for session-level auth (auth.forwardToken) is rolled
+  over from an anonymous pod to one that requires a bearer token, and back,
+  while muster runs: muster never registers it globally, reports it
+  auth_required throughout, and the session that authenticated to muster
+  keeps calling its tool through the forwarded token on both sides of each
+  flip (#1135).
+
+  During the rollout that made the Agent Platform MCP servers OAuth resource
+  servers, the old anonymous pod still answered muster's connection probe.
+  muster took the accepted probe for "no auth needed", registered the server
+  globally with a token-less client, and once the OAuth pod took over that
+  client 401-looped and every session's call failed with "authorization
+  required" until muster restarted. The per-session forwarding path was never
+  used because the decision to skip global registration read the registry
+  entry the registration itself creates.
+
+  The mock is the backend at both stages: it starts anonymous
+  (oauth.required: false with a token validator configured) and
+  test_set_mock_server_auth flips it to 401-with-metadata and back.
+tags: ["oauth", "sso", "token-forwarding", "mcpserver", "rollover", "faults", "issue-1135", "regression"]
+timeout: "3m"
+
+pre_configuration:
+  mock_oauth_servers:
+    - name: "rollover-idp"
+      scopes: ["openid", "profile", "email", "groups"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "rollover-client"
+      client_secret: "rollover-secret"
+      use_as_muster_oauth_server: true
+      # The ID token muster forwards is what the flipped backend verifies
+      # against this issuer's JWKS, so it has to be signed.
+      sign_tokens: true
+
+  mcp_servers:
+    - name: "rolling"
+      config:
+        type: "streamable-http"
+        # Tools are served per session only; readiness must not wait for them.
+        expect_ready: false
+        oauth:
+          # The old pod: anonymous. The token validator below is what the new
+          # pod will check the forwarded ID token against once flipped.
+          required: false
+          trust_issuer_ref: "rollover-idp"
+          forward_token: true
+        tools:
+          - name: "op"
+            description: "Operation on a forward-token server behind a backend being rolled over"
+            responses:
+              - response:
+                  status: "ok"
+                  source: "rolling"
+
+steps:
+  - id: "auth-required-while-the-pod-is-anonymous"
+    description: "A forwardToken server whose probe the anonymous pod accepted still reports auth_required, not connected"
+    tool: "core_service_status"
+    args:
+      name: "rolling"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "rolling"
+        state: "auth_required"
+
+  - id: "muster-auth-login"
+    description: "Authenticate to muster; the session's SSO init forwards its ID token to the server"
+    tool: "test_muster_auth_login"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "success"
+        - "ID token stored"
+
+  - id: "connected-for-the-session"
+    tool: "test_read_auth_status"
+    args:
+      server: "rolling"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains:
+        - "rolling"
+        - "connected"
+
+  - id: "tool-via-session-before-the-flip"
+    tool: "x_rolling_op"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains:
+        - "ok"
+        - "rolling"
+
+  - id: "new-pod-requires-a-token"
+    description: "The OAuth pod takes over: every request without a valid bearer is answered 401 with resource metadata"
+    tool: "test_set_mock_server_auth"
+    args:
+      server: "rolling"
+      required: true
+    expected:
+      success: true
+      contains: ["requires a bearer token"]
+
+  - id: "tool-via-session-after-the-flip"
+    description: "The session's client forwards the ID token; the new pod validates it. Before the fix the token-less global client 401-looped here"
+    tool: "x_rolling_op"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains:
+        - "ok"
+        - "rolling"
+
+  - id: "rolled-back-to-anonymous"
+    description: "A rollback: the pod answers anonymously again and ignores the bearer it is sent"
+    tool: "test_set_mock_server_auth"
+    args:
+      server: "rolling"
+      required: false
+    expected:
+      success: true
+      contains: ["answers anonymously"]
+
+  - id: "tool-via-session-after-the-rollback"
+    tool: "x_rolling_op"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains:
+        - "ok"
+        - "rolling"
+
+# The server never had a moment without forwardToken, so the aggregator's
+# event handler must never have registered it globally, at either stage: the
+# anonymous probe's shared client is discarded, the session's connect is
+# served per session (the service then reads connected for that session),
+# and no session ever met a token-less client's 401.
+instance_logs:
+  contains:
+    - "MCP server accepted an anonymous connection but is configured for session-level auth"
+    - "Skipping global registration of rolling - server uses session-level auth"
+  not_contains:
+    - "Registering healthy MCP server: rolling"
+    - "authorization required"

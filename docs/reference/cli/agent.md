@@ -48,7 +48,7 @@ muster agent [flags]
       --auth string          Authentication mode: auto (default), prompt, or none (env: MUSTER_AUTH_MODE)
       --config-path string   Configuration directory (default "~/.config/muster")
       --context string       Use a specific context (env: MUSTER_CONTEXT)
-      --disable-auto-sso     Disable automatic authentication with remote MCP servers after Muster auth
+      --disable-auto-sso     Disable automatic authentication with remote MCP servers after muster auth
       --endpoint string      Aggregator MCP endpoint URL (default: from config)
   -h, --help                 help for agent
       --json-rpc             Enable full JSON-RPC message logging

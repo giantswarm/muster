@@ -38,9 +38,9 @@ muster serve [flags]
   -h, --help                                 help for serve
       --oauth-mcp-client                     Enable OAuth MCP client/proxy for remote MCP server authentication
       --oauth-mcp-client-id string           OAuth client identifier (CIMD URL). If empty, auto-derived from public URL
-      --oauth-mcp-client-public-url string   Publicly accessible URL of the Muster Server for OAuth callbacks
-      --oauth-server                         Enable OAuth 2.1 protection for Muster Server (requires config file for full setup)
-      --oauth-server-base-url string         Base URL of the Muster Server for OAuth (e.g., https://muster.example.com)
+      --oauth-mcp-client-public-url string   Publicly accessible URL of the muster server for OAuth callbacks
+      --oauth-server                         Enable OAuth 2.1 protection for muster server (requires config file for full setup)
+      --oauth-server-base-url string         Base URL of the muster server for OAuth (e.g., https://muster.example.com)
       --silent                               Disable console log output. Does not silence OTLP — unset OTEL_EXPORTER_OTLP_* or set OTEL_SDK_DISABLED=true for that.
 ```
 

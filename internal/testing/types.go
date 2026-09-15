@@ -187,6 +187,13 @@ type MusterPreConfiguration struct {
 	// APIServer shapes the instance's view of the API server in Kubernetes
 	// mode. Absent means reachable from the start.
 	APIServer *APIServerConfig `yaml:"apiserver,omitempty"`
+
+	// Intervals selects the schedule of the instance's lifecycle timers:
+	// "short" (default) runs them in seconds through environment knobs;
+	// "production" keeps the timers the controllable clock reaches on their
+	// production defaults, for scenarios that move time with
+	// test_advance_clock instead. See IntervalsShort and IntervalsProduction.
+	Intervals string `yaml:"intervals,omitempty"`
 }
 
 // APIServerConfig describes how the API server behaves towards a
@@ -367,6 +374,15 @@ type MusterInstance struct {
 	// APIServerAddr is the address of the instance's API server proxy in
 	// Kubernetes mode, "" in filesystem mode.
 	APIServerAddr string
+	// Intervals is the schedule the instance's timers run on: IntervalsShort
+	// or IntervalsProduction.
+	Intervals string
+	// ClockSocketPath is the Unix socket muster serve exposes its clock
+	// control on (MUSTER_TEST_CLOCK); test_advance_clock talks to it.
+	ClockSocketPath string
+	// ClockOffset is how far the scenario has advanced the instance's clock.
+	// A restarted process is advanced by it again, so time never goes back.
+	ClockOffset time.Duration
 }
 
 // MockHTTPServerInfo contains information about a running mock HTTP server
@@ -489,7 +505,10 @@ type TrustedIssuerConfig struct {
 
 // MCPServerOAuthConfig defines OAuth protection for an MCP server in tests
 type MCPServerOAuthConfig struct {
-	// Required indicates this server requires OAuth authentication
+	// Required indicates this server requires OAuth authentication. With
+	// MockOAuthServerRef set and Required false the mock starts anonymous --
+	// the old pod of a backend being rolled over to OAuth -- and
+	// test_set_mock_server_auth flips it.
 	Required bool `yaml:"required"`
 
 	// MockOAuthServerRef references a mock OAuth server by name
@@ -539,6 +558,14 @@ type MCPServerOAuthConfig struct {
 	// ExpectedAudience is the aud the forwarded token must carry when
 	// TrustIssuerRef is set. Empty accepts any audience.
 	ExpectedAudience string `yaml:"expected_audience,omitempty"`
+}
+
+// tokenCapable reports whether the mock backend can validate bearer tokens:
+// it requires them, or it names a validator (an authorization server whose
+// tokens it accepts, or an issuer whose JWTs it verifies) and may start
+// anonymous to be flipped later by test_set_mock_server_auth.
+func (c *MCPServerOAuthConfig) tokenCapable() bool {
+	return c.Required || c.MockOAuthServerRef != "" || c.TrustIssuerRef != ""
 }
 
 // MockOAuthServerInfo contains info about a running mock OAuth server

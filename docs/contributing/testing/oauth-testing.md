@@ -172,6 +172,9 @@ SSO works because:
 | `test_stop_valkey` / `test_start_valkey` | Valkey stand-in | A Valkey outage with the data kept, and its recovery, while muster runs |
 | `test_patch_cr` / `test_get_cr` | envtest API server (Kubernetes mode) | A merge patch on a CR the scenario applied (e.g. `spec.suspended`, labels, `spec.auth.authorizationServer`) and a read of the CR with the status muster wrote; needs `pre_configuration.mode: kubernetes` (see "Kubernetes mode" in scenarios.md) |
 | `test_set_apiserver_reachable` | API server proxy (Kubernetes mode) | The API server gone mid-run (`reachable: false`) and back (`true`) for this instance alone |
+| `test_redeploy_mock_server` | Mock MCP server (plain or protected) | A fresh backend process behind the same port: every MCP session forgotten, tools kept, no refused connection in between |
+| `test_set_mock_server_auth` | Protected mock MCP server | Flips the backend between anonymous and 401-with-metadata while it runs (a rollover from an anonymous pod to an OAuth resource server, or back); needs a token validator on the mock, `oauth.required` is the state at start |
+| `test_advance_clock` | muster serve's clock and every mock OAuth server's clock | Moves time forward on both sides at once: backoffs, the orchestrator's ticks, the catalogue age and token lifetimes (see "Faults and time" in scenarios.md); `test_advance_oauth_clock` moves the authorization server alone |
 
 ### When to Use Each Tool
 

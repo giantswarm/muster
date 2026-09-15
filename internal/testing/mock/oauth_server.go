@@ -244,10 +244,11 @@ func NewOAuthServer(config OAuthServerConfig) *OAuthServer {
 		config.ClientID = "test-client"
 	}
 
-	// Use the provided clock or default to RealClock
+	// Use the provided clock or default to one on the system time that
+	// test_advance_clock can move forward with muster's own.
 	clock := config.Clock
 	if clock == nil {
-		clock = RealClock{}
+		clock = NewOffsetClock()
 	}
 
 	s := &OAuthServer{

@@ -177,6 +177,9 @@ func (l *scenarioLoader) validateScenario(scenario TestScenario, filePath string
 	if err := validateModeConfig(scenario.PreConfiguration); err != nil {
 		return err
 	}
+	if err := validateIntervalsConfig(scenario.PreConfiguration); err != nil {
+		return err
+	}
 
 	// An instance_logs block with nothing to check would pass vacuously -- the
 	// same failure mode status_code and retry had.

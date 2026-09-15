@@ -544,6 +544,72 @@ their source or the API server: a Kubernetes-mode instance costs a namespace
 and a proxy on the shared control plane, and only scenarios about the CR
 lifecycle learn anything from it.
 
+#### Faults and time
+
+The faults an installation meets are named steps, each a mechanism rather
+than a bug, and every one of them acts on the harness's own infrastructure
+while `muster serve` runs untouched:
+
+| Fault | Step or setting | What muster sees |
+|-------|-----------------|------------------|
+| Backend gone | `test_stop_mock_server` / `test_start_mock_server` | Connections refused for a while, then a fresh process on the same port |
+| Backend redeployed | `test_redeploy_mock_server: {server}` | The port never refuses; a fresh process that knows no session -- the next call with the old session id is answered 404 (a rolled pod behind the same Service) |
+| Gateway in front of the backend failing | `test_set_mock_server_outage: {server, requests, status, pings}` | An HTTP status (504 by default) for the next `requests` connection attempts, then normal service |
+| Backend rolled over between anonymous and OAuth | `test_set_mock_server_auth: {server, required: true\|false}` | The same process answering anonymously, or 401 with the RFC 9728 challenge and resource metadata. The mock needs a token validator (`oauth.mock_oauth_server_ref` or `oauth.trust_issuer_ref`); `oauth.required` is its state at start |
+| Backend suspended in its definition | `mcp_servers[].config.suspended: true`, `test_patch_cr` / `core_mcpserver_update` | A server muster boots with but must keep down |
+| Authorization server that forgot its clients | `test_forget_oauth_registrations` | Every RFC 7591 registration gone (an AS restart with an in-memory client store) |
+| Valkey late at start / gone / back | `storage.start_delay`, `test_stop_valkey` / `test_start_valkey` | Connections refused until the store answers; the data kept (see "Storage backend and process restart") |
+| API server late at start / gone / back | `apiserver.reachable_after`, `test_set_apiserver_reachable: false\|true` | Connections refused for this instance alone (see "Kubernetes mode") |
+| muster restarted | `test_restart_instance` | A new process on the stores of the old one |
+
+Elapsed time is the other dimension. Every instance has a **controllable
+clock**: `muster serve` runs with `MUSTER_TEST_CLOCK` naming a Unix socket
+the harness owns, and `test_advance_clock: {duration}` moves the process's
+clock forward by that much -- together with the clock of every mock
+authorization server of the instance, so token lifetimes on the
+authorization server and muster's own timers agree. The timers on that
+clock are the reconnect backoff of a remote MCPServer and the orchestrator's
+retry and health-probe ticks (`internal/orchestrator`,
+`internal/services/mcpserver`) and the age of the aggregator's core
+catalogue (`internal/aggregator`): a tick that has become due fires at once
+when the clock passes it, so nothing waits. Production binaries never see
+the variable and keep the system time.
+
+By default an instance runs on `intervals: short`: the harness shortens
+those timers to seconds through environment knobs (a 1 s initial backoff
+capped at 3 s, 1 s retry and health ticks, a 3 s catalogue age, a 2 s
+reconciler resync), so a scenario sees them act within its `wait_for_state`
+budgets without touching the clock. A scenario that asserts the production
+schedule itself -- the 2 min backoff cap, the 5 min catalogue age -- selects
+`intervals: production` and advances the clock instead:
+
+```yaml
+pre_configuration:
+  intervals: "production"   # 30 s initial backoff, 2 min cap, 30 s ticks, 5 min catalogue age
+
+steps:
+  - id: "two-minutes-pass"
+    tool: "test_advance_clock"
+    args: { duration: "2m" }      # the retry tick fires now if a retry is due
+    expected:
+      success: true
+```
+
+The reconciler's resync is controller-runtime's and out of the clock's
+reach, so it stays at 2 s on both schedules. Token expiry on the
+authorization-server side is the mock's clock: `test_advance_oauth_clock`
+moves it alone (with `use_mock_clock`, a clock that stands still between
+advances), `test_advance_clock` moves it with muster's. The stores'
+time-to-live checks -- the OAuth token stores, the capability store, Valkey's
+own key expiry -- run on the system time and are not reached by the clock;
+scenarios about them use short lifetimes.
+
+A `test_restart_instance` after an advance starts the new process at the
+system time and advances it by the same offset, so time never runs backwards
+across a restart. Under `intervals: production` a first connect that fails
+is retried 30 s later; keep the default for scenarios that do not assert the
+production schedule.
+
 ### 5. Mock Server Configuration
 
 #### Complete Mock Server Example

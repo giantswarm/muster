@@ -1,0 +1,83 @@
+name: "workflow-catalogue-age-refresh-on-production-schedule"
+description: "On the production schedule -- a five-minute core catalogue age, passed by advancing the controllable clock -- the meta-tool call that finds the catalogue old is served it as it is and one rebuild runs in the background: every call across the boundary answers with the full core catalogue and the serve log shows exactly one age-triggered rebuild (#1231)"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "metatools", "catalogue", "clock", "regression", "issue-1231"]
+timeout: "3m"
+
+# The harness's shortened intervals age the catalogue with a 3 s maximum and
+# a 5 s delayed tool call. Here the instance runs on the production age of
+# five minutes and the scenario advances the clock past it: no waiting, and
+# the schedule asserted is the installation's.
+
+pre_configuration:
+  intervals: "production"
+  workflows:
+    - name: "catalogue-member"
+      config:
+        description: "A workflow that gives the core catalogue a workflow tool to rebuild"
+        steps:
+          - id: "list"
+            tool: "core_service_list"
+            args: {}
+
+steps:
+  - id: "warm-the-catalogue"
+    description: "the first listing builds the core catalogue"
+    tool: "test_call_meta_tool"
+    args: { tool: "filter_tools", arguments: { pattern: "core_service_*", limit: 100 } }
+    expected:
+      success: true
+      contains: ["core_service_list"]
+
+  - id: "workflow-in-the-catalogue"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_tool", arguments: { name: "workflow_catalogue-member" } }
+    expected:
+      success: true
+      json_path:
+        name: "workflow_catalogue-member"
+
+  - id: "five-minutes-pass"
+    description: "the catalogue built above is past its five-minute age when the next call arrives"
+    tool: "test_advance_clock"
+    args:
+      duration: "5m1s"
+    expected:
+      success: true
+      contains: ["Advanced the clock by 5m1s"]
+
+  - id: "served-across-the-age-boundary"
+    description: "the call that finds the catalogue old is served it in full and starts the rebuild in the background"
+    tool: "test_call_meta_tool"
+    args: { tool: "filter_tools", arguments: { pattern: "core_service_*", limit: 100 } }
+    expected:
+      success: true
+      contains: ["core_service_list", "core_service_status"]
+
+  - id: "described-across-the-age-boundary"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_tool", arguments: { name: "core_mcpserver_list" } }
+    expected:
+      success: true
+      json_path:
+        name: "core_mcpserver_list"
+        annotations.readOnlyHint: true
+
+  - id: "workflow-served-from-the-rebuilt-catalogue"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_tool", arguments: { name: "workflow_catalogue-member" } }
+    expected:
+      success: true
+      wait_for_state: "20s"
+      json_path:
+        name: "workflow_catalogue-member"
+        annotations.readOnlyHint: true
+
+# The initial build and exactly one age-triggered rebuild, which ran in the
+# background; nothing invalidated the catalogue in between.
+instance_logs:
+  contains:
+    - 'msg="Core catalogue rebuilt" subsystem=Aggregator trigger=initial'
+  occurrences:
+    'msg="Core catalogue rebuilt" subsystem=Aggregator trigger=age': 1
