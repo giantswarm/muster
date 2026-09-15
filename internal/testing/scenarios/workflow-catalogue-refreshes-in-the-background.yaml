@@ -1,0 +1,93 @@
+name: "workflow-catalogue-refreshes-in-the-background"
+description: "A meta-tool call that finds the core catalogue older than its maximum age is served the catalogue as it is and starts one rebuild in the background, instead of paying the rebuild itself: across the age boundary every call answers with the full core catalogue, and the serve log shows the age-triggered rebuild with its duration (#1231)"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "metatools", "catalogue", "1231"]
+timeout: "5m"
+
+# The harness runs muster with MUSTER_CORE_CATALOGUE_MAX_AGE=3s (production:
+# 5 min); a 5 s delayed mock tool call is the clock that ages the catalogue
+# past it without a sleep.
+pre_configuration:
+  mcp_servers:
+    - name: "clock"
+      config:
+        type: "streamable-http"
+        tools:
+          - name: "wait"
+            description: "Answers after the core catalogue's maximum age has passed"
+            input_schema:
+              type: "object"
+              properties: {}
+            responses:
+              - response: { waited: "5s" }
+                delay: "5s"
+
+steps:
+  - id: "wait-for-server"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["clock"]
+
+  - id: "warm-the-catalogue"
+    description: "the first listing builds the core catalogue"
+    tool: "test_call_meta_tool"
+    args: { tool: "filter_tools", arguments: { pattern: "core_service_*", limit: 100 } }
+    expected:
+      success: true
+      contains: ["core_service_list"]
+
+  - id: "age-the-catalogue"
+    description: "5 s on a 3 s maximum age: the catalogue built above is past its age when the next call arrives"
+    tool: "x_clock_wait"
+    args: {}
+    expected:
+      success: true
+      contains: ["waited"]
+    timeout: "30s"
+
+  - id: "served-across-the-age-boundary"
+    description: "the call that finds the catalogue old is served it in full and starts the rebuild in the background"
+    tool: "test_call_meta_tool"
+    args: { tool: "filter_tools", arguments: { pattern: "core_service_*", limit: 100 } }
+    expected:
+      success: true
+      contains: ["core_service_list", "core_service_status"]
+
+  - id: "described-across-the-age-boundary"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_tool", arguments: { name: "core_mcpserver_list" } }
+    expected:
+      success: true
+      json_path:
+        name: "core_mcpserver_list"
+        annotations.readOnlyHint: true
+
+  - id: "let-the-rebuild-land"
+    description: "the background rebuild has landed long before this call returns"
+    tool: "x_clock_wait"
+    args: {}
+    expected:
+      success: true
+      contains: ["waited"]
+    timeout: "30s"
+
+  - id: "served-from-the-rebuilt-catalogue"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_tool", arguments: { name: "core_service_list" } }
+    expected:
+      success: true
+      json_path:
+        name: "core_service_list"
+        annotations.readOnlyHint: true
+
+# The rebuild the aged catalogue triggered ran in the background and is
+# logged with its trigger and duration; the initial build of the process is
+# logged the same way.
+instance_logs:
+  contains:
+    - 'msg="Core catalogue rebuilt" subsystem=Aggregator trigger=initial'
+    - 'msg="Core catalogue rebuilt" subsystem=Aggregator trigger=age'

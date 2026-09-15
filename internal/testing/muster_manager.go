@@ -1256,6 +1256,10 @@ func (m *musterInstanceManager) startMusterProcess(ctx context.Context, configPa
 		// stop of a suspended server -- stays done across them (production:
 		// 30s).
 		"MUSTER_RECONCILER_RESYNC_INTERVAL=2s",
+		// A 5 s delayed mock tool call ages the core catalogue past this, so
+		// a scenario sees the read after it refresh the catalogue in the
+		// background within seconds (production: 5 min).
+		"MUSTER_CORE_CATALOGUE_MAX_AGE=3s",
 		"OTEL_METRICS_EXPORTER=prometheus",
 		"OTEL_EXPORTER_PROMETHEUS_HOST=127.0.0.1",
 		fmt.Sprintf("OTEL_EXPORTER_PROMETHEUS_PORT=%d", metricsPort),
