@@ -402,6 +402,16 @@ type MockOAuthServerConfig struct {
 	// Name is the unique identifier for this OAuth server
 	Name string `yaml:"name"`
 
+	// Profile selects the bundle of behaviours of a named authorization
+	// server -- "github", "dex" or "pro" (mock.Profile) -- so a scenario
+	// reproduces that server's quirks without listing them one by one. Every
+	// flag below that is set overrides the bundle for that flag alone; a flag
+	// the bundle switches on is switched off by setting it to false. The
+	// bundle also gives the MCP servers that reference this server their
+	// defaults (bare 401, subject-scoped grants, a pin with explicit
+	// endpoints for github), see MCPServerOAuthConfig.
+	Profile string `yaml:"profile,omitempty"`
+
 	// Issuer is the OAuth issuer URL (auto-generated if not specified)
 	Issuer string `yaml:"issuer,omitempty"`
 
@@ -460,13 +470,14 @@ type MockOAuthServerConfig struct {
 	SupportsCIMD bool `yaml:"supports_cimd,omitempty"`
 
 	// SupportsDCR advertises a registration_endpoint and serves RFC 7591
-	// Dynamic Client Registration.
-	SupportsDCR bool `yaml:"supports_dcr,omitempty"`
+	// Dynamic Client Registration. Unset follows the profile.
+	SupportsDCR *bool `yaml:"supports_dcr,omitempty"`
 
 	// RequireRegisteredClient makes the token endpoint reject client_ids
 	// that are neither the configured client_id nor DCR-registered —
 	// mimicking DCR-only authorization servers ("Client Not Registered").
-	RequireRegisteredClient bool `yaml:"require_registered_client,omitempty"`
+	// Unset follows the profile.
+	RequireRegisteredClient *bool `yaml:"require_registered_client,omitempty"`
 
 	// RejectRegistrationScope makes the registration endpoint reject RFC 7591
 	// requests that carry a scope member with invalid_client_metadata —
@@ -489,7 +500,28 @@ type MockOAuthServerConfig struct {
 
 	// OmitTokenScope leaves `scope` out of the token responses, as Dex does
 	// (RFC 6749 §5.1 allows it when the granted scope is the requested one).
-	OmitTokenScope bool `yaml:"omit_token_scope,omitempty"`
+	// Unset follows the profile.
+	OmitTokenScope *bool `yaml:"omit_token_scope,omitempty"`
+
+	// OmitDiscovery serves no RFC 8414 / OIDC discovery document, as GitHub
+	// does; muster then needs a pin with explicit endpoints. Unset follows
+	// the profile.
+	OmitDiscovery *bool `yaml:"omit_discovery,omitempty"`
+
+	// OmitTokenExpiry leaves `expires_in` out of the token responses, as
+	// GitHub does. Unset follows the profile.
+	OmitTokenExpiry *bool `yaml:"omit_token_expiry,omitempty"`
+
+	// OmitRegistrationClientURI leaves registration_client_uri and
+	// registration_access_token out of RFC 7591 registration responses, as
+	// the MCP TypeScript SDK's authorization server does. Unset follows the
+	// profile.
+	OmitRegistrationClientURI *bool `yaml:"omit_registration_client_uri,omitempty"`
+
+	// ForgetRegistrationsOnRestart makes test_restart_mock_oauth_server drop
+	// every RFC 7591 registration, as a server with an in-memory client store
+	// does. Unset follows the profile.
+	ForgetRegistrationsOnRestart *bool `yaml:"forget_registrations_on_restart,omitempty"`
 }
 
 // TrustedIssuerConfig defines a trusted issuer for RFC 8693 token exchange
@@ -524,8 +556,9 @@ type MCPServerOAuthConfig struct {
 	// OmitResourceMetadata makes the mock backend publish no RFC 9728
 	// resource metadata (bare 401 challenge, no well-known document), so the
 	// aggregator learns the issuer only from the pin -- see
-	// mock.ProtectedMCPServerConfig.OmitResourceMetadata.
-	OmitResourceMetadata bool `yaml:"omit_resource_metadata,omitempty"`
+	// mock.ProtectedMCPServerConfig.OmitResourceMetadata. Unset follows the
+	// referenced mock OAuth server's profile (true for github).
+	OmitResourceMetadata *bool `yaml:"omit_resource_metadata,omitempty"`
 
 	// AdvertisedIssuerRef names the mock OAuth server the backend's RFC 9728
 	// metadata lists as its authorization server, while tokens are still
@@ -536,13 +569,15 @@ type MCPServerOAuthConfig struct {
 
 	// PinAuthorizationServer pins MockOAuthServerRef as the MCPServer's
 	// authorization server (spec.auth.authorizationServer.issuer, with Scope
-	// as scopes) without a grant scope; GrantScope implies it.
-	PinAuthorizationServer bool `yaml:"pin_authorization_server,omitempty"`
+	// as scopes) without a grant scope; GrantScope implies it. Unset follows
+	// the referenced mock OAuth server's profile (a github server is pinned
+	// with its endpoints and grant_scope subject).
+	PinAuthorizationServer *bool `yaml:"pin_authorization_server,omitempty"`
 
 	// PinEndpointsRef names the mock OAuth server whose authorize and token
 	// endpoints the pin carries as authorizationEndpoint/tokenEndpoint (the
 	// GitHub shape: explicit endpoints, no discovery) -- possibly a different
-	// server than the pinned issuer.
+	// server than the pinned issuer. A github-profile server names itself.
 	PinEndpointsRef string `yaml:"pin_endpoints_ref,omitempty"`
 
 	// Scope is the required OAuth scope
@@ -576,6 +611,9 @@ type MockOAuthServerInfo struct {
 	Port int
 	// IssuerURL is the OAuth issuer URL
 	IssuerURL string
+	// Profile is the authorization-server profile the scenario selected for
+	// this server ("" for the well-behaved default), see mock.Profile.
+	Profile string
 	// AccessToken is a pre-generated access token for test framework authentication.
 	// This is only set when the OAuth server is used as muster's OAuth server
 	// (UseAsMusterOAuthServer=true), allowing the test framework to authenticate

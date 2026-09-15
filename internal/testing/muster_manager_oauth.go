@@ -71,13 +71,18 @@ func (m *musterInstanceManager) startMockOAuthServers(
 			UseTLS:                    useTLS,
 			SignTokens:                signTokens,
 			SupportsCIMD:              oauthCfg.SupportsCIMD,
-			SupportsDCR:               oauthCfg.SupportsDCR,
-			RequireRegisteredClient:   oauthCfg.RequireRegisteredClient,
 			AuthorizeAcceptsAnyClient: oauthCfg.AuthorizeAcceptsAnyClient,
 			RejectRegistrationScope:   oauthCfg.RejectRegistrationScope,
 			AdvertiseIssParameter:     oauthCfg.AdvertiseIssParameter,
-			OmitTokenScope:            oauthCfg.OmitTokenScope,
 		}
+
+		// The profile's bundle first, every flag the scenario set over it.
+		profile, bundle, err := mockOAuthProfile(oauthCfg)
+		if err != nil {
+			m.stopMockOAuthServers(ctx, instanceID, logger)
+			return nil, err
+		}
+		applyMockOAuthBundle(&serverConfig, oauthCfg, bundle)
 
 		// Use mock clock if configured (enables test_advance_oauth_clock tool)
 		if oauthCfg.UseMockClock {
@@ -120,6 +125,7 @@ func (m *musterInstanceManager) startMockOAuthServers(
 			Name:      oauthCfg.Name,
 			Port:      port,
 			IssuerURL: oauthServer.GetIssuerURL(),
+			Profile:   string(profile),
 		}
 
 		// If this server is used as muster's OAuth server, generate a test token
@@ -336,13 +342,13 @@ func (m *musterInstanceManager) extractOAuthConfig(config map[string]interface{}
 		result.GrantScope = grantScope
 	}
 	if omit, ok := oauthMap["omit_resource_metadata"].(bool); ok {
-		result.OmitResourceMetadata = omit
+		result.OmitResourceMetadata = &omit
 	}
 	if ref, ok := oauthMap["advertised_issuer_ref"].(string); ok {
 		result.AdvertisedIssuerRef = ref
 	}
 	if pin, ok := oauthMap["pin_authorization_server"].(bool); ok {
-		result.PinAuthorizationServer = pin
+		result.PinAuthorizationServer = &pin
 	}
 	if ref, ok := oauthMap["pin_endpoints_ref"].(string); ok {
 		result.PinEndpointsRef = ref
@@ -383,9 +389,11 @@ func (m *musterInstanceManager) startProtectedMCPServer(
 	oauthServers map[string]*MockOAuthServerInfo,
 	logger TestLogger,
 ) (*MockHTTPServerInfo, error) {
-	// Find the referenced OAuth server
+	// Find the referenced OAuth server; its profile gives this resource its
+	// defaults (a github-style backend answers a bare 401).
 	var oauthServer *mock.OAuthServer
 	var issuer string
+	var bundle mock.ProfileBundle
 
 	if oauthConfig.MockOAuthServerRef != "" {
 		oauthInfo, exists := oauthServers[oauthConfig.MockOAuthServerRef]
@@ -393,6 +401,7 @@ func (m *musterInstanceManager) startProtectedMCPServer(
 			return nil, fmt.Errorf("referenced OAuth server %s not found", oauthConfig.MockOAuthServerRef)
 		}
 		issuer = oauthInfo.IssuerURL
+		bundle = mock.Profile(oauthInfo.Profile).Bundle()
 
 		// Get the actual OAuth server instance
 		m.mu.RLock()
@@ -410,7 +419,7 @@ func (m *musterInstanceManager) startProtectedMCPServer(
 		OAuthServer:          oauthServer,
 		Issuer:               issuer,
 		RequiredScope:        oauthConfig.Scope,
-		OmitResourceMetadata: oauthConfig.OmitResourceMetadata,
+		OmitResourceMetadata: boolOr(oauthConfig.OmitResourceMetadata, bundle.ResourceOmitsMetadata),
 		StartAnonymous:       !oauthConfig.Required,
 		Tools:                tools,
 		Transport:            transportType,

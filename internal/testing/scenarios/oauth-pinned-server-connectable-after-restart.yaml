@@ -7,10 +7,13 @@ description: |
   were signed in, and its grant stays revocable -- with no login in the new
   process to fill the registry entry's issuer.
 
-  Two servers (a hosted one and an in-house one, GitHub-style) verify tokens
-  from the same subject-scoped issuer and publish no RFC 9728 resource
-  metadata, so after a start their registry entries know no issuer. The
-  person signs in to gh-hosted and uses both. muster serve then restarts;
+  Two servers (a hosted one and an in-house one) verify tokens from the same
+  GitHub-style authorization server (`profile: github`: no discovery
+  document, a pre-registered client, `scope` and `expires_in` absent from its
+  token responses, grants that are the person's) and, as GitHub's resources
+  do, publish no RFC 9728 resource metadata, so after a start their registry
+  entries know no issuer. The person signs in to gh-hosted and uses both.
+  muster serve then restarts;
   the person's client reconnects with the bearer it held and, without any
   core_auth_login,
 
@@ -43,7 +46,10 @@ pre_configuration:
       client_secret: "person-secret"
       use_as_muster_oauth_server: true
 
+    # GitHub: the profile pins both servers to it with explicit endpoints,
+    # files their grants under the person and makes them answer a bare 401.
     - name: "github-as"
+      profile: "github"
       scopes: ["repo", "read:org"]
       auto_approve: true
       pkce_required: false
@@ -58,8 +64,6 @@ pre_configuration:
           required: true
           mock_oauth_server_ref: "github-as"
           scope: "repo"
-          grant_scope: "subject"
-          omit_resource_metadata: true
         tools:
           - name: "whoami"
             description: "Who the hosted server sees"
@@ -75,8 +79,6 @@ pre_configuration:
           required: true
           mock_oauth_server_ref: "github-as"
           scope: "repo"
-          grant_scope: "subject"
-          omit_resource_metadata: true
         tools:
           - name: "board"
             description: "The in-house server's board"

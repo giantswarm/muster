@@ -5,9 +5,10 @@ description: "DCR authorization server that reveals a lost registration only at 
 tags: ["oauth", "authentication", "mcpserver", "dcr"]
 timeout: "2m"
 
-# Same loss as oauth-dcr-reregister-after-as-forgets-client — the IdP forgets
-# muster's RFC 7591 registration — but this IdP's authorization endpoint
-# accepts any client_id (authorize_accepts_any_client), so muster's
+# Same loss as oauth-dcr-reregister-after-as-forgets-client — a pro-style IdP
+# (no registration_client_uri, so no RFC 7592 read) forgets muster's RFC 7591
+# registration — but this variation's authorization endpoint accepts any
+# client_id (authorize_accepts_any_client over the profile), so muster's
 # pre-challenge probe sees a healthy server, the sign-in link carries the
 # dead client_id, and the failure surfaces as invalid_client at the code
 # exchange. That answer must make muster drop the stored registration, so the
@@ -15,12 +16,11 @@ timeout: "2m"
 pre_configuration:
   mock_oauth_servers:
     - name: "token-strict-idp"
+      profile: "pro"
       scopes: ["openid", "profile", "mcp:read"]
       auto_approve: true
       pkce_required: true
       token_lifetime: "1h"
-      supports_dcr: true
-      require_registered_client: true
       authorize_accepts_any_client: true
 
   mcp_servers:

@@ -106,6 +106,7 @@ The `test_simulate_oauth_callback` tool bridges these by completing the full OAu
 |-----------|----------|---------|
 | Mock OAuth Server | `internal/testing/mock/oauth_server.go` | OAuth 2.1 server for testing |
 | Mock Clock | `internal/testing/mock/clock.go` | Time manipulation for expiry tests |
+| Authorization-server profiles | `internal/testing/mock/oauth_profile.go` | `github` / `dex` / `pro`: one bundle of a real authorization server's quirks, see "Authorization-server profiles" |
 | Protected MCP Server | `internal/testing/mock/protected_mcp_server.go` | MCP server with OAuth protection |
 | Test Fixtures | `internal/testing/fixtures/oauth/` | Sample tokens and metadata |
 | `test_simulate_oauth_callback` | `internal/testing/test_tools.go` | Complete OAuth flow simulation |
@@ -166,8 +167,9 @@ SSO works because:
 |------|--------------|----------|
 | `test_inject_token` | Mock OAuth Server only | Testing token validation, 401 behavior |
 | `test_simulate_oauth_callback` | Both (via full flow) | Testing complete OAuth integration |
-| `test_get_oauth_server_info` | N/A (read-only) | Debugging OAuth server state; `dcr_registrations` / `dcr_registered_clients` for DCR assertions |
-| `test_forget_oauth_registrations` | Mock OAuth Server only | Drops every RFC 7591 registration the mock holds — an AS restart with an in-memory client store — to test muster's re-registration |
+| `test_get_oauth_server_info` | N/A (read-only) | Debugging OAuth server state; `profile`, `dcr_registrations` / `dcr_registered_clients` for DCR assertions |
+| `test_forget_oauth_registrations` | Mock OAuth Server only | Drops every RFC 7591 registration the mock holds — the loss alone, without the restart |
+| `test_restart_mock_oauth_server` | Mock OAuth Server only | Replaces the authorization server's process behind its port and issuer (a pod replaced): tokens, codes and the configured client stay; under `profile: pro` (or `forget_registrations_on_restart`) the RFC 7591 registrations go with the old process, so muster presents a `client_id` the server no longer knows. Result: `forgotten`, `dcr_registered_clients`, `port` |
 | `test_restart_instance` | muster serve (process) | Restarts `muster serve` on the same configuration while the Valkey stand-in and every mock server keep running, then reconnects every user client with its bearer — the sessions that lived through a rollout. Needs `pre_configuration.storage.type: valkey` for anything to survive (see "Storage backend and process restart" in scenarios.md) |
 | `test_stop_valkey` / `test_start_valkey` | Valkey stand-in | A Valkey outage with the data kept, and its recovery, while muster runs |
 | `test_patch_cr` / `test_get_cr` | envtest API server (Kubernetes mode) | A merge patch on a CR the scenario applied (e.g. `spec.suspended`, labels, `spec.auth.authorizationServer`) and a read of the CR with the status muster wrote; needs `pre_configuration.mode: kubernetes` (see "Kubernetes mode" in scenarios.md) |
@@ -371,8 +373,81 @@ found" path has to run before any session calls that tool.
 metadata: a bare `WWW-Authenticate: Bearer` on 401 and a 404 for
 `/.well-known/oauth-protected-resource`. The aggregator then registers the
 server without an issuer and learns it only from the pin -- the state of a
-restarted muster before anyone logs in. See
+restarted muster before anyone logs in. `profile: github` on the referenced
+mock OAuth server implies it, together with `grant_scope: subject` and the
+endpoints pin (see "Authorization-server profiles"). See
 `oauth-subject-grant-logout-without-resource-metadata.yaml`.
+
+### Authorization-server profiles
+
+A scenario against a named authorization server selects its **profile** on
+the mock OAuth server instead of listing that server's quirks flag by flag --
+a scenario about GitHub that forgets one flag passes against a GitHub that
+does not exist. `mock_oauth_servers[].profile` is `github`, `dex` or `pro`
+(`mock.Profile` in `internal/testing/mock/oauth_profile.go`; each bundle's
+wire behaviour is asserted by a unit test there):
+
+| profile | the authorization server | the resources that verify its tokens |
+|---|---|---|
+| `github` | no RFC 8414 / OIDC discovery document (404 on both well-known paths); no Client ID Metadata Documents and no RFC 7591 registration -- only the pre-registered `client_id`, refused directly at `/authorize` otherwise; `scope` omitted from token responses; access tokens without an expiry (`expires_in` absent) | answer a bare 401 without RFC 9728 metadata (`omit_resource_metadata`); grants are the person's (`grant_scope: subject`); muster is pinned to the issuer with explicit `authorizationEndpoint` / `tokenEndpoint` (`pin_authorization_server` with `pin_endpoints_ref` naming the server itself), since nothing can be discovered |
+| `dex` | a discovery document; `scope` omitted from token responses (RFC 6749 §5.1); an id_token with every token; RFC 7591 registration | RFC 9728 metadata as usual |
+| `pro` (the MCP TypeScript SDK's authorization server) | a discovery document; RFC 7591 registration whose response carries no `registration_client_uri` / `registration_access_token`, so muster cannot check a registration through RFC 7592 and probes the authorization endpoint instead; a `client_id` it does not know answered directly at `/authorize` with a JSON `invalid_client`, never redirected; the token endpoint refuses unregistered clients; registrations held in memory and gone with `test_restart_mock_oauth_server` | RFC 9728 metadata as usual |
+
+Without a profile the mock is a well-behaved authorization server: a
+discovery document, `scope` and `expires_in` in every token response,
+registration responses with the RFC 7592 pair (`GET registration_client_uri`
+answers 200 while the client is known and 401 once it is forgotten), and a
+restart that keeps its registrations.
+
+Every individual flag still works and overrides the profile for that flag
+alone: `supports_dcr: false` beside `profile: dex` is a Dex without
+registration; `authorize_accepts_any_client: true` beside `profile: pro` is a
+pro whose authorization endpoint reveals nothing about an unknown client
+(`oauth-dcr-reregister-after-token-endpoint-invalid-client.yaml`). The
+resource-side defaults are overridden the same way on the MCP server's `oauth`
+block (`omit_resource_metadata: false`, `grant_scope: session`,
+`pin_endpoints_ref`, `pin_authorization_server: false`). The flags a profile
+reaches on the mock OAuth server: `omit_discovery`, `supports_dcr`,
+`require_registered_client`, `omit_token_scope`, `omit_token_expiry`,
+`omit_registration_client_uri`, `forget_registrations_on_restart`; on the MCP
+server: `omit_resource_metadata`, `grant_scope`, `pin_authorization_server`,
+`pin_endpoints_ref`.
+
+```yaml
+pre_configuration:
+  mock_oauth_servers:
+    - name: "github-as"
+      profile: "github"
+      scopes: ["repo", "read:org"]
+      auto_approve: true
+      client_id: "github-client"
+
+  mcp_servers:
+    - name: "gh-hosted"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "github-as"   # bare 401, subject-scoped grant and the endpoints pin follow from the profile
+          scope: "repo"
+```
+
+`test_get_oauth_server_info` reports a server's `profile`. The scenarios that
+reproduce a named server's bug carry its profile: `dex` in
+`oauth-pinned-issuer-is-the-grant-key.yaml` (a server's grant survives the
+login id_token mirror, muster#1174), `pro` in
+`oauth-dcr-reregister-after-as-forgets-client.yaml` (a registration a restart
+forgot is detected and made again, muster#1128), `github` in
+`oauth-pinned-server-connectable-after-restart.yaml` (a pinned bare-401
+server is connectable after a muster restart with no login in the new
+process, muster#1150).
+
+One thing the `github` bundle does not model: on an installation muster
+identifies itself to GitHub with a client registered out of band
+(`spec.auth.authorizationServer.clientCredentialsSecretRef`, a Kubernetes
+Secret), which a filesystem-mode scenario cannot provide. The mock's token
+endpoint therefore accepts muster's client identification under `github`;
+only its authorization endpoint refuses a `client_id` it does not know.
 
 ### Pinned authorization servers that differ from the advertised one
 
@@ -386,7 +461,8 @@ authorization server while tokens are still validated against
 `mock_oauth_server_ref`: a backend that accepts tokens from an authorization
 server other than the one it advertises (muster's own `/mcp` trusts its IdP's
 tokens but names muster's OAuth server). On a mock OAuth server,
-`omit_token_scope: true` leaves `scope` out of token responses, as Dex does.
+`omit_token_scope: true` leaves `scope` out of token responses, as Dex does
+(`profile: dex` implies it).
 
 `test_resolve_auth_redirect` (`server`) runs `core_auth_login` and follows the
 challenge's start URL one hop; its result names the mock OAuth server the
