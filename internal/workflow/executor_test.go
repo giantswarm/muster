@@ -162,8 +162,16 @@ func TestWorkflowExecutor_ResolveTemplate(t *testing.T) {
 		},
 		results: map[string]interface{}{
 			"step1": map[string]interface{}{
-				"url": "http://localhost:9090",
+				"url":   "http://localhost:9090",
+				"count": 3,
+				"items": []interface{}{
+					map[string]interface{}{"name": "pod-a", "namespace": "kagent"},
+					map[string]interface{}{"name": "pod-b", "namespace": "kagent"},
+				},
 			},
+		},
+		variables: map[string]interface{}{
+			"pod": map[string]interface{}{"name": "pod-a", "restarts": 2},
 		},
 	}
 
@@ -186,6 +194,37 @@ func TestWorkflowExecutor_ResolveTemplate(t *testing.T) {
 			name:     "nested access",
 			template: "{{ .results.step1.url }}",
 			expected: "http://localhost:9090",
+		},
+		{
+			// A deeper path keeps its type: a forEach can iterate a step
+			// result's field without the list being rendered to text.
+			name:     "nested list keeps its type",
+			template: "{{ .results.step1.items }}",
+			expected: []interface{}{
+				map[string]interface{}{"name": "pod-a", "namespace": "kagent"},
+				map[string]interface{}{"name": "pod-b", "namespace": "kagent"},
+			},
+		},
+		{
+			name:     "nested number keeps its type",
+			template: "{{ .results.step1.count }}",
+			expected: 3,
+		},
+		{
+			name:     "loop variable field",
+			template: "{{ .vars.pod.name }}",
+			expected: "pod-a",
+		},
+		{
+			name:     "loop variable number keeps its type",
+			template: "{{ .vars.pod.restarts }}",
+			expected: 2,
+		},
+		{
+			// Anything beyond a pure path still renders to text.
+			name:     "expression renders to a string",
+			template: "pod {{ .vars.pod.name }} on {{ .input.cluster }}",
+			expected: "pod pod-a on test-cluster",
 		},
 	}
 

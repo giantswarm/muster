@@ -47,8 +47,8 @@ steps:
       status: "completed"
       steps.0.status: "completed"
       steps.2.status: "completed"
-    # First iteration index 0, last iteration index 2.
-    contains: ["z@2"]
+    # Every iteration's record shows its own result: first index 0, last index 2.
+    contains: ["x@0", "y@1", "z@2"]
 
 # A custom loop variable name "cluster" exposes "cluster" and "cluster_index".
 - id: "create-custom-var"
@@ -83,4 +83,4 @@ steps:
       status: "completed"
       steps.0.status: "completed"
       steps.1.status: "completed"
-    contains: ["cluster prod-us is number 1"]
+    contains: ["cluster prod-eu is number 0", "cluster prod-us is number 1"]

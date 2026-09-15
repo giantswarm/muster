@@ -106,6 +106,19 @@ func (we *WorkflowExecutor) resolveTemplate(templateStr string, ctx *executionCo
 
 	templateCtx := we.templateContext(ctx)
 
+	// A pure reference path keeps its Go type at any depth -- the same
+	// navigator the output template uses -- so "{{ .results.pods.items }}"
+	// stays a list a forEach can iterate and "{{ .vars.pod.name }}" a string
+	// a tool argument accepts. Before, only a single key after .input/.results/
+	// .vars was read typed (getOriginalValue); every deeper path went through
+	// the text renderer and came back as a string, which is why a forEach over
+	// a step result's field failed with "resolved to string, expected a list".
+	if m := purePathPattern.FindStringSubmatch(strings.TrimSpace(templateStr)); m != nil {
+		if v, err := we.template.ResolvePath(templateCtx, m[1]); err == nil && v != nil {
+			return v, nil
+		}
+	}
+
 	if we.isSimpleVariableAccess(templateStr) {
 		if originalValue := we.getOriginalValue(templateStr, ctx); originalValue != nil {
 			return originalValue, nil

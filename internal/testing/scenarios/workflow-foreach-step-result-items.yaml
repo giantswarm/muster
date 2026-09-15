@@ -1,0 +1,55 @@
+name: "workflow-foreach-step-result-items"
+description: "forEach iterates a list taken from an earlier step's result ({{ .results.<id>.<field> }}), not only from the workflow's input"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "foreach", "control-flow", "step-result", "core-api"]
+timeout: "2m"
+
+pre_configuration:
+  mcp_servers:
+  - name: "inventory"
+    config:
+      tools:
+      - name: "list_pods"
+        responses: [ { response: { kind: "PodList", items: [ { name: "worker-a", namespace: "kagent" }, { name: "worker-b", namespace: "kagent" } ] } } ]
+      - name: "logs"
+        responses: [ { response: { said: "{{ .pod }}/{{ .ns }}" } } ]
+
+steps:
+# The list a forEach iterates comes from the "pods" step's result field, a path
+# two segments deep. Until the fix that path was rendered to text and the loop
+# failed with "resolved to string, expected a list".
+- id: "create"
+  tool: "core_workflow_create"
+  args:
+    name: "foreach-step-result-items"
+    steps:
+      - id: "pods"
+        tool: "x_inventory_list_pods"
+        args: {}
+      - id: "loop"
+        forEach:
+          items: "{{ .results.pods.items }}"
+          as: "pod"
+          steps:
+            - id: "log"
+              tool: "x_inventory_logs"
+              args: { pod: "{{ .vars.pod.name }}", ns: "{{ .vars.pod.namespace }}" }
+              output: true
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "foreach-step-result-items" }
+
+- id: "run"
+  tool: "workflow_foreach-step-result-items"
+  args: {}
+  expected:
+    success: true
+    json_path:
+      status: "completed"
+      steps.0.status: "completed"
+      steps.1.status: "completed"
+      steps.2.status: "completed"
+    contains: ["worker-a/kagent", "worker-b/kagent"]
