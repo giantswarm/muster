@@ -2,7 +2,6 @@ package aggregator
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -29,7 +28,6 @@ import (
 	oauthhandler "github.com/giantswarm/mcp-oauth/handler"
 	"github.com/giantswarm/mcp-oauth/security"
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
-	mcptoolkitlogging "github.com/giantswarm/mcp-toolkit/logging"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/valkey-io/valkey-go"
@@ -590,12 +588,18 @@ func (s *ssoTracker) CleanupExpired() {
 //   - Default transport settings based on configuration
 //
 // Args:
+//   - ctx: bounds the wait for a configured Valkey that is not answering yet
+//     (see createStores); the server itself is not tied to it
 //   - aggConfig: Configuration args defining server behavior, transport, and security settings
 //
-// Returns a configured but unstarted aggregator server ready for initialization.
-func NewAggregatorServer(aggConfig AggregatorConfig, errorCallback func(error)) *AggregatorServer {
+// Returns a configured but unstarted aggregator server ready for initialization,
+// or an error when the configured session store backend cannot be reached.
+func NewAggregatorServer(ctx context.Context, aggConfig AggregatorConfig, errorCallback func(error)) (*AggregatorServer, error) {
 	rateLimiter := NewAuthRateLimiter(DefaultAuthRateLimiterConfig())
-	stores := createStores(aggConfig)
+	stores, err := createStores(ctx, aggConfig)
+	if err != nil {
+		return nil, fmt.Errorf("session stores: %w", err)
+	}
 
 	return &AggregatorServer{
 		config:            aggConfig,
@@ -615,112 +619,7 @@ func NewAggregatorServer(aggConfig AggregatorConfig, errorCallback func(error)) 
 		valkeyKeyPrefix:   stores.keyPrefix,
 		valkeyEncryptor:   stores.encryptor,
 		core:              newCoreCatalogue(),
-	}
-}
-
-// storeBundle groups the results of createStores for readability.
-type storeBundle struct {
-	authStore       oauthstore.SessionAuthStore
-	capabilityStore oauthstore.CapabilityStore
-	valkeyClient    valkey.Client
-	keyPrefix       string
-	encryptor       *security.Encryptor
-}
-
-// createStores builds the session auth and capability stores based on the
-// OAuthServer storage configuration. When the storage type is "valkey", a
-// shared valkey.Client is created and both stores use it. Otherwise in-memory
-// stores are returned.
-func createStores(cfg AggregatorConfig) storeBundle {
-	oauthCfg, ok := cfg.OAuthServer.Config.(config.OAuthServerConfig)
-	if ok && oauthCfg.Storage.Type == "valkey" && oauthCfg.Storage.Valkey.URL != "" {
-		keyPrefix := oauthCfg.Storage.Valkey.KeyPrefix
-		if keyPrefix == "" {
-			keyPrefix = config.DefaultValkeyKeyPrefix
-		}
-
-		client, err := newValkeyClient(oauthCfg.Storage.Valkey)
-		if err != nil {
-			logging.WarnWithAttrs("Aggregator", "Failed to create Valkey client for session stores, falling back to in-memory",
-				slog.String("error", err.Error()))
-			return storeBundle{
-				authStore:       oauthstore.NewInMemorySessionAuthStore(oauthstore.DefaultCapabilityStoreTTL),
-				capabilityStore: oauthstore.NewInMemoryCapabilityStore(oauthstore.DefaultCapabilityStoreTTL),
-				keyPrefix:       keyPrefix,
-			}
-		}
-
-		enc := createEncryptor(oauthCfg)
-
-		logging.InfoWithAttrs("Aggregator", "Using Valkey-backed session auth and capability stores",
-			slog.String("address", mcptoolkitlogging.RedactHost(oauthCfg.Storage.Valkey.URL)))
-		return storeBundle{
-			authStore:       oauthstore.NewValkeySessionAuthStore(client, oauthstore.DefaultCapabilityStoreTTL, keyPrefix),
-			capabilityStore: oauthstore.NewValkeyCapabilityStore(client, oauthstore.DefaultCapabilityStoreTTL, keyPrefix),
-			valkeyClient:    client,
-			keyPrefix:       keyPrefix,
-			encryptor:       enc,
-		}
-	}
-
-	logging.Info("Aggregator", "Using in-memory session auth and capability stores")
-	return storeBundle{
-		authStore:       oauthstore.NewInMemorySessionAuthStore(oauthstore.DefaultCapabilityStoreTTL),
-		capabilityStore: oauthstore.NewInMemoryCapabilityStore(oauthstore.DefaultCapabilityStoreTTL),
-		keyPrefix:       config.DefaultValkeyKeyPrefix,
-	}
-}
-
-// createEncryptor builds an AES-256-GCM encryptor from the OAuthServerConfig
-// encryption key. Returns nil if no key is configured or creation fails.
-func createEncryptor(oauthCfg config.OAuthServerConfig) *security.Encryptor {
-	if oauthCfg.EncryptionKey == "" {
-		return nil
-	}
-	keyBytes, err := security.DecodeKey(oauthCfg.EncryptionKey)
-	if err != nil {
-		logging.WarnWithAttrs("Aggregator", "Failed to decode encryption key for Valkey stores",
-			slog.String("error", err.Error()))
-		return nil
-	}
-	enc, err := security.NewEncryptor(keyBytes)
-	if err != nil {
-		logging.WarnWithAttrs("Aggregator", "Failed to create encryptor for Valkey stores",
-			slog.String("error", err.Error()))
-		return nil
-	}
-	if enc.IsEnabled() {
-		logging.Info("Aggregator", "Token encryption at rest enabled for Valkey stores (AES-256-GCM)")
-	}
-	return enc
-}
-
-// newValkeyClient creates a valkey.Client from the shared ValkeyConfig.
-func newValkeyClient(cfg config.ValkeyConfig) (valkey.Client, error) {
-	opts := valkey.ClientOption{
-		InitAddress: []string{cfg.URL},
-	}
-	if cfg.Password != "" {
-		opts.Password = cfg.Password
-	}
-	if cfg.DB != 0 {
-		opts.SelectDB = cfg.DB
-	}
-	if cfg.TLSEnabled {
-		tlsCfg := &tls.Config{
-			MinVersion: tls.VersionTLS12,
-		}
-		if cfg.TLSServerName != "" {
-			tlsCfg.ServerName = cfg.TLSServerName
-		}
-		opts.TLSConfig = tlsCfg
-	}
-
-	client, err := valkey.NewClient(opts)
-	if err != nil {
-		return nil, fmt.Errorf("valkey connect: %w", err)
-	}
-	return client, nil
+	}, nil
 }
 
 // Start initializes and starts the aggregator server with all configured transports.

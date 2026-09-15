@@ -52,20 +52,27 @@ type AggregatorManager struct {
 // provided through the central API pattern to maintain loose coupling.
 //
 // Args:
+//   - ctx: bounds the wait for a configured session store backend that is
+//     not answering yet (see NewAggregatorServer)
 //   - config: Configuration for the aggregator server behavior
 //   - orchestratorAPI: Interface for receiving service lifecycle events
 //   - serviceRegistry: Interface for querying service information
 //
-// Returns a configured but not yet started aggregator manager.
-func NewAggregatorManager(config AggregatorConfig, orchestratorAPI api.OrchestratorAPI, serviceRegistry api.ServiceRegistryHandler, errorCallback func(err error)) *AggregatorManager {
-	manager := &AggregatorManager{
-		config:          config,
-		orchestratorAPI: orchestratorAPI,
-		serviceRegistry: serviceRegistry,
+// Returns a configured but not yet started aggregator manager, or an error
+// when the aggregator server cannot be created.
+func NewAggregatorManager(ctx context.Context, config AggregatorConfig, orchestratorAPI api.OrchestratorAPI, serviceRegistry api.ServiceRegistryHandler, errorCallback func(err error)) (*AggregatorManager, error) {
+	// Create the aggregator server with the provided configuration
+	aggregatorServer, err := NewAggregatorServer(ctx, config, errorCallback)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create aggregator server: %w", err)
 	}
 
-	// Create the aggregator server with the provided configuration
-	manager.aggregatorServer = NewAggregatorServer(config, errorCallback)
+	manager := &AggregatorManager{
+		config:           config,
+		orchestratorAPI:  orchestratorAPI,
+		serviceRegistry:  serviceRegistry,
+		aggregatorServer: aggregatorServer,
+	}
 
 	// Initialize OAuth manager if enabled (OAuth MCP client/proxy for authenticating TO remote MCP servers)
 	if config.OAuth.Enabled {
@@ -95,7 +102,7 @@ func NewAggregatorManager(config AggregatorConfig, orchestratorAPI api.Orchestra
 		}
 	}
 
-	return manager
+	return manager, nil
 }
 
 // Start initializes and starts the aggregator manager.

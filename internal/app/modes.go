@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/signal"
 	"syscall"
@@ -85,10 +86,14 @@ func runOrchestrator(ctx context.Context, services *Services) error {
 
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	// Wait for an interrupt signal or an aggregator failure (which may already
-	// have happened during startup) to gracefully shutdown.
+	// have happened during startup) to gracefully shutdown. The failure is the
+	// process's exit status: the aggregator is what muster serve is for, and a
+	// supervisor (the kubelet) must see the start as failed, not completed.
+	var runErr error
 	select {
 	case <-sigChan:
 	case <-aggregatorFailed:
+		runErr = errors.New("mcp-aggregator service failed")
 	}
 
 	// Graceful shutdown sequence
@@ -110,7 +115,7 @@ func runOrchestrator(ctx context.Context, services *Services) error {
 
 	_ = services.Orchestrator.Stop()
 
-	return nil
+	return runErr
 }
 
 // watchAggregatorFailure returns a channel that is closed when changeChan

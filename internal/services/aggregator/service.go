@@ -55,8 +55,14 @@ func (s *AggregatorService) Start(ctx context.Context) error {
 		return fmt.Errorf("aggregator APIs not set")
 	}
 
-	// Create the manager with APIs
-	s.manager = aggregator.NewAggregatorManager(s.config, s.orchestratorAPI, s.serviceRegistry, s.onManagerErrorCallback)
+	// Create the manager with APIs. This waits for a configured session store
+	// backend that is not answering yet and fails when it stays away.
+	manager, err := aggregator.NewAggregatorManager(ctx, s.config, s.orchestratorAPI, s.serviceRegistry, s.onManagerErrorCallback)
+	if err != nil {
+		s.UpdateState(services.StateFailed, services.HealthUnhealthy, err)
+		return fmt.Errorf("failed to create aggregator manager: %w", err)
+	}
+	s.manager = manager
 
 	// Start the manager
 	if err := s.manager.Start(ctx); err != nil {
