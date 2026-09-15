@@ -64,7 +64,7 @@ The pre-commit hooks run the formatting and lint steps for you; `make test` is y
 - **Every package has a `doc.go`.** The package comment says what the package is for and how it is reached through the API layer.
 - **Files stay under about four hundred lines.** Split a file that grows past it.
 - **Errors are wrapped with context:** `fmt.Errorf("connecting to %s: %w", name, err)`.
-- **Exit codes** are `0` success, `1` error, `2` authentication required, `3` authentication failed; commands return the `internal/cli` error types that map to them.
+- **Exit codes** are `0` success, `1` error, `2` authentication required, `3` authentication failed, `125` a newer release exists (`self-update --check` only); commands return the `internal/cli` error types that map to them.
 
 ## Generated files
 

@@ -16,6 +16,7 @@ import (
 	"github.com/giantswarm/muster/v5/internal/config"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 	"github.com/giantswarm/muster/v5/pkg/observability"
+	"github.com/giantswarm/muster/v5/pkg/project"
 
 	"github.com/spf13/cobra"
 )
@@ -109,7 +110,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	if serveSilent {
 		output = io.Discard
 	}
-	shutdownLogging, err := logging.Init(ctx, level, output, "muster", GetVersion())
+	shutdownLogging, err := logging.Init(ctx, level, output, "muster", project.Version())
 	if err != nil {
 		return fmt.Errorf("init logging: %w", err)
 	}
@@ -117,7 +118,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	shutdownTracing, err := tracing.Init(ctx,
 		tracing.WithServiceName("muster"),
-		tracing.WithServiceVersion(GetVersion()),
+		tracing.WithServiceVersion(project.Version()),
 	)
 	if err != nil {
 		return fmt.Errorf("init tracing: %w", err)
@@ -126,7 +127,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	shutdownMeter, err := mcptoolkitmetrics.Init(ctx,
 		mcptoolkitmetrics.WithServiceName("muster"),
-		mcptoolkitmetrics.WithServiceVersion(GetVersion()),
+		mcptoolkitmetrics.WithServiceVersion(project.Version()),
 		mcptoolkitmetrics.WithViews(observability.SecondsHistogramView()),
 	)
 	if err != nil {
@@ -144,7 +145,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	// Create application configuration without cluster arguments
 	cfg := app.NewConfig(serveDebug, serveConfigPath).
-		WithVersion(GetVersion()).
+		WithVersion(project.Version()).
 		WithOAuthMCPClient(serveOAuthMCPClientEnabled, serveOAuthMCPClientPublicURL, serveOAuthMCPClientID).
 		WithOAuthServer(serveOAuthServerEnabled, serveOAuthServerBaseURL).
 		WithExtraCAFile(serveExtraCAFile)

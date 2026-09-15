@@ -1,11 +1,7 @@
 package main
 
-import (
-	"github.com/giantswarm/muster/v5/cmd"
-	"github.com/giantswarm/muster/v5/pkg/project"
-)
+import "github.com/giantswarm/muster/v5/cmd"
 
 func main() {
-	cmd.SetVersion(project.Version())
 	cmd.Execute()
 }

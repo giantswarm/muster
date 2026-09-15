@@ -5,11 +5,10 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	"github.com/giantswarm/muster/v5/internal/agent"
 	"github.com/giantswarm/muster/v5/internal/cli"
-	"github.com/giantswarm/muster/v5/pkg/project"
-
-	"github.com/spf13/cobra"
 )
 
 // versionCheckTimeout is the timeout for connecting to the server to retrieve version info.
@@ -22,12 +21,13 @@ func newVersionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
 		Short: "Print the version number of muster CLI and server",
-		Long: `Displays the muster CLI version and, if the aggregator server is running,
-also displays the server version obtained from the MCP protocol handshake.`,
+		Long: `Displays the muster CLI version -- the release tag, the commit and the build
+time the binary knows, on one line like ` + "`muster --version`" + ` -- and, if the
+aggregator server is running, the server version obtained from the MCP protocol
+handshake. A binary built from a checkout between releases reports Go's
+pseudo-version; one without any version says dev.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "muster version %s\n", rootCmd.Version)
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  commit: %s\n", project.GitSHA())
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  built:  %s\n", project.BuildTimestamp())
 
 			// Try to get server version
 			serverVersion, serverName, err := getServerVersion()
