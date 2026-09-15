@@ -684,7 +684,7 @@ func (r *testRunner) runStep(ctx context.Context, step TestStep, config TestConf
 			result.Error = fmt.Sprintf("tool call failed: %v", err)
 		} else {
 			result.Result = ResultFailed
-			result.Error = "step expectations not met"
+			result.Error = r.stepFailureReason(step, r.viewOfMCPResponse(response, err, logger))
 		}
 		result.Stalled = stalledPoll || stalledCall(err)
 		if result.Stalled {
@@ -821,7 +821,7 @@ func (r *testRunner) runTestToolStep(ctx context.Context, step TestStep, config 
 			result.Error = fmt.Sprintf("test tool failed: %v", err)
 		} else {
 			result.Result = ResultFailed
-			result.Error = "test tool expectations not met"
+			result.Error = "step expectations not met: " + r.expectationFailure(step.Expected, r.viewOfTestToolResponse(response, err))
 		}
 		if result.Stalled = stalledCall(err); result.Stalled {
 			result.Error += stallNote
@@ -1005,6 +1005,16 @@ func (r *testRunner) validateExpectationsWithClient(ctx context.Context, expecte
 // shared checkExpectations implementation.
 func (r *testRunner) validateExpectations(expected TestExpectation, response interface{}, err error, logger TestLogger) bool {
 	return r.checkExpectations(expected, r.viewOfMCPResponse(response, err, logger), logger)
+}
+
+// stepFailureReason is the error of an MCP tool step whose expectations were
+// not met: the reason from the response the step got, or -- for a polled step,
+// whose last poll is not the response at hand -- the wait it was given.
+func (r *testRunner) stepFailureReason(step TestStep, view responseView) string {
+	if step.Expected.WaitForState > 0 {
+		return fmt.Sprintf("step expectations not met within wait_for_state %s", step.Expected.WaitForState)
+	}
+	return "step expectations not met: " + r.expectationFailure(step.Expected, view)
 }
 
 // stepExceededMaxDuration reports why a step failed its max_duration, or ""

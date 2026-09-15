@@ -30,6 +30,12 @@ type instanceValkey struct {
 	srv  *miniredis.Miniredis
 	port int
 
+	// commands counts the commands the stand-in has dispatched, by command
+	// name, across restarts; test_measure_meta_tool reads it around a call to
+	// say what the call cost the store.
+	commandsMu sync.Mutex
+	commands   map[string]int
+
 	// started is closed once the (possibly delayed) first start has run;
 	// startErr then holds its result. A scenario that declares start_delay
 	// has the port answering ECONNREFUSED until then, the way a Valkey pod
@@ -50,29 +56,62 @@ func (v *instanceValkey) start() error {
 	v.once.Do(func() {
 		v.startErr = v.srv.StartAddr(v.addr())
 		if v.startErr == nil {
-			installValkeyCompat(v.srv)
+			v.installHooks()
 		}
 		close(v.started)
 	})
 	return v.startErr
 }
 
-// installValkeyCompat makes the stand-in accept the one command a valkey-go
+// installHooks installs the stand-in's pre-dispatch hook: the CLIENT TRACKING
+// compatibility answer and the per-command count. miniredis builds a fresh
+// server on every start, so this runs after each one.
+func (v *instanceValkey) installHooks() {
+	v.srv.Server().SetPreHook(func(c *server.Peer, cmd string, args ...string) bool {
+		v.countCommand(cmd, args)
+		return answerClientTracking(c, cmd, args)
+	})
+}
+
+// countCommand records one dispatched command under its upper-case name
+// (CLIENT TRACKING under "CLIENT TRACKING").
+func (v *instanceValkey) countCommand(cmd string, args []string) {
+	name := strings.ToUpper(cmd)
+	if name == "CLIENT" && len(args) > 0 {
+		name += " " + strings.ToUpper(args[0])
+	}
+	v.commandsMu.Lock()
+	if v.commands == nil {
+		v.commands = map[string]int{}
+	}
+	v.commands[name]++
+	v.commandsMu.Unlock()
+}
+
+// commandCounts returns a copy of the per-command counts so far.
+func (v *instanceValkey) commandCounts() map[string]int {
+	v.commandsMu.Lock()
+	defer v.commandsMu.Unlock()
+	out := make(map[string]int, len(v.commands))
+	for k, n := range v.commands {
+		out[k] = n
+	}
+	return out
+}
+
+// answerClientTracking makes the stand-in accept the one command a valkey-go
 // client sends on connect that miniredis does not implement: CLIENT TRACKING,
 // the client-side-cache handshake. Answering it with OK is what a Valkey
 // without the feature in use does for a client that never reads through the
 // cache; refusing it would fail every client created without DisableCache --
 // among them the muster releases before v5.19.13, which the harness runs as
-// regression baselines. miniredis builds a fresh server on every start, so
-// this is installed after each one.
-func installValkeyCompat(srv *miniredis.Miniredis) {
-	srv.Server().SetPreHook(func(c *server.Peer, cmd string, args ...string) bool {
-		if cmd == "CLIENT" && len(args) > 0 && strings.EqualFold(args[0], "TRACKING") {
-			c.WriteOK()
-			return true
-		}
-		return false
-	})
+// regression baselines. Reports whether it handled the command.
+func answerClientTracking(c *server.Peer, cmd string, args []string) bool {
+	if cmd == "CLIENT" && len(args) > 0 && strings.EqualFold(args[0], "TRACKING") {
+		c.WriteOK()
+		return true
+	}
+	return false
 }
 
 // awaitStart blocks until the first start has run or ctx ends, and reports
@@ -233,7 +272,7 @@ func (m *musterInstanceManager) StartValkey(instanceID string) error {
 	if err := v.srv.Restart(); err != nil {
 		return fmt.Errorf("failed to restart valkey on %s: %w", v.addr(), err)
 	}
-	installValkeyCompat(v.srv)
+	v.installHooks()
 	return nil
 }
 

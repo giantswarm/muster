@@ -75,6 +75,11 @@ func TestEveryExpectationKindIsEnforcedOnBothStepKinds(t *testing.T) {
 			payload:  map[string]interface{}{"success": true, "tools": []string{"x_server-alpha_alpha_tool"}},
 		},
 		{
+			field:    "JSONPathMax",
+			expected: TestExpectation{Success: true, JSONPathMax: map[string]float64{"valkey_commands": 2}},
+			payload:  map[string]interface{}{"success": true, "valkey_commands": 167},
+		},
+		{
 			field:    "NotContains",
 			expected: TestExpectation{Success: true, NotContains: []string{"x_server-alpha_alpha_tool"}},
 			payload:  map[string]interface{}{"success": true, "tools": []string{"x_server-alpha_alpha_tool"}},

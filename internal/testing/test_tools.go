@@ -296,7 +296,9 @@ func IsTestTool(toolName string) bool {
 		TestToolGetCR,
 		TestToolRedeployMockServer,
 		TestToolSetMockServerAuth,
-		TestToolAdvanceClock:
+		TestToolAdvanceClock,
+		TestToolMeasureMetaTool,
+		TestToolValkeyFootprint:
 		return true
 	}
 	return false
@@ -385,6 +387,10 @@ func (h *TestToolsHandler) HandleTestTool(ctx context.Context, toolName string, 
 		return h.handlePatchCR(ctx, args)
 	case TestToolGetCR:
 		return h.handleGetCR(ctx, args)
+	case TestToolMeasureMetaTool:
+		return h.handleMeasureMetaTool(ctx, args)
+	case TestToolValkeyFootprint:
+		return h.handleValkeyFootprint(ctx, args)
 	default:
 		return nil, fmt.Errorf("unknown test tool: %s", toolName)
 	}
