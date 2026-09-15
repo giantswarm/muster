@@ -17,6 +17,21 @@ differs (files locally, custom resources on Kubernetes).
 Every release publishes binaries for Linux, macOS and Windows on `amd64` and `arm64`, each with a
 Sigstore bundle next to it.
 
+With Homebrew on macOS or Linux, the [tap](https://github.com/giantswarm/homebrew-muster) installs
+the binary with shell completions for bash, zsh and fish. Homebrew loads formulae from a
+third-party tap only after the tap has been trusted:
+
+```bash
+brew trust giantswarm/muster
+brew install giantswarm/muster/muster
+```
+
+`brew upgrade muster` moves to a newer release. The tap follows every release: the release
+pipeline notifies it once the binaries are uploaded, and its workflow verifies each binary against
+its Sigstore bundle before it regenerates the formula.
+
+Without Homebrew, download the binary for the platform:
+
 ```bash
 os="$(uname -s | tr '[:upper:]' '[:lower:]')"
 arch="$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')"
@@ -28,9 +43,10 @@ muster version
 A specific version is under `releases/download/v<version>/`; the Windows binaries are
 `muster-windows-amd64.exe` and `muster-windows-arm64.exe`.
 
-`muster self-update` replaces the installed binary with the latest release after verifying its
-bundle against a CircleCI build of `giantswarm/muster`. A release without a bundle, or a download
-that does not match its signature, is refused and the installed binary stays.
+A binary installed this way updates itself: `muster self-update` replaces it with the latest
+release after verifying its bundle against a CircleCI build of `giantswarm/muster`. A release
+without a bundle, or a download that does not match its signature, is refused and the installed
+binary stays. A Homebrew install is updated with `brew upgrade` instead.
 
 ```bash
 muster self-update
