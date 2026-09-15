@@ -1,10 +1,10 @@
-# Muster Custom Resource Definitions (CRDs)
+# Custom resource definitions
 
 Complete reference for muster's Kubernetes Custom Resource Definitions. These CRDs define the core resources managed by the muster system for orchestrating MCP servers, service lifecycle management, and workflow execution.
 
 ## Overview
 
-Muster provides these CRDs:
+muster provides these CRDs:
 
 | CRD | API Version | Kind | Short Name | Purpose |
 |-----|-------------|------|------------|---------|
@@ -136,7 +136,7 @@ the MCP server as its own workload and register it with `streamable-http` or
 
 **Note on `requiredAudiences`**: When using SSO (token forwarding or token exchange) with downstream servers that require specific audience claims (e.g., Kubernetes OIDC authentication), specify the required audiences here.
 
-- **Token Forwarding** (`forwardToken: true`): Muster requests these audiences from its upstream IdP (e.g., Dex) using cross-client scopes (`audience:server:client_id:<audience>`). The resulting multi-audience token is forwarded to downstream servers. Required audiences are collected at muster startup - if you add MCPServers with new audiences after users have authenticated, they must re-authenticate.
+- **Token Forwarding** (`forwardToken: true`): muster requests these audiences from its upstream IdP (e.g., Dex) using cross-client scopes (`audience:server:client_id:<audience>`). The resulting multi-audience token is forwarded to downstream servers. Required audiences are collected at muster startup - if you add MCPServers with new audiences after users have authenticated, they must re-authenticate.
 - **Token Exchange** (`tokenExchange.enabled: true`): The audiences are appended as cross-client scopes to the token exchange request to the remote IdP. This ensures the exchanged token contains the audiences needed by the downstream server on the remote cluster.
 
 Example: `requiredAudiences: ["dex-k8s-authenticator"]`.
@@ -154,7 +154,7 @@ Example: `requiredAudiences: ["dex-k8s-authenticator"]`.
 | `scopes` | `string` | No | Scopes to request for exchanged token | Default: `openid profile email groups` |
 | `clientCredentialsSecretRef` | `ClientCredentialsSecretRef` | No | Reference to secret containing OAuth client credentials | See below |
 
-**Security Note**: Muster validates that the exchanged token's `iss` claim matches `expectedIssuer` using constant-time comparison. This prevents token substitution attacks in proxied access scenarios. When `expectedIssuer` is not specified, the issuer is derived from `dexTokenEndpoint` by removing the `/token` suffix (backward compatible). Set `expectedIssuer` explicitly when accessing Dex through a proxy where the access URL differs from Dex's configured issuer.
+**Security Note**: muster validates that the exchanged token's `iss` claim matches `expectedIssuer` using constant-time comparison. This prevents token substitution attacks in proxied access scenarios. When `expectedIssuer` is not specified, the issuer is derived from `dexTokenEndpoint` by removing the `/token` suffix (backward compatible). Set `expectedIssuer` explicitly when accessing Dex through a proxy where the access URL differs from Dex's configured issuer.
 
 #### ClientCredentialsSecretRef Fields
 
@@ -167,7 +167,7 @@ Example: `requiredAudiences: ["dex-k8s-authenticator"]`.
 
 **Usage Note**: Client credentials are required when the remote Dex's token exchange endpoint requires client authentication. The secret should be created before the MCPServer and should contain the OAuth client ID and secret registered on the remote Dex.
 
-**RBAC Requirements**: Muster's service account requires `get` permission on `secrets` resources in the namespace where credentials are stored. For cross-namespace access (when `namespace` differs from the MCPServer's namespace), ensure RBAC policies explicitly grant access. Cross-namespace secret access is logged as a warning to aid security auditing.
+**RBAC Requirements**: muster's service account requires `get` permission on `secrets` resources in the namespace where credentials are stored. For cross-namespace access (when `namespace` differs from the MCPServer's namespace), ensure RBAC policies explicitly grant access. Cross-namespace secret access is logged as a warning to aid security auditing.
 
 Example RBAC configuration for secret access:
 
@@ -200,7 +200,7 @@ roleRef:
 
 **Secret Rotation Best Practices**:
 
-1. **Zero-downtime rotation**: Update the secret with new credentials while keeping old credentials valid on the remote Dex. Muster loads credentials at connection time, so new connections will use updated credentials.
+1. **Zero-downtime rotation**: Update the secret with new credentials while keeping old credentials valid on the remote Dex. muster loads credentials at connection time, so new connections will use updated credentials.
 
 2. **Rotation procedure**:
    - Register new client credentials on the remote Dex (keeping old credentials active)
@@ -208,7 +208,7 @@ roleRef:
    - Verify new connections succeed with new credentials
    - Revoke old credentials on the remote Dex
 
-3. **Monitoring**: After rotation, monitor logs for authentication failures. Muster logs token exchange attempts (with client_id, not secrets) for troubleshooting.
+3. **Monitoring**: After rotation, monitor logs for authentication failures. muster logs token exchange attempts (with client_id, not secrets) for troubleshooting.
 
 4. **Automation**: Consider using external secrets management (e.g., External Secrets Operator, Vault) for automated rotation.
 
@@ -465,7 +465,7 @@ The client credentials must be registered as a static client on the remote Dex:
 # On remote cluster's Dex
 staticClients:
   - id: muster-token-exchange
-    name: "Muster Token Exchange"
+    name: "muster Token Exchange"
     secret: <your-client-secret>
     # No redirect URIs needed for token exchange
 ```
@@ -498,7 +498,7 @@ When accessing Dex through a proxy (e.g., VPN, HTTP proxy):
 - `dexTokenEndpoint`: The proxy URL used to reach Dex's token endpoint
 - `expectedIssuer`: The actual issuer URL configured in Dex (used for token validation)
 
-This is necessary because Dex's tokens contain the configured issuer URL in the `iss` claim, not the proxy URL used to access it. Muster validates that the exchanged token's issuer matches `expectedIssuer` for security.
+This is necessary because Dex's tokens contain the configured issuer URL in the `iss` claim, not the proxy URL used to access it. muster validates that the exchanged token's issuer matches `expectedIssuer` for security.
 
 > **Warning**: When accessing Dex through a proxy, you **MUST** set `expectedIssuer` explicitly. If omitted, muster derives the expected issuer from `dexTokenEndpoint` (the proxy URL), which will cause token validation to fail because the token's `iss` claim contains the actual Dex issuer URL, not the proxy URL. This validation failure is intentional - it ensures you explicitly configure the expected issuer for proxied scenarios.
 
@@ -530,7 +530,7 @@ This is necessary because Dex's tokens contain the configured issuer URL in the 
    curl -s -o /dev/null -w "%{http_code}" https://<dex-endpoint>/.well-known/openid-configuration
    ```
 
-4. **Check Kubernetes events**: Muster emits events for token exchange
+4. **Check Kubernetes events**: muster emits events for token exchange
    ```bash
    kubectl get events --field-selector involvedObject.kind=MCPServer
    ```
@@ -1009,7 +1009,7 @@ args:
 
 ### Tool Discovery
 
-Muster automatically discovers available tools from:
+muster automatically discovers available tools from:
 1. **Core Tools**: Built-in muster tools (`core_service_*`, `core_workflow_*`, etc.)
 2. **MCP Server Tools**: Tools provided by registered MCPServer resources
 3. **Dynamic Tools**: Workflow execution tools (`workflow_<name>`)
@@ -1042,12 +1042,12 @@ kubectl get mcpserver git-tools -o jsonpath='{.status.state}'
 
 ### Reconciliation
 
-Muster automatically reconciles CRD status with runtime state:
+muster automatically reconciles CRD status with runtime state:
 
 - **MCPServer**: Status reflects actual process state (running, stopped, healthy, unhealthy)
 - **Workflow**: Status reflects spec validation and lists referenced tools
 
-Reconciliation works in both filesystem mode (watching YAML files) and Kubernetes mode (using informers). See the [reconciler package documentation](../../internal/reconciler/doc.go) for implementation details.
+Reconciliation works in both filesystem mode (watching YAML files) and Kubernetes mode (using informers). See the [reconciler package documentation](https://github.com/giantswarm/muster/blob/main/internal/reconciler/doc.go) for implementation details.
 
 ---
 
@@ -1093,7 +1093,7 @@ env:
 
 When using `forwardToken: true` for SSO:
 
-1. **Validated Tokens Only**: Muster forwards the caller's bearer only after validating it at its own front door; opaque bearers are never forwarded
+1. **Validated Tokens Only**: muster forwards the caller's bearer only after validating it at its own front door; opaque bearers are never forwarded
 2. **TLS Required**: All communication must be over HTTPS
 3. **Tokens Not Logged**: Tokens are never logged in plaintext
 4. **Downstream Opt-In**: Downstream servers must explicitly trust muster's issuer/JWKS (or configure `TrustedAudiences` for forwarded upstream ID tokens)
@@ -1145,7 +1145,7 @@ timeout:
 
 ## Related Documentation
 
-- **[CLI Reference](cli/)** - Command-line tools for managing CRDs
+- **[CLI Reference](cli/README.md)** - Command-line tools for managing CRDs
 - **[MCP Tools Reference](mcp-tools.md)** - Available tools for use in Workflows
 - **[Workflow Creation Guide](../how-to/workflow-creation.md)** - Step-by-step workflow development
 - **[Architecture Overview](../explanation/architecture.md)** - How CRDs fit into the muster system

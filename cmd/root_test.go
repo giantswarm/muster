@@ -84,33 +84,32 @@ func TestSubcommands(t *testing.T) {
 }
 
 func TestRootCommandHelp(t *testing.T) {
-	// Test that help can be generated without error
+	// The root help is the first documentation a user reads and the source of
+	// docs/reference/cli/README.md, so it must render and describe what muster
+	// is today rather than a historical purpose.
 	var buf bytes.Buffer
+	root := RootCommand()
+	root.SetOut(&buf)
+	root.SetArgs([]string{"--help"})
+	defer root.SetArgs(nil)
 
-	// Create a new command to avoid affecting the global one
-	testRootCmd := &cobra.Command{
-		Use:   "muster",
-		Short: "Connect your environment to Giant Swarm clusters",
-		Long: `muster simplifies connecting your local development environment
-(e.g., MCP servers in Cursor) to Giant Swarm clusters and setting up
-necessary connections like Prometheus port-forwarding.`,
-		SilenceUsage: true,
-	}
-
-	testRootCmd.SetOut(&buf)
-	testRootCmd.SetArgs([]string{"--help"})
-
-	err := testRootCmd.Execute()
-	if err != nil {
+	if err := root.Execute(); err != nil {
 		t.Fatalf("Error executing help command: %v", err)
 	}
 
 	output := buf.String()
-	if !strings.Contains(output, "muster") {
-		t.Errorf("Help output should contain 'muster'. Got: %q", output)
+	for _, want := range []string{
+		"aggregates the tools of many MCP servers",
+		"muster serve",
+		"https://giantswarm.github.io/muster/",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("Help output should contain %q. Got: %q", want, output)
+		}
 	}
-
-	if !strings.Contains(output, "simplifies connecting") {
-		t.Errorf("Help output should contain the long description. Got: %q", output)
+	for _, stale := range []string{"Giant Swarm clusters", "port-forwarding"} {
+		if strings.Contains(output, stale) {
+			t.Errorf("Help output still carries the stale phrase %q", stale)
+		}
 	}
 }

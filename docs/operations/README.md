@@ -1,24 +1,10 @@
 # Operations
 
-Production deployment and operational guidance for Muster.
+Running muster as a service for a team or an organisation.
 
-## Quick Navigation
+- [Installation](installation.md): release binaries, the container image, the Helm chart and Kubernetes mode, OAuth protection with Dex, Valkey-backed sessions, metrics.
+- [Security](security.md): the token lifecycle between clients, muster and Dex, token storage, and the protections the OAuth server enforces.
 
-### Core Topics
-- [Installation](installation.md) - Deploy Muster in production
-- [Security](security.md) - Secure configuration and access control
-
-### Additional Topics
-Coming soon:
-- Deployment patterns and architectures
-- Backup and disaster recovery
-- Performance tuning and scaling
-- Maintenance and updates
-
-## Related Sections
-- [Getting Started](../getting-started/) - Basic setup and evaluation
-- [How-to Guides](../how-to/) - Specific operational tasks
-- [Reference](../reference/) - Technical specifications
-
-## Feedback
-Missing operational guidance? [Request it here](https://github.com/giantswarm/muster/issues/new?labels=documentation)
+Operational behaviour that is not specific to a deployment is documented elsewhere:
+[Monitor servers and workflows](../how-to/monitoring-setup.md), [Events](../reference/events.md)
+and [Observability](../explanation/observability.md).

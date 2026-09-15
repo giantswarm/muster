@@ -8,7 +8,7 @@ Accepted
 
 ### The Problem
 
-When the Muster Agent connects to a Muster Server, some remote MCP servers may require OAuth authentication. Currently, the agent detects this by **scanning tool names for `_authenticate` suffixes** (e.g., looking for `server_authenticate` tools in the tool list).
+When the muster agent connects to a muster server, some remote MCP servers may require OAuth authentication. Currently, the agent detects this by **scanning tool names for `_authenticate` suffixes** (e.g., looking for `server_authenticate` tools in the tool list).
 
 This is fragile because:
 1. **Information Loss**: The tool name doesn't carry issuer URL, scope, or SSO hints
@@ -43,12 +43,12 @@ This is fragile because:
 
 **Authentication is a muster platform concern, not an MCP server concern.**
 
-MCP servers should expose their actual tools unchanged. Muster handles authentication orchestration through:
+MCP servers should expose their actual tools unchanged. muster handles authentication orchestration through:
 - The `auth://status` **resource** for status (data/context)
 - Core **tools** for actions (`core_auth_login`, `core_auth_logout`)
 
 This follows MCP philosophy:
-- **Resources** are application-driven - the Muster Agent reads `auth://status` and decides how to present it to the model
+- **Resources** are application-driven - the muster agent reads `auth://status` and decides how to present it to the model
 - **Tools** are model-controlled - the AI can invoke `core_auth_login` when it decides authentication is needed
 
 ### MCP _meta Specification
@@ -73,7 +73,7 @@ This follows the MCP key naming rules:
 │                              │ calls tools                              │
 │                              ▼                                          │
 │   ┌───────────────────────────────────────────────────────────────┐     │
-│   │ Muster Agent (MCP Server to IDE)                              │     │
+│   │ muster agent (MCP Server to IDE)                              │     │
 │   │                                                               │     │
 │   │  - Exposes core tools to IDE                                  │     │
 │   │  - Polls auth://status from aggregator                        │     │
@@ -84,7 +84,7 @@ This follows the MCP key naming rules:
 │                              │ MCP Client connection                    │
 │                              ▼                                          │
 │   ┌───────────────────────────────────────────────────────────────┐     │
-│   │ Muster Aggregator (MCP Server)                                │     │
+│   │ muster Aggregator (MCP Server)                                │     │
 │   │                                                               │     │
 │   │  Resources:                                                   │     │
 │   │    auth://status    → Auth state for all servers              │     │
@@ -372,5 +372,5 @@ If needed later:
 ## Related Decisions
 
 - [ADR-004: OAuth Proxy](004-oauth-proxy.md) - Server-side OAuth implementation
-- [ADR-005: Muster Auth](005-muster-auth.md) - Agent-side OAuth implementation
+- [ADR-005: muster Auth](005-muster-auth.md) - Agent-side OAuth implementation
 - [ADR-006: Session-Scoped Tool Visibility](006-session-scoped-tool-visibility.md) - Auth affects tool visibility

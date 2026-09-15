@@ -70,7 +70,7 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	// Show aggregator status
-	authPrintln("Muster Aggregator")
+	authPrintln("muster Aggregator")
 	authPrint("  Endpoint:  %s\n", aggregatorEndpoint)
 
 	// Connect via mcp-go client. The transport handles token refresh
@@ -303,8 +303,8 @@ const ssoLabelFailed = "Failed"
 // Returns empty string if no SSO mechanism is applicable.
 //
 // SSO mechanisms:
-//   - "Forwarded": Muster forwards its ID token to this server
-//   - "Exchanged": Muster exchanges its token for one valid on the remote IdP
+//   - "Forwarded": muster forwards its ID token to this server
+//   - "Exchanged": muster exchanges its token for one valid on the remote IdP
 //   - "Failed": SSO was attempted but failed (token rejected)
 func getSSOType(srv pkgoauth.ServerAuthStatus) string {
 	// Show failure indicator if SSO was attempted but failed

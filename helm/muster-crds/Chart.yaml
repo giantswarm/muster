@@ -1,6 +1,6 @@
 apiVersion: v2
 name: muster-crds
-description: CRD-only Helm chart for muster - ships the MCPServer and Workflow CustomResourceDefinitions
+description: CRD-only chart for muster - ships the MCPServer, Workflow and WorkflowExecution CustomResourceDefinitions
 type: application
 version: 0.1.0
 appVersion: "0.1.0"

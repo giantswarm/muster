@@ -244,7 +244,7 @@ The same page gains the array-output example used in the SEP diff:
 ```
 
 with a matching response whose `structuredContent` is a top-level
-JSON array. Muster's aggregator MUST be able to forward that response
+JSON array. muster's aggregator MUST be able to forward that response
 shape verbatim from an upstream MCP server through to a downstream
 muster client without coercing it into an object.
 
@@ -323,7 +323,7 @@ calls them out together for that reason.
 - Announcement section "Full JSON Schema 2020-12 for Tools":
   [release-candidate blog post](https://blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate/)
 
-## 3. Muster impact
+## 3. muster impact
 
 The impact decomposes cleanly into four code areas plus one piece of
 generated documentation: tool-schema construction, tool-schema
@@ -332,11 +332,11 @@ forwarding, structured-content forwarding, the `-32002` audit, and the
 
 ### 3.1 Tool-schema construction is already permissive (the good news)
 
-Muster does not own the JSON Schema validator; the on-the-wire schema
+muster does not own the JSON Schema validator; the on-the-wire schema
 of any tool muster exposes is built from
-[internal/api.ArgMetadata](../../../internal/api/types.go), whose
+[internal/api.ArgMetadata](https://github.com/giantswarm/muster/blob/main/internal/api/types.go), whose
 `Schema` field is a wide-open `map[string]interface{}`
-([internal/api/types.go:121-149](../../../internal/api/types.go)):
+([internal/api/types.go:121-149](https://github.com/giantswarm/muster/blob/main/internal/api/types.go)):
 
 ```126:170:internal/aggregator/tool_factory.go
 func convertToMCPSchema(params []api.ArgMetadata) mcp.ToolInputSchema {
@@ -466,7 +466,7 @@ design question.
 There is no `outputSchema` construction anywhere in muster's Go tree
 today; a `case-insensitive` grep for `outputSchema` across
 `internal/api/` and `internal/aggregator/tool_factory.go` returns
-zero matches. Muster does not currently declare structured output for
+zero matches. muster does not currently declare structured output for
 its meta-tools or its `workflow_*` tools. Adopting SEP-2106 is
 therefore a green-field addition: muster CAN add `outputSchema` (and
 `structuredContent`) to its own workflow tools, and SHOULD do so for
@@ -524,7 +524,7 @@ else (composition keywords, `$ref`, `$defs`, `if`/`then`/`else`,
 
 ### 3.2 The deprecated `WorkflowInputSchema` doesn't block SEP-2106 either
 
-[internal/api/workflow.go:166-181](../../../internal/api/workflow.go)
+[internal/api/workflow.go:166-181](https://github.com/giantswarm/muster/blob/main/internal/api/workflow.go)
 defines a legacy `WorkflowInputSchema` struct:
 
 ```166:181:internal/api/workflow.go
@@ -549,7 +549,7 @@ type WorkflowInputSchema struct {
 It is already marked `DEPRECATED` in favour of the
 `Args map[string]ArgDefinition` shape used by current workflows, and
 `SchemaProperty`
-([internal/api/types.go:307-319](../../../internal/api/types.go))
+([internal/api/types.go:307-319](https://github.com/giantswarm/muster/blob/main/internal/api/types.go))
 itself only carries `Type` / `Description` / `Default`. The SEP-2106
 work is a useful **forcing function** to actually delete
 `WorkflowInputSchema` (or, at minimum, hide it from any external
@@ -597,7 +597,7 @@ func convertToMCPResult(result *api.CallToolResult) *mcp.CallToolResult {
 ```
 
 Crucially: `convertToMCPResult` **never** sets
-`mcp.CallToolResult.StructuredContent`. Muster's meta-tools and
+`mcp.CallToolResult.StructuredContent`. muster's meta-tools and
 workflow tools emit text only. That means muster does not currently
 forward any non-object `structuredContent` shape on its **own**
 tools, and the SEP-2106 widening from `{ [key: string]: unknown }` to
@@ -635,24 +635,24 @@ reporting is text-based and goes through `api.NotFoundError` /
 `fmt.Errorf("resource not found: ...")`, never through a hard-coded
 JSON-RPC error code:
 
-- [internal/api/errors.go:118-127](../../../internal/api/errors.go)
+- [internal/api/errors.go:118-127](https://github.com/giantswarm/muster/blob/main/internal/api/errors.go)
   defines `NewResourceNotFoundError = func(name string) *NotFoundError`
   which formats `"resource <name> not found"` and carries no
   protocol-level code.
-- [internal/metatools/handlers.go:355](../../../internal/metatools/handlers.go)
+- [internal/metatools/handlers.go:355](https://github.com/giantswarm/muster/blob/main/internal/metatools/handlers.go)
   returns `errorResult(fmt.Sprintf("Resource not found: %s", uri))`
   from `describe_resource`. The `errorResult` helper wraps the
   message in a `CallToolResult{IsError: true}`; it does not invoke a
   JSON-RPC error.
-- [internal/metatools/handlers.go:379-381](../../../internal/metatools/handlers.go)
+- [internal/metatools/handlers.go:379-381](https://github.com/giantswarm/muster/blob/main/internal/metatools/handlers.go)
   (`handleGetResource`) returns `errorResult("Resource retrieval failed: %v", err)`
   on any error from `handler.GetResource(ctx, uri)`. Same shape.
-- [cmd/get.go:347](../../../cmd/get.go) returns
+- [cmd/get.go:347](https://github.com/giantswarm/muster/blob/main/cmd/get.go) returns
   `fmt.Errorf("resource not found: %s", uri)` from the CLI's `get`
   path, which is a CLI exit-code-2 surface (see
   [docs/reference/cli/get.md](../../reference/cli/get.md)) and
   also not a JSON-RPC code.
-- [internal/aggregator/server.go:3014-3030](../../../internal/aggregator/server.go)
+- [internal/aggregator/server.go:3014-3030](https://github.com/giantswarm/muster/blob/main/internal/aggregator/server.go)
   is muster's `ReadResource(ctx, uri)` implementation; the error
   return is whatever the upstream MCP client returns, again with no
   hard-coded JSON-RPC code in muster.
@@ -679,7 +679,7 @@ top of muster's resource-not-found logic:
   emits `-32602` for `resources/read` failures, with `data.uri`
   populated, is the entire fix.
 - Any conformance scenario in
-  [internal/testing/scenarios/](../../../internal/testing) that
+  [internal/testing/scenarios/](https://github.com/giantswarm/muster/blob/main/internal/testing) that
   exercises `resources/read` on a non-existent URI MUST be updated
   to accept either `-32602` or `-32002` (the SEP says clients SHOULD
   accept both during the transition).
@@ -690,11 +690,11 @@ SEP-2164 also adds a MUST that is independent of the error code:
 > Servers MUST NOT return an empty `contents` array for a
 > non-existent resource.
 
-Muster's `handleGetResource` ([internal/metatools/handlers.go:368-394](../../../internal/metatools/handlers.go))
+muster's `handleGetResource` ([internal/metatools/handlers.go:368-394](https://github.com/giantswarm/muster/blob/main/internal/metatools/handlers.go))
 returns an error string when the upstream `handler.GetResource` fails,
 not an empty contents array, so muster is already compliant on this
 point. The risk is at the **upstream-forwarding** boundary
-([internal/aggregator/server.go:3014-3030](../../../internal/aggregator/server.go)
+([internal/aggregator/server.go:3014-3030](https://github.com/giantswarm/muster/blob/main/internal/aggregator/server.go)
 `ReadResource`): if an upstream MCP server returns
 `{"contents": []}` instead of an error, muster forwards that response
 unchanged. SEP-2164 makes that upstream behaviour non-conforming, but
@@ -707,7 +707,7 @@ upstream's behalf; the right behaviour is to forward the upstream's
 The plan calls out
 [docs/contributing/testing/api-schema-validation.md](../../contributing/testing/api-schema-validation.md)
 and `cmd/test.go`'s `--generate-schema` flag (referenced in
-[CLAUDE.md](../../../CLAUDE.md), the architecture rules, and
+[CLAUDE.md](https://github.com/giantswarm/muster/blob/main/CLAUDE.md), the architecture rules, and
 several how-to docs). The architecture rule (`architecture.mdc`)
 states:
 
@@ -763,7 +763,7 @@ The §3.4 grep returned zero Go-source matches today. Land a
 conformance scenario or a linter check that fails CI if a future PR
 adds a literal `-32002` anywhere under `internal/`, `pkg/`, or
 `cmd/`. The scenario can sit alongside the others in
-[internal/testing/scenarios/](../../../internal/testing) — see the
+[internal/testing/scenarios/](https://github.com/giantswarm/muster/blob/main/internal/testing) — see the
 process discussion in
 [08-protocol-evolution.md](08-protocol-evolution.md) — and is
 strictly cheaper than discovering the regression in production.
@@ -779,7 +779,7 @@ SEP-2106-compliant pattern is:
 - Define the `outputSchema` as a top-level `{ type: "array", items: { … } }`
   (no wrapper object) where the result is naturally a list.
 - Populate `mcp.CallToolResult.StructuredContent` from
-  [convertToMCPResult](../../../internal/aggregator/tool_factory.go)
+  [convertToMCPResult](https://github.com/giantswarm/muster/blob/main/internal/aggregator/tool_factory.go)
   using the already-marshalled JSON bytes the function computes (it
   already does the marshal; today it discards the structured value
   into a text block).
@@ -800,7 +800,7 @@ The §1.1 security implications translate directly into muster:
   forwards an upstream tool definition. Today muster forwards the
   schema verbatim and does no dereferencing, so the MUST is already
   satisfied; the work is to **assert** that in a test
-  ([internal/aggregator/tool_factory_test.go](../../../internal/aggregator/tool_factory_test.go),
+  ([internal/aggregator/tool_factory_test.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/tool_factory_test.go),
   which exists; the file currently has no test referencing
   `tool_factory_test` — see the `tool_factory_test` grep in §3 — and
   should grow one that forwards a schema with a network-pointing
@@ -811,7 +811,7 @@ The §1.1 security implications translate directly into muster:
   256 KiB or whose nesting depth exceeds, say, 64 — is enough to
   satisfy the SHOULD without writing a full validator. The bound
   belongs near
-  [createMetaToolsFromProvider](../../../internal/aggregator/tool_factory.go)
+  [createMetaToolsFromProvider](https://github.com/giantswarm/muster/blob/main/internal/aggregator/tool_factory.go)
   / `getAllCoreToolsAsMCPTools` so it applies uniformly to muster's
   own tools and to forwarded upstream tools.
 
@@ -835,7 +835,7 @@ deprecation window.
 ### 4.6 Migration note for workflow authors
 
 The `WorkflowInputSchema` deprecation in
-[internal/api/workflow.go:166-181](../../../internal/api/workflow.go)
+[internal/api/workflow.go:166-181](https://github.com/giantswarm/muster/blob/main/internal/api/workflow.go)
 should be completed before SEP-2106 lands in muster, because
 `SchemaProperty` (which `WorkflowInputSchema` references) only
 carries `Type`/`Description`/`Default` and cannot express the new
@@ -911,15 +911,15 @@ should be tracked as separate issues once this document is in.
 - [SEP-2484 — Conformance tests required for final SEPs](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2484) (the conformance gate this SEP must clear)
 - [SDK tier docs (/docs/sdk)](https://modelcontextprotocol.io/docs/sdk) (mcp-go tier expectations)
 - [Conformance suite repo (modelcontextprotocol/conformance)](https://github.com/modelcontextprotocol/conformance)
-- Muster source references used in §3:
-  - [internal/aggregator/tool_factory.go](../../../internal/aggregator/tool_factory.go)
-  - [internal/api/types.go](../../../internal/api/types.go)
-  - [internal/api/workflow.go](../../../internal/api/workflow.go)
-  - [internal/api/json_keys.go](../../../internal/api/json_keys.go)
-  - [internal/api/errors.go](../../../internal/api/errors.go)
-  - [internal/metatools/handlers.go](../../../internal/metatools/handlers.go)
-  - [internal/aggregator/server.go](../../../internal/aggregator/server.go)
-  - [cmd/get.go](../../../cmd/get.go)
+- muster source references used in §3:
+  - [internal/aggregator/tool_factory.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/tool_factory.go)
+  - [internal/api/types.go](https://github.com/giantswarm/muster/blob/main/internal/api/types.go)
+  - [internal/api/workflow.go](https://github.com/giantswarm/muster/blob/main/internal/api/workflow.go)
+  - [internal/api/json_keys.go](https://github.com/giantswarm/muster/blob/main/internal/api/json_keys.go)
+  - [internal/api/errors.go](https://github.com/giantswarm/muster/blob/main/internal/api/errors.go)
+  - [internal/metatools/handlers.go](https://github.com/giantswarm/muster/blob/main/internal/metatools/handlers.go)
+  - [internal/aggregator/server.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/server.go)
+  - [cmd/get.go](https://github.com/giantswarm/muster/blob/main/cmd/get.go)
   - [docs/reference/api.md](../../reference/api.md)
   - [docs/reference/cli/check.md](../../reference/cli/check.md),
     [docs/reference/cli/get.md](../../reference/cli/get.md),

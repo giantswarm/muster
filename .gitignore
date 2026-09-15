@@ -45,3 +45,7 @@ graphify-out/
 .claude/worktrees/
 test-reports/
 test-reports-envtest/
+
+# Documentation site build (make docs-build)
+site/
+.cache/

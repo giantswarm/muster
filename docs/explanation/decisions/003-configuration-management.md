@@ -5,7 +5,7 @@ Accepted
 
 ## Context
 
-Muster needs a flexible configuration system that can:
+muster needs a flexible configuration system that can:
 - Load configuration from a predictable location
 - Support different entity types (mcpservers, workflows, services)
 - Be easily editable by users

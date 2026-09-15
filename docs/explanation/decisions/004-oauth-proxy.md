@@ -5,8 +5,8 @@
 We have added support for connecting to remote MCP servers (e.g., `mcp-kubernetes`). These servers often require authentication, specifically OAuth 2.1 (using `mcp-oauth`).
 
 The `muster` architecture consists of:
-- **Muster Agent**: Runs locally (e.g., on a user's laptop), integrated with clients like Cursor via stdio.
-- **Muster Server**: Runs centrally (e.g., on a management cluster), aggregating tools from remote MCP servers.
+- **muster agent**: Runs locally (e.g., on a user's laptop), integrated with clients like Cursor via stdio.
+- **muster server**: Runs centrally (e.g., on a management cluster), aggregating tools from remote MCP servers.
 
 We need a flow where:
 1. The User interacts with Cursor (Agent).
@@ -17,11 +17,11 @@ We need a flow where:
 
 ## Decision
 
-We will implement an **OAuth Proxy** pattern where the **Muster Server** acts as the OAuth Client on behalf of the user.
+We will implement an **OAuth Proxy** pattern where the **muster server** acts as the OAuth Client on behalf of the user.
 
 ### 1. Roles
 
-*   **Muster Server (OAuth Client & Proxy)**:
+*   **muster server (OAuth Client & Proxy)**:
     *   Maintains OAuth configurations for downstream Remote MCP servers.
     *   Acts as the registered OAuth Client (using CIMD).
     *   Initiates the Authorization Code flow.
@@ -30,8 +30,8 @@ We will implement an **OAuth Proxy** pattern where the **Muster Server** acts as
     *   Stores tokens securely, associated with the user's session.
     *   Injects the Access Token into outgoing requests to the Remote MCP.
 
-*   **Muster Agent (UI Bridge)**:
-    *   Detects "Authentication Required" responses from the Muster Server.
+*   **muster agent (UI Bridge)**:
+    *   Detects "Authentication Required" responses from the muster server.
     *   Presents the Authorization URL to the user via the Tool Result (as text/link).
     *   Instruction: "Please authenticate in your browser: [Link]".
 
@@ -64,12 +64,12 @@ We will implement an **OAuth Proxy** pattern where the **Muster Server** acts as
 
 To link the Tool Call (Step 1) with the Callback (Step 6), we need a session identifier.
 *   The `muster agent` should generate a persistent `session_id` (e.g., UUID) on startup.
-*   This `session_id` is sent with every request to `muster server` (e.g., in a Header `X-Muster-Session-ID`).
+*   This `session_id` is sent with every request to `muster server` (e.g., in a Header `X-muster-Session-ID`).
 *   The `muster server` uses this ID to store and retrieve tokens.
 
 ### 4. Client Registration (Self-Hosted CIMD)
 
-Muster serves its own **Client ID Metadata Document (CIMD)** dynamically, eliminating the need for external static hosting.
+muster serves its own **Client ID Metadata Document (CIMD)** dynamically, eliminating the need for external static hosting.
 
 *   **Self-Hosted**: When `oauth.publicUrl` is set, muster auto-derives the client ID as `{publicUrl}/.well-known/oauth-client.json` and serves the CIMD at that path.
 *   **Client ID**: The CIMD URL is used as the `client_id` when authenticating with remote MCP servers.
@@ -77,7 +77,7 @@ Muster serves its own **Client ID Metadata Document (CIMD)** dynamically, elimin
     ```json
     {
       "client_id": "https://muster.example.com/.well-known/oauth-client.json",
-      "client_name": "Muster MCP Aggregator",
+      "client_name": "muster MCP Aggregator",
       "redirect_uris": ["https://muster.example.com/oauth/proxy/callback"],
       "grant_types": ["authorization_code", "refresh_token"],
       "response_types": ["code"],
@@ -88,7 +88,7 @@ Muster serves its own **Client ID Metadata Document (CIMD)** dynamically, elimin
 
 ### 5. Single Sign-On (SSO) Mechanisms
 
-Muster supports two SSO mechanisms for downstream MCP servers:
+muster supports two SSO mechanisms for downstream MCP servers:
 
 *   **Token Forwarding**: When muster itself is protected by OAuth, it can forward its ID token to downstream servers that trust muster's OAuth client ID. Configure with `auth.forwardToken: true` in MCPServer spec.
 *   **Token Exchange (RFC 8693)**: For cross-cluster SSO where clusters have separate IdPs, muster can exchange its local token for one valid on the remote cluster's IdP. Configure with `auth.tokenExchange` in MCPServer spec.
@@ -101,13 +101,13 @@ Muster supports two SSO mechanisms for downstream MCP servers:
 
 ## Implementation Steps
 
-1.  **Muster Server**:
+1.  **muster server**:
     *   Add `internal/oauth/client` package.
     *   Implement `/oauth/proxy/callback` handler.
     *   Implement `/.well-known/oauth-client.json` handler for self-hosted CIMD.
     *   Add Session/Token Store (In-Memory).
     *   Update `aggregator` to intercept 401s and trigger flow.
-2.  **Muster Agent**:
+2.  **muster agent**:
     *   Update `agent` to handle "Auth Required" responses and format them for Cursor.
 3.  **Configuration**:
     *   Add flags for `public-url` (for callback construction and CIMD generation).
@@ -128,10 +128,10 @@ The implementation uses PKCE with S256 code challenge method for enhanced securi
 
 ### 2. Self-Hosted CIMD (Dynamic Client Metadata)
 
-Muster serves its own CIMD dynamically:
+muster serves its own CIMD dynamically:
 
 *   When `oauth.publicUrl` is set, muster auto-derives the client ID as `{publicUrl}/.well-known/oauth-client.json`
-*   Muster serves the CIMD at this path with dynamically generated content matching the deployment's actual redirect URI
+*   muster serves the CIMD at this path with dynamically generated content matching the deployment's actual redirect URI
 *   This eliminates the need to maintain external CIMD files
 
 Configuration:
@@ -192,7 +192,7 @@ Success and error pages use embedded HTML templates (`go:embed`) with:
 *   Modern styling with gradient backgrounds
 *   Clear visual indicators (checkmark for success, X for error)
 *   Mobile-responsive design
-*   Consistent branding ("Powered by Muster")
+*   Consistent branding ("Powered by muster")
 
 ### 9. Extended CIMD Schema
 
@@ -201,7 +201,7 @@ The served CIMD includes additional fields beyond the original design:
 ```json
 {
   "client_id": "https://muster.example.com/.well-known/oauth-client.json",
-  "client_name": "Muster MCP Aggregator",
+  "client_name": "muster MCP Aggregator",
   "client_uri": "https://github.com/giantswarm/muster",
   "redirect_uris": ["https://muster.example.com/oauth/proxy/callback"],
   "grant_types": ["authorization_code", "refresh_token"],

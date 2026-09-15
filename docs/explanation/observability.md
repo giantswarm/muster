@@ -1,6 +1,6 @@
 # Observability — tracing, metrics, structured logs
 
-Muster emits OpenTelemetry traces and metrics for every MCP tool call,
+muster emits OpenTelemetry traces and metrics for every MCP tool call,
 plus one structured log line per call carrying the same fields. All
 three signals correlate by tool name and span/trace ID so dashboards
 can pivot between them.

@@ -1,0 +1,198 @@
+site_name: muster
+site_description: One MCP endpoint for every MCP server a platform team runs. Aggregation, discovery, toolsets and OAuth for AI agents.
+site_url: https://giantswarm.github.io/muster/
+repo_url: https://github.com/giantswarm/muster
+repo_name: giantswarm/muster
+edit_uri: edit/main/docs/
+copyright: Copyright &copy; Giant Swarm GmbH &middot; Apache License 2.0
+
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: material
+  language: en
+  logo: assets/logo.svg
+  favicon: assets/logo.svg
+  font:
+    text: Roboto
+    code: Roboto Mono
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - navigation.footer
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+
+extra_css:
+  - assets/stylesheets/extra.css
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+
+plugins:
+  - search
+
+# Every page is listed in the nav and every link must resolve: `mkdocs build
+# --strict` (make docs-build, the docs workflows) fails on any of these.
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
+  nav:
+    omitted_files: warn
+    not_found: warn
+    absolute_links: warn
+
+nav:
+  - Home: README.md
+  - Getting started:
+      - getting-started/README.md
+      - Quick start: getting-started/quick-start.md
+      - Register servers and workflows: getting-started/platform-setup.md
+  - How-to guides:
+      - how-to/README.md
+      - Connect MCP clients: how-to/connect-mcp-clients.md
+      - Authenticate the CLI: how-to/authenticate-the-cli.md
+      - Manage MCP servers: how-to/mcp-server-management.md
+      - Connect servers without RFC 9728 metadata: how-to/connecting-non-rfc9728-mcp-servers.md
+      - Integrate with Kubernetes: how-to/kubernetes-integration.md
+      - Create workflows: how-to/workflow-creation.md
+      - Optimise workflows: how-to/ai-workflow-optimization.md
+      - Advanced scenarios: how-to/advanced-scenarios.md
+      - Monitor servers and workflows: how-to/monitoring-setup.md
+      - Troubleshooting: how-to/troubleshooting.md
+      - Troubleshooting AI agents: how-to/ai-troubleshooting.md
+  - Reference:
+      - reference/README.md
+      - MCP tools: reference/mcp-tools.md
+      - Toolsets: reference/toolsets.md
+      - Configuration: reference/configuration.md
+      - Custom resources: reference/crds.md
+      - Events: reference/events.md
+      - HTTP endpoints: reference/api.md
+      - CLI:
+          - reference/cli/README.md
+          - muster serve: reference/cli/serve.md
+          - muster standalone: reference/cli/standalone.md
+          - muster agent: reference/cli/agent.md
+          - muster call: reference/cli/call.md
+          - muster list: reference/cli/list.md
+          - muster get: reference/cli/get.md
+          - muster create: reference/cli/create.md
+          - muster start: reference/cli/start.md
+          - muster stop: reference/cli/stop.md
+          - muster check: reference/cli/check.md
+          - muster events: reference/cli/events.md
+          - muster auth:
+              - reference/cli/auth.md
+              - muster auth login: reference/cli/auth-login.md
+              - muster auth logout: reference/cli/auth-logout.md
+              - muster auth status: reference/cli/auth-status.md
+              - muster auth whoami: reference/cli/auth-whoami.md
+          - muster context:
+              - reference/cli/context.md
+              - muster context add: reference/cli/context-add.md
+              - muster context current: reference/cli/context-current.md
+              - muster context delete: reference/cli/context-delete.md
+              - muster context list: reference/cli/context-list.md
+              - muster context rename: reference/cli/context-rename.md
+              - muster context show: reference/cli/context-show.md
+              - muster context update: reference/cli/context-update.md
+              - muster context use: reference/cli/context-use.md
+          - muster test: reference/cli/test.md
+          - muster version: reference/cli/version.md
+          - muster self-update: reference/cli/self-update.md
+          - muster completion:
+              - reference/cli/completion.md
+              - bash: reference/cli/completion-bash.md
+              - fish: reference/cli/completion-fish.md
+              - powershell: reference/cli/completion-powershell.md
+              - zsh: reference/cli/completion-zsh.md
+  - Explanation:
+      - explanation/README.md
+      - The problem muster solves: explanation/problem-statement.md
+      - Architecture: explanation/architecture.md
+      - MCP aggregation: explanation/mcp-aggregation.md
+      - Service orchestration and workflows: explanation/orchestration.md
+      - Observability: explanation/observability.md
+      - Design principles: explanation/design-principles.md
+      - Components:
+          - explanation/components/README.md
+          - Aggregator: explanation/components/aggregator.md
+          - Workflows: explanation/components/workflows.md
+      - Decision records:
+          - explanation/decisions/README.md
+          - 001 API service locator: explanation/decisions/001-api-service-locator.md
+          - 002 Testing framework: explanation/decisions/002-testing-framework.md
+          - 003 Configuration management: explanation/decisions/003-configuration-management.md
+          - 004 OAuth proxy for remote MCP servers: explanation/decisions/004-oauth-proxy.md
+          - 005 OAuth protection for muster: explanation/decisions/005-muster-auth.md
+          - 006 Session-scoped tool visibility: explanation/decisions/006-session-scoped-tool-visibility.md
+          - 007 CRD status reconciliation: explanation/decisions/007-crd-status-reconciliation.md
+          - 008 Explicit authentication state: explanation/decisions/008-unified-authentication.md
+          - 009 SSO via token forwarding: explanation/decisions/009-sso-token-forwarding.md
+          - 010 Server-side meta-tools: explanation/decisions/010-server-side-meta-tools.md
+          - 011 Session connection pool: explanation/decisions/011-session-connection-pool.md
+      - MCP 2026-07-28 analysis:
+          - explanation/mcp-2026-07-28/README.md
+          - Stateless protocol: explanation/mcp-2026-07-28/01-stateless-protocol.md
+          - Extensions: explanation/mcp-2026-07-28/02-extensions-first-class.md
+          - MCP Apps: explanation/mcp-2026-07-28/03-mcp-apps.md
+          - Tasks extension: explanation/mcp-2026-07-28/04-tasks-extension.md
+          - Authorization hardening: explanation/mcp-2026-07-28/05-authorization-hardening.md
+          - Deprecations: explanation/mcp-2026-07-28/06-deprecations-roots-sampling-logging.md
+          - JSON Schema 2020-12: explanation/mcp-2026-07-28/07-json-schema-2020-12.md
+          - Protocol evolution: explanation/mcp-2026-07-28/08-protocol-evolution.md
+          - Release timeline: explanation/mcp-2026-07-28/09-release-timeline.md
+  - Operations:
+      - operations/README.md
+      - Installation: operations/installation.md
+      - Security: operations/security.md
+  - Contributing:
+      - contributing/README.md
+      - Development setup: contributing/development-setup.md
+      - Testing:
+          - contributing/testing/README.md
+          - Writing scenarios: contributing/testing/scenarios.md
+          - Testing via MCP: contributing/testing/testing-via-mcp.md
+          - OAuth testing: contributing/testing/oauth-testing.md
+          - API schema validation: contributing/testing/api-schema-validation.md

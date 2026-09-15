@@ -1,49 +1,13 @@
 # muster Test Framework
 
-## Recent Updates and Improvements
-
-**🆕 Major Architecture Improvements**: The muster test framework has been significantly enhanced with the following key changes:
-
-### Isolated Test Execution
-- **Separate muster Instances**: Each test scenario now runs against its own dedicated muster serve instance
-- **Port Isolation**: Instances are automatically assigned unique ports (starting from base port 18000)
-- **Configuration Isolation**: Each scenario gets its own temporary configuration directory
-- **Complete Cleanup**: Instances and configurations are automatically cleaned up after each test
-
-### Updated Tool Naming Conventions
-- **Workflows**: Now use `workflow_<workflow-name>` prefix (old `action_<workflow-name>` is deprecated)
-- **Mock Tools**: Use `x_<mockserver-name>_<tool-name>` pattern for mock MCP server tools
-- **Core Tools**: Continue to use direct names like `core_workflow_create`
-
-### Meta-Tools Wrapping (Architecture Change)
-The test framework transparently wraps all tool calls through the `call_tool` meta-tool:
-- **Server exposes only meta-tools**: The aggregator exposes `list_tools`, `call_tool`, etc.
-- **All tool calls go through `call_tool`**: The test client wraps `core_service_list` as `call_tool(name="core_service_list", ...)`
-- **Automatic response unwrapping**: The test framework extracts the actual tool result from the wrapped response
-- **Test scenarios unchanged**: Scenarios reference tools by name (e.g., `core_service_list`), wrapping is internal
-
-### Essential Mock Integration
-- **Tests Core Functionality**: Mock MCP servers are essential for testing muster's core MCP server management and tool aggregation capabilities
-- **Enables Concept Testing**: Other muster concepts (workflows, capabilities, services) depend on MCP server tools being available
-- **Automatic Configuration**: Mock MCP server config files and server definitions are generated from scenario definitions
-- **Full Integration Testing**: Mock servers run as separate processes managed by muster serve, so the test framework can test the complete mcpserver management workflow
-- **Tool Aggregation Testing**: Validates that mock tools are properly exposed through muster's aggregated MCP interface
-
-### Dual Execution Modes
-- **CLI Mode**: Traditional command-line execution with `muster test`
-- **MCP Server Mode**: New `muster test --mcp-server` for IDE integration and AI-powered testing
-
-### API Schema Generation and Validation
-- **Schema Generation**: Generate JSON schemas from live muster serve instances (`--generate-schema`)
-- **Scenario Validation**: Validate test scenarios against API schemas (`--validate-scenarios`)
-- **Unified Validation**: Both CLI and MCP server provide identical validation functionality
-- **Tool Prefix Validation**: Smart validation rules for `core_*`, `x_*`, and `workflow_*` tools
-- **CI/CD Integration**: Automated schema validation to catch API compatibility issues
-
-### Improved Debugging
-- **Instance Log Capture**: All stdout/stderr from test instances is captured and available
-- **Enhanced Error Reporting**: Detailed error information with context from instance logs
-- **Debug Mode**: Comprehensive debugging output with `--debug` flag
+muster's behaviour is specified by YAML scenarios that `muster test` runs against isolated
+`muster serve` instances: each scenario gets its own instance, port range and configuration
+directory, and mock MCP servers generated from the scenario definition. Scenarios reference
+tools by name (`core_workflow_create`, `x_<mock>_<tool>`, `workflow_<name>`); the framework calls
+them through the `call_tool` meta-tool and unwraps the result, exactly as an MCP client would.
+The suite runs from the CLI (`muster test`) and as an MCP server (`muster test --mcp-server`)
+for AI-assisted debugging, and it can generate and validate the API schema the scenarios are
+checked against.
 
 ## Overview
 
@@ -552,7 +516,7 @@ For comprehensive information about specific testing topics, see:
 - **[OAuth Testing](oauth-testing.md)** - OAuth BDD testing infrastructure and scenarios
 - **[Testing via MCP](testing-via-mcp.md)** - MCP server integration for AI-powered testing
 - **[Test Scenarios](scenarios.md)** - Writing and structuring test scenarios
-- **[Scenario Examples](examples/)** - Ready-to-use scenario templates
+- **[Scenario Examples](examples/workflow-arg-templating.yaml)** - Ready-to-use scenario templates
 - **Debugging**: Use 1 worker to avoid concurrent execution issues
 - **Resource Limits**: Monitor memory usage with large test suites
 
@@ -1102,7 +1066,7 @@ internal/testing/scenarios/
 ## Where to Find More Information
 
 - **Scenario Authoring Details**: See [scenarios.md](scenarios.md) for complete YAML reference
-- **Example Scenarios**: Check [examples/](examples/) directory for comprehensive examples
+- **Example Scenarios**: Check [examples/](examples/workflow-arg-templating.yaml) directory for comprehensive examples
 - **Package Documentation**: See `internal/testing/doc.go` for implementation details
 
 ---

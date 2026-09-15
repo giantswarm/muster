@@ -1,448 +1,210 @@
-# Installation Guide
+# Installation
 
-Complete guide for deploying Muster in production environments.
+muster ships as a single static binary, a container image and a Helm chart. Pick the form that
+matches how it will be used.
 
-## Overview
+| Form | Use it for |
+|---|---|
+| Release binary | A laptop: `muster serve` or `muster standalone` for an IDE, the CLI against any muster |
+| Container image | muster as a service outside Kubernetes, or a custom deployment |
+| Helm chart | muster as a shared service on Kubernetes, with MCP servers and workflows as custom resources |
 
-Muster can be deployed in several configurations depending on your needs:
-- **Standalone mode**: Single process for development and small teams
-- **Server mode**: Separate aggregator server for production use
-- **Kubernetes deployment**: Container-based deployment with CRDs
+The quick start and the how-to guides apply to all three; only the way definitions are stored
+differs (files locally, custom resources on Kubernetes).
 
-## Prerequisites
+## Release binary
 
-### System Requirements
-- Go 1.21+ (for building from source)
-- Linux, macOS, or Windows
-- 512MB RAM minimum, 1GB recommended
-- 100MB disk space
-
-### Network Requirements
-- Port 8080 (default) for HTTP API
-- Port 8081 (default) for MCP protocol
-- Outbound internet access for MCP server communications
-
-## Installation Methods
-
-### Method 1: Homebrew (macOS - Recommended)
-
-The easiest way to install Muster on macOS is via Homebrew:
+Every release publishes binaries for Linux, macOS and Windows on `amd64` and `arm64`, each with a
+Sigstore bundle next to it.
 
 ```bash
-# Add the Muster tap
-brew tap giantswarm/muster
-
-# Install Muster
-brew install muster
-```
-
-#### Upgrade
-```bash
-brew upgrade muster
-```
-
-#### Verify Installation
-```bash
+os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+arch="$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')"
+curl -fsSL -o muster "https://github.com/giantswarm/muster/releases/latest/download/muster-${os}-${arch}"
+chmod +x muster && sudo mv muster /usr/local/bin/
 muster version
 ```
 
-### Method 2: Binary Installation
+A specific version is under `releases/download/v<version>/`; the Windows binaries are
+`muster-windows-amd64.exe` and `muster-windows-arm64.exe`.
 
-#### Download Latest Release
-```bash
-# Linux (x86_64)
-curl -L https://github.com/giantswarm/muster/releases/latest/download/muster-linux-amd64 -o muster
-chmod +x muster
-sudo mv muster /usr/local/bin/
-
-# macOS (x86_64)
-curl -L https://github.com/giantswarm/muster/releases/latest/download/muster-darwin-amd64 -o muster
-chmod +x muster
-sudo mv muster /usr/local/bin/
-
-# macOS (ARM64)
-curl -L https://github.com/giantswarm/muster/releases/latest/download/muster-darwin-arm64 -o muster
-chmod +x muster
-sudo mv muster /usr/local/bin/
-```
-
-#### Verify Installation
-```bash
-muster version
-```
-
-### Method 3: Build from Source
+`muster self-update` replaces the installed binary with the latest release after verifying its
+bundle against a CircleCI build of `giantswarm/muster`. A release without a bundle, or a download
+that does not match its signature, is refused and the installed binary stays.
 
 ```bash
-# Clone repository
-git clone https://github.com/giantswarm/muster.git
-cd muster
-
-# Build binary
-go build -o muster .
-
-# Install globally
-sudo mv muster /usr/local/bin/
+muster self-update
 ```
 
-### Method 4: Container Deployment
+With a Go toolchain, `go install github.com/giantswarm/muster@latest` builds from source.
+
+### Running as a user service
+
+The repository ships systemd units for a per-user aggregator that starts on login:
+[`muster.service`](https://github.com/giantswarm/muster/blob/main/muster.service) and
+[`muster.socket`](https://github.com/giantswarm/muster/blob/main/muster.socket). Adjust the binary
+path in the service unit, then:
 
 ```bash
-# Run with Docker
-docker run -p 8080:8080 -p 8081:8081 \
-  -v ~/.config/muster:/config \
-  giantswarm/muster:latest serve --config-path=/config
+mkdir -p ~/.config/systemd/user
+cp muster.service muster.socket ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now muster.socket muster.service
+journalctl --user -u muster -f
 ```
 
-## Deployment Configurations
+The socket unit binds `127.0.0.1:8090`; clients use `muster agent --mcp-server` or connect to
+`http://localhost:8090/mcp`.
 
-### Standalone Deployment
+## Container image
 
-Perfect for development, local use, and small teams.
+The image is `gsoci.azurecr.io/giantswarm/muster:<version>` (without a `v`), built for `amd64`
+and `arm64`. It runs `muster` as its entrypoint; mount a configuration directory and bind the
+aggregator to all interfaces of the container:
 
 ```bash
-# Start in standalone mode
-muster standalone --port 8080
+mkdir -p ./muster-config/mcpservers ./muster-config/workflows
+cat > ./muster-config/config.yaml <<'YAML'
+aggregator:
+  host: 0.0.0.0
+  port: 8090
+YAML
+
+docker run --rm -p 8090:8090 -v "$PWD/muster-config:/config" \
+  gsoci.azurecr.io/giantswarm/muster:5.21.0 serve --config-path /config
 ```
 
-**Features:**
-- Single process handles both server and agent functionality
-- Automatic configuration
-- Minimal resource usage
-- Ideal for IDE integration
+Inside a container the `stdio` server type is of limited use because the server's binary would
+have to be in the image; register remote servers (`streamable-http`, `sse`) instead.
 
-### Server Deployment
+## Helm chart
 
-Recommended for production environments with multiple clients.
+The chart is published in the Giant Swarm catalog. It deploys muster in *Kubernetes mode*:
+`MCPServer`, `Workflow` and `WorkflowExecution` are custom resources in the release namespace,
+reconciled by muster, and the CRDs ship with the chart.
 
 ```bash
-# Start the aggregator server
-muster serve --port 8080 --mcp-port 8081
-
-# Connect agents (separate terminals/machines)
-muster agent --endpoint http://your-server:8080 --mcp-server
+helm repo add giantswarm https://giantswarm.github.io/giantswarm-catalog/
+helm repo update
+helm install muster giantswarm/muster --namespace muster --create-namespace
+kubectl -n muster get pods
 ```
 
-**Features:**
-- Separate server and agent processes
-- Multiple client support
-- Better monitoring and logging
-- Horizontal scaling capabilities
+Register a first server and watch it come up:
 
-### Kubernetes Deployment
-
-For container orchestration environments.
-
-#### Install CRDs
-```bash
-kubectl apply -f https://raw.githubusercontent.com/giantswarm/muster/main/helm/muster-crds/files/crds/muster.giantswarm.io_mcpservers.yaml
-kubectl apply -f https://raw.githubusercontent.com/giantswarm/muster/main/helm/muster-crds/files/crds/muster.giantswarm.io_workflows.yaml
-kubectl apply -f https://raw.githubusercontent.com/giantswarm/muster/main/helm/muster-crds/files/crds/muster.giantswarm.io_workflowexecutions.yaml
-```
-
-#### Deploy Muster Server
 ```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: muster-server
-  namespace: muster-system
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: muster-server
-  template:
-    metadata:
-      labels:
-        app: muster-server
-    spec:
-      containers:
-      - name: muster
-        image: giantswarm/muster:latest
-        command: ["muster", "serve"]
-        ports:
-        - containerPort: 8080
-          name: http
-        - containerPort: 8081
-          name: mcp
-        env:
-        - name: MUSTER_CONFIG_PATH
-          value: "/config"
-        volumeMounts:
-        - name: config
-          mountPath: /config
-      volumes:
-      - name: config
-        configMap:
-          name: muster-config
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: muster-service
-  namespace: muster-system
-spec:
-  selector:
-    app: muster-server
-  ports:
-  - name: http
-    port: 8080
-    targetPort: 8080
-  - name: mcp
-    port: 8081
-    targetPort: 8081
-```
-
-## Configuration
-
-### Environment Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `MUSTER_CONFIG_PATH` | Configuration directory | `~/.config/muster` |
-| `MUSTER_LOG_LEVEL` | Logging level (debug\|info\|warn\|error) | `info` |
-| `MUSTER_HTTP_PORT` | HTTP API port | `8080` |
-| `MUSTER_MCP_PORT` | MCP protocol port | `8081` |
-
-### Configuration Directory Structure
-
-```
-~/.config/muster/
-├── config.yaml           # Main configuration
-├── mcpservers/           # MCP server definitions
-│   ├── kubernetes.yaml
-│   └── prometheus.yaml
-└── workflows/           # Workflow definitions
-    └── deploy-app.yaml
-```
-
-### Basic Configuration
-```yaml
-# ~/.config/muster/config.yaml
 apiVersion: muster.giantswarm.io/v1alpha1
-kind: Configuration
+kind: MCPServer
 metadata:
-  name: default
+  name: kubernetes
+  namespace: muster
 spec:
-  server:
-    port: 8080
-    mcpPort: 8081
-  logging:
-    level: info
-  aggregator:
-    enableMetrics: true
-    toolTimeout: 30s
+  type: streamable-http
+  url: https://mcp-kubernetes.example.com/mcp
 ```
-
-## Post-Installation Setup
-
-### 1. Verify Installation
-```bash
-# Check version
-muster version
-
-# Test server startup
-muster serve --dry-run
-```
-
-### 2. Initial Configuration
-```bash
-# Create default configuration
-muster create config --default
-
-# List available commands
-muster --help
-```
-
-### 3. Set Up Your First MCP Server
-```bash
-# Create a basic MCP server configuration
-muster create mcpserver kubernetes \
-  --command="kubectl" \
-  --args="mcp-server" \
-  --auto-start=true
-```
-
-### 4. Test the Setup
-```bash
-# Start server
-muster serve
-
-# In another terminal, test agent connection
-muster agent --repl
-```
-
-## Service Management
-
-### Systemd Service (Linux)
-
-Create a systemd service for automatic startup:
 
 ```bash
-# Create service file
-sudo tee /etc/systemd/system/muster.service > /dev/null <<EOF
-[Unit]
-Description=Muster Aggregator Server
-After=network.target
-
-[Service]
-Type=simple
-User=muster
-Group=muster
-ExecStart=/usr/local/bin/muster serve
-Restart=always
-RestartSec=10
-Environment=MUSTER_CONFIG_PATH=/etc/muster
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-# Create muster user
-sudo useradd -r -s /bin/false muster
-sudo mkdir -p /etc/muster
-sudo chown muster:muster /etc/muster
-
-# Enable and start service
-sudo systemctl daemon-reload
-sudo systemctl enable muster
-sudo systemctl start muster
+kubectl -n muster get mcpservers
+kubectl -n muster describe mcpserver kubernetes
 ```
 
-### Process Manager (macOS/Linux)
+In Kubernetes mode `type: stdio` is rejected: a stdio server would run as a child process of the
+muster pod under its service account. Run MCP servers as their own workloads and register them
+by URL.
 
-Using PM2 or similar process managers:
+### Reaching the endpoint
+
+The chart creates a `ClusterIP` service on the aggregator port (`8090`). Expose it with the
+chart's `ingress` values or, on clusters with the Gateway API, with `gatewayAPI` (an `HTTPRoute`
+and a `BackendTrafficPolicy`). Point the CLI at it:
 
 ```bash
-# Install PM2
-npm install -g pm2
-
-# Create process configuration
-cat > muster.json <<EOF
-{
-  "name": "muster",
-  "script": "/usr/local/bin/muster",
-  "args": ["serve"],
-  "instances": 1,
-  "autorestart": true,
-  "watch": false,
-  "env": {
-    "MUSTER_CONFIG_PATH": "/home/user/.config/muster"
-  }
-}
-EOF
-
-# Start with PM2
-pm2 start muster.json
-pm2 save
-pm2 startup
+muster context add prod --endpoint https://muster.example.com/mcp --use
+muster list mcpserver
 ```
 
-## Security Considerations
+### Protecting the endpoint with Dex
 
-### Network Security
-- Run behind a reverse proxy (nginx, Traefik) in production
-- Enable TLS/SSL for external communications
-- Use firewall rules to restrict access
-- Consider VPN or private networks for sensitive environments
+A shared muster runs with OAuth 2.1 protection so that every request carries a person's
+identity. muster is the resource server; Dex is the identity provider and the only issuer of
+identity. The values below are the minimum; `helm/muster/values-oauth-valkey-example.yaml` in
+the repository is a complete example.
 
-### Access Control
-- Implement authentication at the reverse proxy level
-- Use service accounts for Kubernetes deployments
-- Rotate any API keys or secrets regularly
-- Monitor access logs for unusual activity
-
-### Configuration Security
-- Store sensitive configuration in secrets management systems
-- Use environment variables for runtime secrets
-- Restrict file permissions on configuration directories
-- Regular security updates and patches
-
-## Troubleshooting
-
-### Common Issues
-
-#### Port Already in Use
-```bash
-# Check what's using the port
-sudo lsof -i :8080
-sudo lsof -i :8081
-
-# Use alternative ports
-muster serve --port 8082 --mcp-port 8083
+```yaml
+muster:
+  oauth:
+    server:
+      enabled: true
+      baseUrl: https://muster.example.com
+      provider: dex
+      dex:
+        issuerUrl: https://dex.example.com
+        clientId: muster
+      existingSecret: muster-oauth        # dex-client-secret, registration-token, oauth-encryption-key
+      encryptionKey: true
 ```
-
-#### Permission Denied
-```bash
-# Fix binary permissions
-chmod +x /usr/local/bin/muster
-
-# Fix config directory permissions
-mkdir -p ~/.config/muster
-chmod 755 ~/.config/muster
-```
-
-#### Configuration Not Found
-```bash
-# Create default configuration
-muster create config --default
-
-# Specify custom config path
-muster serve --config-path /path/to/config
-```
-
-### Logs and Debugging
 
 ```bash
-# Enable debug logging
-muster serve --log-level debug
-
-# Check system logs (systemd)
-sudo journalctl -u muster -f
-
-# Check application logs
-tail -f ~/.config/muster/logs/muster.log
+kubectl -n muster create secret generic muster-oauth \
+  --from-literal=dex-client-secret=<dex client secret> \
+  --from-literal=registration-token="$(openssl rand -hex 32)" \
+  --from-literal=oauth-encryption-key="$(openssl rand -base64 32)"
 ```
 
-## Upgrading
+Dex needs a client `muster` with `https://muster.example.com/oauth/callback` as redirect URI.
+Clients then log in through the browser (the CLI with `muster auth login`, IDEs through the stdio
+bridge or their own OAuth support); MCP servers that trust the same Dex receive the person's
+identity token when their `MCPServer` sets `auth.forwardToken: true`.
 
-### Binary Upgrade
+### More than one replica
+
+Sessions, grants and OAuth state live in memory by default. For more than one replica, or to
+survive a pod restart without every client logging in again, back them with Valkey:
+
+```yaml
+replicaCount: 2
+muster:
+  oauth:
+    server:
+      storage:
+        type: valkey
+        valkey:
+          url: valkey.muster.svc.cluster.local:6379
+          existingSecret: muster-oauth   # key valkey-password
+```
+
+A muster whose configured Valkey is unreachable at startup waits for it and exits if it does not
+come; it never falls back to in-memory stores, because that would split sessions across replicas.
+
+### Toolsets, metrics and policies
+
+- `muster.toolsetPresets` defines named tool selections that clients reference as
+  `preset:<name>` in the `X-muster-Toolset` header; see [Toolsets](../reference/toolsets.md).
+- `muster.observability.metrics.prometheus.serviceMonitor.enabled: true` exposes Prometheus
+  metrics and creates the `ServiceMonitor`; `prometheusRule.enabled` adds alert rules and
+  `grafanaDashboard.enabled` the dashboard. `muster.observability.otel.endpoint` sends traces,
+  metrics and logs to an OpenTelemetry collector. See [Observability](../explanation/observability.md).
+- `networkPolicy` and the Cilium variant restrict ingress to the aggregator and metrics ports;
+  `podDisruptionBudget`, `autoscaling`, `resources` and `affinity` are the usual knobs.
+- `muster.extraCaFile` mounts additional CA certificates for MCP servers behind a private CA.
+
+### Upgrades and CRDs
+
+Helm installs the CRDs from the chart's `crds/` directory on a fresh install and does not
+update them on `helm upgrade`. When a release changes the CRD schema, apply the new definitions
+first:
+
 ```bash
-# Download new version
-curl -L https://github.com/giantswarm/muster/releases/latest/download/muster-linux-amd64 -o muster-new
-
-# Stop service
-sudo systemctl stop muster
-
-# Replace binary
-sudo mv muster-new /usr/local/bin/muster
-sudo chmod +x /usr/local/bin/muster
-
-# Start service
-sudo systemctl start muster
+helm show crds giantswarm/muster | kubectl apply --server-side -f -
+helm upgrade muster giantswarm/muster --namespace muster
 ```
 
-### Kubernetes Upgrade
-```bash
-# Update CRDs
-kubectl apply -f https://raw.githubusercontent.com/giantswarm/muster/main/helm/muster-crds/files/crds/muster.giantswarm.io_mcpservers.yaml
-kubectl apply -f https://raw.githubusercontent.com/giantswarm/muster/main/helm/muster-crds/files/crds/muster.giantswarm.io_workflows.yaml
-kubectl apply -f https://raw.githubusercontent.com/giantswarm/muster/main/helm/muster-crds/files/crds/muster.giantswarm.io_workflowexecutions.yaml
+Flux users set `install.crds: CreateReplace` and `upgrade.crds: CreateReplace` on the
+`HelmRelease` instead. The separate `muster-crds` chart is an alternative when the CRD
+lifecycle should be managed as its own release.
 
-# Update deployment image
-kubectl set image deployment/muster-server muster=giantswarm/muster:latest -n muster-system
-```
+## Configuration outside the chart
 
-## Next Steps
-
-After installation:
-1. [Configure your first MCP server](../how-to/mcp-server-management.md)
-2. [Build your first workflow](../how-to/workflow-creation.md)
-3. [Set up monitoring](monitoring.md)
-
-## Support
-
-- [Troubleshooting Guide](../how-to/troubleshooting.md)
-- [GitHub Issues](https://github.com/giantswarm/muster/issues)
-- [GitHub Discussions](https://github.com/giantswarm/muster/discussions)
+All chart values under `muster.*` render into `config.yaml`; the same keys work in a file for
+the binary and the container. [Configuration](../reference/configuration.md) is the complete
+reference, [Security](security.md) explains the token lifecycle a protected deployment runs on.

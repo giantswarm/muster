@@ -1,34 +1,34 @@
 # Security Configuration
 
-Security best practices and configuration guidance for Muster deployments.
+Security best practices and configuration guidance for muster deployments.
 
 ## Overview
 
-This guide covers security considerations for deploying and operating Muster in production environments, including authentication, token lifecycle, network security, and secure configuration management.
+This guide covers security considerations for deploying and operating muster in production environments, including authentication, token lifecycle, network security, and secure configuration management.
 
 ## Token Lifecycle
 
-Muster's authentication involves two independent token loops: one between the **agent and muster server**, and one between the **muster server and the identity provider (Dex)**. Understanding how these interact is essential for configuring session lifetimes correctly.
+muster's authentication involves two independent token loops: one between the **agent and muster server**, and one between the **muster server and the identity provider (Dex)**. Understanding how these interact is essential for configuring session lifetimes correctly.
 
 ### Dual Token Loop
 
 ```mermaid
 sequenceDiagram
-    participant Agent as Muster Agent
-    participant Muster as Muster Server
+    participant Agent as muster agent
+    participant muster as muster server
     participant Dex as Dex IdP
 
     Note over Agent,Dex: Initial Authentication
-    Agent->>Muster: /oauth/authorize
-    Muster->>Dex: /authorize (redirect)
-    Dex-->>Muster: code + tokens (AT: 30m, RT: 30d absolute)
-    Muster-->>Agent: muster tokens (AT: 30m, RT: 30d rolling)
+    Agent->>muster: /oauth/authorize
+    muster->>Dex: /authorize (redirect)
+    Dex-->>muster: code + tokens (AT: 30m, RT: 30d absolute)
+    muster-->>Agent: muster tokens (AT: 30m, RT: 30d rolling)
 
     Note over Agent,Dex: Periodic Refresh (every ~30m)
-    Agent->>Muster: /oauth/token (grant_type=refresh_token)
-    Muster->>Dex: /token (grant_type=refresh_token)
-    Dex-->>Muster: new Dex tokens (AT: 30m, RT rotated)
-    Muster-->>Agent: new muster tokens (AT: 30m, RT: 30d rolling)
+    Agent->>muster: /oauth/token (grant_type=refresh_token)
+    muster->>Dex: /token (grant_type=refresh_token)
+    Dex-->>muster: new Dex tokens (AT: 30m, RT rotated)
+    muster-->>Agent: new muster tokens (AT: 30m, RT: 30d rolling)
 ```
 
 There are four tokens in play:
@@ -37,12 +37,12 @@ There are four tokens in play:
 |-------|----------|-------------|--------------|
 | Dex access token | 30m (`idTokens`) | Proactive by muster server | Within 5m of expiry during `ValidateToken` |
 | Dex refresh token | 30d absolute (`absoluteLifetime`) | Rotated on each use by Dex | When muster refreshes Dex access token |
-| Muster access token | 30m (capped by `capTokenExpiry`) | Client requests refresh | When client detects expiry (60s buffer) |
-| Muster refresh token | 30d rolling | Rotated on each use by muster | When client refreshes muster access token |
+| muster access token | 30m (capped by `capTokenExpiry`) | Client requests refresh | When client detects expiry (60s buffer) |
+| muster refresh token | 30d rolling | Rotated on each use by muster | When client refreshes muster access token |
 
 ### Access Token Capping
 
-Muster's `DefaultAccessTokenTTL` is set to 30 minutes, intentionally matching Dex's `idTokens` expiry. The mcp-oauth library's `capTokenExpiry` function ensures that even if the configured TTL is longer, the effective access token lifetime never exceeds the provider's token lifetime:
+muster's `DefaultAccessTokenTTL` is set to 30 minutes, intentionally matching Dex's `idTokens` expiry. The mcp-oauth library's `capTokenExpiry` function ensures that even if the configured TTL is longer, the effective access token lifetime never exceeds the provider's token lifetime:
 
 ```go
 func (s *Server) capTokenExpiry(providerExpiry time.Time) time.Time {
@@ -58,9 +58,9 @@ This means `muster auth status` accurately shows "Expires: in 29 minutes" after 
 
 ### Refresh Token Alignment
 
-Muster's `DefaultRefreshTokenTTL` (the session duration) is set to 30 days, aligned with Dex's `absoluteLifetime`. This alignment is critical because:
+muster's `DefaultRefreshTokenTTL` (the session duration) is set to 30 days, aligned with Dex's `absoluteLifetime`. This alignment is critical because:
 
-- **Muster** uses a **rolling** refresh token TTL -- the expiry resets on each token rotation.
+- **muster** uses a **rolling** refresh token TTL -- the expiry resets on each token rotation.
 - **Dex** uses an **absolute** refresh token lifetime -- measured from the original login, never resets.
 
 If the muster session duration were set longer than Dex's `absoluteLifetime`, users would see a misleading session estimate. For example, if muster showed "60 days remaining" but Dex's absolute lifetime had already elapsed, the next refresh would fail with "failed to refresh token with provider", forcing re-authentication.
@@ -93,11 +93,11 @@ When changing this value, ensure it is aligned with Dex's `absoluteLifetime`. Se
 
 ### Agent Authentication
 
-By default, Muster operates without authentication for local development. In production, OAuth 2.1 protection is enabled via the aggregator's OAuth configuration. See [ADR-005: Muster Auth](../explanation/decisions/005-muster-auth.md) for the architecture.
+By default, muster operates without authentication for local development. In production, OAuth 2.1 protection is enabled via the aggregator's OAuth configuration. See [ADR-005: muster Auth](../explanation/decisions/005-muster-auth.md) for the architecture.
 
 ### SSO Token Forwarding
 
-When multiple MCP servers share the same identity provider, Muster supports Single Sign-On via ID token forwarding and RFC 8693 token exchange. See [ADR-009: SSO Token Forwarding](../explanation/decisions/009-sso-token-forwarding.md) for details.
+When multiple MCP servers share the same identity provider, muster supports Single Sign-On via ID token forwarding and RFC 8693 token exchange. See [ADR-009: SSO Token Forwarding](../explanation/decisions/009-sso-token-forwarding.md) for details.
 
 ### Token Storage
 
@@ -131,5 +131,5 @@ All OAuth communication requires HTTPS in production. The mcp-oauth library enfo
 - [Troubleshooting Guide](../how-to/troubleshooting.md)
 - [System Architecture](../explanation/architecture.md)
 - [ADR-004: OAuth Proxy](../explanation/decisions/004-oauth-proxy.md)
-- [ADR-005: Muster Auth](../explanation/decisions/005-muster-auth.md)
+- [ADR-005: muster Auth](../explanation/decisions/005-muster-auth.md)
 - [ADR-009: SSO Token Forwarding](../explanation/decisions/009-sso-token-forwarding.md)

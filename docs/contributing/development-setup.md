@@ -1,465 +1,101 @@
-# Development Setup
+# Development setup
 
-Get your local development environment ready for contributing to Muster.
+What you need to build, test and change muster locally.
 
-## Prerequisites
+## Toolchain
 
-### Required Software
-- **Go 1.21+**: [Download from golang.org](https://golang.org/downloads/)
-- **Git**: For version control
-- **Make**: For build automation
-- **Docker** (optional): For containerized testing
+- **Go**: the version named in `go.mod` (`go 1.25`, with the toolchain directive selecting the exact release). `go install` and `make build` use it automatically.
+- **golangci-lint**, **goimports**: `make lint` and `make imports` install or expect them; the pre-commit hooks run the same checks.
+- **pre-commit**: `pre-commit install` once after cloning. The hooks format Go code, run the linters, enforce Conventional Commit messages, regenerate the Helm values schema and the chart README.
+- **Helm** with the `unittest` and `schema` plugins, and **promtool**: only for chart work (`make helm-test`).
+- **setup-envtest**: only for the Kubernetes-mode tests (`make test-envtest` downloads a `kube-apiserver` on first run).
+- **uv**: only for the documentation site (`make docs-serve`).
 
-### Recommended Tools
-- **IDE**: VSCode with Go extension, or GoLand
-- **golangci-lint**: For code quality checks
-- **goimports**: For import formatting
-- **gopls**: Go language server
-
-## Initial Setup
-
-### 1. Fork and Clone
+## Clone and build
 
 ```bash
-# Fork the repository on GitHub, then clone your fork
-git clone https://github.com/YOUR_USERNAME/muster.git
+git clone https://github.com/giantswarm/muster.git
 cd muster
-
-# Add upstream remote
-git remote add upstream https://github.com/giantswarm/muster.git
+pre-commit install
+make build          # ./muster
+go install          # $(go env GOPATH)/bin/muster, what the scenarios and the harness call
 ```
 
-### 2. Install Dependencies
+Run the binary you built:
 
 ```bash
-# Download Go modules
-go mod download
-
-# Install development tools
-go install golang.org/x/tools/cmd/goimports@latest
-go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+./muster serve --config-path ./tmp-config --debug
+./muster agent --repl
 ```
 
-### 3. Verify Setup
+## Tests
+
+| Command | Runs |
+|---|---|
+| `make test` | Unit tests with the race detector, `verify-crds`, `verify-cli-docs` and the scenario suite |
+| `muster test` | Every behavioural scenario against isolated `muster serve` instances |
+| `muster test --scenario <name> --verbose --debug` | One scenario, with the instance's log |
+| `muster test --concept workflow` | The scenarios of one concept (`workflow`, `mcpserver`, `service`) |
+| `muster test --parallel 50 --base-port 30000` | The suite with fifty instances at a time |
+| `make test-envtest` | The RBAC integration tests and the Kubernetes-mode scenarios on envtest |
+| `make helm-test` | Chart lint, helm-unittest suites and the promtool alert-rule tests |
+
+Scenarios live in `internal/testing/scenarios/*.yaml`; [Testing](testing/README.md) explains
+the framework and [Writing scenarios](testing/scenarios.md) the schema. A failing scenario is a
+bug in the code, not in the scenario.
+
+Unit tests never sleep and never use timers to hide a race; new code comes with tests, and the
+project holds coverage at eighty percent or more for new code.
+
+## Before every commit
 
 ```bash
-# Build the project
-make build
-
-# Run tests
+goimports -local github.com/giantswarm/muster -w . && go fmt ./...
+make lint           # golangci-lint with gosec, goconst and govet
+make vet
 make test
-
-# Check code quality
-make lint
 ```
 
-## Development Workflow
+The pre-commit hooks run the formatting and lint steps for you; `make test` is yours to run.
 
-### Before Making Changes
+## Architecture rules the linters do not catch
 
-```bash
-# Update your local main branch
-git checkout main
-git pull upstream main
+- **Packages communicate through `internal/api`.** Each service package registers an adapter (`api_adapter.go`) and consumers retrieve handlers with `api.GetXxx()`. Importing `internal/workflow` or `internal/mcpserver` from another service package is the one pattern reviewers always send back. [ADR-001](../explanation/decisions/001-api-service-locator.md) explains why.
+- **Every package has a `doc.go`.** The package comment says what the package is for and how it is reached through the API layer.
+- **Files stay under about four hundred lines.** Split a file that grows past it.
+- **Errors are wrapped with context:** `fmt.Errorf("connecting to %s: %w", name, err)`.
+- **Exit codes** are `0` success, `1` error, `2` authentication required, `3` authentication failed; commands return the `internal/cli` error types that map to them.
 
-# Create a feature branch
-git checkout -b feature/your-feature-name
-```
+## Generated files
 
-### Code Quality Standards
+Regenerate, never edit by hand:
 
-**CRITICAL: Run these before every commit:**
+| Files | Command |
+|---|---|
+| `helm/muster/crds/`, `helm/muster-crds/` CRDs | `make generate-crds`; `make verify-crds` fails when stale |
+| `docs/reference/cli/` | `make generate-cli-docs`; `make verify-cli-docs` fails when stale |
+| `schema.json` | `muster test --generate-schema` |
+| `helm/muster/values.schema.json`, `helm/muster/README.md` | pre-commit hooks (`helm schema`, `helm-docs`) |
+| `.circleci/config.yml`, `zz_generated.*` workflows, `Makefile.gen.*.mk`, `renovate.json5` | devctl through the organisation's align-files workflow; change the template in devctl, not the copy here |
 
-```bash
-# Format imports and code
-goimports -w .
-go fmt ./...
+## Documentation
 
-# Run tests
-make test
+The documentation is Markdown under `docs/`, published with MkDocs to
+[giantswarm.github.io/muster](https://giantswarm.github.io/muster/). `make docs-serve` renders
+it locally with live reload; `make docs-build` is the strict build the pull-request check runs,
+which fails on a broken link, a page missing from the navigation in `mkdocs.yml` or an unknown
+anchor. Command help texts are documentation too: the CLI reference is rendered from them.
 
-# Update binary for testing
-go install
-```
+## Configuration during development
 
-### Testing Requirements
+`muster serve` reads `~/.config/muster` by default. Point it at a scratch directory with
+`--config-path` so that your own definitions stay untouched; `./.muster/config.yaml` in the
+repository is picked up as a project configuration when present. `--debug` turns on debug
+logging, `--json-rpc` on the agent prints every protocol message.
 
-**Minimum 80% test coverage** is required for all new code.
+## Pull requests
 
-```bash
-# Run tests with coverage
-make test-coverage
-
-# Run specific test
-go test ./internal/api -v
-
-# Run test scenarios
-muster test --parallel 20
-
-# Run specific scenario
-muster test --scenario mcpserver-crud --verbose --debug
-```
-
-### Test Scenario Development
-
-Test scenarios are in `internal/testing/scenarios/`. They use BDD format:
-
-```yaml
-# Example scenario structure
-scenario: feature-test
-description: "Test new feature functionality"
-steps:
-  - description: "Setup initial state"
-    command: "muster create service test-service"
-    expect_success: true
-
-  - description: "Test the feature"
-    command: "muster start service test-service"
-    expect_success: true
-    expect_output_contains: "Service started successfully"
-```
-
-**Important Testing Rules:**
-- **NEVER use timers/sleep/wait** in tests or scenarios
-- **Always treat scenarios as the defined user behavior**
-- **Fix code, not scenarios** when tests fail
-- Use dependency injection for time-dependent code
-
-## Architecture Guidelines
-
-### Service Locator Pattern
-
-**CRITICAL: All inter-package communication MUST go through the central API layer.**
-
-#### Adding New Functionality
-
-**1. Define Interface in API:**
-```go
-// internal/api/handlers.go
-type MyServiceHandler interface {
-    DoSomething(ctx context.Context) error
-}
-```
-
-**2. Implement Adapter:**
-```go
-// internal/myservice/api_adapter.go
-type Adapter struct {
-    logic *ServiceLogic
-}
-
-func (a *Adapter) DoSomething(ctx context.Context) error {
-    return a.logic.performAction(ctx)
-}
-
-func (a *Adapter) Register() {
-    api.RegisterMyService(a)
-}
-```
-
-**3. Consume via API:**
-```go
-// in another package
-import "github.com/giantswarm/muster/internal/api"
-
-func useService(ctx context.Context) {
-    handler := api.GetMyService()
-    if handler == nil {
-        return // handle gracefully
-    }
-    handler.DoSomething(ctx)
-}
-```
-
-### Anti-Patterns to Avoid
-
-- **NEVER import workflow, mcpserver, service packages directly**
-- **NEVER use time.Sleep or timers to fix race conditions**
-- **NEVER change schema.json manually** (generated via `muster test --generate-schema`)
-
-## Code Style
-
-### Go Standards
-
-```go
-// ✅ Good: Proper error wrapping
-if err != nil {
-    return fmt.Errorf("failed to create service: %w", err)
-}
-
-// ✅ Good: Exported function with documentation
-// CreateService creates a new service instance from the given service class.
-// It validates the parameters and initializes the service with default settings.
-func CreateService(name, className string) (*Service, error) {
-    // implementation
-}
-
-// ❌ Bad: No error context
-if err != nil {
-    return err
-}
-
-// ❌ Bad: No documentation for exported function
-func CreateService(name, className string) (*Service, error) {
-    // implementation
-}
-```
-
-### File Organization
-
-- **Keep files under 400 lines**
-- **One primary concept per file**
-- **Use descriptive file names**
-- **Group related functionality**
-
-```
-internal/mypackage/
-├── doc.go              # Package documentation
-├── types.go            # Type definitions
-├── api_adapter.go      # API service locator adapter
-├── logic.go            # Core business logic
-├── logic_test.go       # Unit tests
-└── validation.go       # Input validation
-```
-
-### Documentation Requirements
-
-**Every package MUST have a doc.go file:**
-```go
-// Package mypackage provides functionality for managing custom resources.
-//
-// This package implements the service locator pattern by providing an adapter
-// that registers handlers with the central API layer. It handles resource
-// lifecycle management including creation, validation, and cleanup.
-package mypackage
-```
-
-**Every exported function MUST have GoDoc comments:**
-```go
-// CreateResource creates a new resource with the specified configuration.
-// It validates the input parameters and returns an error if validation fails.
-// The resource is automatically registered with the central registry.
-func CreateResource(config *ResourceConfig) (*Resource, error) {
-    // implementation
-}
-```
-
-## IDE Configuration
-
-### VSCode Settings
-
-Create `.vscode/settings.json`:
-```json
-{
-    "go.lintTool": "golangci-lint",
-    "go.lintOnSave": "package",
-    "go.formatTool": "goimports",
-    "go.useLanguageServer": true,
-    "[go]": {
-        "editor.formatOnSave": true,
-        "editor.codeActionsOnSave": {
-            "source.organizeImports": true
-        }
-    }
-}
-```
-
-### Recommended Extensions
-
-- **Go**: Official Go extension
-- **Go Test Explorer**: Test runner integration
-- **golangci-lint**: Linting integration
-- **Git Graph**: Visual git history
-
-## Debugging
-
-### Local Development
-
-```bash
-# Run with debug logging
-muster serve --log-level debug
-
-# Enable pprof for profiling
-muster serve --enable-pprof --pprof-port 6060
-
-# Run agent in REPL mode for testing
-muster agent --repl --endpoint http://localhost:8080
-```
-
-### Using Debugger
-
-```bash
-# Build with debug symbols
-go build -gcflags="all=-N -l" .
-
-# Run with dlv (Delve debugger)
-dlv exec ./muster -- serve --log-level debug
-```
-
-### Debugging Tests
-
-```bash
-# Run specific test with verbose output
-go test -v ./internal/api -run TestSpecificFunction
-
-# Run test with debugger
-dlv test ./internal/api -- -test.run TestSpecificFunction
-```
-
-## Contributing Workflow
-
-### 1. Make Your Changes
-
-Follow the architectural guidelines and maintain test coverage.
-
-### 2. Test Thoroughly
-
-```bash
-# Run all tests
-make test
-
-# Run scenarios
-muster test --parallel 20
-
-# Update binary
-go install
-
-# Manual testing
-muster agent --repl
-```
-
-### 3. Format and Lint
-
-```bash
-# REQUIRED before every commit
-goimports -w .
-go fmt ./...
-make lint
-```
-
-### 4. Commit Changes
-
-```bash
-# Stage changes
-git add .
-
-# Commit with descriptive message
-git commit -m "feat: add new workflow validation feature
-
-- Implement workflow parameter validation
-- Add comprehensive test scenarios
-- Update documentation
-- Closes #123"
-```
-
-### 5. Push and Create PR
-
-```bash
-# Push to your fork
-git push origin feature/your-feature-name
-
-# Create pull request on GitHub
-# Include: description, testing done, breaking changes
-```
-
-## Common Development Tasks
-
-### Adding a New CLI Command
-
-1. **Create command file** in `cmd/`
-2. **Add to root command** in `cmd/root.go`
-3. **Implement handler** following service locator pattern
-4. **Add tests** and scenarios
-5. **Update documentation**
-
-### Adding a New MCP Tool
-
-1. **Define tool** in appropriate service package
-2. **Register with aggregator** via API adapter
-3. **Add integration tests**
-4. **Update tool documentation**
-
-### Adding a New Resource Type
-
-1. **Define CRD** in `pkg/apis/muster/v1alpha1/`
-2. **Implement handlers** following service locator pattern
-3. **Add CLI commands** for CRUD operations
-4. **Create test scenarios**
-5. **Update schema** via `muster test --generate-schema`
-
-## Finishing Up
-
-### Before Submitting PR
-
-**Run the complete checklist:**
-
-```bash
-# Format code
-goimports -w .
-go fmt ./...
-
-# Run tests
-make test
-
-# Update binary
-go install
-
-# Run scenarios
-muster test --parallel 20
-
-# Check for any failures
-echo "All checks passed! Ready to submit PR."
-```
-
-### Getting Help
-
-- **Architecture questions**: Read [Architecture Decision Records](../explanation/decisions/)
-- **Testing help**: See [Testing Documentation](testing/)
-- **Code style**: Follow existing patterns in similar packages
-- **Stuck?**: Ask in [GitHub Discussions](https://github.com/giantswarm/muster/discussions)
-
-## Next Steps
-
-After setup:
-1. [Read the architecture documentation](../explanation/architecture.md)
-2. [Understand the testing framework](testing/)
-3. [Pick a good first issue](https://github.com/giantswarm/muster/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
-
-## Troubleshooting Development Issues
-
-### Build Failures
-
-```bash
-# Clean module cache
-go clean -modcache
-go mod download
-
-# Reset to clean state
-git clean -fdx
-go mod tidy
-```
-
-### Test Failures
-
-```bash
-# Run tests with more details
-go test -v -race ./...
-
-# Check for race conditions
-go test -race ./internal/...
-
-# Debug specific scenario
-muster test --scenario problem-scenario --verbose --debug
-```
-
-### Import Issues
-
-```bash
-# Fix import formatting
-goimports -w .
-
-# Check for circular dependencies
-go mod graph | grep cycle
-```
-
-Remember: **When in doubt, follow existing patterns in the codebase and ask for help!**
+- One logical change per pull request, with a Conventional Commit title (`feat(aggregator): ...`, `fix(oauth): ...`); the title becomes the changelog entry's context.
+- A changelog entry under `Unreleased` in `CHANGELOG.md`, written for the person who runs or uses muster.
+- Sign-off under the DCO on every commit (`git commit -s`).
+- CI runs the unit tests, the linters, the scenario suite, the chart tests and the security scans; a merge to `main` is released automatically.

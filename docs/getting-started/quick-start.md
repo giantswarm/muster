@@ -1,17 +1,107 @@
-# Quick Start Guide
+# Quick start
 
-## Easiest Way: Standalone Mode (Recommended)
+In about ten minutes you install muster, register an MCP server, call its tools from the CLI
+and connect an IDE. Everything runs on your machine; nothing needs a cluster or an identity
+provider.
 
-### 1. Install Muster
+## 1. Install
+
+Download the latest release for your platform. Release binaries are signed in CI; later updates
+go through `muster self-update`, which verifies the signature before replacing the binary.
+
 ```bash
-git clone https://github.com/giantswarm/muster.git
-cd muster && go install
+os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+arch="$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')"
+curl -fsSL -o muster "https://github.com/giantswarm/muster/releases/latest/download/muster-${os}-${arch}"
+chmod +x muster && sudo mv muster /usr/local/bin/
+muster version
 ```
 
-### 2. Connect to Your IDE
-Configure your IDE to use Muster in standalone mode:
+With a Go toolchain installed, `go install github.com/giantswarm/muster@latest` is the
+alternative. Other options, including the container image, are in
+[Installation](../operations/installation.md).
 
-**Cursor/VSCode settings.json**:
+## 2. Start the aggregator
+
+```bash
+muster serve
+```
+
+`muster serve` is the aggregator: the long-running process that connects to MCP servers and
+serves their tools at `http://localhost:8090/mcp`. On first start it creates
+`~/.config/muster` with an empty `mcpservers/` and `workflows/` directory; every definition you
+create below lands there as a YAML file. Leave it running and open a second terminal.
+
+## 3. Register an MCP server
+
+Register the reference filesystem server from the MCP project. It is a `stdio` server: muster
+starts it as a child process and talks to it over its standard input and output.
+
+```bash
+muster create mcpserver files --type=stdio --command=npx \
+  --args="-y,@modelcontextprotocol/server-filesystem,$HOME" --autoStart=true
+```
+
+The first start downloads the package, so give it a few seconds, then check:
+
+```bash
+muster list mcpserver
+```
+
+```text
+NAME    STATE     TYPE    AUTOSTART
+files   Running   stdio   Yes
+```
+
+The same definition as a file, which is what `muster create` wrote to
+`~/.config/muster/mcpservers/files.yaml`:
+
+```yaml
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: files
+spec:
+  type: stdio
+  command: npx
+  args: ["-y", "@modelcontextprotocol/server-filesystem", "/home/you"]
+  autoStart: true
+```
+
+## 4. Call a tool
+
+The tools of a registered server are aggregated under the prefix `x_<server>_`:
+
+```bash
+muster list tool --filter 'x_files_*'
+muster get tool x_files_read_text_file
+muster call x_files_list_allowed_directories
+```
+
+`muster call` works for every tool in the catalogue, including muster's own `core_*` tools
+(`muster call core_mcpserver_list`), and prints the result the way an agent would receive it.
+
+## 5. Explore in the REPL
+
+```bash
+muster agent --repl
+```
+
+The REPL connects to the aggregator as an MCP client. `list tools` shows the catalogue,
+`describe tool x_files_read_text_file` the schema of one tool, `call x_files_list_directory
+path=/home/you` runs it (arguments as `key=value` or as one JSON object), and `help` lists the
+rest. Tab completion works on commands, tool names and argument names.
+
+## 6. Connect an IDE
+
+An MCP client does not see the aggregated tools directly. It sees thirteen *meta-tools*:
+`list_tools`, `filter_tools` and `describe_tool` to find a tool, `call_tool` to run it, and
+their counterparts for resources and prompts. This is what keeps a catalogue of hundreds of
+tools out of the model's context; [MCP tools](../reference/mcp-tools.md) describes each of them.
+
+The simplest way to give an IDE that endpoint is `muster standalone`, which runs the aggregator
+and a stdio bridge in one process. With Cursor, add to `~/.cursor/mcp.json`:
+
 ```json
 {
   "mcpServers": {
@@ -23,141 +113,18 @@ Configure your IDE to use Muster in standalone mode:
 }
 ```
 
-**That's it!** Muster will automatically start its server and agent in a single process.
+Stop the `muster serve` from step 2 first; `standalone` starts its own aggregator on the same
+port and reads the same `~/.config/muster`. Ask the assistant which tools are available and it
+will call `list_tools`; ask it to list your home directory and it will find
+`x_files_list_directory` with `filter_tools` and run it with `call_tool`.
 
-### 3. Test the Connection
-Ask your AI agent: "What tools are available through Muster?"
+To keep a separately running `muster serve`, or to reach a muster running elsewhere, configure
+`["agent", "--mcp-server"]` instead. [Connect MCP clients](../how-to/connect-mcp-clients.md)
+has the configuration for VS Code, Claude Code, Claude Desktop and clients that connect over
+HTTP directly.
 
-Your agent will use the `list_tools` meta-tool to show all available tools from the aggregator.
+## Where to go next
 
-## Advanced: Separate Server/Agent Mode
-
-For production use or when you need to see logs:
-
-### 1. Start Muster Server
-```bash
-muster serve
-```
-
-### 2. Configure Agent
-**Cursor/VSCode settings.json**:
-```json
-{
-  "mcpServers": {
-    "muster": {
-      "command": "muster",
-      "args": ["agent", "--mcp-server"]
-    }
-  }
-}
-```
-
-**Benefits**: Visible server logs, multiple MCP clients can connect, production-ready
-
-### 3. Explore Available Tools
-
-Start the interactive agent to understand the **two-layer architecture**:
-```bash
-muster agent --repl
-```
-
-In the REPL, you can explore both layers:
-
-#### Agent Meta-Tools (What AI Agents Use)
-The agent exposes 11 meta-tools for accessing the aggregator:
-
-```bash
-# Tool Discovery
-list_tools()              # List all tools from aggregator
-describe_tool(name="core_service_list")  # Get tool details
-filter_tools(pattern="core_service_*")   # Filter by pattern
-list_core_tools()         # List core Muster tools specifically
-
-# Tool Execution
-call_tool(name="core_service_list", arguments={})  # Execute any tool
-
-# Resource & Prompt Access
-list_resources()          # List available resources
-get_resource(uri="config://settings")   # Get resource content
-list_prompts()           # List available prompts
-get_prompt(name="deploy", arguments={}) # Execute prompts
-```
-
-#### Aggregator Tools (What Gets Executed)
-The aggregator has the actual business logic tools:
-
-```bash
-# Configuration Tools (5 tools)
-call_tool(name="core_config_get", arguments={})
-call_tool(name="core_config_save", arguments={})
-
-# Service Management Tools
-call_tool(name="core_service_list", arguments={})
-
-# MCP Server Tools (6 tools)
-call_tool(name="core_mcpserver_list", arguments={})
-
-# Workflow Tools (9 tools)
-call_tool(name="core_workflow_list", arguments={})
-call_tool(name="workflow_auth-workflow", arguments={
-  "cluster": "my-cluster",
-  "profile": "default"
-})
-```
-
-### 4. Try Real Examples
-Based on the current `.muster` configuration:
-
-```bash
-# Discover available tools
-list_tools()
-
-# Execute authentication workflow
-call_tool(
-  name="workflow_auth-workflow",
-  arguments={
-    "cluster": "my-cluster"
-  }
-)
-
-# Check service status
-call_tool(
-  name="core_service_status",
-  arguments={
-    "name": "my-k8s-connection"
-  }
-)
-```
-
-## Key Architectural Understanding
-
-### Two Layers, Different Tools
-
-**Layer 1: Agent (`muster agent --mcp-server`)**
-- **What AI agents connect to**
-- **11 meta-tools**: `list_tools`, `call_tool`, `describe_tool`, etc.
-- **Purpose**: Bridge between AI agents and aggregator
-
-**Layer 2: Aggregator (`muster serve`)**
-- **Contains the actual business logic**
-- **36+ tools**: `core_service_list`, `workflow_*`, `x_kubernetes_*`, etc.
-- **Purpose**: Unified tool execution and service management
-
-### Usage Pattern for AI Agents
-
-AI agents **never** directly call aggregator tools. They always use meta-tools:
-
-```bash
-# ✅ Correct: How AI agents work
-list_tools()                                    # Discover tools
-call_tool(name="core_service_list", arguments={})  # Execute tools
-
-# ❌ Wrong: AI agents can't do this
-core_service_list()                             # Doesn't exist at agent layer
-```
-
-This pattern enables:
-- **Unified access** to all tool types (core, workflow, external)
-- **Dynamic discovery** of available capabilities
-- **Consistent interface** regardless of underlying tool source
-- **Transparent routing** to appropriate tool handlers
+- [Register servers and workflows](platform-setup.md) continues this tutorial with a remote server and a first workflow.
+- [Toolsets](../reference/toolsets.md) shows how a client declares the subset of the catalogue it wants to work with.
+- [Installation](../operations/installation.md) runs muster on Kubernetes for a team, with login through Dex.

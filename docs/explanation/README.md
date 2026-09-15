@@ -1,27 +1,30 @@
 # Explanation
 
-Deep dive into Muster's core concepts, architecture, and design decisions.
+How muster works and why it is built the way it is. These pages are background reading; the
+[how-to guides](../how-to/README.md) tell you what to type.
 
-## Quick Navigation
+## Concepts
 
-### Core Topics
-- [Architecture](architecture.md) - How everything fits together
-- [MCP Aggregation](mcp-aggregation.md) - How tool aggregation works
-- [Service Orchestration](orchestration.md) - Workflow and service management
-- [Problem Statement](problem-statement.md) - Why Muster exists
-- [Core Capabilities](capabilities.md) - What Muster can do
-- [Design Principles](design-principles.md) - Why we built it this way
-- [Configuration Examples](configuration-examples.md) - Real-world configurations
+- [The problem muster solves](problem-statement.md): why one endpoint and a discovery layer, rather than every MCP server in every agent.
+- [Architecture](architecture.md): the aggregator, the meta-tools, sessions, the service locator that holds the code together.
+- [MCP aggregation](mcp-aggregation.md): registration, naming, families, tool visibility per session, execution.
+- [Service orchestration and workflows](orchestration.md): the lifecycle of a registered server and how workflows execute.
+- [Observability](observability.md): what muster contributes to a trace, the metrics it exports and the structure of its logs.
+- [Design principles](design-principles.md): the rules the codebase follows.
 
-### Advanced Topics
-- [Architecture Decision Records](decisions/) - Key technical decisions
-- [System Diagrams](diagrams/) - Visual system representations
-- [Component Details](components/) - Individual component deep dives
+## Components
 
-## Related Sections
-- [Getting Started](../getting-started/) - Try Muster yourself
-- [How-to Guides](../how-to/) - Solve specific problems
-- [Reference](../reference/) - Technical specifications
+- [Aggregator](components/aggregator.md): registry, tool factory, event handler and the stores behind a session.
+- [Workflows](components/workflows.md): definitions, execution engine and templating.
 
-## Feedback
-Unclear? [Request improvements](https://github.com/giantswarm/muster/issues/new?labels=documentation)
+## Decisions
+
+The [architecture decision records](decisions/README.md) capture the choices that shaped
+muster: the service locator, OAuth in front of muster and towards remote servers,
+session-scoped tool visibility, single sign-on by token forwarding, server-side meta-tools.
+
+## Protocol analysis
+
+[MCP 2026-07-28](mcp-2026-07-28/README.md) is muster's section-by-section analysis of the
+protocol revision that removes the session handshake and makes extensions first class: what
+each change means for an aggregator, what has to change, and what is still open.

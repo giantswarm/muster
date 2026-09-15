@@ -144,9 +144,9 @@ Together these SEPs tighten the MCP authorization profile in three directions:
 - SEP-2351 "Explicitly specify RFC 8414 well-known URI suffix for MCP":
   <https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2351>
 
-## 3. Muster impact
+## 3. muster impact
 
-Muster has two distinct OAuth surfaces that this section needs to keep
+muster has two distinct OAuth surfaces that this section needs to keep
 separate:
 
 - The **agent-side client** (`internal/agent/oauth/`) — a CLI/desktop OAuth
@@ -160,9 +160,9 @@ separate:
   (`/oauth/callback`) and runs on the publicly reachable muster server.
 
 The CIMD model used by muster (the `client_id` is a self-hosted CIMD URL —
-see [internal/oauth/client.go](../../../internal/oauth/client.go) lines
+see [internal/oauth/client.go](https://github.com/giantswarm/muster/blob/main/internal/oauth/client.go) lines
 196-210 and `Manager.NewManager` in
-[internal/oauth/manager.go](../../../internal/oauth/manager.go)) is exactly
+[internal/oauth/manager.go](https://github.com/giantswarm/muster/blob/main/internal/oauth/manager.go)) is exactly
 the case SEP-2352 calls "portable across authorization servers". That
 simplifies large parts of SEP-2352 for the server-side proxy, but the
 agent-side flow against muster's own AS (and any DCR fallback added later)
@@ -172,14 +172,14 @@ still needs to follow the rules.
 
 - **Agent-side: already implemented.** The agent's local callback already
   captures the `iss` query parameter
-  ([internal/agent/oauth/callback_server.go](../../../internal/agent/oauth/callback_server.go)
+  ([internal/agent/oauth/callback_server.go](https://github.com/giantswarm/muster/blob/main/internal/agent/oauth/callback_server.go)
   line 164, `CallbackResult.Iss` documented at lines 34-37) and
-  [internal/agent/oauth/client.go](../../../internal/agent/oauth/client.go)
+  [internal/agent/oauth/client.go](https://github.com/giantswarm/muster/blob/main/internal/agent/oauth/client.go)
   lines 299-318 implement the "compare if present, reject on mismatch"
   policy that SEP-2468 specifies, including the explicit note that empty
   `iss` is treated as "not advertised", not as a mismatch.
 - **Server-side: implemented.** The proxy callback at
-  [internal/oauth/handler.go](../../../internal/oauth/handler.go)
+  [internal/oauth/handler.go](https://github.com/giantswarm/muster/blob/main/internal/oauth/handler.go)
   `HandleCallback` reads `iss` and hands it to `validateResponseIssuer`
   before it acts on anything else in the response, so a response that
   cannot be attributed to the expected authorization server is rejected
@@ -206,9 +206,9 @@ still needs to follow the rules.
 
 ### SEP-837 — `application_type` in DCR
 
-- Muster does not currently implement Dynamic Client Registration: `client_id`
+- muster does not currently implement Dynamic Client Registration: `client_id`
   on the server side is a CIMD URL
-  ([internal/oauth/client.go](../../../internal/oauth/client.go) lines 18-31,
+  ([internal/oauth/client.go](https://github.com/giantswarm/muster/blob/main/internal/oauth/client.go) lines 18-31,
   `GetClientMetadata` lines 196-210), and on the agent side the agent uses
   `mcp-oauth` providers (`internal/agent/oauth/client.go` lines 12-17).
   `pkg/oauth/types.go` `ClientMetadata` (lines 262-278) has no
@@ -216,12 +216,12 @@ still needs to follow the rules.
 - Impact today is therefore **latent**, not active: muster does not call
   `registration_endpoint`. The impact is on the **CIMD content** muster
   publishes and on any future DCR fallback. The CIMD served by
-  `Handler.ServeCIMD` ([internal/oauth/handler.go](../../../internal/oauth/handler.go)
+  `Handler.ServeCIMD` ([internal/oauth/handler.go](https://github.com/giantswarm/muster/blob/main/internal/oauth/handler.go)
   lines 197-220) — built from `Client.GetClientMetadata` — has no client-type
   hint. Authorization servers that resolve a CIMD URL and synthesise a
   registration may apply the same `"web"` default the SEP warns about.
 - The agent path matters because the agent runs against `127.0.0.1`
-  redirects ([internal/agent/oauth/callback_server.go](../../../internal/agent/oauth/callback_server.go)
+  redirects ([internal/agent/oauth/callback_server.go](https://github.com/giantswarm/muster/blob/main/internal/agent/oauth/callback_server.go)
   line 81). If muster's AS is OIDC and ever enables DCR, the agent must
   send `application_type: "native"`. The CLI binary (`cmd/auth_login.go`,
   `cmd/auth_helpers.go`) is the seam where that intent is known.
@@ -230,7 +230,7 @@ still needs to follow the rules.
 
 - **Token store: already correct.** Tokens are keyed by
   `TokenKey{SessionID, Issuer, Scope}`
-  ([internal/oauth/types.go](../../../internal/oauth/types.go) lines 7-15) and
+  ([internal/oauth/types.go](https://github.com/giantswarm/muster/blob/main/internal/oauth/types.go) lines 7-15) and
   `OAuthState` persists `Issuer` for the duration of the flow (lines 21-46),
   so a successful callback can only write into the issuer it started with.
 - **Client credential binding: not directly applicable to muster today.**
@@ -239,7 +239,7 @@ still needs to follow the rules.
   — no re-registration is required when an AS changes.
 - **Multi-AS clarification matters at config time:** muster's per-server
   `AuthServerConfig`
-  ([internal/oauth/manager.go](../../../internal/oauth/manager.go) lines
+  ([internal/oauth/manager.go](https://github.com/giantswarm/muster/blob/main/internal/oauth/manager.go) lines
   40-45) already keys server configuration by `Issuer`. Treating `Issuer`
   changes for an already-registered MCP server as an "AS migration"
   (drop and re-establish tokens, surface a clear error) is the
@@ -254,20 +254,20 @@ still needs to follow the rules.
 ### SEP-2207 — Refresh tokens with OIDC
 
 - **Agent: already aligned.** `agentOAuthScopes` in
-  [internal/agent/oauth/client.go](../../../internal/agent/oauth/client.go)
+  [internal/agent/oauth/client.go](https://github.com/giantswarm/muster/blob/main/internal/agent/oauth/client.go)
   line 25 already includes `offline_access`, so the agent advertises its
   intent to refresh. Tokens persisted in
-  [pkg/oauth/types.go](../../../pkg/oauth/types.go) `Token` (lines 67-91)
+  [pkg/oauth/types.go](https://github.com/giantswarm/muster/blob/main/pkg/oauth/types.go) `Token` (lines 67-91)
   preserve `RefreshToken` and `ExpiresAt`.
 - **Server-side CIMD: already advertises `refresh_token`.**
   `Client.GetClientMetadata` returns
   `GrantTypes: ["authorization_code", "refresh_token"]`
-  ([internal/oauth/client.go](../../../internal/oauth/client.go) lines
+  ([internal/oauth/client.go](https://github.com/giantswarm/muster/blob/main/internal/oauth/client.go) lines
   196-210). That satisfies the "advertise capability" half of SEP-2207.
 - **Server-side scope handling: partial gap.** The per-server `Scope`
   configured in `AuthServerConfig` is fed directly into
   `Client.GenerateAuthURL`
-  ([internal/oauth/client.go](../../../internal/oauth/client.go) lines
+  ([internal/oauth/client.go](https://github.com/giantswarm/muster/blob/main/internal/oauth/client.go) lines
   108-148). There is no logic to conditionally append `offline_access`
   when the discovered authorization server metadata lists
   `offline_access` in `scopes_supported`. SEP-2207 frames this as
@@ -288,7 +288,7 @@ still needs to follow the rules.
   refresh for both the agent and the backends, and its
   `OAuthHandler.refreshToken` puts the RFC 8707 `resource` on the refresh
   request. It takes the value from the protected resource metadata it
-  discovers itself, exactly as declared. Muster must therefore send the
+  discovers itself, exactly as declared. muster must therefore send the
   declared value unchanged on the authorization and token requests as well:
   a value normalized on one path and verbatim on the other binds the initial
   token and the refreshed token to different audiences. The same constraint
@@ -318,7 +318,7 @@ still needs to follow the rules.
 - **Parser: existing.** `pkg/oauth/www_authenticate.go` lines 26-71 parses
   `scope=` out of the `WWW-Authenticate` header into
   `AuthChallenge.Scope`
-  ([pkg/oauth/types.go](../../../pkg/oauth/types.go) lines 191-216). Note
+  ([pkg/oauth/types.go](https://github.com/giantswarm/muster/blob/main/pkg/oauth/types.go) lines 191-216). Note
   that `authParamRegex` only matches `key="value"`; unquoted scope values
   (technically allowed by RFC 6750 §3) are not picked up — orthogonal but
   worth a follow-up.
@@ -330,7 +330,7 @@ still needs to follow the rules.
   of `TokenKey`), so the data is available.
 - **Insufficient-scope retries on the inbound side:** muster's aggregator
   surface
-  ([internal/aggregator/auth_resource.go](../../../internal/aggregator/auth_resource.go),
+  ([internal/aggregator/auth_resource.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/auth_resource.go),
   `auth_tools.go`) returns authentication status to MCP clients but the
   upstream-401 retry loop lives where the outbound MCP client meets
   `pkg/oauth`. Wherever that retry triggers a re-auth, it needs to feed
@@ -339,12 +339,12 @@ still needs to follow the rules.
 ### SEP-2351 — `.well-known` discovery suffix
 
 - **Already aligned.** `Client.doDiscoverMetadata` in
-  [pkg/oauth/client.go](../../../pkg/oauth/client.go) lines 120-165 tries
+  [pkg/oauth/client.go](https://github.com/giantswarm/muster/blob/main/pkg/oauth/client.go) lines 120-165 tries
   `/.well-known/oauth-authorization-server` first and falls back to
   `/.well-known/openid-configuration`, using the path-insertion and
   path-append forms RFC 8414 §3.1 and §5 (and the existing 2025-11-25 MCP
   spec) require. Constants are in
-  [pkg/oauth/types.go](../../../pkg/oauth/types.go) lines 41-51.
+  [pkg/oauth/types.go](https://github.com/giantswarm/muster/blob/main/pkg/oauth/types.go) lines 41-51.
 - The SEP is a clarification, not a behavioural change for muster.
 
 ## 4. Required changes / migration notes
@@ -353,11 +353,11 @@ Concrete work items, grouped by SEP and ordered by risk:
 
 1. **SEP-837 — `application_type` plumbed through CIMD and (future) DCR.**
    - Add an optional `ApplicationType string` field to
-     [pkg/oauth/types.go](../../../pkg/oauth/types.go) `ClientMetadata`.
+     [pkg/oauth/types.go](https://github.com/giantswarm/muster/blob/main/pkg/oauth/types.go) `ClientMetadata`.
    - The server-side proxy's CIMD is published at the public muster URL
-     ([internal/oauth/client.go](../../../internal/oauth/client.go) lines
+     ([internal/oauth/client.go](https://github.com/giantswarm/muster/blob/main/internal/oauth/client.go) lines
      196-210, `Handler.ServeCIMD`
-     [internal/oauth/handler.go](../../../internal/oauth/handler.go)
+     [internal/oauth/handler.go](https://github.com/giantswarm/muster/blob/main/internal/oauth/handler.go)
      lines 197-220) — set `application_type: "web"` there.
    - The agent CLI runs against `localhost` callbacks — when (or if) it
      ever performs DCR, it MUST send `application_type: "native"`.
@@ -366,7 +366,7 @@ Concrete work items, grouped by SEP and ordered by risk:
 
 2. **SEP-2207 — opportunistic `offline_access` for the server-side proxy.**
    - In
-     [internal/oauth/client.go](../../../internal/oauth/client.go)
+     [internal/oauth/client.go](https://github.com/giantswarm/muster/blob/main/internal/oauth/client.go)
      `GenerateAuthURL`, after `DiscoverMetadata`, check whether the
      returned `Metadata.ScopesSupported` contains `offline_access`. If
      yes, and the caller did not already include it, append it to the
@@ -383,11 +383,11 @@ Concrete work items, grouped by SEP and ordered by risk:
    - Where muster sees an upstream `insufficient_scope` from a remote MCP
      server, look up the existing tokens for that
      `(SessionID, Issuer, *)` via
-     [internal/oauth/token_store.go](../../../internal/oauth/token_store.go)
+     [internal/oauth/token_store.go](https://github.com/giantswarm/muster/blob/main/internal/oauth/token_store.go)
      `TokenStore.GetAllForSession` and union the scopes of any non-expired
      entry with `AuthChallenge.Scope` (parsed from the upstream
      `WWW-Authenticate` per
-     [pkg/oauth/www_authenticate.go](../../../pkg/oauth/www_authenticate.go)).
+     [pkg/oauth/www_authenticate.go](https://github.com/giantswarm/muster/blob/main/pkg/oauth/www_authenticate.go)).
    - Pass that union to `Client.GenerateAuthURL`. The previous scope set
      is already available as a side-product of `TokenKey.Scope`; no
      additional storage is required.
@@ -397,18 +397,18 @@ Concrete work items, grouped by SEP and ordered by risk:
 
 4. **SEP-2352 — explicit error on AS migration.**
    - In `Manager.RegisterServer`
-     ([internal/oauth/manager.go](../../../internal/oauth/manager.go)
+     ([internal/oauth/manager.go](https://github.com/giantswarm/muster/blob/main/internal/oauth/manager.go)
      lines 179-196), when an existing entry's `Issuer` does not match
      the incoming `Issuer`, log a warning and call
      `tokenStore.DeleteByIssuer(_, oldIssuer)` for already-issued tokens
      before overwriting. Surface this as a status change on the
      `auth://status` resource
-     ([internal/aggregator/auth_resource.go](../../../internal/aggregator/auth_resource.go))
+     ([internal/aggregator/auth_resource.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/auth_resource.go))
      so users see a clean "re-authentication required" rather than
      silent token loss.
    - Because muster uses CIMD for the `client_id`, no DCR
      re-registration step is needed. Document this explicitly in
-     [internal/oauth/doc.go](../../../internal/oauth/doc.go) — it is the
+     [internal/oauth/doc.go](https://github.com/giantswarm/muster/blob/main/internal/oauth/doc.go) — it is the
      primary architectural reason the SEP-2352 burden on muster is small.
 
 5. **SEP-2351 — documentation only.**
@@ -448,7 +448,7 @@ Concrete work items, grouped by SEP and ordered by risk:
   refreshing the old one. Is that the right model after SEP-2350, or
   should we collapse to `TokenKey{SessionID, Issuer}` and treat scope as
   metadata on the entry?
-- **Inbound auth surface.** Muster's own MCP API today returns auth
+- **Inbound auth surface.** muster's own MCP API today returns auth
   status via the `auth://status` resource; it does not advertise
   `WWW-Authenticate` or Protected Resource Metadata on its tools. If
   that changes (per ADR-008 evolution in

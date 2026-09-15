@@ -1,6 +1,6 @@
 # Advanced Platform Engineering Scenarios
 
-Complex real-world scenarios that demonstrate advanced Muster capabilities for experienced platform engineers.
+Complex real-world scenarios that demonstrate advanced muster capabilities for experienced platform engineers.
 
 ## Automated Incident Response
 

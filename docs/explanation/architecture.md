@@ -1,8 +1,8 @@
-# Muster System Architecture
+# Architecture
 
 ## Executive Summary
 
-Muster implements a sophisticated **service locator pattern** centered around the `internal/api` package, enabling loose coupling between components while providing a unified interface for AI agents. The system aggregates multiple MCP (Model Context Protocol) servers, manages service lifecycles, and orchestrates complex workflows through a clean, interface-driven architecture.
+muster implements a sophisticated **service locator pattern** centered around the `internal/api` package, enabling loose coupling between components while providing a unified interface for AI agents. The system aggregates multiple MCP (Model Context Protocol) servers, manages service lifecycles, and orchestrates complex workflows through a clean, interface-driven architecture.
 
 ## High-Level Architecture
 
@@ -13,7 +13,7 @@ graph TB
         IDE[IDE Configuration]
     end
 
-    subgraph "Muster System"
+    subgraph "muster System"
         MusterAgent[muster agent<br/>--mcp-server<br/>Transport Bridge + OAuth]
 
         subgraph "Aggregator Server (muster serve)"
@@ -21,7 +21,7 @@ graph TB
             API[Central API<br/>Service Locator]
 
             subgraph "Core Services"
-                CoreTools[36 Core Tools<br/>core_service_*, core_workflow_*, etc.]
+                CoreTools[29 Core Tools<br/>core_service_*, core_workflow_*, etc.]
                 Aggregator[MCP Aggregator<br/>Tool Management]
                 ServiceMgr[Service Manager<br/>Lifecycle Control]
                 Workflow[Workflow Engine<br/>Orchestration]
@@ -59,7 +59,7 @@ graph TB
 
 ## Two-Layer Architecture: Server vs Agent
 
-**This is the most important architectural concept to understand:** Muster operates in two distinct layers, but the tool interface has been unified on the server side.
+**This is the most important architectural concept to understand:** muster operates in two distinct layers, but the tool interface has been unified on the server side.
 
 ### Layer 1: Aggregator Server (`muster serve`)
 
@@ -70,12 +70,12 @@ The aggregator server provides the **meta-tools interface** as the primary way t
 - `describe_tool` - Get detailed tool information
 - `call_tool` - Execute any tool by name
 - `filter_tools` - Filter tools by name/description patterns
-- `list_core_tools` - List built-in Muster tools specifically
+- `list_core_tools` - List built-in muster tools specifically
 - `list_resources` / `get_resource` / `describe_resource` - Resource operations
 - `list_prompts` / `get_prompt` / `describe_prompt` - Prompt operations
 
 **Actual Tools (Accessed via `call_tool`):**
-- **36 Core Tools**: `core_service_list`, `core_workflow_create`, `core_config_get`, etc.
+- **29 Core Tools**: `core_service_list`, `core_workflow_create`, `core_config_get`, etc.
 - **Dynamic Workflow Tools**: `workflow_connect-monitoring`, `workflow_auth-workflow`, etc.
 - **External MCP Tools**: `x_kubernetes_*`, `x_prometheus_*`, etc. (from configured MCP servers)
 
@@ -123,7 +123,7 @@ sequenceDiagram
 
     AI->>Agent: call_tool("list_tools", {})
     Agent->>Server: Forward: call_tool
-    Server->>Core: Get core tools (36)
+    Server->>Core: Get core tools (29)
     Server->>Ext: Get external tools
     Server->>Agent: Combined tool list (JSON)
     Agent->>AI: Available tools
@@ -147,12 +147,12 @@ sequenceDiagram
 
 Now that we understand the two layers, here's how tools are organized:
 
-### **Server Meta-Tools (11 tools)**
+### **Server Meta-Tools (13 tools)**
 What MCP clients see when they connect to the server (directly or via agent):
 
 ```mermaid
 graph LR
-    subgraph "Server Meta-Tools (11 tools)"
+    subgraph "Server Meta-Tools (13 tools)"
         Discovery[Tool Discovery<br/>list_tools<br/>describe_tool<br/>filter_tools<br/>list_core_tools]
         Execution[Tool Execution<br/>call_tool]
         Resources[Resource Access<br/>list_resources<br/>get_resource<br/>describe_resource]
@@ -225,7 +225,7 @@ sequenceDiagram
     participant Ext as External MCP
 
     Client->>Server: call_tool("list_tools", {})
-    Server->>Core: Get core tools (36)
+    Server->>Core: Get core tools (29)
     Server->>WF: Get workflow tools (dynamic)
     Server->>Ext: Get external tools (variable)
     Server->>Client: Unified tool list as JSON
@@ -318,7 +318,7 @@ func (e *Executor) startService(name string) error {
 
 ### 3. Progressive Enhancement Architecture
 
-Muster follows a philosophy of progressive enhancement:
+muster follows a philosophy of progressive enhancement:
 - Start with simple, working solutions
 - Add sophistication incrementally
 - Maintain backward compatibility

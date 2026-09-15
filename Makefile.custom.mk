@@ -48,7 +48,7 @@ helm-promtool-test: ## Run the promtool unit tests for the PrometheusRule (requi
 # Makefile.gen.go.mk; these prerequisites run before it (CRD freshness, then the
 # integration suite) and only add prerequisites -- they do not override the
 # generated recipe.
-test: verify-crds muster-integration-test
+test: verify-crds verify-cli-docs muster-integration-test
 
 CONTROLLER_GEN_VERSION := v0.21.0
 
@@ -88,3 +88,22 @@ govulncheck: ## Run govulncheck to scan for known vulnerabilities
 	@echo "Checking for known vulnerabilities..."
 	@command -v govulncheck >/dev/null 2>&1 || { echo "Installing govulncheck..."; go install golang.org/x/vuln/cmd/govulncheck@latest; }
 	@govulncheck ./...
+
+##@ Documentation
+
+DOCS_REQUIREMENTS := requirements-docs.txt
+
+docs-build: ## Build the documentation site into site/; a broken link or a page missing from the nav fails the build.
+	uvx --with-requirements $(DOCS_REQUIREMENTS) mkdocs build --strict
+
+docs-serve: ## Serve the documentation site on http://127.0.0.1:8000 with live reload.
+	uvx --with-requirements $(DOCS_REQUIREMENTS) mkdocs serve
+
+generate-cli-docs: ## Render docs/reference/cli from the Cobra command tree.
+	go run ./hack/gen-cli-docs
+
+verify-cli-docs: generate-cli-docs ## Fail if the committed CLI reference is stale.
+	@git diff --exit-code docs/reference/cli || { \
+		echo "ERROR: docs/reference/cli is out of date. Run 'make generate-cli-docs' and commit."; \
+		exit 1; }
+	@echo "CLI reference is up to date."

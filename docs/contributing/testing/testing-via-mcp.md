@@ -995,7 +995,7 @@ The test framework transparently wraps all tool calls through the `call_tool` me
 - The framework automatically wraps this as: `call_tool(name="core_workflow_create", arguments={...})`
 - Response unwrapping is also handled automatically
 
-This architecture matches how AI agents interact with Muster in production - they also use meta-tools to access all functionality.
+This architecture matches how AI agents interact with muster in production - they also use meta-tools to access all functionality.
 
 ---
 

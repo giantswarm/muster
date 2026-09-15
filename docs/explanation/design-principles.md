@@ -1,8 +1,8 @@
-# Muster Design Principles
+# Design principles
 
 ## Overview
 
-Muster's architecture is built on a foundation of proven design principles that enable scalability, maintainability, and testability. These principles guide all architectural decisions and development practices within the project.
+muster's architecture is built on a foundation of proven design principles that enable scalability, maintainability, and testability. These principles guide all architectural decisions and development practices within the project.
 
 ## Core Architectural Principles
 
@@ -441,14 +441,14 @@ type ServiceHandler interface {
 #### Package Documentation
 Every package must have a `doc.go` file explaining its purpose:
 ```go
-// Package services provides service instance lifecycle management for Muster.
+// Package services provides service instance lifecycle management for muster.
 //
-// This package implements the service management capabilities that allow Muster
+// This package implements the service management capabilities that allow muster
 // to create, monitor, and manage long-running service processes. Services can
 // be started, stopped, and queried through the ServiceHandler interface.
 //
 // Key concepts:
-//   - Service: Running instance managed by Muster
+//   - Service: Running instance managed by muster
 //   - Registry: Central repository for service instances and their state
 //
 // The package integrates with the central API through the adapter pattern,

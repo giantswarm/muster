@@ -48,7 +48,7 @@ var (
 	// New flag for scenario validation
 	testValidateScenarios bool
 	testSchemaInput       string
-	// Muster configuration path flag
+	// muster configuration path flag
 	testMusterConfigPath string
 	// Flag to keep temporary config for debugging
 	testKeepTempConfig bool
@@ -169,8 +169,8 @@ In MCP Server mode:
 
 The test framework uses YAML-based test scenario definitions and automatically
 creates clean, isolated muster serve instances for each test scenario.
-Each scenario can specify pre-configuration including MCP servers, workflows,
-capabilities, service classes, and service instances.
+Each scenario can specify pre-configuration including mock MCP servers,
+MCPServer definitions and workflows.
 
 Test results are reported with structured output suitable for CI/CD integration.`,
 	RunE: runTest,
@@ -219,7 +219,7 @@ func init() {
 	testCmd.Flags().BoolVar(&testValidateScenarios, "validate-scenarios", false, "Validate test scenarios against API schema")
 	testCmd.Flags().StringVar(&testSchemaInput, "schema-input", "schema.json", "Input schema file for validation")
 
-	// Muster configuration path flag
+	// muster configuration path flag
 	testCmd.Flags().StringVar(&testMusterConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
 
 	// Flag to keep temporary config for debugging

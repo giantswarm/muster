@@ -1,6 +1,6 @@
 apiVersion: v2
 name: muster
-description: A Helm chart for muster - Universal Control Plane for AI Agents built on MCP
+description: muster, the aggregating MCP server - one authenticated endpoint for every MCP server a platform runs, with MCPServer and Workflow custom resources
 type: application
 version: 0.3.12
 appVersion: "0.3.12"

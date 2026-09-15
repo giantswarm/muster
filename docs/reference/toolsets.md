@@ -13,10 +13,10 @@ remain the boundary; a toolset bounds what the *model* can discover and call.
 
 ## Declaring a toolset
 
-### The `X-Muster-Toolset` request header
+### The `X-muster-Toolset` request header
 
 ```http
-X-Muster-Toolset: preset:read-only, workflow:incident-triage
+X-muster-Toolset: preset:read-only, workflow:incident-triage
 ```
 
 A comma-separated list of inline selectors; whitespace around each selector is trimmed. The
@@ -188,11 +188,11 @@ The response carries the tools the toolset resolves to **for the caller**, `tool
 selectors as given), `toolset_unmatched` (the selectors that selected nothing for the caller —
 for example a server the caller has not signed in to; `preset:none` is never reported) and
 `presets` (`[{name, description, built_in}]`, built-ins first). When the request also carries
-`X-Muster-Toolset`, the argument resolves **within** the header's toolset and never widens it.
+`X-muster-Toolset`, the argument resolves **within** the header's toolset and never widens it.
 Argument errors use the header's texts.
 
 `toolset` names the toolset the returned tools were resolved within, whichever way it was
-declared. Without a `toolset` argument, a request carrying `X-Muster-Toolset` gets the header's
+declared. Without a `toolset` argument, a request carrying `X-muster-Toolset` gets the header's
 selectors echoed (as declared, e.g. `["preset:read-only"]`), with `toolset_unmatched` computed
 against them — the one place an agent whose toolset is set by its deployment can learn what
 bounds it, and how an operator reading a transcript sees which toolset a discovery call ran

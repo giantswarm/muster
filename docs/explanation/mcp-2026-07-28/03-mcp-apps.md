@@ -278,9 +278,9 @@ adds two pieces of context that matter for muster planning:
 - Preview blog: [MCP Apps - Bringing UI Capabilities To MCP Clients (Jan 2026)](https://blog.modelcontextprotocol.io/posts/2026-01-26-mcp-apps/)
 - Reference SDK and examples: [ext-apps](https://github.com/modelcontextprotocol/ext-apps)
 
-## 3. Muster impact
+## 3. muster impact
 
-Muster does not render iframes — it is a control plane and an MCP
+muster does not render iframes — it is a control plane and an MCP
 aggregator. The question is therefore not "should muster implement an
 MCP Apps host?" (the answer is no) but "what does a UI-aware
 upstream MCP server need from muster so that a UI-aware inbound
@@ -297,7 +297,7 @@ security model is not designed for.
 
 The structural blocker is the server-side meta-tools migration. As
 documented at the top of
-[internal/aggregator/tool_factory.go](../../../internal/aggregator/tool_factory.go)
+[internal/aggregator/tool_factory.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/tool_factory.go)
 (lines 17–32):
 
 > As of the server-side meta-tools migration (Issue #343), this
@@ -311,7 +311,7 @@ mode, any future MCP Apps-aware host) therefore never see real
 upstream tools directly. They see `list_tools` / `describe_tool` /
 `call_tool` and have to discover everything through those. The
 formatters that back those meta-tools
-([internal/metatools/formatters.go](../../../internal/metatools/formatters.go))
+([internal/metatools/formatters.go](https://github.com/giantswarm/muster/blob/main/internal/metatools/formatters.go))
 serialise tool entries through a fixed shape:
 
 ```go
@@ -339,11 +339,11 @@ following). Neither pulls `_meta` off the source `mcp.Tool` /
   honour the SEP's CSP-construction rules.
 
 The `get_resource` meta-tool
-([internal/metatools/handlers.go](../../../internal/metatools/handlers.go),
+([internal/metatools/handlers.go](https://github.com/giantswarm/muster/blob/main/internal/metatools/handlers.go),
 lines 366 + following) is closer to passing through because it
 forwards to `handler.GetResource(ctx, uri)` and is meant to return
 the underlying `ReadResourceResult`. The aggregator's `ReadResource`
-([internal/aggregator/server.go](../../../internal/aggregator/server.go),
+([internal/aggregator/server.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/server.go),
 lines 2994–3016) resolves the exposed URI back to the upstream
 server, calls `client.ReadResource(ctx, originalURI)`, and returns
 the result verbatim. Whether `ResourceContents._meta` survives that
@@ -375,7 +375,7 @@ needs both halves to reach the inbound client unchanged.
 Per the extensions framework
 ([02-extensions-first-class.md](02-extensions-first-class.md) §3.1),
 the inbound MCP server muster runs in
-[internal/aggregator/server.go](../../../internal/aggregator/server.go)
+[internal/aggregator/server.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/server.go)
 will need to start emitting an `extensions` map on its
 `ServerCapabilities`. For MCP Apps the contract is:
 
@@ -394,7 +394,7 @@ will need to start emitting an `extensions` map on its
   follow.
 - Inbound `clientCapabilities.extensions` from request `_meta`
   (post-SEP-2575) becomes the input to the SEP's
-  "Server-Side Capability Checking" pattern. Muster can use it to
+  "Server-Side Capability Checking" pattern. muster can use it to
   decide which upstreams' UI-enabled tool variants to expose vs.
   fall back to text-only (where the upstream offers both).
 
@@ -431,10 +431,10 @@ This is a useful negative result for muster:
 
 ### 3.4 The agent (REPL and MCP-server mode) is text-only
 
-[internal/agent/](../../../internal/agent) ships three modes
+[internal/agent/](https://github.com/giantswarm/muster/blob/main/internal/agent) ships three modes
 (REPL, monitoring, MCP-server-for-AI-assistant; see the architecture
 overview in
-[internal/agent/doc.go](../../../internal/agent/doc.go) lines
+[internal/agent/doc.go](https://github.com/giantswarm/muster/blob/main/internal/agent/doc.go) lines
 26–46). None of them is an MCP Apps host:
 
 - **REPL mode** (`internal/agent/repl.go`) prints tool, resource,
@@ -446,7 +446,7 @@ overview in
   cannot meaningfully fire a sandboxed iframe; the resource would
   be displayed as HTML text or omitted.
 - **Agent MCP-server mode**
-  ([internal/agent/server_upgrade.go](../../../internal/agent/server_upgrade.go)
+  ([internal/agent/server_upgrade.go](https://github.com/giantswarm/muster/blob/main/internal/agent/server_upgrade.go)
   lines 27–112) re-exposes the aggregator's meta-tools — including
   `list_resources`, `describe_resource`, `get_resource` — to an
   upstream AI assistant via stdio. Whatever the AI assistant ends
@@ -479,7 +479,7 @@ runs." That sentence is about **the host**, not the aggregator.
 Three concrete caching surfaces in muster need a deliberate decision:
 
 - **Per-`(sessionID, serverName)` capability store**
-  ([internal/aggregator/capability_store.go](../../../internal/aggregator/capability_store.go)
+  ([internal/aggregator/capability_store.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/capability_store.go)
   and `capability_store_valkey.go`) — already covered in
   [01-stateless-protocol.md](01-stateless-protocol.md) §3.4 for
   `ttlMs` / `cacheScope`. UI resources are ordinary resources; their
@@ -489,9 +489,9 @@ Three concrete caching surfaces in muster need a deliberate decision:
   up naturally with caching the template entry with a generous
   `ttlMs` and refreshing it on
   `notifications/resources/list_changed`.
-- **Resource-content prefetch.** Muster does **not** prefetch
+- **Resource-content prefetch.** muster does **not** prefetch
   `resources/read` results today; the aggregator's
-  [AggregatorServer.ReadResource](../../../internal/aggregator/server.go)
+  [AggregatorServer.ReadResource](https://github.com/giantswarm/muster/blob/main/internal/aggregator/server.go)
   (lines 2994–3016) is a synchronous passthrough that resolves the
   exposed URI back to its origin server and forwards the read.
   SEP-1865 specifically anticipates host-side prefetching of UI
@@ -546,7 +546,7 @@ ordered so an earlier item is a prerequisite for a later one.
    marshal/unmarshal in both directions. Everything below depends
    on the answer.
 2. **Preserve `_meta` in the metatools formatters.** Update
-   [internal/metatools/formatters.go](../../../internal/metatools/formatters.go)
+   [internal/metatools/formatters.go](https://github.com/giantswarm/muster/blob/main/internal/metatools/formatters.go)
    so that `FormatToolListJSON`, `FormatToolDetailJSON`,
    `FormatResourcesListJSON`, and `FormatResourceDetailJSON` emit
    the source `_meta` verbatim (at minimum the `ui` sub-object).
@@ -554,9 +554,9 @@ ordered so an earlier item is a prerequisite for a later one.
    146–177 / 236–249 drop everything outside `name` /
    `description` / `mimeType` / `inputSchema`.
 3. **Preserve `_meta` on `get_resource` passthrough.** Verify in
-   [internal/metatools/handlers.go](../../../internal/metatools/handlers.go)
+   [internal/metatools/handlers.go](https://github.com/giantswarm/muster/blob/main/internal/metatools/handlers.go)
    (`handleGetResource`, lines 366 + following) and
-   [internal/aggregator/server.go](../../../internal/aggregator/server.go)
+   [internal/aggregator/server.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/server.go)
    (`AggregatorServer.ReadResource`, lines 2994–3016) that the
    upstream `ReadResourceResult` — including each
    `ResourceContents._meta` — round-trips unchanged through the
@@ -564,7 +564,7 @@ ordered so an earlier item is a prerequisite for a later one.
    loads a `ui://…` resource end-to-end.
 4. **Persist `_meta.ui` on the capability cache.** The
    `Capabilities` struct in
-   [internal/aggregator/capability_store.go](../../../internal/aggregator/capability_store.go)
+   [internal/aggregator/capability_store.go](https://github.com/giantswarm/muster/blob/main/internal/aggregator/capability_store.go)
    (lines 11–16) currently holds `Tools` / `Resources` / `Prompts`
    as plain `mcp.*` slices. Whichever shape mcp-go grows for `_meta`
    on those types, the cache (and the Valkey variant in
@@ -593,7 +593,7 @@ ordered so an earlier item is a prerequisite for a later one.
    array (`["model"]` / `["app"]` / `["model","app"]`) means that
    some upstream tools MUST NOT appear in the inbound `tools/list`
    the agent sees. The metatools `list_tools` handler in
-   [internal/metatools/handlers.go](../../../internal/metatools/handlers.go)
+   [internal/metatools/handlers.go](https://github.com/giantswarm/muster/blob/main/internal/metatools/handlers.go)
    needs to filter on `_meta.ui.visibility` when emitting the list
    for an inbound `model`-facing host, and to allow `app`-only
    tools through only when the inbound caller is an MCP Apps app
@@ -607,7 +607,7 @@ ordered so an earlier item is a prerequisite for a later one.
    speculatively fetch `ui://…` reads to "help" hosts. The host
    owns prefetch.
 9. **Document the agent's graceful-degradation contract.** Add a
-   note to [internal/agent/doc.go](../../../internal/agent/doc.go)
+   note to [internal/agent/doc.go](https://github.com/giantswarm/muster/blob/main/internal/agent/doc.go)
    that the REPL and the agent's MCP-server mode do not advertise
    `io.modelcontextprotocol/ui`, and that UI-aware upstream tools
    will surface as text-only tool calls in those modes. Pair the
@@ -644,7 +644,7 @@ ordered so an earlier item is a prerequisite for a later one.
 - **Visibility filtering needs an "is this caller an app?" signal.**
   SEP-1865's `visibility: ["app"]` is meaningful only when the
   caller is a known MCP Apps app on the same upstream connection.
-  Muster's meta-tool layer has no concept of an "app caller" today;
+  muster's meta-tool layer has no concept of an "app caller" today;
   the `(authPrincipal, serverName)` keying that
   [01-stateless-protocol.md](01-stateless-protocol.md) §3.1
   proposes does not on its own distinguish a model from an app. The

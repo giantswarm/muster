@@ -1,8 +1,8 @@
 # Troubleshooting Guide
 
-Resolve common Muster issues.
+Resolve common muster issues.
 
-> This guide uses only commands Muster implements. The CLI is `muster serve |
+> This guide uses only commands muster implements. The CLI is `muster serve |
 > agent | standalone | list | get | check | call | create | start | stop | auth |
 > context | events | test | version | self-update`. There is no `muster status`,
 > `muster logs`, `muster describe`, `muster validate`, `muster restart`,
@@ -281,7 +281,7 @@ muster get workflow-execution <id> -o yaml
 htop
 ```
 
-Muster exports logs, traces, and metrics via OpenTelemetry (OTLP). Point the
+muster exports logs, traces, and metrics via OpenTelemetry (OTLP). Point the
 standard `OTEL_EXPORTER_OTLP_*` environment variables at a collector for real
 metrics and traces — there is no `muster metrics`/`muster profile` command.
 
@@ -328,7 +328,7 @@ sudo systemctl restart muster
 ## System-Level Troubleshooting
 
 ### Logs
-Muster logs to stderr (and to OTLP if configured). Increase verbosity with
+muster logs to stderr (and to OTLP if configured). Increase verbosity with
 `--debug`; silence the console with `--silent`.
 ```bash
 # Verbose aggregator logs
@@ -373,7 +373,6 @@ tar czf muster-config-backup.tar.gz -C ~/.config muster
 
 ### Community Resources
 - **GitHub Issues**: [Report bugs and issues](https://github.com/giantswarm/muster/issues)
-- **Discussions**: [Ask questions and share solutions](https://github.com/giantswarm/muster/discussions)
 
 ## Related Documentation
 - [AI Agent Troubleshooting](ai-troubleshooting.md)

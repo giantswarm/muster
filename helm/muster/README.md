@@ -1,6 +1,6 @@
 # muster
 
-A Helm chart for muster - Universal Control Plane for AI Agents built on MCP
+muster, the aggregating MCP server - one authenticated endpoint for every MCP server a platform runs, with MCPServer and Workflow custom resources
 
 **Homepage:** <https://github.com/giantswarm/muster>
 

@@ -1,8 +1,8 @@
 # AI Agent Troubleshooting Guide
 
-Diagnose and resolve AI agent issues when using Muster for infrastructure automation.
+Diagnose and resolve AI agent issues when using muster for infrastructure automation.
 
-> This guide uses only commands and configuration that Muster actually
+> This guide uses only commands and configuration that muster actually
 > implements. The full CLI is `muster serve | agent | standalone | list | get |
 > check | call | create | auth | context | events | test | version |
 > self-update | start | stop`. There is no `muster configure`, `muster cache`,
@@ -84,7 +84,7 @@ curl -v http://localhost:8090/health
 
 **Symptoms:** tools are visible but execution fails with "authentication required", 401/Unauthorized, or the IDE reports the muster server as needing login.
 
-Muster CLI commands return exit code `2` when authentication is required and `3`
+muster CLI commands return exit code `2` when authentication is required and `3`
 when an OAuth flow fails (`0` success, `1` general error).
 
 **Diagnose:**
@@ -152,7 +152,7 @@ top -p "$(pgrep -d, muster)"
 free -h
 ```
 
-Muster emits logs, traces, and metrics via OpenTelemetry (OTLP). Point the
+muster emits logs, traces, and metrics via OpenTelemetry (OTLP). Point the
 standard `OTEL_EXPORTER_OTLP_*` environment variables at your collector to get
 real metrics and traces; there is no `muster metrics` or `muster profile`
 command. To silence console logs while keeping OTLP, run `muster serve --silent`.
@@ -182,7 +182,7 @@ also be managed as Kubernetes CRDs (`kubectl get mcpservers,workflows`).
 
 **Symptoms:** actions hit the wrong cluster/environment.
 
-Muster selects the target aggregator via *contexts*:
+muster selects the target aggregator via *contexts*:
 ```bash
 muster context list        # available contexts
 muster context current     # the active one
@@ -222,10 +222,9 @@ muster <command> --help     # e.g. muster auth --help, muster list --help
 ```
 
 - **GitHub Issues**: [Report bugs and get help](https://github.com/giantswarm/muster/issues)
-- **Discussions**: [Community forum](https://github.com/giantswarm/muster/discussions)
 
 ## Related Documentation
 
-- [AI Agent Integration Guide](ai-agent-integration.md)
+- [Connect MCP clients](connect-mcp-clients.md)
 - [Workflow Creation](workflow-creation.md)
 - [General Troubleshooting](troubleshooting.md)
