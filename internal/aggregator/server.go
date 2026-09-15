@@ -1328,6 +1328,11 @@ func (a *AggregatorServer) publishToolUpdateEvent() {
 //   - During server startup for initial capability discovery
 //   - When backend servers are registered or deregistered
 //   - When tool update events are received from core components
+//
+// The core catalogue every session lists (coreCatalogue) is not touched here:
+// it depends on the tool providers alone, not on which backend servers are
+// registered, and a rebuild is a list of every workflow definition. Only a
+// workflow definition change invalidates it (UpdateCapabilities).
 func (a *AggregatorServer) updateCapabilities() {
 	a.mu.RLock()
 	if a.mcpServer == nil {
@@ -1337,11 +1342,6 @@ func (a *AggregatorServer) updateCapabilities() {
 	a.mu.RUnlock()
 
 	logging.Debug("Aggregator", "Updating capabilities dynamically")
-
-	// The core catalogue every session lists is rebuilt on its next use: this
-	// is the one signal that a workflow definition -- a workflow_<name> tool
-	// -- was created, changed or deleted.
-	a.core.invalidate()
 
 	// Collect meta-tools once and pass to both remove/add to avoid
 	// redundant createToolsFromProviders calls.
@@ -2381,23 +2381,17 @@ func (a *AggregatorServer) GetAvailableTools() []string {
 	return allToolNames
 }
 
-// UpdateCapabilities provides public access to capability updates for external components.
+// UpdateCapabilities tells the aggregator that a workflow definition -- a
+// workflow_<name> tool -- was created, changed or deleted. It is called by
+// the workflow tools and by the workflow reconciler (for a Workflow resource
+// applied or deleted outside muster's tools).
 //
-// This method exposes the internal updateCapabilities functionality to allow
-// other muster components (particularly the workflow manager) to trigger
-// capability refreshes when they detect changes in their tool inventory.
-//
-// The method is thread-safe and can be called concurrently without causing
-// issues. It performs the same comprehensive capability update as the internal
-// method, including cleanup of obsolete items and addition of new capabilities.
-//
-// Use Cases:
-//   - Workflow manager triggering updates when workflow definitions change
-//   - Administrative tools forcing capability refresh
-//   - Integration testing scenarios requiring capability synchronization
-//
-// This is a lightweight wrapper around the internal updateCapabilities method.
+// The core catalogue every session lists is invalidated, so the next
+// meta-tool call is served a catalogue built after the change; then the
+// same comprehensive capability update as the internal method runs. The
+// method is thread-safe and can be called concurrently.
 func (a *AggregatorServer) UpdateCapabilities() {
+	a.core.invalidate()
 	a.updateCapabilities()
 }
 
@@ -2436,7 +2430,7 @@ func (a *AggregatorServer) OnToolsUpdated(event api.ToolUpdateEvent) {
 		// Execute asynchronously to avoid blocking the event publisher and to ensure
 		// the publisher has completed its operation before we query it for tools.
 		// The goroutine scheduling provides the necessary separation without explicit delays.
-		go a.updateCapabilities()
+		go a.UpdateCapabilities()
 	}
 }
 
