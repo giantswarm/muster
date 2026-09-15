@@ -53,6 +53,10 @@ func toStringMap(v interface{}) (map[string]interface{}, bool) {
 
 // logCapture captures stdout and stderr from a process
 type logCapture struct {
+	// prior holds the output of the process's earlier lives when the
+	// instance was restarted (RestartInstance); getLogs puts it first so a
+	// scenario's instance_logs see one continuous log.
+	prior        *InstanceLogs
 	stdoutBuf    *bytes.Buffer
 	stderrBuf    *bytes.Buffer
 	stdoutReader *io.PipeReader
@@ -113,6 +117,14 @@ func (lc *logCapture) close() {
 	lc.wg.Wait()
 }
 
+// setPrior records the output of the process's earlier lives; getLogs
+// returns it ahead of the current life's output.
+func (lc *logCapture) setPrior(prior *InstanceLogs) {
+	lc.mu.Lock()
+	defer lc.mu.Unlock()
+	lc.prior = prior
+}
+
 // getLogs returns the captured logs
 func (lc *logCapture) getLogs() *InstanceLogs {
 	lc.mu.RLock()
@@ -120,6 +132,10 @@ func (lc *logCapture) getLogs() *InstanceLogs {
 
 	stdout := lc.stdoutBuf.String()
 	stderr := lc.stderrBuf.String()
+	if lc.prior != nil {
+		stdout = lc.prior.Stdout + stdout
+		stderr = lc.prior.Stderr + stderr
+	}
 
 	// Create combined log with simple interleaving
 	combined := ""
@@ -216,6 +232,9 @@ type musterInstanceManager struct {
 
 	// Protected MCP server tracking (OAuth-protected mock MCP servers)
 	protectedMCPServers map[string]map[string]*mock.ProtectedMCPServer // instanceID -> serverName -> server
+
+	// Valkey stand-ins for instances with storage type valkey, by instance ID.
+	valkeys map[string]*instanceValkey
 }
 
 // NewMusterInstanceManagerWithLogger creates a new muster instance manager with custom logger
@@ -255,6 +274,7 @@ func NewMusterInstanceManagerWithConfig(debug bool, basePort int, logger TestLog
 		mockHTTPServers:     make(map[string]map[string]*mock.HTTPServer),
 		mockOAuthServers:    make(map[string]map[string]*mock.OAuthServer),
 		protectedMCPServers: make(map[string]map[string]*mock.ProtectedMCPServer),
+		valkeys:             make(map[string]*instanceValkey),
 	}, nil
 }
 
@@ -321,10 +341,22 @@ func (m *musterInstanceManager) CreateInstance(ctx context.Context, scenarioName
 		return nil, fmt.Errorf("failed to start mock HTTP servers: %w", err)
 	}
 
+	// The Valkey stand-in comes before the configuration, which names its
+	// address, and before the process, whose start a start_delay is measured
+	// from.
+	if err := m.startValkey(ctx, instanceID, config, logger); err != nil {
+		m.stopMockHTTPServers(ctx, instanceID, logger)
+		m.stopMockOAuthServers(ctx, instanceID, logger)
+		releasePorts()
+		_ = os.RemoveAll(configPath)
+		return nil, err
+	}
+
 	// Generate configuration files (passing mock HTTP server endpoints)
 	if err := m.generateConfigFilesWithMocks(configPath, config, port, mockHTTPServerInfo, instanceID, logger); err != nil {
 		// Clean up mock HTTP servers on failure
 		m.stopMockHTTPServers(ctx, instanceID, logger)
+		m.stopValkey(instanceID, logger)
 		releasePorts()
 		_ = os.RemoveAll(configPath)
 		return nil, fmt.Errorf("failed to generate config files: %w", err)
@@ -335,6 +367,7 @@ func (m *musterInstanceManager) CreateInstance(ctx context.Context, scenarioName
 	if err != nil {
 		// Clean up on failure: stop mock servers, release port and remove config directory
 		m.stopMockHTTPServers(ctx, instanceID, logger)
+		m.stopValkey(instanceID, logger)
 		releasePorts()
 		_ = os.RemoveAll(configPath)
 		return nil, fmt.Errorf("failed to start muster process: %w", err)
@@ -372,6 +405,9 @@ func (m *musterInstanceManager) CreateInstance(ctx context.Context, scenarioName
 		MockHTTPServers:        mockHTTPServerInfo,
 		MockOAuthServers:       mockOAuthServerInfo,
 		MusterOAuthAccessToken: musterOAuthToken,
+	}
+	if v := m.valkeyFor(instanceID); v != nil {
+		instance.ValkeyAddr = v.addr()
 	}
 
 	if m.debug {
@@ -426,6 +462,9 @@ func (m *musterInstanceManager) DestroyInstance(ctx context.Context, instance *M
 
 	// Stop mock OAuth servers for this instance
 	m.stopMockOAuthServers(ctx, instance.ID, logger)
+
+	// Stop the Valkey stand-in; releases its port
+	m.stopValkey(instance.ID, logger)
 
 	// Release the reserved ports
 	m.releasePort(instance.Port, instance.ID, logger)
@@ -1670,6 +1709,11 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 	if config != nil && len(config.MockOAuthServers) > 0 {
 		m.configureOAuthForInstance(aggregatorConfig, config, port, instanceID, musterConfigPath, logger)
 	}
+
+	// Point every backed store at the instance's Valkey stand-in when the
+	// scenario runs on valkey storage (after the OAuth config, whose default
+	// server block says memory).
+	m.applyStorageConfig(aggregatorConfig, instanceID)
 
 	mainConfig := map[string]interface{}{
 		"aggregator": aggregatorConfig,

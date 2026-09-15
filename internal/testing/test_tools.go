@@ -116,6 +116,20 @@ const (
 	// server's issuer, optionally another's endpoints; or clear the pin) so
 	// the reconciler picks the change up like a CR update.
 	TestToolPinMCPServerAuthorizationServer = "test_pin_mcpserver_authorization_server"
+
+	// TestToolRestartInstance stops and starts the scenario's muster serve
+	// process on the same configuration while the Valkey stand-in and the
+	// mock servers keep running, then reconnects every user client with the
+	// bearer it held -- the sessions that lived through a rollout. The steps
+	// after it run against the new process without a new sign-in.
+	TestToolRestartInstance = "test_restart_instance"
+	// TestToolStopValkey takes the instance's Valkey stand-in off its port,
+	// data kept: a Valkey pod being rescheduled while muster keeps running.
+	// Requires pre_configuration.storage.type: valkey.
+	TestToolStopValkey = "test_stop_valkey"
+	// TestToolStartValkey brings the Valkey stand-in back on its port with
+	// its data.
+	TestToolStartValkey = "test_start_valkey"
 )
 
 // TestToolsHandler handles test-specific tools that operate on mock infrastructure.
@@ -244,7 +258,10 @@ func IsTestTool(toolName string) bool {
 		TestToolScrapeMetrics,
 		TestToolSetMCPServerLabels,
 		TestToolResolveAuthRedirect,
-		TestToolPinMCPServerAuthorizationServer:
+		TestToolPinMCPServerAuthorizationServer,
+		TestToolRestartInstance,
+		TestToolStopValkey,
+		TestToolStartValkey:
 		return true
 	}
 	return false
@@ -313,6 +330,12 @@ func (h *TestToolsHandler) HandleTestTool(ctx context.Context, toolName string, 
 		return h.handleResolveAuthRedirect(ctx, args)
 	case TestToolPinMCPServerAuthorizationServer:
 		return h.handlePinMCPServerAuthorizationServer(ctx, args)
+	case TestToolRestartInstance:
+		return h.handleRestartInstance(ctx, args)
+	case TestToolStopValkey:
+		return h.handleStopValkey(ctx, args)
+	case TestToolStartValkey:
+		return h.handleStartValkey(ctx, args)
 	default:
 		return nil, fmt.Errorf("unknown test tool: %s", toolName)
 	}
@@ -1803,6 +1826,9 @@ func (h *TestToolsHandler) handleMusterAuthLogin(ctx context.Context, args map[s
 			return nil, fmt.Errorf("failed to reconnect with muster access token: %w", err)
 		}
 		h.mcpClient = newClient
+		// The current user's map entry follows, so as_user switches and a
+		// later reconnect (test_restart_instance) find the live client.
+		h.userClients[h.GetCurrentUserName()] = newClient
 	}
 
 	return map[string]interface{}{

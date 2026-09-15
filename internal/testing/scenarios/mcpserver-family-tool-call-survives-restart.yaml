@@ -1,0 +1,187 @@
+name: "mcpserver-family-tool-call-survives-restart"
+description: "A session signed in to a family member keeps calling the family tool across a muster restart on Valkey storage: the new process has an empty routing index while the session's grant and cached capabilities live on in the store, and the call itself rebuilds the route instead of answering 'tool not found' (#1204)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "family", "aggregator", "oauth", "session", "restart", "valkey", "regression", "issue-1204"]
+timeout: "4m"
+
+# Given: muster runs on Valkey storage; two OAuth-protected servers k8s-a and
+#        k8s-b share spec.family = {name: kubernetes, instanceArg:
+#        management_cluster}. alice signs in to k8s-a, lists tools once and
+#        calls the family tool -- the routing index of this process knows it.
+# When:  muster serve restarts; alice's client reconnects with the bearer it
+#        held (same session), and never lists tools in the new process.
+# Then:  alice's family tool call reaches k8s-a as before.
+#
+# On an installation every rollout restarts the one muster pod. Before the
+# fix the family routing index -- process memory, filled only by a tool
+# listing -- came up empty while every session's tokens and cached
+# capabilities persisted in Valkey, so each of them got "tool not found:
+# x_kubernetes_list_pods" for every family tool, with the member reported
+# Connected, until it listed tools again (giantswarm/muster#1204, seen twice
+# after two fix rollouts on 2026-09-10).
+
+pre_configuration:
+  storage:
+    type: "valkey"
+
+  mock_oauth_servers:
+    - name: "shared-idp"
+      scopes: ["openid", "profile", "mcp:read"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "test-client"
+      client_secret: "test-secret"
+      use_as_muster_oauth_server: true
+
+  mcp_servers:
+    - name: "k8s-a"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "shared-idp"
+          scope: "mcp:read"
+        family:
+          name: "kubernetes"
+          instanceArg: "management_cluster"
+        tools:
+          - name: "list_pods"
+            description: "List pods"
+            input_schema:
+              type: "object"
+              properties:
+                namespace: { type: "string" }
+            responses:
+              - response:
+                  source: "k8s-a"
+                  namespace: "{{ .namespace }}"
+
+    - name: "k8s-b"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "shared-idp"
+          scope: "mcp:read"
+        family:
+          name: "kubernetes"
+          instanceArg: "management_cluster"
+        tools:
+          - name: "list_pods"
+            description: "List pods"
+            input_schema:
+              type: "object"
+              properties:
+                namespace: { type: "string" }
+            responses:
+              - response:
+                  source: "k8s-b"
+                  namespace: "{{ .namespace }}"
+
+steps:
+  - id: "verify-servers-registered"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["k8s-a", "k8s-b"]
+
+  - id: "muster-auth-alice"
+    tool: "test_muster_auth_login"
+    args:
+      subject: "alice"
+    expected:
+      success: true
+      contains: ["success"]
+
+  - id: "alice-auth-k8s-a"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "k8s-a"
+    expected:
+      success: true
+      contains: ["success"]
+
+  - id: "alice-login-k8s-a"
+    tool: "core_auth_login"
+    args:
+      server: "k8s-a"
+    expected:
+      success: true
+      not_contains: ["Please sign in"]
+
+  # The listing fills this process's routing index; the call below then
+  # works on any version. It is the restart that empties the index.
+  - id: "alice-lists-tools-before-restart"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "list_tools"
+    expected:
+      success: true
+      contains: ["x_kubernetes_list_pods"]
+
+  - id: "alice-calls-family-tool-before-restart"
+    tool: "x_kubernetes_list_pods"
+    args:
+      management_cluster: "k8s-a"
+      namespace: "default"
+    expected:
+      success: true
+      contains: ["k8s-a", "default"]
+
+  - id: "restart-muster"
+    description: "muster serve restarts; Valkey and the backends stay up; alice's client reconnects with the same bearer"
+    tool: "test_restart_instance"
+    args: {}
+    expected:
+      success: true
+      json_path:
+        reconnected_users: ["default"]
+
+  - id: "alice-still-signed-in-to-k8s-a"
+    description: "The session's sign-in to k8s-a survived in the store"
+    tool: "test_read_auth_status"
+    args:
+      server: "k8s-a"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ['"status": "connected"']
+
+  # No list_tools in the new process: the call itself has to resolve the
+  # family tool from alice's persisted capabilities. Before the fix:
+  # "tool not found: x_kubernetes_list_pods".
+  - id: "alice-calls-family-tool-after-restart-without-listing"
+    tool: "x_kubernetes_list_pods"
+    args:
+      management_cluster: "k8s-a"
+      namespace: "default"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["k8s-a", "default"]
+      not_contains: ["k8s-b", "tool not found"]
+
+  - id: "listing-agrees-with-the-call"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "list_tools"
+    expected:
+      success: true
+      contains: ["x_kubernetes_list_pods"]
+
+cleanup:
+  - id: "cleanup-stop-k8s-a"
+    tool: "core_service_stop"
+    args:
+      name: "k8s-a"
+    expected:
+      success: true
+  - id: "cleanup-stop-k8s-b"
+    tool: "core_service_stop"
+    args:
+      name: "k8s-b"
+    expected:
+      success: true

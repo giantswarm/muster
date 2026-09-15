@@ -51,6 +51,10 @@ pre_configuration:
       config:
         # Workflow definition
 
+  storage:                             # Store backend the instance runs on (default: memory)
+    type: "valkey"                     # "memory" | "valkey" (in-process stand-in per instance)
+    start_delay: "3s"                  # Optional: the store answers this long after muster serve started
+
 # Test execution steps
 steps:
   - id: "step-unique-name"             # Unique step identifier
@@ -414,6 +418,48 @@ reconciler must not repeat on its resync ticks (the harness runs instances with
 a 2 s resync, so a step that waits 5 s sees at least two of them). Use
 `contains` and `occurrences` sparingly: log lines are not an API, and a
 scenario pinned to log wording breaks on harmless rewording.
+
+#### Storage backend and process restart
+
+Every store muster keeps outside the process -- the session auth store, the
+capability store, the OAuth token, state and client-credential stores and the
+OAuth server's own store -- follows `oauth.server.storage`. On an installation
+that is Valkey, and it outlives the pod; by default a scenario's instance runs
+on memory, where every store dies with the process. `pre_configuration.storage`
+switches the instance to a Valkey stand-in:
+
+```yaml
+pre_configuration:
+  storage:
+    type: "valkey"          # one in-process miniredis per instance, on a harness port
+    start_delay: "3s"       # optional: refuse connections until 3 s after muster serve started
+```
+
+The stand-in answers every command muster issues (hashes, sets, scans, expiry,
+Lua scripts, pipelines) and the `CLIENT TRACKING` handshake of a valkey-go
+client with client-side caching on. It is content the OAuth server needs to
+mint sessions on, so a scenario with `use_as_muster_oauth_server` keeps its
+bearers valid across a restart. `start_delay` models a Valkey pod that is not
+scheduled yet: connects are refused until the delay passes, so a scenario can
+assert which backend muster came up on (`muster_session_store_backend` via
+`test_scrape_metrics`, and the serve log).
+
+Three test tools drive the process and the store while a scenario runs:
+
+| Tool | Args | Effect |
+|------|------|--------|
+| `test_restart_instance` | none | SIGTERMs `muster serve`, starts it again on the same configuration, ports and environment while the store and every mock server keep running, waits for readiness, and reconnects every client the scenario holds (the default one and every `test_create_user` one) with the bearer it held. Same bearer, same session: the steps after it act as the sessions that lived through a rollout, without a new sign-in. Result: `pid_before`, `pid_after`, `reconnected_users`. The instance's captured output spans both lives, so `instance_logs` sees the whole scenario. |
+| `test_stop_valkey` | none | Takes the store off its port, data kept -- a Valkey pod being rescheduled while muster keeps running. Requires `storage.type: valkey`. |
+| `test_start_valkey` | none | Brings the store back on its port with its data; also starts a `start_delay` store early. |
+
+A restart scenario has three parts: build the state (sign in, list, call),
+`test_restart_instance`, then assert the behaviour the new process owes the
+old sessions -- a tool call that must still route, a grant that must still
+be revocable, a sign-in that must still be known. What the new process must
+*not* do (fall back to memory, re-run a one-shot action) is an `instance_logs`
+assertion over both lives. Keep the memory default for everything else: the
+stand-in is one more listener per instance, and only scenarios about
+persistence or restarts learn anything from it.
 
 ### 5. Mock Server Configuration
 

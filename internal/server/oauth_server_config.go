@@ -292,6 +292,12 @@ func newDPoPReplayCache(storageCfg config.OAuthStorageConfig) (oauthserver.DPoPR
 		clientOpts := valkeygo.ClientOption{
 			InitAddress: []string{storageCfg.Valkey.URL},
 			SelectDB:    storageCfg.Valkey.DB,
+			// The replay cache never reads through DoCache, so client-side
+			// caching buys nothing and its CLIENT TRACKING handshake fails
+			// against a server without the feature (miniredis in the test
+			// harness). The session stores and the mcp-oauth store already run
+			// without it.
+			DisableCache: true,
 		}
 		if storageCfg.Valkey.Password != "" {
 			clientOpts.Password = storageCfg.Valkey.Password

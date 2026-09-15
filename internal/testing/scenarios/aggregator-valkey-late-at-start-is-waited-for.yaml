@@ -1,0 +1,71 @@
+name: "aggregator-valkey-late-at-start-is-waited-for"
+description: "A configured Valkey that answers only seconds after muster serve started is waited for: the session stores come up on Valkey, never on memory for the life of the process (#1229)"
+category: "behavioral"
+concept: "aggregator"
+tags: ["aggregator", "valkey", "storage", "startup", "regression", "issue-1229"]
+timeout: "3m"
+
+# Given: muster is configured for Valkey storage, and the Valkey answers only
+#        3 s after muster serve started -- both starting together after a
+#        node roll, Valkey being rescheduled.
+# When:  muster comes up.
+# Then:  it serves sessions on Valkey-backed stores and says so, on the log
+#        and on the store-backend gauge; the in-memory stores were never
+#        chosen.
+#
+# Before the fix createStores took the first refused connect as "no Valkey"
+# and fell back to in-memory session auth and capability stores for the life
+# of the pod, one WARN line the only signal, while the token store kept
+# retrying into Valkey; the pod passed readiness as a different program
+# (giantswarm/muster#1229).
+
+pre_configuration:
+  storage:
+    type: "valkey"
+    start_delay: "3s"
+
+  mcp_servers:
+    - name: "plain"
+      config:
+        type: "streamable-http"
+        tools:
+          - name: "ping"
+            description: "Answers"
+            responses:
+              - response:
+                  ok: true
+
+steps:
+  - id: "valkey-backend-gauge-is-one"
+    description: "The store-backend gauge reads valkey"
+    tool: "test_scrape_metrics"
+    args:
+      filter: 'muster_session_store_backend{backend="valkey"'
+    expected:
+      success: true
+      contains: ["} 1"]
+
+  - id: "memory-backend-gauge-is-zero"
+    description: "... and not memory"
+    tool: "test_scrape_metrics"
+    args:
+      filter: 'muster_session_store_backend{backend="memory"'
+    expected:
+      success: true
+      contains: ["} 0"]
+
+  - id: "tools-served"
+    tool: "x_plain_ping"
+    args: {}
+    expected:
+      success: true
+      contains: ["true"]
+
+instance_logs:
+  contains:
+    - "Valkey for the session stores did not answer, retrying"
+    - "Valkey for the session stores answered"
+    - "Using Valkey-backed session auth and capability stores"
+  not_contains:
+    - "Using in-memory session auth and capability stores"
+    - "falling back to in-memory"

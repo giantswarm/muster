@@ -1,0 +1,209 @@
+name: "oauth-pinned-server-connectable-after-restart"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  After a muster restart on Valkey storage, a server whose authorization
+  server is pinned and answers a bare 401 stays usable for the sessions that
+  were signed in, and its grant stays revocable -- with no login in the new
+  process to fill the registry entry's issuer.
+
+  Two servers (a hosted one and an in-house one, GitHub-style) verify tokens
+  from the same subject-scoped issuer and publish no RFC 9728 resource
+  metadata, so after a start their registry entries know no issuer. The
+  person signs in to gh-hosted and uses both. muster serve then restarts;
+  the person's client reconnects with the bearer it held and, without any
+  core_auth_login,
+
+    - calls gh-hosted and gh-inhouse and gets answers (the persisted grant
+      and the pinned issuer are enough to rebuild the connections),
+    - logs out of gh-inhouse: the logout finds the issuer through the pin,
+      revokes the person's grant and names the sibling it disconnected,
+    - and the next login on either server asks for a sign-in.
+
+  Regression: after a rollout on the installation every pinned server was
+  unconnectable for every session until some login happened to run
+  discovery ("unable to determine auth method"), and a logout in the new
+  process found no issuer on the registry entry and kept the grant
+  (giantswarm/muster#1150, #1154). The earlier scenarios passed because a
+  login in the same process had filled the entry.
+tags: ["oauth", "subject-grant", "pinned-issuer", "github", "restart", "valkey", "regression", "issue-1150", "issue-1154"]
+timeout: "4m"
+
+pre_configuration:
+  storage:
+    type: "valkey"
+
+  mock_oauth_servers:
+    - name: "person-idp"
+      scopes: ["openid", "profile", "email"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "person-client"
+      client_secret: "person-secret"
+      use_as_muster_oauth_server: true
+
+    - name: "github-as"
+      scopes: ["repo", "read:org"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "github-client"
+
+  mcp_servers:
+    - name: "gh-hosted"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "github-as"
+          scope: "repo"
+          grant_scope: "subject"
+          omit_resource_metadata: true
+        tools:
+          - name: "whoami"
+            description: "Who the hosted server sees"
+            responses:
+              - response:
+                  login: "person"
+                  source: "gh-hosted"
+
+    - name: "gh-inhouse"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "github-as"
+          scope: "repo"
+          grant_scope: "subject"
+          omit_resource_metadata: true
+        tools:
+          - name: "board"
+            description: "The in-house server's board"
+            responses:
+              - response:
+                  items: 3
+                  source: "gh-inhouse"
+
+steps:
+  - id: verify-servers-registered
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["gh-hosted", "gh-inhouse"]
+
+  - id: person-logs-into-muster
+    tool: "test_muster_auth_login"
+    args:
+      subject: "person"
+    expected:
+      success: true
+      contains: ["success"]
+
+  - id: sign-in-to-hosted
+    description: "The browser flow for gh-hosted runs against the pinned authorization server"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "gh-hosted"
+    expected:
+      success: true
+      contains: ["success"]
+
+  - id: hosted-connected
+    tool: "core_auth_login"
+    args:
+      server: "gh-hosted"
+    expected:
+      success: true
+      not_contains: ["Please sign in"]
+
+  - id: call-hosted-before-restart
+    tool: "x_gh-hosted_whoami"
+    args: {}
+    expected:
+      success: true
+      contains: ["gh-hosted"]
+
+  - id: inhouse-connects-from-grant
+    description: "The in-house server connects from the same grant, no sign-in link"
+    tool: "core_auth_login"
+    args:
+      server: "gh-inhouse"
+    expected:
+      success: true
+      contains: ["Successfully connected"]
+      not_contains: ["Please sign in"]
+
+  - id: call-inhouse-before-restart
+    tool: "x_gh-inhouse_board"
+    args: {}
+    expected:
+      success: true
+      contains: ["gh-inhouse"]
+
+  - id: restart-muster
+    description: "muster serve restarts on the same Valkey; the person's client reconnects with its bearer"
+    tool: "test_restart_instance"
+    args: {}
+    expected:
+      success: true
+
+  # No core_auth_login in the new process: the registry entries know no
+  # issuer (bare 401), the pin and the persisted grant must carry the call.
+  - id: call-hosted-after-restart
+    description: "The hosted server answers the restarted muster from the persisted grant"
+    tool: "x_gh-hosted_whoami"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["gh-hosted"]
+      not_contains: ["unable to determine auth method", "tool not found"]
+
+  - id: call-inhouse-after-restart
+    tool: "x_gh-inhouse_board"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["gh-inhouse"]
+
+  - id: logout-of-inhouse-revokes-the-grant
+    description: "A logout in the new process finds the issuer through the pin, revokes the grant and names the sibling"
+    tool: "core_auth_logout"
+    args:
+      server: "gh-inhouse"
+    expected:
+      success: true
+      contains:
+        - "Successfully logged out from 'gh-inhouse'"
+        - "revoked for all your sessions"
+        - "disconnected as well: gh-hosted"
+
+  - id: hosted-not-authenticated
+    tool: "test_read_auth_status"
+    args:
+      server: "gh-hosted"
+    expected:
+      success: true
+      contains: ['"status": "auth_required"']
+
+  - id: hosted-login-needs-sign-in
+    description: "The grant is gone: a new login asks for a sign-in"
+    tool: "core_auth_login"
+    args:
+      server: "gh-hosted"
+    expected:
+      success: true
+      contains: ["Please sign in"]
+      not_contains: ["Successfully connected"]
+
+  - id: inhouse-login-needs-sign-in
+    tool: "core_auth_login"
+    args:
+      server: "gh-inhouse"
+    expected:
+      success: true
+      contains: ["Please sign in"]
+      not_contains: ["Successfully connected"]
