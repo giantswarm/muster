@@ -7,6 +7,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 
+	"github.com/giantswarm/muster/internal/clock"
 	"github.com/giantswarm/muster/internal/config"
 	"github.com/giantswarm/muster/pkg/logging"
 )
@@ -60,7 +61,7 @@ type coreCatalogue struct {
 type coreCatalogueBuild func() ([]mcp.Tool, map[string][]string)
 
 func newCoreCatalogue() *coreCatalogue {
-	return &coreCatalogue{now: time.Now, maxAge: coreCatalogueMaxAge}
+	return &coreCatalogue{now: clock.Now, maxAge: coreCatalogueMaxAge}
 }
 
 // get returns the core tools (a fresh slice; the elements share their schema

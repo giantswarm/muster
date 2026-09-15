@@ -2,6 +2,7 @@ package mock
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -62,6 +63,34 @@ func (m *MockClock) Set(t time.Time) {
 // Add is an alias for Advance for API familiarity.
 func (m *MockClock) Add(d time.Duration) {
 	m.Advance(d)
+}
+
+// OffsetClock is the system time plus an offset that Advance grows: the
+// clock of a mock authorization server that follows wall time and is moved
+// forward together with muster's own clock by test_advance_clock. Unlike
+// MockClock it does not stand still between advances.
+type OffsetClock struct {
+	offset atomic.Int64
+}
+
+// NewOffsetClock returns a clock at the system time with no offset.
+func NewOffsetClock() *OffsetClock {
+	return &OffsetClock{}
+}
+
+// Now returns the system time plus the offset.
+func (c *OffsetClock) Now() time.Time {
+	return time.Now().Add(time.Duration(c.offset.Load()))
+}
+
+// Advance moves the clock forward by d.
+func (c *OffsetClock) Advance(d time.Duration) {
+	c.offset.Add(int64(d))
+}
+
+// Advancer is a clock that can be moved forward: MockClock and OffsetClock.
+type Advancer interface {
+	Advance(d time.Duration)
 }
 
 // defaultClock is the default clock used by the package.

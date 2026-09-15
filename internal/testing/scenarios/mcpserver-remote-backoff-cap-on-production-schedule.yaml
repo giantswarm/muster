@@ -1,0 +1,200 @@
+name: "mcpserver-remote-backoff-cap-on-production-schedule"
+description: "On the production schedule -- a 30 s initial backoff, a 2 min cap, a 30 s retry tick, moved by the controllable clock -- a remote MCPServer whose endpoint answers 504 for four attempts waits 30 s, 1 min, 2 min and again 2 min between attempts and is Connected within the cap once the endpoint serves again; the events name the capped schedule (#1163)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "backoff", "unreachable", "events", "clock", "faults", "regression", "issue-1163"]
+timeout: "4m"
+
+# Given: a remote MCP server behind a "gateway", Connected. The instance runs
+#        on production intervals (InitialBackoff 30s, MaxBackoff 2m,
+#        RetryInterval 30s); the scenario moves time with test_advance_clock,
+#        which fires the retry tick at once when a retry has become due.
+# When:  the gateway answers the next four requests with 504 Gateway Timeout
+#        and the service is restarted; the clock is advanced by each
+#        scheduled wait in turn.
+# Then:  the attempts wait 30s, 1m, 2m and -- the cap -- 2m again, never 4m;
+#        the events name each wait; once the gateway serves again the fifth
+#        attempt, due 2m after the fourth, connects the server.
+#
+# Before the fix the backoff doubled up to 30 minutes: the fifth attempt
+# waited 4 minutes and the sixth would have waited 8, so users saw the server
+# down long after the gateway had recovered, and the events did not say when
+# the next attempt was due (giantswarm/muster#1163). The harness's shortened
+# intervals (1s/3s) could only assert that schedule in scaled-down form.
+
+pre_configuration:
+  intervals: "production"
+  main_config:
+    config:
+      events: true
+
+  mcp_servers:
+    - name: "behind-gateway"
+      config:
+        type: "streamable-http"
+        tools:
+          - name: "probe"
+            description: "Answers when the upstream is reachable"
+            input_schema:
+              type: "object"
+              properties: {}
+            responses:
+              - response: { alive: true }
+
+steps:
+  - id: "connected"
+    tool: "core_service_status"
+    args:
+      name: "behind-gateway"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "connected"
+    timeout: "45s"
+
+  - id: "gateway-outage"
+    tool: "test_set_mock_server_outage"
+    args:
+      server: "behind-gateway"
+      status: 504
+      requests: 4
+    expected:
+      success: true
+      contains: ["next 4 requests with HTTP 504"]
+    timeout: "15s"
+
+  - id: "attempt-1-fails-with-504"
+    description: "The restart is the first attempt; it fails with the gateway's 504 and schedules the second 30 s out"
+    tool: "core_service_restart"
+    args:
+      name: "behind-gateway"
+    expected:
+      success: false
+      error_contains: ["Failed to restart service", "status 504"]
+    timeout: "30s"
+
+  - id: "one-failure-retry-scheduled"
+    tool: "core_service_status"
+    args:
+      name: "behind-gateway"
+    expected:
+      success: true
+      wait_for_state: "20s"
+      json_path:
+        metadata.consecutiveFailures: 1
+      contains: ["nextRetryAfter"]
+    timeout: "30s"
+
+  - id: "30s-pass"
+    description: "The second attempt is due; the retry tick fires with the clock"
+    tool: "test_advance_clock"
+    args:
+      duration: "30s"
+    expected:
+      success: true
+      contains: ["Advanced the clock by 30s"]
+    timeout: "15s"
+
+  - id: "attempt-2-failed"
+    tool: "core_service_status"
+    args:
+      name: "behind-gateway"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        metadata.consecutiveFailures: 2
+    timeout: "45s"
+
+  - id: "1m-passes"
+    tool: "test_advance_clock"
+    args:
+      duration: "1m"
+    expected:
+      success: true
+    timeout: "15s"
+
+  - id: "attempt-3-failed-unreachable"
+    description: "After the third failure the service is unreachable and its status names the 504"
+    tool: "core_service_status"
+    args:
+      name: "behind-gateway"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "unreachable"
+        metadata.consecutiveFailures: 3
+    timeout: "45s"
+
+  - id: "2m-pass"
+    tool: "test_advance_clock"
+    args:
+      duration: "2m"
+    expected:
+      success: true
+    timeout: "15s"
+
+  - id: "attempt-4-failed-at-the-cap"
+    description: "The fourth failure -- the last 504 the gateway answers -- schedules the fifth attempt 2 min out: the cap, where the uncapped schedule waited 4 min"
+    tool: "core_service_status"
+    args:
+      name: "behind-gateway"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "unreachable"
+        metadata.consecutiveFailures: 4
+    timeout: "45s"
+
+  - id: "2m-more-pass"
+    description: "The gateway serves again; the fifth attempt is due within the cap"
+    tool: "test_advance_clock"
+    args:
+      duration: "2m"
+    expected:
+      success: true
+    timeout: "15s"
+
+  - id: "connected-within-the-cap"
+    description: "The fifth attempt connects and the schedule is cleared. Before the fix this attempt was 2 more minutes away"
+    tool: "core_service_status"
+    args:
+      name: "behind-gateway"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "connected"
+        metadata.consecutiveFailures: 0
+      not_contains: ["lastFailureHTTPStatus", "nextRetryAfter"]
+    timeout: "45s"
+
+  - id: "tool-answers-again"
+    tool: "x_behind-gateway_probe"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "20s"
+      contains: ["alive"]
+    timeout: "30s"
+
+  - id: "events-name-the-capped-schedule"
+    description: "Every MCPServerFailed event names the HTTP status and the wait it scheduled: 30s, 1m, 2m and 2m -- never 4m"
+    tool: "core_events"
+    args:
+      resourceType: "MCPServer"
+      resourceName: "behind-gateway"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains:
+        - "connection failure 1 of 3 before unreachable (endpoint answered HTTP 504, next retry in 30s at "
+        - "connection failure 2 of 3 before unreachable (endpoint answered HTTP 504, next retry in 1m0s at "
+        - "server unreachable after 3 consecutive failures (endpoint answered HTTP 504, next retry in 2m0s at "
+        - "server unreachable after 4 consecutive failures (endpoint answered HTTP 504, next retry in 2m0s at "
+      not_contains:
+        - "next retry in 4m0s"
+    timeout: "45s"

@@ -10,6 +10,7 @@ import (
 	mcpserverPkg "github.com/giantswarm/muster/internal/mcpserver"
 
 	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/clock"
 	"github.com/giantswarm/muster/internal/config"
 	"github.com/giantswarm/muster/internal/services"
 	"github.com/giantswarm/muster/internal/services/mcpserver"
@@ -412,9 +413,9 @@ func (o *Orchestrator) Stop() error {
 // service, and every HealthCheckInterval it probes the connected ones (see
 // health_check.go).
 func (o *Orchestrator) retryFailedMCPServers() {
-	ticker := time.NewTicker(RetryInterval)
+	ticker := clock.NewTicker(RetryInterval)
 	defer ticker.Stop()
-	healthTicker := time.NewTicker(HealthCheckInterval)
+	healthTicker := clock.NewTicker(HealthCheckInterval)
 	defer healthTicker.Stop()
 
 	for {
@@ -507,7 +508,7 @@ func (o *Orchestrator) shouldAttemptRetry(svc services.Service) bool {
 		return false
 	}
 
-	if time.Now().Before(nextRetry) {
+	if clock.Now().Before(nextRetry) {
 		logging.Debug("Orchestrator", "Backoff not expired for %s (retry after %v)", svc.GetName(), nextRetry)
 		return false
 	}

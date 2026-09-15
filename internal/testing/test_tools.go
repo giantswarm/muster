@@ -142,6 +142,17 @@ const (
 	// stores it, status included, so a scenario can assert on what muster
 	// wrote there. Requires mode kubernetes.
 	TestToolGetCR = "test_get_cr"
+
+	// TestToolRedeployMockServer replaces a mock MCP server's process behind
+	// its port: sessions forgotten, tools kept, the port never refusing --
+	// a backend pod replaced behind the same Service.
+	TestToolRedeployMockServer = "test_redeploy_mock_server"
+	// TestToolSetMockServerAuth flips an OAuth-capable mock MCP server
+	// between anonymous and 401-with-metadata while it runs.
+	TestToolSetMockServerAuth = "test_set_mock_server_auth"
+	// TestToolAdvanceClock moves muster serve's clock and every mock
+	// authorization server's clock forward together.
+	TestToolAdvanceClock = "test_advance_clock"
 )
 
 // TestToolsHandler handles test-specific tools that operate on mock infrastructure.
@@ -276,7 +287,10 @@ func IsTestTool(toolName string) bool {
 		TestToolStartValkey,
 		TestToolSetAPIServerReachable,
 		TestToolPatchCR,
-		TestToolGetCR:
+		TestToolGetCR,
+		TestToolRedeployMockServer,
+		TestToolSetMockServerAuth,
+		TestToolAdvanceClock:
 		return true
 	}
 	return false
@@ -325,6 +339,12 @@ func (h *TestToolsHandler) HandleTestTool(ctx context.Context, toolName string, 
 		return h.handleStartMockServer(ctx, args)
 	case TestToolSetMockServerOutage:
 		return h.handleSetMockServerOutage(ctx, args)
+	case TestToolRedeployMockServer:
+		return h.handleRedeployMockServer(ctx, args)
+	case TestToolSetMockServerAuth:
+		return h.handleSetMockServerAuth(ctx, args)
+	case TestToolAdvanceClock:
+		return h.handleAdvanceClock(ctx, args)
 	case TestToolCallMetaTool:
 		return h.handleCallMetaTool(ctx, args)
 	case TestToolScrapeMetrics:
@@ -923,7 +943,7 @@ func (h *TestToolsHandler) handleAdvanceOAuthClock(ctx context.Context, args map
 		if oauthServer == nil {
 			return nil, fmt.Errorf("OAuth server %s not found", serverName)
 		}
-		if mockClock, ok := oauthServer.GetClock().(*mock.MockClock); ok {
+		if mockClock, ok := oauthServer.GetClock().(mock.Advancer); ok {
 			mockClock.Advance(d)
 			advancedServers = append(advancedServers, serverName)
 			if h.debug {
@@ -937,7 +957,7 @@ func (h *TestToolsHandler) handleAdvanceOAuthClock(ctx context.Context, args map
 		for name := range h.currentInstance.MockOAuthServers {
 			oauthServer := h.instanceManager.GetMockOAuthServer(h.currentInstance.ID, name)
 			if oauthServer != nil {
-				if mockClock, ok := oauthServer.GetClock().(*mock.MockClock); ok {
+				if mockClock, ok := oauthServer.GetClock().(mock.Advancer); ok {
 					mockClock.Advance(d)
 					advancedServers = append(advancedServers, name)
 					if h.debug {
