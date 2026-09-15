@@ -1,0 +1,120 @@
+name: "list-tools-server-attribution"
+description: "list_tools and filter_tools report the server a tool belongs to by the server's name, never by its tool prefix, and muster's own tools by kind -- the attribution `muster list tool --server <name>` selects on (#1248)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["metatools", "list_tools", "filter_tools", "attribution", "toolPrefix", "cli"]
+timeout: "5m"
+
+# Regression guard for #1248:
+#
+# Given: A server registered as "files", whose tools are exposed as
+#        "x_files_<tool>", and a server named "gazelle-mcp-pro" configured with
+#        toolPrefix "pro", whose tools are exposed as "x_pro_<tool>" -- the
+#        server name appears nowhere in the exposed name.
+# When:  The catalogue is listed through list_tools and filter_tools.
+# Then:  Every aggregated tool names its server as it was registered ("files",
+#        "gazelle-mcp-pro"), and a core tool carries kind "core" and no server.
+#
+# `muster list tool --server <name>` matched the name against the start of the
+# exposed tool name, which for the server "files" is "x_files_...", and printed
+# "No tools found". It now selects on the server field asserted here.
+
+pre_configuration:
+  mcp_servers:
+    - name: "files"
+      config:
+        tools:
+          - name: "read_file"
+            description: "Read the complete contents of a file."
+            responses: [{ response: { content: "" } }]
+          - name: "list_directory"
+            description: "List the entries of a directory."
+            responses: [{ response: { entries: [] } }]
+    - name: "gazelle-mcp-pro"
+      config:
+        toolPrefix: "pro"
+        tools:
+          - name: "issues"
+            description: "List the issues of a project."
+            responses: [{ response: { issues: [] } }]
+
+steps:
+  - id: "wait-for-mock-servers"
+    description: "Both servers must be connected"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["files", "gazelle-mcp-pro"]
+
+  # The server field is the registered name, which for "files" the exposed
+  # prefix happens to repeat -- behind an "x_" the old CLI never looked past.
+  - id: "aggregated-tools-name-their-server"
+    description: "filter_tools attributes x_files_* to the server files"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_tools"
+      arguments:
+        pattern: "x_files_*"
+        limit: 50
+    expected:
+      success: true
+      json_path:
+        total: 2
+        tools.0.name: "x_files_list_directory"
+        tools.0.server: "files"
+        tools.0.kind: "tool"
+        tools.1.name: "x_files_read_file"
+        tools.1.server: "files"
+        tools.1.kind: "tool"
+
+  # A configured toolPrefix lands in the name; the server field still carries
+  # the server's name, so a listing can be scoped to the server as registered.
+  - id: "prefix-divergent-server-is-named-not-prefixed"
+    description: "filter_tools attributes x_pro_* to gazelle-mcp-pro, not to pro"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_tools"
+      arguments:
+        pattern: "x_pro_*"
+        limit: 50
+    expected:
+      success: true
+      json_path:
+        total: 1
+        tools.0.name: "x_pro_issues"
+        tools.0.server: "gazelle-mcp-pro"
+        tools.0.kind: "tool"
+      # A test_* tool's text is its Go rendering: "key:value".
+      not_contains: ["server:pro"]
+
+  # muster's own tools have no server; their kind is what groups them.
+  - id: "core-tools-carry-their-kind"
+    description: "filter_tools reports a core tool with kind core and no server"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_tools"
+      arguments:
+        pattern: "core_mcpserver_list"
+        limit: 50
+    expected:
+      success: true
+      json_path:
+        total: 1
+        tools.0.name: "core_mcpserver_list"
+        tools.0.kind: "core"
+      not_contains: ["server:"]
+
+  # list_tools, which the CLI pages through, carries the same attribution.
+  - id: "list-tools-carries-the-same-attribution"
+    description: "list_tools names the registered server of every aggregated tool"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "list_tools"
+      arguments:
+        limit: 200
+    expected:
+      success: true
+      contains: ["server:files", "server:gazelle-mcp-pro"]
+      not_contains: ["server:pro", "server:x"]

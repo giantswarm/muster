@@ -62,7 +62,9 @@ type MCPFilterOptions struct {
 	Pattern string
 	// Description is a case-insensitive substring to match against descriptions
 	Description string
-	// Server filters by server name (case-insensitive prefix match)
+	// Server selects the items of one server: the server an item belongs to
+	// as the aggregator reports it, or the prefix of its exposed name
+	// ("x_files" for a server named "files"). Case-insensitive.
 	Server string
 }
 
@@ -99,35 +101,40 @@ func matchesDescription(description, filter string) bool {
 	return strings.Contains(strings.ToLower(description), strings.ToLower(filter))
 }
 
-// matchesServer checks if a tool/resource name matches the server filter.
-// For tools, server prefixes are typically formatted as "servername_toolname".
-// We do a case-insensitive prefix match.
-func matchesServer(name, server string) bool {
-	if server == "" {
+// matchesServer reports whether an item belongs to the server named by the
+// filter. The filter is compared, case-insensitively, with the server the
+// aggregator reports for the item (empty when the listing carries none) and
+// with the prefix of the item's exposed name, so the tools of a server
+// registered as "files" are selected by "files" as well as by "x_files". The
+// exposed name alone is not enough: a server's tool prefix is its configured
+// toolPrefix, which need not be its name.
+func matchesServer(name, server, filter string) bool {
+	if filter == "" {
 		return true
 	}
-	// Check if name starts with server prefix (case-insensitive)
-	lowerName := strings.ToLower(name)
-	lowerServer := strings.ToLower(server)
-	// Match either "server_" prefix or exact "server" prefix followed by underscore
-	return strings.HasPrefix(lowerName, lowerServer+"_") || strings.HasPrefix(lowerName, lowerServer)
+	if strings.EqualFold(server, filter) {
+		return true
+	}
+	return strings.HasPrefix(strings.ToLower(name), strings.ToLower(filter)+"_")
 }
 
-// matchesMCPFilter checks if an item matches name pattern, description filter, and server filter
-func matchesMCPFilter(name, description string, opts MCPFilterOptions) bool {
+// matchesMCPFilter checks if an item matches the name pattern, description and
+// server filters. server is the item's server as the aggregator reports it;
+// resources and prompts, listed over the native protocol, carry none.
+func matchesMCPFilter(name, description, server string, opts MCPFilterOptions) bool {
 	return matchesWildcard(name, opts.Pattern) &&
 		matchesDescription(description, opts.Description) &&
-		matchesServer(name, opts.Server)
+		matchesServer(name, server, opts.Server)
 }
 
-// filterMCPTools filters tools by name pattern and description
-func filterMCPTools(tools []cli.MCPTool, opts MCPFilterOptions) []cli.MCPTool {
+// filterMCPTools filters tools by name pattern, description and server
+func filterMCPTools(tools []cli.MCPToolInfo, opts MCPFilterOptions) []cli.MCPToolInfo {
 	if opts.IsEmpty() {
 		return tools
 	}
-	var filtered []cli.MCPTool
+	var filtered []cli.MCPToolInfo
 	for _, tool := range tools {
-		if matchesMCPFilter(tool.Name, tool.Description, opts) {
+		if matchesMCPFilter(tool.Name, tool.Description, tool.Server, opts) {
 			filtered = append(filtered, tool)
 		}
 	}
@@ -141,7 +148,7 @@ func filterMCPResources(resources []cli.MCPResource, opts MCPFilterOptions) []cl
 	}
 	var filtered []cli.MCPResource
 	for _, resource := range resources {
-		if matchesMCPFilter(resource.Name, resource.Description, opts) {
+		if matchesMCPFilter(resource.Name, resource.Description, "", opts) {
 			filtered = append(filtered, resource)
 		}
 	}
@@ -155,7 +162,7 @@ func filterMCPPrompts(prompts []cli.MCPPrompt, opts MCPFilterOptions) []cli.MCPP
 	}
 	var filtered []cli.MCPPrompt
 	for _, prompt := range prompts {
-		if matchesMCPFilter(prompt.Name, prompt.Description, opts) {
+		if matchesMCPFilter(prompt.Name, prompt.Description, "", opts) {
 			filtered = append(filtered, prompt)
 		}
 	}
@@ -196,7 +203,10 @@ Available resource types:
 Filtering (for MCP primitives only: tool, resource, prompt):
   --filter <pattern>       - Filter by name pattern (wildcards * and ? supported)
   --description <text>     - Filter by description content (case-insensitive substring)
-  --server <name>          - Filter by server name prefix (e.g., "github", "core")
+  --server <name>          - Filter by server. Tools: the server a tool belongs to as the
+                             aggregator reports it (e.g. "files" for x_files_*, "core",
+                             "workflow"), or the prefix of the exposed name (e.g. "x_files").
+                             Resources and prompts: the prefix of the exposed name.
 
 Output options:
   --output/-o <format>     - Output format: table (default), wide, json, yaml
@@ -220,6 +230,7 @@ Examples:
   muster list tools -o wide
   muster list tools --filter "core_*"
   muster list tools --server github
+  muster list tools --server files -o wide
   muster list tools --filter "*service*" --description "status"
   muster list resources --output yaml
   muster list mcpservers --no-headers | awk '{print $1}'
@@ -239,7 +250,7 @@ func init() {
 	// List-specific filtering flags
 	listCmd.PersistentFlags().StringVar(&listFilter, "filter", "", "Filter by name pattern (wildcards * and ? supported, for MCP primitives only)")
 	listCmd.PersistentFlags().StringVar(&listDescription, "description", "", "Filter by description content (case-insensitive substring, for MCP primitives only)")
-	listCmd.PersistentFlags().StringVar(&listServer, "server", "", "Filter by server name prefix (for MCP primitives only)")
+	listCmd.PersistentFlags().StringVar(&listServer, "server", "", "Filter by server: the server a tool belongs to (e.g. \"files\", \"core\") or the exposed name prefix (e.g. \"x_files\"); for MCP primitives only")
 	listCmd.PersistentFlags().BoolVar(&listShowAll, "all", false, "Show all servers including unreachable ones (for mcpserver only)")
 	listCmd.PersistentFlags().BoolVar(&listVerbose, "verbose", false, "Show detailed error information for failed/unreachable servers (for mcpserver only)")
 }
