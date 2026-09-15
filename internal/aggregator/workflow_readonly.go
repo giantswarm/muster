@@ -3,7 +3,6 @@ package aggregator
 import (
 	"strings"
 
-	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/toolset"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -21,12 +20,17 @@ const workflowToolPrefix = "workflow_"
 // server's own readOnlyHint does, so the read-only preset and the meta-tools
 // treat workflows and server tools alike.
 //
-// The catalogue passed in is the caller's own (already session-scoped), so the
-// derivation is per request like every other catalogue property. It is a
-// single pass over data the aggregator already holds; no workflow handler
-// (tests, bootstrap order) means no hint is derived.
-func deriveWorkflowReadOnlyHints(tools []mcp.Tool, workflows api.WorkflowHandler) {
-	if workflows == nil {
+// steps maps each workflow execution tool's exposed name to the tools its
+// steps call, as the workflow provider declared them (ToolMetadata.StepTools)
+// when the core catalogue was built. A workflow tool absent from steps is
+// unknown and not read-only. The catalogue passed in is the caller's own
+// (already session-scoped), so the derivation is per request like every other
+// catalogue property, and it is a single pass over data the aggregator
+// already holds: it used to fetch every workflow's definition from the
+// definition source per listing -- 282 GETs against the API server for each
+// meta-tool call on one installation (#1225).
+func deriveWorkflowReadOnlyHints(tools []mcp.Tool, steps map[string][]string) {
+	if len(steps) == 0 {
 		return
 	}
 	byName := make(map[string]*mcp.Tool, len(tools))
@@ -38,7 +42,7 @@ func deriveWorkflowReadOnlyHints(tools []mcp.Tool, workflows api.WorkflowHandler
 		if !isWorkflowExecutionTool(tools[i]) {
 			continue
 		}
-		if workflowIsReadOnly(strings.TrimPrefix(tools[i].Name, workflowToolPrefix), workflows, byName, memo, map[string]bool{}) {
+		if workflowIsReadOnly(tools[i].Name, steps, byName, memo, map[string]bool{}) {
 			yes := true
 			tools[i].Annotations.ReadOnlyHint = &yes
 		}
@@ -54,25 +58,28 @@ func isWorkflowExecutionTool(tool mcp.Tool) bool {
 	return strings.HasPrefix(tool.Name, workflowToolPrefix)
 }
 
-func workflowIsReadOnly(name string, workflows api.WorkflowHandler, byName map[string]*mcp.Tool, memo map[string]bool, visiting map[string]bool) bool {
-	if ro, done := memo[name]; done {
+// workflowIsReadOnly decides for the workflow execution tool named exposed
+// (workflow_<name>): every step tool must be a read-only tool of the
+// catalogue or a read-only nested workflow.
+func workflowIsReadOnly(exposed string, steps map[string][]string, byName map[string]*mcp.Tool, memo map[string]bool, visiting map[string]bool) bool {
+	if ro, done := memo[exposed]; done {
 		return ro
 	}
-	if visiting[name] {
+	if visiting[exposed] {
 		return false // a cycle can never be proven read-only
 	}
-	visiting[name] = true
-	defer delete(visiting, name)
+	visiting[exposed] = true
+	defer delete(visiting, exposed)
 
-	wf, err := workflows.GetWorkflow(name)
-	if err != nil || wf == nil {
-		memo[name] = false
+	stepTools, known := steps[exposed]
+	if !known {
+		memo[exposed] = false
 		return false
 	}
 	readOnly := true
-	for _, stepTool := range api.WorkflowStepTools(wf) {
-		if nested, ok := strings.CutPrefix(stepTool, workflowToolPrefix); ok {
-			if !workflowIsReadOnly(nested, workflows, byName, memo, visiting) {
+	for _, stepTool := range stepTools {
+		if _, nested := steps[stepTool]; nested && strings.HasPrefix(stepTool, workflowToolPrefix) {
+			if !workflowIsReadOnly(stepTool, steps, byName, memo, visiting) {
 				readOnly = false
 				break
 			}
@@ -84,6 +91,6 @@ func workflowIsReadOnly(name string, workflows api.WorkflowHandler, byName map[s
 			break
 		}
 	}
-	memo[name] = readOnly
+	memo[exposed] = readOnly
 	return readOnly
 }

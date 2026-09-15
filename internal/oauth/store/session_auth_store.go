@@ -12,6 +12,11 @@ import (
 type SessionAuthStore interface {
 	// IsAuthenticated reports whether the session has authenticated to the server.
 	IsAuthenticated(ctx context.Context, sessionID, serverName string) (bool, error)
+	// AuthenticatedServers returns the names of every server the session has
+	// authenticated to, in one read: a caller deciding something per server
+	// (which servers still need connecting) asks once instead of once per
+	// server. Empty, not an error, for an unknown or expired session.
+	AuthenticatedServers(ctx context.Context, sessionID string) (map[string]struct{}, error)
 	// MarkAuthenticated records successful authentication and resets the session TTL.
 	MarkAuthenticated(ctx context.Context, sessionID, serverName string) error
 	// Revoke removes auth state for a single session+server pair (per-server logout).
@@ -63,6 +68,23 @@ func (s *InMemorySessionAuthStore) IsAuthenticated(_ context.Context, sessionID,
 		return false, nil
 	}
 	return sess.servers[serverName], nil
+}
+
+func (s *InMemorySessionAuthStore) AuthenticatedServers(_ context.Context, sessionID string) (map[string]struct{}, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	sess, ok := s.sessions[sessionID]
+	if !ok || time.Now().After(sess.expireAt) {
+		return map[string]struct{}{}, nil
+	}
+	servers := make(map[string]struct{}, len(sess.servers))
+	for name, authenticated := range sess.servers {
+		if authenticated {
+			servers[name] = struct{}{}
+		}
+	}
+	return servers, nil
 }
 
 func (s *InMemorySessionAuthStore) MarkAuthenticated(_ context.Context, sessionID, serverName string) error {

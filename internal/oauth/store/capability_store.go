@@ -35,9 +35,12 @@ func (c *Capabilities) DeepCopy() *Capabilities {
 // Implementations must be safe for concurrent use.
 type CapabilityStore interface {
 	// Get returns the capabilities for a session+server pair.
-	// Returns nil, nil on cache miss.
+	// Returns nil, nil on cache miss. The result is the caller's to modify
+	// (fresh slices; the elements are copied by value, see DeepCopy).
 	Get(ctx context.Context, sessionID, serverName string) (*Capabilities, error)
-	// GetAll returns all capabilities for a session, keyed by server name.
+	// GetAll returns all capabilities for a session, keyed by server name,
+	// in one read -- the way to list a session's servers. Same copy semantics
+	// as Get.
 	GetAll(ctx context.Context, sessionID string) (map[string]*Capabilities, error)
 	// Set stores capabilities for a session+server pair and resets the session TTL.
 	Set(ctx context.Context, sessionID, serverName string, caps *Capabilities) error

@@ -117,6 +117,13 @@ type ToolMetadata struct {
 	// them like a downstream server's and the built-in read-only toolset
 	// preset selects the read-only tools. Nil declares none.
 	Annotations *ToolAnnotations
+
+	// StepTools lists, for a workflow execution tool, the tools its steps
+	// call (step tools, condition tools, nested workflow_<name> tools). The
+	// aggregator derives the workflow's readOnlyHint from the hints of these
+	// tools in the caller's catalogue, so a listing needs no further lookup
+	// of the workflow definition. Empty for every other tool.
+	StepTools []string
 }
 
 // ToolAnnotations are the MCP tool annotations a tool provider declares for

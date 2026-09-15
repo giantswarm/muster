@@ -45,10 +45,24 @@ const capabilityRefPrefix = "sha256:"
 // connect" — the same as a session whose hash expired. A field that still
 // carries a document inline (written before this layout) reads as before;
 // MigrateInlineEntries rewrites such fields to references.
+//
+// Decoded documents are kept in a bounded process-local cache keyed by
+// reference (documentCache). Since a reference names the document's bytes, a
+// cached decode is exact for as long as a session's hash points at it: a
+// changed capability list is a new reference. The one divergence from reading
+// Valkey every time is a document that expired there while a session's hash
+// still references it -- the cache keeps serving what the server offered the
+// session, where Valkey would report a miss until the session reconnects.
 type ValkeyCapabilityStore struct {
 	client    valkey.Client
 	ttl       time.Duration
 	keyPrefix string
+	// decoded keeps decoded documents by reference, so a session listing
+	// costs one HGETALL and fetches only the documents this process has not
+	// decoded yet (giantswarm/muster#1225: a listing read every server's
+	// document with its own HGET and GET, ~160 round trips per meta-tool
+	// call on an installation with 81 session-authenticated servers).
+	decoded *documentCache
 }
 
 // NewValkeyCapabilityStore creates a Valkey-backed capability store.
@@ -61,6 +75,7 @@ func NewValkeyCapabilityStore(client valkey.Client, ttl time.Duration, keyPrefix
 		client:    client,
 		ttl:       ttl,
 		keyPrefix: keyPrefix,
+		decoded:   newDocumentCache(DefaultCapabilityDocumentCacheBytes),
 	}
 }
 
@@ -123,11 +138,11 @@ func (s *ValkeyCapabilityStore) Get(ctx context.Context, sessionID, serverName s
 	if err != nil {
 		return nil, err
 	}
-	doc, ok := docs[field]
+	caps, ok := docs[field]
 	if !ok {
 		return nil, nil
 	}
-	return decodeCapabilities(doc)
+	return caps.DeepCopy(), nil
 }
 
 func (s *ValkeyCapabilityStore) GetAll(ctx context.Context, sessionID string) (map[string]*Capabilities, error) {
@@ -161,16 +176,17 @@ func (s *ValkeyCapabilityStore) GetAll(ctx context.Context, sessionID string) (m
 
 	caps := make(map[string]*Capabilities, len(fields))
 	for serverName, field := range fields {
-		doc := []byte(field)
 		if isCapabilityRef(field) {
-			var ok bool
-			if doc, ok = docs[field]; !ok {
+			c, ok := docs[field]
+			if !ok {
 				logging.Debug("CapabilityStore", "Capability document for %s/%s has expired; treating as a miss",
 					logging.TruncateIdentifier(sessionID), serverName)
 				continue
 			}
+			caps[serverName] = c.DeepCopy()
+			continue
 		}
-		c, err := decodeCapabilities(doc)
+		c, err := decodeCapabilities([]byte(field))
 		if err != nil {
 			logging.Warn("CapabilityStore", "Failed to unmarshal capabilities for %s/%s: %v",
 				logging.TruncateIdentifier(sessionID), serverName, err)
@@ -181,27 +197,33 @@ func (s *ValkeyCapabilityStore) GetAll(ctx context.Context, sessionID string) (m
 	return caps, nil
 }
 
-// documents resolves references to their documents in one round trip (one
-// pipelined GET per distinct reference — a multi-key command would need every
-// key in one slot). A reference whose document is gone is absent from the
-// result.
-func (s *ValkeyCapabilityStore) documents(ctx context.Context, refs []string) (map[string][]byte, error) {
-	docs := make(map[string][]byte, len(refs))
-	if len(refs) == 0 {
-		return docs, nil
-	}
-	// De-duplicate: several servers of one session may share a document.
-	unique := make([]string, 0, len(refs))
+// documents resolves references to their decoded documents: from the cache
+// when this process decoded the document before, else with one pipelined GET
+// per distinct missing reference in a single round trip (a multi-key command
+// would need every key in one slot). A reference whose document is gone from
+// Valkey is absent from the result; one that decodes to nothing is reported.
+// The returned documents are shared with the cache and must be copied before
+// they are modified.
+func (s *ValkeyCapabilityStore) documents(ctx context.Context, refs []string) (map[string]*Capabilities, error) {
+	docs := make(map[string]*Capabilities, len(refs))
+	var missing []string
 	seen := make(map[string]struct{}, len(refs))
 	for _, ref := range refs {
 		if _, dup := seen[ref]; dup {
 			continue
 		}
 		seen[ref] = struct{}{}
-		unique = append(unique, ref)
+		if caps, ok := s.decoded.get(ref); ok {
+			docs[ref] = caps
+			continue
+		}
+		missing = append(missing, ref)
 	}
-	cmds := make(valkey.Commands, 0, len(unique))
-	for _, ref := range unique {
+	if len(missing) == 0 {
+		return docs, nil
+	}
+	cmds := make(valkey.Commands, 0, len(missing))
+	for _, ref := range missing {
 		cmds = append(cmds, s.client.B().Get().Key(s.blobKey(strings.TrimPrefix(ref, capabilityRefPrefix))).Build())
 	}
 	for i, resp := range s.client.DoMulti(ctx, cmds...) {
@@ -215,7 +237,12 @@ func (s *ValkeyCapabilityStore) documents(ctx context.Context, refs []string) (m
 		if err != nil {
 			return nil, fmt.Errorf("valkey GET capability document decode: %w", err)
 		}
-		docs[unique[i]] = doc
+		caps, err := decodeCapabilities(doc)
+		if err != nil {
+			return nil, err
+		}
+		s.decoded.put(missing[i], caps, len(doc))
+		docs[missing[i]] = caps
 	}
 	return docs, nil
 }
@@ -225,7 +252,12 @@ func (s *ValkeyCapabilityStore) Set(ctx context.Context, sessionID, serverName s
 	if err != nil {
 		return err
 	}
-	return s.setReference(ctx, s.key(sessionID), serverName, ref, doc, true)
+	if err := s.setReference(ctx, s.key(sessionID), serverName, ref, doc, true); err != nil {
+		return err
+	}
+	// The next listing that meets this reference finds it decoded already.
+	s.decoded.put(ref, caps.DeepCopy(), len(doc))
+	return nil
 }
 
 // setReference writes the document under its content address (refreshing its

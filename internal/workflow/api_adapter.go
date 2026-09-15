@@ -1531,14 +1531,18 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		},
 	}
 
-	// Add workflow execution tools (action_*) dynamically
+	// Add workflow execution tools (action_*) dynamically. Everything a tool
+	// needs is on the listed definition: the arguments and the step tools
+	// are read from it rather than fetched again per workflow (#1225).
 	workflows := a.GetWorkflows()
-	for _, workflow := range workflows {
+	for i := range workflows {
+		workflow := &workflows[i]
 		tools = append(tools, api.ToolMetadata{
 			Name:        "action_" + workflow.Name,
 			Description: workflow.Description,
-			Args:        a.convertWorkflowArgs(workflow.Name),
+			Args:        convertWorkflowArgs(workflow),
 			Labels:      workflow.Labels,
+			StepTools:   api.WorkflowStepTools(workflow),
 		})
 	}
 
@@ -1577,12 +1581,7 @@ func (a *Adapter) ExecuteTool(ctx context.Context, toolName string, args map[str
 }
 
 // convertWorkflowArgs converts workflow args to argument metadata
-func (a *Adapter) convertWorkflowArgs(workflowName string) []api.ArgMetadata {
-	workflow, err := a.GetWorkflow(workflowName)
-	if err != nil {
-		return nil
-	}
-
+func convertWorkflowArgs(workflow *api.Workflow) []api.ArgMetadata {
 	var params []api.ArgMetadata
 
 	// Extract args from workflow definition
@@ -1699,24 +1698,34 @@ func (a *Adapter) handleCreate(ctx context.Context, args map[string]interface{})
 	}
 
 	// Refresh aggregator capabilities to include the new workflow tool
-	if aggregator := api.GetAggregator(); aggregator != nil {
-		logging.Info("WorkflowAdapter", "Refreshing aggregator capabilities after creating workflow %s", wf.Name)
-		aggregator.UpdateCapabilities()
-
+	if a.refreshAggregatorCapabilities(wf.Name, "create") {
 		// Generate tool registration event
 		a.generateCRDEvent(wf.Name, events.ReasonWorkflowToolRegistered, events.EventData{
 			Operation: "register",
-		})
-
-		// Generate capabilities refresh event
-		a.generateCRDEvent(wf.Name, events.ReasonWorkflowCapabilitiesRefreshed, events.EventData{
-			Operation: "create",
 		})
 	}
 
 	return &api.CallToolResult{
 		Content: []interface{}{"Workflow created successfully"},
 	}, nil
+}
+
+// refreshAggregatorCapabilities tells the aggregator that the named workflow's
+// definition changed (operation: create, update or delete), so the catalogue
+// it serves to every session -- which carries one workflow_<name> tool per
+// definition and is rebuilt only when told (#1225) -- reflects the change on
+// the next call. It reports whether an aggregator was there to tell.
+func (a *Adapter) refreshAggregatorCapabilities(workflowName, operation string) bool {
+	aggregator := api.GetAggregator()
+	if aggregator == nil {
+		return false
+	}
+	logging.Info("WorkflowAdapter", "Refreshing aggregator capabilities after %s of workflow %s", operation, workflowName)
+	aggregator.UpdateCapabilities()
+	a.generateCRDEvent(workflowName, events.ReasonWorkflowCapabilitiesRefreshed, events.EventData{
+		Operation: operation,
+	})
+	return true
 }
 
 func (a *Adapter) handleUpdate(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
@@ -1739,6 +1748,10 @@ func (a *Adapter) handleUpdate(ctx context.Context, args map[string]interface{})
 		}
 		return api.HandleErrorWithPrefix(err, "Failed to update workflow"), nil
 	}
+
+	// The tool's description, arguments and derived read-only hint follow
+	// the definition.
+	a.refreshAggregatorCapabilities(req.Name, "update")
 
 	return &api.CallToolResult{
 		Content: []interface{}{fmt.Sprintf("Workflow '%s' updated successfully", req.Name)},
@@ -1766,6 +1779,9 @@ func (a *Adapter) handleDelete(ctx context.Context, args map[string]interface{})
 		}
 		return api.HandleErrorWithPrefix(err, "Failed to delete workflow"), nil
 	}
+
+	// The workflow's execution tool leaves the catalogue with it.
+	a.refreshAggregatorCapabilities(name, "delete")
 
 	return &api.CallToolResult{
 		Content: []interface{}{fmt.Sprintf("Workflow '%s' deleted successfully", name)},

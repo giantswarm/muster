@@ -228,6 +228,11 @@ func (r *WorkflowReconciler) reconcileCreateOrUpdate(ctx context.Context, req Re
 	// The main reconciliation is ensuring the definition is valid and registered.
 	// Tool availability is checked dynamically when workflows are executed.
 
+	// The aggregator keeps the core catalogue -- one workflow_<name> tool per
+	// definition -- until told a definition changed. A resource applied or
+	// edited outside muster's own tools arrives here and nowhere else.
+	refreshAggregatorCapabilities(req.Name)
+
 	logging.Info("WorkflowReconciler", "Successfully reconciled Workflow: %s (available=%t)", req.Name, wf.Available)
 	return ReconcileResult{}
 }
@@ -238,10 +243,25 @@ func (r *WorkflowReconciler) reconcileDelete(ctx context.Context, req ReconcileR
 
 	// Workflow deletion is handled by the filesystem/Kubernetes watching.
 	// The WorkflowManager will automatically remove deleted definitions.
-	// Here we just acknowledge the deletion.
+	// Here we acknowledge the deletion and let the aggregator drop the
+	// workflow's execution tool from the core catalogue.
+	refreshAggregatorCapabilities(req.Name)
 
 	logging.Debug("WorkflowReconciler", "Workflow %s deletion acknowledged", req.Name)
 	return ReconcileResult{}
+}
+
+// refreshAggregatorCapabilities tells the aggregator that a workflow
+// definition changed, so the core catalogue it serves to every session is
+// rebuilt on the next listing. No aggregator (tests, bootstrap order) means
+// nothing to refresh.
+func refreshAggregatorCapabilities(workflowName string) {
+	aggregator := api.GetAggregator()
+	if aggregator == nil {
+		return
+	}
+	logging.Debug("WorkflowReconciler", "Refreshing aggregator capabilities after reconciling workflow %s", workflowName)
+	aggregator.UpdateCapabilities()
 }
 
 // validateWorkflow performs validation on a Workflow definition.

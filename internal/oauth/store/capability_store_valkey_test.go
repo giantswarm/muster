@@ -20,13 +20,21 @@ import (
 func newValkeyCapabilityStoreForTest(t *testing.T, ttl time.Duration) (*ValkeyCapabilityStore, *miniredis.Miniredis) {
 	t.Helper()
 	srv := miniredis.RunT(t)
+	return newValkeyCapabilityStoreOn(t, srv, ttl), srv
+}
+
+// newValkeyCapabilityStoreOn is a further store instance on the same key
+// space -- another muster process, or the same one after a restart -- with
+// its own empty document cache.
+func newValkeyCapabilityStoreOn(t *testing.T, srv *miniredis.Miniredis, ttl time.Duration) *ValkeyCapabilityStore {
+	t.Helper()
 	client, err := valkey.NewClient(valkey.ClientOption{
 		InitAddress:  []string{srv.Addr()},
 		DisableCache: true,
 	})
 	require.NoError(t, err)
 	t.Cleanup(client.Close)
-	return NewValkeyCapabilityStore(client, ttl, "muster:"), srv
+	return NewValkeyCapabilityStore(client, ttl, "muster:")
 }
 
 // assertSameCapabilities compares through JSON: a document that went through
@@ -122,14 +130,17 @@ func TestValkeyCapabilityStore_DifferentDocumentsGetDifferentReferences(t *testi
 }
 
 func TestValkeyCapabilityStore_ExpiredDocumentIsAMiss(t *testing.T) {
-	store, srv := newValkeyCapabilityStoreForTest(t, time.Hour)
+	writer, srv := newValkeyCapabilityStoreForTest(t, time.Hour)
 	ctx := context.Background()
 
-	require.NoError(t, store.Set(ctx, "s", "gone", bigCapabilities("gone")))
-	require.NoError(t, store.Set(ctx, "s", "kept", bigCapabilities("kept")))
+	require.NoError(t, writer.Set(ctx, "s", "gone", bigCapabilities("gone")))
+	require.NoError(t, writer.Set(ctx, "s", "kept", bigCapabilities("kept")))
 	ref := srv.HGet("muster:cap:s", "gone")
 	srv.Del("muster:capblob:" + strings.TrimPrefix(ref, "sha256:"))
 
+	// A process that never decoded the document -- a fresh store on the same
+	// key space, as after a restart -- sees the miss.
+	store := newValkeyCapabilityStoreOn(t, srv, time.Hour)
 	got, err := store.Get(ctx, "s", "gone")
 	require.NoError(t, err)
 	assert.Nil(t, got, "a reference without its document reads as a cache miss")
@@ -138,6 +149,13 @@ func TestValkeyCapabilityStore_ExpiredDocumentIsAMiss(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, all, 1)
 	assert.Contains(t, all, "kept")
+
+	// The process that decoded the document keeps serving it for as long as
+	// the session's hash references it: the reference names those exact
+	// bytes, so nothing about the session's view has changed.
+	got, err = writer.Get(ctx, "s", "gone")
+	require.NoError(t, err)
+	assert.NotNil(t, got, "the decoded document outlives its copy in Valkey")
 
 	// The field itself is still there (Exists answers the hash), and the next
 	// Set repairs it.
@@ -269,4 +287,96 @@ func TestValkeyCapabilityStore_DeleteServerAndListSessions(t *testing.T) {
 	touched, err = store.Touch(ctx, "b")
 	require.NoError(t, err)
 	assert.False(t, touched)
+}
+
+// A session listing costs one HGETALL and fetches each distinct document once
+// per process: the second listing of the same session, and every listing of
+// another session that references the same documents, reads only the hash.
+// Before #1225 every listing read every server's entry with its own HGET and
+// GET (one round trip each) and decoded the document again.
+func TestValkeyCapabilityStore_GetAllReadsEachDocumentOnce(t *testing.T) {
+	store, srv := newValkeyCapabilityStoreForTest(t, time.Hour)
+	ctx := context.Background()
+
+	shared := bigCapabilities("shared")
+	require.NoError(t, store.Set(ctx, "s1", "mc1-mcp-kubernetes", shared))
+	require.NoError(t, store.Set(ctx, "s1", "mc2-mcp-kubernetes", shared)) // same document
+	require.NoError(t, store.Set(ctx, "s1", "mc1-mcp-prometheus", bigCapabilities("prom")))
+	require.NoError(t, store.Set(ctx, "s2", "mc1-mcp-kubernetes", shared))
+
+	// A process that decoded nothing yet: one HGETALL plus one GET per
+	// distinct document (two, not three).
+	fresh := newValkeyCapabilityStoreOn(t, srv, time.Hour)
+	before := srv.CommandCount()
+	all, err := fresh.GetAll(ctx, "s1")
+	require.NoError(t, err)
+	require.Len(t, all, 3)
+	assert.Equal(t, 3, srv.CommandCount()-before, "HGETALL + one GET per distinct document")
+
+	// The same session again: the hash only.
+	before = srv.CommandCount()
+	all, err = fresh.GetAll(ctx, "s1")
+	require.NoError(t, err)
+	require.Len(t, all, 3)
+	assert.Equal(t, 1, srv.CommandCount()-before, "a warm listing is one HGETALL")
+	assertSameCapabilities(t, shared, all["mc2-mcp-kubernetes"])
+
+	// Another session referencing a document this process already decoded.
+	before = srv.CommandCount()
+	all, err = fresh.GetAll(ctx, "s2")
+	require.NoError(t, err)
+	require.Len(t, all, 1)
+	assert.Equal(t, 1, srv.CommandCount()-before, "documents are shared across sessions")
+
+	// A single entry read the same way: the HGET only.
+	before = srv.CommandCount()
+	got, err := fresh.Get(ctx, "s1", "mc1-mcp-prometheus")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, 1, srv.CommandCount()-before, "a warm Get is one HGET")
+
+	// The process that wrote the documents never needed the GETs at all.
+	before = srv.CommandCount()
+	all, err = store.GetAll(ctx, "s1")
+	require.NoError(t, err)
+	require.Len(t, all, 3)
+	assert.Equal(t, 1, srv.CommandCount()-before, "Set primes the document cache")
+}
+
+// A server that lists different tools writes a new reference; the next
+// listing fetches that document once and serves the new tools.
+func TestValkeyCapabilityStore_GetAllFollowsARewrittenReference(t *testing.T) {
+	store, srv := newValkeyCapabilityStoreForTest(t, time.Hour)
+	ctx := context.Background()
+	reader := newValkeyCapabilityStoreOn(t, srv, time.Hour)
+
+	require.NoError(t, store.Set(ctx, "s", "srv", bigCapabilities("v1")))
+	all, err := reader.GetAll(ctx, "s")
+	require.NoError(t, err)
+	assert.Equal(t, "v1-res", all["srv"].Resources[0].Name)
+
+	require.NoError(t, store.Set(ctx, "s", "srv", bigCapabilities("v2")))
+	before := srv.CommandCount()
+	all, err = reader.GetAll(ctx, "s")
+	require.NoError(t, err)
+	assert.Equal(t, "v2-res", all["srv"].Resources[0].Name)
+	assert.Equal(t, 2, srv.CommandCount()-before, "HGETALL + the GET of the new document")
+}
+
+// What a reader gets is its own: modifying it does not change what the next
+// reader of the same document sees.
+func TestValkeyCapabilityStore_ReadersGetTheirOwnCopy(t *testing.T) {
+	store, _ := newValkeyCapabilityStoreForTest(t, time.Hour)
+	ctx := context.Background()
+	require.NoError(t, store.Set(ctx, "s", "srv", &Capabilities{Tools: []mcp.Tool{{Name: "a"}, {Name: "b"}}}))
+
+	first, err := store.Get(ctx, "s", "srv")
+	require.NoError(t, err)
+	first.Tools = first.Tools[:1]
+	first.Tools[0].Name = "changed"
+
+	second, err := store.Get(ctx, "s", "srv")
+	require.NoError(t, err)
+	require.Len(t, second.Tools, 2)
+	assert.Equal(t, "a", second.Tools[0].Name)
 }

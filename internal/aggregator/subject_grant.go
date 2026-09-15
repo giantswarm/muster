@@ -144,18 +144,27 @@ func (a *AggregatorServer) adoptSubjectGrant(ctx context.Context, info *ServerIn
 // adoptSubjectGrants connects the session to every server it is not yet
 // authenticated to but the person already authorized, and reports how many
 // connections that made. Cheap when there is nothing to do: only servers
-// holdsSubjectGrants accepts are looked at, and each costs one auth-store
-// read once the session is authenticated to it.
+// holdsSubjectGrants accepts are looked at, and the session's authenticated
+// servers are read from the auth store once for all of them.
 func (a *AggregatorServer) adoptSubjectGrants(ctx context.Context, sessionID, sub string) int {
 	if sessionID == "" || sub == "" || a.authStore == nil {
 		return 0
+	}
+	// One read tells which servers the session is authenticated to, instead
+	// of one per subject-scoped server (#1225). A failed read is treated as
+	// "none known": every candidate is then checked individually below.
+	authenticated, err := a.authStore.AuthenticatedServers(ctx, sessionID)
+	if err != nil {
+		logging.WarnWithAttrs("Aggregator", "Could not read the session's authenticated servers",
+			slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
+			slog.String("error", err.Error()))
 	}
 	adopted := 0
 	for _, info := range a.registry.GetAllServers() {
 		if !holdsSubjectGrants(info) {
 			continue
 		}
-		if authenticated, _ := a.authStore.IsAuthenticated(ctx, sessionID, info.Name); authenticated {
+		if _, ok := authenticated[info.Name]; ok {
 			continue
 		}
 		ok, err := a.adoptSubjectGrant(ctx, info, sessionID, sub)

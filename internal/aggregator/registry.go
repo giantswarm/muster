@@ -1500,12 +1500,14 @@ func (r *ServerRegistry) RegisterPendingAuth(registration PendingAuthRegistratio
 // who is authenticated against multiple instances of the same family sees a
 // single deduplicated tool with the "server" enum.
 func (r *ServerRegistry) GetAllToolsForSession(ctx context.Context, store oauthstore.CapabilityStore, sessionID string) []mcp.Tool {
+	caps := sessionCapabilities(ctx, store, sessionID)
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	var contributions []serverToolContribution
 	for serverName, info := range r.servers {
-		if c, ok := r.sessionToolContribution(ctx, store, sessionID, serverName, info); ok {
+		if c, ok := r.sessionToolContribution(caps, serverName, info); ok {
 			contributions = append(contributions, c)
 		}
 	}
@@ -1513,12 +1515,32 @@ func (r *ServerRegistry) GetAllToolsForSession(ctx context.Context, store oauths
 	return r.assembleExposedTools(contributions)
 }
 
+// sessionCapabilities reads what every server offered the session in one
+// store read, before the caller takes the registry lock: the store is I/O
+// (Valkey on an installation) and a listing used to read every server's
+// entry on its own -- ~160 round trips per meta-tool call with 81
+// session-authenticated servers -- while holding the lock (#1225). A nil
+// store, an unknown session or a failed read all yield an empty map, which
+// every caller treats as "no view of any server", as a per-server miss did.
+func sessionCapabilities(ctx context.Context, store oauthstore.CapabilityStore, sessionID string) map[string]*oauthstore.Capabilities {
+	if store == nil {
+		return nil
+	}
+	caps, err := store.GetAll(ctx, sessionID)
+	if err != nil {
+		logging.Warn("Aggregator", "Could not read the session's capabilities from the store: %v", err)
+		return nil
+	}
+	return caps
+}
+
 // sessionToolContribution is one server's part in a session-scoped tool
 // listing: its tools for the session, an empty contribution (which withdraws
 // the server's family routing entries) when the server is registered but
 // unusable, or nothing at all when the session simply has no view of it.
-// Caller must hold r.mu (read or write).
-func (r *ServerRegistry) sessionToolContribution(ctx context.Context, store oauthstore.CapabilityStore, sessionID, serverName string, info *ServerInfo) (serverToolContribution, bool) {
+// caps is the session's view of every server it connected, read once by
+// sessionCapabilities. Caller must hold r.mu (read or write).
+func (r *ServerRegistry) sessionToolContribution(caps map[string]*oauthstore.Capabilities, serverName string, info *ServerInfo) (serverToolContribution, bool) {
 	if info.RequiresSessionAuth() {
 		// The capability store is a cache of what the server offered
 		// the session when it last connected. It outlives the server:
@@ -1530,17 +1552,14 @@ func (r *ServerRegistry) sessionToolContribution(ctx context.Context, store oaut
 		if info.IsDown() {
 			return emptyContribution(serverName, info), true
 		}
-		if store == nil {
-			return serverToolContribution{}, false
-		}
-		caps, err := store.Get(ctx, sessionID, serverName)
-		if err != nil || caps == nil {
+		c, ok := caps[serverName]
+		if !ok || c == nil {
 			return serverToolContribution{}, false
 		}
 		return serverToolContribution{
 			serverName: serverName,
 			family:     cloneFamily(info.Family),
-			tools:      append([]mcp.Tool(nil), caps.Tools...),
+			tools:      append([]mcp.Tool(nil), c.Tools...),
 		}, true
 	}
 
@@ -1564,6 +1583,8 @@ func (r *ServerRegistry) sessionToolContribution(ctx context.Context, store oaut
 // session that are not down -- by the rule GetAllToolsForSession applies.
 // Both lists are sorted.
 func (r *ServerRegistry) FamilyMembersForSession(ctx context.Context, store oauthstore.CapabilityStore, sessionID, familyName string) (members, visible []string) {
+	caps := sessionCapabilities(ctx, store, sessionID)
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -1572,7 +1593,7 @@ func (r *ServerRegistry) FamilyMembersForSession(ctx context.Context, store oaut
 			continue
 		}
 		members = append(members, serverName)
-		if c, ok := r.sessionToolContribution(ctx, store, sessionID, serverName, info); ok && len(c.tools) > 0 {
+		if c, ok := r.sessionToolContribution(caps, serverName, info); ok && len(c.tools) > 0 {
 			visible = append(visible, serverName)
 		}
 	}
@@ -1583,13 +1604,16 @@ func (r *ServerRegistry) FamilyMembersForSession(ctx context.Context, store oaut
 
 // GetAllResourcesForSession returns the resources visible to a specific login session.
 //
-// For OAuth servers, resources are read from the CapabilityStore.
+// For OAuth servers, resources are read from the CapabilityStore (one read
+// for the whole session).
 // For non-OAuth servers, resources are read from ServerInfo.Resources.
 //
 // Each entry is tagged with its source server: resource URIs are not prefixed
 // when they carry a scheme, so the URI alone does not identify where the
 // resource came from, and two servers may expose the same one.
 func (r *ServerRegistry) GetAllResourcesForSession(ctx context.Context, store oauthstore.CapabilityStore, sessionID string) []api.ResourceOrigin {
+	caps := sessionCapabilities(ctx, store, sessionID)
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -1608,14 +1632,14 @@ func (r *ServerRegistry) GetAllResourcesForSession(ctx context.Context, store oa
 
 	for serverName, info := range r.servers {
 		if info.RequiresSessionAuth() {
-			if store == nil || info.IsDown() {
+			if info.IsDown() {
 				continue
 			}
-			caps, err := store.Get(ctx, sessionID, serverName)
-			if err != nil || caps == nil {
+			c, ok := caps[serverName]
+			if !ok || c == nil {
 				continue
 			}
-			appendResources(serverName, caps.Resources)
+			appendResources(serverName, c.Resources)
 			continue
 		}
 
@@ -1633,9 +1657,12 @@ func (r *ServerRegistry) GetAllResourcesForSession(ctx context.Context, store oa
 
 // GetAllPromptsForSession returns the prompts visible to a specific login session.
 //
-// For OAuth servers, prompts are read from the CapabilityStore.
+// For OAuth servers, prompts are read from the CapabilityStore (one read for
+// the whole session).
 // For non-OAuth servers, prompts are read from ServerInfo.Prompts.
 func (r *ServerRegistry) GetAllPromptsForSession(ctx context.Context, store oauthstore.CapabilityStore, sessionID string) []api.PromptOrigin {
+	caps := sessionCapabilities(ctx, store, sessionID)
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -1654,14 +1681,14 @@ func (r *ServerRegistry) GetAllPromptsForSession(ctx context.Context, store oaut
 
 	for serverName, info := range r.servers {
 		if info.RequiresSessionAuth() {
-			if store == nil || info.IsDown() {
+			if info.IsDown() {
 				continue
 			}
-			caps, err := store.Get(ctx, sessionID, serverName)
-			if err != nil || caps == nil {
+			c, ok := caps[serverName]
+			if !ok || c == nil {
 				continue
 			}
-			appendPrompts(serverName, caps.Prompts)
+			appendPrompts(serverName, c.Prompts)
 			continue
 		}
 
