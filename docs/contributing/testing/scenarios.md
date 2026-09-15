@@ -366,6 +366,27 @@ expected:
 Set `wait_for_state` *or* a step `timeout:`, not both -- two deadlines on the
 same step race, and the poll should own the bound.
 
+#### Bounding a step's duration
+
+A step-level `max_duration:` fails the step when its single invocation took
+longer. It is the assertion for "this request is answered while background
+work runs" -- a new session's first request returning while muster connects
+the session's SSO servers, a listing that must not wait for a slow backend.
+It is judged on the invocation the runner made, so it cannot be combined with
+`expected.wait_for_state` (rejected at load time: polling would count towards
+it). Leave a wide margin between the bound and the background work it proves
+the step does not wait for -- a 2 s bound against a backend that takes 4 s to
+connect -- so a loaded machine cannot turn the proof into a flake:
+
+```yaml
+- id: "connect-as-agent"
+  tool: "test_reconnect_with_token"
+  args: { token_ref: "obo-token" }
+  max_duration: "2s"
+  expected:
+    success: true
+```
+
 #### Instance log assertions
 
 Step expectations only see what a tool call returns. `instance_logs` is the one
@@ -439,6 +460,27 @@ steps:
     expected:
       success: true
       contains: ["created", "tbl_users_123"]
+```
+
+#### A backend that is slow to connect
+
+`connect_delay:` on an OAuth-protected mock (`config.connect_delay`, a
+duration) holds every `initialize` request for that long before the mock
+answers it. It stands in for a session-authenticated backend whose connect is
+still in flight while a scenario's steps run -- the way to prove what muster
+does with a session's requests during its SSO fan-out:
+
+```yaml
+mcp_servers:
+  - name: "slow-sso"
+    config:
+      type: "streamable-http"
+      connect_delay: "4s"
+      oauth:
+        required: true
+        trust_issuer_ref: "workload-idp"
+        forward_token: true
+      tools: [...]
 ```
 
 ### 6. Resource Management

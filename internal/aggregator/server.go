@@ -140,11 +140,22 @@ type AggregatorServer struct {
 	// triggered by server-pushed notifications/tools/list_changed.
 	notifRefreshGroup singleflight.Group
 
-	// ssoInitGroup deduplicates concurrent synchronous SSO bootstraps for the
-	// same new session. Forwarded-token callers have no auth-code flow, so their first
-	// request drives initSSOForSession inline; collapsing concurrent first
-	// requests for one session prevents duplicate backend connects.
-	ssoInitGroup singleflight.Group
+	// ssoBootstraps holds the fan-out in flight per session (see
+	// ssoBootstrap): a session's first request starts it and is answered
+	// while it runs; a later request of the session waits here for the
+	// servers it needs. ssoBootstrapped records when a session's fan-out
+	// last started, so the requests of a session that ended up with no
+	// connected server (every connect failed) do not clear the person's
+	// failure backoff and start a fan-out each -- the first request of a
+	// session does that once. Both guarded by ssoBootstrapsMu.
+	ssoBootstraps   map[string]*ssoBootstrap
+	ssoBootstrapped map[string]time.Time
+	ssoBootstrapsMu sync.Mutex
+
+	// ssoConnect connects one SSO server for a session's fan-out. Nil means
+	// establishSSOConnection; tests set it to prove the fan-out's scheduling
+	// without a backend.
+	ssoConnect func(ctx context.Context, info *ServerInfo, musterIssuer string) ssoConnectOutcome
 
 	// subjectGrantGroup deduplicates concurrent connects a session makes with
 	// the person's subject-scoped grant (adoptSubjectGrant), keyed by
@@ -1544,8 +1555,11 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 	a.oauthHTTPServer = oauthHTTPServer
 
 	// On every authenticated request, extend the capability store TTL.
-	// If the session has expired (e.g. user returns after inactivity, or
-	// Valkey was restarted), re-establish SSO connections in the background.
+	// If the session is new or has expired (e.g. user returns after
+	// inactivity, or Valkey was restarted), start its SSO fan-out in the
+	// background and answer the request meanwhile: tools/list returns the
+	// meta-tools, which need none of the connections, and a call for a
+	// server still connecting waits for that server alone (#1226).
 	// Also detects broken upstream refresh chains: when authAlive is true but
 	// the ID token has disappeared, SSO connections are evicted to stop the
 	// mcp-go retry loop from spamming errors with expired tokens.
@@ -1583,7 +1597,7 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 			if a.getMusterIssuer() != "" && a.ssoPoolMissNeedingInit(sso.userID, sessionID) {
 				logging.InfoWithAttrs("Aggregator", "SSO: pool miss on live session, triggering SSO re-init",
 					slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
-				go a.initSSOForSession(sso) //nolint:gosec // G118: SSO re-init goroutine must outlive the request that triggered it
+				a.beginSessionBootstrap(sso)
 			}
 			return
 		}
@@ -1594,16 +1608,23 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 			return
 		}
 
-		// Clear prior SSO failures so all servers are retried. Without this,
-		// servers that failed during a previous init (e.g. before a pod
-		// restart or after a transient token-storage error) would be skipped
-		// for ssoTrackerFailureTTL even though the underlying cause may have
-		// been resolved.
+		// A session's first fan-out clears the person's prior SSO failures so
+		// all servers are retried: servers that failed during a previous init
+		// (e.g. before a pod restart or after a transient token-storage error)
+		// would otherwise be skipped for ssoTrackerFailureTTL although the
+		// cause may be gone. Only the first: a session whose every connect
+		// failed has no connected server and lands here on each request, and
+		// clearing then would retry the failing exchange per request instead
+		// of on the tracker's backoff -- and, with the fan-out in the
+		// background, show the server as pending on every status read.
+		if a.sessionBootstrapped(sessionID) {
+			return
+		}
 		if a.ssoTracker != nil && sso.userID != "" {
 			a.ssoTracker.ClearAllSSOFailed(sso.userID)
 		}
 
-		a.bootstrapNewSessionSSO(sso)
+		a.beginSessionBootstrap(sso)
 	})
 
 	logging.InfoWithAttrs("Aggregator", "OAuth 2.1 server protection enabled",
@@ -1827,6 +1848,11 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 
 	sub := getUserSubjectFromContext(ctx)
 	sessionID := getSessionIDFromContext(ctx)
+
+	// A session whose servers are still connecting (its fan-out runs in the
+	// background) cannot resolve a tool of theirs yet: hold the call for the
+	// servers that could own the name, and only those.
+	a.awaitToolOwnersBootstrap(ctx, sessionID, toolName, args)
 
 	// Family-grouped tools carry a required routing parameter selecting which
 	// instance handles the call. When the target is family-grouped, strip the
@@ -3004,6 +3030,11 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 		return nil, nil, fmt.Errorf("auth store not initialized")
 	}
 	authenticated, _ := a.authStore.IsAuthenticated(ctx, sessionID, serverName)
+	if !authenticated && a.awaitServerBootstrap(ctx, sessionID, serverName) > 0 {
+		// The session's fan-out was connecting this very server: judge the
+		// finished connect, not the moment before it.
+		authenticated, _ = a.authStore.IsAuthenticated(ctx, sessionID, serverName)
+	}
 	if !authenticated {
 		// Token-forwarding servers need no per-server auth entry when the
 		// request itself carries a forwardable validated bearer: that bearer
@@ -3291,8 +3322,11 @@ func (a *AggregatorServer) ListToolsForContext(ctx context.Context) []mcp.Tool {
 	}
 	start := time.Now()
 
-	// A person's subject-scoped grants make their servers' tools visible to
-	// every session of that person, not only to the one that logged in.
+	// A listing shows what the session's start connects, so it waits for the
+	// fan-out when one is still running; a person's subject-scoped grants make
+	// their servers' tools visible to every session of that person, not only
+	// to the one that logged in.
+	a.awaitSessionBootstrap(ctx, sessionID)
 	a.adoptSubjectGrants(ctx, sessionID, getUserSubjectFromContext(ctx))
 
 	mcpServerTools := a.GetToolsForSession(ctx, sessionID)
@@ -3320,6 +3354,7 @@ func (a *AggregatorServer) ListResourcesForContext(ctx context.Context) []api.Re
 		logging.Warn("Aggregator", "ListResourcesForContext: no session ID in context — returning empty")
 		return nil
 	}
+	a.awaitSessionBootstrap(ctx, sessionID)
 	a.adoptSubjectGrants(ctx, sessionID, getUserSubjectFromContext(ctx))
 	return a.GetResourcesForSession(ctx, sessionID)
 }
@@ -3331,6 +3366,7 @@ func (a *AggregatorServer) ListPromptsForContext(ctx context.Context) []api.Prom
 		logging.Warn("Aggregator", "ListPromptsForContext: no session ID in context — returning empty")
 		return nil
 	}
+	a.awaitSessionBootstrap(ctx, sessionID)
 	a.adoptSubjectGrants(ctx, sessionID, getUserSubjectFromContext(ctx))
 	return a.GetPromptsForSession(ctx, sessionID)
 }

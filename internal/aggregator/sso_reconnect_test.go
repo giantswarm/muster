@@ -1057,12 +1057,11 @@ func TestSSOPoolMissNeedingInit_NoRetryStormOnPersistentFailure(t *testing.T) {
 	}
 }
 
-func TestBootstrapNewSessionSSO_ConnectsForwardTokenSynchronously(t *testing.T) {
+func TestBeginSessionBootstrap_RecordsTheConnectOutcomeWhenTheFanOutFinishes(t *testing.T) {
 	// Forwarded-token callers (SA token, no auth-code flow) reach onAuthenticated
-	// for a brand-new session. bootstrapNewSessionSSO must connect the session's
-	// forward-token backends synchronously so auth state and capabilities are
-	// ready before the same request's MCP handler runs — otherwise the agent's
-	// first (and typically only) tools/list races the bootstrap and sees no tools.
+	// for a brand-new session. beginSessionBootstrap starts the session's
+	// connects in the background and returns; the outcome of a connect is
+	// observable once the fan-out reports itself finished (#1226).
 	registry := NewServerRegistry("x")
 	require.NoError(t, registry.RegisterPendingAuth(PendingAuthRegistration{
 		ServerRegistration: ServerRegistration{Name: "glean-mcp-kubernetes", ToolPrefix: "glean"},
@@ -1098,15 +1097,22 @@ func TestBootstrapNewSessionSSO_ConnectsForwardTokenSynchronously(t *testing.T) 
 
 	// No ID token is resolvable (none in context, no usable OAuth proxy entry),
 	// so the forward-token connect fails fast without a network round-trip.
-	agg.bootstrapNewSessionSSO(ssoSession{userID: userID, sessionID: sessionID})
+	b := agg.beginSessionBootstrap(ssoSession{userID: userID, sessionID: sessionID})
+	require.NotNil(t, b, "a session with a forward-token server has a fan-out")
+	b.wait(t.Context())
 
-	// Synchronous contract: the connect outcome is recorded by the time the call
-	// returns. An asynchronous bootstrap would not have this observable yet.
 	assert.True(t, tracker.HasSSOFailed(userID, "glean-mcp-kubernetes"),
-		"forward-token connect must run to completion before bootstrapNewSessionSSO returns")
-
+		"the connect's outcome is recorded when the fan-out reports itself finished")
 	authed, _ := authStore.IsAuthenticated(t.Context(), sessionID, "glean-mcp-kubernetes")
 	assert.False(t, authed, "a failed connect must not mark the session authenticated")
+
+	// The login path still waits: initSSOForSession returns once the fan-out
+	// has finished. The tracker skips the failed server, so this fan-out is
+	// empty and returns at once.
+	tracker.ClearAllSSOFailed(userID)
+	agg.initSSOForSession(ssoSession{userID: userID, sessionID: sessionID + "-login"})
+	assert.True(t, tracker.HasSSOFailed(userID, "glean-mcp-kubernetes"),
+		"initSSOForSession returns after the connects ran")
 }
 
 func TestSSOTracker_ConcurrentAccess(t *testing.T) {

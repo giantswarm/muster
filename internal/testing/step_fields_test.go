@@ -68,6 +68,7 @@ func TestEveryStepFieldIsActedOn(t *testing.T) {
 		"Args":        "test_runner.go",
 		"Expected":    "test_runner.go",
 		"Timeout":     "test_runner.go",
+		"MaxDuration": "test_runner.go", // stepExceededMaxDuration fails the step when its invocation ran longer
 		"AsUser":      "test_runner.go",
 		"Headers":     "test_runner.go", // stashed in the step ctx; the client's header func sends them
 	}

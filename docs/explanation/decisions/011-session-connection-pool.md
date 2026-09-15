@@ -80,7 +80,7 @@ Token-forwarding clients are unaffected because their `headerFunc` dynamically r
 
 ### 4. SSO Login/Logout Restrictions
 
-SSO servers (token exchange or token forwarding) are connected automatically during `initSSOForSession`. Manual `core_auth_login` and `core_auth_logout` are blocked for these servers with clear error messages, since their connection lifecycle is managed by the platform.
+SSO servers (token exchange or token forwarding) are connected automatically by the session's fan-out (`beginSessionBootstrap`): a person's sign-in connects them before the access token is issued; a session that arrives with a forwarded or trusted-issuer token starts the fan-out on its first request and is answered while it runs -- `tools/list` returns the meta-tools, a `call_tool` on a server still connecting waits for that server's connect alone, and `list_tools` waits for the fan-out (#1226). The fan-out logs its duration and slowest server (`SSO: fan-out finished`). Manual `core_auth_login` and `core_auth_logout` are blocked for these servers with clear error messages, since their connection lifecycle is managed by the platform.
 
 ### 5. Complete Eviction Coverage
 

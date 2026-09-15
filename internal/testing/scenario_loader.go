@@ -217,6 +217,16 @@ func (l *scenarioLoader) validateStep(step TestStep, index int) error {
 		return fmt.Errorf("retry is not a supported step field and was never executed; poll for eventually-consistent state with expected.wait_for_state instead (e.g. expected: {wait_for_state: \"30s\"})")
 	}
 
+	// max_duration judges one invocation; wait_for_state re-invokes until the
+	// expectations hold, so the two measure different things and a step
+	// declaring both would fail or pass on the polling, not on the request.
+	if step.MaxDuration < 0 {
+		return fmt.Errorf("max_duration must not be negative, got %s", step.MaxDuration)
+	}
+	if step.MaxDuration > 0 && step.Expected.WaitForState > 0 {
+		return fmt.Errorf("max_duration and expected.wait_for_state cannot be combined: max_duration bounds a single invocation, wait_for_state polls")
+	}
+
 	return nil
 }
 

@@ -547,6 +547,12 @@ type TestStep struct {
 	Retry map[string]interface{} `yaml:"retry,omitempty"`
 	// Timeout for this specific step
 	Timeout time.Duration `yaml:"timeout,omitempty"`
+	// MaxDuration fails the step when its single invocation took longer --
+	// the assertion for "this request is not held for background work"
+	// (a session's first request answering while its SSO fan-out runs). It
+	// is judged on the invocation itself, so it cannot be combined with
+	// expected.wait_for_state, whose polling would count towards it.
+	MaxDuration time.Duration `yaml:"max_duration,omitempty"`
 	// AsUser specifies which user session to execute this step as.
 	// For multi-user testing scenarios. If not set, uses the current user.
 	AsUser string `yaml:"as_user,omitempty"`

@@ -9,7 +9,8 @@ description: |
   Two servers (a hosted one and an in-house one, GitHub-style) verify tokens
   from the same subject-scoped issuer. The person signs in once; the second
   server and a second session of the same person connect from the grant
-  without a sign-in link. core_auth_logout on one server then
+  without a sign-in link (the second session's login adopts it as part of
+  the session's fan-out). core_auth_logout on one server then
 
     - names the sibling server it disconnected and says the grant was revoked,
     - leaves the sibling not authenticated in the calling session,
@@ -272,14 +273,17 @@ steps:
 
   - id: second-connects-hosted-from-grant
     as_user: "second"
-    description: "The second session connects gh-hosted from the person's grant, no sign-in link"
+    description: |
+      The second session holds gh-hosted from the person's grant without a
+      sign-in link: its login adopted the grant, so core_auth_login finds
+      the server already authenticated.
     tool: "core_auth_login"
     args:
       server: "gh-hosted"
     expected:
       success: true
       contains:
-        - "Successfully connected"
+        - "gh-hosted"
       not_contains:
         - "Please sign in"
 
