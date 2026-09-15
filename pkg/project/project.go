@@ -1,6 +1,10 @@
 package project
 
-import "runtime/debug"
+import (
+	"runtime/debug"
+
+	"golang.org/x/mod/module"
+)
 
 // dev is the default for unset build identifiers. Local `go build`
 // invocations without ldflags keep this so `muster version` stays printable.
@@ -10,13 +14,14 @@ const dev = "dev"
 // no resolvable VCS tag (no .git, or built outside a module checkout).
 const devel = "(devel)"
 
-// Build identifiers. The architect-orb `go-build` job overrides `gitSHA` (from
-// `CIRCLE_SHA1`) and `buildTimestamp` (UTC build time) at link time via `-X`
-// ldflags; it does NOT inject `version`. The version is instead derived at
-// runtime from the Go build info (see Version), which the toolchain stamps
-// from the VCS tag — a clean semver when the build sits exactly on a tag (as
-// release builds do, since they run on the tagged commit). `version` is left
-// as an escape hatch for an explicit `-X` override but is normally unset.
+// Build identifiers, set at link time via `-X` ldflags. Locally the generated
+// Makefile.gen.go.mk stamps all three. In CI the architect orb's go-test
+// command writes `gitSHA` (from `CIRCLE_SHA1`) and `buildTimestamp` into
+// .ldflags, and `make stamp-version` (a prerequisite of `make test`, see
+// Makefile.custom.mk) appends `version` -- the release tag on a tag build --
+// before the orb's go-build links the binaries with that file. A plain
+// `go build` or `go install` sets none of them and falls back to what the Go
+// toolchain stamped from version control (see Version and GitSHA).
 var (
 	version        = dev
 	gitSHA         = dev
@@ -24,40 +29,70 @@ var (
 )
 
 // Version returns the best human-readable build identifier available, in
-// order: an explicitly injected `version` ldflag, the VCS version stamped into
-// the Go build info, the injected commit SHA, and finally the placeholder
+// order: the injected `version` ldflag, the release tag the Go toolchain
+// stamped into the build info, the commit SHA, and finally the placeholder
 // "dev".
+//
+// The build info is only trusted when it names a tag. The module path is
+// github.com/giantswarm/muster, without a /v5 suffix, so the toolchain's VCS
+// stamping only considers v0 and v1 tags: a v5 release commit gets the
+// pseudo-version v1.12.1-0.<commit time>-<commit> derived from the last v1
+// tag, not its v5 tag. Such a pseudo-version names no release and is ignored;
+// releases carry their tag in the `version` ldflag.
 func Version() string {
 	if version != dev && version != "" {
 		return version
 	}
-	if v := buildInfoVersion(); v != "" {
+	if v := readVCS().version; v != "" && !module.IsPseudoVersion(v) {
 		return v
 	}
-	if gitSHA != dev {
-		return gitSHA
+	if sha := GitSHA(); sha != dev {
+		return sha
 	}
 	return dev
 }
 
-// buildInfoVersion reads the main module version the Go toolchain embedded from
-// version control. It returns "" when no usable version is present — either no
-// build info, or the "(devel)" placeholder a tag-less build produces — so
-// Version can fall through to the next source.
-var buildInfoVersion = func() string {
-	info, ok := debug.ReadBuildInfo()
-	if !ok {
-		return ""
+// GitSHA returns the commit SHA the binary was built from: the injected
+// `gitSHA` ldflag, else the revision the Go toolchain stamped into the build
+// info, else "dev".
+func GitSHA() string {
+	if gitSHA != dev {
+		return gitSHA
 	}
-	if v := info.Main.Version; v != "" && v != devel {
-		return v
+	if rev := readVCS().revision; rev != "" {
+		return rev
 	}
-	return ""
+	return dev
 }
-
-// GitSHA returns the commit SHA the binary was built from.
-func GitSHA() string { return gitSHA }
 
 // BuildTimestamp returns the UTC build time in RFC 3339 format, or
 // "unknown" when no ldflag was injected.
 func BuildTimestamp() string { return buildTimestamp }
+
+// vcs is what the Go toolchain stamped from version control into the build
+// info: the main module's version and the commit. Either is empty when the
+// build info has no usable value for it.
+type vcs struct {
+	version  string
+	revision string
+}
+
+// readVCS reads the build info. The version is empty for the "(devel)"
+// placeholder a build without a resolvable tag produces, so Version can fall
+// through to the next source. A variable so tests can stand in a build info.
+var readVCS = func() vcs {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return vcs{}
+	}
+	var v vcs
+	if info.Main.Version != devel {
+		v.version = info.Main.Version
+	}
+	for _, s := range info.Settings {
+		if s.Key == "vcs.revision" {
+			v.revision = s.Value
+		}
+	}
+	return v
+}

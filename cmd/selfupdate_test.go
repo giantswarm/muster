@@ -225,3 +225,46 @@ func TestRunSelfUpdateRefusesADownloadThatDoesNotVerify(t *testing.T) {
 	}
 	assertUnchanged(t, exe, installed)
 }
+
+// A build without a version ldflag reports its commit SHA as the version (see
+// pkg/project.Version). It is not a release, and the version comparison
+// would panic on it, so it must be refused up front.
+func TestRunSelfUpdateRefusesACommitSHAVersion(t *testing.T) {
+	originalVersion := rootCmd.Version
+	defer func() { rootCmd.Version = originalVersion }()
+	rootCmd.Version = "e6c760a32b485c574f91cf9b89060dfa168923c9"
+
+	err := runSelfUpdate(nil, nil)
+	if err == nil {
+		t.Fatal("a commit SHA is not a release version and must be refused")
+	}
+	if !strings.Contains(err.Error(), "cannot self-update a development version") || !strings.Contains(err.Error(), "e6c760a32b48") {
+		t.Errorf("the error should name the refused version, got: %v", err)
+	}
+}
+
+// The release binaries used to report a pseudo-version derived from an old v1
+// tag (v1.12.1-0.<time>-<commit>) instead of their v5 tag, so every release
+// was "newer" and self-update re-installed the running version. With the tag
+// stamped, a binary that is the latest release is left alone.
+func TestRunSelfUpdateLeavesTheLatestReleaseAlone(t *testing.T) {
+	src := &fakeSource{
+		release: fakeRelease{tag: "v1.0.0", assets: []selfupdate.SourceAsset{
+			fakeAsset{1, binaryAsset()},
+			fakeAsset{2, binaryAsset() + ".bundle"},
+		}},
+		assets: map[int64][]byte{1: []byte("the same muster again"), 2: []byte("{}")},
+	}
+	exe, installed := selfUpdateFixture(t, src) // the running version is v1.0.0
+
+	var out bytes.Buffer
+	cmd := newSelfUpdateCmd()
+	cmd.SetOut(&out)
+	if err := runSelfUpdate(cmd, nil); err != nil {
+		t.Fatalf("an up-to-date binary must not fail: %v", err)
+	}
+	if !strings.Contains(out.String(), "Current version is the latest.") {
+		t.Errorf("expected the binary to be reported as current, got:\n%s", out.String())
+	}
+	assertUnchanged(t, exe, installed)
+}

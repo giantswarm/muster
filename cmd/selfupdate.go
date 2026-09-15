@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/creativeprojects/go-selfupdate"
 	selfupdatecosign "github.com/giantswarm/selfupdate-cosign"
 	"github.com/spf13/cobra"
@@ -41,6 +42,15 @@ and the installed binary stays as it is.`,
 	}
 }
 
+// isReleaseVersion reports whether v is a version the updater can compare with
+// the latest release: a semantic version. A development build reports "dev",
+// or a bare commit SHA when no version was linked in; neither names a release,
+// and Release.GreaterThan panics on a string that is not a semver.
+func isReleaseVersion(v string) bool {
+	_, err := semver.NewVersion(v)
+	return err == nil
+}
+
 // runSelfUpdate performs the self-update logic.
 // It checks the current version against the latest GitHub release and, when a
 // newer one exists, installs its binary once the signature bundle verifies.
@@ -55,10 +65,8 @@ func runSelfUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	currentVersion := rootCmd.Version
-	// Self-update is typically disabled for development versions (e.g., "dev")
-	// as they are not standard releases and might not follow semantic versioning.
-	if currentVersion == "" || currentVersion == "dev" {
-		return fmt.Errorf("cannot self-update a development version")
+	if !isReleaseVersion(currentVersion) {
+		return fmt.Errorf("cannot self-update a development version: %q is not a release version", currentVersion)
 	}
 
 	_, _ = fmt.Fprintf(out, "Current version: %s\n", currentVersion)
