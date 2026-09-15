@@ -26,7 +26,14 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const keyEnabled = "enabled"
+const (
+	keyEnabled = "enabled"
+	// Keys of the CR-shaped definitions the harness renders.
+	keyAPIVersion = "apiVersion"
+	keyMetadata   = "metadata"
+	// musterAPIVersion is the apiVersion of every definition the harness writes.
+	musterAPIVersion = "muster.giantswarm.io/v1alpha1"
+)
 
 // toStringMap converts an interface{} to map[string]interface{}.
 // This handles both map[string]interface{} and map[interface{}]interface{}
@@ -235,6 +242,12 @@ type musterInstanceManager struct {
 
 	// Valkey stand-ins for instances with storage type valkey, by instance ID.
 	valkeys map[string]*instanceValkey
+
+	// envtest is the run's control plane for Kubernetes-mode instances,
+	// started on the first of them; kubernetes holds what each such instance
+	// owns on it (namespace, proxy, kubeconfig), by instance ID.
+	envtest    *envtestControlPlane
+	kubernetes map[string]*instanceKubernetes
 }
 
 // NewMusterInstanceManagerWithLogger creates a new muster instance manager with custom logger
@@ -275,6 +288,8 @@ func NewMusterInstanceManagerWithConfig(debug bool, basePort int, logger TestLog
 		mockOAuthServers:    make(map[string]map[string]*mock.OAuthServer),
 		protectedMCPServers: make(map[string]map[string]*mock.ProtectedMCPServer),
 		valkeys:             make(map[string]*instanceValkey),
+		envtest:             &envtestControlPlane{},
+		kubernetes:          make(map[string]*instanceKubernetes),
 	}, nil
 }
 
@@ -352,24 +367,43 @@ func (m *musterInstanceManager) CreateInstance(ctx context.Context, scenarioName
 		return nil, err
 	}
 
-	// Generate configuration files (passing mock HTTP server endpoints)
-	if err := m.generateConfigFilesWithMocks(configPath, config, port, mockHTTPServerInfo, instanceID, logger); err != nil {
-		// Clean up mock HTTP servers on failure
+	// cleanupSetup undoes everything CreateInstance started so far; used by
+	// every failure path from here on.
+	cleanupSetup := func() {
+		m.stopKubernetes(instanceID, logger)
 		m.stopMockHTTPServers(ctx, instanceID, logger)
+		m.stopMockOAuthServers(ctx, instanceID, logger)
 		m.stopValkey(instanceID, logger)
 		releasePorts()
 		_ = os.RemoveAll(configPath)
+	}
+
+	// Kubernetes mode: the run's control plane, the instance's namespace and
+	// the proxy its kubeconfig points at. Before the configuration, which
+	// names the namespace, and before the process, whose start a
+	// reachable_after delay is measured from.
+	if err := m.startKubernetes(ctx, instanceID, configPath, config, logger); err != nil {
+		cleanupSetup()
+		return nil, err
+	}
+
+	// Generate configuration files (passing mock HTTP server endpoints)
+	if err := m.generateConfigFilesWithMocks(configPath, config, port, mockHTTPServerInfo, instanceID, logger); err != nil {
+		cleanupSetup()
 		return nil, fmt.Errorf("failed to generate config files: %w", err)
+	}
+
+	// Kubernetes mode: the rendered definitions become CRs in the instance's
+	// namespace, before muster serve lists them at boot.
+	if err := m.applyDefinitions(ctx, instanceID, m.definitionsRoot(configPath, instanceID), logger); err != nil {
+		cleanupSetup()
+		return nil, fmt.Errorf("failed to apply definitions: %w", err)
 	}
 
 	// Start muster serve process with log capture
 	managedProc, err := m.startMusterProcess(ctx, configPath, port, metricsPort, logger)
 	if err != nil {
-		// Clean up on failure: stop mock servers, release port and remove config directory
-		m.stopMockHTTPServers(ctx, instanceID, logger)
-		m.stopValkey(instanceID, logger)
-		releasePorts()
-		_ = os.RemoveAll(configPath)
+		cleanupSetup()
 		return nil, fmt.Errorf("failed to start muster process: %w", err)
 	}
 
@@ -408,6 +442,13 @@ func (m *musterInstanceManager) CreateInstance(ctx context.Context, scenarioName
 	}
 	if v := m.valkeyFor(instanceID); v != nil {
 		instance.ValkeyAddr = v.addr()
+	}
+	instance.Mode = ModeFilesystem
+	if ik := m.kubernetesFor(instanceID); ik != nil {
+		instance.Mode = ModeKubernetes
+		instance.Namespace = ik.namespace
+		instance.KubeconfigPath = ik.kubeconfigPath
+		instance.APIServerAddr = ik.proxy.addr()
 	}
 
 	if m.debug {
@@ -465,6 +506,9 @@ func (m *musterInstanceManager) DestroyInstance(ctx context.Context, instance *M
 
 	// Stop the Valkey stand-in; releases its port
 	m.stopValkey(instance.ID, logger)
+
+	// Release the Kubernetes-mode state: proxy and its port, the namespace's CRs
+	m.stopKubernetes(instance.ID, logger)
 
 	// Release the reserved ports
 	m.releasePort(instance.Port, instance.ID, logger)
@@ -1304,6 +1348,14 @@ func (m *musterInstanceManager) startMusterProcess(ctx context.Context, configPa
 		fmt.Sprintf("OTEL_EXPORTER_PROMETHEUS_PORT=%d", metricsPort),
 	)
 
+	// A Kubernetes-mode instance reads its API server from the kubeconfig the
+	// harness wrote next to its configuration (startKubernetes); muster's
+	// config detection honours KUBECONFIG. Read from the directory rather than
+	// passed in, so a restart runs on the same one.
+	if kubeconfig := filepath.Join(configPath, "kubeconfig"); fileExists(kubeconfig) {
+		cmd.Env = append(cmd.Env, "KUBECONFIG="+kubeconfig)
+	}
+
 	// Configure the process attributes (platform-specific)
 	configureProcAttr(cmd)
 
@@ -1394,6 +1446,12 @@ func (m *musterInstanceManager) getMusterBinaryPath() (string, error) {
 	}
 
 	return "", fmt.Errorf("muster binary not found")
+}
+
+// fileExists reports whether path names an existing regular file.
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
 }
 
 // isInMusterSource checks if we're in the muster source directory
@@ -1729,6 +1787,10 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 		}
 	}
 
+	// Kubernetes mode is the scenario's declared mode, so it is applied after
+	// the custom main config: kubernetes: true and the instance's namespace.
+	m.applyModeConfig(mainConfig, instanceID)
+
 	configFile := filepath.Join(musterConfigPath, "config.yaml")
 	if err := m.writeYAMLFile(configFile, mainConfig, logger); err != nil {
 		return fmt.Errorf("failed to write main config: %w", err)
@@ -1742,10 +1804,18 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 
 	// Generate configuration files if config is provided
 	if config != nil {
+		// Where the MCPServer and Workflow definitions go. In filesystem mode
+		// muster reads them from its config directory. In Kubernetes mode they
+		// are rendered next to it, into crs/, and applied to the API server
+		// from there: the config directory muster serve gets must hold no
+		// definitions, so a process that fell back to the filesystem (#1143)
+		// finds it empty, the way an installation's does.
+		definitionsRoot := m.definitionsRoot(configPath, instanceID)
+
 		// Generate MCP server CRDs for the new unified client
 		if len(config.MCPServers) > 0 {
 			// Create directory structure for CRDs: mcpservers/ (no namespace subdirectory)
-			crdDir := filepath.Join(musterConfigPath, "mcpservers")
+			crdDir := filepath.Join(definitionsRoot, "mcpservers")
 			if err := os.MkdirAll(crdDir, 0755); err != nil { //nolint:gosec
 				return fmt.Errorf("failed to create MCPServer CRD directory %s: %w", crdDir, err)
 			}
@@ -1885,10 +1955,10 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 					}
 
 					mcpServerCRD := map[string]interface{}{
-						"apiVersion": "muster.giantswarm.io/v1alpha1",
-						"kind":       "MCPServer",
-						"metadata":   mcpServerMetadata(mcpServer),
-						"spec":       spec,
+						keyAPIVersion: musterAPIVersion,
+						"kind":        "MCPServer",
+						keyMetadata:   mcpServerMetadata(mcpServer),
+						"spec":        spec,
 					}
 
 					if m.debug {
@@ -1924,10 +1994,10 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 					}
 					applyMockSpecOptions(stdioSpec, mcpServer.Config)
 					mcpServerCRD := map[string]interface{}{
-						"apiVersion": "muster.giantswarm.io/v1alpha1",
-						"kind":       "MCPServer",
-						"metadata":   mcpServerMetadata(mcpServer),
-						"spec":       stdioSpec,
+						keyAPIVersion: musterAPIVersion,
+						"kind":        "MCPServer",
+						keyMetadata:   mcpServerMetadata(mcpServer),
+						"spec":        stdioSpec,
 					}
 
 					if m.debug {
@@ -1950,12 +2020,19 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 						logger.Debug("🧪 Created mock MCPServer CRD %s with %d tools\n", mcpServer.Name, len(tools.([]interface{})))
 					}
 				} else {
-					// For regular servers, convert Config to MCPServer CRD format
+					// For regular servers, convert Config to MCPServer CRD format.
+					// expect_ready is the harness's readiness knob, not a spec field.
+					spec := make(map[string]interface{}, len(mcpServer.Config))
+					for key, value := range mcpServer.Config {
+						if key != "expect_ready" {
+							spec[key] = value
+						}
+					}
 					mcpServerCRD := map[string]interface{}{
-						"apiVersion": "muster.giantswarm.io/v1alpha1",
-						"kind":       "MCPServer",
-						"metadata":   mcpServerMetadata(mcpServer),
-						"spec":       mcpServer.Config,
+						keyAPIVersion: musterAPIVersion,
+						"kind":        "MCPServer",
+						keyMetadata:   mcpServerMetadata(mcpServer),
+						"spec":        spec,
 					}
 
 					filename := filepath.Join(crdDir, mcpServer.Name+".yaml")
@@ -1969,7 +2046,7 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 		// Generate workflow CRDs in muster subdirectory (only if workflows exist)
 		if len(config.Workflows) > 0 {
 			// Create directory structure for CRDs: workflows/ (no namespace subdirectory)
-			crdDir := filepath.Join(musterConfigPath, "workflows")
+			crdDir := filepath.Join(definitionsRoot, "workflows")
 			if err := os.MkdirAll(crdDir, 0755); err != nil { //nolint:gosec
 				return fmt.Errorf("failed to create Workflow CRD directory %s: %w", crdDir, err)
 			}
@@ -1988,10 +2065,10 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 					metadata["labels"] = labels
 				}
 				workflowCRD := map[string]interface{}{
-					"apiVersion": "muster.giantswarm.io/v1alpha1",
-					"kind":       "Workflow",
-					"metadata":   metadata,
-					"spec":       m.convertWorkflowConfigToCRDSpec(workflow.Config),
+					keyAPIVersion: musterAPIVersion,
+					"kind":        "Workflow",
+					keyMetadata:   metadata,
+					"spec":        m.convertWorkflowConfigToCRDSpec(workflow.Config),
 				}
 
 				filename := filepath.Join(crdDir, workflow.Name+".yaml")
@@ -2168,6 +2245,9 @@ func (m *musterInstanceManager) extractExpectedToolsWithHTTPMocks(config *Muster
 
 // Cleanup cleans up all temporary directories created by this manager
 func (m *musterInstanceManager) Cleanup() error {
+	if err := m.envtest.stop(); err != nil {
+		m.logger.Debug("⚠️  Failed to stop the envtest control plane: %v\n", err)
+	}
 	if m.tempDir != "" && !m.keepTempConfig {
 		return os.RemoveAll(m.tempDir)
 	}

@@ -170,6 +170,8 @@ SSO works because:
 | `test_forget_oauth_registrations` | Mock OAuth Server only | Drops every RFC 7591 registration the mock holds — an AS restart with an in-memory client store — to test muster's re-registration |
 | `test_restart_instance` | muster serve (process) | Restarts `muster serve` on the same configuration while the Valkey stand-in and every mock server keep running, then reconnects every user client with its bearer — the sessions that lived through a rollout. Needs `pre_configuration.storage.type: valkey` for anything to survive (see "Storage backend and process restart" in scenarios.md) |
 | `test_stop_valkey` / `test_start_valkey` | Valkey stand-in | A Valkey outage with the data kept, and its recovery, while muster runs |
+| `test_patch_cr` / `test_get_cr` | envtest API server (Kubernetes mode) | A merge patch on a CR the scenario applied (e.g. `spec.suspended`, labels, `spec.auth.authorizationServer`) and a read of the CR with the status muster wrote; needs `pre_configuration.mode: kubernetes` (see "Kubernetes mode" in scenarios.md) |
+| `test_set_apiserver_reachable` | API server proxy (Kubernetes mode) | The API server gone mid-run (`reachable: false`) and back (`true`) for this instance alone |
 
 ### When to Use Each Tool
 

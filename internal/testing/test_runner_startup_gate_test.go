@@ -62,8 +62,15 @@ func (m *gateProbeManager) RestartInstance(context.Context, *MusterInstance, Tes
 	return nil
 }
 
-func (m *gateProbeManager) StopValkey(string) error  { return nil }
-func (m *gateProbeManager) StartValkey(string) error { return nil }
+func (m *gateProbeManager) StopValkey(string) error                  { return nil }
+func (m *gateProbeManager) StartValkey(string) error                 { return nil }
+func (m *gateProbeManager) SetAPIServerReachable(string, bool) error { return nil }
+func (m *gateProbeManager) PatchCR(context.Context, string, string, string, map[string]interface{}) (map[string]interface{}, error) {
+	return nil, nil
+}
+func (m *gateProbeManager) GetCR(context.Context, string, string, string) (map[string]interface{}, error) {
+	return nil, nil
+}
 
 // TestStartupParallelGate verifies that at high --parallel the number of
 // concurrently *starting* instances is bounded by the startup gate, while an

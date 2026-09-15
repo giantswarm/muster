@@ -1,0 +1,164 @@
+name: "mcpserver-kubernetes-apiserver-gone-mid-run-keeps-services"
+description: "Kubernetes mode: when the API server becomes unreachable while muster runs, the connected servers stay connected and their tools keep answering through several resync ticks, nothing is deleted, and once the API server is back a CR patch is reconciled again (#1237)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "kubernetes", "envtest", "apiserver", "outage", "reconciler", "issue-1237"]
+timeout: "3m"
+
+# Given: two remote MCPServer CRs, Connected, muster serve in Kubernetes mode
+#        with a 2 s reconciler resync.
+# When:  the API server becomes unreachable (the harness closes the instance's
+#        proxy: muster's watches end, its next request is refused) and more
+#        than two resync ticks pass.
+# Then:  the services are untouched -- still connected, tools answering -- and
+#        no service was deleted: a list that fails is not an empty list.
+# When:  the API server is reachable again and spec.suspended is patched onto
+#        one CR.
+# Then:  the reconciler sees the update and stops that service; the other
+#        keeps answering.
+#
+# The proxy is the harness's; the control plane the other scenarios of the run
+# share is never touched. There is no sleep step: the wait is a delayed tool
+# call on a third mock server.
+
+pre_configuration:
+  mode: kubernetes
+
+  mcp_servers:
+    - name: "outage-cr-a"
+      config:
+        type: "streamable-http"
+        tools:
+          - name: "ping"
+            description: "Answers when the server is connected"
+            input_schema:
+              type: "object"
+              properties: {}
+            responses:
+              - response: { pong: "a" }
+    - name: "outage-cr-b"
+      config:
+        type: "streamable-http"
+        tools:
+          - name: "ping"
+            description: "Answers when the server is connected"
+            input_schema:
+              type: "object"
+              properties: {}
+            responses:
+              - response: { pong: "b" }
+    - name: "outage-clock"
+      config:
+        type: "streamable-http"
+        tools:
+          - name: "wait"
+            description: "Answers after more than two resync ticks"
+            input_schema:
+              type: "object"
+              properties: {}
+            responses:
+              - response: { waited: "5s" }
+                delay: "5s"
+
+steps:
+  - id: "both-connected"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["outage-cr-a", "outage-cr-b"]
+    timeout: "15s"
+
+  - id: "apiserver-gone"
+    tool: "test_set_apiserver_reachable"
+    args:
+      reachable: false
+    expected:
+      success: true
+      json_path:
+        reachable: false
+    timeout: "15s"
+
+  - id: "two-resync-ticks-without-apiserver"
+    description: "5 s on a 2 s resync: at least two ticks fail to list the CRs meanwhile"
+    tool: "x_outage-clock_wait"
+    args: {}
+    expected:
+      success: true
+      contains: ["waited"]
+    timeout: "30s"
+
+  - id: "service-a-still-connected"
+    tool: "core_service_status"
+    args:
+      name: "outage-cr-a"
+    expected:
+      success: true
+      json_path:
+        state: "connected"
+    timeout: "15s"
+
+  - id: "tool-a-still-answers"
+    tool: "x_outage-cr-a_ping"
+    args: {}
+    expected:
+      success: true
+      contains: ["pong"]
+    timeout: "15s"
+
+  - id: "tool-b-still-answers"
+    tool: "x_outage-cr-b_ping"
+    args: {}
+    expected:
+      success: true
+      contains: ["pong"]
+    timeout: "15s"
+
+  - id: "apiserver-back"
+    tool: "test_set_apiserver_reachable"
+    args:
+      reachable: true
+    expected:
+      success: true
+      json_path:
+        reachable: true
+    timeout: "15s"
+
+  - id: "suspend-b-through-the-cr"
+    description: "The first CR update after the outage is reconciled"
+    tool: "test_patch_cr"
+    args:
+      name: "outage-cr-b"
+      patch:
+        spec:
+          suspended: true
+    expected:
+      success: true
+    timeout: "15s"
+
+  - id: "b-disconnected"
+    tool: "core_service_status"
+    args:
+      name: "outage-cr-b"
+    expected:
+      success: true
+      wait_for_state: "45s"
+      json_path:
+        state: "disconnected"
+    timeout: "60s"
+
+  - id: "a-unaffected"
+    tool: "x_outage-cr-a_ping"
+    args: {}
+    expected:
+      success: true
+      contains: ["pong"]
+    timeout: "15s"
+
+instance_logs:
+  contains:
+    - "Initialized reconciliation manager in kubernetes mode"
+    - "Suspending MCPServer service outage-cr-b (spec.suspended=true)"
+  not_contains:
+    - "Deleting MCPServer service"
+    - "falling back to filesystem mode"

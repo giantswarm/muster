@@ -79,6 +79,9 @@ type TestConfiguration struct {
 	Concept TestConcept `yaml:"concept,omitempty"`
 	// Scenario filter for specific scenario execution
 	Scenario string `yaml:"scenario,omitempty"`
+	// Mode filter: run only the scenarios whose pre_configuration.mode is
+	// this ("filesystem" or "kubernetes"); empty runs both.
+	Mode string `yaml:"mode,omitempty"`
 	// Parallel is the number of parallel test workers
 	Parallel int `yaml:"parallel"`
 	// StartupParallel bounds how many scenarios may be in their
@@ -171,6 +174,31 @@ type MusterPreConfiguration struct {
 	// Storage selects the store backend the instance runs on. Absent means
 	// memory: every store dies with the process. See StorageConfig.
 	Storage *StorageConfig `yaml:"storage,omitempty"`
+
+	// Mode selects where the instance reads its definitions from:
+	// "filesystem" (default) writes them into the instance's config
+	// directory; "kubernetes" applies them as MCPServer and Workflow CRs to
+	// the run's envtest API server and runs muster serve in Kubernetes mode
+	// against it -- informers, reconciler and boot pass included. Needs the
+	// envtest binaries (KUBEBUILDER_ASSETS); without them the scenario is
+	// reported as skipped.
+	Mode string `yaml:"mode,omitempty"`
+
+	// APIServer shapes the instance's view of the API server in Kubernetes
+	// mode. Absent means reachable from the start.
+	APIServer *APIServerConfig `yaml:"apiserver,omitempty"`
+}
+
+// APIServerConfig describes how the API server behaves towards a
+// Kubernetes-mode instance. The harness relays every request through a TCP
+// proxy it owns, so the API server can be absent for one instance while the
+// others keep it.
+type APIServerConfig struct {
+	// ReachableAfter keeps the API server unreachable for this long after
+	// muster serve was started: connects are refused until then, the way a
+	// kube-apiserver that is still coming up refuses. For "the API server is
+	// late at start" scenarios. Requires mode kubernetes.
+	ReachableAfter time.Duration `yaml:"reachable_after,omitempty"`
 }
 
 // StorageConfig selects the store backend a scenario's muster serve instance
@@ -327,6 +355,18 @@ type MusterInstance struct {
 	// ValkeyAddr is the address of the instance's Valkey stand-in when the
 	// scenario runs on valkey storage, "" on memory.
 	ValkeyAddr string
+	// Mode is the definition source the instance runs on: ModeFilesystem or
+	// ModeKubernetes.
+	Mode string
+	// Namespace is the instance's own namespace on the run's envtest API
+	// server in Kubernetes mode, "" in filesystem mode.
+	Namespace string
+	// KubeconfigPath is the kubeconfig muster serve was given in Kubernetes
+	// mode; it points at the instance's API server proxy.
+	KubeconfigPath string
+	// APIServerAddr is the address of the instance's API server proxy in
+	// Kubernetes mode, "" in filesystem mode.
+	APIServerAddr string
 }
 
 // MockHTTPServerInfo contains information about a running mock HTTP server
@@ -556,6 +596,19 @@ type MusterInstanceManager interface {
 	// StartValkey brings it back. Both fail for an instance on memory storage.
 	StopValkey(instanceID string) error
 	StartValkey(instanceID string) error
+	// SetAPIServerReachable closes or opens the proxy between a
+	// Kubernetes-mode instance and the run's API server: closed, muster's
+	// watches end and its next request is refused; open again, they resume.
+	// Fails for a filesystem-mode instance.
+	SetAPIServerReachable(instanceID string, reachable bool) error
+	// PatchCR applies a JSON merge patch to a CR of the instance's namespace
+	// (kind MCPServer or Workflow) and returns the object as the API server
+	// stores it afterwards. Fails for a filesystem-mode instance.
+	PatchCR(ctx context.Context, instanceID, kind, name string, patch map[string]interface{}) (map[string]interface{}, error)
+	// GetCR reads a CR of the instance's namespace as the API server stores
+	// it -- metadata, spec and the status muster wrote. Fails for a
+	// filesystem-mode instance.
+	GetCR(ctx context.Context, instanceID, kind, name string) (map[string]interface{}, error)
 }
 
 // TestStep defines a single step within a test scenario

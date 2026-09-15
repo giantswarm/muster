@@ -34,7 +34,11 @@ func (m *musterInstanceManager) RestartInstance(ctx context.Context, instance *M
 	old.logCapture.close()
 	prior := old.logCapture.getLogs()
 
-	proc, err := m.startMusterProcess(ctx, instance.ConfigPath, instance.Port, instance.MetricsPort, logger)
+	// The new process must outlive the step that restarted it: ctx is the
+	// step's context, and a step with a timeout cancels it as soon as the
+	// step returns, which would kill the process right after readiness. The
+	// process ends the way the first one did, through DestroyInstance.
+	proc, err := m.startMusterProcess(context.WithoutCancel(ctx), instance.ConfigPath, instance.Port, instance.MetricsPort, logger)
 	if err != nil {
 		m.mu.Lock()
 		delete(m.processes, instance.ID)
