@@ -1,0 +1,135 @@
+name: "workflow-catalogue-survives-server-changes"
+description: "A backend MCP server that is lost and comes back changes the registry, not the core catalogue: the capability refresh those changes trigger no longer invalidates the core_* and workflow_<name> tools, so no meta-tool call after them rebuilds the catalogue from the definition source (#1231)"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "metatools", "catalogue", "mcpserver", "1231"]
+timeout: "5m"
+
+# Given: a remote streamable-http MCP server without auth, Connected; the
+#        harness probes health every second.
+# When:  its backend goes away and comes back -- a deregistration and a
+#        registration in the aggregator's registry, each running the
+#        capability refresh.
+# Then:  the meta-tool calls in between and after are served the core
+#        catalogue built by the first call; the serve log shows no rebuild
+#        triggered by an invalidation, only the initial build. Before, every
+#        registry change invalidated the catalogue and the next meta-tool call
+#        paid the rebuild -- on an installation, a list of every workflow
+#        definition, several times a minute.
+
+pre_configuration:
+  mcp_servers:
+    - name: "flapping"
+      config:
+        type: "streamable-http"
+        tools:
+          - name: "probe"
+            description: "Answers when the backend is reachable"
+            input_schema:
+              type: "object"
+              properties: {}
+            responses:
+              - response: { alive: true }
+
+steps:
+  - id: "connected"
+    tool: "core_service_status"
+    args:
+      name: "flapping"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "connected"
+        health: "healthy"
+    timeout: "45s"
+
+  - id: "warm-the-catalogue"
+    description: "the first listing builds the core catalogue; the server's own tool is listed beside it"
+    tool: "test_call_meta_tool"
+    args: { tool: "filter_tools", arguments: { pattern: "*_probe", limit: 10 } }
+    expected:
+      success: true
+      contains: ["x_flapping_probe"]
+
+  - id: "backend-gone"
+    tool: "test_stop_mock_server"
+    args:
+      server: "flapping"
+    expected:
+      success: true
+      contains: ["Stopped mock server"]
+    timeout: "15s"
+
+  - id: "server-lost"
+    description: "three failed probes and a failed restart later the server is unreachable: it left the registry"
+    tool: "core_service_status"
+    args:
+      name: "flapping"
+    expected:
+      success: true
+      wait_for_state: "45s"
+      json_path:
+        state: "unreachable"
+    timeout: "60s"
+
+  - id: "core-tools-served-after-the-loss"
+    tool: "test_call_meta_tool"
+    args: { tool: "filter_tools", arguments: { pattern: "core_service_*", limit: 100 } }
+    expected:
+      success: true
+      contains: ["core_service_list", "core_service_status"]
+
+  - id: "lost-server-tool-not-listed"
+    tool: "test_call_meta_tool"
+    args: { tool: "filter_tools", arguments: { pattern: "*_probe", limit: 10 } }
+    expected:
+      success: true
+      json_path:
+        total: 0
+
+  - id: "backend-back"
+    tool: "test_start_mock_server"
+    args:
+      server: "flapping"
+    expected:
+      success: true
+      contains: ["Started mock server"]
+    timeout: "30s"
+
+  - id: "reconnected"
+    tool: "core_service_status"
+    args:
+      name: "flapping"
+    expected:
+      success: true
+      wait_for_state: "45s"
+      json_path:
+        state: "connected"
+        health: "healthy"
+    timeout: "60s"
+
+  - id: "server-tool-listed-again"
+    description: "the returned server's tool is listed with the core tools: the registry changed, the core catalogue did not have to"
+    tool: "test_call_meta_tool"
+    args: { tool: "filter_tools", arguments: { pattern: "*_probe", limit: 10 } }
+    expected:
+      success: true
+      wait_for_state: "20s"
+      contains: ["x_flapping_probe"]
+
+  - id: "core-tools-served-after-the-return"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_tool", arguments: { name: "core_service_status" } }
+    expected:
+      success: true
+      json_path:
+        name: "core_service_status"
+
+# The core catalogue was built once, by the first meta-tool call, and no
+# registry change made a later call rebuild it.
+instance_logs:
+  contains:
+    - 'msg="Core catalogue rebuilt" subsystem=Aggregator trigger=initial'
+  occurrences:
+    'msg="Core catalogue rebuilt" subsystem=Aggregator trigger=invalidated': 0
