@@ -6,14 +6,18 @@ Call an MCP tool by name
 
 Call any MCP tool directly by name with arbitrary arguments.
 
-Arguments can be passed as --key=value or --key value flags.
-Use --json to pass a JSON object as arguments instead.
+Arguments are passed as --key=value or --key value flags. The flags muster
+itself declares (--endpoint, --auth, --output and the others listed below) are
+never passed on. To pass an argument that shares a name with one of them, put
+it after "--": everything after the separator is an argument. Use --json to
+pass a JSON object as arguments instead.
 
 Examples:
   muster call core_service_list
   muster call core_service_status --name=prometheus
   muster call workflow_deploy --environment=production --replicas=3
   muster call core_mcpserver_list --output json
+  muster call x_http_get --endpoint http://muster:8090/mcp -- --endpoint=https://target
 
 Note: The aggregator server must be running (use 'muster serve') before using this command.
 

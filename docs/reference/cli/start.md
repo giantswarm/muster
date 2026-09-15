@@ -10,16 +10,22 @@ Available resource types:
   service   - Start a service by its name
   workflow  - Execute a workflow with optional parameters
 
+Workflow arguments are passed as --name=value or --name value flags. The flags
+muster itself declares (--endpoint, --auth, --output and the others listed
+below) are never passed on. To pass a workflow argument that shares a name with
+one of them, put it after "--": everything after the separator is an argument.
+
 Examples:
   muster start service prometheus
   muster start service vault
   muster start workflow deploy-app --environment=production --replicas=3
   muster start workflow auth-setup --cluster=test
+  muster start workflow sync --endpoint http://muster:8090/mcp -- --endpoint=https://target
 
 Note: The aggregator server must be running (use 'muster serve') before using these commands.
 
 ```
-muster start
+muster start <type> <name> [--arg=value ...]
 ```
 
 ## Options

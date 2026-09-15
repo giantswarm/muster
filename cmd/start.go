@@ -72,7 +72,7 @@ func startWorkflowNameCompletion(cmd *cobra.Command, args []string, toComplete s
 
 // startCmd represents the start command
 var startCmd = &cobra.Command{
-	Use:   "start",
+	Use:   "start <type> <name> [--arg=value ...]",
 	Short: "Start a resource",
 	Long: `Start a resource in the muster environment.
 
@@ -80,11 +80,17 @@ Available resource types:
   service   - Start a service by its name
   workflow  - Execute a workflow with optional parameters
 
+Workflow arguments are passed as --name=value or --name value flags. The flags
+muster itself declares (--endpoint, --auth, --output and the others listed
+below) are never passed on. To pass a workflow argument that shares a name with
+one of them, put it after "--": everything after the separator is an argument.
+
 Examples:
   muster start service prometheus
   muster start service vault
   muster start workflow deploy-app --environment=production --replicas=3
   muster start workflow auth-setup --cluster=test
+  muster start workflow sync --endpoint http://muster:8090/mcp -- --endpoint=https://target
 
 Note: The aggregator server must be running (use 'muster serve') before using these commands.`,
 	Args: cobra.MinimumNArgs(2),
@@ -120,69 +126,6 @@ func init() {
 	cli.RegisterCommonFlags(startCmd, &startFlags)
 }
 
-// parseWorkflowParameters extracts workflow parameters from raw command line arguments
-// Looks for --param=value or --param value patterns after the workflow name
-func parseWorkflowParameters(workflowName string) map[string]interface{} {
-	params := make(map[string]interface{})
-
-	// Find the workflow name in os.Args and parse everything after it
-	args := os.Args
-	workflowIndex := -1
-
-	for i, arg := range args {
-		if arg == workflowName && i > 0 && args[i-1] == api.ResourceTypeWorkflow {
-			workflowIndex = i
-			break
-		}
-	}
-
-	if workflowIndex == -1 || workflowIndex+1 >= len(args) {
-		return params
-	}
-
-	// Parse arguments after the workflow name
-	workflowArgs := args[workflowIndex+1:]
-
-	for i := 0; i < len(workflowArgs); i++ {
-		arg := workflowArgs[i]
-
-		// Handle --param=value format
-		if strings.HasPrefix(arg, "--") {
-			paramArg := strings.TrimPrefix(arg, "--")
-
-			// Skip known flags
-			if paramArg == "output" || paramArg == "quiet" ||
-				strings.HasPrefix(paramArg, "output=") ||
-				strings.HasPrefix(paramArg, "quiet=") {
-				// Skip this and potentially next argument
-				if !strings.Contains(paramArg, "=") && i+1 < len(workflowArgs) && !strings.HasPrefix(workflowArgs[i+1], "--") {
-					i++ // Skip the value too
-				}
-				continue
-			}
-
-			if strings.Contains(paramArg, "=") {
-				// --param=value format
-				parts := strings.SplitN(paramArg, "=", 2)
-				if len(parts) == 2 {
-					params[parts[0]] = parts[1]
-				}
-			} else {
-				// --param value format (check next argument)
-				if i+1 < len(workflowArgs) && !strings.HasPrefix(workflowArgs[i+1], "--") {
-					params[paramArg] = workflowArgs[i+1]
-					i++ // Skip the next argument since we consumed it
-				} else {
-					// Boolean flag
-					params[paramArg] = stringTrue
-				}
-			}
-		}
-	}
-
-	return params
-}
-
 func runStart(cmd *cobra.Command, args []string) error {
 	resourceType := args[0]
 	resourceName := args[1]
@@ -204,13 +147,11 @@ func runStart(cmd *cobra.Command, args []string) error {
 	}
 
 	if resourceType == api.ResourceTypeWorkflow {
-		// Execute workflow using workflow_<workflow-name> pattern
+		// Execute workflow using workflow_<workflow-name> pattern. Its
+		// arguments are the flags start does not declare: cobra dropped
+		// them, the command line still has them.
 		toolName := fmt.Sprintf("workflow_%s", resourceName)
-
-		// Parse workflow parameters from command line arguments
-		workflowParams := parseWorkflowParameters(resourceName)
-
-		return executor.Execute(ctx, toolName, workflowParams)
+		return executor.Execute(ctx, toolName, parseDynamicArgs(cmd, os.Args[1:], stringValue))
 	}
 
 	// Handle other resource types (services)
