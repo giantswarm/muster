@@ -49,6 +49,15 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- `go install github.com/giantswarm/muster/v5@latest` builds the release it resolves to. Go refuses
+  `go install <package>@<version>` for a module whose go.mod carries a `replace` directive, and go.mod
+  carried one since 2026-08-28: goldmark pinned to a fixed version for the nancy scan, because
+  golang.org/x/tools required a version OSS Index flagged ([#1106](https://github.com/giantswarm/muster/pull/1106)).
+  Nothing in the build reaches x/tools or goldmark anymore (`go mod why -m github.com/yuin/goldmark`:
+  the main module does not need it; neither is among the packages `go list -deps ./...` hands to
+  nancy), so the pin changed nothing but the `go install` verdict and is gone. The module graph is
+  unchanged.
+
 - The release binaries report their release tag again. `muster version` on the v5.22.0 binary printed
   `v1.12.1-0.20260915144925-e6c760a32b48`: the CI build stamped the commit and the build time but no
   version, so the binary fell back to the version Go's own VCS stamping had derived -- and as the
