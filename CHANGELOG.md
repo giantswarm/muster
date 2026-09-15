@@ -6,6 +6,17 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- `muster self-update --check` reports the running and the latest release without installing
+  anything and exits with status 125 when a newer one exists (devctl's convention for
+  `version check`), for scripts. Every command a person runs starts with a one-line hint on stderr
+  while a newer release is out -- a hint, never a gate: the GitHub round trip is capped at two
+  seconds, its answer is cached for an hour under the user cache directory
+  (`~/.cache/muster/latest-release.json` on Linux, `~/Library/Caches/muster/` on macOS) and a failed
+  attempt is remembered for ten minutes, so a machine without internet is not held up.
+  `MUSTER_NO_UPDATE_CHECK=1` silences the hint; `serve`, `standalone`, `agent`, `test`, `version`,
+  `self-update`, `help` and `completion` never print it, and `dev` builds never check. The same
+  `internal/update` package as agentlab's, so the two CLIs behave alike.
+
 - Homebrew: the release pipeline tells the tap `giantswarm/homebrew-muster` about a release once
   its binaries are on the GitHub Release (a `muster-release` repository dispatch from
   `.circleci/custom.yml`); the tap's workflow verifies every binary against its Sigstore bundle
@@ -46,6 +57,17 @@ All notable changes to this project will be documented in this file.
   `goimports -local` prefix of the pre-commit hook and the contributor docs follow the module. The
   OpenTelemetry scope name `github.com/giantswarm/muster` (`observability.TracerName`, the `otel_scope_name`
   label, the logger scope) is an identifier dashboards filter on, not an import path, and is unchanged.
+- `muster version` and `muster --version` print one line, `muster version v5.23.5 (commit 361cdef,
+  built 2026-09-15T19:38:51Z)`, with the details the binary knows; the `commit:` and `built:` lines
+  and their `unknown` placeholder are gone, and `muster version` still adds the aggregator's version
+  when one is running. A `go build` from a checkout reports Go's own stamp -- the tag at a tag,
+  `+dirty` over local edits, a pseudo-version between tags (`v5.23.6-0.20260915195350-977012d023ba`:
+  after v5.23.5, before v5.23.6) -- which `self-update` and the hint compare as what it is; a binary
+  without any version says `dev`, and `self-update` refuses it with a pointer to
+  `go install github.com/giantswarm/muster/v5@latest`. The self-update messages follow agentlab's
+  ("Nothing newer than v5.23.5 on GitHub (latest release v5.23.5)."; a newer release is announced
+  with its URL instead of its full release notes), and its logic moved from `cmd` to
+  `internal/update`.
 
 ### Fixed
 

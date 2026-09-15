@@ -44,13 +44,28 @@ A specific version is under `releases/download/v<version>/`; the Windows binarie
 `muster-windows-amd64.exe` and `muster-windows-arm64.exe`.
 
 A binary installed this way updates itself: `muster self-update` replaces it with the latest
-release after verifying its bundle against a CircleCI build of `giantswarm/muster`. A release
-without a bundle, or a download that does not match its signature, is refused and the installed
-binary stays. A Homebrew install is updated with `brew upgrade` instead.
+release after verifying its bundle against a CircleCI build of `giantswarm/muster` (the shared
+[`selfupdate-cosign`](https://github.com/giantswarm/selfupdate-cosign) validator, the one agentlab
+and the other Giant Swarm CLIs use). A release without a bundle, or a download that does not match
+its signature, is refused and the installed binary stays. `muster self-update --check` only reports
+the running and the latest version, with exit status 125 when a newer one exists (for scripts). A
+binary without a release version (`muster version` says `dev`) is refused: reinstall it from a
+release or with `go install`. A `go build` from a checkout carries Go's pseudo-version
+(`v5.23.6-0.20260915…-977012d0`) and is treated as what it is: after the tag before it, before the
+tag after it. A Homebrew install is updated with `brew upgrade` instead.
 
 ```bash
 muster self-update
 ```
+
+Every other command starts with a one-line hint on stderr while a newer release is out -- a hint,
+never a gate: an outdated muster runs every command the same. The GitHub round trip behind it is
+capped at two seconds and its answer is cached for an hour under the user cache directory
+(`~/.cache/muster/latest-release.json` on Linux, `~/Library/Caches/muster/` on macOS); a failed
+attempt is remembered for ten minutes, so a machine without internet is not held up on every
+command. `MUSTER_NO_UPDATE_CHECK=1` silences the hint (`self-update` itself always works); the
+aggregator (`serve`, `standalone`), the agent and the test runner never print it, and `dev` builds
+never check.
 
 With a Go toolchain, `go install github.com/giantswarm/muster/v5@latest` builds from source.
 
