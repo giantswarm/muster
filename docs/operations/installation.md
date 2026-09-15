@@ -18,9 +18,11 @@ Every release publishes binaries for Linux, macOS and Windows on `amd64` and `ar
 Sigstore bundle next to it.
 
 With Homebrew on macOS or Linux, the [tap](https://github.com/giantswarm/homebrew-muster) installs
-the binary with shell completions for bash, zsh and fish:
+the binary with shell completions for bash, zsh and fish. Homebrew loads formulae from a
+third-party tap only after the tap has been trusted:
 
 ```bash
+brew trust giantswarm/muster
 brew install giantswarm/muster/muster
 ```
 

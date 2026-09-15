@@ -97,6 +97,7 @@ attaches the session's credentials and forwards the call.
 Install the latest release. Binaries are signed in CI and verified by `muster self-update`.
 
 ```bash
+brew trust giantswarm/muster
 brew install giantswarm/muster/muster
 ```
 
