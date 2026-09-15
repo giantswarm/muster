@@ -253,7 +253,7 @@ func TestWaitForStatePollsBothStepKinds(t *testing.T) {
 			t.Fatalf("priming call: %v", err)
 		}
 
-		ok := runner.validateExpectationsWithClient(
+		ok, _ := runner.validateExpectationsWithClient(
 			context.Background(), expectedEventually, first, nil, client,
 			"core_mcpserver_get", nil, runner.logger,
 		)
@@ -320,7 +320,7 @@ func TestWaitForStateAcceptsAFirstResponseThatAlreadyPasses(t *testing.T) {
 			return mcpResultOf(t, failing, false), nil
 		}}
 
-		ok := runner.validateExpectationsWithClient(
+		ok, _ := runner.validateExpectationsWithClient(
 			context.Background(), expected, mcpResultOf(t, passing, false), nil, client,
 			"core_mcpserver_get", nil, runner.logger,
 		)

@@ -64,3 +64,9 @@ func (m *musterInstanceManager) killProcessGroup(pid int, sig syscall.Signal) er
 
 	return nil
 }
+
+// quitProcess has no equivalent on Windows: there is no signal that makes
+// the Go runtime print its goroutines.
+func quitProcess(pid int) error {
+	return fmt.Errorf("goroutine dump of process %d: SIGQUIT is not available on Windows", pid)
+}

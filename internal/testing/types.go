@@ -780,6 +780,10 @@ type TestScenarioResult struct {
 	Output string `json:"output,omitempty"`
 	// InstanceLogs contains logs from the muster serve instance
 	InstanceLogs *InstanceLogs `json:"instance_logs,omitempty"`
+	// HarnessGoroutines is the harness's goroutine dump, taken when a step's
+	// call to muster serve never returned (see TestStepResult.Stalled); the
+	// instance's own dump is at the end of InstanceLogs.Stderr.
+	HarnessGoroutines string `json:"harness_goroutines,omitempty"`
 }
 
 // TestStepResult represents the result of a single test step
@@ -798,6 +802,11 @@ type TestStepResult struct {
 	Response interface{} `json:"response,omitempty"`
 	// Error message if the step failed
 	Error string `json:"error,omitempty"`
+	// Stalled reports that the step's last call to muster serve never
+	// returned: it ended with context.DeadlineExceeded, its budget spent
+	// waiting for the response. The runner then captures goroutine dumps of
+	// the instance and the harness (see captureStallDiagnostics).
+	Stalled bool `json:"stalled,omitempty"`
 }
 
 // TestRunner interface defines the test execution engine

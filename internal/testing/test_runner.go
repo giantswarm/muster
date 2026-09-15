@@ -477,6 +477,9 @@ func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, con
 	}()
 
 	// Execute steps using the isolated client
+	// Set when a stalled step had the instance stopped for its goroutine
+	// dump: that exit is the harness's doing, not a death mid-scenario.
+	instanceStoppedForDump := false
 	for _, step := range scenario.Steps {
 		stepResult := r.runStepWithTestTools(scenarioCtx, step, config, scenarioClient, scenarioContext, testToolsHandler, logger)
 		result.StepResults = append(result.StepResults, stepResult)
@@ -488,6 +491,9 @@ func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, con
 		if stepResult.Result == ResultFailed || stepResult.Result == ResultError {
 			result.Result = stepResult.Result
 			result.Error = stepResult.Error
+			if stepResult.Stalled {
+				instanceStoppedForDump = r.captureStallDiagnostics(instance, &result, logger)
+			}
 			break
 		}
 	}
@@ -517,7 +523,7 @@ func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, con
 	// A failing step against a dead instance is a different bug class than a
 	// failing step against a live one. Surface an unexpected instance death
 	// prominently so CI failures are diagnosable from the summary line alone.
-	if result.Result != ResultPassed {
+	if result.Result != ResultPassed && !instanceStoppedForDump {
 		if exited, waitErr := r.instanceManager.InstanceExitStatus(instance); exited {
 			death := fmt.Sprintf("muster instance process died mid-scenario (wait result: %v)", waitErr)
 			if result.Error != "" {
@@ -671,13 +677,18 @@ func (r *testRunner) runStep(ctx context.Context, step TestStep, config TestConf
 	result.Duration = result.EndTime.Sub(result.StartTime)
 
 	// Validate expectations (always check, even with errors - they might be expected)
-	if !r.validateExpectationsWithClient(stepCtx, step.Expected, response, err, client, step.Tool, resolvedArgs, logger) {
+	met, stalledPoll := r.validateExpectationsWithClient(stepCtx, step.Expected, response, err, client, step.Tool, resolvedArgs, logger)
+	if !met {
 		if err != nil {
 			result.Result = ResultError
 			result.Error = fmt.Sprintf("tool call failed: %v", err)
 		} else {
 			result.Result = ResultFailed
 			result.Error = "step expectations not met"
+		}
+		result.Stalled = stalledPoll || stalledCall(err)
+		if result.Stalled {
+			result.Error += stallNote
 		}
 		return result
 	}
@@ -812,6 +823,9 @@ func (r *testRunner) runTestToolStep(ctx context.Context, step TestStep, config 
 			result.Result = ResultFailed
 			result.Error = "test tool expectations not met"
 		}
+		if result.Stalled = stalledCall(err); result.Stalled {
+			result.Error += stallNote
+		}
 		return result
 	}
 	if exceeded := stepExceededMaxDuration(step, result.Duration); exceeded != "" {
@@ -894,8 +908,15 @@ func (r *testRunner) validateTestToolExpectations(expected TestExpectation, resp
 	return r.checkExpectations(expected, r.viewOfTestToolResponse(response, err), logger)
 }
 
-// validateExpectationsWithClient checks if the step response meets the expected criteria with state waiting support
-func (r *testRunner) validateExpectationsWithClient(ctx context.Context, expected TestExpectation, response interface{}, err error, client MCPTestClient, stepTool string, stepArgs map[string]interface{}, logger TestLogger) bool {
+// mcpToolPollInterval is how often wait_for_state re-invokes an MCP tool step.
+const mcpToolPollInterval = 1 * time.Second
+
+// validateExpectationsWithClient checks if the step response meets the
+// expected criteria, polling with wait_for_state when the step declares it.
+// It reports whether the expectations were met and, when they were not,
+// whether the last poll stalled: its call to muster serve never returned
+// (stalledCall), so the step failed without a response to judge.
+func (r *testRunner) validateExpectationsWithClient(ctx context.Context, expected TestExpectation, response interface{}, err error, client MCPTestClient, stepTool string, stepArgs map[string]interface{}, logger TestLogger) (met bool, stalled bool) {
 	// Handle state waiting if configured
 	if expected.WaitForState > 0 {
 		if r.debug {
@@ -917,22 +938,21 @@ func (r *testRunner) validateExpectationsWithClient(ctx context.Context, expecte
 			if r.debug {
 				logger.Debug("✅ Expectations already met on the first call - not polling\n")
 			}
-			return true
+			return true, false
 		}
 
 		// Use the configured timeout
 		timeout := expected.WaitForState
-		pollInterval := 1 * time.Second // Default poll interval
 
 		// Start polling with timeout
 		waitCtx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
 
-		pollTicker := time.NewTicker(pollInterval)
+		pollTicker := time.NewTicker(mcpToolPollInterval)
 		defer pollTicker.Stop()
 
 		if r.debug {
-			logger.Debug("🔄 Starting state polling: tool=%s, timeout=%v, interval=%v\n", stepTool, timeout, pollInterval)
+			logger.Debug("🔄 Starting state polling: tool=%s, timeout=%v, interval=%v\n", stepTool, timeout, mcpToolPollInterval)
 		}
 
 		// Poll for expected state
@@ -942,7 +962,7 @@ func (r *testRunner) validateExpectationsWithClient(ctx context.Context, expecte
 				if r.debug {
 					logger.Debug("⏰ State waiting timeout reached\n")
 				}
-				return false // Timeout reached without achieving expected state
+				return false, false // Timeout reached without achieving expected state
 
 			case <-pollTicker.C:
 				// Make status call using the polling tool and args
@@ -952,13 +972,20 @@ func (r *testRunner) validateExpectationsWithClient(ctx context.Context, expecte
 					logger.Debug("📊 Status poll result: error=%v\n", err)
 				}
 
+				// A poll that never returned is not "state not yet achieved":
+				// nothing came back to judge, and the next tick would only
+				// queue another call behind it.
+				if stalledCall(err) {
+					return false, true
+				}
+
 				// Check if the status call succeeded and meets JSON path expectations
 				if err == nil {
 					if r.validateExpectations(expected, response, nil, logger) {
 						if r.debug {
 							logger.Debug("✅ Expected state achieved!\n")
 						}
-						return true
+						return true, false
 					} else {
 						if r.debug {
 							logger.Debug("🔄 State not yet achieved, continuing to poll...\n")
@@ -970,7 +997,7 @@ func (r *testRunner) validateExpectationsWithClient(ctx context.Context, expecte
 	}
 
 	// Continue with normal validation using original response and error
-	return r.validateExpectations(expected, response, err, logger)
+	return r.validateExpectations(expected, response, err, logger), false
 }
 
 // validateExpectations checks an MCP tool step response against its

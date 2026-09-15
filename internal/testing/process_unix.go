@@ -31,3 +31,9 @@ func (m *musterInstanceManager) killProcessGroup(pid int, sig syscall.Signal) er
 	}
 	return nil
 }
+
+// quitProcess sends SIGQUIT to one process: the Go runtime answers it by
+// printing every goroutine to stderr and exiting.
+func quitProcess(pid int) error {
+	return syscall.Kill(pid, syscall.SIGQUIT)
+}

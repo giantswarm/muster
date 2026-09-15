@@ -189,10 +189,13 @@ type OAuthErrorSimulation struct {
 type OAuthServer struct {
 	config     OAuthServerConfig
 	httpServer *http.Server
-	listener   net.Listener
-	port       int
-	running    bool
-	mu         sync.RWMutex
+	// socket is the bound TCP socket; it outlives the http.Server across
+	// Restart so the port cannot be taken in between (see retainedListener).
+	socket   *retainedListener
+	listener net.Listener
+	port     int
+	running  bool
+	mu       sync.RWMutex
 
 	// State tracking
 	authCodes    map[string]*authCodeEntry // code -> entry
@@ -310,14 +313,14 @@ func (s *OAuthServer) Start(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("failed to listen: %w", err)
 	}
-
+	s.socket = retainListener(listener)
 	s.port = listener.Addr().(*net.TCPAddr).Port
 
 	// Generate self-signed certificate for TLS mode
 	if s.config.UseTLS {
 		cert, caPEM, err := generateSelfSignedCert()
 		if err != nil {
-			_ = listener.Close()
+			_ = s.socket.release()
 			return 0, fmt.Errorf("failed to generate self-signed certificate: %w", err)
 		}
 		s.tlsCert = cert
@@ -333,7 +336,7 @@ func (s *OAuthServer) Start(ctx context.Context) (int, error) {
 		}
 	}
 
-	s.serveLocked(listener)
+	s.serveLocked(s.socket)
 
 	if s.config.Debug {
 		protocol := "http"
@@ -387,11 +390,14 @@ func (s *OAuthServer) serveLocked(listener net.Listener) {
 	s.running = true
 }
 
-// Restart takes the server off its port and serves again on the same port
-// and issuer -- the authorization server's pod replaced. Whatever the real
+// Restart replaces the server behind the port and issuer -- the
+// authorization server's pod replaced behind its Service. Whatever the real
 // server keeps outside its process stays (issued tokens, pending codes, the
 // configured client); with ForgetRegistrationsOnRestart the RFC 7591
-// registrations go with the old process. Returns how many were forgotten.
+// registrations go with the old process. The listening socket is kept bound
+// throughout: released, the port would be free for any other socket on the
+// host to take before the new server listens (see retainedListener). Returns
+// how many registrations were forgotten.
 func (s *OAuthServer) Restart(ctx context.Context) (int, error) {
 	s.mu.Lock()
 	if !s.running {
@@ -416,11 +422,10 @@ func (s *OAuthServer) Restart(ctx context.Context) (int, error) {
 		s.registeredClients = make(map[string]*registeredClient)
 	}
 
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", s.port)) //nolint:gosec
-	if err != nil {
-		return forgotten, fmt.Errorf("failed to listen again on port %d: %w", s.port, err)
+	if err := s.socket.reopen(); err != nil {
+		return forgotten, fmt.Errorf("failed to serve again on port %d: %w", s.port, err)
 	}
-	s.serveLocked(listener)
+	s.serveLocked(s.socket)
 
 	if s.config.Debug {
 		fmt.Fprintf(os.Stderr, "🔐 Mock OAuth server restarted on port %d (%d registration(s) forgotten)\n", s.port, forgotten)
@@ -443,6 +448,9 @@ func (s *OAuthServer) Stop(ctx context.Context) error {
 
 	err := s.httpServer.Shutdown(ctx)
 	s.running = false
+	if releaseErr := s.socket.release(); err == nil {
+		err = releaseErr
+	}
 	return err
 }
 
