@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/config"
@@ -37,7 +38,8 @@ Examples:
   muster auth status                   # Show authentication status
   muster auth logout                   # Logout from configured aggregator
   muster auth logout --all             # Clear all stored tokens
-  muster auth whoami                   # Show current identity`,
+  muster auth whoami                   # Show current identity
+  muster auth token --id               # Print the ID token for other clients`,
 }
 
 // authLogoutCmd represents the auth logout command
@@ -102,6 +104,7 @@ func init() {
 	authCmd.AddCommand(authLogoutCmd)
 	authCmd.AddCommand(authStatusCmd)
 	authCmd.AddCommand(authWhoamiCmd)
+	authCmd.AddCommand(authTokenCmd)
 
 	// Common flags for auth commands (shared across subcommands)
 	authCmd.PersistentFlags().StringVar(&authEndpoint, "endpoint", "", "Specific endpoint URL to authenticate to")
@@ -232,6 +235,9 @@ func runAuthWhoami(cmd *cobra.Command, args []string) error {
 	}
 	if !status.ExpiresAt.IsZero() {
 		fmt.Printf("Expires:   %s\n", formatExpiryWithDirection(status.ExpiresAt))
+	}
+	if !status.IDTokenExpiresAt.IsZero() {
+		fmt.Printf("ID token:  %s\n", formatIDTokenExpiry(status.IDTokenExpiresAt, time.Now()))
 	}
 
 	return nil

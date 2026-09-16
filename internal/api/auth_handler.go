@@ -30,6 +30,11 @@ type AuthHandler interface {
 	// Returns an error if not authenticated.
 	GetBearerToken(endpoint string) (string, error)
 
+	// GetAccessToken returns the access token for the endpoint without the
+	// Bearer prefix, for handing to another client. Returns an error if not
+	// authenticated.
+	GetAccessToken(endpoint string) (string, error)
+
 	// Login initiates the OAuth flow for the given endpoint.
 	// Opens browser and waits for callback completion.
 	Login(ctx context.Context, endpoint string) error
@@ -55,6 +60,17 @@ type AuthHandler interface {
 	// the persistent store. Call this after an external mechanism (e.g.
 	// mcp-go's transport) may have refreshed a token outside of this handler.
 	InvalidateCache(endpoint string)
+
+	// Relogin runs the interactive OAuth flow for the endpoint although a
+	// valid session may be stored, replacing the stored token -- and with it
+	// the OIDC ID token -- when the flow completes. The stored session stays
+	// untouched until then, so a failed or abandoned flow costs nothing.
+	Relogin(ctx context.Context, endpoint string) error
+
+	// GetIDToken returns the stored OIDC ID token for the endpoint. Returns
+	// an error when no session is stored or the session carries no ID token.
+	// The token is returned as stored; callers judge its exp claim.
+	GetIDToken(endpoint string) (string, error)
 
 	// Close cleans up any resources held by the auth handler.
 	Close() error
@@ -90,6 +106,12 @@ type AuthStatus struct {
 	// creation time plus the configured refresh token TTL. The actual session may end
 	// earlier if the upstream provider (e.g., Dex) has a shorter absolute lifetime.
 	RefreshExpiresAt time.Time
+
+	// IDTokenExpiresAt is the exp claim of the stored OIDC ID token; zero when
+	// the session carries no ID token or the token has no exp. The mcp-go
+	// transport renews the access token only, so this can lie in the past
+	// while Authenticated is true.
+	IDTokenExpiresAt time.Time
 
 	// Error is non-empty if the auth check failed.
 	Error string

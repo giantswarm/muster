@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **`muster auth login` renews the stored ID token.** A valid session is still reused, but the session's automatic refresh renews the access token only: the OIDC ID token in `~/.config/muster/tokens/<hash>.json` kept the `exp` of the first sign-in, so the CLI carried an ID token expired for weeks -- signed with a key the identity provider no longer publishes -- while `muster auth status` said `Authenticated`. Now login signs in again through the browser when the stored ID token has expired (or expires within 30 s), and always with the new `--force`; the stored session is replaced only when the new sign-in completes. `muster auth status` and `muster auth whoami` show the ID token's expiry (`ID token:  expired 12 days ago (renew with: muster auth login)`), and the new `muster auth token [--id]` prints the access token or the ID token alone on stdout for other clients -- a script calling an API that validates the person's ID token -- and refuses an expired ID token instead of handing it out. ([#1268](https://github.com/giantswarm/muster/issues/1268))
+
 - `muster self-update --check` reports the running and the latest release without installing
   anything and exits with status 125 when a newer one exists (devctl's convention for
   `version check`), for scripts. Every command a person runs starts with a one-line hint on stderr

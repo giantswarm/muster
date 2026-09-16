@@ -124,19 +124,7 @@ func (m *AuthManager) CheckConnection(ctx context.Context, serverURL string) (Au
 	// Probe the server to discover auth requirements
 	discovered := m.discoverAuthChallenge(ctx, serverURL)
 	if discovered != nil {
-		m.authChallenge = discovered.challenge
-		// The URL is the one the caller passed, not the normalized form,
-		// because mcp-go derives its own indicator from the endpoint it
-		// connects to and sends that value on token refresh.
-		resource, err := resourceIndicator(discovered.resource, serverURL)
-		if err != nil {
-			slog.Warn("Cannot derive an RFC 8707 resource indicator",
-				"server_url", serverURL,
-				"error", err,
-			)
-		}
-		m.resource = resource
-		m.state = AuthStatePendingAuth
+		m.applyDiscovery(discovered, serverURL)
 		return m.state, nil
 	}
 
@@ -145,6 +133,45 @@ func (m *AuthManager) CheckConnection(ctx context.Context, serverURL string) (Au
 	// can attempt a connection and let mcp-go detect 401 at that point.
 	m.state = AuthStatePendingAuth
 	return m.state, nil
+}
+
+// RequireAuth prepares a new authorization flow for a server whose stored
+// credentials may still be valid. Unlike CheckConnection it ignores the stored
+// token: it probes the server for its auth challenge and enters
+// AuthStatePendingAuth so StartAuthFlow can run. The stored token stays in
+// place -- the flow's token exchange replaces it -- so a failed or abandoned
+// flow leaves the existing session usable.
+func (m *AuthManager) RequireAuth(ctx context.Context, serverURL string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.serverURL = normalizeServerURL(serverURL)
+	m.resource = ""
+
+	discovered := m.discoverAuthChallenge(ctx, serverURL)
+	if discovered == nil {
+		return fmt.Errorf("%s did not issue an authentication challenge", serverURL)
+	}
+	m.applyDiscovery(discovered, serverURL)
+	return nil
+}
+
+// applyDiscovery records what a discovery probe learned and enters
+// AuthStatePendingAuth. The caller holds m.mu.
+func (m *AuthManager) applyDiscovery(discovered *discoveredAuth, serverURL string) {
+	m.authChallenge = discovered.challenge
+	// The URL is the one the caller passed, not the normalized form,
+	// because mcp-go derives its own indicator from the endpoint it
+	// connects to and sends that value on token refresh.
+	resource, err := resourceIndicator(discovered.resource, serverURL)
+	if err != nil {
+		slog.Warn("Cannot derive an RFC 8707 resource indicator",
+			"server_url", serverURL,
+			"error", err,
+		)
+	}
+	m.resource = resource
+	m.state = AuthStatePendingAuth
 }
 
 // discoveredAuth carries what a discovery probe learned about the server: the

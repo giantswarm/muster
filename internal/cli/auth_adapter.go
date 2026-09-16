@@ -190,9 +190,9 @@ func (a *AuthAdapter) HasCredentials(endpoint string) bool {
 	return mgr.HasCredentials(endpoint)
 }
 
-// GetBearerToken returns a valid Bearer token for the endpoint.
+// GetAccessToken returns a valid access token for the endpoint.
 // Token refresh is handled by mcp-go's transport layer via AgentTokenStore.
-func (a *AuthAdapter) GetBearerToken(endpoint string) (string, error) {
+func (a *AuthAdapter) GetAccessToken(endpoint string) (string, error) {
 	mgr, err := a.getOrCreateManager(endpoint)
 	if err != nil {
 		return "", err
@@ -206,12 +206,41 @@ func (a *AuthAdapter) GetBearerToken(endpoint string) (string, error) {
 		return "", &AuthRequiredError{Endpoint: endpoint}
 	}
 
-	token, err := mgr.GetBearerToken()
+	token, err := mgr.GetAccessToken()
 	if err != nil {
 		return "", &AuthRequiredError{Endpoint: endpoint}
 	}
 
 	return token, nil
+}
+
+// GetBearerToken returns the access token formatted as a Bearer authorization
+// header value.
+func (a *AuthAdapter) GetBearerToken(endpoint string) (string, error) {
+	token, err := a.GetAccessToken(endpoint)
+	if err != nil {
+		return "", err
+	}
+	return "Bearer " + token, nil
+}
+
+// GetIDToken returns the stored OIDC ID token for the endpoint. Unlike the
+// access token it is never renewed by the mcp-go transport, so it is returned
+// as stored and the caller judges its exp claim.
+func (a *AuthAdapter) GetIDToken(endpoint string) (string, error) {
+	mgr, err := a.getOrCreateManager(endpoint)
+	if err != nil {
+		return "", err
+	}
+
+	storedToken := mgr.GetStoredTokenForEndpoint(endpoint)
+	if storedToken == nil || storedToken.AccessToken == "" {
+		return "", &AuthRequiredError{Endpoint: endpoint}
+	}
+	if storedToken.IDToken == "" {
+		return "", fmt.Errorf("the session for %s carries no ID token", endpoint)
+	}
+	return storedToken.IDToken, nil
 }
 
 // Login initiates the OAuth flow for the given endpoint.
@@ -277,6 +306,22 @@ func (a *AuthAdapter) Login(ctx context.Context, endpoint string) error {
 	}
 
 	// Interactive authentication
+	return a.interactiveLogin(ctx, mgr, endpoint)
+}
+
+// Relogin runs the interactive OAuth flow although the endpoint may hold a
+// valid session. The stored token, ID token included, is replaced when the
+// flow completes and kept when it does not.
+func (a *AuthAdapter) Relogin(ctx context.Context, endpoint string) error {
+	mgr, err := a.getOrCreateManager(endpoint)
+	if err != nil {
+		return err
+	}
+
+	if err := mgr.RequireAuth(ctx, endpoint); err != nil {
+		return fmt.Errorf("failed to check connection: %w", err)
+	}
+
 	return a.interactiveLogin(ctx, mgr, endpoint)
 }
 
@@ -631,6 +676,10 @@ func (a *AuthAdapter) getStatusFromManager(endpoint string, mgr *oauth.AuthManag
 				status.Email, err = pkgoauth.Email(storedToken.IDToken)
 				if err != nil {
 					logging.Debug("AuthAdapter", "Failed to extract email from ID token: %v", err)
+				}
+				status.IDTokenExpiresAt, err = pkgoauth.Expiry(storedToken.IDToken)
+				if err != nil {
+					logging.Debug("AuthAdapter", "Failed to extract expiry from ID token: %v", err)
 				}
 			}
 		} else if challenge := mgr.GetAuthChallenge(); challenge != nil {

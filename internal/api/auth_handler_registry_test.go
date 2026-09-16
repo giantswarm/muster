@@ -21,6 +21,9 @@ func (s *stubAuthHandler) LogoutAll() error                                     
 func (s *stubAuthHandler) GetStatus() []AuthStatus                                 { return nil }
 func (s *stubAuthHandler) GetStatusForEndpoint(string) *AuthStatus                 { return nil }
 func (s *stubAuthHandler) InvalidateCache(string)                                  {}
+func (s *stubAuthHandler) Relogin(context.Context, string) error                   { return nil }
+func (s *stubAuthHandler) GetIDToken(string) (string, error)                       { return "", nil }
+func (s *stubAuthHandler) GetAccessToken(string) (string, error)                   { return "", nil }
 func (s *stubAuthHandler) Close() error                                            { return nil }
 
 // TestSwapAuthHandler_ReturnsPrevious pins the primitive tests need in order to

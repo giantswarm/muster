@@ -19,6 +19,8 @@ import (
 	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 
 	"github.com/giantswarm/muster/v5/internal/agent/oauth"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 func TestNewAuthAdapter(t *testing.T) {
@@ -1093,6 +1095,126 @@ func TestGetStatusFromManager_RefreshExpiresAt(t *testing.T) {
 		}
 		if !status.RefreshExpiresAt.IsZero() {
 			t.Errorf("expected RefreshExpiresAt to be zero, got %v", status.RefreshExpiresAt)
+		}
+	})
+}
+
+// testIDToken returns a signed OIDC ID token whose exp claim is exp. The
+// signature is irrelevant: the CLI reads its own stored token's claims
+// without verifying them.
+func testIDToken(t *testing.T, exp time.Time) string {
+	t.Helper()
+	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"iss":   "https://dex.example.com",
+		"sub":   "user-1",
+		"email": "user@example.com",
+		"iat":   exp.Add(-24 * time.Hour).Unix(),
+		"exp":   exp.Unix(),
+	}).SignedString([]byte("test-signing-key"))
+	if err != nil {
+		t.Fatalf("failed to sign test ID token: %v", err)
+	}
+	return token
+}
+
+func TestGetStatusFromManager_IDTokenExpiresAt(t *testing.T) {
+	serverURL := "https://muster.example.com"
+	issuerURL := "https://dex.example.com"
+	exp := time.Now().Add(-12 * 24 * time.Hour).Truncate(time.Second)
+
+	tmpDir := t.TempDir()
+	writeTestTokenFile(t, tmpDir, map[string]interface{}{
+		"access_token":  "access-token",
+		"refresh_token": "refresh-token",
+		"token_type":    "Bearer",
+		"expiry":        time.Now().Add(25 * time.Minute).Format(time.RFC3339),
+		"id_token":      testIDToken(t, exp),
+		"server_url":    serverURL,
+		"issuer_url":    issuerURL,
+		"created_at":    time.Now().Format(time.RFC3339),
+	}, serverURL)
+
+	mgr, err := oauth.NewAuthManager(oauth.AuthManagerConfig{
+		TokenStorageDir: tmpDir,
+		FileMode:        true,
+	})
+	if err != nil {
+		t.Fatalf("failed to create auth manager: %v", err)
+	}
+	defer func() { _ = mgr.Close() }()
+	_, _ = mgr.CheckConnection(context.Background(), serverURL)
+
+	adapter := &AuthAdapter{managers: make(map[string]*oauth.AuthManager)}
+	status := adapter.getStatusFromManager(serverURL, mgr)
+
+	if !status.Authenticated {
+		t.Fatal("expected the valid access token to authenticate although the ID token expired")
+	}
+	if !status.IDTokenExpiresAt.Equal(exp) {
+		t.Errorf("IDTokenExpiresAt = %v, want %v", status.IDTokenExpiresAt, exp)
+	}
+	if status.Email != "user@example.com" {
+		t.Errorf("Email = %q, want the ID token's email", status.Email)
+	}
+}
+
+func TestAuthAdapter_GetIDToken(t *testing.T) {
+	serverURL := "https://muster.example.com"
+	issuerURL := "https://dex.example.com"
+
+	newAdapter := func(t *testing.T, tmpDir string) *AuthAdapter {
+		t.Helper()
+		adapter, err := NewAuthAdapterWithConfig(AuthAdapterConfig{TokenStorageDir: tmpDir})
+		if err != nil {
+			t.Fatalf("failed to create adapter: %v", err)
+		}
+		t.Cleanup(func() { _ = adapter.Close() })
+		return adapter
+	}
+
+	t.Run("no session", func(t *testing.T) {
+		adapter := newAdapter(t, t.TempDir())
+		_, err := adapter.GetIDToken(serverURL)
+		if !isAuthRequiredError(err) {
+			t.Errorf("expected AuthRequiredError, got %v", err)
+		}
+	})
+
+	t.Run("session without an ID token", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		writeTestTokenFile(t, tmpDir, map[string]interface{}{
+			"access_token": "access-token",
+			"token_type":   "Bearer",
+			"expiry":       time.Now().Add(25 * time.Minute).Format(time.RFC3339),
+			"server_url":   serverURL,
+			"issuer_url":   issuerURL,
+			"created_at":   time.Now().Format(time.RFC3339),
+		}, serverURL)
+		_, err := newAdapter(t, tmpDir).GetIDToken(serverURL)
+		if err == nil || isAuthRequiredError(err) {
+			t.Errorf("expected an error naming the missing ID token, got %v", err)
+		}
+	})
+
+	t.Run("returns the stored ID token although the access token expired", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		idToken := testIDToken(t, time.Now().Add(23*time.Hour))
+		writeTestTokenFile(t, tmpDir, map[string]interface{}{
+			"access_token":  "access-token",
+			"refresh_token": "refresh-token",
+			"token_type":    "Bearer",
+			"expiry":        time.Now().Add(-5 * time.Minute).Format(time.RFC3339),
+			"id_token":      idToken,
+			"server_url":    serverURL,
+			"issuer_url":    issuerURL,
+			"created_at":    time.Now().Format(time.RFC3339),
+		}, serverURL)
+		got, err := newAdapter(t, tmpDir).GetIDToken(serverURL)
+		if err != nil {
+			t.Fatalf("GetIDToken: %v", err)
+		}
+		if got != idToken {
+			t.Error("expected the stored ID token as-is")
 		}
 	})
 }
