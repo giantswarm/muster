@@ -75,6 +75,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Plain `muster auth login` renews an expired stored ID token.** The renewal decision hung on the handler's status path, which reaches `Authenticated` only when the stored access token is valid for another minute by the CLI's own reading and otherwise probes the server; the mcp-go transport connects with that same token regardless, so a session the aggregator accepted answered `Already authenticated` while the decision never saw the ID token (`muster auth status` then said `No authentication required`). The decision now reads the ID token's `exp` from the token file alone, before the "already authenticated" answer and without a probe; a session without an ID token is renewed too. ([#1268](https://github.com/giantswarm/muster/issues/1268))
+
 - No `Warning MCPServerRecoveryFailed` for the expected 401 of an OAuth-protected server. When an
   MCPServer whose callers bring their own credentials (`auth.forwardToken`, `auth.tokenExchange`, or an
   OAuth login through muster) came up together with muster, automatic recovery restarted it as soon as

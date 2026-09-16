@@ -2,12 +2,14 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 
 	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/cli"
 
 	"github.com/spf13/cobra"
 )
@@ -38,9 +40,10 @@ Examples:
   muster auth login --force            # Sign in again although the session is valid
 
 A valid session is reused. The session's automatic refresh renews the access
-token only, never the OIDC ID token from the sign-in; when that ID token has
-expired, login signs in again through the browser so the token file carries a
-current one (see 'muster auth token --id'). --force signs in again regardless.`,
+token only, never the OIDC ID token from the sign-in; when the session carries
+no ID token or an expired one, login signs in again through the browser so the
+token file carries a current one (see 'muster auth token --id'). --force signs
+in again regardless.`,
 	RunE: runAuthLogin,
 }
 
@@ -91,8 +94,11 @@ func runAuthLogin(cmd *cobra.Command, args []string) error {
 	if err := tryMCPConnection(ctx, handler, endpoint); err == nil {
 		// The session is valid, but its refresh never touches the stored ID
 		// token; a person who hands that token to another client needs a
-		// current one, so an expired one (or --force) signs in again.
-		if renew, reason := idTokenRenewal(handler.GetStatusForEndpoint(endpoint), loginForce, time.Now()); renew {
+		// current one, so a missing or expired one (or --force) signs in
+		// again. The decision reads the token file alone -- the connection
+		// just proved the session, so neither the CLI's own view of the
+		// access token nor a probe of the server may stand in its way.
+		if renew, reason := idTokenRenewal(readStoredIDToken(handler, endpoint), loginForce, time.Now()); renew {
 			authPrint("Signing in to %s again: %s\n", endpoint, reason)
 			if err := handler.Relogin(ctx, endpoint); err != nil {
 				return err
@@ -112,24 +118,56 @@ func runAuthLogin(cmd *cobra.Command, args []string) error {
 	return waitAndPrintSSOSummary(ctx, handler, endpoint)
 }
 
+// storedIDToken is what the login decision knows about the ID token of the
+// session stored for an endpoint, read from the token file alone.
+type storedIDToken struct {
+	// session reports whether a token file holds a session for the endpoint.
+	session bool
+	// expiresAt is the exp claim of the session's ID token; zero when the
+	// session carries no ID token or its exp cannot be read.
+	expiresAt time.Time
+}
+
+// readStoredIDToken reads the ID token of the session stored for the endpoint.
+// It reads the token file and nothing else: no probe of the server and no
+// judgement of the access token. The connection check before the decision has
+// proven the session, and the CLI's own view of the access token -- valid for
+// another minute or not -- says nothing about the ID token stored beside it.
+func readStoredIDToken(handler api.AuthHandler, endpoint string) storedIDToken {
+	idToken, err := handler.GetIDToken(endpoint)
+	if err != nil {
+		var authRequired *cli.AuthRequiredError
+		return storedIDToken{session: !errors.As(err, &authRequired)}
+	}
+	expiresAt, err := pkgoauth.Expiry(idToken)
+	if err != nil {
+		return storedIDToken{session: true}
+	}
+	return storedIDToken{session: true, expiresAt: expiresAt}
+}
+
 // idTokenRenewal decides whether a valid aggregator session still needs a new
 // sign-in. The mcp-go transport renews the access token only; the OIDC ID token
 // in the token file keeps the exp of the first sign-in, and a person who hands
-// it to another client needs a current one. An ID token that has expired or
-// expires within pkgoauth.DefaultExpiryMargin is renewed; a session without an
-// ID token has nothing to renew. The reason is empty when no renewal is due.
-func idTokenRenewal(status *api.AuthStatus, force bool, now time.Time) (renew bool, reason string) {
+// it to another client needs a current one. A session whose ID token has
+// expired or expires within pkgoauth.DefaultExpiryMargin is renewed, and so is
+// a session that carries no ID token; without a stored session there is
+// nothing to renew. The reason is empty when no renewal is due.
+func idTokenRenewal(stored storedIDToken, force bool, now time.Time) (renew bool, reason string) {
 	if force {
 		return true, "requested with --force"
 	}
-	if status == nil || status.IDTokenExpiresAt.IsZero() {
+	if !stored.session {
 		return false, ""
 	}
-	if !now.Before(status.IDTokenExpiresAt) {
-		return true, fmt.Sprintf("the ID token expired %s ago", formatDuration(now.Sub(status.IDTokenExpiresAt)))
+	if stored.expiresAt.IsZero() {
+		return true, "the session carries no ID token"
 	}
-	if !now.Add(pkgoauth.DefaultExpiryMargin).Before(status.IDTokenExpiresAt) {
-		return true, fmt.Sprintf("the ID token expires in %s", formatDuration(status.IDTokenExpiresAt.Sub(now)))
+	if !now.Before(stored.expiresAt) {
+		return true, fmt.Sprintf("the ID token expired %s ago", formatDuration(now.Sub(stored.expiresAt)))
+	}
+	if !now.Add(pkgoauth.DefaultExpiryMargin).Before(stored.expiresAt) {
+		return true, fmt.Sprintf("the ID token expires in %s", formatDuration(stored.expiresAt.Sub(now)))
 	}
 	return false, ""
 }
