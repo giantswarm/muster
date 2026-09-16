@@ -129,6 +129,7 @@ nav:
               - muster auth logout: reference/cli/auth-logout.md
               - muster auth status: reference/cli/auth-status.md
               - muster auth whoami: reference/cli/auth-whoami.md
+              - muster auth token: reference/cli/auth-token.md
           - muster context:
               - reference/cli/context.md
               - muster context add: reference/cli/context-add.md
