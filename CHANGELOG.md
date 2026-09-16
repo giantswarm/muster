@@ -73,6 +73,17 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- No `Warning MCPServerRecoveryFailed` for the expected 401 of an OAuth-protected server. When an
+  MCPServer whose callers bring their own credentials (`auth.forwardToken`, `auth.tokenExchange`, or an
+  OAuth login through muster) came up together with muster, automatic recovery restarted it as soon as
+  it answered and reported its 401 -- the answer such a server is configured to give a token-less probe
+  -- as a failed recovery, one Warning per OAuth-protected server on every platform install, right after
+  the same reconciler had put the server in `Auth Required`. Recovery now ends there with a `Normal`
+  `MCPServerRecoveryAwaitingAuth` event ("automatic recovery reached the server; it waits for a
+  signed-in caller") and the server connects on the first call that carries a token, as before. A 401
+  from a machine identity (`auth.type: sigv4`), a 5xx and a refused connection stay
+  `MCPServerRecoveryFailed`. ([#1265](https://github.com/giantswarm/muster/issues/1265))
+
 - **A `forEach` can iterate a step result's field.** `items: "{{ .results.<id>.<field> }}"` failed every workflow with `items expression … resolved to string, expected a list`: a reference deeper than one key below `.input`, `.results` or `.vars` was rendered as text, so only a list passed in as a workflow argument could be iterated. Template references that are a pure path now keep their Go type at any depth -- the navigator the `spec.output` template already uses -- so a forEach over the pods a previous step listed works, `{{ .vars.pod.name }}` inside the loop body is the string it names, and a numeric field referenced as a tool argument arrives as a number. Anything more than a pure path still renders to text. The returned document also showed the loop's *last* result on every iteration's record (the records share the body step's ID); each record now carries its own iteration's result and an `iteration` index. Scenario `workflow-foreach-step-result-items`.
 
 - `go install github.com/giantswarm/muster/v5@latest` builds the release it resolves to. Go refuses

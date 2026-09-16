@@ -68,6 +68,11 @@ const (
 	// ReasonMCPServerRecoveryFailed indicates automatic recovery failed for an MCPServer.
 	ReasonMCPServerRecoveryFailed EventReason = "MCPServerRecoveryFailed"
 
+	// ReasonMCPServerRecoveryAwaitingAuth indicates automatic recovery reached an
+	// MCPServer that answered 401 as configured: its callers bring their own
+	// credentials, so it waits in Auth Required for a signed-in caller.
+	ReasonMCPServerRecoveryAwaitingAuth EventReason = "MCPServerRecoveryAwaitingAuth"
+
 	// ReasonMCPServerAuthRequired indicates an MCPServer requires OAuth authentication.
 	ReasonMCPServerAuthRequired EventReason = "MCPServerAuthRequired"
 

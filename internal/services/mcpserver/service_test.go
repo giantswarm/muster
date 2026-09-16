@@ -1366,6 +1366,15 @@ func TestSigV4FailuresAreRetryable(t *testing.T) {
 				Err: errors.New("unauthorized"),
 			},
 		},
+		{
+			name: "a 401 from a machine identity as Start returns it",
+			err: fmt.Errorf("failed to start MCP server: %w", &machineIdentityUnauthorizedError{
+				authErr: &mcpserver.AuthRequiredError{
+					URL: "https://aws-mcp.eu-central-1.api.aws/mcp",
+					Err: errors.New("unauthorized"),
+				},
+			}),
+		},
 	}
 
 	for _, tt := range tests {

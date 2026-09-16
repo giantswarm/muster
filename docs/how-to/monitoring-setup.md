@@ -100,6 +100,7 @@ muster emits events for key lifecycle transitions. Use these for alerting and di
 | `MCPServerHealthCheckFailed` | Health checks are consistently failing |
 | `MCPServerRecoveryStarted` | Automatic recovery process began |
 | `MCPServerRecoverySucceeded` | Recovery restored the server |
+| `MCPServerRecoveryAwaitingAuth` | Recovery reached the server; it answered 401 as configured and waits for a signed-in caller |
 | `MCPServerRecoveryFailed` | Recovery failed |
 | `MCPServerToolsDiscovered` | Tools were discovered from the server |
 | `MCPServerToolsUnavailable` | Tools became unavailable |
