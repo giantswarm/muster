@@ -211,6 +211,11 @@ func (s *Service) Start(ctx context.Context) error {
 				s.LogWarn("Server answered 401, but auth type %q has no interactive login: "+
 					"treating it as a connection failure. Check the signing region, the assumed role and its policy",
 					s.definition.Auth.Type)
+				// The returned error must classify the same way: wrapped as it
+				// was, api.IsAuthRequiredError still matched it and the
+				// orchestrator's retry and the reconciler took the failure for
+				// a server awaiting a sign-in (issue #1265).
+				err = &machineIdentityUnauthorizedError{authErr: authErr}
 			} else {
 				// Auth errors should not count as connectivity failures
 				// Use StateAuthRequired to indicate the server IS reachable but needs authentication.
@@ -441,6 +446,20 @@ func (s *Service) Restart(ctx context.Context) error {
 	time.Sleep(RestartGracePeriod)
 
 	if err := s.Start(ctx); err != nil {
+		// A 401 that Start settled in Auth Required is the outcome of this
+		// recovery, not its failure: the server is reachable and answered as
+		// configured, and a server whose callers bring their own credentials
+		// (forwardToken, tokenExchange, or an OAuth login through muster) has
+		// nothing to connect until a signed-in caller arrives. Recovery runs
+		// into this on every start-up race -- the server was not answering yet,
+		// its first answer is the expected 401 -- and a Warning here made each
+		// installation's first minutes look broken (issue #1265). A 401 from a
+		// machine identity never reaches this branch: Start classifies it as a
+		// connect failure before returning.
+		if api.IsAuthRequiredError(err) {
+			s.generateEvent(events.ReasonMCPServerRecoveryAwaitingAuth, events.EventData{})
+			return err
+		}
 		// Generate recovery failed event
 		s.generateEvent(events.ReasonMCPServerRecoveryFailed, events.EventData{
 			Error: err.Error(),
@@ -1087,8 +1106,9 @@ func (s *Service) isTransientConnectivityError(err error) bool {
 	// interactive path returns before the failure handling. For a machine
 	// identity that means the signing configuration or the credential is wrong,
 	// both of which change without a restart, so keep retrying with backoff.
+	var machineErr *machineIdentityUnauthorizedError
 	var authErr *mcpserver.AuthRequiredError
-	if errors.As(err, &authErr) {
+	if errors.As(err, &machineErr) || errors.As(err, &authErr) {
 		return true
 	}
 

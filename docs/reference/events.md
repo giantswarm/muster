@@ -145,7 +145,7 @@ MCPServers are external MCP (Model Context Protocol) servers that provide tools 
 - **Meaning**: Automatic recovery process began for failed MCPServer
 - **Message Example**: "MCPServer 'github-server' automatic recovery started"
 - **Triggered When**: Health checks fail consistently and recovery is enabled
-- **Next Steps**: Monitor for `MCPServerRecoverySucceeded` or `MCPServerRecoveryFailed`
+- **Next Steps**: Monitor for `MCPServerRecoverySucceeded`, `MCPServerRecoveryAwaitingAuth` or `MCPServerRecoveryFailed`
 
 #### MCPServerRecoverySucceeded
 - **Type**: Normal
@@ -153,6 +153,13 @@ MCPServers are external MCP (Model Context Protocol) servers that provide tools 
 - **Message Example**: "MCPServer 'github-server' automatic recovery succeeded"
 - **Triggered When**: Recovery process successfully restarts server
 - **Next Steps**: Monitor stability; investigate root cause of failure
+
+#### MCPServerRecoveryAwaitingAuth
+- **Type**: Normal
+- **Meaning**: Automatic recovery reached the MCPServer and it answered 401 as configured; it waits in `Auth Required` for a signed-in caller
+- **Message Example**: "MCPServer 'model-manager' automatic recovery reached the server; it waits for a signed-in caller"
+- **Triggered When**: Recovery restarts a server whose callers bring their own credentials (`auth.forwardToken`, `auth.tokenExchange`, or an OAuth login through muster) and the server answers the token-less probe with 401 -- typically the start-up race, when the server was not answering yet and its first answer is the expected 401
+- **Next Steps**: None. The server connects on the first call that carries a token (or after `core_auth_login`). A 401 from a machine identity (`auth.type: sigv4`) is a `MCPServerRecoveryFailed` instead: there is no user to sign in, so the credential or the role is wrong
 
 #### MCPServerRecoveryFailed
 - **Type**: Warning
