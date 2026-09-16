@@ -294,3 +294,72 @@ func TestPrintMCPServerStatuses_SSOFailed(t *testing.T) {
 		}
 	})
 }
+
+func TestFormatIDTokenExpiry(t *testing.T) {
+	now := time.Date(2026, 9, 16, 12, 0, 0, 0, time.UTC)
+
+	t.Run("valid ID token names its remaining lifetime", func(t *testing.T) {
+		got := formatIDTokenExpiry(now.Add(23*time.Hour), now)
+		if got != "expires in 23 hours" {
+			t.Errorf("got %q", got)
+		}
+	})
+
+	t.Run("expired ID token names the command that renews it", func(t *testing.T) {
+		got := formatIDTokenExpiry(now.Add(-12*24*time.Hour), now)
+		if !strings.Contains(got, "expired 12 days ago") {
+			t.Errorf("expected 'expired 12 days ago', got %q", got)
+		}
+		if !strings.Contains(got, "renew with: muster auth login") {
+			t.Errorf("expected the renewal hint, got %q", got)
+		}
+	})
+}
+
+func TestPrintAuthenticatedStatus_IDToken(t *testing.T) {
+	authQuiet = false
+
+	t.Run("shows the ID token expiry", func(t *testing.T) {
+		output := captureStdout(t, func() {
+			printAuthenticatedStatus(&api.AuthStatus{
+				Authenticated:    true,
+				ExpiresAt:        time.Now().Add(25 * time.Minute),
+				HasRefreshToken:  true,
+				IDTokenExpiresAt: time.Now().Add(23 * time.Hour),
+			})
+		})
+		if !strings.Contains(output, "ID token:  expires in 22 hours") && !strings.Contains(output, "ID token:  expires in 23 hours") {
+			t.Errorf("expected an 'ID token:' line with the remaining lifetime, got: %s", output)
+		}
+	})
+
+	t.Run("says when the ID token is expired although the session is authenticated", func(t *testing.T) {
+		output := captureStdout(t, func() {
+			printAuthenticatedStatus(&api.AuthStatus{
+				Authenticated:    true,
+				ExpiresAt:        time.Now().Add(25 * time.Minute),
+				HasRefreshToken:  true,
+				IDTokenExpiresAt: time.Now().Add(-12 * 24 * time.Hour),
+			})
+		})
+		if !strings.Contains(output, "Authenticated") {
+			t.Errorf("expected the session to read Authenticated, got: %s", output)
+		}
+		if !strings.Contains(output, "expired 12 days ago") || !strings.Contains(output, "renew with: muster auth login") {
+			t.Errorf("expected the ID token line to say it is expired and how to renew, got: %s", output)
+		}
+	})
+
+	t.Run("omits the ID token line for a session without one", func(t *testing.T) {
+		output := captureStdout(t, func() {
+			printAuthenticatedStatus(&api.AuthStatus{
+				Authenticated:   true,
+				ExpiresAt:       time.Now().Add(25 * time.Minute),
+				HasRefreshToken: true,
+			})
+		})
+		if strings.Contains(output, "ID token:") {
+			t.Errorf("should not print an 'ID token:' line without an ID token, got: %s", output)
+		}
+	})
+}

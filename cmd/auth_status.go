@@ -135,9 +135,22 @@ func printAuthenticatedStatus(localStatus *api.AuthStatus) {
 	} else {
 		authPrint("  Refresh:   %s\n", text.FgYellow.Sprint("Not available (re-auth required on expiry)"))
 	}
+	if !localStatus.IDTokenExpiresAt.IsZero() {
+		authPrint("  ID token:  %s\n", formatIDTokenExpiry(localStatus.IDTokenExpiresAt, time.Now()))
+	}
 	if localStatus.IssuerURL != "" {
 		authPrint("  Issuer:    %s\n", localStatus.IssuerURL)
 	}
+}
+
+// formatIDTokenExpiry renders the OIDC ID token's expiry. An expired one names
+// the command that renews it, because the session's automatic refresh never
+// will.
+func formatIDTokenExpiry(expiresAt, now time.Time) string {
+	if now.Before(expiresAt) {
+		return "expires in " + formatDuration(expiresAt.Sub(now))
+	}
+	return text.FgYellow.Sprintf("expired %s ago", formatDuration(now.Sub(expiresAt))) + " (renew with: muster auth login)"
 }
 
 // printConnectionError prints a formatted connection error message.

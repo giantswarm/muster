@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -643,5 +644,82 @@ func TestAuthManager_StartAuthFlowSilent_RequiresPendingState(t *testing.T) {
 	_, err = mgr.StartAuthFlowSilent(ctx, "user@example.com", "")
 	if err == nil {
 		t.Error("expected error when starting silent auth flow in Unknown state")
+	}
+}
+
+func TestAuthManager_RequireAuth_KeepsStoredToken(t *testing.T) {
+	issuerURL := "https://oauth.example.com"
+	server := newChallengingServer(t, issuerURL)
+	defer server.Close()
+
+	mgr, err := NewAuthManager(AuthManagerConfig{
+		TokenStorageDir: t.TempDir(),
+		FileMode:        true,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create auth manager: %v", err)
+	}
+	defer func() { _ = mgr.Close() }()
+
+	token := &StoredToken{
+		AccessToken: "valid-token",
+		TokenType:   "Bearer",
+		Expiry:      time.Now().Add(1 * time.Hour),
+		IDToken:     "stale-id-token",
+		ServerURL:   server.URL,
+		IssuerURL:   issuerURL,
+		CreatedAt:   time.Now(),
+	}
+	if err := mgr.client.tokenStore.StoreToken(server.URL, issuerURL, token.ToOAuth2Token()); err != nil {
+		t.Fatalf("Failed to store token: %v", err)
+	}
+
+	ctx := context.Background()
+	if state, _ := mgr.CheckConnection(ctx, server.URL); state != AuthStateAuthenticated {
+		t.Fatalf("expected the stored token to authenticate, got %s", state)
+	}
+
+	if err := mgr.RequireAuth(ctx, server.URL); err != nil {
+		t.Fatalf("RequireAuth: %v", err)
+	}
+
+	if mgr.GetState() != AuthStatePendingAuth {
+		t.Errorf("expected state PendingAuth so a new flow can start, got %s", mgr.GetState())
+	}
+	challenge := mgr.GetAuthChallenge()
+	if challenge == nil || challenge.GetIssuer() != issuerURL {
+		t.Errorf("expected the discovered challenge to name %s, got %+v", issuerURL, challenge)
+	}
+
+	stored := mgr.GetStoredTokenForEndpoint(server.URL)
+	if stored == nil || stored.AccessToken != "valid-token" || stored.IDToken != "stale-id-token" {
+		t.Errorf("expected the stored token to survive until a new flow completes, got %+v", stored)
+	}
+}
+
+func TestAuthManager_RequireAuth_NoChallenge(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	mgr, err := NewAuthManager(AuthManagerConfig{
+		TokenStorageDir: t.TempDir(),
+		FileMode:        true,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create auth manager: %v", err)
+	}
+	defer func() { _ = mgr.Close() }()
+
+	err = mgr.RequireAuth(context.Background(), server.URL)
+	if err == nil {
+		t.Fatal("expected an error from a server that issues no challenge")
+	}
+	if !strings.Contains(err.Error(), "did not issue an authentication challenge") {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if mgr.GetState() == AuthStatePendingAuth {
+		t.Error("expected no flow to be prepared without a challenge")
 	}
 }

@@ -17,6 +17,7 @@ Examples:
   muster auth logout                   # Logout from configured aggregator
   muster auth logout --all             # Clear all stored tokens
   muster auth whoami                   # Show current identity
+  muster auth token --id               # Print the ID token for other clients
 
 ## Options
 
@@ -34,4 +35,5 @@ Examples:
 * [muster auth login](auth-login.md)	 - Authenticate to a muster aggregator
 * [muster auth logout](auth-logout.md)	 - Clear stored authentication tokens
 * [muster auth status](auth-status.md)	 - Show authentication status
+* [muster auth token](auth-token.md)	 - Print the current token for use with other clients
 * [muster auth whoami](auth-whoami.md)	 - Show current authenticated identity

@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"time"
 
 	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 
@@ -16,6 +17,7 @@ var (
 	loginAll    bool
 	loginServer string
 	loginSilent bool
+	loginForce  bool
 )
 
 // authLoginCmd represents the auth login command
@@ -32,7 +34,13 @@ Examples:
   muster auth login --endpoint <url>   # Login to specific endpoint
   muster auth login --server <name>    # Login to specific MCP server
   muster auth login --all              # Login to aggregator + all pending MCP servers
-  muster auth login --silent           # Attempt silent re-auth (requires IdP support)`,
+  muster auth login --silent           # Attempt silent re-auth (requires IdP support)
+  muster auth login --force            # Sign in again although the session is valid
+
+A valid session is reused. The session's automatic refresh renews the access
+token only, never the OIDC ID token from the sign-in; when that ID token has
+expired, login signs in again through the browser so the token file carries a
+current one (see 'muster auth token --id'). --force signs in again regardless.`,
 	RunE: runAuthLogin,
 }
 
@@ -41,6 +49,7 @@ func init() {
 	authLoginCmd.Flags().BoolVar(&loginAll, "all", false, "Login to aggregator and all pending MCP servers")
 	authLoginCmd.Flags().StringVar(&loginServer, "server", "", "MCP server name (managed by aggregator) to authenticate to")
 	authLoginCmd.Flags().BoolVar(&loginSilent, "silent", false, "Attempt silent re-auth using OIDC prompt=none (requires IdP support, not supported by Dex)")
+	authLoginCmd.Flags().BoolVar(&loginForce, "force", false, "Sign in again through the browser although the session is valid, renewing the stored ID token")
 }
 
 func runAuthLogin(cmd *cobra.Command, args []string) error {
@@ -80,6 +89,16 @@ func runAuthLogin(cmd *cobra.Command, args []string) error {
 	// If the access token expired but a valid refresh token exists,
 	// mcp-go's transport refreshes it transparently -- no browser needed.
 	if err := tryMCPConnection(ctx, handler, endpoint); err == nil {
+		// The session is valid, but its refresh never touches the stored ID
+		// token; a person who hands that token to another client needs a
+		// current one, so an expired one (or --force) signs in again.
+		if renew, reason := idTokenRenewal(handler.GetStatusForEndpoint(endpoint), loginForce, time.Now()); renew {
+			authPrint("Signing in to %s again: %s\n", endpoint, reason)
+			if err := handler.Relogin(ctx, endpoint); err != nil {
+				return err
+			}
+			return waitAndPrintSSOSummary(ctx, handler, endpoint)
+		}
 		authPrint("Already authenticated to %s\n", endpoint)
 		// The connection triggered proactive SSO -- wait for it to complete
 		return waitAndPrintSSOSummary(ctx, handler, endpoint)
@@ -91,6 +110,28 @@ func runAuthLogin(cmd *cobra.Command, args []string) error {
 
 	// After login, create a connection (triggers proactive SSO) and wait
 	return waitAndPrintSSOSummary(ctx, handler, endpoint)
+}
+
+// idTokenRenewal decides whether a valid aggregator session still needs a new
+// sign-in. The mcp-go transport renews the access token only; the OIDC ID token
+// in the token file keeps the exp of the first sign-in, and a person who hands
+// it to another client needs a current one. An ID token that has expired or
+// expires within pkgoauth.DefaultExpiryMargin is renewed; a session without an
+// ID token has nothing to renew. The reason is empty when no renewal is due.
+func idTokenRenewal(status *api.AuthStatus, force bool, now time.Time) (renew bool, reason string) {
+	if force {
+		return true, "requested with --force"
+	}
+	if status == nil || status.IDTokenExpiresAt.IsZero() {
+		return false, ""
+	}
+	if !now.Before(status.IDTokenExpiresAt) {
+		return true, fmt.Sprintf("the ID token expired %s ago", formatDuration(now.Sub(status.IDTokenExpiresAt)))
+	}
+	if !now.Add(pkgoauth.DefaultExpiryMargin).Before(status.IDTokenExpiresAt) {
+		return true, fmt.Sprintf("the ID token expires in %s", formatDuration(status.IDTokenExpiresAt.Sub(now)))
+	}
+	return false, ""
 }
 
 // loginToMCPServer authenticates to a specific MCP server through the aggregator.
