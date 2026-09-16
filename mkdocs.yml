@@ -1,5 +1,5 @@
 site_name: muster
-site_description: One MCP endpoint for every MCP server a platform team runs. Aggregation, discovery, toolsets and OAuth for AI agents.
+site_description: One MCP endpoint for every MCP server an organisation runs, from the shop floor and the service desk to the back office and the platform. Aggregation, discovery, toolsets, workflows and OAuth for AI agents.
 site_url: https://giantswarm.github.io/muster/
 repo_url: https://github.com/giantswarm/muster
 repo_name: giantswarm/muster

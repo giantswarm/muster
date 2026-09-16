@@ -38,18 +38,18 @@
 
   /* ── visibility: an animation runs only while its figure is on screen ── */
   function visibility(target) {
-    let visible = true;
+    let intersecting = true;
     let waiters = [];
+    const shown = () => intersecting && !document.hidden;
+    const release = () => { if (shown()) { waiters.forEach((w) => w()); waiters = []; } };
     if ('IntersectionObserver' in window) {
       new IntersectionObserver((entries) => {
-        visible = entries[0].isIntersecting && !document.hidden;
-        if (visible) { waiters.forEach((w) => w()); waiters = []; }
+        intersecting = entries[0].isIntersecting;
+        release();
       }, { threshold: 0.15 }).observe(target);
     }
-    document.addEventListener('visibilitychange', () => {
-      if (!document.hidden && visible) { waiters.forEach((w) => w()); waiters = []; }
-    });
-    return () => (visible && !document.hidden ? Promise.resolve() : new Promise((r) => waiters.push(r)));
+    document.addEventListener('visibilitychange', release);
+    return () => (shown() ? Promise.resolve() : new Promise((r) => waiters.push(r)));
   }
 
   /* ── sewing: reveal a stitched path from its start to its end ──────────── */
@@ -95,13 +95,13 @@
     const needle = loom.querySelector('#needle');
     const clientY = [88, 188, 288];   // where the client pieces sit
     const entryY = [150, 200, 250];   // where a thread enters muster
-    const exitY = [140, 180, 220, 260]; // where it leaves
-    const serverY = [64, 144, 224, 304];
+    const exitY = [120, 160, 200, 240, 280]; // where it leaves
+    const serverY = [58, 130, 202, 274, 346];
     const route = (c, s) =>
       `M204,${clientY[c]} C236,${clientY[c]} 228,${entryY[c]} 260,${entryY[c]} ` +
       `C340,${entryY[c]} 340,${exitY[s]} 420,${exitY[s]} ` +
       `C452,${exitY[s]} 444,${serverY[s]} 476,${serverY[s]}`;
-    const routes = [[0, 0], [1, 1], [2, 2], [1, 3], [0, 1], [2, 0]];
+    const routes = [[0, 0], [1, 2], [2, 4], [1, 1], [0, 3], [2, 0]];
     const piece = (name) => loom.querySelector(`[data-piece="${name}"]`);
     const light = (names, on) => names.forEach((n) => piece(n) && piece(n).classList.toggle('lit', on));
     const thread = (d) => {
@@ -113,8 +113,10 @@
     };
 
     if (reduced) {
-      routes.slice(0, 3).forEach(([c, s]) => thread(route(c, s)));
-      light(['c1', 'c2', 'c3', 's1', 's2', 's3'], true);
+      routes.slice(0, 3).forEach(([c, s]) => {
+        thread(route(c, s));
+        light([`c${c + 1}`, `s${s + 1}`], true);
+      });
     } else {
       const whenVisible = visibility(loom);
       const followNeedle = (path, ms) => new Promise((resolve) => {
@@ -155,6 +157,30 @@
         }
       })();
     }
+  }
+
+  /* ── the hero terminal: one scene per area, in turn ───────────────────── */
+  const scenes = document.getElementById('scenes');
+  if (scenes && !reduced) {
+    const list = [...scenes.querySelectorAll('.term__scene')];
+    const area = document.getElementById('term-area');
+    const show = (i) => {
+      list.forEach((s, j) => {
+        const on = j === i;
+        s.classList.toggle('is-active', on);
+        s.setAttribute('aria-hidden', String(!on));
+      });
+      if (area) area.textContent = list[i].dataset.area;
+    };
+    const whenVisible = visibility(scenes);
+    (async () => {
+      for (let i = 1; ; i++) {
+        await whenVisible();
+        await wait(7000);
+        await whenVisible();
+        show(i % list.length);
+      }
+    })();
   }
 
   /* ── the workflow run ──────────────────────────────────────────────────── */

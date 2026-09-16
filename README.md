@@ -5,7 +5,7 @@
 <h1 align="center">muster</h1>
 
 <p align="center">
-  One MCP endpoint for every MCP server your platform runs.
+  One MCP endpoint for every MCP server your teams run.
 </p>
 
 <p align="center">
@@ -20,8 +20,9 @@
 ---
 
 muster is an aggregating [Model Context Protocol](https://modelcontextprotocol.io) server.
-It connects to the MCP servers a platform team runs (Kubernetes, Prometheus, Grafana, GitHub,
-Flux, in-house tools) and serves all of their tools through a single MCP endpoint. AI agents
+It connects to the MCP servers an organisation runs (a factory's MES and maintenance system, a
+service desk and its directory, a CRM and an ERP, Kubernetes and Prometheus, in-house tools) and
+serves all of their tools through a single MCP endpoint. AI agents
 connect once, discover tools through a small set of meta-tools instead of loading hundreds of
 tool definitions, and call them under the identity of the person they work for.
 
