@@ -12,7 +12,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>muster · one MCP endpoint for every MCP server your platform runs</title>
+  <title>muster · one MCP endpoint for every MCP server your teams run</title>
   <meta name="description" content="{{ config.site_description }}">
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#070b12">
@@ -21,7 +21,7 @@
 
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="muster">
-  <meta property="og:title" content="muster · one MCP endpoint for every MCP server your platform runs">
+  <meta property="og:title" content="muster · one MCP endpoint for every MCP server your teams run">
   <meta property="og:description" content="{{ config.site_description }}">
   <meta property="og:url" content="{{ config.site_url }}">
   <meta property="og:image" content="{{ config.site_url }}assets/landing/og.png">
@@ -46,6 +46,7 @@
       <span class="brand__name">muster</span>
     </a>
     <nav class="top__nav" aria-label="Sections">
+      <a href="#use-cases">Use cases</a>
       <a href="#workflows">Workflows</a>
       <a href="#kubernetes">Kubernetes</a>
       <a href="#identity">Identity</a>
@@ -63,22 +64,42 @@
   <section class="hero wrap">
     <div class="hero__copy">
       <p class="gloss"><span class="gloss__word">Muster</span> <span class="gloss__pos">n.</span> <em>German:</em> pattern, sample.<span class="gloss__sep">┄</span>Here: an aggregating MCP server.</p>
-      <h1>One endpoint.<br>Every MCP server your platform runs.</h1>
-      <p class="lead">muster connects the MCP servers a platform team runs — Kubernetes, Prometheus, GitHub, Flux, your own — and serves their tools through a single authenticated endpoint. Agents connect once, find tools without flooding their context window, run procedures as deterministic workflows, and make every call as the person they work for.</p>
+      <h1>One endpoint.<br>Every MCP server<br>your teams run.</h1>
+      <p class="lead">muster connects the MCP servers an organisation runs — a factory's MES and maintenance system, a service desk and its directory, a CRM and an ERP, a platform's Kubernetes and Prometheus, your own — and serves their tools through a single authenticated endpoint. Agents connect once, find tools without flooding their context window, run procedures as deterministic workflows, and make every call as the person they work for.</p>
       <div class="cta">
         <a class="btn btn--primary" href="#install">Get started</a>
         <a class="btn" href="{{ 'getting-started/quick-start/' | url }}">Read the quick start</a>
         <a class="release" id="release" href="{{ config.repo_url }}/releases/latest" rel="noopener"><span class="release__dot" aria-hidden="true"></span><span id="release-label">latest release</span></a>
       </div>
 
-      <div class="term" aria-label="An agent discovering and calling a workflow through muster">
-        <div class="term__bar"><span></span><span></span><span></span><b>agent session · /mcp</b></div>
-        <pre class="term__body"><code><span class="t-call">▸ filter_tools</span> <span class="t-arg">{ "query": "pods not running" }</span>
-  <span class="t-tool">workflow_pod-triage</span>   Find the pods of a workload that are not running and gather their evidence
-  <span class="t-tool">x_kubernetes_list</span>     List resources of a kind in a namespace
-  <span class="t-tool">x_kubernetes_logs</span>     Read the logs of a container
+      <div class="term term--scenes" aria-label="Agents discovering and calling workflows through muster, one example per area">
+        <div class="term__bar"><span></span><span></span><span></span><b>agent session · /mcp</b><i class="term__area" id="term-area">manufacturing</i></div>
+        <div class="term__scenes" id="scenes">
+          <pre class="term__body term__scene is-active" data-area="manufacturing"><code><span class="t-call">▸ filter_tools</span> <span class="t-arg">{ "query": "line 3 stopped" }</span>
+  <span class="t-tool">workflow_line-stop-triage</span>  Explain a line stop: the downtime event, the alarms around it, the order it hit, the asset's history
+  <span class="t-tool">x_mes_list_downtime</span>        List the downtime events of a line in a time window
+  <span class="t-tool">x_scada_read_alarms</span>        Read the alarms of an asset in a time window
+<span class="t-call">▸ call_tool</span> <span class="t-arg">{ "name": "workflow_line-stop-triage", "arguments": { "line": "L3", "since": "06:30" } }</span>
+  <span class="t-ok">status: completed</span> · 5 steps, 1 skipped · as <span class="t-id">lena@example.com</span> · trace 8b2e…f4<span class="t-cursor" aria-hidden="true"></span></code></pre>
+          <pre class="term__body term__scene" data-area="IT processes" aria-hidden="true"><code><span class="t-call">▸ filter_tools</span> <span class="t-arg">{ "query": "new starter access" }</span>
+  <span class="t-tool">workflow_joiner-access</span>     Give a new starter the groups, repositories and device profile their team has
+  <span class="t-tool">x_servicenow_get_request</span>   Read a service request with its approvals
+  <span class="t-tool">x_okta_list_group_members</span>  List the members of a group
+<span class="t-call">▸ call_tool</span> <span class="t-arg">{ "name": "workflow_joiner-access", "arguments": { "request": "REQ0048213" } }</span>
+  <span class="t-ok">status: completed</span> · 12 steps · 6 groups, 3 repositories · as <span class="t-id">sam@example.com</span> · trace c41d…9a<span class="t-cursor" aria-hidden="true"></span></code></pre>
+          <pre class="term__body term__scene" data-area="enterprise processes" aria-hidden="true"><code><span class="t-call">▸ filter_tools</span> <span class="t-arg">{ "query": "renewals next quarter" }</span>
+  <span class="t-tool">workflow_renewal-brief</span>     Brief every renewal due in a window: contract, open tickets, unpaid invoices, last review
+  <span class="t-tool">x_salesforce_query</span>         Run a SOQL query as the signed-in person
+  <span class="t-tool">x_zendesk_list_tickets</span>     List the tickets of an organization
+<span class="t-call">▸ call_tool</span> <span class="t-arg">{ "name": "workflow_renewal-brief", "arguments": { "within": "90d", "region": "EMEA" } }</span>
+  <span class="t-ok">status: completed</span> · 14 accounts · as <span class="t-id">noor@example.com</span> · trace 51aa…07<span class="t-cursor" aria-hidden="true"></span></code></pre>
+          <pre class="term__body term__scene" data-area="platform engineering" aria-hidden="true"><code><span class="t-call">▸ filter_tools</span> <span class="t-arg">{ "query": "pods not running" }</span>
+  <span class="t-tool">workflow_pod-triage</span>        Find the pods of a workload that are not running and gather their evidence
+  <span class="t-tool">x_kubernetes_list</span>          List resources of a kind in a namespace
+  <span class="t-tool">x_kubernetes_logs</span>          Read the logs of a container
 <span class="t-call">▸ call_tool</span> <span class="t-arg">{ "name": "workflow_pod-triage", "arguments": { "namespace": "payments", "selector": "app=checkout" } }</span>
   <span class="t-ok">status: completed</span> · 7 steps, 1 allowed to fail · as <span class="t-id">dana@example.com</span> · trace 3f9c…a1<span class="t-cursor" aria-hidden="true"></span></code></pre>
+        </div>
       </div>
     </div>
 
@@ -90,10 +111,11 @@
           <path d="M204,88 C236,88 228,150 260,150"/>
           <path d="M204,188 C236,188 228,200 260,200"/>
           <path d="M204,288 C236,288 228,250 260,250"/>
-          <path d="M420,140 C452,140 444,64 476,64"/>
-          <path d="M420,180 C452,180 444,144 476,144"/>
-          <path d="M420,220 C452,220 444,224 476,224"/>
-          <path d="M420,260 C452,260 444,304 476,304"/>
+          <path d="M420,120 C452,120 444,58 476,58"/>
+          <path d="M420,160 C452,160 444,130 476,130"/>
+          <path d="M420,200 C452,200 444,202 476,202"/>
+          <path d="M420,240 C452,240 444,274 476,274"/>
+          <path d="M420,280 C452,280 444,346 476,346"/>
           <path d="M340,300 V360"/>
         </g>
         <!-- clients -->
@@ -104,8 +126,8 @@
         </g>
         <g class="piece" data-piece="c2">
           <rect x="4" y="160" width="200" height="56" rx="3"/>
-          <text x="16" y="183" class="lbl">Platform agents</text>
-          <text x="16" y="202" class="sub">kagent · Backstage · CI</text>
+          <text x="16" y="183" class="lbl">Agents</text>
+          <text x="16" y="202" class="sub">assistants · portals · CI · kagent</text>
         </g>
         <g class="piece" data-piece="c3">
           <rect x="4" y="260" width="200" height="56" rx="3"/>
@@ -134,24 +156,29 @@
         <text x="352" y="334" class="note">login · token validation</text>
         <!-- servers -->
         <g class="piece" data-piece="s1">
-          <rect x="476" y="40" width="200" height="48" rx="3"/>
-          <text x="488" y="60" class="lbl">mcp-kubernetes</text>
-          <text x="488" y="77" class="sub">SSO · forwarded token</text>
+          <rect x="476" y="36" width="200" height="44" rx="3"/>
+          <text x="488" y="55" class="lbl">mcp-kubernetes</text>
+          <text x="488" y="71" class="sub">SSO · forwarded token</text>
         </g>
         <g class="piece" data-piece="s2">
-          <rect x="476" y="120" width="200" height="48" rx="3"/>
-          <text x="488" y="140" class="lbl">mcp-prometheus</text>
-          <text x="488" y="157" class="sub">SSO · forwarded token</text>
+          <rect x="476" y="108" width="200" height="44" rx="3"/>
+          <text x="488" y="127" class="lbl">mes</text>
+          <text x="488" y="143" class="sub">SSO · forwarded token</text>
         </g>
         <g class="piece" data-piece="s3">
-          <rect x="476" y="200" width="200" height="48" rx="3"/>
-          <text x="488" y="220" class="lbl">GitHub MCP</text>
-          <text x="488" y="237" class="sub">own OAuth · one login</text>
+          <rect x="476" y="180" width="200" height="44" rx="3"/>
+          <text x="488" y="199" class="lbl">servicenow</text>
+          <text x="488" y="215" class="sub">own OAuth · one login</text>
         </g>
         <g class="piece" data-piece="s4">
-          <rect x="476" y="280" width="200" height="48" rx="3"/>
-          <text x="488" y="300" class="lbl">your own</text>
-          <text x="488" y="317" class="sub">stdio · sse · streamable-http</text>
+          <rect x="476" y="252" width="200" height="44" rx="3"/>
+          <text x="488" y="271" class="lbl">erp</text>
+          <text x="488" y="287" class="sub">RFC 8693 · token exchange</text>
+        </g>
+        <g class="piece" data-piece="s5">
+          <rect x="476" y="324" width="200" height="44" rx="3"/>
+          <text x="488" y="343" class="lbl">your own</text>
+          <text x="488" y="359" class="sub">stdio · sse · streamable-http</text>
         </g>
         <!-- threads and the needle are added by landing.js -->
         <g id="threads"></g>
@@ -168,6 +195,105 @@
     </figure>
   </section>
 
+  <!-- ───────────────────────────── use cases ───────────────────────────── -->
+  <section id="use-cases" class="piece-section wrap">
+    <header class="piece-label reveal">
+      <span class="piece-label__name">Where it fits</span>
+      <span class="piece-label__meta">shop floor · service desk · back office · platform</span>
+    </header>
+    <div class="section-head reveal">
+      <h2>The systems differ. The shape of the work does not.</h2>
+      <p class="lead">A shift lead, a service-desk analyst, an account manager and an engineer on call ask their agents very different questions, and every answer lives in three or four systems that were never built to be read together. Each system speaks MCP through its own server; muster is where the servers meet. One example per area: the servers behind the endpoint, the procedure sewn into a workflow, and the identity every call carries.</p>
+    </div>
+
+    <div class="cases reveal">
+      <article class="case">
+        <header class="case__head">
+          <span class="case__area">Manufacturing</span>
+          <span class="case__wf">workflow_line-stop-triage</span>
+        </header>
+        <h3>“Line 3 stopped at 06:40. Why, and what did it hit?”</h3>
+        <p>The MES has the downtime event, the SCADA historian the alarms around it, the ERP the production order that was running, the maintenance system the asset's history. The workflow reads the four in order and opens a work order only when the alarm matches a known failure mode.</p>
+        <ul class="case__servers" aria-label="MCP servers behind muster"><li>mes</li><li>scada</li><li>erp</li><li>cmms</li></ul>
+        <ol class="case__steps" aria-label="Workflow steps">
+          <li><span class="case__id">stop</span><span class="case__tool">x_mes_list_downtime</span><span class="case__note">the event, reason code, duration</span></li>
+          <li><span class="case__id">alarms</span><span class="case__tool">x_scada_read_alarms</span><span class="case__note">ten minutes either side</span></li>
+          <li><span class="case__id">order</span><span class="case__tool">x_erp_get_production_order</span><span class="case__note">what was running, due when</span></li>
+          <li><span class="case__id">history</span><span class="case__tool">x_cmms_list_work_orders</span><span class="case__note">the asset, last 90 days</span></li>
+          <li><span class="case__id case__id--cond">ticket</span><span class="case__tool">x_cmms_create_work_order</span><span class="case__note">condition: known failure mode</span></li>
+        </ol>
+        <footer class="case__foot">
+          <p>As <b>the shift lead</b>. The maintenance system accepts the work order because they may open one for that line; muster adds no service account.</p>
+          <span class="case__toolset">X-muster-Toolset: workflow:line-stop-triage</span>
+        </footer>
+      </article>
+
+      <article class="case">
+        <header class="case__head">
+          <span class="case__area">IT processes</span>
+          <span class="case__wf">workflow_joiner-access</span>
+        </header>
+        <h3>“A new engineer starts on Monday. Give them what their team has.”</h3>
+        <p>The approved request is in the service desk, the team's shared groups in the directory, its repositories on GitHub. The workflow derives the access from what the team's members already hold instead of a form, grants it, and writes what it granted back to the request.</p>
+        <ul class="case__servers" aria-label="MCP servers behind muster"><li>servicenow</li><li>okta</li><li>github</li></ul>
+        <ol class="case__steps" aria-label="Workflow steps">
+          <li><span class="case__id">request</span><span class="case__tool">x_servicenow_get_request</span><span class="case__note">approved by the manager</span></li>
+          <li><span class="case__id">peers</span><span class="case__tool">x_okta_list_group_members</span><span class="case__note">the groups the team shares</span></li>
+          <li><span class="case__id">groups</span><span class="case__tool">x_okta_add_user_to_group</span><span class="case__note">forEach shared group</span></li>
+          <li><span class="case__id">repos</span><span class="case__tool">x_github_add_team_member</span><span class="case__note">the team's repositories</span></li>
+          <li><span class="case__id">close</span><span class="case__tool">x_servicenow_update_request</span><span class="case__note">what was granted, by whom</span></li>
+        </ol>
+        <footer class="case__foot">
+          <p>As <b>the analyst who runs it</b>. The agent sees one tool and cannot add anyone to a group on its own; the directory refuses groups the analyst may not assign, and every grant carries their name.</p>
+          <span class="case__toolset">X-muster-Toolset: workflow:joiner-access</span>
+        </footer>
+      </article>
+
+      <article class="case">
+        <header class="case__head">
+          <span class="case__area">Enterprise processes</span>
+          <span class="case__wf">workflow_renewal-brief</span>
+        </header>
+        <h3>“Which contracts renew this quarter, and how healthy are those accounts?”</h3>
+        <p>The contracts are in the CRM, the support history in the help desk, the unpaid invoices in the ERP, the last review deck in the document store. The workflow assembles one brief per account, and the CRM returns only the accounts the person may see: a rep gets their territory, a director the region.</p>
+        <ul class="case__servers" aria-label="MCP servers behind muster"><li>salesforce</li><li>zendesk</li><li>erp</li><li>sharepoint</li></ul>
+        <ol class="case__steps" aria-label="Workflow steps">
+          <li><span class="case__id">contracts</span><span class="case__tool">x_salesforce_query</span><span class="case__note">renewing within 90 days</span></li>
+          <li><span class="case__id">tickets</span><span class="case__tool">x_zendesk_list_tickets</span><span class="case__note">forEach account · open, 90 days</span></li>
+          <li><span class="case__id">invoices</span><span class="case__tool">x_erp_list_open_invoices</span><span class="case__note">forEach account · overdue</span></li>
+          <li><span class="case__id">review</span><span class="case__tool">x_sharepoint_search</span><span class="case__note">the last review deck</span></li>
+          <li><span class="case__id">brief</span><span class="case__tool">output</span><span class="case__note">one typed document per account</span></li>
+        </ol>
+        <footer class="case__foot">
+          <p>As <b>the account manager</b>. The CRM's sharing rules, not muster, decide which accounts the brief covers; the same workflow yields a different brief for each person.</p>
+          <span class="case__toolset">X-muster-Toolset: preset:read-only, workflow:renewal-brief</span>
+        </footer>
+      </article>
+
+      <article class="case">
+        <header class="case__head">
+          <span class="case__area">Platform engineering</span>
+          <span class="case__wf">workflow_pod-triage</span>
+        </header>
+        <h3>“Checkout pods are not running in payments. What is going on?”</h3>
+        <p>The cluster has the pods and their events, the containers their logs, Prometheus the restart rate and the firing alerts. The workflow gathers the evidence in one pass, tolerates a pod whose logs are already gone, and posts to the on-call channel when a step fails for real.</p>
+        <ul class="case__servers" aria-label="MCP servers behind muster"><li>kubernetes</li><li>prometheus</li><li>slack</li></ul>
+        <ol class="case__steps" aria-label="Workflow steps">
+          <li><span class="case__id">pods</span><span class="case__tool">x_kubernetes_list</span><span class="case__note">kind: Pod, by selector</span></li>
+          <li><span class="case__id case__id--cond">events</span><span class="case__tool">x_kubernetes_list</span><span class="case__note">condition: pods found</span></li>
+          <li><span class="case__id">logs</span><span class="case__tool">x_kubernetes_logs</span><span class="case__note">forEach pod · allowFailure</span></li>
+          <li><span class="case__id">signals</span><span class="case__tool">x_prometheus_query · x_prometheus_alerts</span><span class="case__note">parallel</span></li>
+          <li><span class="case__id case__id--fail">note</span><span class="case__tool">x_slack_post</span><span class="case__note">onFailure</span></li>
+        </ol>
+        <footer class="case__foot">
+          <p>As <b>the engineer on call</b>. The cluster's RBAC decides which namespaces answer. <a href="#workflows">The full workflow, its diagram and a run record are below.</a></p>
+          <span class="case__toolset">X-muster-Toolset: preset:read-only, workflow:pod-triage</span>
+        </footer>
+      </article>
+    </div>
+    <p class="section-foot reveal">Examples, not a catalogue: each is an ordinary <code>Workflow</code> resource of the shape shown next, and the servers are whatever speaks MCP in your organisation — a vendor's server, a community one, or one you wrote against your own system's API. <a href="{{ 'explanation/mcp-aggregation/' | url }}">How aggregation works</a> · <a href="{{ 'how-to/mcp-server-management/' | url }}">Register a server</a></p>
+  </section>
+
   <!-- ───────────────────────────── workflows ───────────────────────────── -->
   <section id="workflows" class="piece-section wrap">
     <header class="piece-label reveal">
@@ -176,7 +302,7 @@
     </header>
     <div class="section-head reveal">
       <h2>Procedures become tools.</h2>
-      <p class="lead">Operational work is a sequence: find the pods, read their logs, query the metric, compare. Left to an agent, the sequence is rediscovered on every run, differently each time, at full token cost. A workflow sews the sequence into one tool. It is a list of steps — tool calls, <code>forEach</code> loops and <code>parallel</code> groups — gated by conditions and joined by templates. muster exposes it as <code>workflow_&lt;name&gt;</code> with the arguments you declared; the steps run the same way every time, and every run leaves a durable execution record.</p>
+      <p class="lead">Work in any of these systems is a sequence: find the record, read what hangs off it, ask a second system, compare, decide. Left to an agent, the sequence is rediscovered on every run, differently each time, at full token cost. A workflow sews the sequence into one tool. It is a list of steps — tool calls, <code>forEach</code> loops and <code>parallel</code> groups — gated by conditions and joined by templates. muster exposes it as <code>workflow_&lt;name&gt;</code> with the arguments you declared; the steps run the same way every time, and every run leaves a durable execution record. Below, the platform example in full; a line stop or a renewal brief is written with the same constructs.</p>
     </div>
 
     <div class="wf reveal">
@@ -298,7 +424,7 @@
     </header>
     <div class="section-head reveal">
       <h2>Servers and workflows are resources.</h2>
-      <p class="lead">On a cluster, muster runs in Kubernetes mode: <code>MCPServer</code>, <code>Workflow</code> and <code>WorkflowExecution</code> are custom resources reconciled by muster itself. Status, conditions and events say which servers are reachable now and which workflows have every tool they need. A server is registered in a pull request, reviewed like any other manifest and rolled out by Flux; nothing is configured in a client.</p>
+      <p class="lead">On a cluster, muster runs in Kubernetes mode: <code>MCPServer</code>, <code>Workflow</code> and <code>WorkflowExecution</code> are custom resources reconciled by muster itself. Status, conditions and events say which servers are reachable now and which workflows have every tool they need. A server is registered in a pull request, reviewed like any other manifest and rolled out by Flux; the people who use it configure nothing.</p>
     </div>
 
     <div class="crds reveal">
@@ -354,6 +480,7 @@ NAME          TYPE              URL                                       AUTOST
 kubernetes    streamable-http   https://mcp-kubernetes.muster.svc/mcp     true        <span class="t-ok">Running</span>   14d
 prometheus    streamable-http   https://mcp-prometheus.muster.svc/mcp     true        <span class="t-ok">Running</span>   14d
 github        streamable-http   https://api.githubcopilot.com/mcp/        true        <span class="t-ok">Running</span>   3d
+servicenow    streamable-http   https://mcp-servicenow.integration.svc/mcp   true     <span class="t-ok">Running</span>   3d
 <span class="t-prompt">$</span> kubectl -n muster get wf,wfe
 NAME                                       AGE
 workflow.muster.giantswarm.io/pod-triage   9d
@@ -428,15 +555,15 @@ muster: <span class="t-ok">authenticated</span>
 
 MCP Servers:
   mcp-kubernetes    <span class="t-ok">Connected</span>  [SSO: Forwarded]
-  mcp-prometheus    <span class="t-ok">Connected</span>  [SSO: Forwarded]
-  remote-cluster    <span class="t-ok">Connected</span>  [SSO: Exchanged]
-  github            <span class="t-warn">Not authenticated</span>   Run: muster auth login --server github</code></pre>
+  mes               <span class="t-ok">Connected</span>  [SSO: Forwarded]
+  erp               <span class="t-ok">Connected</span>  [SSO: Exchanged]
+  salesforce        <span class="t-warn">Not authenticated</span>   Run: muster auth login --server salesforce</code></pre>
       </div>
     </div>
 
     <ul class="grid grid--3 reveal">
       <li><h3>One login, one session</h3><p>The CLI, the IDE bridge and any client that implements the MCP authorization flow log in through the browser at Dex. Tokens live on disk with mode <code>0600</code>, never in logs. Access tokens last 30 minutes and are capped to the provider's; the refresh token rolls for 30 days, aligned with Dex.</p></li>
-      <li><h3>Identity travels downstream</h3><p>Servers that trust the same Dex receive the person's ID token with the audiences they require. Servers on another cluster get an RFC 8693 token exchange at their own IdP. Servers with their own OAuth get a browser login once per person, and AWS-hosted servers a SigV4 signature.</p></li>
+      <li><h3>Identity travels downstream</h3><p>Servers that trust the same Dex — in-house ones in front of an MES, a directory or a cluster — receive the person's ID token with the audiences they require. Servers behind another IdP get an RFC 8693 token exchange there. A vendor's server with its own OAuth gets a browser login once per person, and AWS-hosted servers a SigV4 signature.</p></li>
       <li><h3>Hardened by default</h3><p>PKCE on every flow, state validation, AES-256-GCM encryption of stored tokens, rate limits on the registration, authorization and token endpoints, SSRF and DNS-rebinding guards on client metadata and redirect URIs.</p></li>
       <li><h3>Standard endpoints</h3><p>Protected-resource metadata under <code>/.well-known</code> (RFC 9728), client ID metadata documents, dynamic client registration where the deployment allows it. Any MCP client that speaks the authorization spec connects without a bridge.</p></li>
       <li><h3>Toolsets, per request</h3><p><code>X-muster-Toolset: preset:read-only, workflow:pod-triage</code> declares the tools a request may see and call. Built-in and operator-defined presets, selectors by server, workflow, tool or label. Evaluated on every request; a toolset never widens the catalogue.</p></li>
@@ -454,7 +581,7 @@ MCP Servers:
     <div class="catalogue reveal">
       <div class="section-head section-head--tight">
         <h2>A catalogue that fits a context window.</h2>
-        <p class="lead">An MCP client loads every tool definition of every attached server before the first question is asked; a platform team's servers contribute hundreds. muster's clients see thirteen meta-tools instead. <code>filter_tools</code> ranks the catalogue against a query and returns a short, summarised page; <code>describe_tool</code> returns one schema; <code>call_tool</code> runs it. The catalogue can be hundreds of tools wide and still cost a few hundred tokens a turn. Servers that serve the same tools for different targets form a <em>family</em> and appear as one surface with an instance argument.</p>
+        <p class="lead">An MCP client loads every tool definition of every attached server before the first question is asked; an organisation's servers contribute hundreds. muster's clients see thirteen meta-tools instead. <code>filter_tools</code> ranks the catalogue against a query and returns a short, summarised page; <code>describe_tool</code> returns one schema; <code>call_tool</code> runs it. The catalogue can be hundreds of tools wide and still cost a few hundred tokens a turn. Servers that serve the same tools for different targets form a <em>family</em> and appear as one surface with an instance argument.</p>
         <p class="section-foot"><a href="{{ 'reference/mcp-tools/' | url }}">MCP tools reference</a> · <a href="{{ 'explanation/mcp-aggregation/' | url }}">How the catalogue is built</a></p>
       </div>
       <ul class="tags" aria-label="The thirteen meta-tools">

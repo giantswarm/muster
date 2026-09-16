@@ -62,6 +62,7 @@ p code, li code, .lead code, .step__p code {
 }
 
 h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.02em; line-height: 1.05; }
+h1, h2 { text-wrap: balance; }
 h1 { font-size: clamp(2.3rem, 4.5vw, 4rem); }
 h2 { font-size: clamp(1.9rem, 3.6vw, 2.75rem); }
 h3 { font-size: 1.05rem; letter-spacing: -0.01em; }
@@ -94,7 +95,7 @@ p { margin: 0; }
 .top__nav a:hover { color: var(--chalk); text-decoration: none; }
 .top__gh { color: var(--chalk) !important; }
 @media (max-width: 720px) {
-  .top__nav a:not(.top__gh):nth-child(-n+3) { display: none; }
+  .top__nav a:not(.top__gh):nth-child(-n+4) { display: none; }
 }
 
 /* ── the spine: one seam running down the sheet ─────────────────────────── */
@@ -157,6 +158,13 @@ main { position: relative; }
 .term__body code { font-family: inherit; }
 .term--plain { background: transparent; }
 .hero .term__body { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* the hero terminal shows one scene per area; the scenes are stacked so the
+   box keeps the height of the tallest and nothing below it jumps */
+.term__bar .term__area { margin-left: auto; font: italic 0.72rem var(--mono); color: var(--thread); transition: opacity 300ms; }
+.term__scenes { display: grid; }
+.term__scene { grid-area: 1 / 1; transition: opacity 500ms ease; }
+.term__scene:not(.is-active) { opacity: 0; visibility: hidden; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { .term__scene, .term__bar .term__area { transition: none; } }
 .t-call { color: var(--thread); }
 .t-arg { color: var(--muted); }
 .t-tool { color: var(--chalk); }
@@ -237,6 +245,45 @@ main { position: relative; }
 .y-id { color: var(--chalk); font-weight: 500; transition: color 200ms, text-shadow 200ms; }
 .y-id.lit { color: var(--thread); text-shadow: 0 0 10px var(--thread-glow); }
 .y-id--warn.lit { color: var(--bobbin); }
+
+/* ── use cases ──────────────────────────────────────────────────────────── */
+.cases { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+@media (max-width: 960px) { .cases { grid-template-columns: minmax(0, 1fr); } }
+.case {
+  position: relative; min-width: 0;
+  display: flex; flex-direction: column; gap: 14px;
+  padding: 20px 22px 18px;
+  background: var(--cloth); border: 1px dashed var(--seam); border-radius: 4px;
+}
+/* the notch of a pattern piece, as on the section labels */
+.case::before { content: ""; position: absolute; left: 22px; top: -1px; width: 10px; height: 8px; background: var(--thread); clip-path: polygon(0 0, 100% 0, 50% 100%); }
+.case__head {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap;
+  font: 400 0.74rem var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+}
+.case__area { color: var(--thread); font-weight: 500; }
+.case__wf { text-transform: none; letter-spacing: 0; }
+.case h3 { font-size: 1.25rem; line-height: 1.25; letter-spacing: -0.015em; }
+.case > p { font-size: 0.93rem; line-height: 1.6; color: var(--chalk-dim); }
+.case__servers { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.case__servers li { position: relative; padding: 3px 9px 3px 16px; font: 400 0.74rem var(--mono); color: var(--chalk-dim); background: var(--ink); border: 1px dashed var(--seam); border-radius: 3px; }
+.case__servers li::before { content: ""; position: absolute; left: 6px; top: 50%; width: 3px; height: 3px; margin-top: -1.5px; border-radius: 50%; background: var(--thread); }
+.case__steps { list-style: none; margin: 0; padding: 0; font: 400 0.78rem/1.5 var(--mono); border-top: 1px dashed var(--seam-soft); }
+/* a step is `id · tool · note`; the note sits beside the tool when the card is
+   wide enough for all three and under it otherwise */
+.case__steps li { display: grid; grid-template-columns: 5.2rem minmax(0, 1fr); gap: 0 12px; align-items: baseline; padding: 6px 0; border-bottom: 1px dashed var(--seam-soft); }
+.case__id { color: var(--chalk); font-weight: 500; }
+.case__id--cond, .case__id--fail { color: var(--bobbin); }
+.case__tool { color: var(--thread); overflow-wrap: break-word; }
+.case__note { grid-column: 2; color: var(--muted); font-size: 0.72rem; }
+@media (min-width: 1140px) {
+  .case__steps li { grid-template-columns: 5.2rem minmax(0, 1fr) auto; }
+  .case__note { grid-column: auto; text-align: right; font-size: inherit; }
+}
+.case__foot { margin-top: auto; display: grid; gap: 8px; }
+.case__foot p { font-size: 0.88rem; line-height: 1.55; color: var(--chalk-dim); }
+.case__foot b { color: var(--chalk); font-weight: 500; }
+.case__toolset { font: 400 0.74rem var(--mono); color: var(--muted); overflow-wrap: anywhere; }
 
 /* ── workflows ──────────────────────────────────────────────────────────── */
 .wf { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: clamp(20px, 3vw, 40px); align-items: start; margin-bottom: 48px; }
