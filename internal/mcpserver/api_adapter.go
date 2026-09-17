@@ -125,6 +125,7 @@ func convertCRDAuthToAPI(src *musterv1alpha1.MCPServerAuth) *api.MCPServerAuth {
 			Scopes:                     src.AuthorizationServer.Scopes,
 			AuthorizationEndpoint:      src.AuthorizationServer.AuthorizationEndpoint.Normalize(),
 			TokenEndpoint:              src.AuthorizationServer.TokenEndpoint.Normalize(),
+			ExpectedIssuer:             src.AuthorizationServer.ExpectedIssuer.Normalize(),
 			ClientCredentialsSecretRef: convertCRDSecretRefToAPI(src.AuthorizationServer.ClientCredentialsSecretRef),
 			GrantScope:                 src.AuthorizationServer.GrantScope,
 		}
@@ -163,11 +164,13 @@ func convertAPIAuthToCRD(src *api.MCPServerAuth) *musterv1alpha1.MCPServerAuth {
 		issuer := musterv1alpha1.IssuerURL(src.AuthorizationServer.Issuer)
 		authorizationEndpoint := musterv1alpha1.IssuerURL(src.AuthorizationServer.AuthorizationEndpoint)
 		tokenEndpoint := musterv1alpha1.IssuerURL(src.AuthorizationServer.TokenEndpoint)
+		expectedIssuer := musterv1alpha1.IssuerURL(src.AuthorizationServer.ExpectedIssuer)
 		auth.AuthorizationServer = &musterv1alpha1.MCPServerAuthAuthorizationServer{
 			Issuer:                     musterv1alpha1.IssuerURL(issuer.Normalize()),
 			Scopes:                     src.AuthorizationServer.Scopes,
 			AuthorizationEndpoint:      musterv1alpha1.IssuerURL(authorizationEndpoint.Normalize()),
 			TokenEndpoint:              musterv1alpha1.IssuerURL(tokenEndpoint.Normalize()),
+			ExpectedIssuer:             musterv1alpha1.IssuerURL(expectedIssuer.Normalize()),
 			ClientCredentialsSecretRef: convertAPISecretRefToCRD(src.AuthorizationServer.ClientCredentialsSecretRef),
 			GrantScope:                 src.AuthorizationServer.GrantScope,
 		}
@@ -607,6 +610,10 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 						"tokenEndpoint": map[string]interface{}{
 							api.SchemaKeyType:        string(api.ArgTypeString),
 							api.SchemaKeyDescription: "Token endpoint of an authorization server without an RFC 8414 discovery document; set together with authorizationEndpoint",
+						},
+						"expectedIssuer": map[string]interface{}{
+							api.SchemaKeyType:        string(api.ArgTypeString),
+							api.SchemaKeyDescription: "Issuer identifier the authorization server puts in the RFC 9207 iss parameter of its authorization responses when that differs from issuer, which stays the identity the grants are filed under (two GitHub Apps: each pinned under https://github.com/apps/<slug> with expectedIssuer https://github.com/login/oauth); needs authorizationEndpoint and tokenEndpoint; default: issuer",
 						},
 						"clientCredentialsSecretRef": map[string]interface{}{
 							api.SchemaKeyType:        string(api.ArgTypeObject),
@@ -1180,7 +1187,11 @@ func (a *Adapter) validateMCPServer(server *musterv1alpha1.MCPServer) error {
 	if err := api.ValidateMetaAllowed(server.Spec.Type, server.Spec.Meta); err != nil {
 		return err
 	}
-	return api.ValidateSigV4(server.Spec.Type, convertCRDAuthToAPI(server.Spec.Auth))
+	auth := convertCRDAuthToAPI(server.Spec.Auth)
+	if err := api.ValidateAuthorizationServer(auth); err != nil {
+		return err
+	}
+	return api.ValidateSigV4(server.Spec.Type, auth)
 }
 
 // helper to create simple error CallToolResult

@@ -65,13 +65,21 @@ type authorizationServerPin struct {
 	// EndpointsRef names the mock OAuth server whose /authorize and /token
 	// the pin carries as explicit endpoints; empty for none.
 	EndpointsRef string
+	// IdentityPath, appended to the referenced server's issuer URL, is the
+	// identity the pin files the grant under; empty for the issuer itself.
+	IdentityPath string
+	// ExpectedIssuerRef names the mock OAuth server whose issuer URL the pin
+	// carries as expectedIssuer; empty for none.
+	ExpectedIssuerRef string
 }
 
 // resolveAuthorizationServerPin reads oauth.grant_scope,
-// oauth.pin_authorization_server and oauth.pin_endpoints_ref over the
-// referenced server's profile: a github-profile server is pinned with its
-// own endpoints and subject-scoped grants unless the block says otherwise.
-// As before, a grant scope or an endpoints reference implies the pin.
+// oauth.pin_authorization_server, oauth.pin_endpoints_ref,
+// oauth.pin_identity_path and oauth.expected_issuer_ref over the referenced
+// server's profile: a github-profile server is pinned with its own endpoints
+// and subject-scoped grants unless the block says otherwise. As before, a
+// grant scope, an endpoints reference, an identity path or an expected issuer
+// implies the pin.
 func resolveAuthorizationServerPin(oauthConfig map[string]interface{}, bundle mock.ProfileBundle) authorizationServerPin {
 	ref, _ := oauthConfig["mock_oauth_server_ref"].(string)
 	pin := authorizationServerPin{Pin: bundle.PinWithEndpoints}
@@ -86,9 +94,11 @@ func resolveAuthorizationServerPin(oauthConfig map[string]interface{}, bundle mo
 	} else if bundle.PinWithEndpoints {
 		pin.EndpointsRef = ref
 	}
+	pin.IdentityPath, _ = oauthConfig["pin_identity_path"].(string)
+	pin.ExpectedIssuerRef, _ = oauthConfig["expected_issuer_ref"].(string)
 	if explicit, ok := oauthConfig["pin_authorization_server"].(bool); ok {
 		pin.Pin = explicit
 	}
-	pin.Pin = pin.Pin || pin.GrantScope != "" || pin.EndpointsRef != ""
+	pin.Pin = pin.Pin || pin.GrantScope != "" || pin.EndpointsRef != "" || pin.IdentityPath != "" || pin.ExpectedIssuerRef != ""
 	return pin
 }

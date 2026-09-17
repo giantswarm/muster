@@ -466,6 +466,17 @@ tokens but names muster's OAuth server). On a mock OAuth server,
 `omit_token_scope: true` leaves `scope` out of token responses, as Dex does
 (`profile: dex` implies it).
 
+`oauth.pin_identity_path` pins the MCPServer under an identity other than the
+mock server's issuer -- that issuer URL with the path appended, the GitHub App
+shape (`https://github.com/apps/<slug>`) -- so two MCPServers at one mock
+server keep separate grants. `oauth.expected_issuer_ref` names the mock server
+whose issuer the pin carries as `expectedIssuer`, which a callback that
+carries `iss` (`test_simulate_oauth_callback` with `send_iss: true`) then has
+to match. Both imply the pin and need the server's endpoints
+(`pin_endpoints_ref`). See `oauth-pinned-identity-expected-issuer.yaml`: two
+clients of one authorization server, a logout per client, and a third pinned
+without `expectedIssuer` whose callback with `iss` is refused.
+
 `test_resolve_auth_redirect` (`server`) runs `core_auth_login` and follows the
 challenge's start URL one hop; its result names the mock OAuth server the
 sign-in is sent to (`authorization_server`) plus `authorization_endpoint`,

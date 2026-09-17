@@ -1,0 +1,264 @@
+name: "oauth-pinned-identity-expected-issuer"
+category: "behavioral"
+concept: "oauth"
+description: |
+  Two OAuth clients of one authorization server hold two separate grants:
+  each MCPServer is pinned under its own identity (the grant key) with
+  spec.auth.authorizationServer.expectedIssuer naming the issuer the server
+  really puts in the RFC 9207 `iss` parameter of its authorization responses.
+
+  The shape is two GitHub Apps at GitHub: GitHub sends
+  iss=https://github.com/login/oauth on every authorization response, so an
+  App pinned under https://github.com/apps/<slug> -- to keep its grant apart
+  from the other App's -- completes its sign-in only when expectedIssuer names
+  GitHub's login issuer. Here `github-like` stands in for GitHub: no discovery
+  document, explicit endpoints, and an `iss` on its authorization responses
+  (send_iss).
+
+    1. The person connects app-one; app-two is still challenged (no shared
+       grant under one key) and connects on its own; app-one stays connected.
+    2. core_auth_logout on app-one signs out of app-one alone; app-two keeps
+       answering.
+    3. app-three is pinned under its identity WITHOUT expectedIssuer: a
+       callback that carries the server's real issuer is refused (the
+       aggregator logs `iss mismatch`, the existing behaviour, kept), while
+       one without `iss` completes -- pinned metadata advertises no
+       authorization_response_iss_parameter_supported.
+tags: ["oauth", "authorization-server", "pin", "issuer", "rfc9207", "github", "1277"]
+timeout: "3m"
+
+pre_configuration:
+  mock_oauth_servers:
+    # muster's own identity provider, so sessions carry a subject.
+    - name: "platform-idp"
+      profile: "dex"
+      scopes: ["openid", "profile", "email", "offline_access"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "platform-client"
+      client_secret: "platform-secret"
+      use_as_muster_oauth_server: true
+
+    # GitHub's stand-in: no discovery document, endpoints pinned explicitly,
+    # `iss` on its authorization responses (send_iss below).
+    - name: "github-like"
+      scopes: ["repo", "read:org"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      omit_discovery: true
+      advertise_iss_parameter: true
+
+  mcp_servers:
+    - name: "app-one"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "github-like"
+          pin_endpoints_ref: "github-like"
+          pin_identity_path: "/apps/one"
+          expected_issuer_ref: "github-like"
+          grant_scope: "subject"
+          scope: "repo"
+        tools:
+          - name: "whoami"
+            description: "Answers with the bearer app-one received"
+            echo_token: true
+            responses:
+              - response:
+                  app: "app-one"
+
+    - name: "app-two"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "github-like"
+          pin_endpoints_ref: "github-like"
+          pin_identity_path: "/apps/two"
+          expected_issuer_ref: "github-like"
+          grant_scope: "subject"
+          scope: "read:org"
+        tools:
+          - name: "whoami"
+            description: "Answers with the bearer app-two received"
+            echo_token: true
+            responses:
+              - response:
+                  app: "app-two"
+
+    # Pinned under its own identity but without expectedIssuer: the pinned
+    # identity is what a present `iss` has to equal.
+    - name: "app-three"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "github-like"
+          pin_endpoints_ref: "github-like"
+          pin_identity_path: "/apps/three"
+          grant_scope: "subject"
+          scope: "repo"
+        tools:
+          - name: "whoami"
+            description: "Answers from app-three"
+            responses:
+              - response:
+                  app: "app-three"
+
+steps:
+  - id: login
+    tool: "test_muster_auth_login"
+    args:
+      subject: "person@example.com"
+    expected:
+      success: true
+
+  - id: servers-registered
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["app-one", "app-two", "app-three"]
+
+  - id: app-one-pin-carries-expected-issuer
+    description: "The pin shows the identity and the expected issuer apart"
+    tool: "core_mcpserver_get"
+    args:
+      name: "app-one"
+    expected:
+      success: true
+      contains: ["/apps/one", "expectedIssuer", "subject"]
+
+  - id: app-one-sign-in-goes-to-the-server
+    description: "An identity that is not the issuer still sends the browser to the pinned endpoints"
+    tool: "test_resolve_auth_redirect"
+    args:
+      server: "app-one"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        authorization_server: "github-like"
+        scope: "repo"
+
+  - id: app-one-callback-with-real-issuer-completes
+    description: "The response carries the server's issuer, not the pinned identity; expectedIssuer accepts it"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "app-one"
+      send_iss: true
+    expected:
+      success: true
+
+  - id: app-one-answers
+    tool: "x_app-one_whoami"
+    args: {}
+    expected:
+      success: true
+      contains: ["app-one", "received_token"]
+
+  - id: app-two-is-not-signed-in-by-app-one
+    description: "A second client of the same server holds no grant yet: its own sign-in is required"
+    tool: "core_auth_login"
+    args:
+      server: "app-two"
+    expected:
+      success: true
+      not_contains: ["already authenticated"]
+      contains: ["Authentication Required"]
+
+  - id: app-two-callback-with-real-issuer-completes
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "app-two"
+      send_iss: true
+    expected:
+      success: true
+
+  - id: app-two-answers
+    tool: "x_app-two_whoami"
+    args: {}
+    expected:
+      success: true
+      contains: ["app-two", "received_token"]
+
+  - id: app-one-still-answers
+    description: "app-two's grant did not overwrite app-one's"
+    tool: "x_app-one_whoami"
+    args: {}
+    expected:
+      success: true
+      contains: ["app-one", "received_token"]
+
+  - id: logout-app-one
+    description: "Signing out of app-one revokes app-one's grant alone"
+    tool: "core_auth_logout"
+    args:
+      server: "app-one"
+    expected:
+      success: true
+      not_contains: ["app-two"]
+
+  - id: app-one-requires-sign-in-again
+    tool: "core_auth_login"
+    args:
+      server: "app-one"
+    expected:
+      success: true
+      contains: ["Authentication Required"]
+      not_contains: ["already authenticated"]
+
+  - id: app-two-still-answers
+    description: "The other client's grant is untouched by the logout"
+    tool: "x_app-two_whoami"
+    args: {}
+    expected:
+      success: true
+      contains: ["app-two", "received_token"]
+
+  - id: app-three-challenge
+    tool: "core_auth_login"
+    args:
+      server: "app-three"
+    expected:
+      success: true
+      contains: ["Authentication Required"]
+      not_contains: ["already authenticated"]
+
+  - id: app-three-callback-with-real-issuer-is-refused
+    description: "Without expectedIssuer the pinned identity is expected: the server's real issuer is an iss mismatch"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "app-three"
+      send_iss: true
+    expected:
+      success: false
+      error_contains: ["400"]
+
+  - id: app-three-still-not-connected
+    tool: "core_auth_login"
+    args:
+      server: "app-three"
+    expected:
+      success: true
+      contains: ["Authentication Required"]
+      not_contains: ["already authenticated"]
+
+  - id: app-three-callback-without-iss-completes
+    description: "The pinned metadata advertises no iss support, so a response without iss is accepted as before"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "app-three"
+    expected:
+      success: true
+
+  - id: app-three-answers
+    tool: "x_app-three_whoami"
+    args: {}
+    expected:
+      success: true
+      contains: ["app-three"]

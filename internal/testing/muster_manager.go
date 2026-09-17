@@ -1910,7 +1910,10 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 						// pin_endpoints_ref adds another mock server's authorize and
 						// token endpoints (the GitHub shape: explicit endpoints, no
 						// discovery). A github-profile server implies all three unless
-						// the block says otherwise.
+						// the block says otherwise. pin_identity_path pins under an
+						// identity other than the server's issuer (a GitHub App under
+						// its own identity) and expected_issuer_ref names the server
+						// whose issuer the callback's `iss` then has to carry.
 						ref, _ := oauthConfig["mock_oauth_server_ref"].(string)
 						pin := resolveAuthorizationServerPin(oauthConfig, referencedProfileBundle(config, ref))
 						grantScope, endpointsRef := pin.GrantScope, pin.EndpointsRef
@@ -1918,6 +1921,7 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 							m.mu.RLock()
 							oauthServer, found := m.mockOAuthServers[instanceID][ref]
 							endpoints, endpointsFound := m.mockOAuthServers[instanceID][endpointsRef]
+							expectedIssuerServer, expectedIssuerFound := m.mockOAuthServers[instanceID][pin.ExpectedIssuerRef]
 							m.mu.RUnlock()
 							if !found {
 								return fmt.Errorf("mcp server %s: pinning the authorization server needs oauth.mock_oauth_server_ref to name a running mock OAuth server, got %q",
@@ -1926,7 +1930,14 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 							// The pin opts out of RFC 9728 discovery, so the scope the
 							// backend requires has to travel with it.
 							authorizationServer := map[string]interface{}{
-								"issuer": oauthServer.GetIssuerURL(),
+								"issuer": oauthServer.GetIssuerURL() + pin.IdentityPath,
+							}
+							if pin.ExpectedIssuerRef != "" {
+								if !expectedIssuerFound {
+									return fmt.Errorf("mcp server %s: oauth.expected_issuer_ref names no running mock OAuth server: %q",
+										mcpServer.Name, pin.ExpectedIssuerRef)
+								}
+								authorizationServer["expectedIssuer"] = expectedIssuerServer.GetIssuerURL()
 							}
 							if grantScope != "" {
 								authorizationServer["grantScope"] = grantScope
@@ -1945,8 +1956,8 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 							authConfig["type"] = "oauth"
 							authConfig["authorizationServer"] = authorizationServer
 							if m.debug {
-								logger.Debug("🔐 Pinning authorization server %s (grantScope=%q, endpoints from %q) for MCPServer %s\n",
-									oauthServer.GetIssuerURL(), grantScope, endpointsRef, mcpServer.Name)
+								logger.Debug("🔐 Pinning authorization server %s (grantScope=%q, endpoints from %q, expectedIssuer=%v) for MCPServer %s\n",
+									authorizationServer["issuer"], grantScope, endpointsRef, authorizationServer["expectedIssuer"], mcpServer.Name)
 							}
 						}
 

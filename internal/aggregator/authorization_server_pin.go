@@ -41,6 +41,7 @@ func pinAuthorizationServer(ctx context.Context, serverInfo *ServerInfo) error {
 	pin := api.IssuerPin{
 		AuthorizationEndpoint: as.AuthorizationEndpoint,
 		TokenEndpoint:         as.TokenEndpoint,
+		ExpectedIssuer:        as.ExpectedIssuer,
 		SubjectScoped:         as.SubjectScoped(),
 	}
 	if as.ClientCredentialsSecretRef != nil {
@@ -62,6 +63,7 @@ func pinAuthorizationServer(ctx context.Context, serverInfo *ServerInfo) error {
 		slog.String("issuer", issuer),
 		slog.Bool("preregisteredClient", pin.ClientID != ""),
 		slog.Bool("pinnedEndpoints", as.HasPinnedEndpoints()),
+		slog.String("expectedIssuer", pin.ExpectedIssuer),
 		slog.Bool("subjectScoped", pin.SubjectScoped))
 	return nil
 }
@@ -76,8 +78,8 @@ func authorizationServerOf(auth *api.MCPServerAuth) *api.MCPServerAuthAuthorizat
 }
 
 // sameAuthorizationServer reports whether two descriptions of an authorization
-// server are the same: issuer, endpoints, client Secret reference, grant scope
-// and scopes. A rotated Secret behind an unchanged reference is not a change
+// server are the same: issuer, endpoints, expected issuer, client Secret
+// reference, grant scope and scopes. A rotated Secret behind an unchanged reference is not a change
 // here; the re-pin every login performs picks that up.
 func sameAuthorizationServer(a, b *api.MCPServerAuthAuthorizationServer) bool {
 	if a == nil || b == nil {
@@ -86,6 +88,7 @@ func sameAuthorizationServer(a, b *api.MCPServerAuthAuthorizationServer) bool {
 	if strings.TrimSuffix(a.Issuer, "/") != strings.TrimSuffix(b.Issuer, "/") ||
 		a.AuthorizationEndpoint != b.AuthorizationEndpoint ||
 		a.TokenEndpoint != b.TokenEndpoint ||
+		a.ExpectedIssuer != b.ExpectedIssuer ||
 		a.GrantScope != b.GrantScope ||
 		a.Scopes != b.Scopes {
 		return false
