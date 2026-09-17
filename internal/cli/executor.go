@@ -73,14 +73,23 @@ func ValidateOutputFormat(format string) error {
 type AuthMode string
 
 const (
-	// AuthModeAuto automatically triggers OAuth browser login when authentication is required.
-	// This is the default behavior.
+	// AuthModeAuto opens the browser to sign in when the endpoint requires
+	// authentication and no usable token is stored. Opt in with --login (or
+	// --auth auto): a script, an agent or a CI job can never complete a
+	// browser flow, so it is not the default.
 	AuthModeAuto AuthMode = "auto"
-	// AuthModePrompt prompts the user before triggering authentication.
+	// AuthModePrompt asks before opening the browser.
 	AuthModePrompt AuthMode = "prompt"
-	// AuthModeNone fails immediately on 401 without attempting authentication.
+	// AuthModeNone is the default: a stored token is used and refreshed as
+	// always, but when the endpoint requires authentication and no usable
+	// token is stored the command fails at once with AuthRequiredError,
+	// which names the login command. Only `muster auth login` (or --login)
+	// opens a browser.
 	AuthModeNone AuthMode = "none"
 )
+
+// LoginFlag is the flag that opts a command into the interactive sign-in.
+const LoginFlag = "login"
 
 // AuthModeEnvVar is the environment variable name for setting the default auth mode.
 const AuthModeEnvVar = "MUSTER_AUTH_MODE"
@@ -91,18 +100,19 @@ const EndpointEnvVar = "MUSTER_ENDPOINT"
 // ParseAuthMode parses a string into an AuthMode, with validation.
 func ParseAuthMode(s string) (AuthMode, error) {
 	switch strings.ToLower(s) {
-	case "auto", "":
+	case "auto":
 		return AuthModeAuto, nil
 	case "prompt":
 		return AuthModePrompt, nil
-	case "none":
+	case "none", "":
 		return AuthModeNone, nil
 	default:
-		return AuthModeAuto, fmt.Errorf("invalid auth mode %q: must be one of 'auto', 'prompt', or 'none'", s)
+		return AuthModeNone, fmt.Errorf("invalid auth mode %q: must be one of 'auto', 'prompt', or 'none'", s)
 	}
 }
 
-// GetDefaultAuthMode returns the default auth mode from environment or "auto".
+// GetDefaultAuthMode returns the auth mode from MUSTER_AUTH_MODE, or "none"
+// (fail fast, no browser) when the variable is unset or invalid.
 func GetDefaultAuthMode() AuthMode {
 	if envMode := os.Getenv(AuthModeEnvVar); envMode != "" {
 		mode, err := ParseAuthMode(envMode)
@@ -111,7 +121,22 @@ func GetDefaultAuthMode() AuthMode {
 		}
 		// Invalid env value, fall through to default
 	}
-	return AuthModeAuto
+	return AuthModeNone
+}
+
+// ResolveAuthMode resolves the auth mode from the --login flag and the --auth
+// override, falling back to MUSTER_AUTH_MODE and then the default. --login is
+// --auth auto spelled for a person at a terminal and wins over the environment;
+// combined with another explicit --auth value it is a contradiction.
+func ResolveAuthMode(login bool, override string) (AuthMode, error) {
+	mode, err := GetAuthModeWithOverride(override)
+	if err != nil || !login {
+		return mode, err
+	}
+	if override != "" && mode != AuthModeAuto {
+		return AuthModeNone, fmt.Errorf("--%s opens the browser to sign in, --auth %s does not: pass one of them", LoginFlag, override)
+	}
+	return AuthModeAuto, nil
 }
 
 // GetDefaultEndpoint returns the endpoint from environment variable if set.
@@ -310,7 +335,9 @@ func NewToolExecutor(options ExecutorOptions) (*ToolExecutor, error) {
 // Returns:
 //   - error: Connection error, if any
 func (e *ToolExecutor) Connect(ctx context.Context) error {
-	if e.isRemote && e.options.AuthMode != AuthModeNone {
+	// The OAuth transport (stored token, refresh, typed 401) is set up for
+	// every remote endpoint; the AuthMode only decides what happens on a 401.
+	if e.isRemote {
 		if err := e.setupAuthentication(ctx); err != nil {
 			return err
 		}
@@ -381,19 +408,22 @@ func (e *ToolExecutor) setupAuthentication(ctx context.Context) error {
 	return nil
 }
 
-// triggerAuthentication handles authentication based on the configured AuthMode.
-// After Login() completes, the token is stored in the file-based token store
-// and the mcp-go transport will pick it up automatically on the next connection.
+// authRequiredError is the fail-fast answer to a 401: it names the login
+// command for the context (or endpoint) this command used, and --login.
+func (e *ToolExecutor) authRequiredError() *AuthRequiredError {
+	return &AuthRequiredError{Endpoint: e.endpoint, Context: e.options.Context, CanLogin: true}
+}
+
+// triggerAuthentication runs the interactive sign-in the AuthMode allows and
+// fails fast otherwise. It signs in through Relogin rather than Login: the
+// connection has just failed with a 401, so a stored token is no proof of a
+// session -- Login would take it for one -- and Relogin keeps that token until
+// the new flow's token exchange replaces it. After the flow completes the token
+// is in the file-based store and the transport picks it up on the retry.
 func (e *ToolExecutor) triggerAuthentication(ctx context.Context, authHandler api.AuthHandler) error {
 	switch e.options.AuthMode {
-	case AuthModeAuto:
-		if !e.options.Quiet {
-			fmt.Println("Authentication required. Opening browser...")
-		}
-		if err := authHandler.Login(ctx, e.endpoint); err != nil {
-			return &AuthFailedError{Endpoint: e.endpoint, Reason: err}
-		}
-		return nil
+	case AuthModeNone:
+		return e.authRequiredError()
 
 	case AuthModePrompt:
 		if !e.options.Quiet {
@@ -404,41 +434,38 @@ func (e *ToolExecutor) triggerAuthentication(ctx context.Context, authHandler ap
 			_, _ = fmt.Scanln(&response)
 			response = strings.TrimSpace(strings.ToLower(response))
 			if response != "" && response != "y" && response != "yes" {
-				return &AuthRequiredError{Endpoint: e.endpoint}
+				return e.authRequiredError()
 			}
 		}
-		if err := authHandler.Login(ctx, e.endpoint); err != nil {
-			return &AuthFailedError{Endpoint: e.endpoint, Reason: err}
-		}
-		return nil
-
-	case AuthModeNone:
-		return &AuthRequiredError{Endpoint: e.endpoint}
 
 	default:
 		if !e.options.Quiet {
 			fmt.Println("Authentication required. Opening browser...")
 		}
-		if err := authHandler.Login(ctx, e.endpoint); err != nil {
-			return &AuthFailedError{Endpoint: e.endpoint, Reason: err}
-		}
-		return nil
 	}
+
+	if err := authHandler.Relogin(ctx, e.endpoint); err != nil {
+		return &AuthFailedError{Endpoint: e.endpoint, Reason: err}
+	}
+	return nil
 }
 
-// handleAuthError handles OAuthAuthorizationRequiredError during connection.
-// It clears invalid tokens and triggers authentication, then retries.
+// handleAuthError handles the 401 the transport reports during connection.
+// The stored token is never removed here: a 401 says the server rejected it
+// on this request, not that the file is stale -- the ID token in it still
+// serves other clients (`muster auth token --id`), a concurrent process may
+// be mid-refresh, and an interactive sign-in replaces the file only when it
+// completes. Without --login the command fails at once with AuthRequiredError;
+// a browser flow cannot complete inside a script, an agent or a CI job.
 func (e *ToolExecutor) handleAuthError(ctx context.Context, originalErr error) error {
 	if e.options.AuthMode == AuthModeNone {
-		return &AuthRequiredError{Endpoint: e.endpoint}
+		return e.authRequiredError()
 	}
 
 	authHandler := api.GetAuthHandler()
 	if authHandler == nil {
-		return &AuthRequiredError{Endpoint: e.endpoint}
+		return e.authRequiredError()
 	}
-
-	_ = authHandler.Logout(e.endpoint)
 
 	if err := e.triggerAuthentication(ctx, authHandler); err != nil {
 		return err

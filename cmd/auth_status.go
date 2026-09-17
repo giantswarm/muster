@@ -101,9 +101,10 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Token is invalid and could not be refreshed -- clean up stale local token
+	// The stored token was rejected and could not be refreshed. It stays in
+	// the store -- only `muster auth logout` removes token files -- and the
+	// next `muster auth login` replaces it.
 	if pkgoauth.IsOAuthUnauthorizedError(serverErr) {
-		_ = handler.Logout(aggregatorEndpoint)
 		authPrint("  Status:    %s\n", text.FgYellow.Sprint("Not authenticated"))
 		authPrint("             Run: muster auth login\n")
 		return nil

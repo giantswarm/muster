@@ -188,22 +188,46 @@ func isNetworkError(errStr string) bool {
 	return false
 }
 
-// AuthRequiredError indicates authentication is needed.
-// Implements error with actionable guidance.
+// AuthRequiredMarker opens every AuthRequiredError message so a script or an
+// agent can tell "sign in first" from any other failure without parsing prose.
+const AuthRequiredMarker = "auth_required"
+
+// AuthRequiredError indicates authentication is needed and no usable token is
+// stored. The message starts with AuthRequiredMarker, names the login command
+// for the context (or endpoint) the command used, and -- when the command
+// accepts --login -- how to sign in from the command itself. The process exits
+// with the auth-required exit code.
 type AuthRequiredError struct {
 	// Endpoint is the URL that requires authentication.
 	Endpoint string
+	// Context is the named context the endpoint was resolved from, if any.
+	Context string
+	// CanLogin says the failing command accepts --login to open the browser.
+	CanLogin bool
+}
+
+// LoginCommand returns the `muster auth login` invocation for the context or
+// endpoint this error is about.
+func (e *AuthRequiredError) LoginCommand() string {
+	if e.Context != "" {
+		return "muster auth login --context " + e.Context
+	}
+	return "muster auth login --endpoint " + e.Endpoint
 }
 
 // Error returns a user-friendly error message with actionable guidance.
 func (e *AuthRequiredError) Error() string {
-	return fmt.Sprintf(`Authentication required for %s
+	msg := fmt.Sprintf(`%s: authentication required for %s
 
-To authenticate, run:
-  muster auth login --endpoint %s
+To sign in, run:
+  %s
 
 To check current authentication status:
-  muster auth status`, e.Endpoint, e.Endpoint)
+  muster auth status`, AuthRequiredMarker, e.Endpoint, e.LoginCommand())
+	if e.CanLogin {
+		msg += fmt.Sprintf("\n\nTo sign in from this command instead, add --%s.", LoginFlag)
+	}
+	return msg
 }
 
 // Is allows errors.Is() to work with wrapped errors.

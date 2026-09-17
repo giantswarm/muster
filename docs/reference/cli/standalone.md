@@ -14,7 +14,7 @@ muster standalone [flags]
 ## Options
 
 ```
-      --auth string                          Authentication mode: auto (default), prompt, or none (env: MUSTER_AUTH_MODE)
+      --auth string                          Authentication mode: none (default: fail with auth_required), prompt, or auto (env: MUSTER_AUTH_MODE)
       --config-path string                   Configuration directory (default "~/.config/muster")
       --context string                       Use a specific context (env: MUSTER_CONTEXT)
       --debug                                Enable general debug logging
@@ -23,6 +23,7 @@ muster standalone [flags]
       --extra-ca-file string                 PEM file whose certificates are appended to the system trust pool at startup
   -h, --help                                 help for standalone
       --json-rpc                             Enable full JSON-RPC message logging
+      --login                                Open the browser to sign in when authentication is required (same as --auth auto)
       --mcp-server                           Run as MCP server (stdio transport)
       --no-color                             Disable colored output
       --oauth-mcp-client                     Enable OAuth MCP client/proxy for remote MCP server authentication

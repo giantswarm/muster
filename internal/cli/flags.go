@@ -26,6 +26,8 @@ type CommandFlags struct {
 	Context string
 	// AuthMode controls authentication behavior (auto, prompt, none)
 	AuthMode string
+	// Login opens the browser to sign in when the endpoint requires it (--auth auto)
+	Login bool
 }
 
 // RegisterCommonFlags registers the common flags used by most CLI commands that
@@ -41,6 +43,7 @@ type CommandFlags struct {
 //   - --endpoint: Remote muster aggregator endpoint URL (env: MUSTER_ENDPOINT)
 //   - --context: Use a specific context (env: MUSTER_CONTEXT)
 //   - --auth: Authentication mode (env: MUSTER_AUTH_MODE)
+//   - --login: Open the browser to sign in when authentication is required
 func RegisterCommonFlags(cmd *cobra.Command, flags *CommandFlags) {
 	cmd.PersistentFlags().StringVarP(&flags.OutputFormat, "output", "o", "table", "Output format (table, wide, json, yaml)")
 	cmd.PersistentFlags().BoolVar(&flags.NoHeaders, "no-headers", false, "Suppress header row in table output")
@@ -49,7 +52,8 @@ func RegisterCommonFlags(cmd *cobra.Command, flags *CommandFlags) {
 	cmd.PersistentFlags().StringVar(&flags.ConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
 	cmd.PersistentFlags().StringVar(&flags.Endpoint, "endpoint", GetDefaultEndpoint(), "Remote muster aggregator endpoint URL (env: MUSTER_ENDPOINT)")
 	cmd.PersistentFlags().StringVar(&flags.Context, "context", "", "Use a specific context (env: MUSTER_CONTEXT)")
-	cmd.PersistentFlags().StringVar(&flags.AuthMode, "auth", "", "Authentication mode: auto (default), prompt, or none (env: MUSTER_AUTH_MODE)")
+	cmd.PersistentFlags().StringVar(&flags.AuthMode, "auth", "", "Authentication mode: none (default: fail with auth_required), prompt, or auto (env: MUSTER_AUTH_MODE)")
+	cmd.PersistentFlags().BoolVar(&flags.Login, LoginFlag, false, "Open the browser to sign in when authentication is required (same as --auth auto)")
 }
 
 // ToExecutorOptions converts CommandFlags to ExecutorOptions for use with NewToolExecutor.
@@ -61,7 +65,7 @@ func (f *CommandFlags) ToExecutorOptions() (ExecutorOptions, error) {
 		return ExecutorOptions{}, err
 	}
 
-	authMode, err := GetAuthModeWithOverride(f.AuthMode)
+	authMode, err := ResolveAuthMode(f.Login, f.AuthMode)
 	if err != nil {
 		return ExecutorOptions{}, err
 	}

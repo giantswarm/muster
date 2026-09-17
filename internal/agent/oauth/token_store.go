@@ -140,7 +140,7 @@ func (s *TokenStore) StoreToken(serverURL, issuerURL string, token *oauth2.Token
 			)
 			return fmt.Errorf("failed to persist token: %w", err)
 		}
-		slog.Debug("OAuth token stored",
+		logStoreChange("OAuth token stored",
 			"event", "token_stored",
 			"server_url", serverURL,
 			"issuer_url", issuerURL,
@@ -223,11 +223,35 @@ func (s *TokenStore) DeleteToken(serverURL string) error {
 		}
 	}
 
-	slog.Debug("OAuth token deleted",
+	logStoreChange("OAuth token deleted",
 		"event", "token_deleted",
 		"server_url", serverURL,
 	)
 	return nil
+}
+
+// logStoreChange logs a write or removal in the store at debug level together
+// with the pid and the command words of this process (program name and
+// sub-commands, never flags or their values). Several muster processes share
+// ~/.config/muster/tokens; the attributes say which one changed a file.
+func logStoreChange(msg string, attrs ...any) {
+	slog.Debug(msg, append(attrs, "pid", os.Getpid(), "command", commandWords(os.Args))...)
+}
+
+// commandWords returns the program name and the leading non-flag arguments of
+// an invocation: `muster call x_tool --arg=v` becomes "muster call x_tool".
+func commandWords(args []string) string {
+	if len(args) == 0 {
+		return ""
+	}
+	words := []string{filepath.Base(args[0])}
+	for _, arg := range args[1:] {
+		if strings.HasPrefix(arg, "-") {
+			break
+		}
+		words = append(words, arg)
+	}
+	return strings.Join(words, " ")
 }
 
 // ToOAuth2Token converts a StoredToken to an oauth2.Token.
@@ -277,7 +301,11 @@ func (s *TokenStore) isTokenValid(token *StoredToken) bool {
 	return time.Now().Add(tokenExpiryBuffer).Before(token.Expiry)
 }
 
-// writeTokenFile persists a token to a JSON file.
+// writeTokenFile persists a token to its JSON file atomically: the JSON goes
+// into a temporary file (0600) in the same directory and is renamed over the
+// target, so another muster process reading or refreshing the same endpoint
+// at that moment sees the old token or the new one -- never a truncated file
+// that fails to parse and looks like a missing token.
 func (s *TokenStore) writeTokenFile(key string, token *StoredToken) error {
 	filePath := filepath.Join(s.storageDir, key+".json")
 
@@ -286,9 +314,29 @@ func (s *TokenStore) writeTokenFile(key string, token *StoredToken) error {
 		return fmt.Errorf("failed to marshal token: %w", err)
 	}
 
-	// Write with restricted permissions (owner read/write only)
-	if err := os.WriteFile(filePath, data, 0600); err != nil {
-		return fmt.Errorf("failed to write token file: %w", err)
+	tmp, err := os.CreateTemp(s.storageDir, key+".*.tmp")
+	if err != nil {
+		return fmt.Errorf("failed to create temporary token file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	fail := func(what string, err error) error {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("failed to %s token file: %w", what, err)
+	}
+	if _, err := tmp.Write(data); err != nil {
+		return fail("write", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		return fail("sync", err)
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("failed to close token file: %w", err)
+	}
+	if err := os.Rename(tmpPath, filePath); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("failed to replace token file: %w", err)
 	}
 
 	return nil
@@ -474,11 +522,15 @@ func (s *TokenStore) Clear() error {
 				if err := os.Remove(filePath); err != nil {
 					return fmt.Errorf("failed to remove token file %s: %w", entry.Name(), err)
 				}
+				logStoreChange("OAuth token file removed",
+					"event", "token_file_removed",
+					"file", entry.Name(),
+				)
 				fileCount++
 			}
 		}
 
-		slog.Debug("All OAuth tokens cleared",
+		logStoreChange("All OAuth tokens cleared",
 			"event", "tokens_cleared",
 			"memory_tokens_cleared", tokenCount,
 			"file_tokens_cleared", fileCount,
