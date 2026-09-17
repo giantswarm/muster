@@ -420,6 +420,18 @@ func (am *AggregatorManager) RegisterServerPendingAuth(registration PendingAuthR
 		cancel()
 	}
 
+	// A changed auth configuration (forwardToken replaced by a pinned
+	// authorization server, another issuer or client Secret, a changed token
+	// exchange) invalidates the connections live sessions made under the
+	// previous one: they are put back to auth_required for the server, so
+	// the sessions' next call answers with the sign-in instead of the
+	// backend's 401 and core_auth_login is not refused as "already
+	// authenticated" (#1276). A first registration and a re-registration on
+	// an unchanged configuration (a restart, a retry) leave the sessions be.
+	if invalidated, changed := sessionAuthInvalidated(previousAuth, registration.AuthConfig); invalidated {
+		am.aggregatorServer.resetSessionAuth(context.Background(), registration.Name, changed)
+	}
+
 	// Wire pool notification callback for servers with session-scoped auth so that
 	// OnNotification is auto-wired on every pooled client.
 	if registration.AuthConfig.UsesSessionAuth() {

@@ -3,6 +3,7 @@ package aggregator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -554,6 +555,28 @@ func (s *ssoTracker) ClearSSOFailed(sub, serverName string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if m, ok := s.failedServers[sub]; ok {
+		delete(m, serverName)
+		if len(m) == 0 {
+			delete(s.failedServers, sub)
+		}
+	}
+}
+
+// ClearServer forgets the pending and failed SSO records of every subject for
+// one server. Used when the server's auth configuration changed: what failed
+// or was pending under the previous configuration says nothing about the new
+// one, and a kept failure would hold the session's next SSO attempt back for
+// its backoff.
+func (s *ssoTracker) ClearServer(serverName string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for sub, m := range s.pendingServers {
+		delete(m, serverName)
+		if len(m) == 0 {
+			delete(s.pendingServers, sub)
+		}
+	}
+	for sub, m := range s.failedServers {
 		delete(m, serverName)
 		if len(m) == 0 {
 			delete(s.failedServers, sub)
@@ -1198,23 +1221,14 @@ func (a *AggregatorServer) deregisterServer(name string, keepSessionAuth bool) (
 	// being processed) survives instead of being clobbered.
 	requestedAt := time.Now()
 
-	// Remove auth state and capabilities for this server across all sessions.
-	if a.authStore != nil {
-		if err := a.authStore.RevokeServer(context.Background(), name); err != nil {
-			logging.WarnWithAttrs("Aggregator", "Failed to revoke auth for server",
-				slog.String("server", name), slog.String("error", err.Error()))
-		}
-	}
+	// Remove auth state, pooled connections and capabilities for this server
+	// across all sessions.
+	a.revokeServerSessions(context.Background(), name)
 	if a.capabilityStore != nil {
 		if err := a.capabilityStore.DeleteServer(context.Background(), name); err != nil {
 			logging.WarnWithAttrs("Aggregator", "Failed to delete server from capability store",
 				slog.String("server", name), slog.String("error", err.Error()))
 		}
-	}
-
-	// Evict all pooled connections for this server across all sessions.
-	if a.connPool != nil {
-		a.connPool.EvictServer(name)
 	}
 
 	// The entry's auth config, read before the delete: a removed server
@@ -3049,10 +3063,10 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 			// sending the caller back to a login it already completed.
 			adopted, adoptErr := a.adoptSubjectGrant(ctx, serverInfo, sessionID, sub)
 			if adoptErr != nil {
-				return nil, nil, fmt.Errorf("user not authenticated to server %s (connecting with the person's existing grant failed: %w)", serverName, adoptErr)
+				return nil, nil, &sessionNotAuthenticatedError{server: serverName, cause: adoptErr}
 			}
 			if !adopted {
-				return nil, nil, fmt.Errorf("user not authenticated to server %s", serverName)
+				return nil, nil, &sessionNotAuthenticatedError{server: serverName}
 			}
 		}
 	}
@@ -3186,16 +3200,22 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 	return client, func() {}, nil
 }
 
-// callToolWithTokenExchangeRetry calls a tool on a session-scoped client,
-// retrying once if the server returns 401 and uses token exchange.
+// callToolWithTokenExchangeRetry calls a tool on a session-scoped client and
+// answers for the session's authentication when the call cannot be made.
 //
-// Token exchange produces a fixed-lifetime token baked into the client's
-// headerFunc. If the token expires while the client is pooled, the downstream
-// server returns 401. This method detects that case, evicts the stale pool
-// entry, creates a fresh client (which re-exchanges the token), and retries.
+// A session that is not authenticated to the server, and a session whose
+// credential the backend refuses with a 401 during the call, both get the
+// auth_required answer (authRequiredAnswer): the server's sign-in link, never
+// the backend's 401 as a transport error. The refused credential is retired
+// first -- the authenticated mark revoked, the pooled client closed, the
+// service state synced when this was the server's last live connection -- so
+// auth://status, list_tools and core_auth_login agree with the answer (#1276).
 //
-// Token forwarding clients do not need this retry because their headerFunc
-// dynamically resolves the latest token on each request.
+// A token-exchange server gets one retry before that: its token has a fixed
+// lifetime baked into the client's headerFunc, so a 401 from a pooled client
+// usually means the token expired while pooled. The stale entry is evicted,
+// a fresh client re-exchanges the token, and the call is made again; only a
+// refusal of the fresh token is an authentication loss.
 func (a *AggregatorServer) callToolWithTokenExchangeRetry(
 	ctx context.Context,
 	serverName string,
@@ -3206,6 +3226,10 @@ func (a *AggregatorServer) callToolWithTokenExchangeRetry(
 ) (*mcp.CallToolResult, error) {
 	client, cleanup, err := a.getOrCreateClientForToolCall(ctx, serverName, sessionID, sub)
 	if err != nil {
+		var notAuthenticated *sessionNotAuthenticatedError
+		if errors.As(err, &notAuthenticated) {
+			return a.authRequiredAnswer(ctx, serverName, originalToolName, args, sessionID, sub, notAuthenticated.reason())
+		}
 		return nil, fmt.Errorf("failed to connect to server %s: %w", serverName, err)
 	}
 	defer cleanup()
@@ -3216,25 +3240,38 @@ func (a *AggregatorServer) callToolWithTokenExchangeRetry(
 	}
 
 	serverInfo, exists := a.registry.GetServerInfo(serverName)
-	if !exists || !ShouldUseTokenExchange(serverInfo) || !is401Error(callErr) {
+	if !exists || !credentialRefused(callErr) {
 		return nil, callErr
 	}
 
-	logging.InfoWithAttrs("Aggregator", "Token expired for token-exchange server, evicting pooled client and re-exchanging",
-		slog.String("server", serverName),
-		slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
+	if ShouldUseTokenExchange(serverInfo) {
+		logging.InfoWithAttrs("Aggregator", "Token expired for token-exchange server, evicting pooled client and re-exchanging",
+			slog.String("server", serverName),
+			slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
 
-	if a.connPool != nil {
-		a.connPool.Evict(sessionID, serverName)
+		if a.connPool != nil {
+			a.connPool.Evict(sessionID, serverName)
+		}
+
+		retryClient, retryCleanup, retryErr := a.getOrCreateClientForToolCall(ctx, serverName, sessionID, sub)
+		if retryErr != nil {
+			return nil, fmt.Errorf("retry after token re-exchange failed for %s: %w", serverName, retryErr)
+		}
+		defer retryCleanup()
+
+		result, callErr = retryClient.CallTool(ctx, originalToolName, args)
+		if callErr == nil || !credentialRefused(callErr) {
+			return result, callErr
+		}
 	}
 
-	retryClient, retryCleanup, retryErr := a.getOrCreateClientForToolCall(ctx, serverName, sessionID, sub)
-	if retryErr != nil {
-		return nil, fmt.Errorf("retry after token re-exchange failed for %s: %w", serverName, retryErr)
-	}
-	defer retryCleanup()
-
-	return retryClient.CallTool(ctx, originalToolName, args)
+	// The backend refused the credential this session's connection presents.
+	// The connection is dead for the session whatever the backend's reason --
+	// a grant revoked at the authorization server, a server that switched to
+	// another authorization server underneath a session connected before --
+	// and the session is back to auth_required for the server.
+	a.makeSessionAuthLossHandler(sessionID, serverName)(callErr.Error())
+	return a.authRequiredAnswer(ctx, serverName, originalToolName, args, sessionID, sub, "the server rejected this session's credentials")
 }
 
 // triggerBackgroundTokenRefresh launches a background goroutine to re-exchange

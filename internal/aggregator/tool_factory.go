@@ -250,7 +250,7 @@ func (a *AggregatorServer) buildCoreTools() ([]mcp.Tool, map[string][]string) {
 			InputSchema: mcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
-					"server": map[string]any{
+					resourceServerArg: map[string]any{
 						"type":        "string",
 						"description": "Name of the MCP server to authenticate to",
 					},

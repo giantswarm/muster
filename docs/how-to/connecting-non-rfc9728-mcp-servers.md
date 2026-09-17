@@ -49,7 +49,12 @@ scope, and Dex refuses a request without `openid`.
 Changing `authorizationServer` -- another issuer, explicit endpoints added or
 removed, a rotated client Secret reference -- takes effect on the next
 `core_auth_login`. The description the MCPServer no longer carries is released
-when the change is reconciled; nothing has to be restarted.
+when the change is reconciled; nothing has to be restarted. Sessions that were
+connected to the server under the previous configuration -- through
+`auth.forwardToken`, or with a grant from the previous authorization server --
+are put back to **Not authenticated** for it when the change is reconciled:
+their next tool call answers `auth_required` with the sign-in link instead of
+running, and `muster auth login --server <name>` signs them in.
 
 ## What you'll see in the UI
 
@@ -57,11 +62,26 @@ The override applies only to `muster auth login --server <name>`
 (`core_auth_login`). It does **not** bypass the connect-time PRM probe that
 runs when muster first reaches the backend, so:
 
-1. On first reconciliation the server enters **Auth Required**.
+1. On first reconciliation the server enters **Auth Required**; `muster auth
+   status` lists it as **Not authenticated** for the session.
 2. Run `muster auth login --server <name>`. The override skips PRM and the
-   OAuth browser flow opens against the pinned issuer.
+   OAuth browser flow opens against the pinned issuer. A tool call made
+   before that answers `auth_required` with the same sign-in link (the
+   answer is marked as an error: the tool did not run).
 3. After the token is cached the server transitions to **Connected**;
    subsequent reconnects use the bearer header without rediscovery.
+4. `muster auth logout --server <name>` signs the session out of that server
+   alone -- its tools are hidden until the next `muster auth login --server
+   <name>` -- while the session stays signed in to muster. `muster auth
+   logout` without `--server` ends the session with every server.
+
+A backend that starts refusing the session's token mid-way (a revoked grant, a
+server switched to another authorization server underneath a session
+connected before) answers a tool call with 401; the session then gets the same
+`auth_required` answer with the sign-in link, reads **Not authenticated** for
+the server, and signs in again with `muster auth login --server <name>`. A
+server connected through `auth.forwardToken` or `auth.tokenExchange` has no
+sign-in of its own: its `auth_required` answer says to sign in to muster again.
 
 ## Authorization servers muster cannot discover or register with: GitHub
 
@@ -118,9 +138,9 @@ spec:
   to the server connects with the grant and runs, and `list_tools` shows the
   server's tools instead of listing the server under `auth_required`. A
   `core_auth_login` from such a session still works and answers "Successfully
-  connected" without a sign-in link. A session of a person without a grant
-  keeps failing with `user not authenticated to server <name>` until that
-  person logs in once. Use it only for external accounts the person owns; a
+  connected" without a sign-in link. A session of a person without a grant is
+  answered `auth_required` with that person's sign-in link on every call
+  until they log in once. Use it only for external accounts the person owns; a
   token that carries session-specific authority stays `session`, the default.
 
 Several MCPServers may point at the same issuer (GitHub's hosted MCP server

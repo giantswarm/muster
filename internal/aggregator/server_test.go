@@ -714,7 +714,11 @@ func TestCallToolWithTokenExchangeRetry_EvictsPoolOn401ForTokenExchange(t *testi
 	assert.Equal(t, 1, mockClient.callCount, "original client called once before eviction")
 }
 
-func TestCallToolWithTokenExchangeRetry_NoRetryForNonTokenExchange(t *testing.T) {
+// A 401 from a server that is not token-exchange is not retried: the
+// credential the connection presents is the session's own, so the refusal
+// retires the connection and answers auth_required (see
+// auth_required_answer_test.go for the challenge of a manual-login server).
+func TestCallToolWithTokenExchangeRetry_401OnForwardTokenServerAnswersAuthRequired(t *testing.T) {
 	a := newTestAggregatorWithPool(t)
 	ctx := context.Background()
 	sessionID := "test-session"
@@ -740,11 +744,16 @@ func TestCallToolWithTokenExchangeRetry_NoRetryForNonTokenExchange(t *testing.T)
 	mockClient := &callToolMockClient{callToolErr: unauthorizedErr}
 	a.connPool.Put(sessionID, serverName, mockClient)
 
-	_, err = a.callToolWithTokenExchangeRetry(ctx, serverName, "my-tool", nil, sessionID, "user-sub")
+	result, err := a.callToolWithTokenExchangeRetry(ctx, serverName, "my-tool", nil, sessionID, "user-sub")
 
-	require.Error(t, err)
-	assert.True(t, is401Error(err), "original 401 error should be returned as-is")
-	assert.Equal(t, 1, a.connPool.Len(), "pool entry should NOT be evicted for non-token-exchange server")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.IsError)
+	assert.Contains(t, mcpText(result), "auth_required: server 'forward-server'")
+	assert.Equal(t, 1, mockClient.callCount, "no retry on the refused connection")
+	assert.Equal(t, 0, a.connPool.Len(), "the refused connection is retired")
+	authenticated, _ := a.authStore.IsAuthenticated(ctx, sessionID, serverName)
+	assert.False(t, authenticated, "the session is back to auth_required for the server")
 }
 
 func TestCallToolWithTokenExchangeRetry_NoRetryForNon401Error(t *testing.T) {

@@ -383,12 +383,16 @@ func TestCallToolInternal_UnknownToolIsResolvedThroughTheSubjectGrant(t *testing
 	assert.Contains(t, result.Content[0].(mcp.TextContent).Text, "alice")
 	assert.Equal(t, int32(1), initializes.Load())
 
-	// Another person without a grant keeps the failure, and the lookup for
-	// an unknown tool is not repeated for a core tool name.
+	// Another person without a grant is answered auth_required for the
+	// server (the grant was looked up for the adoption, and once more by the
+	// sign-in the answer starts), and the lookup for an unknown tool is not
+	// repeated for a core tool name.
 	lookupsBefore := handler.lookupCount()
-	_, err = a.CallToolInternal(sessionContext("sess-bob", "bob"), exposed, map[string]any{})
-	require.Error(t, err)
-	assert.Equal(t, lookupsBefore+1, handler.lookupCount())
+	result, err = a.CallToolInternal(sessionContext("sess-bob", "bob"), exposed, map[string]any{})
+	require.NoError(t, err)
+	require.True(t, result.IsError)
+	assert.Contains(t, result.Content[0].(mcp.TextContent).Text, "auth_required: server 'github'")
+	assert.GreaterOrEqual(t, handler.lookupCount(), lookupsBefore+1)
 	assert.Equal(t, 0, a.adoptSubjectGrants(sessionContext("sess-bob", "bob"), "sess-bob", "bob"))
 }
 

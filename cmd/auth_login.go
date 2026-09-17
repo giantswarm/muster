@@ -182,15 +182,7 @@ func loginToMCPServer(ctx context.Context, handler api.AuthHandler, aggregatorEn
 		return err
 	}
 
-	// Find the requested server
-	var serverInfo *pkgoauth.ServerAuthStatus
-	for i := range authStatus.Servers {
-		if authStatus.Servers[i].Name == serverName {
-			serverInfo = &authStatus.Servers[i]
-			break
-		}
-	}
-
+	serverInfo := findServerAuthStatus(authStatus, serverName)
 	if serverInfo == nil {
 		return fmt.Errorf("server '%s' not found. Use 'muster auth status' to see available servers", serverName)
 	}
