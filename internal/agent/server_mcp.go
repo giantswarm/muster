@@ -160,16 +160,10 @@ func (m *MCPServer) handleTokenExpiredError(ctx context.Context, originalErr err
 	m.reauthInProg = true
 	// Note: reauthInProg is reset by waitForReauthCompletion when auth completes or times out
 
-	// Clear the expired token
-	if err := m.authManager.ClearToken(); err != nil {
-		if m.logger != nil {
-			m.logger.Error("Failed to clear expired token: %v", err)
-		}
-	}
-
-	// Re-check connection to get the auth challenge
-	authState, err := m.authManager.CheckConnection(ctx, endpoint)
-	if err != nil || authState != oauth.AuthStatePendingAuth {
+	// Probe the server for its auth challenge without removing the stored
+	// token: the new flow's token exchange replaces it, an abandoned flow
+	// leaves it in place for the other muster processes sharing the store.
+	if err := m.authManager.RequireAuth(ctx, endpoint); err != nil {
 		m.reauthInProg = false
 		m.authMu.Unlock()
 		return mcp.NewToolResultError(fmt.Sprintf(

@@ -33,12 +33,13 @@ muster get <type> <name|uri|id>
 ## Options
 
 ```
-      --auth string          Authentication mode: auto (default), prompt, or none (env: MUSTER_AUTH_MODE)
+      --auth string          Authentication mode: none (default: fail with auth_required), prompt, or auto (env: MUSTER_AUTH_MODE)
       --config-path string   Configuration directory (default "~/.config/muster")
       --context string       Use a specific context (env: MUSTER_CONTEXT)
       --debug                Enable debug logging (show MCP protocol messages)
       --endpoint string      Remote muster aggregator endpoint URL (env: MUSTER_ENDPOINT)
   -h, --help                 help for get
+      --login                Open the browser to sign in when authentication is required (same as --auth auto)
       --no-headers           Suppress header row in table output
   -o, --output string        Output format (table, wide, json, yaml) (default "table")
   -q, --quiet                Suppress non-essential output

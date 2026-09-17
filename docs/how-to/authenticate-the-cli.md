@@ -53,19 +53,21 @@ Tokens are stored per endpoint, so switching contexts switches identities as wel
 ## Authentication modes
 
 `--auth` (or `MUSTER_AUTH_MODE`) decides what happens when a command needs a token it does not
-have:
+have. A stored token is used and refreshed in every mode; the mode only decides whether a
+browser opens:
 
 | Mode | Behaviour |
 |---|---|
-| `auto` (default) | Open the browser and complete the login, then run the command |
+| `none` (default) | Fail with exit code 2 and an `auth_required` error that names the login command; nothing interactive happens |
+| `auto` | Open the browser and complete the login, then run the command -- `--login` says the same |
 | `prompt` | Ask before opening the browser |
-| `none` | Fail with exit code 2; nothing interactive happens |
 
-`none` is the mode for scripts and CI: a missing login becomes a clear failure instead of a
-hanging browser call.
+The default is the mode for scripts, agents and CI: a missing login is a clear failure instead
+of a browser flow hanging inside a tool call. A person at a terminal adds `--login`:
 
 ```bash
-muster list mcpserver --auth none || echo "login required"
+muster call core_service_list --context gazelle          # auth_required, exit 2, no browser
+muster call core_service_list --context gazelle --login  # opens the browser, then runs
 ```
 
 ## Signing in to MCP servers behind muster
@@ -93,12 +95,12 @@ logs; only hashed identifiers do.
 |---|---|
 | `0` | Success |
 | `1` | Error: the command failed or its arguments were invalid |
-| `2` | Authentication required and not available (`--auth none`, or the token could not be refreshed) |
+| `2` | Authentication required and not available (no usable token and no `--login`, or the token could not be refreshed) |
 | `3` | Authentication failed: the OAuth flow itself did not complete |
 | `125` | `self-update --check` only: a newer release exists |
 
 ```bash
-muster list mcpserver --auth none
+muster list mcpserver
 case $? in
   0) ;;
   2) muster auth login ;;

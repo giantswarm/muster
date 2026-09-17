@@ -62,7 +62,7 @@ muster events
 ## Options
 
 ```
-      --auth string            Authentication mode: auto (default), prompt, or none (env: MUSTER_AUTH_MODE)
+      --auth string            Authentication mode: none (default: fail with auth_required), prompt, or auto (env: MUSTER_AUTH_MODE)
       --config-path string     Configuration directory (default "~/.config/muster")
       --context string         Use a specific context (env: MUSTER_CONTEXT)
       --debug                  Enable debug logging (show MCP protocol messages)
@@ -70,6 +70,7 @@ muster events
   -f, --follow                 Stream new events as they occur
   -h, --help                   help for events
       --limit int              Limit number of events returned (default 50)
+      --login                  Open the browser to sign in when authentication is required (same as --auth auto)
       --namespace string       Filter by namespace
       --no-headers             Suppress header row in table output
   -o, --output string          Output format (table, wide, json, yaml) (default "table")

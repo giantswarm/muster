@@ -100,12 +100,16 @@ func init() {
 	agentCmd.Flags().StringVar(&agentTransport, "transport", string(agent.TransportStreamableHTTP), "Transport to use (streamable-http, sse)")
 	agentCmd.Flags().StringVar(&agentConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
 	agentCmd.Flags().BoolVar(&agentDisableAutoSSO, "disable-auto-sso", false, "Disable automatic authentication with remote MCP servers after muster auth")
-	agentCmd.Flags().StringVar(&agentAuthMode, "auth", "", "Authentication mode: auto (default), prompt, or none (env: MUSTER_AUTH_MODE)")
+	agentCmd.Flags().StringVar(&agentAuthMode, "auth", "", "Authentication mode: none (default: fail with auth_required), prompt, or auto (env: MUSTER_AUTH_MODE)")
+	agentCmd.Flags().BoolVar(&agentLogin, cli.LoginFlag, false, "Open the browser to sign in when authentication is required (same as --auth auto)")
 	agentCmd.Flags().BoolVar(&agentSilentAuth, "silent", false, "Attempt silent re-auth using OIDC prompt=none (requires IdP support, not supported by Dex)")
 
 	// Mark flags as mutually exclusive
 	agentCmd.MarkFlagsMutuallyExclusive("repl", "mcp-server")
 }
+
+// agentLogin is --login: open the browser to sign in (--auth auto).
+var agentLogin bool
 
 func runAgent(cmd *cobra.Command, args []string) error {
 	// Create context with signal handling
@@ -173,7 +177,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	}
 
 	// Parse auth mode (uses environment variable as default if not specified)
-	authMode, err := cli.GetAuthModeWithOverride(agentAuthMode)
+	authMode, err := cli.ResolveAuthMode(agentLogin, agentAuthMode)
 	if err != nil {
 		return err
 	}
@@ -252,7 +256,7 @@ func setupAgentAuthentication(ctx context.Context, client *agent.Client, logger 
 
 	switch authMode {
 	case cli.AuthModeNone:
-		return &cli.AuthRequiredError{Endpoint: endpoint}
+		return &cli.AuthRequiredError{Endpoint: endpoint, Context: agentContext, CanLogin: true}
 	case cli.AuthModePrompt:
 		logger.Info("Authentication required for %s", endpoint)
 		logger.Info("Press Enter to open browser for authentication, or Ctrl+C to cancel...")
@@ -331,17 +335,18 @@ func runMCPServerDirectWithAuth(ctx context.Context, client *agent.Client, logge
 		// Check if this is a 401 error - if so, the cached token is invalid
 		// and we need to fall back to the pending auth flow
 		if authManager != nil && pkgoauth.IsOAuthUnauthorizedError(err) {
-			logger.Info("Connection failed with 401 - cached token is invalid, clearing and re-authenticating")
-			_ = authManager.ClearToken()
+			logger.Info("Connection failed with 401 - the stored token was rejected, re-authenticating")
 
-			// Re-check connection to get the auth challenge
-			authState, checkErr := authManager.CheckConnection(ctx, endpoint)
-			if checkErr == nil && authState == oauth.AuthStatePendingAuth {
+			// Probe the server for its auth challenge without removing the
+			// stored token: the new flow's token exchange replaces it, an
+			// abandoned flow leaves it for the next process.
+			if checkErr := authManager.RequireAuth(ctx, endpoint); checkErr == nil {
 				// Fall back to pending auth flow
 				return runMCPServerPendingAuth(ctx, client, logger, endpoint, transport, authManager)
+			} else {
+				// If we can't get auth challenge, return original error
+				logger.Info("Could not start re-authentication flow: %v", checkErr)
 			}
-			// If we can't get auth challenge, return original error
-			logger.Info("Could not start re-authentication flow: %v", checkErr)
 		}
 		return err
 	}
