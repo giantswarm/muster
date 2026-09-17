@@ -483,9 +483,14 @@ sign-in is sent to (`authorization_server`) plus `authorization_endpoint`,
 `client_id` and `scope`. `test_pin_mcpserver_authorization_server` (`server`,
 `issuer_ref`, optional `endpoints_ref`, `scopes`, `grant_scope`, or `clear:
 true`) rewrites the MCPServer's `spec.auth.authorizationServer` in the
-filesystem definition, which the reconciler applies like a CR update. See
-`oauth-pinned-issuer-is-the-grant-key.yaml` (muster#1174) and
-`oauth-pinned-authorization-server-change-takes-effect.yaml` (muster#1175).
+filesystem definition, which the reconciler applies like a CR update; pinning
+drops `auth.forwardToken` and `auth.tokenExchange` and sets `auth.type: oauth`,
+the switch of a server connected through SSO to a pinned authorization server.
+See `oauth-pinned-issuer-is-the-grant-key.yaml` (muster#1174),
+`oauth-pinned-authorization-server-change-takes-effect.yaml` (muster#1175) and
+`oauth-auth-config-change-resets-live-sessions.yaml` (a forwardToken server
+switched to a pinned authorization server underneath a connected session,
+muster#1276).
 
 ## Debugging OAuth Tests
 

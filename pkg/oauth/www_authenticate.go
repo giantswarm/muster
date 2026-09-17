@@ -91,8 +91,12 @@ func parseAuthParams(paramStr string) map[string]string {
 
 // IsOAuthUnauthorizedError checks if an error indicates an OAuth authorization
 // failure using mcp-go's typed error detection. Returns true for both
-// transport.OAuthAuthorizationRequiredError (when WithHTTPOAuth is configured)
-// and transport.ErrUnauthorized (bare 401 without OAuth handler).
+// transport.OAuthAuthorizationRequiredError (when WithHTTPOAuth is configured),
+// transport.ErrUnauthorized (the SSE transport's bare 401 without an OAuth
+// handler), transport.ErrAuthorizationRequired (the streamable HTTP
+// transport's bare 401 without one: a transport.AuthorizationRequiredError,
+// which unwraps to it) and transport.ErrOAuthAuthorizationRequired (no token
+// in the store to send).
 func IsOAuthUnauthorizedError(err error) bool {
 	if err == nil {
 		return false
@@ -101,5 +105,7 @@ func IsOAuthUnauthorizedError(err error) bool {
 	if errors.As(err, &oauthErr) {
 		return true
 	}
-	return errors.Is(err, transport.ErrUnauthorized)
+	return errors.Is(err, transport.ErrUnauthorized) ||
+		errors.Is(err, transport.ErrAuthorizationRequired) ||
+		errors.Is(err, transport.ErrOAuthAuthorizationRequired)
 }

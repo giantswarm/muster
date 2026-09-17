@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
+
 	"github.com/spf13/cobra"
 )
 
@@ -357,5 +359,42 @@ func TestAuthIsRegistered(t *testing.T) {
 
 	if !found {
 		t.Error("expected 'auth' command to be registered on root")
+	}
+}
+
+func TestMCPServerLogoutSummary(t *testing.T) {
+	t.Run("session-scoped server: this session only, and how to reconnect", func(t *testing.T) {
+		got := mcpServerLogoutSummary("repo", "https://muster.example.com/mcp",
+			"Successfully logged out from 'repo'.\n\nThe server's tools are now hidden. Use core_auth_login with server='repo' to re-authenticate.")
+		want := "Signed out of server 'repo' for this session; you stay signed in to https://muster.example.com/mcp.\n" +
+			"To reconnect: muster auth login --server repo\n"
+		if got != want {
+			t.Errorf("summary:\n%s\nwant:\n%s", got, want)
+		}
+	})
+
+	t.Run("subject-scoped grant: the aggregator's note about the person's grant is kept", func(t *testing.T) {
+		got := mcpServerLogoutSummary("repo", "https://muster.example.com/mcp",
+			"Successfully logged out from 'repo'.\n\n"+
+				"The grant behind this server belonged to you rather than to this session, so it was revoked for all your sessions; the servers sharing it were disconnected as well: issues.\n\n"+
+				"The server's tools are now hidden. Use core_auth_login with server='repo' to re-authenticate.")
+		if !strings.Contains(got, "revoked for all your sessions; the servers sharing it were disconnected as well: issues.\n") {
+			t.Errorf("the grant note is missing from:\n%s", got)
+		}
+		if strings.Contains(got, "core_auth_login") {
+			t.Errorf("the MCP tool hint is not for the terminal:\n%s", got)
+		}
+	})
+}
+
+func TestSSOLogoutGuidance(t *testing.T) {
+	if ssoLogoutGuidance(pkgoauth.ServerAuthStatus{Name: "repo"}) != "" {
+		t.Error("a server the person signs in to has no SSO guidance")
+	}
+	if got := ssoLogoutGuidance(pkgoauth.ServerAuthStatus{Name: "k8s", TokenForwardingEnabled: true}); !strings.Contains(got, "Token Forwarding") {
+		t.Errorf("token forwarding guidance missing: %q", got)
+	}
+	if got := ssoLogoutGuidance(pkgoauth.ServerAuthStatus{Name: "remote", TokenExchangeEnabled: true}); !strings.Contains(got, "Token Exchange") {
+		t.Errorf("token exchange guidance missing: %q", got)
 	}
 }

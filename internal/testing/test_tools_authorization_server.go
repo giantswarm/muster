@@ -65,8 +65,12 @@ func (h *TestToolsHandler) handleResolveAuthRedirect(ctx context.Context, args m
 // filesystem mode: pins the issuer of the mock OAuth server named by
 // issuer_ref (with optional scopes and grant_scope), adds the authorize/token
 // endpoints of the mock server named by endpoints_ref, or removes the pin
-// (clear: true). The reconciler then acts on the definition update. args:
-// server, issuer_ref, endpoints_ref, scopes, grant_scope, clear.
+// (clear: true). Pinning also drops auth.forwardToken and auth.tokenExchange
+// and sets auth.type to oauth: the CRD refuses a pin next to either, and the
+// definition the tool writes is an operator's switch of a server connected
+// through SSO to a pinned authorization server. The reconciler then acts on
+// the definition update. args: server, issuer_ref, endpoints_ref, scopes,
+// grant_scope, clear.
 func (h *TestToolsHandler) handlePinMCPServerAuthorizationServer(ctx context.Context, args map[string]interface{}) (interface{}, error) {
 	serverName, _ := args["server"].(string)
 	if serverName == "" {
@@ -117,6 +121,9 @@ func (h *TestToolsHandler) handlePinMCPServerAuthorizationServer(ctx context.Con
 		if clear {
 			delete(auth, "authorizationServer")
 		} else {
+			delete(auth, "forwardToken")
+			delete(auth, "tokenExchange")
+			auth["type"] = "oauth"
 			auth["authorizationServer"] = pin
 		}
 		spec["auth"] = auth

@@ -1,0 +1,137 @@
+name: "oauth-backend-401-answers-auth-required"
+category: "behavioral"
+concept: "oauth"
+description: |
+  A backend that refuses a session's credential with a 401 during a tool
+  call gets the session the auth_required answer for that server -- the
+  challenge with the sign-in link that core_auth_login gives -- on that very
+  call, never the 401 as a transport error. The session is back to
+  auth_required for the server at once: auth://status says so, and the
+  completed sign-in connects it again.
+
+    1. The session signs in to a pinned OAuth server; a tool call runs.
+    2. The authorization server revokes every token while muster still holds
+       one: the backend answers the pooled connection's next call with 401.
+    3. That call answers auth_required with a sign-in link; auth://status
+       reads auth_required; the service state syncs to auth_required.
+    4. The sign-in completes; the call runs again.
+
+  The auth-loss detector (oauth-token-loss-terminal-auth-required) retires a
+  connection after three consecutive 401s from the transport's own retries;
+  this is the tool-call path, where one refused call is enough (#1276).
+tags: ["oauth", "auth-required", "401", "regression", "1276"]
+timeout: "3m"
+
+pre_configuration:
+  mock_oauth_servers:
+    - name: "svc-as"
+      scopes: ["repo"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "svc-client"
+
+  mcp_servers:
+    - name: "svc"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "svc-as"
+          pin_authorization_server: true
+          scope: "repo"
+        tools:
+          - name: "op"
+            description: "Answers with the bearer svc received"
+            echo_token: true
+            responses:
+              - response:
+                  source: "svc"
+
+steps:
+  - id: server-registered
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["svc"]
+
+  - id: sign-in
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "svc"
+    expected:
+      success: true
+      wait_for_state: "30s"
+
+  - id: connected
+    tool: "core_auth_login"
+    args:
+      server: "svc"
+    expected:
+      success: true
+      contains: ["already authenticated"]
+
+  - id: call-runs
+    tool: "x_svc_op"
+    args: {}
+    expected:
+      success: true
+      contains: ["svc", "received_token"]
+
+  - id: authorization-server-revokes-the-tokens
+    tool: "test_revoke_token"
+    args:
+      server: "svc-as"
+    expected:
+      success: true
+      contains: ["Revoked"]
+
+  - id: refused-call-answers-the-sign-in
+    description: "The first refused call answers auth_required with the sign-in link, not a transport error"
+    tool: "x_svc_op"
+    args: {}
+    expected:
+      success: false
+      error_contains: ["auth_required", "svc", "rejected this session's credentials", "Please sign in"]
+      not_contains: ["transport error", "unauthorized (401)"]
+
+  - id: session-is-auth-required
+    tool: "test_read_auth_status"
+    args:
+      server: "svc"
+    expected:
+      success: true
+      contains: ["svc", '"status": "auth_required"']
+
+  - id: service-state-synced
+    description: "The refused connection was the server's last: the service state follows"
+    tool: "core_service_status"
+    args:
+      name: "svc"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "svc"
+        state: "auth_required"
+
+  - id: sign-in-again
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "svc"
+    expected:
+      success: true
+
+  - id: call-runs-again
+    tool: "x_svc_op"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["svc", "received_token"]
+
+instance_logs:
+  not_contains:
+    - "transport error: unauthorized"

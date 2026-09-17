@@ -12,6 +12,7 @@ import (
 	"github.com/giantswarm/muster/v5/internal/config"
 	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/spf13/cobra"
 )
 
@@ -51,10 +52,16 @@ var authLogoutCmd = &cobra.Command{
 This command removes cached authentication tokens, requiring you to
 re-authenticate on the next connection to protected endpoints.
 
+With --server the command signs the session out of one MCP server at the
+aggregator and nothing else: the server's tools are hidden for this session
+until 'muster auth login --server <name>', and the session stays signed in to
+the aggregator. Without --server the stored token for the aggregator is
+removed, which ends the session with every server.
+
 Examples:
   muster auth logout                   # Logout from configured aggregator
   muster auth logout --endpoint <url>  # Logout from specific endpoint
-  muster auth logout -s <name>         # Logout from specific MCP server
+  muster auth logout -s <name>         # Disconnect one MCP server, stay signed in
   muster auth logout --all             # Clear all stored tokens
   muster auth logout --all --yes       # Clear all without confirmation`,
 	RunE: runAuthLogout,
@@ -115,7 +122,7 @@ func init() {
 	// Logout-specific flags (only on logout subcommand)
 	authLogoutCmd.Flags().BoolVar(&logoutAll, "all", false, "Clear all stored tokens")
 	authLogoutCmd.Flags().BoolVarP(&logoutYes, "yes", "y", false, "Skip confirmation prompt for --all")
-	authLogoutCmd.Flags().StringVarP(&logoutServer, "server", "s", "", "MCP server name to disconnect")
+	authLogoutCmd.Flags().StringVarP(&logoutServer, "server", "s", "", "MCP server to sign out of for this session (the aggregator session stays)")
 }
 
 func runAuthLogout(cmd *cobra.Command, args []string) error {
@@ -171,19 +178,21 @@ func runAuthLogout(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Determine which endpoint to logout from
+	// Determine which aggregator the logout is about
 	var endpoint string
 	if authEndpoint != "" {
 		endpoint = authEndpoint
-	} else if logoutServer != "" {
-		// MCP server logout - show guidance based on SSO mechanism
-		return showMCPServerLogoutGuidance(cmd.Context(), handler, logoutServer)
 	} else {
 		// Use configured aggregator endpoint
 		endpoint, err = getEndpointFromConfig()
 		if err != nil {
 			return err
 		}
+	}
+
+	// --server signs the session out of one MCP server at that aggregator
+	if logoutServer != "" {
+		return logoutFromMCPServer(cmd.Context(), handler, endpoint, logoutServer)
 	}
 
 	if err := handler.Logout(endpoint); err != nil {
@@ -243,71 +252,118 @@ func runAuthWhoami(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// showMCPServerLogoutGuidance displays logout guidance for a specific MCP server.
-// It explains the authentication mechanism in use and how to disconnect.
-// Note: This function provides informational output only; it does not perform logout.
-func showMCPServerLogoutGuidance(ctx context.Context, handler api.AuthHandler, serverName string) error {
-	// Get the aggregator endpoint
-	endpoint, err := getEndpointFromConfig()
+// logoutFromMCPServer signs the CLI's session out of one MCP server at the
+// aggregator (core_auth_logout): the server's authenticated mark, cached tools
+// and pooled connection go for this session, and the session's own sign-in to
+// the aggregator stays -- the aggregator's answer is what the person reads.
+// An SSO server (token forwarding, token exchange) is connected from the
+// session's muster token and has no sign-out of its own; the command explains
+// that instead. Without a session at the aggregator there is nothing to sign
+// out of, and no browser flow is started for a logout.
+func logoutFromMCPServer(ctx context.Context, handler api.AuthHandler, endpoint, serverName string) error {
+	handler.InvalidateCache(endpoint)
+	client, err := createConnectedClient(ctx, endpoint)
+	if err != nil {
+		if pkgoauth.IsOAuthUnauthorizedError(err) {
+			authPrint("Not authenticated to %s; there is no session to sign '%s' out of.\n", endpoint, serverName)
+			return nil
+		}
+		return err
+	}
+	defer func() { _ = client.Close() }()
+
+	authStatus, err := parseAuthStatusResource(ctx, client)
 	if err != nil {
 		return err
 	}
-
-	// Fetch auth status directly -- the mcp-go transport handles token
-	// refresh transparently.
-	handler.InvalidateCache(endpoint)
-	authStatus, err := getAuthStatusFromAggregator(ctx, handler, endpoint)
-	if err != nil {
-		if pkgoauth.IsOAuthUnauthorizedError(err) {
-			authPrintln("Not authenticated to aggregator.")
-			authPrintln("Run 'muster auth login' first to check server status.")
-			return nil
-		}
-		authPrintln("Note: MCP server authentication is managed by the aggregator.")
-		authPrintln("To disconnect all servers, run: muster auth logout")
+	server := findServerAuthStatus(authStatus, serverName)
+	if server == nil {
+		return fmt.Errorf("server '%s' not found. Use 'muster auth status' to see available servers", serverName)
+	}
+	if guidance := ssoLogoutGuidance(*server); guidance != "" {
+		authPrint("%s", guidance)
 		return nil
 	}
 
-	// Find the requested server
-	var serverInfo *pkgoauth.ServerAuthStatus
+	result, err := client.CallTool(ctx, "core_auth_logout", map[string]any{"server": serverName})
+	if err != nil {
+		return fmt.Errorf("failed to sign out of server '%s': %w", serverName, err)
+	}
+	said := toolResultText(result)
+	if result.IsError {
+		return fmt.Errorf("could not sign out of server '%s': %s", serverName, said)
+	}
+	authPrint("%s", mcpServerLogoutSummary(serverName, endpoint, said))
+	return nil
+}
+
+// findServerAuthStatus returns the auth status of one server from the
+// aggregator's auth://status answer, or nil when the server is not listed.
+func findServerAuthStatus(authStatus *pkgoauth.AuthStatusResponse, serverName string) *pkgoauth.ServerAuthStatus {
+	if authStatus == nil {
+		return nil
+	}
 	for i := range authStatus.Servers {
 		if authStatus.Servers[i].Name == serverName {
-			serverInfo = &authStatus.Servers[i]
-			break
+			return &authStatus.Servers[i]
 		}
 	}
+	return nil
+}
 
-	if serverInfo == nil {
-		return fmt.Errorf("server '%s' not found. Use 'muster auth status' to see available servers", serverName)
-	}
-
-	// Provide appropriate message based on authentication mechanism
-	if serverInfo.TokenExchangeEnabled {
-		authPrint(`Server '%s' uses SSO via Token Exchange.
+// ssoLogoutGuidance explains why a server connected through SSO cannot be
+// signed out of on its own and what disconnects it; empty for a server the
+// person signs in to with 'muster auth login --server'.
+func ssoLogoutGuidance(server pkgoauth.ServerAuthStatus) string {
+	switch {
+	case server.TokenExchangeEnabled:
+		return fmt.Sprintf(`Server '%s' uses SSO via Token Exchange.
 
 This server uses RFC 8693 Token Exchange. muster exchanges its token
 for one valid on the remote cluster's Identity Provider.
 
 To disconnect, log out from muster:
   muster auth logout
-`, serverName)
-	} else if serverInfo.TokenForwardingEnabled {
-		authPrint(`Server '%s' uses SSO via Token Forwarding.
+`, server.Name)
+	case server.TokenForwardingEnabled:
+		return fmt.Sprintf(`Server '%s' uses SSO via Token Forwarding.
 
 This server automatically receives your muster ID token. You authenticated
 once to muster, and that identity is forwarded to this server.
 
 To disconnect, log out from muster:
   muster auth logout
-`, serverName)
-	} else {
-		authPrint(`Server '%s' uses direct authentication.
-
-MCP server sessions are managed by the aggregator and will be cleared
-when you log out from the aggregator:
-  muster auth logout
-`, serverName)
+`, server.Name)
 	}
+	return ""
+}
 
-	return nil
+// mcpServerLogoutSummary words a completed per-server sign-out for the
+// terminal: what happened to this session, what the aggregator added about
+// the person's grant (a subject-scoped grant is revoked for every session of
+// the person, and the servers sharing it are named), and how to reconnect.
+func mcpServerLogoutSummary(serverName, endpoint, aggregatorAnswer string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Signed out of server '%s' for this session; you stay signed in to %s.\n", serverName, endpoint)
+	for _, paragraph := range strings.Split(aggregatorAnswer, "\n\n") {
+		if strings.Contains(paragraph, "revoked for all your sessions") {
+			b.WriteString(strings.TrimSpace(paragraph) + "\n")
+		}
+	}
+	fmt.Fprintf(&b, "To reconnect: muster auth login --server %s\n", serverName)
+	return b.String()
+}
+
+// toolResultText joins the text parts of a tool result.
+func toolResultText(result *mcp.CallToolResult) string {
+	if result == nil {
+		return ""
+	}
+	var parts []string
+	for _, content := range result.Content {
+		if textContent, ok := mcp.AsTextContent(content); ok {
+			parts = append(parts, textContent.Text)
+		}
+	}
+	return strings.Join(parts, "\n")
 }

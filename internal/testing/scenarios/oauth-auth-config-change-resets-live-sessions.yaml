@@ -1,0 +1,233 @@
+name: "oauth-auth-config-change-resets-live-sessions"
+category: "behavioral"
+concept: "oauth"
+description: |
+  A session connected to a server through auth.forwardToken is put back to
+  auth_required for that server when its MCPServer is switched to a pinned
+  authorization server (spec.auth.type: oauth + authorizationServer with
+  grantScope: subject), without a new session and without a muster restart:
+
+    1. The session is signed in to muster; its forwarded login token connects
+       the server (still anonymous, the old pod) and a tool call succeeds.
+    2. The backend rolls over to a resource server of another authorization
+       server: the forwarded token is now refused with a bare 401.
+    3. The MCPServer is switched to the pinned authorization server. The
+       reconciler restarts the service, whose probe meets the 401; the
+       aggregator registers the new configuration and resets every live
+       session's state for the server (`session_auth_reset` in the log).
+    4. auth://status reads auth_required for the server; the session's next
+       tool call answers the auth_required challenge with the sign-in link
+       instead of running; core_auth_login answers the same challenge and
+       the completed sign-in connects the server; the call runs with the
+       grant from the pinned authorization server.
+    5. core_auth_logout on the server signs the session out of that server
+       alone: the session keeps talking to the aggregator, and the next
+       core_auth_login asks for a sign-in again.
+
+  Regression (giantswarm/muster#1276): the session kept its Connected state
+  and its pooled forwardToken connection after the switch. `muster auth
+  status` said Connected, the tool call failed with the backend's 401 as
+  `transport error: authorization required`, `muster auth login --server`
+  refused ("already connected and does not require authentication"), and only
+  a sign-out of the whole aggregator ended it.
+tags: ["oauth", "authorization-server", "pin", "forward-token", "update", "regression", "1276"]
+timeout: "3m"
+
+pre_configuration:
+  mock_oauth_servers:
+    # muster's own identity provider: the login token the session forwards.
+    - name: "platform-idp"
+      scopes: ["openid", "profile", "email", "groups"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "platform-client"
+      client_secret: "platform-secret"
+      use_as_muster_oauth_server: true
+      sign_tokens: true
+
+    # The authorization server the backend switches to; the person's grants
+    # from it are filed under the person (grantScope: subject).
+    - name: "github-like"
+      scopes: ["repo"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "github-like-client"
+
+  mcp_servers:
+    - name: "svc"
+      config:
+        type: "streamable-http"
+        # Tools are served per session only; readiness must not wait for them.
+        expect_ready: false
+        oauth:
+          # The old pod: anonymous, connected through the forwarded login
+          # token. Once flipped it validates tokens against github-like and
+          # answers everything else with a bare 401, no RFC 9728 metadata.
+          required: false
+          mock_oauth_server_ref: "github-like"
+          forward_token: true
+          omit_resource_metadata: true
+          scope: "repo"
+        tools:
+          - name: "op"
+            description: "Answers with the bearer svc received"
+            echo_token: true
+            responses:
+              - response:
+                  source: "svc"
+
+steps:
+  - id: forward-token-server-waits-for-sessions
+    tool: "core_service_status"
+    args:
+      name: "svc"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "svc"
+        state: "auth_required"
+
+  - id: sign-in-to-muster
+    description: "The session signs in to muster; its SSO init forwards the login token to svc"
+    tool: "test_muster_auth_login"
+    args: {}
+    expected:
+      success: true
+      contains: ["success", "ID token stored"]
+
+  - id: connected-through-the-forwarded-token
+    tool: "test_read_auth_status"
+    args:
+      server: "svc"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["svc", '"status": "connected"']
+
+  - id: call-runs-before-the-switch
+    tool: "x_svc_op"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["svc"]
+
+  - id: backend-switches-authorization-servers
+    description: "The new pod validates tokens against github-like; the forwarded login token is refused with a bare 401"
+    tool: "test_set_mock_server_auth"
+    args:
+      server: "svc"
+      required: true
+    expected:
+      success: true
+      contains: ["requires a bearer token"]
+
+  - id: mcpserver-switched-to-the-pinned-authorization-server
+    description: "forwardToken goes, the pin comes: the operator's switch of the MCPServer"
+    tool: "test_pin_mcpserver_authorization_server"
+    args:
+      server: "svc"
+      issuer_ref: "github-like"
+      grant_scope: "subject"
+      scopes: "repo"
+    expected:
+      success: true
+
+  - id: definition-carries-the-pin
+    tool: "core_mcpserver_get"
+    args:
+      name: "svc"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["authorizationServer", "subject"]
+      not_contains: ["forwardToken"]
+
+  - id: session-is-back-to-auth-required
+    description: "The live session's state for the server was reset when the new configuration registered"
+    tool: "test_read_auth_status"
+    args:
+      server: "svc"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["svc", '"status": "auth_required"']
+
+  - id: next-call-answers-the-sign-in
+    description: "The session's tools are still known; the call answers auth_required with the sign-in link, not a transport error"
+    tool: "x_svc_op"
+    args: {}
+    expected:
+      success: false
+      error_contains: ["auth_required", "svc", "Please sign in"]
+      not_contains: ["transport error", "authorization required"]
+
+  - id: login-answers-the-challenge
+    description: "core_auth_login is not refused as already authenticated"
+    tool: "core_auth_login"
+    args:
+      server: "svc"
+    expected:
+      success: true
+      contains: ["Authentication Required"]
+      not_contains: ["already authenticated", "already connected"]
+
+  - id: sign-in-completes-at-the-pinned-authorization-server
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "svc"
+    expected:
+      success: true
+
+  - id: call-runs-with-the-new-grant
+    description: "The backend sees a github-like bearer, not the forwarded login token"
+    tool: "x_svc_op"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["svc", "received_token"]
+
+  - id: connected-again
+    tool: "test_read_auth_status"
+    args:
+      server: "svc"
+    expected:
+      success: true
+      contains: ["svc", '"status": "connected"']
+
+  - id: logout-of-the-one-server
+    description: "core_auth_logout signs the session out of svc alone"
+    tool: "core_auth_logout"
+    args:
+      server: "svc"
+    expected:
+      success: true
+      contains: ["Successfully logged out from 'svc'"]
+
+  - id: session-still-talks-to-the-aggregator
+    description: "The aggregator session is intact: the same session reads its status and finds svc signed out"
+    tool: "test_read_auth_status"
+    args:
+      server: "svc"
+    expected:
+      success: true
+      contains: ["svc", '"status": "auth_required"']
+
+  - id: login-asks-for-a-sign-in-again
+    tool: "core_auth_login"
+    args:
+      server: "svc"
+    expected:
+      success: true
+      contains: ["Authentication Required"]
+      not_contains: ["already authenticated"]
+
+instance_logs:
+  contains:
+    - "session_auth_reset"
+  not_contains:
+    - "transport error: authorization required"

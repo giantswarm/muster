@@ -211,16 +211,19 @@ steps:
       contains:
         - "alice"
 
-  # bob holds no grant: the failure stays what it was.
+  # bob holds no grant: the call does not run and answers auth_required with
+  # bob's own sign-in link for the server.
   - id: bob-call-fails
     as_user: "bob"
-    description: "A session of another person without a grant is still not authenticated"
+    description: "A session of another person without a grant is still not authenticated and is answered the sign-in"
     tool: "x_github-style_get_me"
     args: {}
     expected:
       success: false
       error_contains:
+        - "auth_required"
         - "not authenticated"
+        - "Please sign in"
 
   - id: bob-list-tools
     as_user: "bob"
