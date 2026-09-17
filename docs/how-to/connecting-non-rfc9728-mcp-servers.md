@@ -187,6 +187,45 @@ restart:
 Session-scoped tokens (the default) are not touched by this: their refresh
 stays with the MCP transport as before.
 
+### Two clients of one authorization server
+
+The grant is filed under the pinned `issuer`, so two MCPServers that pin the
+same issuer share one grant (the SSO reuse above). When they must not -- two
+GitHub Apps, each with its own permissions, each consented to and signed out
+of on its own -- pin each under its own identity and name the issuer the
+authorization server really sends in `expectedIssuer`:
+
+```yaml
+auth:
+  type: oauth
+  authorizationServer:
+    issuer: https://github.com/apps/second-app       # the identity: the grant key
+    expectedIssuer: https://github.com/login/oauth    # what GitHub puts in `iss`
+    authorizationEndpoint: https://github.com/login/oauth/authorize
+    tokenEndpoint: https://github.com/login/oauth/access_token
+    clientCredentialsSecretRef:
+      name: second-app-oauth-client
+    grantScope: subject
+```
+
+- `issuer` is the identity the pin files the grant under and nothing else is
+  compared against it; any HTTPS URL unique to the App does, its App page
+  being the natural choice. One consent, one refresh chain and one
+  `core_auth_logout` per identity: signing out of one App leaves the other
+  connected.
+- `expectedIssuer` is the issuer identifier the authorization server publishes
+  and puts in the RFC 9207 `iss` parameter of its authorization responses --
+  `https://github.com/login/oauth` for GitHub. Without it the pinned identity
+  is expected and GitHub's callback is refused; muster's log then says
+  `iss mismatch: response carried "https://github.com/login/oauth", expected
+  "https://github.com/apps/<slug>"`. The field needs the pinned endpoints and
+  changes nothing about where the grant is stored, how it is refreshed or
+  released; a response without `iss` is accepted as before.
+- Both Apps share `authorizationEndpoint` and `tokenEndpoint`; each brings its
+  own `clientCredentialsSecretRef`.
+- Leave `scopes` empty for a GitHub App: its permissions are configured on the
+  App itself; a `scope` parameter is for OAuth Apps.
+
 ## Releasing a person's grant to a trusted relying party
 
 A front-end that talks to the same external account with its own client

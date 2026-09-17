@@ -211,6 +211,11 @@ type MCPServerAuthAuthorizationServer struct {
 	AuthorizationEndpoint string `yaml:"authorizationEndpoint,omitempty" json:"authorizationEndpoint,omitempty"`
 	TokenEndpoint         string `yaml:"tokenEndpoint,omitempty" json:"tokenEndpoint,omitempty"`
 
+	// ExpectedIssuer is the issuer identifier the authorization server puts in
+	// the RFC 9207 `iss` parameter when that differs from Issuer, which stays
+	// the grant key. Only with pinned endpoints. See the v1alpha1 CRD field.
+	ExpectedIssuer string `yaml:"expectedIssuer,omitempty" json:"expectedIssuer,omitempty"`
+
 	// ClientCredentialsSecretRef references the Secret holding a client
 	// registered with this authorization server out of band; muster then uses
 	// it instead of CIMD or dynamic registration. See the v1alpha1 CRD field.
@@ -237,6 +242,25 @@ func (a *MCPServerAuthAuthorizationServer) HasPinnedEndpoints() bool {
 // to the person rather than to one login session.
 func (a *MCPServerAuthAuthorizationServer) SubjectScoped() bool {
 	return a != nil && a.GrantScope == GrantScopeSubject
+}
+
+// ValidateAuthorizationServer checks the parts of spec.auth.authorizationServer
+// the CRD's own rules express as CEL, for the paths that do not go through the
+// API server (filesystem mode, core_mcpserver_validate): expectedIssuer makes
+// sense only on a pin with explicit endpoints -- without them muster discovers
+// the authorization server and compares against the issuer it publishes.
+func ValidateAuthorizationServer(auth *MCPServerAuth) error {
+	if auth == nil || auth.AuthorizationServer == nil {
+		return nil
+	}
+	as := auth.AuthorizationServer
+	if (as.AuthorizationEndpoint == "") != (as.TokenEndpoint == "") {
+		return fmt.Errorf("auth.authorizationServer: authorizationEndpoint and tokenEndpoint must be set together")
+	}
+	if as.ExpectedIssuer != "" && !as.HasPinnedEndpoints() {
+		return fmt.Errorf("auth.authorizationServer.expectedIssuer needs authorizationEndpoint and tokenEndpoint")
+	}
+	return nil
 }
 
 // TokenExchangeConfig configures RFC 8693 Token Exchange for cross-cluster SSO.

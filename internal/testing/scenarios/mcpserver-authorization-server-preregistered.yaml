@@ -1,5 +1,5 @@
 name: "mcpserver-authorization-server-preregistered"
-description: "MCPServer accepts a fully pinned authorization server: endpoints without a discovery document, a pre-registered client from a Secret, and subject-scoped grants (GitHub-style)"
+description: "MCPServer accepts a fully pinned authorization server: endpoints without a discovery document, a pre-registered client from a Secret, subject-scoped grants and an identity apart from the issuer the server sends (GitHub-style)"
 category: "behavioral"
 concept: "mcpserver"
 tags: ["mcpserver", "create", "oauth", "authentication", "github"]
@@ -7,7 +7,7 @@ timeout: "1m"
 
 steps:
 - id: "create-with-pinned-authorization-server"
-  description: "Create an MCPServer whose authorization server is described by pinned endpoints, a pre-registered client and subject-scoped grants"
+  description: "Create an MCPServer whose authorization server is described by pinned endpoints, a pre-registered client, subject-scoped grants and an expectedIssuer apart from the pinned identity"
   tool: "core_mcpserver_create"
   args:
     name: "github-style-server"
@@ -17,9 +17,10 @@ steps:
     auth:
       type: "oauth"
       authorizationServer:
-        issuer: "https://github.example.com/login/oauth"
+        issuer: "https://github.example.com/apps/example-app"
         authorizationEndpoint: "https://github.example.com/login/oauth/authorize"
         tokenEndpoint: "https://github.example.com/login/oauth/access_token"
+        expectedIssuer: "https://github.example.com/login/oauth"
         scopes: "repo read:org"
         clientCredentialsSecretRef:
           name: "github-oauth-client"
@@ -38,10 +39,29 @@ steps:
       name: "github-style-server"
     contains:
       - "authorizationServer"
+      - "https://github.example.com/apps/example-app"
+      - "expectedIssuer"
       - "https://github.example.com/login/oauth/authorize"
       - "https://github.example.com/login/oauth/access_token"
       - "github-oauth-client"
       - "subject"
+
+- id: "expected-issuer-needs-pinned-endpoints"
+  description: "expectedIssuer without authorizationEndpoint and tokenEndpoint is refused"
+  tool: "core_mcpserver_create"
+  args:
+    name: "discovered-with-expected-issuer"
+    type: "streamable-http"
+    url: "https://mcp.example.com/mcp"
+    timeout: 30
+    auth:
+      type: "oauth"
+      authorizationServer:
+        issuer: "https://as.example.com/apps/example-app"
+        expectedIssuer: "https://as.example.com"
+  expected:
+    success: false
+    error_contains: ["expectedIssuer needs authorizationEndpoint and tokenEndpoint"]
 
 cleanup:
 - id: "cleanup-github-style-server"

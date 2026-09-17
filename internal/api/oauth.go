@@ -137,9 +137,13 @@ type OAuthHandler interface {
 type IssuerPin struct {
 	AuthorizationEndpoint string
 	TokenEndpoint         string
-	ClientID              string
-	ClientSecret          string
-	SubjectScoped         bool
+	// ExpectedIssuer is the issuer identifier the authorization server puts in
+	// the RFC 9207 iss parameter when it differs from the pinned identity;
+	// empty when the identity itself is expected.
+	ExpectedIssuer string
+	ClientID       string
+	ClientSecret   string
+	SubjectScoped  bool
 }
 
 // IssuerPinner is implemented by an OAuthHandler that accepts operator pins

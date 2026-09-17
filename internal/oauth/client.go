@@ -52,12 +52,19 @@ const ClientIDMethodPreregistered = "preregistered"
 
 // IssuerPin is what an operator configured for one authorization server on an
 // MCPServer (spec.auth.authorizationServer) beyond the issuer itself: a
-// pre-registered client, and whether the tokens the AS issues belong to the
-// person (subject) or to the login session that obtained them.
+// pre-registered client, whether the tokens the AS issues belong to the
+// person (subject) or to the login session that obtained them, and the
+// issuer identifier the AS puts in the RFC 9207 iss parameter when the pinned
+// identity is not it.
 type IssuerPin struct {
 	ClientID      string
 	ClientSecret  string
 	SubjectScoped bool
+
+	// ExpectedIssuer is what a present iss on the authorization response has
+	// to equal instead of the pinned identity; empty for the identity itself.
+	// The identity stays the grant key either way.
+	ExpectedIssuer string
 }
 
 // subjectSessionID is the token-store session under which a subject-scoped
@@ -211,8 +218,8 @@ func (c *Client) PinIssuer(issuer string, pin IssuerPin, metadata *pkgoauth.Meta
 	c.pinsMu.Lock()
 	c.pins[issuer] = &pin
 	c.pinsMu.Unlock()
-	logging.Info("OAuth", "Pinned authorization server issuer=%s preregisteredClient=%t subjectScoped=%t pinnedMetadata=%t",
-		issuer, pin.ClientID != "", pin.SubjectScoped, metadata != nil)
+	logging.Info("OAuth", "Pinned authorization server issuer=%s preregisteredClient=%t subjectScoped=%t pinnedMetadata=%t expectedIssuer=%q",
+		issuer, pin.ClientID != "", pin.SubjectScoped, metadata != nil, pin.ExpectedIssuer)
 }
 
 // UnpinIssuer forgets the operator's description of an authorization server:
@@ -238,6 +245,17 @@ func (c *Client) issuerPin(issuer string) *IssuerPin {
 	c.pinsMu.RLock()
 	defer c.pinsMu.RUnlock()
 	return c.pins[strings.TrimSuffix(issuer, "/")]
+}
+
+// expectedResponseIssuer returns the issuer identifier the operator says the
+// pinned authorization server puts in the RFC 9207 iss parameter, or "" when
+// the pin names none and the pinned identity itself is expected.
+func (c *Client) expectedResponseIssuer(issuer string) string {
+	pin := c.issuerPin(issuer)
+	if pin == nil {
+		return ""
+	}
+	return pin.ExpectedIssuer
 }
 
 // subjectScoped reports whether grants from the issuer belong to the person.

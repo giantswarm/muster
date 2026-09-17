@@ -133,6 +133,7 @@ the MCP server as its own workload and register it with `streamable-http` or
 | `forwardToken` | `boolean` | No | Forward muster's ID token for SSO | Default: `false` |
 | `requiredAudiences` | `[]string` | No | Additional audiences to request from IdP for SSO | Used with `forwardToken` or `tokenExchange` |
 | `tokenExchange` | `TokenExchangeConfig` | No | RFC 8693 token exchange for cross-cluster SSO | See below |
+| `authorizationServer` | `MCPServerAuthAuthorizationServer` | No | Pins the OAuth authorization server when the MCP server publishes no RFC 9728 metadata; with endpoints, a pre-registered client and a grant scope it describes one muster cannot discover or register with (GitHub) | See below |
 
 **Note on `requiredAudiences`**: When using SSO (token forwarding or token exchange) with downstream servers that require specific audience claims (e.g., Kubernetes OIDC authentication), specify the required audiences here.
 
@@ -155,6 +156,20 @@ Example: `requiredAudiences: ["dex-k8s-authenticator"]`.
 | `clientCredentialsSecretRef` | `ClientCredentialsSecretRef` | No | Reference to secret containing OAuth client credentials | See below |
 
 **Security Note**: muster validates that the exchanged token's `iss` claim matches `expectedIssuer` using constant-time comparison. This prevents token substitution attacks in proxied access scenarios. When `expectedIssuer` is not specified, the issuer is derived from `dexTokenEndpoint` by removing the `/token` suffix (backward compatible). Set `expectedIssuer` explicitly when accessing Dex through a proxy where the access URL differs from Dex's configured issuer.
+
+#### MCPServerAuthAuthorizationServer Fields
+
+| Field | Type | Required | Description | Constraints |
+|-------|------|----------|-------------|-------------|
+| `issuer` | `string` | Yes | Issuer URL of the authorization server the sign-in runs against, and the identity the grants are filed under (the token-store key) | HTTPS; no trailing slash, query or fragment |
+| `authorizationEndpoint` | `string` | No | Authorization endpoint of a server without an RFC 8414 / OIDC discovery document (GitHub); muster then performs no discovery and assumes S256 PKCE | Set together with `tokenEndpoint`; HTTPS |
+| `tokenEndpoint` | `string` | No | Token endpoint of such a server | Set together with `authorizationEndpoint`; HTTPS |
+| `expectedIssuer` | `string` | No | Issuer identifier the server puts in the RFC 9207 `iss` parameter of its authorization responses when that differs from `issuer`, which stays the grant key -- two GitHub Apps pinned under `https://github.com/apps/<slug>` each, both with `expectedIssuer: https://github.com/login/oauth` | Needs `authorizationEndpoint` and `tokenEndpoint`; HTTPS. Default: `issuer` |
+| `clientCredentialsSecretRef` | `ClientCredentialsSecretRef` | No | Secret holding a client registered with the server out of band (a GitHub App or OAuth App); used instead of muster's Client ID Metadata Document or a dynamic registration | See below |
+| `grantScope` | `string` | No | Whom a token belongs to: `session` (the login session that obtained it) or `subject` (the person; every session of the same person reuses it until `core_auth_logout` on this server) | `session` or `subject`. Default: `session` |
+| `scopes` | `string` | No | OAuth `scope` parameter value (space-separated scope tokens); leave empty for a GitHub App | |
+
+See [Connecting to MCP servers that don't publish RFC 9728 metadata](../how-to/connecting-non-rfc9728-mcp-servers.md) for the flows these fields configure.
 
 #### ClientCredentialsSecretRef Fields
 

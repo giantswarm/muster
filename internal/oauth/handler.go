@@ -245,10 +245,14 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 // authorization_response_iss_parameter_supported, and accepted otherwise:
 // most deployed authorization servers still omit the parameter.
 //
-// The expected value is the issuer from the server's own metadata. When the
-// metadata is not reachable the comparison falls back to the issuer recorded
-// with the state, and then ignores a trailing slash on either side, because
-// that value is operator-configured rather than published by the server.
+// The expected value is the issuer from the server's own metadata. A pin may
+// name the identifier the server really sends (IssuerPin.ExpectedIssuer) when
+// the pinned identity is not it: several MCPServers pinned to one server under
+// different identities keep separate grants, and the server's own identifier
+// is what arrives on the callback. When the metadata is not reachable the
+// comparison falls back to the issuer recorded with the state. Both of those
+// values are operator-configured rather than published by the server, so the
+// comparison against them ignores a trailing slash on either side.
 func (h *Handler) validateResponseIssuer(ctx context.Context, state *OAuthState, iss string) error {
 	metadata, err := h.client.DiscoverMetadata(ctx, state.Issuer)
 	if (err != nil || metadata == nil) && iss == "" {
@@ -258,6 +262,13 @@ func (h *Handler) validateResponseIssuer(ctx context.Context, state *OAuthState,
 	if iss == "" {
 		if metadata.AuthorizationResponseIssParameterSupported {
 			return fmt.Errorf("no iss on the response although %q advertises authorization_response_iss_parameter_supported", state.Issuer)
+		}
+		return nil
+	}
+
+	if expected := h.client.expectedResponseIssuer(state.Issuer); expected != "" {
+		if strings.TrimSuffix(iss, "/") != strings.TrimSuffix(expected, "/") {
+			return fmt.Errorf("iss mismatch: response carried %q, expected %q", iss, expected)
 		}
 		return nil
 	}

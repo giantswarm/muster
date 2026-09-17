@@ -566,6 +566,21 @@ type MCPServerOAuthConfig struct {
 	// referenced mock OAuth server's profile (true for github).
 	OmitResourceMetadata *bool `yaml:"omit_resource_metadata,omitempty"`
 
+	// PinIdentityPath, appended to the referenced mock OAuth server's issuer
+	// URL, is the identity the pin files the grant under instead of that
+	// issuer -- a GitHub App pinned under https://github.com/apps/<slug>.
+	// Implies the pin; needs the server's endpoints (pin_endpoints_ref, or a
+	// profile that implies them) and, for a callback that carries `iss` to
+	// complete, expected_issuer_ref naming the server.
+	PinIdentityPath string `yaml:"pin_identity_path,omitempty"`
+
+	// ExpectedIssuerRef names the mock OAuth server whose issuer URL the pin
+	// carries as spec.auth.authorizationServer.expectedIssuer: the issuer the
+	// server puts in the RFC 9207 `iss` parameter (test_simulate_oauth_callback
+	// with send_iss: true) when the pinned identity differs from it. Implies
+	// the pin.
+	ExpectedIssuerRef string `yaml:"expected_issuer_ref,omitempty"`
+
 	// AdvertisedIssuerRef names the mock OAuth server the backend's RFC 9728
 	// metadata lists as its authorization server, while tokens are still
 	// validated against MockOAuthServerRef -- a backend that accepts tokens

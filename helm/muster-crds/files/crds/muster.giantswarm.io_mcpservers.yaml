@@ -135,6 +135,20 @@ spec:
                         required:
                         - name
                         type: object
+                      expectedIssuer:
+                        description: |-
+                          ExpectedIssuer is the issuer identifier the authorization server itself
+                          publishes and puts in the RFC 9207 `iss` parameter of its authorization
+                          responses, when that differs from Issuer. Issuer stays the identity the
+                          grants are filed under; ExpectedIssuer only decides which value a
+                          present `iss` on the callback has to equal. Set it when several
+                          MCPServers pin one authorization server under different identities so
+                          their grants stay apart -- two GitHub Apps, say: each is pinned under
+                          its own identity (https://github.com/apps/<slug>) with ExpectedIssuer
+                          https://github.com/login/oauth, the issuer GitHub sends. Needs
+                          AuthorizationEndpoint and TokenEndpoint. Default: Issuer.
+                        pattern: ^https://[^/?#]+(/[^?#]*[^/?#])?$
+                        type: string
                       grantScope:
                         description: |-
                           GrantScope decides whom a token obtained from this authorization server
@@ -166,7 +180,9 @@ spec:
                           muster fetches AS metadata via the existing OAuth client, which performs
                           RFC 8414 / OIDC discovery against this issuer -- unless
                           AuthorizationEndpoint and TokenEndpoint are set, in which case no
-                          discovery happens and the issuer is only that identity.
+                          discovery happens and the issuer is only that identity. When the
+                          authorization server publishes a different issuer identifier than the
+                          identity pinned here, set ExpectedIssuer.
                         pattern: ^https://[^/?#]+(/[^?#]*[^/?#])?$
                         type: string
                       scopes:
@@ -187,6 +203,8 @@ spec:
                     - message: authorizationEndpoint and tokenEndpoint must be set
                         together
                       rule: has(self.authorizationEndpoint) == has(self.tokenEndpoint)
+                    - message: expectedIssuer needs authorizationEndpoint and tokenEndpoint
+                      rule: '!has(self.expectedIssuer) || has(self.authorizationEndpoint)'
                   forwardToken:
                     default: false
                     description: |-

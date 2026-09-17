@@ -298,6 +298,7 @@ type MCPServerSigV4 struct {
 // user tokens that belong to the person rather than to one login session.
 //
 // +kubebuilder:validation:XValidation:rule="has(self.authorizationEndpoint) == has(self.tokenEndpoint)",message="authorizationEndpoint and tokenEndpoint must be set together"
+// +kubebuilder:validation:XValidation:rule="!has(self.expectedIssuer) || has(self.authorizationEndpoint)",message="expectedIssuer needs authorizationEndpoint and tokenEndpoint"
 type MCPServerAuthAuthorizationServer struct {
 	// Issuer is the OAuth 2.0 / OIDC issuer URL of the authorization server
 	// the sign-in runs against, and the identity the session's grants are
@@ -312,7 +313,9 @@ type MCPServerAuthAuthorizationServer struct {
 	// muster fetches AS metadata via the existing OAuth client, which performs
 	// RFC 8414 / OIDC discovery against this issuer -- unless
 	// AuthorizationEndpoint and TokenEndpoint are set, in which case no
-	// discovery happens and the issuer is only that identity.
+	// discovery happens and the issuer is only that identity. When the
+	// authorization server publishes a different issuer identifier than the
+	// identity pinned here, set ExpectedIssuer.
 	// +kubebuilder:validation:Required
 	Issuer IssuerURL `json:"issuer" yaml:"issuer"`
 
@@ -327,6 +330,18 @@ type MCPServerAuthAuthorizationServer struct {
 	// TokenEndpoint is the authorization server's token endpoint (GitHub:
 	// https://github.com/login/oauth/access_token). See AuthorizationEndpoint.
 	TokenEndpoint IssuerURL `json:"tokenEndpoint,omitempty" yaml:"tokenEndpoint,omitempty"`
+
+	// ExpectedIssuer is the issuer identifier the authorization server itself
+	// publishes and puts in the RFC 9207 `iss` parameter of its authorization
+	// responses, when that differs from Issuer. Issuer stays the identity the
+	// grants are filed under; ExpectedIssuer only decides which value a
+	// present `iss` on the callback has to equal. Set it when several
+	// MCPServers pin one authorization server under different identities so
+	// their grants stay apart -- two GitHub Apps, say: each is pinned under
+	// its own identity (https://github.com/apps/<slug>) with ExpectedIssuer
+	// https://github.com/login/oauth, the issuer GitHub sends. Needs
+	// AuthorizationEndpoint and TokenEndpoint. Default: Issuer.
+	ExpectedIssuer IssuerURL `json:"expectedIssuer,omitempty" yaml:"expectedIssuer,omitempty"`
 
 	// ClientCredentialsSecretRef references a Kubernetes Secret holding a
 	// client registered with this authorization server out of band (a GitHub
