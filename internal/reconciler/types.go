@@ -244,7 +244,7 @@ type ManagerConfig struct {
 	// events — most visibly on overlayfs (CI containers) — and a purely
 	// edge-triggered reconciler never recovers from a lost event. Resync makes
 	// any divergence self-heal within one interval. In-sync resources reconcile
-	// as cheap no-ops. Defaults to DefaultResyncInterval (30 seconds, or
+	// as cheap no-ops. Defaults to DefaultResyncInterval (ten minutes, or
 	// MUSTER_RECONCILER_RESYNC_INTERVAL) if not specified.
 	ResyncInterval time.Duration
 
@@ -346,47 +346,6 @@ const (
 
 // DefaultNamespace is the default namespace for Kubernetes resources.
 const DefaultNamespace = "default"
-
-// DefaultStatusSyncInterval is how often to requeue for periodic status sync.
-// This ensures status is eventually consistent even if state change events are missed.
-//
-// ## Purpose
-//
-// Reconcilers use this interval to schedule periodic re-reconciliation of resources.
-// This implements the "level-triggered" reconciliation pattern from Kubernetes,
-// where we periodically check that desired state matches actual state, rather than
-// relying solely on "edge-triggered" events.
-//
-// ## Tuning Considerations
-//
-//   - **Shorter intervals** (e.g., 10s): More responsive status updates, but higher
-//     API server load and more reconciliation overhead.
-//   - **Longer intervals** (e.g., 60s): Lower load, but status may be stale longer
-//     if state change events are missed.
-//
-// ## Default Value
-//
-// The default of 30 seconds provides a good balance between:
-//   - Responsiveness: Status is refreshed at least every 30 seconds
-//   - Efficiency: Low enough frequency to avoid overwhelming the API server
-//   - Eventual consistency: Missed events are recovered within 30 seconds
-//
-// ## Performance Impact
-//
-// For a deployment with N resources, this generates approximately:
-//   - N / 30 = reconciliations per second (e.g., 100 resources = ~3.3/s)
-//   - Each reconciliation involves: 1 Get + 1 Status Update to the API server
-//
-// ## Customization
-//
-// To customize this interval, you can:
-//  1. Define a custom reconciler with a different interval
-//  2. Set RequeueAfter explicitly in your Reconcile() method
-//
-// Note: This constant is used by MCPServerReconciler for periodic status sync.
-// The Workflow reconciler doesn't currently use periodic requeue as it
-// primarily manages static definitions.
-const DefaultStatusSyncInterval = 30 * time.Second
 
 // FailureLogBackoffTimeout is the maximum time between log entries for persistent
 // failures. Even if a resource is continuously failing, we'll log at least once

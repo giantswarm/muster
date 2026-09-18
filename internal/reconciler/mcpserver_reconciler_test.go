@@ -428,48 +428,114 @@ func TestMCPServerReconciler_ReconcileRestartError(t *testing.T) {
 	}
 }
 
-func TestMCPServerReconciler_PeriodicRequeue(t *testing.T) {
+// inSyncMCPServer wires a running stdio server whose definition matches the
+// service (ConfigurationChanged defaults to false): a pass over it has nothing
+// to do.
+func inSyncMCPServer(t *testing.T) (*MockMCPServerManager, *MockOrchestratorAPI, *MockServiceRegistry) {
+	t.Helper()
 	mgr := NewMockMCPServerManager()
 	orchAPI := NewMockOrchestratorAPI()
 	registry := NewMockServiceRegistry()
 
-	// Add existing service (no config change, ConfigChanged defaults to false)
 	registry.AddService("test-server", &MockServiceInfo{
 		Name:        "test-server",
 		ServiceType: api.TypeMCPServer,
 		State:       api.StateRunning,
 		Health:      api.HealthHealthy,
 	})
-
-	reconciler := NewMCPServerReconciler(orchAPI, mgr, registry)
-
 	mgr.AddMCPServer(&api.MCPServerInfo{
 		Name:      "test-server",
 		Type:      "stdio",
 		Command:   "test-command",
 		AutoStart: true,
 	})
+	return mgr, orchAPI, registry
+}
 
-	req := ReconcileRequest{
+// TestMCPServerReconciler_InSyncPassRequestsNoRequeue pins that a pass which
+// finds the server in sync asks for nothing further. The next pass is a change
+// event's or the Manager's resync tick's to trigger. Until issue #1285 every
+// successful pass requeued itself after 30 s -- a second copy of the resync,
+// out of phase with it, that reconciled every server twice per 30 s and wrote
+// its status each time while nothing changed.
+func TestMCPServerReconciler_InSyncPassRequestsNoRequeue(t *testing.T) {
+	mgr, orchAPI, registry := inSyncMCPServer(t)
+	reconciler := NewMCPServerReconciler(orchAPI, mgr, registry)
+
+	result := reconciler.Reconcile(context.Background(), ReconcileRequest{
 		Type:    ResourceTypeMCPServer,
 		Name:    "test-server",
 		Attempt: 1,
-	}
-
-	ctx := context.Background()
-	result := reconciler.Reconcile(ctx, req)
+	})
 
 	if result.Error != nil {
-		t.Errorf("unexpected error: %v", result.Error)
+		t.Fatalf("unexpected error: %v", result.Error)
+	}
+	if result.Requeue || result.RequeueAfter != 0 {
+		t.Errorf("an in-sync pass must not requeue itself, got Requeue=%v RequeueAfter=%v",
+			result.Requeue, result.RequeueAfter)
+	}
+	if len(orchAPI.StartCalls) != 0 || len(orchAPI.RestartCalls) != 0 {
+		t.Errorf("an in-sync pass must not touch the service, got starts=%v restarts=%v",
+			orchAPI.StartCalls, orchAPI.RestartCalls)
+	}
+}
+
+// recordingReconciler reports every pass the Manager runs on the wrapped
+// MCPServer reconciler. Embedding the pointer keeps ResyncLister and io.Closer
+// visible to the Manager.
+type recordingReconciler struct {
+	*MCPServerReconciler
+	passes chan<- ReconcileRequest
+}
+
+func (r *recordingReconciler) Reconcile(ctx context.Context, req ReconcileRequest) ReconcileResult {
+	result := r.MCPServerReconciler.Reconcile(ctx, req)
+	r.passes <- req
+	return result
+}
+
+// TestManager_InSyncMCPServerIsReconciledOncePerTrigger runs the real MCPServer
+// reconciler under a Manager: one change event is one pass. Nothing brings an
+// in-sync server back onto the queue until the next change event or resync
+// tick (issue #1285).
+func TestManager_InSyncMCPServerIsReconciledOncePerTrigger(t *testing.T) {
+	mgr, orchAPI, registry := inSyncMCPServer(t)
+	passes := make(chan ReconcileRequest, 16)
+	reconciler := &recordingReconciler{
+		MCPServerReconciler: NewMCPServerReconciler(orchAPI, mgr, registry),
+		passes:              passes,
 	}
 
-	// Verify RequeueAfter is set for periodic status sync
-	if result.RequeueAfter == 0 {
-		t.Error("expected RequeueAfter to be set for periodic status sync")
+	manager := NewManager(ManagerConfig{
+		Mode:           WatchModeFilesystem,
+		FilesystemPath: t.TempDir(),
+		WorkerCount:    1,
+		// A stray Requeue would come back on this backoff, well inside the
+		// quiet period asserted below; the resync is not under test here.
+		InitialBackoff: 10 * time.Millisecond,
+		ResyncInterval: time.Hour,
+	})
+	if err := manager.RegisterReconciler(reconciler); err != nil {
+		t.Fatalf("failed to register reconciler: %v", err)
+	}
+	if err := manager.Start(context.Background()); err != nil {
+		t.Fatalf("failed to start manager: %v", err)
+	}
+	defer func() { _ = manager.Stop() }()
+
+	manager.TriggerReconcile(ResourceTypeMCPServer, "test-server", "")
+
+	select {
+	case <-passes:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the change event never reconciled the server")
 	}
 
-	if result.RequeueAfter != DefaultStatusSyncInterval {
-		t.Errorf("expected RequeueAfter = %v, got %v", DefaultStatusSyncInterval, result.RequeueAfter)
+	select {
+	case req := <-passes:
+		t.Fatalf("an in-sync server was reconciled again without a change event or resync tick: %+v", req)
+	case <-time.After(500 * time.Millisecond):
 	}
 }
 
