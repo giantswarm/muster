@@ -246,7 +246,7 @@ func (k *kubernetesClient) UpdateMCPServerStatus(ctx context.Context, server *MC
 }
 ```
 
-For filesystem mode, status is stored in a separate `.status.yaml` file or embedded in the main file.
+For filesystem mode, status is stored apart from the definition, in `status/<kind>/<name>.yaml` under the configuration directory: a status write never rewrites the operator's definition file (an edit made between a status sync's read and its write used to be overwritten, [#1288](https://github.com/giantswarm/muster/issues/1288)), and it never fires the change detector watching the definition directories.
 
 ### 6. Implementation: Reconciler Status Sync
 

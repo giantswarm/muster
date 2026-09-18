@@ -251,6 +251,9 @@ Tools are backed by persistent configuration in `.muster/`:
 │   ├── connect-monitoring.yaml  # → Creates workflow_connect-monitoring
 │   ├── check-cilium-health.yaml # → Creates workflow_check-cilium-health
 │   └── ...
+├── status/                  # Written by muster: the recorded status per definition
+│   ├── mcpservers/          # status/mcpservers/<name>.yaml
+│   └── workflows/
 └── workflow_executions/    # Execution history
 ```
 

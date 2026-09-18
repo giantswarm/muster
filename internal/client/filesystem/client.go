@@ -34,11 +34,9 @@ const defaultNamespace = "default"
 type Client struct {
 	basePath string
 
-	// mu serializes all resource file mutations (create/update/delete/status).
-	// Without it, a status sync's read-modify-write races a concurrent delete:
-	// the sync reads the definition, the delete removes the file, and the
-	// sync's rename resurrects it — the definition comes back as a zombie and
-	// the service is never torn down (delete-recreate CI flake).
+	// mu serializes the store's own mutations (create/update/delete/status),
+	// so that a status write sees a delete that ran before it and answers
+	// NotFound instead of recording a status for a definition that is gone.
 	mu sync.Mutex
 }
 
