@@ -60,9 +60,10 @@ type Manager struct {
 // state change through the StateChangeBridge, and each of those reconciles the
 // one server it concerns at once. Ten minutes bounds how long a dropped event
 // stays undetected while keeping the resync's cost small -- every pass is a
-// definition read and a status write against the API server, for every server. At 30 s, together with a per-pass requeue of the
-// same length, the reconciler ran ~250 passes per server per hour with nothing
-// changing (issue #1285).
+// definition read and a status write against the API server, for every
+// server. At 30 s, together with a per-pass requeue of the same length, the
+// reconciler ran ~250 passes per server per hour with nothing changing
+// (issue #1285).
 //
 // Overridable via MUSTER_RECONCILER_RESYNC_INTERVAL (a Go duration, e.g. "2s")
 // so the integration test harness can watch several resync ticks pass within
