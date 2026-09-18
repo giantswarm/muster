@@ -53,11 +53,21 @@ type Manager struct {
 
 // DefaultResyncInterval is the ManagerConfig.ResyncInterval applied when none
 // is set: how often every known resource is reconciled again regardless of
-// change events. Overridable via MUSTER_RECONCILER_RESYNC_INTERVAL (a Go
-// duration, e.g. "2s") so the integration test harness can watch several
-// resync ticks pass within one step -- a suspended server has to stay silent
-// across them (issue #1212).
-var DefaultResyncInterval = config.DurationFromEnv("MUSTER_RECONCILER_RESYNC_INTERVAL", 30*time.Second)
+// change events.
+//
+// The resync is the safety net for a lost event, not the way state reaches the
+// status: a definition change arrives through the change detector, a runtime
+// state change through the StateChangeBridge, and each of those reconciles the
+// one server it concerns at once. Ten minutes bounds how long a dropped event
+// stays undetected while keeping the resync's cost small -- every pass is a
+// definition read and a status write against the API server, for every server. At 30 s, together with a per-pass requeue of the
+// same length, the reconciler ran ~250 passes per server per hour with nothing
+// changing (issue #1285).
+//
+// Overridable via MUSTER_RECONCILER_RESYNC_INTERVAL (a Go duration, e.g. "2s")
+// so the integration test harness can watch several resync ticks pass within
+// one step -- a suspended server has to stay silent across them (issue #1212).
+var DefaultResyncInterval = config.DurationFromEnv("MUSTER_RECONCILER_RESYNC_INTERVAL", 10*time.Minute)
 
 // NewManager creates a new reconciliation manager.
 func NewManager(cfg ManagerConfig) *Manager {

@@ -133,10 +133,13 @@ func (r *MCPServerReconciler) ResyncNames(ctx context.Context) []string {
 
 // Reconcile processes a single MCPServer reconciliation request.
 //
-// After successful reconciliation, this returns RequeueAfter to enable periodic
-// status sync. This ensures that runtime state changes (service crashes, health
-// check failures, etc.) are eventually reflected in the CRD status even if
-// state change events are missed.
+// A pass that leaves the server in sync asks for nothing further: the next
+// pass comes from a change to the definition (change detector), a change of
+// the service's runtime state (StateChangeBridge) or the Manager's periodic
+// resync, which heals a lost event. Until issue #1285 every successful pass
+// also requeued itself after 30 s -- a second, phase-shifted copy of the resync
+// that reconciled every server twice per 30 s (and wrote its status twice) for
+// as long as muster ran.
 func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileRequest) ReconcileResult {
 	logging.Info("MCPServerReconciler", "Reconciling MCPServer: %s", req.Name)
 
@@ -228,15 +231,6 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileReques
 	// Sync status back to CRD after reconciliation
 	r.syncStatus(ctx, req.Name, req.Namespace, result.Error, processedRestart)
 	r.recordState(ctx, req, mcpServerInfo.Type, result.Error)
-
-	// If reconciliation succeeded, schedule periodic requeue for status sync.
-	// This implements the idiomatic Kubernetes controller pattern where status
-	// is periodically refreshed to ensure eventual consistency. A shorter
-	// requeue already requested by a step (e.g. resume waiting out a stop in
-	// flight) is kept.
-	if result.Error == nil && !result.Requeue && result.RequeueAfter == 0 {
-		result.RequeueAfter = DefaultStatusSyncInterval
-	}
 
 	return result
 }
