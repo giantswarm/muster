@@ -562,8 +562,15 @@ func GetReconcileManager() ReconcileManagerHandler {
 // This function is typically called by the aggregator when:
 // - SSO token forwarding succeeds for a session
 // - SSO token exchange succeeds for a session
+// - the server's last authenticated session connection is lost
 //
-// The state update will trigger the reconciler to sync the new state to the CRD status.
+// A state that actually changes reaches the CRD status through the service's
+// state-change event and the reconciler's StateChangeBridge, like every other
+// state change. Nothing else is triggered here: a session connecting to a
+// server that is already Connected -- the common case, every session's SSO
+// fan-out -- changes nothing and must cost no reconcile pass and no status
+// write. Until issue #1290 this function queued a reconcile unconditionally,
+// one pass and one status write per server per session start.
 //
 // Args:
 //   - name: The name of the MCPServer service to update
@@ -604,16 +611,13 @@ func UpdateMCPServerState(name string, state ServiceState, health HealthStatus, 
 		return nil // Not an error - just can't update
 	}
 
-	// Update the state
+	previous := service.GetState()
 	updater.UpdateState(state, health, err)
-	logging.Info("API", "Updated MCPServer %s state to %s (health: %s)", name, state, health)
-
-	// Trigger reconciliation to sync the state to the CRD status.
-	// This ensures that `muster list mcpserver` (which reads from CRD) shows
-	// the updated state, not just `muster list services` (which reads from memory).
-	if reconcileManager := GetReconcileManager(); reconcileManager != nil {
-		reconcileManager.TriggerReconcile("MCPServer", name, "")
+	if previous == state {
+		logging.Debug("API", "MCPServer %s already in state %s (health: %s); nothing to sync", name, state, health)
+		return nil
 	}
+	logging.Info("API", "Updated MCPServer %s state from %s to %s (health: %s)", name, previous, state, health)
 
 	return nil
 }
