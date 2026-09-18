@@ -3163,7 +3163,14 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 		}
 		tokenStore := internalmcp.NewMusterTokenStore(sessionID, sub, issuer, oauthHandler)
 		clientID, clientSecret := oauthHandler.GetClientCredentialsForIssuer(ctx, issuer)
+		// The same client establishConnection builds at login: the server's
+		// spec.meta on every request and its spec.timeout as the budget of
+		// every operation, or a session that is already authenticated -- and
+		// whose pooled connection is gone -- would run its calls under the
+		// defaults the login path does not.
 		client = internalmcp.NewDynamicAuthClient(serverInfo.URL, tokenStore, scope, clientID, clientSecret).
+			WithMeta(serverInfo.Meta).
+			WithTimeout(serverInfo.Timeout).
 			WithAuthLossHandler(a.makeSessionAuthLossHandler(sessionID, serverName))
 
 	} else {

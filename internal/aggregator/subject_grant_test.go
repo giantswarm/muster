@@ -10,6 +10,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpgoserver "github.com/mark3labs/mcp-go/server"
@@ -92,6 +93,32 @@ func newGrantBackend(t *testing.T, accept string) (*httptest.Server, *atomic.Int
 		func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			return mcp.NewToolResultText(`{"login":"alice"}`), nil
 		})
+	return serveGrantBackend(t, mcpSrv, accept)
+}
+
+// newSlowGrantBackend is newGrantBackend with one tool, watch, that answers
+// only after delay -- or with the request's error once the caller gave up:
+// a backend tool that blocks while it follows something.
+func newSlowGrantBackend(t *testing.T, accept string, delay time.Duration) *httptest.Server {
+	t.Helper()
+	mcpSrv := mcpgoserver.NewMCPServer("github", "1.0.0", mcpgoserver.WithToolCapabilities(true))
+	mcpSrv.AddTool(mcp.NewTool("watch", mcp.WithDescription("Follows something for a while")),
+		func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			select {
+			case <-time.After(delay):
+				return mcp.NewToolResultText(`{"ready":true}`), nil
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		})
+	backend, _ := serveGrantBackend(t, mcpSrv, accept)
+	return backend
+}
+
+// serveGrantBackend fronts an MCP server with the bearer check and the
+// initialize counter the grant tests read.
+func serveGrantBackend(t *testing.T, mcpSrv *mcpgoserver.MCPServer, accept string) (*httptest.Server, *atomic.Int32) {
+	t.Helper()
 	streamable := mcpgoserver.NewStreamableHTTPServer(mcpSrv)
 
 	var initializes atomic.Int32
@@ -218,6 +245,41 @@ func TestGetOrCreateClientForToolCall_AuthenticatedSessionUsesThePinnedIssuer(t 
 	assert.Contains(t, result.Content[0].(mcp.TextContent).Text, "alice")
 	assert.Equal(t, int32(1), initializes.Load())
 	assert.Equal(t, 1, a.connPool.Len())
+}
+
+// A session already authenticated whose pooled connection is gone -- the
+// aggregator restarted, the connection was evicted -- takes the pool-miss path
+// of the tool call, and the client built there runs under the server's
+// spec.timeout as the one built at login does; without it the call ran under
+// the default budget whatever the server declared.
+func TestGetOrCreateClientForToolCall_PoolMissClientRunsUnderTheServersTimeout(t *testing.T) {
+	backend := newSlowGrantBackend(t, subjectGrantToken, 10*time.Second)
+	a := newTestAggregatorWithPool(t)
+	require.NoError(t, a.registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: "github", ToolPrefix: "github", Timeout: 300 * time.Millisecond},
+		URL:                backend.URL,
+		AuthInfo:           &AuthInfo{Issuer: subjectGrantIssuerURL, Scope: "repo"},
+		AuthConfig:         &api.MCPServerAuth{Type: "oauth"},
+	}))
+
+	handler := newSubjectGrantMockHandler()
+	handler.StoreToken("sess-1", "alice", subjectGrantIssuerURL, &api.OAuthToken{AccessToken: subjectGrantToken, Issuer: subjectGrantIssuerURL})
+	api.RegisterOAuthHandler(handler)
+	t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
+
+	ctx := sessionContext("sess-1", "alice")
+	require.NoError(t, a.authStore.MarkAuthenticated(ctx, "sess-1", "github"))
+
+	client, cleanup, err := a.getOrCreateClientForToolCall(ctx, "github", "sess-1", "alice")
+	require.NoError(t, err)
+	defer cleanup()
+	start := time.Now()
+
+	_, err = client.CallTool(ctx, "watch", nil)
+
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.EqualError(t, err, "no answer within the server's timeout of 300ms: context deadline exceeded")
+	assert.Less(t, time.Since(start), 5*time.Second, "the call was cut by the server's timeout, not by the backend")
 }
 
 // A session that never called core_auth_login for the server is connected
