@@ -53,17 +53,6 @@ func (a *Adapter) GetAllStatuses() []api.ReconcileStatusInfo {
 	return result
 }
 
-// TriggerReconcile manually triggers reconciliation for a resource.
-// Implements api.ReconcileManagerHandler interface.
-// Does nothing if the resource type is invalid.
-func (a *Adapter) TriggerReconcile(resourceType, name, namespace string) {
-	if !IsValidResourceType(resourceType) {
-		return
-	}
-	rt := ResourceType(resourceType)
-	a.manager.TriggerReconcile(rt, name, namespace)
-}
-
 // IsRunning returns whether the reconciliation manager is running.
 // Implements api.ReconcileManagerHandler interface.
 func (a *Adapter) IsRunning() bool {

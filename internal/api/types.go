@@ -705,9 +705,6 @@ type ReconcileManagerHandler interface {
 	// GetAllStatuses returns all reconciliation statuses.
 	GetAllStatuses() []ReconcileStatusInfo
 
-	// TriggerReconcile manually triggers reconciliation for a resource.
-	TriggerReconcile(resourceType, name, namespace string)
-
 	// GetWatchMode returns the current watch mode (kubernetes/filesystem).
 	GetWatchMode() string
 
