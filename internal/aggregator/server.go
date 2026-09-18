@@ -3014,7 +3014,7 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 	)
 	headerFunc := makeTokenExchangeHeaderFunc(serverName, exchangedToken, tokenExpiry, reexchange, onStaleToken)
 
-	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithMeta(serverInfo.Meta)
+	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithMeta(serverInfo.Meta).WithTimeout(serverInfo.Timeout)
 	return client, tokenExpiry, exchangedToken, nil
 }
 

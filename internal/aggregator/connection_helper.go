@@ -678,7 +678,7 @@ func EstablishConnectionWithTokenExchange(
 
 	headerFunc := makeTokenExchangeHeaderFunc(serverInfo.Name, exchangedToken, tokenExpiry, reexchange, onStaleToken)
 
-	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithMeta(serverInfo.Meta)
+	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithMeta(serverInfo.Meta).WithTimeout(serverInfo.Timeout)
 
 	// Try to initialize the client with the exchanged token
 	if err := client.Initialize(ctx); err != nil {
@@ -981,7 +981,7 @@ func (a *AggregatorServer) newTokenForwardingClient(
 	}
 
 	headerFunc := makeTokenForwardingHeaderFunc(sessionID, musterIssuer, serverInfo.Name, token, refresher, onStaleToken)
-	return internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithMeta(serverInfo.Meta), token, nil
+	return internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithMeta(serverInfo.Meta).WithTimeout(serverInfo.Timeout), token, nil
 }
 
 // registeredMeta returns the spec.meta entries recorded for a server, or nil

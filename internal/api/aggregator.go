@@ -1,6 +1,8 @@
 package api
 
 import (
+	"time"
+
 	"context"
 	"fmt"
 
@@ -176,6 +178,11 @@ type PendingAuthRegistration struct {
 	// travel with the registration or spec.meta would stop applying the moment
 	// a server needs a login.
 	Meta map[string]string
+
+	// Timeout is the server's spec.timeout, the budget every operation on a
+	// per-session client runs under; zero means the client's default. It
+	// travels with the registration for the same reason Meta does.
+	Timeout time.Duration
 }
 
 // CallTool implements the ToolCaller interface by delegating to the aggregator handler.

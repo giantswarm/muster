@@ -285,6 +285,7 @@ func (r *ServerRegistry) Register(ctx context.Context, registration ServerRegist
 		Client:       client,
 		ToolPrefix:   registration.ToolPrefix,
 		Family:       cloneFamily(registration.Family),
+		Timeout:      registration.Timeout,
 		RegisteredAt: time.Now(),
 	}
 
@@ -1521,6 +1522,7 @@ func (r *ServerRegistry) RegisterPendingAuth(registration PendingAuthRegistratio
 		AuthInfo:     authInfo,
 		AuthConfig:   authConfig,
 		Meta:         registration.Meta,
+		Timeout:      registration.Timeout,
 		RegisteredAt: time.Now(),
 	}
 

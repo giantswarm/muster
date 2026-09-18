@@ -85,10 +85,13 @@ type baseMCPClient struct {
 	// succeeds. Callers that find the generation advanced report it together
 	// with their own failure, the same as the caller that ran the handshake.
 	recoveryErr error
-	// recoveryTimeout bounds a recovery handshake; zero means
-	// sessionRecoveryTimeout. The factory sets it from the server's
-	// spec.timeout so recovery gets the same budget as the first connect.
-	recoveryTimeout time.Duration
+	// timeout is the one budget every operation on the client runs under:
+	// each request, and the recovery handshake a lost session triggers on
+	// the way, share it (see operationContext). Zero means DefaultTimeout.
+	// The factory and the aggregator's per-session construction sites set it
+	// from the server's spec.timeout, so the CRD's value governs a tool call
+	// end to end; the caller's context alone may carry no deadline.
+	timeout time.Duration
 
 	notifMu      sync.Mutex
 	notifHandler func(mcp.JSONRPCNotification)
@@ -140,7 +143,7 @@ func (b *baseMCPClient) NegotiatedProtocolVersion() string {
 
 // listTools returns all available tools from the server
 func (b *baseMCPClient) listTools(ctx context.Context) ([]mcp.Tool, error) {
-	return withSessionRecovery(b, ctx, func() ([]mcp.Tool, error) { return b.listToolsOnce(ctx) })
+	return withSessionRecovery(b, ctx, func(ctx context.Context) ([]mcp.Tool, error) { return b.listToolsOnce(ctx) })
 }
 
 func (b *baseMCPClient) listToolsOnce(ctx context.Context) ([]mcp.Tool, error) {
@@ -161,7 +164,7 @@ func (b *baseMCPClient) listToolsOnce(ctx context.Context) ([]mcp.Tool, error) {
 
 // callTool executes a specific tool and returns the result
 func (b *baseMCPClient) callTool(ctx context.Context, name string, args map[string]interface{}) (*mcp.CallToolResult, error) {
-	return withSessionRecovery(b, ctx, func() (*mcp.CallToolResult, error) { return b.callToolOnce(ctx, name, args) })
+	return withSessionRecovery(b, ctx, func(ctx context.Context) (*mcp.CallToolResult, error) { return b.callToolOnce(ctx, name, args) })
 }
 
 func (b *baseMCPClient) callToolOnce(ctx context.Context, name string, args map[string]interface{}) (*mcp.CallToolResult, error) {
@@ -187,7 +190,7 @@ func (b *baseMCPClient) callToolOnce(ctx context.Context, name string, args map[
 
 // listResources returns all available resources from the server
 func (b *baseMCPClient) listResources(ctx context.Context) ([]mcp.Resource, error) {
-	return withSessionRecovery(b, ctx, func() ([]mcp.Resource, error) { return b.listResourcesOnce(ctx) })
+	return withSessionRecovery(b, ctx, func(ctx context.Context) ([]mcp.Resource, error) { return b.listResourcesOnce(ctx) })
 }
 
 func (b *baseMCPClient) listResourcesOnce(ctx context.Context) ([]mcp.Resource, error) {
@@ -208,7 +211,7 @@ func (b *baseMCPClient) listResourcesOnce(ctx context.Context) ([]mcp.Resource, 
 
 // readResource retrieves a specific resource
 func (b *baseMCPClient) readResource(ctx context.Context, uri string) (*mcp.ReadResourceResult, error) {
-	return withSessionRecovery(b, ctx, func() (*mcp.ReadResourceResult, error) { return b.readResourceOnce(ctx, uri) })
+	return withSessionRecovery(b, ctx, func(ctx context.Context) (*mcp.ReadResourceResult, error) { return b.readResourceOnce(ctx, uri) })
 }
 
 func (b *baseMCPClient) readResourceOnce(ctx context.Context, uri string) (*mcp.ReadResourceResult, error) {
@@ -233,7 +236,7 @@ func (b *baseMCPClient) readResourceOnce(ctx context.Context, uri string) (*mcp.
 
 // listPrompts returns all available prompts from the server
 func (b *baseMCPClient) listPrompts(ctx context.Context) ([]mcp.Prompt, error) {
-	return withSessionRecovery(b, ctx, func() ([]mcp.Prompt, error) { return b.listPromptsOnce(ctx) })
+	return withSessionRecovery(b, ctx, func(ctx context.Context) ([]mcp.Prompt, error) { return b.listPromptsOnce(ctx) })
 }
 
 func (b *baseMCPClient) listPromptsOnce(ctx context.Context) ([]mcp.Prompt, error) {
@@ -254,7 +257,7 @@ func (b *baseMCPClient) listPromptsOnce(ctx context.Context) ([]mcp.Prompt, erro
 
 // getPrompt retrieves a specific prompt
 func (b *baseMCPClient) getPrompt(ctx context.Context, name string, args map[string]interface{}) (*mcp.GetPromptResult, error) {
-	return withSessionRecovery(b, ctx, func() (*mcp.GetPromptResult, error) { return b.getPromptOnce(ctx, name, args) })
+	return withSessionRecovery(b, ctx, func(ctx context.Context) (*mcp.GetPromptResult, error) { return b.getPromptOnce(ctx, name, args) })
 }
 
 func (b *baseMCPClient) getPromptOnce(ctx context.Context, name string, args map[string]interface{}) (*mcp.GetPromptResult, error) {
@@ -290,7 +293,7 @@ func (b *baseMCPClient) getPromptOnce(ctx context.Context, name string, args map
 
 // ping checks if the server is responsive
 func (b *baseMCPClient) ping(ctx context.Context) error {
-	_, err := withSessionRecovery(b, ctx, func() (struct{}, error) { return struct{}{}, b.pingOnce(ctx) })
+	_, err := withSessionRecovery(b, ctx, func(ctx context.Context) (struct{}, error) { return struct{}{}, b.pingOnce(ctx) })
 	return err
 }
 

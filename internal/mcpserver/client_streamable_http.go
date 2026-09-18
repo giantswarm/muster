@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/pkg/logging"
@@ -44,6 +45,14 @@ func (c *StreamableHTTPClient) WithMeta(meta map[string]string) *StreamableHTTPC
 	return c
 }
 
+// WithTimeout sets the budget every operation on the client runs under, the
+// server's spec.timeout (see baseMCPClient.timeout), and returns the client
+// so a construction site reads as one expression.
+func (c *StreamableHTTPClient) WithTimeout(timeout time.Duration) *StreamableHTTPClient {
+	c.timeout = timeout
+	return c
+}
+
 // NewStreamableHTTPClientWithHeaders creates a new StreamableHTTP-based MCP client with custom headers
 func NewStreamableHTTPClientWithHeaders(url string, headers map[string]string) *StreamableHTTPClient {
 	if headers == nil {
@@ -66,8 +75,12 @@ func NewStreamableHTTPClientWithHeaderFunc(url string, headerFunc transport.HTTP
 	}
 }
 
-// Initialize establishes the connection and performs protocol handshake
+// Initialize establishes the connection and performs protocol handshake,
+// under the client's timeout like every other operation.
 func (c *StreamableHTTPClient) Initialize(ctx context.Context) error {
+	ctx, cancel, _ := c.operationContext(ctx)
+	defer cancel()
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
