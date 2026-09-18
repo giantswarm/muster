@@ -13,7 +13,8 @@ muster reads its definitions from `~/.config/muster` (or the directory given wit
 ~/.config/muster/
 ├── config.yaml        # aggregator settings; optional, defaults are fine locally
 ├── mcpservers/        # one MCPServer per file
-└── workflows/         # one Workflow per file
+├── workflows/         # one Workflow per file
+└── status/            # written by muster: the status it records per definition
 ```
 
 The files use the same schema as the Kubernetes custom resources, so a definition written here

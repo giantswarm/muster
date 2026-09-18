@@ -34,13 +34,8 @@ func (f *Client) DeleteMCPServer(_ context.Context, name, _ string) error {
 	return f.deleteResource(name, mcpServerMeta)
 }
 
-// UpdateMCPServerStatus applies only the status onto the current on-disk
-// definition — filesystem mode embeds status alongside spec, so this must not
-// rewrite the caller's (possibly stale) spec, and must not resurrect a
-// definition that was deleted after the caller read it.
+// UpdateMCPServerStatus records the server's status in its status file. The
+// definition file is left as it is (updateResourceStatus).
 func (f *Client) UpdateMCPServerStatus(_ context.Context, server *musterv1alpha1.MCPServer) error {
-	var current musterv1alpha1.MCPServer
-	return f.updateResourceStatus(server.Name, &current, func() {
-		current.Status = server.Status
-	}, mcpServerMeta)
+	return f.updateResourceStatus(server, mcpServerMeta)
 }

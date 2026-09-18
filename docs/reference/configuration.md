@@ -21,10 +21,20 @@ muster uses a file-based configuration system with YAML files organized in a str
 │   ├── kubernetes.yaml
 │   ├── github.yaml
 │   └── prometheus.yaml
-└── workflows/               # Workflow definitions
-    ├── deploy-app.yaml
-    └── backup-database.yaml
+├── workflows/               # Workflow definitions
+│   ├── deploy-app.yaml
+│   └── backup-database.yaml
+└── status/                  # Written by muster: the status it records per definition
+    ├── mcpservers/          # status/mcpservers/<name>.yaml for mcpservers/<name>.yaml
+    └── workflows/
 ```
+
+The definition files are yours: muster reads them and writes them only through
+`core_mcpserver_create`/`core_mcpserver_update` and their workflow counterparts. The status it
+observes for a definition (state, last error, last connection) goes to `status/`, at the
+definition's own relative path, never into the definition file -- so an edit you make is
+never overwritten by a status update, and a `status:` block still present in a definition
+file from an older muster is ignored. `status/` is muster's; leave it out of version control.
 
 ## Main Configuration File
 
