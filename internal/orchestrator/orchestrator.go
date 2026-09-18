@@ -289,6 +289,7 @@ func (o *Orchestrator) handleAuthRequiredServer(definition *api.MCPServer, authE
 		AuthInfo:   authInfo,
 		AuthConfig: definition.Auth,
 		Meta:       definition.Meta,
+		Timeout:    time.Duration(definition.Timeout) * time.Second,
 	}); err != nil {
 		logging.Error("Orchestrator", err, "Failed to register pending auth server: %s", definition.Name)
 		return

@@ -88,6 +88,10 @@ type ServerRegistration struct {
 	// {musterPrefix}_{family.Name}_{toolName} with a required parameter
 	// named by family.InstanceArg.
 	Family *api.MCPServerFamily
+
+	// Timeout is the server's spec.timeout, the budget every operation on a
+	// session-scoped client runs under; zero means the client's default.
+	Timeout time.Duration
 }
 
 // PendingAuthRegistration carries the configuration needed to register a
@@ -164,6 +168,10 @@ type ServerInfo struct {
 	// for this server merges into params._meta. Immutable after registration,
 	// like AuthConfig, so readers need no lock.
 	Meta map[string]string
+
+	// Timeout is the budget every operation on a session-scoped client of this
+	// server runs under: the server's spec.timeout, zero for the client's default.
+	Timeout time.Duration
 
 	// Cached capabilities - these are updated periodically to avoid
 	// repeated calls to the backend server for performance

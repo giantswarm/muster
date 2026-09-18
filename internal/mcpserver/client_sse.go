@@ -1,6 +1,8 @@
 package mcpserver
 
 import (
+	"time"
+
 	"context"
 	"fmt"
 
@@ -32,6 +34,14 @@ type SSEClient struct {
 // construction site reads as one expression.
 func (c *SSEClient) WithMeta(meta map[string]string) *SSEClient {
 	c.meta = meta
+	return c
+}
+
+// WithTimeout sets the budget every operation on the client runs under, the
+// server's spec.timeout (see baseMCPClient.timeout), and returns the client
+// so a construction site reads as one expression.
+func (c *SSEClient) WithTimeout(timeout time.Duration) *SSEClient {
+	c.timeout = timeout
 	return c
 }
 

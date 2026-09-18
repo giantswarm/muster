@@ -352,6 +352,7 @@ func (am *AggregatorManager) registerSingleServer(ctx context.Context, serverNam
 	toolPrefix, _ := serviceData["toolPrefix"].(string)
 	family, _ := serviceData["family"].(*api.MCPServerFamily)
 	namespace, _ := serviceData["namespace"].(string)
+	timeout, _ := serviceData["timeout"].(time.Duration)
 
 	clientInterface, exists := serviceData["client"]
 	if !exists || clientInterface == nil {
@@ -368,6 +369,7 @@ func (am *AggregatorManager) registerSingleServer(ctx context.Context, serverNam
 		Namespace:  namespace,
 		ToolPrefix: toolPrefix,
 		Family:     family,
+		Timeout:    timeout,
 	}
 	if err := am.aggregatorServer.RegisterServer(ctx, registration, mcpClient); err != nil {
 		return fmt.Errorf("failed to register server: %w", err)
@@ -815,6 +817,7 @@ func (am *AggregatorManager) registerPendingAuthFromService(service api.ServiceI
 	namespace, _ := serviceData["namespace"].(string)
 	meta, _ := serviceData["meta"].(map[string]string)
 	authConfig, _ := serviceData["auth"].(*api.MCPServerAuth)
+	timeout, _ := serviceData["timeout"].(time.Duration)
 
 	// Mirror the orchestrator hook's guard: an auth type with no login flow
 	// must not be registered for interactive authentication.
@@ -828,6 +831,7 @@ func (am *AggregatorManager) registerPendingAuthFromService(service api.ServiceI
 			Namespace:  namespace,
 			ToolPrefix: toolPrefix,
 			Family:     family,
+			Timeout:    timeout,
 		},
 		URL:        url,
 		AuthConfig: authConfig,

@@ -153,7 +153,7 @@ func TestNewMCPClientFromTypeSigV4(t *testing.T) {
 			require.NoError(t, err)
 			streamable, ok := client.(*StreamableHTTPClient)
 			require.True(t, ok)
-			assert.Equal(t, 90*time.Second, streamable.recoveryTimeout)
+			assert.Equal(t, 90*time.Second, streamable.timeout)
 		}
 	})
 

@@ -28,7 +28,7 @@ import (
 // DefaultRemoteTimeout is the default connection timeout in seconds for remote MCP servers.
 // This value must be kept in sync with the kubebuilder:default annotation in MCPServerSpec.Timeout
 // (see pkg/apis/muster/v1alpha1/mcpserver_types.go).
-const DefaultRemoteTimeout = 30
+const DefaultRemoteTimeout = int(mcpserver.DefaultTimeout / time.Second)
 
 // UnreachableThreshold is the number of consecutive failures before marking a server as unreachable.
 const UnreachableThreshold = 3
@@ -655,7 +655,7 @@ func (s *Service) GetServiceData() map[string]interface{} {
 		"env":         s.definition.Env,
 		"headers":     s.definition.Headers,
 		"meta":        s.definition.Meta,
-		"timeout":     s.definition.Timeout,
+		"timeout":     s.remoteTimeout(),
 		"description": s.definition.Description,
 	}
 

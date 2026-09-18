@@ -27,10 +27,10 @@ type MCPClientConfig struct {
 	// machine-identity modes are handled here; the session-scoped OAuth modes
 	// are resolved by the aggregator, not by this factory.
 	Auth *api.MCPServerAuth
-	// Timeout is the server's connection timeout for remote operations. It
-	// bounds the handshake a session recovery performs, so a slow backend
-	// gets the same budget there as on its first connect. Zero means the
-	// recovery default.
+	// Timeout is the server's spec.timeout: the one budget every operation
+	// on a remote client runs under -- each request, and the handshake a
+	// session recovery performs on the way -- so a slow backend gets the same
+	// budget there as on its first connect. Zero means DefaultTimeout.
 	Timeout time.Duration
 }
 
@@ -73,18 +73,15 @@ func NewMCPClientFromType(serverType api.MCPServerType, config MCPClientConfig) 
 			if err != nil {
 				return nil, err
 			}
-			c.recoveryTimeout = config.Timeout
-			return c, nil
+			return c.WithTimeout(config.Timeout), nil
 		}
-		c := NewStreamableHTTPClientWithHeaders(config.URL, config.Headers).WithMeta(config.Meta)
-		c.recoveryTimeout = config.Timeout
-		return c, nil
+		return NewStreamableHTTPClientWithHeaders(config.URL, config.Headers).WithMeta(config.Meta).WithTimeout(config.Timeout), nil
 
 	case api.MCPServerTypeSSE:
 		if config.URL == "" {
 			return nil, fmt.Errorf("url is required for sse type")
 		}
-		return NewSSEClientWithHeaders(config.URL, config.Headers).WithMeta(config.Meta), nil
+		return NewSSEClientWithHeaders(config.URL, config.Headers).WithMeta(config.Meta).WithTimeout(config.Timeout), nil
 
 	default:
 		return nil, fmt.Errorf("unsupported MCP server type: %s (supported: %s, %s, %s)",

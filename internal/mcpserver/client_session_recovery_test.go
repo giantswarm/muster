@@ -233,7 +233,7 @@ func TestSessionRecovery_HandshakeHasDeadline(t *testing.T) {
 func TestSessionRecovery_HandshakeDeadlineFollowsConfiguredTimeout(t *testing.T) {
 	old := &sessionFakeClient{sessionID: "s1", callErrs: []error{errSessionGone}}
 	h := newRecoveryHarness(old, &sessionFakeClient{sessionID: "s2"})
-	h.base.recoveryTimeout = 90 * time.Second
+	h.base.timeout = 90 * time.Second
 	inner := h.base.reconnect
 	var remaining time.Duration
 	h.base.reconnect = func(ctx context.Context) error {
@@ -246,7 +246,7 @@ func TestSessionRecovery_HandshakeDeadlineFollowsConfiguredTimeout(t *testing.T)
 	_, err := h.base.callTool(t.Context(), "echo", nil)
 
 	require.NoError(t, err)
-	assert.Greater(t, remaining, sessionRecoveryTimeout, "the configured timeout, not the default, bounds the handshake")
+	assert.Greater(t, remaining, DefaultTimeout, "the configured timeout, not the default, bounds the handshake")
 }
 
 // Every caller queued behind the one failed handshake gets its cause, not
