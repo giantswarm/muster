@@ -84,3 +84,19 @@ func TestOperationTimeout_CallerDeadlineIsReportedAsIs(t *testing.T) {
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	assert.Contains(t, err.Error(), "transport error")
 }
+
+// The client an OAuth server's per-session connection is built on takes the
+// same budget as every other: a tool call on it is cut at the server's
+// timeout, not at the default.
+func TestOperationTimeout_DynamicAuthClientHonoursWithTimeout(t *testing.T) {
+	c := NewDynamicAuthClient("http://backend/mcp", nil, "", "", "").WithTimeout(300 * time.Millisecond)
+	c.client = &slowFakeClient{delay: 10 * time.Second}
+	c.connected = true
+	start := time.Now()
+
+	_, err := c.CallTool(t.Context(), "watch", nil)
+
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.EqualError(t, err, "no answer within the server's timeout of 300ms: context deadline exceeded")
+	assert.Less(t, time.Since(start), 5*time.Second, "the call was cut by the timeout, not by the backend")
+}

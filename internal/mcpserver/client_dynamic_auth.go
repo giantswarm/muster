@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/pkg/logging"
@@ -50,6 +51,14 @@ type DynamicAuthClient struct {
 // construction site reads as one expression.
 func (c *DynamicAuthClient) WithMeta(meta map[string]string) *DynamicAuthClient {
 	c.meta = meta
+	return c
+}
+
+// WithTimeout sets the budget every operation on the client runs under, the
+// server's spec.timeout (see baseMCPClient.timeout), and returns the client
+// so a construction site reads as one expression.
+func (c *DynamicAuthClient) WithTimeout(timeout time.Duration) *DynamicAuthClient {
+	c.timeout = timeout
 	return c
 }
 
