@@ -2,6 +2,7 @@ package aggregator
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -27,20 +28,28 @@ func TestPendingAuthRegistrationCarriesMeta(t *testing.T) {
 	assert.Equal(t, testRegistrationMeta, serverInfo.Meta)
 }
 
-func TestRegisteredMeta(t *testing.T) {
+// TestRegisteredServerInfo covers what establishConnection reads from the
+// registry for the client it builds with a person's grant: spec.meta and
+// spec.timeout. The timeout had the same gap meta once had -- the
+// session-scoped client of an OAuth server ran under the default budget
+// whatever the server declared.
+func TestRegisteredServerInfo(t *testing.T) {
 	reg := NewServerRegistry("x")
 	require.NoError(t, reg.RegisterPendingAuth(PendingAuthRegistration{
-		ServerRegistration: ServerRegistration{Name: "needs-login"},
+		ServerRegistration: ServerRegistration{Name: "needs-login", Timeout: 90 * time.Second},
 		URL:                "https://mcp.example.com/mcp",
 		Meta:               testRegistrationMeta,
 	}))
 	agg := &AggregatorServer{registry: reg}
 
-	assert.Equal(t, testRegistrationMeta, registeredMeta(agg, "needs-login"))
+	info := registeredServerInfo(agg, "needs-login")
+	require.NotNil(t, info)
+	assert.Equal(t, testRegistrationMeta, info.Meta)
+	assert.Equal(t, 90*time.Second, info.Timeout)
 
 	// establishConnection runs before the registry is guaranteed to hold the
-	// server, so an unknown name means no entries rather than a panic.
-	assert.Nil(t, registeredMeta(agg, "unknown"))
-	assert.Nil(t, registeredMeta(&AggregatorServer{}, "needs-login"))
-	assert.Nil(t, registeredMeta(nil, "needs-login"))
+	// server, so an unknown name means no entry rather than a panic.
+	assert.Nil(t, registeredServerInfo(agg, "unknown"))
+	assert.Nil(t, registeredServerInfo(&AggregatorServer{}, "needs-login"))
+	assert.Nil(t, registeredServerInfo(nil, "needs-login"))
 }

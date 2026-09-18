@@ -124,9 +124,16 @@ func establishConnection(
 
 	oauthHandler := api.GetOAuthHandler()
 
-	// spec.meta belongs to the server, not to the session, so it is read from
-	// the registry entry rather than passed down every call path.
-	meta := registeredMeta(a, serverName)
+	// spec.meta and spec.timeout belong to the server, not to the session, so
+	// they are read from the registry entry rather than passed down every call
+	// path. The timeout is the budget every operation on this client runs
+	// under -- a tool call above all; without it the client falls back to the
+	// default and cuts a call the server's definition allows to run longer.
+	var meta map[string]string
+	var timeout time.Duration
+	if info := registeredServerInfo(a, serverName); info != nil {
+		meta, timeout = info.Meta, info.Timeout
+	}
 
 	var client internalmcp.MCPClient
 	if oauthHandler != nil && oauthHandler.IsEnabled() && issuer != "" {
@@ -134,6 +141,7 @@ func establishConnection(
 		clientID, clientSecret := oauthHandler.GetClientCredentialsForIssuer(ctx, issuer)
 		client = internalmcp.NewDynamicAuthClient(serverURL, tokenStore, scope, clientID, clientSecret).
 			WithMeta(meta).
+			WithTimeout(timeout).
 			WithAuthLossHandler(a.makeSessionAuthLossHandler(sessionID, serverName))
 		logging.Debug("Connection", "Using DynamicAuthClient for session %s, server %s (issuer=%s)",
 			logging.TruncateIdentifier(sessionID), serverName, issuer)
@@ -141,7 +149,7 @@ func establishConnection(
 		headers := map[string]string{
 			pkgoauth.HeaderAuthorization: pkgoauth.SchemeBearer + " " + accessToken,
 		}
-		client = internalmcp.NewStreamableHTTPClientWithHeaders(serverURL, headers).WithMeta(meta)
+		client = internalmcp.NewStreamableHTTPClientWithHeaders(serverURL, headers).WithMeta(meta).WithTimeout(timeout)
 		logging.Debug("Connection", "Using static auth headers for session %s, server %s",
 			logging.TruncateIdentifier(sessionID), serverName)
 	}
@@ -984,19 +992,20 @@ func (a *AggregatorServer) newTokenForwardingClient(
 	return internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithMeta(serverInfo.Meta).WithTimeout(serverInfo.Timeout), token, nil
 }
 
-// registeredMeta returns the spec.meta entries recorded for a server, or nil
-// when the aggregator holds no entry for it. establishConnection is reached
-// with a name and a URL rather than a registry entry, so it looks the entries
-// up here instead of taking one more parameter through both call paths.
-func registeredMeta(a *AggregatorServer, serverName string) map[string]string {
+// registeredServerInfo returns the registry entry of a server -- the home of
+// its spec.meta entries and its spec.timeout -- or nil when the aggregator
+// holds none. establishConnection is reached with a name and a URL rather
+// than a registry entry, so it looks the entry up here instead of taking one
+// more parameter through every call path.
+func registeredServerInfo(a *AggregatorServer, serverName string) *ServerInfo {
 	if a == nil || a.registry == nil {
 		return nil
 	}
 	serverInfo, ok := a.registry.GetServerInfo(serverName)
-	if !ok || serverInfo == nil {
+	if !ok {
 		return nil
 	}
-	return serverInfo.Meta
+	return serverInfo
 }
 
 // forwardedTokenDiagnostic attributes a token-forwarding connect failure. It
