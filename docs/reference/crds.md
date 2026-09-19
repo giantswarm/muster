@@ -240,7 +240,7 @@ roleRef:
 | `consecutiveFailures` | `int` | Connection attempts that failed in a row (remote servers); the server is `Failed` from the third on. Reset when an attempt reaches the endpoint |
 | `lastAttempt` | `*metav1.Time` | When the last connection attempt was made |
 | `nextRetryAfter` | `*metav1.Time` | When muster tries again. The wait doubles from 30 s per failure and is capped at 2 minutes (`MUSTER_MCPSERVER_MAX_BACKOFF`); absent while no retry is scheduled |
-| `lastFailureHTTPStatus` | `int` | The HTTP status the endpoint answered the last failed attempt with, e.g. `504` from a gateway in front of the server. Absent when the attempt got no HTTP response (connection refused, DNS, timeout) or the last attempt succeeded |
+| `lastFailureHTTPStatus` | `int` | The HTTP status the endpoint answered the last failed attempt with, e.g. `504` from a gateway in front of the server or `404` from a backend whose route is not served yet. Absent when the attempt got no HTTP response (connection refused, DNS, timeout) or the last attempt succeeded |
 | `conditions` | `[]metav1.Condition` | Standard Kubernetes conditions |
 
 ##### CRD State Values
@@ -253,12 +253,18 @@ The MCPServer CRD status reflects **infrastructure state** (network reachability
 | `Auth Required` | Server is reachable but requires authentication | 401 Unauthorized |
 | `Connecting` | Attempting to establish connection | Connection in progress |
 | `Disconnected` | Not connected (intentionally) | N/A |
-| `Failed` | Server cannot be reached | Connection refused, DNS failure, timeout |
+| `Failed` | The endpoint does not answer the initialize; retried with backoff | Connection refused, DNS failure, timeout, HTTP 5xx, or a 4xx other than 401 (the path is not served yet) |
 | `Running` | Process is running (stdio servers) | N/A |
 | `Starting` | Process is starting (stdio servers) | N/A |
 | `Stopped` | Process is stopped (stdio servers) | N/A |
 
 **Key point**: A 401 Unauthorized response indicates the server IS reachable (at the network level), so the CRD state is `Auth Required`, not `Failed`. This gives operators clear visibility into which servers need authentication.
+
+**Servers whose callers bring their own credentials** (`auth.forwardToken`, `auth.tokenExchange`, an OAuth login through muster) are connected per session; muster's own token-less probe only establishes whether the endpoint answers. Their state follows these rules:
+
+- `Failed` while the endpoint does not answer the initialize (connection refused, DNS, timeout, 5xx, or a 4xx other than 401 such as the 404 of a backend mid-rollout). The attempt is retried with backoff (`nextRetryAfter`); no manual step is needed once the path answers.
+- `Auth Required` as soon as the endpoint answers the initialize -- with a 401, or with a 200 that muster discards because the connection is made per session -- until the first session connects.
+- `Connected` after the first session connects with its own token, and for as long as a session holds a live connection. A later session's failure to connect is reported on that session (`MCPServerTokenForwardingFailed` / `MCPServerTokenExchangeFailed` events) and never turns the server `Failed`; when the last session's grant is lost the server returns to `Auth Required`.
 
 ##### Session State in CLI
 

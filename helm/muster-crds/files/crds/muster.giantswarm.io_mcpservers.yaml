@@ -650,10 +650,11 @@ spec:
                 description: |-
                   LastFailureHTTPStatus is the HTTP status code the endpoint answered the
                   most recent failed connection attempt with, for example 504 from a
-                  gateway in front of the server. Absent when the attempt got no HTTP
-                  response at all (connection refused, DNS failure, timeout) or the last
-                  attempt succeeded. Together with LastError it tells an upstream outage
-                  from an endpoint nothing listens on.
+                  gateway in front of the server or 404 from a backend whose route is
+                  not served yet. Absent when the attempt got no HTTP response at all
+                  (connection refused, DNS failure, timeout) or the last attempt
+                  succeeded. Together with LastError it tells an upstream outage from an
+                  endpoint nothing listens on.
                 type: integer
               lastRestartedAt:
                 description: |-
