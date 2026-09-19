@@ -578,15 +578,19 @@ muster update mcpserver remote-api \
   --header "Authorization=Bearer new-token"
 ```
 
-**Upstream 5xx and reconnect backoff:**
+**Upstream 5xx, a path not served yet, and reconnect backoff:**
 
 A remote server whose connection attempt fails for a transient reason (connection
-refused, DNS, timeout, HTTP 5xx) is retried automatically. The wait between
-attempts starts at 30 s, doubles on every consecutive failure and is capped at
-2 minutes; from the third failure on the server is reported as `Failed`
+refused, DNS, timeout, HTTP 5xx, or a 4xx other than 401 to the initialize -- the
+404 of a backend whose route is still held by the previous pod during a rollout,
+the 405 of a server that speaks only legacy SSE) is retried automatically. The
+wait between attempts starts at 30 s, doubles on every consecutive failure and is
+capped at 2 minutes; from the third failure on the server is reported as `Failed`
 (`unreachable` in `core_service_status`). The orchestrator checks every 30 s
 whether an attempt is due, so a server whose upstream has recovered is back
-within the cap plus one tick.
+within the cap plus one tick -- in `Connected`, or in `Auth Required` for a
+server connected per session (`forwardToken`, `tokenExchange`, OAuth), which is
+`Connected` once the first session connects with its own token.
 
 ```bash
 # Why did the last attempt fail and when is the next one?
@@ -597,8 +601,9 @@ muster events --resource-type MCPServer --resource-name remote-api
 ```
 
 `status.lastFailureHTTPStatus` is set when the endpoint answered -- `504` from a
-gateway or tunnel in front of a healthy server, `503` from the server itself --
-and absent when nothing answered at all. Three environment variables on the
+gateway or tunnel in front of a healthy server, `503` from the server itself,
+`404` from a backend whose route is not served yet -- and absent when nothing
+answered at all. Three environment variables on the
 muster process tune the schedule: `MUSTER_MCPSERVER_INITIAL_BACKOFF` (default
 `30s`), `MUSTER_MCPSERVER_MAX_BACKOFF` (default `2m`) and
 `MUSTER_ORCHESTRATOR_RETRY_INTERVAL` (default `30s`), each a Go duration.

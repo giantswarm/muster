@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 
 	"github.com/giantswarm/muster/v5/internal/api"
@@ -1080,6 +1081,7 @@ func (s *Service) isRemoteServer() bool {
 // - DNS resolution failures
 // - Timeouts
 // - HTTP 5xx server errors (500-511)
+// - A 4xx other than 401 to the initialize POST (the path is not served yet)
 //
 // Configuration errors (certificates, TLS) are NOT transient and should fail
 // immediately without counting towards unreachable threshold, as they won't
@@ -1109,6 +1111,19 @@ func (s *Service) isTransientConnectivityError(err error) bool {
 	var machineErr *machineIdentityUnauthorizedError
 	var authErr *mcpserver.AuthRequiredError
 	if errors.As(err, &machineErr) || errors.As(err, &authErr) {
+		return true
+	}
+
+	// A 4xx other than 401 to the initialize POST: the endpoint is up but does
+	// not serve the MCP protocol on that path right now -- a backend whose
+	// route is being rolled out answers 404 until the new pod takes it over, a
+	// server that speaks only legacy SSE answers 405. Both are corrected
+	// outside muster, so the server is retried with backoff and recovers on
+	// its own once the path answers, instead of reading Failed until someone
+	// restarts it (issue #1295). The streamable-http client types it with the
+	// status; the transport's bare sentinel from any other client counts too.
+	var refusedErr *mcpserver.InitializeRefusedError
+	if errors.As(err, &refusedErr) || errors.Is(err, transport.ErrLegacySSEServer) {
 		return true
 	}
 
@@ -1244,11 +1259,16 @@ func (s *Service) retryScheduleLocked() string {
 		s.retryBackoff.Round(time.Millisecond), s.nextRetryAfter.UTC().Format(time.RFC3339))
 }
 
-// httpStatusFromError returns the HTTP status code named in err's text, or 0
-// when the failure carried none (connection refused, DNS, timeout).
+// httpStatusFromError returns the HTTP status code the failure carried -- typed
+// on a refused initialize, named in err's text otherwise -- or 0 when there
+// was none (connection refused, DNS, timeout).
 func httpStatusFromError(err error) int {
 	if err == nil {
 		return 0
+	}
+	var refusedErr *mcpserver.InitializeRefusedError
+	if errors.As(err, &refusedErr) {
+		return refusedErr.StatusCode
 	}
 	match := httpStatusPattern.FindStringSubmatch(err.Error())
 	if match == nil {

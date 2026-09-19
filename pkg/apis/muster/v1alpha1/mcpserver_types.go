@@ -498,13 +498,21 @@ const (
 	// Remote server states (streamable-http, sse)
 
 	// MCPServerStateConnected indicates a remote server is reachable and authenticated.
-	// The server responded successfully (not 401/403).
+	// The server answered muster's own initialize successfully, or -- for a
+	// server whose callers bring their own credentials (forwardToken,
+	// tokenExchange, an OAuth login through muster) -- a session has connected
+	// with its own token. Such a server stays Connected while sessions come
+	// and go: a later session's failure is reported on that session, never as
+	// the server's state.
 	MCPServerStateConnected MCPServerStateValue = "Connected"
 
 	// MCPServerStateAuthRequired indicates a remote server is reachable but requires authentication.
-	// The server returned a 401 Unauthorized response, indicating it IS reachable at the
-	// network level but needs OAuth authentication before it can be used.
-	// Users should run `muster auth login --server <name>` to authenticate.
+	// The server answered muster's token-less initialize with a 401 Unauthorized, indicating
+	// it IS reachable at the network level but needs OAuth authentication before it can be
+	// used; a server whose callers bring their own credentials reads Auth Required as soon
+	// as the endpoint answers the initialize at all (its anonymous probe is discarded), until
+	// the first session connects. Users should run `muster auth login --server <name>` to
+	// authenticate.
 	MCPServerStateAuthRequired MCPServerStateValue = "Auth Required"
 
 	// MCPServerStateConnecting indicates a connection attempt is in progress.
@@ -517,7 +525,10 @@ const (
 
 	// MCPServerStateFailed indicates infrastructure is not available.
 	// For stdio: process crashed or cannot be started.
-	// For http/sse: endpoint unreachable (network error, DNS failure, etc.).
+	// For http/sse: the endpoint does not answer the initialize -- network error,
+	// DNS failure, timeout, an HTTP 5xx, or a 4xx other than 401 (the path is
+	// not served yet, as during a rollout). Retried with backoff; the server
+	// leaves Failed on its own once the endpoint answers.
 	MCPServerStateFailed MCPServerStateValue = "Failed"
 )
 
@@ -575,10 +586,11 @@ type MCPServerStatus struct {
 
 	// LastFailureHTTPStatus is the HTTP status code the endpoint answered the
 	// most recent failed connection attempt with, for example 504 from a
-	// gateway in front of the server. Absent when the attempt got no HTTP
-	// response at all (connection refused, DNS failure, timeout) or the last
-	// attempt succeeded. Together with LastError it tells an upstream outage
-	// from an endpoint nothing listens on.
+	// gateway in front of the server or 404 from a backend whose route is
+	// not served yet. Absent when the attempt got no HTTP response at all
+	// (connection refused, DNS failure, timeout) or the last attempt
+	// succeeded. Together with LastError it tells an upstream outage from an
+	// endpoint nothing listens on.
 	LastFailureHTTPStatus int `json:"lastFailureHTTPStatus,omitempty" yaml:"lastFailureHTTPStatus,omitempty"`
 
 	// LastRestartedAt mirrors the spec.restartRequestedAt value most recently

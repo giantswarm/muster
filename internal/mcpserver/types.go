@@ -128,6 +128,42 @@ func (e *AuthRequiredError) GetResourceMetadataURL() string {
 	return e.AuthInfo.ResourceMetadataURL
 }
 
+// InitializeRefusedError is returned when the endpoint answered the initialize
+// POST with a 4xx other than 401. The endpoint is up and routing -- it is not a
+// connection failure -- but it does not serve the MCP protocol on that path
+// right now: a backend whose route is being rolled out answers 404 until the
+// new pod takes it over, a server that speaks only the legacy SSE transport
+// answers 405. Both are corrected outside muster, so the caller retries with
+// backoff instead of settling the server in Failed (issue #1295).
+//
+// mcp-go reports every such answer as transport.ErrLegacySSEServer and drops
+// the status; the client's transport records it (see challengeRecorder) so the
+// CR status and the events can name it.
+type InitializeRefusedError struct {
+	// URL is the endpoint that refused the initialize.
+	URL string
+
+	// StatusCode is the HTTP status the endpoint answered with; 0 when the
+	// transport did not record one.
+	StatusCode int
+
+	// Err is the underlying error, wrapping transport.ErrLegacySSEServer.
+	Err error
+}
+
+// Error implements the error interface.
+func (e *InitializeRefusedError) Error() string {
+	if e.StatusCode == 0 {
+		return "endpoint answered the initialize POST with a 4xx: " + e.Err.Error()
+	}
+	return fmt.Sprintf("endpoint answered the initialize POST with HTTP %d: %v", e.StatusCode, e.Err)
+}
+
+// Unwrap returns the underlying error.
+func (e *InitializeRefusedError) Unwrap() error {
+	return e.Err
+}
+
 // CheckForAuthRequiredError examines an error to determine if it's a 401 authentication
 // required error. It uses mcp-go's typed error detection instead of string parsing:
 //

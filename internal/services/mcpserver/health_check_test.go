@@ -317,9 +317,9 @@ func TestCheckHealth_StopResetsTheCount(t *testing.T) {
 
 // TestStart_AfterFailedProbesRetriesAnyError: a reconnect that follows failed
 // probes is scheduled again whatever the endpoint answered. Here it is a 404
-// on initialize, which mcp-go reports as a legacy-SSE server and which is not
-// a transient connectivity error; before, such a start left the server Failed
-// with no schedule and it was never retried.
+// on initialize, which mcp-go reports as a legacy-SSE server; a first connect
+// against it is scheduled too since issue #1295, and the flag set by the
+// failed probes must survive the attempt either way.
 func TestStart_AfterFailedProbesRetriesAnyError(t *testing.T) {
 	notFound := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "route not found", http.StatusNotFound)
@@ -327,14 +327,15 @@ func TestStart_AfterFailedProbesRetriesAnyError(t *testing.T) {
 	defer notFound.Close()
 	def := &api.MCPServer{Name: "behind-route", Type: api.MCPServerTypeStreamableHTTP, URL: notFound.URL + "/mcp", Timeout: 5}
 
-	t.Run("a first connect against the 404 is not scheduled (unchanged)", func(t *testing.T) {
+	t.Run("a first connect against the 404 is scheduled", func(t *testing.T) {
 		svc, err := NewService(def)
 		require.NoError(t, err)
 
 		require.Error(t, svc.Start(context.Background()))
 		assert.Equal(t, services.StateFailed, svc.GetState())
 		_, scheduled := svc.GetServiceData()[api.ServiceDataNextRetryAfter]
-		assert.False(t, scheduled)
+		assert.True(t, scheduled, "a path not served yet is retried, not settled in Failed")
+		assert.False(t, svc.isReconnectingAfterProbe(), "no probe failed; this is the ordinary schedule")
 	})
 
 	t.Run("a reconnect after failed probes is scheduled", func(t *testing.T) {

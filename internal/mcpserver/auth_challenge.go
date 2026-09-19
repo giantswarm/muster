@@ -20,19 +20,35 @@ import (
 // recorder captures the header on the wire and CheckForAuthRequiredError's
 // callers attach it to the AuthRequiredError they return.
 //
-// Only the header value is kept: never the request, its Authorization header,
-// or the response body.
+// The recorder also keeps the status the endpoint answered the most recent
+// POST with. mcp-go reduces a 4xx to the initialize POST to
+// transport.ErrLegacySSEServer without the code, and the code is what tells a
+// path not served yet (404, a backend mid-rollout) from a server that speaks
+// only legacy SSE (405); InitializeRefusedError carries it to the CR status.
+//
+// Only the header value and the status are kept: never the request, its
+// Authorization header, or the response body.
 type challengeRecorder struct {
-	mu   sync.Mutex
-	last string
+	mu         sync.Mutex
+	last       string
+	postStatus int
 }
 
-// record keeps the Bearer challenge of resp when it is a 401. Any other
-// response leaves the recorder unchanged, so the value a connect failure reads
-// is the rejection that preceded it even when the listener's GET and the
-// initialize POST interleave.
+// record keeps the status of resp when it answers a POST -- the initialize,
+// never the listener's GET, which interleaves with it and answers 405 from a
+// server that offers no stream -- and the Bearer challenge when it is a 401.
+// Any other response leaves the challenge unchanged, so the value a connect
+// failure reads is the rejection that preceded it.
 func (r *challengeRecorder) record(resp *http.Response) {
-	if r == nil || resp == nil || resp.StatusCode != http.StatusUnauthorized {
+	if r == nil || resp == nil {
+		return
+	}
+	if resp.Request != nil && resp.Request.Method == http.MethodPost {
+		r.mu.Lock()
+		r.postStatus = resp.StatusCode
+		r.mu.Unlock()
+	}
+	if resp.StatusCode != http.StatusUnauthorized {
 		return
 	}
 	values := resp.Header.Values(pkgoauth.HeaderWWWAuth)
@@ -51,6 +67,17 @@ func (r *challengeRecorder) record(resp *http.Response) {
 	r.mu.Lock()
 	r.last = chosen
 	r.mu.Unlock()
+}
+
+// lastPOSTStatus returns the HTTP status the endpoint answered the most
+// recent POST with, or 0 when none was recorded.
+func (r *challengeRecorder) lastPOSTStatus() int {
+	if r == nil {
+		return 0
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.postStatus
 }
 
 // challenge returns the parsed challenge of the last recorded 401, or nil when
@@ -82,13 +109,17 @@ type challengeRecordingTransport struct {
 func (t *challengeRecordingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	resp, err := t.next.RoundTrip(req)
 	if err == nil {
+		if resp.Request == nil {
+			// net/http's Transport sets it; a custom RoundTripper may not.
+			resp.Request = req
+		}
 		t.rec.record(resp)
 	}
 	return resp, err
 }
 
 // recordingHTTPClient returns a copy of client whose transport records 401
-// challenges into rec. A nil client yields one equivalent to mcp-go's default
+// challenges and POST statuses into rec. A nil client yields one equivalent to mcp-go's default
 // (no timeout, the default transport): a timeout would also cut the
 // long-lived GET that WithContinuousListening opens. The caller's client is
 // not modified.
