@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	mcp_client "github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -24,6 +25,11 @@ type MockMCPGoClient struct {
 	lastCallToolRequest mcp.CallToolRequest
 	// callToolError can be set to simulate errors
 	callToolError error
+	// callToolDelay makes CallTool answer only after this long, the way a slow
+	// tool behind the aggregator does; the request's context can cut it short.
+	callToolDelay time.Duration
+	// lastCallToolDeadline captures the deadline of the last CallTool context.
+	lastCallToolDeadline time.Time
 }
 
 func (m *MockMCPGoClient) ListTools(ctx context.Context, req mcp.ListToolsRequest) (*mcp.ListToolsResult, error) {
@@ -38,9 +44,18 @@ func (m *MockMCPGoClient) Initialize(ctx context.Context, req mcp.InitializeRequ
 
 func (m *MockMCPGoClient) CallTool(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	m.lastCallToolRequest = req
+	m.lastCallToolDeadline, _ = ctx.Deadline()
 
 	if m.callToolError != nil {
 		return nil, m.callToolError
+	}
+
+	if m.callToolDelay > 0 {
+		select {
+		case <-time.After(m.callToolDelay):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 
 	toolName := req.Params.Name

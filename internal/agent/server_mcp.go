@@ -3,10 +3,13 @@ package agent
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sync"
 	"time"
 
 	"github.com/giantswarm/muster/v5/internal/agent/oauth"
+	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/metatools"
 	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -308,16 +311,27 @@ func (m *MCPServer) registerTools() {
 //  4. Wraps the result with auth status (ADR-008)
 func (m *MCPServer) forwardToServerMetaTool(metaToolName string) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		// Extract arguments from MCP request
-		args := make(map[string]interface{})
-		if request.Params.Arguments != nil {
-			if argsMap, ok := request.Params.Arguments.(map[string]interface{}); ok {
-				args = argsMap
-			}
+		args := maps.Clone(request.GetArguments())
+		if args == nil {
+			args = map[string]any{}
 		}
 
-		// Forward to server's meta-tool
-		result, err := m.client.CallTool(ctx, metaToolName, args)
+		// Forward to server's meta-tool. A call_tool request may carry the
+		// bridge's own timeout argument, which bounds this one call instead of
+		// the client's call timeout and never reaches the aggregator.
+		call := m.client.CallTool
+		if metaToolName == metatools.ToolCallTool {
+			timeout, err := takeCallTimeout(args)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			if timeout > 0 {
+				call = func(ctx context.Context, name string, args map[string]any) (*mcp.CallToolResult, error) {
+					return m.client.CallToolWithTimeout(ctx, name, args, timeout)
+				}
+			}
+		}
+		result, err := call(ctx, metaToolName, args)
 		if err != nil {
 			// Handle OAuth token expiration
 			if tokenResult := m.checkAndHandleTokenExpiration(ctx, err); tokenResult != nil {
@@ -329,4 +343,29 @@ func (m *MCPServer) forwardToServerMetaTool(metaToolName string) func(context.Co
 		// Wrap result with auth status (ADR-008)
 		return m.wrapToolResultWithAuth(result), nil
 	}
+}
+
+// callTimeoutArg is the one argument of call_tool the bridge owns: seconds to
+// wait for this call before giving up, in place of the agent's --timeout. It
+// is removed from the arguments before they are forwarded to the aggregator.
+var callTimeoutArg = api.ArgMetadata{
+	Name:        "timeout",
+	Type:        api.ArgTypeNumber,
+	Description: "Seconds to wait for this call before giving up; overrides the agent's --timeout for this call only",
+}
+
+// takeCallTimeout removes the bridge's timeout argument from a call_tool
+// request's arguments and returns it as a duration; zero when it is absent.
+func takeCallTimeout(args map[string]any) (time.Duration, error) {
+	raw, ok := args[callTimeoutArg.Name]
+	if !ok {
+		return 0, nil
+	}
+	delete(args, callTimeoutArg.Name)
+
+	seconds, ok := raw.(float64)
+	if !ok || seconds <= 0 {
+		return 0, fmt.Errorf("%s must be a positive number of seconds, got %v", callTimeoutArg.Name, raw)
+	}
+	return time.Duration(seconds * float64(time.Second)), nil
 }

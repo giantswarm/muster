@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 
 	musterctx "github.com/giantswarm/muster/v5/internal/context"
 
@@ -44,11 +43,6 @@ const StateAuthRequired = "[AUTH REQUIRED]"
 // maxContextNameLength is the maximum length for context names in the prompt.
 // Longer names are truncated with smart ellipsis to preserve distinguishing suffix.
 const maxContextNameLength = 28
-
-// commandExecutionTimeout is the timeout for individual REPL command execution.
-// Set to 5 minutes to allow for long-running tool calls while still providing
-// a safety net against hung operations.
-const commandExecutionTimeout = 5 * time.Minute
 
 // REPL represents an interactive Read-Eval-Print Loop for MCP interaction.
 // It provides a command-line interface for exploring and testing MCP capabilities
@@ -490,10 +484,10 @@ func (r *REPL) executeCommand(input string) error {
 		return fmt.Errorf("unknown command: %s. Type 'help' for available commands", parts[0])
 	}
 
-	// Create a separate context for command execution with a reasonable timeout
-	// This prevents tool calls from being canceled by agent lifecycle events
-	// but still allows for reasonable timeouts and manual cancellation
-	commandCtx, commandCancel := context.WithTimeout(context.Background(), commandExecutionTimeout)
+	// A command runs on its own context, detached from the agent's lifecycle,
+	// bounded by the client's call timeout: the longest a command legitimately
+	// takes is the tool call `call` makes, which the client bounds the same way.
+	commandCtx, commandCancel := context.WithTimeout(context.Background(), r.client.CallTimeout())
 	defer commandCancel()
 
 	// Execute the command with timeout protection
