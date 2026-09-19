@@ -33,7 +33,7 @@ muster standalone [flags]
       --oauth-server-base-url string         Base URL of the muster server for OAuth (e.g., https://muster.example.com)
       --repl                                 Start interactive REPL mode
       --silent                               Attempt silent re-auth using OIDC prompt=none (requires IdP support, not supported by Dex) (default true)
-      --timeout duration                     Timeout for waiting for notifications (default 5m0s)
+      --timeout duration                     Timeout for a tool call made through the REPL or the MCP server bridge (call_tool's timeout argument overrides it for one call) (default 5m0s)
       --transport string                     Transport to use (streamable-http, sse) (default "streamable-http")
       --verbose                              Enable verbose logging (show keepalive messages)
 ```

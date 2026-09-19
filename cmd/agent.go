@@ -91,7 +91,7 @@ func init() {
 	// Add flags
 	agentCmd.Flags().StringVar(&agentEndpoint, "endpoint", "", "Aggregator MCP endpoint URL (default: from config)")
 	agentCmd.Flags().StringVar(&agentContext, "context", "", "Use a specific context (env: MUSTER_CONTEXT)")
-	agentCmd.Flags().DurationVar(&agentTimeout, "timeout", 5*time.Minute, "Timeout for waiting for notifications")
+	agentCmd.Flags().DurationVar(&agentTimeout, "timeout", agent.DefaultCallTimeout, "Timeout for a tool call made through the REPL or the MCP server bridge (call_tool's timeout argument overrides it for one call)")
 	agentCmd.Flags().BoolVar(&agentVerbose, "verbose", false, "Enable verbose logging (show keepalive messages)")
 	agentCmd.Flags().BoolVar(&agentNoColor, "no-color", false, "Disable colored output")
 	agentCmd.Flags().BoolVar(&agentJSONRPC, "json-rpc", false, "Enable full JSON-RPC message logging")
@@ -170,6 +170,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 
 	// Create agent client
 	client := agent.NewClient(endpoint, logger, transport)
+	client.SetCallTimeout(agentTimeout)
 
 	// For MCP Server mode, check if authentication is required first
 	if agentMCPServer {

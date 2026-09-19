@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"slices"
+
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/metatools"
 
@@ -36,12 +38,18 @@ func RegisterClientToolsOnServer(mcpServer *server.MCPServer, client *Client) {
 // aggregator advertises: a new meta-tool, argument or description reaches the
 // bridge without a hand-maintained copy that can fall behind (the copy this
 // replaced still described filter_tools as returning full specifications).
+// The one exception is call_tool's timeout argument, which the bridge itself
+// consumes (callTimeoutArg).
 func registerAgentTools(m *MCPServer) {
 	for _, meta := range metatools.NewProvider().GetTools() {
+		args := meta.Args
+		if meta.Name == metatools.ToolCallTool {
+			args = append(slices.Clone(args), callTimeoutArg)
+		}
 		tool := mcp.Tool{
 			Name:        meta.Name,
 			Description: meta.Description,
-			InputSchema: api.InputSchemaFromArgs(meta.Args),
+			InputSchema: api.InputSchemaFromArgs(args),
 		}
 		m.mcpServer.AddTool(tool, m.forwardToServerMetaTool(meta.Name))
 	}

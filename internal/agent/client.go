@@ -66,7 +66,8 @@ type Client struct {
 	resourceCache    []mcp.Resource
 	promptCache      []mcp.Prompt
 	mu               sync.RWMutex
-	timeout          time.Duration
+	timeout          time.Duration // initialize, listings, resources, prompts
+	callTimeout      time.Duration // tool calls; see DefaultCallTimeout
 	cacheEnabled     bool
 	formatters       *Formatters
 	NotificationChan chan mcp.JSONRPCNotification
@@ -96,7 +97,8 @@ func (c *Client) SetContinuousListening(enabled bool) {
 //   - transport: Transport type (TransportSSE or TransportStreamableHTTP)
 //
 // The client is created with default settings:
-//   - 30-second timeout for operations
+//   - 30-second timeout for the handshake, listings, resources and prompts
+//   - DefaultCallTimeout for tool calls
 //   - Caching enabled for tools, resources, and prompts
 //   - 10-item notification channel buffer
 //
@@ -113,6 +115,7 @@ func NewClient(endpoint string, logger *Logger, transport TransportType) *Client
 		resourceCache:    []mcp.Resource{},
 		promptCache:      []mcp.Prompt{},
 		timeout:          30 * time.Second,
+		callTimeout:      DefaultCallTimeout,
 		cacheEnabled:     true,
 		formatters:       NewFormatters(),
 		NotificationChan: make(chan mcp.JSONRPCNotification, 10),
@@ -802,30 +805,7 @@ func (c *Client) CallTool(ctx context.Context, name string, args map[string]any)
 //   - CallToolResult: Complete tool execution result including content and metadata
 //   - error: Any execution or communication errors
 func (c *Client) callToolDirect(ctx context.Context, name string, args map[string]any) (*mcp.CallToolResult, error) {
-	// Ensure client is connected before attempting tool execution
-	if c.client == nil {
-		return nil, fmt.Errorf("client not connected")
-	}
-
-	// Construct the MCP tool call request
-	req := mcp.CallToolRequest{
-		Params: mcp.CallToolParams{
-			Name:      name,
-			Arguments: args,
-		},
-	}
-
-	// Create timeout context to prevent hanging tool executions
-	timeoutCtx, cancel := context.WithTimeout(ctx, c.timeout)
-	defer cancel()
-
-	// Send request
-	result, err := c.client.CallTool(timeoutCtx, req)
-	if err != nil {
-		return nil, fmt.Errorf("tool call failed: %w", err)
-	}
-
-	return result, nil
+	return c.callToolDirectWithTimeout(ctx, name, args, c.CallTimeout())
 }
 
 // unwrapMetaToolResponse extracts the actual tool result from a call_tool meta-tool response.
@@ -1356,32 +1336,37 @@ func (c *Client) SetCacheEnabled(enabled bool) {
 	c.cacheEnabled = enabled
 }
 
-// SetTimeout configures the timeout duration for MCP operations.
-// This timeout applies to all network operations including tool calls,
-// resource retrieval, prompt execution, and capability listing.
+// SetTimeout configures the timeout for the handshake, capability listings,
+// resource retrieval and prompt execution -- every operation except a tool
+// call, which SetCallTimeout bounds.
 //
-// Args:
-//   - timeout: The timeout duration for operations (e.g., 30*time.Second)
-//
-// The default timeout is 30 seconds. Setting a shorter timeout can help
-// with responsive UX but may cause failures with slow operations. Setting
-// a longer timeout is useful for complex tools or slow networks.
-//
-// Example:
-//
-//	client := agent.NewClient(endpoint, logger, transport)
-//	client.SetTimeout(60 * time.Second) // 1 minute timeout for slow operations
-//	defer client.Close()
+// The default is 30 seconds: these operations are answered by the aggregator
+// itself and are quick, so a shorter bound surfaces a dead endpoint sooner.
 func (c *Client) SetTimeout(timeout time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.timeout = timeout
 }
 
-// SetTimeoutForComplexOperations sets a longer timeout specifically for complex operations
-// like workflow execution that may take longer than the default timeout.
-func (c *Client) SetTimeoutForComplexOperations() {
-	c.SetTimeout(120 * time.Second) // 2 minutes for complex operations
+// DefaultCallTimeout bounds a tool call made through CallTool. A call is
+// answered by the aggregated server behind the aggregator, whose own tool
+// timeout (an MCPServer's spec.timeout) may be as long as five minutes, so
+// the client waits at least that long before it gives up on the call.
+const DefaultCallTimeout = 5 * time.Minute
+
+// SetCallTimeout configures the timeout for tool calls made through CallTool,
+// CallToolSimple and CallToolJSON. CallToolWithTimeout bounds one call on its own.
+func (c *Client) SetCallTimeout(timeout time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.callTimeout = timeout
+}
+
+// CallTimeout returns the timeout a tool call made through CallTool runs under.
+func (c *Client) CallTimeout() time.Duration {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.callTimeout
 }
 
 // CallToolWithTimeout executes a tool with a custom timeout.

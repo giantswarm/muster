@@ -112,6 +112,8 @@ filter_tools(pattern="*workflow*", limit=25, offset=25)
 |-----------|-------------|-----------|
 | `call_tool` | Execute any tool by name. With `X-muster-Toolset` on the request, only tools inside the toolset can be called; others are refused naming the toolset (see [Toolsets](toolsets.md)) | `{"name": "tool_name", "arguments": {...}}` |
 
+Through `muster agent --mcp-server`, `call_tool` additionally takes `timeout` (seconds): how long the agent waits for this one call instead of its `--timeout` (default 5 minutes). The agent consumes the argument; the aggregator never sees it.
+
 **Example:**
 ```json
 {
