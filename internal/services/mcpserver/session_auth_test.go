@@ -227,6 +227,33 @@ func TestRecordTokenExchangeOutcomeFollowsTheServersFailures(t *testing.T) {
 	assert.Contains(t, svc.GetServiceData(), api.ServiceDataLastTokenExchangeSucceededAt, "the last success survives a restart")
 }
 
+// TestReportedTokenExchangeReachesTheServiceThroughTheRegistry: the aggregator
+// reaches services only through the registry adapter, which wraps them; a
+// report that the wrapper does not forward is dropped silently (the first
+// run of the oauth-sso-token-exchange-state scenario found exactly that).
+func TestReportedTokenExchangeReachesTheServiceThroughTheRegistry(t *testing.T) {
+	recordEvents(t)
+	backend := startHTTPStatusServer(t, http.StatusUnauthorized)
+	svc, err := NewService(tokenExchangeDefinition(backend.URL, false))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = svc.Stop(context.Background()) })
+
+	registry := services.NewRegistry()
+	require.NoError(t, registry.Register(svc))
+	services.NewRegistryAdapter(registry).Register()
+	t.Cleanup(func() { api.RegisterServiceRegistry(nil) })
+
+	require.True(t, api.IsAuthRequiredError(svc.Start(t.Context())))
+	require.Equal(t, services.StateAwaitingSession, svc.GetState())
+
+	api.ReportMCPServerTokenExchange(svc.GetName(), errors.New("token exchange failed: invalid_target - no trusted issuer configured for connector_id: no-such-connector"))
+	assert.Equal(t, services.StateFailed, svc.GetState())
+	assert.Equal(t, string(api.TokenExchangeFailureConnector), svc.GetServiceData()[api.ServiceDataFailureReason])
+
+	api.ReportMCPServerTokenExchange(svc.GetName(), nil)
+	assert.Equal(t, services.StateAwaitingSession, svc.GetState())
+}
+
 // TestStartSessionAuthServerAnswering401IsAwaitingSession: the 401 muster's
 // token-less probe gets from a server that expects the caller's identity is
 // the configured answer -- Awaiting Session, with the pending-auth hook run

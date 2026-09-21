@@ -1,0 +1,202 @@
+name: "oauth-sso-token-exchange-state"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  The state of a server served per session through RFC 8693 token exchange
+  says whether the exchange works (giantswarm/muster#1300).
+
+  Two remote servers exchange the caller's token at the remote cluster's
+  authorization server: one through the connector that server trusts, one
+  through a connector it does not know.
+
+    1. Before any session: both read awaiting_session -- reachable, served
+       per session, nothing to sign in to -- never auth_required.
+    2. A session signs in to muster; its SSO fan-out exchanges its token for
+       both servers. The first server's exchange succeeds and it reads
+       connected.
+    3. The second server's exchange fails at the authorization server for a
+       reason every caller shares (the connector), so the server reads failed
+       with the exchange error as its last error, and no reconnect is
+       scheduled for it.
+    4. An operator's restart is an explicit reset: the server probes the
+       endpoint again and reads awaiting_session until the next caller.
+
+  Regression: both servers read auth_required whatever the exchange did;
+  a missing connector or a wrong client secret was visible only in the log
+  and in per-attempt MCPServerTokenExchangeFailed events.
+tags: ["oauth", "sso", "token-exchange", "rfc8693", "mcpserver", "status", "issue-1300"]
+timeout: "2m"
+
+pre_configuration:
+  mock_oauth_servers:
+    - name: "cluster-a-idp"
+      scopes: ["openid", "profile", "email", "groups", "mcp:admin"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "muster-client"
+      client_secret: "muster-secret"
+      use_as_muster_oauth_server: true
+
+    - name: "cluster-b-idp"
+      scopes: ["openid", "profile", "email", "groups", "mcp:admin"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "mcp-kubernetes-client"
+      use_tls: true
+      trusted_issuers:
+        - connector_id: "cluster-a-dex"
+          oauth_server_ref: "cluster-a-idp"
+
+  mcp_servers:
+    - name: "remote-exchange-ok"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "cluster-b-idp"
+          token_exchange:
+            oauth_server_ref: "cluster-b-idp"
+            connector_id: "cluster-a-dex"
+            scopes: "openid profile email groups"
+        tools:
+          - name: "remote_ok"
+            description: "Answers on the remote cluster"
+            responses:
+              - response:
+                  cluster: "cluster-b"
+
+    - name: "remote-exchange-badconnector"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "cluster-b-idp"
+          token_exchange:
+            oauth_server_ref: "cluster-b-idp"
+            # The remote authorization server knows no such connector: every
+            # caller's exchange fails the same way.
+            connector_id: "no-such-connector"
+            scopes: "openid profile email groups"
+        tools:
+          - name: "remote_bad"
+            description: "Never reachable"
+            responses:
+              - response:
+                  cluster: "cluster-b"
+
+steps:
+  # --- 1. before any session -----------------------------------------------
+  - id: ok-server-awaits-a-session
+    description: "A token-exchange server whose endpoint answers waits in awaiting_session, not auth_required"
+    tool: "core_service_status"
+    args:
+      name: "remote-exchange-ok"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "remote-exchange-ok"
+        state: "awaiting_session"
+
+  - id: badconnector-server-awaits-a-session-too
+    description: "Nothing tells the servers apart before a caller tries: the connector is only known to the remote authorization server"
+    tool: "core_service_status"
+    args:
+      name: "remote-exchange-badconnector"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "remote-exchange-badconnector"
+        state: "awaiting_session"
+
+  # --- 2. a session's exchange succeeds -----------------------------------
+  - id: sign-in-to-muster
+    tool: "test_muster_auth_login"
+    args: {}
+    expected:
+      success: true
+      contains: ["success", "ID token stored"]
+
+  - id: connect-ok-server
+    description: "The session connects the first server: its token is exchanged through the trusted connector"
+    tool: "core_auth_login"
+    args:
+      server: "remote-exchange-ok"
+    expected:
+      success: true
+
+  - id: ok-server-is-connected
+    description: "A session holds a live connection: the server reads connected"
+    tool: "core_service_status"
+    args:
+      name: "remote-exchange-ok"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "remote-exchange-ok"
+        state: "connected"
+
+  - id: ok-tool-runs
+    tool: "x_remote-exchange-ok_remote_ok"
+    args: {}
+    expected:
+      success: true
+      contains: ["cluster-b"]
+
+  # --- 3. a session's exchange fails for every caller ---------------------
+  # The session's SSO fan-out at sign-in already exchanged for this server
+  # too (core_auth_login refuses an SSO server: it connects automatically),
+  # and the remote authorization server refused: it knows no such connector.
+  - id: badconnector-server-is-failed
+    description: "A failure every caller shares is the server's: failed, with the exchange error as its last error and no reconnect scheduled"
+    tool: "core_service_status"
+    args:
+      name: "remote-exchange-badconnector"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "remote-exchange-badconnector"
+        state: "failed"
+      contains:
+        - "no trusted issuer configured for connector_id: no-such-connector"
+        - "TokenExchangeConnector"
+      not_contains:
+        - "nextRetryAfter"
+
+  - id: ok-server-unaffected
+    description: "The other server's state is its own"
+    tool: "core_service_status"
+    args:
+      name: "remote-exchange-ok"
+    expected:
+      success: true
+      json_path:
+        name: "remote-exchange-ok"
+        state: "connected"
+
+  # --- 4. a restart is an explicit reset ----------------------------------
+  - id: restart-badconnector-server
+    tool: "core_service_restart"
+    args:
+      name: "remote-exchange-badconnector"
+    expected:
+      success: true
+
+  - id: badconnector-server-awaits-a-session-again
+    description: "The probe reaches the endpoint again; the recorded exchange failure is forgotten until the next caller"
+    tool: "core_service_status"
+    args:
+      name: "remote-exchange-badconnector"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "remote-exchange-badconnector"
+        state: "awaiting_session"
+      not_contains:
+        - "TokenExchangeConnector"
