@@ -352,13 +352,14 @@ steps:
     timeout: "15s"
 
   - id: "k8s-b-probe-succeeds"
-    description: "The probe reaches the backend again; a session-auth server settles in auth-required"
+    description: "The probe reaches the backend again; a session-auth server settles in awaiting_session and the restart says what it waits for"
     tool: "core_service_restart"
     args:
       name: "k8s-b"
     expected:
-      success: false
-      error_contains: ["requires OAuth authentication"]
+      success: true
+      contains: ["served per session"]
+      not_contains: ["requires OAuth authentication"]
     timeout: "30s"
 
   - id: "list-pods-provided-by-both-again"
