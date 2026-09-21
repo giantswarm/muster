@@ -477,10 +477,11 @@ type ClientCredentialsSecretRef struct {
 //
 // For remote (streamable-http, sse) servers:
 //   - Connected: TCP connection established and authenticated
-//   - AuthRequired: Server is reachable but requires authentication (returned 401)
+//   - AuthRequired: Server is reachable; a person signs in through muster before it connects
+//   - AwaitingSession: Server is reachable and served per session with the caller's identity; no session is connected
 //   - Connecting: Attempting to establish connection
 //   - Disconnected: Not connected (initial state or connection closed)
-//   - Failed: Endpoint unreachable (network error, DNS failure, etc.)
+//   - Failed: Endpoint unreachable (network error, DNS failure, etc.), or the token exchange is broken for every caller
 type MCPServerStateValue string
 
 const (
@@ -509,11 +510,22 @@ const (
 	// MCPServerStateAuthRequired indicates a remote server is reachable but requires authentication.
 	// The server answered muster's token-less initialize with a 401 Unauthorized, indicating
 	// it IS reachable at the network level but needs OAuth authentication before it can be
-	// used; a server whose callers bring their own credentials reads Auth Required as soon
-	// as the endpoint answers the initialize at all (its anonymous probe is discarded), until
-	// the first session connects. Users should run `muster auth login --server <name>` to
-	// authenticate.
+	// used: a person signs in through muster (`muster auth login --server <name>`,
+	// core_auth_login, the Dev Portal's Sign in) and muster holds that grant.
 	MCPServerStateAuthRequired MCPServerStateValue = "Auth Required"
+
+	// MCPServerStateAwaitingSession indicates a remote server that is served per
+	// session with the caller's own identity (auth.forwardToken or
+	// auth.tokenExchange) and currently has no session connected. muster's
+	// token-less probe reached the endpoint (a 401, or an accepted anonymous
+	// initialize that muster discards), so the server is up; muster holds no
+	// connection of its own because every connection belongs to a session, and
+	// there is no login to run: the caller's Dex token is forwarded or
+	// exchanged when a session uses the server. The server is Connected while a
+	// session holds a live connection and returns here when the last one is
+	// lost. The Ready condition names the mechanism and, for token exchange,
+	// when the last exchange succeeded.
+	MCPServerStateAwaitingSession MCPServerStateValue = "Awaiting Session"
 
 	// MCPServerStateConnecting indicates a connection attempt is in progress.
 	MCPServerStateConnecting MCPServerStateValue = "Connecting"
@@ -529,6 +541,13 @@ const (
 	// DNS failure, timeout, an HTTP 5xx, or a 4xx other than 401 (the path is
 	// not served yet, as during a rollout). Retried with backoff; the server
 	// leaves Failed on its own once the endpoint answers.
+	// For a server served per session through token exchange, also: the
+	// client credentials Secret is missing or unreadable (retried with backoff
+	// until it exists), or a caller's exchange failed in a way that is the
+	// server's -- the token endpoint did not answer, the client credentials
+	// were rejected (invalid_client), the connector is unknown. Such a server
+	// leaves Failed on the next successful exchange, on a restart or on a
+	// spec change; the Ready condition's reason names the class.
 	MCPServerStateFailed MCPServerStateValue = "Failed"
 )
 
@@ -541,7 +560,7 @@ const (
 // Session Registry (internal/aggregator/session_registry.go).
 //
 // Server-Side State (CRD):
-//   - State: Running/Connected/Starting/Connecting/Stopped/Disconnected/Auth Required/Failed
+//   - State: Running/Connected/Starting/Connecting/Stopped/Disconnected/Auth Required/Awaiting Session/Failed
 //   - Conditions: Standard K8s conditions for detailed status
 //
 // Per-User Session State (Session Registry):
@@ -553,8 +572,8 @@ type MCPServerStatus struct {
 	// This is independent of user session state (authentication, connection status).
 	//
 	// For stdio servers: Running, Starting, Stopped, Failed
-	// For remote servers: Connected, Auth Required, Connecting, Disconnected, Failed
-	// +kubebuilder:validation:Enum=Running;Starting;Stopped;Connected;Auth Required;Connecting;Disconnected;Failed
+	// For remote servers: Connected, Auth Required, Awaiting Session, Connecting, Disconnected, Failed
+	// +kubebuilder:validation:Enum=Running;Starting;Stopped;Connected;Auth Required;Awaiting Session;Connecting;Disconnected;Failed
 	State MCPServerStateValue `json:"state,omitempty" yaml:"state,omitempty"`
 
 	// LastError contains any error message from the most recent server operation.
@@ -600,7 +619,15 @@ type MCPServerStatus struct {
 
 	// Conditions represent the latest available observations of the MCPServer's current state.
 	// Standard condition types:
-	//   - Ready: True if infrastructure is reachable (process running or TCP connectable)
+	//   - Ready: True while the server is reachable (Running, Connected, Auth
+	//     Required, Awaiting Session), False otherwise. The reason is the state
+	//     in one word (Connected, AwaitingSession, AuthRequired, Connecting,
+	//     Disconnected, Suspended, Failed) or, for a server Failed by its token
+	//     exchange, the class of the failure (TokenExchangeCredentials,
+	//     TokenExchangeEndpoint, TokenExchangeConnector). The message explains
+	//     the state: for Awaiting Session the per-session mechanism, the token
+	//     endpoint and connector, and when the last exchange succeeded; for
+	//     Failed the error.
 	Conditions []metav1.Condition `json:"conditions,omitempty" yaml:"conditions,omitempty"`
 }
 

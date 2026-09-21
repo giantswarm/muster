@@ -5,7 +5,7 @@ description: |
   A backend configured for session-level auth (auth.forwardToken) is rolled
   over from an anonymous pod to one that requires a bearer token, and back,
   while muster runs: muster never registers it globally, reports it
-  auth_required throughout, and the session that authenticated to muster
+  awaiting_session throughout, and the session that authenticated to muster
   keeps calling its tool through the forwarded token on both sides of each
   flip (#1135).
 
@@ -60,7 +60,7 @@ pre_configuration:
 
 steps:
   - id: "auth-required-while-the-pod-is-anonymous"
-    description: "A forwardToken server whose probe the anonymous pod accepted still reports auth_required, not connected"
+    description: "A forwardToken server whose probe the anonymous pod accepted still reports awaiting_session, not connected"
     tool: "core_service_status"
     args:
       name: "rolling"
@@ -69,7 +69,7 @@ steps:
       wait_for_state: "30s"
       json_path:
         name: "rolling"
-        state: "auth_required"
+        state: "awaiting_session"
 
   - id: "muster-auth-login"
     description: "Authenticate to muster; the session's SSO init forwards its ID token to the server"

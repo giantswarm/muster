@@ -21,7 +21,7 @@ description: |
     - anon-flip starts without auth (registered globally, its tool works for
       everyone) and then gains auth.forwardToken through core_mcpserver_update,
       which the reconciler applies with a restart.
-  Both must report auth_required, not connected, and their tools must be served
+  Both must report awaiting_session, not connected, and their tools must be served
   through the session that authenticated to muster. The instance log must not
   show a global registration of anon-fwd.
 tags: ["oauth", "sso", "token-forwarding", "mcpserver", "reconciler", "issue-1135", "regression"]
@@ -74,7 +74,7 @@ pre_configuration:
 steps:
   # --- created with forwardToken against an anonymous backend -------------
   - id: anon-fwd-is-auth-required
-    description: "A forwardToken server whose probe was accepted anonymously still reports auth_required, not connected"
+    description: "A forwardToken server whose probe was accepted anonymously still reports awaiting_session, not connected"
     tool: "core_service_status"
     args:
       name: "anon-fwd"
@@ -83,7 +83,7 @@ steps:
       wait_for_state: "30s"
       json_path:
         name: "anon-fwd"
-        state: "auth_required"
+        state: "awaiting_session"
 
   # --- plain server first, then flipped to forwardToken -------------------
   - id: flip_connected_before
@@ -134,7 +134,7 @@ steps:
       success: true
 
   - id: flip-is-auth-required
-    description: "After the flip the server reports auth_required, not connected"
+    description: "After the flip the server reports awaiting_session, not connected"
     tool: "core_service_status"
     args:
       name: "anon-flip"
@@ -143,7 +143,7 @@ steps:
       wait_for_state: "30s"
       json_path:
         name: "anon-flip"
-        state: "auth_required"
+        state: "awaiting_session"
 
   # --- tools come only from the per-session path --------------------------
   - id: muster-auth-login
@@ -204,7 +204,7 @@ steps:
 
 # anon-fwd never had a moment without forwardToken, so the aggregator's event
 # handler must never have registered it globally. (anon-flip legitimately was,
-# before the flip, so its proof is the auth_required state above.)
+# before the flip, so its proof is the awaiting_session state above.)
 instance_logs:
   not_contains:
     - "Registering healthy MCP server: anon-fwd"

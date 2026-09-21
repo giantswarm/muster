@@ -411,6 +411,8 @@ func generateStatusMessage(state, errorMsg, serverName string, auth *api.MCPServ
 		return "Starting..."
 	case "Stopped", "Disconnected":
 		return ""
+	case string(musterv1alpha1.MCPServerStateAwaitingSession):
+		return "Served per session with the caller's own identity; no session is connected"
 	case "Failed":
 		return generateFailedMessage(errorMsg, serverName, auth)
 	default:
@@ -433,6 +435,8 @@ func generateFailedMessage(errorMsg, serverName string, auth *api.MCPServerAuth)
 
 	// Check for specific error patterns and provide actionable messages
 	switch {
+	case strings.Contains(lowerErr, "token exchange"):
+		return "Token exchange fails for every caller - check the credentials Secret, the token endpoint and the connector"
 	case strings.Contains(lowerErr, "certificate") || strings.Contains(lowerErr, "x509"):
 		return "Certificate error - verify TLS configuration"
 	case strings.Contains(lowerErr, "tls handshake"):

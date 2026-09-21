@@ -2448,7 +2448,8 @@ func mcpServerStateIsReady(state string) bool {
 	switch musterv1alpha1.MCPServerStateValue(state) {
 	case musterv1alpha1.MCPServerStateRunning,
 		musterv1alpha1.MCPServerStateConnected,
-		musterv1alpha1.MCPServerStateAuthRequired:
+		musterv1alpha1.MCPServerStateAuthRequired,
+		musterv1alpha1.MCPServerStateAwaitingSession:
 		return true
 	default:
 		return false

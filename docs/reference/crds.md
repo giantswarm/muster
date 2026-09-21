@@ -249,38 +249,53 @@ The MCPServer CRD status reflects **infrastructure state** (network reachability
 
 | CRD State | Meaning | Server Response |
 |-----------|---------|-----------------|
-| `Connected` | Server is reachable and authenticated | 200 OK |
-| `Auth Required` | Server is reachable but requires authentication | 401 Unauthorized |
+| `Connected` | Server is reachable and authenticated: muster's own connection, or a session's | 200 OK |
+| `Auth Required` | Server is reachable; a person signs in to it through muster before it connects | 401 Unauthorized |
+| `Awaiting Session` | Server is reachable and served per session with the caller's own identity (`auth.forwardToken`, `auth.tokenExchange`); no session is connected | 401, or a 200 muster discards |
 | `Connecting` | Attempting to establish connection | Connection in progress |
 | `Disconnected` | Not connected (intentionally) | N/A |
-| `Failed` | The endpoint does not answer the initialize; retried with backoff | Connection refused, DNS failure, timeout, HTTP 5xx, or a 4xx other than 401 (the path is not served yet) |
+| `Failed` | The endpoint does not answer the initialize, or the token exchange is broken for every caller; retried with backoff where a retry can help | Connection refused, DNS failure, timeout, HTTP 5xx, or a 4xx other than 401 (the path is not served yet); a missing credentials Secret; `invalid_client`, an unknown connector or a token endpoint that does not answer |
 | `Running` | Process is running (stdio servers) | N/A |
 | `Starting` | Process is starting (stdio servers) | N/A |
 | `Stopped` | Process is stopped (stdio servers) | N/A |
 
-**Key point**: A 401 Unauthorized response indicates the server IS reachable (at the network level), so the CRD state is `Auth Required`, not `Failed`. This gives operators clear visibility into which servers need authentication.
+**Key point**: A 401 Unauthorized response indicates the server IS reachable (at the network level), so the CRD state is `Auth Required` or `Awaiting Session`, not `Failed`. Which of the two depends on who authenticates: `Auth Required` names a sign-in a person completes through muster (`muster auth login --server <name>`, `core_auth_login`, the Dev Portal's Sign in); `Awaiting Session` names a server that is used with each caller's own identity, where there is no login to run.
 
-**Servers whose callers bring their own credentials** (`auth.forwardToken`, `auth.tokenExchange`, an OAuth login through muster) are connected per session; muster's own token-less probe only establishes whether the endpoint answers. Their state follows these rules:
+**Servers served per session** (`auth.forwardToken`, `auth.tokenExchange`) are connected with the caller's own token; muster's token-less probe only establishes whether the endpoint answers, and muster holds no connection of its own. Their state follows these rules:
 
 - `Failed` while the endpoint does not answer the initialize (connection refused, DNS, timeout, 5xx, or a 4xx other than 401 such as the 404 of a backend mid-rollout). The attempt is retried with backoff (`nextRetryAfter`); no manual step is needed once the path answers.
-- `Auth Required` as soon as the endpoint answers the initialize -- with a 401, or with a 200 that muster discards because the connection is made per session -- until the first session connects.
-- `Connected` after the first session connects with its own token, and for as long as a session holds a live connection. A later session's failure to connect is reported on that session (`MCPServerTokenForwardingFailed` / `MCPServerTokenExchangeFailed` events) and never turns the server `Failed`; when the last session's grant is lost the server returns to `Auth Required`.
+- `Failed` while the client credentials Secret of a token exchange (`tokenExchange.clientCredentialsSecretRef`) is missing or unreadable: every caller's exchange would fail the same way. `lastError` names the Secret; the attempt is retried with backoff and the server settles on its own once the Secret exists.
+- `Awaiting Session` as soon as the endpoint answers the initialize -- with a 401, or with a 200 that muster discards because the connection is made per session -- and the credentials Secret (if any) loads, while no session is connected.
+- `Connected` after a session connects with its own token, and for as long as a session holds a live connection. When the last session's connection is lost the server returns to `Awaiting Session`.
+- A caller's exchange or forwarding that fails for reasons of the caller's own token (`invalid_grant`, an expired subject token, a rejected audience) is reported on that session (`MCPServerTokenForwardingFailed` / `MCPServerTokenExchangeFailed` events) and never changes the server's state. An exchange that fails for reasons every caller shares -- the token endpoint does not answer or answers 5xx, the client credentials are rejected (`invalid_client`), the connector is unknown -- puts the server in `Failed` with the exchange error as `lastError`. It leaves `Failed` on the next successful exchange, on a restart (`core_service_restart`, `spec.restartRequestedAt`) or on a spec change.
+
+##### The Ready condition
+
+`status.conditions` carries one condition, `Ready`: `True` while the server is reachable (`Running`, `Connected`, `Auth Required`, `Awaiting Session`), `False` otherwise. The reason is the state in one word (`Connected`, `AwaitingSession`, `AuthRequired`, `Connecting`, `Disconnected`, `Suspended` for a deactivated server, `Failed`) or, for a server `Failed` by its token exchange, the class of the failure: `TokenExchangeCredentials` (the Secret or `invalid_client`), `TokenExchangeEndpoint` (the token endpoint does not answer), `TokenExchangeConnector`. The message explains the state; for `Awaiting Session` it names the mechanism, the token endpoint and connector, and when the last exchange succeeded:
+
+```
+kubectl get mcpserver remote-mcp-kubernetes -o jsonpath='{.status.state}{"\n"}{.status.conditions[?(@.type=="Ready")].message}{"\n"}'
+Awaiting Session
+Served per session: each caller's token is exchanged (RFC 8693) at https://dex.remote.example.com/token through connector "remote-oidc"; muster holds no connection of its own. No session is connected; the last exchange succeeded at 2026-09-21T12:41:03Z.
+```
 
 ##### Session State in CLI
 
 The `muster list mcpserver` command shows both infrastructure state and session-specific authentication state:
 
 ```
-NAME          STATE          SESSION         TYPE
-server-a      Connected      Authenticated   streamable-http
-server-b      Auth Required  Pending Auth    streamable-http
-server-c      Failed         -               streamable-http
+NAME          STATE             SESSION         TYPE
+server-a      Connected         Authenticated   streamable-http
+server-b      Auth Required     Pending Auth    streamable-http
+server-c      Failed            -               streamable-http
+server-d      Awaiting Session  -               streamable-http
 ```
 
 - **STATE**: Infrastructure state from CRD (reachability and auth status)
   - `Connected`: Server is fully operational
-  - `Auth Required`: Server is reachable but needs authentication
-  - `Failed`: Server cannot be reached
+  - `Auth Required`: Server is reachable; a person signs in to it through muster
+  - `Awaiting Session`: Server is reachable and used with each caller's own identity; no session is connected
+  - `Failed`: Server cannot be reached, or its token exchange is broken for every caller
 - **SESSION**: Per-user authentication state (only shown when logged in to muster)
   - `Authenticated`: User has successfully authenticated to this server
   - `Pending Auth`: Server requires authentication, user has not authenticated

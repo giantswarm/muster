@@ -334,6 +334,8 @@ func (r *MCPServerReconciler) applyStatusFromService(server *musterv1alpha1.MCPS
 		// Sanitize error message to remove sensitive data before CRD exposure
 		server.Status.LastError = SanitizeErrorMessage(reconcileErr.Error())
 	}
+
+	applyReadyCondition(server, service, exists)
 }
 
 // applyRetrySchedule mirrors the service's reconnect schedule into the CR
@@ -445,6 +447,14 @@ func (r *MCPServerReconciler) determineState(state api.ServiceState, serverType 
 			return musterv1alpha1.MCPServerStateAuthRequired
 		}
 		// For stdio servers, auth_required is unlikely but treat as running
+		return musterv1alpha1.MCPServerStateRunning
+
+	case api.StateAwaitingSession:
+		// The endpoint answered and the server is served per session with
+		// the caller's own identity; no session is connected right now.
+		if isRemote {
+			return musterv1alpha1.MCPServerStateAwaitingSession
+		}
 		return musterv1alpha1.MCPServerStateRunning
 
 	case api.StateStarting, api.StateWaiting, api.StateRetrying:

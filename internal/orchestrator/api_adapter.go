@@ -11,6 +11,35 @@ import (
 	"github.com/giantswarm/muster/v5/internal/services"
 )
 
+// formatAuthRequiredResult answers a start or restart whose Start ended with
+// an AuthRequiredError: the server is up and answered as configured, so the
+// operation did not fail, but nothing is connected either.
+//
+// What that means depends on the state the service settled in. A server a
+// person signs in to through muster waits in auth_required, and the answer is
+// the sign-in guidance (an error result: the caller asked for a connection
+// the tool cannot make). A server served per session with the caller's own
+// identity waits in awaiting_session: there is no sign-in to point at, the
+// restart did what a restart can do, and the answer says so as a success.
+//
+// Uses structured AuthRequiredError detection (ADR-008) instead of string
+// matching. The guidance text is shared with the CR-driven lifecycle path
+// (issue #1057) so both paths answer the same tool call with the same words.
+func (a *Adapter) formatAuthRequiredResult(name string, err error) *api.CallToolResult {
+	var authErr *mcpserver.AuthRequiredError
+	if !errors.As(err, &authErr) {
+		return nil
+	}
+	if service, exists := a.orchestrator.registry.Get(name); exists && service.GetState() == services.StateAwaitingSession {
+		return &api.CallToolResult{
+			Content: []interface{}{fmt.Sprintf(
+				"Service '%s' is reachable and served per session with the caller's own identity; it waits for a session, there is nothing to sign in to", name)},
+			IsError: false,
+		}
+	}
+	return formatOAuthAuthenticationError(name, err)
+}
+
 // formatOAuthAuthenticationError creates a standardized error result for OAuth authentication errors.
 // This is used when a service requires OAuth authentication but the operation cannot proceed
 // because authentication is session-scoped and must be done via the authenticate tool.
@@ -242,7 +271,7 @@ func (a *Adapter) handleServiceStart(ctx context.Context, args map[string]interf
 	}
 
 	if err := a.StartService(name); err != nil {
-		if authResult := formatOAuthAuthenticationError(name, err); authResult != nil {
+		if authResult := a.formatAuthRequiredResult(name, err); authResult != nil {
 			return authResult, nil
 		}
 		return &api.CallToolResult{
@@ -316,7 +345,7 @@ func (a *Adapter) handleServiceRestart(ctx context.Context, args map[string]inte
 	}
 
 	if err := a.RestartService(name); err != nil {
-		if authResult := formatOAuthAuthenticationError(name, err); authResult != nil {
+		if authResult := a.formatAuthRequiredResult(name, err); authResult != nil {
 			return authResult, nil
 		}
 		return &api.CallToolResult{

@@ -59,34 +59,48 @@ func recordedRestart(t *testing.T, auth *api.MCPServerAuth, status int) (*Servic
 // recovery: operators and alert rules key on Warning events, and every
 // platform install emitted one for each OAuth-protected server on start-up.
 func TestRestartAuthRequiredIsNotARecoveryFailure(t *testing.T) {
-	for name, auth := range map[string]*api.MCPServerAuth{
+	for name, tc := range map[string]struct {
+		auth  *api.MCPServerAuth
+		state services.ServiceState
+		event events.EventReason
+	}{
+		// The caller's own identity is forwarded or exchanged: the server
+		// waits for a session, there is no login to run.
 		"forwardToken": {
-			Type:         "oauth",
-			ForwardToken: true,
+			auth:  &api.MCPServerAuth{Type: "oauth", ForwardToken: true},
+			state: services.StateAwaitingSession,
+			event: events.ReasonMCPServerAwaitingSession,
 		},
 		"tokenExchange": {
-			Type: "oauth",
-			TokenExchange: &api.TokenExchangeConfig{
-				Enabled:          true,
-				DexTokenEndpoint: "https://dex.example.com/token",
-				ConnectorID:      "muster",
+			auth: &api.MCPServerAuth{
+				Type: "oauth",
+				TokenExchange: &api.TokenExchangeConfig{
+					Enabled:          true,
+					DexTokenEndpoint: "https://dex.example.com/token",
+					ConnectorID:      "muster",
+				},
 			},
+			state: services.StateAwaitingSession,
+			event: events.ReasonMCPServerAwaitingSession,
 		},
 		// No auth block: a 401 starts OAuth discovery and the server waits
 		// for a user to complete core_auth_login (per-server sign-in).
-		"oauth login through muster": nil,
+		"oauth login through muster": {
+			state: services.StateAuthRequired,
+			event: events.ReasonMCPServerAuthRequired,
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			svc, cm, err := recordedRestart(t, auth, http.StatusUnauthorized)
+			svc, cm, err := recordedRestart(t, tc.auth, http.StatusUnauthorized)
 
 			require.Error(t, err)
-			assert.True(t, api.IsAuthRequiredError(err), "callers still learn that the server awaits a sign-in")
-			assert.Equal(t, services.StateAuthRequired, svc.GetState())
+			assert.True(t, api.IsAuthRequiredError(err), "callers still learn that the server awaits a caller")
+			assert.Equal(t, tc.state, svc.GetState())
 
 			assert.Equal(t, 0, cm.count(string(events.ReasonMCPServerRecoveryFailed)), "a 401 the server is configured to answer is not a failed recovery")
 			assert.Equal(t, 1, cm.count(string(events.ReasonMCPServerRecoveryAwaitingAuth)), "recovery must say how it ended")
 			assert.Equal(t, 1, cm.count(string(events.ReasonMCPServerRecoveryStarted)))
-			assert.Equal(t, 1, cm.count(string(events.ReasonMCPServerAuthRequired)))
+			assert.Equal(t, 1, cm.count(string(tc.event)), "the state's own event names what the server waits for")
 			assert.Equal(t, 0, cm.count(string(events.ReasonMCPServerRecoverySucceeded)), "the server is not connected; it waits for a caller")
 			assert.Equal(t, 0, cm.count(string(events.ReasonMCPServerFailed)))
 		})

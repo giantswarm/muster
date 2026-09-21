@@ -118,6 +118,12 @@ type Service struct {
 	healthEventMutex     sync.Mutex
 	healthCheckFailures  int
 	healthEventUnhealthy bool
+
+	// sessionAuth is what a server served per session knows about its
+	// callers' token exchanges (see session_auth.go). Protected by
+	// sessionAuthMutex.
+	sessionAuthMutex sync.Mutex
+	sessionAuth      sessionAuthState
 }
 
 // HealthCheckFailureThreshold is the number of consecutive failed health
@@ -189,6 +195,11 @@ func (s *Service) Start(ctx context.Context) error {
 	s.lastAttempt = &now
 	s.failureMutex.Unlock()
 
+	// A start is an explicit reset of a token exchange failure recorded by
+	// the aggregator: an operator's restart means "look again", and a retry
+	// re-verifies what it can (the endpoint, the credentials Secret).
+	s.clearSessionAuthFailure()
+
 	s.UpdateState(services.StateStarting, services.HealthUnknown, nil)
 	s.LogInfo("Starting MCP server service")
 
@@ -217,6 +228,12 @@ func (s *Service) Start(ctx context.Context) error {
 				// orchestrator's retry and the reconciler took the failure for
 				// a server awaiting a sign-in (issue #1265).
 				err = &machineIdentityUnauthorizedError{authErr: authErr}
+			} else if s.isRemoteServer() && s.definition.Auth.UsesSessionAuth() {
+				// The 401 proves the endpoint is up. A server reached with the
+				// caller's identity has nothing to connect until a session
+				// uses it, and no login to send anyone to: Awaiting Session,
+				// once the exchange credentials it needs are verified.
+				return s.settleSessionAuth(ctx, authErr)
 			} else {
 				// Auth errors should not count as connectivity failures
 				// Use StateAuthRequired to indicate the server IS reachable but needs authentication.
@@ -228,45 +245,7 @@ func (s *Service) Start(ctx context.Context) error {
 			}
 		}
 
-		// Track consecutive failures for remote servers (transient errors only,
-		// or any error while reconnecting after failed health probes)
-		if s.isRemoteServer() && (s.isTransientConnectivityError(err) || s.isReconnectingAfterProbe()) {
-			s.failureMutex.Lock()
-			s.consecutiveFailures++
-			s.lastFailureHTTPStatus = httpStatusFromError(err)
-			s.calculateNextRetryTimeLocked()
-			failures := s.consecutiveFailures
-			schedule := s.retryScheduleLocked()
-			s.failureMutex.Unlock()
-
-			s.LogWarn("Connection failure #%d for MCP server %s: %v (%s)",
-				failures, s.GetName(), err, schedule)
-
-			// Transition to unreachable state after threshold failures. The
-			// event names the HTTP status and the scheduled retry so an
-			// operator can tell an upstream 504 from a refused connection, and
-			// see when muster looks again, without the logs (issue #1163).
-			if failures >= UnreachableThreshold {
-				s.UpdateState(services.StateUnreachable, services.HealthUnknown, err)
-				s.generateEvent(events.ReasonMCPServerFailed, events.EventData{
-					Error: fmt.Sprintf("server unreachable after %d consecutive failures (%s): %s", failures, schedule, err.Error()),
-				})
-				return fmt.Errorf("server unreachable after %d consecutive failures: %w", failures, err)
-			}
-
-			s.UpdateState(services.StateFailed, services.HealthUnhealthy, err)
-			s.generateEvent(events.ReasonMCPServerFailed, events.EventData{
-				Error: fmt.Sprintf("connection failure %d of %d before unreachable (%s): %s", failures, UnreachableThreshold, schedule, err.Error()),
-			})
-			return fmt.Errorf("failed to start MCP server: %w", err)
-		}
-
-		s.UpdateState(services.StateFailed, services.HealthUnhealthy, err)
-		// Generate failure event
-		s.generateEvent(events.ReasonMCPServerFailed, events.EventData{
-			Error: err.Error(),
-		})
-		return fmt.Errorf("failed to start MCP server: %w", err)
+		return s.failStart(err)
 	}
 
 	// Success - reset consecutive failure tracking (thread-safe)
@@ -281,9 +260,9 @@ func (s *Service) Start(ctx context.Context) error {
 	// old pod still answers, and keeping this client would register the
 	// server globally, hand every session the token-less client and have it
 	// fail with 401 once the protected pod takes over (issue #1135). The
-	// probe still proved reachability, so this is Auth Required, not Failed.
+	// probe still proved reachability, so this is Awaiting Session, not Failed.
 	if s.isRemoteServer() && s.definition.Auth.UsesSessionAuth() {
-		return s.discardAnonymousProbe()
+		return s.discardAnonymousProbe(ctx)
 	}
 
 	// Use appropriate state based on server type:
@@ -301,6 +280,68 @@ func (s *Service) Start(ctx context.Context) error {
 	s.generateEvent(events.ReasonMCPServerStarted, events.EventData{})
 
 	return nil
+}
+
+// failStart settles a start attempt that did not reach a usable server:
+// the endpoint did not answer the initialize, answered with a status that is
+// not a 401, or -- for a server served per session through token exchange --
+// answered but its client credentials Secret cannot be loaded. A transient
+// failure of a remote server is put on the reconnect schedule; anything else
+// is Failed until a restart.
+func (s *Service) failStart(err error) error {
+	// Track consecutive failures for remote servers (transient errors only,
+	// or any error while reconnecting after failed health probes)
+	if s.isRemoteServer() && (s.isTransientConnectivityError(err) || s.isReconnectingAfterProbe()) {
+		credentials := api.ClassifyTokenExchangeError(err) == api.TokenExchangeFailureCredentials
+
+		s.failureMutex.Lock()
+		s.consecutiveFailures++
+		s.lastFailureHTTPStatus = httpStatusFromError(err)
+		s.calculateNextRetryTimeLocked()
+		failures := s.consecutiveFailures
+		outcome := s.httpOutcomeLocked()
+		if credentials {
+			outcome = "credentials Secret unavailable"
+		}
+		schedule := s.retryScheduleLocked(outcome)
+		s.failureMutex.Unlock()
+
+		s.LogWarn("Connection failure #%d for MCP server %s: %v (%s)",
+			failures, s.GetName(), err, schedule)
+
+		// Transition to unreachable state after threshold failures. The
+		// event names the HTTP status and the scheduled retry so an
+		// operator can tell an upstream 504 from a refused connection, and
+		// see when muster looks again, without the logs (issue #1163). A
+		// missing credentials Secret is not the endpoint's fault: the server
+		// stays Failed, on the same schedule, and never reads unreachable.
+		if failures >= UnreachableThreshold && !credentials {
+			s.UpdateState(services.StateUnreachable, services.HealthUnknown, err)
+			s.generateEvent(events.ReasonMCPServerFailed, events.EventData{
+				Error: fmt.Sprintf("server unreachable after %d consecutive failures (%s): %s", failures, schedule, err.Error()),
+			})
+			return fmt.Errorf("server unreachable after %d consecutive failures: %w", failures, err)
+		}
+
+		s.UpdateState(services.StateFailed, services.HealthUnhealthy, err)
+		if credentials {
+			s.generateEvent(events.ReasonMCPServerFailed, events.EventData{
+				Error: fmt.Sprintf("token exchange fails for every caller until the credentials Secret exists (%s): %s", schedule, err.Error()),
+			})
+		} else {
+			s.generateEvent(events.ReasonMCPServerFailed, events.EventData{
+				Error: fmt.Sprintf("connection failure %d of %d before unreachable (%s): %s", failures, UnreachableThreshold, schedule, err.Error()),
+			})
+		}
+		return fmt.Errorf("failed to start MCP server: %w", err)
+	}
+
+	s.UpdateState(services.StateFailed, services.HealthUnhealthy, err)
+	// Generate failure event
+	s.generateEvent(events.ReasonMCPServerFailed, events.EventData{
+		Error: err.Error(),
+	})
+	return fmt.Errorf("failed to start MCP server: %w", err)
 }
 
 // enterAuthRequired runs the auth-required hook and publishes the
@@ -333,6 +374,7 @@ func (s *Service) resetFailureTracking() {
 	s.lastFailureHTTPStatus = 0
 	s.reconnectAfterProbe = false
 	s.failureMutex.Unlock()
+	s.clearSessionAuthFailure()
 }
 
 // isReconnectingAfterProbe reports whether the current start attempt follows a
@@ -344,12 +386,12 @@ func (s *Service) isReconnectingAfterProbe() bool {
 }
 
 // discardAnonymousProbe closes the client Start opened without a user token
-// and settles a session-auth server in Auth Required, exactly as a 401 from
-// the backend would have. The synthesized AuthRequiredError carries no
+// and settles a session-auth server in Awaiting Session, exactly as a 401
+// from the backend would have. The synthesized AuthRequiredError carries no
 // challenge: per-session connections forward the caller's token to the
 // server URL and need none, and core_auth_login rediscovers resource metadata
 // when it is missing.
-func (s *Service) discardAnonymousProbe() error {
+func (s *Service) discardAnonymousProbe(ctx context.Context) error {
 	s.LogInfo("MCP server accepted an anonymous connection but is configured for session-level auth " +
 		"(forwardToken or tokenExchange): discarding the shared client, tools are served per session")
 	if err := s.closeClient(); err != nil {
@@ -359,8 +401,7 @@ func (s *Service) discardAnonymousProbe() error {
 		URL: s.definition.URL,
 		Err: fmt.Errorf("server %s is configured for session-level authentication and is connected per session", s.GetName()),
 	}
-	s.enterAuthRequired(authErr)
-	return authErr
+	return s.settleSessionAuth(ctx, authErr)
 }
 
 // Stop stops the MCP server service by closing the MCP client
@@ -716,6 +757,8 @@ func (s *Service) GetServiceData() map[string]interface{} {
 	s.healthEventMutex.Lock()
 	data[api.ServiceDataHealthCheckFailures] = s.healthCheckFailures
 	s.healthEventMutex.Unlock()
+
+	s.sessionAuthServiceData(data)
 
 	return data
 }
@@ -1114,6 +1157,14 @@ func (s *Service) isTransientConnectivityError(err error) bool {
 		return true
 	}
 
+	// The client credentials Secret of a token exchange is missing or
+	// unreadable: GitOps delivers it later, so the server is retried with
+	// backoff and reads Awaiting Session on its own once the Secret exists.
+	var credentialsErr *api.TokenExchangeCredentialsError
+	if errors.As(err, &credentialsErr) {
+		return true
+	}
+
 	// A 4xx other than 401 to the initialize POST: the endpoint is up but does
 	// not serve the MCP protocol on that path right now -- a backend whose
 	// route is being rolled out answers 404 until the new pod takes it over, a
@@ -1242,16 +1293,22 @@ func (s *Service) calculateNextRetryTimeLocked() {
 	s.retryBackoff = backoffDuration
 }
 
-// retryScheduleLocked describes the failed attempt's HTTP outcome and the
+// httpOutcomeLocked names the failed attempt's HTTP outcome: "endpoint
+// answered HTTP 504" or "no HTTP response". MUST be called with failureMutex
+// held.
+func (s *Service) httpOutcomeLocked() string {
+	if s.lastFailureHTTPStatus != 0 {
+		return "endpoint answered HTTP " + strconv.Itoa(s.lastFailureHTTPStatus)
+	}
+	return "no HTTP response"
+}
+
+// retryScheduleLocked describes the failed attempt's outcome and the
 // scheduled retry for logs and the MCPServerFailed event, e.g.
 // "endpoint answered HTTP 504, next retry in 2m0s at 2026-09-05T15:57:34Z" or
 // "no HTTP response, next retry in 30s at ...". MUST be called with
 // failureMutex held.
-func (s *Service) retryScheduleLocked() string {
-	outcome := "no HTTP response"
-	if s.lastFailureHTTPStatus != 0 {
-		outcome = "endpoint answered HTTP " + strconv.Itoa(s.lastFailureHTTPStatus)
-	}
+func (s *Service) retryScheduleLocked(outcome string) string {
 	if s.nextRetryAfter == nil {
 		return outcome
 	}

@@ -3,9 +3,11 @@ package orchestrator
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/giantswarm/muster/v5/internal/mcpserver"
+	"github.com/giantswarm/muster/v5/internal/services"
 )
 
 func TestFormatOAuthAuthenticationError_WithAuthRequiredError(t *testing.T) {
@@ -111,4 +113,41 @@ func containsHelper(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// TestFormatAuthRequiredResult_PerSessionServerIsNotAnError: a restart whose
+// Start settled a server served per session (forwardToken, tokenExchange) in
+// awaiting_session did what a restart can do; there is no sign-in to point
+// at, so the answer is a success that says what the server waits for. A server
+// a person signs in to through muster keeps the sign-in guidance.
+func TestFormatAuthRequiredResult_PerSessionServerIsNotAnError(t *testing.T) {
+	registry := services.NewRegistry()
+	if err := registry.Register(&mockService{name: "per-session", state: services.StateAwaitingSession}); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Register(&mockService{name: "signed-in", state: services.StateAuthRequired}); err != nil {
+		t.Fatal(err)
+	}
+	a := &Adapter{orchestrator: &Orchestrator{registry: registry}}
+	authErr := &mcpserver.AuthRequiredError{URL: "https://mcp.example.com", Err: errors.New("server returned 401")}
+
+	result := a.formatAuthRequiredResult("per-session", fmt.Errorf("restart: %w", authErr))
+	if result == nil || result.IsError {
+		t.Fatalf("a per-session server that waits for a session is not a failed restart, got %+v", result)
+	}
+	if content, _ := result.Content[0].(string); !strings.Contains(content, "served per session") || strings.Contains(content, "core_auth_login") {
+		t.Errorf("the answer names the mechanism and no sign-in, got %q", content)
+	}
+
+	result = a.formatAuthRequiredResult("signed-in", authErr)
+	if result == nil || !result.IsError {
+		t.Fatalf("a server a person signs in to keeps the guidance as an error, got %+v", result)
+	}
+	if content, _ := result.Content[0].(string); !strings.Contains(content, "core_auth_login") {
+		t.Errorf("the guidance names core_auth_login, got %q", content)
+	}
+
+	if a.formatAuthRequiredResult("per-session", errors.New("connection refused")) != nil {
+		t.Error("anything but an AuthRequiredError is not this function's to answer")
+	}
 }

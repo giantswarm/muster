@@ -56,7 +56,11 @@ type serviceInfoAdapter struct {
 	service Service
 }
 
-var _ api.ConfigurableService = (*serviceInfoAdapter)(nil)
+var (
+	_ api.ConfigurableService          = (*serviceInfoAdapter)(nil)
+	_ api.StateUpdater                 = (*serviceInfoAdapter)(nil)
+	_ api.TokenExchangeOutcomeRecorder = (*serviceInfoAdapter)(nil)
+)
 
 func (s *serviceInfoAdapter) GetName() string {
 	return s.service.GetName()
@@ -110,5 +114,16 @@ func (s *serviceInfoAdapter) ConfigurationChanged(newConfig interface{}) bool {
 func (s *serviceInfoAdapter) UpdateState(state api.ServiceState, health api.HealthStatus, err error) {
 	if updater, ok := s.service.(StateUpdater); ok {
 		updater.UpdateState(ServiceState(state), HealthStatus(health), err)
+	}
+}
+
+// RecordTokenExchangeOutcome implements api.TokenExchangeOutcomeRecorder by
+// delegating to the underlying service when it records exchange outcomes (an
+// MCPServer service served per session). The aggregator reaches services
+// only through this adapter, so every interface the aggregator asserts on a
+// registry entry has to be forwarded here, or the call is silently dropped.
+func (s *serviceInfoAdapter) RecordTokenExchangeOutcome(err error) {
+	if recorder, ok := s.service.(api.TokenExchangeOutcomeRecorder); ok {
+		recorder.RecordTokenExchangeOutcome(err)
 	}
 }

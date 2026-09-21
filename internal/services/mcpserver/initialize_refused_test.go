@@ -49,7 +49,7 @@ func startRolloutBackend(t *testing.T) *rolloutBackend {
 // #1295: an MCPServer registered while its backend answers 404 reads Failed
 // with a retry scheduled -- not Failed for good -- and the retry the
 // orchestrator runs once the path answers settles it without a manual step:
-// in Auth Required for a forwardToken server (the anonymous probe is
+// in Awaiting Session for a forwardToken server (the anonymous probe is
 // discarded, sessions connect with their own token), in Connected otherwise.
 func TestStartRecoversFromARefusedInitialize(t *testing.T) {
 	for name, tc := range map[string]struct {
@@ -59,7 +59,7 @@ func TestStartRecoversFromARefusedInitialize(t *testing.T) {
 	}{
 		"forwardToken": {
 			auth:          &api.MCPServerAuth{Type: "oauth", ForwardToken: true},
-			recovered:     services.StateAuthRequired,
+			recovered:     services.StateAwaitingSession,
 			recoveryEvent: events.ReasonMCPServerRecoveryAwaitingAuth,
 		},
 		"no auth": {
@@ -108,8 +108,8 @@ func TestStartRecoversFromARefusedInitialize(t *testing.T) {
 			// The new pod takes the route; the orchestrator's retry is a Restart.
 			backend.served.Store(true)
 			err = svc.Restart(t.Context())
-			if tc.recovered == services.StateAuthRequired {
-				require.True(t, api.IsAuthRequiredError(err), "the recovery of a forwardToken server ends in Auth Required: %v", err)
+			if tc.recovered == services.StateAwaitingSession {
+				require.True(t, api.IsAuthRequiredError(err), "the recovery of a forwardToken server ends in Awaiting Session: %v", err)
 				assert.Equal(t, int32(1), hookRuns.Load(), "registered pending auth once the endpoint answers")
 				assert.Nil(t, svc.GetMCPClient(), "the anonymous probe's client is discarded")
 			} else {
@@ -159,10 +159,10 @@ func TestForwardTokenStateFollowsTheSessions(t *testing.T) {
 		states = append(states, newState)
 	})
 
-	// The anonymous probe meets the 401: Auth Required, registered pending auth.
+	// The anonymous probe meets the 401: Awaiting Session, registered pending auth.
 	err = svc.Start(t.Context())
 	require.True(t, api.IsAuthRequiredError(err), "%v", err)
-	assert.Equal(t, services.StateAuthRequired, svc.GetState())
+	assert.Equal(t, services.StateAwaitingSession, svc.GetState())
 	assert.Equal(t, int32(1), hookRuns.Load())
 	assert.Equal(t, 0, svc.GetConsecutiveFailures())
 
@@ -179,11 +179,11 @@ func TestForwardTokenStateFollowsTheSessions(t *testing.T) {
 	assert.Equal(t, services.StateConnected, svc.GetState())
 	assert.Equal(t, 0, healthCheckFailures(svc))
 
-	// The last session's grant is lost: the aggregator syncs Auth Required back.
-	require.NoError(t, api.UpdateMCPServerState(def.Name, api.StateAuthRequired, api.HealthUnknown, nil))
-	assert.Equal(t, services.StateAuthRequired, svc.GetState())
+	// The last session's grant is lost: the aggregator syncs Awaiting Session back.
+	require.NoError(t, api.UpdateMCPServerState(def.Name, api.StateAwaitingSession, api.HealthUnknown, nil))
+	assert.Equal(t, services.StateAwaitingSession, svc.GetState())
 
-	assert.Equal(t, []services.ServiceState{services.StateStarting, services.StateAuthRequired, services.StateConnected, services.StateAuthRequired}, states)
+	assert.Equal(t, []services.ServiceState{services.StateStarting, services.StateAwaitingSession, services.StateConnected, services.StateAwaitingSession}, states)
 	assert.NotContains(t, states, services.StateFailed, "a forwardToken server whose endpoint answers is never Failed")
 }
 

@@ -207,6 +207,13 @@ func TestTableBuilder_FormatCellValuePlain_State(t *testing.T) {
 	// Test case insensitivity of column name
 	result = builder.FormatCellValuePlain("STATE", "Connecting", nil)
 	assert.Equal(t, "Connecting", result)
+
+	// A server served per session with the caller's identity: the service
+	// state and the CRD state both read Awaiting Session.
+	result = builder.FormatCellValuePlain("state", "awaiting_session", map[string]interface{}{"type": "streamable-http"})
+	assert.Equal(t, "Awaiting Session", result)
+	result = builder.FormatCellValuePlain("state", "Awaiting Session", nil)
+	assert.Equal(t, "Awaiting Session", result)
 }
 
 func TestTableBuilder_FormatSessionAuthPlain(t *testing.T) {
