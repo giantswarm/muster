@@ -555,7 +555,7 @@ spec:
               Session Registry (internal/aggregator/session_registry.go).
 
               Server-Side State (CRD):
-                - State: Running/Connected/Starting/Connecting/Stopped/Disconnected/Auth Required/Failed
+                - State: Running/Connected/Starting/Connecting/Stopped/Disconnected/Auth Required/Awaiting Session/Failed
                 - Conditions: Standard K8s conditions for detailed status
 
               Per-User Session State (Session Registry):
@@ -567,7 +567,15 @@ spec:
                 description: |-
                   Conditions represent the latest available observations of the MCPServer's current state.
                   Standard condition types:
-                    - Ready: True if infrastructure is reachable (process running or TCP connectable)
+                    - Ready: True while the server is reachable (Running, Connected, Auth
+                      Required, Awaiting Session), False otherwise. The reason is the state
+                      in one word (Connected, AwaitingSession, AuthRequired, Connecting,
+                      Disconnected, Suspended, Failed) or, for a server Failed by its token
+                      exchange, the class of the failure (TokenExchangeCredentials,
+                      TokenExchangeEndpoint, TokenExchangeConnector). The message explains
+                      the state: for Awaiting Session the per-session mechanism, the token
+                      endpoint and connector, and when the last exchange succeeded; for
+                      Failed the error.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -682,13 +690,14 @@ spec:
                   This is independent of user session state (authentication, connection status).
 
                   For stdio servers: Running, Starting, Stopped, Failed
-                  For remote servers: Connected, Auth Required, Connecting, Disconnected, Failed
+                  For remote servers: Connected, Auth Required, Awaiting Session, Connecting, Disconnected, Failed
                 enum:
                 - Running
                 - Starting
                 - Stopped
                 - Connected
                 - Auth Required
+                - Awaiting Session
                 - Connecting
                 - Disconnected
                 - Failed

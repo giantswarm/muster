@@ -185,6 +185,22 @@ const (
 	// - StateUnreachable: Server cannot be reached (network/connectivity issue)
 	StateAuthRequired ServiceState = "auth_required"
 
+	// StateAwaitingSession indicates a remote MCP server that is served per
+	// session with the caller's own identity (auth.forwardToken or
+	// auth.tokenExchange) and currently has no session connected. muster's
+	// own token-less probe reached the endpoint, so the server is up; it
+	// holds no connection of its own because every connection belongs to a
+	// session. There is no login to run: the caller's Dex token is forwarded
+	// or exchanged when a session uses the server.
+	//
+	// This is distinct from StateAuthRequired, which names a server a person
+	// signs in to through muster (core_auth_login) before it connects, and
+	// from StateFailed, which for such a server means its endpoint does not
+	// answer or its token exchange is broken for every caller (credentials
+	// Secret missing, token endpoint down, wrong client secret, unknown
+	// connector).
+	StateAwaitingSession ServiceState = "awaiting_session"
+
 	// StateConnected indicates the service is connected and authenticated.
 	// This is an alias for StateRunning for semantic clarity with remote servers.
 	// For remote MCP servers, "connected" is more intuitive than "running" since
@@ -210,8 +226,9 @@ func IsActiveState(state ServiceState) bool {
 // IsDownState returns true if the given state means the service is not running
 // and not on its way up — the states from which an explicit start request must
 // actively start the service. Transitional states (starting, connecting,
-// retrying) and StateAuthRequired are not down: acting on them would interrupt
-// an in-flight start or a reachable server waiting for session authentication.
+// retrying), StateAuthRequired and StateAwaitingSession are not down: acting
+// on them would interrupt an in-flight start or a reachable server that is
+// connected per session.
 func IsDownState(state ServiceState) bool {
 	switch state {
 	case StateStopped, StateDisconnected, StateFailed, StateError, StateUnreachable, StateUnknown:
@@ -318,3 +335,18 @@ const (
 // a stop. Shown by core_service_status; not part of the reconnect schedule
 // above and not mirrored into the CR status.
 const ServiceDataHealthCheckFailures = "consecutiveHealthCheckFailures"
+
+// Keys an MCPServer service served per session (auth.forwardToken,
+// auth.tokenExchange) publishes through ServiceInfo.GetServiceData. The
+// reconciler writes them into the CR's Ready condition so an operator can
+// read why a server is Awaiting Session or Failed without the logs.
+const (
+	// ServiceDataFailureReason is a string: the class of the failure the
+	// service is in (a TokenExchangeFailureClass), present only while the
+	// state is Failed for a reason other than the endpoint itself.
+	ServiceDataFailureReason = "failureReason"
+	// ServiceDataLastTokenExchangeSucceededAt is a time.Time: when a caller's
+	// token was last exchanged successfully for this server. Absent until the
+	// first successful exchange since the process started.
+	ServiceDataLastTokenExchangeSucceededAt = "lastTokenExchangeSucceededAt"
+)

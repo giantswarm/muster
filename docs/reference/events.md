@@ -84,7 +84,7 @@ MCPServers are external MCP (Model Context Protocol) servers that provide tools 
 - **Type**: Warning
 - **Meaning**: MCPServer operation failed (start, health check, or crash)
 - **Message Example**: "MCPServer github-server operation failed: server unreachable after 4 consecutive failures (endpoint answered HTTP 504, next retry in 2m0s at 2026-09-05T15:57:34Z): failed to initialize streamable-http MCP client: request failed with status 504: Gateway Timeout"
-- **Triggered When**: Process crashes, fails to start, or becomes unresponsive. For a remote server every failed connection attempt emits one event: `connection failure N of 3 before unreachable (...)` for the first two, `server unreachable after N consecutive failures (...)` from the third on. The parenthesis names the HTTP status the endpoint answered with (`endpoint answered HTTP 504`; `endpoint answered HTTP 404` for a path not served yet, which is retried the same way) or `no HTTP response` (connection refused, DNS failure, timeout), and when the next attempt is scheduled. The wait doubles from 30 s per failure and is capped at 2 minutes (`MUSTER_MCPSERVER_MAX_BACKOFF`).
+- **Triggered When**: Process crashes, fails to start, or becomes unresponsive. For a remote server every failed connection attempt emits one event: `connection failure N of 3 before unreachable (...)` for the first two, `server unreachable after N consecutive failures (...)` from the third on. The parenthesis names the HTTP status the endpoint answered with (`endpoint answered HTTP 504`; `endpoint answered HTTP 404` for a path not served yet, which is retried the same way) or `no HTTP response` (connection refused, DNS failure, timeout), and when the next attempt is scheduled. The wait doubles from 30 s per failure and is capped at 2 minutes (`MUSTER_MCPSERVER_MAX_BACKOFF`). For a server served per session through token exchange two more causes emit it: `token exchange fails for every caller until the credentials Secret exists (credentials Secret unavailable, next retry in ...)` when the `clientCredentialsSecretRef` Secret is missing or unreadable at start (retried on the same schedule, never `unreachable`), and `token exchange fails for every caller (TokenExchangeCredentials|TokenExchangeEndpoint|TokenExchangeConnector): ...` when a caller's exchange failed in a way every caller shares -- `invalid_client`, a token endpoint that does not answer, an unknown connector. The latter schedules no retry: the server leaves `Failed` on the next successful exchange, a restart or a spec change.
 - **Troubleshooting**:
   ```bash
   # Check server configuration
@@ -97,6 +97,20 @@ MCPServers are external MCP (Model Context Protocol) servers that provide tools 
   # Test manual startup (filesystem mode)
   muster standalone
   ```
+
+#### MCPServerAwaitingSession
+- **Type**: Normal
+- **Meaning**: A server served per session with the caller's own identity (`auth.forwardToken`, `auth.tokenExchange`) is reachable and has no session connected. muster holds no connection of its own to such a server, and there is no login to run: the caller's token is forwarded or exchanged when a session uses it.
+- **Message Example**: "MCPServer remote-mcp-kubernetes is reachable and connected per session with the caller's identity; no session is connected"
+- **Triggered When**: The token-less probe reaches the endpoint (a 401, or an accepted anonymous initialize that muster discards) and the credentials Secret of a token exchange, if any, loads; the last session's connection to the server is lost; a token exchange that had put the server in `Failed` succeeds again
+- **Next Steps**: None. The server is `Connected` while a session holds a live connection. The `Ready` condition on the MCPServer names the mechanism, the token endpoint and connector, and when the last exchange succeeded
+
+#### MCPServerAuthRequired
+- **Type**: Normal
+- **Meaning**: A server answered muster's token-less probe with 401 and a person signs in to it through muster before it connects
+- **Message Example**: "MCPServer github requires OAuth authentication to connect"
+- **Triggered When**: The probe meets a 401 on a server without `forwardToken` or `tokenExchange`; the last signed-in session's grant to such a server is lost
+- **Next Steps**: `muster auth login --server <name>`, `core_auth_login`, or the Dev Portal's Sign in
 
 ### Tool Discovery Events
 
@@ -156,7 +170,7 @@ MCPServers are external MCP (Model Context Protocol) servers that provide tools 
 
 #### MCPServerRecoveryAwaitingAuth
 - **Type**: Normal
-- **Meaning**: Automatic recovery reached the MCPServer and it answered 401 as configured; it waits in `Auth Required` for a signed-in caller
+- **Meaning**: Automatic recovery reached the MCPServer and it answered as configured without connecting; it waits in `Awaiting Session` (a server served per session with the caller's identity) or in `Auth Required` (a server a person signs in to through muster) for a caller
 - **Message Example**: "MCPServer 'model-manager' automatic recovery reached the server; it waits for a signed-in caller"
 - **Triggered When**: Recovery restarts a server whose callers bring their own credentials (`auth.forwardToken`, `auth.tokenExchange`, or an OAuth login through muster) and the server answers the token-less probe with 401 -- typically the start-up race, when the server was not answering yet and its first answer is the expected 401
 - **Next Steps**: None. The server connects on the first call that carries a token (or after `core_auth_login`). A 401 from a machine identity (`auth.type: sigv4`) is a `MCPServerRecoveryFailed` instead: there is no user to sign in, so the credential or the role is wrong

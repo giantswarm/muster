@@ -69,12 +69,20 @@ const (
 	ReasonMCPServerRecoveryFailed EventReason = "MCPServerRecoveryFailed"
 
 	// ReasonMCPServerRecoveryAwaitingAuth indicates automatic recovery reached an
-	// MCPServer that answered 401 as configured: its callers bring their own
-	// credentials, so it waits in Auth Required for a signed-in caller.
+	// MCPServer that answered as configured without connecting: it waits in
+	// Auth Required for a person to sign in through muster, or in Awaiting
+	// Session for a caller whose own identity is forwarded or exchanged.
 	ReasonMCPServerRecoveryAwaitingAuth EventReason = "MCPServerRecoveryAwaitingAuth"
 
 	// ReasonMCPServerAuthRequired indicates an MCPServer requires OAuth authentication.
 	ReasonMCPServerAuthRequired EventReason = "MCPServerAuthRequired"
+
+	// ReasonMCPServerAwaitingSession indicates an MCPServer that is served per
+	// session with the caller's own identity (auth.forwardToken,
+	// auth.tokenExchange) is reachable and has no session connected. muster
+	// holds no connection of its own to such a server; there is no login to
+	// run.
+	ReasonMCPServerAwaitingSession EventReason = "MCPServerAwaitingSession"
 
 	// ReasonMCPServerTokenForwarded indicates an ID token was forwarded to a downstream server.
 	// This event is generated when muster forwards a user's ID token instead of triggering

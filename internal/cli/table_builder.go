@@ -147,6 +147,8 @@ func (b *TableBuilder) normalizeState(state string) string {
 		return "Error"
 	case "auth_required": //nolint:goconst
 		return "Auth Required"
+	case "awaiting_session": //nolint:goconst
+		return "Awaiting Session" //nolint:goconst
 	case "unreachable": //nolint:goconst
 		return "Unreachable"
 	case "waiting":
@@ -190,6 +192,8 @@ func (b *TableBuilder) normalizeStateForServerType(state string, isRemote bool) 
 		return "Error"
 	case "auth_required":
 		return "Auth Required"
+	case "awaiting_session":
+		return "Awaiting Session"
 	case "unreachable":
 		return "Unreachable"
 	case "waiting":

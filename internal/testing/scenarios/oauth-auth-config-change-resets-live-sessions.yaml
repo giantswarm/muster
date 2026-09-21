@@ -80,6 +80,7 @@ pre_configuration:
 
 steps:
   - id: forward-token-server-waits-for-sessions
+    description: "A forwardToken server is served per session: it waits in awaiting_session, not auth_required"
     tool: "core_service_status"
     args:
       name: "svc"
@@ -88,7 +89,7 @@ steps:
       wait_for_state: "30s"
       json_path:
         name: "svc"
-        state: "auth_required"
+        state: "awaiting_session"
 
   - id: sign-in-to-muster
     description: "The session signs in to muster; its SSO init forwards the login token to svc"

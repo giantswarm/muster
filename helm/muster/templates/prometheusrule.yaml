@@ -7,10 +7,15 @@
 # them a backend could sit Failed indefinitely with the error text right there
 # in status.lastError and nothing would say so.
 #
-# Only "Failed" is alerted on. "Auth Required" is a normal steady state for
-# on-behalf-of servers with no active user session, and every server passes
-# through it briefly after a muster restart, so alerting on it would be pure
-# noise. The transitional states (Connecting, Starting) are covered by the
+# Only "Failed" is alerted on. "Awaiting Session" is the normal steady state
+# of a server served per session with the caller's identity (forwardToken,
+# tokenExchange) while no session is connected, "Auth Required" that of a
+# server a person signs in to through muster, and every such server passes
+# through them after a muster restart, so alerting on either would be pure
+# noise. A per-session server whose token exchange is broken for every caller
+# (credentials Secret missing, invalid_client, token endpoint down, unknown
+# connector) reads Failed and is covered. The transitional states
+# (Connecting, Starting) are covered by the
 # `for:` windows below rather than by being excluded.
 #
 # Gated on its own value rather than on the prometheus exporter: metrics may

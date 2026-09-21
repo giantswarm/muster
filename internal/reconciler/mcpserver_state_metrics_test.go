@@ -173,10 +173,11 @@ func TestStateGaugeReportsEveryKnownServer(t *testing.T) {
 	h.addServer("broken-remote", "streamable-http", statePtr(api.StateFailed))
 	h.addServer("unreachable-remote", "streamable-http", statePtr(api.StateUnreachable))
 	h.addServer("waiting-on-auth", "streamable-http", statePtr(api.StateAuthRequired))
+	h.addServer("per-session", "streamable-http", statePtr(api.StateAwaitingSession))
 	// No service entry: a definition the orchestrator has never started.
 	h.addServer("never-connected", "streamable-http", nil)
 
-	for _, name := range []string{"healthy-remote", "broken-remote", "unreachable-remote", "waiting-on-auth", "never-connected"} {
+	for _, name := range []string{"healthy-remote", "broken-remote", "unreachable-remote", "waiting-on-auth", "per-session", "never-connected"} {
 		h.reconcile(name)
 	}
 
@@ -185,6 +186,7 @@ func TestStateGaugeReportsEveryKnownServer(t *testing.T) {
 		"broken-remote":      string(musterv1alpha1.MCPServerStateFailed),
 		"unreachable-remote": string(musterv1alpha1.MCPServerStateFailed),
 		"waiting-on-auth":    string(musterv1alpha1.MCPServerStateAuthRequired),
+		"per-session":        string(musterv1alpha1.MCPServerStateAwaitingSession),
 		"never-connected":    string(musterv1alpha1.MCPServerStateDisconnected),
 	}
 	got := h.states()

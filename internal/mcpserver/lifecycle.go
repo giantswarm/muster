@@ -177,6 +177,10 @@ func (a *Adapter) StartMCPServerAsCaller(ctx context.Context, name string) (*api
 		case state == api.StateAuthRequired:
 			result, err := simpleError(OAuthLoginGuidance(name))
 			return result, true, err
+		case state == api.StateAwaitingSession:
+			result, err := simpleOK(fmt.Sprintf(
+				"Service '%s' is reachable and connected per session with the caller's own identity; there is nothing to start", name))
+			return result, true, err
 		case api.IsActiveState(state):
 			result, err := simpleOK(fmt.Sprintf("Service '%s' is already running", name))
 			return result, true, err

@@ -79,7 +79,7 @@ func TestStartSessionAuthServerAcceptingAnonymousProbe(t *testing.T) {
 			var states []services.ServiceState
 			svc.SetStateChangeCallback(func(_ string, _, newState services.ServiceState, _ services.HealthStatus, _ error) {
 				states = append(states, newState)
-				if newState == services.StateAuthRequired {
+				if newState == services.StateAwaitingSession {
 					authRequiredPublished.Store(true)
 				}
 			})
@@ -87,12 +87,12 @@ func TestStartSessionAuthServerAcceptingAnonymousProbe(t *testing.T) {
 			err = svc.Start(t.Context())
 
 			var authErr *mcpserver.AuthRequiredError
-			require.ErrorAs(t, err, &authErr, "an accepted anonymous probe must still end in Auth Required for a session-auth server")
-			assert.True(t, api.IsAuthRequiredError(err), "the reconciler must classify the result as Auth Required, not as a failed start")
+			require.ErrorAs(t, err, &authErr, "an accepted anonymous probe must still end in Awaiting Session for a session-auth server")
+			assert.True(t, api.IsAuthRequiredError(err), "the reconciler must classify the result as awaiting a caller, not as a failed start")
 			assert.Equal(t, def.URL, authErr.URL)
 			assert.False(t, authErr.HasValidChallenge(), "no challenge was received; per-session connections need none")
 
-			assert.Equal(t, services.StateAuthRequired, svc.GetState(), "CR state must read Auth Required, not Connected")
+			assert.Equal(t, services.StateAwaitingSession, svc.GetState(), "CR state must read Awaiting Session, not Connected")
 			assert.NotContains(t, states, services.StateConnected, "the server must never pass through Connected")
 			assert.Nil(t, svc.GetMCPClient(), "the token-less probe client must be closed, not kept as the shared client")
 			assert.False(t, svc.IsClientReady())
@@ -101,7 +101,7 @@ func TestStartSessionAuthServerAcceptingAnonymousProbe(t *testing.T) {
 			require.NotNil(t, hookDefinition.Load(), "the auth-required hook must run so the aggregator gets a pending-auth entry")
 			assert.Same(t, def, hookDefinition.Load())
 			assert.Same(t, authErr, hookErr.Load())
-			assert.True(t, hookRanBeforePublish.Load(), "hook must run before the StateAuthRequired state change is published")
+			assert.True(t, hookRanBeforePublish.Load(), "hook must run before the StateAwaitingSession state change is published")
 
 			assert.Equal(t, 0, svc.GetConsecutiveFailures(), "a reachable backend is not a connectivity failure")
 		})
@@ -182,7 +182,7 @@ func TestStartSessionAuthServerAfterConfigurationUpdate(t *testing.T) {
 	var authErr *mcpserver.AuthRequiredError
 	require.ErrorAs(t, err, &authErr)
 
-	assert.Equal(t, services.StateAuthRequired, svc.GetState())
+	assert.Equal(t, services.StateAwaitingSession, svc.GetState())
 	assert.Nil(t, svc.GetMCPClient())
 	assert.Equal(t, int32(1), hookCalls.Load(), "the restart with the new definition must register the server pending auth")
 }

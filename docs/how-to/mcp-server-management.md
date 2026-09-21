@@ -588,9 +588,22 @@ wait between attempts starts at 30 s, doubles on every consecutive failure and i
 capped at 2 minutes; from the third failure on the server is reported as `Failed`
 (`unreachable` in `core_service_status`). The orchestrator checks every 30 s
 whether an attempt is due, so a server whose upstream has recovered is back
-within the cap plus one tick -- in `Connected`, or in `Auth Required` for a
-server connected per session (`forwardToken`, `tokenExchange`, OAuth), which is
-`Connected` once the first session connects with its own token.
+within the cap plus one tick -- in `Connected`; in `Auth Required` for a server
+a person signs in to through muster; in `Awaiting Session` for a server served
+per session with the caller's own identity (`forwardToken`, `tokenExchange`),
+which is `Connected` while a session holds a live connection.
+
+A `tokenExchange` server is also `Failed`, on the same schedule, while its
+client credentials Secret (`clientCredentialsSecretRef`) is missing or
+unreadable -- every caller's exchange would fail the same way -- and settles in
+`Awaiting Session` on its own once the Secret exists. An exchange that fails
+for every caller alike (the token endpoint does not answer, `invalid_client`,
+an unknown connector) puts the server in `Failed` with the exchange error as
+`lastError` and the class as the `Ready` condition's reason
+(`TokenExchangeCredentials`, `TokenExchangeEndpoint`, `TokenExchangeConnector`);
+the next successful exchange, a restart or a spec change clears it. A failure
+of one caller's own token (`invalid_grant`, an expired subject token) stays that
+session's and never changes the server's state.
 
 ```bash
 # Why did the last attempt fail and when is the next one?

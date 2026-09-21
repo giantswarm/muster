@@ -596,6 +596,7 @@ func EstablishConnectionWithTokenExchange(
 		credentials, err := loadTokenExchangeCredentials(ctx, serverInfo)
 		if err != nil {
 			logging.Error("Connection", err, "Failed to load token exchange credentials for %s", serverInfo.Name)
+			api.ReportMCPServerTokenExchange(serverInfo.Name, err)
 			return nil, fmt.Errorf("failed to load client credentials: %w", err)
 		}
 		clientID, clientSecret = credentials.ClientID, credentials.ClientSecret
@@ -632,8 +633,10 @@ func EstablishConnectionWithTokenExchange(
 		logging.Warn("Connection", "Token exchange failed for user %s to server %s: %v",
 			logging.TruncateIdentifier(sub), serverInfo.Name, err)
 
-		// Emit event for token exchange failure
+		// Emit event for token exchange failure, and let the server's state
+		// reflect a failure that is the server's rather than this caller's.
 		emitTokenExchangeEvent(serverInfo.Name, serverInfo.GetNamespace(), false, err.Error())
+		api.ReportMCPServerTokenExchange(serverInfo.Name, err)
 
 		// Audit log for failed token exchange (compliance/security monitoring)
 		logging.Audit(logging.AuditEvent{
@@ -653,6 +656,7 @@ func EstablishConnectionWithTokenExchange(
 	logging.Info("Connection", "Token exchange succeeded for user %s to server %s",
 		logging.TruncateIdentifier(sub), serverInfo.Name)
 	emitTokenExchangeEvent(serverInfo.Name, serverInfo.GetNamespace(), true, "")
+	api.ReportMCPServerTokenExchange(serverInfo.Name, nil)
 
 	// Audit log for successful token exchange (compliance/security monitoring)
 	logging.Audit(logging.AuditEvent{
@@ -925,6 +929,7 @@ func (a *AggregatorServer) makeTokenExchangeRefreshClosures(
 			freshUserID = fallbackUserID
 		}
 		newToken, exErr := oauthHandler.ExchangeTokenForRemoteCluster(ctx, freshID, freshUserID, &exchangeConfig.TokenExchangeConfig)
+		api.ReportMCPServerTokenExchange(serverName, exErr)
 		if exErr != nil {
 			return "", time.Time{}, exErr
 		}
@@ -1245,12 +1250,23 @@ func (a *AggregatorServer) makeSessionAuthLossHandler(sessionID, serverName stri
 	}
 }
 
-// notifyMCPServerAuthRequired syncs the service state to Auth Required after
-// the server's last authenticated session connection was lost, and emits the
-// CRD event operators find in `kubectl describe`. Best-effort, like
-// notifyMCPServerConnected.
+// notifyMCPServerAuthRequired syncs the service state after the server's
+// last authenticated session connection was lost -- to Awaiting Session for a
+// server served per session with the caller's identity (forwardToken,
+// tokenExchange), to Auth Required for one a person signs in to through
+// muster -- and emits the CRD event operators find in `kubectl describe`.
+// Best-effort, like notifyMCPServerConnected.
 func (a *AggregatorServer) notifyMCPServerAuthRequired(serverName, reason string) {
-	if err := api.UpdateMCPServerState(serverName, api.StateAuthRequired, api.HealthUnknown, nil); err != nil {
+	state, eventReason := api.StateAuthRequired, events.ReasonMCPServerAuthRequired
+	namespace := ""
+	if serverInfo, exists := a.registry.GetServerInfo(serverName); exists {
+		namespace = serverInfo.GetNamespace()
+		if serverInfo.AuthConfig.UsesSessionAuth() {
+			state, eventReason = api.StateAwaitingSession, events.ReasonMCPServerAwaitingSession
+		}
+	}
+
+	if err := api.UpdateMCPServerState(serverName, state, api.HealthUnknown, nil); err != nil {
 		logging.Warn("Connection", "Failed to update MCPServer %s state after authentication loss: %v",
 			serverName, err)
 	}
@@ -1258,10 +1274,6 @@ func (a *AggregatorServer) notifyMCPServerAuthRequired(serverName, reason string
 	eventManager := api.GetEventManager()
 	if eventManager == nil {
 		return
-	}
-	namespace := ""
-	if serverInfo, exists := a.registry.GetServerInfo(serverName); exists {
-		namespace = serverInfo.GetNamespace()
 	}
 	if namespace == "" {
 		namespace = eventManager.DefaultNamespace()
@@ -1273,7 +1285,7 @@ func (a *AggregatorServer) notifyMCPServerAuthRequired(serverName, reason string
 		Kind:      mcpServerKind,
 		Name:      serverName,
 		Namespace: namespace,
-	}, string(events.ReasonMCPServerAuthRequired), api.EventData{
+	}, string(eventReason), api.EventData{
 		Error: reason,
 	})
 }
@@ -1295,10 +1307,7 @@ func loadTokenExchangeCredentials(ctx context.Context, serverInfo *ServerInfo) (
 		return nil, fmt.Errorf("no client credentials secret reference configured")
 	}
 
-	handler := api.GetSecretCredentialsHandler()
-	if handler == nil {
-		return nil, fmt.Errorf("secret credentials handler not registered")
-	}
+	ref := serverInfo.AuthConfig.TokenExchange.ClientCredentialsSecretRef
 
 	// Use the server's namespace as the default for the secret
 	defaultNamespace := serverInfo.GetNamespace()
@@ -1306,5 +1315,16 @@ func loadTokenExchangeCredentials(ctx context.Context, serverInfo *ServerInfo) (
 		defaultNamespace = metav1.NamespaceDefault
 	}
 
-	return handler.LoadClientCredentials(ctx, serverInfo.AuthConfig.TokenExchange.ClientCredentialsSecretRef, defaultNamespace)
+	handler := api.GetSecretCredentialsHandler()
+	if handler == nil {
+		return nil, api.NewTokenExchangeCredentialsError(ref, defaultNamespace, fmt.Errorf("secret credentials handler not registered"))
+	}
+
+	// Typed, so the failure is classified as the server's: every caller's
+	// exchange fails the same way until the Secret exists.
+	credentials, err := handler.LoadClientCredentials(ctx, ref, defaultNamespace)
+	if err != nil {
+		return nil, api.NewTokenExchangeCredentialsError(ref, defaultNamespace, err)
+	}
+	return credentials, nil
 }

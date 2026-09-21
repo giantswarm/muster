@@ -2978,6 +2978,7 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 	if serverInfo.AuthConfig.TokenExchange.ClientCredentialsSecretRef != nil {
 		credentials, err := loadTokenExchangeCredentials(ctx, serverInfo)
 		if err != nil {
+			api.ReportMCPServerTokenExchange(serverName, err)
 			return nil, time.Time{}, "", fmt.Errorf("failed to load client credentials for %s: %w", serverName, err)
 		}
 		clientID, clientSecret = credentials.ClientID, credentials.ClientSecret
@@ -3000,6 +3001,10 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 	exchangedToken, err := oauthHandler.ExchangeTokenForRemoteCluster(
 		ctx, idToken, userID, &exchangeConfig.TokenExchangeConfig,
 	)
+	// The server's state follows a failure that is the server's (credentials,
+	// endpoint, connector) and recovers on a success; a caller's own failure
+	// stays this caller's.
+	api.ReportMCPServerTokenExchange(serverName, err)
 	if err != nil {
 		return nil, time.Time{}, "", fmt.Errorf("token exchange failed for %s: %w", serverName, err)
 	}

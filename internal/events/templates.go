@@ -46,6 +46,7 @@ func (e *MessageTemplateEngine) loadDefaultTemplates() {
 	e.templates[ReasonMCPServerRecoveryFailed] = "MCPServer {{.Name}} automatic recovery failed{{if .Error}}: {{.Error}}{{end}}"
 	e.templates[ReasonMCPServerRecoveryAwaitingAuth] = "MCPServer {{.Name}} automatic recovery reached the server; it waits for a signed-in caller{{if .Error}}: {{.Error}}{{end}}"
 	e.templates[ReasonMCPServerAuthRequired] = "MCPServer {{.Name}} requires OAuth authentication to connect"
+	e.templates[ReasonMCPServerAwaitingSession] = "MCPServer {{.Name}} is reachable and connected per session with the caller's identity; no session is connected"
 	e.templates[ReasonMCPServerTokenForwarded] = "MCPServer {{.Name}}: ID token successfully forwarded for SSO authentication"
 	e.templates[ReasonMCPServerTokenForwardingFailed] = "MCPServer {{.Name}}: ID token forwarding failed{{if .Error}}: {{.Error}}{{end}}"
 	e.templates[ReasonMCPServerTokenExchanged] = "MCPServer {{.Name}}: Token successfully exchanged via RFC 8693 for cross-cluster SSO"
