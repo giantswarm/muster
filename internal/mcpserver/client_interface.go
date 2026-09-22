@@ -41,6 +41,11 @@ type MCPClient interface {
 	// be older than api.ClientProtocolVersion: a server that supports only
 	// an earlier revision answers with that one, and the client accepts it.
 	NegotiatedProtocolVersion() string
+	// ServerCapabilities returns the capabilities the server declared in its
+	// initialize result, or the zero value before a successful Initialize. A
+	// caller lists only what the server declared: the protocol reserves
+	// resources/list and prompts/list for servers that offer them.
+	ServerCapabilities() mcp.ServerCapabilities
 }
 
 // Compile-time interface compliance checks
@@ -59,10 +64,12 @@ type baseMCPClient struct {
 	mu        sync.RWMutex
 	connected bool
 
-	// negotiatedProtocolVersion holds the protocolVersion from the initialize
-	// response. mcp-go keeps it in a private field with no accessor, so each
-	// transport records it here as it completes the handshake.
+	// negotiatedProtocolVersion and serverCapabilities hold the
+	// protocolVersion and the capabilities from the initialize response.
+	// mcp-go keeps them in private fields with no accessor, so each transport
+	// records them here as it completes the handshake (recordHandshake).
 	negotiatedProtocolVersion string
+	serverCapabilities        mcp.ServerCapabilities
 
 	// Session recovery, see client_session_recovery.go. reconnect is set by
 	// the transports whose backend keeps an MCP session (streamable-http); it
@@ -124,9 +131,23 @@ func (b *baseMCPClient) closeClient() error {
 	err := b.client.Close()
 	b.connected = false
 	b.client = nil
-	b.negotiatedProtocolVersion = ""
+	b.clearHandshake()
 
 	return err
+}
+
+// recordHandshake keeps what the server answered the initialize with. Called
+// by each transport with mu held for writing, as it completes the handshake.
+func (b *baseMCPClient) recordHandshake(result *mcp.InitializeResult) {
+	b.negotiatedProtocolVersion = result.ProtocolVersion
+	b.serverCapabilities = result.Capabilities
+}
+
+// clearHandshake forgets the last initialize result: the connection it
+// described is gone. Called with mu held for writing.
+func (b *baseMCPClient) clearHandshake() {
+	b.negotiatedProtocolVersion = ""
+	b.serverCapabilities = mcp.ServerCapabilities{}
 }
 
 // NegotiatedProtocolVersion returns the MCP revision the server answered with
@@ -139,6 +160,18 @@ func (b *baseMCPClient) NegotiatedProtocolVersion() string {
 		return ""
 	}
 	return b.negotiatedProtocolVersion
+}
+
+// ServerCapabilities returns the capabilities the server declared during the
+// handshake, or the zero value when the client is not connected.
+func (b *baseMCPClient) ServerCapabilities() mcp.ServerCapabilities {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if !b.connected {
+		return mcp.ServerCapabilities{}
+	}
+	return b.serverCapabilities
 }
 
 // listTools returns all available tools from the server

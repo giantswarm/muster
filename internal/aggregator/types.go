@@ -62,6 +62,12 @@ type MCPClient interface {
 	// OnNotification registers a handler for server-pushed JSON-RPC
 	// notifications (e.g. notifications/tools/list_changed).
 	OnNotification(handler func(mcp.JSONRPCNotification))
+
+	// ServerCapabilities returns the capabilities the server declared in its
+	// initialize result, the zero value before a successful Initialize. A
+	// re-listing asks only for what was declared: resources/list and
+	// prompts/list are reserved for servers that offer them.
+	ServerCapabilities() mcp.ServerCapabilities
 }
 
 // ServerRegistration carries the configuration needed to register a backend

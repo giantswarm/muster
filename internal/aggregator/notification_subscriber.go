@@ -135,6 +135,44 @@ func (a *AggregatorServer) handleNonOAuthCapabilityChanged(serverName string) {
 	}()
 }
 
+// relistDeclared lists what client serves: tools always, resources and
+// prompts only when the server declared the capability at its handshake. The
+// protocol reserves resources/list and prompts/list for servers that offer
+// them, and most servers muster aggregates offer tools alone, so their
+// re-listing is one request instead of three. A failed tools listing is the
+// error; a failed resources or prompts listing, and one not asked for, leaves
+// that list nil, which the callers read as unknown and keep the cached one.
+// subject names the connection in the log (the server, or the server and the
+// session).
+//
+// The declaration is the one from the connection's last handshake. A
+// redeploy that adds a capability the old process lacked is seen at the next
+// handshake, which the session recovery performs when the new process
+// refuses the old session.
+func relistDeclared(ctx context.Context, client MCPClient, subject string, trigger refreshTrigger) ([]mcp.Tool, []mcp.Resource, []mcp.Prompt, error) {
+	tools, err := client.ListTools(ctx)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	declared := client.ServerCapabilities()
+	var resources []mcp.Resource
+	if declared.Resources != nil {
+		if resources, err = client.ListResources(ctx); err != nil {
+			logging.Debug("Aggregator", "Capability refresh (%s): failed to list resources for %s: %v", trigger, subject, err)
+			resources = nil
+		}
+	}
+	var prompts []mcp.Prompt
+	if declared.Prompts != nil {
+		if prompts, err = client.ListPrompts(ctx); err != nil {
+			logging.Debug("Aggregator", "Capability refresh (%s): failed to list prompts for %s: %v", trigger, subject, err)
+			prompts = nil
+		}
+	}
+	return tools, resources, prompts, nil
+}
+
 // refreshNonOAuthCapabilities re-fetches tools, resources, and prompts from a
 // non-OAuth server and updates the registry if anything changed. A listing
 // that fails leaves the cached capabilities as they are.
@@ -147,22 +185,10 @@ func (a *AggregatorServer) refreshNonOAuthCapabilities(serverName string, trigge
 
 	ctx := a.refreshContext()
 
-	newTools, err := info.Client.ListTools(ctx)
+	newTools, newResources, newPrompts, err := relistDeclared(ctx, info.Client, serverName, trigger)
 	if err != nil {
 		logging.Warn("Aggregator", "Capability refresh (%s): failed to list tools for %s: %v", trigger, serverName, err)
 		return
-	}
-
-	newResources, err := info.Client.ListResources(ctx)
-	if err != nil {
-		logging.Debug("Aggregator", "Capability refresh (%s): failed to list resources for %s: %v", trigger, serverName, err)
-		newResources = nil
-	}
-
-	newPrompts, err := info.Client.ListPrompts(ctx)
-	if err != nil {
-		logging.Debug("Aggregator", "Capability refresh (%s): failed to list prompts for %s: %v", trigger, serverName, err)
-		newPrompts = nil
 	}
 
 	info.mu.RLock()
@@ -209,25 +235,12 @@ func (a *AggregatorServer) handleSessionCapabilityChanged(serverName, sessionID 
 // using that session's own client, and updates the CapabilityStore if anything
 // changed. A listing that fails leaves the session's entry as it is.
 func (a *AggregatorServer) refreshSessionCapabilities(ctx context.Context, serverName, sessionID string, client MCPClient, trigger refreshTrigger) {
-	newTools, err := client.ListTools(ctx)
+	newTools, newResources, newPrompts, err := relistDeclared(ctx, client,
+		serverName+" (session "+logging.TruncateIdentifier(sessionID)+")", trigger)
 	if err != nil {
 		logging.Warn("Aggregator", "Session capability refresh (%s): failed to list tools for %s (session %s): %v",
 			trigger, serverName, logging.TruncateIdentifier(sessionID), err)
 		return
-	}
-
-	newResources, err := client.ListResources(ctx)
-	if err != nil {
-		logging.Debug("Aggregator", "Session capability refresh (%s): failed to list resources for %s (session %s): %v",
-			trigger, serverName, logging.TruncateIdentifier(sessionID), err)
-		newResources = nil
-	}
-
-	newPrompts, err := client.ListPrompts(ctx)
-	if err != nil {
-		logging.Debug("Aggregator", "Session capability refresh (%s): failed to list prompts for %s (session %s): %v",
-			trigger, serverName, logging.TruncateIdentifier(sessionID), err)
-		newPrompts = nil
 	}
 
 	toolsChanged, resourcesChanged, promptsChanged := true, true, true
