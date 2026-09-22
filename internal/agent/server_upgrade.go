@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"slices"
 
 	"github.com/giantswarm/muster/v5/internal/api"
@@ -10,12 +11,13 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
-// RegisterClientToolsOnServer registers all meta-tools from a connected client onto an MCP server.
+// RegisterClientToolsOnServer registers all meta-tools from a connected client onto an MCP server
+// and relays the aggregator's notifications to the assistant for as long as ctx lasts.
 // This is used to upgrade a pending auth server to a full server after authentication.
 //
 // The tools use the transport bridge pattern (Issue #344) where each handler forwards
 // to the corresponding server meta-tool via the client.
-func RegisterClientToolsOnServer(mcpServer *server.MCPServer, client *Client) {
+func RegisterClientToolsOnServer(ctx context.Context, mcpServer *server.MCPServer, client *Client) {
 	// Create a temporary MCPServer wrapper to access the forwarding handler method
 	wrapper := &MCPServer{
 		client:        client,
@@ -27,6 +29,7 @@ func RegisterClientToolsOnServer(mcpServer *server.MCPServer, client *Client) {
 
 	// Register all the standard agent tools using the transport bridge pattern
 	registerAgentTools(wrapper)
+	go wrapper.relayNotifications(ctx, wrapper.notifyAssistant)
 }
 
 // registerAgentTools registers the aggregator's meta-tools on an MCPServer.

@@ -114,8 +114,47 @@ func (m *MCPServer) Start(ctx context.Context) error {
 	// Start the auth status poller in background (ADR-008)
 	go m.authPoller.Start(ctx)
 
+	go m.relayNotifications(ctx, m.notifyAssistant)
+
 	// Start the stdio server
 	return server.ServeStdio(m.mcpServer)
+}
+
+// notifyAssistant sends a notification to the assistant on the other side of
+// stdio.
+func (m *MCPServer) notifyAssistant(method string) {
+	m.mcpServer.SendNotificationToAllClients(method, nil)
+}
+
+// relayNotifications reads the aggregator's notifications for as long as ctx
+// lasts and passes on what matters: the client's caches follow a
+// list_changed, and with notifyClients set the assistant receives the same
+// notifications/tools/list_changed (resources and prompts alike) through
+// notify, so a server the person signed in to or a backend that connected
+// shows up in its next list_tools. Nothing else reads the client's
+// NotificationChan in this mode.
+func (m *MCPServer) relayNotifications(ctx context.Context, notify func(method string)) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case notification := <-m.client.NotificationChan:
+			if err := m.client.handleNotification(ctx, notification); err != nil && m.logger != nil {
+				m.logger.Debug("Notification %s: %v", notification.Method, err)
+			}
+			if m.notifyClients && listChanged[notification.Method] {
+				notify(notification.Method)
+			}
+		}
+	}
+}
+
+// listChanged names the aggregator's notifications the bridge relays to the
+// assistant: its lists of tools, resources and prompts changed.
+var listChanged = map[string]bool{
+	mcp.MethodNotificationToolsListChanged:     true,
+	mcp.MethodNotificationResourcesListChanged: true,
+	mcp.MethodNotificationPromptsListChanged:   true,
 }
 
 // SetAuthManager sets the auth manager for re-authentication support.

@@ -284,3 +284,56 @@ func TestMCPServerRegistersTools(t *testing.T) {
 	// We verify by checking the mcpServer is not nil
 	assert.NotNil(t, server.mcpServer)
 }
+
+// The aggregator's notifications arrive on the goroutine that reads the
+// response stream of the call in flight; the hand-off to NotificationChan
+// must never wait for a reader, or the stream stalls in front of the call's
+// own result (giantswarm-platform-manager's `platformctl verify` ended in the
+// bridge's deadline that way while the manager had answered in seconds).
+func TestQueueNotificationNeverWaitsForAReader(t *testing.T) {
+	c := &Client{NotificationChan: make(chan mcp.JSONRPCNotification, 2)}
+	n := mcp.JSONRPCNotification{Notification: mcp.Notification{Method: mcp.MethodNotificationToolsListChanged}}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 20; i++ {
+			c.queueNotification(n)
+		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("queueNotification waited for a reader of NotificationChan")
+	}
+	assert.Len(t, c.NotificationChan, 2)
+}
+
+// In --mcp-server mode the bridge reads the aggregator's notifications and
+// relays the list_changed ones to the assistant; anything else is consumed
+// without reaching it.
+func TestRelayNotificationsForwardsListChangedToTheAssistant(t *testing.T) {
+	c := &Client{NotificationChan: make(chan mcp.JSONRPCNotification, 10)}
+	m := &MCPServer{client: c, notifyClients: true}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	got := make(chan string, 10)
+	go m.relayNotifications(ctx, func(method string) { got <- method })
+	for _, method := range []string{"notifications/events/follow", mcp.MethodNotificationToolsListChanged, mcp.MethodNotificationResourcesListChanged} {
+		c.NotificationChan <- mcp.JSONRPCNotification{Notification: mcp.Notification{Method: method}}
+	}
+	var relayed []string
+	for len(relayed) < 2 {
+		select {
+		case method := <-got:
+			relayed = append(relayed, method)
+		case <-time.After(2 * time.Second):
+			t.Fatalf("relayed %v, want the two list_changed notifications", relayed)
+		}
+	}
+	assert.Equal(t, []string{mcp.MethodNotificationToolsListChanged, mcp.MethodNotificationResourcesListChanged}, relayed)
+	select {
+	case method := <-got:
+		t.Fatalf("%s reached the assistant", method)
+	case <-time.After(100 * time.Millisecond):
+	}
+}

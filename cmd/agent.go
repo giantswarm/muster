@@ -58,7 +58,8 @@ tools, and ensuring that the agent can execute tools.
 The agent command can run in three modes:
 1. Normal mode (default): Connects, lists tools, and waits for notifications
 2. REPL mode (--repl): Provides an interactive interface to explore and execute tools
-3. MCP Server mode (--mcp-server): Runs an MCP server that exposes REPL functionality via stdio
+3. MCP Server mode (--mcp-server): Runs an MCP server that exposes REPL functionality via stdio;
+   the aggregator's list_changed notifications reach the assistant as the bridge's own
 
 Transport options:
 - streamable-http (default): Fast HTTP-based transport with notification support, compatible with muster serve
@@ -454,7 +455,7 @@ func upgradeToConnectedServer(ctx context.Context, client *agent.Client, logger 
 	mcpServer.DeleteTools("authenticate_muster")
 
 	// Add all the real tools from the connected client
-	agent.RegisterClientToolsOnServer(mcpServer, client)
+	agent.RegisterClientToolsOnServer(ctx, mcpServer, client)
 
 	// Send tools/list_changed notification to inform clients
 	mcpServer.SendNotificationToAllClients("notifications/tools/list_changed", nil)
