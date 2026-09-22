@@ -2146,7 +2146,7 @@ func (h *TestToolsHandler) handleStartMockServer(ctx context.Context, args map[s
 // mockServerOutage is the part of a mock MCP HTTP server (plain or
 // OAuth-protected) that the outage test tool drives.
 type mockServerOutage interface {
-	SetOutage(status, requests int, pings bool)
+	SetOutage(status, requests, retryAfter int, pings bool)
 	OutageRemaining() int
 }
 
@@ -2163,6 +2163,9 @@ type mockServerOutage interface {
 //   - server: Required. Name of the mock MCP server.
 //   - requests: Required. Number of requests to answer with the status (0 clears).
 //   - status: Optional. HTTP status to answer with (default 504).
+//   - retry_after: Optional. Seconds to put in the Retry-After header of each
+//     answer (default 0, no header), the way a 429 or 503 tells a client when
+//     to come back.
 //   - pings: Optional. Answer MCP pings with the status as well (default false).
 func (h *TestToolsHandler) handleSetMockServerOutage(_ context.Context, args map[string]interface{}) (interface{}, error) {
 	serverName, ok := args["server"].(string)
@@ -2180,6 +2183,13 @@ func (h *TestToolsHandler) handleSetMockServerOutage(_ context.Context, args map
 		}
 		status = v
 	}
+	retryAfter := 0
+	if v, present := intArg(args, "retry_after"); present {
+		if v < 0 {
+			return nil, fmt.Errorf("retry_after must be a non-negative number of seconds, got %d", v)
+		}
+		retryAfter = v
+	}
 	srv, err := h.lookupMockServer(serverName)
 	if err != nil {
 		return nil, err
@@ -2189,9 +2199,9 @@ func (h *TestToolsHandler) handleSetMockServerOutage(_ context.Context, args map
 		return nil, fmt.Errorf("mock server %s does not support outages", serverName)
 	}
 	pings, _ := args["pings"].(bool)
-	gate.SetOutage(status, requests, pings)
+	gate.SetOutage(status, requests, retryAfter, pings)
 	if h.debug {
-		h.logger.Debug("Mock server '%s' answers its next %d requests with HTTP %d (pings included: %t)\n", serverName, requests, status, pings)
+		h.logger.Debug("Mock server '%s' answers its next %d requests with HTTP %d (retryAfter: %ds, pings included: %t)\n", serverName, requests, status, retryAfter, pings)
 	}
 	return map[string]interface{}{
 		api.FieldSuccess: true,
@@ -2199,6 +2209,7 @@ func (h *TestToolsHandler) handleSetMockServerOutage(_ context.Context, args map
 		api.FieldServer:  serverName,
 		"status":         status,
 		"requests":       requests,
+		"retryAfter":     retryAfter,
 		"pings":          pings,
 	}, nil
 }

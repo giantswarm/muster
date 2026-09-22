@@ -85,7 +85,7 @@ func TestBackoffScheduleIsCapped(t *testing.T) {
 	for failures, expected := range want {
 		svc.failureMutex.Lock()
 		svc.consecutiveFailures = failures
-		svc.calculateNextRetryTimeLocked()
+		svc.calculateNextRetryTimeLocked(0)
 		got := svc.retryBackoff
 		svc.failureMutex.Unlock()
 		assert.Equal(t, expected, got, "backoff after %d failures", failures)
@@ -104,7 +104,7 @@ func TestBackoffCapBelowInitialWins(t *testing.T) {
 	for _, failures := range []int{1, 2, 5} {
 		svc.failureMutex.Lock()
 		svc.consecutiveFailures = failures
-		svc.calculateNextRetryTimeLocked()
+		svc.calculateNextRetryTimeLocked(0)
 		got := svc.retryBackoff
 		svc.failureMutex.Unlock()
 		assert.Equal(t, 10*time.Second, got, "backoff after %d failures", failures)

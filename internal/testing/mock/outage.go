@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strconv"
 	"sync"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -18,37 +19,43 @@ import (
 // answers the status instead of its 401 challenge, exactly as a proxy that
 // never reached it would.
 type outageGate struct {
-	mu        sync.Mutex
-	status    int
-	remaining int
+	mu         sync.Mutex
+	status     int
+	remaining  int
+	retryAfter int // seconds; sent as the Retry-After header when > 0
 	// pings makes an armed gate answer MCP pings too. By default they pass
 	// through uncounted, see gates.
 	pings bool
 }
 
 // set arms the gate: the next requests requests are answered with status. A
-// requests of 0 disarms it. With pings, the orchestrator's health probes are
-// answered with the status as well, the way a gateway that fails every
-// request would answer them; without it they pass through, so an outage of N
-// requests fails exactly N connection attempts whatever the probe interval.
-func (g *outageGate) set(status, requests int, pings bool) {
+// requests of 0 disarms it. A retryAfter greater than 0 adds a Retry-After
+// header of that many seconds to each answer, the way a rate-limited (429) or
+// unavailable (503) backend tells a client when to come back. With pings, the
+// orchestrator's health probes are answered with the status as well, the way a
+// gateway that fails every request would answer them; without it they pass
+// through, so an outage of N requests fails exactly N connection attempts
+// whatever the probe interval.
+func (g *outageGate) set(status, requests, retryAfter int, pings bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.status = status
 	g.remaining = requests
+	g.retryAfter = retryAfter
 	g.pings = pings
 }
 
 // take consumes one request from the gate and reports the status to answer
-// with, or 0 when the gate is not armed.
-func (g *outageGate) take() int {
+// with and the Retry-After seconds to send (0 for none), or a status of 0 when
+// the gate is not armed.
+func (g *outageGate) take() (status, retryAfter int) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.remaining <= 0 {
-		return 0
+		return 0, 0
 	}
 	g.remaining--
-	return g.status
+	return g.status, g.retryAfter
 }
 
 // remainingRequests reports how many requests the gate will still answer.
@@ -85,7 +92,10 @@ func (g *outageGate) gates(r *http.Request) bool {
 func (g *outageGate) wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if g.gates(r) {
-			if status := g.take(); status != 0 {
+			if status, retryAfter := g.take(); status != 0 {
+				if retryAfter > 0 {
+					w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
+				}
 				http.Error(w, http.StatusText(status), status)
 				return
 			}
@@ -114,11 +124,12 @@ func isMCPPing(r *http.Request) bool {
 
 // SetOutage makes the server answer its next requests requests with the given
 // HTTP status and serve normally afterwards; requests of 0 ends an outage
-// early. The server keeps listening, so muster sees an HTTP response, not a
+// early. A retryAfter greater than 0 adds a Retry-After header of that many
+// seconds. The server keeps listening, so muster sees an HTTP response, not a
 // refused connection. With pings the orchestrator's health probes are answered
 // with the status too; without, they pass through uncounted.
-func (s *HTTPServer) SetOutage(status, requests int, pings bool) {
-	s.outage.set(status, requests, pings)
+func (s *HTTPServer) SetOutage(status, requests, retryAfter int, pings bool) {
+	s.outage.set(status, requests, retryAfter, pings)
 }
 
 // OutageRemaining reports how many requests the current outage still covers.
@@ -128,10 +139,11 @@ func (s *HTTPServer) OutageRemaining() int {
 
 // SetOutage makes the server answer its next requests requests with the given
 // HTTP status -- before the OAuth middleware, so no 401 challenge is sent --
-// and serve normally afterwards; requests of 0 ends an outage early. With
-// pings the orchestrator's health probes are answered with the status too.
-func (s *ProtectedMCPServer) SetOutage(status, requests int, pings bool) {
-	s.outage.set(status, requests, pings)
+// and serve normally afterwards; requests of 0 ends an outage early. A
+// retryAfter greater than 0 adds a Retry-After header of that many seconds.
+// With pings the orchestrator's health probes are answered with the status too.
+func (s *ProtectedMCPServer) SetOutage(status, requests, retryAfter int, pings bool) {
+	s.outage.set(status, requests, retryAfter, pings)
 }
 
 // OutageRemaining reports how many requests the current outage still covers.

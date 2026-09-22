@@ -13,8 +13,9 @@ timeout: "3m"
 #        that lost its upstream).
 # Then:  the third failed probe turns the server unhealthy and the
 #        orchestrator restarts it; the restart's initialize gets the 404,
-#        which the client reports as "returned 4xx for initialize POST" and
-#        muster does not classify as a transient connectivity error.
+#        which the client reports as "HTTP 404 Not Found" (named, not blamed
+#        on a legacy SSE server) and muster classifies as transient so the
+#        server is retried, not failed for good.
 # When:  the gateway serves again.
 # Then:  the server reconnects on its own and its tool answers.
 #
@@ -87,7 +88,7 @@ steps:
       wait_for_state: "45s"
       contains:
         - "health check failed: 3 consecutive failures: MCP ping failed"
-        - "4xx for initialize POST"
+        - "endpoint answered the initialize POST with HTTP 404 Not Found"
     timeout: "60s"
 
   - id: "route-serves-again"
