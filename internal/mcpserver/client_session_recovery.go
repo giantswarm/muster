@@ -146,7 +146,7 @@ func (b *baseMCPClient) recoverSession(ctx context.Context, generation uint64, e
 	}
 	b.client = nil
 	b.connected = false
-	b.negotiatedProtocolVersion = ""
+	b.clearHandshake()
 	b.reconnectPending = true
 	// Advanced before the attempt, so the callers queued behind this one do
 	// not each repeat a handshake that has just failed against the same

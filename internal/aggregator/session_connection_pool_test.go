@@ -36,6 +36,7 @@ func (c *poolTestClient) GetPrompt(context.Context, string, map[string]interface
 }
 func (c *poolTestClient) Ping(context.Context) error                   { return nil }
 func (c *poolTestClient) OnNotification(func(mcp.JSONRPCNotification)) {}
+func (c *poolTestClient) ServerCapabilities() mcp.ServerCapabilities   { return mcp.ServerCapabilities{} }
 
 const testPoolMaxAge = 30 * time.Minute
 

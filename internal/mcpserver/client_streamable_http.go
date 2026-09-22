@@ -205,7 +205,7 @@ func (c *StreamableHTTPClient) connectLocked(ctx context.Context) error {
 
 	c.client = mcpClient
 	c.connected = true
-	c.negotiatedProtocolVersion = initResult.ProtocolVersion
+	c.recordHandshake(initResult)
 	c.hadSession = sessionIDOf(mcpClient) != ""
 	c.wireNotificationHandler()
 

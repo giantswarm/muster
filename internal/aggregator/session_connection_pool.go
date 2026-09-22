@@ -440,6 +440,18 @@ func (p *SessionConnectionPool) SessionsForServer(serverName string) []PooledSes
 	return out
 }
 
+// Holds reports whether the pool still holds client as the connection of
+// sessionID to serverName. Like SessionsForServer it is not a use of the
+// entry: the capability poller asks it before a listing it planned earlier
+// in its walk, so a connection evicted or replaced in the meantime is left
+// alone instead of listed through a closed client.
+func (p *SessionConnectionPool) Holds(sessionID, serverName string, client MCPClient) bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	entry, ok := p.pool[poolKey{SessionID: sessionID, ServerName: serverName}]
+	return ok && entry.Client == client
+}
+
 // evictedPoolEntry pairs a poolKey with a snapshot of the poolEntry that was
 // removed. Used by evictIdle to defer Close calls outside the write lock.
 type evictedPoolEntry struct {

@@ -190,14 +190,36 @@ func TestPromptListsEqual(t *testing.T) {
 // When listToolsGate is non-nil, ListTools blocks until the channel is closed,
 // allowing singleflight dedup tests to force concurrent call overlap.
 type notifMockClient struct {
-	mu               sync.Mutex
-	tools            []mcp.Tool
-	resources        []mcp.Resource
-	prompts          []mcp.Prompt
-	listToolsCalls   int32
-	listToolsArrived int32
-	listToolsGate    chan struct{}
-	notifHandler     func(mcp.JSONRPCNotification)
+	mu                 sync.Mutex
+	tools              []mcp.Tool
+	resources          []mcp.Resource
+	prompts            []mcp.Prompt
+	capabilities       mcp.ServerCapabilities // what the server declared; the zero value is a tools-only server
+	listToolsAt        time.Time              // when ListTools was last called
+	listToolsCalls     int32
+	listResourcesCalls int32
+	listPromptsCalls   int32
+	listToolsArrived   int32
+	listToolsGate      chan struct{}
+	notifHandler       func(mcp.JSONRPCNotification)
+}
+
+// declaring returns the capabilities of a server that declared tools and,
+// as asked, resources and prompts, built from the wire form so the test
+// does not spell out mcp-go's anonymous struct types.
+func declaring(resources, prompts bool) mcp.ServerCapabilities {
+	wire := `{"tools":{}`
+	if resources {
+		wire += `,"resources":{}`
+	}
+	if prompts {
+		wire += `,"prompts":{}`
+	}
+	var caps mcp.ServerCapabilities
+	if err := json.Unmarshal([]byte(wire+"}"), &caps); err != nil {
+		panic(err)
+	}
+	return caps
 }
 
 func (m *notifMockClient) Initialize(_ context.Context) error { return nil }
@@ -214,6 +236,9 @@ func (m *notifMockClient) GetPrompt(_ context.Context, _ string, _ map[string]in
 }
 
 func (m *notifMockClient) ListTools(_ context.Context) ([]mcp.Tool, error) {
+	m.mu.Lock()
+	m.listToolsAt = time.Now()
+	m.mu.Unlock()
 	if m.listToolsGate != nil {
 		atomic.AddInt32(&m.listToolsArrived, 1)
 		<-m.listToolsGate
@@ -226,12 +251,14 @@ func (m *notifMockClient) ListTools(_ context.Context) ([]mcp.Tool, error) {
 }
 
 func (m *notifMockClient) ListResources(_ context.Context) ([]mcp.Resource, error) {
+	atomic.AddInt32(&m.listResourcesCalls, 1)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.resources, nil
 }
 
 func (m *notifMockClient) ListPrompts(_ context.Context) ([]mcp.Prompt, error) {
+	atomic.AddInt32(&m.listPromptsCalls, 1)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.prompts, nil
@@ -239,6 +266,26 @@ func (m *notifMockClient) ListPrompts(_ context.Context) ([]mcp.Prompt, error) {
 
 func (m *notifMockClient) OnNotification(handler func(mcp.JSONRPCNotification)) {
 	m.notifHandler = handler
+}
+
+func (m *notifMockClient) ServerCapabilities() mcp.ServerCapabilities { return m.capabilities }
+
+func (m *notifMockClient) setResources(resources []mcp.Resource) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.resources = resources
+}
+
+// lastListToolsAt returns when ListTools was last called.
+func (m *notifMockClient) lastListToolsAt() time.Time {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.listToolsAt
+}
+
+// listCounts returns how often tools, resources and prompts were listed.
+func (m *notifMockClient) listCounts() (tools, resources, prompts int32) {
+	return atomic.LoadInt32(&m.listToolsCalls), atomic.LoadInt32(&m.listResourcesCalls), atomic.LoadInt32(&m.listPromptsCalls)
 }
 
 func (m *notifMockClient) setTools(tools []mcp.Tool) {
@@ -514,4 +561,69 @@ func TestToolListsEqual_SchemaChanged_JSON(t *testing.T) {
 
 	assert.True(t, toolListsEqual(old, same))
 	assert.False(t, toolListsEqual(old, different))
+}
+
+// TestRefreshNonOAuthCapabilities_ListsOnlyDeclaredCapabilities: a server
+// that declared tools alone is re-listed with one request; one that declared
+// resources and prompts has both re-listed, and a changed resource list
+// reaches the registry entry.
+func TestRefreshNonOAuthCapabilities_ListsOnlyDeclaredCapabilities(t *testing.T) {
+	ctx := context.Background()
+	registry := NewServerRegistry("x")
+	a := &AggregatorServer{registry: registry}
+
+	toolsOnly := &notifMockClient{tools: []mcp.Tool{{Name: "probe"}}}
+	require.NoError(t, registry.Register(ctx, ServerRegistration{Name: "tools-only"}, toolsOnly))
+	full := &notifMockClient{
+		tools:        []mcp.Tool{{Name: "probe"}},
+		resources:    []mcp.Resource{{URI: "r://one", Name: "one"}},
+		prompts:      []mcp.Prompt{{Name: "greet"}},
+		capabilities: declaring(true, true),
+	}
+	require.NoError(t, registry.Register(ctx, ServerRegistration{Name: "full"}, full))
+	_, toolsOnlyResources, toolsOnlyPrompts := toolsOnly.listCounts()
+	_, fullResources, fullPrompts := full.listCounts()
+
+	full.setResources([]mcp.Resource{{URI: "r://one", Name: "one"}, {URI: "r://two", Name: "two"}})
+	a.refreshNonOAuthCapabilities("tools-only", refreshByPoll)
+	a.refreshNonOAuthCapabilities("full", refreshByPoll)
+
+	_, resources, prompts := toolsOnly.listCounts()
+	assert.Equal(t, toolsOnlyResources, resources, "a server that declared no resources is not asked for them")
+	assert.Equal(t, toolsOnlyPrompts, prompts, "a server that declared no prompts is not asked for them")
+	_, resources, prompts = full.listCounts()
+	assert.Equal(t, fullResources+1, resources)
+	assert.Equal(t, fullPrompts+1, prompts)
+	info, _ := registry.GetServerInfo("full")
+	info.mu.RLock()
+	assert.Len(t, info.Resources, 2, "the declared, changed resource list is updated")
+	info.mu.RUnlock()
+}
+
+// TestRefreshSessionCapabilities_ListsOnlyDeclaredCapabilities: the same for
+// a session's own connection: a tools-only server costs the session one
+// request, a server that declared resources has them stored for the session.
+func TestRefreshSessionCapabilities_ListsOnlyDeclaredCapabilities(t *testing.T) {
+	ctx := context.Background()
+	capStore := oauthstore.NewInMemoryCapabilityStore(time.Hour)
+	a := &AggregatorServer{registry: NewServerRegistry("x"), capabilityStore: capStore}
+	require.NoError(t, capStore.Set(ctx, "sess", "sso", &oauthstore.Capabilities{Tools: []mcp.Tool{{Name: "probe"}}}))
+
+	toolsOnly := &notifMockClient{tools: []mcp.Tool{{Name: "report"}}}
+	a.refreshSessionCapabilities(ctx, "sso", "sess", toolsOnly, refreshByPoll)
+	tools, resources, prompts := toolsOnly.listCounts()
+	assert.Equal(t, [3]int32{1, 0, 0}, [3]int32{tools, resources, prompts}, "a tools-only server costs one request")
+
+	withResources := &notifMockClient{
+		tools:        []mcp.Tool{{Name: "report"}},
+		resources:    []mcp.Resource{{URI: "r://one", Name: "one"}},
+		capabilities: declaring(true, false),
+	}
+	a.refreshSessionCapabilities(ctx, "sso", "sess", withResources, refreshByPoll)
+	tools, resources, prompts = withResources.listCounts()
+	assert.Equal(t, [3]int32{1, 1, 0}, [3]int32{tools, resources, prompts}, "resources are listed once declared, prompts still not")
+	caps, err := capStore.Get(ctx, "sess", "sso")
+	require.NoError(t, err)
+	require.NotNil(t, caps)
+	assert.Len(t, caps.Resources, 1, "the session's entry carries the declared resources")
 }

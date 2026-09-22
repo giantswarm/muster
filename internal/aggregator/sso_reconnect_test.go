@@ -34,6 +34,7 @@ func (c *noopMCPClient) GetPrompt(context.Context, string, map[string]any) (*mcp
 }
 func (c *noopMCPClient) Ping(context.Context) error                   { return nil }
 func (c *noopMCPClient) OnNotification(func(mcp.JSONRPCNotification)) {}
+func (c *noopMCPClient) ServerCapabilities() mcp.ServerCapabilities   { return mcp.ServerCapabilities{} }
 
 func TestOnAuthenticated_TriggersSSOReinit_WhenAuthStoreEmpty(t *testing.T) {
 	// After a pod restart the in-memory authStore is empty.
