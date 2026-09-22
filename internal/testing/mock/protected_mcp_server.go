@@ -392,7 +392,11 @@ func (s *ProtectedMCPServer) createProtectedHandler() (http.Handler, error) {
 			server.WithMessageEndpoint("/message"),
 		)
 	default:
-		underlyingHandler = server.NewStreamableHTTPServer(mcpServer, server.WithStateful(true))
+		// The request headers ride on the handler context for echo_headers
+		// tools, the same as on the plain mock.
+		underlyingHandler = server.NewStreamableHTTPServer(mcpServer,
+			server.WithStateful(true),
+			server.WithHTTPContextFunc(withRequestHeaders))
 	}
 
 	// Create OAuth protection middleware

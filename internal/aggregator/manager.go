@@ -3,6 +3,7 @@ package aggregator
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sync"
 	"time"
 
@@ -401,8 +402,12 @@ func (am *AggregatorManager) RegisterServerPendingAuth(registration PendingAuthR
 	// or removed authorization-server description is released below, before
 	// the new one is applied.
 	var previousAuth *api.MCPServerAuth
+	var previousHeaders map[string]string
+	previouslyRegistered := false
 	if previous, ok := am.aggregatorServer.GetRegistry().GetServerInfo(registration.Name); ok {
 		previousAuth = previous.AuthConfig
+		previousHeaders = previous.Headers
+		previouslyRegistered = true
 	}
 
 	if err := am.aggregatorServer.GetRegistry().RegisterPendingAuth(registration); err != nil {
@@ -432,6 +437,12 @@ func (am *AggregatorManager) RegisterServerPendingAuth(registration PendingAuthR
 	// an unchanged configuration (a restart, a retry) leave the sessions be.
 	if invalidated, changed := sessionAuthInvalidated(previousAuth, registration.AuthConfig); invalidated {
 		am.aggregatorServer.resetSessionAuth(context.Background(), registration.Name, changed)
+	} else if previouslyRegistered && !maps.Equal(previousHeaders, registration.Headers) {
+		// The connections live sessions hold were opened with the previous
+		// spec.headers, and a server that reads them at the handshake (a
+		// toolset selector) answered them accordingly: they go the same way,
+		// so the sessions' next connection carries the new set (#1304).
+		am.aggregatorServer.resetSessionAuth(context.Background(), registration.Name, "headers")
 	}
 
 	// Wire pool notification callback for servers with session-scoped auth so that
@@ -816,6 +827,7 @@ func (am *AggregatorManager) registerPendingAuthFromService(service api.ServiceI
 	family, _ := serviceData["family"].(*api.MCPServerFamily)
 	namespace, _ := serviceData["namespace"].(string)
 	meta, _ := serviceData["meta"].(map[string]string)
+	headers, _ := serviceData["headers"].(map[string]string)
 	authConfig, _ := serviceData["auth"].(*api.MCPServerAuth)
 	timeout, _ := serviceData["timeout"].(time.Duration)
 
@@ -836,5 +848,6 @@ func (am *AggregatorManager) registerPendingAuthFromService(service api.ServiceI
 		URL:        url,
 		AuthConfig: authConfig,
 		Meta:       meta,
+		Headers:    headers,
 	})
 }

@@ -608,6 +608,13 @@ func (m *musterInstanceManager) extractToolConfigs(config map[string]interface{}
 		if echo, ok := toolMap["echo_handshake"].(bool); ok {
 			tool.EchoHandshake = echo
 		}
+		if names, ok := toolMap["echo_headers"].([]interface{}); ok {
+			for _, name := range names {
+				if header, ok := name.(string); ok && header != "" {
+					tool.EchoHeaders = append(tool.EchoHeaders, header)
+				}
+			}
+		}
 		if schema, ok := toolMap["input_schema"].(map[string]interface{}); ok {
 			tool.InputSchema = schema
 		}

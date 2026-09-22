@@ -100,7 +100,12 @@ func (s *HTTPServer) createHandler() http.Handler {
 	case HTTPTransportStreamableHTTP:
 		fallthrough
 	default:
-		return server.NewStreamableHTTPServer(s.mockServer.mcpServer, server.WithStateful(true))
+		// The request headers ride on the handler context for echo_headers
+		// tools; the OAuth middleware runs before this handler, so a
+		// protected mock sees them too.
+		return server.NewStreamableHTTPServer(s.mockServer.mcpServer,
+			server.WithStateful(true),
+			server.WithHTTPContextFunc(withRequestHeaders))
 	}
 }
 

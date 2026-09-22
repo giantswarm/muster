@@ -1522,6 +1522,7 @@ func (r *ServerRegistry) RegisterPendingAuth(registration PendingAuthRegistratio
 		AuthInfo:     authInfo,
 		AuthConfig:   authConfig,
 		Meta:         registration.Meta,
+		Headers:      registration.Headers,
 		Timeout:      registration.Timeout,
 		RegisteredAt: time.Now(),
 	}

@@ -1,0 +1,144 @@
+name: "oauth-session-client-sends-definition-headers"
+category: "behavioral"
+concept: "oauth"
+description: |
+  A person's session connection to an OAuth server carries the MCPServer's
+  spec.headers, and a change of the headers reconnects live sessions:
+
+    1. The definition names a header (the toolset selector of the hosted
+       GitHub MCP server); the person signs in to the server through muster
+       and a tool call reports the header the backend received.
+    2. The header's value changes on the definition. The reconciler restarts
+       the service and registers the new configuration; every live session is
+       put back to auth_required for the server (`session_auth_reset`,
+       changed: headers), its tools still resolvable.
+    3. The session's next call finds no connection, opens one with the grant
+       it still holds -- and with the new headers -- and reports the new
+       value; no sign-in is asked for, the authorization server is the same.
+
+  Regression (giantswarm/muster#1304): the session-scoped clients the
+  aggregator built sent no header from the definition, only the server-level
+  client did. With `X-MCP-Toolsets: default,git` on the hosted GitHub MCP
+  server every person's session still got the default toolset and
+  `x_github_get_repository_tree` was "tool not found".
+tags: ["oauth", "headers", "session", "update", "regression", "1304"]
+timeout: "3m"
+
+pre_configuration:
+  mock_oauth_servers:
+    - name: "hdr-idp"
+      scopes: ["openid", "mcp:read"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "hdr-client"
+
+  mcp_servers:
+    - name: "hdr-fixture"
+      config:
+        type: "streamable-http"
+        headers:
+          X-MCP-Toolsets: "default,git"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "hdr-idp"
+          scope: "mcp:read"
+        tools:
+          - name: "whoami"
+            description: "Reports the request headers the backend saw"
+            echo_headers: ["X-MCP-Toolsets"]
+            input_schema:
+              type: "object"
+              properties: {}
+            responses:
+              - response:
+                  source: "hdr-fixture"
+
+steps:
+  - id: definition-carries-the-headers
+    tool: "core_mcpserver_get"
+    args:
+      name: "hdr-fixture"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["X-MCP-Toolsets", "default,git"]
+
+  - id: sign-in
+    tool: "core_auth_login"
+    args:
+      server: "hdr-fixture"
+    expected:
+      success: true
+      contains: ["Authentication Required"]
+
+  - id: sign-in-completes
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "hdr-fixture"
+    expected:
+      success: true
+
+  - id: call-carries-the-headers
+    description: "The session's connection sent the definition's header on the request that carried the call"
+    tool: "x_hdr-fixture_whoami"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["hdr-fixture", '"X-MCP-Toolsets":"default,git"']
+
+  - id: headers-change-on-the-definition
+    description: "The operator widens the toolset selector; the reconciler restarts the service and registers the new configuration"
+    tool: "core_mcpserver_update"
+    args:
+      name: "hdr-fixture"
+      type: "streamable-http"
+      autoStart: true
+      headers:
+        X-MCP-Toolsets: "default,git,actions"
+    expected:
+      success: true
+    timeout: "15s"
+
+  - id: definition-carries-the-new-headers
+    tool: "core_mcpserver_get"
+    args:
+      name: "hdr-fixture"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["default,git,actions"]
+
+  - id: session-is-back-to-auth-required
+    description: "The connection opened with the previous headers is gone; the session is back to auth_required for the server"
+    tool: "test_read_auth_status"
+    args:
+      server: "hdr-fixture"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["hdr-fixture", '"status": "auth_required"']
+
+  - id: call-carries-the-new-headers
+    description: "The session's next call reconnects with the grant it still holds; the new connection sent the new header value, no sign-in asked for"
+    tool: "x_hdr-fixture_whoami"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["hdr-fixture", '"X-MCP-Toolsets":"default,git,actions"']
+      not_contains: ['"default,git"}']
+
+  - id: connected-again
+    tool: "test_read_auth_status"
+    args:
+      server: "hdr-fixture"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["hdr-fixture", '"status": "connected"']
+
+instance_logs:
+  contains:
+    - "session_auth_reset"

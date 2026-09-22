@@ -114,6 +114,10 @@ type PendingAuthRegistration struct {
 	// Meta carries MCPServer.Meta to the session-scoped clients. See
 	// api.PendingAuthRegistration.Meta.
 	Meta map[string]string
+
+	// Headers carries MCPServer.Headers to the session-scoped clients. See
+	// api.PendingAuthRegistration.Headers.
+	Headers map[string]string
 }
 
 // ServerInfo contains information about a registered MCP server.
@@ -168,6 +172,11 @@ type ServerInfo struct {
 	// for this server merges into params._meta. Immutable after registration,
 	// like AuthConfig, so readers need no lock.
 	Meta map[string]string
+
+	// Headers holds the MCPServer.Headers entries every session-scoped client
+	// of this server sends with each request, next to the session's own
+	// Authorization header. See api.PendingAuthRegistration.Headers.
+	Headers map[string]string
 
 	// Timeout is the budget every operation on a session-scoped client of this
 	// server runs under: the server's spec.timeout, zero for the client's default.
