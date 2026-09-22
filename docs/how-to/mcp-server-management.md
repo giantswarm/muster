@@ -636,6 +636,20 @@ once; `metadata.consecutiveHealthCheckFailures` in `core_service_status` shows
 the running count. Servers served per session (`forwardToken`, `tokenExchange`,
 OAuth) have no shared client and are not probed.
 
+A probe heals the connection; it does not re-read the tools. A server learns
+its tools at registration and again when the server sends
+`notifications/tools/list_changed` -- which a backend redeployed behind its
+Service with another tool set never does, having never seen muster's session.
+Every `MUSTER_AGGREGATOR_CAPABILITY_POLL_INTERVAL` (default `5m`, a Go duration)
+the aggregator therefore re-lists every connected server's tools, resources
+and prompts and updates what changed, notifying connected clients as it does
+after a `list_changed`: a server with a shared client once, a server served per
+session through each session's own live connection into that session's list.
+Nothing is polled that is not connected, and a listing that fails leaves the
+cached list as it is. The log line for a change names its trigger,
+`Capability refresh (poll): updated 3 tools for <server>`, as against
+`(notification)`.
+
 ## Advanced Configuration
 
 ### Environment Variables for Stdio Servers

@@ -1,0 +1,140 @@
+name: "mcpserver-capability-poll-after-silent-redeploy"
+description: "A remote MCPServer whose backend is redeployed with another tool set -- no CR change, and no list_changed from a process that has never seen muster's session -- has its tool list re-listed by the capability poll on the production schedule: the tool the new image dropped stops being served and the one it added becomes callable, while the health probe alone had left the list stale (#494)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "streamable-http", "redeploy", "capabilities", "poll", "clock", "issue-494"]
+timeout: "3m"
+
+# Given: a remote streamable-http MCP server without auth, Connected, with one
+#        tool. The instance runs on production intervals: the health probe
+#        every 30 s and the capability poll every 5 min, both on the
+#        controllable clock.
+# When:  the backend is redeployed with an image that offers another tool set:
+#        `probe` is gone, `report` is new. A fresh process takes over behind
+#        the same port; it knows no session and sends no
+#        notifications/tools/list_changed -- nobody it knows is connected.
+# Then:  until the poll, muster serves the list of the old process: `report`
+#        is unknown, and the health probe -- whose ping the session recovery
+#        heals -- changes nothing about that. Five minutes on, the poll
+#        re-lists the server through its recovered session and updates the
+#        list: `report` answers, `probe` is no longer a tool, and the server
+#        was connected throughout.
+
+pre_configuration:
+  intervals: "production"
+  mcp_servers:
+    - name: "rolled-server"
+      config:
+        type: "streamable-http"
+        tools:
+          - name: "probe"
+            description: "Offered by the image before the roll"
+            input_schema:
+              type: "object"
+              properties: {}
+            responses:
+              - response: { alive: true }
+
+steps:
+  - id: "connected"
+    tool: "core_service_status"
+    args:
+      name: "rolled-server"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "connected"
+    timeout: "45s"
+
+  - id: "probe-before-the-roll"
+    tool: "x_rolled-server_probe"
+    args: {}
+    expected:
+      success: true
+      contains: ["alive"]
+    timeout: "15s"
+
+  - id: "backend-rolled-with-another-tool-set"
+    description: "A fresh process behind the same port offering report instead of probe; it has never seen muster's session, so no list_changed goes out"
+    tool: "test_redeploy_mock_server"
+    args:
+      server: "rolled-server"
+      add_tools:
+        - name: "report"
+          description: "Offered by the image after the roll"
+      remove_tools: ["probe"]
+    expected:
+      success: true
+      contains: ["Redeployed mock server", "tools changed: +report -probe"]
+    timeout: "15s"
+
+  - id: "health-probe-runs"
+    description: "The health tick is due: the probe meets the 404 for the old session, the session is recovered and the server stays connected -- the tool list is not re-listed"
+    tool: "test_advance_clock"
+    args:
+      duration: "31s"
+    expected:
+      success: true
+      contains: ["Advanced the clock by 31s"]
+
+  - id: "connected-after-the-probe"
+    tool: "core_service_status"
+    args:
+      name: "rolled-server"
+    expected:
+      success: true
+      wait_for_state: "20s"
+      json_path:
+        state: "connected"
+        health: "healthy"
+    timeout: "30s"
+
+  - id: "new-tool-unknown-before-the-poll"
+    description: "muster still serves the list of the old process"
+    tool: "x_rolled-server_report"
+    args: {}
+    expected:
+      success: false
+    timeout: "15s"
+
+  - id: "five-minutes-pass"
+    description: "The capability poll is due: every connected server is re-listed"
+    tool: "test_advance_clock"
+    args:
+      duration: "5m"
+    expected:
+      success: true
+      contains: ["Advanced the clock by 5m0s"]
+
+  - id: "new-tool-served-after-the-poll"
+    tool: "x_rolled-server_report"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["report"]
+    timeout: "45s"
+
+  - id: "dropped-tool-gone-after-the-poll"
+    tool: "x_rolled-server_probe"
+    args: {}
+    expected:
+      success: false
+    timeout: "15s"
+
+  - id: "connected-throughout"
+    tool: "core_service_status"
+    args:
+      name: "rolled-server"
+    expected:
+      success: true
+      json_path:
+        state: "connected"
+        health: "healthy"
+    timeout: "15s"
+
+# The poll, not a notification, is what re-listed the server.
+instance_logs:
+  contains:
+    - "Capability refresh (poll): updated 1 tools for rolled-server"

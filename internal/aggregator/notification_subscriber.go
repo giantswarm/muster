@@ -20,6 +20,25 @@ func (a *AggregatorServer) refreshContext() context.Context {
 	return context.Background()
 }
 
+// refreshTrigger names what asked for a capability re-fetch: a list_changed
+// notification from the server, or the capability poller
+// (capability_poller.go). It is in the log lines, so what changed a server's
+// tools can be told from the log.
+type refreshTrigger string
+
+const (
+	refreshByNotification refreshTrigger = "notification"
+	refreshByPoll         refreshTrigger = "poll"
+)
+
+// nonOAuthRefreshKey is the singleflight key of a shared-client server's
+// re-fetch, sessionRefreshKey that of one session's re-fetch of a
+// per-session server. Notification and poll share them, so a poll that
+// overlaps a notification-driven refresh is one re-fetch.
+func nonOAuthRefreshKey(serverName string) string { return "notif-caps/" + serverName }
+
+func sessionRefreshKey(sessionID, serverName string) string { return sessionID + "/" + serverName }
+
 // isCapabilityNotification returns true if the notification method indicates
 // a server-side capability change (tools, resources, or prompts).
 func isCapabilityNotification(method string) bool {
@@ -108,21 +127,21 @@ func (a *AggregatorServer) notifySubjectMethods(sub string, methods []string) {
 // from a non-OAuth server. Concurrent re-fetches for the same server are
 // deduplicated via singleflight.
 func (a *AggregatorServer) handleNonOAuthCapabilityChanged(serverName string) {
-	sfKey := "notif-caps/" + serverName
 	go func() {
-		_, _, _ = a.notifRefreshGroup.Do(sfKey, func() (any, error) {
-			a.refreshNonOAuthCapabilities(serverName)
+		_, _, _ = a.notifRefreshGroup.Do(nonOAuthRefreshKey(serverName), func() (any, error) {
+			a.refreshNonOAuthCapabilities(serverName, refreshByNotification)
 			return nil, nil
 		})
 	}()
 }
 
 // refreshNonOAuthCapabilities re-fetches tools, resources, and prompts from a
-// non-OAuth server and updates the registry if anything changed.
-func (a *AggregatorServer) refreshNonOAuthCapabilities(serverName string) {
+// non-OAuth server and updates the registry if anything changed. A listing
+// that fails leaves the cached capabilities as they are.
+func (a *AggregatorServer) refreshNonOAuthCapabilities(serverName string, trigger refreshTrigger) {
 	info, exists := a.registry.GetServerInfo(serverName)
 	if !exists || info.Client == nil {
-		logging.Warn("Aggregator", "Notification refresh: server %s not found or has no client", serverName)
+		logging.Warn("Aggregator", "Capability refresh (%s): server %s not found or has no client", trigger, serverName)
 		return
 	}
 
@@ -130,19 +149,19 @@ func (a *AggregatorServer) refreshNonOAuthCapabilities(serverName string) {
 
 	newTools, err := info.Client.ListTools(ctx)
 	if err != nil {
-		logging.Warn("Aggregator", "Notification refresh: failed to list tools for %s: %v", serverName, err)
+		logging.Warn("Aggregator", "Capability refresh (%s): failed to list tools for %s: %v", trigger, serverName, err)
 		return
 	}
 
 	newResources, err := info.Client.ListResources(ctx)
 	if err != nil {
-		logging.Debug("Aggregator", "Notification refresh: failed to list resources for %s: %v", serverName, err)
+		logging.Debug("Aggregator", "Capability refresh (%s): failed to list resources for %s: %v", trigger, serverName, err)
 		newResources = nil
 	}
 
 	newPrompts, err := info.Client.ListPrompts(ctx)
 	if err != nil {
-		logging.Debug("Aggregator", "Notification refresh: failed to list prompts for %s: %v", serverName, err)
+		logging.Debug("Aggregator", "Capability refresh (%s): failed to list prompts for %s: %v", trigger, serverName, err)
 		newPrompts = nil
 	}
 
@@ -153,21 +172,21 @@ func (a *AggregatorServer) refreshNonOAuthCapabilities(serverName string) {
 	info.mu.RUnlock()
 
 	if !toolsChanged && !resourcesChanged && !promptsChanged {
-		logging.Debug("Aggregator", "Notification refresh: no capability changes for %s", serverName)
+		logging.Debug("Aggregator", "Capability refresh (%s): no capability changes for %s", trigger, serverName)
 		return
 	}
 
 	if toolsChanged {
 		info.UpdateTools(newTools)
-		logging.Info("Aggregator", "Notification refresh: updated %d tools for %s", len(newTools), serverName)
+		logging.Info("Aggregator", "Capability refresh (%s): updated %d tools for %s", trigger, len(newTools), serverName)
 	}
 	if resourcesChanged {
 		info.UpdateResources(newResources)
-		logging.Info("Aggregator", "Notification refresh: updated %d resources for %s", len(newResources), serverName)
+		logging.Info("Aggregator", "Capability refresh (%s): updated %d resources for %s", trigger, len(newResources), serverName)
 	}
 	if promptsChanged {
 		info.UpdatePrompts(newPrompts)
-		logging.Info("Aggregator", "Notification refresh: updated %d prompts for %s", len(newPrompts), serverName)
+		logging.Info("Aggregator", "Capability refresh (%s): updated %d prompts for %s", trigger, len(newPrompts), serverName)
 	}
 
 	a.registry.notifyUpdate()
@@ -177,11 +196,10 @@ func (a *AggregatorServer) refreshNonOAuthCapabilities(serverName string) {
 // from an authenticated server for a specific session. Concurrent re-fetches
 // for the same (sessionID, serverName) pair are deduplicated via singleflight.
 func (a *AggregatorServer) handleSessionCapabilityChanged(serverName, sessionID string, client MCPClient) {
-	sfKey := sessionID + "/" + serverName
 	go func() {
-		_, _, _ = a.notifRefreshGroup.Do(sfKey, func() (any, error) {
+		_, _, _ = a.notifRefreshGroup.Do(sessionRefreshKey(sessionID, serverName), func() (any, error) {
 			ctx := a.refreshContext()
-			a.refreshSessionCapabilities(ctx, serverName, sessionID, client)
+			a.refreshSessionCapabilities(ctx, serverName, sessionID, client, refreshByNotification)
 			return nil, nil
 		})
 	}()
@@ -189,26 +207,26 @@ func (a *AggregatorServer) handleSessionCapabilityChanged(serverName, sessionID 
 
 // refreshSessionCapabilities re-fetches capabilities for a single session
 // using that session's own client, and updates the CapabilityStore if anything
-// changed.
-func (a *AggregatorServer) refreshSessionCapabilities(ctx context.Context, serverName, sessionID string, client MCPClient) {
+// changed. A listing that fails leaves the session's entry as it is.
+func (a *AggregatorServer) refreshSessionCapabilities(ctx context.Context, serverName, sessionID string, client MCPClient, trigger refreshTrigger) {
 	newTools, err := client.ListTools(ctx)
 	if err != nil {
-		logging.Warn("Aggregator", "Session notification refresh: failed to list tools for %s (session %s): %v",
-			serverName, logging.TruncateIdentifier(sessionID), err)
+		logging.Warn("Aggregator", "Session capability refresh (%s): failed to list tools for %s (session %s): %v",
+			trigger, serverName, logging.TruncateIdentifier(sessionID), err)
 		return
 	}
 
 	newResources, err := client.ListResources(ctx)
 	if err != nil {
-		logging.Debug("Aggregator", "Session notification refresh: failed to list resources for %s (session %s): %v",
-			serverName, logging.TruncateIdentifier(sessionID), err)
+		logging.Debug("Aggregator", "Session capability refresh (%s): failed to list resources for %s (session %s): %v",
+			trigger, serverName, logging.TruncateIdentifier(sessionID), err)
 		newResources = nil
 	}
 
 	newPrompts, err := client.ListPrompts(ctx)
 	if err != nil {
-		logging.Debug("Aggregator", "Session notification refresh: failed to list prompts for %s (session %s): %v",
-			serverName, logging.TruncateIdentifier(sessionID), err)
+		logging.Debug("Aggregator", "Session capability refresh (%s): failed to list prompts for %s (session %s): %v",
+			trigger, serverName, logging.TruncateIdentifier(sessionID), err)
 		newPrompts = nil
 	}
 
@@ -230,13 +248,13 @@ func (a *AggregatorServer) refreshSessionCapabilities(ctx context.Context, serve
 	}
 
 	if err := a.capabilityStore.Set(ctx, sessionID, serverName, caps); err != nil {
-		logging.Warn("Aggregator", "Session notification refresh: failed to update store for %s (session %s): %v",
-			serverName, logging.TruncateIdentifier(sessionID), err)
+		logging.Warn("Aggregator", "Session capability refresh (%s): failed to update store for %s (session %s): %v",
+			trigger, serverName, logging.TruncateIdentifier(sessionID), err)
 		return
 	}
 
-	logging.Info("Aggregator", "Session notification refresh: updated capabilities for %s (session %s: %d tools, %d resources, %d prompts)",
-		serverName, logging.TruncateIdentifier(sessionID), len(newTools), len(newResources), len(newPrompts))
+	logging.Info("Aggregator", "Session capability refresh (%s): updated capabilities for %s (session %s: %d tools, %d resources, %d prompts)",
+		trigger, serverName, logging.TruncateIdentifier(sessionID), len(newTools), len(newResources), len(newPrompts))
 
 	// Tell the person's transport sessions which lists changed, whether they
 	// grew or shrank: a client that listed before the server re-listed would

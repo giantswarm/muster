@@ -89,7 +89,7 @@ func (s *HTTPServer) createHandler() http.Handler {
 	case HTTPTransportSSE:
 		baseURL := fmt.Sprintf("http://localhost:%d", s.port)
 		s.sseServer = server.NewSSEServer(
-			s.mockServer.mcpServer,
+			s.mockServer.mcp(),
 			server.WithBaseURL(baseURL),
 			server.WithSSEEndpoint("/sse"),
 			server.WithMessageEndpoint("/message"),
@@ -103,7 +103,7 @@ func (s *HTTPServer) createHandler() http.Handler {
 		// The request headers ride on the handler context for echo_headers
 		// tools; the OAuth middleware runs before this handler, so a
 		// protected mock sees them too.
-		return server.NewStreamableHTTPServer(s.mockServer.mcpServer,
+		return server.NewStreamableHTTPServer(s.mockServer.mcp(),
 			server.WithStateful(true),
 			server.WithHTTPContextFunc(withRequestHeaders))
 	}
@@ -243,20 +243,24 @@ func (s *HTTPServer) Stop(ctx context.Context) error {
 }
 
 // Redeploy replaces the MCP handler behind the listening port with a fresh
-// one: the tools stay, every MCP session the old handler knew is forgotten,
-// and the port never stopped accepting -- a backend pod replaced behind the
-// same Service. A client that keeps using its session id is answered 404
-// ("Invalid session ID") by the new handler, as mcp-go's streamable-HTTP
-// server answers for a session it does not know.
-func (s *HTTPServer) Redeploy() error {
+// one, built from the server's tools with change applied: every MCP session
+// the old handler knew is forgotten, and the port never stopped accepting --
+// a backend pod replaced behind the same Service, by the same image or by
+// one that offers other tools. A client that keeps using its session id is
+// answered 404 ("Invalid session ID") by the new handler, as mcp-go's
+// streamable-HTTP server answers for a session it does not know. A changed
+// tool set announces itself to nobody: the new process has never seen a
+// client's session, so no notifications/tools/list_changed goes out.
+func (s *HTTPServer) Redeploy(change ToolSetChange) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.running {
 		return fmt.Errorf("mock server on port %d is not running", s.port)
 	}
+	s.mockServer.redeploy(change)
 	s.live.set(s.createHandler())
 	if s.debug {
-		fmt.Fprintf(os.Stderr, "🔁 Redeployed mock HTTP server on port %d: sessions forgotten\n", s.port)
+		fmt.Fprintf(os.Stderr, "🔁 Redeployed mock HTTP server on port %d: sessions forgotten, %s\n", s.port, change.Summary())
 	}
 	return nil
 }

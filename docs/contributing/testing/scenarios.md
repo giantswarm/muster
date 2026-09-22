@@ -565,7 +565,7 @@ while `muster serve` runs untouched:
 | Fault | Step or setting | What muster sees |
 |-------|-----------------|------------------|
 | Backend gone | `test_stop_mock_server` / `test_start_mock_server` | Connections refused for a while, then a fresh process on the same port |
-| Backend redeployed | `test_redeploy_mock_server: {server}` | The port never refuses; a fresh process that knows no session -- the next call with the old session id is answered 404 (a rolled pod behind the same Service) |
+| Backend redeployed | `test_redeploy_mock_server: {server, add_tools, remove_tools}` | The port never refuses; a fresh process that knows no session -- the next call with the old session id is answered 404 (a rolled pod behind the same Service). `add_tools` (`[{name, description}]`) and `remove_tools` (`[name]`) give the new process another tool set, the roll of a new image; it announces the change to nobody, having never seen muster's session |
 | Gateway in front of the backend failing | `test_set_mock_server_outage: {server, requests, status, retry_after, pings}` | An HTTP status (504 by default) for the next `requests` connection attempts, then normal service; `retry_after` seconds (default 0, none) adds a `Retry-After` header, the way a 429 or 503 names when to come back |
 | Backend rolled over between anonymous and OAuth | `test_set_mock_server_auth: {server, required: true\|false}` | The same process answering anonymously, or 401 with the RFC 9728 challenge and resource metadata. The mock needs a token validator (`oauth.mock_oauth_server_ref` or `oauth.trust_issuer_ref`); `oauth.required` is its state at start |
 | Backend suspended in its definition | `mcp_servers[].config.suspended: true`, `test_patch_cr` / `core_mcpserver_update` | A server muster boots with but must keep down |
@@ -583,9 +583,10 @@ authorization server and muster's own timers agree. The timers on that
 clock are the reconnect backoff of a remote MCPServer and the orchestrator's
 retry and health-probe ticks (`internal/orchestrator`,
 `internal/services/mcpserver`) and the age of the aggregator's core
-catalogue (`internal/aggregator`): a tick that has become due fires at once
-when the clock passes it, so nothing waits. Production binaries never see
-the variable and keep the system time.
+catalogue and the capability poll that re-lists every connected server's
+tools (`internal/aggregator`): a tick that has become due fires at once when
+the clock passes it, so nothing waits. Production binaries never see the
+variable and keep the system time.
 
 By default an instance runs on `intervals: short`: the harness shortens
 those timers to seconds through environment knobs (a 1 s initial backoff
@@ -608,7 +609,11 @@ steps:
 ```
 
 The reconciler's resync is controller-runtime's and out of the clock's
-reach, so it stays at 2 s on both schedules. Token expiry on the
+reach, so it stays at 2 s on both schedules. The capability poll keeps its
+production interval of 5 min on both: shortened, it would re-list every mock
+of every scenario every few seconds and count against the outage gates and
+the request budgets scenarios arm; a scenario about it advances the clock.
+Token expiry on the
 authorization-server side is the mock's clock: `test_advance_oauth_clock`
 moves it alone (with `use_mock_clock`, a clock that stands still between
 advances), `test_advance_clock` moves it with muster's. The stores'

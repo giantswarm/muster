@@ -138,21 +138,23 @@ func (s *ProtectedMCPServer) AuthRequired() bool {
 }
 
 // Redeploy replaces the handler behind the listening port with a fresh one
-// built from the server's tools (configured and added at runtime): every MCP
-// session is forgotten while the port keeps accepting, see HTTPServer.Redeploy.
-func (s *ProtectedMCPServer) Redeploy() error {
+// built from the server's tools (configured and added at runtime) with change
+// applied: every MCP session is forgotten while the port keeps accepting, and
+// a changed tool set is announced to nobody, see HTTPServer.Redeploy.
+func (s *ProtectedMCPServer) Redeploy(change ToolSetChange) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.running {
 		return fmt.Errorf("protected MCP server %s is not running", s.config.Name)
 	}
+	s.config.Tools = change.apply(s.config.Tools)
 	handler, err := s.createProtectedHandler()
 	if err != nil {
 		return fmt.Errorf("failed to create handler: %w", err)
 	}
 	s.live.set(handler)
 	if s.config.Debug {
-		fmt.Fprintf(os.Stderr, "🔁 Redeployed protected MCP server %s on port %d: sessions forgotten\n", s.config.Name, s.port)
+		fmt.Fprintf(os.Stderr, "🔁 Redeployed protected MCP server %s on port %d: sessions forgotten, %s\n", s.config.Name, s.port, change.Summary())
 	}
 	return nil
 }

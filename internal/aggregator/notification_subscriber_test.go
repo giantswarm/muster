@@ -277,7 +277,7 @@ func TestRefreshNonOAuthCapabilities_UpdatesTools(t *testing.T) {
 	}
 	client.setTools(updatedTools)
 
-	a.refreshNonOAuthCapabilities("srv")
+	a.refreshNonOAuthCapabilities("srv", refreshByNotification)
 
 	info.mu.RLock()
 	assert.Len(t, info.Tools, 2)
@@ -300,7 +300,7 @@ func TestRefreshNonOAuthCapabilities_NoChangeSkipsUpdate(t *testing.T) {
 	default:
 	}
 
-	a.refreshNonOAuthCapabilities("srv")
+	a.refreshNonOAuthCapabilities("srv", refreshByNotification)
 
 	select {
 	case <-registry.GetUpdateChannel():
@@ -314,7 +314,7 @@ func TestRefreshNonOAuthCapabilities_ServerNotFound(t *testing.T) {
 	a := &AggregatorServer{registry: registry}
 
 	// Should not panic for a missing server
-	a.refreshNonOAuthCapabilities("nonexistent")
+	a.refreshNonOAuthCapabilities("nonexistent", refreshByNotification)
 }
 
 func TestHandleNonOAuthCapabilityChanged_TriggersRefresh(t *testing.T) {
@@ -396,7 +396,7 @@ func TestRefreshSessionCapabilities_UpdatesStore(t *testing.T) {
 
 	client := &notifMockClient{tools: []mcp.Tool{{Name: "tool-a"}, {Name: "tool-b"}}}
 
-	a.refreshSessionCapabilities(context.Background(), "sso-srv", "session-1", client)
+	a.refreshSessionCapabilities(context.Background(), "sso-srv", "session-1", client, refreshByNotification)
 
 	caps, err := capStore.Get(context.Background(), "session-1", "sso-srv")
 	require.NoError(t, err)
@@ -417,7 +417,7 @@ func TestRefreshSessionCapabilities_NoChangeSkipsUpdate(t *testing.T) {
 
 	client := &notifMockClient{tools: tools}
 
-	a.refreshSessionCapabilities(context.Background(), "sso-srv", "sess", client)
+	a.refreshSessionCapabilities(context.Background(), "sso-srv", "sess", client, refreshByNotification)
 
 	caps, err := capStore.Get(context.Background(), "sess", "sso-srv")
 	require.NoError(t, err)

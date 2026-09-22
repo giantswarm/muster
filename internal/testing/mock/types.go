@@ -1,6 +1,54 @@
 package mock
 
-import "github.com/mark3labs/mcp-go/mcp"
+import (
+	"strings"
+
+	"github.com/mark3labs/mcp-go/mcp"
+)
+
+// ToolSetChange is what a redeployed backend offers differently from the
+// process it replaces: the tools its new image adds (one of a name already
+// served replaces it) and the names it no longer serves. The zero value is a
+// redeploy that keeps the tool set.
+type ToolSetChange struct {
+	Add    []ToolConfig
+	Remove []string
+}
+
+// apply returns tools with the change made: the removed names gone, every
+// added tool present once.
+func (c ToolSetChange) apply(tools []ToolConfig) []ToolConfig {
+	gone := make(map[string]bool, len(c.Remove)+len(c.Add))
+	for _, name := range c.Remove {
+		gone[name] = true
+	}
+	for _, tool := range c.Add {
+		gone[tool.Name] = true
+	}
+	out := make([]ToolConfig, 0, len(tools)+len(c.Add))
+	for _, tool := range tools {
+		if !gone[tool.Name] {
+			out = append(out, tool)
+		}
+	}
+	return append(out, c.Add...)
+}
+
+// Summary describes the change for a message: "tools kept", or the added
+// and removed names as "tools changed: +report -probe".
+func (c ToolSetChange) Summary() string {
+	if len(c.Add) == 0 && len(c.Remove) == 0 {
+		return "tools kept"
+	}
+	parts := make([]string, 0, len(c.Add)+len(c.Remove))
+	for _, tool := range c.Add {
+		parts = append(parts, "+"+tool.Name)
+	}
+	for _, name := range c.Remove {
+		parts = append(parts, "-"+name)
+	}
+	return "tools changed: " + strings.Join(parts, " ")
+}
 
 // ToolConfig defines configuration for a mock tool
 type ToolConfig struct {

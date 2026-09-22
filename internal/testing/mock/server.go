@@ -18,13 +18,21 @@ import (
 
 // Server represents a mock MCP server for testing
 type Server struct {
-	name           string
-	tools          []ToolConfig // Direct array of tools instead of config struct
-	toolHandlers   map[string]*ToolHandler
-	templateEngine *template.Engine
-	mcpServer      *server.MCPServer
-	debug          bool
-	mu             sync.RWMutex
+	name string
+	// tools is the tool set served: the configured tools, changed by
+	// AddDynamicTool, RemoveDynamicTool and redeploy as they happen, so a
+	// rebuilt server serves the set as it is.
+	tools     []ToolConfig
+	resources []ResourceConfig
+	prompts   []PromptConfig
+	// protocolVersion, when set, replaces the revision mcp-go answers
+	// initialize with; see buildMCPServer.
+	protocolVersion string
+	toolHandlers    map[string]*ToolHandler
+	templateEngine  *template.Engine
+	mcpServer       *server.MCPServer
+	debug           bool
+	mu              sync.RWMutex
 
 	// clientProtocolVersion and clientName record the initialize request the
 	// connecting client sent, which echo_handshake tools report back. mcp-go
@@ -59,57 +67,78 @@ func NewServerFromFile(configPath string, debug bool) (*Server, error) {
 	name := filepath.Base(configPath)
 	name = strings.TrimSuffix(name, filepath.Ext(name))
 
-	hooks := &server.Hooks{}
 	mockServer := &Server{
-		name:           name,
-		tools:          configData.Tools,
-		toolHandlers:   make(map[string]*ToolHandler),
-		templateEngine: template.New(),
-		debug:          debug,
+		name:            name,
+		tools:           configData.Tools,
+		resources:       configData.Resources,
+		prompts:         configData.Prompts,
+		protocolVersion: configData.ProtocolVersion,
+		templateEngine:  template.New(),
+		debug:           debug,
 	}
+	mockServer.mcpServer = mockServer.buildMCPServer()
+
+	if debug {
+		// Ensure debug output goes to stderr to not interfere with MCP protocol on stdout
+		fmt.Fprintf(os.Stderr, "🔧 Mock MCP server '%s' initialized with %d tools and %d resources from %s\n", name, len(mockServer.toolHandlers), len(configData.Resources), configPath)
+		for toolName := range mockServer.toolHandlers {
+			fmt.Fprintf(os.Stderr, "  • %s\n", toolName)
+		}
+	}
+
+	return mockServer, nil
+}
+
+// buildMCPServer builds the mcp-go server that serves s.tools, s.resources
+// and s.prompts, and registers a handler for every tool. Called once at
+// construction and again by redeploy, where the fresh instance stands for
+// the process that took over: it knows no session and notifies nobody. The
+// caller holds s.mu for writing when the server is already serving.
+func (s *Server) buildMCPServer() *server.MCPServer {
+	hooks := &server.Hooks{}
 	hooks.AddBeforeInitialize(func(_ context.Context, _ any, req *mcp.InitializeRequest) {
-		mockServer.mu.Lock()
-		mockServer.clientProtocolVersion = req.Params.ProtocolVersion
-		mockServer.clientName = req.Params.ClientInfo.Name
-		mockServer.mu.Unlock()
+		s.mu.Lock()
+		s.clientProtocolVersion = req.Params.ProtocolVersion
+		s.clientName = req.Params.ClientInfo.Name
+		s.mu.Unlock()
 	})
-	if configData.ProtocolVersion != "" {
+	if s.protocolVersion != "" {
 		// protocol_version replaces the revision mcp-go would answer initialize
 		// with, so the mock can stand in for a backend that supports only an
 		// older revision. mcp-go otherwise echoes whatever the client asked for,
 		// which no down-negotiating backend does. mcp-go builds the result, runs
 		// this hook, then serialises it, so the overwrite here is what the
 		// client sees.
+		protocolVersion := s.protocolVersion
 		hooks.AddAfterInitialize(func(_ context.Context, _ any, _ *mcp.InitializeRequest, result *mcp.InitializeResult) {
-			result.ProtocolVersion = configData.ProtocolVersion
+			result.ProtocolVersion = protocolVersion
 		})
 	}
 
 	mcpServer := server.NewMCPServer(
-		fmt.Sprintf("mock-%s", name),
+		fmt.Sprintf("mock-%s", s.name),
 		"1.0.0",
 		server.WithToolCapabilities(true),
-		server.WithResourceCapabilities(false, len(configData.Resources) > 0),
-		server.WithPromptCapabilities(len(configData.Prompts) > 0),
+		server.WithResourceCapabilities(false, len(s.resources) > 0),
+		server.WithPromptCapabilities(len(s.prompts) > 0),
 		server.WithHooks(hooks),
 	)
-	mockServer.mcpServer = mcpServer
 
 	// Initialize tool handlers and register tools
-	for _, toolConfig := range configData.Tools {
-		handler := NewToolHandler(toolConfig, mockServer.templateEngine, debug)
-		mockServer.toolHandlers[toolConfig.Name] = handler
+	s.toolHandlers = make(map[string]*ToolHandler, len(s.tools))
+	for _, toolConfig := range s.tools {
+		s.toolHandlers[toolConfig.Name] = NewToolHandler(toolConfig, s.templateEngine, s.debug)
 
 		// Register the tool with the MCP server, propagating any input_schema
 		// from the YAML config so downstream consumers (e.g. the aggregator's
 		// family-grouping collision check) see the same schema operators
 		// declared in pre_configuration.
-		mcpServer.AddTool(toolWithSchema(toolConfig), mockServer.createToolHandler(toolConfig.Name))
+		mcpServer.AddTool(toolWithSchema(toolConfig), s.createToolHandler(toolConfig.Name))
 	}
 
 	// Register static resources. Unlike tools these have no handler config --
 	// a read returns the configured text verbatim.
-	for _, resourceConfig := range configData.Resources {
+	for _, resourceConfig := range s.resources {
 		mimeType := resourceConfig.MIMEType
 		if mimeType == "" {
 			mimeType = "text/plain"
@@ -132,7 +161,7 @@ func NewServerFromFile(configPath string, debug bool) (*Server, error) {
 
 	// Register static prompts. As with resources these have no handler config --
 	// a fetch returns the configured text verbatim.
-	for _, promptConfig := range configData.Prompts {
+	for _, promptConfig := range s.prompts {
 		prompt := mcp.NewPrompt(
 			promptConfig.Name,
 			mcp.WithPromptDescription(promptConfig.Description),
@@ -145,15 +174,26 @@ func NewServerFromFile(configPath string, debug bool) (*Server, error) {
 		})
 	}
 
-	if debug {
-		// Ensure debug output goes to stderr to not interfere with MCP protocol on stdout
-		fmt.Fprintf(os.Stderr, "🔧 Mock MCP server '%s' initialized with %d tools and %d resources from %s\n", name, len(mockServer.toolHandlers), len(configData.Resources), configPath)
-		for toolName := range mockServer.toolHandlers {
-			fmt.Fprintf(os.Stderr, "  • %s\n", toolName)
-		}
-	}
+	return mcpServer
+}
 
-	return mockServer, nil
+// mcp returns the mcp-go server currently serving: the fresh one after a
+// redeploy.
+func (s *Server) mcp() *server.MCPServer {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.mcpServer
+}
+
+// redeploy replaces the mcp-go server with a fresh one serving the tool set
+// with change applied. The old instance and every session it knew are left
+// behind, as a replaced process leaves its sessions behind; the new one has
+// no session to notify, so a changed tool set announces itself to nobody.
+func (s *Server) redeploy(change ToolSetChange) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.tools = change.apply(s.tools)
+	s.mcpServer = s.buildMCPServer()
 }
 
 // toolWithSchema builds an mcp.Tool from a ToolConfig, attaching the raw
@@ -249,9 +289,12 @@ func (s *Server) AddDynamicTool(toolConfig ToolConfig) {
 
 	s.mu.Lock()
 	s.toolHandlers[toolConfig.Name] = handler
+	// Kept in the tool set too, so a redeploy serves the tool as it is.
+	s.tools = ToolSetChange{Add: []ToolConfig{toolConfig}}.apply(s.tools)
+	mcpServer := s.mcpServer
 	s.mu.Unlock()
 
-	s.mcpServer.AddTool(toolWithSchema(toolConfig), s.createToolHandler(toolConfig.Name))
+	mcpServer.AddTool(toolWithSchema(toolConfig), s.createToolHandler(toolConfig.Name))
 
 	if s.debug {
 		fmt.Fprintf(os.Stderr, "Dynamically added tool '%s' to mock server '%s'\n", toolConfig.Name, s.name)
@@ -264,9 +307,11 @@ func (s *Server) AddDynamicTool(toolConfig ToolConfig) {
 func (s *Server) RemoveDynamicTool(toolName string) {
 	s.mu.Lock()
 	delete(s.toolHandlers, toolName)
+	s.tools = ToolSetChange{Remove: []string{toolName}}.apply(s.tools)
+	mcpServer := s.mcpServer
 	s.mu.Unlock()
 
-	s.mcpServer.DeleteTools(toolName)
+	mcpServer.DeleteTools(toolName)
 
 	if s.debug {
 		fmt.Fprintf(os.Stderr, "Dynamically removed tool '%s' from mock server '%s'\n", toolName, s.name)

@@ -18,9 +18,10 @@ const (
 	IntervalsShort = "short"
 	// IntervalsProduction keeps every timer the controllable clock reaches on
 	// its production default (a 30 s initial backoff capped at 2 min, 30 s
-	// retry and health ticks, a 5 min catalogue age); a scenario moves them
-	// with test_advance_clock. The reconciler's resync is controller-runtime's
-	// and out of the clock's reach, so it stays shortened.
+	// retry and health ticks, a 5 min capability poll, a 5 min catalogue
+	// age); a scenario moves them with test_advance_clock. The reconciler's
+	// resync is controller-runtime's and out of the clock's reach, so it
+	// stays shortened.
 	IntervalsProduction = "production"
 )
 
@@ -99,5 +100,10 @@ func timingEnv(timing instanceTiming) []string {
 		// a scenario sees the read after it refresh the catalogue in the
 		// background within seconds (production: 5 min).
 		"MUSTER_CORE_CATALOGUE_MAX_AGE=3s",
+		// The aggregator's capability poll stays at its production 5 min on
+		// both schedules: shortened, it would re-list every mock of every
+		// scenario every few seconds and count against the outage gates and
+		// request budgets scenarios arm. A scenario about it advances the
+		// clock (mcpserver-capability-poll-after-silent-redeploy).
 	)
 }

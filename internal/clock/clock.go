@@ -1,7 +1,7 @@
 // Package clock is the source of the current time for muster's timers that
-// measure elapsed time: the reconnect backoff of a remote MCPServer and the
-// orchestrator's retry and health-probe ticks, and the age of the
-// aggregator's core catalogue.
+// measure elapsed time: the reconnect backoff of a remote MCPServer, the
+// orchestrator's retry and health-probe ticks, the aggregator's capability
+// poll and the age of its core catalogue.
 //
 // In production Now is time.Now. When MUSTER_TEST_CLOCK names a Unix socket,
 // the process serves a control endpoint on it (StartControl) through which
