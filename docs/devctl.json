@@ -1,0 +1,20 @@
+{
+  "client_id": "https://giantswarm.github.io/muster/devctl.json",
+  "client_name": "devctl",
+  "client_uri": "https://github.com/giantswarm/devctl",
+  "redirect_uris": [
+    "http://127.0.0.1/callback",
+    "http://localhost/callback"
+  ],
+  "grant_types": [
+    "authorization_code",
+    "refresh_token"
+  ],
+  "response_types": [
+    "code"
+  ],
+  "token_endpoint_auth_method": "none",
+  "scope": "openid profile email groups offline_access",
+  "software_id": "giantswarm-devctl",
+  "software_version": "1.0.0"
+}
