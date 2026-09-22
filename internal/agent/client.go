@@ -281,12 +281,7 @@ func (c *Client) createAndConnectClient(ctx context.Context) (client.MCPClient, 
 			return nil, fmt.Errorf("failed to start SSE client: %w", err)
 		}
 
-		sseClient.OnNotification(func(notification mcp.JSONRPCNotification) {
-			select {
-			case c.NotificationChan <- notification:
-			case <-ctx.Done():
-			}
-		})
+		sseClient.OnNotification(c.queueNotification)
 
 		mcpClient = sseClient
 
@@ -323,17 +318,32 @@ func (c *Client) createAndConnectClient(ctx context.Context) (client.MCPClient, 
 			return nil, fmt.Errorf("failed to start streamable-http client: %w", err)
 		}
 
-		streamableClient.OnNotification(func(notification mcp.JSONRPCNotification) {
-			select {
-			case c.NotificationChan <- notification:
-			case <-ctx.Done():
-			}
-		})
+		streamableClient.OnNotification(c.queueNotification)
 
 		mcpClient = streamableClient
 	}
 
 	return mcpClient, nil
+}
+
+// queueNotification hands a notification from the aggregator to whoever reads
+// NotificationChan -- the monitor loop, the REPL, the MCP server bridge's
+// relay -- without waiting for them. mcp-go calls the handler on the goroutine
+// that reads the stream the notification arrived on, and over streamable HTTP
+// without a standalone GET stream that is the response stream of the call in
+// flight: a handler that waits for room in the queue stops the reader in front
+// of the call's own result, and the call ends in its deadline although the
+// aggregator answered. A notification the queue has no room for is dropped and
+// logged; the list_changed notifications the aggregator sends are signals to
+// re-list, and a queued one stands for all that follow it.
+func (c *Client) queueNotification(notification mcp.JSONRPCNotification) {
+	select {
+	case c.NotificationChan <- notification:
+	default:
+		if c.logger != nil {
+			c.logger.Debug("Notification %s dropped: nothing reads the queue", notification.Method)
+		}
+	}
 }
 
 // Connect establishes a connection to the MCP aggregator for programmatic CLI usage.
