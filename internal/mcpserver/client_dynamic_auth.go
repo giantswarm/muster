@@ -40,6 +40,11 @@ type DynamicAuthClient struct {
 	// outbound request.
 	meta map[string]string
 
+	// headers holds the definition's spec.headers, sent with every request
+	// next to the bearer the OAuth handler injects. See DefinitionHeaders for
+	// why Authorization is never among them.
+	headers map[string]string
+
 	// onAuthLost, when set, is invoked once when the connection's
 	// authentication is observed lost (see authLossDetector). Immutable after
 	// construction; set via WithAuthLossHandler.
@@ -51,6 +56,16 @@ type DynamicAuthClient struct {
 // construction site reads as one expression.
 func (c *DynamicAuthClient) WithMeta(meta map[string]string) *DynamicAuthClient {
 	c.meta = meta
+	return c
+}
+
+// WithHeaders sets the definition's spec.headers the client sends with every
+// request, next to the bearer the OAuth handler injects, and returns the
+// client so a construction site reads as one expression. Callers pass the
+// set through DefinitionHeaders; an Authorization entry would be overridden
+// by the handler's bearer anyway.
+func (c *DynamicAuthClient) WithHeaders(headers map[string]string) *DynamicAuthClient {
+	c.headers = headers
 	return c
 }
 
@@ -139,6 +154,14 @@ func (c *DynamicAuthClient) connectLocked(ctx context.Context) error {
 			TokenStore:   tokenStore,
 			Scopes:       []string{c.scope},
 		}))
+	}
+
+	// The definition's headers are set on the request before the OAuth
+	// handler's bearer, so a server that selects what it serves by a header
+	// (a toolset selector) sees them on the handshake and on every call.
+	if len(c.headers) > 0 {
+		opts = append(opts, transport.WithHTTPHeaders(c.headers))
+		logging.Debug("DynamicAuthClient", "Configured %d definition headers", len(c.headers))
 	}
 
 	// The OAuth handler is separate from the transport's HTTP client, so a

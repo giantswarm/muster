@@ -21,6 +21,12 @@ type ToolConfig struct {
 	// configured response. Used to assert the protocol revision muster's
 	// outbound client negotiates with a downstream server.
 	EchoHandshake bool `yaml:"echo_handshake,omitempty"`
+
+	// EchoHeaders names request headers the tool reports back, as
+	// `received_headers` next to its response: what the backend saw on the
+	// HTTP request that carried the call, so a scenario can assert the
+	// definition's spec.headers reach it on a session's connection.
+	EchoHeaders []string `yaml:"echo_headers,omitempty"`
 	// Annotations are the MCP tool annotations the mock declares, so scenarios
 	// can exercise what muster does with a downstream server's read-only /
 	// destructive hints (annotation forwarding, the read-only toolset preset).

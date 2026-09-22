@@ -132,11 +132,57 @@ func (f *resetFixture) state(t *testing.T, sessionID, server string) (authentica
 
 func (f *resetFixture) reregister(t *testing.T, auth *api.MCPServerAuth) {
 	t.Helper()
+	f.reregisterWithHeaders(t, auth, nil)
+}
+
+func (f *resetFixture) reregisterWithHeaders(t *testing.T, auth *api.MCPServerAuth, headers map[string]string) {
+	t.Helper()
 	require.NoError(t, f.am.RegisterServerPendingAuth(PendingAuthRegistration{
 		ServerRegistration: ServerRegistration{Name: "svc", ToolPrefix: "svc"},
 		URL:                "https://svc.example.com/mcp",
 		AuthConfig:         auth,
+		Headers:            headers,
 	}))
+}
+
+// A change of spec.headers is a change of the connection live sessions hold:
+// a server that reads the headers at the handshake (the hosted GitHub MCP
+// server selects its toolsets from X-MCP-Toolsets) answered the old set. The
+// sessions go back to auth_required for the server the way an auth change
+// sends them, tools kept resolvable, and nothing else is touched (#1304).
+func TestRegisterServerPendingAuth_HeadersChangeResetsLiveSessions(t *testing.T) {
+	pin := &api.MCPServerAuth{Type: "oauth", AuthorizationServer: &api.MCPServerAuthAuthorizationServer{
+		Issuer: "https://github.example.com/login/oauth", GrantScope: api.GrantScopeSubject,
+	}}
+	f := newResetFixture(t, pin)
+
+	f.reregisterWithHeaders(t, pin, map[string]string{"X-MCP-Toolsets": "default,git"})
+
+	for _, sid := range []string{"session-a", "session-b"} {
+		authenticated, capabilities, pooled := f.state(t, sid, "svc")
+		assert.False(t, authenticated, "%s: the mark made under the previous headers is revoked", sid)
+		assert.True(t, capabilities, "%s: the cached tools stay resolvable", sid)
+		assert.False(t, pooled, "%s: the connection opened with the previous headers is closed", sid)
+	}
+	authenticated, capabilities, pooled := f.state(t, "session-a", "other")
+	assert.True(t, authenticated && capabilities && pooled, "the other server is untouched")
+
+	info, ok := f.agg.registry.GetServerInfo("svc")
+	require.True(t, ok)
+	assert.Equal(t, map[string]string{"X-MCP-Toolsets": "default,git"}, info.Headers, "the registry carries the new headers")
+
+	// The same headers again -- a restart, a retry -- are not a change.
+	for _, pair := range [][2]string{{"session-a", "svc"}, {"session-b", "svc"}} {
+		require.NoError(t, f.agg.authStore.MarkAuthenticated(context.Background(), pair[0], pair[1]))
+		c := &poolTestClient{}
+		f.agg.connPool.Put(pair[0], pair[1], c)
+		f.clients[pair[0]+"/"+pair[1]] = c
+	}
+	f.reregisterWithHeaders(t, pin, map[string]string{"X-MCP-Toolsets": "default,git"})
+	for _, sid := range []string{"session-a", "session-b"} {
+		authenticated, _, pooled := f.state(t, sid, "svc")
+		assert.True(t, authenticated && pooled, "%s keeps its connection on unchanged headers", sid)
+	}
 }
 
 // The incident shape (#1276): sessions connected to a forwardToken server

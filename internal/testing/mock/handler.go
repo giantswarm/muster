@@ -184,14 +184,29 @@ func (h *ToolHandler) createMCPHandler() func(context.Context, mcp.CallToolReque
 
 		// echo_token tools return the bearer token they were called with and its
 		// decoded claims, so scenarios can assert a backend accepted a
-		// broker-minted token end-to-end.
-		if h.config.EchoToken {
+		// broker-minted token end-to-end; echo_headers tools return the named
+		// request headers the backend saw, so scenarios can assert a
+		// definition's spec.headers reach it on a session's connection.
+		if h.config.EchoToken || len(h.config.EchoHeaders) > 0 {
 			echo := map[string]interface{}{"response": result}
-			if tok := receivedTokenFrom(ctx); tok != nil {
-				echo["received_token"] = tok.Raw
-				if tok.Claims != nil {
-					echo["claims"] = tok.Claims
+			if h.config.EchoToken {
+				if tok := receivedTokenFrom(ctx); tok != nil {
+					echo["received_token"] = tok.Raw
+					if tok.Claims != nil {
+						echo["claims"] = tok.Claims
+					}
 				}
+			}
+			if len(h.config.EchoHeaders) > 0 {
+				received := map[string]string{}
+				if headers := requestHeadersFrom(ctx); headers != nil {
+					for _, name := range h.config.EchoHeaders {
+						if value := headers.Get(name); value != "" {
+							received[name] = value
+						}
+					}
+				}
+				echo["received_headers"] = received
 			}
 			if jsonBytes, mErr := json.Marshal(echo); mErr == nil {
 				return mcp.NewToolResultText(string(jsonBytes)), nil

@@ -183,6 +183,13 @@ type PendingAuthRegistration struct {
 	// per-session client runs under; zero means the client's default. It
 	// travels with the registration for the same reason Meta does.
 	Timeout time.Duration
+
+	// Headers carries MCPServer.Headers to the per-session clients: the HTTP
+	// headers the definition sends with every request to the server (a
+	// toolset selector, for one). They travel with the registration for the
+	// same reason Meta does. A session's Authorization header is its own
+	// credential, never an entry of the definition.
+	Headers map[string]string
 }
 
 // CallTool implements the ToolCaller interface by delegating to the aggregator handler.

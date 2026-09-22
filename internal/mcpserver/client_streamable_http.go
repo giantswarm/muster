@@ -46,6 +46,21 @@ func (c *StreamableHTTPClient) WithMeta(meta map[string]string) *StreamableHTTPC
 	return c
 }
 
+// WithHeaders adds static headers sent with every request -- the
+// definition's spec.headers on a client whose credential comes from a header
+// func -- and returns the client so a construction site reads as one
+// expression. The header func's entries win over a static one of the same
+// name, so the credential stays the session's.
+func (c *StreamableHTTPClient) WithHeaders(headers map[string]string) *StreamableHTTPClient {
+	if c.headers == nil {
+		c.headers = make(map[string]string, len(headers))
+	}
+	for k, v := range headers {
+		c.headers[k] = v
+	}
+	return c
+}
+
 // WithTimeout sets the budget every operation on the client runs under, the
 // server's spec.timeout (see baseMCPClient.timeout), and returns the client
 // so a construction site reads as one expression.
@@ -98,14 +113,17 @@ func (c *StreamableHTTPClient) Initialize(ctx context.Context) error {
 func (c *StreamableHTTPClient) connectLocked(ctx context.Context) error {
 	logging.Debug("StreamableHTTPClient", "Creating StreamableHTTP client for URL: %s", c.url)
 
-	// Build client options including headers if provided
+	// Static headers first, the header func after: the transport sets them
+	// on each request in that order, so a per-request credential from the
+	// func overrides a static entry of the same name, never the reverse.
 	var opts []transport.StreamableHTTPCOption
+	if len(c.headers) > 0 {
+		opts = append(opts, transport.WithHTTPHeaders(c.headers))
+		logging.Debug("StreamableHTTPClient", "Configured %d custom headers", len(c.headers))
+	}
 	if c.headerFunc != nil {
 		opts = append(opts, transport.WithHTTPHeaderFunc(c.headerFunc))
 		logging.Debug("StreamableHTTPClient", "Configured dynamic header function")
-	} else if len(c.headers) > 0 {
-		opts = append(opts, transport.WithHTTPHeaders(c.headers))
-		logging.Debug("StreamableHTTPClient", "Configured %d custom headers", len(c.headers))
 	}
 
 	var httpClient *http.Client

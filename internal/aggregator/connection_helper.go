@@ -124,15 +124,18 @@ func establishConnection(
 
 	oauthHandler := api.GetOAuthHandler()
 
-	// spec.meta and spec.timeout belong to the server, not to the session, so
-	// they are read from the registry entry rather than passed down every call
-	// path. The timeout is the budget every operation on this client runs
-	// under -- a tool call above all; without it the client falls back to the
-	// default and cuts a call the server's definition allows to run longer.
-	var meta map[string]string
+	// spec.meta, spec.headers and spec.timeout belong to the server, not to
+	// the session, so they are read from the registry entry rather than passed
+	// down every call path. The timeout is the budget every operation on this
+	// client runs under -- a tool call above all; without it the client falls
+	// back to the default and cuts a call the server's definition allows to
+	// run longer. The headers ride on every request next to the session's
+	// bearer: a server that selects what it serves by a header (a toolset
+	// selector) does so at the handshake of this very connection.
+	var meta, headers map[string]string
 	var timeout time.Duration
 	if info := registeredServerInfo(a, serverName); info != nil {
-		meta, timeout = info.Meta, info.Timeout
+		meta, headers, timeout = info.Meta, internalmcp.DefinitionHeaders(info.Headers), info.Timeout
 	}
 
 	var client internalmcp.MCPClient
@@ -140,16 +143,19 @@ func establishConnection(
 		tokenStore := internalmcp.NewMusterTokenStore(sessionID, sub, issuer, oauthHandler)
 		clientID, clientSecret := oauthHandler.GetClientCredentialsForIssuer(ctx, issuer)
 		client = internalmcp.NewDynamicAuthClient(serverURL, tokenStore, scope, clientID, clientSecret).
+			WithHeaders(headers).
 			WithMeta(meta).
 			WithTimeout(timeout).
 			WithAuthLossHandler(a.makeSessionAuthLossHandler(sessionID, serverName))
 		logging.Debug("Connection", "Using DynamicAuthClient for session %s, server %s (issuer=%s)",
 			logging.TruncateIdentifier(sessionID), serverName, issuer)
 	} else {
-		headers := map[string]string{
-			pkgoauth.HeaderAuthorization: pkgoauth.SchemeBearer + " " + accessToken,
+		static := make(map[string]string, len(headers)+1)
+		for k, v := range headers {
+			static[k] = v
 		}
-		client = internalmcp.NewStreamableHTTPClientWithHeaders(serverURL, headers).WithMeta(meta).WithTimeout(timeout)
+		static[pkgoauth.HeaderAuthorization] = pkgoauth.SchemeBearer + " " + accessToken
+		client = internalmcp.NewStreamableHTTPClientWithHeaders(serverURL, static).WithMeta(meta).WithTimeout(timeout)
 		logging.Debug("Connection", "Using static auth headers for session %s, server %s",
 			logging.TruncateIdentifier(sessionID), serverName)
 	}
@@ -690,7 +696,7 @@ func EstablishConnectionWithTokenExchange(
 
 	headerFunc := makeTokenExchangeHeaderFunc(serverInfo.Name, exchangedToken, tokenExpiry, reexchange, onStaleToken)
 
-	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithMeta(serverInfo.Meta).WithTimeout(serverInfo.Timeout)
+	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithHeaders(internalmcp.DefinitionHeaders(serverInfo.Headers)).WithMeta(serverInfo.Meta).WithTimeout(serverInfo.Timeout)
 
 	// Try to initialize the client with the exchanged token
 	if err := client.Initialize(ctx); err != nil {
@@ -994,7 +1000,7 @@ func (a *AggregatorServer) newTokenForwardingClient(
 	}
 
 	headerFunc := makeTokenForwardingHeaderFunc(sessionID, musterIssuer, serverInfo.Name, token, refresher, onStaleToken)
-	return internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithMeta(serverInfo.Meta).WithTimeout(serverInfo.Timeout), token, nil
+	return internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithHeaders(internalmcp.DefinitionHeaders(serverInfo.Headers)).WithMeta(serverInfo.Meta).WithTimeout(serverInfo.Timeout), token, nil
 }
 
 // registeredServerInfo returns the registry entry of a server -- the home of

@@ -2296,11 +2296,14 @@ func mockServerSuspended(cfg map[string]interface{}) bool {
 }
 
 // applyMockSpecOptions copies the optional MCPServer spec fields a mock
-// server's config may carry -- toolPrefix, family and suspended -- onto the
-// spec the harness writes for it (HTTP and stdio mocks alike).
+// server's config may carry -- toolPrefix, family, headers and suspended --
+// onto the spec the harness writes for it (HTTP and stdio mocks alike).
 func applyMockSpecOptions(spec map[string]interface{}, cfg map[string]interface{}) {
 	if toolPrefix, ok := cfg["toolPrefix"].(string); ok && toolPrefix != "" {
 		spec["toolPrefix"] = toolPrefix
+	}
+	if headers, ok := cfg["headers"].(map[string]interface{}); ok && len(headers) > 0 {
+		spec["headers"] = headers
 	}
 	if family, ok := cfg["family"].(map[string]interface{}); ok {
 		spec["family"] = family

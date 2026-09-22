@@ -119,7 +119,7 @@ the MCP server as its own workload and register it with `streamable-http` or
 | `args` | `[]string` | No | Command line arguments for stdio servers | Only for stdio servers |
 | `url` | `string` | Yes* | Endpoint URL for remote servers | Required when `type` is `streamable-http` or `sse` |
 | `env` | `map[string]string` | No | Environment variables for stdio servers | Only for stdio servers |
-| `headers` | `map[string]string` | No | HTTP headers for remote servers | Only for streamable-http and sse servers |
+| `headers` | `map[string]string` | No | HTTP headers sent with every request to a remote server, by the server-level client and by every person's session connection (their `Authorization` stays the session's) | Only for streamable-http and sse servers |
 | `timeout` | `integer` | No | Connection timeout in seconds | Min: 1, Max: 300, Default: 30 |
 | `auth` | `MCPServerAuth` | No | Authentication configuration | Only for streamable-http and sse servers |
 | `suspended` | `boolean` | No | Desired lifecycle state: `true` stops the server's service and keeps it stopped; setting it back to `false` resumes it | Default: `false` |
