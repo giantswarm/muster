@@ -2,7 +2,6 @@ package mcpserver
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -196,14 +195,12 @@ func (c *StreamableHTTPClient) connectLocked(ctx context.Context) error {
 			return authErr
 		}
 
-		// Any other 4xx to the initialize: the path is not served (yet), or
-		// the server speaks only legacy SSE. Typed, with the status mcp-go
-		// dropped, so the service retries it and the CR status names it.
-		if errors.Is(err, transport.ErrLegacySSEServer) {
-			return &InitializeRefusedError{URL: c.url, StatusCode: challenges.lastPOSTStatus(), Err: err}
-		}
-
-		return fmt.Errorf("failed to initialize MCP protocol: %w", err)
+		// Anything else the endpoint answered the initialize with: a 4xx (the
+		// path is not served yet, or the server speaks only legacy SSE) or a
+		// 429/503 transient refusal is typed with the status mcp-go dropped
+		// and the Retry-After, so the service retries it and the log and CR
+		// status name it (issues #1295, #1303).
+		return initializeError(c.url, err, challenges)
 	}
 
 	c.client = mcpClient

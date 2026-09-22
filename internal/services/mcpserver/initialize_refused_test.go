@@ -205,11 +205,71 @@ func TestInitializeRefusedIsRetriedAndNamesItsStatus(t *testing.T) {
 	withoutStatus := &mcpserver.InitializeRefusedError{URL: "http://example.com/mcp", Err: transport.ErrLegacySSEServer}
 	assert.True(t, svc.isTransientConnectivityError(withoutStatus), "retried even when the transport recorded no status")
 	assert.Equal(t, 0, httpStatusFromError(withoutStatus))
-	assert.Equal(t, "endpoint answered the initialize POST with a 4xx: "+transport.ErrLegacySSEServer.Error(), withoutStatus.Error())
+	assert.Equal(t, "endpoint refused the initialize POST with a 4xx", withoutStatus.Error())
 
 	assert.False(t, svc.isTransientConnectivityError(errors.New("request failed with status 404: Not Found")),
 		"a 404 to another request is not the initialize being refused")
 	assert.True(t, svc.isTransientConnectivityError(fmt.Errorf("transport error: %w", transport.ErrLegacySSEServer)),
 		"the transport's bare sentinel, from a client that does not type it, is retried as well")
 	assert.Equal(t, 0, httpStatusFromError(transport.ErrLegacySSEServer), "the sentinel carries no status")
+}
+
+// TestInitializeRefusedRetryLaterHonoursRetryAfter pins issue #1303 at the
+// service level: a 429 or 503 the endpoint answered the initialize with is
+// retried, its status reaches the CR status, and the Retry-After it carried is
+// the reconnect wait -- the delay the server named, not muster's doubling
+// backoff -- while a refusal without a Retry-After falls back to the backoff.
+func TestInitializeRefusedRetryLaterHonoursRetryAfter(t *testing.T) {
+	svc, err := NewService(&api.MCPServer{Name: "rate-limited", Type: api.MCPServerTypeStreamableHTTP, URL: "http://example.com/mcp", Timeout: 30})
+	require.NoError(t, err)
+
+	for _, status := range []int{http.StatusTooManyRequests, http.StatusServiceUnavailable} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			refused := &mcpserver.InitializeRefusedError{URL: "http://example.com/mcp", StatusCode: status, RetryAfter: 1500 * time.Millisecond, Err: transport.ErrLegacySSEServer}
+			assert.True(t, svc.isTransientConnectivityError(refused), "a retry-later status is transient")
+			assert.Equal(t, status, httpStatusFromError(refused), "the status reaches the CR status")
+			assert.Equal(t, 1500*time.Millisecond, retryAfterFromError(refused), "the Retry-After is read off the typed error")
+		})
+	}
+
+	// No Retry-After: the reconnect falls back to muster's backoff.
+	assert.Equal(t, time.Duration(0), retryAfterFromError(&mcpserver.InitializeRefusedError{StatusCode: http.StatusTooManyRequests, Err: transport.ErrLegacySSEServer}))
+	assert.Equal(t, time.Duration(0), retryAfterFromError(errors.New("request failed with status 503: Service Unavailable")),
+		"a status in an error's text carries no typed Retry-After")
+
+	// The message names the status and, for a 429, the Retry-After; it never
+	// blames a legacy SSE server for a status that has its own meaning.
+	rateLimited := &mcpserver.InitializeRefusedError{StatusCode: http.StatusTooManyRequests, RetryAfter: time.Second, Err: transport.ErrLegacySSEServer}
+	assert.Equal(t, "endpoint answered the initialize POST with HTTP 429 Too Many Requests; retry after 1s", rateLimited.Error())
+	assert.NotContains(t, rateLimited.Error(), "legacy SSE server")
+
+	legacy := &mcpserver.InitializeRefusedError{StatusCode: http.StatusMethodNotAllowed, Err: transport.ErrLegacySSEServer}
+	assert.Contains(t, legacy.Error(), "likely a legacy SSE server", "405 is the one status that means legacy SSE")
+}
+
+// TestRetryLaterReconnectSchedule pins that a Retry-After puts the next
+// reconnect exactly that far out, while its absence falls back to the
+// exponential backoff even after several failures.
+func TestRetryLaterReconnectSchedule(t *testing.T) {
+	withBackoff(t, 30*time.Second, 2*time.Minute)
+	svc, err := NewService(&api.MCPServer{Name: "rate-limited", Type: api.MCPServerTypeStreamableHTTP, URL: "http://example.com/mcp", Timeout: 30})
+	require.NoError(t, err)
+
+	// The server named a 5s Retry-After: the wait is exactly that, not the
+	// 30s initial backoff, however many failures have accrued.
+	svc.failureMutex.Lock()
+	svc.consecutiveFailures = 3
+	svc.calculateNextRetryTimeLocked(5 * time.Second)
+	retryBackoff := svc.retryBackoff
+	svc.failureMutex.Unlock()
+	assert.Equal(t, 5*time.Second, retryBackoff, "the Retry-After the server named is the wait")
+
+	// No Retry-After: the wait is the exponential backoff for the failure
+	// count (second failure: 30s doubled to 60s).
+	svc.failureMutex.Lock()
+	svc.consecutiveFailures = 2
+	svc.calculateNextRetryTimeLocked(0)
+	fallback := svc.retryBackoff
+	svc.failureMutex.Unlock()
+	assert.Equal(t, 60*time.Second, fallback, "without a Retry-After the exponential backoff applies")
 }

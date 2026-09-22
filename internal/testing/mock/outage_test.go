@@ -36,7 +36,7 @@ func TestOutageGateAnswersThenRecovers(t *testing.T) {
 		t.Fatalf("disarmed gate must be transparent, got %d", got)
 	}
 
-	gate.set(http.StatusGatewayTimeout, 2, false)
+	gate.set(http.StatusGatewayTimeout, 2, 0, false)
 	for i := 0; i < 2; i++ {
 		if got := get(); got != http.StatusGatewayTimeout {
 			t.Fatalf("request %d during the outage: got %d, want 504", i+1, got)
@@ -53,8 +53,8 @@ func TestOutageGateAnswersThenRecovers(t *testing.T) {
 	}
 
 	// Ending an outage early.
-	gate.set(http.StatusServiceUnavailable, 5, false)
-	gate.set(0, 0, false)
+	gate.set(http.StatusServiceUnavailable, 5, 0, false)
+	gate.set(0, 0, 0, false)
 	if got := get(); got != http.StatusOK {
 		t.Fatalf("a cleared gate must be transparent, got %d", got)
 	}
@@ -88,7 +88,7 @@ func TestOutageGatePassesPingsThrough(t *testing.T) {
 	}
 
 	const ping = `{"jsonrpc":"2.0","id":7,"method":"ping"}`
-	gate.set(http.StatusGatewayTimeout, 1, false)
+	gate.set(http.StatusGatewayTimeout, 1, 0, false)
 	if got := post(ping); got != http.StatusOK {
 		t.Fatalf("a ping during the outage must be served, got %d", got)
 	}
@@ -126,7 +126,7 @@ func TestOutageGateCountsPingsWhenArmedWithPings(t *testing.T) {
 	}
 
 	const ping = `{"jsonrpc":"2.0","id":7,"method":"ping"}`
-	gate.set(http.StatusNotFound, 1, true)
+	gate.set(http.StatusNotFound, 1, 0, true)
 	if got := post(ping); got != http.StatusNotFound {
 		t.Fatalf("a ping during an outage armed with pings must get the status, got %d", got)
 	}
@@ -162,7 +162,7 @@ func TestHTTPServerOutageSurvivesRestart(t *testing.T) {
 		t.Fatalf("Stop: %v", err)
 	}
 
-	srv.SetOutage(http.StatusBadGateway, 1, false)
+	srv.SetOutage(http.StatusBadGateway, 1, 0, false)
 	if err := srv.StartOnPort(t.Context(), port); err != nil {
 		t.Fatalf("StartOnPort: %v", err)
 	}

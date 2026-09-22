@@ -593,6 +593,13 @@ a person signs in to through muster; in `Awaiting Session` for a server served
 per session with the caller's own identity (`forwardToken`, `tokenExchange`),
 which is `Connected` while a session holds a live connection.
 
+A `429 Too Many Requests` or `503 Service Unavailable` to the initialize is a
+transient refusal, not a transport mismatch: the log and `status` name the
+status (`endpoint answered the initialize POST with HTTP 429 Too Many Requests;
+retry after 1s`), never a legacy SSE server, and when the answer carried a
+`Retry-After` the next attempt is scheduled for exactly that delay instead of
+the doubling backoff. The status alone that means legacy SSE is the `405`.
+
 A `tokenExchange` server is also `Failed`, on the same schedule, while its
 client credentials Secret (`clientCredentialsSecretRef`) is missing or
 unreadable -- every caller's exchange would fail the same way -- and settles in

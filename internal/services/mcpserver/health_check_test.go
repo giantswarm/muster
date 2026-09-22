@@ -350,7 +350,7 @@ func TestStart_AfterFailedProbesRetriesAnyError(t *testing.T) {
 		// and calls Start, which runs into the 404.
 		err := svc.Start(context.Background())
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "4xx for initialize POST")
+		assert.Contains(t, err.Error(), "endpoint answered the initialize POST with HTTP 404 Not Found")
 		assert.Equal(t, services.StateFailed, svc.GetState())
 		data := svc.GetServiceData()
 		next, scheduled := data[api.ServiceDataNextRetryAfter].(time.Time)

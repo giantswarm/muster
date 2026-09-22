@@ -1,0 +1,184 @@
+name: "oauth-session-initialize-429-is-retry-later"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  A remote MCP server that answers a person's session initialize POST with
+  429 Too Many Requests -- GitHub's hosted MCP server does this when many
+  tool calls of one session are in flight -- is a transient refusal with a
+  Retry-After, not a transport mismatch (giantswarm/muster#1303).
+
+  A subject-scoped grant (GitHub-style) belongs to the person: once one
+  session has consented, another session of the same person connects with
+  that grant on its own. When that connect's initialize is answered 429 with
+  Retry-After: 1:
+
+    1. muster names the status in the log -- "HTTP 429 Too Many Requests;
+       retry after 1s" -- and never blames a legacy SSE server, which only a
+       405 means. Before the fix the log read "server returned 4xx for
+       initialize POST, likely a legacy SSE server", the wrong cause.
+    2. The person's grant is kept, and the server -- held connected by the
+       session that consented -- is not marked failed.
+    3. Once the refusal has passed the next tool call connects with the grant
+       and answers; no session-recovery reconnect line appears.
+tags: ["oauth", "authentication", "github", "subject-grant", "initialize", "429", "retry-after", "mcpserver", "issue-1303"]
+timeout: "3m"
+
+pre_configuration:
+  mock_oauth_servers:
+    # muster's own IdP, so test_muster_auth_login mints sessions for "alice".
+    - name: "muster-idp"
+      scopes: ["openid", "profile", "email"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "test-client"
+      client_secret: "test-secret"
+      use_as_muster_oauth_server: true
+
+    # The connector's authorization server (GitHub's stand-in), a separate
+    # issuer, subject-scoped so the grant belongs to the person.
+    - name: "github-idp"
+      scopes: ["mcp:read"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "github-client"
+      use_tls: true
+
+  mcp_servers:
+    - name: "github-hosted"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "github-idp"
+          scope: "mcp:read"
+          grant_scope: "subject"
+        tools:
+          - name: "get_file_contents"
+            description: "Reads a file, as the hosted GitHub MCP server does"
+            responses:
+              - response:
+                  status: "ok"
+                  path: "README.md"
+
+steps:
+  # Two sessions of alice.
+  - id: "login-alice-1"
+    tool: "test_muster_auth_login"
+    args:
+      subject: "alice"
+    expected:
+      success: true
+  - id: "create-alice-first"
+    tool: "test_create_user"
+    args:
+      name: "alice-first"
+    expected:
+      success: true
+
+  - id: "login-alice-2"
+    tool: "test_muster_auth_login"
+    args:
+      subject: "alice"
+    expected:
+      success: true
+  - id: "create-alice-second"
+    tool: "test_create_user"
+    args:
+      name: "alice-second"
+    expected:
+      success: true
+
+  # alice's first session consents; the grant is filed under alice and the
+  # session connects, so the server holds a live connection and its tools are
+  # registered.
+  - id: "alice-first-consents"
+    as_user: "alice-first"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "github-hosted"
+    expected:
+      success: true
+      contains: ["success"]
+
+  - id: "alice-first-tool-works"
+    as_user: "alice-first"
+    description: "Baseline: the server answers on the session that consented"
+    tool: "x_github-hosted_get_file_contents"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "20s"
+      contains: ["ok", "README.md"]
+    timeout: "30s"
+
+  # The next connect to the server -- alice's second session adopting her
+  # grant on its own -- is answered once with 429 and Retry-After: 1.
+  - id: "arm-429"
+    tool: "test_set_mock_server_outage"
+    args:
+      server: "github-hosted"
+      status: 429
+      retry_after: 1
+      requests: 1
+    expected:
+      success: true
+      contains: ["next 1 requests with HTTP 429"]
+    timeout: "15s"
+
+  # A fresh session of alice starts and fans out to the server with her
+  # grant; that connect's initialize gets the 429.
+  - id: "login-alice-3"
+    tool: "test_muster_auth_login"
+    args:
+      subject: "alice"
+    expected:
+      success: true
+  - id: "create-alice-third"
+    tool: "test_create_user"
+    args:
+      name: "alice-third"
+    expected:
+      success: true
+
+  # The 429 did not fail the server: it stays connected on alice-first's
+  # session, with no HTTP status or reconnect schedule in its status.
+  - id: "server-still-connected-not-failed"
+    description: "A transient refusal of one session's connect does not fail the server"
+    tool: "core_service_status"
+    args:
+      name: "github-hosted"
+    expected:
+      success: true
+      wait_for_state: "20s"
+      json_path:
+        state: "connected"
+      not_contains: ["lastFailureHTTPStatus", "nextRetryAfter"]
+    timeout: "30s"
+
+  # Once the refusal has passed the third session's tool call connects with
+  # alice's grant and answers. The step retries until it succeeds, so it
+  # never races the background fan-out that consumed the 429.
+  - id: "alice-third-tool-succeeds"
+    as_user: "alice-third"
+    tool: "x_github-hosted_get_file_contents"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["ok", "README.md"]
+    timeout: "45s"
+
+# The initialize 429 is logged with its status and the Retry-After it carried,
+# on the grant-adoption path from the issue, and never as a legacy SSE server;
+# no session-recovery reconnect line appears.
+instance_logs:
+  contains:
+    - "Could not connect with the person's existing grant"
+    - "HTTP 429 Too Many Requests"
+    - "retry after 1s"
+  not_contains:
+    - "likely a legacy SSE server"
+    - "re-initializing"
+    - "scheduling a reconnect"

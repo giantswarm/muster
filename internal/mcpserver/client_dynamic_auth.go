@@ -180,9 +180,12 @@ func (c *DynamicAuthClient) connectLocked(ctx context.Context) error {
 		// also cut the long-lived GET that WithContinuousListening opens.
 		httpClient = &http.Client{Transport: &authObservingTransport{next: base, detector: detector}}
 	}
-	if httpClient != nil {
-		opts = append(opts, transport.WithHTTPBasicClient(httpClient))
-	}
+	// Record the POST status and any Retry-After so a refused or rate-limited
+	// initialize is typed with the status mcp-go drops, the way the
+	// static-header client already is (see initializeError). The recorder
+	// wraps whatever client is configured, or mcp-go's default when none is.
+	challenges := &challengeRecorder{}
+	opts = append(opts, transport.WithHTTPBasicClient(recordingHTTPClient(httpClient, challenges)))
 
 	// SA1019: mcp-go v1 deprecates WithContinuousListening because
 	// protocol revision 2026-07-28 removed the standalone GET stream in
@@ -232,7 +235,11 @@ func (c *DynamicAuthClient) connectLocked(ctx context.Context) error {
 			return authErr
 		}
 
-		return fmt.Errorf("failed to initialize MCP protocol: %w", err)
+		// A 4xx (path not served yet, legacy SSE) or a 429/503 transient
+		// refusal is typed with the status and the Retry-After, so the
+		// person's session connect names the real cause instead of "likely a
+		// legacy SSE server" and keeps the grant to retry (issue #1303).
+		return initializeError(c.url, err, challenges)
 	}
 
 	c.client = mcpClient

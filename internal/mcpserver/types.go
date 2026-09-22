@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
+	"time"
 
 	"github.com/giantswarm/muster/v5/pkg/logging"
 	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
@@ -129,16 +131,25 @@ func (e *AuthRequiredError) GetResourceMetadataURL() string {
 }
 
 // InitializeRefusedError is returned when the endpoint answered the initialize
-// POST with a 4xx other than 401. The endpoint is up and routing -- it is not a
-// connection failure -- but it does not serve the MCP protocol on that path
-// right now: a backend whose route is being rolled out answers 404 until the
-// new pod takes it over, a server that speaks only the legacy SSE transport
-// answers 405. Both are corrected outside muster, so the caller retries with
-// backoff instead of settling the server in Failed (issue #1295).
+// POST with a status that is up and routing -- it is not a connection failure
+// -- but that does not let the handshake complete right now. Two kinds, told
+// apart by the status so the log and the CR status name the real cause and the
+// caller acts on it:
 //
-// mcp-go reports every such answer as transport.ErrLegacySSEServer and drops
-// the status; the client's transport records it (see challengeRecorder) so the
-// CR status and the events can name it.
+//   - The path does not serve the MCP protocol (yet): a backend whose route is
+//     being rolled out answers 404 until the new pod takes it over, a server
+//     that speaks only the legacy SSE transport answers 405. Corrected outside
+//     muster, so the caller retries with muster's backoff instead of settling
+//     the server in Failed (issue #1295).
+//   - The endpoint is temporarily refusing the load: 429 Too Many Requests or
+//     503 Service Unavailable, a transient refusal with a Retry-After, never a
+//     transport mismatch. The session's connection is kept and retried after
+//     the Retry-After the server asked for, not dropped (issue #1303).
+//
+// mcp-go reduces a 4xx on the initialize POST to transport.ErrLegacySSEServer
+// and a 503 to a status-in-text error, both without the Retry-After; the
+// client's transport records the status and the Retry-After header (see
+// challengeRecorder) so they reach the log and the CR status.
 type InitializeRefusedError struct {
 	// URL is the endpoint that refused the initialize.
 	URL string
@@ -147,16 +158,31 @@ type InitializeRefusedError struct {
 	// transport did not record one.
 	StatusCode int
 
-	// Err is the underlying error, wrapping transport.ErrLegacySSEServer.
+	// RetryAfter is the delay the endpoint asked to be retried after (the
+	// Retry-After header of a 429 or 503); 0 when none was sent.
+	RetryAfter time.Duration
+
+	// Err is the underlying error mcp-go returned (transport.ErrLegacySSEServer
+	// for a 4xx, a status-in-text error for a 503).
 	Err error
 }
 
-// Error implements the error interface.
+// Error implements the error interface. It names the status and, for a 429 or
+// 503, the Retry-After. "likely a legacy SSE server" is said only for the 405
+// that actually means it, never for a status that has its own meaning (issue
+// #1303).
 func (e *InitializeRefusedError) Error() string {
 	if e.StatusCode == 0 {
-		return "endpoint answered the initialize POST with a 4xx: " + e.Err.Error()
+		return "endpoint refused the initialize POST with a 4xx"
 	}
-	return fmt.Sprintf("endpoint answered the initialize POST with HTTP %d: %v", e.StatusCode, e.Err)
+	msg := fmt.Sprintf("endpoint answered the initialize POST with HTTP %d %s", e.StatusCode, http.StatusText(e.StatusCode))
+	if e.StatusCode == http.StatusMethodNotAllowed {
+		msg += ", likely a legacy SSE server"
+	}
+	if e.RetryAfter > 0 {
+		msg += fmt.Sprintf("; retry after %s", e.RetryAfter)
+	}
+	return msg
 }
 
 // Unwrap returns the underlying error.

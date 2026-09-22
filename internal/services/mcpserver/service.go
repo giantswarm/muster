@@ -293,11 +293,12 @@ func (s *Service) failStart(err error) error {
 	// or any error while reconnecting after failed health probes)
 	if s.isRemoteServer() && (s.isTransientConnectivityError(err) || s.isReconnectingAfterProbe()) {
 		credentials := api.ClassifyTokenExchangeError(err) == api.TokenExchangeFailureCredentials
+		retryAfter := retryAfterFromError(err)
 
 		s.failureMutex.Lock()
 		s.consecutiveFailures++
 		s.lastFailureHTTPStatus = httpStatusFromError(err)
-		s.calculateNextRetryTimeLocked()
+		s.calculateNextRetryTimeLocked(retryAfter)
 		failures := s.consecutiveFailures
 		outcome := s.httpOutcomeLocked()
 		if credentials {
@@ -1276,17 +1277,24 @@ func (s *Service) isConfigurationError(err error) bool {
 	return false
 }
 
-// calculateNextRetryTimeLocked calculates the next retry time using exponential backoff.
-// Backoff follows: InitialBackoff * 2^(failures-1), capped at MaxBackoff.
+// calculateNextRetryTimeLocked sets when the next retry is due. A retryAfter
+// the endpoint asked for (the Retry-After of a 429 or 503, see
+// retryAfterFromError) is honored as-is -- the server named the delay, so
+// muster waits exactly that long instead of doubling into a wait the server
+// did not ask for. Otherwise the wait is exponential backoff:
+// InitialBackoff * 2^(failures-1), capped at MaxBackoff.
 // MUST be called with failureMutex held.
-func (s *Service) calculateNextRetryTimeLocked() {
-	// Calculate backoff duration: initial * 2^(failures-1)
-	backoffDuration := InitialBackoff
-	for i := 1; i < s.consecutiveFailures && backoffDuration < MaxBackoff; i++ {
-		backoffDuration = time.Duration(float64(backoffDuration) * BackoffMultiplier)
+func (s *Service) calculateNextRetryTimeLocked(retryAfter time.Duration) {
+	backoffDuration := retryAfter
+	if backoffDuration <= 0 {
+		// Calculate backoff duration: initial * 2^(failures-1)
+		backoffDuration = InitialBackoff
+		for i := 1; i < s.consecutiveFailures && backoffDuration < MaxBackoff; i++ {
+			backoffDuration = time.Duration(float64(backoffDuration) * BackoffMultiplier)
+		}
+		// The cap always wins, also over an InitialBackoff configured above it.
+		backoffDuration = min(backoffDuration, MaxBackoff)
 	}
-	// The cap always wins, also over an InitialBackoff configured above it.
-	backoffDuration = min(backoffDuration, MaxBackoff)
 
 	nextRetry := clock.Now().Add(backoffDuration)
 	s.nextRetryAfter = &nextRetry
@@ -1336,6 +1344,22 @@ func httpStatusFromError(err error) int {
 		return 0
 	}
 	return status
+}
+
+// retryAfterFromError returns the delay the endpoint asked to be retried after
+// -- the Retry-After a 429 or 503 to the initialize carried, on the typed
+// InitializeRefusedError -- or 0 when the failure named none. The service uses
+// it as the reconnect wait so a rate-limited backend is looked at again when
+// it said it would be ready, not on muster's own backoff (issue #1303).
+func retryAfterFromError(err error) time.Duration {
+	if err == nil {
+		return 0
+	}
+	var refusedErr *mcpserver.InitializeRefusedError
+	if errors.As(err, &refusedErr) {
+		return refusedErr.RetryAfter
+	}
+	return 0
 }
 
 // GetLastFailureHTTPStatus returns the HTTP status the endpoint answered the

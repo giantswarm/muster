@@ -1136,7 +1136,7 @@ func TestCalculateNextRetryTime(t *testing.T) {
 			svc.failureMutex.Lock()
 			svc.consecutiveFailures = tt.failures
 			beforeCalc := time.Now()
-			svc.calculateNextRetryTimeLocked()
+			svc.calculateNextRetryTimeLocked(0)
 			nextRetry := svc.nextRetryAfter
 			svc.failureMutex.Unlock()
 
@@ -1172,7 +1172,7 @@ func TestFailureTrackingThreadSafety(t *testing.T) {
 			svc.consecutiveFailures = i
 			now := time.Now()
 			svc.lastAttempt = &now
-			svc.calculateNextRetryTimeLocked()
+			svc.calculateNextRetryTimeLocked(0)
 			svc.failureMutex.Unlock()
 		}
 		done <- true

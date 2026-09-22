@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/stretchr/testify/assert"
@@ -171,4 +172,122 @@ func TestRecordingHTTPClient_doesNotModifyTheCallersClient(t *testing.T) {
 	require.True(t, ok)
 	assert.Same(t, http.DefaultTransport, rt.next)
 	assert.Zero(t, fromNil.Timeout, "no timeout: it would cut the continuous-listening GET")
+}
+
+// TestChallengeRecorder_keepsTheRetryAfterOfTheLastPOST: a Retry-After the
+// endpoint sent on the initialize POST survives to lastPOSTRetryAfter, parsed
+// from seconds or an HTTP-date; a GET's header never overwrites it.
+func TestChallengeRecorder_keepsTheRetryAfterOfTheLastPOST(t *testing.T) {
+	rec := &challengeRecorder{}
+	assert.Equal(t, time.Duration(0), rec.lastPOSTRetryAfter(), "nothing recorded yet")
+
+	rateLimited := &http.Response{StatusCode: http.StatusTooManyRequests, Header: http.Header{}, Request: &http.Request{Method: http.MethodPost}}
+	rateLimited.Header.Set("Retry-After", "2")
+	rec.record(rateLimited)
+	assert.Equal(t, 2*time.Second, rec.lastPOSTRetryAfter())
+
+	// A later POST with no Retry-After clears it: the recorder reports the
+	// last POST, not the last one that carried a header.
+	plain := &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Request: &http.Request{Method: http.MethodPost}}
+	rec.record(plain)
+	assert.Equal(t, time.Duration(0), rec.lastPOSTRetryAfter())
+}
+
+// TestParseRetryAfter covers the two RFC 9110 forms and the values that mean
+// "no wait": empty, unparsable, zero, negative, a date in the past.
+func TestParseRetryAfter(t *testing.T) {
+	assert.Equal(t, time.Duration(0), parseRetryAfter(""))
+	assert.Equal(t, time.Duration(0), parseRetryAfter("soon"))
+	assert.Equal(t, time.Duration(0), parseRetryAfter("0"))
+	assert.Equal(t, time.Duration(0), parseRetryAfter("-5"))
+	assert.Equal(t, 3*time.Second, parseRetryAfter("3"))
+	assert.Equal(t, 90*time.Second, parseRetryAfter(" 90 "))
+	assert.Equal(t, time.Duration(0), parseRetryAfter(time.Now().Add(-time.Hour).UTC().Format(http.TimeFormat)),
+		"a date already past is no wait")
+	future := parseRetryAfter(time.Now().Add(30 * time.Second).UTC().Format(http.TimeFormat))
+	assert.Greater(t, future, 25*time.Second, "an HTTP-date resolves to the delay until then")
+	assert.LessOrEqual(t, future, 30*time.Second)
+}
+
+// TestInitializeError classifies the shapes mcp-go hands back from a failed
+// initialize: a 4xx sentinel and a recorded 429 become a typed
+// InitializeRefusedError carrying the status and Retry-After; a 503 in an
+// error's text is typed too when the recorder saw the 503 on the POST; any
+// other failure is wrapped, not typed.
+func TestInitializeError(t *testing.T) {
+	// A 4xx: mcp-go's sentinel, the status and Retry-After off the recorder.
+	rec := &challengeRecorder{}
+	resp := &http.Response{StatusCode: http.StatusTooManyRequests, Header: http.Header{}, Request: &http.Request{Method: http.MethodPost}}
+	resp.Header.Set("Retry-After", "1")
+	rec.record(resp)
+	err := initializeError("http://b/mcp", transport.ErrLegacySSEServer, rec)
+	var refused *InitializeRefusedError
+	require.ErrorAs(t, err, &refused)
+	assert.Equal(t, http.StatusTooManyRequests, refused.StatusCode)
+	assert.Equal(t, time.Second, refused.RetryAfter)
+	assert.ErrorIs(t, err, transport.ErrLegacySSEServer)
+
+	// A 503: mcp-go returns a status-in-text error (not the sentinel), but the
+	// recorder saw the 503 on the POST, so it is typed as retry-later too.
+	rec = &challengeRecorder{}
+	resp = &http.Response{StatusCode: http.StatusServiceUnavailable, Header: http.Header{}, Request: &http.Request{Method: http.MethodPost}}
+	resp.Header.Set("Retry-After", "4")
+	rec.record(resp)
+	err = initializeError("http://b/mcp", fmt.Errorf("request failed with status 503: Service Unavailable"), rec)
+	require.ErrorAs(t, err, &refused)
+	assert.Equal(t, http.StatusServiceUnavailable, refused.StatusCode)
+	assert.Equal(t, 4*time.Second, refused.RetryAfter)
+
+	// A 500 the recorder saw is not retry-later here: it is not the sentinel
+	// and not 429/503, so it stays a plain initialize error (the service
+	// classifies 5xx transient by its text as before).
+	rec = &challengeRecorder{}
+	rec.record(&http.Response{StatusCode: http.StatusInternalServerError, Header: http.Header{}, Request: &http.Request{Method: http.MethodPost}})
+	err = initializeError("http://b/mcp", fmt.Errorf("request failed with status 500: Internal Server Error"), rec)
+	var notRefused *InitializeRefusedError
+	assert.False(t, errors.As(err, &notRefused), "a 500 is not typed as a refused/retry-later initialize")
+	assert.Contains(t, err.Error(), "failed to initialize MCP protocol")
+}
+
+// TestDynamicAuthClient_Initialize_refusedIsTypedWithTheStatus is the
+// regression for issue #1303 on the per-session OAuth client: a 429 (or any
+// 4xx) to its initialize POST is typed with the status and the Retry-After,
+// recognisable as the transport's legacy-SSE sentinel, and never mistaken for
+// a 401. Before the fix this path returned a generic "failed to initialize MCP
+// protocol" that read as a legacy SSE server.
+func TestDynamicAuthClient_Initialize_refusedIsTypedWithTheStatus(t *testing.T) {
+	for _, tc := range []struct {
+		status     int
+		retryAfter string
+		wantRetry  time.Duration
+	}{
+		{http.StatusTooManyRequests, "1", time.Second},
+		{http.StatusServiceUnavailable, "2", 2 * time.Second},
+		{http.StatusNotFound, "", 0},
+	} {
+		t.Run(http.StatusText(tc.status), func(t *testing.T) {
+			backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				if tc.retryAfter != "" {
+					w.Header().Set("Retry-After", tc.retryAfter)
+				}
+				http.Error(w, http.StatusText(tc.status), tc.status)
+			}))
+			defer backend.Close()
+
+			client := NewDynamicAuthClient(backend.URL+"/mcp", nil, "openid", "client-id", "")
+			err := client.Initialize(context.Background())
+			require.Error(t, err)
+
+			var refused *InitializeRefusedError
+			require.ErrorAs(t, err, &refused, "the per-session client types the refusal, like the static-header client")
+			assert.Equal(t, tc.status, refused.StatusCode, "the status mcp-go drops reaches the caller")
+			assert.Equal(t, tc.wantRetry, refused.RetryAfter)
+
+			var authErr *AuthRequiredError
+			assert.False(t, errors.As(err, &authErr), "a refusal is not a 401")
+			if tc.status == http.StatusNotFound {
+				assert.NotContains(t, err.Error(), "legacy SSE server", "only a 405 blames legacy SSE")
+			}
+		})
+	}
 }
