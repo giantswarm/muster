@@ -14,23 +14,36 @@ import (
 // mockServerRedeployer is the part of a mock MCP HTTP server (plain or
 // OAuth-protected) that the redeploy test tool drives.
 type mockServerRedeployer interface {
-	Redeploy() error
+	Redeploy(change mock.ToolSetChange) error
 	Port() int
 }
 
 // handleRedeployMockServer replaces a running mock MCP server's process
-// behind its port: the tools stay, every MCP session it held is forgotten,
-// and the port never stops accepting -- a backend pod replaced behind the
-// same Service. muster's client meets a 404 for the session it holds on its
-// next call. Distinct from test_stop_mock_server/test_start_mock_server,
-// where the endpoint refuses connections for a while.
+// behind its port: every MCP session it held is forgotten, the port never
+// stops accepting, and the tools stay unless the step names what the new
+// process offers differently -- a backend pod replaced behind the same
+// Service, by the same image or by one with other tools. muster's client
+// meets a 404 for the session it holds on its next call. A changed tool set
+// is announced to nobody: the new process has never seen muster's session,
+// so no notifications/tools/list_changed goes out -- the silent redeployment
+// the aggregator's capability poll is for. Distinct from
+// test_stop_mock_server/test_start_mock_server, where the endpoint refuses
+// connections for a while.
 //
 // Args:
 //   - server: Required. Name of the mock MCP server to redeploy.
+//   - add_tools: Optional. Tools the new process offers that the old one did
+//     not, each {name, description}; a tool of a name already served is
+//     replaced.
+//   - remove_tools: Optional. Names of tools the new process no longer serves.
 func (h *TestToolsHandler) handleRedeployMockServer(_ context.Context, args map[string]interface{}) (interface{}, error) {
 	serverName, ok := args["server"].(string)
 	if !ok || serverName == "" {
 		return nil, fmt.Errorf("server argument is required")
+	}
+	change, err := toolSetChangeFromArgs(args)
+	if err != nil {
+		return nil, err
 	}
 	srv, err := h.lookupMockServer(serverName)
 	if err != nil {
@@ -40,18 +53,73 @@ func (h *TestToolsHandler) handleRedeployMockServer(_ context.Context, args map[
 	if !ok {
 		return nil, fmt.Errorf("mock server %s cannot be redeployed", serverName)
 	}
-	if err := redeployer.Redeploy(); err != nil {
+	if err := redeployer.Redeploy(change); err != nil {
 		return nil, fmt.Errorf("failed to redeploy mock server %s: %w", serverName, err)
 	}
+	message := fmt.Sprintf("Redeployed mock server '%s' on port %d: sessions forgotten, %s", serverName, redeployer.Port(), change.Summary())
 	if h.debug {
-		h.logger.Debug("Redeployed mock server '%s' on port %d: sessions forgotten\n", serverName, redeployer.Port())
+		h.logger.Debug("%s\n", message)
 	}
-	return map[string]interface{}{
+	result := map[string]interface{}{
 		api.FieldSuccess: true,
-		api.FieldMessage: fmt.Sprintf("Redeployed mock server '%s' on port %d: sessions forgotten, tools kept", serverName, redeployer.Port()),
+		api.FieldMessage: message,
 		api.FieldServer:  serverName,
 		"port":           redeployer.Port(),
-	}, nil
+	}
+	if len(change.Add) > 0 {
+		added := make([]string, 0, len(change.Add))
+		for _, tool := range change.Add {
+			added = append(added, tool.Name)
+		}
+		result["tools_added"] = added
+	}
+	if len(change.Remove) > 0 {
+		result["tools_removed"] = change.Remove
+	}
+	return result, nil
+}
+
+// toolSetChangeFromArgs reads the tool set a redeploy step gives the new
+// process: add_tools, a list of {name, description}, each answering
+// {status: ok, tool: <name>} like a tool test_add_mock_tool adds; and
+// remove_tools, a list of names. Both optional.
+func toolSetChangeFromArgs(args map[string]interface{}) (mock.ToolSetChange, error) {
+	var change mock.ToolSetChange
+	if raw, present := args["add_tools"]; present {
+		list, ok := raw.([]interface{})
+		if !ok {
+			return change, fmt.Errorf("add_tools must be a list of {name, description}")
+		}
+		for _, item := range list {
+			spec, ok := item.(map[string]interface{})
+			name, _ := spec["name"].(string)
+			if !ok || name == "" {
+				return change, fmt.Errorf("every add_tools entry needs a name")
+			}
+			description, _ := spec["description"].(string)
+			change.Add = append(change.Add, mock.ToolConfig{
+				Name:        name,
+				Description: description,
+				Responses: []mock.ToolResponse{
+					{Response: map[string]interface{}{api.FieldStatus: "ok", "tool": name}},
+				},
+			})
+		}
+	}
+	if raw, present := args["remove_tools"]; present {
+		list, ok := raw.([]interface{})
+		if !ok {
+			return change, fmt.Errorf("remove_tools must be a list of tool names")
+		}
+		for _, item := range list {
+			name, ok := item.(string)
+			if !ok || name == "" {
+				return change, fmt.Errorf("every remove_tools entry must be a tool name")
+			}
+			change.Remove = append(change.Remove, name)
+		}
+	}
+	return change, nil
 }
 
 // handleSetMockServerAuth flips a running OAuth-capable mock MCP server
@@ -103,8 +171,8 @@ func (h *TestToolsHandler) handleSetMockServerAuth(_ context.Context, args map[s
 // clock of every mock authorization server of the instance, together, so
 // that TTLs, backoffs and the catalogue age on both sides agree. Timers the
 // clock reaches -- the reconnect backoff, the orchestrator's retry and health
-// ticks, the core catalogue's age -- fire at once when they have become due;
-// nothing waits.
+// ticks, the aggregator's capability poll, the core catalogue's age -- fire
+// at once when they have become due; nothing waits.
 //
 // Args:
 //   - duration: Required. How far to advance (a Go duration, e.g. "31m").

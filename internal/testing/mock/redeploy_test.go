@@ -69,7 +69,7 @@ func TestHTTPServerRedeployForgetsSessionsKeepsPortAndTools(t *testing.T) {
 
 	srv.AddDynamicTool(ToolConfig{Name: "added", Description: "added at runtime", Responses: []ToolResponse{{Response: map[string]interface{}{"ok": true}}}})
 
-	require.NoError(t, srv.Redeploy())
+	require.NoError(t, srv.Redeploy(ToolSetChange{}))
 	require.Equal(t, port, srv.Port())
 	require.True(t, srv.IsRunning())
 
@@ -90,7 +90,7 @@ func TestHTTPServerRedeployForgetsSessionsKeepsPortAndTools(t *testing.T) {
 func TestHTTPServerRedeployNeedsARunningServer(t *testing.T) {
 	srv := startPlainMock(t)
 	require.NoError(t, srv.Stop(context.Background()))
-	require.ErrorContains(t, srv.Redeploy(), "not running")
+	require.ErrorContains(t, srv.Redeploy(ToolSetChange{}), "not running")
 }
 
 func startProtectedMock(t *testing.T, anonymous bool) (*ProtectedMCPServer, *OAuthServer) {
@@ -152,7 +152,7 @@ func TestProtectedMCPServerAuthFlip(t *testing.T) {
 	require.Contains(t, resp.Header.Get("WWW-Authenticate"), "resource_metadata=")
 	require.Equal(t, http.StatusOK, wellKnownStatus(t, srv))
 
-	require.NoError(t, srv.Redeploy())
+	require.NoError(t, srv.Redeploy(ToolSetChange{}))
 	require.True(t, srv.AuthRequired(), "a redeploy keeps the auth requirement")
 	status, _, _ = mcpPost(t, endpoint, initializeBody, "", "")
 	require.Equal(t, http.StatusUnauthorized, status)
@@ -175,7 +175,7 @@ func TestProtectedMCPServerRedeployForgetsSessions(t *testing.T) {
 
 	srv.AddDynamicTool(ToolConfig{Name: "added", Description: "added", Responses: []ToolResponse{{Response: map[string]interface{}{"ok": true}}}})
 	srv.RemoveDynamicTool("op")
-	require.NoError(t, srv.Redeploy())
+	require.NoError(t, srv.Redeploy(ToolSetChange{}))
 
 	status, _, body := mcpPost(t, endpoint, `{"jsonrpc":"2.0","id":2,"method":"tools/list"}`, token, session)
 	require.Equal(t, http.StatusNotFound, status)
@@ -189,7 +189,7 @@ func TestProtectedMCPServerRedeployForgetsSessions(t *testing.T) {
 	require.NotContains(t, body, `"name":"op"`, "a tool removed at runtime stays removed")
 
 	require.NoError(t, srv.Stop(context.Background()))
-	require.ErrorContains(t, srv.Redeploy(), "not running")
+	require.ErrorContains(t, srv.Redeploy(ToolSetChange{}), "not running")
 }
 
 func TestOffsetClockFollowsTheSystemTime(t *testing.T) {
@@ -210,4 +210,73 @@ func TestOAuthServerDefaultClockIsAdvanceable(t *testing.T) {
 	before := srv.GetClock().Now()
 	advancer.Advance(2 * time.Hour)
 	require.True(t, srv.GetClock().Now().Sub(before) >= 2*time.Hour)
+}
+
+// TestHTTPServerRedeployWithAnotherToolSet: the process that takes over
+// offers other tools -- probe gone, report new -- and announces it to nobody:
+// the old session is still unknown, a fresh session lists the new set and
+// calls the new tool.
+func TestHTTPServerRedeployWithAnotherToolSet(t *testing.T) {
+	srv := startPlainMock(t)
+	endpoint := srv.Endpoint()
+
+	status, session, _ := mcpPost(t, endpoint, initializeBody, "", "")
+	require.Equal(t, http.StatusOK, status)
+
+	require.NoError(t, srv.Redeploy(ToolSetChange{
+		Add:    []ToolConfig{{Name: "report", Description: "new image", Responses: []ToolResponse{{Response: map[string]interface{}{"report": "ok"}}}}},
+		Remove: []string{"probe"},
+	}))
+
+	status, _, _ = mcpPost(t, endpoint, `{"jsonrpc":"2.0","id":2,"method":"tools/list"}`, "", session)
+	require.Equal(t, http.StatusNotFound, status, "the redeployed process must not know the old session")
+
+	status, fresh, _ := mcpPost(t, endpoint, initializeBody, "", "")
+	require.Equal(t, http.StatusOK, status)
+	status, _, body := mcpPost(t, endpoint, `{"jsonrpc":"2.0","id":3,"method":"tools/list"}`, "", fresh)
+	require.Equal(t, http.StatusOK, status)
+	require.Contains(t, body, `"name":"report"`, "the new image's tool is served")
+	require.NotContains(t, body, `"name":"probe"`, "the dropped tool is gone")
+	status, _, body = mcpPost(t, endpoint, `{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"report","arguments":{}}}`, "", fresh)
+	require.Equal(t, http.StatusOK, status)
+	require.Contains(t, body, `report`)
+	require.Contains(t, body, `ok`)
+}
+
+// TestProtectedMCPServerRedeployWithAnotherToolSet: the same roll behind an
+// OAuth-protected backend, the token still accepted.
+func TestProtectedMCPServerRedeployWithAnotherToolSet(t *testing.T) {
+	srv, oauthServer := startProtectedMock(t, false)
+	token := oauthServer.GenerateTestToken("test-client", "openid profile").AccessToken
+	endpoint := srv.Endpoint()
+
+	status, session, _ := mcpPost(t, endpoint, initializeBody, token, "")
+	require.Equal(t, http.StatusOK, status)
+
+	require.NoError(t, srv.Redeploy(ToolSetChange{
+		Add:    []ToolConfig{{Name: "report", Description: "new image", Responses: []ToolResponse{{Response: map[string]interface{}{"report": "ok"}}}}},
+		Remove: []string{"op"},
+	}))
+
+	status, _, _ = mcpPost(t, endpoint, `{"jsonrpc":"2.0","id":2,"method":"tools/list"}`, token, session)
+	require.Equal(t, http.StatusNotFound, status)
+
+	status, fresh, _ := mcpPost(t, endpoint, initializeBody, token, "")
+	require.Equal(t, http.StatusOK, status)
+	status, _, body := mcpPost(t, endpoint, `{"jsonrpc":"2.0","id":3,"method":"tools/list"}`, token, fresh)
+	require.Equal(t, http.StatusOK, status)
+	require.Contains(t, body, `"name":"report"`)
+	require.NotContains(t, body, `"name":"op"`)
+}
+
+func TestToolSetChangeApplyAndSummary(t *testing.T) {
+	served := []ToolConfig{{Name: "probe"}, {Name: "status"}}
+
+	require.Equal(t, "tools kept", ToolSetChange{}.Summary())
+	require.Equal(t, served, ToolSetChange{}.apply(served))
+
+	change := ToolSetChange{Add: []ToolConfig{{Name: "report"}, {Name: "status", Description: "replaced"}}, Remove: []string{"probe", "unknown"}}
+	require.Equal(t, "tools changed: +report +status -probe -unknown", change.Summary())
+	require.Equal(t, []ToolConfig{{Name: "report"}, {Name: "status", Description: "replaced"}}, change.apply(served),
+		"removed names gone, a same-named tool replaced once, the rest kept")
 }

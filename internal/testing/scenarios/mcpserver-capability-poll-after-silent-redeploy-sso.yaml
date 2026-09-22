@@ -1,0 +1,132 @@
+name: "mcpserver-capability-poll-after-silent-redeploy-sso"
+description: "An SSO (token-forwarding) MCPServer whose backend is redeployed with another tool set, telling nobody, has a signed-in session's tool list re-listed by the capability poll through that session's own pooled connection, on the production schedule: the tool the new image dropped stops being served to the session and the one it added becomes callable (#494)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "oauth", "sso", "redeploy", "capabilities", "poll", "clock", "issue-494"]
+timeout: "3m"
+
+# Given: a token-forwarding MCP server behind muster's own authorization
+#        server, and a person signed in to muster and connected to it: the
+#        session holds a pooled connection and the capability store has the
+#        session's list with one tool. Production intervals, so the capability
+#        poll is five minutes away on the controllable clock.
+# When:  the backend is redeployed with an image that offers `report` instead
+#        of `probe`. The fresh process knows no session and notifies nobody.
+# Then:  until the poll the session is served the old list: `report` is
+#        unknown. Five minutes on, the poll re-lists the server through the
+#        session's own connection -- recovered on the way, the forwarded token
+#        still accepted -- and updates the session's entry: `report` answers
+#        and `probe` is gone.
+
+pre_configuration:
+  intervals: "production"
+  mock_oauth_servers:
+    - name: "muster-idp"
+      scopes: ["openid", "profile", "mcp:admin"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "muster-client"
+      client_secret: "muster-secret"
+      use_as_muster_oauth_server: true
+
+  mcp_servers:
+    - name: "sso-rolled-server"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "muster-idp"
+          forward_token: true
+        tools:
+          - name: "probe"
+            description: "Offered by the image before the roll"
+            responses:
+              - response:
+                  source: "sso-rolled-server"
+                  alive: true
+
+steps:
+  - id: "server-registered"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["sso-rolled-server"]
+    timeout: "30s"
+
+  - id: "muster-auth-login"
+    tool: "test_muster_auth_login"
+    args: {}
+    expected:
+      success: true
+      contains: ["success", "ID token stored"]
+    timeout: "30s"
+
+  - id: "connected-with-the-forwarded-token"
+    tool: "core_auth_login"
+    args:
+      server: "sso-rolled-server"
+    expected:
+      success: true
+    timeout: "30s"
+
+  - id: "probe-before-the-roll"
+    description: "The call pools the session's connection to the backend"
+    tool: "x_sso-rolled-server_probe"
+    args: {}
+    expected:
+      success: true
+      contains: ["alive"]
+    timeout: "15s"
+
+  - id: "backend-rolled-with-another-tool-set"
+    tool: "test_redeploy_mock_server"
+    args:
+      server: "sso-rolled-server"
+      add_tools:
+        - name: "report"
+          description: "Offered by the image after the roll"
+      remove_tools: ["probe"]
+    expected:
+      success: true
+      contains: ["Redeployed mock server", "tools changed: +report -probe"]
+    timeout: "15s"
+
+  - id: "new-tool-unknown-before-the-poll"
+    description: "The session is still served the list of the old process"
+    tool: "x_sso-rolled-server_report"
+    args: {}
+    expected:
+      success: false
+    timeout: "15s"
+
+  - id: "five-minutes-pass"
+    description: "The capability poll is due: the server is re-listed through the session's pooled connection"
+    tool: "test_advance_clock"
+    args:
+      duration: "5m"
+    expected:
+      success: true
+      contains: ["Advanced the clock by 5m0s"]
+
+  - id: "new-tool-served-after-the-poll"
+    tool: "x_sso-rolled-server_report"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["report"]
+    timeout: "45s"
+
+  - id: "dropped-tool-gone-after-the-poll"
+    tool: "x_sso-rolled-server_probe"
+    args: {}
+    expected:
+      success: false
+    timeout: "15s"
+
+# The poll re-listed the server for the session; no notification did.
+instance_logs:
+  contains:
+    - "Session capability refresh (poll): updated capabilities for sso-rolled-server"

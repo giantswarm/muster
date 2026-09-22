@@ -149,8 +149,9 @@ const (
 	TestToolGetCR = "test_get_cr"
 
 	// TestToolRedeployMockServer replaces a mock MCP server's process behind
-	// its port: sessions forgotten, tools kept, the port never refusing --
-	// a backend pod replaced behind the same Service.
+	// its port: sessions forgotten, the port never refusing, the tools kept
+	// or changed as the step says -- a backend pod replaced behind the same
+	// Service, by the same image or by one with other tools.
 	TestToolRedeployMockServer = "test_redeploy_mock_server"
 	// TestToolSetMockServerAuth flips an OAuth-capable mock MCP server
 	// between anonymous and 401-with-metadata while it runs.

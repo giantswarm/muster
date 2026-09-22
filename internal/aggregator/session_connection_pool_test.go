@@ -547,3 +547,31 @@ func TestSessionConnectionPool_EvictIdleMixedEntries(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, active, got)
 }
+
+// TestSessionsForServer_SnapshotsOneServersConnectionsWithoutUsingThem: the
+// snapshot has every session's client and token expiry for the one server,
+// nothing of another server, and leaves the entries' idle timers alone.
+func TestSessionsForServer_SnapshotsOneServersConnectionsWithoutUsingThem(t *testing.T) {
+	pool := NewSessionConnectionPool(time.Hour)
+	defer pool.Stop()
+	forwarded, exchanged, other := &poolTestClient{}, &poolTestClient{}, &poolTestClient{}
+	expiry := time.Now().Add(time.Hour)
+	pool.Put("s1", "srv", forwarded)
+	pool.PutWithExpiry("s2", "srv", exchanged, expiry)
+	pool.Put("s1", "other", other)
+	before := pool.Snapshot("s1")
+
+	got := pool.SessionsForServer("srv")
+
+	require.Len(t, got, 2)
+	byID := make(map[string]PooledSession, len(got))
+	for _, ps := range got {
+		byID[ps.SessionID] = ps
+	}
+	assert.Same(t, forwarded, byID["s1"].Client)
+	assert.True(t, byID["s1"].TokenExpiry.IsZero(), "a forwarded token tracks no expiry")
+	assert.Same(t, exchanged, byID["s2"].Client)
+	assert.Equal(t, expiry, byID["s2"].TokenExpiry)
+	assert.Empty(t, pool.SessionsForServer("nobody"))
+	assert.ElementsMatch(t, before, pool.Snapshot("s1"), "a snapshot is not a use: the idle timers are untouched")
+}

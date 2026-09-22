@@ -408,6 +408,38 @@ func (p *SessionConnectionPool) Snapshot(sessionID string) []PooledInfo {
 	return out
 }
 
+// PooledSession is one live connection of the pool: the session it belongs
+// to, its client, and the token expiry the entry tracks (zero when none is).
+type PooledSession struct {
+	SessionID   string
+	Client      MCPClient
+	TokenExpiry time.Time
+}
+
+// SessionsForServer returns a snapshot of the live connections to serverName,
+// for the capability poller to re-list the server through each session's own
+// client. It is not a use of the entries: their idle timers are left alone,
+// so a poll never keeps alive a connection no session is using. No lock is
+// held after return; an entry may be evicted before the caller gets to it,
+// in which case the client's operation fails and is logged.
+func (p *SessionConnectionPool) SessionsForServer(serverName string) []PooledSession {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	var out []PooledSession
+	for key, entry := range p.pool {
+		if key.ServerName != serverName || entry.Client == nil {
+			continue
+		}
+		out = append(out, PooledSession{
+			SessionID:   key.SessionID,
+			Client:      entry.Client,
+			TokenExpiry: entry.TokenExpiry,
+		})
+	}
+	return out
+}
+
 // evictedPoolEntry pairs a poolKey with a snapshot of the poolEntry that was
 // removed. Used by evictIdle to defer Close calls outside the write lock.
 type evictedPoolEntry struct {

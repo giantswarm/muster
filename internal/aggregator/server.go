@@ -794,6 +794,12 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	a.wg.Add(1)
 	go a.runSSOTrackerCleanup()
 
+	// Re-list every connected server's capabilities on an interval: a backend
+	// redeployed with another tool set sends no list_changed to a session it
+	// has never seen (capability_poller.go).
+	a.wg.Add(1)
+	go a.runCapabilityPoller(CapabilityPollInterval)
+
 	// Subscribe to tool update events from workflow and other managers
 	// This ensures the aggregator stays synchronized with core muster components
 	logging.Info("Aggregator", "Subscribing to tool update events...")
