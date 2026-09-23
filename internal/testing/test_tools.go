@@ -156,6 +156,11 @@ const (
 	// TestToolSetMockServerAuth flips an OAuth-capable mock MCP server
 	// between anonymous and 401-with-metadata while it runs.
 	TestToolSetMockServerAuth = "test_set_mock_server_auth"
+	// TestToolGetMockServerRejections reports how many requests an
+	// OAuth-capable mock MCP server answered with 401, and how many of them
+	// presented a bearer past its exp: the backend's own count of what a
+	// caller sent it with a dead token.
+	TestToolGetMockServerRejections = "test_get_mock_server_rejections"
 	// TestToolAdvanceClock moves muster serve's clock and every mock
 	// authorization server's clock forward together.
 	TestToolAdvanceClock = "test_advance_clock"
@@ -297,6 +302,7 @@ func IsTestTool(toolName string) bool {
 		TestToolGetCR,
 		TestToolRedeployMockServer,
 		TestToolSetMockServerAuth,
+		TestToolGetMockServerRejections,
 		TestToolAdvanceClock,
 		TestToolMeasureMetaTool,
 		TestToolValkeyFootprint:
@@ -354,6 +360,8 @@ func (h *TestToolsHandler) HandleTestTool(ctx context.Context, toolName string, 
 		return h.handleRedeployMockServer(ctx, args)
 	case TestToolSetMockServerAuth:
 		return h.handleSetMockServerAuth(ctx, args)
+	case TestToolGetMockServerRejections:
+		return h.handleGetMockServerRejections(ctx, args)
 	case TestToolAdvanceClock:
 		return h.handleAdvanceClock(ctx, args)
 	case TestToolCallMetaTool:

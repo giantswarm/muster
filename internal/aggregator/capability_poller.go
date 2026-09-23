@@ -186,7 +186,8 @@ func (w pollWalk) due(now time.Time) int {
 // pooledSessions returns the live pooled connections to serverName whose
 // token, when one is tracked, has not expired: a listing through an expired
 // exchanged token would only collect the 401 that the next tool call
-// re-exchanges for.
+// re-exchanges for. A session whose forwarded bearer has expired is ended
+// here instead of listed (bearer_session.go).
 func (a *AggregatorServer) pooledSessions(serverName string) []PooledSession {
 	if a.connPool == nil {
 		return nil
@@ -195,6 +196,9 @@ func (a *AggregatorServer) pooledSessions(serverName string) []PooledSession {
 	var live []PooledSession
 	for _, ps := range a.connPool.SessionsForServer(serverName) {
 		if !ps.TokenExpiry.IsZero() && !now.Before(ps.TokenExpiry) {
+			continue
+		}
+		if a.endExpiredBearerSession(ps.SessionID) {
 			continue
 		}
 		live = append(live, ps)
@@ -221,8 +225,14 @@ func (a *AggregatorServer) pollServerCapabilities(serverName string) {
 // pooled connection, into that session's capability store entry, coalesced
 // with a notification-driven refresh of the same pair. A connection the pool
 // evicted or replaced since the walk was planned is left alone: the next
-// tool call of the session connects and lists anew.
+// tool call of the session connects and lists anew. So is one whose session's
+// forwarded bearer expired since: the session is ended instead.
 func (a *AggregatorServer) pollSessionCapabilities(serverName string, ps PooledSession) {
+	if a.endExpiredBearerSession(ps.SessionID) {
+		logging.Debug("Aggregator", "Capability poll: session %s ended with its forwarded bearer, %s not listed",
+			logging.TruncateIdentifier(ps.SessionID), serverName)
+		return
+	}
 	if !a.connPool.Holds(ps.SessionID, serverName, ps.Client) {
 		logging.Debug("Aggregator", "Capability poll: session %s no longer holds a connection to %s, skipped",
 			logging.TruncateIdentifier(ps.SessionID), serverName)

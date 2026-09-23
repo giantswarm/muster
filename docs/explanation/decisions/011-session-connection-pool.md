@@ -92,6 +92,7 @@ Every path that invalidates session or server state now covers all three stores:
 | Session revocation | `RevokeSession` | `Delete` | `EvictSession` |
 | Server deregistration | `RevokeServer` | `DeleteServer` | `EvictServer` |
 | User token deletion | `RevokeSession` (per sid) | `Delete` (per sid) | `EvictSession` (per sid) |
+| Forwarded bearer expired (session keyed by it) | `RevokeSession` | `Delete` | `EvictSession` |
 | Graceful shutdown | `Stop` | `Stop` | `Stop` + `DrainAll` |
 | Idle timeout | TTL timer | TTL timer | Reaper goroutine |
 

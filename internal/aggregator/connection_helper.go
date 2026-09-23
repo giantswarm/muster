@@ -985,8 +985,14 @@ func (a *AggregatorServer) newTokenForwardingClient(
 	onStaleToken func(),
 ) (*internalmcp.StreamableHTTPClient, string, error) {
 	refresher := a.sessionRefresher()
+	// A connection that forwards the request's own bearer belongs to a
+	// session keyed by that bearer: it ends when the bearer expires
+	// (bearer_session.go), with no refresh chain to fall back on.
+	var onExpired func()
 	token := forwardableBearer(ctx)
-	if token == "" {
+	if token != "" {
+		onExpired = func() { a.endBearerSession(sessionID) }
+	} else {
 		token = getIDTokenForForwarding(ctx, sessionID, musterIssuer, refresher)
 	}
 	if token == "" {
@@ -1001,7 +1007,7 @@ func (a *AggregatorServer) newTokenForwardingClient(
 		return nil, "", fmt.Errorf("token has expired for %s, re-authenticate to refresh: %w", serverInfo.Name, expErr)
 	}
 
-	headerFunc := makeTokenForwardingHeaderFunc(sessionID, musterIssuer, serverInfo.Name, token, refresher, onStaleToken)
+	headerFunc := makeTokenForwardingHeaderFunc(sessionID, musterIssuer, serverInfo.Name, token, refresher, onStaleToken, onExpired)
 	return internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithHeaders(internalmcp.DefinitionHeaders(serverInfo.Headers)).WithMeta(serverInfo.Meta).WithTimeout(serverInfo.Timeout), token, nil
 }
 
@@ -1104,6 +1110,13 @@ func forwardableBearer(ctx context.Context) string {
 //     oauthServer.RefreshSessionProvider for the rotation/deauth background
 //     (giantswarm#37164).
 //
+// A connection that forwards its session's own bearer (onExpired set) has no
+// refresh chain: once the fallback is within the expiry margin, the refresh
+// is not tried and no failure is counted. Until the bearer's exp the header
+// carries it, valid for those last seconds; past it, onExpired ends the
+// session (bearer_session.go) and onStaleToken evicts this connection, once
+// and at once -- a connection pooled after the session ended is closed too.
+//
 // Failure accounting: a resolution counts as failed only when it bottoms out
 // on an expired or undecodable fallback and the refresh recovered nothing,
 // the stale-token state that 401-loops against the backend. A WARN is
@@ -1123,11 +1136,12 @@ func forwardableBearer(ctx context.Context) string {
 func makeTokenForwardingHeaderFunc(
 	sessionID, musterIssuer, serverName, fallbackToken string,
 	refresher func(context.Context, string) error,
-	onStaleToken func(),
+	onStaleToken, onExpired func(),
 ) func(context.Context) map[string]string {
 	var mu sync.Mutex
 	var lastWarnTime time.Time
 	var consecutiveFailures atomic.Int64
+	var expireOnce sync.Once
 
 	bearerHeader := func(token string) map[string]string {
 		return map[string]string{
@@ -1180,10 +1194,29 @@ func makeTokenForwardingHeaderFunc(
 		if latestToken := getIDTokenForForwarding(context.Background(), sessionID, musterIssuer, nil); latestToken != "" {
 			return succeed(latestToken, "OAuth store")
 		}
-		if expired, _ := pkgoauth.IsExpired(fallbackToken); !expired {
+		expired, expErr := pkgoauth.IsExpired(fallbackToken)
+		if !expired {
 			logging.Debug("Connection", "No ID token in OAuth store for session %s to %s, forwarding the connection token",
 				logging.TruncateIdentifier(sessionID), serverName)
 			return succeed(fallbackToken, "connection token")
+		}
+		if expErr == nil && onExpired != nil {
+			if exp, _ := pkgoauth.Expiry(fallbackToken); time.Now().Before(exp) {
+				return bearerHeader(fallbackToken)
+			}
+			expireOnce.Do(func() {
+				logging.Debug("Connection", "Forwarded bearer of session %s has expired, ending the session and its connection to %s",
+					logging.TruncateIdentifier(sessionID), serverName)
+				// Asynchronous like the strike path's eviction: both close
+				// the client whose request is running this header func.
+				go func() {
+					onExpired()
+					if onStaleToken != nil {
+						onStaleToken()
+					}
+				}()
+			})
+			return bearerHeader(fallbackToken)
 		}
 		if refresher != nil {
 			if err := refresher(ctx, sessionID); err != nil {
