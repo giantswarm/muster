@@ -851,6 +851,11 @@ func truncateEmail(email string) string {
 // tokens after a refresh -- mcp-oauth's RefreshAccessToken stores the new
 // upstream provider token under the new access token key but does NOT update
 // the email-keyed entry that was used previously.
+//
+// Only muster's own (opaque) access tokens have an entry. A decodable JWT
+// bearer was issued by a trusted issuer and never has one, so its miss is
+// expected -- the caller goes on to injectExternalIDToken -- and is logged at
+// DEBUG; a miss for muster's own token, and any other store failure, at WARN.
 func (s *OAuthHTTPServer) getProviderToken(ctx context.Context, r *http.Request) *oauth2.Token {
 	bearerToken := extractBearerToken(r)
 	if bearerToken == "" {
@@ -860,10 +865,21 @@ func (s *OAuthHTTPServer) getProviderToken(ctx context.Context, r *http.Request)
 	if err != nil {
 		// Store errors can embed the key that was looked up, which here is the
 		// caller's live bearer. Strip it before the message reaches the logs.
-		logging.Warn("OAuth", "SSO: Failed to get provider token from store: %s", logging.RedactSecret(err.Error(), bearerToken))
+		log := logging.Warn
+		if errors.Is(err, storage.ErrTokenNotFound) && isJWT(bearerToken) {
+			log = logging.Debug
+		}
+		log("OAuth", "SSO: Failed to get provider token from store: %s", logging.RedactSecret(err.Error(), bearerToken))
 		return nil
 	}
 	return token
+}
+
+// isJWT reports whether token is a decodable JWT, which muster never issues:
+// its access tokens are opaque.
+func isJWT(token string) bool {
+	_, err := pkgoauth.Subject(token)
+	return err == nil
 }
 
 // extractBearerToken extracts the bearer token from the Authorization header.

@@ -171,6 +171,10 @@ type AggregatorServer struct {
 	// Populated in sessionToolFilter, cleaned up via OnUnregisterSession hook.
 	subjectSessions *subjectSessionTracker
 
+	// bearerSessions ends each session keyed by a forwarded bearer when that
+	// bearer expires (bearer_session.go).
+	bearerSessions *bearerSessions
+
 	// eventFollows tracks active `muster events --follow` streams per MCP
 	// session so they can be cancelled when the session disconnects or starts a
 	// new follow. Guarded by eventFollowsMu.
@@ -649,6 +653,7 @@ func NewAggregatorServer(ctx context.Context, aggConfig AggregatorConfig, errorC
 		connPool:          NewSessionConnectionPool(DefaultConnectionPoolMaxAge),
 		ssoTracker:        newSSOTracker(),
 		subjectSessions:   newSubjectSessionTracker(),
+		bearerSessions:    newBearerSessions(),
 		eventFollows:      make(map[string]*eventFollow),
 		valkeyClient:      stores.valkeyClient,
 		valkeyKeyPrefix:   stores.keyPrefix,
@@ -1081,6 +1086,10 @@ func (a *AggregatorServer) Stop(ctx context.Context) error {
 
 	// Wait for all background routines to complete
 	a.wg.Wait()
+
+	if a.bearerSessions != nil {
+		a.bearerSessions.stop()
+	}
 
 	// Stop the reaper and drain the connection pool before deregistering
 	// servers so that pooled clients are closed cleanly.
@@ -1595,6 +1604,7 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 		_, _ = a.capabilityStore.Touch(ctx, sessionID)
 
 		sso := ssoSessionFromContext(ctx, sessionID)
+		a.bindBearerSession(sso)
 
 		logging.InfoWithAttrs("Aggregator", "SSO: onAuthenticated callback",
 			slog.Any("session", sso),

@@ -166,6 +166,32 @@ func (h *TestToolsHandler) handleSetMockServerAuth(_ context.Context, args map[s
 	}, nil
 }
 
+// handleGetMockServerRejections reports the 401s an OAuth-capable mock MCP
+// server answered: all of them, and those whose bearer had expired.
+//
+// Args:
+//   - server: Required. The mock server's name.
+func (h *TestToolsHandler) handleGetMockServerRejections(_ context.Context, args map[string]interface{}) (interface{}, error) {
+	serverName, ok := args["server"].(string)
+	if !ok || serverName == "" {
+		return nil, fmt.Errorf("server argument is required")
+	}
+	if h.instanceManager == nil || h.currentInstance == nil {
+		return nil, fmt.Errorf("instance manager or current instance not available")
+	}
+	srv := h.instanceManager.GetProtectedMCPServer(h.currentInstance.ID, serverName)
+	if srv == nil {
+		return nil, fmt.Errorf("mock server %s has no token validator: give it oauth.mock_oauth_server_ref or oauth.trust_issuer_ref", serverName)
+	}
+	rejected, expired := srv.Rejections()
+	return map[string]interface{}{
+		api.FieldSuccess:   true,
+		api.FieldServer:    serverName,
+		"rejected":         rejected,
+		"rejected_expired": expired,
+	}, nil
+}
+
 // handleAdvanceClock moves the instance's clock forward: muster serve's own
 // clock (through the control socket MUSTER_TEST_CLOCK selected) and the
 // clock of every mock authorization server of the instance, together, so

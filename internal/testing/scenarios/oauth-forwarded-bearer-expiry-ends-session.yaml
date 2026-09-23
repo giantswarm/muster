@@ -1,0 +1,151 @@
+name: "oauth-forwarded-bearer-expiry-ends-session"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  A session keyed by a forwarded bearer ends when that bearer expires. An
+  agent presents a trusted-issuer token on /mcp; muster forwards it to a
+  forwardToken backend and pools the connection. At the token's exp muster
+  closes the session's backend connections and the server goes back to
+  Awaiting Session. The backend never sees the expired token: not from the
+  listen stream, not from the capability poll that follows, and without the
+  three rejected round trips that used to precede the eviction.
+tags: ["oauth", "obo", "token-forwarding", "aggregator", "expiry", "poll", "issue-1323"]
+timeout: "3m"
+
+# Given: a forwardToken backend trusting the workload issuer, and an agent
+#        session on a token of that issuer that lives 45 seconds -- beyond
+#        muster's 30-second forwarding margin, so the session connects.
+# When:  the token expires.
+# Then:  muster ends the session at its exp (the server is Awaiting Session
+#        again), and neither then nor on the capability poll five minutes on
+#        does the backend receive a request with the expired token.
+
+pre_configuration:
+  intervals: "production"
+  mock_oauth_servers:
+    - name: "muster-idp"
+      scopes: ["openid", "profile", "email"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "muster-client"
+      client_secret: "muster-secret"
+      use_as_muster_oauth_server: true
+
+    - name: "workload-idp"
+      token_lifetime: "45s"
+
+  muster_broker:
+    trusted_issuers:
+      - oauth_server_ref: "workload-idp"
+        accepted_typ_headers: [""]
+
+  mcp_servers:
+    - name: "expiring-backend"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          trust_issuer_ref: "workload-idp"
+          forward_token: true
+        tools:
+          - name: "whoami"
+            description: "Echoes the caller's forwarded token claims"
+            echo_token: true
+            responses:
+              - response:
+                  status: "ok"
+
+steps:
+  - id: "backend-registered"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["expiring-backend"]
+      wait_for_state: "30s"
+
+  - id: "mint-short-lived-agent-token"
+    description: "An on-behalf-of token: the person's identity, the agent in act"
+    tool: "test_mint_token"
+    args:
+      server: "workload-idp"
+      name: "agent-token"
+      sub: "alice@example.com"
+      email: "alice@example.com"
+      email_verified: true
+      act:
+        sub: "system:serviceaccount:kagent:sre-agent"
+    expected:
+      success: true
+
+  - id: "connect-as-agent"
+    tool: "test_reconnect_with_token"
+    args:
+      token_ref: "agent-token"
+    expected:
+      success: true
+      wait_for_state: "30s"
+
+  - id: "call-pools-the-forwarding-connection"
+    tool: "x_expiring-backend_whoami"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "20s"
+      contains: ["system:serviceaccount:kagent:sre-agent"]
+
+  - id: "connected-while-the-token-lives"
+    tool: "test_scrape_metrics"
+    args:
+      filter: "muster_mcpserver_state{"
+    expected:
+      success: true
+      wait_for_state: "20s"
+      contains:
+        - 'mcpserver_name="expiring-backend"'
+        - 'state="Connected"'
+
+  - id: "session-ended-at-expiry"
+    description: "At the token's exp muster closes the session's connection; the server waits for the next session"
+    tool: "test_scrape_metrics"
+    args:
+      filter: "muster_mcpserver_state{"
+    expected:
+      success: true
+      wait_for_state: "90s"
+      contains:
+        - 'mcpserver_name="expiring-backend"'
+        - 'state="Awaiting Session"'
+
+  - id: "capability-poll-after-expiry"
+    description: "The poll re-lists through every pooled connection; the ended session holds none"
+    tool: "test_advance_clock"
+    args:
+      duration: "5m"
+    expected:
+      success: true
+      contains: ["Advanced the clock by 5m0s"]
+
+  - id: "backend-never-saw-the-expired-token"
+    tool: "test_get_mock_server_rejections"
+    args:
+      server: "expiring-backend"
+    expected:
+      success: true
+      json_path:
+        rejected_expired: 0
+
+# The session ended at its exp, with no strike against the expired token, so
+# the poll had no connection to list through. The agent's bearer is a
+# trusted-issuer token, which never has a provider token in muster's store:
+# that expected miss is DEBUG.
+instance_logs:
+  contains:
+    - "its forwarded bearer expired at"
+    - "closed 1 backend connections"
+    - 'level=DEBUG msg="SSO: Failed to get provider token from store: token not found'
+  not_contains:
+    - "using expired connection token"
+    - "evicting stale connection"
+    - "Capability poll: re-listing"
