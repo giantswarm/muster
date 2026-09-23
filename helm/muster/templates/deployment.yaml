@@ -16,6 +16,12 @@ spec:
     metadata:
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with include "muster.oauthSecretChecksum" . }}
+        checksum/oauth-secret: {{ . | quote }}
+        {{- end }}
+        {{- with include "muster.valkeySecretChecksum" . }}
+        checksum/valkey-secret: {{ . | quote }}
+        {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

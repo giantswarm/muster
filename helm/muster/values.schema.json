@@ -355,6 +355,9 @@
                                     "type": "string",
                                     "description": "from-literal=dex-client-secret=<your-dex-client-secret> \\"
                                 },
+                                "existingSecretChecksum": {
+                                    "type": "string"
+                                },
                                 "google": {
                                     "type": "object",
                                     "additionalProperties": false,
@@ -391,6 +394,9 @@
                                                     "type": "integer"
                                                 },
                                                 "existingSecret": {
+                                                    "type": "string"
+                                                },
+                                                "existingSecretChecksum": {
                                                     "type": "string"
                                                 },
                                                 "keyPrefix": {
