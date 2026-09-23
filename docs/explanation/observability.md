@@ -178,6 +178,8 @@ msg=tool call subsystem=MCP-Tool tool=call_tool outcome=error duration_s=2.118 e
 
 The line carries the final post-handler outcome the client sees.
 
+When an OTLP endpoint is set, the log records go to the OTLP exporter and are also written as JSON to stderr, with `trace_id` and `span_id`. Thus `kubectl logs` shows the log, and the log stays available when the collector is down. `muster serve --silent` stops the stderr copy.
+
 ## Query catalog
 
 ### Tempo — find traces for a single backend tool
