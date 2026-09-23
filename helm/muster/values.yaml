@@ -776,9 +776,11 @@ muster:
           # cluster.
           labels: {}  # @schema additionalProperties: true
         # PrometheusRule with the MCPServer connection-state alerts
-        # (MusterMCPServerFailed, MusterMCPServerFlapping). Fires on
-        # muster's own muster_mcpserver_state /
-        # muster_mcpserver_state_transitions_total metrics, so the
+        # (MusterMCPServerFailed, MusterMCPServerFlapping) and the
+        # backend tool-call error alert (MusterToolCallErrorRate). Fires
+        # on muster's own muster_mcpserver_state /
+        # muster_mcpserver_state_transitions_total /
+        # muster_downstream_tool_calls_total metrics, so the
         # Prometheus that loads the rule has to be receiving them —
         # either by scraping the endpoint above, or via OTLP to a
         # remote-write target. Gated separately from serviceMonitor so

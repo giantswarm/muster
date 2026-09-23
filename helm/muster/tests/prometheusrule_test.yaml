@@ -32,7 +32,7 @@ tests:
           path: apiVersion
           value: monitoring.coreos.com/v1
 
-  - it: defines both MCPServer state alerts in one group
+  - it: defines the MCPServer state alerts and the tool-call error alert in one group
     set:
       muster.observability.metrics.prometheus.prometheusRule.enabled: true
     asserts:
@@ -44,13 +44,42 @@ tests:
           value: muster
       - lengthEqual:
           path: spec.groups[0].rules
-          count: 2
+          count: 3
       - equal:
           path: spec.groups[0].rules[0].alert
           value: MusterMCPServerFailed
       - equal:
           path: spec.groups[0].rules[1].alert
           value: MusterMCPServerFlapping
+      - equal:
+          path: spec.groups[0].rules[2].alert
+          value: MusterToolCallErrorRate
+
+  # The contract with internal/aggregator: the downstream counter, its
+  # mcpserver_name label, and outcome="error" as the only failure counted
+  # (error_result carries auth_required answers and bad arguments).
+  - it: alerts on the share of downstream Go errors per MCPServer, not while it is Failed
+    set:
+      muster.observability.metrics.prometheus.prometheusRule.enabled: true
+    asserts:
+      - equal:
+          path: spec.groups[0].rules[2].expr
+          value: |-
+            (
+              sum by (cluster_id, installation, pipeline, provider, namespace, mcpserver_name) (rate(muster_downstream_tool_calls_total{outcome="error"}[15m]))
+              /
+              sum by (cluster_id, installation, pipeline, provider, namespace, mcpserver_name) (rate(muster_downstream_tool_calls_total[15m]))
+            ) > 0.25
+            and
+            sum by (cluster_id, installation, pipeline, provider, namespace, mcpserver_name) (increase(muster_downstream_tool_calls_total[15m])) >= 20
+            unless on (cluster_id, installation, pipeline, provider, namespace, mcpserver_name)
+            max by (cluster_id, installation, pipeline, provider, namespace, mcpserver_name) (muster_mcpserver_state{state="Failed"}) == 1
+      - equal:
+          path: spec.groups[0].rules[2].for
+          value: 15m
+      - notMatchRegex:
+          path: spec.groups[0].rules[2].expr
+          pattern: 'error_result|\b(pod|instance|container|endpoint|service|job|otel_scope_name|tool)\b'
 
   # The expression is the contract between the chart and internal/reconciler:
   # the metric name and the label the reconciler emits the state under. If the
@@ -147,11 +176,20 @@ tests:
             severity: notify
             team: bumblebee
             topic: muster
+      - equal:
+          path: spec.groups[0].rules[2].labels
+          value:
+            area: platform
+            cancel_if_monitoring_agent_down: "true"
+            cancel_if_outside_working_hours: "false"
+            severity: notify
+            team: bumblebee
+            topic: muster
 
-  # An alert with a dead runbook link is half an alert. Both point at a runbook
-  # that exists in giantswarm/giantswarm, with the interactive-variable query
+  # An alert with a dead runbook link is half an alert. Each points at a
+  # runbook that exists in giantswarm/giantswarm, with the interactive-variable query
   # string the intranet uses to prefill installation and cluster.
-  - it: points both alerts at the runbook
+  - it: points every alert at its runbook
     set:
       muster.observability.metrics.prometheus.prometheusRule.enabled: true
     asserts:
@@ -161,6 +199,9 @@ tests:
       - equal:
           path: spec.groups[0].rules[1].annotations.runbook_url
           value: 'https://intranet.giantswarm.io/docs/support-and-ops/runbooks/muster-mcpserver-failed/?INSTALLATION={{ $labels.installation }}&CLUSTER={{ $labels.cluster_id }}'
+      - equal:
+          path: spec.groups[0].rules[2].annotations.runbook_url
+          value: 'https://intranet.giantswarm.io/docs/support-and-ops/runbooks/muster-tool-call-errors/?INSTALLATION={{ $labels.installation }}&CLUSTER={{ $labels.cluster_id }}'
 
   # The description has to name the offending MCPServer, and it has to use the
   # prefixed labels the reconciler emits — a bare {{ $labels.namespace }} would
