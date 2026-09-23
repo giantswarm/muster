@@ -23,9 +23,9 @@ helm-alerting-test: ## Run only the PrometheusRule checks: its helm-unittest sui
 	@$(MAKE) --no-print-directory helm-promtool-test
 
 .PHONY: helm-unittest
-helm-unittest: helm-plugin-unittest ## Run all helm-unittest suites in helm/muster/tests/.
+helm-unittest: helm-plugin-unittest ## Run the helm-unittest suites of both charts (helm/muster, helm/muster-crds).
 	@echo "Running helm unittest..."
-	@helm unittest helm/muster/
+	@helm unittest helm/muster/ helm/muster-crds/
 
 .PHONY: helm-plugin-unittest
 helm-plugin-unittest:

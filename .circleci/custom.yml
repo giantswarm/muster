@@ -51,12 +51,12 @@ jobs:
     - store_artifacts:
         path: test-reports-envtest
 
-  # Chart checks: helm lint, the helm-unittest suites in helm/muster/tests/, and
-  # the promtool unit tests for the PrometheusRule. Runs in a plain container
-  # rather than the architect executor because the dependencies are helm plugins
-  # and a promtool binary, not Go tooling -- nothing here needs the Go cache or
-  # module auth. Pinned versions so a plugin release cannot turn CI red on an
-  # unrelated PR.
+  # Chart checks: helm lint, the helm-unittest suites of helm/muster and
+  # helm/muster-crds, and the promtool unit tests for the PrometheusRule. Runs
+  # in a plain container rather than the architect executor because the
+  # dependencies are helm plugins and a promtool binary, not Go tooling --
+  # nothing here needs the Go cache or module auth. Pinned versions so a plugin
+  # release cannot turn CI red on an unrelated PR.
   chart-test:
     docker:
       - image: cimg/base:current
