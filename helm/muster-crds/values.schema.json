@@ -40,11 +40,14 @@
             "properties": {
                 "annotations": {
                     "type": "object",
-                    "additionalProperties": false,
+                    "description": "Annotations merged into every CRD's `metadata.annotations`, next to the ones controller-gen writes. Any key; values are strings, as Kubernetes requires.",
                     "properties": {
                         "helm.sh/resource-policy": {
                             "type": "string"
                         }
+                    },
+                    "additionalProperties": {
+                        "type": "string"
                     }
                 }
             }

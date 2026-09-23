@@ -18,7 +18,7 @@ CRD-only chart for muster - ships the MCPServer, Workflow and WorkflowExecution 
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| crds.annotations."helm.sh/resource-policy" | string | `"keep"` |  |
+| crds.annotations | object | `{"helm.sh/resource-policy":"keep"}` | Annotations merged into every CRD's `metadata.annotations`, next to the ones controller-gen writes. Any key; values are strings, as Kubernetes requires. |
 
 ## When to use this chart
 
