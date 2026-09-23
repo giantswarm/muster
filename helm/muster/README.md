@@ -120,6 +120,7 @@ muster, the aggregating MCP server - one authenticated endpoint for every MCP se
 | muster.oauth.server.google.clientId | string | `""` |  |
 | muster.oauth.server.google.clientSecret | string | `""` |  |
 | muster.oauth.server.existingSecret | string | `""` |  |
+| muster.oauth.server.existingSecretChecksum | string | `""` |  |
 | muster.oauth.server.storage.type | string | `"memory"` |  |
 | muster.oauth.server.storage.valkey.url | string | `""` |  |
 | muster.oauth.server.storage.valkey.password | string | `""` |  |
@@ -127,6 +128,7 @@ muster, the aggregating MCP server - one authenticated endpoint for every MCP se
 | muster.oauth.server.storage.valkey.keyPrefix | string | `"muster:"` |  |
 | muster.oauth.server.storage.valkey.db | int | `0` |  |
 | muster.oauth.server.storage.valkey.existingSecret | string | `""` |  |
+| muster.oauth.server.storage.valkey.existingSecretChecksum | string | `""` |  |
 | muster.oauth.server.storage.valkey.secretKeyPassword | string | `"valkey-password"` |  |
 | muster.oauth.server.registrationToken | string | `""` | ------------------------------------------------------------------------- Shared secret a client must present at the DCR endpoint to register. Supply via existingSecret (key: registration-token) in production so the value never appears in Helm release history. |
 | muster.oauth.server.allowPublicClientRegistration | bool | `false` |  |
@@ -235,6 +237,24 @@ to an empty list **fails the render**: a RoleBinding bound to nobody looks
 enforced while granting nothing. To manage the grants entirely out of band,
 set `rbac.mcpServerEditor.create: false` / `rbac.workflowEditor.create: false`
 and bind the verbs yourself.
+
+## Rolling on credential rotation
+
+muster reads its OAuth credentials (the Dex or Google client secret, the registration token, the token
+encryption key) and the Valkey password from Secrets projected into the pod at start and never again. The
+pod template carries a checksum over them beside `checksum/config`, so a rotated credential restarts muster:
+
+- With `muster.oauth.server.existingSecret` empty the chart renders the Secret `<fullname>-oauth` from the
+  values; `checksum/oauth-secret` is the SHA-256 of that Secret's data and follows every change of those
+  values, an inline Valkey password included.
+- With `muster.oauth.server.existingSecret` set the chart cannot read the Secret; `checksum/oauth-secret` is
+  `muster.oauth.server.existingSecretChecksum` verbatim. A Valkey password in a Secret of its own
+  (`muster.oauth.server.storage.valkey.existingSecret`) is marked the same way by
+  `muster.oauth.server.storage.valkey.existingSecretChecksum`, rendered as `checksum/valkey-secret`. Change the
+  mark in the same change that rotates the Secret (a hash over the new data, a counter, a date); a Flux
+  `HelmRelease` can feed it from a Secret or ConfigMap key through a `valuesFrom` entry with `targetPath`, so it
+  changes with the rotation on its own. While a mark is empty, a rotation of that Secret alone leaves the
+  running muster on the old values.
 
 ## CRD lifecycle
 

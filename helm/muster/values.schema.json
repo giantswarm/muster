@@ -141,7 +141,7 @@
                 "null"
             ],
             "description": "Global values shared between all subcharts",
-            "$comment": "Added automatically by 'helm schema' to allow this chart to be used as a Helm dependency, as this schema would otherwise not allow Helm's special 'global' values key."
+            "$comment": "Added automatically by 'helm schema' to allow this chart to be used as a Helm dependency, as the `additionalProperties` setting would otherwise collide with Helm's special 'global' values key."
         },
         "image": {
             "type": "object",
@@ -355,6 +355,9 @@
                                     "type": "string",
                                     "description": "from-literal=dex-client-secret=<your-dex-client-secret> \\"
                                 },
+                                "existingSecretChecksum": {
+                                    "type": "string"
+                                },
                                 "google": {
                                     "type": "object",
                                     "additionalProperties": false,
@@ -391,6 +394,9 @@
                                                     "type": "integer"
                                                 },
                                                 "existingSecret": {
+                                                    "type": "string"
+                                                },
+                                                "existingSecretChecksum": {
                                                     "type": "string"
                                                 },
                                                 "keyPrefix": {
