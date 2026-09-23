@@ -5,7 +5,7 @@
 # workflow in .circleci/config.yml merges into this file at pipeline runtime.
 version: 2.1
 orbs:
-  architect: giantswarm/architect@10.4.1
+  architect: giantswarm/architect@10.6.3
 
 workflows:
   build:
@@ -155,7 +155,11 @@ workflows:
     # deploys the chart, which pulls that image from gsoci, and gating on the
     # push avoids an ImagePullBackOff race. The architect context carries the
     # registry credentials the job hands to its kind node, so the chart can pull
-    # private images (gsociprivate) without imagePullSecrets.
+    # private images (gsociprivate) without imagePullSecrets. The kind cluster
+    # the job creates takes its configuration (feature gates, runtime config,
+    # patches, extra nodes) from .ats/kind-config.yaml when the repo carries one
+    # -- repo-owned, like .ats/main.yaml -- and its resource class from
+    # gen.ci.atsResourceClass in giantswarm/github (the orb default is medium).
     - architect/run-tests-with-ats:
         name: execute-chart-tests
         context: architect
