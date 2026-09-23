@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"maps"
+	"os"
 	"slices"
 	"strings"
 
@@ -101,18 +102,26 @@ func InitForCLI(filterLevel LogLevel, output io.Writer) {
 // inside a Kubernetes pod (KUBERNETES_SERVICE_HOST set), text
 // otherwise — and Shutdown is a no-op closure.
 //
+// In OTLP mode records are also written as JSON to os.Stderr, so
+// kubectl logs keeps working and a collector outage loses nothing
+// locally, unless output is io.Discard (silent mode).
+//
 // serviceName and serviceVersion become semconv.ServiceName /
 // semconv.ServiceVersion on the OTel LoggerProvider's Resource;
 // standard env overrides (OTEL_SERVICE_NAME, OTEL_RESOURCE_ATTRIBUTES)
 // take precedence.
 func Init(ctx context.Context, filterLevel LogLevel, output io.Writer, serviceName, serviceVersion string) (Shutdown, error) {
-	logger, shutdown, err := mcptoolkitlogging.Init(ctx,
+	opts := []mcptoolkitlogging.Option{
 		mcptoolkitlogging.WithLevel(filterLevel.SlogLevel()),
 		mcptoolkitlogging.WithOutput(output),
 		mcptoolkitlogging.WithLoggerName(observability.TracerName),
 		mcptoolkitlogging.WithServiceName(serviceName),
 		mcptoolkitlogging.WithServiceVersion(serviceVersion),
-	)
+	}
+	if output != io.Discard && otlpLogsConfigured() {
+		opts = append(opts, mcptoolkitlogging.WithStderrMirror())
+	}
+	logger, shutdown, err := mcptoolkitlogging.Init(ctx, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("init toolkit logging: %w", err)
 	}
@@ -120,6 +129,15 @@ func Init(ctx context.Context, filterLevel LogLevel, output io.Writer, serviceNa
 	slog.SetDefault(logger)
 	initControllerRuntimeLogger(logger.Handler())
 	return Shutdown(shutdown), nil
+}
+
+// otlpLogsConfigured reports whether mcp-toolkit's logging.Init runs in
+// OTLP mode. It must match the toolkit's own detection: WithStderrMirror
+// makes Init fail outside OTLP mode.
+func otlpLogsConfigured() bool {
+	return os.Getenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT") != "" ||
+		os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != "" ||
+		os.Getenv("OTEL_LOGS_EXPORTER") != ""
 }
 
 func logInternal(ctx context.Context, level LogLevel, subsystem string, err error, messageFmt string, args ...interface{}) {
