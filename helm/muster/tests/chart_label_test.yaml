@@ -1,0 +1,58 @@
+# The helm.sh/chart label is <name>-<version> cut to 63 characters. A label
+# value is at most 63 characters and begins and ends alphanumeric, and the cut
+# of a long version (a branch build's <version>-dev.<branch>.<date>.<time>.<sha>,
+# or the <version>+<digest> helm-controller installs) can land on ".", on "_"
+# (from "+") or on a run like "--.", which the API server refuses. Every object
+# the default values render is checked.
+suite: chart label
+templates:
+  - templates/configmap.yaml
+  - templates/deployment.yaml
+  - templates/mcpserver-editor-rbac.yaml
+  - templates/rbac.yaml
+  - templates/serviceaccount.yaml
+  - templates/service.yaml
+  - templates/workflow-editor-rbac.yaml
+tests:
+  - it: keeps the plain release version
+    chart:
+      version: 0.1.0
+    asserts:
+      - &label-value
+        matchRegex:
+          path: metadata.labels["helm.sh/chart"]
+          pattern: ^(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])?$
+      - &label-length
+        matchRegex:
+          path: metadata.labels["helm.sh/chart"]
+          pattern: ^.{0,63}$
+      - equal:
+          path: metadata.labels["helm.sh/chart"]
+          value: muster-0.1.0
+  - it: ends alphanumeric when the 63-character cut lands on a dot
+    chart:
+      version: 0.1.1-dev.renovate-helm-unittest-xx.2026-09-22.14-54-24.h1a2b3c4
+    asserts:
+      - *label-value
+      - *label-length
+      - equal:
+          path: metadata.labels["helm.sh/chart"]
+          value: muster-0.1.1-dev.renovate-helm-unittest-xx.2026-09-22.14-54-24
+  - it: ends alphanumeric when the cut lands on the "_" a "+" becomes
+    chart:
+      version: 0.1.1-dev.renovate-helm-unittest-xx.2026-09-22.14-54-24+h1a2b3c4
+    asserts:
+      - *label-value
+      - *label-length
+      - equal:
+          path: metadata.labels["helm.sh/chart"]
+          value: muster-0.1.1-dev.renovate-helm-unittest-xx.2026-09-22.14-54-24
+  - it: ends alphanumeric when the cut lands on a run like "--."
+    chart:
+      version: 0.1.1-dev.renovate-helm-unittest-xx.2026-09-22.14-54---.h1a2b3c4
+    asserts:
+      - *label-value
+      - *label-length
+      - equal:
+          path: metadata.labels["helm.sh/chart"]
+          value: muster-0.1.1-dev.renovate-helm-unittest-xx.2026-09-22.14-54
