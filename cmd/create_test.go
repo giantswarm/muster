@@ -50,6 +50,28 @@ func TestProcessMCPServerFlagAuth(t *testing.T) {
 			},
 		},
 		{
+			name: "forward-identity next to a pinned issuer",
+			flags: [][3]string{
+				{"auth-type", "oauth", "1"},
+				{"auth-issuer", "https://auth.example.com", "1"},
+				{"forward-identity", "", ""},
+			},
+			expected: map[string]interface{}{
+				"auth": map[string]interface{}{
+					"type":                "oauth",
+					"authorizationServer": map[string]interface{}{"issuer": "https://auth.example.com"},
+					"forwardIdentity":     true,
+				},
+			},
+		},
+		{
+			name:  "forward-identity explicit false",
+			flags: [][3]string{{"forwardIdentity", "false", "1"}},
+			expected: map[string]interface{}{
+				"auth": map[string]interface{}{"forwardIdentity": false},
+			},
+		},
+		{
 			name: "forward-token with required audiences",
 			flags: [][3]string{
 				{"forward-token", "true", "1"},

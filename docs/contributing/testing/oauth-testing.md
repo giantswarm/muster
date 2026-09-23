@@ -466,6 +466,13 @@ tokens but names muster's OAuth server). On a mock OAuth server,
 `omit_token_scope: true` leaves `scope` out of token responses, as Dex does
 (`profile: dex` implies it).
 
+`oauth.forward_identity: true` next to the pin sets `auth.forwardIdentity`:
+the session's ID token in `X-Muster-Id-Token` next to the pinned grant. A mock
+tool's `echo_headers` reports the headers it received and, for one that
+carries a JWT, its decoded claims under `received_header_claims.<header>`
+(signature unchecked), so a step can assert whose token a header held with
+`json_path` (`oauth-pinned-server-forwards-identity`).
+
 `oauth.pin_identity_path` pins the MCPServer under an identity other than the
 mock server's issuer -- that issuer URL with the path appended, the GitHub App
 shape (`https://github.com/apps/<slug>`) -- so two MCPServers at one mock

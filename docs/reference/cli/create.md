@@ -22,11 +22,14 @@ Authentication (remote server types only):
                                        without RFC 9728 metadata (requires --auth-type=oauth)
   --auth-scopes "<scopes>"             OAuth scopes for the pinned issuer (space-separated)
   --forward-token                      Forward the session's ID token for SSO (implies oauth)
+  --forward-identity                   Also send the session's ID token in X-Muster-Id-Token,
+                                       next to the pinned grant (requires --auth-issuer)
   --required-audiences <a1,a2>         Extra audiences to request for the forwarded token
 
   muster create mcpserver my-oauth-server --type=streamable-http --url=https://api.example.com/mcp --auth-type=oauth
   muster create mcpserver my-pinned-server --type=streamable-http --url=https://api.example.com/mcp --auth-type=oauth --auth-issuer=https://auth.example.com --auth-scopes="openid profile"
   muster create mcpserver my-sso-server --type=streamable-http --url=https://mcp.example.com/mcp --forward-token --required-audiences=dex-k8s-authenticator
+  muster create mcpserver my-two-hats-server --type=streamable-http --url=https://mcp.example.com/mcp --auth-type=oauth --auth-issuer=https://github.com/login/oauth --forward-identity --required-audiences=dex-k8s-authenticator
 
 Note: The aggregator server must be running (use 'muster serve') before using these commands.
 

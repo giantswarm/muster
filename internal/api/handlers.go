@@ -323,7 +323,8 @@ func GetMCPServerManager() MCPServerManagerHandler {
 var ErrNoMCPServerManager = errors.New("MCPServer manager not registered")
 
 // CollectRequiredAudiences collects all unique required audiences from MCPServers
-// that have forwardToken: true configured. This is used to determine which
+// that are sent the session's ID token: forwardToken: true, or forwardIdentity:
+// true next to a pinned authorization server. This is used to determine which
 // cross-client audiences to request from Dex during OAuth authentication.
 //
 // When users authenticate to muster, the OAuth flow requests tokens with these
@@ -363,8 +364,8 @@ func CollectRequiredAudiences(ctx context.Context) ([]string, error) {
 	audienceSet := make(map[string]struct{})
 
 	for _, server := range servers {
-		// Only consider servers with forwardToken: true
-		if server.Auth == nil || !server.Auth.ForwardToken {
+		// Only consider servers the session's ID token is forwarded to
+		if server.Auth == nil || (!server.Auth.ForwardToken && !server.Auth.ForwardsIdentity()) {
 			continue
 		}
 

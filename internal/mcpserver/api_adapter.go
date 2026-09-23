@@ -106,6 +106,7 @@ func convertCRDAuthToAPI(src *musterv1alpha1.MCPServerAuth) *api.MCPServerAuth {
 	auth := &api.MCPServerAuth{
 		Type:              src.Type,
 		ForwardToken:      src.ForwardToken,
+		ForwardIdentity:   src.ForwardIdentity,
 		RequiredAudiences: src.RequiredAudiences,
 		SigV4:             convertCRDSigV4ToAPI(src.SigV4),
 	}
@@ -145,6 +146,7 @@ func convertAPIAuthToCRD(src *api.MCPServerAuth) *musterv1alpha1.MCPServerAuth {
 	auth := &musterv1alpha1.MCPServerAuth{
 		Type:              src.Type,
 		ForwardToken:      src.ForwardToken,
+		ForwardIdentity:   src.ForwardIdentity,
 		RequiredAudiences: src.RequiredAudiences,
 		SigV4:             convertAPISigV4ToCRD(src.SigV4),
 	}
@@ -590,10 +592,14 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 					api.SchemaKeyType:        string(api.ArgTypeBoolean),
 					api.SchemaKeyDescription: "Enable SSO token forwarding (oauth only)",
 				},
+				"forwardIdentity": map[string]interface{}{
+					api.SchemaKeyType:        string(api.ArgTypeBoolean),
+					api.SchemaKeyDescription: "Send the session's ID token in the X-Muster-Id-Token header next to the pinned grant (needs type oauth and authorizationServer); like forwardToken, the token is not audience-scoped to the server",
+				},
 				"requiredAudiences": map[string]interface{}{
 					api.SchemaKeyType:        string(api.ArgTypeArray),
 					api.SchemaKeyItems:       map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeString)},
-					api.SchemaKeyDescription: "Additional audiences to request from IdP for token forwarding (e.g., dex-k8s-authenticator for Kubernetes OIDC)",
+					api.SchemaKeyDescription: "Additional audiences to request from IdP for token or identity forwarding (e.g., dex-k8s-authenticator for Kubernetes OIDC)",
 				},
 				"authorizationServer": map[string]interface{}{
 					api.SchemaKeyType:        string(api.ArgTypeObject),
@@ -1193,6 +1199,9 @@ func (a *Adapter) validateMCPServer(server *musterv1alpha1.MCPServer) error {
 	}
 	auth := convertCRDAuthToAPI(server.Spec.Auth)
 	if err := api.ValidateAuthorizationServer(auth); err != nil {
+		return err
+	}
+	if err := api.ValidateForwardIdentity(auth); err != nil {
 		return err
 	}
 	return api.ValidateSigV4(server.Spec.Type, auth)

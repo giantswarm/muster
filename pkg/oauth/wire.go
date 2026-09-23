@@ -9,6 +9,11 @@ const (
 	SchemeBearer = "Bearer"
 )
 
+// HeaderMusterIDToken carries the session's upstream ID token to an MCPServer
+// with spec.auth.forwardIdentity, next to the pinned grant in Authorization.
+// Servers read it by this name: it must not be renamed.
+const HeaderMusterIDToken = "X-Muster-Id-Token" //nolint:gosec // G101: a header name, not a credential
+
 // Token-endpoint form field names (RFC 6749 §4 + RFC 7636 PKCE + RFC 8693).
 const (
 	FormFieldGrantType     = "grant_type"

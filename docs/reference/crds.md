@@ -131,13 +131,14 @@ the MCP server as its own workload and register it with `streamable-http` or
 |-------|------|----------|-------------|-------------|
 | `type` | `string` | No | Authentication type | Must be `oauth` or `none` |
 | `forwardToken` | `boolean` | No | Forward muster's ID token for SSO | Default: `false` |
-| `requiredAudiences` | `[]string` | No | Additional audiences to request from IdP for SSO | Used with `forwardToken` or `tokenExchange` |
+| `forwardIdentity` | `boolean` | No | Send the session's ID token in the `X-Muster-Id-Token` header next to the pinned grant in `Authorization` | Default: `false`; requires `type: oauth` and `authorizationServer` |
+| `requiredAudiences` | `[]string` | No | Additional audiences to request from IdP for SSO | Used with `forwardToken`, `forwardIdentity` or `tokenExchange` |
 | `tokenExchange` | `TokenExchangeConfig` | No | RFC 8693 token exchange for cross-cluster SSO | See below |
 | `authorizationServer` | `MCPServerAuthAuthorizationServer` | No | Pins the OAuth authorization server when the MCP server publishes no RFC 9728 metadata; with endpoints, a pre-registered client and a grant scope it describes one muster cannot discover or register with (GitHub) | See below |
 
 **Note on `requiredAudiences`**: When using SSO (token forwarding or token exchange) with downstream servers that require specific audience claims (e.g., Kubernetes OIDC authentication), specify the required audiences here.
 
-- **Token Forwarding** (`forwardToken: true`): muster requests these audiences from its upstream IdP (e.g., Dex) using cross-client scopes (`audience:server:client_id:<audience>`). The resulting multi-audience token is forwarded to downstream servers. Required audiences are collected at muster startup - if you add MCPServers with new audiences after users have authenticated, they must re-authenticate.
+- **Token and Identity Forwarding** (`forwardToken: true`, `forwardIdentity: true`): muster requests these audiences from its upstream IdP (e.g., Dex) using cross-client scopes (`audience:server:client_id:<audience>`). The resulting multi-audience token is forwarded to downstream servers. Required audiences are collected at muster startup - if you add MCPServers with new audiences after users have authenticated, they must re-authenticate.
 - **Token Exchange** (`tokenExchange.enabled: true`): The audiences are appended as cross-client scopes to the token exchange request to the remote IdP. This ensures the exchanged token contains the audiences needed by the downstream server on the remote cluster.
 
 Example: `requiredAudiences: ["dex-k8s-authenticator"]`.
@@ -408,6 +409,38 @@ The forwarded token is audience-scoped to muster's resource identifier, not to t
 Downstream servers must be configured to trust muster's client ID:
 - **mcp-kubernetes**: Set `oauth.trustedAudiences: ["muster-client"]` in Helm values
 - **inboxfewer**: Set `oauthSecurity.trustedAudiences: ["muster-client"]` in Helm values
+
+#### Pinned Server that also receives the person's ID token
+```yaml
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: two-hats
+  namespace: default
+spec:
+  type: streamable-http
+  url: "https://two-hats.example.com/mcp"
+  auth:
+    type: oauth
+    authorizationServer:          # the grant in Authorization
+      issuer: "https://github.com/login/oauth"
+      scopes: "repo"
+    forwardIdentity: true         # the session's ID token in X-Muster-Id-Token
+    requiredAudiences:
+      - "dex-k8s-authenticator"
+```
+
+A server that acts for the person on two systems needs two of their credentials: the grant of its pinned authorization server for one (a GitHub App user token, say), and the person's own identity for calls back through muster for the other (their Kubernetes access). `forwardIdentity: true` gives it both on one registration:
+
+- `Authorization` carries the pinned grant, exactly as without the field.
+- `X-Muster-Id-Token` carries the session's upstream ID token: the token a `forwardToken` server would receive in `Authorization`. It is read on every request, so a refreshed token is sent on the next call.
+- A session without an upstream ID token sends no `X-Muster-Id-Token`; a server without the field never receives it.
+- `requiredAudiences` are requested at login as for a `forwardToken` server, so the forwarded ID token carries them.
+- Changing the field resets the sessions' connections to the server, as a change of `forwardToken` does.
+
+The CRD rejects the field without `type: oauth` and `authorizationServer`; filesystem mode and `core_mcpserver_validate` run the same check. `forwardToken` stays mutually exclusive with `authorizationServer`.
+
+The forwarded ID token is not audience-scoped to the server, as with `forwardToken`: the same token is accepted by every backend that trusts its issuer and audiences, so a `forwardIdentity` server must be trusted as much as a `forwardToken` backend.
 
 #### Cross-Cluster SSO with Token Exchange (RFC 8693)
 ```yaml

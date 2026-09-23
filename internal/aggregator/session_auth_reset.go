@@ -14,11 +14,12 @@ import (
 // changed from previous to current in a way that invalidates the connections
 // live sessions made under previous, and names the field that changed.
 //
-// A session's connection to a server is made from one credential the
+// A session's connection to a server is made from the credentials the
 // configuration selects: the session's forwarded login token (forwardToken),
 // a token exchanged for it (tokenExchange, with its endpoint, connector and
 // client), or a grant from the pinned authorization server (issuer, endpoints,
-// expected issuer, grant scope, client Secret, scopes). When that selection
+// expected issuer, grant scope, client Secret, scopes), with or without the
+// login token next to it (forwardIdentity). When that selection
 // changes, the connections and the "authenticated" marks the sessions hold
 // describe a credential the server no longer accepts; they have to go, or
 // every session keeps a Connected status whose calls fail (#1276). A first
@@ -32,6 +33,8 @@ func sessionAuthInvalidated(previous, current *api.MCPServerAuth) (bool, string)
 	switch {
 	case prev.ForwardToken != cur.ForwardToken:
 		return true, "forwardToken"
+	case prev.ForwardIdentity != cur.ForwardIdentity:
+		return true, "forwardIdentity"
 	case !slices.Equal(prev.RequiredAudiences, cur.RequiredAudiences):
 		return true, "requiredAudiences"
 	case !sameTokenExchange(prev.TokenExchange, cur.TokenExchange):

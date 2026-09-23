@@ -42,6 +42,10 @@ type DynamicAuthClient struct {
 	// why Authorization is never among them.
 	headers map[string]string
 
+	// headerFunc, when set, adds headers computed per request, after the
+	// OAuth handler's bearer; see WithHeaderFunc.
+	headerFunc transport.HTTPHeaderFunc
+
 	// onAuthLost, when set, is invoked once when the connection's
 	// authentication is observed lost (see authLossDetector). Immutable after
 	// construction; set via WithAuthLossHandler.
@@ -63,6 +67,17 @@ func (c *DynamicAuthClient) WithMeta(meta map[string]string) *DynamicAuthClient 
 // by the handler's bearer anyway.
 func (c *DynamicAuthClient) WithHeaders(headers map[string]string) *DynamicAuthClient {
 	c.headers = headers
+	return c
+}
+
+// WithHeaderFunc sets a function whose headers are added to every request,
+// resolved per request so a value that changes over the connection's life (the
+// session's ID token of spec.auth.forwardIdentity) is current on each call. The
+// headers are set after the OAuth handler's bearer, so the function must not
+// return Authorization. A nil function adds nothing. Returns the client so a
+// construction site reads as one expression.
+func (c *DynamicAuthClient) WithHeaderFunc(fn transport.HTTPHeaderFunc) *DynamicAuthClient {
+	c.headerFunc = fn
 	return c
 }
 
@@ -159,6 +174,9 @@ func (c *DynamicAuthClient) connectLocked(ctx context.Context) error {
 	if len(c.headers) > 0 {
 		opts = append(opts, transport.WithHTTPHeaders(c.headers))
 		logging.Debug("DynamicAuthClient", "Configured %d definition headers", len(c.headers))
+	}
+	if c.headerFunc != nil {
+		opts = append(opts, transport.WithHTTPHeaderFunc(c.headerFunc))
 	}
 
 	// The OAuth handler is separate from the transport's HTTP client, so a
