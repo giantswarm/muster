@@ -1853,6 +1853,11 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 								logger.Debug("🔐 Enabling token forwarding for MCPServer %s\n", mcpServer.Name)
 							}
 						}
+						// oauth.forward_identity adds auth.forwardIdentity: the session's ID
+						// token next to the pinned grant (needs pin_authorization_server).
+						if forwardIdentity, ok := oauthConfig["forward_identity"].(bool); ok && forwardIdentity {
+							authConfig["forwardIdentity"] = true
+						}
 
 						// If oauth.token_exchange is specified, add auth.tokenExchange to the CRD
 						// This enables SSO via RFC 8693 token exchange for cross-cluster SSO

@@ -49,6 +49,9 @@ func TestSessionAuthInvalidated(t *testing.T) {
 		{"token exchange endpoint changed", exchange("https://dex.example.com/token"), exchange("https://dex2.example.com/token"), true, "tokenExchange"},
 		{"token exchange unchanged", exchange("https://dex.example.com/token"), exchange("https://dex.example.com/token"), false, ""},
 		{"required audiences changed", forward, &api.MCPServerAuth{Type: "oauth", ForwardToken: true, RequiredAudiences: []string{"kubernetes"}}, true, "requiredAudiences"},
+		{"forwardIdentity added to a pin", pin("https://as.example.com", "subject", nil), withForwardIdentity(pin("https://as.example.com", "subject", nil)), true, "forwardIdentity"},
+		{"forwardIdentity removed from a pin", withForwardIdentity(pin("https://as.example.com", "subject", nil)), pin("https://as.example.com", "subject", nil), true, "forwardIdentity"},
+		{"unchanged forwardIdentity", withForwardIdentity(pin("https://as.example.com", "subject", nil)), withForwardIdentity(pin("https://as.example.com", "subject", nil)), false, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -243,4 +246,10 @@ func TestSSOTracker_ClearServer(t *testing.T) {
 	assert.False(t, tracker.HasSSOFailed("bob", "svc"))
 	assert.True(t, tracker.HasSSOFailed("alice", "other"))
 	assert.True(t, tracker.MarkSSOPendingIfNotPending("carol", "svc"), "the pending slot is free again")
+}
+
+// withForwardIdentity sets spec.auth.forwardIdentity on an auth configuration.
+func withForwardIdentity(auth *api.MCPServerAuth) *api.MCPServerAuth {
+	auth.ForwardIdentity = true
+	return auth
 }

@@ -127,6 +127,46 @@ func TestCollectRequiredAudiences(t *testing.T) {
 			expected: []string{"dex-k8s-authenticator"},
 		},
 		{
+			name: "a pinned server with forwardIdentity contributes its audiences like a forwardToken server",
+			setup: func() {
+				pin := &MCPServerAuthAuthorizationServer{Issuer: "https://github.com/login/oauth"}
+				RegisterMCPServerManager(&mockMCPServerManager{
+					listMCPServersFn: func() ([]MCPServerInfo, error) {
+						return []MCPServerInfo{
+							{
+								Name: "forwards-identity",
+								Auth: &MCPServerAuth{
+									Type:                MCPServerAuthTypeOAuth,
+									AuthorizationServer: pin,
+									ForwardIdentity:     true,
+									RequiredAudiences:   []string{"dex-k8s-authenticator"},
+								},
+							},
+							{
+								Name: "pinned-only",
+								Auth: &MCPServerAuth{
+									Type:                MCPServerAuthTypeOAuth,
+									AuthorizationServer: pin,
+									RequiredAudiences:   []string{"pinned-only-audience"},
+								},
+							},
+							{
+								// Invalid: no pin, so the ID token is never sent and
+								// its audiences are not requested.
+								Name: "unpinned-forward-identity",
+								Auth: &MCPServerAuth{
+									Type:              MCPServerAuthTypeOAuth,
+									ForwardIdentity:   true,
+									RequiredAudiences: []string{"unpinned-audience"},
+								},
+							},
+						}, nil
+					},
+				})
+			},
+			expected: []string{"dex-k8s-authenticator"},
+		},
+		{
 			name: "multiple servers with forwardToken returns deduplicated sorted audiences",
 			setup: func() {
 				RegisterMCPServerManager(&mockMCPServerManager{

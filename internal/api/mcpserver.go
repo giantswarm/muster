@@ -111,6 +111,9 @@ type MCPServerFamily struct {
 //     remote cluster's Dex. Enable with TokenExchange config. Requires the remote Dex
 //     to have an OIDC connector configured for the local cluster's Dex.
 //
+// A server pinned to its own authorization server can additionally receive the
+// session's ID token next to that grant: ForwardIdentity.
+//
 // AWS SigV4 (Type: MCPServerAuthTypeSigV4) is not one of them: it signs as
 // muster's own machine identity rather than relaying the caller's, so it uses
 // the shared global client instead of the session-scoped machinery.
@@ -133,6 +136,15 @@ type MCPServerAuth struct {
 	//   - You want users to authenticate once to muster for all downstream access
 	ForwardToken bool `yaml:"forwardToken,omitempty" json:"forwardToken,omitempty"`
 
+	// ForwardIdentity sends the session's upstream ID token -- the token
+	// ForwardToken would put in Authorization -- in the X-Muster-Id-Token
+	// header (pkg/oauth.HeaderMusterIDToken) on every request, next to the
+	// pinned grant Authorization keeps carrying. Only valid with Type "oauth"
+	// and AuthorizationServer set (ValidateForwardIdentity). The forwarded
+	// token is not audience-scoped to the server, as with ForwardToken. See
+	// the v1alpha1 CRD field of the same name for full semantics.
+	ForwardIdentity bool `yaml:"forwardIdentity,omitempty" json:"forwardIdentity,omitempty"`
+
 	// RequiredAudiences specifies additional audience(s) that the SSO token should contain.
 	// This is used with both Token Forwarding and Token Exchange SSO methods.
 	//
@@ -141,7 +153,8 @@ type MCPServerAuth struct {
 	//   requiredAudiences:
 	//     - "dex-k8s-authenticator"
 	//
-	// For Token Forwarding (forwardToken: true):
+	// For Token Forwarding (forwardToken: true) and Identity Forwarding
+	// (forwardIdentity: true):
 	//   - At session initialization, muster collects all requiredAudiences from MCPServers
 	//   - These are requested from muster's IdP using cross-client scopes
 	//   - The resulting multi-audience ID token is forwarded to downstream servers
@@ -178,6 +191,10 @@ type MCPServerAuth struct {
 // MCPServerAuthTypeSigV4 is the MCPServerAuth.Type value that selects AWS
 // Signature Version 4 request signing.
 const MCPServerAuthTypeSigV4 = "sigv4"
+
+// MCPServerAuthTypeOAuth is the MCPServerAuth.Type value that selects OAuth
+// 2.0/OIDC authentication.
+const MCPServerAuthTypeOAuth = "oauth"
 
 // MCPServerSigV4 configures AWS Signature Version 4 signing for an MCP server.
 // See the v1alpha1 CRD type of the same name for full semantics.
@@ -460,6 +477,33 @@ func (a *MCPServerAuth) UsesSessionAuth() bool {
 		return true
 	}
 	return a.TokenExchange != nil && a.TokenExchange.Enabled
+}
+
+// ForwardsIdentity reports whether the server receives the session's upstream
+// ID token in the X-Muster-Id-Token header next to its pinned grant: the field
+// is set on the one configuration it is valid for (ValidateForwardIdentity).
+// A configuration that fails the validation never sends the token, whichever
+// path let it through.
+func (a *MCPServerAuth) ForwardsIdentity() bool {
+	return a != nil && a.ForwardIdentity && ValidateForwardIdentity(a) == nil
+}
+
+// ValidateForwardIdentity reports whether spec.auth.forwardIdentity is usable
+// with the rest of the auth configuration: it adds the session's ID token to
+// the grant of a pinned authorization server, so it needs type "oauth" and an
+// authorizationServer pin.
+//
+// The CRD states the same rule in CEL, which only runs in Kubernetes mode.
+// This is the definition filesystem mode and core_mcpserver_validate run;
+// keep the two in step, as ValidateSigV4 does.
+func ValidateForwardIdentity(auth *MCPServerAuth) error {
+	if auth == nil || !auth.ForwardIdentity {
+		return nil
+	}
+	if auth.Type != MCPServerAuthTypeOAuth || auth.AuthorizationServer == nil {
+		return fmt.Errorf("auth.forwardIdentity sends the session's ID token next to a pinned grant, so it needs auth.type %q and auth.authorizationServer", MCPServerAuthTypeOAuth)
+	}
+	return nil
 }
 
 // ValidateMetaAllowed reports whether spec.meta is usable with the given

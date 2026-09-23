@@ -73,7 +73,9 @@ type ToolConfig struct {
 	// EchoHeaders names request headers the tool reports back, as
 	// `received_headers` next to its response: what the backend saw on the
 	// HTTP request that carried the call, so a scenario can assert the
-	// definition's spec.headers reach it on a session's connection.
+	// definition's spec.headers reach it on a session's connection. A header
+	// that carries a JWT is also reported decoded, as
+	// `received_header_claims.<name>` (sub, iss, aud; signature unchecked).
 	EchoHeaders []string `yaml:"echo_headers,omitempty"`
 	// Annotations are the MCP tool annotations the mock declares, so scenarios
 	// can exercise what muster does with a downstream server's read-only /

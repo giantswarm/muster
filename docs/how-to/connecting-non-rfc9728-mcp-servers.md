@@ -309,12 +309,27 @@ the person's ID token as `subject_token` and `audience=github`, and receives:
   everywhere") revokes the grant for the relying party as well: its next
   exchange answers `invalid_target`.
 
+## The person's ID token next to the pinned grant
+
+A server that also calls back through muster as the person -- their Kubernetes
+access on each installation, say -- needs the session's ID token besides the
+pinned grant. Set `auth.forwardIdentity: true` next to `authorizationServer`:
+`Authorization` keeps the pinned grant, and every request carries the
+session's upstream ID token (the one a `forwardToken` server would receive) in
+the `X-Muster-Id-Token` header, read per request so a refreshed token is used.
+A session without an upstream ID token sends no header. `requiredAudiences` of
+the server are requested at login, so the forwarded token carries them. As
+with `forwardToken`, the token is not audience-scoped to the server: trust the
+server as much as a `forwardToken` backend. See the
+[MCPServer reference](../reference/crds.md#mcpserverauth-fields).
+
 ## When not to use this
 
 `authorizationServer` is mutually exclusive with `forwardToken: true` and
 `tokenExchange.enabled: true`. The CRD admission rules will reject any
 `MCPServer` that combines them — those features have their own issuer
-configuration.
+configuration. For the session's ID token next to the pinned grant, use
+`forwardIdentity` (above).
 
 The override does **not** change the [RFC 8707][rfc8707] `resource` parameter
 sent on auth/token requests. It remains the configured MCP server URL with the

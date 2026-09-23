@@ -134,7 +134,8 @@ func establishConnection(
 	// selector) does so at the handshake of this very connection.
 	var meta, headers map[string]string
 	var timeout time.Duration
-	if info := registeredServerInfo(a, serverName); info != nil {
+	info := registeredServerInfo(a, serverName)
+	if info != nil {
 		meta, headers, timeout = info.Meta, internalmcp.DefinitionHeaders(info.Headers), info.Timeout
 	}
 
@@ -144,6 +145,7 @@ func establishConnection(
 		clientID, clientSecret := oauthHandler.GetClientCredentialsForIssuer(ctx, issuer)
 		client = internalmcp.NewDynamicAuthClient(serverURL, tokenStore, scope, clientID, clientSecret).
 			WithHeaders(headers).
+			WithHeaderFunc(a.identityHeaderFunc(sessionID, info)).
 			WithMeta(meta).
 			WithTimeout(timeout).
 			WithAuthLossHandler(a.makeSessionAuthLossHandler(sessionID, serverName))
