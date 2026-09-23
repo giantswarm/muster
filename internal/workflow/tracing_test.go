@@ -86,3 +86,27 @@ func TestStartStepSpan(t *testing.T) {
 		})
 	}
 }
+
+func TestStartStepSpan_DropsRequestSpan(t *testing.T) {
+	exp := setupTracer(t)
+
+	ctx, request := otel.Tracer("test").Start(t.Context(), "request")
+	ctx = observability.ContextWithRequestSpan(ctx, request)
+
+	stepCtx, end := startStepSpan(ctx, "deploy-app", "apply", "x_kubernetes_apply")
+	observability.AnnotateDownstreamCall(stepCtx, "kubernetes", "x_kubernetes_apply", "apply")
+	end(false, nil)
+	request.End()
+
+	spans := exp.GetSpans()
+	require.Len(t, spans, 2)
+	for _, sp := range spans {
+		var labelled bool
+		for _, kv := range sp.Attributes {
+			if string(kv.Key) == observability.AttrMCPServerName {
+				labelled = true
+			}
+		}
+		require.Equal(t, sp.Name == "workflow.step", labelled, sp.Name)
+	}
+}

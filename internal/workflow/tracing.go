@@ -23,11 +23,14 @@ import (
 //   - workflow.step.id     — the step ID from the definition
 //   - mcp.tool.name        — the tool name being dispatched
 //
+// The step context carries no request span: the workflow's steps dispatch
+// to several backends, and none of them labels the workflow's request span.
+//
 // The returned end function records the final outcome on the span: any
 // non-nil err sets StatusError; a tool result with IsError sets the same.
 func startStepSpan(ctx context.Context, workflowName, stepID, toolName string) (context.Context, func(isError bool, err error)) {
 	tracer := otel.Tracer(observability.TracerName)
-	ctx, span := tracer.Start(ctx, "workflow.step",
+	ctx, span := tracer.Start(observability.WithoutRequestSpan(ctx), "workflow.step",
 		trace.WithSpanKind(trace.SpanKindInternal),
 		trace.WithAttributes(
 			attribute.String("workflow.name", workflowName),
