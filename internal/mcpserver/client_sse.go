@@ -8,13 +8,10 @@ import (
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/pkg/logging"
-	"github.com/giantswarm/muster/v5/pkg/observability"
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
-	mcpotel "github.com/mark3labs/mcp-go/otel"
-	"go.opentelemetry.io/otel"
 )
 
 // SSEClient implements the MCPClient interface using SSE transport.
@@ -83,7 +80,7 @@ func (c *SSEClient) Initialize(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create SSE client: %w", err)
 	}
-	mcpotel.WithClientTracing(otel.Tracer(observability.TracerName))(mcpClient)
+	withClientTracing(mcpClient)
 
 	if err := mcpClient.Start(ctx); err != nil {
 		// Check if this is a 401 authentication error

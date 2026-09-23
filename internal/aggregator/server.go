@@ -23,6 +23,7 @@ import (
 	"github.com/giantswarm/muster/v5/internal/server"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
+	"github.com/giantswarm/muster/v5/pkg/observability"
 
 	"github.com/coreos/go-systemd/v22/activation"
 	oauth "github.com/giantswarm/mcp-oauth"
@@ -1930,6 +1931,7 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 			logging.DebugWithAttrs("Aggregator", "Tool found in capability cache",
 				slog.String("tool", toolName), slog.String("server", sessionServerName))
 			start := time.Now()
+			ctx := observability.AnnotateDownstreamCall(ctx, sessionServerName, toolName, originalName)
 			res, err := a.callToolWithTokenExchangeRetry(ctx, sessionServerName, originalName, args, sessionID, sub)
 			a.downstreamMetrics.record(ctx, sessionServerName, toolName, start, res, err)
 			return res, err
@@ -2020,6 +2022,7 @@ func (a *AggregatorServer) familyToolUnavailableError(ctx context.Context, toolN
 func (a *AggregatorServer) dispatchResolvedTool(ctx context.Context, toolName, serverName, originalName string, args map[string]any, sessionID, sub string) (res *mcp.CallToolResult, err error) {
 	start := time.Now()
 	defer func() { a.downstreamMetrics.record(ctx, serverName, toolName, start, res, err) }()
+	ctx = observability.AnnotateDownstreamCall(ctx, serverName, toolName, originalName)
 	serverInfo, exists := a.registry.GetServerInfo(serverName)
 	if !exists || serverInfo == nil {
 		return nil, fmt.Errorf("server not found: %s", serverName)

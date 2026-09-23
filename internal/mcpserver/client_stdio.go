@@ -8,12 +8,9 @@ import (
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/pkg/logging"
-	"github.com/giantswarm/muster/v5/pkg/observability"
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
-	mcpotel "github.com/mark3labs/mcp-go/otel"
-	"go.opentelemetry.io/otel"
 )
 
 // DefaultStdioInitTimeout is the default timeout for stdio client initialization.
@@ -61,7 +58,7 @@ func (c *StdioClient) Initialize(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create stdio client: %w", err)
 	}
-	mcpotel.WithClientTracing(otel.Tracer(observability.TracerName))(mcpClient)
+	withClientTracing(mcpClient)
 
 	logging.Debug("StdioClient", "Stdio client created, initializing MCP protocol for %s", c.command)
 

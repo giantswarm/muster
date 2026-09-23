@@ -7,25 +7,28 @@ can pivot between them.
 
 ## What muster contributes to a trace
 
-For every MCP tool call the aggregator emits two spans:
+For every MCP tool call that reaches a backend, muster emits three spans:
 
 ```
-  span: tool.<meta-tool>            (mcp-go middleware: call_tool, list_tools, …)
-    └── span: tool.<real-tool>      (CallToolInternal: x_kubernetes_list_pods, workflow_*, …)
+  span: mcp.tools/call     (Server, mcp-go: the inbound request)
+    └── span: tool.<tool>  (Internal, mcp-go: call_tool, x_kubernetes_list_pods, …)
+          └── span: mcp.tools/call  (Client, mcp-go: the request to the backend)
 ```
 
-The outer span comes from the middleware on `mcpserver.NewMCPServer`
-— only meta-tools (`call_tool`, `list_tools`, `describe_tool`) reach
-that layer. The inner span is opened inside `CallToolInternal` and
-carries the actual workload tool name. Both spans set
-`mcp.tool.name` and use `SpanKindInternal`.
+mcp-go opens all three spans. The attributes that name the call are:
 
-Anything downstream of `CallToolInternal` — a same-cluster backend MCP
-server, an in-line gateway, an external HTTPS upstream — appears as a
-sibling/child trace if it itself emits spans. W3C TraceContext +
-Baggage propagators are always installed (even when muster has no OTLP
-endpoint configured), so inbound `traceparent` headers propagate to
-outbound calls regardless of muster's export configuration.
+| Attribute | Spans | Value |
+|---|---|---|
+| `mcp.tool.name` | server, internal | The tool the client invoked, for example `call_tool` |
+| `muster.downstream.tool.name` | server, internal | The aggregator-exposed name of the tool that muster dispatched, for example `x_kubernetes_list_pods` |
+| `mcpserver.name` | server, internal, client | The MCPServer that the call reached |
+| `gen_ai.tool.name` | client | The tool name that the backend knows, for example `list_pods` |
+
+`gen_ai.tool.name` is the key of the OpenTelemetry GenAI semantic conventions for MCP. The conventions have no key for an MCP server name, so muster uses `mcpserver.name`, the same key as its metrics. `mcpserver.name` is also on the client spans of the handshake that a call opens.
+
+A workflow step opens a `workflow.step` span, and the step dispatch labels that span. The server span of a workflow call does not get the downstream attributes, because the steps reach more than one backend.
+
+W3C TraceContext and Baggage propagators are always installed, also when muster has no OTLP endpoint. Thus inbound `traceparent` headers propagate to the backend calls.
 
 ## Configuration
 
@@ -177,11 +180,13 @@ The line carries the final post-handler outcome the client sees.
 
 ## Query catalog
 
-### Tempo — find traces for a single tool name
+### Tempo — find traces for a single backend tool
 
 ```
-{ resource.service.name = "muster" && name = "tool.x_kubernetes_list_pods" }
+{ resource.service.name = "muster" && span.mcpserver.name = "kubernetes" && span.gen_ai.tool.name = "list_pods" }
 ```
+
+This query also finds calls made through `call_tool`. To get the server spans of those calls, filter on `span.muster.downstream.tool.name = "x_kubernetes_list_pods"`.
 
 ### Mimir — tool-call rate by outcome
 
@@ -226,10 +231,11 @@ After deploying with `muster.observability.otel.endpoint` set:
 
 1. Trigger an MCP tool call from a Claude Code session (any
    `x_kubernetes_*` or `x_prom_*` tool).
-2. Tempo: search by `service.name=muster`. Expect a
-   `tool.<meta-tool>` parent span with a child `tool.<real-tool>`
-   span. Downstream spans (if the backend emits any) join via
-   `traceparent`.
+2. Tempo: search by `service.name=muster`. Expect an
+   `mcp.tools/call` server span, a `tool.<tool>` child and an
+   `mcp.tools/call` client span with `gen_ai.tool.name` and
+   `mcpserver.name`. Backend spans (if the backend emits any) join
+   through `traceparent`.
 3. Mimir:
    `sum(rate(muster_tool_calls_total{outcome="ok"}[1m])) by (tool)` —
    non-zero rate for the called meta-tool.
