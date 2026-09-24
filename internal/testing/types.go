@@ -129,10 +129,12 @@ type TestScenario struct {
 	// PreConfiguration defines muster instance setup
 	PreConfiguration *MusterPreConfiguration `yaml:"pre_configuration,omitempty"`
 	// InstanceLogs asserts on the stdout/stderr the muster serve instance
-	// produced over the whole scenario. It is evaluated once, after the last
-	// step and cleanup step ran, and is the only expectation kind that sees
-	// the instance side of a behavior -- e.g. that a credential never reached
-	// the logs.
+	// produced over the whole scenario, and is the only expectation kind that
+	// sees the instance side of a behavior -- e.g. that a credential never
+	// reached the logs. It is evaluated once, after the last step and cleanup
+	// step ran; while a contains or occurrences expectation is unmet the
+	// runner first reads up to ten more seconds of output, so a line logged
+	// by work a step started in the background is seen.
 	InstanceLogs *InstanceLogExpectation `yaml:"instance_logs,omitempty"`
 }
 
