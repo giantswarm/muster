@@ -5,7 +5,7 @@
 # workflow in .circleci/config.yml merges into this file at pipeline runtime.
 version: 2.1
 orbs:
-  architect: giantswarm/architect@10.10.0
+  architect: giantswarm/architect@10.11.0
 
 workflows:
   build:
@@ -143,13 +143,15 @@ workflows:
         persist_chart_archive: true
         # app-build-suite fails a chart whose gsoci image references the registry
         # does not carry. build-chart runs before this pipeline pushes its own
-        # image (a branch without branchPublish never pushes it), so the check is
-        # left to push-chart and push-chart-release: they publish the chart,
-        # require the image job and run app-build-suite again.
+        # image (a branch without branchPublish never pushes it), so that image
+        # at the version the chart is stamped with is exempt here; every other
+        # reference, the mirrored third-party images included, is resolved.
+        # push-chart and push-chart-release require the image job and resolve
+        # all of them.
         pre-steps:
         - run:
-            name: Leave the image reference check to the chart push
-            command: echo 'export ABS_DISABLE_HELM_IMAGE_REFERENCE_VALIDATOR=true' >> "$BASH_ENV"
+            name: Exempt this pipeline's own image from the image reference check
+            command: echo 'export ABS_HELM_IMAGE_REFERENCE_VALIDATOR_OWN_IMAGE=gsoci.azurecr.io/giantswarm/muster' >> "$BASH_ENV"
         requires:
         - go-build
         filters:
