@@ -7,9 +7,10 @@
 # them a backend could sit Failed indefinitely with the error text right there
 # in status.lastError and nothing would say so.
 #
-# Only "Failed" is alerted on. "Awaiting Session" is the normal steady state
-# of a server served per session with the caller's identity (forwardToken,
-# tokenExchange) while no session is connected, "Auth Required" that of a
+# Of the states, only "Failed" is alerted on. "Awaiting Session" is the
+# normal steady state of a server served per session with the caller's
+# identity (forwardToken, tokenExchange) while no session is connected,
+# "Auth Required" that of a
 # server a person signs in to through muster, and every such server passes
 # through them after a muster restart, so alerting on either would be pure
 # noise. A per-session server whose token exchange is broken for every caller
@@ -34,6 +35,7 @@
 # rollouts in one day produced seven notifications for a backend that never
 # changed state.
 {{- $by := "cluster_id, installation, pipeline, provider, namespace, mcpserver_namespace, mcpserver_name" }}
+{{- $byServer := "cluster_id, installation, pipeline, provider, namespace, mcpserver_name" }}
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -89,6 +91,49 @@ spec:
           expr: |-
             sum by ({{ $by }}) (increase(muster_mcpserver_state_transitions_total{state="Failed"}[1h])) > 5
           for: 10m
+          labels:
+            area: platform
+            cancel_if_monitoring_agent_down: "true"
+            cancel_if_outside_working_hours: "false"
+            severity: notify
+            team: bumblebee
+            topic: muster
+        # A backend that reads Connected while its calls fail: the ratio of
+        # dispatches that ended in a Go error (transport failure, timeout,
+        # 5xx) among all dispatches to one MCPServer.
+        #
+        # muster_downstream_tool_calls, not muster_tool_calls: call_tool turns
+        # every backend error into an error result, so muster_tool_calls sees
+        # agent traffic as outcome="error_result", mixed with auth_required
+        # answers and bad arguments. Those are error_result here too and are
+        # left out; only outcome="error" counts.
+        #
+        # Grouped by MCPServer, not by tool: one tool that times out on heavy
+        # input is usually the caller's query, and per-tool series are too
+        # thin for a stable ratio. The 20-call floor keeps a single failure on
+        # an idle backend from paging.
+        #
+        # A Failed backend answers every dispatch with "server not connected",
+        # an outcome="error", and MusterMCPServerFailed already covers it. The
+        # unless clause keeps one broken backend from paging twice. The
+        # downstream series carry no mcpserver_namespace, so the clause joins
+        # on the name: two MCPServers of one name in different namespaces of
+        # one muster share the suppression.
+        - alert: MusterToolCallErrorRate
+          annotations:
+            description: '{{`{{ $value | humanizePercentage }} of the tool calls muster dispatched to MCPServer {{ $labels.mcpserver_name }} in the last 15m failed with a transport error or timeout, while the server is not Failed.`}}'
+            runbook_url: '{{`https://intranet.giantswarm.io/docs/support-and-ops/runbooks/muster-tool-call-errors/?INSTALLATION={{ $labels.installation }}&CLUSTER={{ $labels.cluster_id }}`}}'
+          expr: |-
+            (
+              sum by ({{ $byServer }}) (rate(muster_downstream_tool_calls_total{outcome="error"}[15m]))
+              /
+              sum by ({{ $byServer }}) (rate(muster_downstream_tool_calls_total[15m]))
+            ) > 0.25
+            and
+            sum by ({{ $byServer }}) (increase(muster_downstream_tool_calls_total[15m])) >= 20
+            unless on ({{ $byServer }})
+            max by ({{ $byServer }}) (muster_mcpserver_state{state="Failed"}) == 1
+          for: 15m
           labels:
             area: platform
             cancel_if_monitoring_agent_down: "true"
