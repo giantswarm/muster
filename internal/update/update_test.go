@@ -459,6 +459,9 @@ func TestRunReplacesTheExecutableOnceTheBundleVerifies(t *testing.T) {
 		assets:   map[int64][]byte{binaryID: []byte("new"), bundleID: []byte("its bundle")},
 	})
 	exe, _ := installed(t)
+	if err := os.Chmod(exe, 0o750); err != nil { //nolint:gosec // an executable
+		t.Fatal(err)
+	}
 	v := &acceptingValidator{}
 	newValidator = func() selfupdate.Validator { return v }
 
@@ -474,8 +477,24 @@ func TestRunReplacesTheExecutableOnceTheBundleVerifies(t *testing.T) {
 		t.Errorf("executable holds %q after the update", got)
 	}
 	if runtime.GOOS != "windows" {
-		if info, err := os.Stat(exe); err != nil || info.Mode()&0o111 == 0 {
-			t.Errorf("executable is not executable: %v %v", info.Mode(), err)
+		// The file keeps its mode, and the update leaves nothing beside it.
+		info, err := os.Stat(exe)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if mode := info.Mode().Perm(); mode != 0o750 {
+			t.Errorf("executable has mode %v, want it to keep -rwxr-x---", mode)
+		}
+		entries, err := os.ReadDir(filepath.Dir(exe))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(entries) != 1 {
+			var names []string
+			for _, e := range entries {
+				names = append(names, e.Name())
+			}
+			t.Errorf("%s holds %q, want only %s", filepath.Dir(exe), names, binaryName())
 		}
 	}
 	if !strings.Contains(out.String(), "Verified the signature and updated to "+latestV) {
