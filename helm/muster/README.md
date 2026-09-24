@@ -23,7 +23,7 @@ muster, the aggregating MCP server - one authenticated endpoint for every MCP se
 | image.registry | string | `"gsoci.azurecr.io"` |  |
 | image.repository | string | `"giantswarm/muster"` |  |
 | image.pullPolicy | string | `"IfNotPresent"` |  |
-| image.tag | string | `""` |  |
+| image.tag | string | `"0.0.0-canary-missing"` |  |
 | imagePullSecrets | list | `[]` |  |
 | nameOverride | string | `""` |  |
 | fullnameOverride | string | `""` |  |
