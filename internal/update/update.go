@@ -157,9 +157,11 @@ func Run(ctx context.Context, w io.Writer, checkOnly bool) error {
 		return fmt.Errorf("locating the running executable: %w", err)
 	}
 	_, _ = fmt.Fprintf(w, "Updating %s to %s...\n", exe, latest)
-	// Downloads the binary and its bundle, verifies, then replaces the file;
-	// a failed verification leaves it untouched.
-	if err := up.UpdateTo(ctx, rel, exe); err != nil {
+	// Downloads the binary and its bundle, verifies, then renames it over the
+	// file, symbolic links resolved, in a single step: a muster started
+	// meanwhile runs the old binary or the new one, and several updates may
+	// run at once. A failed verification leaves the file untouched.
+	if err := selfupdatecosign.Install(ctx, up, rel, exe); err != nil {
 		return fmt.Errorf("updating %s failed, it is unchanged: %w", exe, err)
 	}
 	_, _ = fmt.Fprintf(w, "Verified the signature and updated to %s.\n", latest)
@@ -170,7 +172,7 @@ func Run(ctx context.Context, w io.Writer, checkOnly bool) error {
 // (found is false when none has one). The updater comes back with the release
 // because the download has to go through the same source. With a validator,
 // the release must also carry the validator's bundle for that binary -- else
-// the error wraps selfupdate.ErrValidationAssetNotFound -- and UpdateTo checks
+// the error wraps selfupdate.ErrValidationAssetNotFound -- and Install checks
 // the download against it; nil asks for no bundle, for a caller that installs
 // nothing.
 func detect(ctx context.Context, validator selfupdate.Validator) (up *selfupdate.Updater, rel *selfupdate.Release, found bool, err error) {
