@@ -6,8 +6,10 @@
 # by helm/muster-crds/templates/crds.yaml. The loader merges `crds.annotations`
 # into each CRD's metadata.annotations. This chart always installs the CRDs —
 # there is no install toggle, because installing this chart IS how you install
-# the CRDs. The default annotation keeps the CRDs (and the MCPServer / Workflow
-# CRs that depend on them) around on `helm uninstall`.
+# the CRDs. The default annotation keeps the CRDs (and the MCPServer, Workflow
+# and WorkflowExecution resources that depend on them) around on
+# `helm uninstall`.
 crds:
-  annotations:
+  # -- Annotations merged into every CRD's `metadata.annotations`, next to the ones controller-gen writes. Any key; values are strings, as Kubernetes requires.
+  annotations:  # @schema additionalProperties: {type: string}
     helm.sh/resource-policy: keep

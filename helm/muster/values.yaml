@@ -453,6 +453,18 @@ muster:
       #     --from-literal=valkey-password=<your-valkey-password>
       existingSecret: ""
 
+      # A mark of the existing Secret's revision, rendered verbatim as the pod
+      # template's checksum/oauth-secret annotation. muster reads the Secret at
+      # start and never again, and the chart cannot read a Secret it does not
+      # render: change this value in the same change that rotates the Secret (a
+      # hash over the new data, a counter, a date) and the pod restarts onto
+      # the new credentials. A Flux HelmRelease can feed it from a Secret or
+      # ConfigMap key through a valuesFrom entry with targetPath. While it is
+      # empty, a rotation of the existing Secret alone leaves the running
+      # muster on the old values. With existingSecret empty the chart renders
+      # the Secret itself and the annotation is the SHA-256 of its data.
+      existingSecretChecksum: ""
+
       # Token storage configuration
       # In-memory storage is default but NOT recommended for production
       # Use Valkey for production deployments to enable:
@@ -521,6 +533,12 @@ muster:
           # Use an existing secret for Valkey password
           # The secret should contain key: valkey-password
           existingSecret: ""
+
+          # A mark of that Secret's revision, rendered verbatim as the pod
+          # template's checksum/valkey-secret annotation, so muster restarts
+          # when the password rotates; change it in the same change as the
+          # Secret. A password in the OAuth Secret needs no separate mark.
+          existingSecretChecksum: ""
 
           # Key in the secret containing the Valkey password
           secretKeyPassword: "valkey-password"

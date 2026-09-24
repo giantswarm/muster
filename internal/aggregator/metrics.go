@@ -106,7 +106,7 @@ func passthroughMiddleware() server.ToolHandlerMiddleware {
 // reconciler's muster_mcpserver_state metrics so the two join on the same
 // label (and sidestepping the Prometheus-Operator target-label rename a
 // bare "namespace"-style key would suffer, see mcpserver_state_metrics.go).
-const attrDownstreamServer = "mcpserver.name"
+const attrDownstreamServer = observability.AttrMCPServerName
 
 // downstreamMetrics records the downstream leg of a tool call: the dispatch
 // to a backend MCP server once (server, tool) resolution has happened.

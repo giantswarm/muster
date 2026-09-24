@@ -23,6 +23,7 @@ import (
 	"github.com/giantswarm/muster/v5/internal/server"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
+	"github.com/giantswarm/muster/v5/pkg/observability"
 
 	"github.com/coreos/go-systemd/v22/activation"
 	oauth "github.com/giantswarm/mcp-oauth"
@@ -169,6 +170,10 @@ type AggregatorServer struct {
 	// Maps user subjects to their MCP client session IDs for targeted notifications.
 	// Populated in sessionToolFilter, cleaned up via OnUnregisterSession hook.
 	subjectSessions *subjectSessionTracker
+
+	// bearerSessions ends each session keyed by a forwarded bearer when that
+	// bearer expires (bearer_session.go).
+	bearerSessions *bearerSessions
 
 	// eventFollows tracks active `muster events --follow` streams per MCP
 	// session so they can be cancelled when the session disconnects or starts a
@@ -648,6 +653,7 @@ func NewAggregatorServer(ctx context.Context, aggConfig AggregatorConfig, errorC
 		connPool:          NewSessionConnectionPool(DefaultConnectionPoolMaxAge),
 		ssoTracker:        newSSOTracker(),
 		subjectSessions:   newSubjectSessionTracker(),
+		bearerSessions:    newBearerSessions(),
 		eventFollows:      make(map[string]*eventFollow),
 		valkeyClient:      stores.valkeyClient,
 		valkeyKeyPrefix:   stores.keyPrefix,
@@ -1080,6 +1086,10 @@ func (a *AggregatorServer) Stop(ctx context.Context) error {
 
 	// Wait for all background routines to complete
 	a.wg.Wait()
+
+	if a.bearerSessions != nil {
+		a.bearerSessions.stop()
+	}
 
 	// Stop the reaper and drain the connection pool before deregistering
 	// servers so that pooled clients are closed cleanly.
@@ -1594,6 +1604,7 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 		_, _ = a.capabilityStore.Touch(ctx, sessionID)
 
 		sso := ssoSessionFromContext(ctx, sessionID)
+		a.bindBearerSession(sso)
 
 		logging.InfoWithAttrs("Aggregator", "SSO: onAuthenticated callback",
 			slog.Any("session", sso),
@@ -1930,6 +1941,7 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 			logging.DebugWithAttrs("Aggregator", "Tool found in capability cache",
 				slog.String("tool", toolName), slog.String("server", sessionServerName))
 			start := time.Now()
+			ctx := observability.AnnotateDownstreamCall(ctx, sessionServerName, toolName, originalName)
 			res, err := a.callToolWithTokenExchangeRetry(ctx, sessionServerName, originalName, args, sessionID, sub)
 			a.downstreamMetrics.record(ctx, sessionServerName, toolName, start, res, err)
 			return res, err
@@ -2020,6 +2032,7 @@ func (a *AggregatorServer) familyToolUnavailableError(ctx context.Context, toolN
 func (a *AggregatorServer) dispatchResolvedTool(ctx context.Context, toolName, serverName, originalName string, args map[string]any, sessionID, sub string) (res *mcp.CallToolResult, err error) {
 	start := time.Now()
 	defer func() { a.downstreamMetrics.record(ctx, serverName, toolName, start, res, err) }()
+	ctx = observability.AnnotateDownstreamCall(ctx, serverName, toolName, originalName)
 	serverInfo, exists := a.registry.GetServerInfo(serverName)
 	if !exists || serverInfo == nil {
 		return nil, fmt.Errorf("server not found: %s", serverName)
@@ -3175,12 +3188,14 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 		tokenStore := internalmcp.NewMusterTokenStore(sessionID, sub, issuer, oauthHandler)
 		clientID, clientSecret := oauthHandler.GetClientCredentialsForIssuer(ctx, issuer)
 		// The same client establishConnection builds at login: the server's
-		// spec.headers and spec.meta on every request and its spec.timeout as
-		// the budget of every operation, or a session that is already
+		// spec.headers, spec.meta and, with spec.auth.forwardIdentity, the
+		// session's ID token on every request and its spec.timeout as the
+		// budget of every operation, or a session that is already
 		// authenticated -- and whose pooled connection is gone -- would run
 		// its calls under the defaults the login path does not.
 		client = internalmcp.NewDynamicAuthClient(serverInfo.URL, tokenStore, scope, clientID, clientSecret).
 			WithHeaders(internalmcp.DefinitionHeaders(serverInfo.Headers)).
+			WithHeaderFunc(a.identityHeaderFunc(sessionID, serverInfo)).
 			WithMeta(serverInfo.Meta).
 			WithTimeout(serverInfo.Timeout).
 			WithAuthLossHandler(a.makeSessionAuthLossHandler(sessionID, serverName))

@@ -24,10 +24,14 @@ If release name contains chart name it will be used as a full name.
 {{- end }}
 
 {{/*
-Create chart name and version as used by the chart label.
+Create chart name and version as used by the chart label. A label value is at
+most 63 characters and begins and ends alphanumeric: the cut of a long version
+(a branch build's <version>-dev.<branch>.<date>.<time>.<sha>, or the
+<version>+<digest> helm-controller installs) can land on any run of ".", "_"
+(from "+") and "-", so the whole run is trimmed.
 */}}
 {{- define "muster.chart" -}}
-{{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
+{{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimAll "-._" }}
 {{- end }}
 
 {{/*
@@ -101,3 +105,84 @@ the effective exporter list. Distinguishes "prometheus" /
 {{- define "muster.prometheusExporterEnabled" -}}
 {{- if has "prometheus" (splitList "," (include "muster.effectiveMetricsExporter" .)) -}}true{{- end -}}
 {{- end }}
+
+{{/*
+Data of the OAuth credentials Secret the chart renders (templates/oauth-secret.yaml),
+one "key: base64" line per entry: the provider's client secret (and Google's
+client id), the registration token, the token encryption key and, with Valkey
+storage and no Valkey Secret of its own, the Valkey password. Its SHA-256 is the
+pod template's checksum/oauth-secret annotation, so muster rolls when one of
+them changes; the Secret template and the annotation share it so the two
+cannot drift. The gates fail the render the way the Secret template did.
+*/}}
+{{- define "muster.oauthSecretData" -}}
+{{- $s := .Values.muster.oauth.server -}}
+{{- $lines := list -}}
+{{- if eq ($s.provider | default "dex") "google" -}}
+{{- if $s.google.clientID -}}
+{{- $lines = append $lines (printf "google-client-id: %s" ($s.google.clientID | b64enc | quote)) -}}
+{{- else -}}
+{{- fail "muster.oauth.server.google.clientID is required when Google provider is used and existingSecret is not set" -}}
+{{- end -}}
+{{- if $s.google.clientSecret -}}
+{{- $lines = append $lines (printf "google-client-secret: %s" ($s.google.clientSecret | b64enc | quote)) -}}
+{{- else -}}
+{{- fail "muster.oauth.server.google.clientSecret is required when Google provider is used and existingSecret is not set" -}}
+{{- end -}}
+{{- else if eq ($s.provider | default "dex") "dex" -}}
+{{- if $s.dex.clientSecret -}}
+{{- $lines = append $lines (printf "dex-client-secret: %s" ($s.dex.clientSecret | b64enc | quote)) -}}
+{{- else -}}
+{{- fail "muster.oauth.server.dex.clientSecret is required when Dex provider is used and existingSecret is not set" -}}
+{{- end -}}
+{{- end -}}
+{{- if not $s.allowPublicClientRegistration -}}
+{{- if $s.registrationToken -}}
+{{- $lines = append $lines (printf "registration-token: %s" ($s.registrationToken | b64enc | quote)) -}}
+{{- else if and (not $s.trustedPublicRegistrationSchemes) (not $s.trustedPublicRegistrationRedirectURIs) -}}
+{{- fail "OAuth client registration has no gate configured. Set one of: registrationToken | allowPublicClientRegistration=true | trustedPublicRegistrationSchemes | trustedPublicRegistrationRedirectURIs | existingSecret." -}}
+{{- end -}}
+{{- end -}}
+{{- if $s.encryptionKey -}}
+{{- if $s.encryptionKeyValue -}}
+{{- $lines = append $lines (printf "oauth-encryption-key: %s" ($s.encryptionKeyValue | b64enc | quote)) -}}
+{{- else -}}
+{{- fail "muster.oauth.server.encryptionKeyValue is required when encryptionKey is true and existingSecret is not set" -}}
+{{- end -}}
+{{- end -}}
+{{- if and (eq $s.storage.type "valkey") (not $s.storage.valkey.existingSecret) $s.storage.valkey.password -}}
+{{- $lines = append $lines (printf "valkey-password: %s" ($s.storage.valkey.password | b64enc | quote)) -}}
+{{- end -}}
+{{- join "\n" $lines -}}
+{{- end -}}
+
+{{/*
+Value of the pod template's checksum/oauth-secret annotation: the SHA-256 of the
+chart-rendered Secret's data, or muster.oauth.server.existingSecretChecksum
+verbatim when the credentials come from an existing Secret the chart cannot
+read. Empty while the OAuth server is off, or while nothing marks the existing
+Secret's revision.
+*/}}
+{{- define "muster.oauthSecretChecksum" -}}
+{{- $s := .Values.muster.oauth.server -}}
+{{- if $s.enabled -}}
+{{- if $s.existingSecret -}}
+{{- $s.existingSecretChecksum -}}
+{{- else -}}
+{{- include "muster.oauthSecretData" . | sha256sum -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Value of the pod template's checksum/valkey-secret annotation:
+muster.oauth.server.storage.valkey.existingSecretChecksum verbatim, for a
+Valkey password in a Secret of its own that the chart cannot read. Empty
+otherwise: a password in the OAuth Secret is covered by checksum/oauth-secret.
+*/}}
+{{- define "muster.valkeySecretChecksum" -}}
+{{- $s := .Values.muster.oauth.server -}}
+{{- if and $s.enabled (eq $s.storage.type "valkey") $s.storage.valkey.existingSecret -}}
+{{- $s.storage.valkey.existingSecretChecksum -}}
+{{- end -}}
+{{- end -}}

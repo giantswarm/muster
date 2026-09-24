@@ -1,0 +1,184 @@
+name: "oauth-pinned-server-forwards-identity"
+category: "behavioral"
+concept: "oauth"
+description: |
+  A server pinned to its own authorization server with
+  spec.auth.forwardIdentity receives two of the person's credentials on every
+  call: the grant of the pinned authorization server in Authorization, and the
+  session's upstream ID token -- the one a forwardToken server would receive --
+  in X-Muster-Id-Token. A server acting for the person on two systems (a
+  GitHub App user token for one, the person's own identity for calls back
+  through muster for the other) is registered once instead of twice.
+
+    1. The person signs in to muster; the session holds muster's ID token.
+    2. The person signs in to two-hats through its pinned authorization server.
+       A tool call reports what the backend received: Authorization carries
+       the pinned authorization server's grant, which the backend validated,
+       and X-Muster-Id-Token carries muster's ID token (muster's client as
+       audience, the person as subject). The next call does the same.
+    3. pinned-only has the same kind of pin without the field: its calls
+       carry the grant and no X-Muster-Id-Token.
+tags: ["oauth", "authorization-server", "pin", "forward-identity", "headers", "1317"]
+timeout: "3m"
+
+pre_configuration:
+  mock_oauth_servers:
+    # muster's own identity provider: the session's upstream ID token.
+    - name: "muster-idp"
+      scopes: ["openid", "profile", "email", "offline_access"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "muster-client"
+      client_secret: "muster-secret"
+      use_as_muster_oauth_server: true
+
+    # The pinned authorization server of two-hats.
+    - name: "pinned-as"
+      scopes: ["repo"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "pinned-client"
+
+    # The pinned authorization server of pinned-only.
+    - name: "other-as"
+      scopes: ["repo"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "other-client"
+
+  mcp_servers:
+    - name: "two-hats"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "pinned-as"
+          pin_authorization_server: true
+          forward_identity: true
+          scope: "repo"
+        tools:
+          - name: "whoami"
+            description: "Reports the credentials the backend received"
+            echo_token: true
+            echo_headers: ["X-Muster-Id-Token"]
+            input_schema:
+              type: "object"
+              properties: {}
+            responses:
+              - response:
+                  source: "two-hats"
+
+    - name: "pinned-only"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "other-as"
+          pin_authorization_server: true
+          scope: "repo"
+        tools:
+          - name: "whoami"
+            description: "Reports the credentials the backend received"
+            echo_headers: ["X-Muster-Id-Token"]
+            input_schema:
+              type: "object"
+              properties: {}
+            responses:
+              - response:
+                  source: "pinned-only"
+
+steps:
+  - id: definition-carries-the-field
+    tool: "core_mcpserver_get"
+    args:
+      name: "two-hats"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["forwardIdentity", "authorizationServer"]
+
+  - id: muster-auth-login
+    description: "The person signs in to muster; the session holds muster's ID token"
+    tool: "test_muster_auth_login"
+    args: {}
+    expected:
+      success: true
+      contains: ["success", "ID token stored"]
+
+  # ---------------------------------------------------------------------
+  # two-hats: the pinned grant and the session's ID token
+  # ---------------------------------------------------------------------
+
+  - id: two-hats-sign-in
+    description: "The sign-in goes to the pinned authorization server; the ID token does not replace it"
+    tool: "core_auth_login"
+    args:
+      server: "two-hats"
+    expected:
+      success: true
+      contains: ["Authentication Required"]
+
+  - id: two-hats-sign-in-completes
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "two-hats"
+    expected:
+      success: true
+
+  - id: two-hats-call-carries-both
+    description: "The call passes the backend's check of the pinned grant and carries muster's ID token in X-Muster-Id-Token"
+    tool: "x_two-hats_whoami"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["two-hats", '"received_token":', '"X-Muster-Id-Token":"ey']
+      # Authorization is the pinned authorization server's opaque grant, which
+      # the backend validated against it -- not the ID token (a JWT).
+      not_contains: ['"received_token":"ey']
+      json_path:
+        received_header_claims.X-Muster-Id-Token.sub: "test-user-123"
+        received_header_claims.X-Muster-Id-Token.aud: ["muster-client"]
+
+  - id: two-hats-next-call-carries-both
+    description: "The next call on the pooled connection resolves the ID token again"
+    tool: "x_two-hats_whoami"
+    args: {}
+    expected:
+      success: true
+      not_contains: ['"received_token":"ey']
+      json_path:
+        received_header_claims.X-Muster-Id-Token.sub: "test-user-123"
+        received_header_claims.X-Muster-Id-Token.aud: ["muster-client"]
+
+  # ---------------------------------------------------------------------
+  # pinned-only: the grant, never the ID token
+  # ---------------------------------------------------------------------
+
+  - id: pinned-only-sign-in
+    tool: "core_auth_login"
+    args:
+      server: "pinned-only"
+    expected:
+      success: true
+      contains: ["Authentication Required"]
+
+  - id: pinned-only-sign-in-completes
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "pinned-only"
+    expected:
+      success: true
+
+  - id: pinned-only-call-carries-no-id-token
+    description: "A server without forwardIdentity never receives the header"
+    tool: "x_pinned-only_whoami"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["pinned-only", '"received_headers":{}']
+      not_contains: ["X-Muster-Id-Token", "received_header_claims"]

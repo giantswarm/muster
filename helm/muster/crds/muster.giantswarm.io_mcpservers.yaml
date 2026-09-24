@@ -86,7 +86,9 @@ spec:
 
                       AuthorizationServer is mutually exclusive with ForwardToken: true and
                       TokenExchange.Enabled: true. The CRD admission rules above reject any
-                      CR that combines them. Only valid when Type is "oauth".
+                      CR that combines them. Only valid when Type is "oauth". A server that
+                      needs the session's ID token next to the pinned grant sets
+                      ForwardIdentity instead.
 
                       Use case: Atlassian Remote MCP and similar backends that publish RFC 8414
                       metadata at their resource origin instead of via RFC 9728.
@@ -206,6 +208,29 @@ spec:
                       rule: has(self.authorizationEndpoint) == has(self.tokenEndpoint)
                     - message: expectedIssuer needs authorizationEndpoint and tokenEndpoint
                       rule: '!has(self.expectedIssuer) || has(self.authorizationEndpoint)'
+                  forwardIdentity:
+                    default: false
+                    description: |-
+                      ForwardIdentity sends the session's upstream ID token -- the token
+                      ForwardToken would put in Authorization -- in the X-Muster-Id-Token
+                      header on every request to this server, next to the grant of its pinned
+                      authorization server, which Authorization keeps carrying unchanged. It
+                      is for a server that acts for the person on two systems: one through the
+                      pinned grant (a GitHub App user token, say) and one through calls back
+                      with the person's own identity (their Kubernetes access). The token is
+                      read on every request, so a refreshed one is sent once the session holds
+                      it; a session without an upstream ID token sends no header, and a server
+                      without this field never receives it.
+
+                      Only valid with Type "oauth" and AuthorizationServer set. RequiredAudiences
+                      of such a server are requested at login as for a ForwardToken server, so
+                      the forwarded ID token carries them.
+
+                      The forwarded ID token is not audience-scoped to this server, as with
+                      ForwardToken: the same token is accepted by every backend that trusts
+                      its issuer and audiences, so a ForwardIdentity server must be trusted as
+                      much as a ForwardToken backend.
+                    type: boolean
                   forwardToken:
                     default: false
                     description: |-
@@ -237,7 +262,8 @@ spec:
                           - "dex-k8s-authenticator"
 
                       At user authentication, muster collects all requiredAudiences from MCPServers
-                      with forwardToken: true and requests them all from the IdP.
+                      with forwardToken: true or forwardIdentity: true and requests them all
+                      from the IdP.
                     items:
                       type: string
                     type: array
@@ -396,6 +422,10 @@ spec:
                 - message: sigv4 signs as muster's own machine identity, so forwardToken
                     and tokenExchange do not apply
                   rule: '!has(self.sigv4) || (self.forwardToken == false && !has(self.tokenExchange))'
+                - message: forwardIdentity sends the session's ID token next to a
+                    pinned grant, so it needs type oauth and authorizationServer
+                  rule: '!has(self.forwardIdentity) || !self.forwardIdentity || (self.type
+                    == ''oauth'' && has(self.authorizationServer))'
               autoStart:
                 default: false
                 description: |-

@@ -23,9 +23,9 @@ helm-alerting-test: ## Run only the PrometheusRule checks: its helm-unittest sui
 	@$(MAKE) --no-print-directory helm-promtool-test
 
 .PHONY: helm-unittest
-helm-unittest: helm-plugin-unittest ## Run all helm-unittest suites in helm/muster/tests/.
+helm-unittest: helm-plugin-unittest ## Run the helm-unittest suites of both charts (helm/muster, helm/muster-crds).
 	@echo "Running helm unittest..."
-	@helm unittest helm/muster/
+	@helm unittest helm/muster/ helm/muster-crds/
 
 .PHONY: helm-plugin-unittest
 helm-plugin-unittest:
@@ -50,25 +50,25 @@ helm-promtool-test: ## Run the promtool unit tests for the PrometheusRule (requi
 # prerequisites -- they do not override the generated recipe.
 test: stamp-version verify-crds verify-cli-docs muster-integration-test
 
-# The version stamped into the binaries CI links: the tag on a tag build,
+# The version stamp-version appends: the tag when CIRCLE_TAG is set,
 # otherwise what `git describe` says about HEAD (v5.23.2-1-g4be8379e on a
-# branch, with -dirty for uncommitted changes).
+# branch, with -dirty for uncommitted changes). In CI only the `git describe`
+# value is ever appended: a tag build's .ldflags already carries the tag.
 STAMP_VERSION ?= $(or $(CIRCLE_TAG),$(shell git describe --tags --always --dirty --match 'v*'))
 
 # The architect orb's go-build job links the binaries with the flags in
-# .ldflags, a file its go-test command writes (commit SHA and build time, no
-# version) right before it runs `make test`. Without a version ldflag the
-# binary falls back to what Go's buildvcs stamped from the checkout: the tag
-# on a tag build now that the module path is github.com/giantswarm/muster/v5
-# (while it had no /v5 suffix Go only considered v0 and v1 tags, the v5.22.0
-# release binary reported v1.12.1-0.20260915144925-e6c760a32b48, and
-# `muster self-update` found every release "newer" than itself), but only a
-# pseudo-version on a branch and nothing from a checkout without tags.
-# `make test` is the one repo-owned step between the orb writing .ldflags and
-# linking with it, so this prerequisite appends the version there and every
-# CI binary carries one whatever the checkout looks like. Without a .ldflags
-# file (a local `make build`, whose generated LDFLAGS already carry the
-# version) it does nothing.
+# .ldflags, a file its go-test command writes right before it runs
+# `make test`: commit SHA and build time on every build, and on a tag build
+# also `-X '<module>/pkg/project.version=<tag without v>'` (Version in
+# pkg/project adds the `v` back). A branch build gets no version from the
+# orb, and without a version ldflag the binary falls back to what Go's
+# buildvcs stamped from the checkout: a pseudo-version on a branch, nothing
+# from a checkout without tags. `make test` is the one repo-owned step
+# between the orb writing .ldflags and linking with it, so this prerequisite
+# appends the version there when .ldflags has none, and every CI binary
+# carries one whatever the checkout looks like; on a tag build it finds the
+# orb's flag and does nothing. Without a .ldflags file (a local `make build`,
+# whose generated LDFLAGS already carry the version) it does nothing either.
 .PHONY: stamp-version
 stamp-version: ## Append the version to the link flags in .ldflags, the file the architect go-build job links with.
 	@if [ -f .ldflags ] && ! grep -q 'pkg/project.version=' .ldflags; then \

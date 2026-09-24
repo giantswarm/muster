@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -109,6 +110,17 @@ type ProtectedMCPServer struct {
 	authRequired atomic.Bool
 	// live is the handler behind the listening port; Redeploy replaces it.
 	live *swappableHandler
+	// rejected and rejectedExpired count the requests answered with 401,
+	// all of them and those whose bearer had expired. They survive
+	// Stop/StartOnPort and Redeploy.
+	rejected, rejectedExpired atomic.Int64
+}
+
+// Rejections returns how many requests the server answered with 401, and
+// how many of them presented a bearer past its exp (JWKS validation only:
+// a token of the mock authorization server is opaque to the backend).
+func (s *ProtectedMCPServer) Rejections() (rejected, expired int64) {
+	return s.rejected.Load(), s.rejectedExpired.Load()
 }
 
 // NewProtectedMCPServer creates a new OAuth-protected mock MCP server
@@ -410,6 +422,8 @@ func (s *ProtectedMCPServer) createProtectedHandler() (http.Handler, error) {
 		requiredScope:        s.config.RequiredScope,
 		omitResourceMetadata: s.config.OmitResourceMetadata,
 		debug:                s.config.Debug,
+		rejected:             &s.rejected,
+		rejectedExpired:      &s.rejectedExpired,
 	}
 	if s.config.TrustJWKSURL != "" {
 		protectedHandler.jwksValidator = newJWKSValidator(
@@ -468,6 +482,9 @@ type oauthProtectionMiddleware struct {
 	// omitResourceMetadata drops the resource_metadata pointer from 401s.
 	omitResourceMetadata bool
 	debug                bool
+	// rejected and rejectedExpired are the server's counters (see
+	// ProtectedMCPServer.Rejections).
+	rejected, rejectedExpired *atomic.Int64
 }
 
 func (m *oauthProtectionMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -500,6 +517,9 @@ func (m *oauthProtectionMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Req
 	if m.jwksValidator != nil {
 		claims, err := m.jwksValidator.validate(r.Context(), token)
 		if err != nil {
+			if errors.Is(err, errTokenExpired) {
+				m.rejectedExpired.Add(1)
+			}
 			if m.debug {
 				fmt.Fprintf(os.Stderr, "🔒 JWKS validation failed: %v, returning 401\n", err)
 			}
@@ -552,6 +572,7 @@ func (m *oauthProtectionMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Req
 }
 
 func (m *oauthProtectionMiddleware) sendAuthChallenge(w http.ResponseWriter, errorCode, errorDesc string) {
+	m.rejected.Add(1)
 	// Send WWW-Authenticate header per RFC 9728
 	// Format matches real mcp-kubernetes (mcp-oauth library):
 	// Bearer resource_metadata=".../.well-known/oauth-protected-resource", error="...", error_description="..."

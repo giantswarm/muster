@@ -176,6 +176,7 @@ SSO works because:
 | `test_set_apiserver_reachable` | API server proxy (Kubernetes mode) | The API server gone mid-run (`reachable: false`) and back (`true`) for this instance alone |
 | `test_redeploy_mock_server` | Mock MCP server (plain or protected) | A fresh backend process behind the same port: every MCP session forgotten, no refused connection in between, the tools kept or changed as `add_tools` / `remove_tools` say (a new image, announced to nobody) |
 | `test_set_mock_server_auth` | Protected mock MCP server | Flips the backend between anonymous and 401-with-metadata while it runs (a rollover from an anonymous pod to an OAuth resource server, or back); needs a token validator on the mock, `oauth.required` is the state at start |
+| `test_get_mock_server_rejections` | N/A (read-only) | How many requests a protected mock MCP server answered with 401 (`rejected`), and how many of them carried a bearer past its exp (`rejected_expired`, JWKS-validated backends): the backend's own count of what muster sent it with a dead token |
 | `test_measure_meta_tool` | N/A (read-only) | Calls a meta-tool through the current session and reports its duration, the bytes of its answer and the store commands it cost (by name), for the budgets of an installation-shaped scenario (see "Installation scale" in scenarios.md) |
 | `test_valkey_footprint` | N/A (read-only) | What the Valkey stand-in holds, by key prefix, and the capability store's bytes per session; needs `pre_configuration.storage.type: valkey` |
 | `test_advance_clock` | muster serve's clock and every mock OAuth server's clock | Moves time forward on both sides at once: backoffs, the orchestrator's ticks, the catalogue age and token lifetimes (see "Faults and time" in scenarios.md); `test_advance_oauth_clock` moves the authorization server alone |
@@ -465,6 +466,13 @@ server other than the one it advertises (muster's own `/mcp` trusts its IdP's
 tokens but names muster's OAuth server). On a mock OAuth server,
 `omit_token_scope: true` leaves `scope` out of token responses, as Dex does
 (`profile: dex` implies it).
+
+`oauth.forward_identity: true` next to the pin sets `auth.forwardIdentity`:
+the session's ID token in `X-Muster-Id-Token` next to the pinned grant. A mock
+tool's `echo_headers` reports the headers it received and, for one that
+carries a JWT, its decoded claims under `received_header_claims.<header>`
+(signature unchecked), so a step can assert whose token a header held with
+`json_path` (`oauth-pinned-server-forwards-identity`).
 
 `oauth.pin_identity_path` pins the MCPServer under an identity other than the
 mock server's issuer -- that issuer URL with the path appended, the GitHub App

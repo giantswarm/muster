@@ -4,48 +4,82 @@ templates:
 release:
   name: muster-crds
 tests:
-  - it: renders both CRDs by default
+  # Every file in files/crds/ renders as one CRD. A new CRD changes the count
+  # here and belongs in NOTES.txt and UPGRADE.md as well.
+  - it: renders the MCPServer, Workflow and WorkflowExecution CRDs
     asserts:
       - hasDocuments:
-          count: 2
+          count: 3
       - isKind:
           of: CustomResourceDefinition
+      - equal:
+          path: spec.names.kind
+          value: MCPServer
+        documentSelector:
+          path: metadata.name
+          value: mcpservers.muster.giantswarm.io
+      - equal:
+          path: spec.names.kind
+          value: Workflow
+        documentSelector:
+          path: metadata.name
+          value: workflows.muster.giantswarm.io
+      - equal:
+          path: spec.names.kind
+          value: WorkflowExecution
+        documentSelector:
+          path: metadata.name
+          value: workflowexecutions.muster.giantswarm.io
 
-  - it: injects helm.sh/resource-policy keep annotation by default
-    documentIndex: 0
+  # Annotations are checked key by key: the controller-gen version annotation
+  # follows CONTROLLER_GEN_VERSION, and the merge only has to keep it.
+  - it: keeps every CRD on helm uninstall by default
     asserts:
       - equal:
-          path: metadata.annotations
-          value:
-            controller-gen.kubebuilder.io/version: v0.21.0
-            helm.sh/resource-policy: keep
+          path: metadata.annotations["helm.sh/resource-policy"]
+          value: keep
+      - exists:
+          path: metadata.annotations["controller-gen.kubebuilder.io/version"]
 
-  - it: extra annotations merge into metadata.annotations alongside the default keep
+  - it: merges extra annotations into every CRD next to the default keep
     set:
-      crds.annotations.owner: team-bumblebee
-    documentIndex: 0
+      crds:
+        annotations:
+          example.com/owner: team-bumblebee
     asserts:
       - equal:
-          path: metadata.annotations
-          value:
-            controller-gen.kubebuilder.io/version: v0.21.0
-            helm.sh/resource-policy: keep
-            owner: team-bumblebee
+          path: metadata.annotations["example.com/owner"]
+          value: team-bumblebee
+      - equal:
+          path: metadata.annotations["helm.sh/resource-policy"]
+          value: keep
+      - exists:
+          path: metadata.annotations["controller-gen.kubebuilder.io/version"]
+
+  # The API server refuses a non-string annotation value; the schema refuses
+  # it at install time instead.
+  - it: refuses an annotation value that is not a string
+    set:
+      crds:
+        annotations:
+          example.com/replicas: 3
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/crds/annotations/example.com~1replicas': got number, want string"
 
   # Backs the apply-time guard for workflow control flow: the API server itself
   # must reject a step that is not exactly one of tool/forEach/parallel, and an
   # empty parallel group, independently of the structured create/validate path.
   - it: workflows CRD enforces step mutual-exclusivity and non-empty parallel
-    documentIndex: 1
+    documentSelector:
+      path: metadata.name
+      value: workflows.muster.giantswarm.io
     asserts:
-      - equal:
-          path: metadata.name
-          value: workflows.muster.giantswarm.io
       - contains:
           path: spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.steps.items.x-kubernetes-validations
           content:
             message: exactly one of tool, forEach, or parallel must be set
-            rule: "[has(self.tool), has(self.forEach), has(self.parallel)].filter(x, x).size() == 1"
+            rule: "(has(self.tool) ? 1 : 0) + (has(self.forEach) ? 1 : 0) + (has(self.parallel) ? 1 : 0) == 1"
       - equal:
           path: spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.steps.items.properties.parallel.minItems
           value: 1
@@ -55,13 +89,15 @@ tests:
   # condition must declare expect or expectNot, independently of the structured
   # create/validate path.
   - it: workflows CRD enforces condition source exclusivity and expectation
-    documentIndex: 1
+    documentSelector:
+      path: metadata.name
+      value: workflows.muster.giantswarm.io
     asserts:
       - contains:
           path: spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.steps.items.properties.condition.x-kubernetes-validations
           content:
             message: exactly one of template, tool, or fromStep must be set
-            rule: "[has(self.template), has(self.tool), has(self.fromStep)].filter(x, x).size() == 1"
+            rule: "(has(self.template) ? 1 : 0) + (has(self.tool) ? 1 : 0) + (has(self.fromStep) ? 1 : 0) == 1"
       - contains:
           path: spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.steps.items.properties.condition.x-kubernetes-validations
           content:

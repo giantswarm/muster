@@ -25,13 +25,15 @@ const devel = "(devel)"
 
 // Build identifiers, set at link time via `-X` ldflags. Locally the generated
 // Makefile.gen.go.mk stamps all three. In CI the architect orb's go-test
-// command writes `gitSHA` (from `CIRCLE_SHA1`) and `buildTimestamp` into
-// .ldflags, and `make stamp-version` (a prerequisite of `make test`, see
-// Makefile.custom.mk) appends `version` -- the release tag on a tag build --
-// before the orb's go-build links the binaries with that file. A plain
-// `go build` or `go install` sets none of them and falls back to what the Go
-// toolchain stamped from version control (see Version, GitSHA and
-// BuildTimestamp).
+// command writes .ldflags, the file its go-build links the binaries with:
+// `gitSHA` (from `CIRCLE_SHA1`) and `buildTimestamp` on every build, and on a
+// tag build also `version`, the tag without its `v` ("5.23.5"; Version adds
+// the `v` back). A branch build gets no version from the orb, so
+// `make stamp-version` (a prerequisite of `make test`, see Makefile.custom.mk)
+// appends what `git describe` says about HEAD; it skips when .ldflags already
+// carries a version, as on a tag build. A plain `go build` or `go install`
+// sets none of them and falls back to what the Go toolchain stamped from
+// version control (see Version, GitSHA and BuildTimestamp).
 var (
 	version        string
 	gitSHA         string

@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -68,6 +69,9 @@ func (a *audience) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// errTokenExpired is the validator's answer to a token past its exp.
+var errTokenExpired = errors.New("token expired")
+
 // validate verifies the token signature against the JWKS and checks exp, audience
 // and (when configured) issuer. It returns the decoded claims on success.
 func (v *jwksValidator) validate(ctx context.Context, token string) (*tokenClaims, error) {
@@ -98,7 +102,7 @@ func (v *jwksValidator) validate(ctx context.Context, token string) (*tokenClaim
 		return nil, fmt.Errorf("decoding claims: %w", err)
 	}
 	if claims.Exp > 0 && time.Now().After(time.Unix(claims.Exp, 0)) {
-		return nil, fmt.Errorf("token expired")
+		return nil, errTokenExpired
 	}
 	// Messages avoid double quotes: they travel as the error_description of
 	// the backend's WWW-Authenticate challenge, a quoted-string parameter.

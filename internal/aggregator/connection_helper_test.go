@@ -627,7 +627,7 @@ func TestHeaderFunc_RateLimitsWarning(t *testing.T) {
 	// No OAuth handler registered means getIDTokenForForwarding always returns "".
 	api.RegisterOAuthHandler(nil)
 
-	headerFunc := makeTokenForwardingHeaderFunc(sessionID, musterIssuer, serverName, fallbackToken, nil, nil)
+	headerFunc := makeTokenForwardingHeaderFunc(sessionID, musterIssuer, serverName, fallbackToken, nil, nil, nil)
 
 	// First call: should produce a WARN (interval has not been hit yet).
 	logBuf.Reset()
@@ -689,7 +689,7 @@ func TestHeaderFunc_EvictsAfterConsecutiveFailures(t *testing.T) {
 		}
 	}
 
-	headerFunc := makeTokenForwardingHeaderFunc(sessionID, musterIssuer, serverName, fallbackToken, nil, onStaleToken)
+	headerFunc := makeTokenForwardingHeaderFunc(sessionID, musterIssuer, serverName, fallbackToken, nil, onStaleToken, nil)
 
 	// Call fewer than maxConsecutiveTokenFailures times — callback should NOT fire.
 	for i := 0; i < maxConsecutiveTokenFailures-1; i++ {
@@ -736,7 +736,7 @@ func TestHeaderFunc_ResetsFailureCountOnRecovery(t *testing.T) {
 		evictCount.Add(1)
 	}
 
-	headerFunc := makeTokenForwardingHeaderFunc(sessionID, musterIssuer, serverName, fallbackToken, nil, onStaleToken)
+	headerFunc := makeTokenForwardingHeaderFunc(sessionID, musterIssuer, serverName, fallbackToken, nil, onStaleToken, nil)
 
 	// Accumulate failures just below the threshold.
 	for i := 0; i < maxConsecutiveTokenFailures-1; i++ {
@@ -771,7 +771,7 @@ func TestHeaderFunc_NilCallback(t *testing.T) {
 	api.RegisterOAuthHandler(nil)
 	defer api.RegisterOAuthHandler(nil)
 
-	headerFunc := makeTokenForwardingHeaderFunc("s", "iss", "srv", "tok", nil, nil)
+	headerFunc := makeTokenForwardingHeaderFunc("s", "iss", "srv", "tok", nil, nil, nil)
 
 	// Should not panic even after many failures with nil callback.
 	for i := 0; i < maxConsecutiveTokenFailures+5; i++ {
@@ -800,7 +800,7 @@ func TestHeaderFunc_ForwardsRequestBearer(t *testing.T) {
 		"act": map[string]any{"sub": "system:serviceaccount:kagent:sre-agent"},
 		"exp": time.Now().Add(time.Hour).Unix(),
 	})
-	headerFunc := makeTokenForwardingHeaderFunc(sessionID, musterIssuer, "srv", "fallback", nil, nil)
+	headerFunc := makeTokenForwardingHeaderFunc(sessionID, musterIssuer, "srv", "fallback", nil, nil, nil)
 
 	ctx := server.ContextWithBearerToken(context.Background(), oboToken)
 	headers := headerFunc(ctx)
@@ -827,7 +827,7 @@ func TestHeaderFunc_OpaqueBearerIgnored(t *testing.T) {
 	api.RegisterOAuthHandler(mock)
 	defer api.RegisterOAuthHandler(nil)
 
-	headerFunc := makeTokenForwardingHeaderFunc(sessionID, musterIssuer, "srv", "fallback", nil, nil)
+	headerFunc := makeTokenForwardingHeaderFunc(sessionID, musterIssuer, "srv", "fallback", nil, nil, nil)
 
 	ctx := server.ContextWithBearerToken(context.Background(), "opaque-access-token")
 	headers := headerFunc(ctx)
@@ -849,7 +849,7 @@ func TestHeaderFunc_ValidFallbackIsNotAFailure(t *testing.T) {
 	onStaleToken := func() { evictCount.Add(1) }
 
 	fallback := unsignedJWT(t, map[string]any{"sub": "alice", "exp": time.Now().Add(time.Hour).Unix()})
-	headerFunc := makeTokenForwardingHeaderFunc("s", "https://muster.example.com", "srv", fallback, nil, onStaleToken)
+	headerFunc := makeTokenForwardingHeaderFunc("s", "https://muster.example.com", "srv", fallback, nil, onStaleToken, nil)
 
 	logBuf.Reset()
 	for i := 0; i < maxConsecutiveTokenFailures+2; i++ {
@@ -880,7 +880,7 @@ func TestHeaderFunc_ExpiredFallbackEvicts(t *testing.T) {
 	}
 
 	expired := unsignedJWT(t, map[string]any{"sub": "alice", "exp": time.Now().Add(-time.Hour).Unix()})
-	headerFunc := makeTokenForwardingHeaderFunc("s", "https://muster.example.com", "srv", expired, nil, onStaleToken)
+	headerFunc := makeTokenForwardingHeaderFunc("s", "https://muster.example.com", "srv", expired, nil, onStaleToken, nil)
 
 	for i := 0; i < maxConsecutiveTokenFailures; i++ {
 		headerFunc(context.Background())
@@ -916,7 +916,7 @@ func TestHeaderFunc_ExpiredFallbackRefreshesInPlace(t *testing.T) {
 	onStaleToken := func() { evictCount.Add(1) }
 
 	expired := unsignedJWT(t, map[string]any{"sub": "alice", "exp": time.Now().Add(-time.Hour).Unix()})
-	headerFunc := makeTokenForwardingHeaderFunc(sessionID, musterIssuer, "srv", expired, refresher, onStaleToken)
+	headerFunc := makeTokenForwardingHeaderFunc(sessionID, musterIssuer, "srv", expired, refresher, onStaleToken, nil)
 
 	headers := headerFunc(context.Background())
 	require.Equal(t, "Bearer "+refreshedToken, headers["Authorization"],
@@ -955,7 +955,7 @@ func TestHeaderFunc_RefresherFailureStillEvicts(t *testing.T) {
 	}
 
 	expired := unsignedJWT(t, map[string]any{"sub": "alice", "exp": time.Now().Add(-time.Hour).Unix()})
-	headerFunc := makeTokenForwardingHeaderFunc("s", "https://muster.example.com", "srv", expired, refresher, onStaleToken)
+	headerFunc := makeTokenForwardingHeaderFunc("s", "https://muster.example.com", "srv", expired, refresher, onStaleToken, nil)
 
 	for i := 0; i < maxConsecutiveTokenFailures; i++ {
 		headerFunc(context.Background())
@@ -1016,7 +1016,7 @@ func TestMakeTokenForwardingHeaderFunc_ConcurrentCalls(t *testing.T) {
 
 	// No OAuth handler → getIDTokenForForwarding returns "" → the fallback path
 	// drives consecutiveFailures/staleEvicted/hadToken/lastWarnTime on every call.
-	headerFunc := makeTokenForwardingHeaderFunc("session", "https://dex.example.com", "server", "fallback-token", nil, onStaleToken)
+	headerFunc := makeTokenForwardingHeaderFunc("session", "https://dex.example.com", "server", "fallback-token", nil, onStaleToken, nil)
 
 	const goroutines = 16
 	const perGoroutine = 50
