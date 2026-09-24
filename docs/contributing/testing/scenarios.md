@@ -93,6 +93,7 @@ cleanup:
 
 # Optional assertions on muster serve's own stdout/stderr, captured at debug
 # level for the whole scenario and evaluated once after steps and cleanup ran
+# (and background work they started has logged)
 instance_logs:
   not_contains: ["eyJ"]                # e.g. no JWT ever reached the logs
   occurrences:                         # exact line counts for once-only actions
@@ -436,6 +437,16 @@ reconciler must not repeat on its resync ticks (the harness runs instances with
 a 2 s resync, so a step that waits 5 s sees at least two of them). Use
 `contains` and `occurrences` sparingly: log lines are not an API, and a
 scenario pinned to log wording breaks on harmless rewording.
+
+A line can be logged after the last step answered: work a call started in the
+background (the core catalogue's age-triggered rebuild) logs when it lands, and
+every line reaches the capture through a pipe the harness drains
+asynchronously. While a `contains` substring is missing or an `occurrences`
+count is below its value, the runner keeps reading the running instance's
+output, for up to ten seconds, before it evaluates the block; a scenario needs
+no step that waits for background work it asserts on only in the log. An
+expectation that more output cannot fix -- a `not_contains` hit, a count
+already exceeded -- is reported at once.
 
 #### Storage backend and process restart
 

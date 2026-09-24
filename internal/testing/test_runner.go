@@ -542,6 +542,7 @@ func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, con
 	// last. A step failure is the more specific diagnosis when both hold, and
 	// keeps its place at the front of the error.
 	if scenario.InstanceLogs != nil {
+		r.awaitInstanceLogs(scenarioCtx, scenario.InstanceLogs, instance, &result)
 		if err := validateInstanceLogs(scenario.InstanceLogs, result.InstanceLogs); err != nil {
 			if result.Result == ResultPassed {
 				result.Result = ResultFailed
@@ -569,6 +570,58 @@ func modeUnavailableReason(scenario TestScenario) string {
 // match validateInstanceLogs quotes back.
 const instanceLogMatchContextLimit = 160
 
+// instanceLogsSettle bounds how long awaitInstanceLogs keeps reading a live
+// instance's logs; instanceLogsPoll is the pause between two reads.
+const (
+	instanceLogsSettle = 10 * time.Second
+	instanceLogsPoll   = 20 * time.Millisecond
+)
+
+// awaitInstanceLogs re-reads the instance's logs into result until no
+// instance_logs expectation is pending (see instanceLogsPending), the
+// instance_logs settle time passes or ctx ends.
+//
+// The last step's answer is not the end of what a scenario asserts on: work a
+// call started in the background -- the core catalogue's age-triggered
+// rebuild -- logs after the call answered, and every line reaches the capture
+// through a pipe the harness drains asynchronously. Read at once, such a line
+// is missing on a loaded machine. The wait costs nothing when the logs are
+// complete and at most the settle time when an expectation fails.
+func (r *testRunner) awaitInstanceLogs(ctx context.Context, expected *InstanceLogExpectation, instance *MusterInstance, result *TestScenarioResult) {
+	deadline := time.Now().Add(instanceLogsSettle)
+	for instanceLogsPending(expected, result.InstanceLogs) && time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(instanceLogsPoll):
+		}
+		r.collectInstanceLogs(instance, result)
+	}
+}
+
+// instanceLogsPending reports whether an expectation that more output can
+// still satisfy is unmet: a contains substring not logged yet, an occurrences
+// count not reached yet. A not_contains hit or a count already exceeded is
+// final -- logs only grow -- and is left to validateInstanceLogs.
+func instanceLogsPending(expected *InstanceLogExpectation, logs *InstanceLogs) bool {
+	if expected == nil || logs == nil {
+		return false
+	}
+	out := logs.output()
+	for _, want := range expected.Contains {
+		if !strings.Contains(out, want) {
+			return true
+		}
+	}
+	lines := strings.Split(out, "\n")
+	for want, count := range expected.Occurrences {
+		if linesContaining(lines, want) < count {
+			return true
+		}
+	}
+	return false
+}
+
 // validateInstanceLogs evaluates a scenario's instance_logs expectations against
 // the captured serve output.
 //
@@ -583,7 +636,7 @@ func validateInstanceLogs(expected *InstanceLogExpectation, logs *InstanceLogs) 
 	if logs == nil {
 		return fmt.Errorf("instance_logs expectations declared but no instance logs were captured")
 	}
-	out := logs.Stdout + "\n" + logs.Stderr
+	out := logs.output()
 	lines := strings.Split(out, "\n")
 
 	var problems []string
@@ -615,6 +668,12 @@ func validateInstanceLogs(expected *InstanceLogExpectation, logs *InstanceLogs) 
 		return nil
 	}
 	return fmt.Errorf("%s", strings.Join(problems, "; "))
+}
+
+// output is the combined stdout and stderr the instance_logs expectations are
+// evaluated against.
+func (l *InstanceLogs) output() string {
+	return l.Stdout + "\n" + l.Stderr
 }
 
 // linesContaining counts the lines that contain substring.

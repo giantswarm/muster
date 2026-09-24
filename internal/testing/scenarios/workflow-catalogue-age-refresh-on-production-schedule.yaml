@@ -64,18 +64,20 @@ steps:
         name: "core_mcpserver_list"
         annotations.readOnlyHint: true
 
-  - id: "workflow-served-from-the-rebuilt-catalogue"
+  - id: "workflow-served-across-the-age-boundary"
     tool: "test_call_meta_tool"
     args: { tool: "describe_tool", arguments: { name: "workflow_catalogue-member" } }
     expected:
       success: true
-      wait_for_state: "20s"
       json_path:
         name: "workflow_catalogue-member"
         annotations.readOnlyHint: true
 
 # The initial build and exactly one age-triggered rebuild, which ran in the
-# background; nothing invalidated the catalogue in between.
+# background; nothing invalidated the catalogue in between. The rebuilt
+# catalogue answers every call above the same as the one it replaces, so
+# only the log shows the rebuild; it logs after the call that started it
+# answered, and the runner reads the log until the line is there.
 instance_logs:
   contains:
     - 'msg="Core catalogue rebuilt" subsystem=Aggregator trigger=initial'
