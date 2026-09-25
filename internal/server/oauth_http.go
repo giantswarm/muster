@@ -197,12 +197,14 @@ func (s *OAuthHTTPServer) SetOnAuthenticated(fn func(ctx context.Context, sessio
 func (s *OAuthHTTPServer) CreateMux() http.Handler {
 	mux := http.NewServeMux()
 
-	// Health check endpoint for Kubernetes probes (unauthenticated)
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+	// Liveness (/health) and readiness (/readyz) probes, unauthenticated
+	healthOK := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
-	})
+	}
+	mux.HandleFunc("/health", healthOK)
+	mux.HandleFunc("/readyz", healthOK)
 
 	// Setup OAuth 2.1 endpoints
 	s.setupOAuthRoutes(mux)

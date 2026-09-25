@@ -123,8 +123,8 @@ func (l *LazyOAuthHTTPServer) ValidateTokenWithSubject(next http.Handler) http.H
 }
 
 // CreateMux returns an http.Handler that proxies to the inner mux once ready.
-// Before OIDC discovery succeeds, /health returns a degraded-status JSON body
-// and all other paths return 503.
+// Before OIDC discovery succeeds, /health returns a degraded-status JSON body,
+// /readyz returns 503 and all other paths return 503.
 func (l *LazyOAuthHTTPServer) CreateMux() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		l.mu.RLock()
@@ -136,10 +136,20 @@ func (l *LazyOAuthHTTPServer) CreateMux() http.Handler {
 			return
 		}
 
-		if r.URL.Path == "/health" {
+		switch r.URL.Path {
+		case "/health":
+			// Liveness: the process is up and the discovery loop keeps retrying,
+			// so a Dex outage must not restart the pod.
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"status":"degraded","reason":"oidc-discovery-pending"}`))
+			return
+		case "/readyz":
+			// Readiness: no traffic until the OAuth server can answer, so a
+			// rollout keeps the old pod serving instead of answering 503.
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"status":"not-ready","reason":"oidc-discovery-pending"}`))
 			return
 		}
 

@@ -92,6 +92,16 @@ tests:
       - isNotEmpty:
           path: spec.template.spec.containers[0].readinessProbe
 
+  - it: should gate readiness on /readyz and liveness on /health
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /health
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /readyz
+
   - it: should use correct image
     template: templates/deployment.yaml
     set:
