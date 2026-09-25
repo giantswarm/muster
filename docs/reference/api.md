@@ -14,7 +14,8 @@ the chart).
 | `/mcp` | `POST`, `GET`, `DELETE` | MCP over streamable HTTP: JSON-RPC requests, the notification stream and session termination |
 | `/sse` | `GET` | The older SSE transport: the event stream |
 | `/message` | `POST` | The older SSE transport: JSON-RPC requests |
-| `/health` | `GET` | `{"status":"ok"}` with status 200, without authentication, for liveness and readiness probes |
+| `/health` | `GET` | `{"status":"ok"}` with status 200, without authentication, for the liveness probe; while OIDC discovery is pending also 200, with `{"status":"degraded"}` |
+| `/readyz` | `GET` | `{"status":"ok"}` with status 200, without authentication, for the readiness probe; 503 while OIDC discovery is pending |
 
 A client connects to `/mcp`, initialises an MCP session and receives the meta-tools. With OAuth
 enabled, an unauthenticated request is answered with `401` and a `WWW-Authenticate` header that

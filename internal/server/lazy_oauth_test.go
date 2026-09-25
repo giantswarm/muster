@@ -41,6 +41,12 @@ func TestLazyOAuthHTTPServer_ServesBeforeReady(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "degraded")
 
+	// /readyz must return 503 so no traffic reaches the pod yet
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	assert.Contains(t, rec.Body.String(), "oidc-discovery-pending")
+
 	// Any other path must return 503
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/oauth/authorize", nil))
