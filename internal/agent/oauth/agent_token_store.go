@@ -1,7 +1,11 @@
 package oauth
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"io"
+	"net/http"
 	"sync"
 
 	"github.com/mark3labs/mcp-go/client/transport"
@@ -14,8 +18,10 @@ import (
 // file-based TokenStore.
 //
 // It has no storage of its own -- all reads and writes go through the
-// underlying TokenStore. The only local state is a cached copy of the
-// ID token, because mcp-go's transport.Token doesn't track ID tokens.
+// underlying TokenStore. The only local state is the ID token, because
+// mcp-go's transport.Token doesn't track ID tokens: a cached copy of the
+// stored one, and the one a refresh returned (recorded by idTokenRecorder),
+// which SaveToken persists in place of the cached copy.
 //
 // mcp-go owns token refresh and 401 handling. This store returns the
 // current token as-is and persists whatever mcp-go writes back after
@@ -25,8 +31,9 @@ type AgentTokenStore struct {
 	issuerURL  string
 	tokenStore *TokenStore
 
-	mu      sync.RWMutex
-	idToken string
+	mu               sync.RWMutex
+	idToken          string
+	refreshedIDToken string
 }
 
 // NewAgentTokenStore creates a new token store that binds the given
@@ -82,10 +89,15 @@ func (s *AgentTokenStore) SaveToken(ctx context.Context, token *transport.Token)
 		return nil
 	}
 
-	s.mu.RLock()
-	cachedIDToken := s.idToken
+	s.mu.Lock()
+	idToken := s.idToken
+	if s.refreshedIDToken != "" {
+		idToken = s.refreshedIDToken
+		s.idToken = idToken
+		s.refreshedIDToken = ""
+	}
 	issuerURL := s.issuerURL
-	s.mu.RUnlock()
+	s.mu.Unlock()
 
 	oauth2Token := &oauth2.Token{
 		AccessToken:  token.AccessToken,
@@ -94,9 +106,9 @@ func (s *AgentTokenStore) SaveToken(ctx context.Context, token *transport.Token)
 		Expiry:       token.ExpiresAt,
 	}
 
-	if cachedIDToken != "" {
+	if idToken != "" {
 		oauth2Token = oauth2Token.WithExtra(map[string]interface{}{
-			"id_token": cachedIDToken,
+			"id_token": idToken,
 		})
 	}
 
@@ -114,3 +126,36 @@ func (s *AgentTokenStore) GetIDToken() string {
 
 // Ensure AgentTokenStore implements transport.TokenStore at compile time.
 var _ transport.TokenStore = (*AgentTokenStore)(nil)
+
+// idTokenRecorder is the round tripper of mcp-go's OAuth handler. It takes the
+// ID token from a token endpoint response before mcp-go decodes the response
+// into a transport.Token, which has no field for it, and saves it: without it
+// every refresh would store the new access token next to the old ID token.
+type idTokenRecorder struct {
+	base  http.RoundTripper
+	store *AgentTokenStore
+}
+
+func (r idTokenRecorder) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := r.base.RoundTrip(req)
+	if err != nil || req.Method != http.MethodPost || resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return resp, err
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if err != nil {
+		return nil, err
+	}
+	resp.Body = io.NopCloser(bytes.NewReader(body))
+
+	var tokenResponse struct {
+		IDToken string `json:"id_token"`
+	}
+	if json.Unmarshal(body, &tokenResponse) == nil && tokenResponse.IDToken != "" {
+		r.store.mu.Lock()
+		r.store.refreshedIDToken = tokenResponse.IDToken
+		r.store.mu.Unlock()
+	}
+	return resp, nil
+}

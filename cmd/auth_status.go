@@ -137,21 +137,25 @@ func printAuthenticatedStatus(localStatus *api.AuthStatus) {
 		authPrint("  Refresh:   %s\n", text.FgYellow.Sprint("Not available (re-auth required on expiry)"))
 	}
 	if !localStatus.IDTokenExpiresAt.IsZero() {
-		authPrint("  ID token:  %s\n", formatIDTokenExpiry(localStatus.IDTokenExpiresAt, time.Now()))
+		authPrint("  ID token:  %s\n", formatIDTokenExpiry(localStatus.IDTokenExpiresAt, time.Now(), localStatus.HasRefreshToken))
 	}
 	if localStatus.IssuerURL != "" {
 		authPrint("  Issuer:    %s\n", localStatus.IssuerURL)
 	}
 }
 
-// formatIDTokenExpiry renders the OIDC ID token's expiry. An expired one names
-// the command that renews it, because the session's automatic refresh never
-// will.
-func formatIDTokenExpiry(expiresAt, now time.Time) string {
+// formatIDTokenExpiry renders the OIDC ID token's expiry. An expired one is
+// renewed by the session's next refresh when a refresh token is stored, and
+// only by a new login otherwise.
+func formatIDTokenExpiry(expiresAt, now time.Time, refreshable bool) string {
 	if now.Before(expiresAt) {
 		return "expires in " + formatDuration(expiresAt.Sub(now))
 	}
-	return text.FgYellow.Sprintf("expired %s ago", formatDuration(now.Sub(expiresAt))) + " (renew with: muster auth login)"
+	expired := fmt.Sprintf("expired %s ago", formatDuration(now.Sub(expiresAt)))
+	if refreshable {
+		return expired + " (auto-refresh)"
+	}
+	return text.FgYellow.Sprint(expired) + " (renew with: muster auth login)"
 }
 
 // printConnectionError prints a formatted connection error message.

@@ -315,6 +315,14 @@ func runMCPServerWithOAuth(ctx context.Context, client *agent.Client, logger *ag
 		client.SetOAuthConfig(*oauthCfg, agentStore)
 	}
 
+	// An expired access token with a refresh token next to it is a session,
+	// not a login: the OAuth transport refreshes it on the first request, and
+	// only a refresh the server refuses falls back to authenticate_muster.
+	if authState != oauth.AuthStateAuthenticated && authManager.HasCredentials(endpoint) {
+		logger.Info("Access token expired, refreshing it with the stored refresh token")
+		return runMCPServerDirectWithAuth(ctx, client, logger, endpoint, transport, authManager)
+	}
+
 	switch authState {
 	case oauth.AuthStateAuthenticated:
 		return runMCPServerDirectWithAuth(ctx, client, logger, endpoint, transport, authManager)
