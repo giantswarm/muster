@@ -299,14 +299,24 @@ func TestFormatIDTokenExpiry(t *testing.T) {
 	now := time.Date(2026, 9, 16, 12, 0, 0, 0, time.UTC)
 
 	t.Run("valid ID token names its remaining lifetime", func(t *testing.T) {
-		got := formatIDTokenExpiry(now.Add(23*time.Hour), now)
+		got := formatIDTokenExpiry(now.Add(23*time.Hour), now, true)
 		if got != "expires in 23 hours" {
 			t.Errorf("got %q", got)
 		}
 	})
 
-	t.Run("expired ID token names the command that renews it", func(t *testing.T) {
-		got := formatIDTokenExpiry(now.Add(-12*24*time.Hour), now)
+	t.Run("expired ID token with a refresh token is renewed by the refresh", func(t *testing.T) {
+		got := formatIDTokenExpiry(now.Add(-4*time.Hour), now, true)
+		if !strings.Contains(got, "expired 4 hours ago (auto-refresh)") {
+			t.Errorf("expected 'expired 4 hours ago (auto-refresh)', got %q", got)
+		}
+		if strings.Contains(got, "muster auth login") {
+			t.Errorf("expected no login hint while a refresh renews it, got %q", got)
+		}
+	})
+
+	t.Run("expired ID token without a refresh token names the command that renews it", func(t *testing.T) {
+		got := formatIDTokenExpiry(now.Add(-12*24*time.Hour), now, false)
 		if !strings.Contains(got, "expired 12 days ago") {
 			t.Errorf("expected 'expired 12 days ago', got %q", got)
 		}
@@ -345,8 +355,8 @@ func TestPrintAuthenticatedStatus_IDToken(t *testing.T) {
 		if !strings.Contains(output, "Authenticated") {
 			t.Errorf("expected the session to read Authenticated, got: %s", output)
 		}
-		if !strings.Contains(output, "expired 12 days ago") || !strings.Contains(output, "renew with: muster auth login") {
-			t.Errorf("expected the ID token line to say it is expired and how to renew, got: %s", output)
+		if !strings.Contains(output, "expired 12 days ago (auto-refresh)") {
+			t.Errorf("expected the ID token line to say it is expired and renewed by the refresh, got: %s", output)
 		}
 	})
 

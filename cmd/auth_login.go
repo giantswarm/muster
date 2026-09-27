@@ -40,10 +40,10 @@ Examples:
   muster auth login --force            # Sign in again although the session is valid
 
 A valid session is reused. The session's automatic refresh renews the access
-token only, never the OIDC ID token from the sign-in; when the session carries
-no ID token or an expired one, login signs in again through the browser so the
-token file carries a current one (see 'muster auth token --id'). --force signs
-in again regardless.`,
+token and the OIDC ID token together, once the access token has expired; when
+the session carries no ID token or an expired one, login signs in again through
+the browser so the token file carries a current one now (see 'muster auth
+token --id'). --force signs in again regardless.`,
 	RunE: runAuthLogin,
 }
 
@@ -92,10 +92,10 @@ func runAuthLogin(cmd *cobra.Command, args []string) error {
 	// If the access token expired but a valid refresh token exists,
 	// mcp-go's transport refreshes it transparently -- no browser needed.
 	if err := tryMCPConnection(ctx, handler, endpoint); err == nil {
-		// The session is valid, but its refresh never touches the stored ID
-		// token; a person who hands that token to another client needs a
-		// current one, so a missing or expired one (or --force) signs in
-		// again. The decision reads the token file alone -- the connection
+		// The session is valid, but its refresh renews the stored ID token
+		// only once the access token has expired; a person who hands that
+		// token to another client needs a current one now, so a missing or
+		// expired one (or --force) signs in again. The decision reads the token file alone -- the connection
 		// just proved the session, so neither the CLI's own view of the
 		// access token nor a probe of the server may stand in its way.
 		if renew, reason := idTokenRenewal(readStoredIDToken(handler, endpoint), loginForce, time.Now()); renew {
@@ -147,9 +147,9 @@ func readStoredIDToken(handler api.AuthHandler, endpoint string) storedIDToken {
 }
 
 // idTokenRenewal decides whether a valid aggregator session still needs a new
-// sign-in. The mcp-go transport renews the access token only; the OIDC ID token
-// in the token file keeps the exp of the first sign-in, and a person who hands
-// it to another client needs a current one. A session whose ID token has
+// sign-in. The session's refresh renews the OIDC ID token in the token file
+// only once the access token has expired, and a person who hands it to another
+// client needs a current one now. A session whose ID token has
 // expired or expires within pkgoauth.DefaultExpiryMargin is renewed, and so is
 // a session that carries no ID token; without a stored session there is
 // nothing to renew. The reason is empty when no renewal is due.

@@ -246,7 +246,7 @@ func runAuthWhoami(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Expires:   %s\n", formatExpiryWithDirection(status.ExpiresAt))
 	}
 	if !status.IDTokenExpiresAt.IsZero() {
-		fmt.Printf("ID token:  %s\n", formatIDTokenExpiry(status.IDTokenExpiresAt, time.Now()))
+		fmt.Printf("ID token:  %s\n", formatIDTokenExpiry(status.IDTokenExpiresAt, time.Now(), status.HasRefreshToken))
 	}
 
 	return nil

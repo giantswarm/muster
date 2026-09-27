@@ -2,6 +2,9 @@ package oauth
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -206,4 +209,105 @@ func createTestTokenStore(t *testing.T) *TokenStore {
 		t.Fatalf("failed to create token store: %v", err)
 	}
 	return store
+}
+
+// TestSetupOAuthConfig_RefreshKeepsTheNewIDToken drives a refresh through
+// mcp-go's OAuth handler with the config SetupOAuthConfigWithDir builds: the
+// refreshed ID token must reach the store next to the new access token.
+func TestSetupOAuthConfig_RefreshKeepsTheNewIDToken(t *testing.T) {
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/.well-known/oauth-authorization-server":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"issuer":                 server.URL,
+				"authorization_endpoint": server.URL + "/authorize",
+				"token_endpoint":         server.URL + "/token",
+			})
+		case "/token":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"access_token":  "new-access-token",
+				"token_type":    "Bearer",
+				"refresh_token": "new-refresh-token",
+				"expires_in":    3600,
+				"id_token":      "new-id-token",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	cfg, _, err := SetupOAuthConfigWithDir(server.URL, dir)
+	if err != nil {
+		t.Fatalf("SetupOAuthConfigWithDir failed: %v", err)
+	}
+	cfg.AuthServerMetadataURL = server.URL + "/.well-known/oauth-authorization-server"
+
+	store, err := NewTokenStore(TokenStoreConfig{StorageDir: dir, FileMode: true})
+	if err != nil {
+		t.Fatalf("NewTokenStore failed: %v", err)
+	}
+	expired := (&oauth2.Token{
+		AccessToken:  "old-access-token",
+		RefreshToken: "old-refresh-token",
+		TokenType:    "Bearer",
+		Expiry:       time.Now().Add(-time.Hour),
+	}).WithExtra(map[string]interface{}{"id_token": "old-id-token"})
+	if err := store.StoreToken(server.URL, server.URL, expired); err != nil {
+		t.Fatalf("StoreToken failed: %v", err)
+	}
+
+	handler := transport.NewOAuthHandler(*cfg)
+	handler.SetBaseURL(server.URL)
+	header, err := handler.GetAuthorizationHeader(context.Background())
+	if err != nil {
+		t.Fatalf("GetAuthorizationHeader failed: %v", err)
+	}
+	if header != "Bearer new-access-token" {
+		t.Fatalf("expected the refreshed access token, got %q", header)
+	}
+
+	reread, err := NewTokenStore(TokenStoreConfig{StorageDir: dir, FileMode: true})
+	if err != nil {
+		t.Fatalf("NewTokenStore failed: %v", err)
+	}
+	got := reread.GetToken(server.URL)
+	if got == nil {
+		t.Fatal("expected the refreshed token in the store")
+	}
+	if got.IDToken != "new-id-token" {
+		t.Errorf("expected the refreshed ID token, got %q", got.IDToken)
+	}
+	if got.RefreshToken != "new-refresh-token" {
+		t.Errorf("expected the rotated refresh token, got %q", got.RefreshToken)
+	}
+}
+
+func TestAgentTokenStore_SaveToken_KeepsTheCachedIDTokenWithoutARefreshedOne(t *testing.T) {
+	store := createTestTokenStore(t)
+	serverURL := "https://example.com"
+	stored := (&oauth2.Token{
+		AccessToken: "access", TokenType: "Bearer", RefreshToken: "refresh",
+		Expiry: time.Now().Add(time.Hour),
+	}).WithExtra(map[string]interface{}{"id_token": "cached-id-token"})
+	if err := store.StoreToken(serverURL, "https://issuer.example.com", stored); err != nil {
+		t.Fatalf("StoreToken failed: %v", err)
+	}
+
+	agentStore := NewAgentTokenStore(serverURL, store)
+	if _, err := agentStore.GetToken(context.Background()); err != nil {
+		t.Fatalf("GetToken failed: %v", err)
+	}
+	if err := agentStore.SaveToken(context.Background(), &transport.Token{
+		AccessToken: "access-2", TokenType: "Bearer", RefreshToken: "refresh",
+		ExpiresAt: time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("SaveToken failed: %v", err)
+	}
+	if got := store.GetToken(serverURL); got == nil || got.IDToken != "cached-id-token" {
+		t.Errorf("expected the cached ID token to be kept, got %+v", got)
+	}
 }

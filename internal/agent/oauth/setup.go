@@ -2,6 +2,8 @@ package oauth
 
 import (
 	"fmt"
+	"net/http"
+	"time"
 
 	"github.com/mark3labs/mcp-go/client/transport"
 
@@ -45,6 +47,11 @@ func SetupOAuthConfigWithDir(serverURL, tokenStorageDir string) (*transport.OAut
 		TokenStore:  agentStore,
 		Scopes:      agentOAuthScopes,
 		PKCEEnabled: true,
+		HTTPClient: &http.Client{
+			// mcp-go's default for its OAuth requests.
+			Timeout:   30 * time.Second,
+			Transport: idTokenRecorder{base: http.DefaultTransport, store: agentStore},
+		},
 	}
 
 	return config, agentStore, nil
