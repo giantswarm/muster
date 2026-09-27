@@ -108,9 +108,9 @@ type AuthStatus struct {
 	RefreshExpiresAt time.Time
 
 	// IDTokenExpiresAt is the exp claim of the stored OIDC ID token; zero when
-	// the session carries no ID token or the token has no exp. The mcp-go
-	// transport renews the access token only, so this can lie in the past
-	// while Authenticated is true.
+	// the session carries no ID token or the token has no exp. A refresh
+	// renews it only once the access token has expired, so this can lie in
+	// the past while Authenticated is true.
 	IDTokenExpiresAt time.Time
 
 	// Error is non-empty if the auth check failed.

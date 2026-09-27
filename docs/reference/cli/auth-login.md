@@ -18,10 +18,10 @@ Examples:
   muster auth login --force            # Sign in again although the session is valid
 
 A valid session is reused. The session's automatic refresh renews the access
-token only, never the OIDC ID token from the sign-in; when the session carries
-no ID token or an expired one, login signs in again through the browser so the
-token file carries a current one (see 'muster auth token --id'). --force signs
-in again regardless.
+token and the OIDC ID token together, once the access token has expired; when
+the session carries no ID token or an expired one, login signs in again through
+the browser so the token file carries a current one now (see 'muster auth
+token --id'). --force signs in again regardless.
 
 ```
 muster auth login [flags]
