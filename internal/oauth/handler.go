@@ -68,6 +68,10 @@ func (h *Handler) SetPostLoginRedirectAllowlist(prefixes []*url.URL) {
 	h.postLoginRedirectAllowlist = prefixes
 }
 
+// expiredStartLinkMessage is shown when a sign-in link is opened after its
+// state expired or was already used.
+const expiredStartLinkMessage = "This sign-in link has expired. Start a new sign-in; opening this link again will not work."
+
 // HandleStart handles the OAuth proxy start endpoint. Auth challenges point
 // the browser here; it redirects to the upstream authorization URL stored
 // with the flow's state. An optional "redirect" query parameter, validated
@@ -98,7 +102,9 @@ func (h *Handler) HandleStart(w http.ResponseWriter, r *http.Request) {
 		}
 	})
 	if state == nil {
-		h.renderErrorPage(w, "Authentication session expired. Please try again.")
+		// Retrying this link can never succeed: its state is gone, so only a
+		// new sign-in (a new link) helps.
+		h.renderErrorPage(w, expiredStartLinkMessage)
 		return
 	}
 	if state.AuthorizationURL == "" {
