@@ -111,8 +111,10 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 			case pkgoauth.SessionServerStatusAuthRequired, pkgoauth.SessionServerStatusReauthRequired:
 				status.Issuer = info.AuthInfo.Issuer
 				status.Scope = info.AuthInfo.Scope
-				if status.Status == pkgoauth.SessionServerStatusReauthRequired ||
-					(!status.TokenForwardingEnabled && !status.TokenExchangeEnabled) {
+				// core_auth_login refuses SSO servers in every state, so it is
+				// only advertised where it can succeed: an SSO server's
+				// reauth_required is fixed by re-authenticating to muster.
+				if !status.TokenForwardingEnabled && !status.TokenExchangeEnabled {
 					status.AuthTool = "core_auth_login"
 				}
 			}

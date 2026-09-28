@@ -612,12 +612,69 @@ func TestHandleAuthStatusResource_ReauthRequired_PopulatesAuthMetadata(t *testin
 		"issuer should be populated for reauth_required")
 	assert.Equal(t, "openid", srv.Scope,
 		"scope should be populated for reauth_required")
-	assert.Equal(t, "core_auth_login", srv.AuthTool,
-		"AuthTool should be core_auth_login for reauth_required so the agent can prompt re-authentication")
+	assert.Empty(t, srv.AuthTool,
+		"AuthTool must be empty for an SSO server in reauth_required: core_auth_login refuses SSO servers")
 	assert.True(t, srv.TokenForwardingEnabled,
 		"TokenForwardingEnabled should be true")
 	assert.True(t, srv.SSOAttemptFailed,
 		"SSOAttemptFailed should be true when SSO has failed")
+}
+
+// A token-exchange server whose SSO attempt failed reads reauth_required
+// without a core_auth_login pointer, the same as list_tools'
+// servers_requiring_auth, which leaves SSO servers out.
+func TestHandleAuthStatusResource_ReauthRequired_TokenExchangeNoAuthTool(t *testing.T) {
+	sub := "reauth-exchange-user"
+	tracker := newSSOTracker()
+	aggServer := &AggregatorServer{
+		registry:   NewServerRegistry("x"),
+		ssoTracker: tracker,
+	}
+
+	err := aggServer.registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: "sso-exch-server", ToolPrefix: "ssoexch"},
+		URL:                "https://sso-exch.example.com",
+		AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
+		AuthConfig: &api.MCPServerAuth{
+			TokenExchange: &api.TokenExchangeConfig{
+				Enabled:          true,
+				DexTokenEndpoint: "https://remote-dex.example.com/token",
+				ConnectorID:      "cluster-a-dex",
+				ClientID:         "test-client",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to register server: %v", err)
+	}
+
+	tracker.MarkSSOFailed(sub, "sso-exch-server")
+
+	ctx := api.WithSubject(context.Background(), sub)
+	ctx = api.WithSessionID(ctx, "reauth-exchange-session")
+
+	result, err := aggServer.handleAuthStatusResource(ctx, mcp.ReadResourceRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	textContent, ok := result[0].(mcp.TextResourceContents)
+	if !ok {
+		t.Fatalf("expected TextResourceContents, got %T", result[0])
+	}
+
+	var response pkgoauth.AuthStatusResponse
+	if err := json.Unmarshal([]byte(textContent.Text), &response); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+
+	assert.Len(t, response.Servers, 1)
+	srv := response.Servers[0]
+	assert.Equal(t, pkgoauth.SessionServerStatusReauthRequired, srv.Status)
+	assert.True(t, srv.TokenExchangeEnabled)
+	assert.True(t, srv.SSOAttemptFailed)
+	assert.Empty(t, srv.AuthTool,
+		"AuthTool must be empty for a token-exchange server in reauth_required: core_auth_login refuses SSO servers")
 }
 
 func TestAuthStatusResponse_MarshalJSON(t *testing.T) {
