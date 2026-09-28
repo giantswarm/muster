@@ -69,9 +69,9 @@ func TestBuildOAuthServerOptions_NoErrorWhenFieldsSet(t *testing.T) {
 		BaseURL: "https://muster.example.com",
 		TrustedIssuers: []config.TrustedIssuerConfig{
 			{
-				Issuer:        "https://idp.example.com",
-				JwksURL:       "https://idp.example.com/jwks",
-				AllowedClaims: map[string]string{"sub": "system:serviceaccount:ai-platform:*"},
+				Issuer:       "https://idp.example.com",
+				JwksURL:      "https://idp.example.com/jwks",
+				SubjectClaim: "email",
 			},
 		},
 		TrustedProxyCIDRs: []string{"127.0.0.1/32"},
@@ -88,8 +88,8 @@ func TestBuildOAuthServerOptions_AllowPrivateIPJWKSNoError(t *testing.T) {
 		BaseURL: "https://muster.example.com",
 		TrustedIssuers: []config.TrustedIssuerConfig{
 			{
-				Issuer:             "https://kubernetes.default.svc",
-				JwksURL:            "https://kubernetes.default.svc/openid/v1/jwks",
+				Issuer:             "https://dex.internal.example.com",
+				JwksURL:            "https://dex.internal.example.com/keys",
 				AllowPrivateIPJWKS: true,
 			},
 		},
@@ -118,7 +118,6 @@ func TestToTrustedIssuer_MapsAllFields(t *testing.T) {
 		JwksURL:                 "https://idp.example.com/jwks",
 		AllowedAudiences:        []string{"aud1", "aud2"},
 		AllowedScopes:           []string{"read", "write"},
-		AllowedClaims:           map[string]string{"sub": "system:serviceaccount:ns:*"},
 		SubjectClaim:            "email",
 		AllowPrivateIPJWKS:      true,
 		AllowPrivateIPJWKSHosts: []string{"dex.example.com"},
@@ -129,7 +128,6 @@ func TestToTrustedIssuer_MapsAllFields(t *testing.T) {
 	require.Equal(t, in.JwksURL, got.JwksURL)
 	require.Equal(t, in.AllowedAudiences, got.AllowedAudiences)
 	require.Equal(t, in.AllowedScopes, got.AllowedScopes)
-	require.Equal(t, in.AllowedClaims, got.AllowedClaims)
 	require.Equal(t, in.SubjectClaim, got.SubjectClaim)
 	require.True(t, got.AllowPrivateIPJWKS)
 	require.Equal(t, in.AllowPrivateIPJWKSHosts, got.AllowPrivateIPJWKSHosts)

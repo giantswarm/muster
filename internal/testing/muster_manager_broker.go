@@ -57,9 +57,6 @@ func (m *musterInstanceManager) applyBrokerConfig(
 		if len(ti.AllowedAudiences) > 0 {
 			entry["allowedAudiences"] = ti.AllowedAudiences
 		}
-		if len(ti.AllowedClaims) > 0 {
-			entry["allowedClaims"] = ti.AllowedClaims
-		}
 		if ti.SubjectClaim != "" {
 			entry["subjectClaim"] = ti.SubjectClaim
 		}

@@ -742,7 +742,7 @@ type MCPServerInfo struct {
 	// RegisteredByEmail is the email claim of the identity that registered
 	// this server, read from the RegisteredByEmailAnnotation. Display metadata
 	// only — RegisteredBy is the stable identifier. Empty when the token
-	// carried no email claim (e.g. Kubernetes ServiceAccount identities).
+	// carried no email claim.
 	RegisteredByEmail string `json:"registeredByEmail,omitempty"`
 }
 

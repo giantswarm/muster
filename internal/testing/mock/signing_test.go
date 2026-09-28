@@ -15,7 +15,7 @@ func TestMintSignedJWT_VerifiesAgainstPublicJWKS(t *testing.T) {
 	})
 
 	token, err := srv.MintSignedJWT(map[string]any{
-		"sub":    "system:serviceaccount:kagent:sre-agent",
+		"sub":    "agent:sre-agent",
 		"aud":    "cluster-b",
 		"groups": []string{"team:sre"},
 	}, "")
@@ -56,5 +56,5 @@ func TestMintSignedJWT_SetsTypHeader(t *testing.T) {
 	parsedNoTyp, err := jose.ParseSigned(noTyp, []jose.SignatureAlgorithm{jose.ES256})
 	require.NoError(t, err)
 	_, hasTyp := parsedNoTyp.Signatures[0].Header.ExtraHeaders[jose.HeaderType]
-	require.False(t, hasTyp, "empty typ must omit the header (SA-token shape)")
+	require.False(t, hasTyp, "empty typ must omit the header (Dex ID-token shape)")
 }

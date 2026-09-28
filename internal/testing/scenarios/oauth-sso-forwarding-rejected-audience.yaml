@@ -79,7 +79,7 @@ steps:
       email: "alice@giantswarm.io"
       email_verified: true
       act:
-        sub: "system:serviceaccount:kagent:sre-agent"
+        sub: "agent:sre-agent"
     expected:
       success: true
 

@@ -328,8 +328,7 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 
 		if userInfo.Email == "" {
 			// An emailless identity can still be a valid forwarded ID token
-			// (e.g. a Kubernetes ServiceAccount identity pre-exchanged at Dex —
-			// SA tokens carry a `sub` but no email). The TrustedAudiences
+			// (a Dex identity whose connector supplies no email). The
 			// forwarded-token path authenticates on `sub`, not email, so try
 			// it before giving up. Falls through unchanged when the bearer is
 			// not an acceptable forwarded ID token.
@@ -339,10 +338,9 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 			if s.debug {
 				logging.Debug("OAuth", "User info has no email, proceeding without token injection")
 			}
-			// The session is authenticated even without an email (e.g. an agent
-			// presenting a trusted-issuer workload token): fire the callback so
-			// its session-scoped backends are established with the validated
-			// bearer.
+			// The session is authenticated even without an email: fire the
+			// callback so its session-scoped backends are established with the
+			// validated bearer.
 			s.fireOnAuthenticated(ctx)
 			next.ServeHTTP(w, r)
 			return
@@ -435,9 +433,9 @@ var acceptTrustedIssuerToken = func(s *oauth.Server, ctx context.Context, bearer
 //
 //  1. TrustedAudiences (AcceptForwardedIDToken): a Dex ID token forwarded
 //     cross-client whose aud is listed in TrustedAudiences.
-//  2. TrustedIssuers (AcceptTrustedIssuerToken): a raw JWT from an external OIDC
-//     issuer (e.g. a Kubernetes ServiceAccount projected token) whose aud is
-//     muster's own resource identifier. AcceptForwardedIDToken returns
+//  2. TrustedIssuers (AcceptTrustedIssuerToken): a Dex ID token from a trusted
+//     issuer whose aud is one of that issuer's allowedAudiences rather than a
+//     TrustedAudiences entry. AcceptForwardedIDToken returns
 //     ErrTrustedAudienceMismatch for these; the TrustedIssuers path is tried
 //     before giving up.
 //
@@ -463,8 +461,8 @@ func (s *OAuthHTTPServer) injectExternalIDToken(
 	if err != nil {
 		if errors.Is(err, oauth.ErrTrustedAudienceMismatch) {
 			// The bearer is not a TrustedAudiences token. Try the TrustedIssuers
-			// path — e.g. a raw Kubernetes SA projected token whose aud is
-			// muster's own resource identifier.
+			// path: a Dex ID token whose aud is one of the issuer's
+			// allowedAudiences.
 			if s.debug {
 				logging.Debug("OAuth", "SSO: forwarded ID token audience mismatch, trying TrustedIssuers path")
 			}

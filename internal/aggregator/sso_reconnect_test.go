@@ -1059,7 +1059,7 @@ func TestSSOPoolMissNeedingInit_NoRetryStormOnPersistentFailure(t *testing.T) {
 }
 
 func TestBeginSessionBootstrap_RecordsTheConnectOutcomeWhenTheFanOutFinishes(t *testing.T) {
-	// Forwarded-token callers (SA token, no auth-code flow) reach onAuthenticated
+	// Forwarded-token callers (a Dex ID token, no auth-code flow) reach onAuthenticated
 	// for a brand-new session. beginSessionBootstrap starts the session's
 	// connects in the background and returns; the outcome of a connect is
 	// observable once the fan-out reports itself finished (#1226).

@@ -58,7 +58,7 @@ steps:
       wait_for_state: "30s"
 
   - id: "mint-dex-obo-token"
-    description: "Dex mints the on-behalf-of token: sub=human, act=agent SA"
+    description: "Dex mints the on-behalf-of token: sub=human, act=agent"
     tool: "test_mint_token"
     args:
       server: "workload-idp"
@@ -68,7 +68,7 @@ steps:
       email_verified: true
       groups: ["customer:giantswarm:team-ai"]
       act:
-        sub: "system:serviceaccount:kagent:sre-agent"
+        sub: "agent:sre-agent"
     expected:
       success: true
 
@@ -93,7 +93,7 @@ steps:
       wait_for_state: "30s"
       contains:
         - "alice@giantswarm.io"
-        - "system:serviceaccount:kagent:sre-agent"
+        - "agent:sre-agent"
 
 # Evaluated once the steps above ran: muster serve's own stdout and stderr,
 # captured at debug level for the whole scenario, never carried a JWT.

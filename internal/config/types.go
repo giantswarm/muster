@@ -550,12 +550,6 @@ type TrustedIssuerConfig struct {
 	AllowedAudiences []string `yaml:"allowedAudiences,omitempty"`
 	// AllowedScopes caps scopes for tokens from this issuer. Nil means no restriction.
 	AllowedScopes []string `yaml:"allowedScopes,omitempty"`
-	// AllowedClaims requires each named claim to match its pattern. Keys are JWT
-	// claim names; values are exact strings or globs ('*' spans any chars incl. '/',
-	// '?' one char). Absent or non-string claims are rejected. Empty means no
-	// restriction. Use to express K8s SA trust via sub, e.g.
-	// "system:serviceaccount:<namespace>:*".
-	AllowedClaims map[string]string `yaml:"allowedClaims,omitempty"`
 	// SubjectClaim names the verified claim whose value becomes the canonical
 	// subject (the sub of any token minted from this identity). Empty keeps the
 	// standard sub claim. Set it to "email" for Dex, whose sub is opaque, when the
@@ -563,9 +557,8 @@ type TrustedIssuerConfig struct {
 	// non-string is rejected.
 	SubjectClaim string `yaml:"subjectClaim,omitempty"`
 	// AllowPrivateIPJWKS allows the JwksURL to resolve to a private or loopback
-	// address. Required for in-cluster Kubernetes SA trust where the JWKS endpoint
-	// is https://kubernetes.default.svc/openid/v1/jwks. Emits a startup warning
-	// when set (mcp-oauth dev-override flag). Default: false.
+	// address, for a Dex on a private network. Emits a startup warning when set
+	// (mcp-oauth dev-override flag). Default: false.
 	AllowPrivateIPJWKS bool `yaml:"allowPrivateIPJWKS,omitempty"`
 	// AllowPrivateIPJWKSHosts is the host-scoped alternative to AllowPrivateIPJWKS:
 	// the JwksURL may resolve to a private IP only when its hostname matches one of
@@ -575,8 +568,7 @@ type TrustedIssuerConfig struct {
 	AllowPrivateIPJWKSHosts []string `yaml:"allowPrivateIPJWKSHosts,omitempty"`
 	// AcceptedTypHeaders lists the JWT typ header values accepted for Bearer
 	// tokens from this issuer. Empty keeps the RFC 9068 default ("at+jwt").
-	// Kubernetes ServiceAccount tokens carry no typ header; use [""] to
-	// accept them.
+	// Dex sets no typ header on ID tokens; use [""] to accept them.
 	AcceptedTypHeaders []string `yaml:"acceptedTypHeaders,omitempty"`
 }
 

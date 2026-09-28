@@ -268,7 +268,7 @@ type BrokerGrantTargetConfig struct {
 }
 
 // BrokerTrustedIssuerConfig references a mock OAuth server as a trusted issuer for
-// muster's broker and carries the per-issuer claim/typ constraints.
+// muster's broker and carries the per-issuer subject and typ settings.
 type BrokerTrustedIssuerConfig struct {
 	// OAuthServerRef references the mock OAuth server (by name) whose JWKS and
 	// issuer URL muster should trust. The referenced server is forced to sign
@@ -278,13 +278,10 @@ type BrokerTrustedIssuerConfig struct {
 	// from this issuer to its own issuer as the default audience (anti-replay).
 	// Set it (e.g. to the client_id) to accept ID tokens whose aud is the client.
 	AllowedAudiences []string `yaml:"allowed_audiences,omitempty"`
-	// AllowedClaims requires each named claim to match its glob (e.g. sub ->
-	// "system:serviceaccount:kagent:*"). Optional.
-	AllowedClaims map[string]string `yaml:"allowed_claims,omitempty"`
 	// SubjectClaim names the claim that becomes the canonical subject. Optional.
 	SubjectClaim string `yaml:"subject_claim,omitempty"`
-	// AcceptedTypHeaders lists accepted JWT typ headers. Use [""] for SA-style
-	// tokens that carry no typ header. Empty keeps the RFC 9068 default.
+	// AcceptedTypHeaders lists accepted JWT typ headers. Use [""] for Dex-style
+	// ID tokens that carry no typ header. Empty keeps the RFC 9068 default.
 	AcceptedTypHeaders []string `yaml:"accepted_typ_headers,omitempty"`
 }
 
