@@ -19,7 +19,7 @@ func TestNewOAuthServerConfig_AccessTokensStayOpaque(t *testing.T) {
 	cfg := config.OAuthServerConfig{
 		BaseURL: "https://muster.example.com",
 	}
-	got := newOAuthServerConfig(cfg, time.Hour)
+	got := newOAuthServerConfig(cfg, oauthTokenLifetimes{refreshTokenTTL: time.Hour})
 	require.Empty(t, got.AccessTokenFormat)
 	require.Nil(t, got.AccessTokenSigningKey)
 }
@@ -146,7 +146,7 @@ func TestNewOAuthServerConfig_MapsTokenExchangeClientAudiences(t *testing.T) {
 			ClientAudiences: allowlist,
 		},
 	}
-	got := newOAuthServerConfig(cfg, time.Hour)
+	got := newOAuthServerConfig(cfg, oauthTokenLifetimes{refreshTokenTTL: time.Hour})
 	require.Equal(t, allowlist, got.TokenExchangeClientAudiences)
 }
 
@@ -159,7 +159,7 @@ func TestNewOAuthServerConfig_LocksSelfIssuedExchangeToOwnResource(t *testing.T)
 			BaseURL:            "https://muster.example.com",
 			ResourceIdentifier: "https://muster.example.com/mcp",
 		}
-		got := newOAuthServerConfig(cfg, time.Hour)
+		got := newOAuthServerConfig(cfg, oauthTokenLifetimes{refreshTokenTTL: time.Hour})
 		require.Equal(t, []string{"https://muster.example.com/mcp"}, got.TokenExchangeAllowedResources)
 	})
 
@@ -168,7 +168,7 @@ func TestNewOAuthServerConfig_LocksSelfIssuedExchangeToOwnResource(t *testing.T)
 		cfg := config.OAuthServerConfig{
 			BaseURL: "https://muster.example.com",
 		}
-		got := newOAuthServerConfig(cfg, time.Hour)
+		got := newOAuthServerConfig(cfg, oauthTokenLifetimes{refreshTokenTTL: time.Hour})
 		require.Equal(t, []string{"https://muster.example.com"}, got.TokenExchangeAllowedResources)
 	})
 }

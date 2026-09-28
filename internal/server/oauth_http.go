@@ -752,17 +752,18 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 		return nil, fmt.Errorf("unsupported OAuth storage type: %s (supported: %s, %s)", cfg.Storage.Type, storage.BackendMemory, storage.BackendValkey)
 	}
 
-	refreshTokenTTL := DefaultRefreshTokenTTL
+	lifetimes, err := parseOAuthTokenLifetimes(cfg)
+	if err != nil {
+		return nil, err
+	}
 	if cfg.SessionDuration != "" {
-		parsed, err := time.ParseDuration(cfg.SessionDuration)
-		if err != nil {
-			return nil, fmt.Errorf("invalid sessionDuration %q: %w", cfg.SessionDuration, err)
-		}
-		refreshTokenTTL = parsed
-		logger.Info("Using custom session duration", "duration", parsed)
+		logger.Info("Using custom session duration", "duration", lifetimes.refreshTokenTTL)
+	}
+	if lifetimes.providerTokenRefreshThreshold > 0 {
+		logger.Info("Using custom provider token refresh threshold", "threshold", lifetimes.providerTokenRefreshThreshold)
 	}
 
-	serverConfig := newOAuthServerConfig(cfg, refreshTokenTTL)
+	serverConfig := newOAuthServerConfig(cfg, lifetimes)
 	// Verify the forwarded-ID-token (TrustedAudiences) JWKS endpoint against the
 	// operator's extra CA when the issuer is private-IP. nil keeps system-pool.
 	serverConfig.JWKSRootCAs = caPool
