@@ -186,6 +186,7 @@ func TestHandler_RenderSuccessPage(t *testing.T) {
 			t.Errorf("Expected body to contain %q", check)
 		}
 	}
+	assertNoIDEWording(t, body)
 
 	// Check content type
 	contentType := rr.Header().Get("Content-Type")
@@ -214,6 +215,7 @@ func TestHandler_RenderErrorPage(t *testing.T) {
 		"Authentication Failed",
 		"Test error message",
 		"Muster",
+		"try again from where you started the sign-in",
 	}
 
 	for _, check := range checks {
@@ -221,6 +223,7 @@ func TestHandler_RenderErrorPage(t *testing.T) {
 			t.Errorf("Expected body to contain %q", check)
 		}
 	}
+	assertNoIDEWording(t, body)
 }
 
 func TestHandler_SecurityHeaders(t *testing.T) {
@@ -577,6 +580,24 @@ func TestHandler_HandleStart_InvalidState(t *testing.T) {
 
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("Expected status %d, got %d", http.StatusBadRequest, rr.Code)
+	}
+	body := rr.Body.String()
+	for _, want := range []string{"This sign-in link has expired", "Start a new sign-in"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("Expected body to contain %q, got %q", want, body)
+		}
+	}
+	assertNoIDEWording(t, body)
+}
+
+// assertNoIDEWording checks that a page does not assume the sign-in was
+// started from an IDE or a CLI: the portal starts the same flow.
+func assertNoIDEWording(t *testing.T, body string) {
+	t.Helper()
+	for _, unwanted := range []string{"IDE", "previous command"} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("Expected body not to contain %q", unwanted)
+		}
 	}
 }
 
