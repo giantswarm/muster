@@ -110,7 +110,7 @@ func ClassifyTokenExchangeError(err error) TokenExchangeFailureClass {
 
 // isTokenEndpointServerError reports whether the lower-cased error text names
 // an HTTP 5xx answer from the token endpoint, as the exchange client formats a
-// non-OAuth error body ("token exchange failed with status 502: ...").
+// non-OAuth answer ("token exchange failed with status 502 (content type ...").
 func isTokenEndpointServerError(text string) bool {
 	for _, marker := range []string{"with status 50", "with status 51", "status code 50", "status code 51"} {
 		if strings.Contains(text, marker) {
