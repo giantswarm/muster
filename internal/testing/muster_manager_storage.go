@@ -185,7 +185,7 @@ func (m *musterInstanceManager) startValkey(ctx context.Context, instanceID stri
 	if delay <= 0 {
 		if err := v.start(); err != nil {
 			m.stopValkey(instanceID, logger)
-			return fmt.Errorf("failed to start valkey on %s: %w", v.addr(), err)
+			return fmt.Errorf("failed to start valkey on %s: %w%s", v.addr(), err, valkeyPortOccupants(port, err))
 		}
 		if m.debug {
 			logger.Debug("🗄️  Started valkey (miniredis) for %s on %s\n", instanceID, v.addr())
@@ -305,4 +305,19 @@ func ensureStringMap(parent map[string]interface{}, key string) map[string]inter
 	created := map[string]interface{}{}
 	parent[key] = created
 	return created
+}
+
+// valkeyPortOccupants names the sockets on the stand-in's port when its bind
+// failed with "address already in use": the port came from the allocator,
+// outside the ephemeral range and behind a guard, so whatever holds it is a
+// finding of its own (#1356). Empty for any other error or without /proc.
+func valkeyPortOccupants(port int, err error) string {
+	if err == nil || !strings.Contains(err.Error(), "address already in use") {
+		return ""
+	}
+	occupants := describePortOccupants(port)
+	if occupants == "" {
+		occupants = "(no socket on the port is visible any more)\n"
+	}
+	return fmt.Sprintf("\n--- sockets on port %d at failure ---\n%s", port, strings.TrimRight(occupants, "\n"))
 }
