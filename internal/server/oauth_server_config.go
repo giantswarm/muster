@@ -263,7 +263,6 @@ func toTrustedIssuer(iss config.TrustedIssuerConfig, caPool *x509.CertPool) oaut
 		JwksURL:                 iss.JwksURL,
 		AllowedAudiences:        iss.AllowedAudiences,
 		AllowedScopes:           iss.AllowedScopes,
-		AllowedClaims:           iss.AllowedClaims,
 		SubjectClaim:            iss.SubjectClaim,
 		AllowPrivateIPJWKS:      iss.AllowPrivateIPJWKS,
 		AllowPrivateIPJWKSHosts: iss.AllowPrivateIPJWKSHosts,

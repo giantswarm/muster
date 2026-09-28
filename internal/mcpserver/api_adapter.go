@@ -388,8 +388,8 @@ func subjectFromContext(ctx context.Context) string {
 
 // emailFromContext resolves the authenticated caller's email claim, if the
 // token carried one. Display metadata only — the subject is the stable
-// identifier. Returns "" for identities without an email (e.g. Kubernetes
-// ServiceAccounts) and unauthenticated transports.
+// identifier. Returns "" for identities without an email and for
+// unauthenticated transports.
 func emailFromContext(ctx context.Context) string {
 	if userInfo, ok := oauthhandler.UserInfoFromContext(ctx); ok && userInfo != nil {
 		return userInfo.Email

@@ -94,7 +94,7 @@ steps:
       email_verified: true
       groups: ["customer:giantswarm:team-ai"]
       act:
-        sub: "system:serviceaccount:kagent:sre-agent"
+        sub: "agent:sre-agent"
     expected:
       success: true
 
@@ -121,7 +121,7 @@ steps:
       success: true
       contains:
         - "alice@giantswarm.io"
-        - "system:serviceaccount:kagent:sre-agent"
+        - "agent:sre-agent"
 
   - id: "slow-backend-answers-after-its-connect"
     description: |
@@ -133,7 +133,7 @@ steps:
       success: true
       contains:
         - "alice@giantswarm.io"
-        - "system:serviceaccount:kagent:sre-agent"
+        - "agent:sre-agent"
 
   - id: "both-backends-connected"
     description: "auth://status shows both backends connected for the session"

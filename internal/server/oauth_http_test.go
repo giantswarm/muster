@@ -237,14 +237,14 @@ func TestCreateAccessTokenInjectorMiddleware(t *testing.T) {
 		assert.False(t, called) // Not called yet
 	})
 
-	// A Kubernetes ServiceAccount identity carries a `sub` but no email. The
-	// forwarded-token (TrustedAudiences) path authenticates on `sub`, so an
+	// A Dex identity whose connector supplies no email carries a `sub` only.
+	// The forwarded-token (TrustedAudiences) path authenticates on `sub`, so an
 	// emailless UserInfo must still attempt injectExternalIDToken rather than
 	// being dropped outright.
 	t.Run("emailless identity attempts forwarded ID token injection", func(t *testing.T) {
-		token := fakeJWT(t, map[string]interface{}{"sub": "system:serviceaccount:ns:sa"})
+		token := fakeJWT(t, map[string]interface{}{"sub": "CgVhbGljZRIEZ2l0aHVi"})
 		defer stubAcceptForwardedIDToken(func(_ context.Context, bearer string) (*oauthserver.ForwardedIDTokenAcceptance, error) {
-			return acceptanceFor(bearer, "system:serviceaccount:ns:sa", ""), nil
+			return acceptanceFor(bearer, "CgVhbGljZRIEZ2l0aHVi", ""), nil
 		})()
 
 		s := &OAuthHTTPServer{config: config.OAuthServerConfig{BaseURL: "https://muster.test"}}
@@ -255,7 +255,7 @@ func TestCreateAccessTokenInjectorMiddleware(t *testing.T) {
 		})
 
 		r := requestWithBearer(token)
-		r = r.WithContext(oauthhandler.ContextWithUserInfo(r.Context(), &providers.UserInfo{ID: "system:serviceaccount:ns:sa"}))
+		r = r.WithContext(oauthhandler.ContextWithUserInfo(r.Context(), &providers.UserInfo{ID: "CgVhbGljZRIEZ2l0aHVi"}))
 
 		s.createAccessTokenInjectorMiddleware(next).ServeHTTP(httptest.NewRecorder(), r)
 
@@ -284,7 +284,7 @@ func TestCreateAccessTokenInjectorMiddleware(t *testing.T) {
 		})
 
 		r := requestWithBearer("opaque-or-wrong-aud")
-		r = r.WithContext(oauthhandler.ContextWithUserInfo(r.Context(), &providers.UserInfo{ID: "system:serviceaccount:ns:sa"}))
+		r = r.WithContext(oauthhandler.ContextWithUserInfo(r.Context(), &providers.UserInfo{ID: "CgVhbGljZRIEZ2l0aHVi"}))
 
 		s.createAccessTokenInjectorMiddleware(next).ServeHTTP(httptest.NewRecorder(), r)
 
@@ -696,15 +696,16 @@ func TestInjectExternalIDToken(t *testing.T) {
 	})
 
 	t.Run("falls back to TrustedIssuers path on audience mismatch and injects session", func(t *testing.T) {
-		// Simulates a raw Kubernetes SA projected token: AcceptForwardedIDToken
-		// returns ErrTrustedAudienceMismatch (SA aud is muster's resource ID, not
-		// in TrustedAudiences), then AcceptTrustedIssuerToken succeeds.
-		token := fakeJWT(t, map[string]interface{}{"sub": "system:serviceaccount:ai-platform:my-svc"})
+		// Simulates a Dex ID token whose aud is a trusted issuer's
+		// allowedAudiences entry: AcceptForwardedIDToken returns
+		// ErrTrustedAudienceMismatch (the aud is not in TrustedAudiences), then
+		// AcceptTrustedIssuerToken succeeds.
+		token := fakeJWT(t, map[string]interface{}{"sub": "alice@example.com"})
 		defer stubAcceptForwardedIDToken(func(context.Context, string) (*oauthserver.ForwardedIDTokenAcceptance, error) {
 			return nil, oauth.ErrTrustedAudienceMismatch
 		})()
 		defer stubAcceptTrustedIssuerToken(func(_ context.Context, bearer string) (*oauthserver.ForwardedIDTokenAcceptance, error) {
-			return acceptanceFor(bearer, "system:serviceaccount:ai-platform:my-svc", ""), nil
+			return acceptanceFor(bearer, "alice@example.com", ""), nil
 		})()
 
 		s := &OAuthHTTPServer{config: config.OAuthServerConfig{BaseURL: baseURL}}
@@ -718,7 +719,7 @@ func TestInjectExternalIDToken(t *testing.T) {
 		require.True(t, handled, "TrustedIssuers fallback must handle the request")
 		require.NotNil(t, capturedCtx)
 
-		assert.Equal(t, "system:serviceaccount:ai-platform:my-svc", api.GetSubjectFromContext(capturedCtx))
+		assert.Equal(t, "alice@example.com", api.GetSubjectFromContext(capturedCtx))
 		assert.Regexp(t, `^ext-[0-9a-f]{16}$`, api.GetSessionIDFromContext(capturedCtx))
 
 		idToken, ok := GetIDTokenFromContext(capturedCtx)
@@ -739,7 +740,7 @@ func TestInjectExternalIDToken(t *testing.T) {
 		nextCalled := false
 		next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) { nextCalled = true })
 
-		r := requestWithBearer("raw-sa-token-unknown-issuer")
+		r := requestWithBearer("token-from-unknown-issuer")
 		handled := s.injectExternalIDToken(httptest.NewRecorder(), r, r.Context(), next)
 		assert.False(t, handled)
 		assert.False(t, nextCalled)

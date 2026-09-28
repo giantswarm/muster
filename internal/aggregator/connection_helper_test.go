@@ -797,7 +797,7 @@ func TestHeaderFunc_ForwardsRequestBearer(t *testing.T) {
 
 	oboToken := unsignedJWT(t, map[string]any{
 		"sub": "alice",
-		"act": map[string]any{"sub": "system:serviceaccount:kagent:sre-agent"},
+		"act": map[string]any{"sub": "agent:sre-agent"},
 		"exp": time.Now().Add(time.Hour).Unix(),
 	})
 	headerFunc := makeTokenForwardingHeaderFunc(sessionID, musterIssuer, "srv", "fallback", nil, nil, nil)

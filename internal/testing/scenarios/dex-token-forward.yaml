@@ -60,7 +60,7 @@ steps:
 
   - id: "mint-dex-obo-token"
     description: |
-      Dex mints the on-behalf-of token itself: sub=human, act=agent SA,
+      Dex mints the on-behalf-of token itself: sub=human, act=agent,
       groups. muster plays no part in issuance.
     tool: "test_mint_token"
     args:
@@ -71,7 +71,7 @@ steps:
       email_verified: true
       groups: ["customer:giantswarm:team-ai"]
       act:
-        sub: "system:serviceaccount:kagent:sre-agent"
+        sub: "agent:sre-agent"
     expected:
       success: true
 
@@ -98,4 +98,4 @@ steps:
       wait_for_state: "30s"
       contains:
         - "alice@giantswarm.io"
-        - "system:serviceaccount:kagent:sre-agent"
+        - "agent:sre-agent"

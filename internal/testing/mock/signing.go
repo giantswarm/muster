@@ -32,7 +32,7 @@ func newSigningKey() (*ecdsa.PrivateKey, string, error) {
 
 // MintSignedJWT signs claims into a compact ES256 JWT using the server's signing
 // key. typHeader sets the JWT `typ` header; an empty string omits it (matching
-// Kubernetes ServiceAccount tokens, which carry no typ). Returns an error when
+// Dex ID tokens, which carry no typ). Returns an error when
 // the server was not created with SignTokens enabled.
 //
 // Missing iss/iat/exp are filled from the server's issuer and token lifetime so

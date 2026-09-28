@@ -194,7 +194,7 @@ dex (or their own IdP), never against muster.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `trustedIssuers` | `[]TrustedIssuerConfig` | `[]` | Trusted external OIDC issuers. Tokens are accepted as `id_token`, `access_token`, or `jwt` subject_tokens. Use `allowedClaims` to express Kubernetes ServiceAccount or GitHub Actions trust. |
+| `trustedIssuers` | `[]TrustedIssuerConfig` | `[]` | Trusted Dex issuers: their ID tokens are accepted as bearer tokens and as the broker's subject tokens. |
 
 **TrustedIssuerConfig fields:**
 
@@ -204,8 +204,10 @@ dex (or their own IdP), never against muster.
 | `jwksUrl` | `string` | JWKS endpoint. Independent of `issuer`. |
 | `allowedAudiences` | `[]string` | Accepted `aud` values. Empty accepts any audience. |
 | `allowedScopes` | `[]string` | Scope ceiling for tokens from this issuer. Nil means no restriction. |
-| `allowedClaims` | `map[string]string` | Required claim name→pattern pairs. Keys are JWT claim names; values are exact strings or globs where `*` spans any chars including `/` and `?` matches one char. Absent or non-string claims are rejected. Empty means no restriction. |
-| `allowPrivateIPJWKS` | `bool` | Allow `jwksUrl` to resolve to a private or loopback address. Required for in-cluster Kubernetes SA trust where the JWKS endpoint is `https://kubernetes.default.svc/openid/v1/jwks`. Emits a startup warning when set. Default: `false`. |
+| `allowPrivateIPJWKS` | `bool` | Allow `jwksUrl` to resolve to a private or loopback address, for a Dex on a private network. Prefer `allowPrivateIPJWKSHosts`. Emits a startup warning when set. Default: `false`. |
+| `allowPrivateIPJWKSHosts` | `[]string` | Host-scoped alternative to `allowPrivateIPJWKS`: `jwksUrl` may resolve to a private IP only when its hostname is listed; every other host keeps the SSRF guard. |
+| `subjectClaim` | `string` | Verified claim whose value becomes the canonical subject. Empty keeps `sub`. Use `email` for Dex, whose `sub` is opaque. A token without the claim is rejected. |
+| `acceptedTypHeaders` | `[]string` | Accepted JWT `typ` header values. Empty keeps the RFC 9068 default (`at+jwt`). Dex sets no `typ` on ID tokens: use `[""]`. |
 
 #### Brokered Token Exchange (`tokenExchangeBroker`)
 

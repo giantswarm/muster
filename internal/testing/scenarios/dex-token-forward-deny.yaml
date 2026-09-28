@@ -38,7 +38,7 @@ steps:
     args:
       server: "workload-idp"
       name: "trusted-token"
-      sub: "system:serviceaccount:kagent:sre-agent"
+      sub: "agent:sre-agent"
     expected:
       success: true
 
