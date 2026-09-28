@@ -13,6 +13,9 @@ suite: Gateway API template tests
 templates:
   - templates/httproute.yaml
   - templates/backendtrafficpolicy.yaml
+# Routing only: the OAuth guard on exposure is covered by exposure_auth_test.yaml.
+set:
+  muster.oauth.server.acknowledgeUnauthenticatedExposure: true
 tests:
   # HTTPRoute tests
   - it: should not create HTTPRoute when gatewayAPI is disabled
