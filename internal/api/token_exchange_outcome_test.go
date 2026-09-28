@@ -52,6 +52,14 @@ func TestClassifyTokenExchangeError(t *testing.T) {
 			err:  errors.New("token exchange failed with status 502: <html>Bad Gateway</html>"),
 			want: TokenExchangeFailureEndpoint,
 		},
+		"token endpoint answered 5xx with an HTML page": {
+			err:  errors.New(`token exchange failed with status 504 (content type "text/html", not an OAuth error response): HTML page "504 Gateway Time-out"`),
+			want: TokenExchangeFailureEndpoint,
+		},
+		"proxy answered 401 with an HTML page": {
+			err:  errors.New(`token exchange failed with status 401 (content type "text/html", not an OAuth error response): HTML page "401 Authorization Required"`),
+			want: TokenExchangeFailureNone,
+		},
 		"subject token rejected": {
 			err:  errors.New("token exchange failed: invalid_grant - subject token is expired"),
 			want: TokenExchangeFailureNone,
