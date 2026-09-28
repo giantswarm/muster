@@ -91,6 +91,9 @@ data:
           {{- if .Values.muster.oauth.server.allowPrivateIPRedirectURIs }}
           allowPrivateIPRedirectURIs: true
           {{- end }}
+          {{- with .Values.muster.oauth.server.providerTokenRefreshThreshold }}
+          providerTokenRefreshThreshold: {{ . | quote }}
+          {{- end }}
           {{- if .Values.muster.oauth.server.allowPublicClientRegistration }}
           allowPublicClientRegistration: true
           {{- end }}

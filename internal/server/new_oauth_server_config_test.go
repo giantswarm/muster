@@ -54,7 +54,7 @@ func TestNewOAuthServerConfig_TrustedPublicRegistrationRedirectURIs(t *testing.T
 				TrustedPublicRegistrationRedirectURIs: tc.in,
 			}
 
-			got := newOAuthServerConfig(cfg, time.Hour)
+			got := newOAuthServerConfig(cfg, oauthTokenLifetimes{refreshTokenTTL: time.Hour})
 
 			require.Equal(t, tc.want, got.TrustedPublicRegistrationRedirectURIs)
 		})
@@ -77,7 +77,7 @@ func TestNewOAuthServerConfig_PreservesAdjacentFields(t *testing.T) {
 		TrustedAudiences:                      []string{"upstream-client-id"},
 	}
 
-	got := newOAuthServerConfig(cfg, time.Hour)
+	got := newOAuthServerConfig(cfg, oauthTokenLifetimes{refreshTokenTTL: time.Hour})
 
 	require.Equal(t, "https://muster.example.com", got.Issuer)
 	require.False(t, got.AllowPublicClientRegistration)
@@ -116,7 +116,7 @@ func TestNewOAuthServerConfig_AllowedOriginsSplitAndTrimmed(t *testing.T) {
 				AllowedOrigins: tc.in,
 			}
 
-			got := newOAuthServerConfig(cfg, time.Hour)
+			got := newOAuthServerConfig(cfg, oauthTokenLifetimes{refreshTokenTTL: time.Hour})
 
 			require.Equal(t, tc.want, got.CORS.AllowedOrigins)
 		})
@@ -144,7 +144,7 @@ func TestNewOAuthServerConfig_AllowPrivateIPJWKSMirrorsDexFlag(t *testing.T) {
 				Dex:     config.DexConfig{AllowPrivateIPOIDC: tc.in},
 			}
 
-			got := newOAuthServerConfig(cfg, time.Hour)
+			got := newOAuthServerConfig(cfg, oauthTokenLifetimes{refreshTokenTTL: time.Hour})
 
 			require.Equal(t, tc.want, got.AllowPrivateIPJWKS,
 				"AllowPrivateIPJWKS must mirror Dex.AllowPrivateIPOIDC")
@@ -155,8 +155,85 @@ func TestNewOAuthServerConfig_AllowPrivateIPJWKSMirrorsDexFlag(t *testing.T) {
 func TestNewOAuthServerConfig_AllowPrivateIPClientMetadataDefaultsOff(t *testing.T) {
 	t.Parallel()
 
-	got := newOAuthServerConfig(config.OAuthServerConfig{BaseURL: "https://muster.example.com"}, time.Hour)
+	got := newOAuthServerConfig(config.OAuthServerConfig{BaseURL: "https://muster.example.com"}, oauthTokenLifetimes{refreshTokenTTL: time.Hour})
 
 	require.False(t, got.AllowPrivateIPClientMetadata, "the CIMD SSRF guard must stay on unless the operator opts out")
 	require.False(t, got.AllowPrivateIPRedirectURIs, "the redirect-URI private-IP guard must stay on unless the operator opts out")
+}
+
+func TestParseOAuthTokenLifetimes(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		cfg     config.OAuthServerConfig
+		want    oauthTokenLifetimes
+		wantErr string
+	}{
+		{
+			name: "empty keeps the defaults",
+			want: oauthTokenLifetimes{refreshTokenTTL: DefaultRefreshTokenTTL},
+		},
+		{
+			name: "both set",
+			cfg:  config.OAuthServerConfig{SessionDuration: "168h", ProviderTokenRefreshThreshold: "25m"},
+			want: oauthTokenLifetimes{refreshTokenTTL: 168 * time.Hour, providerTokenRefreshThreshold: 25 * time.Minute},
+		},
+		{
+			name:    "invalid session duration",
+			cfg:     config.OAuthServerConfig{SessionDuration: "30d"},
+			wantErr: "invalid sessionDuration",
+		},
+		{
+			name:    "invalid threshold",
+			cfg:     config.OAuthServerConfig{ProviderTokenRefreshThreshold: "soon"},
+			wantErr: "invalid providerTokenRefreshThreshold",
+		},
+		{
+			name:    "negative threshold",
+			cfg:     config.OAuthServerConfig{ProviderTokenRefreshThreshold: "-5m"},
+			wantErr: "must be at least 1s",
+		},
+		{
+			name:    "sub-second threshold would silently mean the default",
+			cfg:     config.OAuthServerConfig{ProviderTokenRefreshThreshold: "500ms"},
+			wantErr: "must be at least 1s",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := parseOAuthTokenLifetimes(tc.cfg)
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestNewOAuthServerConfig_ProviderTokenRefreshThreshold(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.OAuthServerConfig{BaseURL: "https://muster.example.com"}
+
+	t.Run("unset leaves the mcp-oauth default", func(t *testing.T) {
+		t.Parallel()
+		got := newOAuthServerConfig(cfg, oauthTokenLifetimes{refreshTokenTTL: time.Hour})
+		require.Zero(t, got.TokenRefreshThreshold)
+	})
+
+	t.Run("set maps to seconds", func(t *testing.T) {
+		t.Parallel()
+		got := newOAuthServerConfig(cfg, oauthTokenLifetimes{
+			refreshTokenTTL:               time.Hour,
+			providerTokenRefreshThreshold: 25 * time.Minute,
+		})
+		require.Equal(t, int64(1500), got.TokenRefreshThreshold)
+		require.Equal(t, int64(3600), got.RefreshTokenTTL)
+	})
 }

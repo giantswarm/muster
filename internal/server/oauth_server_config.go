@@ -25,14 +25,48 @@ import (
 	musteroauth "github.com/giantswarm/muster/v5/internal/oauth"
 )
 
+// oauthTokenLifetimes are the parsed duration settings of the OAuth server
+// config. A zero providerTokenRefreshThreshold keeps the mcp-oauth default.
+type oauthTokenLifetimes struct {
+	refreshTokenTTL               time.Duration
+	providerTokenRefreshThreshold time.Duration
+}
+
+// parseOAuthTokenLifetimes parses the duration strings of the OAuth server
+// config; an empty string keeps the default.
+func parseOAuthTokenLifetimes(cfg config.OAuthServerConfig) (oauthTokenLifetimes, error) {
+	lifetimes := oauthTokenLifetimes{refreshTokenTTL: DefaultRefreshTokenTTL}
+	if cfg.SessionDuration != "" {
+		parsed, err := time.ParseDuration(cfg.SessionDuration)
+		if err != nil {
+			return oauthTokenLifetimes{}, fmt.Errorf("invalid sessionDuration %q: %w", cfg.SessionDuration, err)
+		}
+		lifetimes.refreshTokenTTL = parsed
+	}
+	if cfg.ProviderTokenRefreshThreshold != "" {
+		parsed, err := time.ParseDuration(cfg.ProviderTokenRefreshThreshold)
+		if err != nil {
+			return oauthTokenLifetimes{}, fmt.Errorf("invalid providerTokenRefreshThreshold %q: %w", cfg.ProviderTokenRefreshThreshold, err)
+		}
+		// mcp-oauth counts the threshold in whole seconds and reads 0 as its
+		// default, so anything below a second would silently mean 5m.
+		if parsed < time.Second {
+			return oauthTokenLifetimes{}, fmt.Errorf("invalid providerTokenRefreshThreshold %q: must be at least 1s", cfg.ProviderTokenRefreshThreshold)
+		}
+		lifetimes.providerTokenRefreshThreshold = parsed
+	}
+	return lifetimes, nil
+}
+
 // newOAuthServerConfig maps the muster OAuth config onto the mcp-oauth Config.
 // Pure mapper: no I/O, no goroutines.
-func newOAuthServerConfig(cfg config.OAuthServerConfig, refreshTokenTTL time.Duration) *oauthserver.Config {
+func newOAuthServerConfig(cfg config.OAuthServerConfig, lifetimes oauthTokenLifetimes) *oauthserver.Config {
 	result := &oauthserver.Config{
 		Issuer:                                cfg.BaseURL,
 		ResourceIdentifier:                    cfg.ResourceIdentifier,
 		AccessTokenTTL:                        int64(DefaultAccessTokenTTL / time.Second),
-		RefreshTokenTTL:                       int64(refreshTokenTTL / time.Second),
+		RefreshTokenTTL:                       int64(lifetimes.refreshTokenTTL / time.Second),
+		TokenRefreshThreshold:                 int64(lifetimes.providerTokenRefreshThreshold / time.Second),
 		AllowRefreshTokenRotation:             true,
 		RequirePKCE:                           true,
 		AllowPKCEPlain:                        false,

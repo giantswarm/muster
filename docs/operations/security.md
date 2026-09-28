@@ -73,7 +73,7 @@ By aligning the defaults to 30 days, `muster auth status` shows an accurate sess
 |-----------|---------|--------|
 | `DefaultAccessTokenTTL` | 30 minutes | `internal/server/oauth_http.go` |
 | `DefaultRefreshTokenTTL` | 30 days (720h) | `pkg/oauth/types.go` (`DefaultSessionDuration`) |
-| `TokenRefreshThreshold` | 5 minutes | mcp-oauth (proactive server-side Dex token refresh) |
+| `providerTokenRefreshThreshold` | 5 minutes | mcp-oauth `TokenRefreshThreshold`; set with `aggregator.oauth.server.providerTokenRefreshThreshold` (proactive server-side Dex token refresh, see the [configuration reference](../reference/configuration.md#provider-token-refresh-threshold)) |
 | Agent `tokenExpiryBuffer` | 60 seconds | `internal/agent/oauth/token_store.go` |
 
 ### Configuring Session Duration

@@ -155,6 +155,37 @@ aggregator:
 >
 > Always ensure `sessionDuration` does not exceed Dex's `absoluteLifetime`.
 
+#### Provider Token Refresh Threshold
+
+muster holds each signed-in person's provider (Dex) token and hands it out as
+is while it has more than `providerTokenRefreshThreshold` of lifetime left; a
+token closer to its expiry is refreshed at the provider first. The threshold
+therefore sets the minimum lifetime of the token muster forwards to downstream
+servers (`forwardToken`, `forwardIdentity`, token exchange) and of the one a
+client's refresh returns.
+
+```yaml
+aggregator:
+  oauth:
+    server:
+      providerTokenRefreshThreshold: "25m"  # empty: the mcp-oauth default, 5m
+```
+
+Raise it when a caller needs a forwarded token that outlives a long operation:
+an agent turn of 20 minutes whose tool calls all carry the token of its first
+call needs a threshold of at least 20 minutes, or a refresh can return a token
+with only a few minutes left and every tool fails mid-turn once it expires.
+
+| Value | Behaviour |
+|-------|-----------|
+| empty | 5 minutes, the mcp-oauth default |
+| `25m` | A handed-out token has at least 25 of Dex's 30 minutes left; muster refreshes at Dex at most every 5 minutes per person |
+
+The value is a Go duration of at least `1s`; anything else fails startup.
+Keep it below the provider's token lifetime (Dex `expiry.idTokens`, 30m by
+default): at or above it, every token muster holds counts as expiring and
+every request refreshes at the provider.
+
 #### Access Token TTL
 
 The access token TTL is not directly configurable; it defaults to 30 minutes

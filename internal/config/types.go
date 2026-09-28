@@ -362,6 +362,18 @@ type OAuthServerConfig struct {
 	// Format: Go duration string (e.g., "720h", "30d" is NOT valid, use hours).
 	SessionDuration string `yaml:"sessionDuration,omitempty"`
 
+	// ProviderTokenRefreshThreshold is how much lifetime the provider (Dex)
+	// token muster holds for a user must have left before muster hands it out
+	// as is; a token closer to its expiry is refreshed at the provider first.
+	// It governs the token muster forwards to downstream servers and the one
+	// a client's refresh returns. Raise it when a caller needs a forwarded
+	// token that outlives a long operation (an agent turn of 20 minutes); keep
+	// it below the provider's token lifetime, or every validation refreshes at
+	// the provider.
+	// Default: empty, the mcp-oauth default of 5m.
+	// Format: Go duration string of at least one second (e.g., "25m").
+	ProviderTokenRefreshThreshold string `yaml:"providerTokenRefreshThreshold,omitempty"`
+
 	// AllowedOrigins is a comma-separated list of allowed CORS origins for
 	// browser-based MCP clients. Empty disables CORS (default, secure).
 	AllowedOrigins string `yaml:"allowedOrigins,omitempty"`
