@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"runtime"
+	"sync"
 	"time"
 )
 
@@ -11,7 +12,7 @@ import (
 // the failure line in the CI log says where the dumps are.
 const stallNote = "; the last call to muster serve was still waiting for its response when its budget ran out" +
 	" -- goroutine dumps of muster serve (SIGQUIT, at the end of the instance stderr)" +
-	" and of the harness (harness_goroutines) are in the report"
+	" and of the harness (harness_goroutines, and harness_goroutines_at_overrun if the call outlived its deadline) are in the report"
 
 // harnessGoroutineDumpLimit caps the harness's goroutine dump. A run with
 // fifty scenarios in flight has thousands of goroutines; the first megabytes
@@ -41,8 +42,47 @@ func stalledCall(err error) bool {
 // read as a death mid-scenario.
 func (r *testRunner) captureStallDiagnostics(instance *MusterInstance, result *TestScenarioResult, logger TestLogger) (instanceStopped bool) {
 	result.HarnessGoroutines = harnessGoroutines()
+	result.HarnessGoroutinesAtOverrun = takeOverrunDump(instance.Endpoint)
 	manager, ok := r.instanceManager.(*musterInstanceManager)
 	return ok && manager.dumpGoroutines(instance, logger)
+}
+
+// callOverrunGrace is how long a call to muster serve may run past its
+// context's deadline before the harness records its goroutines. A call that
+// honours its context returns within milliseconds of the deadline. One still
+// running this much later is blocked somewhere that ignores the context --
+// CI showed a poll with a 20s budget come back after 90s, its request never
+// logged by muster serve (#1206) -- and only a dump taken while it is blocked
+// shows where: the dump captureStallDiagnostics takes comes after the call
+// has unwound, when the frame is gone.
+var callOverrunGrace = 2 * time.Second
+
+// overrunDumps holds, per muster serve endpoint, the harness goroutines
+// recorded when a call to that endpoint overran its deadline; the first
+// overrun of a scenario is kept.
+var overrunDumps sync.Map
+
+// watchCallOverrun records the harness's goroutines under endpoint if the
+// call ctx bounds is still running callOverrunGrace after ctx's deadline. The
+// returned stop ends the watch; call it when the call returns.
+func watchCallOverrun(ctx context.Context, endpoint string) (stop func()) {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return func() {}
+	}
+	timer := time.AfterFunc(time.Until(deadline)+callOverrunGrace, func() {
+		overrunDumps.LoadOrStore(endpoint, harnessGoroutines())
+	})
+	return func() { timer.Stop() }
+}
+
+// takeOverrunDump returns and forgets the dump recorded for endpoint, or ""
+// when no call to it overran. The runner also forgets it when the scenario's
+// instance is destroyed, so a later instance on the same port starts clean.
+func takeOverrunDump(endpoint string) string {
+	dump, _ := overrunDumps.LoadAndDelete(endpoint)
+	s, _ := dump.(string)
+	return s
 }
 
 // harnessGoroutines returns the stacks of every goroutine of this process,

@@ -66,3 +66,65 @@ func TestSplitGoroutineDump(t *testing.T) {
 		t.Errorf("a log without a dump split into %q / %q", log, dump)
 	}
 }
+
+// TestWatchCallOverrunRecordsABlockedCall: a call still running past its
+// deadline plus the grace gets the harness's goroutines recorded while it is
+// blocked, so the dump shows the blocked frame (#1206).
+func TestWatchCallOverrunRecordsABlockedCall(t *testing.T) {
+	defer func(grace time.Duration) { callOverrunGrace = grace }(callOverrunGrace)
+	callOverrunGrace = 10 * time.Millisecond
+	endpoint := "http://localhost:1/overrun"
+	defer overrunDumps.Delete(endpoint)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	release := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		defer watchCallOverrun(ctx, endpoint)()
+		blockedIgnoringContext(release)
+	}()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, ok := overrunDumps.Load(endpoint); ok || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	close(release)
+	<-done
+
+	dump := takeOverrunDump(endpoint)
+	if !strings.Contains(dump, "blockedIgnoringContext") {
+		t.Fatalf("the overrun dump does not show the blocked call:\n%s", dump)
+	}
+	if again := takeOverrunDump(endpoint); again != "" {
+		t.Error("takeOverrunDump did not forget the dump")
+	}
+}
+
+// TestWatchCallOverrunIgnoresACallThatReturns: a call that returns before its
+// deadline records nothing, nor does a context without a deadline.
+func TestWatchCallOverrunIgnoresACallThatReturns(t *testing.T) {
+	defer func(grace time.Duration) { callOverrunGrace = grace }(callOverrunGrace)
+	callOverrunGrace = 10 * time.Millisecond
+	endpoint := "http://localhost:1/returns"
+	defer overrunDumps.Delete(endpoint)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	watchCallOverrun(ctx, endpoint)()
+	watchCallOverrun(context.Background(), endpoint)()
+	time.Sleep(60 * time.Millisecond)
+
+	if dump := takeOverrunDump(endpoint); dump != "" {
+		t.Errorf("a call that returned in time got a dump:\n%s", dump)
+	}
+}
+
+//go:noinline
+func blockedIgnoringContext(release <-chan struct{}) {
+	<-release
+}
