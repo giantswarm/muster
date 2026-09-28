@@ -757,10 +757,10 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 		return nil, err
 	}
 	if cfg.SessionDuration != "" {
-		logger.Info("Using custom session duration", "duration", lifetimes.refreshTokenTTL)
+		logger.Info("Using custom session duration", "duration", lifetimes.refreshTokenTTL.String())
 	}
 	if lifetimes.providerTokenRefreshThreshold > 0 {
-		logger.Info("Using custom provider token refresh threshold", "threshold", lifetimes.providerTokenRefreshThreshold)
+		logger.Info("Using custom provider token refresh threshold", "threshold", lifetimes.providerTokenRefreshThreshold.String())
 	}
 
 	serverConfig := newOAuthServerConfig(cfg, lifetimes)
