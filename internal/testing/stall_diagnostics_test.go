@@ -71,30 +71,38 @@ func TestSplitGoroutineDump(t *testing.T) {
 // deadline plus the grace gets the harness's goroutines recorded while it is
 // blocked, so the dump shows the blocked frame (#1206).
 func TestWatchCallOverrunRecordsABlockedCall(t *testing.T) {
-	defer func(grace time.Duration) { callOverrunGrace = grace }(callOverrunGrace)
-	callOverrunGrace = 10 * time.Millisecond
+	defer func(grace time.Duration, record func(string)) {
+		callOverrunGrace, recordOverrun = grace, record
+	}(callOverrunGrace, recordOverrun)
+	callOverrunGrace = 0
+	recorded := make(chan struct{})
+	record := recordOverrun
+	recordOverrun = func(endpoint string) {
+		record(endpoint)
+		close(recorded)
+	}
 	endpoint := "http://localhost:1/overrun"
 	defer overrunDumps.Delete(endpoint)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 	defer cancel()
 	release := make(chan struct{})
-	done := make(chan struct{})
+	done := make(chan bool)
 	go func() {
-		defer close(done)
-		defer watchCallOverrun(ctx, endpoint)()
+		stop := watchCallOverrun(ctx, endpoint)
 		blockedIgnoringContext(release)
+		done <- stop()
 	}()
 
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		if _, ok := overrunDumps.Load(endpoint); ok || time.Now().After(deadline) {
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
+	select {
+	case <-recorded:
+	case <-time.After(10 * time.Second):
+		t.Fatal("no dump was recorded for a call blocked past its deadline")
 	}
 	close(release)
-	<-done
+	if pending := <-done; pending {
+		t.Error("stop reported the watch pending after it had fired")
+	}
 
 	dump := takeOverrunDump(endpoint)
 	if !strings.Contains(dump, "blockedIgnoringContext") {
@@ -106,20 +114,18 @@ func TestWatchCallOverrunRecordsABlockedCall(t *testing.T) {
 }
 
 // TestWatchCallOverrunIgnoresACallThatReturns: a call that returns before its
-// deadline records nothing, nor does a context without a deadline.
+// deadline stops the watch before it fires, and a context without a deadline
+// is not watched.
 func TestWatchCallOverrunIgnoresACallThatReturns(t *testing.T) {
-	defer func(grace time.Duration) { callOverrunGrace = grace }(callOverrunGrace)
-	callOverrunGrace = 10 * time.Millisecond
-	endpoint := "http://localhost:1/returns"
-	defer overrunDumps.Delete(endpoint)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
 	defer cancel()
-	watchCallOverrun(ctx, endpoint)()
-	watchCallOverrun(context.Background(), endpoint)()
-	time.Sleep(60 * time.Millisecond)
-
-	if dump := takeOverrunDump(endpoint); dump != "" {
+	if pending := watchCallOverrun(ctx, "http://localhost:1/returns")(); !pending {
+		t.Error("a call that returned in time did not stop a pending watch")
+	}
+	if pending := watchCallOverrun(context.Background(), "http://localhost:1/returns")(); !pending {
+		t.Error("a context without a deadline was watched")
+	}
+	if dump := takeOverrunDump("http://localhost:1/returns"); dump != "" {
 		t.Errorf("a call that returned in time got a dump:\n%s", dump)
 	}
 }

@@ -62,18 +62,23 @@ var callOverrunGrace = 2 * time.Second
 // overrun of a scenario is kept.
 var overrunDumps sync.Map
 
+// recordOverrun stores the harness's goroutines for endpoint; a variable so
+// tests can observe it firing.
+var recordOverrun = func(endpoint string) {
+	overrunDumps.LoadOrStore(endpoint, harnessGoroutines())
+}
+
 // watchCallOverrun records the harness's goroutines under endpoint if the
 // call ctx bounds is still running callOverrunGrace after ctx's deadline. The
-// returned stop ends the watch; call it when the call returns.
-func watchCallOverrun(ctx context.Context, endpoint string) (stop func()) {
+// returned stop ends the watch -- call it when the call returns -- and reports
+// whether the watch was still pending, i.e. nothing was recorded.
+func watchCallOverrun(ctx context.Context, endpoint string) (stop func() bool) {
 	deadline, ok := ctx.Deadline()
 	if !ok {
-		return func() {}
+		return func() bool { return true }
 	}
-	timer := time.AfterFunc(time.Until(deadline)+callOverrunGrace, func() {
-		overrunDumps.LoadOrStore(endpoint, harnessGoroutines())
-	})
-	return func() { timer.Stop() }
+	timer := time.AfterFunc(time.Until(deadline)+callOverrunGrace, func() { recordOverrun(endpoint) })
+	return timer.Stop
 }
 
 // takeOverrunDump returns and forgets the dump recorded for endpoint, or ""
