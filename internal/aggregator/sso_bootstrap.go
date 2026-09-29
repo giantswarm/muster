@@ -9,6 +9,9 @@ import (
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/server"
 	"github.com/giantswarm/muster/v5/pkg/logging"
+
+	oauthserver "github.com/giantswarm/mcp-oauth/server"
+	"golang.org/x/oauth2"
 )
 
 // ssoConnectOutcome is what one server's connect in a session's fan-out ended
@@ -206,6 +209,24 @@ func (a *AggregatorServer) sessionMayAdoptGrant(info *ServerInfo, sso ssoSession
 	}
 	authenticated, _ := a.authStore.IsAuthenticated(context.Background(), sso.sessionID, info.Name)
 	return !authenticated
+}
+
+// onSessionCreated starts a new session's SSO fan-out when a person signs in.
+// mcp-oauth calls it inside ExchangeAuthorizationCode, before the token
+// response is written, so it does not wait for the connects: the token
+// reaches the client at once, and the session's first requests wait for the
+// servers they need, as on the request path (#1226). A slow server must not
+// hold the token past the timeout of a proxy in front of muster.
+func (a *AggregatorServer) onSessionCreated(userID, familyID string, token *oauth2.Token) {
+	idToken := oauthserver.ExtractIDToken(token)
+	logging.InfoWithAttrs("Aggregator", "SSO: SessionCreationHandler fired",
+		slog.String("userID", logging.TruncateIdentifier(userID)),
+		slog.String("familyID", logging.TruncateIdentifier(familyID)),
+		slog.Bool("hasIDToken", idToken != ""),
+		slog.Int("idTokenLen", len(idToken)))
+	// beginSessionBootstrap persists idToken into the OAuth-proxy store
+	// itself, so no separate storeIDTokenForSSO call is needed here.
+	a.beginSessionBootstrap(ssoSession{userID: userID, sessionID: familyID, tokens: server.CallerTokens{IDToken: idToken}})
 }
 
 // beginSessionBootstrap starts the session's fan-out in the background unless

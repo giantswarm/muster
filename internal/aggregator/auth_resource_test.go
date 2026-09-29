@@ -795,7 +795,7 @@ func TestStoreIDTokenForSSO_SetsExpiresAtFromJWT(t *testing.T) {
 // (getIDTokenForForwarding, which runs detached and can only read the store)
 // can resolve a subject. See oauthServer.RefreshSessionProvider for the
 // rotation/deauth background (giantswarm#37164).
-func TestInitSSOForSession_PersistsIDToken(t *testing.T) {
+func TestBeginSessionBootstrap_PersistsIDToken(t *testing.T) {
 	mock := newMockOAuthHandler(true)
 	api.RegisterOAuthHandler(mock)
 	t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
@@ -815,7 +815,7 @@ func TestInitSSOForSession_PersistsIDToken(t *testing.T) {
 
 	// JWT payload: {"sub":"alice","exp":9999999999} (year 2286).
 	idToken := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhbGljZSIsImV4cCI6OTk5OTk5OTk5OX0.sig"
-	a.initSSOForSession(ssoSession{
+	a.beginSessionBootstrap(ssoSession{
 		userID:    "alice",
 		sessionID: "family-reconnect",
 		tokens:    server.CallerTokens{IDToken: idToken},
@@ -823,7 +823,7 @@ func TestInitSSOForSession_PersistsIDToken(t *testing.T) {
 
 	stored := mock.GetFullTokenByIssuer("family-reconnect", "https://muster.example")
 	if stored == nil {
-		t.Fatal("initSSOForSession must persist the request-context ID token to the proxy store so background re-exchange can resolve it")
+		t.Fatal("beginSessionBootstrap must persist the request-context ID token to the proxy store so background re-exchange can resolve it")
 	}
 	if stored.IDToken != idToken {
 		t.Errorf("stored IDToken = %q, want %q", stored.IDToken, idToken)
@@ -831,7 +831,7 @@ func TestInitSSOForSession_PersistsIDToken(t *testing.T) {
 
 	t.Run("no-ops when the caller carries no ID token", func(t *testing.T) {
 		mock.tokens = map[string]*api.OAuthToken{}
-		a.initSSOForSession(ssoSession{
+		a.beginSessionBootstrap(ssoSession{
 			userID:    "bob",
 			sessionID: "family-no-idtoken",
 			tokens:    server.CallerTokens{},

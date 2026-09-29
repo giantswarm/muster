@@ -65,6 +65,9 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 		logging.Warn("Aggregator", "handleAuthStatusResource: missing session context (hasSub=%t, hasSessionID=%t) — returning infrastructure-level status only",
 			sub != "", sessionID != "")
 	}
+	// Like a listing, the status reports the servers the session's start
+	// connects, not whichever had finished when the read arrived.
+	a.awaitSessionBootstrap(ctx, sessionID)
 
 	servers := a.registry.GetAllServers()
 	suspended := suspendedServers(ctx, servers)
@@ -305,7 +308,7 @@ func (a *AggregatorServer) handleUpstreamRefreshFailure(sessionID, userID, reaso
 		}
 	}
 
-	// Mark all SSO servers as failed for this user so initSSOForSession
+	// Mark all SSO servers as failed for this user so beginSessionBootstrap
 	// doesn't immediately retry with expired credentials.
 	if a.ssoTracker != nil && userID != "" {
 		servers := a.registry.GetAllServers()
@@ -352,24 +355,12 @@ func (a *AggregatorServer) getMusterIssuerWithFallback(sessionID string) string 
 // ssoBootstrapGrace later.
 const initSSOTimeout = 15 * time.Second
 
-// initSSOForSession connects a new session's session-authenticated servers
-// and returns when the fan-out has finished. It serves the login flow:
-// SessionCreationHandler runs inside ExchangeAuthorizationCode, so a person
-// who signs in receives the access token once their servers are connected.
-// The request path (onAuthenticated) does not wait -- it calls
-// beginSessionBootstrap and answers while the fan-out runs (#1226).
-func (a *AggregatorServer) initSSOForSession(sso ssoSession) {
-	if b := a.beginSessionBootstrap(sso); b != nil {
-		b.wait(context.Background())
-	}
-}
-
 // ssoPoolMissNeedingInit reports whether any SSO server (token-exchange or
 // token-forwarding) has a pool miss for sessionID that is not already covered
 // by an in-flight exchange or an unexpired failure backoff window. For each
 // qualifying server it atomically claims the pending slot via
 // MarkSSOPendingIfNotPending, so concurrent onAuthenticated calls for the same
-// session do not spawn redundant initSSOForSession goroutines. Servers whose
+// session do not spawn redundant beginSessionBootstrap fan-outs. Servers whose
 // last exchange failed are skipped until their backoff expires, so a
 // persistently failing exchange retries on the tracker's backoff schedule
 // instead of on every request.

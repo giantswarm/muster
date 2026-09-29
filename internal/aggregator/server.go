@@ -1687,21 +1687,11 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 }
 
 // ssoLifecycleOptions returns the mcp-oauth options that drive aggregator-side
-// SSO setup from token-family lifecycle events. SessionCreationHandler fires
-// synchronously inside ExchangeAuthorizationCode, so downstream SSO connections
-// are established before the access token reaches the client.
+// SSO setup from token-family lifecycle events.
 func (a *AggregatorServer) ssoLifecycleOptions() []oauth.ServerOption {
 	return []oauth.ServerOption{
-		oauth.WithSessionCreationHandler(func(ctx context.Context, userID, familyID string, token *oauth2.Token) {
-			idToken := oauthserver.ExtractIDToken(token)
-			logging.InfoWithAttrs("Aggregator", "SSO: SessionCreationHandler fired",
-				slog.String("userID", logging.TruncateIdentifier(userID)),
-				slog.String("familyID", logging.TruncateIdentifier(familyID)),
-				slog.Bool("hasIDToken", idToken != ""),
-				slog.Int("idTokenLen", len(idToken)))
-			// initSSOForSession persists idToken into the OAuth-proxy store
-			// itself, so no separate storeIDTokenForSSO call is needed here.
-			a.initSSOForSession(ssoSession{userID: userID, sessionID: familyID, tokens: server.CallerTokens{IDToken: idToken}})
+		oauth.WithSessionCreationHandler(func(_ context.Context, userID, familyID string, token *oauth2.Token) {
+			a.onSessionCreated(userID, familyID, token)
 		}),
 		// An upstream refresh with no ID token signals a broken refresh chain
 		// (Dex obtained new tokens but the id_token was dropped); evict SSO

@@ -15,6 +15,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/oauth2"
 )
 
 // lockedBuffer is a log sink the fan-out goroutines write to while the test
@@ -213,6 +214,34 @@ func TestBeginSessionBootstrap_NothingToConnect(t *testing.T) {
 	agg.config.OAuthServer.Config = config.OAuthServerConfig{}
 	assert.Nil(t, agg.beginSessionBootstrap(ssoSession{userID: "alice", sessionID: "ext-no-issuer"}),
 		"without an issuer there is nothing to exchange or forward")
+}
+
+func TestOnSessionCreated_DoesNotHoldTheTokenForTheConnects(t *testing.T) {
+	// A sign-in's token response is written after onSessionCreated returns.
+	// A connect that is still running must not hold it: a proxy in front of
+	// muster gives up after its own timeout and the code is spent.
+	gates := newConnectGates("alpha")
+	agg := newBootstrapTestAggregator(t, gates, "alpha")
+
+	agg.onSessionCreated("alice", "family-login", &oauth2.Token{AccessToken: "opaque"})
+
+	b := agg.sessionBootstrap("family-login")
+	require.NotNil(t, b, "the sign-in started the session's fan-out, and it is still connecting alpha")
+
+	// The session's first listing waits for the fan-out the sign-in started.
+	listed := make(chan struct{})
+	go func() {
+		agg.awaitSessionBootstrap(context.Background(), "family-login")
+		close(listed)
+	}()
+	select {
+	case <-listed:
+		t.Fatal("the listing must wait while alpha is still connecting")
+	default:
+	}
+	gates.release("alpha")
+	<-listed
+	assert.Equal(t, int32(1), gates.count("alpha"))
 }
 
 func TestAwaitToolOwnersBootstrap_WaitsOnlyForTheOwners(t *testing.T) {

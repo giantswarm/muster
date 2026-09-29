@@ -179,6 +179,11 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 
 	if p.aggregator.authStore != nil {
 		authenticated, _ := p.aggregator.authStore.IsAuthenticated(ctx, sessionID, serverName)
+		if !authenticated && p.aggregator.awaitServerBootstrap(ctx, sessionID, serverName) > 0 {
+			// The session's fan-out was connecting this very server (a
+			// sign-in does not wait for it): judge the finished connect.
+			authenticated, _ = p.aggregator.authStore.IsAuthenticated(ctx, sessionID, serverName)
+		}
 		if authenticated {
 			logging.Debug("AuthTools", "Session %s already authenticated to server %s", logging.TruncateIdentifier(sessionID), serverName)
 			return &api.CallToolResult{
@@ -205,7 +210,7 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 	}
 
 	// SSO servers (token exchange or token forwarding) are connected automatically
-	// during session creation via initSSOForSession and do not support manual login.
+	// during session creation via beginSessionBootstrap and do not support manual login.
 	if ShouldUseTokenExchange(serverInfo) || ShouldUseTokenForwarding(serverInfo) {
 		logging.Debug("AuthTools", "Rejecting manual auth_login for SSO server %s (session %s)",
 			serverName, logging.TruncateIdentifier(sessionID))
