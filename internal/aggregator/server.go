@@ -2328,6 +2328,10 @@ func (a *AggregatorServer) MissingToolsForSession(ctx context.Context, toolNames
 	// availability check sharing that memo (e.g. all workflows in one list
 	// request), removing the O(items) rebuild blow-up.
 	build := func() map[string]struct{} {
+		// Like a listing, availability counts the servers the session's start
+		// connects: a workflow run right after a sign-in must not find its
+		// tools missing while their servers are still connecting.
+		a.awaitSessionBootstrap(ctx, sessionID)
 		tools := a.GetToolsForSession(ctx, sessionID)
 		set := make(map[string]struct{}, len(tools))
 		for _, tool := range tools {

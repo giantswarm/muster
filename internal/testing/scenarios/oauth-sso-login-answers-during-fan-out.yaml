@@ -15,8 +15,10 @@ description: |
      delay.
   2. auth://status answers at once while the connect runs, with the backend
      in sso_pending.
-  3. A call to the slow backend waits for its connect and then succeeds.
-  4. auth://status shows the backend connected.
+  3. A workflow that uses the slow backend's tool, run right after, waits for
+     the connect and succeeds instead of reporting the tool missing.
+  4. A call to the slow backend succeeds.
+  5. auth://status shows the backend connected.
 tags: ["oauth", "sso", "token-forwarding", "login", "latency"]
 timeout: "2m"
 
@@ -48,7 +50,29 @@ pre_configuration:
                   source: "slow-sso"
                   status: "authenticated-via-sso"
 
+  workflows:
+    - name: "login-slow-op"
+      config:
+        name: "login-slow-op"
+        description: "Runs the slow backend's tool"
+        input_schema:
+          type: object
+          args: {}
+        steps:
+          - id: "run-slow-op"
+            tool: "x_slow-sso_slow_op"
+            args: {}
+
 steps:
+  - id: "verify-workflow-registered"
+    description: "The workflow is registered with muster"
+    tool: "core_workflow_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["login-slow-op"]
+      wait_for_state: "30s"
+
   - id: "verify-backend-registered"
     description: "The slow backend is registered with muster"
     tool: "core_mcpserver_list"
@@ -82,8 +106,18 @@ steps:
       success: true
       contains: ["slow-sso", "sso_pending"]
 
+  - id: "workflow-waits-for-its-tools"
+    description: |
+      A workflow run during the fan-out waits for the connect its tool needs
+      and succeeds, instead of failing with missing required tools.
+    tool: "workflow_login-slow-op"
+    args: {}
+    expected:
+      success: true
+      contains: ["authenticated-via-sso"]
+
   - id: "slow-backend-answers-after-its-connect"
-    description: "A call to the slow backend waits for its connect and then succeeds"
+    description: "A call to the slow backend succeeds"
     tool: "x_slow-sso_slow_op"
     args: {}
     expected:

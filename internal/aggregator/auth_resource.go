@@ -68,6 +68,9 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 
 	servers := a.registry.GetAllServers()
 	suspended := suspendedServers(ctx, servers)
+	if hasSession {
+		a.awaitGrantAdoptions(ctx, sessionID, servers)
+	}
 	response := pkgoauth.AuthStatusResponse{Servers: make([]pkgoauth.ServerAuthStatus, 0, len(servers))}
 
 	for name, info := range servers {
@@ -140,6 +143,21 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 	}, nil
 }
 
+// awaitGrantAdoptions waits for the session's fan-out to finish with the
+// servers it connects with the person's existing grant, so the status reports
+// their outcome (connected, or auth_required without a grant) and not the
+// moment before it. A grant adoption is one store read, or one connect when the
+// person holds a grant. SSO connects are not waited for: they can take up to
+// initSSOTimeout, and the status reports them as sso_pending.
+func (a *AggregatorServer) awaitGrantAdoptions(ctx context.Context, sessionID string, servers map[string]*ServerInfo) {
+	for name, info := range servers {
+		if ShouldUseTokenExchange(info) || ShouldUseTokenForwarding(info) {
+			continue
+		}
+		a.awaitServerBootstrap(ctx, sessionID, name)
+	}
+}
+
 // determineSessionAuthStatus determines the auth/connection status for a specific
 // user and server combination.
 //
@@ -183,8 +201,10 @@ func (a *AggregatorServer) determineSessionAuthStatus(sub, sessionID, serverName
 	if info.RequiresSessionAuth() && info.AuthInfo != nil {
 		isSSO := ShouldUseTokenExchange(info) || ShouldUseTokenForwarding(info)
 
-		// The session's fan-out is still connecting the server (a sign-in
+		// The session's fan-out is still connecting the SSO server (a sign-in
 		// does not wait for it): the read answers now, with the true state.
+		// Servers it connects with the person's grant were waited for by the
+		// caller (handleAuthStatusResource).
 		if isSSO {
 			if b := a.sessionBootstrap(sessionID); b != nil && b.connecting(serverName) {
 				return pkgoauth.SessionServerStatusSSOPending
