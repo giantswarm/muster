@@ -186,13 +186,13 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 		// Execution tool
 		{
 			Name:        "call_tool",
-			Description: "Execute a catalogue tool by name. Aggregated tools are callable only this way, never by their own name. A request that declares a toolset (X-Muster-Toolset) can only call tools inside it; anything else is refused naming the toolset.",
+			Description: "Execute a catalogue tool by name. Aggregated tools are callable only this way, never by their own name. Write name first, then arguments: a name written after a long arguments object gets lost in it. A request that declares a toolset (X-Muster-Toolset) can only call tools inside it; anything else is refused naming the toolset.",
 			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
 					Type:        api.ArgTypeString,
 					Required:    true,
-					Description: "Name of the tool to call",
+					Description: "Name of the tool to call. Always set, and written before arguments.",
 				},
 				{
 					Name:        "arguments",

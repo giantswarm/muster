@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- `call_tool` tells the model to write `name` before `arguments`, in its description, its `name` argument, `describe_tool`'s invocation note and the missing-name error. Its schema reaches the model with `arguments` listed first (properties are serialized alphabetically), and models that follow that order lost `name` inside a long arguments object (a workflow definition, a table row), failing with "name argument is required".
+
 ### Added
 
 - **The provider token refresh threshold is configurable.** muster hands out the Dex token it holds for a person as is while it has more than mcp-oauth's `TokenRefreshThreshold` (5 minutes) left, so a refresh by a client could return a token with minutes to live, and a long agent turn whose tool calls carry it lost every tool when it expired. `aggregator.oauth.server.providerTokenRefreshThreshold` (chart: `muster.oauth.server.providerTokenRefreshThreshold`), a Go duration of at least `1s`, sets it; empty keeps 5 minutes. Keep it below Dex's ID token lifetime, or every request refreshes at Dex.
