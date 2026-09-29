@@ -8,7 +8,7 @@ All notable changes to this project will be documented in this file.
 
 - `call_tool` tells the model to write `name` before `arguments`, in its description, its `name` argument, `describe_tool`'s invocation note and the missing-name error. Its schema reaches the model with `arguments` listed first (properties are serialized alphabetically), and models that follow that order lost `name` inside a long arguments object (a workflow definition, a table row), failing with "name argument is required".
 
-- **A sign-in gets its token without waiting for the session's SSO servers.** The authorization-code exchange at `/oauth/token` answers at once; the session's SSO servers connect in the background. A tool call, a listing, `auth://status` and `core_auth_login` wait for the connects they depend on.
+- **A sign-in gets its token without waiting for the session's SSO servers.** The authorization-code exchange at `/oauth/token` answers at once; the session's SSO servers connect in the background. A tool call, a listing and `core_auth_login` wait for the connects they depend on; `auth://status` answers at once and reports a server still connecting as `sso_pending`.
 
 ### Added
 

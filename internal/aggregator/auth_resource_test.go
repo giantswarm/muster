@@ -788,7 +788,7 @@ func TestStoreIDTokenForSSO_SetsExpiresAtFromJWT(t *testing.T) {
 	})
 }
 
-// TestInitSSOForSession_PersistsIDToken locks in the reconnect-persist fix: a
+// TestBeginSessionBootstrap_PersistsIDToken locks in the reconnect-persist fix: a
 // session that re-inits SSO after its login-time ID token expired (e.g. after
 // a pod restart) MUST have its request-context ID token persisted to the
 // OAuth-proxy store so the background re-exchange closure

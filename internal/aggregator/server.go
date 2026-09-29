@@ -1627,7 +1627,9 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 			// in-memory, so after a restart there are no stale failures, and
 			// clearing it on every request would retry a persistently failing
 			// exchange per-request instead of on the backoff schedule.
-			if a.getMusterIssuer() != "" && a.ssoPoolMissNeedingInit(sso.userID, sessionID) {
+			// A fan-out already running for the session (a sign-in's, whose
+			// fast servers made the session live) covers the misses.
+			if a.getMusterIssuer() != "" && a.sessionBootstrap(sessionID) == nil && a.ssoPoolMissNeedingInit(sso.userID, sessionID) {
 				logging.InfoWithAttrs("Aggregator", "SSO: pool miss on live session, triggering SSO re-init",
 					slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
 				a.beginSessionBootstrap(sso)

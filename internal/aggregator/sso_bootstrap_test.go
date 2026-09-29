@@ -123,9 +123,12 @@ func TestSSOBootstrap_WaitServerReleasesOnThatServerAlone(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	assert.Zero(t, b.waitServer(ctx, "unknown"), "a server the fan-out does not cover needs no wait")
+	assert.False(t, b.connecting("unknown"), "a server the fan-out does not cover is not connecting")
+	assert.True(t, b.connecting("alpha"), "alpha's connect has not finished")
 
 	b.serverFinished("alpha")
 	b.serverFinished("alpha") // idempotent
+	assert.False(t, b.connecting("alpha"), "alpha's connect has finished")
 	assert.Zero(t, b.waitServer(ctx, "alpha"), "a finished server needs no wait")
 
 	waited := b.waitServer(ctx, "beta")
@@ -243,7 +246,7 @@ func TestOnSessionCreated_DoesNotHoldTheTokenForTheConnects(t *testing.T) {
 	}
 
 	gates.release("alpha")
-	agg.awaitSessionBootstrap(context.Background(), "family-login")
+	agg.awaitSessionBootstrap(t.Context(), "family-login")
 	assert.Equal(t, int32(1), gates.count("alpha"))
 }
 

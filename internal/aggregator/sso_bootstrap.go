@@ -107,6 +107,23 @@ func (b *ssoBootstrap) covers(name string) bool {
 	return ok
 }
 
+// connecting reports whether the fan-out covers the server and its connect
+// has not finished yet.
+func (b *ssoBootstrap) connecting(name string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	ch, ok := b.servers[name]
+	if !ok {
+		return false
+	}
+	select {
+	case <-ch:
+		return false
+	default:
+		return true
+	}
+}
+
 // waitServer blocks until the server's connect finished or ctx is done, and
 // reports how long it waited. A server the fan-out does not cover needs no
 // wait.

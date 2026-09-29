@@ -65,9 +65,6 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 		logging.Warn("Aggregator", "handleAuthStatusResource: missing session context (hasSub=%t, hasSessionID=%t) — returning infrastructure-level status only",
 			sub != "", sessionID != "")
 	}
-	// Like a listing, the status reports the servers the session's start
-	// connects, not whichever had finished when the read arrived.
-	a.awaitSessionBootstrap(ctx, sessionID)
 
 	servers := a.registry.GetAllServers()
 	suspended := suspendedServers(ctx, servers)
@@ -185,6 +182,14 @@ func (a *AggregatorServer) determineSessionAuthStatus(sub, sessionID, serverName
 	// No cached capabilities - check infrastructure state
 	if info.RequiresSessionAuth() && info.AuthInfo != nil {
 		isSSO := ShouldUseTokenExchange(info) || ShouldUseTokenForwarding(info)
+
+		// The session's fan-out is still connecting the server (a sign-in
+		// does not wait for it): the read answers now, with the true state.
+		if isSSO {
+			if b := a.sessionBootstrap(sessionID); b != nil && b.connecting(serverName) {
+				return pkgoauth.SessionServerStatusSSOPending
+			}
+		}
 
 		if isSSO && a.ssoTracker != nil {
 			if a.ssoTracker.HasSSOFailed(sub, serverName) {

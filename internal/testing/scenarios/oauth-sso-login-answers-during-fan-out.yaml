@@ -13,8 +13,10 @@ description: |
 
   1. The sign-in (the code exchange) returns well under the slow backend's
      delay.
-  2. A call to the slow backend waits for its connect and then succeeds.
-  3. auth://status shows the backend connected.
+  2. auth://status answers at once while the connect runs, with the backend
+     in sso_pending.
+  3. A call to the slow backend waits for its connect and then succeeds.
+  4. auth://status shows the backend connected.
 tags: ["oauth", "sso", "token-forwarding", "login", "latency"]
 timeout: "2m"
 
@@ -67,6 +69,18 @@ steps:
     expected:
       success: true
       contains: ["success", "ID token stored"]
+
+  - id: "status-during-the-fan-out"
+    description: |
+      auth://status does not wait for the fan-out: it answers at once, with
+      the slow backend in sso_pending (its connect takes four seconds).
+    tool: "test_read_auth_status"
+    args:
+      server: "slow-sso"
+    max_duration: "2s"
+    expected:
+      success: true
+      contains: ["slow-sso", "sso_pending"]
 
   - id: "slow-backend-answers-after-its-connect"
     description: "A call to the slow backend waits for its connect and then succeeds"
