@@ -810,6 +810,10 @@ type TestScenarioResult struct {
 	// call to muster serve never returned (see TestStepResult.Stalled); the
 	// instance's own dump is at the end of InstanceLogs.Stderr.
 	HarnessGoroutines string `json:"harness_goroutines,omitempty"`
+	// HarnessGoroutinesAtOverrun is the harness's goroutine dump taken while
+	// a call to muster serve was still running callOverrunGrace past its
+	// deadline, so it shows where that call was blocked.
+	HarnessGoroutinesAtOverrun string `json:"harness_goroutines_at_overrun,omitempty"`
 }
 
 // TestStepResult represents the result of a single test step

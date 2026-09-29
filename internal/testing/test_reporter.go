@@ -391,6 +391,9 @@ func (r *testReporter) failureSummary(scenarioResult TestScenarioResult) string 
 	if scenarioResult.HarnessGoroutines != "" {
 		fmt.Fprintf(&b, "\n   ↳ harness goroutine dump: %d goroutines in harness_goroutines in the report", strings.Count(scenarioResult.HarnessGoroutines, "\ngoroutine ")+1)
 	}
+	if scenarioResult.HarnessGoroutinesAtOverrun != "" {
+		fmt.Fprintf(&b, "\n   ↳ a call outlived its deadline by %s: the harness goroutines while it was blocked are in harness_goroutines_at_overrun in the report", callOverrunGrace)
+	}
 	return b.String()
 }
 

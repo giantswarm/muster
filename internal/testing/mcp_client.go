@@ -198,6 +198,7 @@ func (c *mcpTestClient) CallTool(ctx context.Context, toolName string, toolArgs 
 	}
 
 	// Make the tool call through call_tool meta-tool
+	defer watchCallOverrun(callCtx, c.endpoint)()
 	result, err := c.client.CallTool(callCtx, request)
 	if err != nil {
 		if c.debug {
@@ -243,6 +244,7 @@ func (c *mcpTestClient) CallToolDirect(ctx context.Context, toolName string, arg
 		},
 	}
 
+	defer watchCallOverrun(callCtx, c.endpoint)()
 	result, err := c.client.CallTool(callCtx, request)
 	if err != nil {
 		return nil, fmt.Errorf("direct tool call %s failed: %w", toolName, err)
@@ -316,6 +318,7 @@ func (c *mcpTestClient) ListTools(ctx context.Context) ([]string, error) {
 	defer cancel()
 
 	// Get the list of available tools
+	defer watchCallOverrun(listCtx, c.endpoint)()
 	result, err := c.client.ListTools(listCtx, mcp.ListToolsRequest{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list tools: %w", err)
@@ -345,6 +348,7 @@ func (c *mcpTestClient) ListToolsWithSchemas(ctx context.Context) ([]mcp.Tool, e
 	defer cancel()
 
 	// Get the list of available tools
+	defer watchCallOverrun(listCtx, c.endpoint)()
 	result, err := c.client.ListTools(listCtx, mcp.ListToolsRequest{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list tools: %w", err)
@@ -379,6 +383,7 @@ func (c *mcpTestClient) ReadResource(ctx context.Context, uri string) (*mcp.Read
 	}
 
 	// Read the resource
+	defer watchCallOverrun(readCtx, c.endpoint)()
 	result, err := c.client.ReadResource(readCtx, request)
 	if err != nil {
 		if c.debug {
