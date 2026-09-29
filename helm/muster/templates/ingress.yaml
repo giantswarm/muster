@@ -1,4 +1,5 @@
 {{- if .Values.ingress.enabled -}}
+{{- include "muster.requireAuthenticatedExposure" (list . "ingress.enabled") -}}
 {{- $fullName := include "muster.fullname" . -}}
 {{- $svcPort := .Values.service.port -}}
 {{- if and .Values.ingress.className (not (hasKey .Values.ingress.annotations "kubernetes.io/ingress.class")) }}

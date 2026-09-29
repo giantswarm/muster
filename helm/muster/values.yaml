@@ -412,6 +412,13 @@ muster:
       # Enable OAuth server protection
       enabled: false
 
+      # -- Publish muster through ingress or gatewayAPI while enabled is false.
+      # Without OAuth every request is served as the synthetic default-user, so
+      # the chart refuses to render an Ingress or HTTPRoute unless this is set.
+      # Only for a deliberately unauthenticated install behind a trusted proxy
+      # that authenticates every request itself.
+      acknowledgeUnauthenticatedExposure: false
+
       # Base URL of the Muster Server (used as OAuth issuer)
       # Example: "https://muster.example.com"
       # Required when OAuth server is enabled.

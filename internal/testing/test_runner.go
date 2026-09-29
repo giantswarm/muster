@@ -367,6 +367,7 @@ func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, con
 	// Ensure cleanup of instance
 	defer func() {
 		if instance != nil {
+			overrunDumps.Delete(instance.Endpoint)
 			cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 

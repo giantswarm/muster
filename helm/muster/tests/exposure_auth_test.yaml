@@ -1,0 +1,76 @@
+# Exposure guard tests for muster Helm chart
+#
+# An Ingress or HTTPRoute publishes muster to the network. Without OAuth
+# resource-server protection muster serves every request as the synthetic
+# default-user, so the chart refuses to render a route unless
+# muster.oauth.server.enabled is true or the exposure is acknowledged.
+#
+# Run with: helm unittest ./helm/muster
+
+suite: exposure requires OAuth
+templates:
+  - templates/ingress.yaml
+  - templates/httproute.yaml
+tests:
+  - it: renders no route by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: fails an Ingress without OAuth
+    template: templates/ingress.yaml
+    set:
+      ingress.enabled: true
+    asserts:
+      - failedTemplate:
+          errorMessage: "ingress.enabled is true while muster.oauth.server.enabled is false: the route would accept every request unauthenticated. Enable muster.oauth.server, or set muster.oauth.server.acknowledgeUnauthenticatedExposure=true for a deliberately unauthenticated install behind a trusted proxy."
+
+  - it: fails an HTTPRoute without OAuth
+    template: templates/httproute.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: default
+    asserts:
+      - failedTemplate:
+          errorMessage: "gatewayAPI.enabled is true while muster.oauth.server.enabled is false: the route would accept every request unauthenticated. Enable muster.oauth.server, or set muster.oauth.server.acknowledgeUnauthenticatedExposure=true for a deliberately unauthenticated install behind a trusted proxy."
+
+  - it: renders an Ingress without OAuth when the exposure is acknowledged
+    template: templates/ingress.yaml
+    set:
+      ingress.enabled: true
+      muster.oauth.server.acknowledgeUnauthenticatedExposure: true
+    asserts:
+      - isKind:
+          of: Ingress
+
+  - it: renders an HTTPRoute without OAuth when the exposure is acknowledged
+    template: templates/httproute.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: default
+      muster.oauth.server.acknowledgeUnauthenticatedExposure: true
+    asserts:
+      - isKind:
+          of: HTTPRoute
+
+  - it: renders an Ingress with OAuth
+    template: templates/ingress.yaml
+    set:
+      ingress.enabled: true
+      muster.oauth.server.enabled: true
+    asserts:
+      - isKind:
+          of: Ingress
+
+  - it: renders an HTTPRoute with OAuth
+    template: templates/httproute.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: default
+      muster.oauth.server.enabled: true
+    asserts:
+      - isKind:
+          of: HTTPRoute

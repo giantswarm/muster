@@ -2,10 +2,15 @@ package testing
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"net"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/valkey-io/valkey-go"
 )
 
@@ -249,5 +254,35 @@ func TestLogCapturePriorComesFirst(t *testing.T) {
 	}
 	if linesContaining(strings.Split(logs.Combined, "\n"), "life") != 4 {
 		t.Fatalf("combined lacks a life: %q", logs.Combined)
+	}
+}
+
+// TestValkeyPortOccupantsNamesTheHolder: a stand-in whose bind fails with
+// "address already in use" reports who holds the port (#1356); any other
+// error adds nothing.
+func TestValkeyPortOccupantsNamesTheHolder(t *testing.T) {
+	if _, err := os.Stat("/proc/net/tcp"); err != nil {
+		t.Skip("/proc/net/tcp not available")
+	}
+	holder, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer func() { _ = holder.Close() }()
+	port := holder.Addr().(*net.TCPAddr).Port
+
+	srv := miniredis.NewMiniRedis()
+	bindErr := srv.StartAddr(fmt.Sprintf("127.0.0.1:%d", port))
+	if bindErr == nil {
+		srv.Close()
+		t.Fatal("the stand-in bound a port another listener holds")
+	}
+
+	got := valkeyPortOccupants(port, bindErr)
+	if !strings.Contains(got, fmt.Sprintf("sockets on port %d", port)) || !strings.Contains(got, fmt.Sprintf("pid %d ", os.Getpid())) {
+		t.Fatalf("the failure does not name the port's holder:\n%s", got)
+	}
+	if got := valkeyPortOccupants(port, errors.New("connection refused")); got != "" {
+		t.Errorf("another error got occupants attached: %q", got)
 	}
 }
