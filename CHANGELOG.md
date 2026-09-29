@@ -26,7 +26,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
-- **The Valkey token store no longer keeps every forwarded ID token.** The per-person revocation index kept each token issued within its TTL, the ID tokens a portal session forwarded as raw JWTs among them, so an active user's index only grew. mcp-oauth v1.4.12 prunes expired entries on every write and stores an ID token as its digest.
+- **The Valkey token store no longer keeps every forwarded ID token.** The per-person revocation index kept each token issued within its TTL, the ID tokens a portal session forwarded as raw JWTs among them, so an active user's index only grew. mcp-oauth v1.4.13 prunes expired entries on every write and stores an ID token as its digest.
+- **A Dex outage during a token refresh no longer signs the person out.** A refresh that met Dex answering 503, 429 or not at all was answered `invalid_grant`, so a client such as the Slack gateway dropped the person's link. muster now answers `503 temporarily_unavailable` with `Retry-After` (mcp-oauth v1.4.13), and the same refresh token works once Dex answers.
 
 - **`auth://status` no longer points SSO servers in `reauth_required` at `core_auth_login`.** A token-forwarding or token-exchange server whose SSO attempt failed read `reauth_required` with `auth_tool: core_auth_login`, but `core_auth_login` refuses every SSO server, so a client that followed the field got an error and used up its login attempts. `auth_tool` is now set only for servers that are not SSO, whatever their status, which matches `list_tools`' `servers_requiring_auth`. For an SSO server in `reauth_required`, the fix is to re-authenticate to muster, and `sso_attempt_failed` and `error` say why. ([#1000](https://github.com/giantswarm/muster/issues/1000))
 
