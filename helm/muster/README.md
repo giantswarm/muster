@@ -110,6 +110,7 @@ muster, the aggregating MCP server - one authenticated endpoint for every MCP se
 | muster.oauth.mcpClient.postLoginRedirectAllowlist | list | `[]` |  |
 | muster.oauth.mcpClient.tokenExchange.allowPrivateIP | bool | `false` |  |
 | muster.oauth.server.enabled | bool | `false` |  |
+| muster.oauth.server.acknowledgeUnauthenticatedExposure | bool | `false` | Publish muster through ingress or gatewayAPI while enabled is false. Without OAuth every request is served as the synthetic default-user, so the chart refuses to render an Ingress or HTTPRoute unless this is set. Only for a deliberately unauthenticated install behind a trusted proxy that authenticates every request itself. |
 | muster.oauth.server.baseUrl | string | `""` |  |
 | muster.oauth.server.provider | string | `"dex"` |  |
 | muster.oauth.server.dex.issuerUrl | string | `""` |  |

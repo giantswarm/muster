@@ -303,6 +303,10 @@
                             "type": "object",
                             "additionalProperties": false,
                             "properties": {
+                                "acknowledgeUnauthenticatedExposure": {
+                                    "type": "boolean",
+                                    "description": "Publish muster through ingress or gatewayAPI while enabled is false. Without OAuth every request is served as the synthetic default-user, so the chart refuses to render an Ingress or HTTPRoute unless this is set. Only for a deliberately unauthenticated install behind a trusted proxy that authenticates every request itself."
+                                },
                                 "allowLocalhostRedirectURIs": {
                                     "type": "boolean"
                                 },
