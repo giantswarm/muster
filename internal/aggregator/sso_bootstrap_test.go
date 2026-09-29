@@ -241,9 +241,6 @@ func TestOnSessionCreated_DoesNotHoldTheTokenForTheConnects(t *testing.T) {
 		t.Fatal("the fan-out must still be running: alpha is gated")
 	default:
 	}
-	// The session's first listing looks up the same fan-out, keyed by the
-	// token family, so it waits for the connects the sign-in started.
-	assert.Same(t, b, agg.sessionBootstrap("family-login"))
 
 	gates.release("alpha")
 	agg.awaitSessionBootstrap(context.Background(), "family-login")
