@@ -2,7 +2,7 @@
 #
 #    devctl
 #
-#    https://github.com/giantswarm/devctl/blob/222eaeb41d8eac44c7b6862c0df057e840da8e1f/pkg/gen/input/workflows/internal/file/cliff.toml.template
+#    https://github.com/giantswarm/devctl/blob/6bd76e24b11b67d6d99715b8f484f454e05abbd9/pkg/gen/input/workflows/internal/file/cliff.toml.template
 #
 # git-cliff config for the push-based auto-release flow.
 #
@@ -62,10 +62,10 @@ use_branch_tags = true
 # baseline for `--bump` and not a release in the changelog. That is what keeps
 # a candidate cycle one range: the auto-release flow cuts vX.Y.Z-rc.N tags on
 # the branch head, and counting those as releases would cut every later
-# candidate, and the stable release that closes the cycle, from a partial
-# delta -- a cycle a `feat-rc` put on a minor falls back to a patch. The price
-# is that candidate notes are cumulative: rc.2 lists what rc.1 listed, plus
-# what is new.
+# candidate, and the stable release promoted from the cycle, from a partial
+# delta -- a cycle a `feat` put on a minor falls back to a patch. The price is
+# that candidate notes are cumulative: rc.2 lists what rc.1 listed, plus what
+# is new.
 #
 # It also keeps a pre-release or preview tag off the version line wherever it
 # lives, which `use_branch_tags` alone only does on a SIDE branch: such a name
@@ -85,9 +85,8 @@ tag_pattern = '^v[0-9]+\.[0-9]+\.[0-9]+$'
 # anchoring keeps `(#N)` references that appear inside commit bodies
 # untouched.
 #
-# feat-rc/fix-rc mark a release candidate. The auto-release workflow reads the
-# raw subjects to spot them; git-cliff must see the plain type, because
-# `features_always_bump_minor` keys off the type being exactly "feat" and an
+# A feat-rc/fix-rc subject is released as its plain type:
+# `features_always_bump_minor` keys off the type being exactly "feat", and an
 # un-normalised feat-rc would bump patch instead of minor.
 commit_preprocessors = [
   { pattern = '(?m) \(#\d+\)$', replace = "" },
