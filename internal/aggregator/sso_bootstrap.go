@@ -43,6 +43,23 @@ const ssoBootstrapGrace = 5 * time.Second
 // that needs one server waits for that server's connect alone (waitServer);
 // one that needs the whole catalogue waits for the fan-out (wait). Both waits
 // end with the caller's context.
+//
+// Code that reads a session's tools or per-server auth state can run while
+// the fan-out is still connecting, so it calls one of the await helpers
+// first. The readers that do:
+//
+//   - CallToolInternal: awaitToolOwnersBootstrap (the servers that could own
+//     the tool name)
+//   - getOrCreateClientForToolCall: awaitServerBootstrap
+//   - ListToolsForContext, ListResourcesForContext, ListPromptsForContext:
+//     awaitSessionBootstrap
+//   - MissingToolsForSession (workflow availability): awaitSessionBootstrap
+//   - handleAuthLogin (core_auth_login): awaitServerBootstrap
+//   - handleAuthStatusResource (auth://status): awaitGrantAdoptions for the
+//     servers connected with the person's grant; an SSO server still
+//     connecting reads sso_pending (connecting), without a wait
+//
+// A new reader of that state joins this list.
 type ssoBootstrap struct {
 	sessionID string
 	started   time.Time
