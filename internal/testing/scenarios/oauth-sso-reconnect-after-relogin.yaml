@@ -79,7 +79,10 @@ steps:
         - "ID token stored"
 
   - id: verify-sso-connected
-    description: "Verify SSO connected the server during login"
+    description: |
+      Verify SSO connected the server during login. The sign-in does not wait for the fan-out, and auth://status
+      answers with sso_pending while the connect runs, so poll until it is
+      connected.
     tool: "test_read_auth_status"
     args:
       server: "relogin-sso-server"
@@ -88,6 +91,7 @@ steps:
       contains:
         - "relogin-sso-server"
         - "connected"
+      wait_for_state: "30s"
 
   - id: verify-connection
     description: "Call protected tool to verify SSO authentication succeeded"
@@ -140,7 +144,10 @@ steps:
         - "ID token stored"
 
   - id: verify-reconnected-after-relogin
-    description: "Verify SSO server connected in the new session"
+    description: |
+      Verify SSO server connected in the new session. The sign-in does not wait for the fan-out, and auth://status
+      answers with sso_pending while the connect runs, so poll until it is
+      connected.
     tool: "test_read_auth_status"
     args:
       server: "relogin-sso-server"
@@ -149,3 +156,4 @@ steps:
       contains:
         - "relogin-sso-server"
         - "connected"
+      wait_for_state: "30s"

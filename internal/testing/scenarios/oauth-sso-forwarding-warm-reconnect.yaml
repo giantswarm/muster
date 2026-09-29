@@ -44,7 +44,7 @@ pre_configuration:
 
 steps:
   - id: muster-auth-login
-    description: "Initial login — creates session, fires SessionCreationHandler + initSSOForSession"
+    description: "Initial login — creates session, fires SessionCreationHandler, which starts the SSO fan-out"
     tool: "test_muster_auth_login"
     args: {}
     expected:
@@ -54,7 +54,10 @@ steps:
         - "ID token stored"
 
   - id: verify-server-connected
-    description: "Verify the forwarding server is connected after initial login"
+    description: |
+      Verify the forwarding server is connected after initial login. The
+      sign-in does not wait for the fan-out, and auth://status answers with
+      sso_pending while the connect runs, so poll until it is connected.
     tool: "test_read_auth_status"
     args:
       server: "warm-fwd-server"
@@ -63,6 +66,7 @@ steps:
       contains:
         - "warm-fwd-server"
         - "connected"
+      wait_for_state: "30s"
 
   - id: call-tool-before-reconnect
     description: "Forwarding server tool works on the initial session"

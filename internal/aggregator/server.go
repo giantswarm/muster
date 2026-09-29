@@ -1627,7 +1627,9 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 			// in-memory, so after a restart there are no stale failures, and
 			// clearing it on every request would retry a persistently failing
 			// exchange per-request instead of on the backoff schedule.
-			if a.getMusterIssuer() != "" && a.ssoPoolMissNeedingInit(sso.userID, sessionID) {
+			// A fan-out already running for the session (a sign-in's, whose
+			// fast servers made the session live) covers the misses.
+			if a.getMusterIssuer() != "" && a.sessionBootstrap(sessionID) == nil && a.ssoPoolMissNeedingInit(sso.userID, sessionID) {
 				logging.InfoWithAttrs("Aggregator", "SSO: pool miss on live session, triggering SSO re-init",
 					slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
 				a.beginSessionBootstrap(sso)
@@ -1687,21 +1689,11 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 }
 
 // ssoLifecycleOptions returns the mcp-oauth options that drive aggregator-side
-// SSO setup from token-family lifecycle events. SessionCreationHandler fires
-// synchronously inside ExchangeAuthorizationCode, so downstream SSO connections
-// are established before the access token reaches the client.
+// SSO setup from token-family lifecycle events.
 func (a *AggregatorServer) ssoLifecycleOptions() []oauth.ServerOption {
 	return []oauth.ServerOption{
-		oauth.WithSessionCreationHandler(func(ctx context.Context, userID, familyID string, token *oauth2.Token) {
-			idToken := oauthserver.ExtractIDToken(token)
-			logging.InfoWithAttrs("Aggregator", "SSO: SessionCreationHandler fired",
-				slog.String("userID", logging.TruncateIdentifier(userID)),
-				slog.String("familyID", logging.TruncateIdentifier(familyID)),
-				slog.Bool("hasIDToken", idToken != ""),
-				slog.Int("idTokenLen", len(idToken)))
-			// initSSOForSession persists idToken into the OAuth-proxy store
-			// itself, so no separate storeIDTokenForSSO call is needed here.
-			a.initSSOForSession(ssoSession{userID: userID, sessionID: familyID, tokens: server.CallerTokens{IDToken: idToken}})
+		oauth.WithSessionCreationHandler(func(_ context.Context, userID, familyID string, token *oauth2.Token) {
+			a.onSessionCreated(userID, familyID, token)
 		}),
 		// An upstream refresh with no ID token signals a broken refresh chain
 		// (Dex obtained new tokens but the id_token was dropped); evict SSO
@@ -2336,6 +2328,10 @@ func (a *AggregatorServer) MissingToolsForSession(ctx context.Context, toolNames
 	// availability check sharing that memo (e.g. all workflows in one list
 	// request), removing the O(items) rebuild blow-up.
 	build := func() map[string]struct{} {
+		// Like a listing, availability counts the servers the session's start
+		// connects: a workflow run right after a sign-in must not find its
+		// tools missing while their servers are still connecting.
+		a.awaitSessionBootstrap(ctx, sessionID)
 		tools := a.GetToolsForSession(ctx, sessionID)
 		set := make(map[string]struct{}, len(tools))
 		for _, tool := range tools {

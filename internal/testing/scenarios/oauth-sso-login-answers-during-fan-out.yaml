@@ -1,0 +1,142 @@
+name: "oauth-sso-login-answers-during-fan-out"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  A sign-in gets its token while muster connects the session's SSO servers in
+  the background.
+
+  mcp-oauth runs muster's session-creation hook inside the authorization-code
+  exchange, before the token response is written. Before, the hook waited for
+  the session's whole SSO fan-out, so one slow backend held the token: a proxy
+  in front of muster with a 15s timeout gave up, and the spent code could not
+  be used again. Now:
+
+  1. The sign-in (the code exchange) returns well under the slow backend's
+     delay.
+  2. auth://status answers at once while the connect runs, with the backend
+     in sso_pending.
+  3. A workflow that uses the slow backend's tool, run right after, waits for
+     the connect and succeeds instead of reporting the tool missing.
+  4. A call to the slow backend succeeds.
+  5. auth://status shows the backend connected.
+tags: ["oauth", "sso", "token-forwarding", "login", "latency"]
+timeout: "2m"
+
+pre_configuration:
+  mock_oauth_servers:
+    - name: "muster-idp"
+      scopes: ["openid", "profile", "mcp:admin"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "muster-client"
+      client_secret: "muster-secret"
+      use_as_muster_oauth_server: true
+
+  mcp_servers:
+    - name: "slow-sso"
+      config:
+        type: "streamable-http"
+        connect_delay: "4s"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "muster-idp"
+          forward_token: true
+        tools:
+          - name: "slow_op"
+            description: "Operation on a backend that is slow to connect"
+            responses:
+              - response:
+                  source: "slow-sso"
+                  status: "authenticated-via-sso"
+
+  workflows:
+    - name: "login-slow-op"
+      config:
+        name: "login-slow-op"
+        description: "Runs the slow backend's tool"
+        input_schema:
+          type: object
+          args: {}
+        steps:
+          - id: "run-slow-op"
+            tool: "x_slow-sso_slow_op"
+            args: {}
+
+steps:
+  - id: "verify-workflow-registered"
+    description: "The workflow is registered with muster"
+    tool: "core_workflow_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["login-slow-op"]
+      wait_for_state: "30s"
+
+  - id: "verify-backend-registered"
+    description: "The slow backend is registered with muster"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["slow-sso"]
+      wait_for_state: "30s"
+
+  - id: "sign-in"
+    description: |
+      Sign in to muster. The code exchange starts the SSO fan-out and returns
+      the token while the slow backend is still connecting -- the step must
+      finish well before the backend's four-second delay.
+    tool: "test_muster_auth_login"
+    args: {}
+    max_duration: "2s"
+    expected:
+      success: true
+      contains: ["success", "ID token stored"]
+
+  - id: "status-during-the-fan-out"
+    description: |
+      auth://status does not wait for the fan-out: it answers at once, with
+      the slow backend in sso_pending (its connect takes four seconds).
+    tool: "test_read_auth_status"
+    args:
+      server: "slow-sso"
+    max_duration: "2s"
+    expected:
+      success: true
+      contains: ["slow-sso", "sso_pending"]
+
+  - id: "workflow-waits-for-its-tools"
+    description: |
+      A workflow run during the fan-out waits for the connect its tool needs
+      and succeeds, instead of failing with missing required tools.
+    tool: "workflow_login-slow-op"
+    args: {}
+    expected:
+      success: true
+      contains: ["authenticated-via-sso"]
+
+  - id: "slow-backend-answers-after-its-connect"
+    description: "A call to the slow backend succeeds"
+    tool: "x_slow-sso_slow_op"
+    args: {}
+    expected:
+      success: true
+      contains: ["authenticated-via-sso"]
+
+  - id: "backend-connected"
+    description: "auth://status shows the backend connected for the session"
+    tool: "test_read_auth_status"
+    args:
+      server: "slow-sso"
+    expected:
+      success: true
+      contains: ["slow-sso", "connected"]
+      not_contains: ["sso_pending", "auth_required"]
+
+instance_logs:
+  contains:
+    - 'msg="SSO: fan-out finished"'
+    - "slowestServer=slow-sso"
+  not_contains:
+    - "fan-out finished with connects still running"

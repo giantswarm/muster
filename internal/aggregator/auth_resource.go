@@ -68,6 +68,9 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 
 	servers := a.registry.GetAllServers()
 	suspended := suspendedServers(ctx, servers)
+	if hasSession {
+		a.awaitGrantAdoptions(ctx, sessionID, servers)
+	}
 	response := pkgoauth.AuthStatusResponse{Servers: make([]pkgoauth.ServerAuthStatus, 0, len(servers))}
 
 	for name, info := range servers {
@@ -140,6 +143,21 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 	}, nil
 }
 
+// awaitGrantAdoptions waits for the session's fan-out to finish with the
+// servers it connects with the person's existing grant, so the status reports
+// their outcome (connected, or auth_required without a grant) and not the
+// moment before it. A grant adoption is one store read, or one connect when the
+// person holds a grant. SSO connects are not waited for: they can take up to
+// initSSOTimeout, and the status reports them as sso_pending.
+func (a *AggregatorServer) awaitGrantAdoptions(ctx context.Context, sessionID string, servers map[string]*ServerInfo) {
+	for name, info := range servers {
+		if ShouldUseTokenExchange(info) || ShouldUseTokenForwarding(info) {
+			continue
+		}
+		a.awaitServerBootstrap(ctx, sessionID, name)
+	}
+}
+
 // determineSessionAuthStatus determines the auth/connection status for a specific
 // user and server combination.
 //
@@ -182,6 +200,16 @@ func (a *AggregatorServer) determineSessionAuthStatus(sub, sessionID, serverName
 	// No cached capabilities - check infrastructure state
 	if info.RequiresSessionAuth() && info.AuthInfo != nil {
 		isSSO := ShouldUseTokenExchange(info) || ShouldUseTokenForwarding(info)
+
+		// The session's fan-out is still connecting the SSO server (a sign-in
+		// does not wait for it): the read answers now, with the true state.
+		// Servers it connects with the person's grant were waited for by the
+		// caller (handleAuthStatusResource).
+		if isSSO {
+			if b := a.sessionBootstrap(sessionID); b != nil && b.connecting(serverName) {
+				return pkgoauth.SessionServerStatusSSOPending
+			}
+		}
 
 		if isSSO && a.ssoTracker != nil {
 			if a.ssoTracker.HasSSOFailed(sub, serverName) {
@@ -305,7 +333,7 @@ func (a *AggregatorServer) handleUpstreamRefreshFailure(sessionID, userID, reaso
 		}
 	}
 
-	// Mark all SSO servers as failed for this user so initSSOForSession
+	// Mark all SSO servers as failed for this user so beginSessionBootstrap
 	// doesn't immediately retry with expired credentials.
 	if a.ssoTracker != nil && userID != "" {
 		servers := a.registry.GetAllServers()
@@ -352,24 +380,12 @@ func (a *AggregatorServer) getMusterIssuerWithFallback(sessionID string) string 
 // ssoBootstrapGrace later.
 const initSSOTimeout = 15 * time.Second
 
-// initSSOForSession connects a new session's session-authenticated servers
-// and returns when the fan-out has finished. It serves the login flow:
-// SessionCreationHandler runs inside ExchangeAuthorizationCode, so a person
-// who signs in receives the access token once their servers are connected.
-// The request path (onAuthenticated) does not wait -- it calls
-// beginSessionBootstrap and answers while the fan-out runs (#1226).
-func (a *AggregatorServer) initSSOForSession(sso ssoSession) {
-	if b := a.beginSessionBootstrap(sso); b != nil {
-		b.wait(context.Background())
-	}
-}
-
 // ssoPoolMissNeedingInit reports whether any SSO server (token-exchange or
 // token-forwarding) has a pool miss for sessionID that is not already covered
 // by an in-flight exchange or an unexpired failure backoff window. For each
 // qualifying server it atomically claims the pending slot via
 // MarkSSOPendingIfNotPending, so concurrent onAuthenticated calls for the same
-// session do not spawn redundant initSSOForSession goroutines. Servers whose
+// session do not spawn redundant beginSessionBootstrap fan-outs. Servers whose
 // last exchange failed are skipped until their backoff expires, so a
 // persistently failing exchange retries on the tracker's backoff schedule
 // instead of on every request.

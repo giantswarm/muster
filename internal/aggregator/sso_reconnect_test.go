@@ -1106,14 +1106,6 @@ func TestBeginSessionBootstrap_RecordsTheConnectOutcomeWhenTheFanOutFinishes(t *
 		"the connect's outcome is recorded when the fan-out reports itself finished")
 	authed, _ := authStore.IsAuthenticated(t.Context(), sessionID, "glean-mcp-kubernetes")
 	assert.False(t, authed, "a failed connect must not mark the session authenticated")
-
-	// The login path still waits: initSSOForSession returns once the fan-out
-	// has finished. The tracker skips the failed server, so this fan-out is
-	// empty and returns at once.
-	tracker.ClearAllSSOFailed(userID)
-	agg.initSSOForSession(ssoSession{userID: userID, sessionID: sessionID + "-login"})
-	assert.True(t, tracker.HasSSOFailed(userID, "glean-mcp-kubernetes"),
-		"initSSOForSession returns after the connects ran")
 }
 
 func TestSSOTracker_ConcurrentAccess(t *testing.T) {

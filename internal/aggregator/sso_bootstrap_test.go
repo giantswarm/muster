@@ -12,9 +12,11 @@ import (
 	"github.com/giantswarm/muster/v5/internal/config"
 	oauthstore "github.com/giantswarm/muster/v5/internal/oauth/store"
 	"github.com/giantswarm/muster/v5/pkg/logging"
+	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/oauth2"
 )
 
 // lockedBuffer is a log sink the fan-out goroutines write to while the test
@@ -122,9 +124,12 @@ func TestSSOBootstrap_WaitServerReleasesOnThatServerAlone(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	assert.Zero(t, b.waitServer(ctx, "unknown"), "a server the fan-out does not cover needs no wait")
+	assert.False(t, b.connecting("unknown"), "a server the fan-out does not cover is not connecting")
+	assert.True(t, b.connecting("alpha"), "alpha's connect has not finished")
 
 	b.serverFinished("alpha")
 	b.serverFinished("alpha") // idempotent
+	assert.False(t, b.connecting("alpha"), "alpha's connect has finished")
 	assert.Zero(t, b.waitServer(ctx, "alpha"), "a finished server needs no wait")
 
 	waited := b.waitServer(ctx, "beta")
@@ -213,6 +218,37 @@ func TestBeginSessionBootstrap_NothingToConnect(t *testing.T) {
 	agg.config.OAuthServer.Config = config.OAuthServerConfig{}
 	assert.Nil(t, agg.beginSessionBootstrap(ssoSession{userID: "alice", sessionID: "ext-no-issuer"}),
 		"without an issuer there is nothing to exchange or forward")
+}
+
+func TestOnSessionCreated_DoesNotHoldTheTokenForTheConnects(t *testing.T) {
+	// A sign-in's token response is written after onSessionCreated returns.
+	// A connect that is still running must not hold it: a proxy in front of
+	// muster gives up after its own timeout and the code is spent.
+	gates := newConnectGates("alpha")
+	agg := newBootstrapTestAggregator(t, gates, "alpha")
+
+	returned := make(chan struct{})
+	go func() {
+		agg.onSessionCreated("alice", "family-login", &oauth2.Token{AccessToken: "opaque"})
+		close(returned)
+	}()
+	select {
+	case <-returned:
+	case <-time.After(5 * time.Second):
+		t.Fatal("onSessionCreated must return while alpha is still connecting")
+	}
+
+	b := agg.sessionBootstrap("family-login")
+	require.NotNil(t, b, "the sign-in started the session's fan-out")
+	select {
+	case <-b.done:
+		t.Fatal("the fan-out must still be running: alpha is gated")
+	default:
+	}
+
+	gates.release("alpha")
+	agg.awaitSessionBootstrap(t.Context(), "family-login")
+	assert.Equal(t, int32(1), gates.count("alpha"))
 }
 
 func TestAwaitToolOwnersBootstrap_WaitsOnlyForTheOwners(t *testing.T) {
@@ -308,4 +344,44 @@ func TestSessionBootstrapped_RemembersASessionsFirstFanOut(t *testing.T) {
 	_, kept := agg.ssoBootstrapped["ext-old"]
 	agg.ssoBootstrapsMu.Unlock()
 	assert.False(t, kept, "and its record is dropped")
+}
+
+func TestAuthStatus_SSOReadsPendingGrantIsWaitedFor(t *testing.T) {
+	// While the session's fan-out runs, the status answers at once for an SSO
+	// server (sso_pending: its connect can take initSSOTimeout) and waits for
+	// a server connected with the person's grant (one store read, or one
+	// connect) so it reports that server's outcome.
+	registry := NewServerRegistry("x")
+	require.NoError(t, registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: "granted", ToolPrefix: "granted"},
+		URL:                "https://granted.invalid",
+		AuthInfo:           &AuthInfo{Issuer: "https://github.example.com"},
+	}))
+	require.NoError(t, registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: "sso", ToolPrefix: "sso"},
+		URL:                "https://sso.invalid",
+		AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com"},
+		AuthConfig:         &api.MCPServerAuth{ForwardToken: true},
+	}))
+	b := newSSOBootstrap("family-login", []string{"granted", "sso"})
+	agg := &AggregatorServer{registry: registry, ssoBootstraps: map[string]*ssoBootstrap{"family-login": b}}
+	sso, ok := registry.GetServerInfo("sso")
+	require.True(t, ok)
+
+	assert.Equal(t, pkgoauth.SessionServerStatusSSOPending,
+		agg.determineSessionAuthStatus("alice", "family-login", "sso", sso),
+		"the fan-out is connecting the SSO server")
+
+	waited := make(chan struct{})
+	go func() {
+		agg.awaitGrantAdoptions(t.Context(), "family-login", registry.GetAllServers())
+		close(waited)
+	}()
+	b.serverFinished("granted")
+	select {
+	case <-waited:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the status must not wait for the SSO connect, still running")
+	}
+	assert.True(t, b.connecting("sso"), "the SSO connect is still running")
 }
