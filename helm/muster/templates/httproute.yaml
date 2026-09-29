@@ -4,6 +4,7 @@
 {{- if not .Values.gatewayAPI.httpRoute.parentRefs -}}
 {{- fail "gatewayAPI.httpRoute.parentRefs is required when gatewayAPI.enabled is true. Specify at least one parent Gateway reference." -}}
 {{- end -}}
+{{- include "muster.requireAuthenticatedExposure" (list . "gatewayAPI.enabled") -}}
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:

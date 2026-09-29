@@ -186,3 +186,18 @@ otherwise: a password in the OAuth Secret is covered by checksum/oauth-secret.
 {{- $s.storage.valkey.existingSecretChecksum -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+Refuse a route to muster while OAuth resource-server protection is off: the
+server then serves every request as the synthetic default-user. The argument
+is the exposing switch, named in the message. The opt-out is
+muster.oauth.server.acknowledgeUnauthenticatedExposure.
+*/}}
+{{- define "muster.requireAuthenticatedExposure" -}}
+{{- $root := index . 0 -}}
+{{- $switch := index . 1 -}}
+{{- $s := $root.Values.muster.oauth.server -}}
+{{- if and (not $s.enabled) (not $s.acknowledgeUnauthenticatedExposure) -}}
+{{- fail (printf "%s is true while muster.oauth.server.enabled is false: the route would accept every request unauthenticated. Enable muster.oauth.server, or set muster.oauth.server.acknowledgeUnauthenticatedExposure=true for a deliberately unauthenticated install behind a trusted proxy." $switch) -}}
+{{- end -}}
+{{- end -}}
