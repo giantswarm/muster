@@ -103,7 +103,7 @@ func (p *Provider) ExecuteTool(ctx context.Context, toolName string, args map[st
 func (p *Provider) handleCallTool(ctx context.Context, args map[string]any) (*api.CallToolResult, error) {
 	name, ok := args["name"].(string)
 	if !ok || name == "" {
-		return errorResult("name argument is required"), nil
+		return errorResult(`name argument is required: call_tool takes {"name": "<tool>", "arguments": {…}}; write name first, before arguments`), nil
 	}
 
 	// Get arguments if provided
