@@ -223,24 +223,30 @@ func TestOnSessionCreated_DoesNotHoldTheTokenForTheConnects(t *testing.T) {
 	gates := newConnectGates("alpha")
 	agg := newBootstrapTestAggregator(t, gates, "alpha")
 
-	agg.onSessionCreated("alice", "family-login", &oauth2.Token{AccessToken: "opaque"})
-
-	b := agg.sessionBootstrap("family-login")
-	require.NotNil(t, b, "the sign-in started the session's fan-out, and it is still connecting alpha")
-
-	// The session's first listing waits for the fan-out the sign-in started.
-	listed := make(chan struct{})
+	returned := make(chan struct{})
 	go func() {
-		agg.awaitSessionBootstrap(context.Background(), "family-login")
-		close(listed)
+		agg.onSessionCreated("alice", "family-login", &oauth2.Token{AccessToken: "opaque"})
+		close(returned)
 	}()
 	select {
-	case <-listed:
-		t.Fatal("the listing must wait while alpha is still connecting")
+	case <-returned:
+	case <-time.After(5 * time.Second):
+		t.Fatal("onSessionCreated must return while alpha is still connecting")
+	}
+
+	b := agg.sessionBootstrap("family-login")
+	require.NotNil(t, b, "the sign-in started the session's fan-out")
+	select {
+	case <-b.done:
+		t.Fatal("the fan-out must still be running: alpha is gated")
 	default:
 	}
+	// The session's first listing looks up the same fan-out, keyed by the
+	// token family, so it waits for the connects the sign-in started.
+	assert.Same(t, b, agg.sessionBootstrap("family-login"))
+
 	gates.release("alpha")
-	<-listed
+	agg.awaitSessionBootstrap(context.Background(), "family-login")
 	assert.Equal(t, int32(1), gates.count("alpha"))
 }
 

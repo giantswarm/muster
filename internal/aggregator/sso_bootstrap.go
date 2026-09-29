@@ -37,9 +37,9 @@ const ssoBootstrapGrace = 5 * time.Second
 
 // ssoBootstrap is one session's fan-out to the servers it authenticates to per
 // session -- the SSO connects (token exchange, token forwarding) and the
-// person's subject-scoped grants. It is started by the session's first request
-// and finishes in the background: the request that started it is answered
-// meanwhile (#1226). A request that needs one server waits for that server's
+// person's subject-scoped grants. It is started by the person's sign-in or by
+// the session's first request, and finishes in the background: the sign-in
+// gets its token and the request is answered meanwhile (#1226). A request that needs one server waits for that server's
 // connect alone (waitServer); one that needs the whole catalogue waits for the
 // fan-out (wait). Both waits end with the caller's context.
 type ssoBootstrap struct {

@@ -179,9 +179,11 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 
 	if p.aggregator.authStore != nil {
 		authenticated, _ := p.aggregator.authStore.IsAuthenticated(ctx, sessionID, serverName)
-		if !authenticated && p.aggregator.awaitServerBootstrap(ctx, sessionID, serverName) > 0 {
-			// The session's fan-out was connecting this very server (a
-			// sign-in does not wait for it): judge the finished connect.
+		if !authenticated {
+			// The session's fan-out may be connecting this very server (a
+			// sign-in does not wait for it), or may have finished it since the
+			// read above: judge the finished connect.
+			p.aggregator.awaitServerBootstrap(ctx, sessionID, serverName)
 			authenticated, _ = p.aggregator.authStore.IsAuthenticated(ctx, sessionID, serverName)
 		}
 		if authenticated {
