@@ -369,3 +369,59 @@ func must(r *toolset.Registry, err error) *toolset.Registry {
 	}
 	return r
 }
+
+// signedOutFixture is toolsetFixture with the gh server awaiting the caller's
+// sign-in: its tools are not in the catalogue, only its name and prefix are.
+func signedOutFixture() *mockMetaToolsHandler {
+	m := toolsetFixture()
+	var tools []mcp.Tool
+	for _, tool := range m.tools {
+		if origin, _ := toolset.ToolOriginOf(tool); origin.Server != "gh" {
+			tools = append(tools, tool)
+		}
+	}
+	m.tools = tools
+	m.serversRequiringAuth = []api.ServerAuthInfo{{Name: "gh", Status: "auth_required", AuthTool: "core_auth_login", ToolPrefix: "x_gh_"}}
+	return m
+}
+
+func TestToolset_CallToolNamedForSignInReachesTheAggregator(t *testing.T) {
+	defer registerMockHandler(signedOutFixture())()
+	p := NewProvider()
+
+	for _, header := range []string{"tool:x_gh_issues", "server:gh", "tool:x_k8s_get,tool:x_gh_issues"} {
+		result, err := p.ExecuteTool(withHeader(header, true), "call_tool", map[string]any{"name": "x_gh_issues"})
+		require.NoError(t, err, header)
+		assert.False(t, result.IsError, "%s: a tool the toolset names on a server awaiting sign-in is handed to the aggregator, which answers auth_required", header)
+	}
+
+	for _, header := range []string{"preset:read-only", "server:k8s", "tool:x_gh_pulls"} {
+		result, err := p.ExecuteTool(withHeader(header, true), "call_tool", map[string]any{"name": "x_gh_issues"})
+		require.NoError(t, err, header)
+		assert.Equal(t, `tool "x_gh_issues" is outside the toolset [`+header+`]`, errorText(t, result), header)
+	}
+}
+
+func TestToolset_FilterToolsReportsTheServersASignInWouldUnlock(t *testing.T) {
+	defer registerMockHandler(signedOutFixture())()
+	p := NewProvider()
+
+	result, err := p.ExecuteTool(withHeader("tool:x_k8s_get,tool:x_gh_issues", true), "filter_tools", nil)
+	require.NoError(t, err)
+	resp := decode(t, result)
+	assert.Equal(t, []any{"tool:x_gh_issues"}, resp["toolset_unmatched"])
+	requiring, _ := resp["toolset_requiring_auth"].([]any)
+	require.Len(t, requiring, 1)
+	assert.Equal(t, "gh", requiring[0].(map[string]any)["name"])
+	assert.Equal(t, "x_gh_", requiring[0].(map[string]any)["tool_prefix"])
+
+	result, err = p.ExecuteTool(withHeader("", false), "filter_tools", map[string]any{"toolset": []any{"server:gh"}})
+	require.NoError(t, err)
+	requiring, _ = decode(t, result)["toolset_requiring_auth"].([]any)
+	require.Len(t, requiring, 1, "a toolset argument naming the server reports it too")
+
+	result, err = p.ExecuteTool(withHeader("server:k8s", true), "filter_tools", nil)
+	require.NoError(t, err)
+	_, present := decode(t, result)["toolset_requiring_auth"]
+	assert.False(t, present, "a toolset that names no pending server reports none")
+}

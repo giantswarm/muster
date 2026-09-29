@@ -168,6 +168,11 @@ type FilterToolsResponse struct {
 	// ToolsetUnmatched lists the selectors of that toolset that select no tool
 	// for the caller.
 	ToolsetUnmatched []string `json:"toolset_unmatched,omitempty"`
+	// ToolsetRequiringAuth lists the servers awaiting the caller's sign-in
+	// that the toolset names (by server or by a tool of theirs): the part of
+	// the toolset a sign-in with auth_tool would unlock. A call to such a tool
+	// is answered with the sign-in link, not refused as outside the toolset.
+	ToolsetRequiringAuth []api.ServerAuthInfo `json:"toolset_requiring_auth,omitempty"`
 	// Presets lists the known toolset presets when include_presets is set or a
 	// toolset argument was given; a request-declared toolset alone does not
 	// add them.

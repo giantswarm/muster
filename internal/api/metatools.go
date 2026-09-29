@@ -102,6 +102,10 @@ type ServerAuthInfo struct {
 	Status string `json:"status"`
 	// AuthTool is the tool to use for authentication (typically "core_auth_login")
 	AuthTool string `json:"auth_tool"`
+	// ToolPrefix is the exposed prefix of the server's tools (x_<server>_),
+	// so a caller can tell which tool names the sign-in would unlock before
+	// the tools are listed.
+	ToolPrefix string `json:"tool_prefix,omitempty"`
 }
 
 // metaToolsDataProvider stores the registered MetaToolsDataProvider implementation.

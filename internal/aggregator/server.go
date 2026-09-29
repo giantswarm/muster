@@ -3659,9 +3659,10 @@ func (a *AggregatorServer) ListServersRequiringAuth(ctx context.Context) []api.S
 		}
 
 		authRequired = append(authRequired, api.ServerAuthInfo{
-			Name:     name,
-			Status:   "auth_required",
-			AuthTool: "core_auth_login",
+			Name:       name,
+			Status:     "auth_required",
+			AuthTool:   "core_auth_login",
+			ToolPrefix: a.registry.ExposedToolPrefix(name),
 		})
 	}
 

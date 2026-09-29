@@ -201,6 +201,23 @@ func (r *ServerRegistry) buildExposedNameLocked(serverName, name string) string 
 	return r.musterPrefix + "_" + name
 }
 
+// ExposedToolPrefix returns the prefix every exposed tool of the server
+// carries: {musterPrefix}_{family}_ for a family member, else
+// {musterPrefix}_{serverPrefix}_. It needs no tool to have been listed, so
+// it names the tools of a server the session has not signed in to yet.
+func (r *ServerRegistry) ExposedToolPrefix(serverName string) string {
+	r.nameMu.RLock()
+	defer r.nameMu.RUnlock()
+	if family := r.serverFamilies[serverName]; family != nil && family.Name != "" {
+		return r.musterPrefix + "_" + family.Name + "_"
+	}
+	prefix := r.serverPrefixes[serverName]
+	if prefix == "" {
+		prefix = serverName
+	}
+	return r.musterPrefix + "_" + prefix + "_"
+}
+
 // SetServerPrefix configures the prefix to use for a specific server.
 // If prefix is empty the server name itself is used.
 func (r *ServerRegistry) SetServerPrefix(serverName, prefix string) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/toolset"
@@ -29,6 +30,12 @@ type scopedCatalogue struct {
 	scoped bool
 	ts     toolset.Toolset
 	res    toolset.Resolution
+	// pending lists the servers the session must sign in to before their
+	// tools appear in all. A toolset that names one of them by server or by
+	// tool name still resolves to nothing, so the accessors consult pending
+	// to let the aggregator's auth_required answer through instead of
+	// refusing the name as outside the toolset.
+	pending []api.ServerAuthInfo
 }
 
 // catalogue lists the session's tools through the handler and applies the
@@ -54,7 +61,63 @@ func (p *Provider) catalogue(ctx context.Context, handler api.MetaToolsHandler) 
 	}
 	cat.scoped, cat.ts, cat.res = true, ts, res
 	cat.tools = toolset.Filter(tools, res)
+	cat.pending = handler.ListServersRequiringAuth(ctx)
 	return cat, nil
+}
+
+// pendingServerOf returns the server awaiting sign-in whose tools the exposed
+// name belongs to, by its prefix.
+func (c *scopedCatalogue) pendingServerOf(name string) (api.ServerAuthInfo, bool) {
+	for _, server := range c.pending {
+		if server.ToolPrefix != "" && strings.HasPrefix(name, server.ToolPrefix) {
+			return server, true
+		}
+	}
+	return api.ServerAuthInfo{}, false
+}
+
+// namedForSignIn reports whether the toolset names a tool of a server the
+// session has not signed in to: an inline tool:<name> selector for the tool
+// itself, or server:<name> for its server. A preset cannot name it, since a
+// preset's rules match tools the catalogue holds. Such a call is not outside
+// the toolset; it is a call the aggregator answers with the sign-in link.
+func (c *scopedCatalogue) namedForSignIn(name string) bool {
+	server, ok := c.pendingServerOf(name)
+	if !ok {
+		return false
+	}
+	for _, selector := range c.ts.Selectors {
+		switch selector.Kind {
+		case toolset.KindTool:
+			if selector.Name == name {
+				return true
+			}
+		case toolset.KindServer:
+			if selector.Name == server.Name {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// requiringAuth returns the servers awaiting sign-in that the toolset names,
+// by server or by a tool of theirs: the part of the toolset a sign-in would
+// unlock, which the resolution alone reports as unmatched.
+func requiringAuth(ts toolset.Toolset, pending []api.ServerAuthInfo) []api.ServerAuthInfo {
+	var named []api.ServerAuthInfo
+	seen := map[string]bool{}
+	for _, server := range pending {
+		for _, selector := range ts.Selectors {
+			hit := (selector.Kind == toolset.KindServer && selector.Name == server.Name) ||
+				(selector.Kind == toolset.KindTool && server.ToolPrefix != "" && strings.HasPrefix(selector.Name, server.ToolPrefix))
+			if hit && !seen[server.Name] {
+				seen[server.Name] = true
+				named = append(named, server)
+			}
+		}
+	}
+	return named
 }
 
 // scope is catalogue for the accessors that do not otherwise list tools
@@ -104,6 +167,9 @@ func (c *scopedCatalogue) outside(name string) *api.CallToolResult {
 // composed with — and the refusal is logged with tool, toolset and session.
 func (c *scopedCatalogue) refuse(ctx context.Context, name string) *api.CallToolResult {
 	if !c.isScoped() || c.res.Contains(name) {
+		return nil
+	}
+	if c.namedForSignIn(name) {
 		return nil
 	}
 	attrs := []slog.Attr{

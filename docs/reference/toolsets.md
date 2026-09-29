@@ -167,7 +167,11 @@ fills the workflow tool's `readOnlyHint` annotation slot, so `describe_tool` sho
 - `call_tool` — including workflow execution (`workflow_<name>`) — of a name outside the
   toolset is refused with `tool "<name>" is outside the toolset [<selectors>]` and logged once
   at info level with the tool, the toolset and the session. The tools a workflow's steps call
-  internally are the workflow author's composition and are not re-checked.
+  internally are the workflow author's composition and are not re-checked. A tool of a server
+  the session has not signed in to is not in the catalogue, so no selector resolves to it; when
+  the toolset names it all the same (`tool:<name>`, or `server:<name>` for its server) the call
+  is handed to the aggregator, which answers `auth_required` with the sign-in link instead of
+  refusing the name. A preset cannot name it, since preset rules match tools the catalogue holds.
 - Resources and prompts follow the servers: a server is inside the toolset when at least one
   of its tools is selected. `list_resources`, `filter_resources`, `describe_resource`,
   `list_prompts`, `filter_prompts`, `describe_prompt` hide the others; `get_resource` and
@@ -186,8 +190,10 @@ fills the workflow tool's `readOnlyHint` annotation slot, so `describe_tool` sho
 
 The response carries the tools the toolset resolves to **for the caller**, `toolset` (the
 selectors as given), `toolset_unmatched` (the selectors that selected nothing for the caller —
-for example a server the caller has not signed in to; `preset:none` is never reported) and
-`presets` (`[{name, description, built_in}]`, built-ins first). When the request also carries
+for example a server the caller has not signed in to; `preset:none` is never reported),
+`toolset_requiring_auth` (the servers awaiting the caller's sign-in that the toolset names by
+server or by a tool of theirs, each with `name`, `auth_tool` and `tool_prefix`: the part of the
+toolset a sign-in would unlock) and `presets` (`[{name, description, built_in}]`, built-ins first). When the request also carries
 `X-muster-Toolset`, the argument resolves **within** the header's toolset and never widens it.
 Argument errors use the header's texts.
 
