@@ -3,9 +3,11 @@ package aggregator
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"time"
 
 	"github.com/giantswarm/mcp-oauth/security"
@@ -22,20 +24,18 @@ import (
 // Valkey (oauth.server.storage.type: valkey) they outlive a restart and are
 // visible to the admin UI and to an operator; in memory they die with the pod.
 // A deployment that configured Valkey must therefore never run on the
-// in-memory stores. A Valkey that does not answer while muster starts -- both
-// starting together after a node roll, Valkey being rescheduled -- is dialled
-// again with backoff, and when it stays away the start fails so the kubelet
-// restarts the pod (giantswarm/muster#1229). The in-memory stores are for a
-// deployment that configured no Valkey.
+// in-memory stores (giantswarm/muster#1229). A Valkey that does not answer
+// while muster starts -- both starting together after a node roll, Valkey
+// being rescheduled -- is waited for with capped backoff for as long as it
+// takes, not given up on after a few attempts: exiting only turns a Valkey
+// outage into a crash loop and a restart page (giantswarm/muster#1364). The
+// port is not bound during the wait, so the pod is not ready; the chart's
+// startup probe keeps the liveness probe off until then and bounds the wait.
+// Only a configuration error (credentials or database refused, a malformed
+// address, a certificate that does not verify) ends the start. The in-memory
+// stores are for a deployment that configured no Valkey.
 
 const (
-	// sessionStoreConnectTimeout bounds the wait for the configured Valkey at
-	// startup. The chart's liveness probe kills a pod whose /health has not
-	// answered by 30 s after the container started (initial delay 10 s, three
-	// failures 10 s apart); giving up at 20 s leaves room for the start
-	// itself, so a muster whose Valkey stays away exits on its own terms,
-	// with the reason and a non-zero status instead of a probe kill.
-	sessionStoreConnectTimeout = 20 * time.Second
 	sessionStoreInitialBackoff = time.Second
 	sessionStoreMaxBackoff     = 8 * time.Second
 )
@@ -89,21 +89,14 @@ func createStores(ctx context.Context, cfg AggregatorConfig) (storeBundle, error
 	}, nil
 }
 
-// connectValkey dials the configured Valkey until it answers or
-// sessionStoreConnectTimeout passes, backing off between attempts (1 s
-// doubling to 8 s, the OAuth server's cadence for its own discovery). wait is
-// the pause between attempts; tests pass one that starts the server instead
-// of sleeping.
+// connectValkey dials the configured Valkey until it answers, backing off
+// between attempts (1 s doubling to 8 s, the OAuth server's cadence for its
+// own discovery) and logging one line per attempt. It returns early only on a
+// configuration error (isValkeyConfigError) or when ctx ends. wait is the
+// pause between attempts; tests pass one that starts the server instead of
+// sleeping.
 func connectValkey(ctx context.Context, cfg config.ValkeyConfig, wait func(context.Context, time.Duration) error) (valkey.Client, error) {
-	ctx, cancel := context.WithTimeout(ctx, sessionStoreConnectTimeout)
-	defer cancel()
-
 	address := mcptoolkitlogging.RedactHost(cfg.URL)
-	gaveUp := func(attempt int, err error) error {
-		return fmt.Errorf("valkey %s did not answer within %s (%d attempts, last error: %w)",
-			address, sessionStoreConnectTimeout, attempt, err)
-	}
-
 	backoff := sessionStoreInitialBackoff
 	for attempt := 1; ; attempt++ {
 		client, err := newValkeyClient(cfg)
@@ -114,29 +107,46 @@ func connectValkey(ctx context.Context, cfg config.ValkeyConfig, wait func(conte
 			}
 			return client, nil
 		}
-
-		pause := backoff
-		if deadline, ok := ctx.Deadline(); ok {
-			remaining := time.Until(deadline)
-			if remaining <= 0 {
-				return nil, gaveUp(attempt, err)
-			}
-			pause = min(pause, remaining)
+		if isValkeyConfigError(err) {
+			return nil, fmt.Errorf("valkey %s refused the configuration: %w", address, err)
 		}
+
 		logging.WarnWithAttrs("Aggregator", "Valkey for the session stores did not answer, retrying",
 			slog.String("address", address),
 			slog.Int("attempt", attempt),
-			slog.Duration("retry_in", pause),
+			slog.Duration("retry_in", backoff),
 			slog.String("error", err.Error()))
 
-		if waitErr := wait(ctx, pause); waitErr != nil {
-			if errors.Is(waitErr, context.DeadlineExceeded) {
-				return nil, gaveUp(attempt, err)
-			}
-			return nil, fmt.Errorf("waiting for valkey %s: %w", address, waitErr)
+		if waitErr := wait(ctx, backoff); waitErr != nil {
+			return nil, fmt.Errorf("waiting for valkey %s (%d attempts, last error: %v): %w",
+				address, attempt, err, waitErr)
 		}
 		backoff = min(backoff*2, sessionStoreMaxBackoff)
 	}
+}
+
+// isValkeyConfigError tells a start that cannot succeed however long it waits
+// from a Valkey that is not answering yet. Valkey answered and refused
+// (WRONGPASS, NOAUTH, a database index out of range) -- except for the
+// replies of a server that is still coming up (LOADING, TRYAGAIN,
+// CLUSTERDOWN); the address does not parse; the server's certificate does not
+// verify. Everything else -- refused or reset connections, timeouts, a
+// service name that does not resolve yet -- is waited out.
+func isValkeyConfigError(err error) bool {
+	var verr *valkey.ValkeyError
+	if errors.As(err, &verr) {
+		return !verr.IsNil() && !verr.IsLoading() && !verr.IsTryAgain() && !verr.IsClusterDown()
+	}
+	var (
+		addrErr      *net.AddrError
+		unknownAuth  x509.UnknownAuthorityError
+		hostname     x509.HostnameError
+		invalidCert  x509.CertificateInvalidError
+		recordHeader tls.RecordHeaderError
+	)
+	return errors.As(err, &addrErr) || errors.As(err, &unknownAuth) ||
+		errors.As(err, &hostname) || errors.As(err, &invalidCert) ||
+		errors.As(err, &recordHeader)
 }
 
 // sleepCtx pauses for d or until ctx is done, whichever comes first.

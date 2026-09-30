@@ -56,7 +56,8 @@ func (s *AggregatorService) Start(ctx context.Context) error {
 	}
 
 	// Create the manager with APIs. This waits for a configured session store
-	// backend that is not answering yet and fails when it stays away.
+	// backend that is not answering yet and fails only on a configuration
+	// error or when ctx ends.
 	manager, err := aggregator.NewAggregatorManager(ctx, s.config, s.orchestratorAPI, s.serviceRegistry, s.onManagerErrorCallback)
 	if err != nil {
 		s.UpdateState(services.StateFailed, services.HealthUnhealthy, err)
