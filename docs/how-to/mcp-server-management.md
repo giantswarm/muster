@@ -607,8 +607,14 @@ unreadable -- every caller's exchange would fail the same way -- and settles in
 for every caller alike (the token endpoint does not answer, `invalid_client`,
 an unknown connector) puts the server in `Failed` with the exchange error as
 `lastError` and the class as the `Ready` condition's reason
-(`TokenExchangeCredentials`, `TokenExchangeEndpoint`, `TokenExchangeConnector`);
-the next successful exchange, a restart or a spec change clears it. A failure
+(`TokenExchangeCredentials`, `TokenExchangeEndpoint`, `TokenExchangeConnector`).
+A token endpoint that does not answer -- a timeout, a refused connection, a 5xx
+or a non-OAuth page from a gateway in front of it -- is probed again on the same
+backoff, with the exchange's client credentials and a subject token no issuer
+signed: the server stays `Failed` (never `Unreachable`) while the probe gets no
+answer, and returns to `Awaiting Session` on the first OAuth answer, with no
+caller involved. An OAuth error (`invalid_client`, an unknown connector) is not
+retried: the next successful exchange, a restart or a spec change clears it. A failure
 of one caller's own token (`invalid_grant`, an expired subject token) stays that
 session's and never changes the server's state.
 

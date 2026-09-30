@@ -1,0 +1,163 @@
+name: "oauth-sso-token-exchange-endpoint-recovers"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  A token-exchange server whose token endpoint stops answering returns to
+  awaiting_session on its own once the endpoint answers again, with no
+  session involved (giantswarm/muster#1368).
+
+    1. Before any session the server reads awaiting_session.
+    2. The remote authorization server's token endpoint goes down behind its
+       gateway (503 with an HTML page). A session signs in to muster; its SSO
+       fan-out exchange fails for a reason every caller shares, so the server
+       reads failed for its token endpoint, with a reconnect scheduled.
+    3. The reconnect backoff probes the token endpoint: while it is down the
+       server stays failed, never unreachable (the MCP endpoint answers).
+    4. The token endpoint answers again: the next probe returns the server to
+       awaiting_session, with no caller.
+    5. A session's exchange works again.
+
+  Regression: the failed exchange scheduled no retry and the reconcile did
+  not re-probe, so the server stayed failed -- and MusterMCPServerFailed kept
+  paging -- until a user's session happened to exchange a token.
+tags: ["oauth", "sso", "token-exchange", "rfc8693", "mcpserver", "status", "backoff", "issue-1368"]
+timeout: "2m"
+
+pre_configuration:
+  mock_oauth_servers:
+    - name: "cluster-a-idp"
+      scopes: ["openid", "profile", "email", "groups", "mcp:admin"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "muster-client"
+      client_secret: "muster-secret"
+      use_as_muster_oauth_server: true
+
+    - name: "cluster-b-idp"
+      scopes: ["openid", "profile", "email", "groups", "mcp:admin"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "mcp-kubernetes-client"
+      use_tls: true
+      trusted_issuers:
+        - connector_id: "cluster-a-dex"
+          oauth_server_ref: "cluster-a-idp"
+
+  mcp_servers:
+    - name: "remote-exchange"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "cluster-b-idp"
+          token_exchange:
+            oauth_server_ref: "cluster-b-idp"
+            connector_id: "cluster-a-dex"
+            scopes: "openid profile email groups"
+        tools:
+          - name: "remote_ok"
+            description: "Answers on the remote cluster"
+            responses:
+              - response:
+                  cluster: "cluster-b"
+
+steps:
+  # --- 1. before any session -----------------------------------------------
+  - id: server-awaits-a-session
+    tool: "core_service_status"
+    args:
+      name: "remote-exchange"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "remote-exchange"
+        state: "awaiting_session"
+
+  # --- 2. the token endpoint goes down; a session's exchange fails ---------
+  - id: token-endpoint-down
+    tool: "test_set_mock_oauth_token_outage"
+    args:
+      server: "cluster-b-idp"
+      down: true
+    expected:
+      success: true
+
+  - id: sign-in-to-muster
+    description: "The session's SSO fan-out exchanges its token for the server, and the token endpoint answers 503"
+    tool: "test_muster_auth_login"
+    args: {}
+    expected:
+      success: true
+      contains: ["success", "ID token stored"]
+
+  # --- 3. failed for the token endpoint, probed on the backoff -------------
+  - id: server-failed-and-probed
+    description: "Failed for its token endpoint, never unreachable, with the next probe scheduled; the probes find the endpoint still down"
+    tool: "core_service_status"
+    args:
+      name: "remote-exchange"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "remote-exchange"
+        state: "failed"
+      contains:
+        - "TokenExchangeEndpoint"
+        - "did not answer as an authorization server"
+        - "status 503"
+        - "nextRetryAfter"
+
+  # --- 4. the token endpoint answers again --------------------------------
+  - id: token-endpoint-up
+    tool: "test_set_mock_oauth_token_outage"
+    args:
+      server: "cluster-b-idp"
+      down: false
+    expected:
+      success: true
+
+  - id: server-awaits-a-session-again
+    description: "The next probe gets an answer: awaiting_session with no caller, the schedule and the failure reason gone"
+    tool: "core_service_status"
+    args:
+      name: "remote-exchange"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "remote-exchange"
+        state: "awaiting_session"
+      not_contains:
+        - "TokenExchangeEndpoint"
+        - "nextRetryAfter"
+
+  # --- 5. a session's exchange works again ---------------------------------
+  - id: sign-in-again
+    description: "A new sign-in's SSO fan-out exchanges the token, and the endpoint answers"
+    tool: "test_muster_auth_login"
+    args: {}
+    expected:
+      success: true
+      contains: ["success", "ID token stored"]
+
+  - id: server-is-connected
+    tool: "core_service_status"
+    args:
+      name: "remote-exchange"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "remote-exchange"
+        state: "connected"
+
+  - id: tool-runs
+    tool: "x_remote-exchange_remote_ok"
+    args: {}
+    expected:
+      success: true
+      contains: ["cluster-b"]

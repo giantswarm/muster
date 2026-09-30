@@ -106,10 +106,14 @@ func TestReadyConditionExplainsEachState(t *testing.T) {
 			status:    metav1.ConditionFalse, reason: "TokenExchangeCredentials",
 			message: []string{"remote-token-exchange-credentials"},
 		},
-		"failed by the token endpoint": {
+		"failed by the token endpoint, probed again on the backoff": {
 			state: musterv1alpha1.MCPServerStateFailed, lastError: "token exchange failed: Post https://dex.remote.example.test/token: connection refused",
-			data:   map[string]interface{}{api.ServiceDataFailureReason: string(api.TokenExchangeFailureEndpoint)},
+			data: map[string]interface{}{
+				api.ServiceDataFailureReason:  string(api.TokenExchangeFailureEndpoint),
+				api.ServiceDataNextRetryAfter: time.Date(2026, 9, 30, 21, 0, 0, 0, time.UTC),
+			},
 			status: metav1.ConditionFalse, reason: "TokenExchangeEndpoint",
+			message: []string{"connection refused", "Next attempt at 2026-09-30T21:00:00Z."},
 		},
 		"no state yet": {
 			state: "", status: metav1.ConditionUnknown, reason: "Unknown",

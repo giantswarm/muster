@@ -97,6 +97,9 @@ func readyCondition(server *musterv1alpha1.MCPServer, data map[string]interface{
 		if condition.Message == "" {
 			condition.Message = "The server did not come up."
 		}
+		if next, ok := data[api.ServiceDataNextRetryAfter].(time.Time); ok {
+			condition.Message += fmt.Sprintf(" Next attempt at %s.", next.UTC().Format(time.RFC3339))
+		}
 
 	default:
 		condition.Status, condition.Reason = metav1.ConditionUnknown, "Unknown"

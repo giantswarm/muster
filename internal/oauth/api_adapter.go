@@ -309,6 +309,11 @@ func (a *Adapter) ExchangeTokenForRemoteCluster(ctx context.Context, localToken,
 	return a.manager.ExchangeTokenForRemoteCluster(ctx, localToken, userID, config)
 }
 
+// ProbeTokenEndpoint implements api.TokenEndpointProber.
+func (a *Adapter) ProbeTokenEndpoint(ctx context.Context, config *api.TokenExchangeConfig) error {
+	return a.manager.ProbeTokenEndpoint(ctx, config)
+}
+
 // Stop stops the OAuth handler and cleans up resources.
 func (a *Adapter) Stop() {
 	a.manager.Stop()
@@ -316,3 +321,6 @@ func (a *Adapter) Stop() {
 
 // Ensure Adapter implements api.OAuthHandler
 var _ api.OAuthHandler = (*Adapter)(nil)
+
+// Ensure Adapter can probe a token exchange's token endpoint
+var _ api.TokenEndpointProber = (*Adapter)(nil)

@@ -215,6 +215,10 @@ type OAuthServer struct {
 	// JWT signing material (populated when config.SignTokens is true)
 	signingKey *ecdsa.PrivateKey
 	signingKID string
+
+	// tokenOutage makes /token answer 503 with an HTML page, see
+	// SetTokenEndpointOutage.
+	tokenOutage bool
 }
 
 // registeredClient records one RFC 7591 dynamic client registration.
@@ -452,6 +456,16 @@ func (s *OAuthServer) Stop(ctx context.Context) error {
 		err = releaseErr
 	}
 	return err
+}
+
+// SetTokenEndpointOutage makes the token endpoint answer every request with
+// 503 and an HTML page while down is set -- a gateway in front of an
+// authorization server that does not answer -- and serve normally once it is
+// cleared.
+func (s *OAuthServer) SetTokenEndpointOutage(down bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.tokenOutage = down
 }
 
 // Port returns the port the server is listening on
@@ -1043,6 +1057,16 @@ func (s *OAuthServer) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 func (s *OAuthServer) handleToken(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	s.mu.RLock()
+	outage := s.tokenOutage
+	s.mu.RUnlock()
+	if outage {
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte("<html><head><title>503 Service Temporarily Unavailable</title></head><body>503 Service Temporarily Unavailable</body></html>"))
 		return
 	}
 
