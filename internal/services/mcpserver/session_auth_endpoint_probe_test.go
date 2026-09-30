@@ -167,10 +167,7 @@ func TestTokenEndpointOAuthErrorIsNotRetried(t *testing.T) {
 	assert.Equal(t, string(api.TokenExchangeFailureCredentials), svc.GetServiceData()[api.ServiceDataFailureReason])
 	assert.ErrorContains(t, svc.GetLastError(), "invalid_client")
 
-	svc.failureMutex.RLock()
-	nextRetry := svc.nextRetryAfter
-	svc.failureMutex.RUnlock()
-	assert.NotNil(t, nextRetry, "the schedule of the outage before is kept for diagnostics")
+	assert.Nil(t, svc.GetNextRetryAfter(), "the endpoint answered: the outage's schedule ends, no restart reads Awaiting Session")
 	assert.False(t, svc.isTokenEndpointProbeDue(), "the endpoint answered: nothing left to probe")
 	assert.False(t, svc.isTransientConnectivityError(svc.GetLastError()), "an OAuth error is not retried in a loop")
 }

@@ -115,6 +115,10 @@ func (s *Service) probeTokenEndpoint(ctx context.Context, credentials *api.Clien
 		return &api.TokenEndpointUnavailableError{Endpoint: config.DexTokenEndpoint, Err: probeErr}
 	default:
 		s.setTokenEndpointProbeDue(false)
+		// The endpoint answered: the outage's schedule ends here, or the
+		// orchestrator would restart the server once more and read Awaiting
+		// Session while every exchange still fails.
+		s.clearRetrySchedule()
 		s.sessionAuthMutex.Lock()
 		s.sessionAuth.exchangeFailure = probeErr
 		s.sessionAuth.failureReason = class
@@ -269,6 +273,16 @@ func (s *Service) tokenEndpointOutcomeLocked() string {
 		return "token endpoint answered HTTP " + strconv.Itoa(s.lastFailureHTTPStatus)
 	}
 	return "no HTTP response from the token endpoint"
+}
+
+// clearRetrySchedule ends the reconnect schedule without the reset of an
+// attempt that reached a usable server: the failure count and the last HTTP
+// status stay for diagnostics.
+func (s *Service) clearRetrySchedule() {
+	s.failureMutex.Lock()
+	s.nextRetryAfter = nil
+	s.retryBackoff = 0
+	s.failureMutex.Unlock()
 }
 
 // isTokenEndpointProbeDue reports whether a start probes the token endpoint,
