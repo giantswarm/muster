@@ -293,6 +293,8 @@ func (s *Service) failStart(err error) error {
 	// or any error while reconnecting after failed health probes)
 	if s.isRemoteServer() && (s.isTransientConnectivityError(err) || s.isReconnectingAfterProbe()) {
 		credentials := api.ClassifyTokenExchangeError(err) == api.TokenExchangeFailureCredentials
+		var unavailableErr *api.TokenEndpointUnavailableError
+		tokenEndpoint := errors.As(err, &unavailableErr)
 		retryAfter := retryAfterFromError(err)
 
 		s.failureMutex.Lock()
@@ -301,8 +303,11 @@ func (s *Service) failStart(err error) error {
 		s.calculateNextRetryTimeLocked(retryAfter)
 		failures := s.consecutiveFailures
 		outcome := s.httpOutcomeLocked()
-		if credentials {
+		switch {
+		case credentials:
 			outcome = "credentials Secret unavailable"
+		case tokenEndpoint:
+			outcome = s.tokenEndpointOutcomeLocked()
 		}
 		schedule := s.retryScheduleLocked(outcome)
 		s.failureMutex.Unlock()
@@ -314,9 +319,10 @@ func (s *Service) failStart(err error) error {
 		// event names the HTTP status and the scheduled retry so an
 		// operator can tell an upstream 504 from a refused connection, and
 		// see when muster looks again, without the logs (issue #1163). A
-		// missing credentials Secret is not the endpoint's fault: the server
-		// stays Failed, on the same schedule, and never reads unreachable.
-		if failures >= UnreachableThreshold && !credentials {
+		// missing credentials Secret or a token endpoint that does not answer
+		// is not the MCP endpoint's fault: the server stays Failed, on the
+		// same schedule, and never reads unreachable.
+		if failures >= UnreachableThreshold && !credentials && !tokenEndpoint {
 			s.UpdateState(services.StateUnreachable, services.HealthUnknown, err)
 			s.generateEvent(events.ReasonMCPServerFailed, events.EventData{
 				Error: fmt.Sprintf("server unreachable after %d consecutive failures (%s): %s", failures, schedule, err.Error()),
@@ -325,11 +331,16 @@ func (s *Service) failStart(err error) error {
 		}
 
 		s.UpdateState(services.StateFailed, services.HealthUnhealthy, err)
-		if credentials {
+		switch {
+		case credentials:
 			s.generateEvent(events.ReasonMCPServerFailed, events.EventData{
 				Error: fmt.Sprintf("token exchange fails for every caller until the credentials Secret exists (%s): %s", schedule, err.Error()),
 			})
-		} else {
+		case tokenEndpoint:
+			s.generateEvent(events.ReasonMCPServerFailed, events.EventData{
+				Error: fmt.Sprintf("token exchange fails for every caller until the token endpoint answers (%s): %s", schedule, err.Error()),
+			})
+		default:
 			s.generateEvent(events.ReasonMCPServerFailed, events.EventData{
 				Error: fmt.Sprintf("connection failure %d of %d before unreachable (%s): %s", failures, UnreachableThreshold, schedule, err.Error()),
 			})
@@ -1163,6 +1174,15 @@ func (s *Service) isTransientConnectivityError(err error) bool {
 	// backoff and reads Awaiting Session on its own once the Secret exists.
 	var credentialsErr *api.TokenExchangeCredentialsError
 	if errors.As(err, &credentialsErr) {
+		return true
+	}
+
+	// The token endpoint of a token exchange did not answer its probe: the
+	// MCP endpoint is up, the authorization server is not reachable yet, so
+	// the probe is repeated with backoff and the server reads Awaiting
+	// Session on its own once the token endpoint answers (issue #1368).
+	var unavailableErr *api.TokenEndpointUnavailableError
+	if errors.As(err, &unavailableErr) {
 		return true
 	}
 

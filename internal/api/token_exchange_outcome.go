@@ -68,6 +68,32 @@ func (e *TokenExchangeCredentialsError) Error() string {
 
 func (e *TokenExchangeCredentialsError) Unwrap() error { return e.Err }
 
+// TokenEndpointUnavailableError reports that a probe of a token exchange's
+// token endpoint got no answer from the authorization server: a transport
+// failure, a 5xx, or a non-OAuth answer from something in front of it. The
+// server is Failed for it and the probe is repeated on the reconnect backoff,
+// unlike an OAuth error, which stays until something changes.
+type TokenEndpointUnavailableError struct {
+	// Endpoint is the probed token endpoint URL.
+	Endpoint string
+	Err      error
+}
+
+func (e *TokenEndpointUnavailableError) Error() string {
+	return fmt.Sprintf("token endpoint %s did not answer as an authorization server: %v", e.Endpoint, e.Err)
+}
+
+func (e *TokenEndpointUnavailableError) Unwrap() error { return e.Err }
+
+// TokenEndpointProber is implemented by the OAuth handler when it can check,
+// without a caller, that a token exchange's token endpoint answers. It returns
+// the error the endpoint's answer produced, classified like an exchange's
+// (ClassifyTokenExchangeError): TokenExchangeFailureNone means the
+// authorization server answered and only a caller's token is missing.
+type TokenEndpointProber interface {
+	ProbeTokenEndpoint(ctx context.Context, config *TokenExchangeConfig) error
+}
+
 // ClassifyTokenExchangeError decides whether a failed token exchange is the
 // server's (every caller fails the same way) or the caller's.
 //
@@ -87,6 +113,11 @@ func ClassifyTokenExchangeError(err error) TokenExchangeFailureClass {
 	var credentialsErr *TokenExchangeCredentialsError
 	if errors.As(err, &credentialsErr) {
 		return TokenExchangeFailureCredentials
+	}
+
+	var unavailableErr *TokenEndpointUnavailableError
+	if errors.As(err, &unavailableErr) {
+		return TokenExchangeFailureEndpoint
 	}
 
 	var urlErr *url.Error

@@ -87,3 +87,42 @@ func (h *TestToolsHandler) handleRestartMockOAuthServer(ctx context.Context, arg
 		api.FieldMessage:         fmt.Sprintf("OAuth server %s restarted on port %d: %d DCR registration(s) forgotten", serverName, oauthServer.Port(), forgotten),
 	}, nil
 }
+
+// handleSetMockOAuthTokenOutage makes a mock OAuth server's token endpoint
+// answer every request with 503 and an HTML page -- a gateway in front of an
+// authorization server that does not answer -- or serve normally again. The
+// server keeps its port, issuer, tokens and registrations throughout.
+//
+// Args:
+//   - server: Required. Name of the mock OAuth server.
+//   - down: Required. true starts the outage, false ends it.
+func (h *TestToolsHandler) handleSetMockOAuthTokenOutage(_ context.Context, args map[string]interface{}) (interface{}, error) {
+	serverName, ok := args["server"].(string)
+	if !ok || serverName == "" {
+		return nil, fmt.Errorf("server argument is required")
+	}
+	down, ok := args["down"].(bool)
+	if !ok {
+		return nil, fmt.Errorf("down argument is required (true or false)")
+	}
+	if h.instanceManager == nil || h.currentInstance == nil {
+		return nil, fmt.Errorf("instance manager or current instance not available")
+	}
+
+	oauthServer := h.instanceManager.GetMockOAuthServer(h.currentInstance.ID, serverName)
+	if oauthServer == nil {
+		return nil, fmt.Errorf("OAuth server %s not found", serverName)
+	}
+	oauthServer.SetTokenEndpointOutage(down)
+
+	state := "serves again"
+	if down {
+		state = "answers 503"
+	}
+	return map[string]interface{}{
+		api.FieldSuccess: true,
+		api.FieldServer:  serverName,
+		"down":           down,
+		api.FieldMessage: fmt.Sprintf("token endpoint of OAuth server %s %s", serverName, state),
+	}, nil
+}

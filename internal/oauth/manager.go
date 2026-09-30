@@ -492,6 +492,18 @@ func (m *Manager) ExchangeTokenForRemoteCluster(ctx context.Context, localToken,
 	return result.AccessToken, nil
 }
 
+// ProbeTokenEndpoint checks that the token endpoint of config answers as an
+// authorization server (see TokenExchanger.Probe).
+func (m *Manager) ProbeTokenEndpoint(ctx context.Context, config *api.TokenExchangeConfig) error {
+	if m == nil {
+		return fmt.Errorf("OAuth proxy is disabled")
+	}
+	if m.tokenExchanger == nil {
+		return fmt.Errorf("token exchanger not initialized")
+	}
+	return m.tokenExchanger.Probe(ctx, config)
+}
+
 // GetTokenExchanger returns the token exchanger for direct access.
 // This is useful for cache management and monitoring.
 func (m *Manager) GetTokenExchanger() *TokenExchanger {

@@ -45,6 +45,10 @@ const (
 	// forget_registrations_on_restart) its RFC 7591 registrations go with the
 	// old process.
 	TestToolRestartMockOAuthServer = "test_restart_mock_oauth_server"
+	// TestToolSetMockOAuthTokenOutage makes a mock OAuth server's token
+	// endpoint answer 503 with an HTML page, the way a gateway in front of an
+	// authorization server that is down does, until it is cleared.
+	TestToolSetMockOAuthTokenOutage = "test_set_mock_oauth_token_outage" //nolint:gosec // a tool name, not a credential
 	// TestToolAdvanceOAuthClock advances the mock OAuth server's clock for testing.
 	TestToolAdvanceOAuthClock = "test_advance_oauth_clock"
 	// TestToolReadAuthStatus reads the auth://status resource to verify auth state.
@@ -270,6 +274,7 @@ func IsTestTool(toolName string) bool {
 		TestToolGetOAuthServerInfo,
 		TestToolForgetOAuthRegistrations,
 		TestToolRestartMockOAuthServer,
+		TestToolSetMockOAuthTokenOutage,
 		TestToolAdvanceOAuthClock,
 		TestToolReadAuthStatus,
 		TestToolRevokeToken,
@@ -328,6 +333,8 @@ func (h *TestToolsHandler) HandleTestTool(ctx context.Context, toolName string, 
 		return h.handleForgetOAuthRegistrations(ctx, args)
 	case TestToolRestartMockOAuthServer:
 		return h.handleRestartMockOAuthServer(ctx, args)
+	case TestToolSetMockOAuthTokenOutage:
+		return h.handleSetMockOAuthTokenOutage(ctx, args)
 	case TestToolAdvanceOAuthClock:
 		return h.handleAdvanceOAuthClock(ctx, args)
 	case TestToolReadAuthStatus:
