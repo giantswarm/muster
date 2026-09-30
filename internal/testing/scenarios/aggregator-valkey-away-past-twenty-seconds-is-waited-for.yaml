@@ -1,0 +1,60 @@
+name: "aggregator-valkey-away-past-twenty-seconds-is-waited-for"
+description: "A configured Valkey that answers only 25 s after muster serve started is still waited for: muster keeps dialling instead of exiting and crash-looping, and serves on Valkey once it answers (#1364)"
+category: "behavioral"
+concept: "aggregator"
+tags: ["aggregator", "valkey", "storage", "startup", "regression", "issue-1364"]
+timeout: "3m"
+
+# Given: muster is configured for Valkey storage, and the Valkey answers only
+#        25 s after muster serve started -- muster and Valkey restarting
+#        together on a reclaimed node.
+# When:  muster comes up.
+# Then:  the same process serves sessions on Valkey-backed stores; it never
+#        gave up on the Valkey.
+#
+# Before the fix muster gave up after 20 s and exited with "mcp-aggregator
+# service failed"; the kubelet restarted it until Valkey was up, five restarts
+# in three minutes and a ContainerRestartingTooOften page
+# (giantswarm/muster#1364).
+
+pre_configuration:
+  storage:
+    type: "valkey"
+    start_delay: "25s"
+
+  mcp_servers:
+    - name: "plain"
+      config:
+        type: "streamable-http"
+        tools:
+          - name: "ping"
+            description: "Answers"
+            responses:
+              - response:
+                  ok: true
+
+steps:
+  - id: "valkey-backend-gauge-is-one"
+    description: "The store-backend gauge reads valkey"
+    tool: "test_scrape_metrics"
+    args:
+      filter: 'muster_session_store_backend{backend="valkey"'
+    expected:
+      success: true
+      contains: ["} 1"]
+
+  - id: "tools-served"
+    tool: "x_plain_ping"
+    args: {}
+    expected:
+      success: true
+      contains: ["true"]
+
+instance_logs:
+  contains:
+    - "Valkey for the session stores did not answer, retrying"
+    - "Valkey for the session stores answered"
+    - "Using Valkey-backed session auth and capability stores"
+  not_contains:
+    - "refusing to serve sessions on in-memory stores"
+    - "Using in-memory session auth and capability stores"

@@ -111,18 +111,54 @@ func TestConnectValkey_ReturnsAtOnceWhenValkeyAnswers(t *testing.T) {
 	client.Close()
 }
 
-// A Valkey that stays away is an error naming the deadline, not a fallback:
-// the caller refuses to start and the kubelet restarts the pod.
-func TestConnectValkey_GivesUpWhenValkeyStaysAway(t *testing.T) {
-	_, addr := stoppedValkey(t)
-	deadlinePassed := func(context.Context, time.Duration) error { return context.DeadlineExceeded }
+// A Valkey that stays away for minutes is still waited for -- muster never
+// exits on connection refused, it would only crash-loop and page
+// (giantswarm/muster#1364). The pauses back off and stay capped.
+func TestConnectValkey_KeepsWaitingForAValkeyThatStaysAwayForMinutes(t *testing.T) {
+	srv, addr := stoppedValkey(t)
+	var pauses []time.Duration
+	var waited time.Duration
+	awayForTwoMinutes := func(ctx context.Context, d time.Duration) error {
+		require.NoError(t, ctx.Err())
+		pauses = append(pauses, d)
+		waited += d
+		if waited >= 2*time.Minute {
+			require.NoError(t, srv.Restart(), "Valkey comes back after two minutes")
+		}
+		return nil
+	}
 
-	client, err := connectValkey(context.Background(), config.ValkeyConfig{URL: addr}, deadlinePassed)
+	client, err := connectValkey(context.Background(), config.ValkeyConfig{URL: addr}, awayForTwoMinutes)
+	require.NoError(t, err)
+	t.Cleanup(client.Close)
+
+	require.GreaterOrEqual(t, len(pauses), 4)
+	assert.Equal(t, []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second}, pauses[:4],
+		"the backoff doubles from the initial pause")
+	for _, d := range pauses[4:] {
+		assert.Equal(t, sessionStoreMaxBackoff, d, "and stays at the cap")
+	}
+}
+
+// A Valkey that answers and refuses the credentials will refuse them however
+// long muster waits: the start ends at once with the reason.
+func TestConnectValkey_ExitsAtOnceWhenValkeyRefusesThePassword(t *testing.T) {
+	srv := miniredis.RunT(t)
+	srv.RequireAuth("right")
+
+	client, err := connectValkey(context.Background(), config.ValkeyConfig{URL: srv.Addr(), Password: "wrong"}, noWait(t))
 
 	require.Error(t, err)
 	assert.Nil(t, client)
-	assert.ErrorContains(t, err, "did not answer within "+sessionStoreConnectTimeout.String())
-	assert.ErrorContains(t, err, "valkey connect:", "the last dial error is kept for the operator")
+	assert.ErrorContains(t, err, "refused the configuration")
+}
+
+func TestConnectValkey_ExitsAtOnceOnAMalformedAddress(t *testing.T) {
+	client, err := connectValkey(context.Background(), config.ValkeyConfig{URL: "valkey:6379:6379"}, noWait(t))
+
+	require.Error(t, err)
+	assert.Nil(t, client)
+	assert.ErrorContains(t, err, "refused the configuration")
 }
 
 func TestConnectValkey_StopsWhenTheStartIsCancelled(t *testing.T) {

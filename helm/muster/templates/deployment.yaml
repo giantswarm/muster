@@ -76,11 +76,20 @@ spec:
               containerPort: {{ .Values.muster.observability.metrics.prometheus.port }}
               protocol: TCP
             {{- end }}
+          # The start waits for the configured Valkey for as long as it takes
+          # (the port is bound once it answers); liveness begins only after
+          # the start, so a Valkey outage of up to 5 minutes costs no restart.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 60
           livenessProbe:
             httpGet:
               path: /health
               port: http
-            initialDelaySeconds: 10
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 3
