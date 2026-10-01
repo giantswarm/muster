@@ -2,6 +2,7 @@ package reconciler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -59,7 +60,24 @@ type KubernetesDetector struct {
 
 	// informerRegistrations tracks registered event handlers for cleanup
 	informerRegistrations []toolscache.ResourceEventHandlerRegistration
+
+	// wait is the pause between informer setup attempts; tests replace it
+	// so a retry does not sleep.
+	wait func(context.Context, time.Duration) error
 }
+
+// An informer whose setup fails -- the apiserver not answering the REST
+// mapping's discovery call yet, a CRD not installed -- is set up again with
+// capped backoff for as long as it takes. Start returns only once every
+// watched type has its informer, so the reconcile manager, and with it the
+// aggregator that binds the port, waits: the pod is not ready while a watch
+// is missing, and one line per attempt says which and why. Claiming success
+// with a missing informer let a pod go ready that never observed a change
+// (giantswarm/muster#1147).
+const (
+	informerSetupInitialBackoff = time.Second
+	informerSetupMaxBackoff     = 8 * time.Second
+)
 
 // NewKubernetesDetector creates a new Kubernetes change detector.
 //
@@ -82,6 +100,7 @@ func NewKubernetesDetector(restConfig *rest.Config, namespace string) (*Kubernet
 		scheme:                scheme,
 		resourceTypes:         make(map[ResourceType]bool),
 		informerRegistrations: make([]toolscache.ResourceEventHandlerRegistration, 0),
+		wait:                  sleepContext,
 	}, nil
 }
 
@@ -144,27 +163,64 @@ func (d *KubernetesDetector) Start(ctx context.Context, changes chan<- ChangeEve
 		return fmt.Errorf("failed to sync cache")
 	}
 
-	logging.Info("KubernetesDetector", "Started watching Kubernetes resources in namespace: %s", d.namespaceDisplay())
+	d.mu.RLock()
+	informers := len(d.informerRegistrations)
+	d.mu.RUnlock()
+	logging.Info("KubernetesDetector", "Started watching Kubernetes resources in namespace: %s (%d informers)", d.namespaceDisplay(), informers)
 	return nil
 }
 
-// setupInformers creates informers for all registered resource types.
+// errUnsupportedResourceType marks a type the detector has no informer for, a
+// programming error that no retry fixes.
+var errUnsupportedResourceType = errors.New("unsupported resource type")
+
+// setupInformers creates informers for all registered resource types,
+// retrying the ones that fail with capped backoff (1 s doubling to 8 s) and
+// logging one line per failed attempt. It returns an error only when the
+// detector's context ends before every informer is set up.
 func (d *KubernetesDetector) setupInformers() error {
 	d.mu.RLock()
-	types := make([]ResourceType, 0, len(d.resourceTypes))
+	pending := make([]ResourceType, 0, len(d.resourceTypes))
 	for rt := range d.resourceTypes {
-		types = append(types, rt)
+		pending = append(pending, rt)
 	}
 	d.mu.RUnlock()
 
-	for _, rt := range types {
-		if err := d.setupInformerForType(rt); err != nil {
-			logging.Warn("KubernetesDetector", "Failed to setup informer for %s: %v", rt, err)
-			// Continue with other types
+	backoff := informerSetupInitialBackoff
+	for attempt := 1; ; attempt++ {
+		var failed []ResourceType
+		var lastErr error
+		for _, rt := range pending {
+			if err := d.setupInformerForType(rt); err != nil {
+				if errors.Is(err, errUnsupportedResourceType) {
+					return err
+				}
+				logging.Warn("KubernetesDetector", "Informer for %s is not set up, retrying in %s (attempt %d): %v", rt, backoff, attempt, err)
+				failed = append(failed, rt)
+				lastErr = err
+			}
 		}
+		if len(failed) == 0 {
+			return nil
+		}
+		if err := d.wait(d.ctx, backoff); err != nil {
+			return fmt.Errorf("informers for %v not set up after %d attempts (last error: %v): %w", failed, attempt, lastErr, err)
+		}
+		pending = failed
+		backoff = min(backoff*2, informerSetupMaxBackoff)
 	}
+}
 
-	return nil
+// sleepContext pauses for d or until ctx is done, whichever comes first.
+func sleepContext(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
 }
 
 // setupInformerForType creates an informer for a specific resource type.
@@ -176,7 +232,7 @@ func (d *KubernetesDetector) setupInformerForType(resourceType ResourceType) err
 	case ResourceTypeWorkflow:
 		obj = &musterv1alpha1.Workflow{}
 	default:
-		return fmt.Errorf("unsupported resource type: %s", resourceType)
+		return fmt.Errorf("%w: %s", errUnsupportedResourceType, resourceType)
 	}
 
 	// Get informer for the object type

@@ -130,6 +130,13 @@ func (m *Manager) RegisterReconciler(reconciler Reconciler) error {
 	return nil
 }
 
+// WatchesKubernetes reports whether the manager is configured to watch the
+// apiserver. There the reconciler is the control loop, so a start that fails
+// must end the process instead of leaving it running unreconciled.
+func (m *Manager) WatchesKubernetes() bool {
+	return m.config.Mode == WatchModeKubernetes
+}
+
 // Start begins the reconciliation system.
 func (m *Manager) Start(ctx context.Context) error {
 	m.mu.Lock()
