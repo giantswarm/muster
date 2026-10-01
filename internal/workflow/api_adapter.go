@@ -589,7 +589,7 @@ func (a *Adapter) ValidateWorkflowFromStructured(args map[string]interface{}) er
 		return fail(err)
 	}
 
-	logAuthoringWarnings(&wf)
+	logAuthoringWarnings(&wf, args)
 
 	// Generate validation success event
 	a.generateCRDEvent(wf.Name, events.ReasonWorkflowValidationSucceeded, events.EventData{
@@ -603,10 +603,15 @@ func (a *Adapter) ValidateWorkflowFromStructured(args map[string]interface{}) er
 // logAuthoringWarnings emits the workflow's non-fatal authoring lint warnings
 // (deprecated `store` usage, per-step output flags rendered inert by an output
 // output template) at the structured create/validate path. The detection lives in
-// the api package so the CRD reconciler emits the same nudges.
-func logAuthoringWarnings(wf *api.Workflow) {
+// the api package so the CRD reconciler emits the same nudges. The deprecated
+// snake_case field aliases exist on this path only (the CRD schema has none),
+// so they are read from the raw arguments.
+func logAuthoringWarnings(wf *api.Workflow, args map[string]interface{}) {
 	for _, w := range api.AuthoringWarnings(wf) {
 		logging.Warn("WorkflowExecutor", "Workflow %q %s", wf.Name, w)
+	}
+	if aliases := api.DeprecatedFieldAliases(args); len(aliases) > 0 {
+		logging.Warn("WorkflowExecutor", "Workflow %q uses deprecated snake_case field names, accepted as aliases of the CRD's camelCase names: %s", wf.Name, strings.Join(aliases, ", "))
 	}
 }
 

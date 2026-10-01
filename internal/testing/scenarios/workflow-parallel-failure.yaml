@@ -1,5 +1,5 @@
 name: "workflow-parallel-failure"
-description: "A failing branch fails the whole parallel group unless tolerated by sub-step allow_failure or by allow_failure on the parallel step itself"
+description: "A failing branch fails the whole parallel group unless tolerated by sub-step allowFailure or by allowFailure on the parallel step itself"
 category: "behavioral"
 concept: "workflow"
 tags: ["workflow", "parallel", "control-flow", "allow-failure", "core-api"]
@@ -43,7 +43,7 @@ steps:
     success: false
     error_contains: ["parallel branch exploded"]
 
-# A branch marked allow_failure is tolerated; the group and workflow complete.
+# A branch marked allowFailure is tolerated; the group and workflow complete.
 - id: "create-parallel-substep-tolerated"
   tool: "core_workflow_create"
   args:
@@ -57,7 +57,7 @@ steps:
             store: true
           - id: "bad"
             tool: "x_echo-provider_boom"
-            allow_failure: true
+            allowFailure: true
       - id: "after"
         tool: "x_echo-provider_echo"
         args: { text: "continued past parallel" }
@@ -82,14 +82,14 @@ steps:
       steps.2.status: "completed"
     contains: ["continued past parallel"]
 
-# allow_failure on the parallel step tolerates any branch failure.
+# allowFailure on the parallel step tolerates any branch failure.
 - id: "create-parallel-step-tolerated"
   tool: "core_workflow_create"
   args:
     name: "parallel-step-tolerated"
     steps:
       - id: "fan"
-        allow_failure: true
+        allowFailure: true
         parallel:
           - id: "ok"
             tool: "x_echo-provider_echo"
