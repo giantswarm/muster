@@ -86,8 +86,12 @@ Tokens are written to `~/.config/muster/tokens/`, one file per endpoint, with th
 the access token, the refresh token, the expiry and the issuer. Tokens never appear in muster's
 logs; only hashed identifiers do.
 
-`MUSTER_OAUTH_CALLBACK_PORT` changes the local port the browser is redirected back to (default
-`3000`) when that port is taken.
+The browser is redirected back to `http://localhost:3000/callback`. A browser resolves `localhost`
+to `::1` or `127.0.0.1`, so `muster auth login` listens on port 3000 on both. When another process
+holds the port on either address, the login stops at once with
+`callback port 3000 is already in use on [::1]:3000 by:` and the holder's socket, pid and command
+line: stop that process, or pass `--callback-port <port>` (env: `MUSTER_OAUTH_CALLBACK_PORT`) when
+the server accepts a localhost redirect to another port.
 
 ## Exit codes
 

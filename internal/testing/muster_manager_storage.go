@@ -9,6 +9,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/alicebob/miniredis/v2/server"
+	"github.com/giantswarm/muster/v5/internal/netdiag"
 )
 
 // Storage backends a scenario can run its muster serve instance on.
@@ -315,7 +316,7 @@ func valkeyPortOccupants(port int, err error) string {
 	if err == nil || !strings.Contains(err.Error(), "address already in use") {
 		return ""
 	}
-	occupants := describePortOccupants(port)
+	occupants := netdiag.PortOccupants(port)
 	if occupants == "" {
 		occupants = "(no socket on the port is visible any more)\n"
 	}

@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/giantswarm/muster/v5/internal/netdiag"
 	"github.com/giantswarm/muster/v5/internal/testing/mock"
 	musterv1alpha1 "github.com/giantswarm/muster/v5/pkg/apis/muster/v1alpha1"
 
@@ -1008,7 +1009,7 @@ func portCollisionDiagnostics(instance *MusterInstance, mp *managedProcess) stri
 	if !strings.Contains(logs.Stderr+logs.Stdout, "address already in use") {
 		return ""
 	}
-	occupants := describePortOccupants(instance.Port, instance.MetricsPort)
+	occupants := netdiag.PortOccupants(instance.Port, instance.MetricsPort)
 	if occupants == "" {
 		occupants = "(no socket on these ports is visible any more)\n"
 	}
