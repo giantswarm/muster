@@ -20,10 +20,7 @@ description: |
 
   Regression: the logout skipped every token step when the registry entry had
   no issuer and answered "Successfully logged out" with the grant in place; the
-  next login on either server then reconnected from the grant. (A service
-  restart inside the scenario would rebuild the entries the same way, but
-  restarting an OAuth server with live session connections currently hangs
-  the aggregator's MCP endpoint -- giantswarm/muster#1153.)
+  next login on either server then reconnected from the grant.
 tags: ["oauth", "logout", "subject-grant", "shared-issuer", "github", "restart", "regression"]
 timeout: "2m"
 
@@ -164,6 +161,58 @@ steps:
       success: true
       contains:
         - "gh-inhouse"
+
+  - id: restart-gh-hosted
+    description: "A one-shot restart of gh-hosted while the session is connected to it"
+    tool: "core_mcpserver_update"
+    args:
+      name: "gh-hosted"
+      type: "streamable-http"
+      autoStart: true
+      restartRequestedAt: "2026-09-04T20:00:00Z"
+    expected:
+      success: true
+
+  - id: gh-hosted-restart-processed
+    tool: "core_mcpserver_get"
+    args:
+      name: "gh-hosted"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "gh-hosted"
+        lastRestartedAt: "2026-09-04T20:00:00Z"
+
+  - id: restart-gh-inhouse
+    description: "A one-shot restart of gh-inhouse while the session is connected to it"
+    tool: "core_mcpserver_update"
+    args:
+      name: "gh-inhouse"
+      type: "streamable-http"
+      autoStart: true
+      restartRequestedAt: "2026-09-04T20:00:00Z"
+    expected:
+      success: true
+
+  - id: gh-inhouse-restart-processed
+    tool: "core_mcpserver_get"
+    args:
+      name: "gh-inhouse"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "gh-inhouse"
+        lastRestartedAt: "2026-09-04T20:00:00Z"
+
+  - id: endpoint-answers-after-restarts
+    description: "The session's requests are answered after the restarts (giantswarm/muster#1153)"
+    tool: "test_read_auth_status"
+    args:
+      server: "gh-hosted"
+    expected:
+      success: true
 
   # gh-untouched's registry entry knows no issuer: no login ever discovered
   # one and the bare 401 named none. Logging out of it must still find the

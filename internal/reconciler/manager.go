@@ -299,16 +299,32 @@ func (m *Manager) resyncAll() {
 	for resourceType, lister := range listers {
 		for _, name := range lister.ResyncNames(m.ctx) {
 			m.queue.Add(ReconcileRequest{
-				Type:    resourceType,
-				Name:    name,
-				Attempt: 1,
+				Type:      resourceType,
+				Name:      name,
+				Namespace: m.namespaceOf(""),
+				Attempt:   1,
 			})
 		}
 	}
 }
 
+// namespaceOf resolves a request's namespace: the filesystem detector and the
+// resync name none, the state-change bridge names the configured one. The
+// queue serializes requests per type/namespace/name, so both spellings of one
+// object must be the same key, or two workers reconcile it at once.
+func (m *Manager) namespaceOf(namespace string) string {
+	if namespace != "" {
+		return namespace
+	}
+	if m.config.Namespace != "" {
+		return m.config.Namespace
+	}
+	return DefaultNamespace
+}
+
 // handleChangeEvent processes a single change event.
 func (m *Manager) handleChangeEvent(event ChangeEvent) {
+	event.Namespace = m.namespaceOf(event.Namespace)
 	// Check if this resource type is enabled
 	if !m.IsResourceTypeEnabled(event.Type) {
 		logging.Debug("ReconcileManager", "Skipping change event for disabled resource type: %s %s/%s",
@@ -552,7 +568,7 @@ func (m *Manager) GetStatus(resourceType ResourceType, name, namespace string) (
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	key := statusKey(resourceType, name, namespace)
+	key := statusKey(resourceType, name, m.namespaceOf(namespace))
 	status, ok := m.statusTracker[key]
 	return status, ok
 }
