@@ -124,7 +124,9 @@ type MCPServerSpec struct {
 	// This is only relevant for remote servers (streamable-http or sse).
 	Auth *MCPServerAuth `json:"auth,omitempty" yaml:"auth,omitempty"`
 
-	// Timeout specifies the connection timeout for remote operations (in seconds)
+	// Timeout bounds every operation on the server in seconds, a tool call
+	// included, for every type; for a remote server also the connect and the
+	// health probe.
 	// +kubebuilder:default=30
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=300

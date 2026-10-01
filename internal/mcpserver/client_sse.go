@@ -38,7 +38,7 @@ func (c *SSEClient) WithMeta(meta map[string]string) *SSEClient {
 // server's spec.timeout (see baseMCPClient.timeout), and returns the client
 // so a construction site reads as one expression.
 func (c *SSEClient) WithTimeout(timeout time.Duration) *SSEClient {
-	c.timeout = timeout
+	c.setTimeout(timeout)
 	return c
 }
 

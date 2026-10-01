@@ -26,7 +26,8 @@ import (
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
-// DefaultRemoteTimeout is the default connection timeout in seconds for remote MCP servers.
+// DefaultRemoteTimeout is the default spec.timeout in seconds, the budget of every
+// operation on a server of any type.
 // This value must be kept in sync with the kubebuilder:default annotation in MCPServerSpec.Timeout
 // (see pkg/apis/muster/v1alpha1/mcpserver_types.go).
 const DefaultRemoteTimeout = int(mcpserver.DefaultTimeout / time.Second)
@@ -709,7 +710,7 @@ func (s *Service) GetServiceData() map[string]interface{} {
 		"env":         s.definition.Env,
 		"headers":     s.definition.Headers,
 		"meta":        s.definition.Meta,
-		"timeout":     s.remoteTimeout(),
+		"timeout":     s.operationTimeout(),
 		"description": s.definition.Description,
 	}
 
@@ -971,13 +972,14 @@ func (s *Service) LogWarn(format string, args ...interface{}) {
 // getRemoteInitContext creates a context with the appropriate timeout for remote MCP client initialization.
 // Uses the configured timeout if set, otherwise falls back to DefaultRemoteTimeout.
 func (s *Service) getRemoteInitContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(ctx, s.remoteTimeout())
+	return context.WithTimeout(ctx, s.operationTimeout())
 }
 
-// remoteTimeout is spec.timeout for a remote server, DefaultRemoteTimeout
-// when unset. The first connect, the health probe and the session-recovery
-// handshake all run under this one budget.
-func (s *Service) remoteTimeout() time.Duration {
+// operationTimeout is spec.timeout, DefaultRemoteTimeout when unset: the
+// budget every operation of the server's client runs under, a stdio tool
+// call as much as a remote one. For a remote server the first connect, the
+// health probe and the session-recovery handshake run under it as well.
+func (s *Service) operationTimeout() time.Duration {
 	timeout := s.definition.Timeout
 	if timeout == 0 {
 		timeout = DefaultRemoteTimeout
@@ -1014,7 +1016,7 @@ func (s *Service) createAndInitializeClient(ctx context.Context) error {
 		Headers: s.definition.Headers,
 		Meta:    s.definition.Meta,
 		Auth:    s.definition.Auth,
-		Timeout: s.remoteTimeout(),
+		Timeout: s.operationTimeout(),
 	}
 
 	// Use factory to create the appropriate client type

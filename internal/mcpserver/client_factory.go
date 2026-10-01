@@ -28,9 +28,9 @@ type MCPClientConfig struct {
 	// are resolved by the aggregator, not by this factory.
 	Auth *api.MCPServerAuth
 	// Timeout is the server's spec.timeout: the one budget every operation
-	// on a remote client runs under -- each request, and the handshake a
-	// session recovery performs on the way -- so a slow backend gets the same
-	// budget there as on its first connect. Zero means DefaultTimeout.
+	// on the client runs under, whatever its transport -- each request, a
+	// tool call above all, and the handshake a session recovery performs on
+	// the way. Zero means DefaultTimeout.
 	Timeout time.Duration
 }
 
@@ -42,6 +42,24 @@ type MCPClientConfig struct {
 //     or a SigV4-signing one when the auth type is "sigv4"
 //   - "sse": Creates an SSEClient for Server-Sent Events communication
 func NewMCPClientFromType(serverType api.MCPServerType, config MCPClientConfig) (MCPClient, error) {
+	client, err := newClientOfType(serverType, config)
+	if err != nil {
+		return nil, err
+	}
+	// The one place the server's budget reaches a client this factory
+	// builds, so no transport can be left on the default.
+	client.setTimeout(config.Timeout)
+	return client, nil
+}
+
+// budgetedClient is an MCPClient whose operations run under a budget set
+// after construction; every transport gets it from baseMCPClient.
+type budgetedClient interface {
+	MCPClient
+	setTimeout(time.Duration)
+}
+
+func newClientOfType(serverType api.MCPServerType, config MCPClientConfig) (budgetedClient, error) {
 	// The single runtime enforcement point for the auth-versus-type rules: this
 	// is the only function that holds both the server type and the auth config,
 	// and every path that opens a connection comes through it. Admission checks
@@ -73,15 +91,15 @@ func NewMCPClientFromType(serverType api.MCPServerType, config MCPClientConfig) 
 			if err != nil {
 				return nil, err
 			}
-			return c.WithTimeout(config.Timeout), nil
+			return c, nil
 		}
-		return NewStreamableHTTPClientWithHeaders(config.URL, config.Headers).WithMeta(config.Meta).WithTimeout(config.Timeout), nil
+		return NewStreamableHTTPClientWithHeaders(config.URL, config.Headers).WithMeta(config.Meta), nil
 
 	case api.MCPServerTypeSSE:
 		if config.URL == "" {
 			return nil, fmt.Errorf("url is required for sse type")
 		}
-		return NewSSEClientWithHeaders(config.URL, config.Headers).WithMeta(config.Meta).WithTimeout(config.Timeout), nil
+		return NewSSEClientWithHeaders(config.URL, config.Headers).WithMeta(config.Meta), nil
 
 	default:
 		return nil, fmt.Errorf("unsupported MCP server type: %s (supported: %s, %s, %s)",

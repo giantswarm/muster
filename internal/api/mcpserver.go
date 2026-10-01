@@ -76,8 +76,9 @@ type MCPServer struct {
 	// This is only relevant for remote servers (streamable-http or sse).
 	Auth *MCPServerAuth `yaml:"auth,omitempty" json:"auth,omitempty"`
 
-	// Timeout bounds every remote operation in seconds -- the connect, the
-	// health probe and each request, a tool call included (default 30).
+	// Timeout bounds every operation on the server in seconds -- each
+	// request, a tool call included, for every type; for a remote server also
+	// the connect and the health probe (default 30).
 	Timeout int `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 
 	// Error contains any error message from the most recent server operation.
@@ -651,8 +652,9 @@ type MCPServerInfo struct {
 	// Auth configures authentication behavior for this MCP server.
 	Auth *MCPServerAuth `json:"auth,omitempty"`
 
-	// Timeout bounds every remote operation in seconds -- the connect, the
-	// health probe and each request, a tool call included (default 30).
+	// Timeout bounds every operation on the server in seconds -- each
+	// request, a tool call included, for every type; for a remote server also
+	// the connect and the health probe (default 30).
 	Timeout int `json:"timeout,omitempty"`
 
 	// ToolPrefix is an optional prefix for tool names.
