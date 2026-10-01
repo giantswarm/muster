@@ -9,6 +9,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/alicebob/miniredis/v2/server"
+
 	"github.com/giantswarm/muster/v5/internal/netdiag"
 )
 
