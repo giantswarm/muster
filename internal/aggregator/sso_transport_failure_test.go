@@ -19,10 +19,12 @@ import (
 )
 
 // flakyBackend is a streamable-http MCP backend that answers every request
-// with the status in fail while it is non-zero, and serves MCP otherwise.
+// with the status in fail while it is non-zero, and serves MCP otherwise. A
+// 401 carries the error_description in description when it is set.
 type flakyBackend struct {
 	*httptest.Server
-	fail atomic.Int32
+	fail        atomic.Int32
+	description atomic.Value // string
 }
 
 func newFlakyBackend(t *testing.T) *flakyBackend {
@@ -36,7 +38,11 @@ func newFlakyBackend(t *testing.T) *flakyBackend {
 	b.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if status := int(b.fail.Load()); status != 0 {
 			if status == http.StatusUnauthorized {
-				w.Header().Set("WWW-Authenticate", `Bearer error="invalid_token"`)
+				challenge := `Bearer error="invalid_token"`
+				if d, _ := b.description.Load().(string); d != "" {
+					challenge += `, error_description="` + d + `"`
+				}
+				w.Header().Set("WWW-Authenticate", challenge)
 			}
 			http.Error(w, http.StatusText(status), status)
 			return

@@ -131,6 +131,33 @@ func TestEstablishSSOConnection_OldTokenRefusedKeepsTheAuthBackoff(t *testing.T)
 	}
 }
 
+// TestEstablishSSOConnection_FreshTokenRefusalByItsCause: a fresh token's
+// 401 is a possibly unknown signing key only when the backend names no other
+// cause. One that names the audience is a refused credential at once.
+func TestEstablishSSOConnection_FreshTokenRefusalByItsCause(t *testing.T) {
+	for description, wantFresh := range map[string]bool{
+		"":                                      true,
+		"token uses the unknown key":            true,
+		"no key found for kid":                  true,
+		"token validation failed: audience [x]": false,
+		"token has expired":                     false,
+	} {
+		t.Run(description, func(t *testing.T) {
+			backend := newFlakyBackend(t)
+			backend.description.Store(description)
+			a, info, _ := newForwardingTestAggregator(t, backend.URL+"/mcp")
+			retries := captureSSORetries(a)
+
+			backend.fail.Store(http.StatusUnauthorized)
+			ctx := forwardedTokenIssuedAt(t, time.Now().Add(-time.Minute))
+			require.Equal(t, ssoConnectFailed, a.establishSSOConnection(ctx, info, "https://dex.example.com"))
+
+			assert.Equal(t, wantFresh, a.ssoTracker.HasSSOFreshTokenRefused("alice", "backend"))
+			assert.Equal(t, wantFresh, len(retries) == 1, "muster retries only a possibly unknown key")
+		})
+	}
+}
+
 // TestSSOTracker_FreshTokenRefusalsDoubleWhileTheTokenIsFresh: muster's own
 // retry fails just as the previous backoff expired; the count continues, so
 // the retries double from 15 s to 2 min instead of repeating every 15 s.

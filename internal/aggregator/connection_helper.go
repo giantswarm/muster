@@ -404,7 +404,7 @@ func EstablishConnectionWithTokenForwarding(
 		// A token issued moments ago is likely signed with a key the issuer
 		// just rotated to and the backend has not fetched yet: retried soon,
 		// not held back as a refused credential.
-		if issuedWithin(forwardedToken, ssoFreshTokenWindow) {
+		if issuedWithin(forwardedToken, ssoFreshTokenWindow) && mayBeUnknownSigningKey(err) {
 			logging.Warn("Connection", "ID token forwarding to server %s for user %s: fresh token refused: the backend may not know the issuer's new signing key yet, retrying soon: %v (%s)",
 				serverInfo.Name, logging.TruncateIdentifier(sub), err, diagnostic)
 			return nil, &ssoFreshTokenRefusedError{err: fmt.Errorf("fresh token refused: the backend may not know the issuer's new signing key yet: %w (%s)", err, diagnostic)}
@@ -1080,6 +1080,19 @@ func (e *ssoFreshTokenRefusedError) Unwrap() error { return e.err }
 func isSSOFreshTokenRefused(err error) bool {
 	var freshErr *ssoFreshTokenRefusedError
 	return errors.As(err, &freshErr)
+}
+
+// mayBeUnknownSigningKey reports whether a backend's 401 leaves room for a
+// signing key the backend does not know yet: its WWW-Authenticate names no
+// cause, or names a key (an unknown key ID). A 401 that names another cause
+// (an audience, an expiry, an issuer) is that cause, however fresh the token.
+func mayBeUnknownSigningKey(connectErr error) bool {
+	var authErr *internalmcp.AuthRequiredError
+	if !errors.As(connectErr, &authErr) || authErr.Challenge == nil || authErr.Challenge.ErrorDescription == "" {
+		return true
+	}
+	description := strings.ToLower(authErr.Challenge.ErrorDescription)
+	return strings.Contains(description, "key") || strings.Contains(description, "kid")
 }
 
 // issuedWithin reports whether token carries an iat claim no older than
