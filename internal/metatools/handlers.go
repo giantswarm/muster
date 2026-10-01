@@ -127,17 +127,31 @@ func (p *Provider) handleCallTool(ctx context.Context, args map[string]any) (*ap
 	// can see which agent asked for what. Workflow execution (workflow_<name>)
 	// goes through the same gate; the tools a workflow's steps call
 	// internally are the workflow author's composition, not the model's, and
-	// are not re-checked here.
-	if cat, errResult := p.scope(ctx, handler); errResult != nil {
-		return errResult, nil
-	} else if errResult := cat.refuse(ctx, name); errResult != nil {
+	// are not re-checked here. A name the toolset names on a server awaiting
+	// sign-in is not in the resolution; AnswerSignIn answers it with the
+	// sign-in link and runs no other server's tool, and a name it does not
+	// own stays refused.
+	cat, errResult := p.scope(ctx, handler)
+	if errResult != nil {
 		return errResult, nil
 	}
 
 	// Execute the tool via the handler, learning where the aggregator
 	// dispatched it.
 	ctx, dispatch := observability.ContextWithDispatchRecord(ctx, name)
-	result, err := handler.CallTool(ctx, name, toolArgs)
+	var result *mcp.CallToolResult
+	var err error
+	if cat.namedForSignIn(name) {
+		var owned bool
+		result, owned, err = handler.AnswerSignIn(ctx, name, toolArgs)
+		if !owned {
+			return cat.refuse(ctx, name), nil
+		}
+	} else if errResult := cat.refuse(ctx, name); errResult != nil {
+		return errResult, nil
+	} else {
+		result, err = handler.CallTool(ctx, name, toolArgs)
+	}
 	if err != nil {
 		return errorResult(fmt.Sprintf("Tool execution failed: %v", err)), nil
 	}

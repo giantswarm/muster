@@ -253,3 +253,26 @@ func (a *Adapter) ListServersRequiringAuth(ctx context.Context) []api.ServerAuth
 
 	return provider.ListServersRequiringAuth(ctx)
 }
+
+// AnswerSignIn answers a call to a tool of a server awaiting the session's
+// sign-in through the data provider. A failure to start the sign-in is an
+// error result, as for CallTool.
+func (a *Adapter) AnswerSignIn(ctx context.Context, name string, args map[string]any) (*mcp.CallToolResult, bool, error) {
+	provider, err := a.getDataProvider()
+	if err != nil {
+		logging.Warn("metatools", "AnswerSignIn: %v", err)
+		return nil, false, nil
+	}
+	result, ok, err := provider.AnswerSignIn(ctx, name, args)
+	if err != nil {
+		logging.Error("metatools", err, "AnswerSignIn failed for %s", name)
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{mcp.TextContent{
+				Type: "text",
+				Text: fmt.Sprintf("Tool execution failed: %v", err),
+			}},
+			IsError: true,
+		}, true, nil
+	}
+	return result, ok, nil
+}

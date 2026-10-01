@@ -94,6 +94,21 @@ func (a *AggregatorServer) authRequiredAnswer(ctx context.Context, serverName, o
 	return authRequiredResult(serverName, reason, login), nil
 }
 
+// AnswerSignIn answers a call to a tool of a server awaiting the session's
+// sign-in, and nothing else: the server's auth_required challenge, or the
+// call on the new connection when a stored grant reconnects the session.
+// ok is false, and nothing is called, when no signed-out server owns the
+// name.
+func (a *AggregatorServer) AnswerSignIn(ctx context.Context, toolName string, args map[string]any) (*mcp.CallToolResult, bool, error) {
+	serverName, originalName, ok := a.signedOutOwnerOf(ctx, toolName)
+	if !ok {
+		return nil, false, nil
+	}
+	result, err := a.authRequiredAnswer(ctx, serverName, originalName, args,
+		getSessionIDFromContext(ctx), getUserSubjectFromContext(ctx), "this session is not authenticated to it")
+	return result, true, err
+}
+
 // loginConnected reports whether a core_auth_login answer says the session is
 // connected to the server: it was already, or a stored grant connected it.
 func loginConnected(login *api.CallToolResult) bool {

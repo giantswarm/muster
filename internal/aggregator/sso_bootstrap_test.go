@@ -323,6 +323,36 @@ func TestServersInNameSpaceOf(t *testing.T) {
 	assert.Empty(t, registry.ServersInNameSpaceOf("x_unknown_tool", nil))
 }
 
+func TestExposedPrefixOwner(t *testing.T) {
+	registry := NewServerRegistry("x")
+	for name, prefix := range map[string]string{"git": "git", "git-hub": "git_hub"} {
+		require.NoError(t, registry.RegisterPendingAuth(PendingAuthRegistration{
+			ServerRegistration: ServerRegistration{Name: name, ToolPrefix: prefix},
+			URL:                "https://" + name + ".invalid",
+			AuthConfig:         &api.MCPServerAuth{ForwardToken: true},
+		}))
+	}
+	family := &api.MCPServerFamily{Name: "kubernetes", InstanceArg: "server"}
+	for _, member := range []string{"gazelle-k8s", "glean-k8s"} {
+		require.NoError(t, registry.RegisterPendingAuth(PendingAuthRegistration{
+			ServerRegistration: ServerRegistration{Name: member, ToolPrefix: member, Family: family},
+			URL:                "https://" + member + ".invalid",
+			AuthConfig:         &api.MCPServerAuth{ForwardToken: true},
+		}))
+	}
+
+	owner, ok := registry.ExposedPrefixOwner("x_git_clone")
+	assert.True(t, ok)
+	assert.Equal(t, "git", owner)
+	owner, ok = registry.ExposedPrefixOwner("x_git_hub_issues")
+	assert.True(t, ok)
+	assert.Equal(t, "git-hub", owner, "the longest prefix the name carries")
+	_, ok = registry.ExposedPrefixOwner("x_kubernetes_get_nodes")
+	assert.False(t, ok, "a prefix the members of a family share names no single owner")
+	_, ok = registry.ExposedPrefixOwner("x_unknown_tool")
+	assert.False(t, ok)
+}
+
 func TestSessionBootstrapped_RemembersASessionsFirstFanOut(t *testing.T) {
 	gates := newConnectGates("alpha")
 	agg := newBootstrapTestAggregator(t, gates, "alpha")

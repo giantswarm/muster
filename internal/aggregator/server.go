@@ -2076,17 +2076,22 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 	return nil, fmt.Errorf("tool not found: %s", toolName)
 }
 
-// signedOutOwnerOf names the server awaiting the session's sign-in whose
-// tool prefix the exposed name carries, and the tool's name at that server.
-// A session that never connected to the server holds none of its tools in
-// its capability cache, so the name resolves to nothing; the prefix is what
-// a caller that knows the tool by name (a toolset) still has.
+// signedOutOwnerOf names the server awaiting the session's sign-in that owns
+// the exposed name by its tool prefix, and the tool's name at that server. A
+// session that never connected to the server holds none of its tools in its
+// capability cache, so the name resolves to nothing; the prefix is what a
+// caller that knows the tool by name (a toolset) still has. The owner is the
+// registry's, over every server, so a name under a signed-in server's longer
+// prefix, or under a prefix a family shares, has no signed-out owner.
 func (a *AggregatorServer) signedOutOwnerOf(ctx context.Context, exposedName string) (string, string, bool) {
+	owner, ok := a.registry.ExposedPrefixOwner(exposedName)
+	if !ok {
+		return "", "", false
+	}
 	for _, server := range a.ListServersRequiringAuth(ctx) {
-		if server.ToolPrefix == "" || !strings.HasPrefix(exposedName, server.ToolPrefix) {
-			continue
+		if server.Name == owner {
+			return owner, strings.TrimPrefix(exposedName, server.ToolPrefix), true
 		}
-		return server.Name, strings.TrimPrefix(exposedName, server.ToolPrefix), true
 	}
 	return "", "", false
 }

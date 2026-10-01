@@ -91,6 +91,13 @@ type MetaToolsDataProvider interface {
 	// Returns:
 	//   - []ServerAuthInfo: List of servers requiring authentication
 	ListServersRequiringAuth(ctx context.Context) []ServerAuthInfo
+
+	// AnswerSignIn answers a call to a tool of a server awaiting the
+	// session's sign-in, and nothing else: the server's auth_required
+	// challenge, or the call itself once a stored grant reconnects the
+	// session. ok is false, and nothing is called, when no signed-out server
+	// owns the name by its tool prefix.
+	AnswerSignIn(ctx context.Context, name string, args map[string]any) (result *mcp.CallToolResult, ok bool, err error)
 }
 
 // ServerAuthInfo contains information about a server requiring authentication.
@@ -243,6 +250,12 @@ type MetaToolsHandler interface {
 	// Returns:
 	//   - []ServerAuthInfo: List of servers requiring authentication
 	ListServersRequiringAuth(ctx context.Context) []ServerAuthInfo
+
+	// AnswerSignIn answers a call to a tool of a server awaiting the
+	// session's sign-in, and runs nothing else. ok is false when no
+	// signed-out server owns the name; a call toolsets hand to it then stays
+	// refused.
+	AnswerSignIn(ctx context.Context, name string, args map[string]any) (result *mcp.CallToolResult, ok bool, err error)
 }
 
 // ResourceOrigin pairs an aggregated resource with the server exposing it.

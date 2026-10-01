@@ -385,21 +385,62 @@ func signedOutFixture() *mockMetaToolsHandler {
 	return m
 }
 
-func TestToolset_CallToolNamedForSignInReachesTheAggregator(t *testing.T) {
-	defer registerMockHandler(signedOutFixture())()
+func TestToolset_CallToolNamedForSignInAnswersTheSignIn(t *testing.T) {
+	m := signedOutFixture()
+	defer registerMockHandler(m)()
 	p := NewProvider()
 
 	for _, header := range []string{"tool:x_gh_issues", "server:gh", "tool:x_k8s_get,tool:x_gh_issues"} {
 		result, err := p.ExecuteTool(withHeader(header, true), "call_tool", map[string]any{"name": "x_gh_issues"})
 		require.NoError(t, err, header)
-		assert.False(t, result.IsError, "%s: a tool the toolset names on a server awaiting sign-in is handed to the aggregator, which answers auth_required", header)
+		assert.Contains(t, errorText(t, result), "auth_required: server 'gh'", header)
 	}
+	assert.Empty(t, m.called, "a sign-in answer runs no tool")
 
 	for _, header := range []string{"preset:read-only", "server:k8s", "tool:x_gh_pulls"} {
 		result, err := p.ExecuteTool(withHeader(header, true), "call_tool", map[string]any{"name": "x_gh_issues"})
 		require.NoError(t, err, header)
 		assert.Equal(t, `tool "x_gh_issues" is outside the toolset [`+header+`]`, errorText(t, result), header)
 	}
+}
+
+// A listed tool outside the toolset is refused even when its name carries
+// the prefix of a server the toolset names for sign-in: a family's members
+// share x_<family>_, and a signed-in server's prefix can extend a signed-out
+// one's (git_hub over git).
+func TestToolset_CallToolForSignInNeverRunsAnotherServersTool(t *testing.T) {
+	for _, tc := range []struct {
+		name, header, tool, owner, pending, prefix string
+	}{
+		{name: "family member", header: "server:kube-b", tool: "x_kube_delete", owner: "kube", pending: "kube-b", prefix: "x_kube_"},
+		{name: "nested prefix", header: "server:git", tool: "x_git_hub_delete_repo", owner: "git-hub", pending: "git", prefix: "x_git_"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := toolsetFixture()
+			m.tools = append(m.tools, tagged(tc.tool, toolset.ToolOrigin{Kind: toolset.OriginKindTool, Server: tc.owner}))
+			m.serversRequiringAuth = []api.ServerAuthInfo{{Name: tc.pending, Status: "auth_required", AuthTool: "core_auth_login", ToolPrefix: tc.prefix}}
+			defer registerMockHandler(m)()
+
+			result, err := NewProvider().ExecuteTool(withHeader(tc.header, true), "call_tool", map[string]any{"name": tc.tool})
+			require.NoError(t, err)
+			assert.Equal(t, `tool "`+tc.tool+`" is outside the toolset [`+tc.header+`]`, errorText(t, result))
+			assert.Empty(t, m.called)
+		})
+	}
+}
+
+// A name the session does not list, under a signed-out server's prefix that
+// the registry gives to another server, stays refused: AnswerSignIn does not
+// own it, and nothing runs.
+func TestToolset_CallToolForSignInRefusesANameTheRegistryDoesNotGiveIt(t *testing.T) {
+	m := signedOutFixture()
+	m.signInOwners = map[string]string{"x_gh_ent_issues": "gh-ent"}
+	defer registerMockHandler(m)()
+
+	result, err := NewProvider().ExecuteTool(withHeader("server:gh", true), "call_tool", map[string]any{"name": "x_gh_ent_issues"})
+	require.NoError(t, err)
+	assert.Equal(t, `tool "x_gh_ent_issues" is outside the toolset [server:gh]`, errorText(t, result))
+	assert.Empty(t, m.called)
 }
 
 func TestToolset_FilterToolsReportsTheServersASignInWouldUnlock(t *testing.T) {
@@ -424,4 +465,20 @@ func TestToolset_FilterToolsReportsTheServersASignInWouldUnlock(t *testing.T) {
 	require.NoError(t, err)
 	_, present := decode(t, result)["toolset_requiring_auth"]
 	assert.False(t, present, "a toolset that names no pending server reports none")
+}
+
+func TestToolset_FilterToolsReportsTheLongestPendingPrefixOnly(t *testing.T) {
+	m := toolsetFixture()
+	m.tools = append(m.tools, tagged("x_git_hub_issues", toolset.ToolOrigin{Kind: toolset.OriginKindTool, Server: "git-hub"}))
+	m.serversRequiringAuth = []api.ServerAuthInfo{
+		{Name: "git", Status: "auth_required", AuthTool: "core_auth_login", ToolPrefix: "x_git_"},
+		{Name: "git-lab", Status: "auth_required", AuthTool: "core_auth_login", ToolPrefix: "x_git_lab_"},
+	}
+	defer registerMockHandler(m)()
+
+	result, err := NewProvider().ExecuteTool(withHeader("tool:x_git_hub_issues,tool:x_git_lab_mrs", true), "filter_tools", nil)
+	require.NoError(t, err)
+	requiring, _ := decode(t, result)["toolset_requiring_auth"].([]any)
+	require.Len(t, requiring, 1, "a listed tool names no pending server, and a name goes to its longest pending prefix")
+	assert.Equal(t, "git-lab", requiring[0].(map[string]any)["name"])
 }

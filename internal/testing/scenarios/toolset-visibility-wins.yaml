@@ -67,7 +67,7 @@ steps:
         tools.0.name: "x_k8s_get_pods"
         toolset_unmatched.0: "server:protected"
 
-  - id: "before-login-refused"
+  - id: "before-login-answers-sign-in"
     description: "calling the protected tool the toolset names does not run it: the answer is the server's sign-in"
     tool: "test_call_meta_tool"
     args: { tool: "call_tool", arguments: { name: "x_protected_secret_op" } }

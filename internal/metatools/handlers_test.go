@@ -21,6 +21,11 @@ type mockMetaToolsHandler struct {
 
 	callToolResult *mcp.CallToolResult
 	callToolError  error
+	// called records the names CallTool ran; signInOwners, when set, is the
+	// registry's prefix owner AnswerSignIn consults instead of the pending
+	// servers' prefixes.
+	called       []string
+	signInOwners map[string]string
 
 	getResourceResult *mcp.ReadResourceResult
 	getResourceError  error
@@ -34,6 +39,7 @@ func (m *mockMetaToolsHandler) ListTools(ctx context.Context) ([]mcp.Tool, error
 }
 
 func (m *mockMetaToolsHandler) CallTool(ctx context.Context, name string, args map[string]any) (*mcp.CallToolResult, error) {
+	m.called = append(m.called, name)
 	if m.callToolError != nil {
 		return nil, m.callToolError
 	}
@@ -67,6 +73,20 @@ func (m *mockMetaToolsHandler) ListServersRequiringAuth(ctx context.Context) []a
 		return []api.ServerAuthInfo{}
 	}
 	return m.serversRequiringAuth
+}
+
+func (m *mockMetaToolsHandler) AnswerSignIn(ctx context.Context, name string, args map[string]any) (*mcp.CallToolResult, bool, error) {
+	server, ok := pendingOwnerOf(m.serversRequiringAuth, name)
+	if owner, known := m.signInOwners[name]; m.signInOwners != nil && (!known || owner != server.Name) {
+		ok = false
+	}
+	if !ok {
+		return nil, false, nil
+	}
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{mcp.TextContent{Type: "text", Text: "auth_required: server '" + server.Name + "'"}},
+		IsError: true,
+	}, true, nil
 }
 
 // registerMockHandler registers a mock handler for testing

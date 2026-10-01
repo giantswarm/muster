@@ -65,24 +65,41 @@ func (p *Provider) catalogue(ctx context.Context, handler api.MetaToolsHandler) 
 	return cat, nil
 }
 
-// pendingServerOf returns the server awaiting sign-in whose tools the exposed
-// name belongs to, by its prefix.
-func (c *scopedCatalogue) pendingServerOf(name string) (api.ServerAuthInfo, bool) {
-	for _, server := range c.pending {
-		if server.ToolPrefix != "" && strings.HasPrefix(name, server.ToolPrefix) {
-			return server, true
+// pendingOwnerOf returns the server awaiting sign-in whose tool prefix is
+// the longest one the exposed name carries.
+func pendingOwnerOf(pending []api.ServerAuthInfo, name string) (api.ServerAuthInfo, bool) {
+	var owner api.ServerAuthInfo
+	for _, server := range pending {
+		if server.ToolPrefix != "" && strings.HasPrefix(name, server.ToolPrefix) && len(server.ToolPrefix) > len(owner.ToolPrefix) {
+			owner = server
 		}
 	}
-	return api.ServerAuthInfo{}, false
+	return owner, owner.Name != ""
 }
 
-// namedForSignIn reports whether the toolset names a tool of a server the
-// session has not signed in to: an inline tool:<name> selector for the tool
-// itself, or server:<name> for its server. A preset cannot name it, since a
-// preset's rules match tools the catalogue holds. Such a call is not outside
-// the toolset; it is a call the aggregator answers with the sign-in link.
+// listed reports whether the session's catalogue, before the toolset filter,
+// holds the name.
+func listed(tools []mcp.Tool, name string) bool {
+	for _, tool := range tools {
+		if tool.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// namedForSignIn reports whether a call outside the toolset's resolution is
+// one the toolset names on a server the session has not signed in to: an
+// inline tool:<name> selector for the tool itself, or server:<name> for its
+// server. A preset cannot name it, since a preset's rules match tools the
+// catalogue holds. A listed tool is never such a call, whatever its prefix:
+// the resolution already left it out. The call goes to AnswerSignIn, which
+// answers with the sign-in link and runs nothing else.
 func (c *scopedCatalogue) namedForSignIn(name string) bool {
-	server, ok := c.pendingServerOf(name)
+	if !c.isScoped() || c.res.Contains(name) || listed(c.all, name) {
+		return false
+	}
+	server, ok := pendingOwnerOf(c.pending, name)
 	if !ok {
 		return false
 	}
@@ -103,18 +120,30 @@ func (c *scopedCatalogue) namedForSignIn(name string) bool {
 
 // requiringAuth returns the servers awaiting sign-in that the toolset names,
 // by server or by a tool of theirs: the part of the toolset a sign-in would
-// unlock, which the resolution alone reports as unmatched.
-func requiringAuth(ts toolset.Toolset, pending []api.ServerAuthInfo) []api.ServerAuthInfo {
+// unlock, which the resolution alone reports as unmatched. A tool selector
+// naming a listed tool names no pending server.
+func requiringAuth(ts toolset.Toolset, pending []api.ServerAuthInfo, all []mcp.Tool) []api.ServerAuthInfo {
 	var named []api.ServerAuthInfo
 	seen := map[string]bool{}
-	for _, server := range pending {
-		for _, selector := range ts.Selectors {
-			hit := (selector.Kind == toolset.KindServer && selector.Name == server.Name) ||
-				(selector.Kind == toolset.KindTool && server.ToolPrefix != "" && strings.HasPrefix(selector.Name, server.ToolPrefix))
-			if hit && !seen[server.Name] {
-				seen[server.Name] = true
-				named = append(named, server)
+	for _, selector := range ts.Selectors {
+		var server api.ServerAuthInfo
+		var ok bool
+		switch selector.Kind {
+		case toolset.KindServer:
+			for _, candidate := range pending {
+				if candidate.Name == selector.Name {
+					server, ok = candidate, true
+					break
+				}
 			}
+		case toolset.KindTool:
+			if !listed(all, selector.Name) {
+				server, ok = pendingOwnerOf(pending, selector.Name)
+			}
+		}
+		if ok && !seen[server.Name] {
+			seen[server.Name] = true
+			named = append(named, server)
 		}
 	}
 	return named
@@ -167,9 +196,6 @@ func (c *scopedCatalogue) outside(name string) *api.CallToolResult {
 // composed with — and the refusal is logged with tool, toolset and session.
 func (c *scopedCatalogue) refuse(ctx context.Context, name string) *api.CallToolResult {
 	if !c.isScoped() || c.res.Contains(name) {
-		return nil
-	}
-	if c.namedForSignIn(name) {
 		return nil
 	}
 	attrs := []slog.Attr{

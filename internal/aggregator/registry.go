@@ -208,6 +208,11 @@ func (r *ServerRegistry) buildExposedNameLocked(serverName, name string) string 
 func (r *ServerRegistry) ExposedToolPrefix(serverName string) string {
 	r.nameMu.RLock()
 	defer r.nameMu.RUnlock()
+	return r.exposedToolPrefixLocked(serverName)
+}
+
+// exposedToolPrefixLocked is ExposedToolPrefix. Caller must hold nameMu.
+func (r *ServerRegistry) exposedToolPrefixLocked(serverName string) string {
 	if family := r.serverFamilies[serverName]; family != nil && family.Name != "" {
 		return r.musterPrefix + "_" + family.Name + "_"
 	}
@@ -216,6 +221,36 @@ func (r *ServerRegistry) ExposedToolPrefix(serverName string) string {
 		prefix = serverName
 	}
 	return r.musterPrefix + "_" + prefix + "_"
+}
+
+// ExposedPrefixOwner returns the registered server whose tool prefix is the
+// longest one the exposed name carries, so x_git_hub_op belongs to a server
+// prefixed git_hub, not to one prefixed git. A prefix several servers share
+// (the members of a family) names no single owner, and ok is false.
+func (r *ServerRegistry) ExposedPrefixOwner(exposedName string) (owner string, ok bool) {
+	r.mu.RLock()
+	names := make([]string, 0, len(r.servers))
+	for name := range r.servers {
+		names = append(names, name)
+	}
+	r.mu.RUnlock()
+
+	r.nameMu.RLock()
+	defer r.nameMu.RUnlock()
+	var longest string
+	shared := false
+	for _, name := range names {
+		prefix := r.exposedToolPrefixLocked(name)
+		if !strings.HasPrefix(exposedName, prefix) || len(prefix) < len(longest) {
+			continue
+		}
+		if len(prefix) == len(longest) {
+			shared = true
+			continue
+		}
+		owner, longest, shared = name, prefix, false
+	}
+	return owner, owner != "" && !shared
 }
 
 // SetServerPrefix configures the prefix to use for a specific server.

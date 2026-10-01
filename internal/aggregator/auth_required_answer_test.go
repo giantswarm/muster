@@ -203,3 +203,36 @@ func TestCallTool_UnknownToolOfASignedOutServerAnswersAuthRequired(t *testing.T)
 	_, err = f.agg.CallToolInternal(callCtx, "x_other_op", map[string]any{})
 	require.EqualError(t, err, "tool not found: x_other_op")
 }
+
+// AnswerSignIn answers for the signed-out server owning the name and runs
+// nothing else: a name under a signed-in server's longer prefix is not the
+// signed-out server's, and is not answered.
+func TestAnswerSignIn_AnswersOnlyForTheSignedOutOwner(t *testing.T) {
+	pinned := &api.MCPServerAuth{Type: "oauth", AuthorizationServer: &api.MCPServerAuthAuthorizationServer{Issuer: answerIssuer, Scopes: "repo"}}
+	f := newAnswerFixture(t, pinned, nil)
+	require.NoError(t, f.agg.registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: "svc-ent", ToolPrefix: answerServer + "_ent"},
+		URL:                "https://svc-ent.example.com/mcp",
+		AuthConfig:         &api.MCPServerAuth{ForwardToken: true},
+	}))
+	ctx := t.Context()
+	require.NoError(t, f.agg.authStore.Revoke(ctx, answerSession, answerServer))
+	require.NoError(t, f.agg.capabilityStore.Delete(ctx, answerSession))
+	f.agg.connPool.Evict(answerSession, answerServer)
+	callCtx := api.WithSubject(api.WithSessionID(ctx, answerSession), answerSubject)
+
+	result, ok, err := f.agg.AnswerSignIn(callCtx, "x_svc_op", map[string]any{})
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.True(t, result.IsError)
+	assert.Contains(t, mcpText(result), "auth_required: server 'svc'")
+	assert.Contains(t, mcpText(result), "https://muster.example.com/oauth/proxy/start")
+
+	for _, name := range []string{"x_svc_ent_op", "x_other_op", "core_service_list"} {
+		result, ok, err = f.agg.AnswerSignIn(callCtx, name, map[string]any{})
+		require.NoError(t, err, name)
+		assert.False(t, ok, name)
+		assert.Nil(t, result, name)
+	}
+	assert.Equal(t, 0, f.client.callCount)
+}
