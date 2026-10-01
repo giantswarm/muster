@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/giantswarm/muster/v5/internal/api"
@@ -33,6 +34,24 @@ func (s *testTokenStore) SaveToken(_ context.Context, token *transport.Token) er
 }
 
 var _ transport.TokenStore = (*testTokenStore)(nil)
+
+// newHarnessHTTPClient returns the HTTP client the harness talks to muster
+// serve with: one connection per request, never reused.
+//
+// On a reused connection Go's transport can hold a call past its context's
+// deadline until the connection's idle timeout (90s) reaps it. mcp-go closes
+// an SSE response body while its reader is still blocked in Read; when the
+// stream ends inside the transport's post-close drain, the reader's EOF waits
+// for a signal the connection's read loop has already given, while it holds
+// the body's lock. The connection goes back to the pool regardless: the next
+// response on it can be held the same way, and the call's own Close waits on
+// that lock until the idle connection is closed. A connection that is closed
+// after its response releases the wait at once (#1206).
+func newHarnessHTTPClient() *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DisableKeepAlives = true
+	return &http.Client{Transport: transport}
+}
 
 // mcpTestClient implements the MCPTestClient interface
 type mcpTestClient struct {
@@ -84,7 +103,7 @@ func (c *mcpTestClient) connectWithOptions(ctx context.Context, endpoint, access
 		}
 	}
 
-	var opts []transport.StreamableHTTPCOption
+	opts := []transport.StreamableHTTPCOption{transport.WithHTTPBasicClient(newHarnessHTTPClient())}
 
 	if accessToken != "" {
 		opts = append(opts, transport.WithHTTPOAuth(transport.OAuthConfig{
