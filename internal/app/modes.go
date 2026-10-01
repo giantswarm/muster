@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -69,8 +70,13 @@ func runOrchestrator(ctx context.Context, services *Services) error {
 	// to process reconcile requests triggered by state changes during startup
 	if services.ReconcileManager != nil {
 		if err := services.ReconcileManager.Start(ctx); err != nil {
+			if services.ReconcileManager.WatchesKubernetes() {
+				// In Kubernetes mode the reconciler is the control loop:
+				// running without it serves CRs it never observes.
+				return fmt.Errorf("failed to start reconciliation manager: %w", err)
+			}
 			logging.Warn("CLI", "Failed to start reconciliation manager: %v", err)
-			// Continue without reconciliation - not a critical failure
+			// Continue without reconciliation - not a critical failure in filesystem mode
 		} else {
 			logging.Info("CLI", "Reconciliation manager started - watching for configuration changes")
 		}
