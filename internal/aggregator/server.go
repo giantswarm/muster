@@ -2070,7 +2070,25 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 	if family := a.registry.FamilyOfExposedName(toolName); family != "" {
 		return nil, a.familyToolUnavailableError(ctx, toolName, family, sessionID)
 	}
+	if serverName, originalName, ok := a.signedOutOwnerOf(ctx, toolName); ok {
+		return a.authRequiredAnswer(ctx, serverName, originalName, args, sessionID, sub, "this session is not authenticated to it")
+	}
 	return nil, fmt.Errorf("tool not found: %s", toolName)
+}
+
+// signedOutOwnerOf names the server awaiting the session's sign-in whose
+// tool prefix the exposed name carries, and the tool's name at that server.
+// A session that never connected to the server holds none of its tools in
+// its capability cache, so the name resolves to nothing; the prefix is what
+// a caller that knows the tool by name (a toolset) still has.
+func (a *AggregatorServer) signedOutOwnerOf(ctx context.Context, exposedName string) (string, string, bool) {
+	for _, server := range a.ListServersRequiringAuth(ctx) {
+		if server.ToolPrefix == "" || !strings.HasPrefix(exposedName, server.ToolPrefix) {
+			continue
+		}
+		return server.Name, strings.TrimPrefix(exposedName, server.ToolPrefix), true
+	}
+	return "", "", false
 }
 
 // isFamilyToolForSession reports whether toolName is family-grouped, filling

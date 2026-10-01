@@ -176,3 +176,30 @@ func TestCallTool_OtherErrorsPassThrough(t *testing.T) {
 	assert.True(t, authenticated, "a failure that is not a refusal keeps the session's authentication")
 	assert.Equal(t, 0, f.handler.challenges)
 }
+
+// A session that never connected to the server holds none of its tools, so
+// a call by name (a toolset names them) resolves to nothing; the server's
+// tool prefix still names it, and the answer is its auth_required challenge
+// rather than "tool not found".
+func TestCallTool_UnknownToolOfASignedOutServerAnswersAuthRequired(t *testing.T) {
+	pinned := &api.MCPServerAuth{Type: "oauth", AuthorizationServer: &api.MCPServerAuthAuthorizationServer{Issuer: answerIssuer, Scopes: "repo"}}
+	f := newAnswerFixture(t, pinned, nil)
+	ctx := t.Context()
+	require.NoError(t, f.agg.authStore.Revoke(ctx, answerSession, answerServer))
+	require.NoError(t, f.agg.capabilityStore.Delete(ctx, answerSession))
+	f.agg.connPool.Evict(answerSession, answerServer)
+
+	callCtx := api.WithSubject(api.WithSessionID(ctx, answerSession), answerSubject)
+	result, err := f.agg.CallToolInternal(callCtx, f.agg.registry.ExposedToolPrefix(answerServer)+"op", map[string]any{})
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	assert.True(t, result.IsError)
+	text := mcpText(result)
+	assert.Contains(t, text, "auth_required: server 'svc'")
+	assert.Contains(t, text, "https://muster.example.com/oauth/proxy/start")
+	assert.Equal(t, 0, f.client.callCount)
+
+	_, err = f.agg.CallToolInternal(callCtx, "x_other_op", map[string]any{})
+	require.EqualError(t, err, "tool not found: x_other_op")
+}
