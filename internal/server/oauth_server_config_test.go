@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	oauthserver "github.com/giantswarm/mcp-oauth/server"
+
 	"github.com/giantswarm/muster/v5/internal/config"
 )
 
@@ -22,6 +24,16 @@ func TestNewOAuthServerConfig_AccessTokensStayOpaque(t *testing.T) {
 	got := newOAuthServerConfig(cfg, oauthTokenLifetimes{refreshTokenTTL: time.Hour})
 	require.Empty(t, got.AccessTokenFormat)
 	require.Nil(t, got.AccessTokenSigningKey)
+}
+
+// A refreshed forwarded token must keep its session: the session of a
+// bearer without a refresh-token family is keyed on its principal.
+func TestNewOAuthServerConfig_ForwardedSessionKeyedOnPrincipal(t *testing.T) {
+	t.Parallel()
+
+	got := newOAuthServerConfig(config.OAuthServerConfig{BaseURL: "https://muster.example.com"}, oauthTokenLifetimes{refreshTokenTTL: time.Hour})
+	require.Equal(t, oauthserver.ForwardedSessionIdentityPrincipal, got.ForwardedSessionIdentity)
+	require.NoError(t, got.Validate())
 }
 
 func TestParseCIDRs(t *testing.T) {

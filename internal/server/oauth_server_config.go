@@ -93,6 +93,14 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, lifetimes oauthTokenLife
 		// Only consulted when an Exchanger is registered (see
 		// buildOAuthServerOptions); a miss returns invalid_target.
 		TokenExchangeClientAudiences: cfg.TokenExchangeBroker.ClientAudiences,
+		// A forwarded or trusted-issuer bearer without a refresh-token family
+		// keys its session on the principal (iss, sub, azp or aud, the act
+		// chain), not the token bytes: a gateway's refreshed on-behalf-of
+		// token keeps its session, so its backend connections, capability
+		// cache and auth marks survive the refresh. Every request's bearer
+		// is still validated, and the session's mirrored ID token is
+		// replaced by the current one on each request.
+		ForwardedSessionIdentity: oauthserver.ForwardedSessionIdentityPrincipal,
 	}
 	if cfg.AllowedOrigins != "" {
 		result.CORS.AllowedOrigins = strings.Split(cfg.AllowedOrigins, ",")

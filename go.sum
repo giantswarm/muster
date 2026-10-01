@@ -140,8 +140,8 @@ github.com/fsnotify/fsnotify v1.10.1 h1:b0/UzAf9yR5rhf3RPm9gf3ehBPpf0oZKIjtpKrx5
 github.com/fsnotify/fsnotify v1.10.1/go.mod h1:TLheqan6HD6GBK6PrDWyDPBaEV8LspOxvPSjC+bVfgo=
 github.com/fxamacker/cbor/v2 v2.9.1 h1:2rWm8B193Ll4VdjsJY28jxs70IdDsHRWgQYAI80+rMQ=
 github.com/fxamacker/cbor/v2 v2.9.1/go.mod h1:vM4b+DJCtHn+zz7h3FFp/hDAI9WNWCsZj23V5ytsSxQ=
-github.com/giantswarm/mcp-oauth v1.4.13 h1:TODkzfrwxUHjmtuhZETGjyuNnr8gb0q/D6AumG9Trmk=
-github.com/giantswarm/mcp-oauth v1.4.13/go.mod h1:/qsorGcyP82HF68pxavC0slW5Cru0ziIRZ9C8DcS/eg=
+github.com/giantswarm/mcp-oauth v1.5.0 h1:atNt3JgA7Wf6xEbDz1+5SeaFLVdYrLX0RbVsu7v2SBE=
+github.com/giantswarm/mcp-oauth v1.5.0/go.mod h1:/qsorGcyP82HF68pxavC0slW5Cru0ziIRZ9C8DcS/eg=
 github.com/giantswarm/mcp-toolkit v0.2.15 h1:d1kXCAdeaQEgMe2Bd6B/zn6HSawoAwDira+/6J/ZZm8=
 github.com/giantswarm/mcp-toolkit v0.2.15/go.mod h1:VgwamP6uNYkjHG33fYb5GhtYp2CRrBEXrE2VlaI0KFw=
 github.com/giantswarm/selfupdate-cosign v0.3.1 h1:F5uRwoNQ5NvRrGMN6BZzc832sWqKWT9YeHvFb6yny+k=
