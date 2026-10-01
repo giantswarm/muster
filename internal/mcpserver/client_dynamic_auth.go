@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/ssetransport"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/client"
@@ -200,7 +201,9 @@ func (c *DynamicAuthClient) connectLocked(ctx context.Context) error {
 	// static-header client already is (see initializeError). The recorder
 	// wraps whatever client is configured, or mcp-go's default when none is.
 	challenges := &challengeRecorder{}
-	opts = append(opts, transport.WithHTTPBasicClient(recordingHTTPClient(httpClient, challenges)))
+	// ssetransport keeps a closed SSE response from holding a call on a
+	// reused connection.
+	opts = append(opts, transport.WithHTTPBasicClient(ssetransport.Client(recordingHTTPClient(httpClient, challenges))))
 
 	// SA1019: mcp-go v1 deprecates WithContinuousListening because
 	// protocol revision 2026-07-28 removed the standalone GET stream in
