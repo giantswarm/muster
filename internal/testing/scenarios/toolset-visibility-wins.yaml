@@ -1,5 +1,5 @@
 name: "toolset-visibility-wins"
-description: "A toolset never widens access: a selector naming a server the session has not authenticated with resolves to nothing (reported in toolset_unmatched), its tools are absent and refused; after the session signs in the same toolset resolves to them (#1169)"
+description: "A toolset never widens access: a selector naming a server the session has not authenticated with resolves to nothing (reported in toolset_unmatched), its tools are absent, and a call to one answers the server's sign-in instead of running; after the session signs in the same toolset resolves to them (#1169, giantswarm/giantswarm#38005)"
 category: "behavioral"
 concept: "mcpserver"
 tags: ["toolset", "oauth", "visibility", "1169"]
@@ -68,13 +68,22 @@ steps:
         toolset_unmatched.0: "server:protected"
 
   - id: "before-login-refused"
-    description: "calling the protected tool is refused as outside the toolset — it is not in the caller's catalogue"
+    description: "calling the protected tool the toolset names does not run it: the answer is the server's sign-in"
     tool: "test_call_meta_tool"
     args: { tool: "call_tool", arguments: { name: "x_protected_secret_op" } }
     headers: { X-Muster-Toolset: "server:protected" }
     expected:
       success: false
-      error_contains: ['tool "x_protected_secret_op" is outside the toolset [server:protected]']
+      error_contains: ["auth_required: server 'protected'", "oauth/proxy/start"]
+
+  - id: "before-login-other-toolset-refused"
+    description: "a toolset that does not name the server still refuses the call as outside it"
+    tool: "test_call_meta_tool"
+    args: { tool: "call_tool", arguments: { name: "x_protected_secret_op" } }
+    headers: { X-Muster-Toolset: "server:k8s" }
+    expected:
+      success: false
+      error_contains: ['tool "x_protected_secret_op" is outside the toolset [server:k8s]']
 
   - id: "start-login"
     tool: "core_auth_login"
