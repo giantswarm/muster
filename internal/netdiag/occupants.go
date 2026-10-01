@@ -1,4 +1,4 @@
-package testing
+package netdiag
 
 import (
 	"bufio"
@@ -13,17 +13,17 @@ import (
 	"strings"
 )
 
-// describePortOccupants reports every TCP socket in this network namespace
-// whose local port is one of ports: local and remote address, state and —
-// when the owning process is visible in this pid namespace — pid and command
-// line. It is attached to instance startup failures that name "address
-// already in use", so a stolen port names its occupant instead of leaving a
-// bare EADDRINUSE. A socket without a visible owner belongs to a process in
-// another pid namespace that shares this network namespace (on CircleCI's v2
-// docker runtime the job container shares its pod's namespace with the task
-// agent). Linux only: it reads /proc/net/tcp{,6} and /proc/*/fd; elsewhere,
-// or if /proc is unavailable, it returns "".
-func describePortOccupants(ports ...int) string {
+// PortOccupants reports every TCP socket in this network namespace whose
+// local port is one of ports: local and remote address, state and — when the
+// owning process is visible in this pid namespace — pid and command line. It
+// is attached to failures that name "address already in use", so a taken port
+// names its occupant instead of leaving a bare EADDRINUSE. A socket without a
+// visible owner belongs to a process in another pid namespace that shares this
+// network namespace (on CircleCI's v2 docker runtime the job container shares
+// its pod's namespace with the task agent). Linux only: it reads
+// /proc/net/tcp{,6} and /proc/*/fd; elsewhere, or if /proc is unavailable, it
+// returns "".
+func PortOccupants(ports ...int) string {
 	want := make(map[int]bool, len(ports))
 	for _, p := range ports {
 		want[p] = true

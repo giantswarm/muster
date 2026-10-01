@@ -7,8 +7,12 @@ import (
 	"html/template"
 	"net"
 	"net/http"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/giantswarm/muster/v5/internal/netdiag"
 )
 
 // DefaultCallbackPort is the default port for the local OAuth callback server.
@@ -53,7 +57,7 @@ func (r *CallbackResult) IsError() bool {
 type CallbackServer struct {
 	port      int
 	server    *http.Server
-	listener  net.Listener
+	listeners []net.Listener
 	resultCh  chan *CallbackResult
 	errorCh   chan error
 	once      sync.Once
@@ -61,7 +65,7 @@ type CallbackServer struct {
 }
 
 // NewCallbackServer creates a new callback server on the specified port.
-// If port is 0, a random available port will be used.
+// If port is 0, DefaultCallbackPort is used.
 func NewCallbackServer(port int) *CallbackServer {
 	if port == 0 {
 		port = DefaultCallbackPort
@@ -74,19 +78,60 @@ func NewCallbackServer(port int) *CallbackServer {
 	}
 }
 
-// Start starts the callback server and begins listening for the OAuth callback.
+// callbackHosts are the loopback addresses the callback listens on. The
+// redirect URI names localhost, and a browser resolves localhost to either
+// family, IPv6 first on most systems: a listener on one family only lets a
+// process on the other family's loopback receive the callback.
+var callbackHosts = []string{"127.0.0.1", "::1"}
+
+// PortInUseError reports that another socket holds the callback port on one
+// of the loopback addresses, so the browser's callback would not reach this
+// process.
+type PortInUseError struct {
+	// Addr is the address the bind failed on.
+	Addr string
+	// Port is the callback port.
+	Port int
+	// Holders lists the sockets on the port with their owning process, where
+	// visible; empty when the system does not expose them.
+	Holders string
+	// Err is the bind error.
+	Err error
+}
+
+func (e *PortInUseError) Error() string {
+	msg := fmt.Sprintf("callback port %d is already in use on %s", e.Port, e.Addr)
+	if e.Holders != "" {
+		msg += " by:\n  " + strings.ReplaceAll(strings.TrimRight(e.Holders, "\n"), "\n", "\n  ")
+	}
+	return msg
+}
+
+func (e *PortInUseError) Unwrap() error { return e.Err }
+
+// Start starts the callback server and begins listening for the OAuth callback
+// on the port on both loopback addresses. A host without IPv6 loopback listens
+// on 127.0.0.1 alone. The port taken on either address is a *PortInUseError.
 // The server will automatically stop when the context is cancelled.
 // Returns the callback URL to use in the OAuth authorization request.
 func (s *CallbackServer) Start(ctx context.Context) (string, error) {
-	addr := fmt.Sprintf("127.0.0.1:%d", s.port)
-
-	listener, err := net.Listen("tcp", addr)
-	if err != nil {
-		return "", fmt.Errorf("failed to start callback server on %s: %w", addr, err)
+	for _, host := range callbackHosts {
+		addr := net.JoinHostPort(host, strconv.Itoa(s.port))
+		listener, err := net.Listen("tcp", addr)
+		if err != nil {
+			if host != callbackHosts[0] && !isAddrInUse(err) {
+				// No IPv6 loopback here: localhost resolves to 127.0.0.1 only.
+				continue
+			}
+			s.Stop()
+			if isAddrInUse(err) {
+				return "", &PortInUseError{Addr: addr, Port: s.port, Holders: netdiag.PortOccupants(s.port), Err: err}
+			}
+			return "", fmt.Errorf("failed to start callback server on %s: %w", addr, err)
+		}
+		s.listeners = append(s.listeners, listener)
 	}
 
-	s.listener = listener
-	s.port = listener.Addr().(*net.TCPAddr).Port
 	s.serverURL = fmt.Sprintf("http://localhost:%d", s.port)
 
 	mux := http.NewServeMux()
@@ -100,15 +145,17 @@ func (s *CallbackServer) Start(ctx context.Context) (string, error) {
 		IdleTimeout:       60 * time.Second,
 	}
 
-	// Start serving in a goroutine
-	go func() {
-		if err := s.server.Serve(listener); err != nil && err != http.ErrServerClosed {
-			select {
-			case s.errorCh <- err:
-			default:
+	// Start serving in a goroutine per listener
+	for _, listener := range s.listeners {
+		go func(l net.Listener) {
+			if err := s.server.Serve(l); err != nil && err != http.ErrServerClosed {
+				select {
+				case s.errorCh <- err:
+				default:
+				}
 			}
-		}
-	}()
+		}(listener)
+	}
 
 	// Monitor context for cancellation and stop server when cancelled
 	go func() {
@@ -206,8 +253,8 @@ func (s *CallbackServer) Stop() {
 		defer cancel()
 		_ = s.server.Shutdown(ctx)
 	}
-	if s.listener != nil {
-		_ = s.listener.Close()
+	for _, listener := range s.listeners {
+		_ = listener.Close()
 	}
 }
 

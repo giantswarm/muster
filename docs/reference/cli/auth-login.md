@@ -16,12 +16,19 @@ Examples:
   muster auth login --all              # Login to aggregator + all pending MCP servers
   muster auth login --silent           # Attempt silent re-auth (requires IdP support)
   muster auth login --force            # Sign in again although the session is valid
+  muster auth login --callback-port 3001  # Take the browser's callback on another port
 
 A valid session is reused. The session's automatic refresh renews the access
 token and the OIDC ID token together, once the access token has expired; when
 the session carries no ID token or an expired one, login signs in again through
 the browser so the token file carries a current one now (see 'muster auth
 token --id'). --force signs in again regardless.
+
+The browser returns to http://localhost:<port>/callback (default 3000). muster
+listens on that port on 127.0.0.1 and ::1 and stops at once, naming the
+holder, when another process has it on either. --callback-port (env:
+MUSTER_OAUTH_CALLBACK_PORT) picks another port, for a server that accepts a
+localhost redirect to it.
 
 ```
 muster auth login [flags]
@@ -30,11 +37,12 @@ muster auth login [flags]
 ## Options
 
 ```
-      --all             Login to aggregator and all pending MCP servers
-      --force           Sign in again through the browser although the session is valid, renewing the stored ID token
-  -h, --help            help for login
-      --server string   MCP server name (managed by aggregator) to authenticate to
-      --silent          Attempt silent re-auth using OIDC prompt=none (requires IdP support, not supported by Dex)
+      --all                 Login to aggregator and all pending MCP servers
+      --callback-port int   Local port the browser is redirected back to (env: MUSTER_OAUTH_CALLBACK_PORT) (default 3000)
+      --force               Sign in again through the browser although the session is valid, renewing the stored ID token
+  -h, --help                help for login
+      --server string       MCP server name (managed by aggregator) to authenticate to
+      --silent              Attempt silent re-auth using OIDC prompt=none (requires IdP support, not supported by Dex)
 ```
 
 ## Options inherited from parent commands

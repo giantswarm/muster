@@ -2,6 +2,7 @@ package oauth
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -38,37 +39,20 @@ func TestCallbackServer_Start_PortBinding(t *testing.T) {
 		}
 	})
 
-	t.Run("uses random port when specified port is busy", func(t *testing.T) {
-		// Start first server on a specific port
-		server1 := NewCallbackServer(0)
-		ctx1, cancel1 := context.WithCancel(context.Background())
-		defer cancel1()
-
-		_, err := server1.Start(ctx1)
-		if err != nil {
-			t.Skipf("Could not start first server: %v", err)
+	t.Run("fails naming the port when the port is busy", func(t *testing.T) {
+		port := freeLoopbackPort(t)
+		server1 := NewCallbackServer(port)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		if _, err := server1.Start(ctx); err != nil {
+			t.Fatalf("first server: %v", err)
 		}
 		defer server1.Stop()
 
-		port1 := server1.GetPort()
-
-		// Try to start second server - it should fail on same port
-		// or if we use port 0, it should get a different port
-		server2 := NewCallbackServer(0)
-		ctx2, cancel2 := context.WithCancel(context.Background())
-		defer cancel2()
-
-		_, err = server2.Start(ctx2)
-		if err != nil {
-			t.Skipf("Could not start second server: %v", err)
-		}
-		defer server2.Stop()
-
-		port2 := server2.GetPort()
-
-		// Ports should be different when both use random port selection
-		if port1 == port2 {
-			t.Errorf("expected different ports, both got %d", port1)
+		_, err := NewCallbackServer(port).Start(ctx)
+		var inUse *PortInUseError
+		if !errors.As(err, &inUse) || inUse.Port != port {
+			t.Fatalf("second server on port %d: want a *PortInUseError, got %v", port, err)
 		}
 	})
 }

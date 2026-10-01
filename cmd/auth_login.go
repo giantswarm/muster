@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"strconv"
 	"time"
 
 	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
@@ -16,10 +18,11 @@ import (
 
 // Login-specific flags
 var (
-	loginAll    bool
-	loginServer string
-	loginSilent bool
-	loginForce  bool
+	loginAll          bool
+	loginServer       string
+	loginSilent       bool
+	loginForce        bool
+	loginCallbackPort int
 )
 
 // authLoginCmd represents the auth login command
@@ -38,12 +41,19 @@ Examples:
   muster auth login --all              # Login to aggregator + all pending MCP servers
   muster auth login --silent           # Attempt silent re-auth (requires IdP support)
   muster auth login --force            # Sign in again although the session is valid
+  muster auth login --callback-port 3001  # Take the browser's callback on another port
 
 A valid session is reused. The session's automatic refresh renews the access
 token and the OIDC ID token together, once the access token has expired; when
 the session carries no ID token or an expired one, login signs in again through
 the browser so the token file carries a current one now (see 'muster auth
-token --id'). --force signs in again regardless.`,
+token --id'). --force signs in again regardless.
+
+The browser returns to http://localhost:<port>/callback (default 3000). muster
+listens on that port on 127.0.0.1 and ::1 and stops at once, naming the
+holder, when another process has it on either. --callback-port (env:
+MUSTER_OAUTH_CALLBACK_PORT) picks another port, for a server that accepts a
+localhost redirect to it.`,
 	RunE: runAuthLogin,
 }
 
@@ -53,10 +63,28 @@ func init() {
 	authLoginCmd.Flags().StringVar(&loginServer, "server", "", "MCP server name (managed by aggregator) to authenticate to")
 	authLoginCmd.Flags().BoolVar(&loginSilent, "silent", false, "Attempt silent re-auth using OIDC prompt=none (requires IdP support, not supported by Dex)")
 	authLoginCmd.Flags().BoolVar(&loginForce, "force", false, "Sign in again through the browser although the session is valid, renewing the stored ID token")
+	authLoginCmd.Flags().IntVar(&loginCallbackPort, "callback-port", cli.DefaultCallbackPort, "Local port the browser is redirected back to (env: "+cli.CallbackPortEnvVar+")")
+}
+
+// applyCallbackPortFlag hands --callback-port to every OAuth entry point the
+// login reaches. They all resolve the port through cli.GetCallbackPort, which
+// reads the environment, so the flag sets the environment variable.
+func applyCallbackPortFlag(cmd *cobra.Command) error {
+	if !cmd.Flags().Changed("callback-port") {
+		return nil
+	}
+	if loginCallbackPort <= 0 || loginCallbackPort > 65535 {
+		return fmt.Errorf("--callback-port %d is not a port (1-65535)", loginCallbackPort)
+	}
+	return os.Setenv(cli.CallbackPortEnvVar, strconv.Itoa(loginCallbackPort))
 }
 
 func runAuthLogin(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
+
+	if err := applyCallbackPortFlag(cmd); err != nil {
+		return err
+	}
 
 	// Silent refresh is disabled by default (Dex doesn't support prompt=none)
 	// Use --silent flag to opt-in if your IdP supports it

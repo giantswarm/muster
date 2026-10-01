@@ -73,6 +73,35 @@ func TestAuthLoginCmdForceFlag(t *testing.T) {
 	}
 }
 
+// TestAuthLoginCallbackPortFlag: --callback-port reaches cli.GetCallbackPort,
+// which every OAuth entry point resolves the port through; a value outside
+// the port range is refused.
+func TestAuthLoginCallbackPortFlag(t *testing.T) {
+	t.Setenv(cli.CallbackPortEnvVar, "")
+	defer func() {
+		loginCallbackPort = cli.DefaultCallbackPort
+		authLoginCmd.Flags().Lookup("callback-port").Changed = false
+	}()
+
+	if err := applyCallbackPortFlag(authLoginCmd); err != nil || cli.GetCallbackPort() != cli.DefaultCallbackPort {
+		t.Fatalf("without the flag: err %v, port %d", err, cli.GetCallbackPort())
+	}
+
+	if err := authLoginCmd.Flags().Set("callback-port", "3017"); err != nil {
+		t.Fatal(err)
+	}
+	if err := applyCallbackPortFlag(authLoginCmd); err != nil || cli.GetCallbackPort() != 3017 {
+		t.Fatalf("--callback-port 3017: err %v, port %d", err, cli.GetCallbackPort())
+	}
+
+	if err := authLoginCmd.Flags().Set("callback-port", "70000"); err != nil {
+		t.Fatal(err)
+	}
+	if err := applyCallbackPortFlag(authLoginCmd); err == nil {
+		t.Fatal("--callback-port 70000 was accepted")
+	}
+}
+
 func TestIDTokenRenewal(t *testing.T) {
 	now := time.Date(2026, 9, 16, 12, 0, 0, 0, time.UTC)
 	withIDToken := func(expiresAt time.Time) storedIDToken {

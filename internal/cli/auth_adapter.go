@@ -377,12 +377,14 @@ func (a *AuthAdapter) interactiveLogin(ctx context.Context, mgr *oauth.AuthManag
 	// Start auth flow
 	authURL, err := mgr.StartAuthFlow(ctx)
 	if err != nil {
-		// Check for port-in-use errors and provide helpful guidance
-		if isPortInUseError(err) {
-			port := GetCallbackPort()
+		// A taken callback port would swallow the browser's callback: name
+		// the port and its holder instead of waiting for it.
+		var inUse *oauth.PortInUseError
+		if errors.As(err, &inUse) {
 			return &AuthFailedError{
 				Endpoint: endpoint,
-				Reason:   fmt.Errorf("callback port %d is already in use. Please free the port and try again", port),
+				Reason: fmt.Errorf("%w\nStop that process, or pass --callback-port (env: %s) to sign in on another port the server accepts as a localhost redirect",
+					inUse, CallbackPortEnvVar),
 			}
 		}
 		return &AuthFailedError{Endpoint: endpoint, Reason: err}
@@ -800,13 +802,4 @@ func readTokenFile(filePath string) (*tokenFileInfo, error) {
 // This is a thin wrapper around pkgoauth.NormalizeServerURL for local use.
 func normalizeEndpoint(endpoint string) string {
 	return pkgoauth.NormalizeServerURL(endpoint)
-}
-
-// isPortInUseError checks if an error is related to a port being in use.
-func isPortInUseError(err error) bool {
-	if err == nil {
-		return false
-	}
-	errStr := err.Error()
-	return strings.Contains(errStr, "address already in use")
 }
