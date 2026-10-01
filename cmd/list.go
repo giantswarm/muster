@@ -398,12 +398,13 @@ func runListMCPResources(cmd *cobra.Command, executor *cli.ToolExecutor, filterO
 
 // runListMCPPrompts lists all MCP prompts with optional filtering
 func runListMCPPrompts(cmd *cobra.Command, executor *cli.ToolExecutor, filterOpts MCPFilterOptions) error {
-	prompts, err := executor.ListMCPPromptsWithServer(cmd.Context())
+	opts := executor.GetOptions()
+	// Only the wide table shows arguments, which cost a call per prompt.
+	prompts, err := executor.ListMCPPromptsWithServer(cmd.Context(), opts.Format == cli.OutputFormatWide)
 	if err != nil {
 		return fmt.Errorf("failed to list prompts: %w", err)
 	}
 
 	prompts = filterMCPPrompts(prompts, filterOpts)
-	opts := executor.GetOptions()
 	return cli.FormatMCPPromptsWithOptions(prompts, opts.Format, opts.NoHeaders)
 }

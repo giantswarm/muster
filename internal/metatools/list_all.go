@@ -134,3 +134,25 @@ func listCapabilities[T any](ctx context.Context, call ToolCaller, tool, empty s
 	}
 	return items, nil
 }
+
+// DescribePromptArguments calls describe_prompt for one prompt and returns
+// the arguments it declares, which list_prompts does not report.
+func DescribePromptArguments(ctx context.Context, call ToolCaller, name string) ([]mcp.PromptArgument, error) {
+	result, err := call(ctx, ToolDescribePrompt, map[string]any{"name": name})
+	if err != nil {
+		return nil, fmt.Errorf("%s failed: %w", ToolDescribePrompt, err)
+	}
+	if result == nil {
+		return nil, fmt.Errorf("nil result from %s", ToolDescribePrompt)
+	}
+	if result.IsError {
+		return nil, fmt.Errorf("%s failed: %s", ToolDescribePrompt, resultText(result))
+	}
+	var detail struct {
+		Arguments []mcp.PromptArgument `json:"arguments"`
+	}
+	if err := json.Unmarshal([]byte(resultText(result)), &detail); err != nil {
+		return nil, fmt.Errorf("failed to parse %s response: %w", ToolDescribePrompt, err)
+	}
+	return detail.Arguments, nil
+}
