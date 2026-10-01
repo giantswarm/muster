@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -150,6 +152,42 @@ func TestStartValkeyImmediateRendersConfigAndAnswers(t *testing.T) {
 	m.portMu.Unlock()
 	if reserved {
 		t.Fatalf("port %d still reserved after stopValkey", v.port)
+	}
+}
+
+// TestStartValkeyWhileTheHarnessForks starts stand-ins while other goroutines
+// fork child processes, as a harness running scenarios in parallel does all
+// the time. A child forked while a listener on the port is open holds a copy
+// of it until its exec; a stand-in that closed the allocator's probe and
+// bound the port again failed in that window with "address already in use".
+func TestStartValkeyWhileTheHarnessForks(t *testing.T) {
+	m := newStorageTestManager(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	forkCtx, stopForks := context.WithCancel(ctx)
+	var forks sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		forks.Add(1)
+		go func() {
+			defer forks.Done()
+			for forkCtx.Err() == nil {
+				_ = exec.CommandContext(forkCtx, os.Args[0], "-test.run=^$").Run()
+			}
+		}()
+	}
+	defer func() {
+		stopForks()
+		forks.Wait()
+	}()
+
+	cfg := &MusterPreConfiguration{Storage: &StorageConfig{Type: StorageValkey}}
+	deadline := time.Now().Add(time.Second)
+	for i := 0; time.Now().Before(deadline); i++ {
+		id := fmt.Sprintf("inst-%d", i)
+		if err := m.startValkey(ctx, id, cfg, m.logger); err != nil {
+			t.Fatalf("start %d: %v", i, err)
+		}
+		m.stopValkey(id, m.logger)
 	}
 }
 

@@ -1218,6 +1218,18 @@ func (m *musterInstanceManager) closeReservedListener(port int) {
 	m.releaseReservedListenerLocked(port)
 }
 
+// takeReservedListener hands the probe listener held open for the given port
+// over to the caller, who owns it from then on; nil when none is held. The
+// harness takes over a listener it serves itself instead of closing it and
+// binding the port again (see instanceValkey.reserved).
+func (m *musterInstanceManager) takeReservedListener(port int) net.Listener {
+	m.portMu.Lock()
+	defer m.portMu.Unlock()
+	ln := m.reservedListeners[port]
+	delete(m.reservedListeners, port)
+	return ln
+}
+
 // releaseReservedListenerLocked closes and removes the held probe listener for
 // the given port. Caller must hold portMu.
 func (m *musterInstanceManager) releaseReservedListenerLocked(port int) {

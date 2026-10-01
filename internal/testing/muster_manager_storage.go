@@ -3,6 +3,7 @@ package testing
 import (
 	"context"
 	"fmt"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -32,6 +33,23 @@ type instanceValkey struct {
 	srv  *miniredis.Miniredis
 	port int
 
+	// ln is the listener on the instance's port the stand-in answers on, nil
+	// while it is down; serveDone closes when its accept loop has returned.
+	// The miniredis itself listens on a throwaway loopback port nobody dials:
+	// every connection reaches it through ServeConn, so the stand-in can
+	// answer on a listener the harness already holds.
+	lnMu      sync.Mutex
+	ln        net.Listener
+	serveDone chan struct{}
+
+	// reserved is the allocator's probe listener the first start answers on,
+	// nil when the scenario declares start_delay. Taking it over instead of
+	// closing it and binding the port again closes the gap in which the port
+	// was lost: a socket closed while the harness forks a child lives on in
+	// the child until its exec, and a bind in that window fails with
+	// "address already in use" (#1356).
+	reserved net.Listener
+
 	// commands counts the commands the stand-in has dispatched, by command
 	// name, across restarts; test_measure_meta_tool reads it around a call to
 	// say what the call cost the store.
@@ -52,17 +70,61 @@ func (v *instanceValkey) addr() string {
 	return fmt.Sprintf("127.0.0.1:%d", v.port)
 }
 
-// start binds the miniredis to its reserved port. Runs at most once; later
-// stops and starts go through StopValkey / StartValkey.
+// start brings the stand-in up on its reserved port for the first time. Runs
+// at most once; later stops and starts go through StopValkey / StartValkey.
 func (v *instanceValkey) start() error {
 	v.once.Do(func() {
-		v.startErr = v.srv.StartAddr(v.addr())
-		if v.startErr == nil {
-			v.installHooks()
-		}
+		v.startErr = v.up(v.reserved)
+		v.reserved = nil
 		close(v.started)
 	})
 	return v.startErr
+}
+
+// up starts the miniredis with the data it holds and answers on the
+// instance's port: on ln when given, else on a fresh bind of the port.
+func (v *instanceValkey) up(ln net.Listener) error {
+	if ln == nil {
+		var err error
+		if ln, err = net.Listen("tcp", v.addr()); err != nil {
+			return fmt.Errorf("%w%s", err, valkeyPortOccupants(v.port, err))
+		}
+	}
+	if err := v.srv.StartAddr("127.0.0.1:0"); err != nil {
+		_ = ln.Close()
+		return err
+	}
+	v.installHooks()
+	srv := v.srv.Server()
+	done := make(chan struct{})
+	v.lnMu.Lock()
+	v.ln, v.serveDone = ln, done
+	v.lnMu.Unlock()
+	go func() {
+		defer close(done)
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			srv.ServeConn(conn)
+		}
+	}()
+	return nil
+}
+
+// down takes the stand-in off its port, keeping its data: a connect is
+// refused and every open connection is closed.
+func (v *instanceValkey) down() {
+	v.lnMu.Lock()
+	ln, done := v.ln, v.serveDone
+	v.ln, v.serveDone = nil, nil
+	v.lnMu.Unlock()
+	if ln != nil {
+		_ = ln.Close()
+		<-done
+	}
+	v.srv.Close()
 }
 
 // installHooks installs the stand-in's pre-dispatch hook: the CLIENT TRACKING
@@ -159,11 +221,12 @@ func validateStorageConfig(config *MusterPreConfiguration) error {
 
 // startValkey starts the instance's Valkey stand-in when the scenario asks
 // for one. The port comes from the harness's allocator so parallel instances
-// and a second harness on the same base port cannot collide on it; the probe
-// listener is released at once, so until the store starts a connect is
-// refused rather than accepted and left unanswered. With start_delay the
-// store starts that long after this call returns, which is after muster
-// serve has been started (CreateInstance runs this before the process).
+// and a second harness on the same base port cannot collide on it, and the
+// stand-in answers on the allocator's probe listener itself. With start_delay
+// the probe is released at once, so until the store starts a connect is
+// refused rather than accepted and left unanswered, and the store starts
+// that long after this call returns, which is after muster serve has been
+// started (CreateInstance runs this before the process).
 func (m *musterInstanceManager) startValkey(ctx context.Context, instanceID string, config *MusterPreConfiguration, logger TestLogger) error {
 	if storageType(config) != StorageValkey {
 		return nil
@@ -172,22 +235,25 @@ func (m *musterInstanceManager) startValkey(ctx context.Context, instanceID stri
 	if err != nil {
 		return fmt.Errorf("failed to find available port for valkey: %w", err)
 	}
-	m.closeReservedListener(port)
-
 	v := &instanceValkey{
 		srv:     miniredis.NewMiniRedis(),
 		port:    port,
 		started: make(chan struct{}),
 	}
+	delay := config.Storage.StartDelay
+	if delay <= 0 {
+		v.reserved = m.takeReservedListener(port)
+	} else {
+		m.closeReservedListener(port)
+	}
 	m.mu.Lock()
 	m.valkeys[instanceID] = v
 	m.mu.Unlock()
 
-	delay := config.Storage.StartDelay
 	if delay <= 0 {
 		if err := v.start(); err != nil {
 			m.stopValkey(instanceID, logger)
-			return fmt.Errorf("failed to start valkey on %s: %w%s", v.addr(), err, valkeyPortOccupants(port, err))
+			return fmt.Errorf("failed to start valkey on %s: %w", v.addr(), err)
 		}
 		if m.debug {
 			logger.Debug("🗄️  Started valkey (miniredis) for %s on %s\n", instanceID, v.addr())
@@ -239,7 +305,7 @@ func (m *musterInstanceManager) stopValkey(instanceID string, logger TestLogger)
 	if !exists {
 		return
 	}
-	v.srv.Close()
+	v.down()
 	m.releasePort(v.port, instanceID, logger)
 	if m.debug {
 		logger.Debug("🗄️  Stopped valkey (miniredis) for %s\n", instanceID)
@@ -254,7 +320,7 @@ func (m *musterInstanceManager) StopValkey(instanceID string) error {
 	if v == nil {
 		return fmt.Errorf("instance %s runs on %s storage; declare pre_configuration.storage.type: %s", instanceID, StorageMemory, StorageValkey)
 	}
-	v.srv.Close()
+	v.down()
 	return nil
 }
 
@@ -271,10 +337,9 @@ func (m *musterInstanceManager) StartValkey(instanceID string) error {
 	default:
 		return v.start()
 	}
-	if err := v.srv.Restart(); err != nil {
+	if err := v.up(nil); err != nil {
 		return fmt.Errorf("failed to restart valkey on %s: %w", v.addr(), err)
 	}
-	v.installHooks()
 	return nil
 }
 
@@ -309,10 +374,10 @@ func ensureStringMap(parent map[string]interface{}, key string) map[string]inter
 	return created
 }
 
-// valkeyPortOccupants names the sockets on the stand-in's port when its bind
-// failed with "address already in use": the port came from the allocator,
+// valkeyPortOccupants names the sockets on the stand-in's port when a bind of
+// it failed with "address already in use": the port came from the allocator,
 // outside the ephemeral range and behind a guard, so whatever holds it is a
-// finding of its own (#1356). Empty for any other error or without /proc.
+// finding of its own. Empty for any other error or without /proc.
 func valkeyPortOccupants(port int, err error) string {
 	if err == nil || !strings.Contains(err.Error(), "address already in use") {
 		return ""
