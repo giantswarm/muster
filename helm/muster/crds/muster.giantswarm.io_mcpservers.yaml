@@ -538,8 +538,10 @@ spec:
                 type: boolean
               timeout:
                 default: 30
-                description: Timeout specifies the connection timeout for remote operations
-                  (in seconds)
+                description: |-
+                  Timeout bounds every operation on the server in seconds, a tool call
+                  included, for every type; for a remote server also the connect and the
+                  health probe.
                 maximum: 300
                 minimum: 1
                 type: integer

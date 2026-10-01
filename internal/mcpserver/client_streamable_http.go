@@ -61,7 +61,7 @@ func (c *StreamableHTTPClient) WithHeaders(headers map[string]string) *Streamabl
 // server's spec.timeout (see baseMCPClient.timeout), and returns the client
 // so a construction site reads as one expression.
 func (c *StreamableHTTPClient) WithTimeout(timeout time.Duration) *StreamableHTTPClient {
-	c.timeout = timeout
+	c.setTimeout(timeout)
 	return c
 }
 

@@ -89,7 +89,8 @@ type MCPServerCreateRequest struct {
 	// outbound JSON-RPC request that carries `params`.
 	Meta map[string]string `json:"meta,omitempty"`
 
-	// Timeout specifies the connection timeout for remote operations (in seconds)
+	// Timeout bounds every operation on the server in seconds, a tool call
+	// included, for every type (default 30)
 	Timeout int `json:"timeout,omitempty"`
 
 	// Auth configures authentication behavior for this MCP server.
@@ -138,7 +139,8 @@ type MCPServerUpdateRequest struct {
 	// outbound JSON-RPC request that carries `params`.
 	Meta map[string]string `json:"meta,omitempty"`
 
-	// Timeout specifies the connection timeout for remote operations (in seconds)
+	// Timeout bounds every operation on the server in seconds, a tool call
+	// included, for every type (default 30)
 	Timeout int `json:"timeout,omitempty"`
 
 	// Auth configures authentication behavior for this MCP server.
@@ -192,7 +194,8 @@ type MCPServerValidateRequest struct {
 	// outbound JSON-RPC request that carries `params`.
 	Meta map[string]string `json:"meta,omitempty"`
 
-	// Timeout specifies the connection timeout for remote operations (in seconds)
+	// Timeout bounds every operation on the server in seconds, a tool call
+	// included, for every type (default 30)
 	Timeout int `json:"timeout,omitempty"`
 
 	// Description for validation and documentation.

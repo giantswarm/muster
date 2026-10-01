@@ -65,7 +65,7 @@ spec:
     Authorization: "Bearer token"
     Content-Type: "application/json"
 
-  # Optional: Connection timeout in seconds (all types)
+  # Optional: budget of every operation in seconds, a tool call included (all types)
   timeout: 30
 
   # Optional: Authentication configuration (remote servers)
@@ -120,7 +120,7 @@ the MCP server as its own workload and register it with `streamable-http` or
 | `url` | `string` | Yes* | Endpoint URL for remote servers | Required when `type` is `streamable-http` or `sse` |
 | `env` | `map[string]string` | No | Environment variables for stdio servers | Only for stdio servers |
 | `headers` | `map[string]string` | No | HTTP headers sent with every request to a remote server, by the server-level client and by every person's session connection (their `Authorization` stays the session's) | Only for streamable-http and sse servers |
-| `timeout` | `integer` | No | Connection timeout in seconds | Min: 1, Max: 300, Default: 30 |
+| `timeout` | `integer` | No | Budget of every operation in seconds, a tool call included, for every type; for a remote server also the connect and the health probe | Min: 1, Max: 300, Default: 30 |
 | `auth` | `MCPServerAuth` | No | Authentication configuration | Only for streamable-http and sse servers |
 | `suspended` | `boolean` | No | Desired lifecycle state: `true` stops the server's service and keeps it stopped; setting it back to `false` resumes it | Default: `false` |
 | `restartRequestedAt` | `timestamp` | No | Requests a one-shot restart; processed by the reconciler's first attempt, whatever its outcome, which mirrors the value into `status.lastRestartedAt`. A failed attempt is not repeated by the reconciler: the service retries on its reconnect backoff (`status.nextRetryAfter`) | RFC 3339 timestamp |

@@ -96,12 +96,19 @@ type baseMCPClient struct {
 	// each request, and the recovery handshake a lost session triggers on
 	// the way, share it (see operationContext). Zero means DefaultTimeout.
 	// The factory and the aggregator's per-session construction sites set it
-	// from the server's spec.timeout, so the CRD's value governs a tool call
-	// end to end; the caller's context alone may carry no deadline.
+	// from the server's spec.timeout through setTimeout, for every transport,
+	// so the CRD's value governs a tool call end to end; the caller's context
+	// alone may carry no deadline.
 	timeout time.Duration
 
 	notifMu      sync.Mutex
 	notifHandler func(mcp.JSONRPCNotification)
+}
+
+// setTimeout sets the budget every operation on the client runs under (see
+// timeout); the transports' WithTimeout setters and the factory go through it.
+func (b *baseMCPClient) setTimeout(timeout time.Duration) {
+	b.timeout = timeout
 }
 
 // checkConnected verifies the client is connected and returns an error if not.

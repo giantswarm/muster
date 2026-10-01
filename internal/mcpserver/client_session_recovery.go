@@ -25,8 +25,8 @@ import (
 // shapes are recognised here. Nothing in mcp-go re-runs initialize, so the
 // client stayed dead until an operator restarted the service (issue #999).
 
-// DefaultTimeout bounds an operation on a remote server whose definition
-// sets no spec.timeout. It is that field's CRD default; the service layer's
+// DefaultTimeout bounds an operation on a server whose definition sets no
+// spec.timeout, whatever its transport. It is that field's CRD default; the service layer's
 // DefaultRemoteTimeout is derived from it.
 const DefaultTimeout = 30 * time.Second
 
