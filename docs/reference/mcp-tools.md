@@ -58,6 +58,9 @@ Use `list_tools` for a bounded look at what is there; use `filter_tools` to *fin
 
 `describe_tool` returns one tool's full `description` and `inputSchema` together with its
 `server`, `kind` and `annotations`, and an `invocation` line naming the call that runs it.
+The downstream tool's `title` (its own, else its annotations' title) and `outputSchema`, the
+contract of the `structuredContent` it returns, are forwarded as well. `title`,
+`annotations` and `outputSchema` are omitted when the tool does not set them.
 Every tool it can describe lives **inside** muster, where an MCP client sees only the
 meta-tools: issuing an aggregated tool's name as a tool call fails. Such a tool is reached
 through `call_tool`, and only through `call_tool`.
@@ -65,11 +68,13 @@ through `call_tool`, and only through `call_tool`.
 ```json
 {
   "name": "x_kubernetes_list_pods",
+  "title": "List pods",
   "description": "List pods in a namespace.",
   "server": "kubernetes",
   "kind": "tool",
   "annotations": {"readOnlyHint": true},
   "inputSchema": {"type": "object", "properties": {"namespace": {"type": "string"}}},
+  "outputSchema": {"type": "object", "properties": {"items": {"type": "array"}}},
   "invocation": "Call it through the call_tool meta-tool: call_tool with {\"name\": \"x_kubernetes_list_pods\", \"arguments\": {...}}, arguments per inputSchema. Tools inside muster are not callable by name directly — only the meta-tools are."
 }
 ```

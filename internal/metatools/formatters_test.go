@@ -347,3 +347,96 @@ func TestSerializeContent(t *testing.T) {
 		assert.Equal(t, "image", imageItem["type"])
 	})
 }
+
+// describe_tool forwards the downstream tool's title, annotations and
+// outputSchema, so a caller can tell a read-only tool from a destructive one
+// and knows the shape of the structuredContent it returns.
+func TestFormatters_FormatToolDetailJSON_DownstreamMetadata(t *testing.T) {
+	formatters := NewFormatters()
+	readOnly, destructive := true, false
+
+	tool := mcp.Tool{
+		Name:        "x_kubernetes_get",
+		Title:       "Get a resource",
+		Description: "Get a Kubernetes resource",
+		InputSchema: mcp.ToolInputSchema{Type: "object"},
+		OutputSchema: mcp.ToolOutputSchema{
+			Type: "object",
+			Properties: map[string]interface{}{
+				"items": map[string]interface{}{"type": "array"},
+			},
+			Required: []string{"items"},
+		},
+		Annotations: mcp.ToolAnnotation{ReadOnlyHint: &readOnly, DestructiveHint: &destructive},
+	}
+
+	result, err := formatters.FormatToolDetailJSON(tool)
+	require.NoError(t, err)
+
+	var parsed map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(result), &parsed))
+
+	assert.Equal(t, "Get a resource", parsed["title"])
+	assert.Equal(t, map[string]interface{}{"readOnlyHint": true, "destructiveHint": false}, parsed["annotations"])
+	assert.Equal(t, map[string]interface{}{
+		"type":       "object",
+		"properties": map[string]interface{}{"items": map[string]interface{}{"type": "array"}},
+		"required":   []interface{}{"items"},
+	}, parsed["outputSchema"])
+}
+
+// A title set only in the annotations is the tool's title, as the MCP
+// specification has clients fall back to it.
+func TestFormatters_FormatToolDetailJSON_AnnotationTitle(t *testing.T) {
+	formatters := NewFormatters()
+
+	tool := mcp.Tool{
+		Name:        "x_list",
+		InputSchema: mcp.ToolInputSchema{Type: "object"},
+		Annotations: mcp.ToolAnnotation{Title: "List things"},
+	}
+
+	result, err := formatters.FormatToolDetailJSON(tool)
+	require.NoError(t, err)
+
+	var parsed map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(result), &parsed))
+	assert.Equal(t, "List things", parsed["title"])
+}
+
+// A raw output schema is forwarded verbatim.
+func TestFormatters_FormatToolDetailJSON_RawOutputSchema(t *testing.T) {
+	formatters := NewFormatters()
+
+	tool := mcp.Tool{
+		Name:            "x_raw",
+		InputSchema:     mcp.ToolInputSchema{Type: "object"},
+		RawOutputSchema: json.RawMessage(`{"type":"object","properties":{"n":{"type":"integer"}}}`),
+	}
+
+	result, err := formatters.FormatToolDetailJSON(tool)
+	require.NoError(t, err)
+
+	var parsed map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(result), &parsed))
+	assert.Equal(t, map[string]interface{}{
+		"type":       "object",
+		"properties": map[string]interface{}{"n": map[string]interface{}{"type": "integer"}},
+	}, parsed["outputSchema"])
+}
+
+// A tool that sets none of the metadata gets none of its keys.
+func TestFormatters_FormatToolDetailJSON_NoDownstreamMetadata(t *testing.T) {
+	formatters := NewFormatters()
+
+	tool := mcp.Tool{Name: "plain", InputSchema: mcp.ToolInputSchema{Type: "object"}}
+
+	result, err := formatters.FormatToolDetailJSON(tool)
+	require.NoError(t, err)
+
+	var parsed map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(result), &parsed))
+	for _, key := range []string{"title", "annotations", "outputSchema"} {
+		assert.NotContains(t, parsed, key)
+	}
+}
