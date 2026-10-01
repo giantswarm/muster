@@ -1,0 +1,131 @@
+name: "oauth-restart-with-live-session-keeps-endpoint"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  Restarting an OAuth-protected MCP server through spec.restartRequestedAt
+  while a session is connected to it must not stall the aggregator: the
+  restart re-registers the server pending-auth, and the session's next
+  requests to the aggregator's MCP endpoint are answered at once.
+
+  Regression: every request from the session timed out after the restart,
+  a plain auth status read included (giantswarm/muster#1153).
+tags: ["oauth", "mcpserver", "restart", "session", "regression"]
+timeout: "2m"
+
+pre_configuration:
+  mock_oauth_servers:
+    - name: "person-idp"
+      scopes: ["openid", "profile", "email"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "person-client"
+      client_secret: "person-secret"
+      use_as_muster_oauth_server: true
+    - name: "backend-as"
+      scopes: ["openid", "profile"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "backend-client"
+
+  mcp_servers:
+    - name: "live-server"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "backend-as"
+        tools:
+          - name: "whoami"
+            description: "Who the server sees"
+            responses:
+              - response:
+                  source: "live-server"
+
+steps:
+  - id: person-logs-into-muster
+    tool: "test_muster_auth_login"
+    args:
+      subject: "person"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  - id: sign-in-to-server
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "live-server"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  - id: server-connected
+    tool: "core_auth_login"
+    args:
+      server: "live-server"
+    expected:
+      success: true
+      not_contains:
+        - "Please sign in"
+
+  - id: call-server
+    tool: "x_live-server_whoami"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "live-server"
+
+  - id: request-restart
+    description: "A one-shot restart through the CR while the session is connected"
+    tool: "core_mcpserver_update"
+    args:
+      name: "live-server"
+      autoStart: true
+      restartRequestedAt: "2026-10-01T12:00:00Z"
+    expected:
+      success: true
+
+  - id: restart-processed
+    tool: "core_mcpserver_get"
+    args:
+      name: "live-server"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "live-server"
+        lastRestartedAt: "2026-10-01T12:00:00Z"
+
+  - id: endpoint-answers-after-restart
+    description: "The session's next request is answered, not timed out"
+    tool: "test_read_auth_status"
+    args:
+      server: "live-server"
+    expected:
+      success: true
+
+  - id: tools-list-answers-after-restart
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "live-server"
+
+  - id: call-restarted-server
+    description: "A tool call on the restarted server answers (sign-in or result), not a timeout"
+    tool: "x_live-server_whoami"
+    args: {}
+    expected:
+      success: true
+
+  - id: endpoint-answers-after-call
+    tool: "test_read_auth_status"
+    args:
+      server: "live-server"
+    expected:
+      success: true
