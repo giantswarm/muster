@@ -854,15 +854,19 @@ Create a new workflow definition with advanced step configuration.
   - `description` (string, optional) - Human-readable step documentation
   - `args` (object, optional) - Tool arguments with templating support (inputs as `{{ .input.<arg> }}`, prior results as `{{ .results.<step-id>.<field> }}`)
   - `condition` (object, optional) - Conditional execution configuration:
-    - `tool` (string, required) - Tool to call for condition evaluation
+    - `tool` (string, optional) - Tool to call for condition evaluation
+    - `fromStep` (string, optional) - Evaluate a previous step's result instead of calling a tool
     - `args` (object, optional) - Arguments for condition tool
-    - `expect` (object, optional) - Expected results for condition success
-  - `allow_failure` (boolean, optional) - Whether step failure should not fail entire workflow
+    - `expect` (object, optional) - Expected results for condition success (`success`, `jsonPath`)
+    - `expectNot` (object, optional) - Results that make the condition false
+  - `allowFailure` (boolean, optional) - Whether step failure should not fail entire workflow
   - `store` (boolean, optional) - Whether to store step result in workflow results
 - `args` (object, optional) - Workflow argument schema with validation:
   - Each argument has: `type`, `required`, `default`, `description`
   - Supported types: `string`, `integer`, `boolean`, `number`, `object`, `array`
 - `description` (string, optional) - Workflow description
+
+The field names are the `Workflow` CRD's, so a step copied from a manifest works unchanged. The snake_case spellings `allow_failure`, `from_step`, `expect_not` and `json_path` are deprecated aliases: still accepted, with a warning in the server log.
 
 **Returns:** Created workflow definition
 
@@ -909,7 +913,7 @@ Create a new workflow definition with advanced step configuration.
             "value": "{{ .input.health_check }}"
           },
           "expect": {
-            "json_path": {
+            "jsonPath": {
               "value": true
             }
           }
