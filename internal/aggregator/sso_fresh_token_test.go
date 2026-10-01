@@ -97,6 +97,33 @@ func TestEstablishSSOConnection_FreshTokenRefusedIsRetriedSoon(t *testing.T) {
 	assert.Empty(t, retries, "a successful retry schedules none")
 }
 
+// TestScheduleSSORetry_FollowsTheSessionNotItsToolListing: a session that has
+// only initialized (no tools/list, no tool call yet) is retried as well; once
+// the session is torn down, its pending retry does nothing.
+func TestScheduleSSORetry_FollowsTheSessionNotItsToolListing(t *testing.T) {
+	for name, endSession := range map[string]bool{"live session": false, "ended session": true} {
+		t.Run(name, func(t *testing.T) {
+			backend := newFlakyBackend(t)
+			a, info, _ := newForwardingTestAggregator(t, backend.URL+"/mcp")
+			a.subjectSessions = newSubjectSessionTracker()
+			retries := captureSSORetries(a)
+			ctx := forwardedTokenIssuedAt(t, time.Now().Add(-30*time.Second))
+
+			backend.fail.Store(http.StatusUnauthorized)
+			require.Equal(t, ssoConnectFailed, a.establishSSOConnection(ctx, info, "https://dex.example.com"))
+			retry := nextRetry(t, retries)
+
+			backend.fail.Store(0)
+			if endSession {
+				a.subjectSessions.UntrackOAuth("session-1")
+			}
+			retry.run()
+			_, pooled := a.connPool.Get("session-1", "backend")
+			assert.Equal(t, !endSession, pooled)
+		})
+	}
+}
+
 // TestEstablishSSOConnection_OldTokenRefusedKeepsTheAuthBackoff: a 401 for a
 // token issued longer ago than the gateway's JWKS refresh is the backend's
 // verdict on the token (expired, wrongly signed, wrong audience). It keeps the
@@ -172,4 +199,51 @@ func TestSSOTracker_FreshTokenRefusalsDoubleWhileTheTokenIsFresh(t *testing.T) {
 	failure, ok := tr.activeFailure("u", "s")
 	require.True(t, ok)
 	assert.Equal(t, 30*time.Second, failure.backoff())
+}
+
+// TestScheduleSSORetry_RunsForASessionThatOnlySignedIn: the retry skips a
+// session that ended meanwhile, which it reads from the subject tracker. A
+// session joins that tracker on its first tools/list or tools/call, so a
+// session that only signed in (a portal sign-in whose fan-out was refused,
+// the person watching auth://status) was never retried. Scheduling the retry
+// records the session as live, and the retry connects it.
+func TestScheduleSSORetry_RunsForASessionThatOnlySignedIn(t *testing.T) {
+	backend := newFlakyBackend(t)
+	a, info, _ := newForwardingTestAggregator(t, backend.URL+"/mcp")
+	a.subjectSessions = newSubjectSessionTracker()
+	retries := captureSSORetries(a)
+	ctx := forwardedTokenIssuedAt(t, time.Now().Add(-30*time.Second))
+
+	backend.fail.Store(http.StatusUnauthorized)
+	require.Equal(t, ssoConnectFailed, a.establishSSOConnection(ctx, info, "https://dex.example.com"))
+	retry := nextRetry(t, retries)
+	assert.Equal(t, "alice", a.subjectSessions.OAuthSubject("session-1"),
+		"scheduling the retry records the session as live")
+
+	backend.fail.Store(0)
+	retry.run()
+	_, pooled := a.connPool.Get("session-1", "backend")
+	assert.True(t, pooled, "a session that signed in and listed no tool yet is retried")
+}
+
+// TestScheduleSSORetry_SkipsASessionTornDownMeanwhile: a session torn down
+// between the refusal and the retry (signed out, its bearer expired) is not
+// connected again.
+func TestScheduleSSORetry_SkipsASessionTornDownMeanwhile(t *testing.T) {
+	backend := newFlakyBackend(t)
+	a, info, _ := newForwardingTestAggregator(t, backend.URL+"/mcp")
+	a.subjectSessions = newSubjectSessionTracker()
+	retries := captureSSORetries(a)
+	ctx := forwardedTokenIssuedAt(t, time.Now().Add(-30*time.Second))
+
+	backend.fail.Store(http.StatusUnauthorized)
+	require.Equal(t, ssoConnectFailed, a.establishSSOConnection(ctx, info, "https://dex.example.com"))
+	retry := nextRetry(t, retries)
+
+	a.tearDownSession(context.Background(), "session-1")
+	backend.fail.Store(0)
+	retry.run()
+	_, pooled := a.connPool.Get("session-1", "backend")
+	assert.False(t, pooled, "a session that ended is not connected by the retry")
+	assert.Empty(t, retries)
 }

@@ -450,10 +450,18 @@ drain:
 // that token is older than ssoFreshTokenWindow, a further 401 is an auth
 // failure and the retries end. It is skipped when muster is stopping, the
 // session ended, or a fan-out of the session is connecting the server.
+//
+// The session is tracked here, not only by its first tools/list or tool call:
+// a session that has done neither (a client that initialized and reads
+// auth://status) is alive too, and its teardown (UntrackOAuth) is what ends
+// the retries.
 func (a *AggregatorServer) scheduleSSORetry(ctx context.Context, serverName, musterIssuer string, delay time.Duration) {
 	sub := getUserSubjectFromContext(ctx)
 	sessionID := getSessionIDFromContext(ctx)
 	tokens := server.CallerTokensFromContext(ctx)
+	if a.subjectSessions != nil {
+		a.subjectSessions.TrackOAuth(sub, sessionID)
+	}
 	logging.Info("Aggregator", "SSO: retrying %s for user %s in %s: fresh token refused",
 		serverName, logging.TruncateIdentifier(sub), delay)
 
@@ -462,7 +470,7 @@ func (a *AggregatorServer) scheduleSSORetry(ctx context.Context, serverName, mus
 			return
 		}
 		if a.subjectSessions != nil && a.subjectSessions.OAuthSubject(sessionID) == "" {
-			logging.Debug("Aggregator", "SSO: retry of %s skipped, session %s ended",
+			logging.Info("Aggregator", "SSO: retry of %s skipped, session %s ended",
 				serverName, logging.TruncateIdentifier(sessionID))
 			return
 		}
