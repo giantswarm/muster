@@ -63,8 +63,8 @@ type MCPFilterOptions struct {
 	// Description is a case-insensitive substring to match against descriptions
 	Description string
 	// Server selects the items of one server: the server an item belongs to
-	// as the aggregator reports it, or the prefix of its exposed name
-	// ("x_files" for a server named "files"). Case-insensitive.
+	// as the aggregator reports it ("files", "core", "workflow"), also spelled
+	// "x_files". Case-insensitive.
 	Server string
 }
 
@@ -102,25 +102,25 @@ func matchesDescription(description, filter string) bool {
 }
 
 // matchesServer reports whether an item belongs to the server named by the
-// filter. The filter is compared, case-insensitively, with the server the
-// aggregator reports for the item (empty when the listing carries none) and
-// with the prefix of the item's exposed name, so the tools of a server
-// registered as "files" are selected by "files" as well as by "x_files". The
-// exposed name alone is not enough: a server's tool prefix is its configured
-// toolPrefix, which need not be its name.
+// filter: the server the aggregator reports for the item, compared
+// case-insensitively, also spelled with the "x_" of an aggregated name
+// ("x_files" for "files"). The exposed name alone does not identify the
+// server -- a server's prefix is its configured toolPrefix, and a server named
+// "files" exposes x_files_* as does one named "files_x" -- so it is consulted
+// only for an item that carries no server, from an aggregator too old to
+// report one.
 func matchesServer(name, server, filter string) bool {
 	if filter == "" {
 		return true
 	}
-	if strings.EqualFold(server, filter) {
-		return true
+	if server == "" {
+		return strings.HasPrefix(strings.ToLower(name), strings.ToLower(filter)+"_")
 	}
-	return strings.HasPrefix(strings.ToLower(name), strings.ToLower(filter)+"_")
+	return strings.EqualFold(server, filter) || strings.EqualFold("x_"+server, filter)
 }
 
 // matchesMCPFilter checks if an item matches the name pattern, description and
-// server filters. server is the item's server as the aggregator reports it;
-// resources and prompts, listed over the native protocol, carry none.
+// server filters. server is the item's server as the aggregator reports it.
 func matchesMCPFilter(name, description, server string, opts MCPFilterOptions) bool {
 	return matchesWildcard(name, opts.Pattern) &&
 		matchesDescription(description, opts.Description) &&
@@ -141,28 +141,28 @@ func filterMCPTools(tools []cli.MCPToolInfo, opts MCPFilterOptions) []cli.MCPToo
 	return filtered
 }
 
-// filterMCPResources filters resources by name pattern and description
-func filterMCPResources(resources []cli.MCPResource, opts MCPFilterOptions) []cli.MCPResource {
+// filterMCPResources filters resources by name pattern, description and server
+func filterMCPResources(resources []cli.MCPResourceInfo, opts MCPFilterOptions) []cli.MCPResourceInfo {
 	if opts.IsEmpty() {
 		return resources
 	}
-	var filtered []cli.MCPResource
+	var filtered []cli.MCPResourceInfo
 	for _, resource := range resources {
-		if matchesMCPFilter(resource.Name, resource.Description, "", opts) {
+		if matchesMCPFilter(resource.Name, resource.Description, resource.Server, opts) {
 			filtered = append(filtered, resource)
 		}
 	}
 	return filtered
 }
 
-// filterMCPPrompts filters prompts by name pattern and description
-func filterMCPPrompts(prompts []cli.MCPPrompt, opts MCPFilterOptions) []cli.MCPPrompt {
+// filterMCPPrompts filters prompts by name pattern, description and server
+func filterMCPPrompts(prompts []cli.MCPPromptInfo, opts MCPFilterOptions) []cli.MCPPromptInfo {
 	if opts.IsEmpty() {
 		return prompts
 	}
-	var filtered []cli.MCPPrompt
+	var filtered []cli.MCPPromptInfo
 	for _, prompt := range prompts {
-		if matchesMCPFilter(prompt.Name, prompt.Description, "", opts) {
+		if matchesMCPFilter(prompt.Name, prompt.Description, prompt.Server, opts) {
 			filtered = append(filtered, prompt)
 		}
 	}
@@ -203,10 +203,9 @@ Available resource types:
 Filtering (for MCP primitives only: tool, resource, prompt):
   --filter <pattern>       - Filter by name pattern (wildcards * and ? supported)
   --description <text>     - Filter by description content (case-insensitive substring)
-  --server <name>          - Filter by server. Tools: the server a tool belongs to as the
-                             aggregator reports it (e.g. "files" for x_files_*, "core",
-                             "workflow"), or the prefix of the exposed name (e.g. "x_files").
-                             Resources and prompts: the prefix of the exposed name.
+  --server <name>          - Filter by the server an item belongs to as the aggregator
+                             reports it (e.g. "files", also spelled "x_files"; "core" and
+                             "workflow" for muster's own tools).
 
 Output options:
   --output/-o <format>     - Output format: table (default), wide, json, yaml
@@ -217,8 +216,8 @@ The 'wide' format (-o wide) shows additional columns for each resource type:
   mcpservers     - url/command, timeout
   workflows      - input arguments
   tools          - server, argument count
-  resources      - name
-  prompts        - argument count
+  resources      - name, server
+  prompts        - server, argument count
 
 Examples:
   muster list service
@@ -250,7 +249,7 @@ func init() {
 	// List-specific filtering flags
 	listCmd.PersistentFlags().StringVar(&listFilter, "filter", "", "Filter by name pattern (wildcards * and ? supported, for MCP primitives only)")
 	listCmd.PersistentFlags().StringVar(&listDescription, "description", "", "Filter by description content (case-insensitive substring, for MCP primitives only)")
-	listCmd.PersistentFlags().StringVar(&listServer, "server", "", "Filter by server: the server a tool belongs to (e.g. \"files\", \"core\") or the exposed name prefix (e.g. \"x_files\"); for MCP primitives only")
+	listCmd.PersistentFlags().StringVar(&listServer, "server", "", "Filter by the server an item belongs to (e.g. \"files\", also spelled \"x_files\"; \"core\"); for MCP primitives only")
 	listCmd.PersistentFlags().BoolVar(&listShowAll, "all", false, "Show all servers including unreachable ones (for mcpserver only)")
 	listCmd.PersistentFlags().BoolVar(&listVerbose, "verbose", false, "Show detailed error information for failed/unreachable servers (for mcpserver only)")
 }
@@ -387,7 +386,7 @@ func runListMCPTools(cmd *cobra.Command, executor *cli.ToolExecutor, filterOpts 
 
 // runListMCPResources lists all MCP resources with optional filtering
 func runListMCPResources(cmd *cobra.Command, executor *cli.ToolExecutor, filterOpts MCPFilterOptions) error {
-	resources, err := executor.ListMCPResources(cmd.Context())
+	resources, err := executor.ListMCPResourcesWithServer(cmd.Context())
 	if err != nil {
 		return fmt.Errorf("failed to list resources: %w", err)
 	}
@@ -399,7 +398,7 @@ func runListMCPResources(cmd *cobra.Command, executor *cli.ToolExecutor, filterO
 
 // runListMCPPrompts lists all MCP prompts with optional filtering
 func runListMCPPrompts(cmd *cobra.Command, executor *cli.ToolExecutor, filterOpts MCPFilterOptions) error {
-	prompts, err := executor.ListMCPPrompts(cmd.Context())
+	prompts, err := executor.ListMCPPromptsWithServer(cmd.Context())
 	if err != nil {
 		return fmt.Errorf("failed to list prompts: %w", err)
 	}

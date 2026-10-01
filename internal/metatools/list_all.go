@@ -90,3 +90,47 @@ func resultText(result *mcp.CallToolResult) string {
 	}
 	return strings.Join(parts, "; ")
 }
+
+// The text list_resources and list_prompts answer with for an empty catalogue
+// in place of a JSON array.
+const (
+	noResourcesAvailable = "No resources available"
+	noPromptsAvailable   = "No prompts available"
+)
+
+// ListAllResources calls list_resources and returns every resource of the
+// caller's catalogue with the server it comes from: one entry per server
+// that exposes a URI.
+func ListAllResources(ctx context.Context, call ToolCaller) ([]ResourceInfo, error) {
+	return listCapabilities[ResourceInfo](ctx, call, ToolListResources, noResourcesAvailable)
+}
+
+// ListAllPrompts calls list_prompts and returns every prompt of the caller's
+// catalogue with the server it comes from.
+func ListAllPrompts(ctx context.Context, call ToolCaller) ([]PromptInfo, error) {
+	return listCapabilities[PromptInfo](ctx, call, ToolListPrompts, noPromptsAvailable)
+}
+
+// listCapabilities calls an unpaged list meta-tool and decodes its JSON
+// array. The empty text is the tool's answer for an empty catalogue.
+func listCapabilities[T any](ctx context.Context, call ToolCaller, tool, empty string) ([]T, error) {
+	result, err := call(ctx, tool, map[string]any{})
+	if err != nil {
+		return nil, fmt.Errorf("%s failed: %w", tool, err)
+	}
+	if result == nil {
+		return nil, fmt.Errorf("nil result from %s", tool)
+	}
+	if result.IsError {
+		return nil, fmt.Errorf("%s failed: %s", tool, resultText(result))
+	}
+	text := resultText(result)
+	if text == empty {
+		return nil, nil
+	}
+	var items []T
+	if err := json.Unmarshal([]byte(text), &items); err != nil {
+		return nil, fmt.Errorf("failed to parse %s response: %w", tool, err)
+	}
+	return items, nil
+}

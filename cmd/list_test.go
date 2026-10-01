@@ -583,10 +583,33 @@ func TestMatchesServer(t *testing.T) {
 			expected: true,
 		},
 		{
-			name:     "prefix-divergent server by its exposed prefix",
+			name:     "prefix-divergent server is not found by its exposed prefix",
 			toolName: "x_pro_issues",
 			server:   "gazelle-mcp-pro",
 			filter:   "x_pro",
+			expected: false,
+		},
+		// A server whose name prefixes another's: the exposed names nest, the
+		// attribution does not.
+		{
+			name:     "nested server is not selected by the shorter name",
+			toolName: "x_files_x_read",
+			server:   "files_x",
+			filter:   "files",
+			expected: false,
+		},
+		{
+			name:     "nested server is not selected by the shorter exposed prefix",
+			toolName: "x_files_x_read",
+			server:   "files_x",
+			filter:   "x_files",
+			expected: false,
+		},
+		{
+			name:     "nested server by its own name",
+			toolName: "x_files_x_read",
+			server:   "files_x",
+			filter:   "files_x",
 			expected: true,
 		},
 		{
@@ -791,6 +814,84 @@ func TestFilterMCPToolsByServer(t *testing.T) {
 			got := names(filterMCPTools(catalogue, tt.opts))
 			if !slices.Equal(got, tt.expected) {
 				t.Errorf("filterMCPTools(%+v) = %v, expected %v", tt.opts, got, tt.expected)
+			}
+		})
+	}
+}
+
+// Two servers whose names prefix each other ("files", "files_x") and a server
+// whose toolPrefix differs from its name ("promptserver" with toolPrefix "pp").
+// Resources carry no prefix at all; prompts carry the toolPrefix.
+
+func TestFilterMCPResourcesByServer(t *testing.T) {
+	catalogue := []cli.MCPResourceInfo{
+		{MCPResource: cli.MCPResource{URI: "file:///readme", Name: "readme"}, Server: "files"},
+		{MCPResource: cli.MCPResource{URI: "file:///notes", Name: "notes"}, Server: "files_x"},
+		{MCPResource: cli.MCPResource{URI: "docs://guide", Name: "guide"}, Server: "promptserver"},
+	}
+
+	uris := func(resources []cli.MCPResourceInfo) []string {
+		var out []string
+		for _, r := range resources {
+			out = append(out, r.URI)
+		}
+		return out
+	}
+
+	tests := []struct {
+		name     string
+		opts     MCPFilterOptions
+		expected []string
+	}{
+		{"--server files lists only that server's resources", MCPFilterOptions{Server: "files"}, []string{"file:///readme"}},
+		{"--server x_files lists the same", MCPFilterOptions{Server: "x_files"}, []string{"file:///readme"}},
+		{"--server files_x lists the nested server's", MCPFilterOptions{Server: "files_x"}, []string{"file:///notes"}},
+		{"--server promptserver finds an unprefixed URI", MCPFilterOptions{Server: "promptserver"}, []string{"docs://guide"}},
+		{"--server for an unknown server selects nothing", MCPFilterOptions{Server: "nothing"}, nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := uris(filterMCPResources(catalogue, tt.opts))
+			if !slices.Equal(got, tt.expected) {
+				t.Errorf("filterMCPResources(%+v) = %v, expected %v", tt.opts, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestFilterMCPPromptsByServer(t *testing.T) {
+	catalogue := []cli.MCPPromptInfo{
+		{MCPPrompt: cli.MCPPrompt{Name: "x_files_summarise"}, Server: "files"},
+		{MCPPrompt: cli.MCPPrompt{Name: "x_files_x_summarise"}, Server: "files_x"},
+		{MCPPrompt: cli.MCPPrompt{Name: "x_pp_triage"}, Server: "promptserver"},
+	}
+
+	names := func(prompts []cli.MCPPromptInfo) []string {
+		var out []string
+		for _, p := range prompts {
+			out = append(out, p.Name)
+		}
+		return out
+	}
+
+	tests := []struct {
+		name     string
+		opts     MCPFilterOptions
+		expected []string
+	}{
+		{"--server files leaves out the nested server's prompts", MCPFilterOptions{Server: "files"}, []string{"x_files_summarise"}},
+		{"--server x_files leaves them out as well", MCPFilterOptions{Server: "x_files"}, []string{"x_files_summarise"}},
+		{"--server files_x lists the nested server's", MCPFilterOptions{Server: "files_x"}, []string{"x_files_x_summarise"}},
+		{"--server promptserver finds the renamed exposure", MCPFilterOptions{Server: "promptserver"}, []string{"x_pp_triage"}},
+		{"--server PromptServer is case-insensitive", MCPFilterOptions{Server: "PromptServer"}, []string{"x_pp_triage"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := names(filterMCPPrompts(catalogue, tt.opts))
+			if !slices.Equal(got, tt.expected) {
+				t.Errorf("filterMCPPrompts(%+v) = %v, expected %v", tt.opts, got, tt.expected)
 			}
 		})
 	}

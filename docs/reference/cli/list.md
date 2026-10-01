@@ -18,10 +18,9 @@ Available resource types:
 Filtering (for MCP primitives only: tool, resource, prompt):
   --filter <pattern>       - Filter by name pattern (wildcards * and ? supported)
   --description <text>     - Filter by description content (case-insensitive substring)
-  --server <name>          - Filter by server. Tools: the server a tool belongs to as the
-                             aggregator reports it (e.g. "files" for x_files_*, "core",
-                             "workflow"), or the prefix of the exposed name (e.g. "x_files").
-                             Resources and prompts: the prefix of the exposed name.
+  --server <name>          - Filter by the server an item belongs to as the aggregator
+                             reports it (e.g. "files", also spelled "x_files"; "core" and
+                             "workflow" for muster's own tools).
 
 Output options:
   --output/-o <format>     - Output format: table (default), wide, json, yaml
@@ -32,8 +31,8 @@ The 'wide' format (-o wide) shows additional columns for each resource type:
   mcpservers     - url/command, timeout
   workflows      - input arguments
   tools          - server, argument count
-  resources      - name
-  prompts        - argument count
+  resources      - name, server
+  prompts        - server, argument count
 
 Examples:
   muster list service
@@ -72,7 +71,7 @@ muster list
       --no-headers           Suppress header row in table output
   -o, --output string        Output format (table, wide, json, yaml) (default "table")
   -q, --quiet                Suppress non-essential output
-      --server string        Filter by server: the server a tool belongs to (e.g. "files", "core") or the exposed name prefix (e.g. "x_files"); for MCP primitives only
+      --server string        Filter by the server an item belongs to (e.g. "files", also spelled "x_files"; "core"); for MCP primitives only
       --verbose              Show detailed error information for failed/unreachable servers (for mcpserver only)
 ```
 

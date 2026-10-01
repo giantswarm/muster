@@ -129,3 +129,63 @@ func TestToolInfo_Text(t *testing.T) {
 	assert.Equal(t, "short", ToolInfo{Summary: "short"}.Text())
 	assert.Equal(t, "", ToolInfo{}.Text())
 }
+
+// capabilityList fakes an unpaged list meta-tool answering with text.
+func capabilityList(tool, text string) ToolCaller {
+	return func(_ context.Context, name string, _ map[string]any) (*mcp.CallToolResult, error) {
+		if name != tool {
+			return nil, fmt.Errorf("unexpected tool %s", name)
+		}
+		return mcp.NewToolResultText(text), nil
+	}
+}
+
+func TestListAllResources_CarriesTheServer(t *testing.T) {
+	data, err := json.Marshal([]ResourceInfo{
+		{URI: "file:///readme", Name: "readme", Server: "files"},
+		{URI: "file:///readme", Name: "readme", Server: "files_x"},
+	})
+	require.NoError(t, err)
+
+	got, err := ListAllResources(context.Background(), capabilityList(ToolListResources, string(data)))
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, "files", got[0].Server)
+	assert.Equal(t, "files_x", got[1].Server)
+}
+
+func TestListAllPrompts_CarriesTheServer(t *testing.T) {
+	data, err := json.Marshal([]PromptInfo{{Name: "x_pp_triage", Server: "promptserver"}})
+	require.NoError(t, err)
+
+	got, err := ListAllPrompts(context.Background(), capabilityList(ToolListPrompts, string(data)))
+	require.NoError(t, err)
+	assert.Equal(t, []PromptInfo{{Name: "x_pp_triage", Server: "promptserver"}}, got)
+}
+
+func TestListAllCapabilities_EmptyCatalogue(t *testing.T) {
+	resources, err := ListAllResources(context.Background(), capabilityList(ToolListResources, noResourcesAvailable))
+	require.NoError(t, err)
+	assert.Empty(t, resources)
+
+	prompts, err := ListAllPrompts(context.Background(), capabilityList(ToolListPrompts, noPromptsAvailable))
+	require.NoError(t, err)
+	assert.Empty(t, prompts)
+}
+
+func TestListAllCapabilities_Errors(t *testing.T) {
+	errorResult := func(_ context.Context, _ string, _ map[string]any) (*mcp.CallToolResult, error) {
+		return mcp.NewToolResultError("not allowed"), nil
+	}
+	_, err := ListAllPrompts(context.Background(), errorResult)
+	assert.ErrorContains(t, err, "not allowed")
+
+	_, err = ListAllResources(context.Background(), capabilityList(ToolListResources, "not json"))
+	assert.ErrorContains(t, err, "failed to parse list_resources response")
+
+	failing := func(_ context.Context, _ string, _ map[string]any) (*mcp.CallToolResult, error) {
+		return nil, errors.New("connection refused")
+	}
+	_, err = ListAllResources(context.Background(), failing)
+	assert.ErrorContains(t, err, "connection refused")
+}
