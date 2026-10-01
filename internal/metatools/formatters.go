@@ -147,8 +147,11 @@ func invocationNote(name string) string {
 //	  api.FieldName: "tool_name",
 //	  api.SchemaKeyDescription: "Tool description",
 //	  api.FieldInputSchema: { ... },
-//	  "invocation": "Call it through the call_tool meta-tool: ..."
+//	  "invocation": "Call it through the call_tool meta-tool: ...",
+//	  "title": "...", "annotations": { ... }, "outputSchema": { ... }
 //	}
+//
+// title, annotations and outputSchema are present only when the tool sets them.
 func (f *Formatters) FormatToolDetailJSON(tool mcp.Tool) (string, error) {
 	toolInfo := map[string]interface{}{
 		api.FieldName:            tool.Name,
@@ -167,6 +170,15 @@ func (f *Formatters) FormatToolDetailJSON(tool mcp.Tool) (string, error) {
 	if annotations := annotationsOf(tool); annotations != nil {
 		toolInfo["annotations"] = annotations
 	}
+	// Title and output schema: the display name (the annotations' title is
+	// the MCP fallback for it) and the contract of the tool's
+	// structuredContent.
+	if title := titleOf(tool); title != "" {
+		toolInfo[api.FieldTitle] = title
+	}
+	if schema := outputSchemaOf(tool); schema != nil {
+		toolInfo[api.FieldOutputSchema] = schema
+	}
 
 	jsonData, err := json.MarshalIndent(toolInfo, "", "  ")
 	if err != nil {
@@ -174,6 +186,26 @@ func (f *Formatters) FormatToolDetailJSON(tool mcp.Tool) (string, error) {
 	}
 
 	return string(jsonData), nil
+}
+
+// titleOf returns the tool's display title: its own, else its annotations'.
+func titleOf(tool mcp.Tool) string {
+	if tool.Title != "" {
+		return tool.Title
+	}
+	return tool.Annotations.Title
+}
+
+// outputSchemaOf returns the tool's output schema as the tool declared it,
+// raw or typed; nil when it declares none.
+func outputSchemaOf(tool mcp.Tool) interface{} {
+	if tool.RawOutputSchema != nil {
+		return tool.RawOutputSchema
+	}
+	if tool.OutputSchema.Type != "" {
+		return tool.OutputSchema
+	}
+	return nil
 }
 
 // FormatResourceDetailJSON formats detailed resource information as structured JSON.
