@@ -189,3 +189,19 @@ func TestListAllCapabilities_Errors(t *testing.T) {
 	_, err = ListAllResources(context.Background(), failing)
 	assert.ErrorContains(t, err, "connection refused")
 }
+
+func TestDescribePromptArguments(t *testing.T) {
+	call := func(_ context.Context, name string, args map[string]any) (*mcp.CallToolResult, error) {
+		if name != ToolDescribePrompt || args["name"] != "x_pp_triage" {
+			return mcp.NewToolResultError("Prompt not found"), nil
+		}
+		return mcp.NewToolResultText(`{"name":"x_pp_triage","server":"promptserver","arguments":[{"name":"issue","description":"the issue","required":true}]}`), nil
+	}
+
+	args, err := DescribePromptArguments(context.Background(), call, "x_pp_triage")
+	require.NoError(t, err)
+	assert.Equal(t, []mcp.PromptArgument{{Name: "issue", Description: "the issue", Required: true}}, args)
+
+	_, err = DescribePromptArguments(context.Background(), call, "x_pp_other")
+	assert.ErrorContains(t, err, "Prompt not found")
+}
