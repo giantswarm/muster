@@ -28,12 +28,14 @@ type mcpResourceListItem struct {
 	Name        string `json:"name" yaml:"name"`
 	Description string `json:"description,omitempty" yaml:"description,omitempty"`
 	MIMEType    string `json:"mimeType,omitempty" yaml:"mimeType,omitempty"`
+	Server      string `json:"server,omitempty" yaml:"server,omitempty"`
 }
 
 // mcpPromptListItem represents a prompt in list output format.
 type mcpPromptListItem struct {
 	Name        string `json:"name" yaml:"name"`
 	Description string `json:"description" yaml:"description"`
+	Server      string `json:"server,omitempty" yaml:"server,omitempty"`
 }
 
 // outputJSON marshals data to JSON and prints it to stdout.
@@ -163,15 +165,16 @@ func countToolArgs(tool MCPTool) string {
 }
 
 // FormatMCPResourcesWithOptions formats and displays MCP resources with additional options.
-func FormatMCPResourcesWithOptions(resources []MCPResource, format OutputFormat, noHeaders bool) error {
+func FormatMCPResourcesWithOptions(resources []MCPResourceInfo, format OutputFormat, noHeaders bool) error {
 	if len(resources) == 0 {
 		fmt.Println("No resources found")
 		return nil
 	}
 
-	// Sort resources by URI for consistent output
+	// Sort resources by URI, then server, for consistent output
 	sort.Slice(resources, func(i, j int) bool {
-		return resources[i].URI < resources[j].URI
+		return cmp.Or(cmp.Compare(resources[i].URI, resources[j].URI),
+			cmp.Compare(resources[i].Server, resources[j].Server)) < 0
 	})
 
 	// Convert to list items for JSON/YAML output
@@ -183,6 +186,7 @@ func FormatMCPResourcesWithOptions(resources []MCPResource, format OutputFormat,
 				Name:        resource.Name,
 				Description: resource.Description,
 				MIMEType:    resource.MIMEType,
+				Server:      resource.Server,
 			}
 		}
 		if format == OutputFormatJSON {
@@ -194,10 +198,10 @@ func FormatMCPResourcesWithOptions(resources []MCPResource, format OutputFormat,
 	// kubectl-style plain table format
 	tw := NewPlainTableWriter(os.Stdout)
 
-	// Wide mode: add NAME column
+	// Wide mode: add the NAME and the server each resource comes from
 	isWide := format == OutputFormatWide
 	if isWide {
-		tw.SetHeaders([]string{"URI", headerName, headerDescription, "MIME TYPE"})
+		tw.SetHeaders([]string{"URI", headerName, headerDescription, "MIME TYPE", "SERVER"})
 	} else {
 		tw.SetHeaders([]string{"URI", headerDescription, "MIME TYPE"})
 	}
@@ -223,6 +227,7 @@ func FormatMCPResourcesWithOptions(resources []MCPResource, format OutputFormat,
 				name,
 				truncateString(desc, descLengthCompact),
 				resource.MIMEType,
+				cmp.Or(resource.Server, "-"),
 			})
 		} else {
 			tw.AppendRow([]string{
@@ -243,7 +248,7 @@ func FormatMCPResourcesWithOptions(resources []MCPResource, format OutputFormat,
 }
 
 // FormatMCPPromptsWithOptions formats and displays MCP prompts with additional options.
-func FormatMCPPromptsWithOptions(prompts []MCPPrompt, format OutputFormat, noHeaders bool) error {
+func FormatMCPPromptsWithOptions(prompts []MCPPromptInfo, format OutputFormat, noHeaders bool) error {
 	if len(prompts) == 0 {
 		fmt.Println("No prompts found")
 		return nil
@@ -261,6 +266,7 @@ func FormatMCPPromptsWithOptions(prompts []MCPPrompt, format OutputFormat, noHea
 			items[i] = mcpPromptListItem{
 				Name:        prompt.Name,
 				Description: prompt.Description,
+				Server:      prompt.Server,
 			}
 		}
 		if format == OutputFormatJSON {
@@ -272,10 +278,10 @@ func FormatMCPPromptsWithOptions(prompts []MCPPrompt, format OutputFormat, noHea
 	// kubectl-style plain table format
 	tw := NewPlainTableWriter(os.Stdout)
 
-	// Wide mode: add ARGS column
+	// Wide mode: add the server each prompt comes from and an argument summary
 	isWide := format == OutputFormatWide
 	if isWide {
-		tw.SetHeaders([]string{headerName, headerDescription, "ARGS"})
+		tw.SetHeaders([]string{headerName, headerDescription, "SERVER", "ARGS"})
 	} else {
 		tw.SetHeaders([]string{headerName, headerDescription})
 	}
@@ -283,11 +289,11 @@ func FormatMCPPromptsWithOptions(prompts []MCPPrompt, format OutputFormat, noHea
 
 	for _, prompt := range prompts {
 		if isWide {
-			argCount := countPromptArgs(prompt)
 			tw.AppendRow([]string{
 				prompt.Name,
 				truncateString(prompt.Description, descLengthWide),
-				argCount,
+				cmp.Or(prompt.Server, "-"),
+				countPromptArgs(prompt.MCPPrompt),
 			})
 		} else {
 			tw.AppendRow([]string{prompt.Name, truncateString(prompt.Description, descLengthNormal)})

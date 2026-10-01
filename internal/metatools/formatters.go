@@ -39,7 +39,7 @@ func NewFormatters() *Formatters {
 // If no resources are available, returns a simple message string.
 func (f *Formatters) FormatResourcesListJSON(resources []api.ResourceOrigin) (string, error) {
 	if len(resources) == 0 {
-		return "No resources available", nil
+		return noResourcesAvailable, nil
 	}
 
 	type ResourceInfo struct {
@@ -88,7 +88,7 @@ func (f *Formatters) FormatResourcesListJSON(resources []api.ResourceOrigin) (st
 // If no prompts are available, returns a simple message string.
 func (f *Formatters) FormatPromptsListJSON(prompts []api.PromptOrigin) (string, error) {
 	if len(prompts) == 0 {
-		return "No prompts available", nil
+		return noPromptsAvailable, nil
 	}
 
 	type promptListEntry struct {
