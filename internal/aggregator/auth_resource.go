@@ -212,12 +212,19 @@ func (a *AggregatorServer) determineSessionAuthStatus(sub, sessionID, serverName
 		}
 
 		if isSSO && a.ssoTracker != nil {
+			// A transport failure says nothing about the person's
+			// credential: re-authenticating cannot help, the backend is
+			// retried on the short transport backoff.
+			if a.ssoTracker.HasSSOTransportFailed(sub, serverName) {
+				return pkgoauth.SessionServerStatusUnreachable
+			}
 			if a.ssoTracker.HasSSOFailed(sub, serverName) {
-				// SSO was attempted but failed. For SSO-enabled servers this
-				// typically means the upstream refresh chain is broken (e.g.
-				// Dex -> GitHub returned 401). Return reauth_required so the
-				// agent can prompt re-authentication rather than the generic
-				// auth_required which might imply initial setup.
+				// SSO was attempted and the credential was refused: the
+				// backend answered 401 or the upstream refresh chain is
+				// broken (e.g. Dex -> GitHub returned 401). Return
+				// reauth_required so the agent can prompt re-authentication
+				// rather than the generic auth_required which might imply
+				// initial setup.
 				return pkgoauth.SessionServerStatusReauthRequired
 			}
 			if a.ssoTracker.IsSSOPendingWithinTimeout(sub, serverName) {
@@ -520,7 +527,11 @@ func (a *AggregatorServer) establishSSOConnection(
 		if err != nil {
 			reason = err.Error()
 		}
-		a.ssoTracker.MarkSSOFailedWithReason(sub, serverInfo.Name, reason)
+		if isSSOTransportError(err) {
+			a.ssoTracker.MarkSSOTransportFailed(sub, serverInfo.Name, reason)
+		} else {
+			a.ssoTracker.MarkSSOFailedWithReason(sub, serverInfo.Name, reason)
+		}
 	}
 
 	// The session's cached capabilities for this server describe a

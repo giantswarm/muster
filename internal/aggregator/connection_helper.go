@@ -384,17 +384,24 @@ func EstablishConnectionWithTokenForwarding(
 	if err := client.Initialize(ctx); err != nil {
 		_ = client.Close()
 
-		// A rejection here is indistinguishable from other transport failures
-		// (mcp-go surfaces the 401 as a generic initialize error), so the
-		// token diagnostic is attached to every connect failure. It travels in
-		// the returned error too: establishSSOConnection records it as the
-		// failure reason auth://status reports for the server.
+		// Emit event for token forwarding failure
+		emitTokenForwardingEvent(serverInfo.Name, serverInfo.GetNamespace(), false, err.Error())
+
+		// Only a 401 is the backend's verdict on the token; anything else
+		// (unreachable, timeout, 5xx) failed before the token was judged and
+		// gets neither the trust diagnostic nor the auth backoff.
+		if !api.IsAuthRequiredError(err) {
+			logging.Warn("Connection", "ID token forwarding to server %s for user %s failed before the backend judged the token: %v",
+				serverInfo.Name, logging.TruncateIdentifier(sub), err)
+			return nil, &ssoTransportError{err: fmt.Errorf("backend unreachable: %w", err)}
+		}
+
+		// The diagnostic travels in the returned error too:
+		// establishSSOConnection records it as the failure reason
+		// auth://status reports for the server.
 		diagnostic := forwardedTokenDiagnostic(forwardedToken, err)
 		logging.Warn("Connection", "ID token forwarding failed for user %s to server %s: %v (%s)",
 			logging.TruncateIdentifier(sub), serverInfo.Name, err, diagnostic)
-
-		// Emit event for token forwarding failure
-		emitTokenForwardingEvent(serverInfo.Name, serverInfo.GetNamespace(), false, err.Error())
 
 		return nil, fmt.Errorf("ID token forwarding failed: %w (%s)", err, diagnostic)
 	}
@@ -408,7 +415,7 @@ func EstablishConnectionWithTokenForwarding(
 	tools, err := client.ListTools(ctx)
 	if err != nil {
 		_ = client.Close()
-		return nil, fmt.Errorf("failed to list tools after token forwarding: %w", err)
+		return nil, transportUnlessAuth(fmt.Errorf("failed to list tools after token forwarding: %w", err))
 	}
 
 	// Fetch resources and prompts (optional - some servers may not support them)
@@ -707,14 +714,14 @@ func EstablishConnectionWithTokenExchange(
 		logging.Warn("Connection", "Connection with exchanged token failed for user %s to server %s: %v",
 			logging.TruncateIdentifier(sub), serverInfo.Name, err)
 
-		return nil, fmt.Errorf("connection with exchanged token failed: %w", err)
+		return nil, transportUnlessAuth(fmt.Errorf("connection with exchanged token failed: %w", err))
 	}
 
 	// Fetch tools from the server
 	tools, err := client.ListTools(ctx)
 	if err != nil {
 		_ = client.Close()
-		return nil, fmt.Errorf("failed to list tools after token exchange: %w", err)
+		return nil, transportUnlessAuth(fmt.Errorf("failed to list tools after token exchange: %w", err))
 	}
 
 	// Fetch resources and prompts (optional - some servers may not support them)
@@ -1025,6 +1032,34 @@ func registeredServerInfo(a *AggregatorServer, serverName string) *ServerInfo {
 		return nil
 	}
 	return serverInfo
+}
+
+// ssoTransportError marks an SSO connect that failed before the backend judged
+// the credential: the backend was unreachable, timed out or answered with
+// something other than a 401. establishSSOConnection records it as a
+// transport failure, which is retried soon and never reported as an auth
+// problem.
+type ssoTransportError struct {
+	err error
+}
+
+func (e *ssoTransportError) Error() string { return e.err.Error() }
+
+func (e *ssoTransportError) Unwrap() error { return e.err }
+
+// isSSOTransportError reports whether err is, or wraps, an ssoTransportError.
+func isSSOTransportError(err error) bool {
+	var transportErr *ssoTransportError
+	return errors.As(err, &transportErr)
+}
+
+// transportUnlessAuth marks a backend connect error as a transport failure
+// unless it is the backend's 401.
+func transportUnlessAuth(err error) error {
+	if api.IsAuthRequiredError(err) {
+		return err
+	}
+	return &ssoTransportError{err: err}
 }
 
 // forwardedTokenDiagnostic attributes a token-forwarding connect failure. It
