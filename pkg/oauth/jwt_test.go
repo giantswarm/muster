@@ -137,6 +137,25 @@ func TestIssuer(t *testing.T) {
 	})
 }
 
+func TestIssuedAt(t *testing.T) {
+	t.Run("returns iat claim", func(t *testing.T) {
+		iat, err := IssuedAt(jwtFromPayload(t, `{"iat":1700000000}`))
+		require.NoError(t, err)
+		assert.Equal(t, int64(1700000000), iat.Unix())
+	})
+
+	t.Run("returns the zero time without error when iat absent", func(t *testing.T) {
+		iat, err := IssuedAt(jwtFromPayload(t, `{"sub":"alice"}`))
+		require.NoError(t, err)
+		assert.True(t, iat.IsZero())
+	})
+
+	t.Run("returns error for malformed token", func(t *testing.T) {
+		_, err := IssuedAt("not-a-jwt")
+		require.Error(t, err)
+	})
+}
+
 // TestPaddedBase64 verifies the parser accepts both padded and unpadded
 // base64url payloads. RFC 7515 §2 mandates unpadded; padding tolerance is
 // for non-spec IdPs.

@@ -443,6 +443,50 @@ drain:
 	logging.InfoWithAttrs("Aggregator", "SSO: fan-out finished", attrs...)
 }
 
+// scheduleSSORetry connects the session's SSO server again after delay, on
+// muster's own initiative: a fresh token the backend refused is retried
+// without waiting for the person's next request. The retry carries the
+// session's subject and caller tokens, so it forwards the same token; once
+// that token is older than ssoFreshTokenWindow, a further 401 is an auth
+// failure and the retries end. It is skipped when muster is stopping, the
+// session ended, or a fan-out of the session is connecting the server.
+func (a *AggregatorServer) scheduleSSORetry(ctx context.Context, serverName, musterIssuer string, delay time.Duration) {
+	sub := getUserSubjectFromContext(ctx)
+	sessionID := getSessionIDFromContext(ctx)
+	tokens := server.CallerTokensFromContext(ctx)
+	logging.Info("Aggregator", "SSO: retrying %s for user %s in %s: fresh token refused",
+		serverName, logging.TruncateIdentifier(sub), delay)
+
+	retry := func() {
+		if a.ctx != nil && a.ctx.Err() != nil {
+			return
+		}
+		if a.subjectSessions != nil && a.subjectSessions.OAuthSubject(sessionID) == "" {
+			logging.Debug("Aggregator", "SSO: retry of %s skipped, session %s ended",
+				serverName, logging.TruncateIdentifier(sessionID))
+			return
+		}
+		if b := a.sessionBootstrap(sessionID); b != nil && b.connecting(serverName) {
+			return
+		}
+		info, ok := a.registry.GetServerInfo(serverName)
+		if !ok {
+			return
+		}
+		retryCtx, cancel := context.WithTimeout(context.Background(), initSSOTimeout)
+		defer cancel()
+		retryCtx = api.WithSubject(retryCtx, sub)
+		retryCtx = api.WithSessionID(retryCtx, sessionID)
+		retryCtx = server.ContextWithCallerTokens(retryCtx, tokens)
+		a.establishSSOConnection(retryCtx, info, musterIssuer)
+	}
+	if a.ssoRetryAfter != nil {
+		a.ssoRetryAfter(delay, retry)
+		return
+	}
+	time.AfterFunc(delay, retry)
+}
+
 // connectSSOServer connects one SSO server for the fan-out: the test seam
 // ssoConnect when set, establishSSOConnection otherwise.
 func (a *AggregatorServer) connectSSOServer(ctx context.Context, info *ServerInfo, musterIssuer string) ssoConnectOutcome {

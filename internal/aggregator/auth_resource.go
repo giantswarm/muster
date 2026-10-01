@@ -212,6 +212,11 @@ func (a *AggregatorServer) determineSessionAuthStatus(sub, sessionID, serverName
 		}
 
 		if isSSO && a.ssoTracker != nil {
+			// A refused fresh token is retried by muster on its own: the
+			// person waits, signing in again cannot help.
+			if a.ssoTracker.HasSSOFreshTokenRefused(sub, serverName) {
+				return pkgoauth.SessionServerStatusSSOPending
+			}
 			// A transport failure says nothing about the person's
 			// credential: re-authenticating cannot help, the backend is
 			// retried on the short transport backoff.
@@ -527,9 +532,15 @@ func (a *AggregatorServer) establishSSOConnection(
 		if err != nil {
 			reason = err.Error()
 		}
-		if isSSOTransportError(err) {
+		switch {
+		case isSSOFreshTokenRefused(err):
+			a.ssoTracker.MarkSSOFreshTokenRefused(sub, serverInfo.Name, reason)
+			if failure, ok := a.ssoTracker.activeFailure(sub, serverInfo.Name); ok {
+				a.scheduleSSORetry(ctx, serverInfo.Name, musterIssuer, failure.backoff())
+			}
+		case isSSOTransportError(err):
 			a.ssoTracker.MarkSSOTransportFailed(sub, serverInfo.Name, reason)
-		} else {
+		default:
 			a.ssoTracker.MarkSSOFailedWithReason(sub, serverInfo.Name, reason)
 		}
 	}

@@ -159,6 +159,11 @@ type AggregatorServer struct {
 	// without a backend.
 	ssoConnect func(ctx context.Context, info *ServerInfo, musterIssuer string) ssoConnectOutcome
 
+	// ssoRetryAfter runs a retry muster schedules for an SSO connect after
+	// the delay (scheduleSSORetry). Nil means time.AfterFunc; tests set it to
+	// run the retry without waiting.
+	ssoRetryAfter func(delay time.Duration, retry func())
+
 	// subjectGrantGroup deduplicates concurrent connects a session makes with
 	// the person's subject-scoped grant (adoptSubjectGrant), keyed by
 	// sessionID/serverName.
@@ -382,13 +387,24 @@ const (
 	// nothing about the credential, so the retry comes soon and the status is
 	// unreachable.
 	ssoFailureTransport
+	// ssoFailureFreshToken is a 401 for a forwarded token issued within
+	// ssoFreshTokenWindow: the issuer may have rotated its signing key and the
+	// backend (or the gateway in front of it) not have fetched the new one
+	// yet. The token is likely valid, so the attempt is held back on the short
+	// transport schedule, muster retries it on its own (scheduleSSORetry) and
+	// the status is sso_pending.
+	ssoFailureFreshToken
 )
 
 func (k ssoFailureKind) String() string {
-	if k == ssoFailureTransport {
+	switch k {
+	case ssoFailureTransport:
 		return "transport"
+	case ssoFailureFreshToken:
+		return "fresh-token"
+	default:
+		return "auth"
 	}
-	return "auth"
 }
 
 // ssoFailedEntry records when an SSO attempt failed, enabling TTL-based expiry
@@ -407,10 +423,10 @@ type ssoFailedEntry struct {
 
 // backoff is how long the entry holds further SSO attempts back.
 func (e *ssoFailedEntry) backoff() time.Duration {
-	if e.kind == ssoFailureTransport {
-		return ssoTransportBackoffDuration(e.failureCount)
+	if e.kind == ssoFailureAuth {
+		return ssoBackoffDuration(e.failureCount)
 	}
-	return ssoBackoffDuration(e.failureCount)
+	return ssoTransportBackoffDuration(e.failureCount)
 }
 
 // active reports whether the entry's backoff window is still open.
@@ -439,6 +455,14 @@ const ssoTransportBackoffBase = 15 * time.Second
 
 // ssoTransportBackoffMax caps the backoff for repeated transport failures.
 const ssoTransportBackoffMax = 2 * time.Minute
+
+// ssoFreshTokenWindow is how recently a forwarded token must have been issued
+// for its 401 to count as a fresh-token refusal rather than an auth failure.
+// It covers a gateway's JWKS refresh interval (agentgateway refetches a remote
+// JWKS every 5 min at the soonest, never on an unknown key ID) plus a margin:
+// an issuer that rotated its signing key is not trusted by the backend until
+// that refresh.
+const ssoFreshTokenWindow = 6 * time.Minute
 
 // ssoBackoffDuration returns the backoff duration for the given count of auth
 // failures. The first failure uses ssoTrackerFailureTTL; each subsequent
@@ -556,11 +580,21 @@ func (s *ssoTracker) MarkSSOTransportFailed(sub, serverName, reason string) {
 	s.markFailed(sub, serverName, reason, ssoFailureTransport)
 }
 
+// MarkSSOFreshTokenRefused records that the backend refused a token issued
+// within ssoFreshTokenWindow, and why: the attempt is held back on the short
+// transport backoff while muster retries it (see ssoFailureFreshToken).
+func (s *ssoTracker) MarkSSOFreshTokenRefused(sub, serverName, reason string) {
+	s.markFailed(sub, serverName, reason, ssoFailureFreshToken)
+}
+
 // markFailed records a failure of the given kind. If an active failure entry
 // of the same kind already exists, the failure count is incremented to
 // increase the exponential backoff, and an empty reason keeps the one already
 // recorded. Otherwise a new entry is created with failureCount=1: a failure
-// of the other kind starts its own schedule.
+// of the other kind starts its own schedule. A fresh-token refusal continues
+// the count of one recorded within ssoFreshTokenWindow even after its backoff
+// expired, because muster's own retry (scheduleSSORetry) fails it just then:
+// the retries double from 15 s to 2 min instead of repeating every 15 s.
 func (s *ssoTracker) markFailed(sub, serverName, reason string, kind ssoFailureKind) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -568,7 +602,8 @@ func (s *ssoTracker) markFailed(sub, serverName, reason string, kind ssoFailureK
 		s.failedServers[sub] = make(map[string]*ssoFailedEntry)
 	}
 	count := 1
-	if prev, ok := s.failedServers[sub][serverName]; ok && prev.kind == kind && prev.active() {
+	if prev, ok := s.failedServers[sub][serverName]; ok && prev.kind == kind &&
+		(prev.active() || kind == ssoFailureFreshToken && time.Since(prev.failedAt) < ssoFreshTokenWindow) {
 		count = prev.failureCount + 1
 		if reason == "" {
 			reason = prev.reason
@@ -604,7 +639,7 @@ func (s *ssoTracker) SSOFailureReason(sub, serverName string) string {
 // HasSSOFailed returns true if SSO has recently failed for this user/server pair.
 // The effective TTL increases with consecutive failures via exponential backoff:
 // for auth failures 5 min, 10 min, 20 min, capped at 30 min; for transport
-// failures 15 s doubling up to 2 min.
+// failures and refused fresh tokens 15 s doubling up to 2 min.
 func (s *ssoTracker) HasSSOFailed(sub, serverName string) bool {
 	_, ok := s.activeFailure(sub, serverName)
 	return ok
@@ -615,6 +650,13 @@ func (s *ssoTracker) HasSSOFailed(sub, serverName string) bool {
 func (s *ssoTracker) HasSSOTransportFailed(sub, serverName string) bool {
 	entry, ok := s.activeFailure(sub, serverName)
 	return ok && entry.kind == ssoFailureTransport
+}
+
+// HasSSOFreshTokenRefused returns true if the active SSO failure for this
+// user/server pair is a refused fresh token, which muster retries on its own.
+func (s *ssoTracker) HasSSOFreshTokenRefused(sub, serverName string) bool {
+	entry, ok := s.activeFailure(sub, serverName)
+	return ok && entry.kind == ssoFailureFreshToken
 }
 
 // GetFailureCount returns the number of consecutive SSO failures recorded for

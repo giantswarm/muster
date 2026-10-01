@@ -83,6 +83,20 @@ func Expiry(token string) (time.Time, error) {
 	return c.ExpiresAt.Time, nil
 }
 
+// IssuedAt returns the iat claim of a trusted JWT. Returns the zero time and
+// nil when the token parses but carries no iat; returns a wrapped error on
+// decode failure.
+func IssuedAt(token string) (time.Time, error) {
+	c, err := parseUnverified(token)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("decode token: %w", err)
+	}
+	if c.IssuedAt == nil {
+		return time.Time{}, nil
+	}
+	return c.IssuedAt.Time, nil
+}
+
 // Issuer returns the iss claim of a trusted JWT. Returns ("", nil) when the
 // token parses but carries no iss; returns a wrapped error on decode failure.
 func Issuer(token string) (string, error) {
