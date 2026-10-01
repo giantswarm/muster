@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/ssetransport"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/client"
@@ -137,7 +138,9 @@ func (c *StreamableHTTPClient) connectLocked(ctx context.Context) error {
 	// be attributed (see challengeRecorder); with no client of its own this
 	// is mcp-go's default client plus the recorder.
 	challenges := &challengeRecorder{}
-	opts = append(opts, transport.WithHTTPBasicClient(recordingHTTPClient(httpClient, challenges)))
+	// ssetransport keeps a closed SSE response from holding a call on a
+	// reused connection.
+	opts = append(opts, transport.WithHTTPBasicClient(ssetransport.Client(recordingHTTPClient(httpClient, challenges))))
 
 	// Enable receiving server-pushed notifications outside active requests.
 	// This opens a long-lived GET connection to the server per the MCP spec.

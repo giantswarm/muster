@@ -16,6 +16,7 @@ import (
 	agentoauth "github.com/giantswarm/muster/v5/internal/agent/oauth"
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/metatools"
+	"github.com/giantswarm/muster/v5/internal/ssetransport"
 )
 
 // TransportType defines the transport type for MCP connections.
@@ -286,7 +287,9 @@ func (c *Client) createAndConnectClient(ctx context.Context) (client.MCPClient, 
 		mcpClient = sseClient
 
 	case TransportStreamableHTTP:
-		var httpOpts []transport.StreamableHTTPCOption
+		// ssetransport keeps a closed SSE response from holding a call on a
+		// reused connection.
+		httpOpts := []transport.StreamableHTTPCOption{transport.WithHTTPBasicClient(ssetransport.Client(nil))}
 		if oauthCfg != nil {
 			httpOpts = append(httpOpts, transport.WithHTTPOAuth(*oauthCfg))
 		}
