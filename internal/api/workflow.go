@@ -188,7 +188,7 @@ type WorkflowCondition struct {
 	// FromStep specifies the step ID to reference for condition evaluation.
 	// When specified, the condition evaluates against the result of the referenced step
 	// instead of executing a new tool call.
-	FromStep string `yaml:"from_step,omitempty" json:"from_step,omitempty"`
+	FromStep string `yaml:"fromStep,omitempty" json:"fromStep,omitempty"`
 
 	// Expect defines the expected result for the condition to be considered true.
 	// If the condition tool result matches these expectations, the step will execute.
@@ -198,7 +198,7 @@ type WorkflowCondition struct {
 	// ExpectNot defines the negated expected result for the condition to be considered true.
 	// If the condition tool result does NOT match these expectations, the step will execute.
 	// If it matches, the step will be skipped.
-	ExpectNot WorkflowConditionExpectation `yaml:"expect_not,omitempty" json:"expect_not,omitempty"`
+	ExpectNot WorkflowConditionExpectation `yaml:"expectNot,omitempty" json:"expectNot,omitempty"`
 }
 
 // WorkflowConditionExpectation defines what result is expected from a condition tool
@@ -212,7 +212,7 @@ type WorkflowConditionExpectation struct {
 	// in the condition tool's response. All specified paths must match for the condition
 	// to be considered true. This allows for content-based condition validation beyond
 	// just success/failure status.
-	JsonPath map[string]interface{} `yaml:"json_path,omitempty" json:"json_path,omitempty"`
+	JsonPath map[string]interface{} `yaml:"jsonPath,omitempty" json:"jsonPath,omitempty"`
 
 	// TODO: Future enhancements could include:
 	// - Content expectations (specific return values) - partially implemented via JsonPath
@@ -252,7 +252,7 @@ type WorkflowStep struct {
 	// AllowFailure indicates whether this step is allowed to fail without failing the workflow.
 	// When true, step failures are recorded but the workflow continues execution.
 	// The step result will be available for subsequent step conditions to reference.
-	AllowFailure bool `yaml:"allow_failure,omitempty" json:"allow_failure,omitempty"`
+	AllowFailure bool `yaml:"allowFailure,omitempty" json:"allowFailure,omitempty"`
 
 	// Output indicates whether this step's result is included in the workflow's
 	// returned document. Every step result is always referenceable by later steps
@@ -300,7 +300,7 @@ type WorkflowSubStep struct {
 	Args map[string]interface{} `yaml:"args,omitempty" json:"args,omitempty"`
 
 	// AllowFailure indicates whether this sub-step is allowed to fail without failing execution.
-	AllowFailure bool `yaml:"allow_failure,omitempty" json:"allow_failure,omitempty"`
+	AllowFailure bool `yaml:"allowFailure,omitempty" json:"allowFailure,omitempty"`
 
 	// Output indicates whether this sub-step's result is included in the
 	// workflow's returned document. The result is always referenceable by later
