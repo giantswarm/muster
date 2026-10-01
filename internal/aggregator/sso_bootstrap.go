@@ -219,12 +219,15 @@ func (a *AggregatorServer) planSessionBootstrap(sso ssoSession) sessionBootstrap
 			}
 			continue
 		}
-		if a.ssoTracker != nil && a.ssoTracker.HasSSOFailed(sso.userID, info.Name) {
-			fc := a.ssoTracker.GetFailureCount(sso.userID, info.Name)
-			logging.Debug("Aggregator", "SSO: skipping %s for user %s (failureCount=%d, backoff=%v)",
-				info.Name, logging.TruncateIdentifier(sso.userID), fc, ssoBackoffDuration(fc))
-			skippedPriorFailure++
-			continue
+		if a.ssoTracker != nil {
+			if failure, ok := a.ssoTracker.activeFailure(sso.userID, info.Name); ok {
+				logging.Info("Aggregator", "SSO: skipping %s for user %s until %s after %d %s failure(s): %s",
+					info.Name, logging.TruncateIdentifier(sso.userID),
+					failure.failedAt.Add(failure.backoff()).UTC().Format(time.RFC3339),
+					failure.failureCount, failure.kind, failure.reason)
+				skippedPriorFailure++
+				continue
+			}
 		}
 		plan.sso = append(plan.sso, info)
 	}

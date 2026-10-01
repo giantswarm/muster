@@ -435,10 +435,11 @@ type ServerAuthStatus struct {
 
 	// Error says why the server is not connected for this session, when muster
 	// knows. For an SSO server whose attempt failed (SSOAttemptFailed) it is
-	// the failed attempt's own account: the connect error with the forwarded
-	// token's issuer and audiences and, when the backend's 401 carried one,
-	// its WWW-Authenticate error_description. Clients show it verbatim; it
-	// never contains a token.
+	// the failed attempt's own account: the connect error and, when the
+	// backend refused the token (Status reauth_required), the forwarded
+	// token's issuer and audiences and the 401's WWW-Authenticate
+	// error_description if it carried one. Clients show it verbatim; it never
+	// contains a token.
 	Error string `json:"error,omitempty"`
 
 	// Suspended reports that the server's MCPServer spec holds its service

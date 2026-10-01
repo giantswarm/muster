@@ -367,16 +367,55 @@ func (t *subjectSessionTracker) GetSessionIDs(sub string) []string {
 	return result
 }
 
+// ssoFailureKind says what an SSO failure was about, which decides how long
+// the attempt is held back and how auth://status reports it.
+type ssoFailureKind int
+
+const (
+	// ssoFailureAuth is a failure the person's credential caused: the backend
+	// refused the forwarded or exchanged token (a 401), or the upstream
+	// refresh chain broke. Retrying soon cannot help; the backoff is long and
+	// the status is reauth_required.
+	ssoFailureAuth ssoFailureKind = iota
+	// ssoFailureTransport is a failure before the backend judged the token:
+	// the backend could not be reached, timed out or answered 5xx. It says
+	// nothing about the credential, so the retry comes soon and the status is
+	// unreachable.
+	ssoFailureTransport
+)
+
+func (k ssoFailureKind) String() string {
+	if k == ssoFailureTransport {
+		return "transport"
+	}
+	return "auth"
+}
+
 // ssoFailedEntry records when an SSO attempt failed, enabling TTL-based expiry
 // with exponential backoff for repeated failures on the same server.
 type ssoFailedEntry struct {
 	failedAt     time.Time
 	failureCount int
-	// reason is what the failed attempt reported (the connect error with its
-	// forwarded-token diagnostic, or the upstream refresh failure), kept so
-	// auth://status can say why the server is in reauth_required instead of
-	// only that it is. Empty when the caller had nothing to report.
+	kind         ssoFailureKind
+	// reason is what the failed attempt reported (the connect error, with the
+	// forwarded-token diagnostic for a refused token, or the upstream refresh
+	// failure), kept so auth://status can say why the server is not connected
+	// instead of only that it is not. Empty when the caller had nothing to
+	// report.
 	reason string
+}
+
+// backoff is how long the entry holds further SSO attempts back.
+func (e *ssoFailedEntry) backoff() time.Duration {
+	if e.kind == ssoFailureTransport {
+		return ssoTransportBackoffDuration(e.failureCount)
+	}
+	return ssoBackoffDuration(e.failureCount)
+}
+
+// active reports whether the entry's backoff window is still open.
+func (e *ssoFailedEntry) active() bool {
+	return time.Since(e.failedAt) < e.backoff()
 }
 
 // ssoTrackerFailureTTL is the base duration after which a first SSO failure
@@ -393,20 +432,41 @@ const ssoBackoffMaxTTL = 30 * time.Minute
 // state when an SSO attempt silently fails without being recorded.
 const ssoTrackerPendingTimeout = 30 * time.Second
 
-// ssoBackoffDuration returns the backoff duration for the given failure count.
-// The first failure uses ssoTrackerFailureTTL; each subsequent failure doubles
-// the wait, capped at ssoBackoffMaxTTL.
+// ssoTransportBackoffBase is the hold-back after a first transport failure:
+// long enough that a burst of new sessions does not hammer a backend that is
+// down, short enough that a recovered backend is used by the next session.
+const ssoTransportBackoffBase = 15 * time.Second
+
+// ssoTransportBackoffMax caps the backoff for repeated transport failures.
+const ssoTransportBackoffMax = 2 * time.Minute
+
+// ssoBackoffDuration returns the backoff duration for the given count of auth
+// failures. The first failure uses ssoTrackerFailureTTL; each subsequent
+// failure doubles the wait, capped at ssoBackoffMaxTTL.
 func ssoBackoffDuration(failureCount int) time.Duration {
+	return doublingBackoff(ssoTrackerFailureTTL, ssoBackoffMaxTTL, failureCount)
+}
+
+// ssoTransportBackoffDuration returns the backoff duration for the given count
+// of transport failures: ssoTransportBackoffBase doubling up to
+// ssoTransportBackoffMax.
+func ssoTransportBackoffDuration(failureCount int) time.Duration {
+	return doublingBackoff(ssoTransportBackoffBase, ssoTransportBackoffMax, failureCount)
+}
+
+// doublingBackoff returns base for the first failure and doubles it for each
+// further one, capped at ceiling.
+func doublingBackoff(base, ceiling time.Duration, failureCount int) time.Duration {
 	if failureCount <= 1 {
-		return ssoTrackerFailureTTL
+		return base
 	}
 	shift := failureCount - 1
 	if shift > 6 {
-		return ssoBackoffMaxTTL
+		return ceiling
 	}
-	d := ssoTrackerFailureTTL * (1 << shift)
-	if d > ssoBackoffMaxTTL {
-		return ssoBackoffMaxTTL
+	d := base * (1 << shift)
+	if d > ceiling {
+		return ceiling
 	}
 	return d
 }
@@ -476,83 +536,92 @@ func (s *ssoTracker) ClearSSOPending(sub, serverName string) {
 	}
 }
 
-// MarkSSOFailed records that SSO failed for a user/server pair without a
+// MarkSSOFailed records an auth failure for a user/server pair without a
 // reason. See MarkSSOFailedWithReason.
 func (s *ssoTracker) MarkSSOFailed(sub, serverName string) {
 	s.MarkSSOFailedWithReason(sub, serverName, "")
 }
 
-// MarkSSOFailedWithReason records that SSO failed for a user/server pair and
-// why. If an active (non-expired) failure entry already exists, the failure
-// count is incremented to increase the exponential backoff, and an empty
-// reason keeps the one already recorded. Otherwise a new entry is created with
-// failureCount=1.
+// MarkSSOFailedWithReason records an auth failure for a user/server pair and
+// why: the person's credential was refused, so the attempt is held back on the
+// long backoff.
 func (s *ssoTracker) MarkSSOFailedWithReason(sub, serverName, reason string) {
+	s.markFailed(sub, serverName, reason, ssoFailureAuth)
+}
+
+// MarkSSOTransportFailed records a transport failure for a user/server pair
+// and why: the backend was not reached or failed before judging the token, so
+// the attempt is held back only on the short transport backoff.
+func (s *ssoTracker) MarkSSOTransportFailed(sub, serverName, reason string) {
+	s.markFailed(sub, serverName, reason, ssoFailureTransport)
+}
+
+// markFailed records a failure of the given kind. If an active failure entry
+// of the same kind already exists, the failure count is incremented to
+// increase the exponential backoff, and an empty reason keeps the one already
+// recorded. Otherwise a new entry is created with failureCount=1: a failure
+// of the other kind starts its own schedule.
+func (s *ssoTracker) markFailed(sub, serverName, reason string, kind ssoFailureKind) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.failedServers[sub] == nil {
 		s.failedServers[sub] = make(map[string]*ssoFailedEntry)
 	}
 	count := 1
-	if prev, ok := s.failedServers[sub][serverName]; ok {
-		prevBackoff := ssoBackoffDuration(prev.failureCount)
-		if time.Since(prev.failedAt) < prevBackoff {
-			count = prev.failureCount + 1
-			if reason == "" {
-				reason = prev.reason
-			}
+	if prev, ok := s.failedServers[sub][serverName]; ok && prev.kind == kind && prev.active() {
+		count = prev.failureCount + 1
+		if reason == "" {
+			reason = prev.reason
 		}
 	}
 	s.failedServers[sub][serverName] = &ssoFailedEntry{
 		failedAt:     time.Now(),
 		failureCount: count,
+		kind:         kind,
 		reason:       reason,
 	}
+}
+
+// activeFailure returns a copy of the active (non-expired) failure entry for a
+// user/server pair, or false when there is none.
+func (s *ssoTracker) activeFailure(sub, serverName string) (ssoFailedEntry, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if entry, ok := s.failedServers[sub][serverName]; ok && entry.active() {
+		return *entry, true
+	}
+	return ssoFailedEntry{}, false
 }
 
 // SSOFailureReason returns the reason recorded with the active (non-expired)
 // SSO failure for a user/server pair, or "" when there is none or the failure
 // was recorded without one.
 func (s *ssoTracker) SSOFailureReason(sub, serverName string) string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if m, ok := s.failedServers[sub]; ok {
-		if entry, exists := m[serverName]; exists {
-			if time.Since(entry.failedAt) < ssoBackoffDuration(entry.failureCount) {
-				return entry.reason
-			}
-		}
-	}
-	return ""
+	entry, _ := s.activeFailure(sub, serverName)
+	return entry.reason
 }
 
 // HasSSOFailed returns true if SSO has recently failed for this user/server pair.
 // The effective TTL increases with consecutive failures via exponential backoff:
-// 1st failure → 5 min, 2nd → 10 min, 3rd → 20 min, capped at 30 min.
+// for auth failures 5 min, 10 min, 20 min, capped at 30 min; for transport
+// failures 15 s doubling up to 2 min.
 func (s *ssoTracker) HasSSOFailed(sub, serverName string) bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if m, ok := s.failedServers[sub]; ok {
-		if entry, exists := m[serverName]; exists {
-			return time.Since(entry.failedAt) < ssoBackoffDuration(entry.failureCount)
-		}
-	}
-	return false
+	_, ok := s.activeFailure(sub, serverName)
+	return ok
+}
+
+// HasSSOTransportFailed returns true if the active SSO failure for this
+// user/server pair is a transport failure.
+func (s *ssoTracker) HasSSOTransportFailed(sub, serverName string) bool {
+	entry, ok := s.activeFailure(sub, serverName)
+	return ok && entry.kind == ssoFailureTransport
 }
 
 // GetFailureCount returns the number of consecutive SSO failures recorded for
 // a user/server pair, or 0 if no active (non-expired) failure entry exists.
 func (s *ssoTracker) GetFailureCount(sub, serverName string) int {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if m, ok := s.failedServers[sub]; ok {
-		if entry, exists := m[serverName]; exists {
-			if time.Since(entry.failedAt) < ssoBackoffDuration(entry.failureCount) {
-				return entry.failureCount
-			}
-		}
-	}
-	return 0
+	entry, _ := s.activeFailure(sub, serverName)
+	return entry.failureCount
 }
 
 // ClearSSOFailed removes the SSO failure record for a user/server pair.
@@ -605,7 +674,7 @@ func (s *ssoTracker) CleanupExpired() {
 	defer s.mu.Unlock()
 	for sub, servers := range s.failedServers {
 		for serverName, entry := range servers {
-			if time.Since(entry.failedAt) >= ssoBackoffDuration(entry.failureCount) {
+			if !entry.active() {
 				delete(servers, serverName)
 			}
 		}
